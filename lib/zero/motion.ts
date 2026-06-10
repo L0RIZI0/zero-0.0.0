@@ -16,6 +16,12 @@ export const contentTransition: Transition = {
   ease: [0.22, 0.61, 0.36, 1],
 }
 
+/** Quick, natural expand/collapse for the side panels (Inputs / Outputs). */
+export const panelTransition: Transition = {
+  duration: 0.24,
+  ease: [0.22, 0.61, 0.36, 1],
+}
+
 export const spaceLayoutId = (id: string) => `space-frame-${id}`
 export const spaceTitleId = (id: string) => `space-title-${id}`
 export const taskLayoutId = (id: string) => `task-frame-${id}`
