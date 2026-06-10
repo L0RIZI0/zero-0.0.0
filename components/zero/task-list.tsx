@@ -103,11 +103,10 @@ export function TaskList({ spaceId }: { spaceId: string }) {
 
   return (
     <section aria-label="Tasks" className="flex min-h-0 flex-col">
-      <div className="relative mb-1 flex items-center justify-center px-1">
-        <h2 className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-          Tasks
-        </h2>
-        <div className="absolute right-1 flex items-center gap-1">
+      {/* The "Tasks" title is rendered by SpaceFrame so it stays centered to the
+          whole body even when a side panel opens. Here we keep only the filters. */}
+      <div className="mb-1 flex h-5 items-center justify-end px-1">
+        <div className="flex items-center gap-1">
           {(["open", "all"] as const).map((f) => (
             <button
               key={f}

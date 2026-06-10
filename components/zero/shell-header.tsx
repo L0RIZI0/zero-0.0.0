@@ -30,9 +30,10 @@ export function ShellHeader({ dateLabel }: { dateLabel: string }) {
 
   return (
     <header className="flex items-center justify-between gap-4 px-5 py-3.5">
-      <div className="relative flex min-h-9 flex-1 items-center gap-4">
-        {/* Zero mark is absolutely anchored to the left so the identity always
-            morphs into the exact same slot — no horizontal jump while Zero exits. */}
+      <div className="relative flex min-h-9 flex-1 items-center">
+        {/* Both the Zero mark and the identity are absolutely anchored to the
+            same left slot. The identity morphs straight into Zero's position
+            (no flex re-flow / sideways jump) while Zero fades out diagonally. */}
         <AnimatePresence initial={false}>
           {!inLayer && (
             <motion.span
@@ -41,13 +42,17 @@ export function ShellHeader({ dateLabel }: { dateLabel: string }) {
               animate={{ opacity: 1, x: 0, y: 0 }}
               exit={{ opacity: 0, x: -14, y: -14 }}
               transition={contentTransition}
-              className="absolute left-0 text-[17px] font-semibold tracking-tight text-foreground"
+              className="absolute left-0 top-1/2 -translate-y-1/2 text-[17px] font-semibold tracking-tight text-foreground"
             >
               Zero
             </motion.span>
           )}
         </AnimatePresence>
-        {inLayer && <UserIdentity size="sm" layoutId={userIdentityLayoutId} />}
+        {inLayer && (
+          <div className="absolute left-0 top-1/2 -translate-y-1/2">
+            <UserIdentity size="sm" layoutId={userIdentityLayoutId} />
+          </div>
+        )}
       </div>
 
       <div className="hidden flex-1 items-center justify-center gap-2.5 sm:flex">
