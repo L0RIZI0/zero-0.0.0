@@ -1,15 +1,11 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import { AnimatePresence, motion } from "motion/react"
 import { Search } from "lucide-react"
 import { useZeroNav } from "@/lib/zero/nav-store"
+import { contentTransition, userIdentityLayoutId } from "@/lib/zero/motion"
 import { UserIdentity } from "./user-identity"
-
-function ZeroMark() {
-  return (
-    <span className="text-[17px] font-semibold tracking-tight text-foreground">Zero</span>
-  )
-}
 
 function useClock() {
   const [time, setTime] = useState<string>("")
@@ -34,8 +30,22 @@ export function ShellHeader({ dateLabel }: { dateLabel: string }) {
 
   return (
     <header className="flex items-center justify-between gap-4 px-5 py-3.5">
-      <div className="flex flex-1 items-center gap-4">
-        {inLayer ? <UserIdentity size="sm" /> : <ZeroMark />}
+      <div className="relative flex flex-1 items-center gap-4">
+        <AnimatePresence initial={false}>
+          {!inLayer && (
+            <motion.span
+              key="zero-mark"
+              initial={{ opacity: 0, x: -12, y: -12 }}
+              animate={{ opacity: 1, x: 0, y: 0 }}
+              exit={{ opacity: 0, x: -14, y: -14 }}
+              transition={contentTransition}
+              className="text-[17px] font-semibold tracking-tight text-foreground"
+            >
+              Zero
+            </motion.span>
+          )}
+        </AnimatePresence>
+        {inLayer && <UserIdentity size="sm" layoutId={userIdentityLayoutId} />}
       </div>
 
       <div className="hidden flex-1 items-center justify-center gap-2.5 sm:flex">

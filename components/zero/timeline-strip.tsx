@@ -51,103 +51,96 @@ export function TimelineStrip({
 
   return (
     <section aria-label="Timeline" className="px-1">
-      <div className="mb-2 flex items-center justify-between">
+      {/* The day label only appears when viewing a day other than today. */}
+      {!isToday && (
+        <div className="mb-1.5 flex items-center justify-center gap-2">
+          <span className="text-[11px] font-medium uppercase tracking-[0.14em] text-foreground">
+            {dayLabel}
+          </span>
+          <button
+            type="button"
+            onClick={() => setDayOffset(0)}
+            className="rounded-md px-1.5 py-0.5 text-[11px] text-muted-foreground/70 transition-colors hover:text-foreground"
+          >
+            Today
+          </button>
+        </div>
+      )}
+
+      <div className="flex items-stretch gap-2">
         <button
           type="button"
           onClick={() => setDayOffset((o) => o - 1)}
           aria-label="Previous day"
-          className="flex h-6 w-6 items-center justify-center rounded-sm text-muted-foreground/70 transition-colors hover:bg-secondary/70 hover:text-foreground"
+          className="flex w-6 shrink-0 items-center justify-center rounded-sm text-muted-foreground/70 transition-colors hover:bg-secondary/70 hover:text-foreground"
         >
           <ChevronLeft className="h-4 w-4" />
         </button>
 
-        {/* The day label only appears when viewing a day other than today. */}
-        <div className="flex flex-1 items-center justify-center gap-2">
-          {!isToday && (
-            <span className="text-[11px] font-medium uppercase tracking-[0.14em] text-foreground">
-              {dayLabel}
-            </span>
-          )}
-        </div>
-
-        <div className="flex items-center gap-1.5">
-          <span className="text-[11px] tracking-tight text-muted-foreground/70">
-            {evts.length} {evts.length === 1 ? "event" : "events"}
-          </span>
-          {!isToday && (
-            <button
-              type="button"
-              onClick={() => setDayOffset(0)}
-              className="rounded-md px-1.5 py-0.5 text-[11px] text-muted-foreground/70 transition-colors hover:text-foreground"
-            >
-              Today
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={() => setDayOffset((o) => o + 1)}
-            aria-label="Next day"
-            className="flex h-6 w-6 items-center justify-center rounded-sm text-muted-foreground/70 transition-colors hover:bg-secondary/70 hover:text-foreground"
-          >
-            <ChevronRight className="h-4 w-4" />
-          </button>
-        </div>
-      </div>
-
-      <div className="relative h-14 w-full rounded-sm border border-border bg-card/50">
-        {/* hour gridlines */}
-        {hours.map((h) => {
-          const left = ((h - DAY_START) / SPAN) * 100
-          return (
-            <div
-              key={h}
-              className="absolute top-0 bottom-0 w-px bg-border/60"
-              style={{ left: `${left}%` }}
-            />
-          )
-        })}
-
-        {/* now marker — today only */}
-        {isToday && (
-          <div
-            className="absolute top-1 bottom-1 z-10 w-px"
-            style={{ left: `${nowPct}%`, backgroundColor: accent ?? "var(--accent)" }}
-          >
-            <span
-              className="absolute -top-1 -left-[3px] h-[7px] w-[7px] rounded-full"
-              style={{ backgroundColor: accent ?? "var(--accent)" }}
-            />
-          </div>
-        )}
-
-        {/* events — only render on today for this prototype */}
-        {isToday &&
-          evts.map((e, i) => {
-            const left = ((e.start - DAY_START) / SPAN) * 100
-            const width = ((e.end - e.start) / SPAN) * 100
-            const lane = i % 2
+        <div className="relative h-14 flex-1 rounded-sm border border-border bg-card/50">
+          {/* hour gridlines */}
+          {hours.map((h) => {
+            const left = ((h - DAY_START) / SPAN) * 100
             return (
               <div
-                key={e.id}
-                title={`${e.title} · ${fmt(e.start)}–${fmt(e.end)}`}
-                className={cn(
-                  "absolute flex h-5 items-center overflow-hidden rounded-sm border px-1.5 text-[10.5px] tracking-tight",
-                  "border-foreground/10 bg-secondary/90 text-foreground/90 backdrop-blur-sm",
-                )}
-                style={{
-                  left: `calc(${left}% + 2px)`,
-                  width: `calc(${Math.max(width, 6)}% - 4px)`,
-                  top: lane === 0 ? 6 : 28,
-                }}
-              >
-                <span className="truncate">{e.title}</span>
-              </div>
+                key={h}
+                className="absolute top-0 bottom-0 w-px bg-border/60"
+                style={{ left: `${left}%` }}
+              />
             )
           })}
+
+          {/* now marker — today only */}
+          {isToday && (
+            <div
+              className="absolute top-1 bottom-1 z-10 w-px"
+              style={{ left: `${nowPct}%`, backgroundColor: accent ?? "var(--accent)" }}
+            >
+              <span
+                className="absolute -top-1 -left-[3px] h-[7px] w-[7px] rounded-full"
+                style={{ backgroundColor: accent ?? "var(--accent)" }}
+              />
+            </div>
+          )}
+
+          {/* events — only render on today for this prototype */}
+          {isToday &&
+            evts.map((e, i) => {
+              const left = ((e.start - DAY_START) / SPAN) * 100
+              const width = ((e.end - e.start) / SPAN) * 100
+              const lane = i % 2
+              return (
+                <div
+                  key={e.id}
+                  title={`${e.title} · ${fmt(e.start)}–${fmt(e.end)}`}
+                  className={cn(
+                    "absolute flex h-5 items-center overflow-hidden rounded-sm border px-1.5 text-[10.5px] tracking-tight",
+                    "border-foreground/10 bg-secondary/90 text-foreground/90 backdrop-blur-sm",
+                  )}
+                  style={{
+                    left: `calc(${left}% + 2px)`,
+                    width: `calc(${Math.max(width, 6)}% - 4px)`,
+                    top: lane === 0 ? 6 : 28,
+                  }}
+                >
+                  <span className="truncate">{e.title}</span>
+                </div>
+              )
+            })}
+        </div>
+
+        <button
+          type="button"
+          onClick={() => setDayOffset((o) => o + 1)}
+          aria-label="Next day"
+          className="flex w-6 shrink-0 items-center justify-center rounded-sm text-muted-foreground/70 transition-colors hover:bg-secondary/70 hover:text-foreground"
+        >
+          <ChevronRight className="h-4 w-4" />
+        </button>
       </div>
 
-      {/* hour labels — placed below the timeline frame */}
-      <div className="relative mt-1 h-3.5 w-full">
+      {/* hour labels — placed below the timeline frame, aligned to its track */}
+      <div className="relative mt-1 h-3.5" style={{ marginLeft: 32, marginRight: 32 }}>
         {hours.map((h) => {
           const left = ((h - DAY_START) / SPAN) * 100
           return (

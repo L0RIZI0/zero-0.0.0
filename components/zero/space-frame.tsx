@@ -3,7 +3,8 @@
 import { motion } from "motion/react"
 import { X } from "lucide-react"
 import type { Space } from "@/lib/zero/types"
-import { layerTransition, spaceLayoutId, spaceTitleId, contentTransition } from "@/lib/zero/motion"
+import { layerTransition, spaceLayoutId, spaceTitleId, contentTransition, userIdentityLayoutId } from "@/lib/zero/motion"
+import { useZeroNav } from "@/lib/zero/nav-store"
 import { TimelineStrip } from "./timeline-strip"
 import { TaskList } from "./task-list"
 import { ResourceStrip } from "./resource-strip"
@@ -28,6 +29,11 @@ export function SpaceFrame({
   const accent = space.accent ?? "var(--accent)"
   const children = getChildSpaces(space.id)
   const assetCount = getSpaceAssets(space.id).length
+  const { stack } = useZeroNav()
+  // The root identity morphs to the header when a layer is open. While a layer
+  // is open the header owns the shared element, so the root frame must not also
+  // render it with the same layoutId (that would create a duplicate).
+  const identityInHeader = stack.length > 1
 
   return (
     <motion.div
@@ -52,7 +58,13 @@ export function SpaceFrame({
       {/* Frame header */}
       <div className="flex items-center justify-between gap-3 px-6 pt-5 pb-3">
         {isRoot ? (
-          <UserIdentity size="lg" />
+          // While a layer is open the header hosts the identity; render an
+          // invisible placeholder here to preserve the header's height/layout.
+          identityInHeader ? (
+            <div aria-hidden className="h-11" />
+          ) : (
+            <UserIdentity size="lg" layoutId={userIdentityLayoutId} />
+          )
         ) : (
           <div className="flex min-w-0 flex-col">
             <motion.h2
@@ -116,8 +128,10 @@ export function SpaceFrame({
             </CollapsibleColumn>
           </div>
 
-          <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-            <TaskList spaceId={space.id} />
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col items-center">
+            <div className="flex min-h-0 w-full max-w-[80%] flex-1 flex-col">
+              <TaskList spaceId={space.id} />
+            </div>
           </div>
 
           <div className="hidden shrink-0 md:flex">
