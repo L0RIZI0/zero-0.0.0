@@ -55,8 +55,13 @@ export function SpaceFrame({
         />
       )}
 
-      {/* Frame header */}
-      <div className={`flex items-center justify-between gap-3 px-6 pt-5 ${isRoot ? "pb-6" : "pb-3"}`}>
+      {/* Frame header — extra bottom space at root so the user identity isn't
+          crowded against the timeline below it. */}
+      <div
+        className={`flex items-center justify-between gap-3 px-6 pt-5 ${
+          isRoot && !identityInHeader ? "pb-8" : "pb-3"
+        }`}
+      >
         {isRoot ? (
           // While a layer is open the header hosts the identity; render an
           // invisible placeholder here to preserve the header's height/layout.
@@ -120,14 +125,28 @@ export function SpaceFrame({
           </div>
         )}
 
-        {/* Inputs (far left) · Tasks (center) · Outputs (far right) */}
-        <div className="flex min-h-0 flex-1 flex-col">
-          {/* Fixed, body-centered Tasks heading — unaffected by panel widths. */}
-          <div className="mb-1 flex items-center justify-center">
-            <h2 className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-              Tasks
-            </h2>
+        {/* Inputs (far left) · Tasks (center) · Outputs (far right).
+            Side slots are a fixed width so the center column — and its centered
+            TASKS label — never shifts when a panel expands or collapses. */}
+        <div className="flex min-h-[180px] flex-1 gap-4">
+          <div className="hidden w-[230px] shrink-0 md:flex">
+            <CollapsibleColumn title="Inputs" side="left" count={assetCount}>
+              <AssetPanel spaceId={space.id} />
+            </CollapsibleColumn>
           </div>
+
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col items-center">
+            <div className="flex min-h-0 w-full max-w-[80%] flex-1 flex-col">
+              <TaskList spaceId={space.id} />
+            </div>
+          </div>
+
+          <div className="hidden w-[230px] shrink-0 md:flex">
+            <CollapsibleColumn title="Outputs" side="right" count={0}>
+              <OutputPanel spaceId={space.id} />
+            </CollapsibleColumn>
+          </div>
+        </div>
 
           <div className="flex min-h-[180px] flex-1 gap-4">
             <div className="hidden shrink-0 md:flex">

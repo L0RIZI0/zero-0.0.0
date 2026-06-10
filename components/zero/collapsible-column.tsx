@@ -6,13 +6,11 @@ import { PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from "
 import { panelTransition } from "@/lib/zero/motion"
 import { cn } from "@/lib/utils"
 
-const OPEN_WIDTH = 230
-const RAIL_WIDTH = 36
-
 /**
- * A borderless, vertically-stacked side column that can collapse to a thin rail.
- * Used for Inputs (left) and Outputs (right) flanking the Tasks list. The width
- * animates smoothly so the center Tasks list slides rather than jumps.
+ * A borderless side column that lives inside a fixed-width slot. Collapsing it
+ * swaps the full panel for a thin rail (aligned to the outer screen edge) with
+ * a quick crossfade — the slot width never changes, so the center Tasks column
+ * (and its centered TASKS label) stays put when a panel opens or closes.
  */
 export function CollapsibleColumn({
   title,
@@ -33,26 +31,17 @@ export function CollapsibleColumn({
   const ClosedIcon = side === "left" ? PanelLeftOpen : PanelRightOpen
 
   return (
-    <motion.section
-      aria-label={title}
-      initial={false}
-      animate={{ width: open ? OPEN_WIDTH : RAIL_WIDTH }}
-      transition={panelTransition}
-      className={cn(
-        "relative flex min-h-0 shrink-0 flex-col overflow-hidden",
-        side === "right" && "order-last",
-      )}
-    >
-      <AnimatePresence initial={false} mode="wait">
+    <div className={cn("relative flex min-h-0 w-full flex-col", side === "right" && "order-last")}>
+      <AnimatePresence mode="wait" initial={false}>
         {open ? (
-          <motion.div
+          <motion.section
             key="open"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
+            aria-label={title}
+            initial={{ opacity: 0, x: side === "left" ? -8 : 8 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: side === "left" ? -8 : 8 }}
             transition={panelTransition}
-            className="flex min-h-0 flex-1 flex-col"
-            style={{ width: OPEN_WIDTH }}
+            className="flex min-h-0 flex-col"
           >
             <div className="mb-1 flex items-center justify-between px-1">
               <h2 className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
@@ -70,22 +59,20 @@ export function CollapsibleColumn({
                 <OpenIcon className="h-3.5 w-3.5" />
               </button>
             </div>
-            <div className="min-h-0 flex-1 overflow-y-auto pr-1 no-scrollbar">
-              {children}
-            </div>
-          </motion.div>
+            <div className="min-h-0 flex-1 overflow-y-auto pr-1 no-scrollbar">{children}</div>
+          </motion.section>
         ) : (
           <motion.div
-            key="rail"
+            key="closed"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={panelTransition}
             className={cn(
               "flex flex-col items-center gap-3 pt-1",
-              side === "right" ? "ml-auto" : "mr-auto",
+              // Rail hugs the outer screen edge of its fixed slot.
+              side === "left" ? "self-start" : "self-end",
             )}
-            style={{ width: RAIL_WIDTH }}
           >
             <button
               type="button"
@@ -105,6 +92,6 @@ export function CollapsibleColumn({
           </motion.div>
         )}
       </AnimatePresence>
-    </motion.section>
+    </div>
   )
 }
