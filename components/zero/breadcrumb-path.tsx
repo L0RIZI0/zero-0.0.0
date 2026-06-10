@@ -4,25 +4,27 @@ import { motion, AnimatePresence } from "motion/react"
 import { getSpace, getTask } from "@/lib/zero/data"
 import { isTaskId, useZeroNav } from "@/lib/zero/nav-store"
 import { contentTransition, layerTransition, spaceTitleId, taskTitleId } from "@/lib/zero/motion"
-import { cn } from "@/lib/utils"
 
 /**
  * The navigation path, shown as a vertical indented stack directly under the
- * user identity in the top-left — each opened Space/Task keeps its title
- * visible, indented one step deeper than its parent, so the whole dive is
- * legible at a glance. Replaces the old horizontal breadcrumb.
+ * user identity in the top-left. Only *ancestor* titles live here, small and
+ * indented one step per depth — the active (deepest) layer renders its own
+ * title big inside its frame. The shared title `layoutId` morphs each title
+ * from "big inside frame" to "small in this stack" as the user dives deeper.
  */
 export function PathStack() {
   const { stack, goToDepth } = useZeroNav()
 
-  // Depth 0 is Space 0 (the user identity itself, shown in the header).
-  if (stack.length <= 1) return null
+  // Depth 0 is Space 0 (the user identity itself, shown in the header). The
+  // active (last) layer's title lives inside its own frame, so it is excluded.
+  const activeDepth = stack.length - 1
+  if (activeDepth < 1) return null
 
   return (
     <nav aria-label="Open path" className="flex flex-col gap-0.5 px-5 pb-2 pt-0.5">
       <AnimatePresence initial={false}>
         {stack.map((nodeId, depth) => {
-          if (depth === 0) return null
+          if (depth === 0 || depth === activeDepth) return null
           const isTask = isTaskId(nodeId)
           const node = isTask ? getTask(nodeId) : getSpace(nodeId)
           const label = isTask
@@ -32,7 +34,6 @@ export function PathStack() {
           const accent = (node && "accent" in node ? node.accent : undefined) as
             | string
             | undefined
-          const isLast = depth === stack.length - 1
           const titleLayoutId = isTask ? taskTitleId(nodeId) : spaceTitleId(nodeId)
 
           return (
@@ -55,12 +56,7 @@ export function PathStack() {
                 layoutId={titleLayoutId}
                 transition={layerTransition}
                 onClick={() => goToDepth(depth)}
-                className={cn(
-                  "max-w-[240px] truncate rounded-md py-0.5 text-left tracking-tight transition-colors",
-                  isLast
-                    ? "text-[13px] font-medium text-foreground"
-                    : "text-[12.5px] text-muted-foreground hover:text-foreground",
-                )}
+                className="max-w-[240px] truncate rounded-md py-0.5 text-left text-[12.5px] tracking-tight text-muted-foreground transition-colors hover:text-foreground"
               >
                 {label}
               </motion.button>

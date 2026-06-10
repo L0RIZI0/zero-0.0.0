@@ -22,7 +22,7 @@ export function SpaceLayerStack() {
             if (!task) return null
             return (
               <LayerDepthContainer key={nodeId} depthFromTop={depthFromTop} isActive={isActive}>
-                <TaskFrame task={task} onClose={closeSpace} />
+                <TaskFrame task={task} isActive={isActive} onClose={closeSpace} />
               </LayerDepthContainer>
             )
           }
@@ -35,6 +35,7 @@ export function SpaceLayerStack() {
               <SpaceFrame
                 space={space}
                 isRoot={isRoot}
+                isActive={isActive}
                 onOpenChild={openSpace}
                 onClose={closeSpace}
               />
