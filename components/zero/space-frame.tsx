@@ -29,7 +29,7 @@ export function SpaceFrame({
       layoutId={spaceLayoutId(space.id)}
       transition={layerTransition}
       style={{ borderRadius: 4 }}
-      className="relative flex h-full w-full flex-col overflow-hidden border border-border bg-background shadow-[0_24px_80px_-32px_rgba(0,0,0,0.6)]"
+      className="relative flex h-full w-full flex-col overflow-hidden bg-background shadow-[0_24px_80px_-32px_rgba(0,0,0,0.6)]"
     >
       {/* accent edge — shares element with the button's accent strip.
           Space 0 (root) has no accent edge. */}

@@ -35,13 +35,12 @@ export function LayerDepthContainer({
       style={{
         zIndex: 100 - depthFromTop,
         pointerEvents: isActive ? "auto" : "none",
-        // Promote to its own GPU compositor layer so the scale/opacity spring
-        // runs off the main thread. Without this, the first dive from Space 0
-        // (which renders the entire app's content) janks, because the large
-        // subtree is repainted every frame as it scales and fades.
+        // Hint the compositor so the scale/opacity spring runs off the main
+        // thread (the first dive from Space 0 renders the whole app's content).
+        // NOTE: we only set `willChange` here — we must NOT hardcode a
+        // `transform` in style, because Motion animates `scale` via the same
+        // transform property and the two fight each other, causing a flicker.
         willChange: "transform, opacity",
-        transform: "translateZ(0)",
-        backfaceVisibility: "hidden",
       }}
       initial={false}
       animate={{ scale, opacity }}
