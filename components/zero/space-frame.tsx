@@ -3,7 +3,7 @@
 import { motion } from "motion/react"
 import { X } from "lucide-react"
 import type { Space } from "@/lib/zero/types"
-import { layerTransition, spaceLayoutId, spaceTitleId, contentTransition } from "@/lib/zero/motion"
+import { layerTransition, spaceLayoutId, contentTransition } from "@/lib/zero/motion"
 import { SpaceButton } from "./space-button"
 import { ContextBody } from "./context-body"
 import { getChildSpaces } from "@/lib/zero/data"
@@ -40,28 +40,11 @@ export function SpaceFrame({
         />
       )}
 
-      {/* Frame header. The root identity now lives in the global shell header,
-          so Space 0 needs no title row — only child layers show a title. */}
+      {/* Frame header. The title now lives in the top-left PathStack (the active
+          layer's title slides up into the indented stack), so the frame only
+          shows the close affordance for child layers. */}
       {!isRoot && (
-        <div className="flex items-center justify-between gap-3 px-6 pt-5 pb-3">
-          <div className="flex min-w-0 flex-col">
-            <motion.h2
-              layoutId={spaceTitleId(space.id)}
-              transition={layerTransition}
-              className="truncate text-[24px] leading-tight tracking-tight text-foreground"
-            >
-              {space.name}
-            </motion.h2>
-            <motion.p
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ ...contentTransition, delay: 0.08 }}
-              className="mt-0.5 truncate text-[12.5px] text-muted-foreground"
-            >
-              {space.description}
-            </motion.p>
-          </div>
-
+        <div className="flex items-center justify-end gap-3 px-6 pt-5 pb-3">
           <button
             type="button"
             onClick={onClose}

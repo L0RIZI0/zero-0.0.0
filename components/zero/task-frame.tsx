@@ -4,7 +4,7 @@ import { motion } from "motion/react"
 import { X, Check, Calendar, Flag, Hash } from "lucide-react"
 import type { Task } from "@/lib/zero/types"
 import { getSpace } from "@/lib/zero/data"
-import { layerTransition, taskLayoutId, taskTitleId, contentTransition } from "@/lib/zero/motion"
+import { layerTransition, taskLayoutId, contentTransition } from "@/lib/zero/motion"
 import { ContextBody } from "./context-body"
 import { useState } from "react"
 import { cn } from "@/lib/utils"
@@ -27,9 +27,6 @@ export function TaskFrame({
   const primarySpaceId = task.spaceIds[task.spaceIds.length - 1] ?? "s_root"
   const primarySpace = getSpace(primarySpaceId)
   const accent = primarySpace?.accent ?? "var(--accent)"
-  const spaceNames = task.spaceIds
-    .map((id) => getSpace(id)?.name)
-    .filter(Boolean) as string[]
 
   return (
     <motion.div
@@ -38,43 +35,22 @@ export function TaskFrame({
       style={{ borderRadius: 4 }}
       className="relative flex h-full w-full flex-col overflow-hidden border border-border bg-background shadow-[0_24px_80px_-32px_rgba(0,0,0,0.6)]"
     >
-      {/* Frame header */}
+      {/* Frame header. The task title now lives in the top-left PathStack, so
+          the header keeps only the completion toggle and close affordance. */}
       <div className="flex items-start justify-between gap-3 px-6 pt-5 pb-3">
-        <div className="flex min-w-0 items-start gap-3">
-          <button
-            type="button"
-            aria-label={done ? "Mark task incomplete" : "Mark task complete"}
-            onClick={() => setDone((d) => !d)}
-            className={cn(
-              "mt-1 flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-[4px] border transition-colors",
-              done
-                ? "border-foreground bg-foreground text-background"
-                : "border-foreground/25 text-transparent hover:border-foreground/50",
-            )}
-          >
-            <Check className="h-3.5 w-3.5" strokeWidth={3} />
-          </button>
-          <div className="flex min-w-0 flex-col">
-            <motion.h2
-              layoutId={taskTitleId(task.id)}
-              transition={layerTransition}
-              className={cn(
-                "text-pretty text-[22px] leading-tight tracking-tight",
-                done ? "text-muted-foreground/60 line-through" : "text-foreground",
-              )}
-            >
-              {task.title}
-            </motion.h2>
-            <motion.p
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ ...contentTransition, delay: 0.08 }}
-              className="mt-0.5 truncate text-[12.5px] text-muted-foreground"
-            >
-              {spaceNames.join(" · ")}
-            </motion.p>
-          </div>
-        </div>
+        <button
+          type="button"
+          aria-label={done ? "Mark task incomplete" : "Mark task complete"}
+          onClick={() => setDone((d) => !d)}
+          className={cn(
+            "flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-[4px] border transition-colors",
+            done
+              ? "border-foreground bg-foreground text-background"
+              : "border-foreground/25 text-transparent hover:border-foreground/50",
+          )}
+        >
+          <Check className="h-3.5 w-3.5" strokeWidth={3} />
+        </button>
 
         <button
           type="button"

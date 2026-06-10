@@ -3,7 +3,7 @@
 import { motion, AnimatePresence } from "motion/react"
 import { getSpace, getTask } from "@/lib/zero/data"
 import { isTaskId, useZeroNav } from "@/lib/zero/nav-store"
-import { contentTransition } from "@/lib/zero/motion"
+import { contentTransition, layerTransition, spaceTitleId, taskTitleId } from "@/lib/zero/motion"
 import { cn } from "@/lib/utils"
 
 /**
@@ -23,8 +23,9 @@ export function PathStack() {
       <AnimatePresence initial={false}>
         {stack.map((nodeId, depth) => {
           if (depth === 0) return null
-          const node = isTaskId(nodeId) ? getTask(nodeId) : getSpace(nodeId)
-          const label = isTaskId(nodeId)
+          const isTask = isTaskId(nodeId)
+          const node = isTask ? getTask(nodeId) : getSpace(nodeId)
+          const label = isTask
             ? (node as ReturnType<typeof getTask>)?.title
             : (node as ReturnType<typeof getSpace>)?.name
           if (!label) return null
@@ -32,13 +33,14 @@ export function PathStack() {
             | string
             | undefined
           const isLast = depth === stack.length - 1
+          const titleLayoutId = isTask ? taskTitleId(nodeId) : spaceTitleId(nodeId)
 
           return (
             <motion.div
               key={nodeId}
-              initial={{ opacity: 0, x: -6 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -6 }}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
               transition={contentTransition}
               style={{ paddingLeft: (depth - 1) * 16 }}
               className="flex items-center"
@@ -48,18 +50,20 @@ export function PathStack() {
                 className="mr-2 h-3 w-[3px] shrink-0 rounded-full"
                 style={{ backgroundColor: accent ?? "var(--border)" }}
               />
-              <button
+              <motion.button
                 type="button"
+                layoutId={titleLayoutId}
+                transition={layerTransition}
                 onClick={() => goToDepth(depth)}
                 className={cn(
-                  "max-w-[240px] truncate rounded-md py-0.5 text-left text-[12.5px] tracking-tight transition-colors",
+                  "max-w-[240px] truncate rounded-md py-0.5 text-left tracking-tight transition-colors",
                   isLast
-                    ? "font-medium text-foreground"
-                    : "text-muted-foreground hover:text-foreground",
+                    ? "text-[13px] font-medium text-foreground"
+                    : "text-[12.5px] text-muted-foreground hover:text-foreground",
                 )}
               >
                 {label}
-              </button>
+              </motion.button>
             </motion.div>
           )
         })}
