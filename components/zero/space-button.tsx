@@ -28,7 +28,7 @@ export function SpaceButton({
     return (
       <div
         aria-hidden
-        className="min-h-[148px] w-full rounded-[18px] border border-dashed border-border/60 bg-secondary/30"
+        className="h-[112px] w-[200px] shrink-0 rounded-md border border-dashed border-border/60 bg-secondary/30"
       />
     )
   }
@@ -39,8 +39,8 @@ export function SpaceButton({
       layoutId={spaceLayoutId(space.id)}
       transition={layerTransition}
       onClick={() => onOpen(space.id)}
-      style={{ borderRadius: 18 }}
-      className="group relative flex h-full min-h-[148px] w-full flex-col justify-between overflow-hidden border border-border bg-card/70 p-4 text-left transition-colors hover:border-foreground/20 hover:bg-card"
+      style={{ borderRadius: 6 }}
+      className="group relative flex h-[112px] w-[200px] shrink-0 flex-col justify-between overflow-hidden border border-border bg-card/70 p-3 text-left transition-colors hover:border-foreground/20 hover:bg-card"
     >
       {/* accent edge */}
       <motion.span
@@ -54,21 +54,21 @@ export function SpaceButton({
         <motion.h3
           layoutId={spaceTitleId(space.id)}
           transition={layerTransition}
-          className="font-serif text-[19px] leading-tight tracking-tight text-foreground"
+          className="text-[15px] leading-tight tracking-tight text-foreground"
         >
           {space.name}
         </motion.h3>
-        <ArrowUpRight className="h-4 w-4 shrink-0 text-muted-foreground/40 transition-colors group-hover:text-foreground" />
+        <ArrowUpRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground/40 transition-colors group-hover:text-foreground" />
       </div>
 
-      <div className="flex flex-col gap-3">
-        <p className="line-clamp-2 text-pretty text-[12px] leading-relaxed text-muted-foreground">
+      <div className="flex flex-col gap-2">
+        <p className="line-clamp-2 text-pretty text-[11px] leading-snug text-muted-foreground">
           {space.description}
         </p>
-        <div className="flex items-center gap-3 text-[11px] text-muted-foreground/70">
+        <div className="flex items-center gap-2.5 text-[10px] text-muted-foreground/70">
           {childCount > 0 && <span>{childCount} spaces</span>}
           <span>{taskCount} open</span>
-          <span>{resourceCount} resources</span>
+          <span>{resourceCount} res</span>
         </div>
       </div>
     </motion.button>

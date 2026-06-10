@@ -7,9 +7,9 @@ function ZeroMark() {
   return (
     <div className="flex items-center gap-2.5">
       <div className="flex h-7 w-7 items-center justify-center rounded-full border border-foreground/15 bg-foreground text-background">
-        <span className="font-serif text-[15px] leading-none">0</span>
+        <span className="text-[15px] font-semibold leading-none">0</span>
       </div>
-      <span className="font-serif text-[17px] tracking-tight text-foreground">Zero</span>
+      <span className="text-[17px] font-semibold tracking-tight text-foreground">Zero</span>
     </div>
   )
 }

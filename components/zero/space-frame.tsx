@@ -29,8 +29,10 @@ export function SpaceFrame({
     <motion.div
       layoutId={spaceLayoutId(space.id)}
       transition={layerTransition}
-      style={{ borderRadius: isRoot ? 0 : 22 }}
-      className="relative flex h-full w-full flex-col overflow-hidden border border-border bg-background shadow-[0_24px_80px_-32px_rgba(40,32,24,0.35)]"
+      style={{ borderRadius: isRoot ? 0 : 6 }}
+      className={`relative flex h-full w-full flex-col overflow-hidden bg-background shadow-[0_24px_80px_-32px_rgba(0,0,0,0.6)] ${
+        isRoot ? "" : "border border-border"
+      }`}
     >
       {/* accent edge — shares element with the button's accent strip */}
       <motion.span
@@ -46,7 +48,7 @@ export function SpaceFrame({
           <motion.h2
             layoutId={spaceTitleId(space.id)}
             transition={layerTransition}
-            className="truncate font-serif text-[24px] leading-tight tracking-tight text-foreground"
+            className="truncate text-[24px] leading-tight tracking-tight text-foreground"
           >
             {isRoot ? "All Life" : space.name}
           </motion.h2>
@@ -81,37 +83,27 @@ export function SpaceFrame({
       >
         <TimelineStrip spaceId={space.id} accent={typeof accent === "string" ? accent : undefined} />
 
-        <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 lg:grid-cols-[1.35fr_1fr]">
-          {/* Left column: child spaces (or assets at leaf level) */}
-          <div className="flex min-h-0 flex-col">
-            {children.length > 0 ? (
-              <>
-                <h3 className="mb-2 px-1 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-                  {isRoot ? "Spaces" : "Subspaces"}
-                </h3>
-                <div className="grid min-h-0 flex-1 auto-rows-min grid-cols-1 gap-3 overflow-y-auto pr-1 no-scrollbar sm:grid-cols-2">
-                  {children.map((child) => (
-                    <SpaceButton key={child.id} space={child} onOpen={onOpenChild} />
-                  ))}
-                </div>
-              </>
-            ) : (
-              <div className="min-h-0 flex-1 rounded-xl border border-border bg-card/40 p-3">
-                <AssetPanel spaceId={space.id} />
-              </div>
-            )}
-          </div>
-
-          {/* Right column: tasks always; assets too when there are child spaces */}
-          <div className="flex min-h-0 flex-col gap-4">
-            <div className="flex min-h-0 flex-1 flex-col rounded-xl border border-border bg-card/40 p-3">
-              <TaskList spaceId={space.id} />
+        {/* Child spaces — a centered horizontal row beneath the timeline. */}
+        {children.length > 0 && (
+          <div className="flex flex-col items-center">
+            <h3 className="mb-2 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+              {isRoot ? "Spaces" : "Subspaces"}
+            </h3>
+            <div className="flex w-full flex-wrap items-stretch justify-center gap-3 overflow-x-auto pb-1 no-scrollbar">
+              {children.map((child) => (
+                <SpaceButton key={child.id} space={child} onOpen={onOpenChild} />
+              ))}
             </div>
-            {children.length > 0 && (
-              <div className="hidden min-h-0 flex-1 flex-col rounded-xl border border-border bg-card/40 p-3 xl:flex">
-                <AssetPanel spaceId={space.id} />
-              </div>
-            )}
+          </div>
+        )}
+
+        {/* Tasks below the spaces; assets alongside. */}
+        <div className="grid min-h-[180px] flex-1 grid-cols-1 gap-4 lg:grid-cols-[1.35fr_1fr]">
+          <div className="flex min-h-0 flex-col rounded-md border border-border bg-card/40 p-3">
+            <TaskList spaceId={space.id} />
+          </div>
+          <div className="flex min-h-0 flex-col rounded-md border border-border bg-card/40 p-3">
+            <AssetPanel spaceId={space.id} />
           </div>
         </div>
 
