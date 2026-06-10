@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react"
 import { motion } from "motion/react"
-import { Check } from "lucide-react"
+import { Check, Plus } from "lucide-react"
 import { getSpaceTasks } from "@/lib/zero/data"
 import type { Task, TaskPriority } from "@/lib/zero/types"
 import { useZeroNav } from "@/lib/zero/nav-store"
@@ -127,13 +127,21 @@ export function TaskList({ spaceId }: { spaceId: string }) {
 
       <ul className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto pr-1 no-scrollbar">
         {shown.length === 0 ? (
-          <li className="px-2 py-6 text-center text-[12px] text-muted-foreground/60">
+          <li className="px-2 py-5 text-center text-[12px] text-muted-foreground/60">
             Nothing open in this context.
           </li>
         ) : (
           shown.map((t) => <TaskRow key={t.id} task={t} />)
         )}
       </ul>
+
+      <button
+        type="button"
+        className="mt-1.5 flex w-full items-center justify-center gap-1.5 rounded-sm border border-dashed border-border px-2.5 py-2 text-[12px] text-muted-foreground/70 transition-colors hover:border-foreground/30 hover:text-foreground"
+      >
+        <Plus className="h-3.5 w-3.5" />
+        Add task
+      </button>
     </section>
   )
 }

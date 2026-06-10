@@ -1,8 +1,10 @@
 "use client"
 
 import { useMemo, useState } from "react"
+import { AnimatePresence, motion } from "motion/react"
 import { ChevronLeft, ChevronRight } from "lucide-react"
 import { getSpaceEvents } from "@/lib/zero/data"
+import { panelTransition } from "@/lib/zero/motion"
 import { cn } from "@/lib/utils"
 
 const DAY_START = 8 * 60 // 08:00
@@ -51,21 +53,33 @@ export function TimelineStrip({
 
   return (
     <section aria-label="Timeline" className="px-1">
-      {/* The day label only appears when viewing a day other than today. */}
-      {!isToday && (
-        <div className="mb-1.5 flex items-center justify-center gap-2">
-          <span className="text-[11px] font-medium uppercase tracking-[0.14em] text-foreground">
-            {dayLabel}
-          </span>
-          <button
-            type="button"
-            onClick={() => setDayOffset(0)}
-            className="rounded-md px-1.5 py-0.5 text-[11px] text-muted-foreground/70 transition-colors hover:text-foreground"
-          >
-            Today
-          </button>
-        </div>
-      )}
+      {/* Fixed-height row so the label can fade in without pushing the timeline
+          down. The label only appears when viewing a day other than today. */}
+      <div className="relative mb-1.5 h-5">
+        <AnimatePresence initial={false}>
+          {!isToday && (
+            <motion.div
+              key="day-label"
+              initial={{ opacity: 0, y: -4 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -4 }}
+              transition={panelTransition}
+              className="absolute inset-x-0 top-0 flex items-center justify-center gap-2"
+            >
+              <span className="text-[11px] font-medium uppercase tracking-[0.14em] text-foreground">
+                {dayLabel}
+              </span>
+              <button
+                type="button"
+                onClick={() => setDayOffset(0)}
+                className="rounded-md px-1.5 py-0.5 text-[11px] text-muted-foreground/70 transition-colors hover:text-foreground"
+              >
+                Today
+              </button>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
 
       {/* Full-bleed timeline: top/bottom borders run to the frame edges to
           suggest continuity with yesterday/tomorrow. Arrows flank the track. */}

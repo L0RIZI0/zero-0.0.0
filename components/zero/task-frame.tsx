@@ -5,7 +5,7 @@ import { X, Check, Calendar, Flag, Hash } from "lucide-react"
 import type { Task } from "@/lib/zero/types"
 import { getSpace } from "@/lib/zero/data"
 import { layerTransition, taskLayoutId, taskTitleId, contentTransition } from "@/lib/zero/motion"
-import { ResourceStrip } from "./resource-strip"
+import { ContextBody } from "./context-body"
 import { useState } from "react"
 import { cn } from "@/lib/utils"
 
@@ -115,18 +115,11 @@ export function TaskFrame({
           ))}
         </div>
 
-        {/* Notes placeholder — a calm working surface for the task */}
-        <div className="min-h-[140px] flex-1 rounded-sm border border-border bg-card/40 p-4">
-          <h3 className="mb-2 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-            Notes
-          </h3>
-          <p className="text-pretty text-[13px] leading-relaxed text-muted-foreground">
-            This task lives in {spaceNames.join(", ")}. Open the resources below to act on it in
-            context, capture progress, or break it into smaller steps.
-          </p>
-        </div>
-
-        <ResourceStrip spaceId={primarySpaceId} />
+        {/* A task is itself a context: same working surface as a space. */}
+        <ContextBody
+          nodeId={primarySpaceId}
+          accent={typeof accent === "string" ? accent : undefined}
+        />
       </motion.div>
     </motion.div>
   )

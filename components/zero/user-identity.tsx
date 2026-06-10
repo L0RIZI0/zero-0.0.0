@@ -1,25 +1,19 @@
 "use client"
 
 import Image from "next/image"
-import { motion } from "motion/react"
 import { currentUser } from "@/lib/zero/data"
-import { layerTransition } from "@/lib/zero/motion"
 import { cn } from "@/lib/utils"
 
 /**
- * The identity of Space 0 — the user. Used as the root space title and, when a
- * layer is open, promoted into the header in place of the Zero logo. Passing a
- * shared `layoutId` lets the identity morph (shrink + travel diagonally) between
- * the root frame title and the header slot.
+ * The identity of Space 0 — the user. Lives permanently in the top-left of the
+ * shell header (slightly larger on Space 0, smaller once a layer is open).
  */
 export function UserIdentity({
   size = "md",
   className,
-  layoutId,
 }: {
   size?: "sm" | "md" | "lg"
   className?: string
-  layoutId?: string
 }) {
   const avatar = {
     sm: "h-7 w-7",
@@ -38,11 +32,7 @@ export function UserIdentity({
   }[size]
 
   return (
-    <motion.div
-      layoutId={layoutId}
-      transition={layerTransition}
-      className={cn("flex min-w-0 items-center gap-2.5", className)}
-    >
+    <div className={cn("flex min-w-0 items-center gap-2.5", className)}>
       <span className={cn("relative shrink-0 overflow-hidden rounded-full border border-border", avatar)}>
         <Image
           src={currentUser.avatarUrl ?? "/avatar-loris.png"}
@@ -58,6 +48,6 @@ export function UserIdentity({
         </span>
         <span className={cn("truncate text-muted-foreground/70", handle)}>@{currentUser.handle}</span>
       </span>
-    </motion.div>
+    </div>
   )
 }

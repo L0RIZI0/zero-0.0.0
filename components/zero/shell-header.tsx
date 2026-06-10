@@ -1,10 +1,8 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { AnimatePresence, motion } from "motion/react"
 import { Search } from "lucide-react"
 import { useZeroNav } from "@/lib/zero/nav-store"
-import { contentTransition, userIdentityLayoutId } from "@/lib/zero/motion"
 import { UserIdentity } from "./user-identity"
 
 function useClock() {
@@ -24,35 +22,14 @@ function useClock() {
 export function ShellHeader({ dateLabel }: { dateLabel: string }) {
   const { stack } = useZeroNav()
   const time = useClock()
-  // When the user has opened a space or task, Space 0 fills the screen and its
-  // identity (the user) is promoted into the header in place of the Zero logo.
+  // The user identity always lives in the top-left. It's a touch larger on
+  // Space 0 and shrinks once a layer is open to make room for the breadcrumb.
   const inLayer = stack.length > 1
 
   return (
     <header className="flex items-center justify-between gap-4 px-5 py-3.5">
-      <div className="relative flex min-h-9 flex-1 items-center">
-        {/* Both the Zero mark and the identity are absolutely anchored to the
-            same left slot. The identity morphs straight into Zero's position
-            (no flex re-flow / sideways jump) while Zero fades out diagonally. */}
-        <AnimatePresence initial={false}>
-          {!inLayer && (
-            <motion.span
-              key="zero-mark"
-              initial={{ opacity: 0, x: -12, y: -12 }}
-              animate={{ opacity: 1, x: 0, y: 0 }}
-              exit={{ opacity: 0, x: -14, y: -14 }}
-              transition={contentTransition}
-              className="absolute left-0 top-1/2 -translate-y-1/2 text-[17px] font-semibold tracking-tight text-foreground"
-            >
-              Zero
-            </motion.span>
-          )}
-        </AnimatePresence>
-        {inLayer && (
-          <div className="absolute left-0 top-1/2 -translate-y-1/2">
-            <UserIdentity size="sm" layoutId={userIdentityLayoutId} />
-          </div>
-        )}
+      <div className="flex flex-1 items-center">
+        <UserIdentity size={inLayer ? "sm" : "md"} />
       </div>
 
       <div className="hidden flex-1 items-center justify-center gap-2.5 sm:flex">
@@ -60,7 +37,7 @@ export function ShellHeader({ dateLabel }: { dateLabel: string }) {
         <span className="text-[13px] tracking-tight text-muted-foreground">{dateLabel}</span>
       </div>
 
-      <div className="flex flex-1 items-center justify-end gap-2">
+      <div className="flex flex-1 items-center justify-end gap-3">
         <button
           type="button"
           className="group flex items-center gap-2 rounded-full border border-border bg-card/60 px-3 py-1.5 text-muted-foreground transition-colors hover:border-foreground/20 hover:text-foreground"
@@ -71,6 +48,7 @@ export function ShellHeader({ dateLabel }: { dateLabel: string }) {
             ⌘K
           </kbd>
         </button>
+        <span className="text-[17px] font-semibold tracking-tight text-foreground">Zero</span>
       </div>
     </header>
   )
