@@ -108,10 +108,10 @@ export function SpaceFrame({
           </div>
         )}
 
-        {/* Assets (far left) · Tasks (center) · Outputs (far right) */}
+        {/* Inputs (far left) · Tasks (center) · Outputs (far right) */}
         <div className="flex min-h-[180px] flex-1 gap-4">
-          <div className="hidden w-[230px] shrink-0 md:flex">
-            <CollapsibleColumn title="Assets" side="left" count={assetCount}>
+          <div className="hidden shrink-0 md:flex">
+            <CollapsibleColumn title="Inputs" side="left" count={assetCount}>
               <AssetPanel spaceId={space.id} />
             </CollapsibleColumn>
           </div>
@@ -120,7 +120,7 @@ export function SpaceFrame({
             <TaskList spaceId={space.id} />
           </div>
 
-          <div className="hidden w-[230px] shrink-0 md:flex">
+          <div className="hidden shrink-0 md:flex">
             <CollapsibleColumn title="Outputs" side="right" count={0}>
               <OutputPanel spaceId={space.id} />
             </CollapsibleColumn>

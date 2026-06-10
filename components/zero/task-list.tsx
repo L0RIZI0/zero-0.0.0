@@ -103,11 +103,11 @@ export function TaskList({ spaceId }: { spaceId: string }) {
 
   return (
     <section aria-label="Tasks" className="flex min-h-0 flex-col">
-      <div className="mb-1 flex items-center justify-between px-1">
+      <div className="relative mb-1 flex items-center justify-center px-1">
         <h2 className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
           Tasks
         </h2>
-        <div className="flex items-center gap-1">
+        <div className="absolute right-1 flex items-center gap-1">
           {(["open", "all"] as const).map((f) => (
             <button
               key={f}

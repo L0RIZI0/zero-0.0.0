@@ -9,18 +9,22 @@ import { cn } from "@/lib/utils"
 export function BreadcrumbPath() {
   const { stack, goToDepth } = useZeroNav()
 
+  // Space 0 (depth 0) is never shown — its identity lives in the header.
+  // The breadcrumb only appears once the user has dived into a space or task.
+  if (stack.length <= 1) return null
+
   return (
     <nav aria-label="Space path" className="flex items-center gap-1 px-5 pb-2">
       {stack.map((nodeId, depth) => {
-        const label = isTaskId(nodeId)
-          ? getTask(nodeId)?.title
-          : depth === 0
-            ? "Space 0"
-            : getSpace(nodeId)?.name
+        if (depth === 0) return null
+        const label = isTaskId(nodeId) ? getTask(nodeId)?.title : getSpace(nodeId)?.name
         if (!label) return null
         const isLast = depth === stack.length - 1
         return (
           <Fragment key={nodeId}>
+            {depth > 1 && (
+              <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground/50" />
+            )}
             <button
               type="button"
               onClick={() => goToDepth(depth)}
@@ -33,9 +37,6 @@ export function BreadcrumbPath() {
             >
               {label}
             </button>
-            {!isLast && (
-              <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground/50" />
-            )}
           </Fragment>
         )
       })}

@@ -1,7 +1,7 @@
 "use client"
 
+import { useEffect, useState } from "react"
 import { Search } from "lucide-react"
-import { currentUser } from "@/lib/zero/data"
 import { useZeroNav } from "@/lib/zero/nav-store"
 import { UserIdentity } from "./user-identity"
 
@@ -11,9 +11,23 @@ function ZeroMark() {
   )
 }
 
+function useClock() {
+  const [time, setTime] = useState<string>("")
+  useEffect(() => {
+    const update = () =>
+      setTime(
+        new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }),
+      )
+    update()
+    const id = setInterval(update, 1000 * 30)
+    return () => clearInterval(id)
+  }, [])
+  return time
+}
+
 export function ShellHeader({ dateLabel }: { dateLabel: string }) {
   const { stack } = useZeroNav()
-  const initials = currentUser.name.slice(0, 1).toUpperCase()
+  const time = useClock()
   // When the user has opened a space or task, Space 0 fills the screen and its
   // identity (the user) is promoted into the header in place of the Zero logo.
   const inLayer = stack.length > 1
@@ -24,7 +38,8 @@ export function ShellHeader({ dateLabel }: { dateLabel: string }) {
         {inLayer ? <UserIdentity size="sm" /> : <ZeroMark />}
       </div>
 
-      <div className="hidden flex-1 items-center justify-center sm:flex">
+      <div className="hidden flex-1 items-center justify-center gap-2.5 sm:flex">
+        <span className="text-[13px] tabular-nums tracking-tight text-foreground/80">{time}</span>
         <span className="text-[13px] tracking-tight text-muted-foreground">{dateLabel}</span>
       </div>
 
@@ -38,13 +53,6 @@ export function ShellHeader({ dateLabel }: { dateLabel: string }) {
           <kbd className="ml-1 hidden rounded border border-border px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground/80 md:inline">
             ⌘K
           </kbd>
-        </button>
-        <button
-          type="button"
-          aria-label="Account"
-          className="flex h-8 w-8 items-center justify-center rounded-full border border-foreground/15 bg-secondary text-[13px] font-medium text-foreground transition-colors hover:border-foreground/30"
-        >
-          {initials}
         </button>
       </div>
     </header>

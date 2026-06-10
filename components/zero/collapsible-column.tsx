@@ -57,7 +57,7 @@ export function CollapsibleColumn({
   return (
     <section
       aria-label={title}
-      className={cn("flex min-h-0 min-w-0 flex-col", side === "right" && "order-last")}
+      className={cn("flex min-h-0 w-[230px] shrink-0 flex-col", side === "right" && "order-last")}
     >
       <div className="mb-1 flex items-center justify-between px-1">
         <h2 className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
