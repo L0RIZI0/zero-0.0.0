@@ -1,0 +1,133 @@
+"use client"
+
+import { motion } from "motion/react"
+import { X, Check, Calendar, Flag, Hash } from "lucide-react"
+import type { Task } from "@/lib/zero/types"
+import { getSpace } from "@/lib/zero/data"
+import { layerTransition, taskLayoutId, taskTitleId, contentTransition } from "@/lib/zero/motion"
+import { ResourceStrip } from "./resource-strip"
+import { useState } from "react"
+import { cn } from "@/lib/utils"
+
+const priorityLabel: Record<Task["priority"], string> = {
+  high: "High",
+  medium: "Medium",
+  low: "Low",
+}
+
+export function TaskFrame({
+  task,
+  onClose,
+}: {
+  task: Task
+  onClose: () => void
+}) {
+  const [done, setDone] = useState(task.completed)
+  // The task's primary space provides contextual accent + resources.
+  const primarySpaceId = task.spaceIds[task.spaceIds.length - 1] ?? "s_root"
+  const primarySpace = getSpace(primarySpaceId)
+  const accent = primarySpace?.accent ?? "var(--accent)"
+  const spaceNames = task.spaceIds
+    .map((id) => getSpace(id)?.name)
+    .filter(Boolean) as string[]
+
+  return (
+    <motion.div
+      layoutId={taskLayoutId(task.id)}
+      transition={layerTransition}
+      style={{ borderRadius: 4 }}
+      className="relative flex h-full w-full flex-col overflow-hidden border border-border bg-background shadow-[0_24px_80px_-32px_rgba(0,0,0,0.6)]"
+    >
+      {/* Frame header */}
+      <div className="flex items-start justify-between gap-3 px-6 pt-5 pb-3">
+        <div className="flex min-w-0 items-start gap-3">
+          <button
+            type="button"
+            aria-label={done ? "Mark task incomplete" : "Mark task complete"}
+            onClick={() => setDone((d) => !d)}
+            className={cn(
+              "mt-1 flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full border transition-colors",
+              done
+                ? "border-foreground bg-foreground text-background"
+                : "border-foreground/25 text-transparent hover:border-foreground/50",
+            )}
+          >
+            <Check className="h-3.5 w-3.5" strokeWidth={3} />
+          </button>
+          <div className="flex min-w-0 flex-col">
+            <motion.h2
+              layoutId={taskTitleId(task.id)}
+              transition={layerTransition}
+              className={cn(
+                "text-pretty text-[22px] leading-tight tracking-tight",
+                done ? "text-muted-foreground/60 line-through" : "text-foreground",
+              )}
+            >
+              {task.title}
+            </motion.h2>
+            <motion.p
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ ...contentTransition, delay: 0.08 }}
+              className="mt-0.5 truncate text-[12.5px] text-muted-foreground"
+            >
+              {spaceNames.join(" · ")}
+            </motion.p>
+          </div>
+        </div>
+
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label={`Close ${task.title}`}
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border bg-card/70 text-muted-foreground transition-colors hover:border-foreground/30 hover:text-foreground"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+
+      <motion.div
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ ...contentTransition, delay: 0.1 }}
+        className="flex min-h-0 flex-1 flex-col gap-4 px-6 pb-4"
+      >
+        {/* Meta row */}
+        <div className="flex flex-wrap items-center gap-2">
+          {task.dueDate && (
+            <span className="flex items-center gap-1.5 rounded-sm border border-border bg-card/50 px-2.5 py-1.5 text-[12px] text-foreground">
+              <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
+              {task.dueDate}
+            </span>
+          )}
+          <span className="flex items-center gap-1.5 rounded-sm border border-border bg-card/50 px-2.5 py-1.5 text-[12px] text-foreground">
+            <Flag className="h-3.5 w-3.5" style={{ color: accent }} />
+            {priorityLabel[task.priority]}
+          </span>
+          {task.tags.map((t) => (
+            <span
+              key={t}
+              className="flex items-center gap-1 rounded-sm border border-border bg-card/50 px-2.5 py-1.5 text-[12px] text-muted-foreground"
+            >
+              <Hash className="h-3 w-3" />
+              {t}
+            </span>
+          ))}
+        </div>
+
+        {/* Notes placeholder — a calm working surface for the task */}
+        <div className="min-h-[140px] flex-1 rounded-sm border border-border bg-card/40 p-4">
+          <h3 className="mb-2 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+            Notes
+          </h3>
+          <p className="text-pretty text-[13px] leading-relaxed text-muted-foreground">
+            This task lives in {spaceNames.join(", ")}. Open the resources below to act on it in
+            context, capture progress, or break it into smaller steps.
+          </p>
+        </div>
+
+        <ResourceStrip spaceId={primarySpaceId} />
+      </motion.div>
+    </motion.div>
+  )
+}

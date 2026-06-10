@@ -12,7 +12,7 @@ export function ZeroShell({ dateLabel }: { dateLabel: string }) {
         <ShellHeader dateLabel={dateLabel} />
         <BreadcrumbPath />
         <div className="relative min-h-0 flex-1 px-2 pb-2 sm:px-3 sm:pb-3">
-          <div className="relative h-full w-full overflow-hidden rounded-2xl border border-border bg-secondary/40">
+          <div className="relative h-full w-full overflow-hidden rounded-md bg-secondary/40">
             <SpaceLayerStack />
           </div>
         </div>

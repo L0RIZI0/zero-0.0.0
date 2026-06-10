@@ -1,9 +1,12 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
+import { motion } from "motion/react"
 import { Check } from "lucide-react"
 import { getSpaceTasks } from "@/lib/zero/data"
 import type { Task, TaskPriority } from "@/lib/zero/types"
+import { useZeroNav } from "@/lib/zero/nav-store"
+import { layerTransition, taskLayoutId, taskTitleId } from "@/lib/zero/motion"
 import { cn } from "@/lib/utils"
 
 const priorityDot: Record<TaskPriority, string> = {
@@ -14,15 +17,37 @@ const priorityDot: Record<TaskPriority, string> = {
 
 function TaskRow({ task }: { task: Task }) {
   const [done, setDone] = useState(task.completed)
+  const { openTask, stack } = useZeroNav()
+
+  // When this task is open as a window, render an inert placeholder so the
+  // shared layoutId lives only on the active frame.
+  const isOpen = stack.includes(task.id)
+  if (isOpen) {
+    return (
+      <li>
+        <div
+          aria-hidden
+          className="h-[42px] w-full rounded-sm border border-dashed border-border/60 bg-secondary/30"
+        />
+      </li>
+    )
+  }
 
   return (
     <li>
-      <button
-        type="button"
-        onClick={() => setDone((d) => !d)}
-        className="group flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left transition-colors hover:bg-secondary/70"
+      <motion.div
+        layoutId={taskLayoutId(task.id)}
+        transition={layerTransition}
+        style={{ borderRadius: 4 }}
+        className="group flex w-full items-center gap-3 px-2 py-2 text-left transition-colors hover:bg-secondary/70"
       >
-        <span
+        <button
+          type="button"
+          aria-label={done ? "Mark task incomplete" : "Mark task complete"}
+          onClick={(e) => {
+            e.stopPropagation()
+            setDone((d) => !d)
+          }}
           className={cn(
             "flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full border transition-colors",
             done
@@ -31,23 +56,29 @@ function TaskRow({ task }: { task: Task }) {
           )}
         >
           <Check className="h-3 w-3" strokeWidth={3} />
-        </span>
+        </button>
 
-        <span className="flex min-w-0 flex-1 flex-col">
-          <span
+        <button
+          type="button"
+          onClick={() => openTask(task.id)}
+          className="flex min-w-0 flex-1 flex-col text-left"
+        >
+          <motion.span
+            layoutId={taskTitleId(task.id)}
+            transition={layerTransition}
             className={cn(
               "truncate text-[13px] tracking-tight transition-colors",
               done ? "text-muted-foreground/60 line-through" : "text-foreground",
             )}
           >
             {task.title}
-          </span>
+          </motion.span>
           {task.tags.length > 0 && (
             <span className="mt-0.5 truncate text-[11px] text-muted-foreground/70">
               {task.tags.map((t) => `#${t}`).join("  ")}
             </span>
           )}
-        </span>
+        </button>
 
         {task.dueDate && (
           <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground/70">
@@ -55,7 +86,7 @@ function TaskRow({ task }: { task: Task }) {
           </span>
         )}
         <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", priorityDot[task.priority])} />
-      </button>
+      </motion.div>
     </li>
   )
 }

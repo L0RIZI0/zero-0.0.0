@@ -3,17 +3,23 @@
 import { createContext, useCallback, useContext, useMemo, useState } from "react"
 
 interface ZeroNavContextValue {
-  /** Stack of space ids. stack[0] is always the root, "s_root". */
+  /** Stack of node ids. stack[0] is always the root, "s_root". Entries are
+   *  space ids (prefixed "s_") or task ids (prefixed "t"). */
   stack: string[]
-  /** The currently focused (top of stack) space id. */
+  /** The currently focused (top of stack) node id. */
   activeSpaceId: string
   /** Push a child space onto the stack (dive deeper). */
   openSpace: (spaceId: string) => void
-  /** Pop the top space (close current layer). */
+  /** Push a task onto the stack — tasks open as windows like spaces do. */
+  openTask: (taskId: string) => void
+  /** Pop the top node (close current layer). */
   closeSpace: () => void
   /** Jump to a specific depth in the stack (used by breadcrumb). */
   goToDepth: (depth: number) => void
 }
+
+/** Task ids are prefixed "t", space ids "s_". */
+export const isTaskId = (id: string) => id.startsWith("t")
 
 const ZeroNavContext = createContext<ZeroNavContextValue | null>(null)
 
@@ -33,6 +39,13 @@ export function ZeroNavProvider({
     })
   }, [])
 
+  const openTask = useCallback((taskId: string) => {
+    setStack((prev) => {
+      if (prev[prev.length - 1] === taskId) return prev
+      return [...prev, taskId]
+    })
+  }, [])
+
   const closeSpace = useCallback(() => {
     setStack((prev) => (prev.length > 1 ? prev.slice(0, -1) : prev))
   }, [])
@@ -46,10 +59,11 @@ export function ZeroNavProvider({
       stack,
       activeSpaceId: stack[stack.length - 1],
       openSpace,
+      openTask,
       closeSpace,
       goToDepth,
     }),
-    [stack, openSpace, closeSpace, goToDepth],
+    [stack, openSpace, openTask, closeSpace, goToDepth],
   )
 
   return <ZeroNavContext.Provider value={value}>{children}</ZeroNavContext.Provider>

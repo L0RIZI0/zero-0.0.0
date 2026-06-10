@@ -29,7 +29,7 @@ export function SpaceFrame({
     <motion.div
       layoutId={spaceLayoutId(space.id)}
       transition={layerTransition}
-      style={{ borderRadius: isRoot ? 0 : 6 }}
+      style={{ borderRadius: isRoot ? 0 : 4 }}
       className={`relative flex h-full w-full flex-col overflow-hidden bg-background shadow-[0_24px_80px_-32px_rgba(0,0,0,0.6)] ${
         isRoot ? "" : "border border-border"
       }`}
@@ -99,10 +99,10 @@ export function SpaceFrame({
 
         {/* Tasks below the spaces; assets alongside. */}
         <div className="grid min-h-[180px] flex-1 grid-cols-1 gap-4 lg:grid-cols-[1.35fr_1fr]">
-          <div className="flex min-h-0 flex-col rounded-md border border-border bg-card/40 p-3">
+          <div className="flex min-h-0 flex-col">
             <TaskList spaceId={space.id} />
           </div>
-          <div className="flex min-h-0 flex-col rounded-md border border-border bg-card/40 p-3">
+          <div className="flex min-h-0 flex-col rounded-sm border border-border bg-card/40 p-3">
             <AssetPanel spaceId={space.id} />
           </div>
         </div>

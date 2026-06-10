@@ -44,7 +44,7 @@ export function TimelineStrip({
         </span>
       </div>
 
-      <div className="relative h-16 w-full rounded-xl border border-border bg-card/50">
+      <div className="relative h-16 w-full rounded-sm border border-border bg-card/50">
         {/* hour gridlines */}
         {hours.map((h) => {
           const left = ((h - DAY_START) / SPAN) * 100
@@ -82,7 +82,7 @@ export function TimelineStrip({
               key={e.id}
               title={`${e.title} · ${fmt(e.start)}–${fmt(e.end)}`}
               className={cn(
-                "absolute flex h-5 items-center overflow-hidden rounded-md border px-1.5 text-[10.5px] tracking-tight",
+                "absolute flex h-5 items-center overflow-hidden rounded-sm border px-1.5 text-[10.5px] tracking-tight",
                 "border-foreground/10 bg-secondary/90 text-foreground/90 backdrop-blur-sm",
               )}
               style={{

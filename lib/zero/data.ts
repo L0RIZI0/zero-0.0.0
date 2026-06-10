@@ -562,9 +562,14 @@ export const assets: Asset[] = [
 
 const spaceById = new Map(spaces.map((s) => [s.id, s]))
 const resourceById = new Map(resources.map((r) => [r.id, r]))
+const taskById = new Map(tasks.map((t) => [t.id, t]))
 
 export function getSpace(id: string): Space | undefined {
   return spaceById.get(id)
+}
+
+export function getTask(id: string): Task | undefined {
+  return taskById.get(id)
 }
 
 export function getResource(id: string): Resource | undefined {

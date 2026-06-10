@@ -1,10 +1,11 @@
 "use client"
 
 import { AnimatePresence } from "motion/react"
-import { getSpace } from "@/lib/zero/data"
-import { useZeroNav } from "@/lib/zero/nav-store"
+import { getSpace, getTask } from "@/lib/zero/data"
+import { isTaskId, useZeroNav } from "@/lib/zero/nav-store"
 import { LayerDepthContainer } from "./layer-depth-container"
 import { SpaceFrame } from "./space-frame"
+import { TaskFrame } from "./task-frame"
 
 export function SpaceLayerStack() {
   const { stack, openSpace, closeSpace } = useZeroNav()
@@ -12,13 +13,24 @@ export function SpaceLayerStack() {
   return (
     <div className="relative h-full w-full">
       <AnimatePresence initial={false}>
-        {stack.map((spaceId, index) => {
-          const space = getSpace(spaceId)
+        {stack.map((nodeId, index) => {
+          const isActive = index === stack.length - 1
+
+          if (isTaskId(nodeId)) {
+            const task = getTask(nodeId)
+            if (!task) return null
+            return (
+              <LayerDepthContainer key={nodeId} index={index} isActive={isActive}>
+                <TaskFrame task={task} onClose={closeSpace} />
+              </LayerDepthContainer>
+            )
+          }
+
+          const space = getSpace(nodeId)
           if (!space) return null
           const isRoot = index === 0
-          const isActive = index === stack.length - 1
           return (
-            <LayerDepthContainer key={spaceId} index={index} isActive={isActive}>
+            <LayerDepthContainer key={nodeId} index={index} isActive={isActive}>
               <SpaceFrame
                 space={space}
                 isRoot={isRoot}

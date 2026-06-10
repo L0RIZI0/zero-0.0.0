@@ -28,7 +28,7 @@ export function SpaceButton({
     return (
       <div
         aria-hidden
-        className="h-[112px] w-[200px] shrink-0 rounded-md border border-dashed border-border/60 bg-secondary/30"
+        className="h-[112px] w-[200px] shrink-0 rounded-sm border border-dashed border-border/60 bg-secondary/30"
       />
     )
   }
@@ -39,7 +39,7 @@ export function SpaceButton({
       layoutId={spaceLayoutId(space.id)}
       transition={layerTransition}
       onClick={() => onOpen(space.id)}
-      style={{ borderRadius: 6 }}
+      style={{ borderRadius: 4 }}
       className="group relative flex h-[112px] w-[200px] shrink-0 flex-col justify-between overflow-hidden border border-border bg-card/70 p-3 text-left transition-colors hover:border-foreground/20 hover:bg-card"
     >
       {/* accent edge */}

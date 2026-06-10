@@ -18,3 +18,5 @@ export const contentTransition: Transition = {
 
 export const spaceLayoutId = (id: string) => `space-frame-${id}`
 export const spaceTitleId = (id: string) => `space-title-${id}`
+export const taskLayoutId = (id: string) => `task-frame-${id}`
+export const taskTitleId = (id: string) => `task-title-${id}`
