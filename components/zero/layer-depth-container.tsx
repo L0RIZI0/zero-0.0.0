@@ -23,10 +23,15 @@ export function LayerDepthContainer({
   isActive: boolean
   children: React.ReactNode
 }) {
-  // Parents scale up and fade out past the screen limits; the active layer is
-  // pristine and full-size.
+  // Parents scale up so they recede "past the screen edges" behind the active
+  // layer. We deliberately do NOT animate opacity: an active layer is always an
+  // opaque, full-bleed frame that completely covers everything beneath it, so
+  // fading the parent is invisible work — and it was the cause of the flicker.
+  // (Compositing the huge Space 0 subtree as a semi-transparent layer every
+  // frame is expensive, and on close it produced a "reveal flash" as the
+  // shrinking child uncovered a not-yet-opaque parent.) Scale alone gives the
+  // receding effect with none of the flicker.
   const scale = isActive ? 1 : 1 + depthFromTop * SCALE_STEP
-  const opacity = isActive ? 1 : 0
 
   return (
     <motion.div
@@ -35,15 +40,13 @@ export function LayerDepthContainer({
       style={{
         zIndex: 100 - depthFromTop,
         pointerEvents: isActive ? "auto" : "none",
-        // Hint the compositor so the scale/opacity spring runs off the main
-        // thread (the first dive from Space 0 renders the whole app's content).
-        // NOTE: we only set `willChange` here — we must NOT hardcode a
-        // `transform` in style, because Motion animates `scale` via the same
-        // transform property and the two fight each other, causing a flicker.
-        willChange: "transform, opacity",
+        // Hint the compositor so the (transform-only) spring runs off the main
+        // thread. We animate transform exclusively, so this never fights an
+        // opacity animation the way the previous implementation did.
+        willChange: "transform",
       }}
       initial={false}
-      animate={{ scale, opacity }}
+      animate={{ scale }}
       transition={layerTransition}
     >
       <div className="h-full w-full overflow-hidden">{children}</div>
