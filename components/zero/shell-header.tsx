@@ -2,25 +2,26 @@
 
 import { Search } from "lucide-react"
 import { currentUser } from "@/lib/zero/data"
+import { useZeroNav } from "@/lib/zero/nav-store"
+import { UserIdentity } from "./user-identity"
 
 function ZeroMark() {
   return (
-    <div className="flex items-center gap-2.5">
-      <div className="flex h-7 w-7 items-center justify-center rounded-full border border-foreground/15 bg-foreground text-background">
-        <span className="text-[15px] font-semibold leading-none">0</span>
-      </div>
-      <span className="text-[17px] font-semibold tracking-tight text-foreground">Zero</span>
-    </div>
+    <span className="text-[17px] font-semibold tracking-tight text-foreground">Zero</span>
   )
 }
 
 export function ShellHeader({ dateLabel }: { dateLabel: string }) {
+  const { stack } = useZeroNav()
   const initials = currentUser.name.slice(0, 1).toUpperCase()
+  // When the user has opened a space or task, Space 0 fills the screen and its
+  // identity (the user) is promoted into the header in place of the Zero logo.
+  const inLayer = stack.length > 1
 
   return (
     <header className="flex items-center justify-between gap-4 px-5 py-3.5">
       <div className="flex flex-1 items-center gap-4">
-        <ZeroMark />
+        {inLayer ? <UserIdentity size="sm" /> : <ZeroMark />}
       </div>
 
       <div className="hidden flex-1 items-center justify-center sm:flex">

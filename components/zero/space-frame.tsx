@@ -3,13 +3,16 @@
 import { motion } from "motion/react"
 import { X } from "lucide-react"
 import type { Space } from "@/lib/zero/types"
-import { getChildSpaces } from "@/lib/zero/data"
 import { layerTransition, spaceLayoutId, spaceTitleId, contentTransition } from "@/lib/zero/motion"
 import { TimelineStrip } from "./timeline-strip"
 import { TaskList } from "./task-list"
 import { ResourceStrip } from "./resource-strip"
 import { AssetPanel } from "./asset-panel"
 import { SpaceButton } from "./space-button"
+import { CollapsibleColumn } from "./collapsible-column"
+import { OutputPanel } from "./output-panel"
+import { UserIdentity } from "./user-identity"
+import { getChildSpaces, getSpaceAssets } from "@/lib/zero/data"
 
 export function SpaceFrame({
   space,
@@ -24,6 +27,7 @@ export function SpaceFrame({
 }) {
   const accent = space.accent ?? "var(--accent)"
   const children = getChildSpaces(space.id)
+  const assetCount = getSpaceAssets(space.id).length
 
   return (
     <motion.div
@@ -34,33 +38,40 @@ export function SpaceFrame({
         isRoot ? "" : "border border-border"
       }`}
     >
-      {/* accent edge — shares element with the button's accent strip */}
-      <motion.span
-        layoutId={`${spaceLayoutId(space.id)}-accent`}
-        transition={layerTransition}
-        className="absolute left-0 top-0 z-10 h-full w-[3px]"
-        style={{ backgroundColor: accent }}
-      />
+      {/* accent edge — shares element with the button's accent strip.
+          Space 0 (root) has no accent edge. */}
+      {!isRoot && (
+        <motion.span
+          layoutId={`${spaceLayoutId(space.id)}-accent`}
+          transition={layerTransition}
+          className="absolute left-0 top-0 z-10 h-full w-[3px]"
+          style={{ backgroundColor: accent }}
+        />
+      )}
 
       {/* Frame header */}
       <div className="flex items-center justify-between gap-3 px-6 pt-5 pb-3">
-        <div className="flex min-w-0 flex-col">
-          <motion.h2
-            layoutId={spaceTitleId(space.id)}
-            transition={layerTransition}
-            className="truncate text-[24px] leading-tight tracking-tight text-foreground"
-          >
-            {isRoot ? "All Life" : space.name}
-          </motion.h2>
-          <motion.p
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ ...contentTransition, delay: 0.08 }}
-            className="mt-0.5 truncate text-[12.5px] text-muted-foreground"
-          >
-            {space.description}
-          </motion.p>
-        </div>
+        {isRoot ? (
+          <UserIdentity size="lg" />
+        ) : (
+          <div className="flex min-w-0 flex-col">
+            <motion.h2
+              layoutId={spaceTitleId(space.id)}
+              transition={layerTransition}
+              className="truncate text-[24px] leading-tight tracking-tight text-foreground"
+            >
+              {space.name}
+            </motion.h2>
+            <motion.p
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ ...contentTransition, delay: 0.08 }}
+              className="mt-0.5 truncate text-[12.5px] text-muted-foreground"
+            >
+              {space.description}
+            </motion.p>
+          </div>
+        )}
 
         {!isRoot && (
           <button
@@ -97,13 +108,22 @@ export function SpaceFrame({
           </div>
         )}
 
-        {/* Tasks below the spaces; assets alongside. */}
-        <div className="grid min-h-[180px] flex-1 grid-cols-1 gap-4 lg:grid-cols-[1.35fr_1fr]">
-          <div className="flex min-h-0 flex-col">
+        {/* Assets (far left) · Tasks (center) · Outputs (far right) */}
+        <div className="flex min-h-[180px] flex-1 gap-4">
+          <div className="hidden w-[230px] shrink-0 md:flex">
+            <CollapsibleColumn title="Assets" side="left" count={assetCount}>
+              <AssetPanel spaceId={space.id} />
+            </CollapsibleColumn>
+          </div>
+
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col">
             <TaskList spaceId={space.id} />
           </div>
-          <div className="flex min-h-0 flex-col rounded-sm border border-border bg-card/40 p-3">
-            <AssetPanel spaceId={space.id} />
+
+          <div className="hidden w-[230px] shrink-0 md:flex">
+            <CollapsibleColumn title="Outputs" side="right" count={0}>
+              <OutputPanel spaceId={space.id} />
+            </CollapsibleColumn>
           </div>
         </div>
 

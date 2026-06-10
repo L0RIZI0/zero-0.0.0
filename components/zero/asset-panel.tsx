@@ -54,27 +54,14 @@ export function AssetPanel({ spaceId }: { spaceId: string }) {
   const assets = useMemo(() => getSpaceAssets(spaceId), [spaceId])
 
   return (
-    <section aria-label="Assets and resources" className="flex min-h-0 flex-col">
-      <div className="mb-1 flex items-center justify-between px-1">
-        <h2 className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-          Assets
-        </h2>
-        <span className="text-[11px] tracking-tight text-muted-foreground/70">
-          files · links · subscriptions
-        </span>
-      </div>
-
-      <div className="min-h-0 flex-1 overflow-y-auto pr-1 no-scrollbar">
-        <AnimatePresence mode="popLayout" initial={false}>
-          {assets.length === 0 ? (
-            <p className="px-2 py-6 text-center text-[12px] text-muted-foreground/60">
-              No assets organized in this context yet.
-            </p>
-          ) : (
-            assets.map((a, i) => <AssetRow key={a.id} asset={a} index={i} />)
-          )}
-        </AnimatePresence>
-      </div>
-    </section>
+    <AnimatePresence mode="popLayout" initial={false}>
+      {assets.length === 0 ? (
+        <p className="px-2 py-6 text-center text-[12px] text-muted-foreground/60">
+          No assets organized in this context yet.
+        </p>
+      ) : (
+        assets.map((a, i) => <AssetRow key={a.id} asset={a} index={i} />)
+      )}
+    </AnimatePresence>
   )
 }

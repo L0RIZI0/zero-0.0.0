@@ -39,7 +39,7 @@ function TaskRow({ task }: { task: Task }) {
         layoutId={taskLayoutId(task.id)}
         transition={layerTransition}
         style={{ borderRadius: 4 }}
-        className="group flex w-full items-center gap-3 px-2 py-2 text-left transition-colors hover:bg-secondary/70"
+        className="group flex w-full items-center gap-3 border border-border bg-card/50 px-2.5 py-2 text-left transition-colors hover:border-foreground/20 hover:bg-card"
       >
         <button
           type="button"
@@ -49,7 +49,7 @@ function TaskRow({ task }: { task: Task }) {
             setDone((d) => !d)
           }}
           className={cn(
-            "flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full border transition-colors",
+            "flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-[3px] border transition-colors",
             done
               ? "border-foreground bg-foreground text-background"
               : "border-foreground/25 text-transparent group-hover:border-foreground/50",
@@ -126,7 +126,7 @@ export function TaskList({ spaceId }: { spaceId: string }) {
         </div>
       </div>
 
-      <ul className="min-h-0 flex-1 overflow-y-auto pr-1 no-scrollbar">
+      <ul className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto pr-1 no-scrollbar">
         {shown.length === 0 ? (
           <li className="px-2 py-6 text-center text-[12px] text-muted-foreground/60">
             Nothing open in this context.
