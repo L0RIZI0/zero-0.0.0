@@ -25,31 +25,40 @@ export function LayerDepthContainer({
 }) {
   // Parents scale up so they recede "past the screen edges" behind the active
   // layer. We deliberately do NOT animate opacity: an active layer is always an
-  // opaque, full-bleed frame that completely covers everything beneath it, so
-  // fading the parent is invisible work — and it was the cause of the flicker.
-  // (Compositing the huge Space 0 subtree as a semi-transparent layer every
-  // frame is expensive, and on close it produced a "reveal flash" as the
-  // shrinking child uncovered a not-yet-opaque parent.) Scale alone gives the
-  // receding effect with none of the flicker.
+  // opaque, full-bleed frame that fully covers everything beneath it.
   const scale = isActive ? 1 : 1 + depthFromTop * SCALE_STEP
 
+  // CRITICAL: the depth scale lives on the INNER wrapper, not this positioned
+  // container. The Space/Task frames inside morph via a shared `layoutId`
+  // (button <-> frame), and Framer projects that morph by measuring bounding
+  // boxes. If an *ancestor* of a layoutId node is mid-scale during the morph,
+  // the projection is distorted and flickers — which is exactly what happened
+  // on close and at deeper levels. By scaling a sibling-level inner wrapper and
+  // letting Motion own `willChange` (no always-on hint, another flicker cause),
+  // the morph stays geometrically clean.
+  //
+  // Layers two or more deep are completely occluded by the opaque active layer,
+  // so we hide them outright to keep them out of compositing during transitions.
+  const occluded = depthFromTop >= 2
+
   return (
-    <motion.div
+    <div
       aria-hidden={!isActive}
-      className="absolute inset-0 origin-center"
+      className="absolute inset-0"
       style={{
         zIndex: 100 - depthFromTop,
         pointerEvents: isActive ? "auto" : "none",
-        // Hint the compositor so the (transform-only) spring runs off the main
-        // thread. We animate transform exclusively, so this never fights an
-        // opacity animation the way the previous implementation did.
-        willChange: "transform",
+        visibility: occluded ? "hidden" : "visible",
       }}
-      initial={false}
-      animate={{ scale }}
-      transition={layerTransition}
     >
-      <div className="h-full w-full overflow-hidden">{children}</div>
-    </motion.div>
+      <motion.div
+        className="h-full w-full origin-center overflow-hidden"
+        initial={false}
+        animate={{ scale }}
+        transition={layerTransition}
+      >
+        {children}
+      </motion.div>
+    </div>
   )
 }
