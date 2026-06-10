@@ -39,12 +39,12 @@ export function PathStack() {
           return (
             <motion.div
               key={nodeId}
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              exit={{ opacity: 0, height: 0 }}
               transition={contentTransition}
               style={{ paddingLeft: (depth - 1) * 16 }}
-              className="flex items-center"
+              className="flex items-center overflow-hidden"
             >
               <span
                 aria-hidden
