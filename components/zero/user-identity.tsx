@@ -35,7 +35,7 @@ export function UserIdentity({
     <div className={cn("flex min-w-0 items-center gap-2.5", className)}>
       <span className={cn("relative shrink-0 overflow-hidden rounded-full border border-border", avatar)}>
         <Image
-          src={currentUser.avatarUrl ?? "/avatar-loris.png"}
+          src={currentUser.avatarUrl ?? "/loris-avatar.png"}
           alt={`${currentUser.name} avatar`}
           fill
           sizes="44px"

@@ -4,7 +4,7 @@ export const currentUser: User = {
   id: "u_self",
   name: "Loris",
   handle: "loris",
-  avatarUrl: "/avatar-loris.png",
+  avatarUrl: "/loris-avatar.png",
 }
 
 // ----------------------------------------------------------------------------
