@@ -3,8 +3,9 @@
 import { useMemo, useState } from "react"
 import { AnimatePresence, motion } from "motion/react"
 import { ChevronLeft, ChevronRight } from "lucide-react"
-import { getSpaceEvents } from "@/lib/zero/data"
+import { getSpace, getSpaceEvents } from "@/lib/zero/data"
 import { panelTransition } from "@/lib/zero/motion"
+import { useZeroNav } from "@/lib/zero/nav-store"
 import { cn } from "@/lib/utils"
 
 const DAY_START = 8 * 60 // 08:00
@@ -19,6 +20,13 @@ function fmt(min: number) {
   return m === 0 ? `${hr}${ampm}` : `${hr}:${String(m).padStart(2, "0")}${ampm}`
 }
 
+// Slide variants for the day track — direction +1 means moving forward in time.
+const dayVariants = {
+  enter: (dir: number) => ({ x: dir > 0 ? "100%" : "-100%", opacity: 0 }),
+  center: { x: 0, opacity: 1 },
+  exit: (dir: number) => ({ x: dir > 0 ? "-100%" : "100%", opacity: 0 }),
+}
+
 export function TimelineStrip({
   spaceId,
   accent,
@@ -26,6 +34,7 @@ export function TimelineStrip({
   spaceId: string
   accent?: string
 }) {
+  const { openSpace } = useZeroNav()
   const evts = useMemo(() => getSpaceEvents(spaceId), [spaceId])
   const hours = useMemo(() => {
     const out: number[] = []
@@ -34,9 +43,24 @@ export function TimelineStrip({
   }, [])
 
   // The user can scrub the timeline backward/forward in time. dayOffset === 0
-  // is today; only then is the "Today" label hidden.
+  // is today; only then is the "Today" label hidden. `direction` drives the
+  // slide so days move left/right smoothly rather than snapping.
   const [dayOffset, setDayOffset] = useState(0)
+  const [direction, setDirection] = useState(0)
   const isToday = dayOffset === 0
+
+  const goPrev = () => {
+    setDirection(-1)
+    setDayOffset((o) => o - 1)
+  }
+  const goNext = () => {
+    setDirection(1)
+    setDayOffset((o) => o + 1)
+  }
+  const goToday = () => {
+    setDirection(dayOffset > 0 ? -1 : 1)
+    setDayOffset(0)
+  }
 
   const viewedDate = useMemo(() => {
     const d = new Date()
@@ -44,17 +68,35 @@ export function TimelineStrip({
     return d
   }, [dayOffset])
 
-  const dayLabel = isToday
-    ? "Today"
-    : viewedDate.toLocaleDateString([], { weekday: "long", month: "short", day: "numeric" })
+  const dayLabel = viewedDate.toLocaleDateString([], {
+    weekday: "long",
+    month: "short",
+    day: "numeric",
+  })
 
   // A representative "now" marker for the prototype — only on today.
   const nowPct = ((13 * 60 + 5 - DAY_START) / SPAN) * 100
 
+  const todayButton = (
+    <button
+      type="button"
+      onClick={goToday}
+      className="rounded-md px-1.5 py-0.5 text-[11px] text-muted-foreground/70 transition-colors hover:text-foreground"
+    >
+      Today
+    </button>
+  )
+  const dateText = (
+    <span className="text-[11px] font-medium uppercase tracking-[0.14em] text-foreground">
+      {dayLabel}
+    </span>
+  )
+
   return (
     <section aria-label="Timeline" className="px-1">
       {/* Fixed-height row so the label can fade in without pushing the timeline
-          down. The label only appears when viewing a day other than today. */}
+          down. "Today" sits on the side it lies on relative to the viewed day:
+          left when viewing the future, right when viewing the past. */}
       <div className="relative mb-1.5 h-5">
         <AnimatePresence initial={false}>
           {!isToday && (
@@ -66,16 +108,17 @@ export function TimelineStrip({
               transition={panelTransition}
               className="absolute inset-x-0 top-0 flex items-center justify-center gap-2"
             >
-              <span className="text-[11px] font-medium uppercase tracking-[0.14em] text-foreground">
-                {dayLabel}
-              </span>
-              <button
-                type="button"
-                onClick={() => setDayOffset(0)}
-                className="rounded-md px-1.5 py-0.5 text-[11px] text-muted-foreground/70 transition-colors hover:text-foreground"
-              >
-                Today
-              </button>
+              {dayOffset > 0 ? (
+                <>
+                  {todayButton}
+                  {dateText}
+                </>
+              ) : (
+                <>
+                  {dateText}
+                  {todayButton}
+                </>
+              )}
             </motion.div>
           )}
         </AnimatePresence>
@@ -91,68 +134,98 @@ export function TimelineStrip({
         <div className="flex h-full items-stretch">
           <button
             type="button"
-            onClick={() => setDayOffset((o) => o - 1)}
+            onClick={goPrev}
             aria-label="Previous day"
             className="flex w-10 shrink-0 items-center justify-center text-muted-foreground/70 transition-colors hover:bg-secondary/40 hover:text-foreground"
           >
             <ChevronLeft className="h-4 w-4" />
           </button>
 
-          <div className="relative h-full flex-1 border-x border-border bg-card/50">
-            {/* hour gridlines */}
-            {hours.map((h) => {
-              const left = ((h - DAY_START) / SPAN) * 100
-              return (
-                <div
-                  key={h}
-                  className="absolute top-0 bottom-0 w-px bg-border/60"
-                  style={{ left: `${left}%` }}
-                />
-              )
-            })}
-
-            {/* now marker — today only */}
-            {isToday && (
-              <div
-                className="absolute top-1 bottom-1 z-10 w-px"
-                style={{ left: `${nowPct}%`, backgroundColor: accent ?? "var(--accent)" }}
+          {/* Viewport — the day track slides within it; drag to scrub time. */}
+          <div className="relative h-full flex-1 overflow-hidden border-x border-border bg-card/50">
+            <AnimatePresence initial={false} custom={direction}>
+              <motion.div
+                key={dayOffset}
+                custom={direction}
+                variants={dayVariants}
+                initial="enter"
+                animate="center"
+                exit="exit"
+                transition={{ duration: 0.32, ease: [0.22, 0.61, 0.36, 1] }}
+                drag="x"
+                dragConstraints={{ left: 0, right: 0 }}
+                dragElastic={0.18}
+                dragSnapToOrigin
+                onDragEnd={(_, info) => {
+                  if (info.offset.x < -60) goNext()
+                  else if (info.offset.x > 60) goPrev()
+                }}
+                className="absolute inset-0 cursor-grab active:cursor-grabbing"
               >
-                <span
-                  className="absolute -top-1 -left-[3px] h-[7px] w-[7px] rounded-full"
-                  style={{ backgroundColor: accent ?? "var(--accent)" }}
-                />
-              </div>
-            )}
+                {/* hour gridlines */}
+                {hours.map((h) => {
+                  const left = ((h - DAY_START) / SPAN) * 100
+                  return (
+                    <div
+                      key={h}
+                      className="pointer-events-none absolute bottom-0 top-0 w-px bg-border/60"
+                      style={{ left: `${left}%` }}
+                    />
+                  )
+                })}
 
-            {/* events — only render on today for this prototype */}
-            {isToday &&
-              evts.map((e, i) => {
-                const left = ((e.start - DAY_START) / SPAN) * 100
-                const width = ((e.end - e.start) / SPAN) * 100
-                const lane = i % 2
-                return (
+                {/* now marker — today only */}
+                {isToday && (
                   <div
-                    key={e.id}
-                    title={`${e.title} · ${fmt(e.start)}–${fmt(e.end)}`}
-                    className={cn(
-                      "absolute flex h-5 items-center overflow-hidden rounded-sm border px-1.5 text-[10.5px] tracking-tight",
-                      "border-foreground/10 bg-secondary/90 text-foreground/90 backdrop-blur-sm",
-                    )}
-                    style={{
-                      left: `calc(${left}% + 2px)`,
-                      width: `calc(${Math.max(width, 6)}% - 4px)`,
-                      top: lane === 0 ? 6 : 28,
-                    }}
+                    className="pointer-events-none absolute bottom-1 top-1 z-10 w-px"
+                    style={{ left: `${nowPct}%`, backgroundColor: accent ?? "var(--accent)" }}
                   >
-                    <span className="truncate">{e.title}</span>
+                    <span
+                      className="absolute -left-[3px] -top-1 h-[7px] w-[7px] rounded-full"
+                      style={{ backgroundColor: accent ?? "var(--accent)" }}
+                    />
                   </div>
-                )
-              })}
+                )}
+
+                {/* events — only render on today for this prototype. Each event
+                    carries the accent of the space it belongs to and opens that
+                    space as a layer, just like a task. */}
+                {isToday &&
+                  evts.map((e, i) => {
+                    const left = ((e.start - DAY_START) / SPAN) * 100
+                    const width = ((e.end - e.start) / SPAN) * 100
+                    const lane = i % 2
+                    const space = getSpace(e.spaceId)
+                    const color = space?.accent
+                    return (
+                      <button
+                        key={e.id}
+                        type="button"
+                        onClick={() => openSpace(e.spaceId)}
+                        title={`${e.title} · ${fmt(e.start)}–${fmt(e.end)}`}
+                        className={cn(
+                          "absolute flex h-5 items-center overflow-hidden rounded-sm border-l-2 px-1.5 text-[10.5px] tracking-tight",
+                          "text-foreground/90 backdrop-blur-sm transition-[filter] hover:brightness-110",
+                        )}
+                        style={{
+                          left: `calc(${left}% + 2px)`,
+                          width: `calc(${Math.max(width, 6)}% - 4px)`,
+                          top: lane === 0 ? 6 : 28,
+                          borderLeftColor: color ?? "var(--accent)",
+                          backgroundColor: color ? `${color}26` : "var(--secondary)",
+                        }}
+                      >
+                        <span className="truncate">{e.title}</span>
+                      </button>
+                    )
+                  })}
+              </motion.div>
+            </AnimatePresence>
           </div>
 
           <button
             type="button"
-            onClick={() => setDayOffset((o) => o + 1)}
+            onClick={goNext}
             aria-label="Next day"
             className="flex w-10 shrink-0 items-center justify-center text-muted-foreground/70 transition-colors hover:bg-secondary/40 hover:text-foreground"
           >
@@ -161,7 +234,7 @@ export function TimelineStrip({
         </div>
       </div>
 
-      {/* hour labels — placed below the timeline track, aligned to its width */}
+      {/* hour labels — a static ruler below the track, aligned to its width */}
       <div className="relative mt-1 h-3.5" style={{ marginLeft: 40, marginRight: 40 }}>
         {hours.map((h) => {
           const left = ((h - DAY_START) / SPAN) * 100

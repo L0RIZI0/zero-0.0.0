@@ -46,7 +46,7 @@ export function TaskFrame({
             aria-label={done ? "Mark task incomplete" : "Mark task complete"}
             onClick={() => setDone((d) => !d)}
             className={cn(
-              "mt-1 flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full border transition-colors",
+              "mt-1 flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-[4px] border transition-colors",
               done
                 ? "border-foreground bg-foreground text-background"
                 : "border-foreground/25 text-transparent hover:border-foreground/50",

@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react"
 import { Search } from "lucide-react"
-import { useZeroNav } from "@/lib/zero/nav-store"
 import { UserIdentity } from "./user-identity"
 
 function useClock() {
@@ -20,16 +19,12 @@ function useClock() {
 }
 
 export function ShellHeader({ dateLabel }: { dateLabel: string }) {
-  const { stack } = useZeroNav()
   const time = useClock()
-  // The user identity always lives in the top-left. It's a touch larger on
-  // Space 0 and shrinks once a layer is open to make room for the breadcrumb.
-  const inLayer = stack.length > 1
 
   return (
     <header className="flex items-center justify-between gap-4 px-5 py-3.5">
       <div className="flex flex-1 items-center">
-        <UserIdentity size={inLayer ? "sm" : "md"} />
+        <UserIdentity size="md" />
       </div>
 
       <div className="hidden flex-1 items-center justify-center gap-2.5 sm:flex">

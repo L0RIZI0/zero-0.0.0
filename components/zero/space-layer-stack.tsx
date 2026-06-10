@@ -15,12 +15,13 @@ export function SpaceLayerStack() {
       <AnimatePresence initial={false}>
         {stack.map((nodeId, index) => {
           const isActive = index === stack.length - 1
+          const depthFromTop = stack.length - 1 - index
 
           if (isTaskId(nodeId)) {
             const task = getTask(nodeId)
             if (!task) return null
             return (
-              <LayerDepthContainer key={nodeId} index={index} isActive={isActive}>
+              <LayerDepthContainer key={nodeId} depthFromTop={depthFromTop} isActive={isActive}>
                 <TaskFrame task={task} onClose={closeSpace} />
               </LayerDepthContainer>
             )
@@ -30,7 +31,7 @@ export function SpaceLayerStack() {
           if (!space) return null
           const isRoot = index === 0
           return (
-            <LayerDepthContainer key={nodeId} index={index} isActive={isActive}>
+            <LayerDepthContainer key={nodeId} depthFromTop={depthFromTop} isActive={isActive}>
               <SpaceFrame
                 space={space}
                 isRoot={isRoot}
