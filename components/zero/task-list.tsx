@@ -6,7 +6,14 @@ import { Check, Plus, Pin } from "lucide-react"
 import { getContextItems, isPinned, pinItem, type ContextItem } from "@/lib/zero/data"
 import type { Task, TaskPriority } from "@/lib/zero/types"
 import { useZeroNav } from "@/lib/zero/nav-store"
-import { layerTransition, taskLayoutId, taskTitleId, panelTransition } from "@/lib/zero/motion"
+import {
+  layerTransition,
+  taskLayoutId,
+  taskTitleId,
+  spaceLayoutId,
+  spaceTitleId,
+  panelTransition,
+} from "@/lib/zero/motion"
 import { NodeGlyph } from "./node-glyph"
 import { CreateWindow } from "./create-window"
 import { ContextMenu, type ContextMenuState } from "./context-menu"
@@ -69,11 +76,7 @@ function TaskRow({
             e.stopPropagation()
             setDone((d) => !d)
           }}
-          className={cn(
-            GLYPH_BOX,
-            "relative transition-colors",
-            done ? "text-foreground" : "text-foreground/70 group-hover:text-foreground",
-          )}
+          className={cn(GLYPH_BOX, "relative text-foreground")}
         >
           <NodeGlyph kind="task" filled={done} strokeWidth={2} />
           {done && (

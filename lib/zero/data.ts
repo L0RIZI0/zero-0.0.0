@@ -197,7 +197,7 @@ export const spaces: Space[] = [
     description: "Your role, your team, the work that pays.",
     childSpaceIds: ["s_team", "s_strategy", "s_admin"],
     assignedResourceIds: ["r_gmail", "r_slack", "r_drive", "r_notion", "r_docs", "r_ai"],
-    accent: "#7F9AA3",
+    accent: "#2F6FED",
   },
   {
     id: "s_team",
@@ -206,7 +206,7 @@ export const spaces: Space[] = [
     description: "People you work alongside.",
     childSpaceIds: [],
     assignedResourceIds: ["r_slack", "r_gmail", "r_docs", "r_contacts"],
-    accent: "#7F9AA3",
+    accent: "#2F6FED",
   },
   {
     id: "s_strategy",
@@ -215,7 +215,7 @@ export const spaces: Space[] = [
     description: "Direction, bets, and the long arc.",
     childSpaceIds: [],
     assignedResourceIds: ["r_notion", "r_browser", "r_deck", "r_docs", "r_whiteboard", "r_sheet", "r_ai"],
-    accent: "#7F9AA3",
+    accent: "#2F6FED",
   },
   {
     id: "s_admin",
@@ -224,7 +224,7 @@ export const spaces: Space[] = [
     description: "The necessary maintenance of work.",
     childSpaceIds: [],
     assignedResourceIds: ["r_gmail", "r_drive", "r_docs", "r_sheet", "r_files"],
-    accent: "#7F9AA3",
+    accent: "#2F6FED",
   },
   // --- Zero ------------------------------------------------------------------
   {
@@ -234,7 +234,7 @@ export const spaces: Space[] = [
     description: "Building the contextual shell itself.",
     childSpaceIds: ["s_product", "s_deck", "s_research"],
     assignedResourceIds: ["r_figma", "r_notion", "r_slack", "r_deck", "r_whiteboard", "r_notes", "r_ai"],
-    accent: "#B5895E",
+    accent: "#D6209A",
   },
   {
     id: "s_product",
@@ -243,7 +243,7 @@ export const spaces: Space[] = [
     description: "Interaction, surface, and feel.",
     childSpaceIds: [],
     assignedResourceIds: ["r_figma", "r_whiteboard", "r_notes", "r_slack"],
-    accent: "#B5895E",
+    accent: "#D6209A",
   },
   {
     id: "s_deck",
@@ -252,7 +252,7 @@ export const spaces: Space[] = [
     description: "The investor narrative for 4FTER.",
     childSpaceIds: [],
     assignedResourceIds: ["r_deck", "r_figma"],
-    accent: "#B5895E",
+    accent: "#D6209A",
   },
   {
     id: "s_research",
@@ -261,7 +261,7 @@ export const spaces: Space[] = [
     description: "References, prior art, and inspiration.",
     childSpaceIds: [],
     assignedResourceIds: ["r_browser", "r_notion", "r_ai"],
-    accent: "#B5895E",
+    accent: "#D6209A",
   },
   // --- Personal --------------------------------------------------------------
   {
@@ -271,7 +271,7 @@ export const spaces: Space[] = [
     description: "Life outside the work.",
     childSpaceIds: ["s_home", "s_family", "s_journal"],
     assignedResourceIds: ["r_journal", "r_notes", "r_contacts"],
-    accent: "#A88C6A",
+    accent: "#E8810C",
   },
   {
     id: "s_home",
@@ -280,7 +280,7 @@ export const spaces: Space[] = [
     description: "The place and its upkeep.",
     childSpaceIds: [],
     assignedResourceIds: ["r_files", "r_notes"],
-    accent: "#A88C6A",
+    accent: "#E8810C",
   },
   {
     id: "s_family",
@@ -289,7 +289,7 @@ export const spaces: Space[] = [
     description: "The people closest to you.",
     childSpaceIds: [],
     assignedResourceIds: ["r_contacts", "r_journal"],
-    accent: "#A88C6A",
+    accent: "#E8810C",
   },
   {
     id: "s_journal",
@@ -298,7 +298,7 @@ export const spaces: Space[] = [
     description: "A quiet record of days.",
     childSpaceIds: [],
     assignedResourceIds: ["r_journal", "r_notes"],
-    accent: "#A88C6A",
+    accent: "#E8810C",
   },
   // --- Health ----------------------------------------------------------------
   {
@@ -308,7 +308,7 @@ export const spaces: Space[] = [
     description: "The body you operate from.",
     childSpaceIds: ["s_training", "s_sleep", "s_nutrition"],
     assignedResourceIds: ["r_health", "r_notes", "r_ai"],
-    accent: "#6E9C84",
+    accent: "#15A36B",
   },
   {
     id: "s_training",
@@ -317,7 +317,7 @@ export const spaces: Space[] = [
     description: "Movement and strength.",
     childSpaceIds: [],
     assignedResourceIds: ["r_health", "r_notes"],
-    accent: "#6E9C84",
+    accent: "#15A36B",
   },
   {
     id: "s_sleep",
@@ -326,7 +326,7 @@ export const spaces: Space[] = [
     description: "Recovery and rest.",
     childSpaceIds: [],
     assignedResourceIds: ["r_health"],
-    accent: "#6E9C84",
+    accent: "#15A36B",
   },
   {
     id: "s_nutrition",
@@ -335,7 +335,7 @@ export const spaces: Space[] = [
     description: "What fuels the work.",
     childSpaceIds: [],
     assignedResourceIds: ["r_health", "r_sheet"],
-    accent: "#6E9C84",
+    accent: "#15A36B",
   },
 ]
 
