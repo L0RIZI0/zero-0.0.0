@@ -29,10 +29,18 @@ function AssetRow({ asset, index }: { asset: Asset; index: number }) {
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0 }}
       transition={{ ...contentTransition, delay: index * 0.025 }}
-      className="group flex w-full items-center gap-3 rounded-lg border border-transparent px-2 py-2 text-left transition-colors hover:border-border hover:bg-card"
+      className="group relative flex w-full items-center gap-3 rounded-lg border border-transparent px-2 py-2 text-left transition-colors hover:border-border hover:bg-card"
     >
+      {/* Continuity rail (Inputs-only): a hairline running from the window's
+          left edge to this row's icon. FrontContent pads the surface by 24px,
+          so -24px lands the rail on the frame's left border. */}
       <span
-        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border text-muted-foreground"
+        aria-hidden
+        className="pointer-events-none absolute top-1/2 h-px bg-border"
+        style={{ left: -24, width: 32 }}
+      />
+      <span
+        className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border bg-background text-muted-foreground"
         style={resource?.tint ? { color: resource.tint, borderColor: `${resource.tint}33` } : undefined}
       >
         <Icon className="h-4 w-4" />

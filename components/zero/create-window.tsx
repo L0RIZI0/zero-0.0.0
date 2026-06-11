@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
+import { createPortal } from "react-dom"
 import { AnimatePresence, motion } from "motion/react"
 import { Check, ChevronDown, X } from "lucide-react"
 import { NodeGlyph, NODE_KIND_META, type NodeKind } from "./node-glyph"
@@ -31,6 +32,11 @@ export function CreateWindow({
   const [title, setTitle] = useState("")
   const [menuOpen, setMenuOpen] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
+  const [mounted, setMounted] = useState(false)
+
+  useEffect(() => {
+    setMounted(true)
+  }, [])
 
   useEffect(() => {
     inputRef.current?.focus()
@@ -67,7 +73,11 @@ export function CreateWindow({
     }
   }
 
-  return (
+  if (!mounted) return null
+
+  // Portal to <body> so the fixed overlay escapes the transformed window-frame
+  // ancestors (motion's transforms trap `position: fixed` and stacking).
+  return createPortal(
     <motion.div
       className="fixed inset-0 z-[150] flex items-start justify-center"
       initial={{ opacity: 0 }}

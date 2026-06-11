@@ -20,8 +20,10 @@ export function WorkSurface() {
         <SpaceLayerStack />
       </div>
 
-      {/* Layer C — persistent frontmost content. */}
-      <div className="absolute inset-0 z-20">
+      {/* Layer C — persistent frontmost content. The wrapper is click-through;
+          FrontContent re-enables pointer events on its interactive children so
+          the window frame's spaces dock + header below stay clickable. */}
+      <div className="pointer-events-none absolute inset-0 z-20">
         <FrontContent />
       </div>
     </div>
