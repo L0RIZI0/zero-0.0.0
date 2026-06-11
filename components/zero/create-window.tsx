@@ -14,9 +14,8 @@ const KIND_ORDER: NodeKind[] = ["task", "space", "event"]
 /**
  * A focused window for creating a new task / space / event in the current
  * context. The glyph on the left of the title is a dropdown that picks the
- * node kind (square / hexagon / triangle). Each input row has a hairline that
- * runs from the screen edge to the icon's left border, echoing the timeline
- * continuity rails.
+ * node kind (square / hexagon / triangle), and the user types a title then
+ * saves or discards.
  */
 export function CreateWindow({
   spaceId,
@@ -109,11 +108,9 @@ export function CreateWindow({
           </button>
         </div>
 
-        {/* Title row: hairline → glyph dropdown → title input. */}
-        <div className="relative mt-3 flex items-center gap-3 py-3 pr-5">
-          {/* continuity rail from the window's left edge to the glyph */}
-          <div className="h-px flex-1 bg-border" />
-
+        {/* Title row: glyph dropdown → title input. (No continuity rail here —
+            that rail belongs only to the Inputs list inside a window.) */}
+        <div className="relative mt-3 flex items-center gap-3 px-5 py-3">
           <div className="relative shrink-0">
             <button
               type="button"

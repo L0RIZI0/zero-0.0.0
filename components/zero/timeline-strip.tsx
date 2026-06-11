@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react"
 import { AnimatePresence, motion } from "motion/react"
 import { ChevronLeft, ChevronRight } from "lucide-react"
-import { getSpace, getSpaceEvents } from "@/lib/zero/data"
+import { getSpace, getSpaceEvents, isInSubtree } from "@/lib/zero/data"
 import { panelTransition } from "@/lib/zero/motion"
 import { useZeroNav } from "@/lib/zero/nav-store"
 import { cn } from "@/lib/utils"
@@ -34,8 +34,11 @@ export function TimelineStrip({
   spaceId: string
   accent?: string
 }) {
-  const { openSpace } = useZeroNav()
-  const evts = useMemo(() => getSpaceEvents(spaceId), [spaceId])
+  const { openSpace, dataVersion } = useZeroNav()
+  // The timeline always shows the FULL day (all events). When a child window is
+  // open, events outside its subtree dim rather than disappear, so the user
+  // keeps spatial context. `spaceId` is the active node's context space.
+  const evts = useMemo(() => getSpaceEvents("s_root"), [dataVersion])
   const hours = useMemo(() => {
     const out: number[] = []
     for (let m = DAY_START; m <= DAY_END; m += 120) out.push(m)
@@ -197,10 +200,15 @@ export function TimelineStrip({
                     const lane = i % 2
                     const space = getSpace(e.spaceId)
                     const color = space?.accent
+                    // Dim events that aren't in the active node's subtree.
+                    const related = isInSubtree(spaceId, e.spaceId)
                     return (
-                      <button
+                      <motion.button
                         key={e.id}
                         type="button"
+                        initial={false}
+                        animate={{ opacity: related ? 1 : 0.25 }}
+                        transition={panelTransition}
                         onClick={() => openSpace(e.spaceId)}
                         title={`${e.title} · ${fmt(e.start)}–${fmt(e.end)}`}
                         className={cn(
@@ -216,7 +224,7 @@ export function TimelineStrip({
                         }}
                       >
                         <span className="truncate">{e.title}</span>
-                      </button>
+                      </motion.button>
                     )
                   })}
               </motion.div>

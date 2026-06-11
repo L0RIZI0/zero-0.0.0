@@ -3,10 +3,11 @@
 import { useEffect, useMemo, useState } from "react"
 import { AnimatePresence, motion } from "motion/react"
 import { Check, Plus } from "lucide-react"
-import { getSpaceTasks } from "@/lib/zero/data"
+import { getContextItems, type ContextItem } from "@/lib/zero/data"
 import type { Task, TaskPriority } from "@/lib/zero/types"
 import { useZeroNav } from "@/lib/zero/nav-store"
-import { layerTransition, taskLayoutId, taskTitleId } from "@/lib/zero/motion"
+import { layerTransition, taskLayoutId, taskTitleId, panelTransition } from "@/lib/zero/motion"
+import { NodeGlyph } from "./node-glyph"
 import { CreateWindow } from "./create-window"
 import { cn } from "@/lib/utils"
 
@@ -96,23 +97,69 @@ function TaskRow({ task }: { task: Task }) {
   )
 }
 
+/** An event surfaced in the task list — read-only row with a triangle glyph. */
+function EventRow({ item }: { item: ContextItem }) {
+  const { openSpace } = useZeroNav()
+  const event = item.event!
+  return (
+    <li>
+      <motion.button
+        type="button"
+        layout
+        initial={{ opacity: 0, y: 4 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: -4 }}
+        transition={panelTransition}
+        onClick={() => openSpace(event.spaceId)}
+        style={{ borderRadius: 4 }}
+        whileHover={{ scale: 1.02, boxShadow: "0 12px 28px -10px rgba(0,0,0,0.28)" }}
+        className="group flex w-full items-center gap-3 border border-border bg-card-solid px-2.5 py-2 text-left"
+      >
+        <span className="flex h-[18px] w-[18px] shrink-0 items-center justify-center text-foreground">
+          <NodeGlyph kind="event" />
+        </span>
+        <span className="min-w-0 flex-1 truncate text-[13px] tracking-tight text-foreground">
+          {event.title}
+        </span>
+        <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground/70">
+          {fmtTime(event.start)}
+        </span>
+      </motion.button>
+    </li>
+  )
+}
+
+function fmtTime(min: number) {
+  const h = Math.floor(min / 60)
+  const m = min % 60
+  const ampm = h >= 12 ? "pm" : "am"
+  const hr = h % 12 === 0 ? 12 : h % 12
+  return m === 0 ? `${hr}${ampm}` : `${hr}:${String(m).padStart(2, "0")}${ampm}`
+}
+
 export function TaskList({ spaceId }: { spaceId: string }) {
   const { dataVersion } = useZeroNav()
-  // Re-read whenever data mutates (new task created) or the space changes.
-  const tasks = useMemo(() => getSpaceTasks(spaceId), [spaceId, dataVersion])
+  // Re-read whenever data mutates (new item created) or the context changes.
+  const items = useMemo(() => getContextItems(spaceId), [spaceId, dataVersion])
   const [filter, setFilter] = useState<"open" | "all">("open")
   const [creating, setCreating] = useState(false)
 
-  // Reset filter view when the space changes.
+  // Reset filter view when the context changes.
   useEffect(() => setFilter("open"), [spaceId])
 
-  const shown = filter === "open" ? tasks.filter((t) => !t.completed) : tasks
-  const openCount = tasks.filter((t) => !t.completed).length
+  const shown = useMemo(
+    () =>
+      filter === "open"
+        ? items.filter((it) => it.kind === "event" || !it.task!.completed)
+        : items,
+    [items, filter],
+  )
+  const openCount = items.filter((it) => it.kind === "task" && !it.task!.completed).length
 
   return (
     <section aria-label="Tasks" className="flex min-h-0 flex-col">
-      {/* The "Tasks" title is rendered by SpaceFrame so it stays centered to the
-          whole body even when a side panel opens. Here we keep only the filters. */}
+      {/* The "Tasks" title is rendered by FrontContent so it stays centered to
+          the whole body. Here we keep only the filters. */}
       <div className="mb-1 flex h-5 items-center justify-end px-1">
         <div className="flex items-center gap-1">
           {(["open", "all"] as const).map((f) => (
@@ -134,13 +181,24 @@ export function TaskList({ spaceId }: { spaceId: string }) {
       </div>
 
       <ul className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto pr-1 no-scrollbar">
-        {shown.length === 0 ? (
-          <li className="px-2 py-5 text-center text-[12px] text-muted-foreground/60">
-            Nothing open in this context.
-          </li>
-        ) : (
-          shown.map((t) => <TaskRow key={t.id} task={t} />)
-        )}
+        <AnimatePresence initial={false} mode="popLayout">
+          {shown.length === 0 ? (
+            <li
+              key="empty"
+              className="px-2 py-5 text-center text-[12px] text-muted-foreground/60"
+            >
+              Nothing open in this context.
+            </li>
+          ) : (
+            shown.map((it) =>
+              it.kind === "task" ? (
+                <TaskRow key={it.id} task={it.task!} />
+              ) : (
+                <EventRow key={it.id} item={it} />
+              ),
+            )
+          )}
+        </AnimatePresence>
       </ul>
 
       <motion.button

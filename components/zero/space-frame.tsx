@@ -34,8 +34,25 @@ export function SpaceFrame({
   const accent = space.accent ?? "var(--accent)"
   const children = getChildSpaces(space.id)
 
-  // Root is not a framed window; the surface background stands in for Space 0.
-  if (isRoot) return null
+  // Space 0 (root) is a borderless, non-closable window. It has no title band
+  // (the shell header carries identity) but it still shows the spaces dock at
+  // the bottom so the user can browse and create top-level spaces.
+  if (isRoot) {
+    return (
+      <div className="relative flex h-full w-full flex-col">
+        <div className="min-h-0 flex-1" aria-hidden />
+        <SpacesDock
+          heading="Spaces"
+          spaces={children}
+          onOpenChild={onOpenChild}
+          onAdd={() => setCreating(true)}
+        />
+        {creating && (
+          <CreateWindow spaceId={space.id} defaultKind="space" onClose={() => setCreating(false)} />
+        )}
+      </div>
+    )
+  }
 
   return (
     <motion.div
@@ -91,29 +108,58 @@ export function SpaceFrame({
           (FrontContent, a higher z-layer) render over this gap. */}
       <div className="min-h-0 flex-1" aria-hidden />
 
-      {/* Spaces dock — this window's child subspaces, pinned to the bottom.
-          Always present (with the "+ ADD" card) so a space can gain subspaces. */}
-      <motion.div
-        initial={{ opacity: 0, y: 8 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ ...contentTransition, delay: 0.1 }}
-        className="flex shrink-0 flex-col items-center px-6 pb-4"
-        style={{ height: SPACES_DOCK_HEIGHT }}
-      >
-        <h3 className="mb-2 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-          Subspaces
-        </h3>
-        <div className="flex w-full flex-1 flex-wrap items-stretch justify-center gap-3 overflow-x-auto pb-1 no-scrollbar">
-          {children.map((child) => (
-            <SpaceButton key={child.id} space={child} onOpen={onOpenChild} />
-          ))}
-          <AddSpaceCard onClick={() => setCreating(true)} />
-        </div>
-      </motion.div>
+      {/* Spaces dock — this window's child subspaces, pinned to the bottom. */}
+      <SpacesDock
+        heading="Subspaces"
+        spaces={children}
+        onOpenChild={onOpenChild}
+        onAdd={() => setCreating(true)}
+        animate
+      />
 
       {creating && (
         <CreateWindow spaceId={space.id} defaultKind="space" onClose={() => setCreating(false)} />
       )}
+    </motion.div>
+  )
+}
+
+/** Bottom dock listing child spaces plus a trailing "+ ADD" card. */
+function SpacesDock({
+  heading,
+  spaces,
+  onOpenChild,
+  onAdd,
+  animate = false,
+}: {
+  heading: string
+  spaces: Space[]
+  onOpenChild: (spaceId: string) => void
+  onAdd: () => void
+  animate?: boolean
+}) {
+  const motionProps = animate
+    ? {
+        initial: { opacity: 0, y: 8 },
+        animate: { opacity: 1, y: 0 },
+        transition: { ...contentTransition, delay: 0.1 },
+      }
+    : {}
+  return (
+    <motion.div
+      {...motionProps}
+      className="flex shrink-0 flex-col items-center px-6 pb-4"
+      style={{ height: SPACES_DOCK_HEIGHT }}
+    >
+      <h3 className="mb-2 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+        {heading}
+      </h3>
+      <div className="flex w-full flex-1 flex-wrap items-stretch justify-center gap-3 overflow-x-auto pb-1 no-scrollbar">
+        {spaces.map((child) => (
+          <SpaceButton key={child.id} space={child} onOpen={onOpenChild} />
+        ))}
+        <AddSpaceCard onClick={onAdd} />
+      </div>
     </motion.div>
   )
 }
