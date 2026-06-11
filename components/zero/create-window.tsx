@@ -20,13 +20,15 @@ const KIND_ORDER: NodeKind[] = ["task", "space", "event"]
  */
 export function CreateWindow({
   spaceId,
+  defaultKind = "task",
   onClose,
 }: {
   spaceId: string
+  defaultKind?: NodeKind
   onClose: () => void
 }) {
   const { openSpace, openTask, notifyDataChanged } = useZeroNav()
-  const [kind, setKind] = useState<NodeKind>("task")
+  const [kind, setKind] = useState<NodeKind>(defaultKind)
   const [title, setTitle] = useState("")
   const [menuOpen, setMenuOpen] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)

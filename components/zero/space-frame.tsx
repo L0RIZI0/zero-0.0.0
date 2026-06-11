@@ -2,12 +2,21 @@
 
 import { motion } from "motion/react"
 import { X } from "lucide-react"
+import { useState } from "react"
 import type { Space } from "@/lib/zero/types"
 import { layerTransition, spaceLayoutId, spaceTitleId, contentTransition } from "@/lib/zero/motion"
+import { SPACES_DOCK_HEIGHT } from "@/lib/zero/layout"
 import { SpaceButton } from "./space-button"
-import { ContextBody } from "./context-body"
+import { CreateWindow } from "./create-window"
 import { getChildSpaces } from "@/lib/zero/data"
 
+/**
+ * A child Space window — chrome only. It paints the bordered, off-white frame,
+ * owns the title band (top) and the spaces dock (bottom), and leaves its middle
+ * transparent so the persistent frontmost content (timeline / tasks / inputs /
+ * outputs in FrontContent) reads in front of it. Space 0 (root) renders nothing
+ * here — its background is the surface itself.
+ */
 export function SpaceFrame({
   space,
   isRoot,
@@ -21,8 +30,12 @@ export function SpaceFrame({
   onOpenChild: (spaceId: string) => void
   onClose: () => void
 }) {
+  const [creating, setCreating] = useState(false)
   const accent = space.accent ?? "var(--accent)"
   const children = getChildSpaces(space.id)
+
+  // Root is not a framed window; the surface background stands in for Space 0.
+  if (isRoot) return null
 
   return (
     <motion.div
@@ -31,32 +44,28 @@ export function SpaceFrame({
       style={{ borderRadius: 4 }}
       className="relative flex h-full w-full flex-col overflow-hidden border border-border bg-background shadow-[0_24px_80px_-32px_rgba(0,0,0,0.6)]"
     >
-      {/* accent edge — shares element with the button's accent strip.
-          Space 0 (root) has no accent edge. */}
-      {!isRoot && (
-        <motion.span
-          layoutId={`${spaceLayoutId(space.id)}-accent`}
-          transition={layerTransition}
-          className="absolute left-0 top-0 z-10 h-full w-[3px]"
-          style={{ backgroundColor: accent }}
-        />
-      )}
+      {/* accent edge — shares element with the button's accent strip */}
+      <motion.span
+        layoutId={`${spaceLayoutId(space.id)}-accent`}
+        transition={layerTransition}
+        className="absolute left-0 top-0 z-10 h-full w-[3px]"
+        style={{ backgroundColor: accent }}
+      />
 
-      {/* Frame header. The active layer shows its title (and description) big,
-          inside its own frame; once a child opens, that title morphs (via the
-          shared layoutId) up into the small indented PathStack in the top-left. */}
-      {!isRoot && (
-        <div className="flex items-start justify-between gap-3 px-6 pt-5 pb-3">
-          <div className="flex min-w-0 flex-col">
-            {isActive && (
-              <motion.h2
-                layoutId={spaceTitleId(space.id)}
-                transition={layerTransition}
-                className="truncate text-[22px] font-medium leading-tight tracking-tight text-foreground"
-              >
-                {space.name}
-              </motion.h2>
-            )}
+      {/* Title band. Sits above the frontmost timeline; the timeline animates
+          down to clear whatever height this band occupies (title, +description). */}
+      <div className="flex items-start justify-between gap-3 px-6 pt-5 pb-3">
+        <div className="flex min-w-0 flex-col">
+          {isActive && (
+            <motion.h2
+              layoutId={spaceTitleId(space.id)}
+              transition={layerTransition}
+              className="truncate text-[22px] font-medium leading-tight tracking-tight text-foreground"
+            >
+              {space.name}
+            </motion.h2>
+          )}
+          {space.description && (
             <motion.p
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -65,42 +74,61 @@ export function SpaceFrame({
             >
               {space.description}
             </motion.p>
-          </div>
-
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label={`Close ${space.name}`}
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border bg-card/70 text-muted-foreground transition-colors hover:border-foreground/30 hover:text-foreground"
-          >
-            <X className="h-4 w-4" />
-          </button>
+          )}
         </div>
-      )}
 
-      {/* Frame body — fades/translates in independently of the morph */}
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label={`Close ${space.name}`}
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border bg-card/70 text-muted-foreground transition-colors hover:border-foreground/30 hover:text-foreground"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+
+      {/* Transparent middle — the persistent timeline / tasks / inputs / outputs
+          (FrontContent, a higher z-layer) render over this gap. */}
+      <div className="min-h-0 flex-1" aria-hidden />
+
+      {/* Spaces dock — this window's child subspaces, pinned to the bottom.
+          Always present (with the "+ ADD" card) so a space can gain subspaces. */}
       <motion.div
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ ...contentTransition, delay: 0.1 }}
-        className={`flex min-h-0 flex-1 flex-col gap-4 px-6 pb-4 ${isRoot ? "pt-5" : ""}`}
+        className="flex shrink-0 flex-col items-center px-6 pb-4"
+        style={{ height: SPACES_DOCK_HEIGHT }}
       >
-        <ContextBody nodeId={space.id} accent={typeof accent === "string" ? accent : undefined}>
-          {/* Child spaces — a centered horizontal row beneath the timeline. */}
-          {children.length > 0 && (
-            <div className="flex flex-col items-center">
-              <h3 className="mb-2 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-                {isRoot ? "Spaces" : "Subspaces"}
-              </h3>
-              <div className="flex w-full flex-wrap items-stretch justify-center gap-3 overflow-x-auto pb-1 no-scrollbar">
-                {children.map((child) => (
-                  <SpaceButton key={child.id} space={child} onOpen={onOpenChild} />
-                ))}
-              </div>
-            </div>
-          )}
-        </ContextBody>
+        <h3 className="mb-2 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+          Subspaces
+        </h3>
+        <div className="flex w-full flex-1 flex-wrap items-stretch justify-center gap-3 overflow-x-auto pb-1 no-scrollbar">
+          {children.map((child) => (
+            <SpaceButton key={child.id} space={child} onOpen={onOpenChild} />
+          ))}
+          <AddSpaceCard onClick={() => setCreating(true)} />
+        </div>
       </motion.div>
+
+      {creating && (
+        <CreateWindow spaceId={space.id} defaultKind="space" onClose={() => setCreating(false)} />
+      )}
     </motion.div>
+  )
+}
+
+/** An empty "+ ADD" card matching the SpaceButton footprint. */
+function AddSpaceCard({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label="Add subspace"
+      style={{ borderRadius: 4 }}
+      className="flex h-[64px] w-[150px] shrink-0 flex-col items-center justify-center gap-1 border border-dashed border-border bg-transparent text-muted-foreground transition-colors hover:border-foreground/30 hover:text-foreground"
+    >
+      <span className="text-[11px] font-medium uppercase tracking-[0.12em]">+ Add</span>
+    </button>
   )
 }

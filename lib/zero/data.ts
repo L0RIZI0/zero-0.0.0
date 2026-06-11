@@ -1,4 +1,5 @@
 import type { Asset, Resource, Space, Task, User, ZeroEvent } from "./types"
+import { readUserItems, writeUserItems } from "./persistence"
 
 export const currentUser: User = {
   id: "u_self",
@@ -615,6 +616,41 @@ export function getSpaceAssets(spaceId: string): Asset[] {
   return assets.filter((a) => descendants.has(a.spaceId))
 }
 
+/**
+ * A unified list of "context items" for a node — tasks plus events — used by
+ * the frontmost task list. Events are surfaced as task-like rows so a context's
+ * scheduled items and to-dos read as one stream.
+ */
+export interface ContextItem {
+  id: string
+  kind: "task" | "event"
+  title: string
+  task?: Task
+  event?: ZeroEvent
+}
+
+export function getContextItems(spaceId: string): ContextItem[] {
+  const taskItems: ContextItem[] = getSpaceTasks(spaceId).map((t) => ({
+    id: t.id,
+    kind: "task",
+    title: t.title,
+    task: t,
+  }))
+  const eventItems: ContextItem[] = getSpaceEvents(spaceId).map((e) => ({
+    id: e.id,
+    kind: "event",
+    title: e.title,
+    event: e,
+  }))
+  return [...taskItems, ...eventItems]
+}
+
+/** True when `spaceId` is `nodeId` or a descendant of it. Drives timeline dimming. */
+export function isInSubtree(nodeId: string, spaceId: string): boolean {
+  if (nodeId === "s_root") return true
+  return collectDescendants(nodeId).has(spaceId)
+}
+
 function collectDescendants(spaceId: string): Set<string> {
   const set = new Set<string>([spaceId])
   const stack = [spaceId]
@@ -633,13 +669,67 @@ function collectDescendants(spaceId: string): Set<string> {
 }
 
 // ----------------------------------------------------------------------------
-// Mutations — user-created items. In-memory only (reset on refresh), but real:
-// they push into the same arrays/indexes the selectors above read from, so a
-// new task/space/event shows up everywhere it should.
+// Mutations — user-created items. Persisted to localStorage so created
+// tasks/spaces/events survive refreshes. They push into the same arrays/indexes
+// the selectors above read from, so a new item shows up everywhere it should.
 // ----------------------------------------------------------------------------
 
 let _seq = 0
 const uid = (prefix: string) => `${prefix}_u${Date.now().toString(36)}${(_seq++).toString(36)}`
+
+// Track which ids are user-created so we can re-serialize just those on save.
+const userTaskIds = new Set<string>()
+const userSpaceIds = new Set<string>()
+const userEventIds = new Set<string>()
+
+function persist() {
+  writeUserItems({
+    tasks: tasks.filter((t) => userTaskIds.has(t.id)),
+    spaces: spaces.filter((s) => userSpaceIds.has(s.id)),
+    events: events.filter((e) => userEventIds.has(e.id)),
+  })
+}
+
+let _hydrated = false
+
+/**
+ * Merge localStorage-persisted user items into the in-memory stores. Safe to
+ * call multiple times; only runs once. Returns true if any items were added so
+ * callers can bump their data version.
+ */
+export function hydrateFromStorage(): boolean {
+  if (_hydrated) return false
+  _hydrated = true
+  const stored = readUserItems()
+  let added = false
+
+  for (const space of stored.spaces) {
+    if (spaceById.has(space.id)) continue
+    spaces.push(space)
+    spaceById.set(space.id, space)
+    userSpaceIds.add(space.id)
+    const parent = space.parentId ? spaceById.get(space.parentId) : undefined
+    if (parent && !parent.childSpaceIds.includes(space.id)) {
+      parent.childSpaceIds.push(space.id)
+    }
+    added = true
+  }
+  for (const task of stored.tasks) {
+    if (taskById.has(task.id)) continue
+    tasks.push(task)
+    taskById.set(task.id, task)
+    userTaskIds.add(task.id)
+    added = true
+  }
+  for (const event of stored.events) {
+    if (events.some((e) => e.id === event.id)) continue
+    events.push(event)
+    userEventIds.add(event.id)
+    added = true
+  }
+
+  return added
+}
 
 export function addTask(input: { title: string; spaceId: string }): Task {
   const task: Task = {
@@ -653,6 +743,8 @@ export function addTask(input: { title: string; spaceId: string }): Task {
   }
   tasks.push(task)
   taskById.set(task.id, task)
+  userTaskIds.add(task.id)
+  persist()
   return task
 }
 
@@ -667,10 +759,12 @@ export function addSpace(input: { name: string; parentId: string }): Space {
   }
   spaces.push(space)
   spaceById.set(space.id, space)
+  userSpaceIds.add(space.id)
   const parent = spaceById.get(input.parentId)
   if (parent && !parent.childSpaceIds.includes(space.id)) {
     parent.childSpaceIds.push(space.id)
   }
+  persist()
   return space
 }
 
@@ -683,5 +777,7 @@ export function addEvent(input: { title: string; spaceId: string }): ZeroEvent {
     spaceId: input.spaceId,
   }
   events.push(event)
+  userEventIds.add(event.id)
+  persist()
   return event
 }
