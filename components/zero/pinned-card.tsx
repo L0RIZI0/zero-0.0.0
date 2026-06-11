@@ -80,8 +80,8 @@ export function PinnedCard({
         style={{ backgroundColor: accent }}
       />
 
-      {/* Top row: kind glyph (top-left) + detail stats to its right. */}
-      <div className="flex items-center gap-1.5">
+      {/* Top row: kind glyph (top-left) + detail stats pinned to top-right. */}
+      <div className="flex items-start justify-between gap-1.5">
         <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center text-foreground">
           <NodeGlyph kind={item.kind} strokeWidth={item.kind === "task" ? 2 : 1.75} />
         </span>

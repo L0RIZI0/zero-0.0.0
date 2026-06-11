@@ -48,8 +48,11 @@ export function NodeGlyph({
       aria-hidden="true"
     >
       {kind === "task" && <rect x="4.5" y="4.5" width="15" height="15" rx="2" {...common} />}
+      {/* Hexagon scaled up ~8% from center (12,12): a regular hexagon reads
+          optically smaller than the square/triangle at equal bounds, so this
+          nudge harmonizes their perceived size. */}
       {kind === "space" && (
-        <polygon points="12,3 20,7.5 20,16.5 12,21 4,16.5 4,7.5" {...common} />
+        <polygon points="12,2.3 20.6,7.1 20.6,16.9 12,21.7 3.4,16.9 3.4,7.1" {...common} />
       )}
       {kind === "event" && <polygon points="12,4 20.5,19 3.5,19" {...common} />}
     </svg>

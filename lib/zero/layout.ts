@@ -19,7 +19,7 @@ import type { ActiveNode } from "./nav-store"
 export const SURFACE_PADDING_X = 24
 
 /** Top band reserved for the child window's title + description. */
-const HEADER_ROOT = 12
+const HEADER_ROOT = 2
 const HEADER_CHILD = 60
 const HEADER_CHILD_WITH_DESCRIPTION = 88
 

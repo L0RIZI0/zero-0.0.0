@@ -141,6 +141,22 @@ export function TimelineStrip({
         </AnimatePresence>
       </div>
 
+      {/* hour labels — a static ruler ABOVE the track, aligned to its width */}
+      <div className="relative mb-1 h-3.5" style={{ marginLeft: 40, marginRight: 40 }}>
+        {hours.map((h) => {
+          const left = ((h - DAY_START) / SPAN) * 100
+          return (
+            <span
+              key={h}
+              className="absolute -translate-x-1/2 text-[10px] tabular-nums text-muted-foreground/60"
+              style={{ left: `${left}%` }}
+            >
+              {fmt(h)}
+            </span>
+          )
+        })}
+      </div>
+
       {/* Full-bleed timeline: top/bottom borders run to the frame edges to
           suggest continuity with yesterday/tomorrow. Arrows flank the track. */}
       <div className="relative -mx-6 h-14">
@@ -254,22 +270,6 @@ export function TimelineStrip({
             <ChevronRight className="h-4 w-4" />
           </button>
         </div>
-      </div>
-
-      {/* hour labels — a static ruler below the track, aligned to its width */}
-      <div className="relative mt-1 h-3.5" style={{ marginLeft: 40, marginRight: 40 }}>
-        {hours.map((h) => {
-          const left = ((h - DAY_START) / SPAN) * 100
-          return (
-            <span
-              key={h}
-              className="absolute -translate-x-1/2 text-[10px] tabular-nums text-muted-foreground/60"
-              style={{ left: `${left}%` }}
-            >
-              {fmt(h)}
-            </span>
-          )
-        })}
       </div>
     </section>
   )
