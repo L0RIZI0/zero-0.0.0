@@ -224,6 +224,7 @@ export function CreateWindow({
           </button>
         </div>
       </motion.div>
-    </motion.div>
+    </motion.div>,
+    document.body,
   )
 }
