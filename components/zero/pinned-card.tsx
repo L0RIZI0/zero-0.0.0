@@ -42,21 +42,17 @@ export function PinnedCard({
   )
 
   const isSpace = item.kind === "space"
-  const { stack } = useZeroNav()
-
-  // While a pinned space is open as a frame, render an inert placeholder so the
-  // shared layoutId lives only on the active frame (no duplicate owners).
-  if (isSpace && stack.includes(item.space!.id)) {
-    return (
-      <div
-        aria-hidden
-        className="h-[64px] w-[112px] shrink-0 rounded-sm border border-dashed border-border/60 bg-secondary/30"
-      />
-    )
-  }
 
   // Spaces share their frame's layoutId for the expand morph; tasks/events use
   // a plain hover transition (their morph, if any, is driven from the list).
+  //
+  // NOTE: we deliberately keep this card continuously mounted (no
+  // placeholder-swap while the space is open). `closeSpace` pops the stack
+  // synchronously, so a swap would remount this layoutId node *during* the
+  // frame's exit animation — two owners of the same layoutId mid-exit, which
+  // strands the card at opacity:0 with a frozen projection transform. Keeping
+  // one stable element lets Framer treat the frame + (occluded) card as a
+  // single shared element and morph cleanly in both directions.
   const morphProps = isSpace
     ? { layoutId: spaceLayoutId(item.space!.id), transition: layerTransition }
     : { transition: layerTransition }
