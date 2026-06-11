@@ -55,7 +55,6 @@
   --foreground: oklch(0.235 0.006 60);
   --card: oklch(0.99 0.003 80);
   --card-foreground: oklch(0.235 0.006 60);
-  /* Pure white surface for raised list items (tasks, add-button) in light. */
   --card-solid: oklch(1 0 0);
   --popover: oklch(0.99 0.003 80);
   --popover-foreground: oklch(0.235 0.006 60);
@@ -87,7 +86,6 @@
   --foreground: oklch(0.93 0.004 80);
   --card: oklch(0.245 0.006 60);
   --card-foreground: oklch(0.93 0.004 80);
-  /* In dark mode the "pure white" surface is the elevated card tint. */
   --card-solid: oklch(0.27 0.006 60);
   --popover: oklch(0.245 0.006 60);
   --popover-foreground: oklch(0.93 0.004 80);
