@@ -4,7 +4,6 @@ import { useState } from "react"
 import { PinOff } from "lucide-react"
 import { getPinnedItems, unpinItem, type ContextItem } from "@/lib/zero/data"
 import { useZeroNav } from "@/lib/zero/nav-store"
-import { SpaceButton } from "./space-button"
 import { PinnedCard } from "./pinned-card"
 import { ContextMenu, type ContextMenuState } from "./context-menu"
 
@@ -61,23 +60,14 @@ export function SpacesRow({ contextSpaceId }: { contextSpaceId: string }) {
         Spaces
       </h3>
       <div className="flex w-full flex-wrap items-stretch justify-center gap-3">
-        {pinned.map((item) =>
-          item.kind === "space" ? (
-            <SpaceButton
-              key={item.id}
-              space={item.space!}
-              onOpen={openSpace}
-              onContextMenu={(e) => openMenu(e, item)}
-            />
-          ) : (
-            <PinnedCard
-              key={item.id}
-              item={item}
-              onOpen={() => open(item)}
-              onContextMenu={(e) => openMenu(e, item)}
-            />
-          ),
-        )}
+        {pinned.map((item) => (
+          <PinnedCard
+            key={item.id}
+            item={item}
+            onOpen={() => open(item)}
+            onContextMenu={(e) => openMenu(e, item)}
+          />
+        ))}
       </div>
 
       <ContextMenu state={menu} onClose={() => setMenu(null)} />

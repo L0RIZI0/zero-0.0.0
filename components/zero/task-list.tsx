@@ -120,25 +120,47 @@ function TaskRow({
   )
 }
 
-/** An event surfaced in the task list — read-only row with a triangle glyph. */
+/** An event surfaced in the task list — opens its space, with the same
+ *  frame-expansion morph. `morphable` is false when the same space is already
+ *  shown as a SpaceRow, so only one element owns the shared layoutId. */
 function EventRow({
   item,
+  morphable,
   onContext,
 }: {
   item: ContextItem
+  morphable: boolean
   onContext: (e: React.MouseEvent) => void
 }) {
-  const { openSpace } = useZeroNav()
+  const { openSpace, stack } = useZeroNav()
   const event = item.event!
+
+  if (morphable && stack.includes(event.spaceId)) {
+    return (
+      <li>
+        <div
+          aria-hidden
+          className="h-[42px] w-full rounded-sm border border-dashed border-border/60 bg-secondary/30"
+        />
+      </li>
+    )
+  }
+
+  const morphProps = morphable
+    ? { layoutId: spaceLayoutId(event.spaceId), transition: layerTransition }
+    : {
+        layout: true as const,
+        initial: { opacity: 0, y: 4 },
+        animate: { opacity: 1, y: 0 },
+        exit: { opacity: 0, y: -4 },
+        transition: panelTransition,
+      }
+
   return (
     <li>
       <motion.button
         type="button"
-        layout
-        initial={{ opacity: 0, y: 4 }}
-        animate={{ opacity: 1, y: 0 }}
-        exit={{ opacity: 0, y: -4 }}
-        transition={panelTransition}
+        {...morphProps}
         onClick={() => openSpace(event.spaceId)}
         onContextMenu={onContext}
         style={{ borderRadius: 4 }}
@@ -159,7 +181,9 @@ function EventRow({
   )
 }
 
-/** A child space surfaced in the task list — hexagon glyph, dives in on click. */
+/** A child space surfaced in the task list — hexagon glyph, dives in on click.
+ *  Carries the shared space layoutId so the row's border frame expands into the
+ *  opened window (same morph as the pinned SPACES-dock card). */
 function SpaceRow({
   item,
   onContext,
@@ -167,29 +191,51 @@ function SpaceRow({
   item: ContextItem
   onContext: (e: React.MouseEvent) => void
 }) {
-  const { openSpace } = useZeroNav()
+  const { openSpace, stack } = useZeroNav()
   const space = item.space!
+  const accent = space.accent ?? "var(--muted-foreground)"
+
+  // While this space is open as a frame, render an inert placeholder so the
+  // shared layoutId lives only on the active frame (no duplicate owners).
+  if (stack.includes(space.id)) {
+    return (
+      <li>
+        <div
+          aria-hidden
+          className="h-[42px] w-full rounded-sm border border-dashed border-border/60 bg-secondary/30"
+        />
+      </li>
+    )
+  }
+
   return (
     <li>
       <motion.button
         type="button"
-        layout
-        initial={{ opacity: 0, y: 4 }}
-        animate={{ opacity: 1, y: 0 }}
-        exit={{ opacity: 0, y: -4 }}
-        transition={panelTransition}
+        layoutId={spaceLayoutId(space.id)}
+        transition={layerTransition}
         onClick={() => openSpace(space.id)}
         onContextMenu={onContext}
         style={{ borderRadius: 4 }}
         whileHover={{ scale: 1.02, boxShadow: "0 12px 28px -10px rgba(0,0,0,0.28)" }}
-        className="group flex w-full items-center gap-3 border border-border bg-card-solid px-2.5 py-2 text-left"
+        className="group relative flex w-full items-center gap-3 overflow-hidden border border-border bg-card-solid px-2.5 py-2 text-left"
       >
+        <motion.span
+          layoutId={`${spaceLayoutId(space.id)}-accent`}
+          transition={layerTransition}
+          className="absolute left-0 top-0 h-full w-[3px]"
+          style={{ backgroundColor: accent }}
+        />
         <span className={cn(GLYPH_BOX, "text-foreground")}>
           <NodeGlyph kind="space" />
         </span>
-        <span className="min-w-0 flex-1 truncate text-[13px] tracking-tight text-foreground">
+        <motion.span
+          layoutId={spaceTitleId(space.id)}
+          transition={layerTransition}
+          className="min-w-0 flex-1 truncate text-[13px] tracking-tight text-foreground"
+        >
           {space.name}
-        </span>
+        </motion.span>
         {space.childSpaceIds.length > 0 && (
           <span className="shrink-0 text-[11px] text-muted-foreground/70">
             {space.childSpaceIds.length} spaces
@@ -232,6 +278,14 @@ export function TaskList({ spaceId }: { spaceId: string }) {
     [items, filter],
   )
   const openCount = items.filter((it) => it.kind === "task" && !it.task!.completed).length
+
+  // Space ids already shown as their own SpaceRow own the shared space
+  // layoutId; an event into one of those must NOT also claim it (duplicate
+  // owners break the morph), so it falls back to a plain fade.
+  const spaceRowIds = useMemo(
+    () => new Set(items.filter((it) => it.kind === "space").map((it) => it.id)),
+    [items],
+  )
 
   const openMenu = (e: React.MouseEvent, item: ContextItem) => {
     e.preventDefault()
@@ -303,7 +357,12 @@ export function TaskList({ spaceId }: { spaceId: string }) {
               ) : it.kind === "space" ? (
                 <SpaceRow key={it.id} item={it} onContext={(e) => openMenu(e, it)} />
               ) : (
-                <EventRow key={it.id} item={it} onContext={(e) => openMenu(e, it)} />
+                <EventRow
+                  key={it.id}
+                  item={it}
+                  morphable={!spaceRowIds.has(it.event!.spaceId)}
+                  onContext={(e) => openMenu(e, it)}
+                />
               ),
             )
           )}
