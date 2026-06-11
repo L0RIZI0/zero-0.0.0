@@ -35,6 +35,9 @@ export function ZeroNavProvider({
   rootSpaceId?: string
 }) {
   const [stack, setStack] = useState<string[]>([rootSpaceId])
+  const [dataVersion, setDataVersion] = useState(0)
+
+  const notifyDataChanged = useCallback(() => setDataVersion((v) => v + 1), [])
 
   const openSpace = useCallback((spaceId: string) => {
     setStack((prev) => {
@@ -66,8 +69,10 @@ export function ZeroNavProvider({
       openTask,
       closeSpace,
       goToDepth,
+      dataVersion,
+      notifyDataChanged,
     }),
-    [stack, openSpace, openTask, closeSpace, goToDepth],
+    [stack, openSpace, openTask, closeSpace, goToDepth, dataVersion, notifyDataChanged],
   )
 
   return <ZeroNavContext.Provider value={value}>{children}</ZeroNavContext.Provider>

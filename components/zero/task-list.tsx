@@ -1,12 +1,13 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { motion } from "motion/react"
+import { AnimatePresence, motion } from "motion/react"
 import { Check, Plus } from "lucide-react"
 import { getSpaceTasks } from "@/lib/zero/data"
 import type { Task, TaskPriority } from "@/lib/zero/types"
 import { useZeroNav } from "@/lib/zero/nav-store"
 import { layerTransition, taskLayoutId, taskTitleId } from "@/lib/zero/motion"
+import { CreateWindow } from "./create-window"
 import { cn } from "@/lib/utils"
 
 const priorityDot: Record<TaskPriority, string> = {
@@ -39,7 +40,11 @@ function TaskRow({ task }: { task: Task }) {
         layoutId={taskLayoutId(task.id)}
         transition={layerTransition}
         style={{ borderRadius: 4 }}
-        className="group flex w-full items-center gap-3 border border-border bg-card/50 px-2.5 py-2 text-left transition-colors hover:border-foreground/20 hover:bg-card"
+        whileHover={{
+          scale: 1.02,
+          boxShadow: "0 12px 28px -10px rgba(0,0,0,0.28)",
+        }}
+        className="group flex w-full items-center gap-3 border border-border bg-card-solid px-2.5 py-2 text-left"
       >
         <button
           type="button"
@@ -92,8 +97,11 @@ function TaskRow({ task }: { task: Task }) {
 }
 
 export function TaskList({ spaceId }: { spaceId: string }) {
-  const tasks = useMemo(() => getSpaceTasks(spaceId), [spaceId])
+  const { dataVersion } = useZeroNav()
+  // Re-read whenever data mutates (new task created) or the space changes.
+  const tasks = useMemo(() => getSpaceTasks(spaceId), [spaceId, dataVersion])
   const [filter, setFilter] = useState<"open" | "all">("open")
+  const [creating, setCreating] = useState(false)
 
   // Reset filter view when the space changes.
   useEffect(() => setFilter("open"), [spaceId])
@@ -135,13 +143,25 @@ export function TaskList({ spaceId }: { spaceId: string }) {
         )}
       </ul>
 
-      <button
+      <motion.button
         type="button"
-        className="mt-1.5 flex w-full items-center justify-center gap-1.5 rounded-sm border border-dashed border-border px-2.5 py-2 text-[12px] text-muted-foreground/70 transition-colors hover:border-foreground/30 hover:text-foreground"
+        onClick={() => setCreating(true)}
+        style={{ borderRadius: 4 }}
+        whileHover={{
+          scale: 1.02,
+          boxShadow: "0 12px 28px -10px rgba(0,0,0,0.28)",
+        }}
+        className="mt-1.5 flex w-full items-center justify-center gap-1.5 border border-border bg-card-solid px-2.5 py-2 text-[12px] font-medium uppercase tracking-[0.08em] text-muted-foreground"
       >
         <Plus className="h-3.5 w-3.5" />
-        Add task
-      </button>
+        Add
+      </motion.button>
+
+      <AnimatePresence>
+        {creating && (
+          <CreateWindow spaceId={spaceId} onClose={() => setCreating(false)} />
+        )}
+      </AnimatePresence>
     </section>
   )
 }

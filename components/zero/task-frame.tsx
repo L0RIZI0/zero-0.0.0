@@ -38,7 +38,7 @@ export function TaskFrame({
       layoutId={taskLayoutId(task.id)}
       transition={layerTransition}
       style={{ borderRadius: 4 }}
-      className="relative flex h-full w-full flex-col overflow-hidden bg-background shadow-[0_24px_80px_-32px_rgba(0,0,0,0.6)]"
+      className="relative flex h-full w-full flex-col overflow-hidden border border-border bg-background shadow-[0_24px_80px_-32px_rgba(0,0,0,0.6)]"
     >
       {/* Frame header. The active layer shows its title (and source spaces) big
           inside its own frame; once a child opens, the title morphs (via the

@@ -1,0 +1,220 @@
+"use client"
+
+import { useEffect, useRef, useState } from "react"
+import { AnimatePresence, motion } from "motion/react"
+import { Check, ChevronDown, X } from "lucide-react"
+import { NodeGlyph, NODE_KIND_META, type NodeKind } from "./node-glyph"
+import { addTask, addSpace, addEvent } from "@/lib/zero/data"
+import { useZeroNav } from "@/lib/zero/nav-store"
+import { contentTransition } from "@/lib/zero/motion"
+import { cn } from "@/lib/utils"
+
+const KIND_ORDER: NodeKind[] = ["task", "space", "event"]
+
+/**
+ * A focused window for creating a new task / space / event in the current
+ * context. The glyph on the left of the title is a dropdown that picks the
+ * node kind (square / hexagon / triangle). Each input row has a hairline that
+ * runs from the screen edge to the icon's left border, echoing the timeline
+ * continuity rails.
+ */
+export function CreateWindow({
+  spaceId,
+  onClose,
+}: {
+  spaceId: string
+  onClose: () => void
+}) {
+  const { openSpace, openTask, notifyDataChanged } = useZeroNav()
+  const [kind, setKind] = useState<NodeKind>("task")
+  const [title, setTitle] = useState("")
+  const [menuOpen, setMenuOpen] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    inputRef.current?.focus()
+  }, [])
+
+  // Esc discards; Cmd/Ctrl+Enter saves.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose()
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [onClose])
+
+  const canSave = title.trim().length > 0
+
+  const handleSave = () => {
+    const name = title.trim()
+    if (!name) return
+    if (kind === "task") {
+      const t = addTask({ title: name, spaceId })
+      notifyDataChanged()
+      onClose()
+      openTask(t.id)
+    } else if (kind === "space") {
+      const s = addSpace({ name, parentId: spaceId })
+      notifyDataChanged()
+      onClose()
+      openSpace(s.id)
+    } else {
+      addEvent({ title: name, spaceId })
+      notifyDataChanged()
+      onClose()
+    }
+  }
+
+  return (
+    <motion.div
+      className="fixed inset-0 z-[150] flex items-start justify-center"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={contentTransition}
+    >
+      {/* scrim */}
+      <button
+        type="button"
+        aria-label="Discard"
+        onClick={onClose}
+        className="absolute inset-0 bg-foreground/20 backdrop-blur-[2px]"
+      />
+
+      <motion.div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Create new"
+        initial={{ opacity: 0, y: -10, scale: 0.98 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        exit={{ opacity: 0, y: -10, scale: 0.98 }}
+        transition={contentTransition}
+        style={{ borderRadius: 6 }}
+        className="relative mt-[14vh] w-full max-w-[440px] border border-border bg-card-solid text-card-foreground shadow-[0_28px_90px_-30px_rgba(0,0,0,0.65)]"
+      >
+        <div className="flex items-center justify-between px-5 pt-4">
+          <span className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+            New {NODE_KIND_META[kind].label}
+          </span>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Discard"
+            className="flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+
+        {/* Title row: hairline → glyph dropdown → title input. */}
+        <div className="relative mt-3 flex items-center gap-3 py-3 pr-5">
+          {/* continuity rail from the window's left edge to the glyph */}
+          <div className="h-px flex-1 bg-border" />
+
+          <div className="relative shrink-0">
+            <button
+              type="button"
+              aria-haspopup="listbox"
+              aria-expanded={menuOpen}
+              aria-label={`Type: ${NODE_KIND_META[kind].label}. Change type`}
+              onClick={() => setMenuOpen((o) => !o)}
+              className={cn(
+                "flex items-center gap-1 rounded-md border border-border bg-card px-1.5 py-1 text-foreground transition-colors hover:border-foreground/30",
+                menuOpen && "border-foreground/40",
+              )}
+            >
+              <span className="flex h-5 w-5 items-center justify-center text-foreground">
+                <NodeGlyph kind={kind} />
+              </span>
+              <ChevronDown className="h-3 w-3 text-muted-foreground" />
+            </button>
+
+            <AnimatePresence>
+              {menuOpen && (
+                <motion.ul
+                  role="listbox"
+                  initial={{ opacity: 0, y: -6, scale: 0.97 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: -6, scale: 0.97 }}
+                  transition={{ duration: 0.14, ease: [0.22, 0.61, 0.36, 1] }}
+                  style={{ borderRadius: 6 }}
+                  className="absolute left-0 top-[calc(100%+6px)] z-10 w-[200px] overflow-hidden border border-border bg-popover p-1 shadow-[0_18px_50px_-20px_rgba(0,0,0,0.55)]"
+                >
+                  {KIND_ORDER.map((k) => {
+                    const selected = k === kind
+                    return (
+                      <li key={k}>
+                        <button
+                          type="button"
+                          role="option"
+                          aria-selected={selected}
+                          onClick={() => {
+                            setKind(k)
+                            setMenuOpen(false)
+                            inputRef.current?.focus()
+                          }}
+                          className={cn(
+                            "flex w-full items-center gap-2.5 rounded-[4px] px-2 py-1.5 text-left transition-colors",
+                            selected ? "bg-secondary" : "hover:bg-secondary/60",
+                          )}
+                        >
+                          <span className="flex h-5 w-5 shrink-0 items-center justify-center text-foreground">
+                            <NodeGlyph kind={k} />
+                          </span>
+                          <span className="flex min-w-0 flex-col">
+                            <span className="text-[13px] font-medium leading-tight text-foreground">
+                              {NODE_KIND_META[k].label}
+                            </span>
+                            <span className="truncate text-[11px] text-muted-foreground">
+                              {NODE_KIND_META[k].description}
+                            </span>
+                          </span>
+                          {selected && <Check className="ml-auto h-3.5 w-3.5 text-foreground" />}
+                        </button>
+                      </li>
+                    )
+                  })}
+                </motion.ul>
+              )}
+            </AnimatePresence>
+          </div>
+
+          <input
+            ref={inputRef}
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && canSave) handleSave()
+            }}
+            placeholder={`Name this ${NODE_KIND_META[kind].label.toLowerCase()}…`}
+            className="min-w-0 flex-[3] bg-transparent text-[15px] tracking-tight text-foreground outline-none placeholder:text-muted-foreground/60"
+          />
+        </div>
+
+        <div className="flex items-center justify-end gap-2 border-t border-border px-5 py-3">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-md px-3 py-1.5 text-[13px] text-muted-foreground transition-colors hover:text-foreground"
+          >
+            Discard
+          </button>
+          <button
+            type="button"
+            onClick={handleSave}
+            disabled={!canSave}
+            className={cn(
+              "rounded-md px-3.5 py-1.5 text-[13px] font-medium transition-colors",
+              canSave
+                ? "bg-foreground text-background hover:bg-foreground/90"
+                : "cursor-not-allowed bg-secondary text-muted-foreground/60",
+            )}
+          >
+            Save
+          </button>
+        </div>
+      </motion.div>
+    </motion.div>
+  )
+}

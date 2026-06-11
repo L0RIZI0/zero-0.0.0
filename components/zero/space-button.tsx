@@ -40,7 +40,11 @@ export function SpaceButton({
       transition={layerTransition}
       onClick={() => onOpen(space.id)}
       style={{ borderRadius: 4 }}
-      className="group relative flex h-[64px] w-[150px] shrink-0 flex-col justify-between overflow-hidden border border-border bg-card/70 px-2.5 py-2 text-left transition-colors hover:border-foreground/20 hover:bg-card"
+      whileHover={{
+        scale: 1.03,
+        boxShadow: "0 14px 32px -12px rgba(0,0,0,0.3)",
+      }}
+      className="group relative flex h-[64px] w-[150px] shrink-0 flex-col justify-between overflow-hidden border border-border bg-card-solid px-2.5 py-2 text-left"
     >
       {/* accent edge */}
       <motion.span
