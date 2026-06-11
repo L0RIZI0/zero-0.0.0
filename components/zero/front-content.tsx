@@ -44,12 +44,9 @@ export function FrontContent() {
       </motion.div>
 
       {/* Spaces row — between the timeline and the lists. Tasks have no
-          subspaces, so it renders nothing in a task context. */}
-      {activeNode.kind === "space" && (
-        <div className="pointer-events-auto pt-3">
-          <SpacesRow contextSpaceId={contextSpaceId} />
-        </div>
-      )}
+          subspaces, and SpacesRow hides itself when the context has no
+          children, so it renders nothing in those cases. */}
+      {activeNode.kind === "space" && <SpacesRow contextSpaceId={contextSpaceId} />}
 
       <div className="pointer-events-auto flex min-h-0 flex-1 flex-col pt-4">
         <div className="flex min-h-[180px] flex-1 gap-4">
@@ -60,7 +57,7 @@ export function FrontContent() {
           </div>
 
           <div className="flex min-h-0 min-w-0 flex-1 flex-col items-center">
-            <div className="flex min-h-0 w-full max-w-[80%] flex-1 flex-col rounded-sm p-2">
+            <div className="flex min-h-0 w-full max-w-[80%] flex-1 flex-col">
               <TaskList spaceId={contextSpaceId} />
             </div>
           </div>
