@@ -39,7 +39,7 @@ export function ShellHeader() {
       </div>
 
       <div className="hidden flex-1 items-center justify-center gap-2.5 sm:flex">
-        <span className="text-[13px] tabular-nums tracking-tight text-foreground/80">{time}</span>
+        <span className="text-[13px] tracking-tight text-foreground/80">{time}</span>
         <span className="text-[13px] tracking-tight text-muted-foreground">{date}</span>
       </div>
 

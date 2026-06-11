@@ -59,7 +59,18 @@ export function CollapsibleColumn({
                 <OpenIcon className="h-3.5 w-3.5" />
               </button>
             </div>
-            <div className="min-h-0 flex-1 overflow-y-auto pr-1 no-scrollbar">{children}</div>
+            <div
+              className={cn(
+                "min-h-0 flex-1 overflow-y-auto pr-1 no-scrollbar",
+                // Left (Inputs) column bleeds its scroll box to the viewport
+                // edge so the per-row continuity rails aren't clipped. pl-6
+                // keeps the content visually in place while -ml-6 extends the
+                // box leftward into Space 0's surface.
+                side === "left" && "-ml-6 pl-6",
+              )}
+            >
+              {children}
+            </div>
           </motion.section>
         ) : (
           <motion.div

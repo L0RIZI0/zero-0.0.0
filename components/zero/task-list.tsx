@@ -183,7 +183,9 @@ export function TaskList({ spaceId }: { spaceId: string }) {
         </div>
       </div>
 
-      <ul className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto pr-1 no-scrollbar">
+      {/* Keyed by context: switching nodes hard-swaps the list (instant, no
+          cross-fade) while add/remove within a context still animates. */}
+      <ul key={spaceId} className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto pr-1 no-scrollbar">
         <AnimatePresence initial={false} mode="popLayout">
           {shown.length === 0 ? (
             <li

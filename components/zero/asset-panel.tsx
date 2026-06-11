@@ -6,6 +6,7 @@ import { FileText, ImageIcon, Link2, NotebookPen, Sheet, Presentation, CreditCar
 import { getResource, getSpaceAssets } from "@/lib/zero/data"
 import type { Asset, AssetType } from "@/lib/zero/types"
 import { contentTransition } from "@/lib/zero/motion"
+import { useZeroNav } from "@/lib/zero/nav-store"
 
 const typeIcon: Record<AssetType, typeof FileText> = {
   document: FileText,
@@ -31,13 +32,16 @@ function AssetRow({ asset, index }: { asset: Asset; index: number }) {
       transition={{ ...contentTransition, delay: index * 0.025 }}
       className="group relative flex w-full items-center gap-3 rounded-lg border border-transparent px-2 py-2 text-left transition-colors hover:border-border hover:bg-card"
     >
-      {/* Continuity rail (Inputs-only): a hairline running from the window's
-          left edge to this row's icon. FrontContent pads the surface by 24px,
-          so -24px lands the rail on the frame's left border. */}
+      {/* Continuity rail (Inputs-only): a hairline running from the device's
+          left screen edge all the way to this row's icon — giving the
+          impression it originates outside Space 0 and overlaps every child.
+          The Inputs scroll box bleeds 24px past the surface padding (-ml-6
+          pl-6), so -48px clears both that bleed and the surface padding to
+          reach the viewport edge. */}
       <span
         aria-hidden
         className="pointer-events-none absolute top-1/2 h-px bg-border"
-        style={{ left: -24, width: 32 }}
+        style={{ left: -48, width: 56 }}
       />
       <span
         className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border bg-background text-muted-foreground"
@@ -59,17 +63,22 @@ function AssetRow({ asset, index }: { asset: Asset; index: number }) {
 }
 
 export function AssetPanel({ spaceId }: { spaceId: string }) {
-  const assets = useMemo(() => getSpaceAssets(spaceId), [spaceId])
+  const { dataVersion } = useZeroNav()
+  const assets = useMemo(() => getSpaceAssets(spaceId), [spaceId, dataVersion])
 
   return (
-    <AnimatePresence mode="popLayout" initial={false}>
-      {assets.length === 0 ? (
-        <p className="px-2 py-6 text-center text-[12px] text-muted-foreground/60">
-          No assets organized in this context yet.
-        </p>
-      ) : (
-        assets.map((a, i) => <AssetRow key={a.id} asset={a} index={i} />)
-      )}
-    </AnimatePresence>
+    // Keyed by context so switching nodes hard-swaps (instant, no cross-fade),
+    // while add/remove within a context still animates.
+    <div key={spaceId}>
+      <AnimatePresence mode="popLayout" initial={false}>
+        {assets.length === 0 ? (
+          <p className="px-2 py-6 text-center text-[12px] text-muted-foreground/60">
+            No assets organized in this context yet.
+          </p>
+        ) : (
+          assets.map((a, i) => <AssetRow key={a.id} asset={a} index={i} />)
+        )}
+      </AnimatePresence>
+    </div>
   )
 }
