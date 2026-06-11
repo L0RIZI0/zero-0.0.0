@@ -2,24 +2,24 @@
 
 import { motion } from "motion/react"
 import { useZeroNav } from "@/lib/zero/nav-store"
-import { getSpace } from "@/lib/zero/data"
+import { getSpace, getSpaceAssets } from "@/lib/zero/data"
 import { layerTransition } from "@/lib/zero/motion"
-import { bottomInsetFor, headerHeightFor } from "@/lib/zero/layout"
+import { headerHeightFor } from "@/lib/zero/layout"
 import { TimelineStrip } from "./timeline-strip"
+import { SpacesRow } from "./spaces-row"
 import { TaskList } from "./task-list"
 import { AssetPanel } from "./asset-panel"
 import { OutputPanel } from "./output-panel"
 import { CollapsibleColumn } from "./collapsible-column"
-import { getSpaceAssets } from "@/lib/zero/data"
 
 /**
  * The persistent, frontmost work content. Exactly one instance of the timeline,
- * task list, Inputs panel, and Outputs panel lives here for the whole app — they
- * never unmount as the user dives between windows, they only re-filter to the
- * active node. This layer sits ABOVE the window frames (Layer B); the frame's
- * border + off-white fill read as a ring behind it, and the frame owns the
- * title band (top) and the spaces dock (bottom), so this layer insets to clear
- * both bands. The timeline's top offset animates down to sit below the child's
+ * spaces row, task list, Inputs panel, and Outputs panel lives here for the
+ * whole app — they never unmount as the user dives between windows, they only
+ * re-filter to the active node. This layer sits ABOVE the window frames
+ * (Layer B); the frame's border + off-white fill read as a ring behind it, and
+ * the frame owns only the title band (top), so this layer insets its top to
+ * clear it. The timeline's top offset animates down to sit below the child's
  * title/description.
  */
 export function FrontContent() {
@@ -29,12 +29,11 @@ export function FrontContent() {
   const assetCount = getSpaceAssets(contextSpaceId).length
 
   const headerHeight = headerHeightFor(activeNode)
-  const bottomInset = bottomInsetFor(activeNode)
 
   return (
     // pointer-events-none so the window frame's header controls (close, title)
     // remain clickable through the gaps; interactive children opt back in.
-    <div className="pointer-events-none absolute inset-0 flex flex-col px-6">
+    <div className="pointer-events-none absolute inset-0 flex flex-col px-6 pb-5">
       <motion.div
         className="pointer-events-auto"
         initial={false}
@@ -44,13 +43,15 @@ export function FrontContent() {
         <TimelineStrip spaceId={contextSpaceId} accent={accent} />
       </motion.div>
 
-      <div className="pointer-events-auto flex min-h-0 flex-1 flex-col pt-4">
-        <div className="mb-1 flex items-center justify-center">
-          <h2 className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-            Tasks
-          </h2>
+      {/* Spaces row — between the timeline and the lists. Tasks have no
+          subspaces, so it renders nothing in a task context. */}
+      {activeNode.kind === "space" && (
+        <div className="pointer-events-auto pt-3">
+          <SpacesRow contextSpaceId={contextSpaceId} />
         </div>
+      )}
 
+      <div className="pointer-events-auto flex min-h-0 flex-1 flex-col pt-4">
         <div className="flex min-h-[180px] flex-1 gap-4">
           <div className="hidden w-[230px] shrink-0 md:flex">
             <CollapsibleColumn title="Inputs" side="left" count={assetCount}>
@@ -71,15 +72,6 @@ export function FrontContent() {
           </div>
         </div>
       </div>
-
-      {/* Reserve the bottom band the window frame uses for its spaces dock. */}
-      <motion.div
-        aria-hidden
-        className="shrink-0"
-        initial={false}
-        animate={{ height: bottomInset }}
-        transition={layerTransition}
-      />
     </div>
   )
 }
