@@ -98,11 +98,25 @@ export function TimelineStrip({
   return (
     <section aria-label="Timeline" className="px-1">
       {/* Fixed-height row so the label can fade in without pushing the timeline
-          down. "Today" sits on the side it lies on relative to the viewed day:
-          left when viewing the future, right when viewing the past. */}
+          down. On today, a static "Today" label sits centered above the track;
+          otherwise the viewed date shows with a "Today" button to jump back,
+          placed on the side it lies on relative to the viewed day. */}
       <div className="relative mb-1.5 h-5">
-        <AnimatePresence initial={false}>
-          {!isToday && (
+        <AnimatePresence initial={false} mode="wait">
+          {isToday ? (
+            <motion.div
+              key="today-label"
+              initial={{ opacity: 0, y: -4 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -4 }}
+              transition={panelTransition}
+              className="absolute inset-x-0 top-0 flex items-center justify-center"
+            >
+              <span className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+                Today
+              </span>
+            </motion.div>
+          ) : (
             <motion.div
               key="day-label"
               initial={{ opacity: 0, y: -4 }}

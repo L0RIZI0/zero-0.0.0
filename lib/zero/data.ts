@@ -617,19 +617,27 @@ export function getSpaceAssets(spaceId: string): Asset[] {
 }
 
 /**
- * A unified list of "context items" for a node — tasks plus events — used by
- * the frontmost task list. Events are surfaced as task-like rows so a context's
- * scheduled items and to-dos read as one stream.
+ * A unified list of "context items" for a node — child spaces, tasks, and
+ * events — used by the frontmost task list. Every kind a user can create with
+ * the "+ ADD" button surfaces here as a row with its corresponding glyph, so a
+ * context's spaces, scheduled items, and to-dos read as one stream.
  */
 export interface ContextItem {
   id: string
-  kind: "task" | "event"
+  kind: "task" | "event" | "space"
   title: string
   task?: Task
   event?: ZeroEvent
+  space?: Space
 }
 
 export function getContextItems(spaceId: string): ContextItem[] {
+  const spaceItems: ContextItem[] = getChildSpaces(spaceId).map((s) => ({
+    id: s.id,
+    kind: "space",
+    title: s.name,
+    space: s,
+  }))
   const taskItems: ContextItem[] = getSpaceTasks(spaceId).map((t) => ({
     id: t.id,
     kind: "task",
@@ -642,7 +650,57 @@ export function getContextItems(spaceId: string): ContextItem[] {
     title: e.title,
     event: e,
   }))
-  return [...taskItems, ...eventItems]
+  return [...spaceItems, ...taskItems, ...eventItems]
+}
+
+/** Resolve any item id (task / event / space) to its ContextItem. */
+export function resolveContextItem(id: string): ContextItem | undefined {
+  const t = taskById.get(id)
+  if (t) return { id, kind: "task", title: t.title, task: t }
+  const e = events.find((ev) => ev.id === id)
+  if (e) return { id, kind: "event", title: e.title, event: e }
+  const s = spaceById.get(id)
+  if (s) return { id, kind: "space", title: s.name, space: s }
+  return undefined
+}
+
+// ----------------------------------------------------------------------------
+// Pins — per-context promotion of an item into the SPACES row. Pinning is
+// scoped to the context it was pinned from (a `contextId` → item ids map), so
+// the same item can be pinned in one space without affecting others. A pinned
+// item is shown in the SPACES row and hidden from that context's task list.
+// ----------------------------------------------------------------------------
+
+const pinnedByContext: Record<string, string[]> = {}
+
+export function getPinnedIds(contextId: string): string[] {
+  return pinnedByContext[contextId] ?? []
+}
+
+export function isPinned(contextId: string, itemId: string): boolean {
+  return (pinnedByContext[contextId] ?? []).includes(itemId)
+}
+
+/** ContextItems pinned within a context, resolved and in pin order. */
+export function getPinnedItems(contextId: string): ContextItem[] {
+  return getPinnedIds(contextId)
+    .map((id) => resolveContextItem(id))
+    .filter(Boolean) as ContextItem[]
+}
+
+export function pinItem(contextId: string, itemId: string): void {
+  const arr = pinnedByContext[contextId] ?? (pinnedByContext[contextId] = [])
+  if (!arr.includes(itemId)) arr.push(itemId)
+  persist()
+}
+
+export function unpinItem(contextId: string, itemId: string): void {
+  const arr = pinnedByContext[contextId]
+  if (!arr) return
+  const i = arr.indexOf(itemId)
+  if (i >= 0) arr.splice(i, 1)
+  if (arr.length === 0) delete pinnedByContext[contextId]
+  persist()
 }
 
 /** True when `spaceId` is `nodeId` or a descendant of it. Drives timeline dimming. */
@@ -687,6 +745,7 @@ function persist() {
     tasks: tasks.filter((t) => userTaskIds.has(t.id)),
     spaces: spaces.filter((s) => userSpaceIds.has(s.id)),
     events: events.filter((e) => userEventIds.has(e.id)),
+    pins: pinnedByContext,
   })
 }
 
@@ -725,6 +784,13 @@ export function hydrateFromStorage(): boolean {
     if (events.some((e) => e.id === event.id)) continue
     events.push(event)
     userEventIds.add(event.id)
+    added = true
+  }
+
+  // Restore pins (per-context). Pins reference seeded or user items by id.
+  for (const [contextId, ids] of Object.entries(stored.pins)) {
+    if (!Array.isArray(ids) || ids.length === 0) continue
+    pinnedByContext[contextId] = [...ids]
     added = true
   }
 

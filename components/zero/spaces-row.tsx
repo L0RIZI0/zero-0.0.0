@@ -1,30 +1,59 @@
 "use client"
 
-import type { Space } from "@/lib/zero/types"
-import { getChildSpaces } from "@/lib/zero/data"
+import { useState } from "react"
+import { PinOff } from "lucide-react"
+import { getPinnedItems, unpinItem, type ContextItem } from "@/lib/zero/data"
 import { useZeroNav } from "@/lib/zero/nav-store"
 import { SpaceButton } from "./space-button"
+import { PinnedCard } from "./pinned-card"
+import { ContextMenu, type ContextMenuState } from "./context-menu"
 
 /**
- * The Spaces row — the horizontal strip of child-space buttons that sits
- * between the timeline and the inputs/tasks/outputs lists. It lives in the
- * persistent frontmost layer (FrontContent), so it re-reads the active
- * context's children instantly on navigation rather than animating in with
- * each window frame.
+ * The Spaces row — the horizontal strip of pinned items that sits between the
+ * timeline and the inputs/tasks/outputs lists. It lives in the persistent
+ * frontmost layer (FrontContent), so it re-reads the active context's pins
+ * instantly on navigation rather than animating in with each window frame.
  *
- * When the active context has no child spaces, the whole row is hidden. New
- * spaces are created from the "+ ADD" button at the bottom of the task list.
+ * Pins are per-context: an item shows here only in the space it was pinned
+ * from. Items are promoted here via right-click "Pin to Spaces" in the task
+ * list, and right-clicking a card here unpins it (sending it back to the list).
+ * When a context has no pins, the whole row is hidden.
  */
 export function SpacesRow({ contextSpaceId }: { contextSpaceId: string }) {
-  const { openSpace, dataVersion } = useZeroNav()
+  const { openSpace, openTask, dataVersion, notifyDataChanged } = useZeroNav()
+  const [menu, setMenu] = useState<ContextMenuState | null>(null)
 
-  // Re-read children whenever data mutates or the context changes. Reading on
-  // every render is cheap (in-memory filter) and keeps the row instant.
+  // Re-read pins whenever data mutates or the context changes.
   void dataVersion
-  const children: Space[] = getChildSpaces(contextSpaceId)
+  const pinned: ContextItem[] = getPinnedItems(contextSpaceId)
 
-  // No subspaces in this context → hide the row entirely.
-  if (children.length === 0) return null
+  // No pins in this context → hide the row entirely.
+  if (pinned.length === 0) return null
+
+  const open = (item: ContextItem) => {
+    if (item.kind === "space") openSpace(item.space!.id)
+    else if (item.kind === "task") openTask(item.task!.id)
+    else openSpace(item.event!.spaceId)
+  }
+
+  const openMenu = (e: React.MouseEvent, item: ContextItem) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setMenu({
+      x: e.clientX,
+      y: e.clientY,
+      items: [
+        {
+          label: "Unpin from Spaces",
+          icon: <PinOff className="h-3.5 w-3.5" />,
+          onSelect: () => {
+            unpinItem(contextSpaceId, item.id)
+            notifyDataChanged()
+          },
+        },
+      ],
+    })
+  }
 
   return (
     <div className="pointer-events-auto flex shrink-0 flex-col items-center pb-1 pt-3">
@@ -32,10 +61,26 @@ export function SpacesRow({ contextSpaceId }: { contextSpaceId: string }) {
         Spaces
       </h3>
       <div className="flex w-full flex-wrap items-stretch justify-center gap-3">
-        {children.map((child) => (
-          <SpaceButton key={child.id} space={child} onOpen={openSpace} />
-        ))}
+        {pinned.map((item) =>
+          item.kind === "space" ? (
+            <SpaceButton
+              key={item.id}
+              space={item.space!}
+              onOpen={openSpace}
+              onContextMenu={(e) => openMenu(e, item)}
+            />
+          ) : (
+            <PinnedCard
+              key={item.id}
+              item={item}
+              onOpen={() => open(item)}
+              onContextMenu={(e) => openMenu(e, item)}
+            />
+          ),
+        )}
       </div>
+
+      <ContextMenu state={menu} onClose={() => setMenu(null)} />
     </div>
   )
 }

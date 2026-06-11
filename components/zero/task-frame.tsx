@@ -43,7 +43,7 @@ export function TaskFrame({
       layoutId={taskLayoutId(task.id)}
       transition={layerTransition}
       style={{ borderRadius: 4 }}
-      className="relative flex h-full w-full flex-col overflow-hidden border border-border bg-background shadow-[0_24px_80px_-32px_rgba(0,0,0,0.6)]"
+      className="relative flex h-full w-full flex-col overflow-hidden border border-border bg-secondary/40 shadow-[0_24px_80px_-32px_rgba(0,0,0,0.6)]"
     >
       {/* Title band */}
       <div className="flex items-start justify-between gap-3 px-6 pt-5 pb-3">

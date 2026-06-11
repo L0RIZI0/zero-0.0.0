@@ -16,9 +16,11 @@ export interface UserItems {
   tasks: Task[]
   spaces: Space[]
   events: ZeroEvent[]
+  /** Per-context pin map: context space id → ordered list of pinned item ids. */
+  pins: Record<string, string[]>
 }
 
-export const emptyUserItems = (): UserItems => ({ tasks: [], spaces: [], events: [] })
+export const emptyUserItems = (): UserItems => ({ tasks: [], spaces: [], events: [], pins: {} })
 
 export function readUserItems(): UserItems {
   if (typeof window === "undefined") return emptyUserItems()
@@ -30,6 +32,7 @@ export function readUserItems(): UserItems {
       tasks: Array.isArray(parsed.tasks) ? parsed.tasks : [],
       spaces: Array.isArray(parsed.spaces) ? parsed.spaces : [],
       events: Array.isArray(parsed.events) ? parsed.events : [],
+      pins: parsed.pins && typeof parsed.pins === "object" ? parsed.pins : {},
     }
   } catch {
     return emptyUserItems()

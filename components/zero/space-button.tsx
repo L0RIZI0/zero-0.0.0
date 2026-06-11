@@ -11,9 +11,11 @@ import { useMemo } from "react"
 export function SpaceButton({
   space,
   onOpen,
+  onContextMenu,
 }: {
   space: Space
   onOpen: (spaceId: string) => void
+  onContextMenu?: (e: React.MouseEvent) => void
 }) {
   const { stack } = useZeroNav()
   const accent = space.accent ?? "var(--muted-foreground)"
@@ -28,7 +30,7 @@ export function SpaceButton({
     return (
       <div
         aria-hidden
-        className="h-[64px] w-[150px] shrink-0 rounded-sm border border-dashed border-border/60 bg-secondary/30"
+        className="h-[64px] w-[112px] shrink-0 rounded-sm border border-dashed border-border/60 bg-secondary/30"
       />
     )
   }
@@ -39,12 +41,13 @@ export function SpaceButton({
       layoutId={spaceLayoutId(space.id)}
       transition={layerTransition}
       onClick={() => onOpen(space.id)}
+      onContextMenu={onContextMenu}
       style={{ borderRadius: 4 }}
       whileHover={{
         scale: 1.03,
         boxShadow: "0 14px 32px -12px rgba(0,0,0,0.3)",
       }}
-      className="group relative flex h-[64px] w-[150px] shrink-0 flex-col justify-between overflow-hidden border border-border bg-card-solid px-2.5 py-2 text-left"
+      className="group relative flex h-[64px] w-[112px] shrink-0 flex-col justify-between overflow-hidden border border-border bg-card-solid px-2.5 py-2 text-left"
     >
       {/* accent edge */}
       <motion.span

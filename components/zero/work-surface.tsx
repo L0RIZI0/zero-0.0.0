@@ -14,7 +14,7 @@ import { FrontContent } from "./front-content"
  */
 export function WorkSurface() {
   return (
-    <div className="relative h-full w-full overflow-hidden rounded-md bg-secondary/40">
+    <div className="relative h-full w-full overflow-hidden rounded-md bg-background">
       {/* Layer B — window frames (root renders no frame, just transparent). */}
       <div className="absolute inset-0 z-10">
         <SpaceLayerStack />

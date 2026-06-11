@@ -2,13 +2,14 @@
 
 import { useEffect, useMemo, useState } from "react"
 import { AnimatePresence, motion } from "motion/react"
-import { Check, Plus } from "lucide-react"
-import { getContextItems, type ContextItem } from "@/lib/zero/data"
+import { Check, Plus, Pin } from "lucide-react"
+import { getContextItems, isPinned, pinItem, type ContextItem } from "@/lib/zero/data"
 import type { Task, TaskPriority } from "@/lib/zero/types"
 import { useZeroNav } from "@/lib/zero/nav-store"
 import { layerTransition, taskLayoutId, taskTitleId, panelTransition } from "@/lib/zero/motion"
 import { NodeGlyph } from "./node-glyph"
 import { CreateWindow } from "./create-window"
+import { ContextMenu, type ContextMenuState } from "./context-menu"
 import { cn } from "@/lib/utils"
 
 const priorityDot: Record<TaskPriority, string> = {
@@ -17,7 +18,20 @@ const priorityDot: Record<TaskPriority, string> = {
   low: "bg-foreground/20",
 }
 
-function TaskRow({ task }: { task: Task }) {
+/**
+ * Shared leading glyph box for every row, so the task square, event triangle,
+ * and space hexagon all read at the same 16px size and weight. The square is
+ * rendered very slightly paler than the others, per the unified treatment.
+ */
+const GLYPH_BOX = "flex h-4 w-4 shrink-0 items-center justify-center"
+
+function TaskRow({
+  task,
+  onContext,
+}: {
+  task: Task
+  onContext: (e: React.MouseEvent) => void
+}) {
   const [done, setDone] = useState(task.completed)
   const { openTask, stack } = useZeroNav()
 
@@ -41,6 +55,7 @@ function TaskRow({ task }: { task: Task }) {
         layoutId={taskLayoutId(task.id)}
         transition={layerTransition}
         style={{ borderRadius: 4 }}
+        onContextMenu={onContext}
         whileHover={{
           scale: 1.02,
           boxShadow: "0 12px 28px -10px rgba(0,0,0,0.28)",
@@ -55,13 +70,18 @@ function TaskRow({ task }: { task: Task }) {
             setDone((d) => !d)
           }}
           className={cn(
-            "flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-[3px] border transition-colors",
-            done
-              ? "border-foreground bg-foreground text-background"
-              : "border-foreground/25 text-transparent group-hover:border-foreground/50",
+            GLYPH_BOX,
+            "relative transition-colors",
+            done ? "text-foreground" : "text-foreground/70 group-hover:text-foreground",
           )}
         >
-          <Check className="h-3 w-3" strokeWidth={3} />
+          <NodeGlyph kind="task" filled={done} strokeWidth={2} />
+          {done && (
+            <Check
+              className="absolute h-2.5 w-2.5 text-background"
+              strokeWidth={3.5}
+            />
+          )}
         </button>
 
         <button
@@ -98,7 +118,13 @@ function TaskRow({ task }: { task: Task }) {
 }
 
 /** An event surfaced in the task list — read-only row with a triangle glyph. */
-function EventRow({ item }: { item: ContextItem }) {
+function EventRow({
+  item,
+  onContext,
+}: {
+  item: ContextItem
+  onContext: (e: React.MouseEvent) => void
+}) {
   const { openSpace } = useZeroNav()
   const event = item.event!
   return (
@@ -111,11 +137,12 @@ function EventRow({ item }: { item: ContextItem }) {
         exit={{ opacity: 0, y: -4 }}
         transition={panelTransition}
         onClick={() => openSpace(event.spaceId)}
+        onContextMenu={onContext}
         style={{ borderRadius: 4 }}
         whileHover={{ scale: 1.02, boxShadow: "0 12px 28px -10px rgba(0,0,0,0.28)" }}
         className="group flex w-full items-center gap-3 border border-border bg-card-solid px-2.5 py-2 text-left"
       >
-        <span className="flex h-[18px] w-[18px] shrink-0 items-center justify-center text-foreground">
+        <span className={cn(GLYPH_BOX, "text-foreground")}>
           <NodeGlyph kind="event" />
         </span>
         <span className="min-w-0 flex-1 truncate text-[13px] tracking-tight text-foreground">
@@ -124,6 +151,47 @@ function EventRow({ item }: { item: ContextItem }) {
         <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground/70">
           {fmtTime(event.start)}
         </span>
+      </motion.button>
+    </li>
+  )
+}
+
+/** A child space surfaced in the task list — hexagon glyph, dives in on click. */
+function SpaceRow({
+  item,
+  onContext,
+}: {
+  item: ContextItem
+  onContext: (e: React.MouseEvent) => void
+}) {
+  const { openSpace } = useZeroNav()
+  const space = item.space!
+  return (
+    <li>
+      <motion.button
+        type="button"
+        layout
+        initial={{ opacity: 0, y: 4 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: -4 }}
+        transition={panelTransition}
+        onClick={() => openSpace(space.id)}
+        onContextMenu={onContext}
+        style={{ borderRadius: 4 }}
+        whileHover={{ scale: 1.02, boxShadow: "0 12px 28px -10px rgba(0,0,0,0.28)" }}
+        className="group flex w-full items-center gap-3 border border-border bg-card-solid px-2.5 py-2 text-left"
+      >
+        <span className={cn(GLYPH_BOX, "text-foreground")}>
+          <NodeGlyph kind="space" />
+        </span>
+        <span className="min-w-0 flex-1 truncate text-[13px] tracking-tight text-foreground">
+          {space.name}
+        </span>
+        {space.childSpaceIds.length > 0 && (
+          <span className="shrink-0 text-[11px] text-muted-foreground/70">
+            {space.childSpaceIds.length} spaces
+          </span>
+        )}
       </motion.button>
     </li>
   )
@@ -138,11 +206,17 @@ function fmtTime(min: number) {
 }
 
 export function TaskList({ spaceId }: { spaceId: string }) {
-  const { dataVersion } = useZeroNav()
-  // Re-read whenever data mutates (new item created) or the context changes.
-  const items = useMemo(() => getContextItems(spaceId), [spaceId, dataVersion])
+  const { dataVersion, notifyDataChanged } = useZeroNav()
+  // Re-read whenever data mutates (new item created / pin changed) or context
+  // changes. Pinned items are promoted to the SPACES row, so they're excluded
+  // here.
+  const items = useMemo(
+    () => getContextItems(spaceId).filter((it) => !isPinned(spaceId, it.id)),
+    [spaceId, dataVersion],
+  )
   const [filter, setFilter] = useState<"open" | "all">("open")
   const [creating, setCreating] = useState(false)
+  const [menu, setMenu] = useState<ContextMenuState | null>(null)
 
   // Reset filter view when the context changes.
   useEffect(() => setFilter("open"), [spaceId])
@@ -150,11 +224,30 @@ export function TaskList({ spaceId }: { spaceId: string }) {
   const shown = useMemo(
     () =>
       filter === "open"
-        ? items.filter((it) => it.kind === "event" || !it.task!.completed)
+        ? items.filter((it) => it.kind !== "task" || !it.task!.completed)
         : items,
     [items, filter],
   )
   const openCount = items.filter((it) => it.kind === "task" && !it.task!.completed).length
+
+  const openMenu = (e: React.MouseEvent, item: ContextItem) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setMenu({
+      x: e.clientX,
+      y: e.clientY,
+      items: [
+        {
+          label: "Pin to Spaces",
+          icon: <Pin className="h-3.5 w-3.5" />,
+          onSelect: () => {
+            pinItem(spaceId, item.id)
+            notifyDataChanged()
+          },
+        },
+      ],
+    })
+  }
 
   return (
     <section aria-label="Tasks" className="flex min-h-0 flex-col">
@@ -203,9 +296,11 @@ export function TaskList({ spaceId }: { spaceId: string }) {
           ) : (
             shown.map((it) =>
               it.kind === "task" ? (
-                <TaskRow key={it.id} task={it.task!} />
+                <TaskRow key={it.id} task={it.task!} onContext={(e) => openMenu(e, it)} />
+              ) : it.kind === "space" ? (
+                <SpaceRow key={it.id} item={it} onContext={(e) => openMenu(e, it)} />
               ) : (
-                <EventRow key={it.id} item={it} />
+                <EventRow key={it.id} item={it} onContext={(e) => openMenu(e, it)} />
               ),
             )
           )}
@@ -231,6 +326,8 @@ export function TaskList({ spaceId }: { spaceId: string }) {
           <CreateWindow spaceId={spaceId} onClose={() => setCreating(false)} />
         )}
       </AnimatePresence>
+
+      <ContextMenu state={menu} onClose={() => setMenu(null)} />
     </section>
   )
 }
