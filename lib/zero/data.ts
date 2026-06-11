@@ -631,3 +631,57 @@ function collectDescendants(spaceId: string): Set<string> {
   }
   return set
 }
+
+// ----------------------------------------------------------------------------
+// Mutations — user-created items. In-memory only (reset on refresh), but real:
+// they push into the same arrays/indexes the selectors above read from, so a
+// new task/space/event shows up everywhere it should.
+// ----------------------------------------------------------------------------
+
+let _seq = 0
+const uid = (prefix: string) => `${prefix}_u${Date.now().toString(36)}${(_seq++).toString(36)}`
+
+export function addTask(input: { title: string; spaceId: string }): Task {
+  const task: Task = {
+    id: uid("t"),
+    title: input.title,
+    completed: false,
+    dueDate: null,
+    priority: "medium",
+    tags: [],
+    spaceIds: [input.spaceId],
+  }
+  tasks.push(task)
+  taskById.set(task.id, task)
+  return task
+}
+
+export function addSpace(input: { name: string; parentId: string }): Space {
+  const space: Space = {
+    id: uid("s"),
+    name: input.name,
+    parentId: input.parentId,
+    description: "",
+    childSpaceIds: [],
+    assignedResourceIds: [],
+  }
+  spaces.push(space)
+  spaceById.set(space.id, space)
+  const parent = spaceById.get(input.parentId)
+  if (parent && !parent.childSpaceIds.includes(space.id)) {
+    parent.childSpaceIds.push(space.id)
+  }
+  return space
+}
+
+export function addEvent(input: { title: string; spaceId: string }): ZeroEvent {
+  const event: ZeroEvent = {
+    id: uid("e"),
+    title: input.title,
+    start: hm(12, 0),
+    end: hm(13, 0),
+    spaceId: input.spaceId,
+  }
+  events.push(event)
+  return event
+}

@@ -16,6 +16,10 @@ interface ZeroNavContextValue {
   closeSpace: () => void
   /** Jump to a specific depth in the stack (used by breadcrumb). */
   goToDepth: (depth: number) => void
+  /** Bumps on any in-memory data mutation so selectors re-read fresh data. */
+  dataVersion: number
+  /** Signal that the underlying data arrays changed (task/space/event added). */
+  notifyDataChanged: () => void
 }
 
 /** Task ids are prefixed "t", space ids "s_". */
