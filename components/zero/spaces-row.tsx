@@ -31,6 +31,7 @@ export function SpacesRow({ contextSpaceId }: { contextSpaceId: string }) {
   const openItem = (item: ContextItem) => {
     // Spaces and tasks open as their own framed window; an event resolves to
     // its origin parent space (events aren't framed contexts of their own).
+    // An instant opens its own window directly (it morphs from the timeline).
     if (item.kind === "event") open(item.entity.parentId ?? "s_root")
     else open(item.entity.id)
   }

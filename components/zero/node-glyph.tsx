@@ -2,8 +2,8 @@
 
 import { cn } from "@/lib/utils"
 
-/** The three node kinds Zero can create, each with its own silhouette. */
-export type NodeKind = "task" | "space" | "event"
+/** The four node kinds Zero can create, each with its own silhouette. */
+export type NodeKind = "task" | "space" | "event" | "instant"
 
 export const NODE_KIND_META: Record<
   NodeKind,
@@ -11,14 +11,16 @@ export const NODE_KIND_META: Record<
 > = {
   task: { label: "Task", description: "A single thing to do" },
   space: { label: "Space", description: "A context that holds things" },
-  event: { label: "Event", description: "Something at a point in time" },
+  event: { label: "Event", description: "Something over a span of time" },
+  instant: { label: "Instant", description: "Something at a precise moment" },
 }
 
 /**
  * A crisp geometric silhouette for a node kind:
- *  - task  → square
- *  - space → hexagon
- *  - event → triangle pointing up
+ *  - task    → square
+ *  - space   → hexagon
+ *  - event   → triangle pointing up
+ *  - instant → triangle pointing down (a single point in time)
  * Rendered as an inline SVG so it scales and inherits color via `currentColor`.
  */
 export function NodeGlyph({
@@ -55,6 +57,9 @@ export function NodeGlyph({
         <polygon points="12,2.3 20.6,7.1 20.6,16.9 12,21.7 3.4,16.9 3.4,7.1" {...common} />
       )}
       {kind === "event" && <polygon points="12,4 20.5,19 3.5,19" {...common} />}
+      {/* Instant — the event triangle mirrored to point downward, marking a
+          single point in time rather than a span. */}
+      {kind === "instant" && <polygon points="3.5,5 20.5,5 12,20" {...common} />}
     </svg>
   )
 }

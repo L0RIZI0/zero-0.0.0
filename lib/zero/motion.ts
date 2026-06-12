@@ -34,6 +34,13 @@ export const taskTitleId = (id: string) => `task-title-${id}`
 export const eventLayoutId = (id: string) => `event-frame-${id}`
 export const eventTitleId = (id: string) => `event-title-${id}`
 /**
+ * Instants mirror events: no window context of their own, but they morph
+ * between their TIMELINE marker and their opened window, so they carry their
+ * own identity for that transition.
+ */
+export const instantLayoutId = (id: string) => `instant-frame-${id}`
+export const instantTitleId = (id: string) => `instant-title-${id}`
+/**
  * Per-entity glyph id so the kind icon travels continuously between the DO-list
  * row and the dock card (shared across space / task / event alike).
  */

@@ -66,6 +66,15 @@ export const isEventId = (id: string) => {
   return kind ? kind === "event" : id.startsWith("e")
 }
 
+/**
+ * Whether a node id refers to an instant. Derived from the entity model; falls
+ * back to the id prefix ("i") for ids not yet hydrated into the store.
+ */
+export const isInstantId = (id: string) => {
+  const kind = getEntity(id)?.kind
+  return kind ? kind === "instant" : id.startsWith("i")
+}
+
 const ZeroNavContext = createContext<ZeroNavContextValue | null>(null)
 
 export function ZeroNavProvider({

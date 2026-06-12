@@ -58,7 +58,8 @@ export function PinnedCard({
   // Every kind morphs between its DO-list row and this dock card via a shared
   // layoutId. Spaces and tasks ALSO own a window frame that shares the same id,
   // so while their frame is open we release the id to the frame (placeholder
-  // swap below). Events have no frame, so they never need that swap.
+  // swap below). Events and instants have no frame morph here (they morph via
+  // the timeline), so they never need that swap.
   const hasFrame = isSpace || isTask
   const { stack } = useZeroNav()
 
@@ -77,11 +78,11 @@ export function PinnedCard({
   }
 
   // Per-kind shared ids so the card morphs continuously to/from the DO-list row
-  // (and, for spaces/tasks, the window frame too). Events are the exception:
-  // they morph only between the TIMELINE and their window, so a pinned event
-  // card is static (no shared ids) — otherwise it would fight the timeline
-  // overlay for the same layoutId.
-  const isEvent = item.kind === "event"
+  // (and, for spaces/tasks, the window frame too). Events and instants are the
+  // exception: they morph only between the TIMELINE and their window, so a
+  // pinned event/instant card is static (no shared ids) — otherwise it would
+  // fight the timeline overlay for the same layoutId.
+  const isTimed = item.kind === "event" || item.kind === "instant"
   const morphLayoutId = isSpace
     ? spaceLayoutId(item.entity.id)
     : isTask
@@ -131,7 +132,7 @@ export function PinnedCard({
             continuously between the DO-list row and this card. */}
         <div className="flex items-start justify-between gap-1.5">
           <motion.span
-            layoutId={isEvent ? undefined : glyphId(item.entity.id)}
+            layoutId={isTimed ? undefined : glyphId(item.entity.id)}
             transition={layerTransition}
             className="flex h-3.5 w-3.5 shrink-0 items-center justify-center text-foreground"
           >

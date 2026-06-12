@@ -36,17 +36,18 @@ export interface User {
  * domain types — they are the SAME recursive "container" with a different
  * `kind` discriminator (and glyph):
  *
- *   - `space` — an area / folder / gathering ("Day Job", "Health").
- *   - `task`  — a unit of work; still a container (it can hold subtasks).
- *   - `event` — a scheduled span; also a container at its core.
+ *   - `space`   — an area / folder / gathering ("Day Job", "Health").
+ *   - `task`    — a unit of work; still a container (it can hold subtasks).
+ *   - `event`   — a scheduled span (start→end); also a container at its core.
+ *   - `instant` — like an event, but a single point in time rather than a span.
  *
  * Containment is recursive: any entity can contain any other entity. The shared
  * attributes below are present on every kind; only some are *relevant* per kind
- * (an event cares about start/end, a task about priority/dueDate, a space about
- * description), so renderers show fields conditionally rather than the model
- * splitting into separate shapes.
+ * (an event cares about start/end, an instant about `at`, a task about
+ * priority/dueDate, a space about description), so renderers show fields
+ * conditionally rather than the model splitting into separate shapes.
  */
-export type EntityKind = "space" | "task" | "event"
+export type EntityKind = "space" | "task" | "event" | "instant"
 
 export interface Entity {
   id: string
@@ -79,6 +80,13 @@ export interface Entity {
   /** Minutes from midnight; mainly events. Kept numeric for timeline math. */
   start?: number
   end?: number
+  /**
+   * Minutes from midnight for an `instant` — a single point in time rather than
+   * a span. `seconds` carries the sub-minute precision (0–59) so an instant can
+   * be pinned to a specific second.
+   */
+  at?: number
+  seconds?: number
   /** Free-text labels. */
   tags?: string[]
 }

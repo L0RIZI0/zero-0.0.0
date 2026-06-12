@@ -633,7 +633,7 @@ export function getResource(id: string): Resource | undefined {
  * tasks → events so the stream reads consistently.
  */
 export function getChildren(contextId: string): Entity[] {
-  const order: Record<EntityKind, number> = { space: 0, task: 1, event: 2 }
+  const order: Record<EntityKind, number> = { space: 0, task: 1, event: 2, instant: 3 }
   return entities
     .filter(
       (e) =>
@@ -702,6 +702,12 @@ export function getEvent(id: string): Entity | undefined {
   return e && e.kind === "event" ? e : undefined
 }
 
+/** An instant entity by id (undefined for non-instant ids). */
+export function getInstant(id: string): Entity | undefined {
+  const e = byId.get(id)
+  return e && e.kind === "instant" ? e : undefined
+}
+
 /** Direct child spaces of a space. */
 export function getChildSpaces(spaceId: string): Entity[] {
   return entities.filter((e) => e.kind === "space" && e.parentId === spaceId)
@@ -731,12 +737,14 @@ export function getSpaceTasks(spaceId: string): Entity[] {
   )
 }
 
-/** Events anywhere in a space's subtree. Drives the timeline. */
+/** Events AND instants anywhere in a space's subtree. Drives the timeline —
+ *  events render as spans, instants as single-point markers. */
 export function getSpaceEvents(spaceId: string): Entity[] {
-  if (spaceId === "s_root") return entities.filter((e) => e.kind === "event")
+  const isTimed = (e: Entity) => e.kind === "event" || e.kind === "instant"
+  if (spaceId === "s_root") return entities.filter(isTimed)
   const descendants = collectDescendants(spaceId)
   return entities.filter(
-    (e) => e.kind === "event" && e.parentId !== null && descendants.has(e.parentId),
+    (e) => isTimed(e) && e.parentId !== null && descendants.has(e.parentId),
   )
 }
 
@@ -905,6 +913,10 @@ export function addSpace(input: { name: string; parentId: string }): Entity {
   entities.push(entity)
   byId.set(entity.id, entity)
   userEntityIds.add(entity.id)
+  // A new space is, by default, PINNED into the dock of the context it was
+  // created from — it reads as a first-class place immediately. The user can
+  // demote it into the DO list later by unpinning it.
+  pinItem(input.parentId, entity.id)
   persist()
   return entity
 }
@@ -918,6 +930,25 @@ export function addEvent(input: { title: string; spaceId: string }): Entity {
     taggedSpaceIds: [],
     start: hm(12, 0),
     end: hm(13, 0),
+  }
+  entities.push(entity)
+  byId.set(entity.id, entity)
+  userEntityIds.add(entity.id)
+  persist()
+  return entity
+}
+
+export function addInstant(input: { title: string; spaceId: string }): Entity {
+  // An instant is a single point in time (down-triangle). It defaults to noon
+  // exactly; precision down to the second is carried on `seconds`.
+  const entity: Entity = {
+    id: uid("i"),
+    kind: "instant",
+    title: input.title,
+    parentId: input.spaceId,
+    taggedSpaceIds: [],
+    at: hm(12, 0),
+    seconds: 0,
   }
   entities.push(entity)
   byId.set(entity.id, entity)

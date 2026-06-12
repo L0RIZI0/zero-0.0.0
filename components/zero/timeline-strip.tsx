@@ -4,8 +4,16 @@ import { useMemo, useState } from "react"
 import { AnimatePresence, motion } from "motion/react"
 import { ChevronLeft, ChevronRight } from "lucide-react"
 import { getSpace, getSpaceEvents, isInSubtree } from "@/lib/zero/data"
-import { panelTransition, layerTransition, eventLayoutId, eventTitleId } from "@/lib/zero/motion"
+import {
+  panelTransition,
+  layerTransition,
+  eventLayoutId,
+  eventTitleId,
+  instantLayoutId,
+  instantTitleId,
+} from "@/lib/zero/motion"
 import { useZeroNav } from "@/lib/zero/nav-store"
+import { NodeGlyph } from "./node-glyph"
 import { cn } from "@/lib/utils"
 
 const DAY_START = 8 * 60 // 08:00
@@ -220,22 +228,76 @@ export function TimelineStrip({
                   </div>
                 )}
 
-                {/* events — only render on today for this prototype. Each event
-                    carries the accent of the space it belongs to and opens that
-                    space as a layer, just like a task. */}
+                {/* events + instants — only render on today for this prototype.
+                    Each carries the accent of the space it belongs to and opens
+                    its own window. Events render as spans; instants render as a
+                    single down-triangle marker at one precise point in time. */}
                 {isToday &&
                   evts.map((e, i) => {
+                    const eventSpaceId = e.parentId ?? "s_root"
+                    const space = getSpace(eventSpaceId)
+                    const color = space?.accent
+                    const related = isInSubtree(spaceId, eventSpaceId)
+                    const isOpen = stack.includes(e.id)
+                    const lane = i % 2
+
+                    // --- Instant: a single point marker (down triangle) -------
+                    if (e.kind === "instant") {
+                      const at = e.at ?? 0
+                      const left = ((at - DAY_START) / SPAN) * 100
+                      const showMorphOverlay = !isOpen
+                      return (
+                        <div
+                          key={e.id}
+                          className="absolute flex -translate-x-1/2 flex-col items-center"
+                          style={{ left: `${left}%`, top: lane === 0 ? 4 : 26 }}
+                        >
+                          <motion.button
+                            type="button"
+                            initial={false}
+                            animate={{ opacity: isOpen || related ? 1 : 0.25 }}
+                            transition={panelTransition}
+                            onClick={() => (isOpen ? requestPulse(e.id) : open(e.id))}
+                            aria-current={isOpen ? "true" : undefined}
+                            title={`${e.title} · ${fmt(at)}`}
+                            className="flex flex-col items-center gap-0.5 transition-[filter] hover:brightness-110"
+                          >
+                            <span
+                              className="flex h-3 w-3 items-center justify-center"
+                              style={{ color: color ?? "var(--accent)" }}
+                            >
+                              <NodeGlyph kind="instant" filled strokeWidth={1.5} />
+                            </span>
+                            <span className="max-w-[80px] truncate text-[10px] tracking-tight text-foreground/90">
+                              {e.title}
+                            </span>
+                          </motion.button>
+                          {showMorphOverlay && (
+                            <motion.div
+                              layoutId={instantLayoutId(e.id)}
+                              transition={layerTransition}
+                              aria-hidden
+                              className="pointer-events-none absolute left-1/2 top-0 -translate-x-1/2"
+                              style={{ opacity: related ? 1 : 0.25 }}
+                            >
+                              <motion.span
+                                layoutId={instantTitleId(e.id)}
+                                transition={layerTransition}
+                                className="sr-only"
+                              >
+                                {e.title}
+                              </motion.span>
+                            </motion.div>
+                          )}
+                        </div>
+                      )
+                    }
+
+                    // --- Event: a span chip -----------------------------------
                     const start = e.start ?? 0
                     const end = e.end ?? start
                     const left = ((start - DAY_START) / SPAN) * 100
                     const width = ((end - start) / SPAN) * 100
-                    const lane = i % 2
-                    const eventSpaceId = e.parentId ?? "s_root"
-                    const space = getSpace(eventSpaceId)
-                    const color = space?.accent
-                    // Dim events that aren't in the active node's subtree.
-                    const related = isInSubtree(spaceId, eventSpaceId)
-                    const isOpen = stack.includes(e.id)
                     // Events morph between the TIMELINE and their window only —
                     // never the DO list. The overlay (which carries the shared
                     // layoutId) therefore lives on the timeline whenever the

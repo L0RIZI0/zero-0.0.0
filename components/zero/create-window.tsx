@@ -5,12 +5,12 @@ import { createPortal } from "react-dom"
 import { AnimatePresence, motion } from "motion/react"
 import { Check, ChevronDown, X } from "lucide-react"
 import { NodeGlyph, NODE_KIND_META, type NodeKind } from "./node-glyph"
-import { addTask, addSpace, addEvent } from "@/lib/zero/data"
+import { addTask, addSpace, addEvent, addInstant } from "@/lib/zero/data"
 import { useZeroNav } from "@/lib/zero/nav-store"
 import { contentTransition } from "@/lib/zero/motion"
 import { cn } from "@/lib/utils"
 
-const KIND_ORDER: NodeKind[] = ["task", "space", "event"]
+const KIND_ORDER: NodeKind[] = ["task", "space", "event", "instant"]
 
 /**
  * A focused window for creating a new task / space / event in the current
@@ -63,8 +63,10 @@ export function CreateWindow({
       addTask({ title: name, spaceId })
     } else if (kind === "space") {
       addSpace({ name, parentId: spaceId })
-    } else {
+    } else if (kind === "event") {
       addEvent({ title: name, spaceId })
+    } else {
+      addInstant({ title: name, spaceId })
     }
     notifyDataChanged()
     onClose()

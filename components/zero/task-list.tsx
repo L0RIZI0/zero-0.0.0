@@ -152,7 +152,8 @@ function TaskRow({
 /** An event surfaced in the task list — opens as its own window. Unlike tasks
  *  and spaces, events do NOT morph from this row: an event's expand animation
  *  always plays between the TIMELINE and the window (events live on the
- *  timeline), so the row is a plain, static control here. */
+ *  timeline), so the row is a plain, static control here. Its detail line shows
+ *  the open-subtask count (like spaces/tasks) AND the time range it spans. */
 function EventRow({
   item,
   onContext,
@@ -162,6 +163,7 @@ function EventRow({
 }) {
   const { open } = useZeroNav()
   const event = item.event!
+  const hasRange = typeof event.start === "number" && typeof event.end === "number"
 
   return (
     <li>
@@ -179,9 +181,56 @@ function EventRow({
         <span className="min-w-0 flex-1 truncate text-[13px] tracking-tight text-foreground">
           {event.title}
         </span>
-        <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground/70">
-          {fmtTime(event.start ?? 0)}
+        <OpenTaskCount spaceId={event.id} />
+        {hasRange && (
+          <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground/70">
+            {fmtTime(event.start!)}
+            {"\u2013"}
+            {fmtTime(event.end!)}
+          </span>
+        )}
+      </motion.button>
+    </li>
+  )
+}
+
+/** An instant surfaced in the task list — like an event row, but it marks a
+ *  single point in time, so its detail shows one precise moment (down to the
+ *  second) rather than a range. It opens as its own window via the timeline
+ *  morph, so the row itself is static. */
+function InstantRow({
+  item,
+  onContext,
+}: {
+  item: ContextItem
+  onContext: (e: React.MouseEvent) => void
+}) {
+  const { open } = useZeroNav()
+  const instant = item.entity
+  const hasMoment = typeof instant.at === "number"
+
+  return (
+    <li>
+      <motion.button
+        type="button"
+        onClick={() => open(instant.id)}
+        onContextMenu={onContext}
+        style={{ borderRadius: 4 }}
+        whileHover={{ scale: 1.02, boxShadow: "0 12px 28px -10px rgba(0,0,0,0.28)" }}
+        className="group flex w-full items-center gap-3 border border-border bg-card-solid px-2.5 py-2 text-left"
+      >
+        <span className={cn(GLYPH_BOX, "text-foreground")}>
+          <NodeGlyph kind="instant" />
         </span>
+        <span className="min-w-0 flex-1 truncate text-[13px] tracking-tight text-foreground">
+          {instant.title}
+        </span>
+        <OpenTaskCount spaceId={instant.id} />
+        {hasMoment && (
+          <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground/70">
+            {fmtMoment(instant.at!, instant.seconds ?? 0)}
+          </span>
+        )}
       </motion.button>
     </li>
   )
@@ -258,6 +307,15 @@ function fmtTime(min: number) {
   const ampm = h >= 12 ? "pm" : "am"
   const hr = h % 12 === 0 ? 12 : h % 12
   return m === 0 ? `${hr}${ampm}` : `${hr}:${String(m).padStart(2, "0")}${ampm}`
+}
+
+/** A precise moment for an instant — always includes seconds. */
+function fmtMoment(min: number, seconds: number) {
+  const h = Math.floor(min / 60)
+  const m = min % 60
+  const ampm = h >= 12 ? "pm" : "am"
+  const hr = h % 12 === 0 ? 12 : h % 12
+  return `${hr}:${String(m).padStart(2, "0")}:${String(seconds).padStart(2, "0")}${ampm}`
 }
 
 export function TaskList({ spaceId }: { spaceId: string }) {
@@ -351,8 +409,14 @@ export function TaskList({ spaceId }: { spaceId: string }) {
                 <TaskRow key={it.id} task={it.task!} onContext={(e) => openMenu(e, it)} />
               ) : it.kind === "space" ? (
                 <SpaceRow key={it.id} item={it} onContext={(e) => openMenu(e, it)} />
-              ) : (
+              ) : it.kind === "event" ? (
                 <EventRow
+                  key={it.id}
+                  item={it}
+                  onContext={(e) => openMenu(e, it)}
+                />
+              ) : (
+                <InstantRow
                   key={it.id}
                   item={it}
                   onContext={(e) => openMenu(e, it)}

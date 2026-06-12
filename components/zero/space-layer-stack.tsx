@@ -1,12 +1,13 @@
 "use client"
 
 import { AnimatePresence } from "motion/react"
-import { getSpace, getTask, getEvent } from "@/lib/zero/data"
-import { isTaskId, isEventId, useZeroNav } from "@/lib/zero/nav-store"
+import { getSpace, getTask, getEvent, getInstant } from "@/lib/zero/data"
+import { isTaskId, isEventId, isInstantId, useZeroNav } from "@/lib/zero/nav-store"
 import { LayerDepthContainer } from "./layer-depth-container"
 import { SpaceFrame } from "./space-frame"
 import { TaskFrame } from "./task-frame"
 import { EventFrame } from "./event-frame"
+import { InstantFrame } from "./instant-frame"
 
 export function SpaceLayerStack() {
   const { stack, closeSpace } = useZeroNav()
@@ -34,6 +35,16 @@ export function SpaceLayerStack() {
             return (
               <LayerDepthContainer key={nodeId} depthFromTop={depthFromTop} isActive={isActive}>
                 <EventFrame event={event} isActive={isActive} onClose={closeSpace} />
+              </LayerDepthContainer>
+            )
+          }
+
+          if (isInstantId(nodeId)) {
+            const instant = getInstant(nodeId)
+            if (!instant) return null
+            return (
+              <LayerDepthContainer key={nodeId} depthFromTop={depthFromTop} isActive={isActive}>
+                <InstantFrame instant={instant} isActive={isActive} onClose={closeSpace} />
               </LayerDepthContainer>
             )
           }

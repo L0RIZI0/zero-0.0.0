@@ -3,7 +3,7 @@
 import { motion, AnimatePresence } from "motion/react"
 import { getEntity } from "@/lib/zero/data"
 import { isTaskId, useZeroNav } from "@/lib/zero/nav-store"
-import { contentTransition, layerTransition, spaceTitleId, taskTitleId, eventTitleId } from "@/lib/zero/motion"
+import { contentTransition, layerTransition, spaceTitleId, taskTitleId, eventTitleId, instantTitleId } from "@/lib/zero/motion"
 import { NodeGlyph } from "./node-glyph"
 
 /**
@@ -32,13 +32,15 @@ export function PathStack() {
           if (!label) return null
           const accent = node?.accent
           // Title morph id must match the kind so the label travels from the
-          // frame title into this crumb (space / task / event each have one).
+          // frame title into this crumb (space / task / event / instant).
           const titleLayoutId =
             node?.kind === "event"
               ? eventTitleId(nodeId)
-              : isTask
-                ? taskTitleId(nodeId)
-                : spaceTitleId(nodeId)
+              : node?.kind === "instant"
+                ? instantTitleId(nodeId)
+                : isTask
+                  ? taskTitleId(nodeId)
+                  : spaceTitleId(nodeId)
 
           return (
             <motion.div
