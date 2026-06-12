@@ -244,56 +244,72 @@ export function TimelineStrip({
                     // Dim events that aren't in the active node's subtree.
                     const related = isInSubtree(spaceId, eventSpaceId)
                     const isOpen = stack.includes(e.id)
-                    // The chip owns the frame-expand morph only when this event
-                    // isn't also shown in the current context (which would own
-                    // the id) and isn't already open as a frame. That keeps a
-                    // single owner of the shared layoutId at all times.
-                    const ownsMorph = !contextEventIds.has(e.id) && !isOpen
+                    const inContext = contextEventIds.has(e.id)
+                    // The morph owner (the element that flies into the frame) must
+                    // be unique. The DO row owns it when the event is in context;
+                    // the frame owns it when open. ONLY otherwise does the timeline
+                    // provide a morph element — and even then as a SEPARATE overlay
+                    // so the persistent chip below never gets carried away.
+                    const showMorphOverlay = !inContext && !isOpen
+
+                    const boxStyle = {
+                      left: `calc(${left}% + 2px)`,
+                      width: `calc(${Math.max(width, 6)}% - 4px)`,
+                      top: lane === 0 ? 6 : 28,
+                    } as const
+                    const chipVisual = {
+                      borderLeftColor: color ?? "var(--accent)",
+                      backgroundColor: color ? `${color}26` : "var(--secondary)",
+                    } as const
 
                     return (
-                      <motion.button
-                        key={e.id}
-                        type="button"
-                        {...(ownsMorph
-                          ? { layoutId: eventLayoutId(e.id), transition: layerTransition }
-                          : {
-                              initial: false,
-                              // An open event stays fully lit as a clear "you are
-                              // here" marker; others dim when out of subtree.
-                              animate: { opacity: isOpen || related ? 1 : 0.25 },
-                              transition: panelTransition,
-                            })}
-                        onClick={() => (isOpen ? requestPulse(e.id) : open(e.id))}
-                        aria-current={isOpen ? "true" : undefined}
-                        title={
-                          isOpen
-                            ? `${e.title} · already open`
-                            : `${e.title} · ${fmt(start)}–${fmt(end)}`
-                        }
-                        className={cn(
-                          "absolute flex h-5 items-center overflow-hidden rounded-sm border-l-2 px-1.5 text-[10.5px] tracking-tight",
-                          "text-foreground/90 backdrop-blur-sm transition-[filter] hover:brightness-110",
-                          // An already-open event reads as a hollow "you're here"
-                          // marker — it stays on the timeline but no longer morphs.
-                          isOpen && "ring-1 ring-inset ring-foreground/40",
-                        )}
-                        style={{
-                          left: `calc(${left}% + 2px)`,
-                          width: `calc(${Math.max(width, 6)}% - 4px)`,
-                          top: lane === 0 ? 6 : 28,
-                          borderLeftColor: color ?? "var(--accent)",
-                          backgroundColor: color ? `${color}26` : "var(--secondary)",
-                          opacity: ownsMorph && !related ? 0.25 : undefined,
-                        }}
-                      >
-                        {ownsMorph ? (
-                          <motion.span layoutId={eventTitleId(e.id)} transition={layerTransition} className="truncate">
-                            {e.title}
-                          </motion.span>
-                        ) : (
+                      <div key={e.id} className="absolute h-5" style={boxStyle}>
+                        {/* Persistent chip — ALWAYS on the timeline. It never owns
+                            a layoutId, so it can't be morphed/slid away. Clicking
+                            an already-open event pulses its window instead of
+                            reopening; otherwise it opens the event. */}
+                        <motion.button
+                          type="button"
+                          initial={false}
+                          animate={{ opacity: isOpen || related ? 1 : 0.25 }}
+                          transition={panelTransition}
+                          onClick={() => (isOpen ? requestPulse(e.id) : open(e.id))}
+                          aria-current={isOpen ? "true" : undefined}
+                          title={
+                            isOpen
+                              ? `${e.title} · already open`
+                              : `${e.title} · ${fmt(start)}–${fmt(end)}`
+                          }
+                          className={cn(
+                            "flex h-5 w-full items-center overflow-hidden rounded-sm border-l-2 px-1.5 text-[10.5px] tracking-tight",
+                            "text-foreground/90 backdrop-blur-sm transition-[filter] hover:brightness-110",
+                            // An already-open event reads as a "you are here" marker.
+                            isOpen && "ring-1 ring-inset ring-foreground/40",
+                          )}
+                          style={chipVisual}
+                        >
                           <span className="truncate">{e.title}</span>
+                        </motion.button>
+
+                        {/* Morph overlay — a visual twin sitting exactly on top of
+                            the chip, carrying the shared layoutId so the expand
+                            animation reads as the chip growing into the window. It
+                            is non-interactive and unmounts on open (handing the id
+                            to the frame), leaving the persistent chip behind. */}
+                        {showMorphOverlay && (
+                          <motion.div
+                            layoutId={eventLayoutId(e.id)}
+                            transition={layerTransition}
+                            aria-hidden
+                            className="pointer-events-none absolute inset-0 flex h-5 items-center overflow-hidden rounded-sm border-l-2 px-1.5 text-[10.5px] tracking-tight text-foreground/90 backdrop-blur-sm"
+                            style={{ ...chipVisual, opacity: related ? 1 : 0.25 }}
+                          >
+                            <motion.span layoutId={eventTitleId(e.id)} transition={layerTransition} className="truncate">
+                              {e.title}
+                            </motion.span>
+                          </motion.div>
                         )}
-                      </motion.button>
+                      </div>
                     )
                   })}
               </motion.div>
