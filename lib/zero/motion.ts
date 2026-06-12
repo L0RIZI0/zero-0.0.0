@@ -26,3 +26,15 @@ export const spaceLayoutId = (id: string) => `space-frame-${id}`
 export const spaceTitleId = (id: string) => `space-title-${id}`
 export const taskLayoutId = (id: string) => `task-frame-${id}`
 export const taskTitleId = (id: string) => `task-title-${id}`
+/**
+ * Events have no window of their own (opening one dives into its parent space),
+ * but they still morph between their DO-list row and their dock card, so they
+ * carry their own identity for that pin/unpin transition.
+ */
+export const eventLayoutId = (id: string) => `event-frame-${id}`
+export const eventTitleId = (id: string) => `event-title-${id}`
+/**
+ * Per-entity glyph id so the kind icon travels continuously between the DO-list
+ * row and the dock card (shared across space / task / event alike).
+ */
+export const glyphId = (id: string) => `glyph-${id}`
