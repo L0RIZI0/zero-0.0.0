@@ -5,11 +5,13 @@ import { motion } from "motion/react"
 import { getOpenTaskCount, getSpace, type ContextItem } from "@/lib/zero/data"
 import {
   layerTransition,
-  panelTransition,
   spaceLayoutId,
   spaceTitleId,
   taskLayoutId,
   taskTitleId,
+  eventLayoutId,
+  eventTitleId,
+  glyphId,
 } from "@/lib/zero/motion"
 import { useZeroNav } from "@/lib/zero/nav-store"
 import { NodeGlyph } from "./node-glyph"
@@ -55,16 +57,17 @@ export function PinnedCard({
 
   const isSpace = item.kind === "space"
   const isTask = item.kind === "task"
-  // Spaces and tasks both have a window frame and a list row that share a
-  // layoutId, so the card participates in the same shared-element morph; events
-  // have no frame and simply fade.
-  const morphable = isSpace || isTask
+  // Every kind morphs between its DO-list row and this dock card via a shared
+  // layoutId. Spaces and tasks ALSO own a window frame that shares the same id,
+  // so while their frame is open we release the id to the frame (placeholder
+  // swap below). Events have no frame, so they never need that swap.
+  const hasFrame = isSpace || isTask
   const { stack } = useZeroNav()
 
   // While this space/task is open as a frame, release the shared layoutId to
   // the frame via an inert placeholder so the morph has exactly one live owner.
   // (Same neutral wrapper as the live card so popLayout sizing stays stable.)
-  if (morphable && stack.includes(item.entity.id)) {
+  if (hasFrame && stack.includes(item.entity.id)) {
     return (
       <div className="shrink-0">
         <div
@@ -75,18 +78,19 @@ export function PinnedCard({
     )
   }
 
-  // Spaces/tasks morph via the shared layoutId (card ↔ list row ↔ window frame);
-  // events use a plain enter/exit fade.
-  const morphLayoutId = isSpace ? spaceLayoutId(item.entity.id) : taskLayoutId(item.entity.id)
-  const morphProps = morphable
-    ? { layoutId: morphLayoutId, transition: layerTransition }
-    : {
-        layout: true as const,
-        initial: { opacity: 0, scale: 0.92 },
-        animate: { opacity: 1, scale: 1 },
-        exit: { opacity: 0, scale: 0.92 },
-        transition: panelTransition,
-      }
+  // Per-kind shared ids so the card morphs continuously to/from the DO-list row
+  // (and, for spaces/tasks, the window frame too).
+  const morphLayoutId = isSpace
+    ? spaceLayoutId(item.entity.id)
+    : isTask
+      ? taskLayoutId(item.entity.id)
+      : eventLayoutId(item.entity.id)
+  const morphTitleId = isSpace
+    ? spaceTitleId(item.entity.id)
+    : isTask
+      ? taskTitleId(item.entity.id)
+      : eventTitleId(item.entity.id)
+  const morphProps = { layoutId: morphLayoutId, transition: layerTransition }
 
   return (
     // Neutral wrapper is the direct AnimatePresence child. CRITICAL for
@@ -120,11 +124,17 @@ export function PinnedCard({
           />
         )}
 
-        {/* Top row: kind glyph (top-left) + detail stats pinned to top-right. */}
+        {/* Top row: kind glyph (top-left) + detail stats pinned to top-right.
+            The glyph carries the shared per-entity glyphId so the icon travels
+            continuously between the DO-list row and this card. */}
         <div className="flex items-start justify-between gap-1.5">
-          <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center text-foreground">
+          <motion.span
+            layoutId={glyphId(item.entity.id)}
+            transition={layerTransition}
+            className="flex h-3.5 w-3.5 shrink-0 items-center justify-center text-foreground"
+          >
             <NodeGlyph kind={item.kind} strokeWidth={item.kind === "task" ? 2 : 1.75} />
-          </span>
+          </motion.span>
           <div className="flex min-w-0 items-center gap-1 truncate whitespace-nowrap text-[10px] text-muted-foreground/70">
             <span className="font-medium tabular-nums">{openCount}</span>
             <span className="flex h-2.5 w-2.5 items-center justify-center text-muted-foreground/70">
@@ -133,22 +143,16 @@ export function PinnedCard({
           </div>
         </div>
 
-        {/* Title below the icon + details. Spaces and tasks share a title
-            layoutId so the label travels continuously between row, card, and
-            frame instead of cross-fading; events use a static title. */}
-        {morphable ? (
-          <motion.h3
-            layoutId={isSpace ? spaceTitleId(item.entity.id) : taskTitleId(item.entity.id)}
-            transition={layerTransition}
-            className="truncate text-[12px] font-medium leading-tight tracking-tight text-foreground"
-          >
-            {item.title}
-          </motion.h3>
-        ) : (
-          <h3 className="truncate text-[12px] font-medium leading-tight tracking-tight text-foreground">
-            {item.title}
-          </h3>
-        )}
+        {/* Title below the icon + details. Every kind shares a title layoutId
+            so the label travels continuously between row and card (and the
+            window frame too, for spaces/tasks) instead of cross-fading. */}
+        <motion.h3
+          layoutId={morphTitleId}
+          transition={layerTransition}
+          className="truncate text-[12px] font-medium leading-tight tracking-tight text-foreground"
+        >
+          {item.title}
+        </motion.h3>
       </motion.button>
     </div>
   )

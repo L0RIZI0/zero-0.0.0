@@ -12,7 +12,9 @@ import {
   taskTitleId,
   spaceLayoutId,
   spaceTitleId,
-  panelTransition,
+  eventLayoutId,
+  eventTitleId,
+  glyphId,
 } from "@/lib/zero/motion"
 import { NodeGlyph } from "./node-glyph"
 import { CreateWindow } from "./create-window"
@@ -101,7 +103,13 @@ function TaskRow({
           }}
           className={cn(GLYPH_BOX, "relative text-foreground")}
         >
-          <NodeGlyph kind="task" filled={done} strokeWidth={2} />
+          <motion.span
+            layoutId={glyphId(task.id)}
+            transition={layerTransition}
+            className="flex items-center justify-center"
+          >
+            <NodeGlyph kind="task" filled={done} strokeWidth={2} />
+          </motion.span>
           {done && (
             <Check
               className="absolute h-2.5 w-2.5 text-background"
@@ -143,63 +151,49 @@ function TaskRow({
   )
 }
 
-/** An event surfaced in the task list — opens its space, with the same
- *  frame-expansion morph. `morphable` is false when the same space is already
- *  shown as a SpaceRow, so only one element owns the shared layoutId. */
+/** An event surfaced in the task list — clicking dives into its parent space.
+ *  It carries its OWN shared layoutId/title/glyph ids so that pinning/unpinning
+ *  morphs the row ↔ dock card continuously (same as spaces and tasks). Events
+ *  have no window frame of their own, so there is never a second owner of these
+ *  ids and no placeholder swap is needed. */
 function EventRow({
   item,
-  morphable,
   onContext,
 }: {
   item: ContextItem
-  morphable: boolean
   onContext: (e: React.MouseEvent) => void
 }) {
-  const { openSpace, stack } = useZeroNav()
+  const { openSpace } = useZeroNav()
   const event = item.event!
   // An event's container is its origin parent space.
   const eventSpaceId = event.parentId ?? "s_root"
-
-  // While morphable and its space is open as a frame, release the shared
-  // layoutId to the frame (see TaskRow note) via an inert placeholder.
-  if (morphable && stack.includes(eventSpaceId)) {
-    return (
-      <li>
-        <div
-          aria-hidden
-          className="h-[42px] w-full rounded-sm border border-dashed border-border/60 bg-secondary/30"
-        />
-      </li>
-    )
-  }
-
-  const morphProps = morphable
-    ? { layoutId: spaceLayoutId(eventSpaceId), transition: layerTransition }
-    : {
-        layout: true as const,
-        initial: { opacity: 0, y: 4 },
-        animate: { opacity: 1, y: 0 },
-        exit: { opacity: 0, y: -4 },
-        transition: panelTransition,
-      }
 
   return (
     <li>
       <motion.button
         type="button"
-        {...morphProps}
+        layoutId={eventLayoutId(event.id)}
+        transition={layerTransition}
         onClick={() => openSpace(eventSpaceId)}
         onContextMenu={onContext}
         style={{ borderRadius: 4 }}
         whileHover={{ scale: 1.02, boxShadow: "0 12px 28px -10px rgba(0,0,0,0.28)" }}
         className="group flex w-full items-center gap-3 border border-border bg-card-solid px-2.5 py-2 text-left"
       >
-        <span className={cn(GLYPH_BOX, "text-foreground")}>
+        <motion.span
+          layoutId={glyphId(event.id)}
+          transition={layerTransition}
+          className={cn(GLYPH_BOX, "text-foreground")}
+        >
           <NodeGlyph kind="event" />
-        </span>
-        <span className="min-w-0 flex-1 truncate text-[13px] tracking-tight text-foreground">
+        </motion.span>
+        <motion.span
+          layoutId={eventTitleId(event.id)}
+          transition={layerTransition}
+          className="min-w-0 flex-1 truncate text-[13px] tracking-tight text-foreground"
+        >
           {event.title}
-        </span>
+        </motion.span>
         <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground/70">
           {fmtTime(event.start ?? 0)}
         </span>
@@ -253,9 +247,13 @@ function SpaceRow({
           className="absolute left-0 top-0 h-full w-[3px]"
           style={{ backgroundColor: accent }}
         />
-        <span className={cn(GLYPH_BOX, "text-foreground")}>
+        <motion.span
+          layoutId={glyphId(space.id)}
+          transition={layerTransition}
+          className={cn(GLYPH_BOX, "text-foreground")}
+        >
           <NodeGlyph kind="space" />
-        </span>
+        </motion.span>
         <motion.span
           layoutId={spaceTitleId(space.id)}
           transition={layerTransition}
@@ -301,14 +299,6 @@ export function TaskList({ spaceId }: { spaceId: string }) {
     [items, filter],
   )
   const openCount = items.filter((it) => it.kind === "task" && !it.task!.completed).length
-
-  // Space ids already shown as their own SpaceRow own the shared space
-  // layoutId; an event into one of those must NOT also claim it (duplicate
-  // owners break the morph), so it falls back to a plain fade.
-  const spaceRowIds = useMemo(
-    () => new Set(items.filter((it) => it.kind === "space").map((it) => it.id)),
-    [items],
-  )
 
   const openMenu = (e: React.MouseEvent, item: ContextItem) => {
     e.preventDefault()
@@ -383,10 +373,6 @@ export function TaskList({ spaceId }: { spaceId: string }) {
                 <EventRow
                   key={it.id}
                   item={it}
-                  morphable={
-                    !spaceRowIds.has(it.event!.parentId ?? "s_root") &&
-                    !isPinned(spaceId, it.event!.parentId ?? "s_root")
-                  }
                   onContext={(e) => openMenu(e, it)}
                 />
               ),
