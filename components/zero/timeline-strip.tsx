@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react"
 import { AnimatePresence, motion } from "motion/react"
 import { ChevronLeft, ChevronRight } from "lucide-react"
-import { getSpace, getSpaceEvents, isInSubtree } from "@/lib/zero/data"
+import { getInheritedAccent, getSpaceEvents, isInSubtree } from "@/lib/zero/data"
 import {
   panelTransition,
   layerTransition,
@@ -235,8 +235,13 @@ export function TimelineStrip({
                 {isToday &&
                   evts.map((e, i) => {
                     const eventSpaceId = e.parentId ?? "s_root"
-                    const space = getSpace(eventSpaceId)
-                    const color = space?.accent
+                    // A child inherits the nearest ancestor accent (e.g. an item
+                    // in Zero → magenta). Items under the root ("Space 0"), which
+                    // has no accent, resolve to undefined and fall back to a
+                    // neutral grey marker. `color` therefore drives the marker;
+                    // `labelColor` matches it (grey items keep a readable label).
+                    const color = getInheritedAccent(eventSpaceId)
+                    const markerColor = color ?? NEUTRAL_MARKER
                     const related = isInSubtree(spaceId, eventSpaceId)
                     const isOpen = stack.includes(e.id)
                     const lane = i % 2

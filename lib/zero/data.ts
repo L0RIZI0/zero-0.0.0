@@ -690,6 +690,23 @@ export function getSpace(id: string): Entity | undefined {
   return e && e.kind === "space" ? e : undefined
 }
 
+/**
+ * Resolve the accent color a child should inherit on the timeline. Walk up the
+ * parent chain starting at `spaceId` and return the nearest ancestor that has
+ * its own accent. The root space (`s_root` / "Space 0") has no accent, so an
+ * item created directly under it resolves to `undefined` — callers render those
+ * with a neutral fallback (light grey). e.g. an instant in Zero inherits Zero's
+ * magenta; an instant in Space 0 inherits nothing.
+ */
+export function getInheritedAccent(spaceId: string | null): string | undefined {
+  let current = spaceId ? byId.get(spaceId) : undefined
+  while (current) {
+    if (current.kind === "space" && current.accent) return current.accent
+    current = current.parentId ? byId.get(current.parentId) : undefined
+  }
+  return undefined
+}
+
 /** A task entity by id (undefined for non-task ids). */
 export function getTask(id: string): Entity | undefined {
   const e = byId.get(id)
