@@ -39,18 +39,18 @@ export function ShellHeader() {
       </div>
 
       <div className="hidden flex-1 items-center justify-center gap-2.5 sm:flex">
-        <span className="text-[13px] tracking-tight text-foreground/80">{time}</span>
+        <span className="text-[13px] tabular-nums tracking-tight text-foreground/80">{time}</span>
         <span className="text-[13px] tracking-tight text-muted-foreground">{date}</span>
       </div>
 
       <div className="flex flex-1 items-center justify-end gap-3">
         <button
           type="button"
-          className="group flex items-center gap-1.5 rounded-full border border-border bg-card/60 px-2.5 py-1 text-muted-foreground transition-colors hover:border-foreground/20 hover:text-foreground"
+          className="group flex items-center gap-2 rounded-full border border-border bg-card/60 px-3 py-1.5 text-muted-foreground transition-colors hover:border-foreground/20 hover:text-foreground"
         >
-          <Search className="h-3 w-3" />
-          <span className="hidden text-[11.5px] md:inline">Search</span>
-          <kbd className="ml-0.5 hidden rounded border border-border px-1 py-0.5 font-mono text-[9px] text-muted-foreground/80 md:inline">
+          <Search className="h-3.5 w-3.5" />
+          <span className="hidden text-[12.5px] md:inline">Search Zero</span>
+          <kbd className="ml-1 hidden rounded border border-border px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground/80 md:inline">
             ⌘K
           </kbd>
         </button>

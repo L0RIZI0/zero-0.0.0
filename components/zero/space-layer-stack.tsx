@@ -8,7 +8,7 @@ import { SpaceFrame } from "./space-frame"
 import { TaskFrame } from "./task-frame"
 
 export function SpaceLayerStack() {
-  const { stack, closeSpace } = useZeroNav()
+  const { stack, openSpace, closeSpace } = useZeroNav()
 
   return (
     <div className="relative h-full w-full">
@@ -36,6 +36,7 @@ export function SpaceLayerStack() {
                 space={space}
                 isRoot={isRoot}
                 isActive={isActive}
+                onOpenChild={openSpace}
                 onClose={closeSpace}
               />
             </LayerDepthContainer>
