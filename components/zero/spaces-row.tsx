@@ -57,7 +57,9 @@ export function SpacesRow({ contextSpaceId }: { contextSpaceId: string }) {
     <div
       className={
         "pointer-events-auto flex shrink-0 flex-col items-center " +
-        (hasPins ? "pb-1 pt-3" : "")
+        // When empty, keep a breathing gap between the timeline and the lists
+        // below; when populated, use the tighter card padding.
+        (hasPins ? "pb-1 pt-3" : "pt-5")
       }
     >
       {/* Header collapses when empty, but the AnimatePresence below must stay

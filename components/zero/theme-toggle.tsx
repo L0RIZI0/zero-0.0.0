@@ -26,18 +26,18 @@ export function ThemeToggle() {
       aria-checked={mounted ? isDark : undefined}
       aria-label="Toggle dark mode"
       onClick={() => setTheme(isDark ? "light" : "dark")}
-      className="fixed bottom-5 right-5 z-[200] flex h-8 w-14 items-center rounded-full border border-foreground/15 bg-foreground/10 px-1 shadow-md backdrop-blur transition-colors hover:bg-foreground/15"
+      className="fixed bottom-5 right-5 z-[200] flex h-5 w-9 items-center rounded-full border border-foreground/15 bg-foreground/10 px-1 shadow-md backdrop-blur transition-colors hover:bg-foreground/15"
     >
       <span
         className={cn(
-          "flex h-6 w-6 items-center justify-center rounded-full bg-foreground text-background shadow-sm transition-transform duration-200",
-          mounted && isDark ? "translate-x-0" : "translate-x-6",
+          "flex h-4 w-4 items-center justify-center rounded-full bg-foreground text-background shadow-sm transition-transform duration-200",
+          mounted && isDark ? "translate-x-0" : "translate-x-3",
         )}
       >
         {mounted && isDark ? (
-          <Moon className="h-3.5 w-3.5" />
+          <Moon className="h-2.5 w-2.5" />
         ) : (
-          <Sun className="h-3.5 w-3.5" />
+          <Sun className="h-2.5 w-2.5" />
         )}
       </span>
     </button>
