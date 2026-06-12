@@ -264,20 +264,14 @@ export function TimelineStrip({
                         <motion.button
                           type="button"
                           initial={false}
-                          animate={{ opacity: isOpen || related ? 1 : 0.25 }}
+                          animate={{ opacity: related ? 1 : 0.25 }}
                           transition={panelTransition}
                           onClick={() => (isOpen ? requestPulse(e.id) : open(e.id))}
                           aria-current={isOpen ? "true" : undefined}
-                          title={
-                            isOpen
-                              ? `${e.title} · already open`
-                              : `${e.title} · ${fmt(start)}–${fmt(end)}`
-                          }
+                          title={`${e.title} · ${fmt(start)}–${fmt(end)}`}
                           className={cn(
                             "flex h-5 w-full items-center overflow-hidden rounded-sm border-l-2 px-1.5 text-[10.5px] tracking-tight",
                             "text-foreground/90 backdrop-blur-sm transition-[filter] hover:brightness-110",
-                            // An already-open event reads as a "you are here" marker.
-                            isOpen && "ring-1 ring-inset ring-foreground/40",
                           )}
                           style={chipVisual}
                         >
