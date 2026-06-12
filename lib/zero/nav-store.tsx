@@ -51,6 +51,15 @@ export const isTaskId = (id: string) => {
   return kind ? kind === "task" : id.startsWith("t")
 }
 
+/**
+ * Whether a node id refers to an event. Derived from the entity model; falls
+ * back to the id prefix ("e") for ids not yet hydrated into the store.
+ */
+export const isEventId = (id: string) => {
+  const kind = getEntity(id)?.kind
+  return kind ? kind === "event" : id.startsWith("e")
+}
+
 const ZeroNavContext = createContext<ZeroNavContextValue | null>(null)
 
 export function ZeroNavProvider({

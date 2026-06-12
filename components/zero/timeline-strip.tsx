@@ -34,7 +34,7 @@ export function TimelineStrip({
   spaceId: string
   accent?: string
 }) {
-  const { openSpace, dataVersion } = useZeroNav()
+  const { open, dataVersion } = useZeroNav()
   // The timeline always shows the FULL day (all events). When a child window is
   // open, events outside its subtree dim rather than disappear, so the user
   // keeps spatial context. `spaceId` is the active node's context space.
@@ -242,7 +242,7 @@ export function TimelineStrip({
                         initial={false}
                         animate={{ opacity: related ? 1 : 0.25 }}
                         transition={panelTransition}
-                        onClick={() => openSpace(eventSpaceId)}
+                        onClick={() => open(e.id)}
                         title={`${e.title} · ${fmt(start)}–${fmt(end)}`}
                         className={cn(
                           "absolute flex h-5 items-center overflow-hidden rounded-sm border-l-2 px-1.5 text-[10.5px] tracking-tight",

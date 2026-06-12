@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from "motion/react"
 import { getEntity } from "@/lib/zero/data"
 import { isTaskId, useZeroNav } from "@/lib/zero/nav-store"
 import { contentTransition, layerTransition, spaceTitleId, taskTitleId } from "@/lib/zero/motion"
+import { NodeGlyph } from "./node-glyph"
 
 /**
  * The navigation path, shown as a vertical indented stack directly under the

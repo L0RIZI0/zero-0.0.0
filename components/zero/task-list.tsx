@@ -151,11 +151,10 @@ function TaskRow({
   )
 }
 
-/** An event surfaced in the task list — clicking dives into its parent space.
- *  It carries its OWN shared layoutId/title/glyph ids so that pinning/unpinning
- *  morphs the row ↔ dock card continuously (same as spaces and tasks). Events
- *  have no window frame of their own, so there is never a second owner of these
- *  ids and no placeholder swap is needed. */
+/** An event surfaced in the task list — opens as its own window (like spaces
+ *  and tasks). It carries the shared layoutId/title/glyph ids that morph the row
+ *  ↔ dock card ↔ event window. While its window is open, the row swaps to an
+ *  inert placeholder so the shared ids live on exactly one element. */
 function EventRow({
   item,
   onContext,
@@ -163,10 +162,21 @@ function EventRow({
   item: ContextItem
   onContext: (e: React.MouseEvent) => void
 }) {
-  const { openSpace } = useZeroNav()
+  const { open, stack } = useZeroNav()
   const event = item.event!
-  // An event's container is its origin parent space.
-  const eventSpaceId = event.parentId ?? "s_root"
+
+  // While this event's window is open, release the shared ids to the frame
+  // via an inert placeholder (same pattern as TaskRow).
+  if (stack.includes(event.id)) {
+    return (
+      <li>
+        <div
+          aria-hidden
+          className="h-[42px] w-full rounded-sm border border-dashed border-border/60 bg-secondary/30"
+        />
+      </li>
+    )
+  }
 
   return (
     <li>
@@ -174,7 +184,7 @@ function EventRow({
         type="button"
         layoutId={eventLayoutId(event.id)}
         transition={layerTransition}
-        onClick={() => openSpace(eventSpaceId)}
+        onClick={() => open(event.id)}
         onContextMenu={onContext}
         style={{ borderRadius: 4 }}
         whileHover={{ scale: 1.02, boxShadow: "0 12px 28px -10px rgba(0,0,0,0.28)" }}

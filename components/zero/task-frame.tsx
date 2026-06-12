@@ -54,24 +54,21 @@ export function TaskFrame({
             type="button"
             aria-label={done ? "Mark task incomplete" : "Mark task complete"}
             onClick={() => setDone((d) => !d)}
-            className={cn(
-              "relative mt-1 flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-[4px] border transition-colors",
-              done
-                ? "border-foreground bg-foreground text-background"
-                : "border-foreground/25 text-foreground hover:border-foreground/50",
-            )}
+            className="group/check relative mt-0.5 flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-[4px] text-foreground transition-colors hover:bg-foreground/5"
           >
-            {/* The kind glyph travels here from the list row / dock card via the
-                shared glyphId; the check overlays it once the task is done. */}
+            {/* The kind glyph IS the checkbox — it travels here from the list
+                row / dock card via the shared glyphId and scales up with the
+                title. It fills + shows a check once the task is done (no second
+                nested square). */}
             <motion.span
               layoutId={glyphId(task.id)}
               transition={layerTransition}
-              className="flex h-3 w-3 items-center justify-center"
+              className="flex h-[22px] w-[22px] items-center justify-center"
             >
-              <NodeGlyph kind="task" filled={done} strokeWidth={2} />
+              <NodeGlyph kind="task" filled={done} strokeWidth={1.75} />
             </motion.span>
             {done && (
-              <Check className="absolute h-3.5 w-3.5 text-background" strokeWidth={3} />
+              <Check className="absolute h-3 w-3 text-background" strokeWidth={3} />
             )}
           </button>
           <div className="flex min-w-0 flex-col">

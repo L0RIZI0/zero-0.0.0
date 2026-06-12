@@ -52,7 +52,7 @@ export function SpaceFrame({
             <motion.span
               layoutId={glyphId(space.id)}
               transition={layerTransition}
-              className="mt-1 flex h-[18px] w-[18px] shrink-0 items-center justify-center text-foreground"
+              className="mt-0.5 flex h-[24px] w-[24px] shrink-0 items-center justify-center text-foreground"
             >
               <NodeGlyph kind="space" />
             </motion.span>

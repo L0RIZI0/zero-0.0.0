@@ -696,6 +696,12 @@ export function getTask(id: string): Entity | undefined {
   return e && e.kind === "task" ? e : undefined
 }
 
+/** An event entity by id (undefined for non-event ids). */
+export function getEvent(id: string): Entity | undefined {
+  const e = byId.get(id)
+  return e && e.kind === "event" ? e : undefined
+}
+
 /** Direct child spaces of a space. */
 export function getChildSpaces(spaceId: string): Entity[] {
   return entities.filter((e) => e.kind === "space" && e.parentId === spaceId)
