@@ -34,7 +34,7 @@ export function TimelineStrip({
   spaceId: string
   accent?: string
 }) {
-  const { open, stack, dataVersion } = useZeroNav()
+  const { open, stack, dataVersion, requestPulse } = useZeroNav()
   // The timeline always shows the FULL day (all events). When a child window is
   // open, events outside its subtree dim rather than disappear, so the user
   // keeps spatial context. `spaceId` is the active node's context space.
@@ -250,23 +250,32 @@ export function TimelineStrip({
                     // single owner of the shared layoutId at all times.
                     const ownsMorph = !contextEventIds.has(e.id) && !isOpen
 
-                    // While the event is open and the chip would otherwise be
-                    // the morph owner, drop the chip so the frame is the sole
-                    // owner mid-transition.
-                    if (isOpen && !contextEventIds.has(e.id)) return null
-
                     return (
                       <motion.button
                         key={e.id}
                         type="button"
                         {...(ownsMorph
                           ? { layoutId: eventLayoutId(e.id), transition: layerTransition }
-                          : { initial: false, animate: { opacity: related ? 1 : 0.25 }, transition: panelTransition })}
-                        onClick={() => open(e.id)}
-                        title={`${e.title} · ${fmt(start)}–${fmt(end)}`}
+                          : {
+                              initial: false,
+                              // An open event stays fully lit as a clear "you are
+                              // here" marker; others dim when out of subtree.
+                              animate: { opacity: isOpen || related ? 1 : 0.25 },
+                              transition: panelTransition,
+                            })}
+                        onClick={() => (isOpen ? requestPulse(e.id) : open(e.id))}
+                        aria-current={isOpen ? "true" : undefined}
+                        title={
+                          isOpen
+                            ? `${e.title} · already open`
+                            : `${e.title} · ${fmt(start)}–${fmt(end)}`
+                        }
                         className={cn(
                           "absolute flex h-5 items-center overflow-hidden rounded-sm border-l-2 px-1.5 text-[10.5px] tracking-tight",
                           "text-foreground/90 backdrop-blur-sm transition-[filter] hover:brightness-110",
+                          // An already-open event reads as a hollow "you're here"
+                          // marker — it stays on the timeline but no longer morphs.
+                          isOpen && "ring-1 ring-inset ring-foreground/40",
                         )}
                         style={{
                           left: `calc(${left}% + 2px)`,

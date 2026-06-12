@@ -40,6 +40,12 @@ interface ZeroNavContextValue {
   dataVersion: number
   /** Signal that the underlying data arrays changed (entity added). */
   notifyDataChanged: () => void
+  /** A transient "attention" ping for an already-open entity. `n` increments on
+   *  every request so frames can re-trigger the bounce even for the same id. */
+  pulse: { id: string; n: number } | null
+  /** Ask the open frame for `id` to bounce (e.g. user re-clicked its timeline
+   *  chip while its window is already open). */
+  requestPulse: (id: string) => void
 }
 
 /**
@@ -71,8 +77,13 @@ export function ZeroNavProvider({
 }) {
   const [stack, setStack] = useState<string[]>([rootSpaceId])
   const [dataVersion, setDataVersion] = useState(0)
+  const [pulse, setPulse] = useState<{ id: string; n: number } | null>(null)
 
   const notifyDataChanged = useCallback(() => setDataVersion((v) => v + 1), [])
+
+  const requestPulse = useCallback((id: string) => {
+    setPulse((prev) => ({ id, n: (prev?.n ?? 0) + 1 }))
+  }, [])
 
   // Merge any localStorage-persisted user items in after mount. Doing this in
   // an effect (not during render) keeps the first client render identical to
@@ -132,9 +143,11 @@ export function ZeroNavProvider({
       goToDepth,
       dataVersion,
       notifyDataChanged,
+      pulse,
+      requestPulse,
     }
     // dataVersion is included so title/description re-read after edits/hydration.
-  }, [stack, open, closeSpace, goToDepth, dataVersion, notifyDataChanged])
+  }, [stack, open, closeSpace, goToDepth, dataVersion, notifyDataChanged, pulse, requestPulse])
 
   return <ZeroNavContext.Provider value={value}>{children}</ZeroNavContext.Provider>
 }

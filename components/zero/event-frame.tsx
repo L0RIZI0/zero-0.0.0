@@ -5,6 +5,7 @@ import { X, Clock, Hash } from "lucide-react"
 import type { Entity } from "@/lib/zero/types"
 import { getSpace } from "@/lib/zero/data"
 import { layerTransition, eventLayoutId, eventTitleId, glyphId, contentTransition } from "@/lib/zero/motion"
+import { usePulse } from "@/lib/zero/use-pulse"
 import { NodeGlyph } from "./node-glyph"
 
 /** Minutes-from-midnight → "9:00 AM". */
@@ -41,11 +42,14 @@ export function EventFrame({
     .filter(Boolean) as string[]
 
   const hasRange = typeof event.start === "number" && typeof event.end === "number"
+  // Bounce when the user re-clicks this event's timeline chip while it's open.
+  const pulseControls = usePulse(event.id)
 
   return (
     <motion.div
       layoutId={eventLayoutId(event.id)}
       transition={layerTransition}
+      animate={pulseControls}
       style={{ borderRadius: 4 }}
       className="relative flex h-full w-full flex-col overflow-hidden border border-border bg-secondary/40 shadow-[0_24px_80px_-32px_rgba(0,0,0,0.6)]"
     >
