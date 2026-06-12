@@ -295,7 +295,7 @@ export const entities: Entity[] = [
   {
     id: "s_personal",
     kind: "space",
-    title: "Personal",
+    title: "Home",
     parentId: "s_root",
     taggedSpaceIds: [],
     description: "Life outside the work.",
@@ -801,6 +801,17 @@ export function resolveContextItem(id: string): ContextItem | undefined {
 // ----------------------------------------------------------------------------
 
 const pinnedByContext: Record<string, string[]> = {}
+
+// Seed: every existing SPACE is pinned into its parent context's dock, so the
+// whole space hierarchy reads as first-class "places" in the SPACES row from
+// the start (Zero, Home, Health… under All Life, and each subspace under its
+// own parent). The root (parentId === null) has no parent dock to sit in.
+// User pins restored from storage are merged on top of this in hydrate.
+for (const e of entities) {
+  if (e.kind !== "space" || e.parentId === null) continue
+  const arr = pinnedByContext[e.parentId] ?? (pinnedByContext[e.parentId] = [])
+  arr.push(e.id)
+}
 
 export function getPinnedIds(contextId: string): string[] {
   return pinnedByContext[contextId] ?? []
