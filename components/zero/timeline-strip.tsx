@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react"
 import { AnimatePresence, motion } from "motion/react"
 import { ChevronLeft, ChevronRight } from "lucide-react"
-import { getSpace, getSpaceEvents } from "@/lib/zero/data"
+import { getSpace, getSpaceEvents, isInSubtree } from "@/lib/zero/data"
 import { panelTransition } from "@/lib/zero/motion"
 import { useZeroNav } from "@/lib/zero/nav-store"
 import { cn } from "@/lib/utils"
@@ -34,8 +34,11 @@ export function TimelineStrip({
   spaceId: string
   accent?: string
 }) {
-  const { openSpace } = useZeroNav()
-  const evts = useMemo(() => getSpaceEvents(spaceId), [spaceId])
+  const { openSpace, dataVersion } = useZeroNav()
+  // The timeline always shows the FULL day (all events). When a child window is
+  // open, events outside its subtree dim rather than disappear, so the user
+  // keeps spatial context. `spaceId` is the active node's context space.
+  const evts = useMemo(() => getSpaceEvents("s_root"), [dataVersion])
   const hours = useMemo(() => {
     const out: number[] = []
     for (let m = DAY_START; m <= DAY_END; m += 120) out.push(m)
@@ -95,11 +98,25 @@ export function TimelineStrip({
   return (
     <section aria-label="Timeline" className="px-1">
       {/* Fixed-height row so the label can fade in without pushing the timeline
-          down. "Today" sits on the side it lies on relative to the viewed day:
-          left when viewing the future, right when viewing the past. */}
-      <div className="relative mb-1.5 h-5">
-        <AnimatePresence initial={false}>
-          {!isToday && (
+          down. On today, a static "Today" label sits centered above the track;
+          otherwise the viewed date shows with a "Today" button to jump back,
+          placed on the side it lies on relative to the viewed day. */}
+      <div className="relative h-4">
+        <AnimatePresence initial={false} mode="wait">
+          {isToday ? (
+            <motion.div
+              key="today-label"
+              initial={{ opacity: 0, y: -4 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -4 }}
+              transition={panelTransition}
+              className="absolute inset-x-0 bottom-0 flex items-end justify-center"
+            >
+              <span className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+                Today
+              </span>
+            </motion.div>
+          ) : (
             <motion.div
               key="day-label"
               initial={{ opacity: 0, y: -4 }}
@@ -122,6 +139,22 @@ export function TimelineStrip({
             </motion.div>
           )}
         </AnimatePresence>
+      </div>
+
+      {/* hour labels — a static ruler ABOVE the track, aligned to its width */}
+      <div className="relative mb-1 h-3.5" style={{ marginLeft: 40, marginRight: 40 }}>
+        {hours.map((h) => {
+          const left = ((h - DAY_START) / SPAN) * 100
+          return (
+            <span
+              key={h}
+              className="absolute -translate-x-1/2 text-[10px] tabular-nums text-muted-foreground/60"
+              style={{ left: `${left}%` }}
+            >
+              {fmt(h)}
+            </span>
+          )
+        })}
       </div>
 
       {/* Full-bleed timeline: top/bottom borders run to the frame edges to
@@ -192,17 +225,25 @@ export function TimelineStrip({
                     space as a layer, just like a task. */}
                 {isToday &&
                   evts.map((e, i) => {
-                    const left = ((e.start - DAY_START) / SPAN) * 100
-                    const width = ((e.end - e.start) / SPAN) * 100
+                    const start = e.start ?? 0
+                    const end = e.end ?? start
+                    const left = ((start - DAY_START) / SPAN) * 100
+                    const width = ((end - start) / SPAN) * 100
                     const lane = i % 2
-                    const space = getSpace(e.spaceId)
+                    const eventSpaceId = e.parentId ?? "s_root"
+                    const space = getSpace(eventSpaceId)
                     const color = space?.accent
+                    // Dim events that aren't in the active node's subtree.
+                    const related = isInSubtree(spaceId, eventSpaceId)
                     return (
-                      <button
+                      <motion.button
                         key={e.id}
                         type="button"
-                        onClick={() => openSpace(e.spaceId)}
-                        title={`${e.title} · ${fmt(e.start)}–${fmt(e.end)}`}
+                        initial={false}
+                        animate={{ opacity: related ? 1 : 0.25 }}
+                        transition={panelTransition}
+                        onClick={() => openSpace(eventSpaceId)}
+                        title={`${e.title} · ${fmt(start)}–${fmt(end)}`}
                         className={cn(
                           "absolute flex h-5 items-center overflow-hidden rounded-sm border-l-2 px-1.5 text-[10.5px] tracking-tight",
                           "text-foreground/90 backdrop-blur-sm transition-[filter] hover:brightness-110",
@@ -216,7 +257,7 @@ export function TimelineStrip({
                         }}
                       >
                         <span className="truncate">{e.title}</span>
-                      </button>
+                      </motion.button>
                     )
                   })}
               </motion.div>
@@ -232,22 +273,6 @@ export function TimelineStrip({
             <ChevronRight className="h-4 w-4" />
           </button>
         </div>
-      </div>
-
-      {/* hour labels — a static ruler below the track, aligned to its width */}
-      <div className="relative mt-1 h-3.5" style={{ marginLeft: 40, marginRight: 40 }}>
-        {hours.map((h) => {
-          const left = ((h - DAY_START) / SPAN) * 100
-          return (
-            <span
-              key={h}
-              className="absolute -translate-x-1/2 text-[10px] tabular-nums text-muted-foreground/60"
-              style={{ left: `${left}%` }}
-            >
-              {fmt(h)}
-            </span>
-          )
-        })}
       </div>
     </section>
   )

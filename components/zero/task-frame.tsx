@@ -2,35 +2,41 @@
 
 import { motion } from "motion/react"
 import { X, Check, Calendar, Flag, Hash } from "lucide-react"
-import type { Task } from "@/lib/zero/types"
+import type { Entity, TaskPriority } from "@/lib/zero/types"
 import { getSpace } from "@/lib/zero/data"
 import { layerTransition, taskLayoutId, taskTitleId, contentTransition } from "@/lib/zero/motion"
-import { ContextBody } from "./context-body"
 import { useState } from "react"
 import { cn } from "@/lib/utils"
 
-const priorityLabel: Record<Task["priority"], string> = {
+const priorityLabel: Record<TaskPriority, string> = {
   high: "High",
   medium: "Medium",
   low: "Low",
 }
 
+/**
+ * A Task window — chrome only. Like SpaceFrame, it paints the bordered frame and
+ * owns the title band (checkbox + title + meta), leaving the middle transparent
+ * so the persistent frontmost content reads in front of it. A task has no
+ * spaces dock, so its bottom band is minimal.
+ */
 export function TaskFrame({
   task,
   isActive,
   onClose,
 }: {
-  task: Task
+  task: Entity
   isActive: boolean
   onClose: () => void
 }) {
-  const [done, setDone] = useState(task.completed)
-  // The task's primary space provides contextual accent + resources.
-  const primarySpaceId = task.spaceIds[task.spaceIds.length - 1] ?? "s_root"
+  const [done, setDone] = useState(!!task.completed)
+  // The task's origin parent provides the contextual accent; its parent plus
+  // any tagged spaces make up the membership line.
+  const primarySpaceId = task.parentId ?? "s_root"
   const primarySpace = getSpace(primarySpaceId)
   const accent = primarySpace?.accent ?? "var(--accent)"
-  const spaceNames = task.spaceIds
-    .map((id) => getSpace(id)?.name)
+  const spaceNames = [primarySpaceId, ...task.taggedSpaceIds]
+    .map((id) => getSpace(id)?.title)
     .filter(Boolean) as string[]
 
   return (
@@ -38,11 +44,9 @@ export function TaskFrame({
       layoutId={taskLayoutId(task.id)}
       transition={layerTransition}
       style={{ borderRadius: 4 }}
-      className="relative flex h-full w-full flex-col overflow-hidden bg-background shadow-[0_24px_80px_-32px_rgba(0,0,0,0.6)]"
+      className="relative flex h-full w-full flex-col overflow-hidden border border-border bg-secondary/40 shadow-[0_24px_80px_-32px_rgba(0,0,0,0.6)]"
     >
-      {/* Frame header. The active layer shows its title (and source spaces) big
-          inside its own frame; once a child opens, the title morphs (via the
-          shared layoutId) up into the small indented PathStack in the top-left. */}
+      {/* Title band */}
       <div className="flex items-start justify-between gap-3 px-6 pt-5 pb-3">
         <div className="flex min-w-0 items-start gap-3">
           <button
@@ -71,14 +75,35 @@ export function TaskFrame({
                 {task.title}
               </motion.h2>
             )}
-            <motion.p
+            <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               transition={{ ...contentTransition, delay: 0.08 }}
-              className="mt-0.5 truncate text-[12.5px] text-muted-foreground"
+              className="mt-1 flex flex-wrap items-center gap-2"
             >
-              {spaceNames.join(" · ")}
-            </motion.p>
+              <span className="truncate text-[12.5px] text-muted-foreground">
+                {spaceNames.join(" · ")}
+              </span>
+              {task.dueDate && (
+                <span className="flex items-center gap-1.5 rounded-sm border border-border bg-card/50 px-2 py-1 text-[11.5px] text-foreground">
+                  <Calendar className="h-3 w-3 text-muted-foreground" />
+                  {task.dueDate}
+                </span>
+              )}
+              <span className="flex items-center gap-1.5 rounded-sm border border-border bg-card/50 px-2 py-1 text-[11.5px] text-foreground">
+                <Flag className="h-3 w-3" style={{ color: accent }} />
+                {priorityLabel[task.priority ?? "medium"]}
+              </span>
+              {(task.tags ?? []).map((t) => (
+                <span
+                  key={t}
+                  className="flex items-center gap-1 rounded-sm border border-border bg-card/50 px-2 py-1 text-[11.5px] text-muted-foreground"
+                >
+                  <Hash className="h-3 w-3" />
+                  {t}
+                </span>
+              ))}
+            </motion.div>
           </div>
         </div>
 
@@ -92,41 +117,8 @@ export function TaskFrame({
         </button>
       </div>
 
-      <motion.div
-        initial={{ opacity: 0, y: 8 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ ...contentTransition, delay: 0.1 }}
-        className="flex min-h-0 flex-1 flex-col gap-4 px-6 pb-4"
-      >
-        {/* Meta row */}
-        <div className="flex flex-wrap items-center gap-2">
-          {task.dueDate && (
-            <span className="flex items-center gap-1.5 rounded-sm border border-border bg-card/50 px-2.5 py-1.5 text-[12px] text-foreground">
-              <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
-              {task.dueDate}
-            </span>
-          )}
-          <span className="flex items-center gap-1.5 rounded-sm border border-border bg-card/50 px-2.5 py-1.5 text-[12px] text-foreground">
-            <Flag className="h-3.5 w-3.5" style={{ color: accent }} />
-            {priorityLabel[task.priority]}
-          </span>
-          {task.tags.map((t) => (
-            <span
-              key={t}
-              className="flex items-center gap-1 rounded-sm border border-border bg-card/50 px-2.5 py-1.5 text-[12px] text-muted-foreground"
-            >
-              <Hash className="h-3 w-3" />
-              {t}
-            </span>
-          ))}
-        </div>
-
-        {/* A task is itself a context: same working surface as a space. */}
-        <ContextBody
-          nodeId={primarySpaceId}
-          accent={typeof accent === "string" ? accent : undefined}
-        />
-      </motion.div>
+      {/* Transparent middle — the persistent frontmost content renders over it. */}
+      <div className="min-h-0 flex-1" aria-hidden />
     </motion.div>
   )
 }

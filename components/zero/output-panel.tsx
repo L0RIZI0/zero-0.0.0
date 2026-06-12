@@ -54,7 +54,7 @@ export function OutputPanel({ spaceId }: { spaceId: string }) {
       <button
         type="button"
         onClick={createOutput}
-        className="flex items-center gap-1.5 self-start rounded-sm px-1.5 py-1 text-[11px] text-muted-foreground/80 transition-colors hover:text-foreground"
+        className="flex items-center gap-1.5 self-end rounded-sm px-1.5 py-1 text-[11px] text-muted-foreground/80 transition-colors hover:text-foreground"
       >
         <Plus className="h-3 w-3" />
         Create output

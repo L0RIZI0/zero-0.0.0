@@ -43,23 +43,53 @@ export function CollapsibleColumn({
             transition={panelTransition}
             className="flex min-h-0 flex-col"
           >
-            <div className="mb-1 flex items-center justify-between px-1">
+            <div
+              className={cn(
+                "mb-1 flex items-center gap-1.5 px-1",
+                // Inputs: icon + label grouped on the left.
+                // Outputs: label + icon grouped on the right.
+                side === "left" ? "justify-start" : "justify-end",
+              )}
+            >
+              {side === "left" && (
+                <button
+                  type="button"
+                  onClick={() => setOpen(false)}
+                  aria-label={`Collapse ${title}`}
+                  className="flex h-6 w-6 items-center justify-center rounded-sm text-muted-foreground/70 transition-colors hover:bg-secondary/70 hover:text-foreground"
+                >
+                  <OpenIcon className="h-3.5 w-3.5" />
+                </button>
+              )}
               <h2 className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
                 {title}
                 {typeof count === "number" && (
                   <span className="text-muted-foreground/60">{count}</span>
                 )}
               </h2>
-              <button
-                type="button"
-                onClick={() => setOpen(false)}
-                aria-label={`Collapse ${title}`}
-                className="flex h-6 w-6 items-center justify-center rounded-sm text-muted-foreground/70 transition-colors hover:bg-secondary/70 hover:text-foreground"
-              >
-                <OpenIcon className="h-3.5 w-3.5" />
-              </button>
+              {side === "right" && (
+                <button
+                  type="button"
+                  onClick={() => setOpen(false)}
+                  aria-label={`Collapse ${title}`}
+                  className="flex h-6 w-6 items-center justify-center rounded-sm text-muted-foreground/70 transition-colors hover:bg-secondary/70 hover:text-foreground"
+                >
+                  <OpenIcon className="h-3.5 w-3.5" />
+                </button>
+              )}
             </div>
-            <div className="min-h-0 flex-1 overflow-y-auto pr-1 no-scrollbar">{children}</div>
+            <div
+              className={cn(
+                "min-h-0 flex-1 overflow-y-auto pr-1 no-scrollbar",
+                // Left (Inputs) column bleeds its scroll box to the viewport
+                // edge so the per-row continuity rails aren't clipped. pl-6
+                // keeps the content visually in place while -ml-6 extends the
+                // box leftward into Space 0's surface.
+                side === "left" && "-ml-6 pl-6",
+              )}
+            >
+              {children}
+            </div>
           </motion.section>
         ) : (
           <motion.div

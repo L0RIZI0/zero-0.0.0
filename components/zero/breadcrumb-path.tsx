@@ -1,7 +1,7 @@
 "use client"
 
 import { motion, AnimatePresence } from "motion/react"
-import { getSpace, getTask } from "@/lib/zero/data"
+import { getEntity } from "@/lib/zero/data"
 import { isTaskId, useZeroNav } from "@/lib/zero/nav-store"
 import { contentTransition, layerTransition, spaceTitleId, taskTitleId } from "@/lib/zero/motion"
 
@@ -26,14 +26,10 @@ export function PathStack() {
         {stack.map((nodeId, depth) => {
           if (depth === 0 || depth === activeDepth) return null
           const isTask = isTaskId(nodeId)
-          const node = isTask ? getTask(nodeId) : getSpace(nodeId)
-          const label = isTask
-            ? (node as ReturnType<typeof getTask>)?.title
-            : (node as ReturnType<typeof getSpace>)?.name
+          const node = getEntity(nodeId)
+          const label = node?.title
           if (!label) return null
-          const accent = (node && "accent" in node ? node.accent : undefined) as
-            | string
-            | undefined
+          const accent = node?.accent
           const titleLayoutId = isTask ? taskTitleId(nodeId) : spaceTitleId(nodeId)
 
           return (

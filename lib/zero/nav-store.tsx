@@ -1,25 +1,55 @@
 "use client"
 
-import { createContext, useCallback, useContext, useMemo, useState } from "react"
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react"
+import { getEntity, hydrateFromStorage } from "./data"
+import type { EntityKind } from "./types"
+
+export interface ActiveNode {
+  id: string
+  /** Depth in the stack — 0 is root (Space 0). */
+  depth: number
+  kind: EntityKind
+  /** True for any node below the root, i.e. a framed child window is open. */
+  isChild: boolean
+  /** The space id used for context filtering (a task resolves to its parent). */
+  contextSpaceId: string
+  title: string
+  /** Present for spaces (and, later, tasks/events). Empty string when none. */
+  description: string
+}
 
 interface ZeroNavContextValue {
-  /** Stack of node ids. stack[0] is always the root, "s_root". Entries are
-   *  space ids (prefixed "s_") or task ids (prefixed "t"). */
+  /** Stack of entity ids. stack[0] is always the root, "s_root". */
   stack: string[]
   /** The currently focused (top of stack) node id. */
   activeSpaceId: string
-  /** Push a child space onto the stack (dive deeper). */
+  /** Rich description of the focused node — drives filtering + timeline offset. */
+  activeNode: ActiveNode
+  /** Push any entity onto the stack (dive deeper). Spaces and tasks open as
+   *  framed windows; events resolve to their parent space at the call site. */
+  open: (id: string) => void
+  /** Alias of `open`, kept for call sites that read as "open this space". */
   openSpace: (spaceId: string) => void
-  /** Push a task onto the stack — tasks open as windows like spaces do. */
+  /** Alias of `open`, kept for call sites that read as "open this task". */
   openTask: (taskId: string) => void
   /** Pop the top node (close current layer). */
   closeSpace: () => void
   /** Jump to a specific depth in the stack (used by breadcrumb). */
   goToDepth: (depth: number) => void
+  /** Bumps on any in-memory data mutation so selectors re-read fresh data. */
+  dataVersion: number
+  /** Signal that the underlying data arrays changed (entity added). */
+  notifyDataChanged: () => void
 }
 
-/** Task ids are prefixed "t", space ids "s_". */
-export const isTaskId = (id: string) => id.startsWith("t")
+/**
+ * Whether a node id refers to a task. Derived from the entity model; falls back
+ * to the id prefix ("t") for ids not yet hydrated into the store.
+ */
+export const isTaskId = (id: string) => {
+  const kind = getEntity(id)?.kind
+  return kind ? kind === "task" : id.startsWith("t")
+}
 
 const ZeroNavContext = createContext<ZeroNavContextValue | null>(null)
 
@@ -31,18 +61,22 @@ export function ZeroNavProvider({
   rootSpaceId?: string
 }) {
   const [stack, setStack] = useState<string[]>([rootSpaceId])
+  const [dataVersion, setDataVersion] = useState(0)
 
-  const openSpace = useCallback((spaceId: string) => {
-    setStack((prev) => {
-      if (prev[prev.length - 1] === spaceId) return prev
-      return [...prev, spaceId]
-    })
+  const notifyDataChanged = useCallback(() => setDataVersion((v) => v + 1), [])
+
+  // Merge any localStorage-persisted user items in after mount. Doing this in
+  // an effect (not during render) keeps the first client render identical to
+  // the server render, then bumps dataVersion so selectors re-read with the
+  // restored items.
+  useEffect(() => {
+    if (hydrateFromStorage()) setDataVersion((v) => v + 1)
   }, [])
 
-  const openTask = useCallback((taskId: string) => {
+  const open = useCallback((id: string) => {
     setStack((prev) => {
-      if (prev[prev.length - 1] === taskId) return prev
-      return [...prev, taskId]
+      if (prev[prev.length - 1] === id) return prev
+      return [...prev, id]
     })
   }, [])
 
@@ -54,17 +88,44 @@ export function ZeroNavProvider({
     setStack((prev) => prev.slice(0, Math.max(1, depth + 1)))
   }, [])
 
-  const value = useMemo<ZeroNavContextValue>(
-    () => ({
+  const value = useMemo<ZeroNavContextValue>(() => {
+    const activeId = stack[stack.length - 1]
+    const depth = stack.length - 1
+    const entity = getEntity(activeId)
+    const kind: EntityKind = entity?.kind ?? "space"
+
+    let title = entity?.title ?? ""
+    let description = entity?.description ?? ""
+    let contextSpaceId = activeId
+    if (kind === "task" || kind === "event") {
+      // A task/event resolves to its origin parent for context filtering.
+      contextSpaceId = entity?.parentId ?? "s_root"
+    }
+
+    const activeNode: ActiveNode = {
+      id: activeId,
+      depth,
+      kind,
+      isChild: depth > 0,
+      contextSpaceId,
+      title,
+      description,
+    }
+
+    return {
       stack,
-      activeSpaceId: stack[stack.length - 1],
-      openSpace,
-      openTask,
+      activeSpaceId: activeId,
+      activeNode,
+      open,
+      openSpace: open,
+      openTask: open,
       closeSpace,
       goToDepth,
-    }),
-    [stack, openSpace, openTask, closeSpace, goToDepth],
-  )
+      dataVersion,
+      notifyDataChanged,
+    }
+    // dataVersion is included so title/description re-read after edits/hydration.
+  }, [stack, open, closeSpace, goToDepth, dataVersion, notifyDataChanged])
 
   return <ZeroNavContext.Provider value={value}>{children}</ZeroNavContext.Provider>
 }
