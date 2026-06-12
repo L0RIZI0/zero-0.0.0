@@ -36,8 +36,8 @@ export function NodeGlyph({
     fill: filled ? "currentColor" : "none",
     stroke: "currentColor",
     strokeWidth,
-    strokeLinejoin: "round" as const,
-    strokeLinecap: "round" as const,
+    strokeLinejoin: "miter" as const,
+    strokeLinecap: "square" as const,
     vectorEffect: "non-scaling-stroke" as const,
   }
 
@@ -47,7 +47,7 @@ export function NodeGlyph({
       className={cn("h-full w-full", className)}
       aria-hidden="true"
     >
-      {kind === "task" && <rect x="4.5" y="4.5" width="15" height="15" rx="2" {...common} />}
+      {kind === "task" && <rect x="4.5" y="4.5" width="15" height="15" {...common} />}
       {/* Hexagon scaled up ~8% from center (12,12): a regular hexagon reads
           optically smaller than the square/triangle at equal bounds, so this
           nudge harmonizes their perceived size. */}
