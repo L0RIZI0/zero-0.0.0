@@ -264,7 +264,9 @@ export function TimelineStrip({
                         <motion.button
                           type="button"
                           initial={false}
-                          animate={{ opacity: related ? 1 : 0.25 }}
+                          // The open event IS the current focus, so its chip stays
+                          // lit like any related item; unrelated events dim.
+                          animate={{ opacity: isOpen || related ? 1 : 0.25 }}
                           transition={panelTransition}
                           onClick={() => (isOpen ? requestPulse(e.id) : open(e.id))}
                           aria-current={isOpen ? "true" : undefined}
