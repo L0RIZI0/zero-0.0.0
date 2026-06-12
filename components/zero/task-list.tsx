@@ -444,7 +444,7 @@ export function TaskList({ spaceId }: { spaceId: string }) {
               key="empty"
               className="px-2 py-5 text-center text-[12px] text-muted-foreground/60"
             >
-              Nothing open in this context.
+              Let&apos;s do
             </li>
           ) : (
             shown.map((it) =>

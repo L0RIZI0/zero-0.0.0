@@ -295,7 +295,7 @@ export const entities: Entity[] = [
   {
     id: "s_personal",
     kind: "space",
-    title: "Home",
+    title: "Home & Family",
     parentId: "s_root",
     taggedSpaceIds: [],
     description: "Life outside the work.",
