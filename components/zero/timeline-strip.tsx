@@ -101,7 +101,7 @@ export function TimelineStrip({
           down. On today, a static "Today" label sits centered above the track;
           otherwise the viewed date shows with a "Today" button to jump back,
           placed on the side it lies on relative to the viewed day. */}
-      <div className="relative mb-0.5 h-5">
+      <div className="relative h-4">
         <AnimatePresence initial={false} mode="wait">
           {isToday ? (
             <motion.div
