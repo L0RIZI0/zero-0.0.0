@@ -41,6 +41,18 @@ export const eventTitleId = (id: string) => `event-title-${id}`
 export const instantLayoutId = (id: string) => `instant-frame-${id}`
 export const instantTitleId = (id: string) => `instant-title-${id}`
 /**
+ * Events/instants can be opened from two places — their TIMELINE marker or
+ * their DO-list ROW — and the window should grow from (and collapse back to)
+ * whichever was used. The ids above belong to the timeline marker; these
+ * belong to the DO-list row. They are deliberately distinct so the timeline
+ * overlay and the row can coexist without two elements owning one id; the
+ * frame simply adopts whichever set matches the source it was opened from.
+ */
+export const eventRowLayoutId = (id: string) => `event-row-${id}`
+export const eventRowTitleId = (id: string) => `event-row-title-${id}`
+export const instantRowLayoutId = (id: string) => `instant-row-${id}`
+export const instantRowTitleId = (id: string) => `instant-row-title-${id}`
+/**
  * Per-entity glyph id so the kind icon travels continuously between the DO-list
  * row and the dock card (shared across space / task / event alike).
  */
