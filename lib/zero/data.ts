@@ -971,13 +971,11 @@ export function addSpace(input: { name: string; parentId: string }): Entity {
   entities.push(entity)
   byId.set(entity.id, entity)
   userEntityIds.add(entity.id)
-  // A new space is, by default, PINNED into the dock of the context it was
-  // created from — it reads as a first-class place immediately. But only SPACE
-  // contexts render a SPACES row; under a task/event/instant there's no dock to
-  // pin into, so leave it in the DO list where it stays visible.
-  if (getSpace(input.parentId)) {
-    pinItem(input.parentId, entity.id)
-  }
+  // A new space is, by default, PINNED into the dock of whatever context it was
+  // created from — space, task, event, or instant — so it reads as a first-class
+  // place immediately. The Dock (SpacesRow) renders for every context kind, so
+  // the pin is always visible. The user can demote it into the DO list later.
+  pinItem(input.parentId, entity.id)
   persist()
   return entity
 }

@@ -45,10 +45,11 @@ export function FrontContent() {
         <TimelineStrip spaceId={contextSpaceId} accent={accent} />
       </motion.div>
 
-      {/* Spaces row — between the timeline and the lists. Tasks have no
-          subspaces, and SpacesRow hides itself when the context has no
-          children, so it renders nothing in those cases. */}
-      {activeNode.kind === "space" && <SpacesRow contextSpaceId={contextSpaceId} />}
+      {/* Dock (Spaces row) — between the timeline and the lists. Renders for
+          EVERY context kind (space, task, event, instant): a space created from
+          any of them is pinned into that context's dock, and SpacesRow hides
+          itself when the context has no pins, so it renders nothing otherwise. */}
+      <SpacesRow contextSpaceId={contextSpaceId} />
 
       <div className="pointer-events-auto flex min-h-0 flex-1 flex-col pt-4">
         <div className="flex min-h-[180px] flex-1 gap-4">

@@ -488,15 +488,9 @@ export function TaskList({ spaceId }: { spaceId: string }) {
         className="-mx-6 flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto px-6 no-scrollbar"
       >
         <AnimatePresence initial={false} mode="popLayout">
-          {shown.length === 0 ? (
-            <li
-              key="empty"
-              className="px-2 py-5 text-center text-[12px] text-muted-foreground/60"
-            >
-              Let&apos;s do
-            </li>
-          ) : (
-            shown.map((it) =>
+          {shown.length === 0
+            ? null
+            : shown.map((it) =>
               it.kind === "task" ? (
                 <TaskRow key={it.id} task={it.task!} onContext={(e) => openMenu(e, it)} />
               ) : it.kind === "space" ? (
@@ -514,8 +508,7 @@ export function TaskList({ spaceId }: { spaceId: string }) {
                   onContext={(e) => openMenu(e, it)}
                 />
               ),
-            )
-          )}
+            )}
         </AnimatePresence>
       </ul>
 
