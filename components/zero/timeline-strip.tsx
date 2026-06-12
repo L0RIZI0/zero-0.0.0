@@ -20,6 +20,11 @@ const DAY_START = 8 * 60 // 08:00
 const DAY_END = 22 * 60 // 22:00
 const SPAN = DAY_END - DAY_START
 
+// Fallback color for items whose space chain has no accent (i.e. created
+// directly under the root "Space 0"). A neutral light grey so they still read
+// as real markers without claiming a brand color.
+const NEUTRAL_MARKER = "oklch(0.72 0.004 75)"
+
 function fmt(min: number) {
   const h = Math.floor(min / 60)
   const m = min % 60
