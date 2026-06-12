@@ -963,14 +963,21 @@ export function addSpace(input: { name: string; parentId: string }): Entity {
     taggedSpaceIds: [],
     description: "",
     assignedResourceIds: [],
+    // Inherit the nearest ancestor's accent so a new space reads as part of its
+    // parent's color family by default (e.g. a space under blue "Day Job" is
+    // blue). Spaces created under the accent-less root stay undefined → grey.
+    accent: getInheritedAccent(input.parentId),
   }
   entities.push(entity)
   byId.set(entity.id, entity)
   userEntityIds.add(entity.id)
   // A new space is, by default, PINNED into the dock of the context it was
-  // created from — it reads as a first-class place immediately. The user can
-  // demote it into the DO list later by unpinning it.
-  pinItem(input.parentId, entity.id)
+  // created from — it reads as a first-class place immediately. But only SPACE
+  // contexts render a SPACES row; under a task/event/instant there's no dock to
+  // pin into, so leave it in the DO list where it stays visible.
+  if (getSpace(input.parentId)) {
+    pinItem(input.parentId, entity.id)
+  }
   persist()
   return entity
 }
