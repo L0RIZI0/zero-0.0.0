@@ -154,42 +154,6 @@ export function TimelineStrip({
         </AnimatePresence>
       </div>
 
-      {/* Instant labels — written vertically (rotated 90° anticlockwise) so
-          they rise ABOVE both their marker and the hour ruler, even when their
-          time sits right on an hour tick. Aligned to the track width (same 40px
-          arrow insets as the ruler) and colored with the instant's inherited
-          accent (neutral grey when its chain has none). Today only, matching
-          where markers render. */}
-      {isToday && (
-        <div
-          className="pointer-events-none relative h-14"
-          style={{ marginLeft: 40, marginRight: 40 }}
-        >
-          {evts.map((e) => {
-            if (e.kind !== "instant") return null
-            const at = e.at ?? 0
-            const left = ((at - DAY_START) / SPAN) * 100
-            const color = getInheritedAccent(e.parentId ?? "s_root")
-            const labelColor = color ?? NEUTRAL_MARKER
-            return (
-              <span
-                key={e.id}
-                className="absolute bottom-0 max-h-14 -translate-x-1/2 overflow-hidden truncate text-[10px] font-medium leading-none tracking-tight"
-                style={{
-                  left: `${left}%`,
-                  color: labelColor,
-                  writingMode: "vertical-rl",
-                  transform: "translateX(-50%) rotate(180deg)",
-                }}
-                title={e.title}
-              >
-                {e.title}
-              </span>
-            )
-          })}
-        </div>
-      )}
-
       {/* hour labels — a static ruler ABOVE the track, aligned to its width */}
       <div className="relative mb-1 h-3.5" style={{ marginLeft: 40, marginRight: 40 }}>
         {hours.map((h) => {
@@ -209,6 +173,39 @@ export function TimelineStrip({
       {/* Full-bleed timeline: top/bottom borders run to the frame edges to
           suggest continuity with yesterday/tomorrow. Arrows flank the track. */}
       <div className="relative -mx-6 h-14">
+        {/* Instant labels — written vertically (clockwise: plain vertical-rl)
+            and anchored to the TOP of the track (`bottom-full`) so they rise
+            above the marker without adding layout height (the timeline keeps
+            its original position). Inset `left-10 right-10` to match the
+            viewport exactly, so each label centers on its marker. They grow
+            upward and are simply cropped by the surface edge — free to bleed
+            over the header area, which sits above them in the stacking order. */}
+        {isToday && (
+          <div className="pointer-events-none absolute bottom-full left-10 right-10 z-0">
+            {evts.map((e) => {
+              if (e.kind !== "instant") return null
+              const at = e.at ?? 0
+              const left = ((at - DAY_START) / SPAN) * 100
+              const labelColor = getInheritedAccent(e.parentId ?? "s_root") ?? NEUTRAL_MARKER
+              return (
+                <span
+                  key={e.id}
+                  className="absolute bottom-1 max-h-[40vh] truncate text-[10px] font-medium leading-none tracking-tight"
+                  style={{
+                    left: `${left}%`,
+                    color: labelColor,
+                    writingMode: "vertical-rl",
+                    transform: "translateX(-50%)",
+                  }}
+                  title={e.title}
+                >
+                  {e.title}
+                </span>
+              )
+            })}
+          </div>
+        )}
+
         {/* continuity rails — extend to the screen edges */}
         <div className="absolute left-0 right-0 top-0 h-px bg-border" />
         <div className="absolute bottom-0 left-0 right-0 h-px bg-border" />
