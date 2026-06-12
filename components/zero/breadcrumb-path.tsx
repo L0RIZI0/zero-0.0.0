@@ -3,7 +3,16 @@
 import { motion, AnimatePresence } from "motion/react"
 import { getEntity } from "@/lib/zero/data"
 import { isTaskId, useZeroNav } from "@/lib/zero/nav-store"
-import { contentTransition, layerTransition, spaceTitleId, taskTitleId, eventTitleId, instantTitleId } from "@/lib/zero/motion"
+import {
+  contentTransition,
+  layerTransition,
+  spaceTitleId,
+  taskTitleId,
+  eventTitleId,
+  instantTitleId,
+  eventRowTitleId,
+  instantRowTitleId,
+} from "@/lib/zero/motion"
 import { NodeGlyph } from "./node-glyph"
 
 /**
@@ -14,7 +23,7 @@ import { NodeGlyph } from "./node-glyph"
  * from "big inside frame" to "small in this stack" as the user dives deeper.
  */
 export function PathStack() {
-  const { stack, goToDepth } = useZeroNav()
+  const { stack, goToDepth, openSourceOf } = useZeroNav()
 
   // Depth 0 is Space 0 (the user identity itself, shown in the header). The
   // active (last) layer's title lives inside its own frame, so it is excluded.
@@ -32,12 +41,19 @@ export function PathStack() {
           if (!label) return null
           const accent = node?.accent
           // Title morph id must match the kind so the label travels from the
-          // frame title into this crumb (space / task / event / instant).
+          // frame title into this crumb (space / task / event / instant). For
+          // events/instants it must also match the SOURCE the frame adopted
+          // (row vs timeline), or the label won't travel.
+          const fromRow = openSourceOf(nodeId) === "row"
           const titleLayoutId =
             node?.kind === "event"
-              ? eventTitleId(nodeId)
+              ? fromRow
+                ? eventRowTitleId(nodeId)
+                : eventTitleId(nodeId)
               : node?.kind === "instant"
-                ? instantTitleId(nodeId)
+                ? fromRow
+                  ? instantRowTitleId(nodeId)
+                  : instantTitleId(nodeId)
                 : isTask
                   ? taskTitleId(nodeId)
                   : spaceTitleId(nodeId)

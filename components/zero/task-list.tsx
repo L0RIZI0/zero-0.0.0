@@ -12,6 +12,10 @@ import {
   taskTitleId,
   spaceLayoutId,
   spaceTitleId,
+  eventRowLayoutId,
+  eventRowTitleId,
+  instantRowLayoutId,
+  instantRowTitleId,
   glyphId,
 } from "@/lib/zero/motion"
 import { NodeGlyph } from "./node-glyph"
@@ -149,11 +153,13 @@ function TaskRow({
   )
 }
 
-/** An event surfaced in the task list — opens as its own window. Unlike tasks
- *  and spaces, events do NOT morph from this row: an event's expand animation
- *  always plays between the TIMELINE and the window (events live on the
- *  timeline), so the row is a plain, static control here. Its detail line shows
- *  the open-subtask count (like spaces/tasks) AND the time range it spans. */
+/** An event surfaced in the task list — opens as its own window. An event lives
+ *  in two places at once (this row AND its timeline marker), so it can morph
+ *  from EITHER: this row carries its own row-specific layoutId and opens with
+ *  source "row", so the window grows from here when clicked here (and the
+ *  timeline keeps its marker). While the window is open from the row, the row
+ *  releases its layoutId to the frame (placeholder swap) so only one element
+ *  owns it. Detail line shows the open-subtask count AND the time range. */
 function EventRow({
   item,
   onContext,
@@ -161,15 +167,31 @@ function EventRow({
   item: ContextItem
   onContext: (e: React.MouseEvent) => void
 }) {
-  const { open } = useZeroNav()
+  const { open, stack, openSourceOf } = useZeroNav()
   const event = item.event!
   const hasRange = typeof event.start === "number" && typeof event.end === "number"
+
+  // When opened FROM this row, hand the row layoutId to the frame so the morph
+  // reads as the row growing into the window. (If it was opened from the
+  // timeline instead, the row stays put and the timeline owns the morph.)
+  if (stack.includes(event.id) && openSourceOf(event.id) === "row") {
+    return (
+      <li>
+        <div
+          aria-hidden
+          className="h-[42px] w-full rounded-sm border border-dashed border-border/60 bg-secondary/30"
+        />
+      </li>
+    )
+  }
 
   return (
     <li>
       <motion.button
         type="button"
-        onClick={() => open(event.id)}
+        layoutId={eventRowLayoutId(event.id)}
+        transition={layerTransition}
+        onClick={() => open(event.id, "row")}
         onContextMenu={onContext}
         style={{ borderRadius: 4 }}
         whileHover={{ scale: 1.02, boxShadow: "0 12px 28px -10px rgba(0,0,0,0.28)" }}
@@ -178,9 +200,13 @@ function EventRow({
         <span className={cn(GLYPH_BOX, "text-foreground")}>
           <NodeGlyph kind="event" />
         </span>
-        <span className="min-w-0 flex-1 truncate text-[13px] tracking-tight text-foreground">
+        <motion.span
+          layoutId={eventRowTitleId(event.id)}
+          transition={layerTransition}
+          className="min-w-0 flex-1 truncate text-[13px] tracking-tight text-foreground"
+        >
           {event.title}
-        </span>
+        </motion.span>
         <OpenTaskCount spaceId={event.id} />
         {hasRange && (
           <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground/70">
@@ -196,8 +222,8 @@ function EventRow({
 
 /** An instant surfaced in the task list — like an event row, but it marks a
  *  single point in time, so its detail shows one precise moment (down to the
- *  second) rather than a range. It opens as its own window via the timeline
- *  morph, so the row itself is static. */
+ *  second). Like events, it can morph from EITHER this row or its timeline
+ *  marker depending on where it's opened from. */
 function InstantRow({
   item,
   onContext,
@@ -205,15 +231,28 @@ function InstantRow({
   item: ContextItem
   onContext: (e: React.MouseEvent) => void
 }) {
-  const { open } = useZeroNav()
+  const { open, stack, openSourceOf } = useZeroNav()
   const instant = item.entity
   const hasMoment = typeof instant.at === "number"
+
+  if (stack.includes(instant.id) && openSourceOf(instant.id) === "row") {
+    return (
+      <li>
+        <div
+          aria-hidden
+          className="h-[42px] w-full rounded-sm border border-dashed border-border/60 bg-secondary/30"
+        />
+      </li>
+    )
+  }
 
   return (
     <li>
       <motion.button
         type="button"
-        onClick={() => open(instant.id)}
+        layoutId={instantRowLayoutId(instant.id)}
+        transition={layerTransition}
+        onClick={() => open(instant.id, "row")}
         onContextMenu={onContext}
         style={{ borderRadius: 4 }}
         whileHover={{ scale: 1.02, boxShadow: "0 12px 28px -10px rgba(0,0,0,0.28)" }}
@@ -222,9 +261,13 @@ function InstantRow({
         <span className={cn(GLYPH_BOX, "text-foreground")}>
           <NodeGlyph kind="instant" />
         </span>
-        <span className="min-w-0 flex-1 truncate text-[13px] tracking-tight text-foreground">
+        <motion.span
+          layoutId={instantRowTitleId(instant.id)}
+          transition={layerTransition}
+          className="min-w-0 flex-1 truncate text-[13px] tracking-tight text-foreground"
+        >
           {instant.title}
-        </span>
+        </motion.span>
         <OpenTaskCount spaceId={instant.id} />
         {hasMoment && (
           <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground/70">

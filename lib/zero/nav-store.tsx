@@ -4,6 +4,13 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import { getEntity, hydrateFromStorage } from "./data"
 import type { EntityKind } from "./types"
 
+/**
+ * Where an entity's window was opened FROM. Events/instants exist in two places
+ * at once (their DO-list row and their timeline marker), so the window should
+ * grow from — and collapse back to — whichever the user actually used.
+ */
+export type OpenSource = "timeline" | "row"
+
 export interface ActiveNode {
   id: string
   /** Depth in the stack — 0 is root (Space 0). */
@@ -26,8 +33,10 @@ interface ZeroNavContextValue {
   /** Rich description of the focused node — drives filtering + timeline offset. */
   activeNode: ActiveNode
   /** Push any entity onto the stack (dive deeper). Spaces and tasks open as
-   *  framed windows; events resolve to their parent space at the call site. */
-  open: (id: string) => void
+   *  framed windows; events resolve to their parent space at the call site.
+   *  `source` records whether an event/instant was opened from its timeline
+   *  marker or its DO-list row, so the frame can morph to/from the right one. */
+  open: (id: string, source?: OpenSource) => void
   /** Alias of `open`, kept for call sites that read as "open this space". */
   openSpace: (spaceId: string) => void
   /** Alias of `open`, kept for call sites that read as "open this task". */
@@ -46,6 +55,9 @@ interface ZeroNavContextValue {
   /** Ask the open frame for `id` to bounce (e.g. user re-clicked its timeline
    *  chip while its window is already open). */
   requestPulse: (id: string) => void
+  /** How the entity at `id` was opened (defaults to "timeline" for events/
+   *  instants when unknown). Lets a frame pick its morph source. */
+  openSourceOf: (id: string) => OpenSource
 }
 
 /**
@@ -87,6 +99,9 @@ export function ZeroNavProvider({
   const [stack, setStack] = useState<string[]>([rootSpaceId])
   const [dataVersion, setDataVersion] = useState(0)
   const [pulse, setPulse] = useState<{ id: string; n: number } | null>(null)
+  // Per-entity record of how its window was opened (timeline marker vs DO-list
+  // row). Only meaningful for events/instants; spaces/tasks ignore it.
+  const [sources, setSources] = useState<Record<string, OpenSource>>({})
 
   const notifyDataChanged = useCallback(() => setDataVersion((v) => v + 1), [])
 
@@ -102,12 +117,18 @@ export function ZeroNavProvider({
     if (hydrateFromStorage()) setDataVersion((v) => v + 1)
   }, [])
 
-  const open = useCallback((id: string) => {
+  const open = useCallback((id: string, source: OpenSource = "timeline") => {
+    setSources((prev) => (prev[id] === source ? prev : { ...prev, [id]: source }))
     setStack((prev) => {
       if (prev[prev.length - 1] === id) return prev
       return [...prev, id]
     })
   }, [])
+
+  const openSourceOf = useCallback(
+    (id: string): OpenSource => sources[id] ?? "timeline",
+    [sources],
+  )
 
   const closeSpace = useCallback(() => {
     setStack((prev) => (prev.length > 1 ? prev.slice(0, -1) : prev))
@@ -154,9 +175,10 @@ export function ZeroNavProvider({
       notifyDataChanged,
       pulse,
       requestPulse,
+      openSourceOf,
     }
     // dataVersion is included so title/description re-read after edits/hydration.
-  }, [stack, open, closeSpace, goToDepth, dataVersion, notifyDataChanged, pulse, requestPulse])
+  }, [stack, open, closeSpace, goToDepth, dataVersion, notifyDataChanged, pulse, requestPulse, openSourceOf])
 
   return <ZeroNavContext.Provider value={value}>{children}</ZeroNavContext.Provider>
 }

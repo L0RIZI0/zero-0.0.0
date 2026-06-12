@@ -4,8 +4,17 @@ import { motion } from "motion/react"
 import { X, Clock, Hash } from "lucide-react"
 import type { Entity } from "@/lib/zero/types"
 import { getSpace } from "@/lib/zero/data"
-import { layerTransition, eventLayoutId, eventTitleId, glyphId, contentTransition } from "@/lib/zero/motion"
+import {
+  layerTransition,
+  eventLayoutId,
+  eventTitleId,
+  eventRowLayoutId,
+  eventRowTitleId,
+  glyphId,
+  contentTransition,
+} from "@/lib/zero/motion"
 import { usePulse } from "@/lib/zero/use-pulse"
+import { useZeroNav } from "@/lib/zero/nav-store"
 import { NodeGlyph } from "./node-glyph"
 
 /** Minutes-from-midnight → "9:00 AM". */
@@ -45,15 +54,26 @@ export function EventFrame({
   // Bounce when the user re-clicks this event's timeline chip while it's open.
   const pulseControls = usePulse(event.id)
 
+  // The window morphs to/from wherever it was opened: its DO-list ROW or its
+  // TIMELINE marker. We adopt that source's shared ids so the expand/collapse
+  // animation connects to the right element. (The non-source twin keeps its
+  // own ids and simply stays in place.)
+  const { openSourceOf } = useZeroNav()
+  const fromRow = openSourceOf(event.id) === "row"
+  const frameLayoutId = fromRow ? eventRowLayoutId(event.id) : eventLayoutId(event.id)
+  const frameTitleId = fromRow ? eventRowTitleId(event.id) : eventTitleId(event.id)
+
   return (
     <motion.div
-      layoutId={eventLayoutId(event.id)}
+      layoutId={frameLayoutId}
       transition={layerTransition}
       animate={pulseControls}
       style={{ borderRadius: 4 }}
       className="relative flex h-full w-full flex-col overflow-hidden border border-border bg-secondary/40 shadow-[0_24px_80px_-32px_rgba(0,0,0,0.6)]"
     >
-      {/* accent edge — shares element with the row/card accent */}
+      {/* accent edge — shares element with the row/card accent. Only the
+          timeline morph carries a matching accent twin, so this is keyed to the
+          timeline layoutId regardless of source (a no-op when opened from row). */}
       <motion.span
         layoutId={`${eventLayoutId(event.id)}-accent`}
         transition={layerTransition}
@@ -76,7 +96,7 @@ export function EventFrame({
             </motion.span>
             <div className="flex min-w-0 flex-col">
               <motion.h2
-                layoutId={eventTitleId(event.id)}
+                layoutId={frameTitleId}
                 transition={layerTransition}
                 className="text-pretty text-[22px] font-medium leading-tight tracking-tight text-foreground"
               >

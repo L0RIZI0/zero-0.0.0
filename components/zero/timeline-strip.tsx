@@ -42,7 +42,7 @@ export function TimelineStrip({
   spaceId: string
   accent?: string
 }) {
-  const { open, stack, dataVersion, requestPulse } = useZeroNav()
+  const { open, stack, dataVersion, requestPulse, openSourceOf } = useZeroNav()
   // The timeline always shows the FULL day (all events). When a child window is
   // open, events outside its subtree dim rather than disappear, so the user
   // keeps spatial context. `spaceId` is the active node's context space.
@@ -245,7 +245,11 @@ export function TimelineStrip({
                     if (e.kind === "instant") {
                       const at = e.at ?? 0
                       const left = ((at - DAY_START) / SPAN) * 100
-                      const showMorphOverlay = !isOpen
+                      // The timeline marker only lends its shared layoutId to the
+                      // frame when the window was opened FROM the timeline. If it
+                      // was opened from the DO-list row, the row owns the morph,
+                      // so the marker stays put (no overlay handed off).
+                      const showMorphOverlay = !isOpen || openSourceOf(e.id) !== "timeline"
                       return (
                         <div
                           key={e.id}
@@ -257,7 +261,7 @@ export function TimelineStrip({
                             initial={false}
                             animate={{ opacity: isOpen || related ? 1 : 0.25 }}
                             transition={panelTransition}
-                            onClick={() => (isOpen ? requestPulse(e.id) : open(e.id))}
+                            onClick={() => (isOpen ? requestPulse(e.id) : open(e.id, "timeline"))}
                             aria-current={isOpen ? "true" : undefined}
                             title={`${e.title} · ${fmt(at)}`}
                             className="flex flex-col items-center gap-0.5 transition-[filter] hover:brightness-110"
@@ -298,14 +302,14 @@ export function TimelineStrip({
                     const end = e.end ?? start
                     const left = ((start - DAY_START) / SPAN) * 100
                     const width = ((end - start) / SPAN) * 100
-                    // Events morph between the TIMELINE and their window only —
-                    // never the DO list. The overlay (which carries the shared
-                    // layoutId) therefore lives on the timeline whenever the
-                    // event isn't open, regardless of context. On open it hands
-                    // the id to the frame; on close it takes it back. Because it
-                    // never unmounts on navigation, there's no timeline↔list
-                    // slide. (DO rows / dock cards render events statically.)
-                    const showMorphOverlay = !isOpen
+                    // Events morph between the TIMELINE and their window when
+                    // opened from the timeline. The overlay (which carries the
+                    // shared layoutId) lives on the timeline whenever the event
+                    // isn't open. If the event was opened from its DO-list row,
+                    // the row owns the morph, so the timeline keeps its overlay
+                    // (it isn't handed to the frame). Because the chip below
+                    // never owns a layoutId, navigation never slides it.
+                    const showMorphOverlay = !isOpen || openSourceOf(e.id) !== "timeline"
 
                     const boxStyle = {
                       left: `calc(${left}% + 2px)`,
@@ -330,7 +334,7 @@ export function TimelineStrip({
                           // lit like any related item; unrelated events dim.
                           animate={{ opacity: isOpen || related ? 1 : 0.25 }}
                           transition={panelTransition}
-                          onClick={() => (isOpen ? requestPulse(e.id) : open(e.id))}
+                          onClick={() => (isOpen ? requestPulse(e.id) : open(e.id, "timeline"))}
                           aria-current={isOpen ? "true" : undefined}
                           title={`${e.title} · ${fmt(start)}–${fmt(end)}`}
                           className={cn(

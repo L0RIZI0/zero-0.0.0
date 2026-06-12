@@ -4,8 +4,17 @@ import { motion } from "motion/react"
 import { X, Clock, Hash } from "lucide-react"
 import type { Entity } from "@/lib/zero/types"
 import { getSpace } from "@/lib/zero/data"
-import { layerTransition, instantLayoutId, instantTitleId, glyphId, contentTransition } from "@/lib/zero/motion"
+import {
+  layerTransition,
+  instantLayoutId,
+  instantTitleId,
+  instantRowLayoutId,
+  instantRowTitleId,
+  glyphId,
+  contentTransition,
+} from "@/lib/zero/motion"
 import { usePulse } from "@/lib/zero/use-pulse"
+import { useZeroNav } from "@/lib/zero/nav-store"
 import { NodeGlyph } from "./node-glyph"
 
 /** Minutes-from-midnight (+ optional seconds) → "9:00:30 AM". */
@@ -44,14 +53,22 @@ export function InstantFrame({
   const hasMoment = typeof instant.at === "number"
   const pulseControls = usePulse(instant.id)
 
+  // Morph to/from the source it was opened from — its DO-list ROW or its
+  // TIMELINE marker — by adopting that source's shared ids.
+  const { openSourceOf } = useZeroNav()
+  const fromRow = openSourceOf(instant.id) === "row"
+  const frameLayoutId = fromRow ? instantRowLayoutId(instant.id) : instantLayoutId(instant.id)
+  const frameTitleId = fromRow ? instantRowTitleId(instant.id) : instantTitleId(instant.id)
+
   return (
     <motion.div
-      layoutId={instantLayoutId(instant.id)}
+      layoutId={frameLayoutId}
       transition={layerTransition}
       animate={pulseControls}
       style={{ borderRadius: 4 }}
       className="relative flex h-full w-full flex-col overflow-hidden border border-border bg-secondary/40 shadow-[0_24px_80px_-32px_rgba(0,0,0,0.6)]"
     >
+      {/* accent edge keyed to the timeline morph (a no-op when opened from row). */}
       <motion.span
         layoutId={`${instantLayoutId(instant.id)}-accent`}
         transition={layerTransition}
@@ -71,7 +88,7 @@ export function InstantFrame({
             </motion.span>
             <div className="flex min-w-0 flex-col">
               <motion.h2
-                layoutId={instantTitleId(instant.id)}
+                layoutId={frameTitleId}
                 transition={layerTransition}
                 className="text-pretty text-[22px] font-medium leading-tight tracking-tight text-foreground"
               >
