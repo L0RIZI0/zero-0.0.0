@@ -45,9 +45,9 @@ function OpenTaskCount({ spaceId }: { spaceId: string }) {
   if (count === 0) return null
   return (
     <span className="flex shrink-0 items-center gap-1 text-[11px] text-muted-foreground/70">
-      <span className="tabular-nums">{count}</span>
+      <span className="font-medium tabular-nums">{count}</span>
       <span className="flex h-2.5 w-2.5 items-center justify-center">
-        <NodeGlyph kind="task" strokeWidth={2} />
+        <NodeGlyph kind="task" strokeWidth={1.5} />
       </span>
     </span>
   )

@@ -115,9 +115,9 @@ export function PinnedCard({
             <NodeGlyph kind={item.kind} strokeWidth={item.kind === "task" ? 2 : 1.75} />
           </span>
           <div className="flex min-w-0 items-center gap-1 truncate whitespace-nowrap text-[10px] text-muted-foreground/70">
-            <span className="tabular-nums">{openCount}</span>
+            <span className="font-medium tabular-nums">{openCount}</span>
             <span className="flex h-2.5 w-2.5 items-center justify-center text-muted-foreground/70">
-              <NodeGlyph kind="task" strokeWidth={2} />
+              <NodeGlyph kind="task" strokeWidth={1.5} />
             </span>
           </div>
         </div>
