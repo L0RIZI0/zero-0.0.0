@@ -9,8 +9,6 @@ import {
   spaceTitleId,
   taskLayoutId,
   taskTitleId,
-  eventLayoutId,
-  eventTitleId,
   glyphId,
 } from "@/lib/zero/motion"
 import { useZeroNav } from "@/lib/zero/nav-store"
@@ -79,18 +77,22 @@ export function PinnedCard({
   }
 
   // Per-kind shared ids so the card morphs continuously to/from the DO-list row
-  // (and, for spaces/tasks, the window frame too).
+  // (and, for spaces/tasks, the window frame too). Events are the exception:
+  // they morph only between the TIMELINE and their window, so a pinned event
+  // card is static (no shared ids) — otherwise it would fight the timeline
+  // overlay for the same layoutId.
+  const isEvent = item.kind === "event"
   const morphLayoutId = isSpace
     ? spaceLayoutId(item.entity.id)
     : isTask
       ? taskLayoutId(item.entity.id)
-      : eventLayoutId(item.entity.id)
+      : undefined
   const morphTitleId = isSpace
     ? spaceTitleId(item.entity.id)
     : isTask
       ? taskTitleId(item.entity.id)
-      : eventTitleId(item.entity.id)
-  const morphProps = { layoutId: morphLayoutId, transition: layerTransition }
+      : undefined
+  const morphProps = morphLayoutId ? { layoutId: morphLayoutId, transition: layerTransition } : {}
 
   return (
     // Neutral wrapper is the direct AnimatePresence child. CRITICAL for
@@ -129,7 +131,7 @@ export function PinnedCard({
             continuously between the DO-list row and this card. */}
         <div className="flex items-start justify-between gap-1.5">
           <motion.span
-            layoutId={glyphId(item.entity.id)}
+            layoutId={isEvent ? undefined : glyphId(item.entity.id)}
             transition={layerTransition}
             className="flex h-3.5 w-3.5 shrink-0 items-center justify-center text-foreground"
           >
@@ -152,8 +154,7 @@ export function PinnedCard({
           className="truncate text-[12px] font-medium leading-tight tracking-tight text-foreground"
         >
           {item.title}
-        </motion.h3>
-      </motion.button>
+        </motion.h3>      </motion.button>
     </div>
   )
 }

@@ -27,7 +27,7 @@ export function CreateWindow({
   defaultKind?: NodeKind
   onClose: () => void
 }) {
-  const { openSpace, openTask, notifyDataChanged } = useZeroNav()
+  const { notifyDataChanged } = useZeroNav()
   const [kind, setKind] = useState<NodeKind>(defaultKind)
   const [title, setTitle] = useState("")
   const [menuOpen, setMenuOpen] = useState(false)
@@ -56,21 +56,18 @@ export function CreateWindow({
   const handleSave = () => {
     const name = title.trim()
     if (!name) return
+    // Create the entity in the CURRENT context and just close — the new item
+    // lands in the DO list (or timeline, for events) where the user already is,
+    // rather than yanking focus by wide-opening the new entity's own window.
     if (kind === "task") {
-      const t = addTask({ title: name, spaceId })
-      notifyDataChanged()
-      onClose()
-      openTask(t.id)
+      addTask({ title: name, spaceId })
     } else if (kind === "space") {
-      const s = addSpace({ name, parentId: spaceId })
-      notifyDataChanged()
-      onClose()
-      openSpace(s.id)
+      addSpace({ name, parentId: spaceId })
     } else {
       addEvent({ title: name, spaceId })
-      notifyDataChanged()
-      onClose()
     }
+    notifyDataChanged()
+    onClose()
   }
 
   if (!mounted) return null

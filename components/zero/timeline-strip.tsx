@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react"
 import { AnimatePresence, motion } from "motion/react"
 import { ChevronLeft, ChevronRight } from "lucide-react"
-import { getChildren, getSpace, getSpaceEvents, isInSubtree } from "@/lib/zero/data"
+import { getSpace, getSpaceEvents, isInSubtree } from "@/lib/zero/data"
 import { panelTransition, layerTransition, eventLayoutId, eventTitleId } from "@/lib/zero/motion"
 import { useZeroNav } from "@/lib/zero/nav-store"
 import { cn } from "@/lib/utils"
@@ -39,14 +39,6 @@ export function TimelineStrip({
   // open, events outside its subtree dim rather than disappear, so the user
   // keeps spatial context. `spaceId` is the active node's context space.
   const evts = useMemo(() => getSpaceEvents("s_root"), [dataVersion])
-  // Events that already appear in the current context (its DO-list row / dock
-  // card) own the frame-expand morph there. The timeline chip may only claim
-  // the shared layoutId for events NOT represented in this context — otherwise
-  // two elements would own the same id and the morph would break.
-  const contextEventIds = useMemo(
-    () => new Set(getChildren(spaceId).filter((e) => e.kind === "event").map((e) => e.id)),
-    [spaceId, dataVersion],
-  )
   const hours = useMemo(() => {
     const out: number[] = []
     for (let m = DAY_START; m <= DAY_END; m += 120) out.push(m)
@@ -244,13 +236,14 @@ export function TimelineStrip({
                     // Dim events that aren't in the active node's subtree.
                     const related = isInSubtree(spaceId, eventSpaceId)
                     const isOpen = stack.includes(e.id)
-                    const inContext = contextEventIds.has(e.id)
-                    // The morph owner (the element that flies into the frame) must
-                    // be unique. The DO row owns it when the event is in context;
-                    // the frame owns it when open. ONLY otherwise does the timeline
-                    // provide a morph element — and even then as a SEPARATE overlay
-                    // so the persistent chip below never gets carried away.
-                    const showMorphOverlay = !inContext && !isOpen
+                    // Events morph between the TIMELINE and their window only —
+                    // never the DO list. The overlay (which carries the shared
+                    // layoutId) therefore lives on the timeline whenever the
+                    // event isn't open, regardless of context. On open it hands
+                    // the id to the frame; on close it takes it back. Because it
+                    // never unmounts on navigation, there's no timeline↔list
+                    // slide. (DO rows / dock cards render events statically.)
+                    const showMorphOverlay = !isOpen
 
                     const boxStyle = {
                       left: `calc(${left}% + 2px)`,

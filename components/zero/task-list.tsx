@@ -12,8 +12,6 @@ import {
   taskTitleId,
   spaceLayoutId,
   spaceTitleId,
-  eventLayoutId,
-  eventTitleId,
   glyphId,
 } from "@/lib/zero/motion"
 import { NodeGlyph } from "./node-glyph"
@@ -151,10 +149,10 @@ function TaskRow({
   )
 }
 
-/** An event surfaced in the task list — opens as its own window (like spaces
- *  and tasks). It carries the shared layoutId/title/glyph ids that morph the row
- *  ↔ dock card ↔ event window. While its window is open, the row swaps to an
- *  inert placeholder so the shared ids live on exactly one element. */
+/** An event surfaced in the task list — opens as its own window. Unlike tasks
+ *  and spaces, events do NOT morph from this row: an event's expand animation
+ *  always plays between the TIMELINE and the window (events live on the
+ *  timeline), so the row is a plain, static control here. */
 function EventRow({
   item,
   onContext,
@@ -162,48 +160,25 @@ function EventRow({
   item: ContextItem
   onContext: (e: React.MouseEvent) => void
 }) {
-  const { open, stack } = useZeroNav()
+  const { open } = useZeroNav()
   const event = item.event!
-
-  // While this event's window is open, release the shared ids to the frame
-  // via an inert placeholder (same pattern as TaskRow).
-  if (stack.includes(event.id)) {
-    return (
-      <li>
-        <div
-          aria-hidden
-          className="h-[42px] w-full rounded-sm border border-dashed border-border/60 bg-secondary/30"
-        />
-      </li>
-    )
-  }
 
   return (
     <li>
       <motion.button
         type="button"
-        layoutId={eventLayoutId(event.id)}
-        transition={layerTransition}
         onClick={() => open(event.id)}
         onContextMenu={onContext}
         style={{ borderRadius: 4 }}
         whileHover={{ scale: 1.02, boxShadow: "0 12px 28px -10px rgba(0,0,0,0.28)" }}
         className="group flex w-full items-center gap-3 border border-border bg-card-solid px-2.5 py-2 text-left"
       >
-        <motion.span
-          layoutId={glyphId(event.id)}
-          transition={layerTransition}
-          className={cn(GLYPH_BOX, "text-foreground")}
-        >
+        <span className={cn(GLYPH_BOX, "text-foreground")}>
           <NodeGlyph kind="event" />
-        </motion.span>
-        <motion.span
-          layoutId={eventTitleId(event.id)}
-          transition={layerTransition}
-          className="min-w-0 flex-1 truncate text-[13px] tracking-tight text-foreground"
-        >
+        </span>
+        <span className="min-w-0 flex-1 truncate text-[13px] tracking-tight text-foreground">
           {event.title}
-        </motion.span>
+        </span>
         <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground/70">
           {fmtTime(event.start ?? 0)}
         </span>
