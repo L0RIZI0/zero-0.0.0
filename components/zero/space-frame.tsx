@@ -44,11 +44,13 @@ export function SpaceFrame({
         style={{ backgroundColor: accent }}
       />
 
-      {/* Title band. Sits above the frontmost timeline; the timeline animates
-          down to clear whatever height this band occupies (title, +description). */}
-      <div className="flex items-start justify-between gap-3 px-6 pt-5 pb-3">
-        <div className="flex min-w-0 items-start gap-3">
-          {isActive && (
+      {/* Title band. Only the active (frontmost) frame paints its header — a
+          receding parent frame would otherwise bleed its title / description /
+          close button through the opaque active layer. Sits above the frontmost
+          timeline; the timeline animates down to clear this band's height. */}
+      {isActive && (
+        <div className="flex items-start justify-between gap-3 px-6 pt-5 pb-3">
+          <div className="flex min-w-0 items-start gap-3">
             <motion.span
               layoutId={glyphId(space.id)}
               transition={layerTransition}
@@ -56,9 +58,7 @@ export function SpaceFrame({
             >
               <NodeGlyph kind="space" />
             </motion.span>
-          )}
-          <div className="flex min-w-0 flex-col">
-            {isActive && (
+            <div className="flex min-w-0 flex-col">
               <motion.h2
                 layoutId={spaceTitleId(space.id)}
                 transition={layerTransition}
@@ -66,29 +66,29 @@ export function SpaceFrame({
               >
                 {space.title}
               </motion.h2>
-            )}
-            {space.description && (
-              <motion.p
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ ...contentTransition, delay: 0.08 }}
-                className="mt-0.5 truncate text-[12.5px] text-muted-foreground"
-              >
-                {space.description}
-              </motion.p>
-            )}
+              {space.description && (
+                <motion.p
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ ...contentTransition, delay: 0.08 }}
+                  className="mt-0.5 truncate text-[12.5px] text-muted-foreground"
+                >
+                  {space.description}
+                </motion.p>
+              )}
+            </div>
           </div>
-        </div>
 
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label={`Close ${space.title}`}
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border bg-card/70 text-muted-foreground transition-colors hover:border-foreground/30 hover:text-foreground"
-        >
-          <X className="h-4 w-4" />
-        </button>
-      </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label={`Close ${space.title}`}
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border bg-card/70 text-muted-foreground transition-colors hover:border-foreground/30 hover:text-foreground"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
 
       {/* Transparent remainder — the persistent FrontContent layer (timeline /
           spaces row / tasks / inputs / outputs) renders over this gap. */}

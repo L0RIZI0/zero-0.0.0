@@ -103,13 +103,13 @@ export function ZeroNavProvider({
     const entity = getEntity(activeId)
     const kind: EntityKind = entity?.kind ?? "space"
 
-    let title = entity?.title ?? ""
-    let description = entity?.description ?? ""
-    let contextSpaceId = activeId
-    if (kind === "task" || kind === "event") {
-      // A task/event resolves to its origin parent for context filtering.
-      contextSpaceId = entity?.parentId ?? "s_root"
-    }
+    const title = entity?.title ?? ""
+    const description = entity?.description ?? ""
+    // Every opened entity is its OWN context: the timeline / spaces row / lists
+    // filter to the active node's own children + tagged items. A leaf task or
+    // event simply has none, so its context is empty (rather than wrongly
+    // showing the parent's children, which also left the opened row as a gap).
+    const contextSpaceId = activeId
 
     const activeNode: ActiveNode = {
       id: activeId,

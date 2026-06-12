@@ -57,10 +57,12 @@ export function EventFrame({
         style={{ backgroundColor: accent }}
       />
 
-      {/* Title band */}
-      <div className="flex items-start justify-between gap-3 px-6 pt-5 pb-3">
-        <div className="flex min-w-0 items-start gap-3">
-          {isActive && (
+      {/* Title band — only the active (frontmost) frame paints its header, so a
+          receding parent frame reads as a blank backdrop instead of bleeding
+          its glyph / metadata / close button through the active layer. */}
+      {isActive && (
+        <div className="flex items-start justify-between gap-3 px-6 pt-5 pb-3">
+          <div className="flex min-w-0 items-start gap-3">
             <motion.span
               layoutId={glyphId(event.id)}
               transition={layerTransition}
@@ -68,9 +70,7 @@ export function EventFrame({
             >
               <NodeGlyph kind="event" />
             </motion.span>
-          )}
-          <div className="flex min-w-0 flex-col">
-            {isActive && (
+            <div className="flex min-w-0 flex-col">
               <motion.h2
                 layoutId={eventTitleId(event.id)}
                 transition={layerTransition}
@@ -78,44 +78,44 @@ export function EventFrame({
               >
                 {event.title}
               </motion.h2>
-            )}
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ ...contentTransition, delay: 0.08 }}
-              className="mt-1 flex flex-wrap items-center gap-2"
-            >
-              <span className="truncate text-[12.5px] text-muted-foreground">
-                {spaceNames.join(" · ")}
-              </span>
-              {hasRange && (
-                <span className="flex items-center gap-1.5 rounded-sm border border-border bg-card/50 px-2 py-1 text-[11.5px] text-foreground">
-                  <Clock className="h-3 w-3" style={{ color: accent }} />
-                  {fmtTime(event.start!)} – {fmtTime(event.end!)}
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ ...contentTransition, delay: 0.08 }}
+                className="mt-1 flex flex-wrap items-center gap-2"
+              >
+                <span className="truncate text-[12.5px] text-muted-foreground">
+                  {spaceNames.join(" · ")}
                 </span>
-              )}
-              {(event.tags ?? []).map((t) => (
-                <span
-                  key={t}
-                  className="flex items-center gap-1 rounded-sm border border-border bg-card/50 px-2 py-1 text-[11.5px] text-muted-foreground"
-                >
-                  <Hash className="h-3 w-3" />
-                  {t}
-                </span>
-              ))}
-            </motion.div>
+                {hasRange && (
+                  <span className="flex items-center gap-1.5 rounded-sm border border-border bg-card/50 px-2 py-1 text-[11.5px] text-foreground">
+                    <Clock className="h-3 w-3" style={{ color: accent }} />
+                    {fmtTime(event.start!)} – {fmtTime(event.end!)}
+                  </span>
+                )}
+                {(event.tags ?? []).map((t) => (
+                  <span
+                    key={t}
+                    className="flex items-center gap-1 rounded-sm border border-border bg-card/50 px-2 py-1 text-[11.5px] text-muted-foreground"
+                  >
+                    <Hash className="h-3 w-3" />
+                    {t}
+                  </span>
+                ))}
+              </motion.div>
+            </div>
           </div>
-        </div>
 
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label={`Close ${event.title}`}
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border bg-card/70 text-muted-foreground transition-colors hover:border-foreground/30 hover:text-foreground"
-        >
-          <X className="h-4 w-4" />
-        </button>
-      </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label={`Close ${event.title}`}
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border bg-card/70 text-muted-foreground transition-colors hover:border-foreground/30 hover:text-foreground"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
 
       {/* Transparent middle — the persistent frontmost content renders over it. */}
       <div className="min-h-0 flex-1" aria-hidden />

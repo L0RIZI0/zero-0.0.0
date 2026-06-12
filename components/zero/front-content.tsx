@@ -2,7 +2,7 @@
 
 import { motion } from "motion/react"
 import { useZeroNav } from "@/lib/zero/nav-store"
-import { getSpace, getSpaceAssets } from "@/lib/zero/data"
+import { getSpace, getSpaceAssets, getEntity } from "@/lib/zero/data"
 import { layerTransition } from "@/lib/zero/motion"
 import { headerHeightFor } from "@/lib/zero/layout"
 import { TimelineStrip } from "./timeline-strip"
@@ -25,7 +25,9 @@ import { CollapsibleColumn } from "./collapsible-column"
 export function FrontContent() {
   const { activeNode } = useZeroNav()
   const contextSpaceId = activeNode.contextSpaceId
-  const accent = getSpace(contextSpaceId)?.accent
+  // The context is now the active node itself (which may be a task/event, not a
+  // space), so fall back to the entity's own accent when it isn't a space.
+  const accent = getSpace(contextSpaceId)?.accent ?? getEntity(contextSpaceId)?.accent
   const assetCount = getSpaceAssets(contextSpaceId).length
 
   const headerHeight = headerHeightFor(activeNode)
