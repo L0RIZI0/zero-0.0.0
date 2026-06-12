@@ -18,7 +18,7 @@ export function SpaceFrame({
   isActive,
   onClose,
 }: {
-  space: Space
+  space: Entity
   isRoot: boolean
   isActive: boolean
   onClose: () => void
@@ -53,7 +53,7 @@ export function SpaceFrame({
               transition={layerTransition}
               className="truncate text-[22px] font-medium leading-tight tracking-tight text-foreground"
             >
-              {space.name}
+              {space.title}
             </motion.h2>
           )}
           {space.description && (
@@ -71,7 +71,7 @@ export function SpaceFrame({
         <button
           type="button"
           onClick={onClose}
-          aria-label={`Close ${space.name}`}
+          aria-label={`Close ${space.title}`}
           className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border bg-card/70 text-muted-foreground transition-colors hover:border-foreground/30 hover:text-foreground"
         >
           <X className="h-4 w-4" />

@@ -2,8 +2,8 @@
 
 import { motion } from "motion/react"
 import { ArrowUpRight } from "lucide-react"
-import type { Space } from "@/lib/zero/types"
-import { getChildSpaces, getSpaceResources, getSpaceTasks } from "@/lib/zero/data"
+import type { Entity } from "@/lib/zero/types"
+import { getChildSpaces, getSpaceResources, getOpenTaskCount } from "@/lib/zero/data"
 import { layerTransition, spaceLayoutId, spaceTitleId } from "@/lib/zero/motion"
 import { useZeroNav } from "@/lib/zero/nav-store"
 import { useMemo } from "react"
@@ -13,14 +13,14 @@ export function SpaceButton({
   onOpen,
   onContextMenu,
 }: {
-  space: Space
+  space: Entity
   onOpen: (spaceId: string) => void
   onContextMenu?: (e: React.MouseEvent) => void
 }) {
   const { stack } = useZeroNav()
   const accent = space.accent ?? "var(--muted-foreground)"
-  const childCount = space.childSpaceIds.length
-  const taskCount = useMemo(() => getSpaceTasks(space.id).filter((t) => !t.completed).length, [space.id])
+  const childCount = useMemo(() => getChildSpaces(space.id).length, [space.id])
+  const taskCount = useMemo(() => getOpenTaskCount(space.id), [space.id])
   const resourceCount = useMemo(() => getSpaceResources(space.id).length, [space.id])
 
   // While this space is open as a frame in the stack, render an inert
@@ -63,7 +63,7 @@ export function SpaceButton({
           transition={layerTransition}
           className="truncate text-[13px] font-medium leading-tight tracking-tight text-foreground"
         >
-          {space.name}
+          {space.title}
         </motion.h3>
         <ArrowUpRight className="h-3 w-3 shrink-0 text-muted-foreground/40 transition-colors group-hover:text-foreground" />
       </div>

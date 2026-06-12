@@ -39,7 +39,8 @@ const GLYPH_BOX = "flex h-4 w-4 shrink-0 items-center justify-center"
  * Renders nothing when there are none.
  */
 function OpenTaskCount({ spaceId }: { spaceId: string }) {
-  const count = useMemo(() => getOpenTaskCount(spaceId), [spaceId])
+  const { dataVersion } = useZeroNav()
+  const count = useMemo(() => getOpenTaskCount(spaceId), [spaceId, dataVersion])
   if (count === 0) return null
   return (
     <span className="flex shrink-0 items-center gap-1 text-[11px] text-muted-foreground/70">
