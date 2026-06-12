@@ -154,6 +154,42 @@ export function TimelineStrip({
         </AnimatePresence>
       </div>
 
+      {/* Instant labels — written vertically (rotated 90° anticlockwise) so
+          they rise ABOVE both their marker and the hour ruler, even when their
+          time sits right on an hour tick. Aligned to the track width (same 40px
+          arrow insets as the ruler) and colored with the instant's inherited
+          accent (neutral grey when its chain has none). Today only, matching
+          where markers render. */}
+      {isToday && (
+        <div
+          className="pointer-events-none relative h-14"
+          style={{ marginLeft: 40, marginRight: 40 }}
+        >
+          {evts.map((e) => {
+            if (e.kind !== "instant") return null
+            const at = e.at ?? 0
+            const left = ((at - DAY_START) / SPAN) * 100
+            const color = getInheritedAccent(e.parentId ?? "s_root")
+            const labelColor = color ?? NEUTRAL_MARKER
+            return (
+              <span
+                key={e.id}
+                className="absolute bottom-0 max-h-14 -translate-x-1/2 overflow-hidden truncate text-[10px] font-medium leading-none tracking-tight"
+                style={{
+                  left: `${left}%`,
+                  color: labelColor,
+                  writingMode: "vertical-rl",
+                  transform: "translateX(-50%) rotate(180deg)",
+                }}
+                title={e.title}
+              >
+                {e.title}
+              </span>
+            )
+          })}
+        </div>
+      )}
+
       {/* hour labels — a static ruler ABOVE the track, aligned to its width */}
       <div className="relative mb-1 h-3.5" style={{ marginLeft: 40, marginRight: 40 }}>
         {hours.map((h) => {
@@ -274,16 +310,13 @@ export function TimelineStrip({
                             onClick={() => (isOpen ? requestPulse(e.id) : open(e.id, "timeline"))}
                             aria-current={isOpen ? "true" : undefined}
                             title={`${e.title} · ${fmt(at)}`}
-                            className="flex flex-col items-center gap-0.5 transition-[filter] hover:brightness-110"
+                            className="flex flex-col items-center transition-[filter] hover:brightness-110"
                           >
                             <span
                               className="flex h-3 w-3 items-center justify-center"
-                              style={{ color: color ?? "var(--accent)" }}
+                              style={{ color: markerColor }}
                             >
                               <NodeGlyph kind="instant" filled strokeWidth={1.5} />
-                            </span>
-                            <span className="max-w-[80px] truncate text-[10px] tracking-tight text-foreground/90">
-                              {e.title}
                             </span>
                           </motion.button>
                           {showMorphOverlay && (
@@ -327,7 +360,7 @@ export function TimelineStrip({
                       top: lane === 0 ? 6 : 28,
                     } as const
                     const chipVisual = {
-                      borderLeftColor: color ?? "var(--accent)",
+                      borderLeftColor: markerColor,
                       backgroundColor: color ? `${color}26` : "var(--secondary)",
                     } as const
 
