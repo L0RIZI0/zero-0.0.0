@@ -3,7 +3,7 @@
 import { motion, AnimatePresence } from "motion/react"
 import { getEntity } from "@/lib/zero/data"
 import { isTaskId, useZeroNav } from "@/lib/zero/nav-store"
-import { contentTransition, layerTransition, spaceTitleId, taskTitleId } from "@/lib/zero/motion"
+import { contentTransition, layerTransition, spaceTitleId, taskTitleId, eventTitleId } from "@/lib/zero/motion"
 import { NodeGlyph } from "./node-glyph"
 
 /**
@@ -31,7 +31,14 @@ export function PathStack() {
           const label = node?.title
           if (!label) return null
           const accent = node?.accent
-          const titleLayoutId = isTask ? taskTitleId(nodeId) : spaceTitleId(nodeId)
+          // Title morph id must match the kind so the label travels from the
+          // frame title into this crumb (space / task / event each have one).
+          const titleLayoutId =
+            node?.kind === "event"
+              ? eventTitleId(nodeId)
+              : isTask
+                ? taskTitleId(nodeId)
+                : spaceTitleId(nodeId)
 
           return (
             <motion.div
@@ -48,6 +55,14 @@ export function PathStack() {
                 className="mr-2 h-3 w-[3px] shrink-0 rounded-full"
                 style={{ backgroundColor: accent ?? "var(--border)" }}
               />
+              {node && (
+                <span
+                  aria-hidden
+                  className="mr-1.5 flex h-3.5 w-3.5 shrink-0 items-center justify-center text-muted-foreground"
+                >
+                  <NodeGlyph kind={node.kind} strokeWidth={node.kind === "task" ? 2 : 1.75} />
+                </span>
+              )}
               <motion.button
                 type="button"
                 layoutId={titleLayoutId}
