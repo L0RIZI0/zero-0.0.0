@@ -3,8 +3,8 @@
 import { useMemo, useState } from "react"
 import { AnimatePresence, motion } from "motion/react"
 import { ChevronLeft, ChevronRight } from "lucide-react"
-import { getSpace, getSpaceEvents, isInSubtree } from "@/lib/zero/data"
-import { panelTransition } from "@/lib/zero/motion"
+import { getChildren, getSpace, getSpaceEvents, isInSubtree } from "@/lib/zero/data"
+import { panelTransition, layerTransition, eventLayoutId, eventTitleId } from "@/lib/zero/motion"
 import { useZeroNav } from "@/lib/zero/nav-store"
 import { cn } from "@/lib/utils"
 
@@ -34,11 +34,19 @@ export function TimelineStrip({
   spaceId: string
   accent?: string
 }) {
-  const { open, dataVersion } = useZeroNav()
+  const { open, stack, dataVersion } = useZeroNav()
   // The timeline always shows the FULL day (all events). When a child window is
   // open, events outside its subtree dim rather than disappear, so the user
   // keeps spatial context. `spaceId` is the active node's context space.
   const evts = useMemo(() => getSpaceEvents("s_root"), [dataVersion])
+  // Events that already appear in the current context (its DO-list row / dock
+  // card) own the frame-expand morph there. The timeline chip may only claim
+  // the shared layoutId for events NOT represented in this context — otherwise
+  // two elements would own the same id and the morph would break.
+  const contextEventIds = useMemo(
+    () => new Set(getChildren(spaceId).filter((e) => e.kind === "event").map((e) => e.id)),
+    [spaceId, dataVersion],
+  )
   const hours = useMemo(() => {
     const out: number[] = []
     for (let m = DAY_START; m <= DAY_END; m += 120) out.push(m)
@@ -235,13 +243,25 @@ export function TimelineStrip({
                     const color = space?.accent
                     // Dim events that aren't in the active node's subtree.
                     const related = isInSubtree(spaceId, eventSpaceId)
+                    const isOpen = stack.includes(e.id)
+                    // The chip owns the frame-expand morph only when this event
+                    // isn't also shown in the current context (which would own
+                    // the id) and isn't already open as a frame. That keeps a
+                    // single owner of the shared layoutId at all times.
+                    const ownsMorph = !contextEventIds.has(e.id) && !isOpen
+
+                    // While the event is open and the chip would otherwise be
+                    // the morph owner, drop the chip so the frame is the sole
+                    // owner mid-transition.
+                    if (isOpen && !contextEventIds.has(e.id)) return null
+
                     return (
                       <motion.button
                         key={e.id}
                         type="button"
-                        initial={false}
-                        animate={{ opacity: related ? 1 : 0.25 }}
-                        transition={panelTransition}
+                        {...(ownsMorph
+                          ? { layoutId: eventLayoutId(e.id), transition: layerTransition }
+                          : { initial: false, animate: { opacity: related ? 1 : 0.25 }, transition: panelTransition })}
                         onClick={() => open(e.id)}
                         title={`${e.title} · ${fmt(start)}–${fmt(end)}`}
                         className={cn(
@@ -254,9 +274,16 @@ export function TimelineStrip({
                           top: lane === 0 ? 6 : 28,
                           borderLeftColor: color ?? "var(--accent)",
                           backgroundColor: color ? `${color}26` : "var(--secondary)",
+                          opacity: ownsMorph && !related ? 0.25 : undefined,
                         }}
                       >
-                        <span className="truncate">{e.title}</span>
+                        {ownsMorph ? (
+                          <motion.span layoutId={eventTitleId(e.id)} transition={layerTransition} className="truncate">
+                            {e.title}
+                          </motion.span>
+                        ) : (
+                          <span className="truncate">{e.title}</span>
+                        )}
                       </motion.button>
                     )
                   })}
