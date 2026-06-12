@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react"
 import { AnimatePresence, motion } from "motion/react"
 import { Check, Plus, Pin } from "lucide-react"
-import { getContextItems, isPinned, pinItem, type ContextItem } from "@/lib/zero/data"
+import { getContextItems, getSpaceTasks, isPinned, pinItem, type ContextItem } from "@/lib/zero/data"
 import type { Task, TaskPriority } from "@/lib/zero/types"
 import { useZeroNav } from "@/lib/zero/nav-store"
 import {
@@ -31,6 +31,27 @@ const priorityDot: Record<TaskPriority, string> = {
  * rendered very slightly paler than the others, per the unified treatment.
  */
 const GLYPH_BOX = "flex h-4 w-4 shrink-0 items-center justify-center"
+
+/**
+ * Trailing detail showing how many open (incomplete) tasks live inside a
+ * space — a number followed by the task square glyph (e.g. "4 ■"). Subspace
+ * counts are intentionally not shown. Renders nothing when there are none.
+ */
+function OpenTaskCount({ spaceId }: { spaceId: string }) {
+  const count = useMemo(
+    () => getSpaceTasks(spaceId).filter((t) => !t.completed).length,
+    [spaceId],
+  )
+  if (count === 0) return null
+  return (
+    <span className="flex shrink-0 items-center gap-1 text-[11px] text-muted-foreground/70">
+      <span className="tabular-nums">{count}</span>
+      <span className="flex h-2.5 w-2.5 items-center justify-center">
+        <NodeGlyph kind="task" strokeWidth={2} />
+      </span>
+    </span>
+  )
+}
 
 function TaskRow({
   task,
@@ -241,11 +262,7 @@ function SpaceRow({
         >
           {space.name}
         </motion.span>
-        {space.childSpaceIds.length > 0 && (
-          <span className="shrink-0 text-[11px] text-muted-foreground/70">
-            {space.childSpaceIds.length} spaces
-          </span>
-        )}
+        <OpenTaskCount spaceId={space.id} />
       </motion.button>
     </li>
   )

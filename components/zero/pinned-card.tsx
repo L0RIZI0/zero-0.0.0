@@ -2,7 +2,7 @@
 
 import { useMemo } from "react"
 import { motion } from "motion/react"
-import { getChildSpaces, getSpaceTasks, getSpace, type ContextItem } from "@/lib/zero/data"
+import { getSpaceTasks, getSpace, type ContextItem } from "@/lib/zero/data"
 import { layerTransition, panelTransition, spaceLayoutId, spaceTitleId } from "@/lib/zero/motion"
 import { useZeroNav } from "@/lib/zero/nav-store"
 import { NodeGlyph } from "./node-glyph"
@@ -10,11 +10,12 @@ import { NodeGlyph } from "./node-glyph"
 /**
  * A pinned item in the SPACES row — uniform across all kinds (space / task /
  * event): the kind glyph sits in the top-left corner, a compact detail line
- * ({n} spaces · {n} open) sits to its right, and the title runs below.
+ * showing the number of open tasks ({n} + task square) sits to its right, and
+ * the title runs below.
  *
- * The two stats are read from the item's "home" space: the space itself for a
- * pinned space, or the parent space for a pinned task/event. The resource count
- * is intentionally omitted.
+ * The open-task count is read from the item's "home" space: the space itself
+ * for a pinned space, or the parent space for a pinned task/event. Subspace and
+ * resource counts are intentionally omitted.
  *
  * Spaces carry the SAME shared layoutId as the window frame (and as the
  * task-list SpaceRow) so opening/closing morphs the card ↔ frame directly. The
@@ -42,7 +43,6 @@ export function PinnedCard({
         : item.event!.spaceId
 
   const accent = getSpace(homeSpaceId)?.accent ?? "var(--muted-foreground)"
-  const childCount = useMemo(() => getChildSpaces(homeSpaceId).length, [homeSpaceId, item])
   const openCount = useMemo(
     () => getSpaceTasks(homeSpaceId).filter((t) => !t.completed).length,
     [homeSpaceId, item],
@@ -115,9 +115,10 @@ export function PinnedCard({
             <NodeGlyph kind={item.kind} strokeWidth={item.kind === "task" ? 2 : 1.75} />
           </span>
           <div className="flex min-w-0 items-center gap-1 truncate whitespace-nowrap text-[10px] text-muted-foreground/70">
-            {childCount > 0 && <span>{childCount} sp</span>}
-            {childCount > 0 && <span aria-hidden>·</span>}
-            <span>{openCount} open</span>
+            <span className="tabular-nums">{openCount}</span>
+            <span className="flex h-2.5 w-2.5 items-center justify-center text-muted-foreground/70">
+              <NodeGlyph kind="task" strokeWidth={2} />
+            </span>
           </div>
         </div>
 
