@@ -23,7 +23,7 @@ export function SpaceLayerStack() {
             const task = getTask(nodeId)
             if (!task) return null
             return (
-              <LayerDepthContainer key={nodeId} depthFromTop={depthFromTop} isActive={isActive}>
+              <LayerDepthContainer key={nodeId} nodeId={nodeId} depthFromTop={depthFromTop} isActive={isActive}>
                 <TaskFrame task={task} isActive={isActive} onClose={closeSpace} />
               </LayerDepthContainer>
             )
@@ -33,7 +33,7 @@ export function SpaceLayerStack() {
             const event = getEvent(nodeId)
             if (!event) return null
             return (
-              <LayerDepthContainer key={nodeId} depthFromTop={depthFromTop} isActive={isActive}>
+              <LayerDepthContainer key={nodeId} nodeId={nodeId} depthFromTop={depthFromTop} isActive={isActive}>
                 <EventFrame event={event} isActive={isActive} onClose={closeSpace} />
               </LayerDepthContainer>
             )
@@ -43,7 +43,7 @@ export function SpaceLayerStack() {
             const instant = getInstant(nodeId)
             if (!instant) return null
             return (
-              <LayerDepthContainer key={nodeId} depthFromTop={depthFromTop} isActive={isActive}>
+              <LayerDepthContainer key={nodeId} nodeId={nodeId} depthFromTop={depthFromTop} isActive={isActive}>
                 <InstantFrame instant={instant} isActive={isActive} onClose={closeSpace} />
               </LayerDepthContainer>
             )
@@ -53,7 +53,7 @@ export function SpaceLayerStack() {
           if (!space) return null
           const isRoot = index === 0
           return (
-            <LayerDepthContainer key={nodeId} depthFromTop={depthFromTop} isActive={isActive}>
+            <LayerDepthContainer key={nodeId} nodeId={nodeId} depthFromTop={depthFromTop} isActive={isActive}>
               <SpaceFrame
                 space={space}
                 isRoot={isRoot}

@@ -2,6 +2,7 @@
 
 import { motion } from "motion/react"
 import { layerTransition } from "@/lib/zero/motion"
+import { useZeroNav } from "@/lib/zero/nav-store"
 
 /**
  * Wraps a layer in the stack. The active (top) layer fills the whole stage.
@@ -10,19 +11,31 @@ import { layerTransition } from "@/lib/zero/motion"
  * receding past the frame, rather than the child nesting inside it.
  *
  * - `depthFromTop` is 0 for the active layer, 1 for its parent, etc.
- * - `isActive` marks the top of the stack.
+ * - `isActive` marks the top of the stack (drives only the visual scale/morph).
  */
 const SCALE_STEP = 0.085
 
 export function LayerDepthContainer({
+  nodeId,
   depthFromTop,
   isActive,
   children,
 }: {
+  nodeId: string
   depthFromTop: number
   isActive: boolean
   children: React.ReactNode
 }) {
+  // CRITICAL — interactivity must follow the LIVE top of stack, not the
+  // `isActive` prop. When a layer closes, AnimatePresence keeps rendering it
+  // with its LAST props during the exit animation, so the closing layer would
+  // otherwise hold isActive=true → `pointer-events: auto` on a full-bleed layer
+  // painted on top, swallowing every click. Reading the live active id here
+  // means the moment a layer is no longer the top of stack it becomes
+  // click-through, even while it animates out — so a stranded/interrupted exit
+  // can never freeze the whole app.
+  const { activeSpaceId } = useZeroNav()
+  const isLiveTop = nodeId === activeSpaceId
   // Parents scale up so they recede "past the screen edges" behind the active
   // layer. We deliberately do NOT animate opacity: an active layer is always an
   // opaque, full-bleed frame that fully covers everything beneath it.
@@ -43,11 +56,14 @@ export function LayerDepthContainer({
 
   return (
     <div
-      aria-hidden={!isActive}
+      aria-hidden={!isLiveTop}
       className="absolute inset-0"
       style={{
         zIndex: 100 - depthFromTop,
-        pointerEvents: isActive ? "auto" : "none",
+        // Follow the LIVE top of stack (see note above): an exiting layer is no
+        // longer the top, so it drops to click-through immediately and can't
+        // trap input even if its exit animation is interrupted or stranded.
+        pointerEvents: isLiveTop ? "auto" : "none",
         visibility: occluded ? "hidden" : "visible",
       }}
     >
