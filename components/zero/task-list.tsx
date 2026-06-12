@@ -40,22 +40,11 @@ function TaskRow({
   onContext: (e: React.MouseEvent) => void
 }) {
   const [done, setDone] = useState(task.completed)
-  const { openTask, stack } = useZeroNav()
+  const { openTask } = useZeroNav()
 
-  // When this task is open as a window, render an inert placeholder so the
-  // shared layoutId lives only on the active frame.
-  const isOpen = stack.includes(task.id)
-  if (isOpen) {
-    return (
-      <li>
-        <div
-          aria-hidden
-          className="h-[42px] w-full rounded-sm border border-dashed border-border/60 bg-secondary/30"
-        />
-      </li>
-    )
-  }
-
+  // Kept continuously mounted (no placeholder-swap while open). Swapping the
+  // layoutId node in/out during the frame's exit animation strands the morph;
+  // a single stable element lets Framer morph the frame ↔ row cleanly.
   return (
     <li>
       <motion.div
@@ -132,19 +121,8 @@ function EventRow({
   morphable: boolean
   onContext: (e: React.MouseEvent) => void
 }) {
-  const { openSpace, stack } = useZeroNav()
+  const { openSpace } = useZeroNav()
   const event = item.event!
-
-  if (morphable && stack.includes(event.spaceId)) {
-    return (
-      <li>
-        <div
-          aria-hidden
-          className="h-[42px] w-full rounded-sm border border-dashed border-border/60 bg-secondary/30"
-        />
-      </li>
-    )
-  }
 
   const morphProps = morphable
     ? { layoutId: spaceLayoutId(event.spaceId), transition: layerTransition }
@@ -191,22 +169,9 @@ function SpaceRow({
   item: ContextItem
   onContext: (e: React.MouseEvent) => void
 }) {
-  const { openSpace, stack } = useZeroNav()
+  const { openSpace } = useZeroNav()
   const space = item.space!
   const accent = space.accent ?? "var(--muted-foreground)"
-
-  // While this space is open as a frame, render an inert placeholder so the
-  // shared layoutId lives only on the active frame (no duplicate owners).
-  if (stack.includes(space.id)) {
-    return (
-      <li>
-        <div
-          aria-hidden
-          className="h-[42px] w-full rounded-sm border border-dashed border-border/60 bg-secondary/30"
-        />
-      </li>
-    )
-  }
 
   return (
     <li>

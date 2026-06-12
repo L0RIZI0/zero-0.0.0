@@ -101,7 +101,7 @@ export function TimelineStrip({
           down. On today, a static "Today" label sits centered above the track;
           otherwise the viewed date shows with a "Today" button to jump back,
           placed on the side it lies on relative to the viewed day. */}
-      <div className="relative mb-1.5 h-5">
+      <div className="relative mb-0.5 h-5">
         <AnimatePresence initial={false} mode="wait">
           {isToday ? (
             <motion.div
@@ -110,7 +110,7 @@ export function TimelineStrip({
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -4 }}
               transition={panelTransition}
-              className="absolute inset-x-0 top-0 flex items-center justify-center"
+              className="absolute inset-x-0 bottom-0 flex items-end justify-center"
             >
               <span className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
                 Today

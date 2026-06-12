@@ -25,9 +25,7 @@ export function SpacesRow({ contextSpaceId }: { contextSpaceId: string }) {
   // Re-read pins whenever data mutates or the context changes.
   void dataVersion
   const pinned: ContextItem[] = getPinnedItems(contextSpaceId)
-
-  // No pins in this context → hide the row entirely.
-  if (pinned.length === 0) return null
+  const hasPins = pinned.length > 0
 
   const open = (item: ContextItem) => {
     if (item.kind === "space") openSpace(item.space!.id)
@@ -56,19 +54,23 @@ export function SpacesRow({ contextSpaceId }: { contextSpaceId: string }) {
 
   return (
     <div className="pointer-events-auto flex shrink-0 flex-col items-center pb-1 pt-3">
-      <h3 className="mb-2 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-        Spaces
-      </h3>
-      <div className="flex w-full flex-wrap items-stretch justify-center gap-3">
-        {pinned.map((item) => (
-          <PinnedCard
-            key={item.id}
-            item={item}
-            onOpen={() => open(item)}
-            onContextMenu={(e) => openMenu(e, item)}
-          />
-        ))}
-      </div>
+      {hasPins && (
+        <>
+          <h3 className="mb-2 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+            Spaces
+          </h3>
+          <div className="flex w-full flex-wrap items-stretch justify-center gap-3">
+            {pinned.map((item) => (
+              <PinnedCard
+                key={item.id}
+                item={item}
+                onOpen={() => open(item)}
+                onContextMenu={(e) => openMenu(e, item)}
+              />
+            ))}
+          </div>
+        </>
+      )}
 
       <ContextMenu state={menu} onClose={() => setMenu(null)} />
     </div>
