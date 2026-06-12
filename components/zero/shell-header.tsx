@@ -65,18 +65,20 @@ export function ShellHeader() {
             <span
               aria-hidden
               className="pointer-events-none absolute inset-0 select-none [transform:scaleX(-1)]"
-              style={{ WebkitTextStroke: "1px #000", paintOrder: "stroke" }}
+              style={{ WebkitTextStroke: "1.5px #000", paintOrder: "stroke" }}
             >
               z
             </span>
             <span
               className="relative"
-              style={{ WebkitTextStroke: "1px #000", paintOrder: "stroke" }}
+              style={{ WebkitTextStroke: "1.5px #000", paintOrder: "stroke" }}
             >
               z
             </span>
           </span>
-          ero
+          <span style={{ WebkitTextStroke: "1.5px #000", paintOrder: "stroke" }}>
+            ero
+          </span>
         </span>
       </div>
     </header>
