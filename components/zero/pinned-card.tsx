@@ -3,7 +3,14 @@
 import { useMemo } from "react"
 import { motion } from "motion/react"
 import { getOpenTaskCount, getSpace, type ContextItem } from "@/lib/zero/data"
-import { layerTransition, panelTransition, spaceLayoutId, spaceTitleId } from "@/lib/zero/motion"
+import {
+  layerTransition,
+  panelTransition,
+  spaceLayoutId,
+  spaceTitleId,
+  taskLayoutId,
+  taskTitleId,
+} from "@/lib/zero/motion"
 import { useZeroNav } from "@/lib/zero/nav-store"
 import { NodeGlyph } from "./node-glyph"
 
@@ -47,12 +54,17 @@ export function PinnedCard({
   )
 
   const isSpace = item.kind === "space"
+  const isTask = item.kind === "task"
+  // Spaces and tasks both have a window frame and a list row that share a
+  // layoutId, so the card participates in the same shared-element morph; events
+  // have no frame and simply fade.
+  const morphable = isSpace || isTask
   const { stack } = useZeroNav()
 
-  // While this space is open as a frame, release the shared layoutId to the
-  // frame via an inert placeholder so the morph has exactly one live owner.
+  // While this space/task is open as a frame, release the shared layoutId to
+  // the frame via an inert placeholder so the morph has exactly one live owner.
   // (Same neutral wrapper as the live card so popLayout sizing stays stable.)
-  if (isSpace && stack.includes(item.space!.id)) {
+  if (morphable && stack.includes(item.entity.id)) {
     return (
       <div className="shrink-0">
         <div
@@ -63,10 +75,11 @@ export function PinnedCard({
     )
   }
 
-  // Spaces morph into their window via the shared layoutId; tasks/events use a
-  // plain enter/exit fade (no frame morph).
-  const morphProps = isSpace
-    ? { layoutId: spaceLayoutId(item.space!.id), transition: layerTransition }
+  // Spaces/tasks morph via the shared layoutId (card ↔ list row ↔ window frame);
+  // events use a plain enter/exit fade.
+  const morphLayoutId = isSpace ? spaceLayoutId(item.entity.id) : taskLayoutId(item.entity.id)
+  const morphProps = morphable
+    ? { layoutId: morphLayoutId, transition: layerTransition }
     : {
         layout: true as const,
         initial: { opacity: 0, scale: 0.92 },

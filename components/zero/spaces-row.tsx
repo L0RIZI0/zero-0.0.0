@@ -63,13 +63,9 @@ export function SpacesRow({ contextSpaceId }: { contextSpaceId: string }) {
         (hasPins ? "pb-1 pt-3" : "pt-5")
       }
     >
-      {/* Header collapses when empty, but the AnimatePresence below must stay
-          mounted regardless. */}
-      {hasPins && (
-        <h3 className="mb-2 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-          Spaces
-        </h3>
-      )}
+      {/* The Dock has no visible label; spacing above adjusts based on whether
+          any items are pinned. The AnimatePresence below must stay mounted
+          regardless. */}
 
       {/* CRITICAL: key this container by context so it HARD-remounts when the
           active context changes — exactly like the task list's `<ul key={spaceId}>`.
