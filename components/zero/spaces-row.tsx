@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import { AnimatePresence } from "motion/react"
 import { PinOff } from "lucide-react"
 import { getPinnedItems, unpinItem, type ContextItem } from "@/lib/zero/data"
 import { useZeroNav } from "@/lib/zero/nav-store"
@@ -53,24 +54,40 @@ export function SpacesRow({ contextSpaceId }: { contextSpaceId: string }) {
   }
 
   return (
-    <div className="pointer-events-auto flex shrink-0 flex-col items-center pb-1 pt-3">
+    <div
+      className={
+        "pointer-events-auto flex shrink-0 flex-col items-center " +
+        (hasPins ? "pb-1 pt-3" : "")
+      }
+    >
+      {/* Header collapses when empty, but the AnimatePresence below must stay
+          mounted regardless. */}
       {hasPins && (
-        <>
-          <h3 className="mb-2 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-            Spaces
-          </h3>
-          <div className="flex w-full flex-wrap items-stretch justify-center gap-3">
-            {pinned.map((item) => (
-              <PinnedCard
-                key={item.id}
-                item={item}
-                onOpen={() => open(item)}
-                onContextMenu={(e) => openMenu(e, item)}
-              />
-            ))}
-          </div>
-        </>
+        <h3 className="mb-2 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+          Spaces
+        </h3>
       )}
+
+      {/* CRITICAL: key this container by context so it HARD-remounts when the
+          active context changes — exactly like the task list's `<ul key={spaceId}>`.
+          A persistent AnimatePresence (mode="popLayout") instead leaves the card
+          as a lingering "exiting" instance when its space opens (context → child,
+          pins empty); on close that stale exit collides with the re-entering card
+          and Framer strands it at opacity:0. A fresh per-context AnimatePresence
+          has no stale instances, so the shared-layoutId morph (frame ↔ card)
+          resolves cleanly in both directions. */}
+      <div key={contextSpaceId} className="flex w-full flex-wrap items-stretch justify-center gap-3">
+        <AnimatePresence initial={false} mode="popLayout">
+          {pinned.map((item) => (
+            <PinnedCard
+              key={item.id}
+              item={item}
+              onOpen={() => open(item)}
+              onContextMenu={(e) => openMenu(e, item)}
+            />
+          ))}
+        </AnimatePresence>
+      </div>
 
       <ContextMenu state={menu} onClose={() => setMenu(null)} />
     </div>
