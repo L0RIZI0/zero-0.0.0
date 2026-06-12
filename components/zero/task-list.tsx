@@ -2,8 +2,16 @@
 
 import { useEffect, useMemo, useState } from "react"
 import { AnimatePresence, motion } from "motion/react"
-import { Check, Plus, Pin } from "lucide-react"
-import { getContextItems, getOpenTaskCount, isPinned, pinItem, type ContextItem } from "@/lib/zero/data"
+import { Check, Plus, Pin, Trash2, Ban, RotateCcw } from "lucide-react"
+import {
+  getContextItems,
+  getOpenTaskCount,
+  isPinned,
+  pinItem,
+  deleteEntity,
+  setEventCancelled,
+  type ContextItem,
+} from "@/lib/zero/data"
 import type { Entity, TaskPriority } from "@/lib/zero/types"
 import { useZeroNav } from "@/lib/zero/nav-store"
 import {
@@ -170,6 +178,7 @@ function EventRow({
   const { open, stack, openSourceOf } = useZeroNav()
   const event = item.event!
   const hasRange = typeof event.start === "number" && typeof event.end === "number"
+  const cancelled = !!event.cancelled
 
   // When opened FROM this row, hand the row layoutId to the frame so the morph
   // reads as the row growing into the window. (If it was opened from the
@@ -195,7 +204,10 @@ function EventRow({
         onContextMenu={onContext}
         style={{ borderRadius: 4 }}
         whileHover={{ scale: 1.02, boxShadow: "0 12px 28px -10px rgba(0,0,0,0.28)" }}
-        className="group flex w-full items-center gap-3 border border-border bg-card-solid px-2.5 py-2 text-left"
+        className={cn(
+          "group flex w-full items-center gap-3 border border-border bg-card-solid px-2.5 py-2 text-left",
+          cancelled && "opacity-50",
+        )}
       >
         <span className={cn(GLYPH_BOX, "text-foreground")}>
           <NodeGlyph kind="event" />
@@ -203,7 +215,10 @@ function EventRow({
         <motion.span
           layoutId={eventRowTitleId(event.id)}
           transition={layerTransition}
-          className="min-w-0 flex-1 truncate text-[13px] tracking-tight text-foreground"
+          className={cn(
+            "min-w-0 flex-1 truncate text-[13px] tracking-tight text-foreground",
+            cancelled && "line-through",
+          )}
         >
           {event.title}
         </motion.span>
@@ -234,6 +249,7 @@ function InstantRow({
   const { open, stack, openSourceOf } = useZeroNav()
   const instant = item.entity
   const hasMoment = typeof instant.at === "number"
+  const cancelled = !!instant.cancelled
 
   if (stack.includes(instant.id) && openSourceOf(instant.id) === "row") {
     return (
@@ -256,7 +272,10 @@ function InstantRow({
         onContextMenu={onContext}
         style={{ borderRadius: 4 }}
         whileHover={{ scale: 1.02, boxShadow: "0 12px 28px -10px rgba(0,0,0,0.28)" }}
-        className="group flex w-full items-center gap-3 border border-border bg-card-solid px-2.5 py-2 text-left"
+        className={cn(
+          "group flex w-full items-center gap-3 border border-border bg-card-solid px-2.5 py-2 text-left",
+          cancelled && "opacity-50",
+        )}
       >
         <span className={cn(GLYPH_BOX, "text-foreground")}>
           <NodeGlyph kind="instant" />
@@ -264,7 +283,10 @@ function InstantRow({
         <motion.span
           layoutId={instantRowTitleId(instant.id)}
           transition={layerTransition}
-          className="min-w-0 flex-1 truncate text-[13px] tracking-tight text-foreground"
+          className={cn(
+            "min-w-0 flex-1 truncate text-[13px] tracking-tight text-foreground",
+            cancelled && "line-through",
+          )}
         >
           {instant.title}
         </motion.span>
@@ -389,6 +411,8 @@ export function TaskList({ spaceId }: { spaceId: string }) {
   const openMenu = (e: React.MouseEvent, item: ContextItem) => {
     e.preventDefault()
     e.stopPropagation()
+    const canCancel = item.kind === "event" || item.kind === "instant"
+    const isCancelled = !!item.entity.cancelled
     setMenu({
       x: e.clientX,
       y: e.clientY,
@@ -398,6 +422,30 @@ export function TaskList({ spaceId }: { spaceId: string }) {
           icon: <Pin className="h-3.5 w-3.5" />,
           onSelect: () => {
             pinItem(spaceId, item.id)
+            notifyDataChanged()
+          },
+        },
+        ...(canCancel
+          ? [
+              {
+                label: isCancelled ? "Restore" : "Cancel",
+                icon: isCancelled ? (
+                  <RotateCcw className="h-3.5 w-3.5" />
+                ) : (
+                  <Ban className="h-3.5 w-3.5" />
+                ),
+                onSelect: () => {
+                  setEventCancelled(item.id, !isCancelled)
+                  notifyDataChanged()
+                },
+              },
+            ]
+          : []),
+        {
+          label: "Delete",
+          icon: <Trash2 className="h-3.5 w-3.5" />,
+          onSelect: () => {
+            deleteEntity(item.id)
             notifyDataChanged()
           },
         },

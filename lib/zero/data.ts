@@ -871,11 +871,19 @@ const uid = (prefix: string) => `${prefix}_u${Date.now().toString(36)}${(_seq++)
 
 // Track which ids are user-created so we can re-serialize just those on save.
 const userEntityIds = new Set<string>()
+// Tombstones for SEEDED entities the user deleted (user-created ones are simply
+// dropped from `userEntityIds`). Persisted so deletions of demo data survive.
+const deletedSeededIds = new Set<string>()
+// In-place mutations of SEEDED entities (e.g. cancelling an event). Persisted
+// as partial overrides; merged back onto the seeded entity on hydrate.
+const seededOverrides = new Map<string, Partial<Entity>>()
 
 function persist() {
   writeUserItems({
     entities: entities.filter((e) => userEntityIds.has(e.id)),
     pins: pinnedByContext,
+    deletedIds: [...deletedSeededIds],
+    overrides: Object.fromEntries(seededOverrides),
   })
 }
 
@@ -905,6 +913,24 @@ export function hydrateFromStorage(): boolean {
     if (!Array.isArray(ids) || ids.length === 0) continue
     pinnedByContext[contextId] = [...ids]
     added = true
+  }
+
+  // Apply in-place overrides for seeded entities (e.g. a cancelled event).
+  for (const [id, patch] of Object.entries(stored.overrides)) {
+    const entity = byId.get(id)
+    if (!entity || userEntityIds.has(id)) continue
+    Object.assign(entity, patch)
+    seededOverrides.set(id, patch)
+    added = true
+  }
+
+  // Apply tombstones for seeded entities the user deleted.
+  for (const id of stored.deletedIds) {
+    if (userEntityIds.has(id)) continue
+    if (removeEntityById(id)) {
+      deletedSeededIds.add(id)
+      added = true
+    }
   }
 
   return added
@@ -983,4 +1009,67 @@ export function addInstant(input: { title: string; spaceId: string }): Entity {
   userEntityIds.add(entity.id)
   persist()
   return entity
+}
+
+/**
+ * Low-level removal of a single entity from the in-memory store + indexes, plus
+ * any pin references to it. Does NOT recurse or persist — callers handle that.
+ * Returns true if the entity existed.
+ */
+function removeEntityById(id: string): boolean {
+  const idx = entities.findIndex((e) => e.id === id)
+  if (idx === -1) return false
+  entities.splice(idx, 1)
+  byId.delete(id)
+  userEntityIds.delete(id)
+  seededOverrides.delete(id)
+  // Drop any pins that referenced it, in any context.
+  for (const [contextId, ids] of Object.entries(pinnedByContext)) {
+    const i = ids.indexOf(id)
+    if (i >= 0) ids.splice(i, 1)
+    if (ids.length === 0) delete pinnedByContext[contextId]
+  }
+  return true
+}
+
+/**
+ * Delete an entity (space / task / event / instant) and everything nested
+ * under it (its origin children, recursively). Seeded entities leave a
+ * tombstone so the deletion survives refreshes; user-created ones are simply
+ * dropped. Persisted afterward.
+ */
+export function deleteEntity(id: string): void {
+  // Collect the entity and all descendants via origin parent links.
+  const toDelete: string[] = []
+  const collect = (targetId: string) => {
+    toDelete.push(targetId)
+    for (const e of entities) {
+      if (e.parentId === targetId) collect(e.id)
+    }
+  }
+  collect(id)
+
+  for (const targetId of toDelete) {
+    const wasSeeded = !userEntityIds.has(targetId) && byId.has(targetId)
+    if (removeEntityById(targetId) && wasSeeded) {
+      deletedSeededIds.add(targetId)
+    }
+  }
+  persist()
+}
+
+/**
+ * Cancel (or un-cancel) an event/instant. It stays on the timeline and in the
+ * DO list but renders dimmed with a struck-through title. Seeded items record
+ * a partial override so the state survives refreshes.
+ */
+export function setEventCancelled(id: string, cancelled: boolean): void {
+  const entity = byId.get(id)
+  if (!entity) return
+  entity.cancelled = cancelled
+  if (!userEntityIds.has(id)) {
+    // Seeded entity — track as an override patch.
+    seededOverrides.set(id, { ...seededOverrides.get(id), cancelled })
+  }
+  persist()
 }

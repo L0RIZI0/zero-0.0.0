@@ -2,8 +2,14 @@
 
 import { useState } from "react"
 import { AnimatePresence } from "motion/react"
-import { PinOff } from "lucide-react"
-import { getPinnedItems, unpinItem, type ContextItem } from "@/lib/zero/data"
+import { PinOff, Trash2, Ban, RotateCcw } from "lucide-react"
+import {
+  getPinnedItems,
+  unpinItem,
+  deleteEntity,
+  setEventCancelled,
+  type ContextItem,
+} from "@/lib/zero/data"
 import { useZeroNav } from "@/lib/zero/nav-store"
 import { PinnedCard } from "./pinned-card"
 import { ContextMenu, type ContextMenuState } from "./context-menu"
@@ -39,6 +45,8 @@ export function SpacesRow({ contextSpaceId }: { contextSpaceId: string }) {
   const openMenu = (e: React.MouseEvent, item: ContextItem) => {
     e.preventDefault()
     e.stopPropagation()
+    const canCancel = item.kind === "event" || item.kind === "instant"
+    const isCancelled = !!item.entity.cancelled
     setMenu({
       x: e.clientX,
       y: e.clientY,
@@ -48,6 +56,30 @@ export function SpacesRow({ contextSpaceId }: { contextSpaceId: string }) {
           icon: <PinOff className="h-3.5 w-3.5" />,
           onSelect: () => {
             unpinItem(contextSpaceId, item.id)
+            notifyDataChanged()
+          },
+        },
+        ...(canCancel
+          ? [
+              {
+                label: isCancelled ? "Restore" : "Cancel",
+                icon: isCancelled ? (
+                  <RotateCcw className="h-3.5 w-3.5" />
+                ) : (
+                  <Ban className="h-3.5 w-3.5" />
+                ),
+                onSelect: () => {
+                  setEventCancelled(item.id, !isCancelled)
+                  notifyDataChanged()
+                },
+              },
+            ]
+          : []),
+        {
+          label: "Delete",
+          icon: <Trash2 className="h-3.5 w-3.5" />,
+          onSelect: () => {
+            deleteEntity(item.id)
             notifyDataChanged()
           },
         },

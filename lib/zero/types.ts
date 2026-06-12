@@ -67,6 +67,11 @@ export interface Entity {
   // --- Shared attributes (relevance varies by kind) -------------------------
   /** Any entity may be marked complete. */
   completed?: boolean
+  /**
+   * An event (or instant) that was called off but kept on the timeline for
+   * reference. Cancelled items render dimmed with a struck-through title.
+   */
+  cancelled?: boolean
   /** Mainly spaces. */
   description?: string
   /** Contextual tint, mainly spaces. */

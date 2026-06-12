@@ -2,8 +2,15 @@
 
 import { useMemo, useState } from "react"
 import { AnimatePresence, motion } from "motion/react"
-import { ChevronLeft, ChevronRight } from "lucide-react"
-import { getInheritedAccent, getSpaceEvents, isInSubtree } from "@/lib/zero/data"
+import { ChevronLeft, ChevronRight, Trash2, Ban, RotateCcw } from "lucide-react"
+import {
+  getInheritedAccent,
+  getSpaceEvents,
+  isInSubtree,
+  deleteEntity,
+  setEventCancelled,
+} from "@/lib/zero/data"
+import type { Entity } from "@/lib/zero/types"
 import {
   panelTransition,
   layerTransition,
@@ -14,6 +21,7 @@ import {
 } from "@/lib/zero/motion"
 import { useZeroNav } from "@/lib/zero/nav-store"
 import { NodeGlyph } from "./node-glyph"
+import { ContextMenu, type ContextMenuState } from "./context-menu"
 import { cn } from "@/lib/utils"
 
 const DAY_START = 8 * 60 // 08:00
@@ -47,7 +55,41 @@ export function TimelineStrip({
   spaceId: string
   accent?: string
 }) {
-  const { open, stack, dataVersion, requestPulse, openSourceOf } = useZeroNav()
+  const { open, stack, dataVersion, requestPulse, openSourceOf, notifyDataChanged } = useZeroNav()
+  const [menu, setMenu] = useState<ContextMenuState | null>(null)
+
+  // Right-click any marker: cancel/restore (events & instants) or delete it.
+  const openMenu = (e: React.MouseEvent, entity: Entity) => {
+    e.preventDefault()
+    e.stopPropagation()
+    const isCancelled = !!entity.cancelled
+    setMenu({
+      x: e.clientX,
+      y: e.clientY,
+      items: [
+        {
+          label: isCancelled ? "Restore" : "Cancel",
+          icon: isCancelled ? (
+            <RotateCcw className="h-3.5 w-3.5" />
+          ) : (
+            <Ban className="h-3.5 w-3.5" />
+          ),
+          onSelect: () => {
+            setEventCancelled(entity.id, !isCancelled)
+            notifyDataChanged()
+          },
+        },
+        {
+          label: "Delete",
+          icon: <Trash2 className="h-3.5 w-3.5" />,
+          onSelect: () => {
+            deleteEntity(entity.id)
+            notifyDataChanged()
+          },
+        },
+      ],
+    })
+  }
   // The timeline always shows the FULL day (all events). When a child window is
   // open, events outside its subtree dim rather than disappear, so the user
   // keeps spatial context. `spaceId` is the active node's context space.
@@ -190,7 +232,10 @@ export function TimelineStrip({
               return (
                 <span
                   key={e.id}
-                  className="absolute bottom-1 max-h-[40vh] truncate text-[10px] font-medium leading-none tracking-tight"
+                  className={cn(
+                    "absolute bottom-1 max-h-[40vh] truncate text-[10px] font-medium leading-none tracking-tight",
+                    e.cancelled && "line-through opacity-50",
+                  )}
                   style={{
                     left: `${left}%`,
                     color: labelColor,
@@ -302,9 +347,13 @@ export function TimelineStrip({
                           <motion.button
                             type="button"
                             initial={false}
-                            animate={{ opacity: isOpen || related ? 1 : 0.25 }}
+                            animate={{
+                              opacity:
+                                (isOpen || related ? 1 : 0.25) * (e.cancelled ? 0.45 : 1),
+                            }}
                             transition={panelTransition}
                             onClick={() => (isOpen ? requestPulse(e.id) : open(e.id, "timeline"))}
+                            onContextMenu={(ev) => openMenu(ev, e)}
                             aria-current={isOpen ? "true" : undefined}
                             title={`${e.title} · ${fmt(at)}`}
                             className="flex flex-col items-center transition-[filter] hover:brightness-110"
@@ -371,10 +420,14 @@ export function TimelineStrip({
                           type="button"
                           initial={false}
                           // The open event IS the current focus, so its chip stays
-                          // lit like any related item; unrelated events dim.
-                          animate={{ opacity: isOpen || related ? 1 : 0.25 }}
+                          // lit like any related item; unrelated events dim. A
+                          // cancelled event dims further on top of that.
+                          animate={{
+                            opacity: (isOpen || related ? 1 : 0.25) * (e.cancelled ? 0.45 : 1),
+                          }}
                           transition={panelTransition}
                           onClick={() => (isOpen ? requestPulse(e.id) : open(e.id, "timeline"))}
+                          onContextMenu={(ev) => openMenu(ev, e)}
                           aria-current={isOpen ? "true" : undefined}
                           title={`${e.title} · ${fmt(start)}–${fmt(end)}`}
                           className={cn(
@@ -383,7 +436,9 @@ export function TimelineStrip({
                           )}
                           style={chipVisual}
                         >
-                          <span className="truncate">{e.title}</span>
+                          <span className={cn("truncate", e.cancelled && "line-through")}>
+                            {e.title}
+                          </span>
                         </motion.button>
 
                         {/* Morph overlay — a visual twin sitting exactly on top of
@@ -421,6 +476,8 @@ export function TimelineStrip({
           </button>
         </div>
       </div>
+
+      <ContextMenu state={menu} onClose={() => setMenu(null)} />
     </section>
   )
 }

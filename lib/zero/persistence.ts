@@ -19,9 +19,26 @@ export interface UserItems {
   entities: Entity[]
   /** Per-context pin map: context space id → ordered list of pinned item ids. */
   pins: Record<string, string[]>
+  /**
+   * Tombstones — ids of SEEDED entities the user deleted. (User-created
+   * entities are removed simply by not serializing them.) Applied on hydrate
+   * so deletions of demo data also survive refreshes.
+   */
+  deletedIds: string[]
+  /**
+   * Partial overrides for SEEDED entities the user mutated in place (e.g.
+   * cancelling an event). Keyed by id; merged onto the seeded entity on
+   * hydrate. User-created entities carry their full state in `entities`.
+   */
+  overrides: Record<string, Partial<Entity>>
 }
 
-export const emptyUserItems = (): UserItems => ({ entities: [], pins: {} })
+export const emptyUserItems = (): UserItems => ({
+  entities: [],
+  pins: {},
+  deletedIds: [],
+  overrides: {},
+})
 
 export function readUserItems(): UserItems {
   if (typeof window === "undefined") return emptyUserItems()
@@ -32,6 +49,9 @@ export function readUserItems(): UserItems {
     return {
       entities: Array.isArray(parsed.entities) ? parsed.entities : [],
       pins: parsed.pins && typeof parsed.pins === "object" ? parsed.pins : {},
+      deletedIds: Array.isArray(parsed.deletedIds) ? parsed.deletedIds : [],
+      overrides:
+        parsed.overrides && typeof parsed.overrides === "object" ? parsed.overrides : {},
     }
   } catch {
     return emptyUserItems()
