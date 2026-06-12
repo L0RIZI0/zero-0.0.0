@@ -365,7 +365,10 @@ export function TaskList({ spaceId }: { spaceId: string }) {
                 <EventRow
                   key={it.id}
                   item={it}
-                  morphable={!spaceRowIds.has(it.event!.spaceId)}
+                  morphable={
+                    !spaceRowIds.has(it.event!.spaceId) &&
+                    !isPinned(spaceId, it.event!.spaceId)
+                  }
                   onContext={(e) => openMenu(e, it)}
                 />
               ),
