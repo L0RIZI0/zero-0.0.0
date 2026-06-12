@@ -40,11 +40,25 @@ function TaskRow({
   onContext: (e: React.MouseEvent) => void
 }) {
   const [done, setDone] = useState(task.completed)
-  const { openTask } = useZeroNav()
+  const { openTask, stack } = useZeroNav()
 
-  // Kept continuously mounted (no placeholder-swap while open). Swapping the
-  // layoutId node in/out during the frame's exit animation strands the morph;
-  // a single stable element lets Framer morph the frame ↔ row cleanly.
+  // This row stays mounted while its window is open, and it carries the shared
+  // taskLayoutId. If it kept that layoutId while the frame is also open, TWO
+  // elements would own the same layoutId and Framer's frame-expand morph breaks
+  // (the frame opens with no chrome). So while open, swap in an inert
+  // placeholder so the layoutId lives only on the active frame. (The dock's
+  // PinnedCard is different — it unmounts on open and uses no layoutId at all.)
+  if (stack.includes(task.id)) {
+    return (
+      <li>
+        <div
+          aria-hidden
+          className="h-[42px] w-full rounded-sm border border-dashed border-border/60 bg-secondary/30"
+        />
+      </li>
+    )
+  }
+
   return (
     <li>
       <motion.div
@@ -121,8 +135,21 @@ function EventRow({
   morphable: boolean
   onContext: (e: React.MouseEvent) => void
 }) {
-  const { openSpace } = useZeroNav()
+  const { openSpace, stack } = useZeroNav()
   const event = item.event!
+
+  // While morphable and its space is open as a frame, release the shared
+  // layoutId to the frame (see TaskRow note) via an inert placeholder.
+  if (morphable && stack.includes(event.spaceId)) {
+    return (
+      <li>
+        <div
+          aria-hidden
+          className="h-[42px] w-full rounded-sm border border-dashed border-border/60 bg-secondary/30"
+        />
+      </li>
+    )
+  }
 
   const morphProps = morphable
     ? { layoutId: spaceLayoutId(event.spaceId), transition: layerTransition }
@@ -169,9 +196,22 @@ function SpaceRow({
   item: ContextItem
   onContext: (e: React.MouseEvent) => void
 }) {
-  const { openSpace } = useZeroNav()
+  const { openSpace, stack } = useZeroNav()
   const space = item.space!
   const accent = space.accent ?? "var(--muted-foreground)"
+
+  // While this space is open as a frame, release the shared layoutId to the
+  // frame (see TaskRow note) via an inert placeholder so the morph stays clean.
+  if (stack.includes(space.id)) {
+    return (
+      <li>
+        <div
+          aria-hidden
+          className="h-[42px] w-full rounded-sm border border-dashed border-border/60 bg-secondary/30"
+        />
+      </li>
+    )
+  }
 
   return (
     <li>
