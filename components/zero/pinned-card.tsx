@@ -133,10 +133,12 @@ export function PinnedCard({
           </div>
         </div>
 
-        {/* Title below the icon + details. */}
-        {isSpace ? (
+        {/* Title below the icon + details. Spaces and tasks share a title
+            layoutId so the label travels continuously between row, card, and
+            frame instead of cross-fading; events use a static title. */}
+        {morphable ? (
           <motion.h3
-            layoutId={spaceTitleId(item.space!.id)}
+            layoutId={isSpace ? spaceTitleId(item.entity.id) : taskTitleId(item.entity.id)}
             transition={layerTransition}
             className="truncate text-[12px] font-medium leading-tight tracking-tight text-foreground"
           >
