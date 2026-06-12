@@ -28,6 +28,11 @@ export function SpacesRow({ contextSpaceId }: { contextSpaceId: string }) {
   const pinned: ContextItem[] = getPinnedItems(contextSpaceId)
   const hasPins = pinned.length > 0
 
+  console.log("[v0] SpacesRow render", {
+    contextSpaceId,
+    pinned: pinned.map((p) => p.id).join(","),
+  })
+
   const open = (item: ContextItem) => {
     if (item.kind === "space") openSpace(item.space!.id)
     else if (item.kind === "task") openTask(item.task!.id)

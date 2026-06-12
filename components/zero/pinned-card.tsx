@@ -51,6 +51,13 @@ export function PinnedCard({
   const isSpace = item.kind === "space"
   const { stack } = useZeroNav()
 
+  console.log("[v0] PinnedCard render", {
+    id: item.id,
+    isSpace,
+    stack: stack.join(">"),
+    placeholder: isSpace && stack.includes(item.space!.id),
+  })
+
   // While this space is open as a frame, release the shared layoutId to the
   // frame via an inert placeholder so the morph has exactly one live owner.
   // (Same neutral wrapper as the live card so popLayout sizing stays stable.)
