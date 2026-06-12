@@ -66,7 +66,7 @@ export function ShellHeader() {
               aria-hidden
               className="pointer-events-none absolute inset-0 select-none [transform:scaleX(-1)]"
               style={{
-                color: "#9ca3af",
+                color: "#6b7280",
                 WebkitTextStroke: "1.5px #000",
                 paintOrder: "stroke",
               }}
