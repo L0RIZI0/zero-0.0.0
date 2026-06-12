@@ -3,7 +3,8 @@
 import { motion } from "motion/react"
 import { X } from "lucide-react"
 import type { Entity } from "@/lib/zero/types"
-import { layerTransition, spaceLayoutId, spaceTitleId, contentTransition } from "@/lib/zero/motion"
+import { layerTransition, spaceLayoutId, spaceTitleId, glyphId, contentTransition } from "@/lib/zero/motion"
+import { NodeGlyph } from "./node-glyph"
 
 /**
  * A child Space window — chrome only. It paints the bordered, off-white frame
@@ -46,26 +47,37 @@ export function SpaceFrame({
       {/* Title band. Sits above the frontmost timeline; the timeline animates
           down to clear whatever height this band occupies (title, +description). */}
       <div className="flex items-start justify-between gap-3 px-6 pt-5 pb-3">
-        <div className="flex min-w-0 flex-col">
+        <div className="flex min-w-0 items-start gap-3">
           {isActive && (
-            <motion.h2
-              layoutId={spaceTitleId(space.id)}
+            <motion.span
+              layoutId={glyphId(space.id)}
               transition={layerTransition}
-              className="truncate text-[22px] font-medium leading-tight tracking-tight text-foreground"
+              className="mt-1 flex h-[18px] w-[18px] shrink-0 items-center justify-center text-foreground"
             >
-              {space.title}
-            </motion.h2>
+              <NodeGlyph kind="space" />
+            </motion.span>
           )}
-          {space.description && (
-            <motion.p
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ ...contentTransition, delay: 0.08 }}
-              className="mt-0.5 truncate text-[12.5px] text-muted-foreground"
-            >
-              {space.description}
-            </motion.p>
-          )}
+          <div className="flex min-w-0 flex-col">
+            {isActive && (
+              <motion.h2
+                layoutId={spaceTitleId(space.id)}
+                transition={layerTransition}
+                className="truncate text-[22px] font-medium leading-tight tracking-tight text-foreground"
+              >
+                {space.title}
+              </motion.h2>
+            )}
+            {space.description && (
+              <motion.p
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ ...contentTransition, delay: 0.08 }}
+                className="mt-0.5 truncate text-[12.5px] text-muted-foreground"
+              >
+                {space.description}
+              </motion.p>
+            )}
+          </div>
         </div>
 
         <button

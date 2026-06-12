@@ -54,7 +54,7 @@ export function ShellHeader() {
             ⌘K
           </kbd>
         </button>
-        <span className="text-[17px] font-semibold tracking-tight text-foreground">Zero</span>
+        <span className="text-[20px] font-semibold tracking-tight text-foreground">zero</span>
       </div>
     </header>
   )

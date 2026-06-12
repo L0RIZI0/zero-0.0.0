@@ -4,7 +4,8 @@ import { motion } from "motion/react"
 import { X, Check, Calendar, Flag, Hash } from "lucide-react"
 import type { Entity, TaskPriority } from "@/lib/zero/types"
 import { getSpace } from "@/lib/zero/data"
-import { layerTransition, taskLayoutId, taskTitleId, contentTransition } from "@/lib/zero/motion"
+import { layerTransition, taskLayoutId, taskTitleId, glyphId, contentTransition } from "@/lib/zero/motion"
+import { NodeGlyph } from "./node-glyph"
 import { useState } from "react"
 import { cn } from "@/lib/utils"
 
@@ -54,13 +55,24 @@ export function TaskFrame({
             aria-label={done ? "Mark task incomplete" : "Mark task complete"}
             onClick={() => setDone((d) => !d)}
             className={cn(
-              "mt-1 flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-[4px] border transition-colors",
+              "relative mt-1 flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-[4px] border transition-colors",
               done
                 ? "border-foreground bg-foreground text-background"
-                : "border-foreground/25 text-transparent hover:border-foreground/50",
+                : "border-foreground/25 text-foreground hover:border-foreground/50",
             )}
           >
-            <Check className="h-3.5 w-3.5" strokeWidth={3} />
+            {/* The kind glyph travels here from the list row / dock card via the
+                shared glyphId; the check overlays it once the task is done. */}
+            <motion.span
+              layoutId={glyphId(task.id)}
+              transition={layerTransition}
+              className="flex h-3 w-3 items-center justify-center"
+            >
+              <NodeGlyph kind="task" filled={done} strokeWidth={2} />
+            </motion.span>
+            {done && (
+              <Check className="absolute h-3.5 w-3.5 text-background" strokeWidth={3} />
+            )}
           </button>
           <div className="flex min-w-0 flex-col">
             {isActive && (

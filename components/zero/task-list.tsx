@@ -321,14 +321,11 @@ export function TaskList({ spaceId }: { spaceId: string }) {
 
   return (
     <section aria-label="Do list" className="flex min-h-0 flex-col">
-      {/* The DO label is centered above the list (aligned on the same row as
-          the INPUTS / OUTPUTS headers on each side); the Open/All filters are
-          pinned to the right without pushing the label off-center. */}
-      <div className="relative mb-1 flex h-5 items-center justify-center px-1">
-        <h2 className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-          Do
-        </h2>
-        <div className="absolute right-1 flex items-center gap-1">
+      {/* The DO label is hidden; the Open/All filters stay pinned to the right
+          on a short header row that keeps alignment with the INPUTS / OUTPUTS
+          columns on each side. */}
+      <div className="relative mb-1 flex h-5 items-center justify-end px-1">
+        <div className="flex items-center gap-1">
           {(["open", "all"] as const).map((f) => (
             <button
               key={f}

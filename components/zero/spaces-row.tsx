@@ -59,8 +59,9 @@ export function SpacesRow({ contextSpaceId }: { contextSpaceId: string }) {
       className={
         "pointer-events-auto flex shrink-0 flex-col items-center " +
         // When empty, keep a breathing gap between the timeline and the lists
-        // below; when populated, use the tighter card padding.
-        (hasPins ? "pb-1 pt-3" : "pt-5")
+        // below; when populated, add extra top room now that the SPACES label
+        // (which used to provide that separation from the timeline) is gone.
+        (hasPins ? "pb-1 pt-6" : "pt-5")
       }
     >
       {/* The Dock has no visible label; spacing above adjusts based on whether
