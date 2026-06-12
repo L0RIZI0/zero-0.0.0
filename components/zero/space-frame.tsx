@@ -2,7 +2,7 @@
 
 import { motion } from "motion/react"
 import { X } from "lucide-react"
-import type { Space } from "@/lib/zero/types"
+import type { Entity } from "@/lib/zero/types"
 import { layerTransition, spaceLayoutId, spaceTitleId, contentTransition } from "@/lib/zero/motion"
 
 /**

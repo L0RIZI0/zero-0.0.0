@@ -20,7 +20,7 @@ import { ContextMenu, type ContextMenuState } from "./context-menu"
  * When a context has no pins, the whole row is hidden.
  */
 export function SpacesRow({ contextSpaceId }: { contextSpaceId: string }) {
-  const { openSpace, openTask, dataVersion, notifyDataChanged } = useZeroNav()
+  const { open, dataVersion, notifyDataChanged } = useZeroNav()
   const [menu, setMenu] = useState<ContextMenuState | null>(null)
 
   // Re-read pins whenever data mutates or the context changes.
@@ -28,10 +28,11 @@ export function SpacesRow({ contextSpaceId }: { contextSpaceId: string }) {
   const pinned: ContextItem[] = getPinnedItems(contextSpaceId)
   const hasPins = pinned.length > 0
 
-  const open = (item: ContextItem) => {
-    if (item.kind === "space") openSpace(item.space!.id)
-    else if (item.kind === "task") openTask(item.task!.id)
-    else openSpace(item.event!.spaceId)
+  const openItem = (item: ContextItem) => {
+    // Spaces and tasks open as their own framed window; an event resolves to
+    // its origin parent space (events aren't framed contexts of their own).
+    if (item.kind === "event") open(item.entity.parentId ?? "s_root")
+    else open(item.entity.id)
   }
 
   const openMenu = (e: React.MouseEvent, item: ContextItem) => {
@@ -84,7 +85,7 @@ export function SpacesRow({ contextSpaceId }: { contextSpaceId: string }) {
             <PinnedCard
               key={item.id}
               item={item}
-              onOpen={() => open(item)}
+              onOpen={() => openItem(item)}
               onContextMenu={(e) => openMenu(e, item)}
             />
           ))}

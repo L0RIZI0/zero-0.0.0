@@ -1,4 +1,4 @@
-import type { Asset, Resource, Space, Task, User, ZeroEvent } from "./types"
+import type { Asset, Entity, EntityKind, Resource, User } from "./types"
 import { readUserItems, writeUserItems } from "./persistence"
 
 export const currentUser: User = {
@@ -168,16 +168,36 @@ export const resources: Resource[] = [
 ]
 
 // ----------------------------------------------------------------------------
-// Spaces — nested contexts. s_root is "Space 0" / All Life.
+// Entities — the single recursive model. Spaces, tasks, and events are all
+// `Entity` records differing only by `kind`. Every entity has one origin
+// `parentId` (the "created-from" container; the root `s_root` has null) plus an
+// optional `taggedSpaceIds[]` for multi-parent links ("also shows up in").
+//
+// Containment for a context's task list is DIRECT children only:
+//   parentId === contextId  OR  taggedSpaceIds includes contextId.
+// The structural origin tree (parentId only) still drives timeline focus and
+// subtree dimming via collectDescendants / isInSubtree.
 // ----------------------------------------------------------------------------
 
-export const spaces: Space[] = [
+const hm = (h: number, m = 0) => h * 60 + m
+
+const ACCENT = {
+  dayjob: "#2F6FED",
+  zero: "#D6209A",
+  personal: "#E8810C",
+  health: "#15A36B",
+} as const
+
+export const entities: Entity[] = [
+  // --- Spaces ---------------------------------------------------------------
+  // s_root is "Space 0" / All Life.
   {
     id: "s_root",
-    name: "All Life",
+    kind: "space",
+    title: "All Life",
     parentId: null,
+    taggedSpaceIds: [],
     description: "Your whole life, in one calm context.",
-    childSpaceIds: ["s_dayjob", "s_zero", "s_personal", "s_health"],
     assignedResourceIds: [
       "r_gmail",
       "r_drive",
@@ -189,290 +209,319 @@ export const spaces: Space[] = [
       "r_ai",
     ],
   },
-  // --- Day Job ---------------------------------------------------------------
+  // Day Job
   {
     id: "s_dayjob",
-    name: "Day Job",
+    kind: "space",
+    title: "Day Job",
     parentId: "s_root",
+    taggedSpaceIds: [],
     description: "Your role, your team, the work that pays.",
-    childSpaceIds: ["s_team", "s_strategy", "s_admin"],
     assignedResourceIds: ["r_gmail", "r_slack", "r_drive", "r_notion", "r_docs", "r_ai"],
-    accent: "#2F6FED",
+    accent: ACCENT.dayjob,
   },
   {
     id: "s_team",
-    name: "Team",
+    kind: "space",
+    title: "Team",
     parentId: "s_dayjob",
+    taggedSpaceIds: [],
     description: "People you work alongside.",
-    childSpaceIds: [],
     assignedResourceIds: ["r_slack", "r_gmail", "r_docs", "r_contacts"],
-    accent: "#2F6FED",
+    accent: ACCENT.dayjob,
   },
   {
     id: "s_strategy",
-    name: "Strategy",
+    kind: "space",
+    title: "Strategy",
     parentId: "s_dayjob",
+    taggedSpaceIds: [],
     description: "Direction, bets, and the long arc.",
-    childSpaceIds: [],
     assignedResourceIds: ["r_notion", "r_browser", "r_deck", "r_docs", "r_whiteboard", "r_sheet", "r_ai"],
-    accent: "#2F6FED",
+    accent: ACCENT.dayjob,
   },
   {
     id: "s_admin",
-    name: "Admin",
+    kind: "space",
+    title: "Admin",
     parentId: "s_dayjob",
+    taggedSpaceIds: [],
     description: "The necessary maintenance of work.",
-    childSpaceIds: [],
     assignedResourceIds: ["r_gmail", "r_drive", "r_docs", "r_sheet", "r_files"],
-    accent: "#2F6FED",
+    accent: ACCENT.dayjob,
   },
-  // --- Zero ------------------------------------------------------------------
+  // Zero
   {
     id: "s_zero",
-    name: "Zero",
+    kind: "space",
+    title: "Zero",
     parentId: "s_root",
+    taggedSpaceIds: [],
     description: "Building the contextual shell itself.",
-    childSpaceIds: ["s_product", "s_deck", "s_research"],
     assignedResourceIds: ["r_figma", "r_notion", "r_slack", "r_deck", "r_whiteboard", "r_notes", "r_ai"],
-    accent: "#D6209A",
+    accent: ACCENT.zero,
   },
   {
     id: "s_product",
-    name: "Product",
+    kind: "space",
+    title: "Product",
     parentId: "s_zero",
+    taggedSpaceIds: [],
     description: "Interaction, surface, and feel.",
-    childSpaceIds: [],
     assignedResourceIds: ["r_figma", "r_whiteboard", "r_notes", "r_slack"],
-    accent: "#D6209A",
+    accent: ACCENT.zero,
   },
   {
     id: "s_deck",
-    name: "Deck",
+    kind: "space",
+    title: "Deck",
     parentId: "s_zero",
+    taggedSpaceIds: [],
     description: "The investor narrative for 4FTER.",
-    childSpaceIds: [],
     assignedResourceIds: ["r_deck", "r_figma"],
-    accent: "#D6209A",
+    accent: ACCENT.zero,
   },
   {
     id: "s_research",
-    name: "Research",
+    kind: "space",
+    title: "Research",
     parentId: "s_zero",
+    taggedSpaceIds: [],
     description: "References, prior art, and inspiration.",
-    childSpaceIds: [],
     assignedResourceIds: ["r_browser", "r_notion", "r_ai"],
-    accent: "#D6209A",
+    accent: ACCENT.zero,
   },
-  // --- Personal --------------------------------------------------------------
+  // Personal
   {
     id: "s_personal",
-    name: "Personal",
+    kind: "space",
+    title: "Personal",
     parentId: "s_root",
+    taggedSpaceIds: [],
     description: "Life outside the work.",
-    childSpaceIds: ["s_home", "s_family", "s_journal"],
     assignedResourceIds: ["r_journal", "r_notes", "r_contacts"],
-    accent: "#E8810C",
+    accent: ACCENT.personal,
   },
   {
     id: "s_home",
-    name: "Home",
+    kind: "space",
+    title: "Home",
     parentId: "s_personal",
+    taggedSpaceIds: [],
     description: "The place and its upkeep.",
-    childSpaceIds: [],
     assignedResourceIds: ["r_files", "r_notes"],
-    accent: "#E8810C",
+    accent: ACCENT.personal,
   },
   {
     id: "s_family",
-    name: "Family",
+    kind: "space",
+    title: "Family",
     parentId: "s_personal",
+    taggedSpaceIds: [],
     description: "The people closest to you.",
-    childSpaceIds: [],
     assignedResourceIds: ["r_contacts", "r_journal"],
-    accent: "#E8810C",
+    accent: ACCENT.personal,
   },
   {
     id: "s_journal",
-    name: "Journal",
+    kind: "space",
+    title: "Journal",
     parentId: "s_personal",
+    taggedSpaceIds: [],
     description: "A quiet record of days.",
-    childSpaceIds: [],
     assignedResourceIds: ["r_journal", "r_notes"],
-    accent: "#E8810C",
+    accent: ACCENT.personal,
   },
-  // --- Health ----------------------------------------------------------------
+  // Health
   {
     id: "s_health",
-    name: "Health",
+    kind: "space",
+    title: "Health",
     parentId: "s_root",
+    taggedSpaceIds: [],
     description: "The body you operate from.",
-    childSpaceIds: ["s_training", "s_sleep", "s_nutrition"],
     assignedResourceIds: ["r_health", "r_notes", "r_ai"],
-    accent: "#15A36B",
+    accent: ACCENT.health,
   },
   {
     id: "s_training",
-    name: "Training",
+    kind: "space",
+    title: "Training",
     parentId: "s_health",
+    taggedSpaceIds: [],
     description: "Movement and strength.",
-    childSpaceIds: [],
     assignedResourceIds: ["r_health", "r_notes"],
-    accent: "#15A36B",
+    accent: ACCENT.health,
   },
   {
     id: "s_sleep",
-    name: "Sleep",
+    kind: "space",
+    title: "Sleep",
     parentId: "s_health",
+    taggedSpaceIds: [],
     description: "Recovery and rest.",
-    childSpaceIds: [],
     assignedResourceIds: ["r_health"],
-    accent: "#15A36B",
+    accent: ACCENT.health,
   },
   {
     id: "s_nutrition",
-    name: "Nutrition",
+    kind: "space",
+    title: "Nutrition",
     parentId: "s_health",
+    taggedSpaceIds: [],
     description: "What fuels the work.",
-    childSpaceIds: [],
     assignedResourceIds: ["r_health", "r_sheet"],
-    accent: "#15A36B",
+    accent: ACCENT.health,
   },
-]
 
-// ----------------------------------------------------------------------------
-// Tasks
-// ----------------------------------------------------------------------------
-
-export const tasks: Task[] = [
+  // --- Tasks ----------------------------------------------------------------
+  // Multi-space tasks re-parented to a single origin; the rest become tags.
   {
     id: "t1",
+    kind: "task",
     title: "Finalize investor narrative for 4FTER",
+    parentId: "s_zero",
+    taggedSpaceIds: ["s_deck", "s_strategy"],
     completed: false,
     dueDate: "Today",
     priority: "high",
     tags: ["deck", "narrative"],
-    spaceIds: ["s_zero", "s_deck", "s_strategy"],
   },
   {
     id: "t2",
+    kind: "task",
     title: "Refine nested Space interaction",
+    parentId: "s_zero",
+    taggedSpaceIds: ["s_product"],
     completed: false,
     dueDate: "Today",
     priority: "high",
     tags: ["motion", "product"],
-    spaceIds: ["s_zero", "s_product"],
   },
   {
     id: "t3",
+    kind: "task",
     title: "Review today's priorities",
+    parentId: "s_root",
+    taggedSpaceIds: [],
     completed: true,
     dueDate: "Today",
     priority: "medium",
     tags: ["ritual"],
-    spaceIds: ["s_root"],
   },
   {
     id: "t4",
+    kind: "task",
     title: "Prepare Monday product notes",
+    parentId: "s_dayjob",
+    taggedSpaceIds: ["s_product", "s_zero"],
     completed: false,
     dueDate: "Mon",
     priority: "medium",
     tags: ["product"],
-    spaceIds: ["s_dayjob", "s_product", "s_zero"],
   },
   {
     id: "t5",
+    kind: "task",
     title: "Organize Zero task taxonomy",
+    parentId: "s_zero",
+    taggedSpaceIds: ["s_product"],
     completed: false,
     dueDate: "This week",
     priority: "low",
     tags: ["system"],
-    spaceIds: ["s_zero", "s_product"],
   },
   {
     id: "t6",
+    kind: "task",
     title: "Write product deck outline",
+    parentId: "s_zero",
+    taggedSpaceIds: ["s_deck"],
     completed: false,
     dueDate: "Wed",
     priority: "high",
     tags: ["deck"],
-    spaceIds: ["s_zero", "s_deck"],
   },
   {
     id: "t7",
+    kind: "task",
     title: "Follow up with Romain",
+    parentId: "s_dayjob",
+    taggedSpaceIds: ["s_team"],
     completed: false,
     dueDate: "Today",
     priority: "medium",
     tags: ["people"],
-    spaceIds: ["s_dayjob", "s_team"],
   },
   {
     id: "t8",
+    kind: "task",
     title: "Schedule dentist appointment",
+    parentId: "s_personal",
+    taggedSpaceIds: ["s_health"],
     completed: false,
     dueDate: "This week",
     priority: "low",
     tags: ["errand"],
-    spaceIds: ["s_personal", "s_home"],
   },
   {
     id: "t9",
+    kind: "task",
     title: "Grocery run",
+    parentId: "s_personal",
+    taggedSpaceIds: ["s_home"],
     completed: false,
     dueDate: "Today",
     priority: "low",
     tags: ["errand"],
-    spaceIds: ["s_personal", "s_home"],
   },
   {
     id: "t10",
+    kind: "task",
     title: "Evening journal session",
+    parentId: "s_personal",
+    taggedSpaceIds: ["s_journal"],
     completed: false,
     dueDate: "Today",
     priority: "low",
     tags: ["ritual"],
-    spaceIds: ["s_personal", "s_journal"],
   },
   {
     id: "t11",
+    kind: "task",
     title: "Shoulder mobility routine",
+    parentId: "s_health",
+    taggedSpaceIds: ["s_training"],
     completed: false,
     dueDate: "Today",
     priority: "medium",
     tags: ["training"],
-    spaceIds: ["s_health", "s_training"],
   },
   {
     id: "t12",
+    kind: "task",
     title: "Draft Q3 admin review",
+    parentId: "s_dayjob",
+    taggedSpaceIds: ["s_admin"],
     completed: false,
     dueDate: "Thu",
     priority: "medium",
     tags: ["admin"],
-    spaceIds: ["s_dayjob", "s_admin"],
   },
+
+  // --- Events ---------------------------------------------------------------
+  { id: "e1", kind: "event", title: "Daily standup", parentId: "s_dayjob", taggedSpaceIds: [], start: hm(9), end: hm(9, 30) },
+  { id: "e2", kind: "event", title: "Deep work block", parentId: "s_zero", taggedSpaceIds: [], start: hm(9, 45), end: hm(11, 30) },
+  { id: "e3", kind: "event", title: "Product review", parentId: "s_product", taggedSpaceIds: [], start: hm(11, 30), end: hm(12, 15) },
+  { id: "e4", kind: "event", title: "Lunch", parentId: "s_personal", taggedSpaceIds: [], start: hm(12, 30), end: hm(13, 15) },
+  { id: "e5", kind: "event", title: "Investor prep", parentId: "s_deck", taggedSpaceIds: [], start: hm(13, 30), end: hm(14, 45) },
+  { id: "e6", kind: "event", title: "Admin hour", parentId: "s_admin", taggedSpaceIds: [], start: hm(15), end: hm(16) },
+  { id: "e7", kind: "event", title: "Workout", parentId: "s_training", taggedSpaceIds: [], start: hm(17, 30), end: hm(18, 30) },
+  { id: "e8", kind: "event", title: "Evening reset", parentId: "s_journal", taggedSpaceIds: [], start: hm(21), end: hm(21, 30) },
 ]
 
 // ----------------------------------------------------------------------------
-// Events — minutes from midnight
-// ----------------------------------------------------------------------------
-
-const hm = (h: number, m = 0) => h * 60 + m
-
-export const events: ZeroEvent[] = [
-  { id: "e1", title: "Daily standup", start: hm(9), end: hm(9, 30), spaceId: "s_dayjob" },
-  { id: "e2", title: "Deep work block", start: hm(9, 45), end: hm(11, 30), spaceId: "s_zero" },
-  { id: "e3", title: "Product review", start: hm(11, 30), end: hm(12, 15), spaceId: "s_product" },
-  { id: "e4", title: "Lunch", start: hm(12, 30), end: hm(13, 15), spaceId: "s_personal" },
-  { id: "e5", title: "Investor prep", start: hm(13, 30), end: hm(14, 45), spaceId: "s_deck" },
-  { id: "e6", title: "Admin hour", start: hm(15), end: hm(16), spaceId: "s_admin" },
-  { id: "e7", title: "Workout", start: hm(17, 30), end: hm(18, 30), spaceId: "s_training" },
-  { id: "e8", title: "Evening reset", start: hm(21), end: hm(21, 30), spaceId: "s_journal" },
-]
-
-// ----------------------------------------------------------------------------
-// Assets — unified resource/asset model
+// Assets — unified resource/asset model (kept as a separate concern)
 // ----------------------------------------------------------------------------
 
 export const assets: Asset[] = [
@@ -559,57 +608,133 @@ export const assets: Asset[] = [
 ]
 
 // ----------------------------------------------------------------------------
-// Selectors / helpers
+// Indexes
 // ----------------------------------------------------------------------------
 
-const spaceById = new Map(spaces.map((s) => [s.id, s]))
+const byId = new Map<string, Entity>(entities.map((e) => [e.id, e]))
 const resourceById = new Map(resources.map((r) => [r.id, r]))
-const taskById = new Map(tasks.map((t) => [t.id, t]))
 
-export function getSpace(id: string): Space | undefined {
-  return spaceById.get(id)
-}
+// ----------------------------------------------------------------------------
+// Core entity accessors
+// ----------------------------------------------------------------------------
 
-export function getTask(id: string): Task | undefined {
-  return taskById.get(id)
+export function getEntity(id: string): Entity | undefined {
+  return byId.get(id)
 }
 
 export function getResource(id: string): Resource | undefined {
   return resourceById.get(id)
 }
 
-export function getChildSpaces(spaceId: string): Space[] {
-  const space = spaceById.get(spaceId)
-  if (!space) return []
-  return space.childSpaceIds.map((id) => spaceById.get(id)).filter(Boolean) as Space[]
-}
-
-/** Resources assigned to a space, falling back to the space's explicit list. */
-export function getSpaceResources(spaceId: string): Resource[] {
-  const space = spaceById.get(spaceId)
-  if (!space) return []
-  const fromAssigned = space.assignedResourceIds
-    .map((id) => resourceById.get(id))
-    .filter(Boolean) as Resource[]
-  return fromAssigned
+/**
+ * Direct children of a context — the entities whose ORIGIN parent is it, plus
+ * entities LINKED (tagged) to it. This powers the task list: a context shows
+ * its own children only, never the children of its children. Ordered spaces →
+ * tasks → events so the stream reads consistently.
+ */
+export function getChildren(contextId: string): Entity[] {
+  const order: Record<EntityKind, number> = { space: 0, task: 1, event: 2 }
+  return entities
+    .filter(
+      (e) =>
+        e.id !== contextId &&
+        (e.parentId === contextId || e.taggedSpaceIds.includes(contextId)),
+    )
+    .sort((a, b) => order[a.kind] - order[b.kind])
 }
 
 /**
- * Tasks for a space. The root space shows all tasks; nested spaces show tasks
- * whose spaceIds include this space (or any descendant for non-leaf spaces).
+ * Count of DIRECT child tasks (origin + tagged) that are still incomplete.
+ * Child spaces and events are intentionally not counted. Drives the "N ■"
+ * detail shown on pinned cards and space rows.
  */
-export function getSpaceTasks(spaceId: string): Task[] {
-  if (spaceId === "s_root") return tasks
-  const descendants = collectDescendants(spaceId)
-  return tasks.filter((t) => t.spaceIds.some((sid) => descendants.has(sid)))
+export function getOpenTaskCount(contextId: string): number {
+  return getChildren(contextId).filter((e) => e.kind === "task" && !e.completed).length
 }
 
-export function getSpaceEvents(spaceId: string): ZeroEvent[] {
-  if (spaceId === "s_root") return events
-  const descendants = collectDescendants(spaceId)
-  return events.filter((e) => descendants.has(e.spaceId))
+// ----------------------------------------------------------------------------
+// Subtree helpers (structural origin tree) — drive timeline focus + dimming
+// ----------------------------------------------------------------------------
+
+/** Set of space ids in `spaceId`'s structural subtree, including itself. */
+function collectDescendants(spaceId: string): Set<string> {
+  const set = new Set<string>([spaceId])
+  let grew = true
+  while (grew) {
+    grew = false
+    for (const e of entities) {
+      if (e.kind !== "space" || e.parentId === null) continue
+      if (set.has(e.parentId) && !set.has(e.id)) {
+        set.add(e.id)
+        grew = true
+      }
+    }
+  }
+  return set
 }
 
+/** True when `spaceId` is `nodeId` or a descendant of it. */
+export function isInSubtree(nodeId: string, spaceId: string): boolean {
+  if (nodeId === "s_root") return true
+  return collectDescendants(nodeId).has(spaceId)
+}
+
+// ----------------------------------------------------------------------------
+// Compatibility selectors — kept so existing components keep working. They are
+// now thin wrappers over the unified entity model.
+// ----------------------------------------------------------------------------
+
+/** A space entity by id (undefined for non-space ids). */
+export function getSpace(id: string): Entity | undefined {
+  const e = byId.get(id)
+  return e && e.kind === "space" ? e : undefined
+}
+
+/** A task entity by id (undefined for non-task ids). */
+export function getTask(id: string): Entity | undefined {
+  const e = byId.get(id)
+  return e && e.kind === "task" ? e : undefined
+}
+
+/** Direct child spaces of a space. */
+export function getChildSpaces(spaceId: string): Entity[] {
+  return entities.filter((e) => e.kind === "space" && e.parentId === spaceId)
+}
+
+/** Resources assigned to a space. */
+export function getSpaceResources(spaceId: string): Resource[] {
+  const space = getSpace(spaceId)
+  if (!space) return []
+  return (space.assignedResourceIds ?? [])
+    .map((id) => resourceById.get(id))
+    .filter(Boolean) as Resource[]
+}
+
+/**
+ * Tasks anywhere in a space's subtree (origin or tagged). Used by legacy
+ * callers; the task list itself uses getChildren for direct children.
+ */
+export function getSpaceTasks(spaceId: string): Entity[] {
+  if (spaceId === "s_root") return entities.filter((e) => e.kind === "task")
+  const descendants = collectDescendants(spaceId)
+  return entities.filter(
+    (e) =>
+      e.kind === "task" &&
+      ((e.parentId !== null && descendants.has(e.parentId)) ||
+        e.taggedSpaceIds.some((sid) => descendants.has(sid))),
+  )
+}
+
+/** Events anywhere in a space's subtree. Drives the timeline. */
+export function getSpaceEvents(spaceId: string): Entity[] {
+  if (spaceId === "s_root") return entities.filter((e) => e.kind === "event")
+  const descendants = collectDescendants(spaceId)
+  return entities.filter(
+    (e) => e.kind === "event" && e.parentId !== null && descendants.has(e.parentId),
+  )
+}
+
+/** Assets anywhere in a space's subtree. */
 export function getSpaceAssets(spaceId: string): Asset[] {
   if (spaceId === "s_root") return assets
   const descendants = collectDescendants(spaceId)
@@ -617,51 +742,41 @@ export function getSpaceAssets(spaceId: string): Asset[] {
 }
 
 /**
- * A unified list of "context items" for a node — child spaces, tasks, and
- * events — used by the frontmost task list. Every kind a user can create with
- * the "+ ADD" button surfaces here as a row with its corresponding glyph, so a
- * context's spaces, scheduled items, and to-dos read as one stream.
+ * A "context item" wrapper around an Entity. The `task` / `event` / `space`
+ * fields are back-compat aliases that all point to the SAME underlying entity
+ * (populated based on `kind`), so existing readers continue to work.
  */
 export interface ContextItem {
   id: string
-  kind: "task" | "event" | "space"
+  kind: EntityKind
   title: string
-  task?: Task
-  event?: ZeroEvent
-  space?: Space
+  entity: Entity
+  task?: Entity
+  event?: Entity
+  space?: Entity
 }
 
-export function getContextItems(spaceId: string): ContextItem[] {
-  const spaceItems: ContextItem[] = getChildSpaces(spaceId).map((s) => ({
-    id: s.id,
-    kind: "space",
-    title: s.name,
-    space: s,
-  }))
-  const taskItems: ContextItem[] = getSpaceTasks(spaceId).map((t) => ({
-    id: t.id,
-    kind: "task",
-    title: t.title,
-    task: t,
-  }))
-  const eventItems: ContextItem[] = getSpaceEvents(spaceId).map((e) => ({
+function toContextItem(e: Entity): ContextItem {
+  return {
     id: e.id,
-    kind: "event",
+    kind: e.kind,
     title: e.title,
-    event: e,
-  }))
-  return [...spaceItems, ...taskItems, ...eventItems]
+    entity: e,
+    task: e.kind === "task" ? e : undefined,
+    event: e.kind === "event" ? e : undefined,
+    space: e.kind === "space" ? e : undefined,
+  }
 }
 
-/** Resolve any item id (task / event / space) to its ContextItem. */
+/** Direct children of a context as ContextItems (spaces, tasks, events). */
+export function getContextItems(contextId: string): ContextItem[] {
+  return getChildren(contextId).map(toContextItem)
+}
+
+/** Resolve any entity id to its ContextItem. */
 export function resolveContextItem(id: string): ContextItem | undefined {
-  const t = taskById.get(id)
-  if (t) return { id, kind: "task", title: t.title, task: t }
-  const e = events.find((ev) => ev.id === id)
-  if (e) return { id, kind: "event", title: e.title, event: e }
-  const s = spaceById.get(id)
-  if (s) return { id, kind: "space", title: s.name, space: s }
-  return undefined
+  const e = byId.get(id)
+  return e ? toContextItem(e) : undefined
 }
 
 // ----------------------------------------------------------------------------
@@ -703,48 +818,21 @@ export function unpinItem(contextId: string, itemId: string): void {
   persist()
 }
 
-/** True when `spaceId` is `nodeId` or a descendant of it. Drives timeline dimming. */
-export function isInSubtree(nodeId: string, spaceId: string): boolean {
-  if (nodeId === "s_root") return true
-  return collectDescendants(nodeId).has(spaceId)
-}
-
-function collectDescendants(spaceId: string): Set<string> {
-  const set = new Set<string>([spaceId])
-  const stack = [spaceId]
-  while (stack.length) {
-    const current = stack.pop() as string
-    const space = spaceById.get(current)
-    if (!space) continue
-    for (const child of space.childSpaceIds) {
-      if (!set.has(child)) {
-        set.add(child)
-        stack.push(child)
-      }
-    }
-  }
-  return set
-}
-
 // ----------------------------------------------------------------------------
-// Mutations — user-created items. Persisted to localStorage so created
-// tasks/spaces/events survive refreshes. They push into the same arrays/indexes
-// the selectors above read from, so a new item shows up everywhere it should.
+// Mutations — user-created entities. Persisted to localStorage so created
+// items survive refreshes. They push into the same `entities` array/index the
+// selectors above read from, so a new item shows up everywhere it should.
 // ----------------------------------------------------------------------------
 
 let _seq = 0
 const uid = (prefix: string) => `${prefix}_u${Date.now().toString(36)}${(_seq++).toString(36)}`
 
 // Track which ids are user-created so we can re-serialize just those on save.
-const userTaskIds = new Set<string>()
-const userSpaceIds = new Set<string>()
-const userEventIds = new Set<string>()
+const userEntityIds = new Set<string>()
 
 function persist() {
   writeUserItems({
-    tasks: tasks.filter((t) => userTaskIds.has(t.id)),
-    spaces: spaces.filter((s) => userSpaceIds.has(s.id)),
-    events: events.filter((e) => userEventIds.has(e.id)),
+    entities: entities.filter((e) => userEntityIds.has(e.id)),
     pins: pinnedByContext,
   })
 }
@@ -752,8 +840,8 @@ function persist() {
 let _hydrated = false
 
 /**
- * Merge localStorage-persisted user items into the in-memory stores. Safe to
- * call multiple times; only runs once. Returns true if any items were added so
+ * Merge localStorage-persisted user entities into the in-memory store. Safe to
+ * call multiple times; only runs once. Returns true if anything was added so
  * callers can bump their data version.
  */
 export function hydrateFromStorage(): boolean {
@@ -762,28 +850,11 @@ export function hydrateFromStorage(): boolean {
   const stored = readUserItems()
   let added = false
 
-  for (const space of stored.spaces) {
-    if (spaceById.has(space.id)) continue
-    spaces.push(space)
-    spaceById.set(space.id, space)
-    userSpaceIds.add(space.id)
-    const parent = space.parentId ? spaceById.get(space.parentId) : undefined
-    if (parent && !parent.childSpaceIds.includes(space.id)) {
-      parent.childSpaceIds.push(space.id)
-    }
-    added = true
-  }
-  for (const task of stored.tasks) {
-    if (taskById.has(task.id)) continue
-    tasks.push(task)
-    taskById.set(task.id, task)
-    userTaskIds.add(task.id)
-    added = true
-  }
-  for (const event of stored.events) {
-    if (events.some((e) => e.id === event.id)) continue
-    events.push(event)
-    userEventIds.add(event.id)
+  for (const entity of stored.entities) {
+    if (byId.has(entity.id)) continue
+    entities.push(entity)
+    byId.set(entity.id, entity)
+    userEntityIds.add(entity.id)
     added = true
   }
 
@@ -797,53 +868,54 @@ export function hydrateFromStorage(): boolean {
   return added
 }
 
-export function addTask(input: { title: string; spaceId: string }): Task {
-  const task: Task = {
+export function addTask(input: { title: string; spaceId: string }): Entity {
+  const entity: Entity = {
     id: uid("t"),
+    kind: "task",
     title: input.title,
+    parentId: input.spaceId,
+    taggedSpaceIds: [],
     completed: false,
-    dueDate: null,
     priority: "medium",
     tags: [],
-    spaceIds: [input.spaceId],
   }
-  tasks.push(task)
-  taskById.set(task.id, task)
-  userTaskIds.add(task.id)
+  entities.push(entity)
+  byId.set(entity.id, entity)
+  userEntityIds.add(entity.id)
   persist()
-  return task
+  return entity
 }
 
-export function addSpace(input: { name: string; parentId: string }): Space {
-  const space: Space = {
+export function addSpace(input: { name: string; parentId: string }): Entity {
+  const entity: Entity = {
     id: uid("s"),
-    name: input.name,
+    kind: "space",
+    title: input.name,
     parentId: input.parentId,
+    taggedSpaceIds: [],
     description: "",
-    childSpaceIds: [],
     assignedResourceIds: [],
   }
-  spaces.push(space)
-  spaceById.set(space.id, space)
-  userSpaceIds.add(space.id)
-  const parent = spaceById.get(input.parentId)
-  if (parent && !parent.childSpaceIds.includes(space.id)) {
-    parent.childSpaceIds.push(space.id)
-  }
+  entities.push(entity)
+  byId.set(entity.id, entity)
+  userEntityIds.add(entity.id)
   persist()
-  return space
+  return entity
 }
 
-export function addEvent(input: { title: string; spaceId: string }): ZeroEvent {
-  const event: ZeroEvent = {
+export function addEvent(input: { title: string; spaceId: string }): Entity {
+  const entity: Entity = {
     id: uid("e"),
+    kind: "event",
     title: input.title,
+    parentId: input.spaceId,
+    taggedSpaceIds: [],
     start: hm(12, 0),
     end: hm(13, 0),
-    spaceId: input.spaceId,
   }
-  events.push(event)
-  userEventIds.add(event.id)
+  entities.push(entity)
+  byId.set(entity.id, entity)
+  userEntityIds.add(entity.id)
   persist()
-  return event
+  return entity
 }

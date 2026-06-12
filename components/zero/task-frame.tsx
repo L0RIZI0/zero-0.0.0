@@ -2,13 +2,13 @@
 
 import { motion } from "motion/react"
 import { X, Check, Calendar, Flag, Hash } from "lucide-react"
-import type { Task } from "@/lib/zero/types"
+import type { Entity, TaskPriority } from "@/lib/zero/types"
 import { getSpace } from "@/lib/zero/data"
 import { layerTransition, taskLayoutId, taskTitleId, contentTransition } from "@/lib/zero/motion"
 import { useState } from "react"
 import { cn } from "@/lib/utils"
 
-const priorityLabel: Record<Task["priority"], string> = {
+const priorityLabel: Record<TaskPriority, string> = {
   high: "High",
   medium: "Medium",
   low: "Low",
@@ -25,17 +25,18 @@ export function TaskFrame({
   isActive,
   onClose,
 }: {
-  task: Task
+  task: Entity
   isActive: boolean
   onClose: () => void
 }) {
-  const [done, setDone] = useState(task.completed)
-  // The task's primary space provides contextual accent.
-  const primarySpaceId = task.spaceIds[task.spaceIds.length - 1] ?? "s_root"
+  const [done, setDone] = useState(!!task.completed)
+  // The task's origin parent provides the contextual accent; its parent plus
+  // any tagged spaces make up the membership line.
+  const primarySpaceId = task.parentId ?? "s_root"
   const primarySpace = getSpace(primarySpaceId)
   const accent = primarySpace?.accent ?? "var(--accent)"
-  const spaceNames = task.spaceIds
-    .map((id) => getSpace(id)?.name)
+  const spaceNames = [primarySpaceId, ...task.taggedSpaceIds]
+    .map((id) => getSpace(id)?.title)
     .filter(Boolean) as string[]
 
   return (
@@ -91,9 +92,9 @@ export function TaskFrame({
               )}
               <span className="flex items-center gap-1.5 rounded-sm border border-border bg-card/50 px-2 py-1 text-[11.5px] text-foreground">
                 <Flag className="h-3 w-3" style={{ color: accent }} />
-                {priorityLabel[task.priority]}
+                {priorityLabel[task.priority ?? "medium"]}
               </span>
-              {task.tags.map((t) => (
+              {(task.tags ?? []).map((t) => (
                 <span
                   key={t}
                   className="flex items-center gap-1 rounded-sm border border-border bg-card/50 px-2 py-1 text-[11.5px] text-muted-foreground"

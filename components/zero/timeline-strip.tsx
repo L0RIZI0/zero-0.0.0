@@ -225,13 +225,16 @@ export function TimelineStrip({
                     space as a layer, just like a task. */}
                 {isToday &&
                   evts.map((e, i) => {
-                    const left = ((e.start - DAY_START) / SPAN) * 100
-                    const width = ((e.end - e.start) / SPAN) * 100
+                    const start = e.start ?? 0
+                    const end = e.end ?? start
+                    const left = ((start - DAY_START) / SPAN) * 100
+                    const width = ((end - start) / SPAN) * 100
                     const lane = i % 2
-                    const space = getSpace(e.spaceId)
+                    const eventSpaceId = e.parentId ?? "s_root"
+                    const space = getSpace(eventSpaceId)
                     const color = space?.accent
                     // Dim events that aren't in the active node's subtree.
-                    const related = isInSubtree(spaceId, e.spaceId)
+                    const related = isInSubtree(spaceId, eventSpaceId)
                     return (
                       <motion.button
                         key={e.id}
@@ -239,8 +242,8 @@ export function TimelineStrip({
                         initial={false}
                         animate={{ opacity: related ? 1 : 0.25 }}
                         transition={panelTransition}
-                        onClick={() => openSpace(e.spaceId)}
-                        title={`${e.title} · ${fmt(e.start)}–${fmt(e.end)}`}
+                        onClick={() => openSpace(eventSpaceId)}
+                        title={`${e.title} · ${fmt(start)}–${fmt(end)}`}
                         className={cn(
                           "absolute flex h-5 items-center overflow-hidden rounded-sm border-l-2 px-1.5 text-[10.5px] tracking-tight",
                           "text-foreground/90 backdrop-blur-sm transition-[filter] hover:brightness-110",

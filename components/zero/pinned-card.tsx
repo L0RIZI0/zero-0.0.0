@@ -2,7 +2,7 @@
 
 import { useMemo } from "react"
 import { motion } from "motion/react"
-import { getSpaceTasks, getSpace, type ContextItem } from "@/lib/zero/data"
+import { getOpenTaskCount, getSpace, type ContextItem } from "@/lib/zero/data"
 import { layerTransition, panelTransition, spaceLayoutId, spaceTitleId } from "@/lib/zero/motion"
 import { useZeroNav } from "@/lib/zero/nav-store"
 import { NodeGlyph } from "./node-glyph"
@@ -34,18 +34,16 @@ export function PinnedCard({
   onOpen: () => void
   onContextMenu: (e: React.MouseEvent) => void
 }) {
-  // Resolve the home space for the detail stats.
-  const homeSpaceId =
-    item.kind === "space"
-      ? item.space!.id
-      : item.kind === "task"
-        ? item.task!.spaceIds[item.task!.spaceIds.length - 1]
-        : item.event!.spaceId
-
+  // Accent comes from the item's home space: itself for a space, else its
+  // origin parent (tasks/events inherit their container's tint).
+  const homeSpaceId = item.kind === "space" ? item.entity.id : item.entity.parentId ?? "s_root"
   const accent = getSpace(homeSpaceId)?.accent ?? "var(--muted-foreground)"
+
+  // Every entity is a container, so the detail counts the open DIRECT child
+  // tasks of the item itself (a pinned task shows its own open subtasks).
   const openCount = useMemo(
-    () => getSpaceTasks(homeSpaceId).filter((t) => !t.completed).length,
-    [homeSpaceId, item],
+    () => getOpenTaskCount(item.entity.id),
+    [item],
   )
 
   const isSpace = item.kind === "space"

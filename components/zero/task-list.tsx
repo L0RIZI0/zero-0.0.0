@@ -3,8 +3,8 @@
 import { useEffect, useMemo, useState } from "react"
 import { AnimatePresence, motion } from "motion/react"
 import { Check, Plus, Pin } from "lucide-react"
-import { getContextItems, getSpaceTasks, isPinned, pinItem, type ContextItem } from "@/lib/zero/data"
-import type { Task, TaskPriority } from "@/lib/zero/types"
+import { getContextItems, getOpenTaskCount, isPinned, pinItem, type ContextItem } from "@/lib/zero/data"
+import type { Entity, TaskPriority } from "@/lib/zero/types"
 import { useZeroNav } from "@/lib/zero/nav-store"
 import {
   layerTransition,
@@ -33,15 +33,13 @@ const priorityDot: Record<TaskPriority, string> = {
 const GLYPH_BOX = "flex h-4 w-4 shrink-0 items-center justify-center"
 
 /**
- * Trailing detail showing how many open (incomplete) tasks live inside a
- * space — a number followed by the task square glyph (e.g. "4 ■"). Subspace
- * counts are intentionally not shown. Renders nothing when there are none.
+ * Trailing detail showing how many open (incomplete) DIRECT child tasks live
+ * inside a space — a number followed by the task square glyph (e.g. "4 ■").
+ * Child spaces/events and deeper descendants are intentionally not counted.
+ * Renders nothing when there are none.
  */
 function OpenTaskCount({ spaceId }: { spaceId: string }) {
-  const count = useMemo(
-    () => getSpaceTasks(spaceId).filter((t) => !t.completed).length,
-    [spaceId],
-  )
+  const count = useMemo(() => getOpenTaskCount(spaceId), [spaceId])
   if (count === 0) return null
   return (
     <span className="flex shrink-0 items-center gap-1 text-[11px] text-muted-foreground/70">
@@ -57,10 +55,10 @@ function TaskRow({
   task,
   onContext,
 }: {
-  task: Task
+  task: Entity
   onContext: (e: React.MouseEvent) => void
 }) {
-  const [done, setDone] = useState(task.completed)
+  const [done, setDone] = useState(!!task.completed)
   const { openTask, stack } = useZeroNav()
 
   // This row stays mounted while its window is open, and it carries the shared
@@ -126,7 +124,7 @@ function TaskRow({
           >
             {task.title}
           </motion.span>
-          {task.tags.length > 0 && (
+          {task.tags && task.tags.length > 0 && (
             <span className="mt-0.5 truncate text-[11px] text-muted-foreground/70">
               {task.tags.map((t) => `#${t}`).join("  ")}
             </span>
@@ -138,7 +136,7 @@ function TaskRow({
             {task.dueDate}
           </span>
         )}
-        <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", priorityDot[task.priority])} />
+        <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", priorityDot[task.priority ?? "medium"])} />
       </motion.div>
     </li>
   )
@@ -158,10 +156,12 @@ function EventRow({
 }) {
   const { openSpace, stack } = useZeroNav()
   const event = item.event!
+  // An event's container is its origin parent space.
+  const eventSpaceId = event.parentId ?? "s_root"
 
   // While morphable and its space is open as a frame, release the shared
   // layoutId to the frame (see TaskRow note) via an inert placeholder.
-  if (morphable && stack.includes(event.spaceId)) {
+  if (morphable && stack.includes(eventSpaceId)) {
     return (
       <li>
         <div
@@ -173,7 +173,7 @@ function EventRow({
   }
 
   const morphProps = morphable
-    ? { layoutId: spaceLayoutId(event.spaceId), transition: layerTransition }
+    ? { layoutId: spaceLayoutId(eventSpaceId), transition: layerTransition }
     : {
         layout: true as const,
         initial: { opacity: 0, y: 4 },
@@ -187,7 +187,7 @@ function EventRow({
       <motion.button
         type="button"
         {...morphProps}
-        onClick={() => openSpace(event.spaceId)}
+        onClick={() => openSpace(eventSpaceId)}
         onContextMenu={onContext}
         style={{ borderRadius: 4 }}
         whileHover={{ scale: 1.02, boxShadow: "0 12px 28px -10px rgba(0,0,0,0.28)" }}
@@ -200,7 +200,7 @@ function EventRow({
           {event.title}
         </span>
         <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground/70">
-          {fmtTime(event.start)}
+          {fmtTime(event.start ?? 0)}
         </span>
       </motion.button>
     </li>
@@ -260,7 +260,7 @@ function SpaceRow({
           transition={layerTransition}
           className="min-w-0 flex-1 truncate text-[13px] tracking-tight text-foreground"
         >
-          {space.name}
+          {space.title}
         </motion.span>
         <OpenTaskCount spaceId={space.id} />
       </motion.button>
@@ -383,8 +383,8 @@ export function TaskList({ spaceId }: { spaceId: string }) {
                   key={it.id}
                   item={it}
                   morphable={
-                    !spaceRowIds.has(it.event!.spaceId) &&
-                    !isPinned(spaceId, it.event!.spaceId)
+                    !spaceRowIds.has(it.event!.parentId ?? "s_root") &&
+                    !isPinned(spaceId, it.event!.parentId ?? "s_root")
                   }
                   onContext={(e) => openMenu(e, it)}
                 />
