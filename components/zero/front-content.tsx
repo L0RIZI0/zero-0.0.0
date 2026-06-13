@@ -2,10 +2,9 @@
 
 import { motion } from "motion/react"
 import { useZeroNav } from "@/lib/zero/nav-store"
-import { getSpace, getSpaceAssets, getEntity } from "@/lib/zero/data"
+import { getSpaceAssets } from "@/lib/zero/data"
 import { layerTransition } from "@/lib/zero/motion"
 import { headerHeightFor } from "@/lib/zero/layout"
-import { TimelineStrip } from "./timeline-strip"
 import { SpacesRow } from "./spaces-row"
 import { TaskList } from "./task-list"
 import { AssetPanel } from "./asset-panel"
@@ -13,21 +12,18 @@ import { OutputPanel } from "./output-panel"
 import { CollapsibleColumn } from "./collapsible-column"
 
 /**
- * The persistent, frontmost work content. Exactly one instance of the timeline,
- * spaces row, task list, Inputs panel, and Outputs panel lives here for the
- * whole app — they never unmount as the user dives between windows, they only
- * re-filter to the active node. This layer sits ABOVE the window frames
- * (Layer B); the frame's border + off-white fill read as a ring behind it, and
- * the frame owns only the title band (top), so this layer insets its top to
- * clear it. The timeline's top offset animates down to sit below the child's
- * title/description.
+ * The persistent, frontmost work content. Exactly one instance of the spaces
+ * row, task list, Inputs panel, and Outputs panel lives here for the whole app —
+ * they never unmount as the user dives between windows, they only re-filter to
+ * the active node. This layer sits ABOVE the window frames (Layer B); the
+ * frame's border + off-white fill read as a ring behind it, and the frame owns
+ * only the title band (top), so this layer animates its top down to clear the
+ * child's title/description. The timeline is NOT here — it is pinned above this
+ * whole region by WorkSurface, so the focus window opens beneath it.
  */
 export function FrontContent() {
   const { activeNode } = useZeroNav()
   const contextSpaceId = activeNode.contextSpaceId
-  // The context is now the active node itself (which may be a task/event, not a
-  // space), so fall back to the entity's own accent when it isn't a space.
-  const accent = getSpace(contextSpaceId)?.accent ?? getEntity(contextSpaceId)?.accent
   const assetCount = getSpaceAssets(contextSpaceId).length
 
   const headerHeight = headerHeightFor(activeNode)
@@ -36,16 +32,15 @@ export function FrontContent() {
     // pointer-events-none so the window frame's header controls (close, title)
     // remain clickable through the gaps; interactive children opt back in.
     <div className="pointer-events-none absolute inset-0 flex flex-col px-6 pb-5">
+      {/* Top spacer animates down to clear the active frame's title band. */}
       <motion.div
-        className="pointer-events-auto"
+        aria-hidden
         initial={false}
-        animate={{ marginTop: headerHeight }}
+        animate={{ height: headerHeight }}
         transition={layerTransition}
-      >
-        <TimelineStrip spaceId={contextSpaceId} accent={accent} />
-      </motion.div>
+      />
 
-      {/* Spaces row — between the timeline and the lists. Tasks have no
+      {/* Spaces row — between the title band and the lists. Tasks have no
           subspaces, and SpacesRow hides itself when the context has no
           children, so it renders nothing in those cases. */}
       {activeNode.kind === "space" && <SpacesRow contextSpaceId={contextSpaceId} />}
