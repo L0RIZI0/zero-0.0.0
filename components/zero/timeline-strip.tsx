@@ -322,7 +322,7 @@ export function TimelineStrip({
               Quarter, Month, Week, Day (top→bottom). The active span reads in
               full strength; the rest are discrete grey and brighten on hover.
               Skeleton for now — only "D" actually drives the view. */}
-          <div className="flex shrink-0 flex-col items-center justify-center gap-0.5 pl-0.5 pr-1">
+          <div className="flex shrink-0 flex-col items-center justify-center gap-[3px] pl-0.5 pr-1">
             {VIEWS.map(([key, label]) => (
               <button
                 key={key}
@@ -332,7 +332,7 @@ export function TimelineStrip({
                 aria-label={`${label} view`}
                 title={`${label} view`}
                 className={cn(
-                  "text-[10px] font-semibold leading-none tracking-wide transition-colors",
+                  "text-[9px] font-semibold leading-none tracking-wide transition-colors",
                   view === key
                     ? "text-foreground"
                     : "text-muted-foreground/40 hover:text-foreground/80",
