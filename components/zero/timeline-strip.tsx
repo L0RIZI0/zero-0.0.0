@@ -51,14 +51,9 @@ const dayVariants = {
 export function TimelineStrip({
   spaceId,
   accent,
-  stage = 0,
 }: {
   spaceId: string
   accent?: string
-  /** Shell dive stage (0 root, 1/2 deeper). At root the "Today" label floats
-   *  higher above the ruler; at stages 1/2 it drops to align with the hour
-   *  timestamps so the strip reads tighter as the chrome compacts. */
-  stage?: number
 }) {
   const { open, stack, dataVersion, requestPulse, openSourceOf, notifyDataChanged } = useZeroNav()
   const [menu, setMenu] = useState<ContextMenuState | null>(null)
@@ -131,11 +126,18 @@ export function TimelineStrip({
     return d
   }, [dayOffset])
 
-  const dayLabel = viewedDate.toLocaleDateString([], {
-    weekday: "long",
-    month: "short",
-    day: "numeric",
-  })
+  // Day label only shows when scrubbed OFF today. Adjacent days read as
+  // "Yesterday JUN 12" / "Tomorrow JUN 14"; anything further uses the user's
+  // own locale numeric date (mm/dd/yyyy in the US, dd/mm/yyyy elsewhere) via
+  // toLocaleDateString() with no forced locale.
+  const dayWord =
+    dayOffset === -1 ? "Yesterday" : dayOffset === 1 ? "Tomorrow" : null
+  const shortMonthDay = viewedDate
+    .toLocaleDateString([], { month: "short", day: "numeric" })
+    .toUpperCase()
+  const dayLabel = dayWord
+    ? `${dayWord} ${shortMonthDay}`
+    : viewedDate.toLocaleDateString()
 
   // A representative "now" marker for the prototype — only on today.
   const nowPct = ((13 * 60 + 5 - DAY_START) / SPAN) * 100
@@ -179,22 +181,10 @@ export function TimelineStrip({
           })}
         </div>
 
-        {/* day label — centered, riding in the same band as the hour ruler */}
+        {/* day label — only when scrubbed off today; hidden entirely on today
+            since the timeline already implies "now". */}
         <AnimatePresence initial={false} mode="wait">
-          {isToday ? (
-            <motion.div
-              key="today-label"
-              initial={false}
-              animate={{ opacity: 1, y: stage === 0 ? -14 : 0 }}
-              exit={{ opacity: 0, y: -4 }}
-              transition={layerTransition}
-              className="absolute inset-x-0 bottom-0 flex items-end justify-center"
-            >
-              <span className="bg-background px-1.5 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-                Today
-              </span>
-            </motion.div>
-          ) : (
+          {!isToday && (
             <motion.div
               key="day-label"
               initial={{ opacity: 0, y: -4 }}
