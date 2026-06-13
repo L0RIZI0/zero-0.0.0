@@ -54,36 +54,7 @@ export function ShellHeader() {
             ⌘K
           </kbd>
         </button>
-        <span className="whitespace-nowrap text-[20px] font-semibold tracking-tight text-foreground">
-          {/* Hourglass "z": a mirrored copy of the glyph sits precisely behind
-              the real one. The two diagonals cross into an X between the shared
-              top/bottom bars, reading as an hourglass. The back copy is
-              aria-hidden + non-selectable so only the front z catches a drag.
-              paint-order: stroke renders the thin stroke beneath the fill, so
-              the black border reads as an external outline. */}
-          <span className="relative inline-block">
-            <span
-              aria-hidden
-              className="pointer-events-none absolute inset-0 select-none [transform:scaleX(-1)]"
-              style={{
-                color: "#6b7280",
-                WebkitTextStroke: "1.5px #000",
-                paintOrder: "stroke",
-              }}
-            >
-              z
-            </span>
-            <span
-              className="relative"
-              style={{ WebkitTextStroke: "1.5px #000", paintOrder: "stroke" }}
-            >
-              z
-            </span>
-          </span>
-          <span style={{ WebkitTextStroke: "1.5px #000", paintOrder: "stroke" }}>
-            ero
-          </span>
-        </span>
+        <span className="text-[20px] font-semibold tracking-tight text-foreground">zero</span>
       </div>
     </header>
   )

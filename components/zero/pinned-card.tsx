@@ -102,27 +102,12 @@ export function PinnedCard({
     // layoutId element were the direct child instead, popLayout's absolute
     // positioning would collide with the layout projection and strand the card
     // at opacity:0 on close. The task-list rows use the same <li> wrapper trick.
-    //
-    // The wrapper itself also drops `pointer-events: none` while exiting: under
-    // popLayout this absolutely-positioned wrapper can be stranded ON TOP of the
-    // center column. Its child button fades to opacity:0, but the wrapper stays
-    // fully opaque to hit-testing — an invisible box that swallows every click
-    // in the center while the side columns stay live. Killing pointer events on
-    // exit makes any stranded wrapper click-through.
-    <motion.div
-      className="shrink-0"
-      initial={false}
-      animate={{ pointerEvents: "auto" }}
-      exit={{ pointerEvents: "none" }}
-    >
+    <div className="shrink-0">
       <motion.button
         type="button"
         {...morphProps}
         onClick={onOpen}
         onContextMenu={onContextMenu}
-        initial={false}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
         style={{ borderRadius: 4 }}
         whileHover={{ scale: 1.03, boxShadow: "0 14px 32px -12px rgba(0,0,0,0.3)" }}
         className="group relative flex h-[64px] w-[112px] flex-col justify-between overflow-hidden border border-border bg-card-solid px-2.5 py-2 text-left"
@@ -171,6 +156,6 @@ export function PinnedCard({
         >
           {item.title}
         </motion.h3>      </motion.button>
-    </motion.div>
+    </div>
   )
 }

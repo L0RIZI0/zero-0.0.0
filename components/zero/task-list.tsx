@@ -480,17 +480,22 @@ export function TaskList({ spaceId }: { spaceId: string }) {
 
       {/* Keyed by context: switching nodes hard-swaps the list (instant, no
           cross-fade) while add/remove within a context still animates. The
-          -mx-6/px-6 gutter cancels out visually but pushes the overflow clip
-          rectangle outward, giving the hover scale (and its drop shadow) room
-          so rows aren't cropped left/right by overflow-y's implicit x-clip. */}
+          -mx-2/px-2 gutter gives the hover scale room so rows aren't clipped
+          horizontally by overflow-y's implicit overflow-x clip. */}
       <ul
         key={spaceId}
-        className="-mx-6 flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto px-6 no-scrollbar"
+        className="-mx-2 flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto px-2 no-scrollbar"
       >
         <AnimatePresence initial={false} mode="popLayout">
-          {shown.length === 0
-            ? null
-            : shown.map((it) =>
+          {shown.length === 0 ? (
+            <li
+              key="empty"
+              className="px-2 py-5 text-center text-[12px] text-muted-foreground/60"
+            >
+              Let&apos;s do
+            </li>
+          ) : (
+            shown.map((it) =>
               it.kind === "task" ? (
                 <TaskRow key={it.id} task={it.task!} onContext={(e) => openMenu(e, it)} />
               ) : it.kind === "space" ? (
@@ -508,7 +513,8 @@ export function TaskList({ spaceId }: { spaceId: string }) {
                   onContext={(e) => openMenu(e, it)}
                 />
               ),
-            )}
+            )
+          )}
         </AnimatePresence>
       </ul>
 

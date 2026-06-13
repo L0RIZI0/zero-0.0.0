@@ -121,7 +121,7 @@ export function TaskFrame({
             type="button"
             onClick={onClose}
             aria-label={`Close ${task.title}`}
-            className="-mr-2 -mt-1 flex h-8 w-8 shrink-0 items-center justify-center text-muted-foreground transition-colors hover:text-foreground"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border bg-card/70 text-muted-foreground transition-colors hover:border-foreground/30 hover:text-foreground"
           >
             <X className="h-4 w-4" />
           </button>
