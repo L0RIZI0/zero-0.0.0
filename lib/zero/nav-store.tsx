@@ -134,6 +134,27 @@ export function ZeroNavProvider({
     setStack((prev) => (prev.length > 1 ? prev.slice(0, -1) : prev))
   }, [])
 
+  // Pressing Escape closes the current focus window (pops the top child),
+  // mirroring the close button. No-op at the root since there is nothing to
+  // collapse. We skip it while the user is mid-typing in a field so Escape can
+  // still serve its native role there.
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return
+      const el = e.target as HTMLElement | null
+      if (
+        el &&
+        (el.tagName === "INPUT" ||
+          el.tagName === "TEXTAREA" ||
+          el.isContentEditable)
+      )
+        return
+      setStack((prev) => (prev.length > 1 ? prev.slice(0, -1) : prev))
+    }
+    window.addEventListener("keydown", onKeyDown)
+    return () => window.removeEventListener("keydown", onKeyDown)
+  }, [])
+
   const goToDepth = useCallback((depth: number) => {
     setStack((prev) => prev.slice(0, Math.max(1, depth + 1)))
   }, [])
