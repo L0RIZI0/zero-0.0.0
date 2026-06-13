@@ -359,7 +359,7 @@ export function TimelineStrip({
               // A CSS transition on `gap` glides the shrink/expand smoothly —
               // more reliable than animating shorthand `gap` through motion.
               "transition-[gap] duration-300 ease-out",
-              stage === 2 ? "gap-[1px]" : "gap-[2px]",
+              stage === 2 ? "gap-[0px]" : stage === 1 ? "gap-[2px]" : "gap-[4px]",
             )}
           >
             {VIEWS.map(([key, label]) => (
