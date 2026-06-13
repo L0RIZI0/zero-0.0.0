@@ -50,11 +50,18 @@ export function shellStageFor(node: ActiveNode): ShellStage {
 /** Top padding above the timeline — shrinks as the shell compacts, so the
  *  timeline slides up closer to the header bar with each level of depth.
  *  Stages 1 and 2 ride higher now that the day label shares the hour ruler
- *  (which already removed a row of height from the whole strip). */
+ *  (which already removed a row of height from the whole strip).
+ *
+ *  NOTE: these are intentionally NOT deeply negative. The WorkSurface card is
+ *  `overflow-hidden` (to clip its rounded corners and the window frames), so
+ *  pulling the timeline far above the card's top edge clips the day label that
+ *  floats at the top of the strip. We keep the lift gentle so the label always
+ *  stays inside the card; the extra compaction at depth comes from the header
+ *  easing up (HEADER_PAD_Y) instead. */
 export const TIMELINE_TOP_PAD: Record<ShellStage, number> = {
-  0: -4,
-  1: -20,
-  2: -28,
+  0: 2,
+  1: 0,
+  2: -2,
 }
 
 /** Vertical padding of the header bar — the whole bar slides up as the user

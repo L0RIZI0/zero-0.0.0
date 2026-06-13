@@ -199,20 +199,17 @@ export function TimelineStrip({
     return d
   }, [dayOffset])
 
-  // Day label only shows when scrubbed OFF today. Adjacent days read as
-  // "Yesterday Jun 12" / "Tomorrow Jun 14"; anything further reads as a compact
-  // "MON 15 JUN" (weekday + day + month, all 3-letter caps), with the year
-  // appended only when it differs from the current one ("MON 15 JUN 2027").
-  const dayWord = dayOffset === -1 ? "Yesterday" : dayOffset === 1 ? "Tomorrow" : null
-  const shortMonthDay = viewedDate.toLocaleDateString([], { month: "short", day: "numeric" })
+  // Day label only shows when scrubbed OFF today. Every off-today day reads the
+  // same way (no special "Yesterday/Tomorrow" wording): a compact "MON JUN 15"
+  // (weekday + month + day, all 3-letter caps), with the year appended only
+  // when it differs from the current one ("MON JUN 15 2027").
   const dayLabel = useMemo(() => {
-    if (dayWord) return `${dayWord} ${shortMonthDay}`
     const weekday = new Intl.DateTimeFormat("en-US", { weekday: "short" }).format(viewedDate).toUpperCase()
-    const day = viewedDate.getDate()
     const month = new Intl.DateTimeFormat("en-US", { month: "short" }).format(viewedDate).toUpperCase()
+    const day = viewedDate.getDate()
     const sameYear = viewedDate.getFullYear() === new Date().getFullYear()
-    return `${weekday} ${day} ${month}${sameYear ? "" : ` ${viewedDate.getFullYear()}`}`
-  }, [dayWord, shortMonthDay, viewedDate])
+    return `${weekday} ${month} ${day}${sameYear ? "" : ` ${viewedDate.getFullYear()}`}`
+  }, [viewedDate])
 
   // Dynamic hour ruler: timestamps every 2h across the visible window,
   // including the night hours that scroll into view as the user drags.
@@ -346,7 +343,7 @@ export function TimelineStrip({
               Quarter, Month, Week, Day (top→bottom). The active span reads in
               full strength; the rest are discrete grey and brighten on hover.
               Skeleton for now — only "D" actually drives the view. */}
-          <div className="relative z-10 flex shrink-0 flex-col items-center justify-evenly bg-background py-0.5 pl-0.5 pr-[7px]">
+          <div className="relative z-10 flex shrink-0 flex-col items-center justify-center gap-[5px] bg-background pl-0.5 pr-[7px]">
             {VIEWS.map(([key, label]) => (
               <button
                 key={key}
@@ -356,13 +353,11 @@ export function TimelineStrip({
                 aria-label={`${label} view`}
                 title={`${label} view`}
                 className={cn(
-                  // The column fills the track height (parent is items-stretch)
-                  // and justify-evenly spreads the six letters with equal
-                  // breathing room — including space at the ends, so the top
-                  // letter (L) never clips the rail. A hover background gives
-                  // feedback on every letter, including the active one whose text
-                  // is already full strength and wouldn't change on color alone.
-                  "rounded-[3px] px-1 text-[8px] font-semibold leading-none tracking-wide transition-colors hover:bg-foreground/10",
+                  // Evenly-gapped letters with comfortable breathing room. A
+                  // hover background gives feedback on every letter, including
+                  // the active one whose text is already full strength and so
+                  // wouldn't change on a color-only hover.
+                  "rounded-[3px] px-1 py-0.5 text-[9px] font-semibold leading-none tracking-wide transition-colors hover:bg-foreground/10",
                   view === key
                     ? "text-foreground"
                     : "text-muted-foreground/40 hover:text-foreground/80",

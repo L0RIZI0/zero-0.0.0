@@ -23,13 +23,13 @@ function useClock() {
   const time = now
     ? now.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
     : ""
-  // Three-letter caps, e.g. "SAT" and "13 JUN" (day first, then month), to keep
+  // Three-letter caps, e.g. "SAT" and "JUN 13" (month first, then day), to keep
   // the bar compact.
   const weekday = now
     ? new Intl.DateTimeFormat("en-US", { weekday: "short" }).format(now).toUpperCase()
     : ""
   const monthDay = now
-    ? `${now.getDate()} ${new Intl.DateTimeFormat("en-US", { month: "short" }).format(now).toUpperCase()}`
+    ? new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" }).format(now).toUpperCase()
     : ""
 
   return { time, weekday, monthDay }
