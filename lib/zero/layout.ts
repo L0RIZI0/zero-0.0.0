@@ -53,6 +53,15 @@ export function shellStageFor(node: ActiveNode): ShellStage {
  *  (which already removed a row of height from the whole strip). */
 export const TIMELINE_TOP_PAD: Record<ShellStage, number> = {
   0: 16,
-  1: 2,
+  1: 0,
   2: 0,
+}
+
+/** Vertical padding of the header bar — the whole bar slides up as the user
+ *  dives. It already eases up a touch at stage 1 (no shrinking yet — that is
+ *  reserved for stage 2), then tightens fully when the chrome compacts. */
+export const HEADER_PAD_Y: Record<ShellStage, number> = {
+  0: 14,
+  1: 10,
+  2: 8,
 }
