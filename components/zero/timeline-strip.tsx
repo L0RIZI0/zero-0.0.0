@@ -200,12 +200,19 @@ export function TimelineStrip({
   }, [dayOffset])
 
   // Day label only shows when scrubbed OFF today. Adjacent days read as
-  // "Yesterday Jun 12" / "Tomorrow Jun 14"; anything further uses the user's
-  // own locale numeric date (mm/dd/yyyy in the US, dd/mm/yyyy elsewhere) via
-  // toLocaleDateString() with no forced locale.
+  // "Yesterday Jun 12" / "Tomorrow Jun 14"; anything further reads as a compact
+  // "MON 15 JUN" (weekday + day + month, all 3-letter caps), with the year
+  // appended only when it differs from the current one ("MON 15 JUN 2027").
   const dayWord = dayOffset === -1 ? "Yesterday" : dayOffset === 1 ? "Tomorrow" : null
   const shortMonthDay = viewedDate.toLocaleDateString([], { month: "short", day: "numeric" })
-  const dayLabel = dayWord ? `${dayWord} ${shortMonthDay}` : viewedDate.toLocaleDateString()
+  const dayLabel = useMemo(() => {
+    if (dayWord) return `${dayWord} ${shortMonthDay}`
+    const weekday = new Intl.DateTimeFormat("en-US", { weekday: "short" }).format(viewedDate).toUpperCase()
+    const day = viewedDate.getDate()
+    const month = new Intl.DateTimeFormat("en-US", { month: "short" }).format(viewedDate).toUpperCase()
+    const sameYear = viewedDate.getFullYear() === new Date().getFullYear()
+    return `${weekday} ${day} ${month}${sameYear ? "" : ` ${viewedDate.getFullYear()}`}`
+  }, [dayWord, shortMonthDay, viewedDate])
 
   // Dynamic hour ruler: timestamps every 2h across the visible window,
   // including the night hours that scroll into view as the user drags.
@@ -289,7 +296,7 @@ export function TimelineStrip({
               {/* Arrow points toward where "today" sits relative to the viewed
                   day: a future view (today is in the past) gets a left arrow,
                   a past view (today is in the future) gets a right arrow. */}
-              {dayOffset > 0 ? "\u2190 Back to Today" : "Back to Today \u2192"}
+              {dayOffset > 0 ? "\u2190 Today" : "Today \u2192"}
             </motion.button>
           )}
         </AnimatePresence>
