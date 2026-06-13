@@ -48,9 +48,11 @@ export function shellStageFor(node: ActiveNode): ShellStage {
 }
 
 /** Top padding above the timeline — shrinks as the shell compacts, so the
- *  timeline slides up closer to the header bar with each level of depth. */
+ *  timeline slides up closer to the header bar with each level of depth.
+ *  Stages 1 and 2 ride higher now that the day label shares the hour ruler
+ *  (which already removed a row of height from the whole strip). */
 export const TIMELINE_TOP_PAD: Record<ShellStage, number> = {
   0: 16,
-  1: 6,
+  1: 2,
   2: 0,
 }

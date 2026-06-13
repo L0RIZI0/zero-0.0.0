@@ -42,7 +42,7 @@ export function UserIdentity({
         <motion.span
           className="truncate font-semibold tracking-tight text-foreground"
           initial={false}
-          animate={{ fontSize: compact ? 15 : 17 }}
+          animate={{ fontSize: compact ? 13 : 15 }}
           transition={layerTransition}
         >
           {currentUser.name}

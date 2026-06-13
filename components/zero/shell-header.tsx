@@ -7,6 +7,7 @@ import { UserIdentity } from "./user-identity"
 import { useZeroNav } from "@/lib/zero/nav-store"
 import { shellStageFor } from "@/lib/zero/layout"
 import { layerTransition } from "@/lib/zero/motion"
+import { cn } from "@/lib/utils"
 
 function useClock() {
   const [now, setNow] = useState<Date | null>(null)
@@ -65,7 +66,15 @@ export function ShellHeader() {
       <div className="flex flex-1 items-center justify-end gap-3">
         <button
           type="button"
-          className="group flex items-center gap-1.5 rounded-full border border-border bg-card/60 px-2.5 py-1 text-muted-foreground transition-colors hover:border-foreground/20 hover:text-foreground"
+          className={cn(
+            "group flex items-center gap-1.5 rounded-full px-2.5 py-1 text-muted-foreground transition-colors",
+            // When compact the field is just the magnifying glass — its border
+            // and fill are hidden and only reappear on hover, keeping the
+            // collapsed control quiet. Expanded, the bordered pill always shows.
+            compact
+              ? "border border-transparent hover:border-foreground/20 hover:text-foreground"
+              : "border border-border bg-card/60 hover:border-foreground/20 hover:text-foreground",
+          )}
           aria-label="Search"
         >
           <Search className="h-3 w-3 shrink-0" />

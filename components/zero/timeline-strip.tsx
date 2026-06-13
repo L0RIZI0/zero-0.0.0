@@ -152,11 +152,29 @@ export function TimelineStrip({
 
   return (
     <section aria-label="Timeline" className="px-1">
-      {/* Fixed-height row so the label can fade in without pushing the timeline
-          down. On today, a static "Today" label sits centered above the track;
-          otherwise the viewed date shows with a "Today" button to jump back,
-          placed on the side it lies on relative to the viewed day. */}
-      <div className="relative h-4">
+      {/* Combined label band: the hour ruler and the day label share one row so
+          the timeline rides higher. On today the centered "Today" label falls
+          in the empty 2pm–4pm gap of the ruler; off today the date (+ "Today"
+          button) sits there instead. Labels carry a `bg-background` gutter so
+          they mask cleanly if they crowd an hour tick. */}
+      <div className="relative mb-1 h-4">
+        {/* hour labels — a static ruler aligned to the track width */}
+        <div className="absolute inset-0" style={{ marginLeft: 40, marginRight: 40 }}>
+          {hours.map((h) => {
+            const left = ((h - DAY_START) / SPAN) * 100
+            return (
+              <span
+                key={h}
+                className="absolute bottom-0 -translate-x-1/2 text-[10px] tabular-nums text-muted-foreground/60"
+                style={{ left: `${left}%` }}
+              >
+                {fmt(h)}
+              </span>
+            )
+          })}
+        </div>
+
+        {/* day label — centered, riding in the same band as the hour ruler */}
         <AnimatePresence initial={false} mode="wait">
           {isToday ? (
             <motion.div
@@ -167,7 +185,7 @@ export function TimelineStrip({
               transition={panelTransition}
               className="absolute inset-x-0 bottom-0 flex items-end justify-center"
             >
-              <span className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+              <span className="bg-background px-1.5 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
                 Today
               </span>
             </motion.div>
@@ -178,7 +196,7 @@ export function TimelineStrip({
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -4 }}
               transition={panelTransition}
-              className="absolute inset-x-0 top-0 flex items-center justify-center gap-2"
+              className="absolute inset-x-0 bottom-0 flex items-center justify-center gap-2"
             >
               {dayOffset > 0 ? (
                 <>
@@ -194,22 +212,6 @@ export function TimelineStrip({
             </motion.div>
           )}
         </AnimatePresence>
-      </div>
-
-      {/* hour labels — a static ruler ABOVE the track, aligned to its width */}
-      <div className="relative mb-1 h-3.5" style={{ marginLeft: 40, marginRight: 40 }}>
-        {hours.map((h) => {
-          const left = ((h - DAY_START) / SPAN) * 100
-          return (
-            <span
-              key={h}
-              className="absolute -translate-x-1/2 text-[10px] tabular-nums text-muted-foreground/60"
-              style={{ left: `${left}%` }}
-            >
-              {fmt(h)}
-            </span>
-          )
-        })}
       </div>
 
       {/* Full-bleed timeline: top/bottom borders run to the frame edges to
