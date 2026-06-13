@@ -52,7 +52,7 @@ export function shellStageFor(node: ActiveNode): ShellStage {
  *  Stages 1 and 2 ride higher now that the day label shares the hour ruler
  *  (which already removed a row of height from the whole strip). */
 export const TIMELINE_TOP_PAD: Record<ShellStage, number> = {
-  0: 16,
+  0: 6,
   1: 0,
   2: 0,
 }
