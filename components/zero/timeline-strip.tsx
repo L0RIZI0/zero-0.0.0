@@ -51,9 +51,14 @@ const dayVariants = {
 export function TimelineStrip({
   spaceId,
   accent,
+  stage = 0,
 }: {
   spaceId: string
   accent?: string
+  /** Shell dive stage (0 root, 1/2 deeper). At root the scrubbed-day label
+   *  floats higher above the ruler; at stages 1/2 it drops down onto the hour
+   *  timestamp level so the strip reads tighter as the chrome compacts. */
+  stage?: number
 }) {
   const { open, stack, dataVersion, requestPulse, openSourceOf, notifyDataChanged } = useZeroNav()
   const [menu, setMenu] = useState<ContextMenuState | null>(null)
@@ -132,9 +137,7 @@ export function TimelineStrip({
   // toLocaleDateString() with no forced locale.
   const dayWord =
     dayOffset === -1 ? "Yesterday" : dayOffset === 1 ? "Tomorrow" : null
-  const shortMonthDay = viewedDate
-    .toLocaleDateString([], { month: "short", day: "numeric" })
-    .toUpperCase()
+  const shortMonthDay = viewedDate.toLocaleDateString([], { month: "short", day: "numeric" })
   const dayLabel = dayWord
     ? `${dayWord} ${shortMonthDay}`
     : viewedDate.toLocaleDateString()
@@ -152,7 +155,7 @@ export function TimelineStrip({
     </button>
   )
   const dateText = (
-    <span className="text-[11px] font-medium uppercase tracking-[0.14em] text-foreground">
+    <span className="bg-background px-1.5 text-[11px] font-medium tracking-tight text-foreground">
       {dayLabel}
     </span>
   )
@@ -182,28 +185,29 @@ export function TimelineStrip({
         </div>
 
         {/* day label — only when scrubbed off today; hidden entirely on today
-            since the timeline already implies "now". */}
+            since the timeline already implies "now". The date text is centered
+            on the band independently; the "Today" jump-back link is absolutely
+            placed just beside it so it never shifts the centered label left or
+            right. At stage 0 the whole label floats higher above the ruler; at
+            stages 1/2 it drops onto the hour-timestamp level. */}
         <AnimatePresence initial={false} mode="wait">
           {!isToday && (
             <motion.div
               key="day-label"
               initial={{ opacity: 0, y: -4 }}
-              animate={{ opacity: 1, y: 0 }}
+              animate={{ opacity: 1, y: stage === 0 ? -16 : 0 }}
               exit={{ opacity: 0, y: -4 }}
               transition={panelTransition}
-              className="absolute inset-x-0 bottom-0 flex items-center justify-center gap-2"
+              className="absolute inset-x-0 bottom-0 flex items-center justify-center"
             >
-              {dayOffset > 0 ? (
-                <>
+              <div className="relative flex items-center justify-center">
+                {dateText}
+                {/* link sits to the right of the centered label without
+                    affecting its centering */}
+                <span className="absolute left-full ml-1 whitespace-nowrap">
                   {todayButton}
-                  {dateText}
-                </>
-              ) : (
-                <>
-                  {dateText}
-                  {todayButton}
-                </>
-              )}
+                </span>
+              </div>
             </motion.div>
           )}
         </AnimatePresence>

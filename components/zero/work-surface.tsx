@@ -50,7 +50,7 @@ export function WorkSurface() {
         animate={{ paddingTop: TIMELINE_TOP_PAD[stage] }}
         transition={layerTransition}
       >
-        <TimelineStrip spaceId={contextSpaceId} accent={accent} />
+        <TimelineStrip spaceId={contextSpaceId} accent={accent} stage={stage} />
       </motion.div>
 
       {/* Breadcrumb — between the timeline and the focus window. */}
