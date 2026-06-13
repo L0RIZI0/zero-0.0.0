@@ -296,7 +296,9 @@ export function TimelineStrip({
                       )}
                     >
                       <Arrow className="h-3 w-3" strokeWidth={2.75} />
-                      {stage !== 2 && <span>TODAY</span>}
+                      {/* Word only at the root; from the first child onward the
+                          chrome compacts to just the arrow. */}
+                      {stage === 0 && <span>TODAY</span>}
                     </button>
                   </span>
                 )
@@ -357,7 +359,7 @@ export function TimelineStrip({
               // A CSS transition on `gap` glides the shrink/expand smoothly —
               // more reliable than animating shorthand `gap` through motion.
               "transition-[gap] duration-300 ease-out",
-              stage === 2 ? "gap-[2px]" : "gap-[5px]",
+              stage === 2 ? "gap-[1px]" : "gap-[2px]",
             )}
           >
             {VIEWS.map(([key, label]) => (
