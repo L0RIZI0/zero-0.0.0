@@ -146,14 +146,16 @@ export function TimelineStrip({
   const isToday = dayOffset === 0
 
   // Smoothly animate the view to an absolute target (used by the arrows and the
-  // "Back to Today" link). A drag interrupts any running animation.
+  // "Back to Today" link). A fixed ~0.5s eased tween reads as a crisp scroll
+  // that accelerates then settles — a spring here was slightly overdamped and
+  // crawled to the target, which felt laggy. A drag interrupts any running
+  // animation.
   const animateView = (target: number) => {
     animRef.current?.stop()
     setViewMoving(true)
     animRef.current = animate(viewStart, target, {
-      type: "spring",
-      stiffness: 260,
-      damping: 34,
+      duration: 0.5,
+      ease: [0.32, 0.72, 0, 1],
       onUpdate: (v) => setViewStart(v),
       onComplete: () => setViewMoving(false),
     })
@@ -332,10 +334,10 @@ export function TimelineStrip({
                 aria-label={`${label} view`}
                 title={`${label} view`}
                 className={cn(
-                  // A subtle hover background gives feedback on every letter —
+                  // A hover background gives feedback on every letter —
                   // including the active one, whose text is already full
                   // strength and so wouldn't change on a color-only hover.
-                  "rounded-[3px] px-1 py-0.5 text-[9px] font-semibold leading-none tracking-wide transition-colors hover:bg-secondary/60",
+                  "rounded-[3px] px-1 py-0.5 text-[9px] font-semibold leading-none tracking-wide transition-colors hover:bg-foreground/10",
                   view === key
                     ? "text-foreground"
                     : "text-muted-foreground/40 hover:text-foreground/80",
