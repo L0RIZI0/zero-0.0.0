@@ -1,39 +1,35 @@
 "use client"
 
 import Image from "next/image"
+import { motion, AnimatePresence } from "motion/react"
 import { currentUser } from "@/lib/zero/data"
+import { layerTransition } from "@/lib/zero/motion"
 import { cn } from "@/lib/utils"
 
 /**
  * The identity of Space 0 — the user. Lives permanently in the top-left of the
- * shell header (slightly larger on Space 0, smaller once a layer is open).
+ * shell header. When `compact` (deep dives, shell stage 2+) the avatar shrinks
+ * by ~a third and the @handle is dropped, leaving a tidy avatar + name so the
+ * chrome stays discrete while the focus window gets more room.
  */
 export function UserIdentity({
-  size = "md",
+  compact = false,
   className,
 }: {
-  size?: "sm" | "md" | "lg"
+  compact?: boolean
   className?: string
 }) {
-  const avatar = {
-    sm: "h-7 w-7",
-    md: "h-9 w-9",
-    lg: "h-11 w-11",
-  }[size]
-  const name = {
-    sm: "text-[15px]",
-    md: "text-[17px]",
-    lg: "text-[22px]",
-  }[size]
-  const handle = {
-    sm: "text-[11px]",
-    md: "text-[12px]",
-    lg: "text-[13px]",
-  }[size]
+  // 36px at rest, 24px (~a third smaller) when compact.
+  const avatarSize = compact ? 24 : 36
 
   return (
     <div className={cn("flex min-w-0 items-center gap-2.5", className)}>
-      <span className={cn("relative shrink-0 overflow-hidden rounded-full border border-border", avatar)}>
+      <motion.span
+        className="relative shrink-0 overflow-hidden rounded-full border border-border"
+        initial={false}
+        animate={{ width: avatarSize, height: avatarSize }}
+        transition={layerTransition}
+      >
         <Image
           src={currentUser.avatarUrl ?? "/loris-avatar.png"}
           alt={`${currentUser.name} avatar`}
@@ -41,12 +37,30 @@ export function UserIdentity({
           sizes="44px"
           className="object-cover"
         />
-      </span>
+      </motion.span>
       <span className="flex min-w-0 flex-col leading-tight">
-        <span className={cn("truncate font-semibold tracking-tight text-foreground", name)}>
+        <motion.span
+          className="truncate font-semibold tracking-tight text-foreground"
+          initial={false}
+          animate={{ fontSize: compact ? 15 : 17 }}
+          transition={layerTransition}
+        >
           {currentUser.name}
-        </span>
-        <span className={cn("truncate text-muted-foreground/70", handle)}>@{currentUser.handle}</span>
+        </motion.span>
+        <AnimatePresence initial={false}>
+          {!compact && (
+            <motion.span
+              key="handle"
+              className="truncate text-[12px] text-muted-foreground/70"
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              exit={{ opacity: 0, height: 0 }}
+              transition={layerTransition}
+            >
+              @{currentUser.handle}
+            </motion.span>
+          )}
+        </AnimatePresence>
       </span>
     </div>
   )

@@ -28,3 +28,29 @@ export function headerHeightFor(node: ActiveNode): number {
   if (!node.isChild) return HEADER_ROOT
   return node.description ? HEADER_CHILD_WITH_DESCRIPTION : HEADER_CHILD
 }
+
+/**
+ * The "shell stage" — how compact the chrome (header bar + timeline lift)
+ * becomes as the user dives deeper. The whole interface reacts to depth:
+ *
+ *   stage 0  root (Space 0)      — everything full size, timeline rests low
+ *   stage 1  first child open    — timeline slides up toward the header bar
+ *   stage 2  second child (+)     — timeline lifts further AND the header bar
+ *                                   compacts (avatar shrinks, handle drops,
+ *                                   search collapses to its icon, logo shrinks)
+ *
+ * Depth 3 and beyond reuse stage 2 — no further push-up, for now.
+ */
+export type ShellStage = 0 | 1 | 2
+
+export function shellStageFor(node: ActiveNode): ShellStage {
+  return Math.min(node.depth, 2) as ShellStage
+}
+
+/** Top padding above the timeline — shrinks as the shell compacts, so the
+ *  timeline slides up closer to the header bar with each level of depth. */
+export const TIMELINE_TOP_PAD: Record<ShellStage, number> = {
+  0: 16,
+  1: 6,
+  2: 0,
+}

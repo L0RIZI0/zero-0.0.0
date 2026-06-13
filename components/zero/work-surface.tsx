@@ -1,7 +1,10 @@
 "use client"
 
+import { motion } from "motion/react"
 import { useZeroNav } from "@/lib/zero/nav-store"
 import { getSpace, getEntity } from "@/lib/zero/data"
+import { shellStageFor, TIMELINE_TOP_PAD } from "@/lib/zero/layout"
+import { layerTransition } from "@/lib/zero/motion"
 import { SpaceLayerStack } from "./space-layer-stack"
 import { FrontContent } from "./front-content"
 import { TimelineStrip } from "./timeline-strip"
@@ -33,12 +36,22 @@ export function WorkSurface() {
   // own accent when it isn't a space.
   const accent = getSpace(contextSpaceId)?.accent ?? getEntity(contextSpaceId)?.accent
 
+  // As the user dives deeper, the whole interface compacts: the timeline slides
+  // up toward the header bar (less top padding) at each stage.
+  const stage = shellStageFor(activeNode)
+
   return (
     <div className="relative flex h-full w-full flex-col overflow-hidden rounded-md bg-background">
-      {/* Persistent timeline — always pinned above the focus window. */}
-      <div className="shrink-0 px-6 pt-4">
+      {/* Persistent timeline — always pinned above the focus window. Its top
+          padding animates down with depth so it rises toward the header bar. */}
+      <motion.div
+        className="shrink-0 px-6"
+        initial={false}
+        animate={{ paddingTop: TIMELINE_TOP_PAD[stage] }}
+        transition={layerTransition}
+      >
         <TimelineStrip spaceId={contextSpaceId} accent={accent} />
-      </div>
+      </motion.div>
 
       {/* Breadcrumb — between the timeline and the focus window. */}
       <div className="shrink-0">
