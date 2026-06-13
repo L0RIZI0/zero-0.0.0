@@ -127,14 +127,16 @@ export function TimelineStrip({
   // Selected zoom span (skeleton — only "D" actually drives the view for now).
   const [view, setView] = useState<ViewKey>("D")
 
-  // True while the view is in motion (dragging or arrow-spring). The morph
-  // overlays carry a shared layoutId, so a spring layout transition makes them
-  // lag ~1s behind the instantly-positioned chip while the lifeline scrolls —
-  // reading as ghost duplicate chips. Rather than unmount/remount them (which
-  // caused the arrows to feel laggy as the overlay caught up on remount), we
-  // keep them mounted and switch their layout transition to instant while
-  // moving, so they track the chip exactly. The spring is restored once the
-  // view settles, so opening/closing a window still morphs smoothly.
+  // True while the view is in motion (dragging or arrow/Back-to-Today tween).
+  // The morph overlays carry a shared layoutId, and framer-motion re-measures
+  // every layoutId element on each render commit. Since the lifeline repositions
+  // every element via React state ~60×/sec during a programmatic scroll, that
+  // per-frame layout thrash drops frames and reads as a laggy "jump" (drag felt
+  // smooth only because the browser coalesces pointer events). View motion and
+  // window morphs never overlap, so while the view moves we drop the layoutId
+  // entirely (see the overlays below) — no measurement, no thrash — and restore
+  // it once settled so opening/closing a window still morphs smoothly. The
+  // instant transition is a belt-and-suspenders guard for the boundary frames.
   const [viewMoving, setViewMoving] = useState(false)
   const morphTransition = viewMoving ? { duration: 0 } : layerTransition
 
@@ -205,12 +207,22 @@ export function TimelineStrip({
   const shortMonthDay = viewedDate.toLocaleDateString([], { month: "short", day: "numeric" })
   const dayLabel = dayWord ? `${dayWord} ${shortMonthDay}` : viewedDate.toLocaleDateString()
 
-  // Dynamic hour ruler/gridlines: every 2h across the visible window, including
-  // the night hours that scroll into view as the user drags.
+  // Dynamic hour ruler: timestamps every 2h across the visible window,
+  // including the night hours that scroll into view as the user drags.
   const ticks = useMemo(() => {
     const first = Math.ceil(viewStart / 120) * 120
     const out: number[] = []
     for (let m = first; m <= viewStart + WINDOW_SPAN; m += 120) out.push(m)
+    return out
+  }, [viewStart])
+
+  // Gridlines every 1h (denser than the 2h timestamps). Lines on an even hour
+  // (where a timestamp sits) read as "major"; the in-between odd-hour lines are
+  // fainter so the 2h rhythm stays legible.
+  const gridTicks = useMemo(() => {
+    const first = Math.ceil(viewStart / 60) * 60
+    const out: number[] = []
+    for (let m = first; m <= viewStart + WINDOW_SPAN; m += 60) out.push(m)
     return out
   }, [viewStart])
 
@@ -364,14 +376,19 @@ export function TimelineStrip({
             ref={viewportRef}
             className="relative h-full flex-1 overflow-hidden border-x border-border bg-card/50"
           >
-            {/* hour gridlines */}
-            {ticks.map((m) => {
+            {/* hour gridlines — every 1h, with even-hour lines stronger than
+                the in-between odd-hour lines to preserve the 2h timestamp rhythm */}
+            {gridTicks.map((m) => {
               const left = pct(m)
               if (left < 0 || left > 100) return null
+              const isMajor = (m / 60) % 2 === 0
               return (
                 <div
                   key={m}
-                  className="pointer-events-none absolute bottom-0 top-0 w-px bg-border/60"
+                  className={cn(
+                    "pointer-events-none absolute bottom-0 top-0 w-px",
+                    isMajor ? "bg-border/60" : "bg-border/25",
+                  )}
                   style={{ left: `${left}%` }}
                 />
               )
@@ -457,13 +474,13 @@ export function TimelineStrip({
                     </motion.button>
                     {showMorphOverlay && (
                       <motion.div
-                        layoutId={instantLayoutId(e.id)}
+                        layoutId={viewMoving ? undefined : instantLayoutId(e.id)}
                         transition={morphTransition}
                         aria-hidden
                         className="pointer-events-none absolute left-1/2 top-0 -translate-x-1/2"
                       >
                         <motion.span
-                          layoutId={instantTitleId(e.id)}
+                          layoutId={viewMoving ? undefined : instantTitleId(e.id)}
                           transition={morphTransition}
                           className="sr-only"
                         >
@@ -539,13 +556,17 @@ export function TimelineStrip({
                       frame), leaving the persistent chip behind. */}
                   {showMorphOverlay && (
                     <motion.div
-                      layoutId={eventLayoutId(e.id)}
+                      layoutId={viewMoving ? undefined : eventLayoutId(e.id)}
                       transition={morphTransition}
                       aria-hidden
                       className="pointer-events-none absolute inset-0 flex h-5 items-center overflow-hidden rounded-sm border-l-2 px-1.5 text-[10.5px] tracking-tight text-foreground/90 backdrop-blur-sm"
                       style={chipVisual}
                     >
-                      <motion.span layoutId={eventTitleId(e.id)} transition={morphTransition} className="truncate">
+                      <motion.span
+                        layoutId={viewMoving ? undefined : eventTitleId(e.id)}
+                        transition={morphTransition}
+                        className="truncate"
+                      >
                         {e.title}
                       </motion.span>
                     </motion.div>
