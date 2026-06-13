@@ -53,8 +53,8 @@ export function shellStageFor(node: ActiveNode): ShellStage {
  *  (which already removed a row of height from the whole strip). */
 export const TIMELINE_TOP_PAD: Record<ShellStage, number> = {
   0: -4,
-  1: -12,
-  2: -18,
+  1: -20,
+  2: -28,
 }
 
 /** Vertical padding of the header bar — the whole bar slides up as the user
