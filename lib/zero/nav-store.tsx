@@ -1,6 +1,6 @@
 "use client"
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react"
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react"
 import { getEntity, hydrateFromStorage } from "./data"
 import type { EntityKind } from "./types"
 
@@ -87,6 +87,13 @@ export const isInstantId = (id: string) => {
   return kind ? kind === "instant" : id.startsWith("i")
 }
 
+/**
+ * Minimum spacing between consecutive layer closes. Tuned just under the layer
+ * morph's perceived settle time so queued closes feel snappy yet never overlap
+ * into a multi-frame flash.
+ */
+const CLOSE_STAGGER_MS = 240
+
 const ZeroNavContext = createContext<ZeroNavContextValue | null>(null)
 
 export function ZeroNavProvider({
@@ -130,14 +137,49 @@ export function ZeroNavProvider({
     [sources],
   )
 
+  // Closing is serialized. Each layer collapse is a shared-element morph (~0.4s)
+  // kept mounted by AnimatePresence while it animates out. Firing several closes
+  // at once (rapid Escape / clicks) left multiple layers mid-exit and visible
+  // simultaneously, reading as a brief "all children open" overlap flash. We
+  // pop at most one layer per stagger window and queue any extra requests, so
+  // each layer exits cleanly on its own before the next begins.
+  const closeLockRef = useRef(false)
+  const pendingCloseRef = useRef(0)
+  const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
   const closeSpace = useCallback(() => {
+    if (closeLockRef.current) {
+      // A close is already animating — remember this request and run it next.
+      pendingCloseRef.current += 1
+      return
+    }
+    closeLockRef.current = true
     setStack((prev) => (prev.length > 1 ? prev.slice(0, -1) : prev))
+
+    const release = () => {
+      if (pendingCloseRef.current > 0) {
+        pendingCloseRef.current -= 1
+        setStack((prev) => (prev.length > 1 ? prev.slice(0, -1) : prev))
+        closeTimerRef.current = setTimeout(release, CLOSE_STAGGER_MS)
+      } else {
+        closeLockRef.current = false
+      }
+    }
+    closeTimerRef.current = setTimeout(release, CLOSE_STAGGER_MS)
+  }, [])
+
+  // Clear any pending stagger timer on unmount.
+  useEffect(() => {
+    return () => {
+      if (closeTimerRef.current) clearTimeout(closeTimerRef.current)
+    }
   }, [])
 
   // Pressing Escape closes the current focus window (pops the top child),
-  // mirroring the close button. No-op at the root since there is nothing to
-  // collapse. We skip it while the user is mid-typing in a field so Escape can
-  // still serve its native role there.
+  // mirroring the close button — and routes through the same serialized
+  // closeSpace so rapid presses don't overlap. No-op at the root since there is
+  // nothing to collapse. We skip it while the user is mid-typing in a field so
+  // Escape can still serve its native role there.
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return
@@ -149,11 +191,11 @@ export function ZeroNavProvider({
           el.isContentEditable)
       )
         return
-      setStack((prev) => (prev.length > 1 ? prev.slice(0, -1) : prev))
+      closeSpace()
     }
     window.addEventListener("keydown", onKeyDown)
     return () => window.removeEventListener("keydown", onKeyDown)
-  }, [])
+  }, [closeSpace])
 
   const goToDepth = useCallback((depth: number) => {
     setStack((prev) => prev.slice(0, Math.max(1, depth + 1)))
