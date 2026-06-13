@@ -322,7 +322,7 @@ export function TimelineStrip({
               Quarter, Month, Week, Day (top→bottom). The active span reads in
               full strength; the rest are discrete grey and brighten on hover.
               Skeleton for now — only "D" actually drives the view. */}
-          <div className="flex shrink-0 flex-col items-center justify-center gap-[5px] pl-0.5 pr-1">
+          <div className="relative z-10 flex shrink-0 flex-col items-center justify-center gap-[4px] bg-background pl-0.5 pr-1">
             {VIEWS.map(([key, label]) => (
               <button
                 key={key}
