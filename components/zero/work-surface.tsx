@@ -47,7 +47,7 @@ export function WorkSurface() {
       <motion.div
         className="shrink-0 px-6"
         initial={false}
-        animate={{ paddingTop: TIMELINE_TOP_PAD[stage] }}
+        animate={{ marginTop: TIMELINE_TOP_PAD[stage] }}
         transition={layerTransition}
       >
         <TimelineStrip spaceId={contextSpaceId} accent={accent} />
