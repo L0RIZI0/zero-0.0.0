@@ -2,7 +2,7 @@
 
 import { useMemo, useRef, useState } from "react"
 import { AnimatePresence, motion, animate } from "motion/react"
-import { ChevronLeft, ChevronRight, Trash2, Ban, RotateCcw } from "lucide-react"
+import { ChevronLeft, ChevronRight, ArrowLeft, ArrowRight, Trash2, Ban, RotateCcw } from "lucide-react"
 import {
   getInheritedAccent,
   getSpaceEvents,
@@ -263,12 +263,12 @@ export function TimelineStrip({
         </div>
 
         {/* Off-today controls — only shown when scrubbed off today, since the
-            timeline already implies "now". The day label and the "Today" jump
-            link share one centered row. The link's hooked arrow (↰ left-and-up /
-            ↱ right-and-up) points back toward "today", which lives up at the very
-            top of the screen — and the link sits on whichever side that arrow
-            points, as a directional cue. At stage 2 the chrome is most compact,
-            so the link is just the arrow. */}
+            timeline already implies "now". The day label stays PERFECTLY
+            centered in the gap; the "Today" jump link is hung absolutely off the
+            label's edge so appending it never shifts the label. The link's arrow
+            points back toward "today" — a future view (today in the past) gets a
+            left arrow + link on the LEFT; a past view gets a right arrow + link
+            on the RIGHT. At stage 2 (most compact) the link is just the arrow. */}
         <AnimatePresence initial={false}>
           {!isToday && (
             <motion.div
@@ -277,37 +277,28 @@ export function TimelineStrip({
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -4 }}
               transition={panelTransition}
-              className="absolute inset-x-0 top-0 bottom-3.5 flex items-center justify-center gap-1.5 bg-background"
+              className="absolute inset-x-0 top-0 bottom-3.5 flex items-center justify-center bg-background"
             >
-              {/* todayIsLeft: future view (today is in the past) → hook points
-                  left-and-up and the link sits to the LEFT of the label. */}
               {(() => {
                 const todayIsLeft = dayOffset > 0
-                const arrow = todayIsLeft ? "\u21B0" : "\u21B1"
-                const link = (
-                  <button
-                    type="button"
-                    onClick={goToday}
-                    aria-label="Back to today"
-                    title="Back to today"
-                    className="whitespace-nowrap rounded-md px-1 text-[10px] leading-none text-muted-foreground/70 transition-colors hover:text-foreground"
-                  >
-                    {stage === 2 ? arrow : todayIsLeft ? `${arrow} Today` : `Today ${arrow}`}
-                  </button>
-                )
-                const label = (
-                  <span className="text-[11px] font-medium tracking-tight text-foreground">{dayLabel}</span>
-                )
-                return todayIsLeft ? (
-                  <>
-                    {link}
-                    {label}
-                  </>
-                ) : (
-                  <>
-                    {label}
-                    {link}
-                  </>
+                const Arrow = todayIsLeft ? ArrowLeft : ArrowRight
+                return (
+                  <span className="relative text-[11px] font-medium tracking-tight text-foreground">
+                    {dayLabel}
+                    <button
+                      type="button"
+                      onClick={goToday}
+                      aria-label="Back to today"
+                      title="Back to today"
+                      className={cn(
+                        "absolute top-1/2 flex -translate-y-1/2 items-center gap-0.5 whitespace-nowrap rounded-md px-1 text-[10px] font-medium leading-none text-muted-foreground/70 transition-colors hover:text-foreground",
+                        todayIsLeft ? "right-full mr-1" : "left-full ml-1 flex-row-reverse",
+                      )}
+                    >
+                      <Arrow className="h-3 w-3" strokeWidth={2.75} />
+                      {stage !== 2 && <span>TODAY</span>}
+                    </button>
+                  </span>
                 )
               })()}
             </motion.div>
@@ -361,9 +352,11 @@ export function TimelineStrip({
               Skeleton for now — only "D" actually drives the view. */}
           <div
             className={cn(
-              // Evenly-gapped vertical list; the spread tightens at stage 2
-              // where the chrome is most compact.
               "relative z-10 flex shrink-0 flex-col items-center justify-center bg-background pl-0.5 pr-[7px]",
+              // The spread tightens at stage 2 where the chrome is most compact.
+              // A CSS transition on `gap` glides the shrink/expand smoothly —
+              // more reliable than animating shorthand `gap` through motion.
+              "transition-[gap] duration-300 ease-out",
               stage === 2 ? "gap-[2px]" : "gap-[5px]",
             )}
           >

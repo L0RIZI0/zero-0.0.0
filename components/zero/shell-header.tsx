@@ -46,7 +46,11 @@ export function ShellHeader() {
 
   return (
     <motion.header
-      className="flex items-center justify-between gap-4 px-5"
+      // relative z-40 keeps the header's painted content (avatar, handle,
+      // search, logo) ABOVE the timeline, which now bleeds upward into the
+      // header row with z-30 at depth. The header has no background, so the
+      // timeline's centered day label still shows through the empty center gap.
+      className="relative z-40 flex items-center justify-between gap-4 px-5"
       initial={false}
       animate={{ paddingTop: HEADER_PAD_Y[stage], paddingBottom: HEADER_PAD_Y[stage] }}
       transition={layerTransition}
