@@ -239,11 +239,12 @@ export function TimelineStrip({
     <section aria-label="Timeline" className="px-1">
       {/* Label band sits in the gap above the hour ruler. The hour ruler is
           anchored to the BOTTOM (the "timestamp level"). When scrubbed off
-          today the gap stacks two centered rows: the "Today" jump link on top
-          (closest to the date/time header) and the day label beneath it. The
+          today the day label and the "Today" jump link sit on a single centered
+          row in the gap (the link flanks the label on the side its arrow points)
+          — keeping the band short so it stays clear of the date/time header. The
           zoom selector no longer lives here — it is a vertical list on the far
           left, beside the arrows. */}
-      <div className="relative mb-1 h-12">
+      <div className="relative mb-1 h-10">
         {/* hour ruler — anchored to the bottom, aligned to the track width */}
         <div className="absolute inset-x-0 bottom-0 h-3.5" style={{ marginLeft: 40, marginRight: 40 }}>
           {ticks.map((m) => {
@@ -262,9 +263,12 @@ export function TimelineStrip({
         </div>
 
         {/* Off-today controls — only shown when scrubbed off today, since the
-            timeline already implies "now". Two centered rows stacked in the gap
-            above the ruler: the "Today" jump link on top (nearest the date/time
-            header) and the day label beneath it. */}
+            timeline already implies "now". The day label and the "Today" jump
+            link share one centered row. The link's hooked arrow (↰ left-and-up /
+            ↱ right-and-up) points back toward "today", which lives up at the very
+            top of the screen — and the link sits on whichever side that arrow
+            points, as a directional cue. At stage 2 the chrome is most compact,
+            so the link is just the arrow. */}
         <AnimatePresence initial={false}>
           {!isToday && (
             <motion.div
@@ -273,30 +277,39 @@ export function TimelineStrip({
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -4 }}
               transition={panelTransition}
-              className="absolute inset-x-0 top-0 bottom-3.5 flex flex-col items-center justify-center gap-0.5"
+              className="absolute inset-x-0 top-0 bottom-3.5 flex items-center justify-center gap-1.5 bg-background"
             >
-              <button
-                type="button"
-                onClick={goToday}
-                aria-label="Back to today"
-                title="Back to today"
-                className="whitespace-nowrap rounded-md bg-background px-1.5 text-[10px] text-muted-foreground/70 transition-colors hover:text-foreground"
-              >
-                {/* Arrow points toward where "today" sits relative to the viewed
-                    day: a future view (today is in the past) gets a left arrow,
-                    a past view (today is in the future) gets a right arrow. At
-                    stage 2 the chrome is most compact, so only the arrow shows. */}
-                {stage === 2
-                  ? dayOffset > 0
-                    ? "\u2190"
-                    : "\u2192"
-                  : dayOffset > 0
-                    ? "\u2190 Today"
-                    : "Today \u2192"}
-              </button>
-              <span className="bg-background px-1.5 text-[11px] font-medium tracking-tight text-foreground">
-                {dayLabel}
-              </span>
+              {/* todayIsLeft: future view (today is in the past) → hook points
+                  left-and-up and the link sits to the LEFT of the label. */}
+              {(() => {
+                const todayIsLeft = dayOffset > 0
+                const arrow = todayIsLeft ? "\u21B0" : "\u21B1"
+                const link = (
+                  <button
+                    type="button"
+                    onClick={goToday}
+                    aria-label="Back to today"
+                    title="Back to today"
+                    className="whitespace-nowrap rounded-md px-1 text-[10px] leading-none text-muted-foreground/70 transition-colors hover:text-foreground"
+                  >
+                    {stage === 2 ? arrow : todayIsLeft ? `${arrow} Today` : `Today ${arrow}`}
+                  </button>
+                )
+                const label = (
+                  <span className="text-[11px] font-medium tracking-tight text-foreground">{dayLabel}</span>
+                )
+                return todayIsLeft ? (
+                  <>
+                    {link}
+                    {label}
+                  </>
+                ) : (
+                  <>
+                    {label}
+                    {link}
+                  </>
+                )
+              })()}
             </motion.div>
           )}
         </AnimatePresence>
