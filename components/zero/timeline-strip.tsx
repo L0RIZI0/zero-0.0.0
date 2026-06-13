@@ -78,6 +78,11 @@ export function TimelineStrip({
   const { open, stack, dataVersion, requestPulse, openSourceOf, notifyDataChanged } = useZeroNav()
   const [menu, setMenu] = useState<ContextMenuState | null>(null)
 
+  // Shell compaction stage (0 root, 1 one child, 2 two+ children), mirroring
+  // shellStageFor. Drives the most compact treatments — e.g. the "Today" link
+  // collapses to just its arrow and the zoom selector tightens at stage 2.
+  const stage = Math.min(stack.length - 1, 2)
+
   // Right-click any marker: cancel/restore (events & instants) or delete it.
   const openMenu = (e: React.MouseEvent, entity: Entity) => {
     e.preventDefault()
@@ -233,12 +238,12 @@ export function TimelineStrip({
   return (
     <section aria-label="Timeline" className="px-1">
       {/* Label band sits in the gap above the hour ruler. The hour ruler is
-          anchored to the BOTTOM (the "timestamp level"); when scrubbed off
-          today the day label floats centered in the middle of the gap, with the
-          "Back to Today" link at the timestamp level below it. The zoom
-          selector no longer lives here — it is a vertical list on the far left,
-          beside the arrows. */}
-      <div className="relative mb-1 h-10">
+          anchored to the BOTTOM (the "timestamp level"). When scrubbed off
+          today the gap stacks two centered rows: the "Today" jump link on top
+          (closest to the date/time header) and the day label beneath it. The
+          zoom selector no longer lives here — it is a vertical list on the far
+          left, beside the arrows. */}
+      <div className="relative mb-1 h-12">
         {/* hour ruler — anchored to the bottom, aligned to the track width */}
         <div className="absolute inset-x-0 bottom-0 h-3.5" style={{ marginLeft: 40, marginRight: 40 }}>
           {ticks.map((m) => {
@@ -256,45 +261,43 @@ export function TimelineStrip({
           })}
         </div>
 
-        {/* day label — only when scrubbed off today, since the timeline
-            already implies "now". Centered in the middle of the gap. */}
+        {/* Off-today controls — only shown when scrubbed off today, since the
+            timeline already implies "now". Two centered rows stacked in the gap
+            above the ruler: the "Today" jump link on top (nearest the date/time
+            header) and the day label beneath it. */}
         <AnimatePresence initial={false}>
           {!isToday && (
             <motion.div
-              key="day-label"
+              key="off-today-controls"
               initial={{ opacity: 0, y: -4 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -4 }}
               transition={panelTransition}
-              className="absolute inset-x-0 top-0 bottom-3.5 flex items-center justify-center"
+              className="absolute inset-x-0 top-0 bottom-3.5 flex flex-col items-center justify-center gap-0.5"
             >
+              <button
+                type="button"
+                onClick={goToday}
+                aria-label="Back to today"
+                title="Back to today"
+                className="whitespace-nowrap rounded-md bg-background px-1.5 text-[10px] text-muted-foreground/70 transition-colors hover:text-foreground"
+              >
+                {/* Arrow points toward where "today" sits relative to the viewed
+                    day: a future view (today is in the past) gets a left arrow,
+                    a past view (today is in the future) gets a right arrow. At
+                    stage 2 the chrome is most compact, so only the arrow shows. */}
+                {stage === 2
+                  ? dayOffset > 0
+                    ? "\u2190"
+                    : "\u2192"
+                  : dayOffset > 0
+                    ? "\u2190 Today"
+                    : "Today \u2192"}
+              </button>
               <span className="bg-background px-1.5 text-[11px] font-medium tracking-tight text-foreground">
                 {dayLabel}
               </span>
             </motion.div>
-          )}
-        </AnimatePresence>
-
-        {/* "Back to Today" — centered at the timestamp level, landing in the
-            empty mid-day stretch of the ruler. Independent of the label so it
-            never shifts it. */}
-        <AnimatePresence initial={false}>
-          {!isToday && (
-            <motion.button
-              key="back-to-today"
-              type="button"
-              onClick={goToday}
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={panelTransition}
-              className="absolute bottom-0 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-md bg-background px-1.5 text-[10px] text-muted-foreground/70 transition-colors hover:text-foreground"
-            >
-              {/* Arrow points toward where "today" sits relative to the viewed
-                  day: a future view (today is in the past) gets a left arrow,
-                  a past view (today is in the future) gets a right arrow. */}
-              {dayOffset > 0 ? "\u2190 Today" : "Today \u2192"}
-            </motion.button>
           )}
         </AnimatePresence>
       </div>
@@ -343,7 +346,14 @@ export function TimelineStrip({
               Quarter, Month, Week, Day (top→bottom). The active span reads in
               full strength; the rest are discrete grey and brighten on hover.
               Skeleton for now — only "D" actually drives the view. */}
-          <div className="relative z-10 flex shrink-0 flex-col items-center justify-center gap-[5px] bg-background pl-0.5 pr-[7px]">
+          <div
+            className={cn(
+              // Evenly-gapped vertical list; the spread tightens at stage 2
+              // where the chrome is most compact.
+              "relative z-10 flex shrink-0 flex-col items-center justify-center bg-background pl-0.5 pr-[7px]",
+              stage === 2 ? "gap-[2px]" : "gap-[5px]",
+            )}
+          >
             {VIEWS.map(([key, label]) => (
               <button
                 key={key}
