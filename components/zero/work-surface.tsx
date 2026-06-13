@@ -41,11 +41,17 @@ export function WorkSurface() {
   const stage = shellStageFor(activeNode)
 
   return (
-    <div className="relative flex h-full w-full flex-col overflow-hidden rounded-md bg-background">
+    // NOTE: the card is NOT `overflow-hidden`. Clipping lives on the focus-window
+    // region below instead, so the timeline can ride UP past the card's top edge
+    // (toward the header) at deeper stages without being cropped. `rounded-md`
+    // still rounds the card's own background; only the window region needs to
+    // clip its scaled-up parent frames.
+    <div className="relative flex h-full w-full flex-col rounded-md bg-background">
       {/* Persistent timeline — always pinned above the focus window. Its top
-          padding animates down with depth so it rises toward the header bar. */}
+          margin animates negative with depth so it rises toward (and slightly
+          into) the header bar. Not clipped by the card, so it never crops. */}
       <motion.div
-        className="shrink-0 px-6"
+        className="relative z-30 shrink-0 px-6"
         initial={false}
         animate={{ marginTop: TIMELINE_TOP_PAD[stage] }}
         transition={layerTransition}
@@ -58,8 +64,11 @@ export function WorkSurface() {
         <PathStack />
       </div>
 
-      {/* Focus-window region — the window opens here, beneath the timeline. */}
-      <div className="relative min-h-0 flex-1">
+      {/* Focus-window region — the window opens here, beneath the timeline.
+          This wrapper owns the clipping (rounded + overflow-hidden) that used to
+          live on the card root, so the scaled-up parent frames still fade past
+          the edges while the timeline above stays free to overflow upward. */}
+      <div className="relative min-h-0 flex-1 overflow-hidden rounded-md">
         {/* Layer B — window frames (root renders no frame, just transparent). */}
         <div className="absolute inset-0 z-10">
           <SpaceLayerStack />
