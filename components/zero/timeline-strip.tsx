@@ -36,6 +36,17 @@ const WINDOW_SPAN = DEFAULT_END - DEFAULT_START // 840
 // "Now" for the prototype: today at 1:05pm, in absolute minutes.
 const NOW_ABS = 13 * 60 + 5
 
+// Timeline zoom spans. Only "D" (the default 8am–10pm day view) is wired up for
+// now; the rest are a skeleton — selecting them just moves the highlight.
+const VIEWS = [
+  ["D", "Day"],
+  ["W", "Week"],
+  ["M", "Month"],
+  ["Q", "Quarter"],
+  ["Y", "Year"],
+] as const
+type ViewKey = (typeof VIEWS)[number][0]
+
 // Fallback color for items whose space chain has no accent (i.e. created
 // directly under the root "Space 0"). A neutral light grey so they still read
 // as real markers without claiming a brand color.
@@ -110,6 +121,16 @@ export function TimelineStrip({
   const viewportRef = useRef<HTMLDivElement | null>(null)
   const animRef = useRef<ReturnType<typeof animate> | null>(null)
 
+  // Selected zoom span (skeleton — only "D" actually drives the view for now).
+  const [view, setView] = useState<ViewKey>("D")
+
+  // True while the view is in motion (dragging or arrow-spring). The morph
+  // overlays carry a shared layoutId and therefore lag ~1s behind the instantly
+  // -positioned chip whenever the lifeline scrolls — reading as ghost duplicate
+  // chips. We unmount them while the view moves (no morph can happen mid-scroll
+  // anyway) so only the crisp persistent chips travel with the timeline.
+  const [viewMoving, setViewMoving] = useState(false)
+
   // Absolute-minute → percentage across the viewport.
   const pct = (abs: number) => ((abs - viewStart) / WINDOW_SPAN) * 100
 
@@ -121,11 +142,13 @@ export function TimelineStrip({
   // "Back to Today" link). A drag interrupts any running animation.
   const animateView = (target: number) => {
     animRef.current?.stop()
+    setViewMoving(true)
     animRef.current = animate(viewStart, target, {
       type: "spring",
       stiffness: 260,
       damping: 34,
       onUpdate: (v) => setViewStart(v),
+      onComplete: () => setViewMoving(false),
     })
   }
 
@@ -142,6 +165,7 @@ export function TimelineStrip({
   const startDrag = (e: React.PointerEvent) => {
     if (e.button !== 0) return
     animRef.current?.stop()
+    setViewMoving(true)
     const width = viewportRef.current?.getBoundingClientRect().width ?? 1
     const startX = e.clientX
     const startView = viewStart
@@ -150,6 +174,7 @@ export function TimelineStrip({
       setViewStart(startView - deltaMin)
     }
     const up = () => {
+      setViewMoving(false)
       window.removeEventListener("pointermove", move)
       window.removeEventListener("pointerup", up)
     }
@@ -183,11 +208,12 @@ export function TimelineStrip({
   return (
     <section aria-label="Timeline" className="px-1">
       {/* Label band sits in the gap above the hour ruler. The hour ruler is
-          anchored to the BOTTOM (the "timestamp level"); when scrubbed off
-          today the day label floats up in the middle of the gap and the
-          "Back to Today" link sits centered at the timestamp level beneath it,
-          landing in the empty mid-day stretch of the ruler. */}
-      <div className="relative mb-1 h-8">
+          anchored to the BOTTOM (the "timestamp level"). Vertically centered
+          controls sit just above it: the D/W/M/Q/Y zoom selector always, and —
+          only when scrubbed off today — the day label below the selector. When
+          the label appears it pushes the selector up (a slow layout shift), so
+          on today the selector simply rests where the label usually would. */}
+      <div className="relative mb-1 h-12">
         {/* hour ruler — anchored to the bottom, aligned to the track width */}
         <div className="absolute inset-x-0 bottom-0 h-3.5" style={{ marginLeft: 40, marginRight: 40 }}>
           {ticks.map((m) => {
@@ -205,30 +231,68 @@ export function TimelineStrip({
           })}
         </div>
 
-        {/* day label + "Back to Today" — only when scrubbed off today, since the
-            timeline already implies "now". Both are centered independently so
-            the link never shifts the label. */}
+        {/* Centered control stack, bottom-aligned just above the ruler. */}
+        <div className="absolute inset-x-0 bottom-3.5 top-0 flex flex-col items-center justify-end gap-1">
+          {/* D W M Q Y zoom selector — single capital letters, discrete grey;
+              the active span reads in full strength, the rest are dimmed and
+              brighten on hover. Skeleton for now: only "D" drives the view. */}
+          <motion.div layout transition={panelTransition} className="flex items-center gap-3">
+            {VIEWS.map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setView(key)}
+                aria-pressed={view === key}
+                aria-label={`${label} view`}
+                title={`${label} view`}
+                className={cn(
+                  "text-[11px] font-semibold leading-none tracking-wide transition-colors",
+                  view === key
+                    ? "text-foreground"
+                    : "text-muted-foreground/40 hover:text-foreground/80",
+                )}
+              >
+                {key}
+              </button>
+            ))}
+          </motion.div>
+
+          {/* day label — only when scrubbed off today, since the timeline
+              already implies "now". */}
+          <AnimatePresence initial={false}>
+            {!isToday && (
+              <motion.span
+                key="day-label"
+                layout
+                initial={{ opacity: 0, y: -4 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -4 }}
+                transition={panelTransition}
+                className="bg-background px-1.5 text-[11px] font-medium tracking-tight text-foreground"
+              >
+                {dayLabel}
+              </motion.span>
+            )}
+          </AnimatePresence>
+        </div>
+
+        {/* "Back to Today" — centered at the timestamp level, landing in the
+            empty mid-day stretch of the ruler. Independent of the label so it
+            never shifts it. */}
         <AnimatePresence initial={false}>
           {!isToday && (
-            <motion.div
-              key="day-label"
-              initial={{ opacity: 0, y: -4 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -4 }}
+            <motion.button
+              key="back-to-today"
+              type="button"
+              onClick={goToday}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
               transition={panelTransition}
-              className="pointer-events-none absolute inset-0"
+              className="absolute bottom-0 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-md bg-background px-1.5 text-[10px] text-muted-foreground/70 transition-colors hover:text-foreground"
             >
-              <span className="absolute left-1/2 top-0 -translate-x-1/2 bg-background px-1.5 text-[11px] font-medium tracking-tight text-foreground">
-                {dayLabel}
-              </span>
-              <button
-                type="button"
-                onClick={goToday}
-                className="pointer-events-auto absolute bottom-0 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-md bg-background px-1.5 text-[10px] text-muted-foreground/70 transition-colors hover:text-foreground"
-              >
-                Back to Today
-              </button>
-            </motion.div>
+              Back to Today
+            </motion.button>
           )}
         </AnimatePresence>
       </div>
@@ -333,6 +397,10 @@ export function TimelineStrip({
               // matches it (grey items keep a readable label).
               const color = getInheritedAccent(eventSpaceId)
               const markerColor = color ?? NEUTRAL_MARKER
+              // Reserved for the upcoming "highlight a child's related events"
+              // step — we no longer dim by relevance, but will soon emphasize
+              // related markers instead.
+              // eslint-disable-next-line @typescript-eslint/no-unused-vars
               const related = isInSubtree(spaceId, eventSpaceId)
               const isOpen = stack.includes(e.id)
               const lane = i % 2
@@ -344,8 +412,12 @@ export function TimelineStrip({
                 // The timeline marker only lends its shared layoutId to the
                 // frame when the window was opened FROM the timeline. If it was
                 // opened from the DO-list row, the row owns the morph, so the
-                // marker stays put (no overlay handed off).
-                const showMorphOverlay = !isOpen || openSourceOf(e.id) !== "timeline"
+                // marker stays put (no overlay handed off). We also drop the
+                // overlay entirely while the view is scrolling, so it can't
+                // lag behind as a ghost duplicate.
+                const showMorphOverlay = isOpen
+                  ? openSourceOf(e.id) !== "timeline"
+                  : !viewMoving
                 return (
                   <div
                     key={e.id}
@@ -355,9 +427,10 @@ export function TimelineStrip({
                     <motion.button
                       type="button"
                       initial={false}
-                      animate={{
-                        opacity: (isOpen || related ? 1 : 0.25) * (e.cancelled ? 0.45 : 1),
-                      }}
+                      // Markers are never dimmed by relevance anymore — the
+                      // user's whole schedule stays clear regardless of which
+                      // child is open. Only a cancelled marker reads faded.
+                      animate={{ opacity: e.cancelled ? 0.45 : 1 }}
                       transition={panelTransition}
                       onClick={() => (isOpen ? requestPulse(e.id) : open(e.id, "timeline"))}
                       onContextMenu={(ev) => openMenu(ev, e)}
@@ -378,7 +451,6 @@ export function TimelineStrip({
                         transition={layerTransition}
                         aria-hidden
                         className="pointer-events-none absolute left-1/2 top-0 -translate-x-1/2"
-                        style={{ opacity: related ? 1 : 0.25 }}
                       >
                         <motion.span
                           layoutId={instantTitleId(e.id)}
@@ -403,17 +475,23 @@ export function TimelineStrip({
               // layoutId) lives on the timeline whenever the event isn't open.
               // If the event was opened from its DO-list row, the row owns the
               // morph, so the timeline keeps its overlay. Because the chip below
-              // never owns a layoutId, navigation never slides it.
-              const showMorphOverlay = !isOpen || openSourceOf(e.id) !== "timeline"
+              // never owns a layoutId, navigation never slides it. The overlay
+              // is dropped while the view scrolls so it can't lag behind as a
+              // ghost duplicate of the crisp persistent chip.
+              const showMorphOverlay = isOpen
+                ? openSourceOf(e.id) !== "timeline"
+                : !viewMoving
 
               const boxStyle = {
                 left: `calc(${left}% + 2px)`,
                 width: `calc(${Math.max(width, 6)}% - 4px)`,
                 top: lane === 0 ? 6 : 28,
               } as const
+              // Brighter fill now that the overlay no longer doubles up on top
+              // of the chip — keeps the chips popping on their own.
               const chipVisual = {
                 borderLeftColor: markerColor,
-                backgroundColor: color ? `${color}26` : "var(--secondary)",
+                backgroundColor: color ? `${color}40` : "var(--secondary)",
               } as const
 
               return (
@@ -425,12 +503,10 @@ export function TimelineStrip({
                   <motion.button
                     type="button"
                     initial={false}
-                    // The open event IS the current focus, so its chip stays lit
-                    // like any related item; unrelated events dim. A cancelled
-                    // event dims further on top of that.
-                    animate={{
-                      opacity: (isOpen || related ? 1 : 0.25) * (e.cancelled ? 0.45 : 1),
-                    }}
+                    // Chips are never dimmed by relevance anymore — the user's
+                    // whole schedule stays clear regardless of which child is
+                    // open. Only a cancelled event reads faded.
+                    animate={{ opacity: e.cancelled ? 0.45 : 1 }}
                     transition={panelTransition}
                     onClick={() => (isOpen ? requestPulse(e.id) : open(e.id, "timeline"))}
                     onContextMenu={(ev) => openMenu(ev, e)}
@@ -458,7 +534,7 @@ export function TimelineStrip({
                       transition={layerTransition}
                       aria-hidden
                       className="pointer-events-none absolute inset-0 flex h-5 items-center overflow-hidden rounded-sm border-l-2 px-1.5 text-[10.5px] tracking-tight text-foreground/90 backdrop-blur-sm"
-                      style={{ ...chipVisual, opacity: related ? 1 : 0.25 }}
+                      style={chipVisual}
                     >
                       <motion.span layoutId={eventTitleId(e.id)} transition={layerTransition} className="truncate">
                         {e.title}
