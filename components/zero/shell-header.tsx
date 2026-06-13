@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { motion, AnimatePresence } from "motion/react"
+import { motion } from "motion/react"
 import { Search } from "lucide-react"
 import { UserIdentity } from "./user-identity"
 import { useZeroNav } from "@/lib/zero/nav-store"
@@ -23,11 +23,12 @@ function useClock() {
   const time = now
     ? now.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
     : ""
+  // Three-letter caps, e.g. "SAT" and "JUN 13", to keep the bar compact.
   const weekday = now
-    ? new Intl.DateTimeFormat("en-US", { weekday: "long" }).format(now)
+    ? new Intl.DateTimeFormat("en-US", { weekday: "short" }).format(now).toUpperCase()
     : ""
   const monthDay = now
-    ? new Intl.DateTimeFormat("en-US", { month: "long", day: "numeric" }).format(now)
+    ? new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" }).format(now).toUpperCase()
     : ""
 
   return { time, weekday, monthDay }
@@ -84,29 +85,28 @@ export function ShellHeader() {
           aria-label="Search"
         >
           <Search className="h-3 w-3 shrink-0" />
-          {/* When compact, the search field collapses to just its magnifying
-              glass — the label + shortcut animate away. The inter-icon gap lives
-              INSIDE this collapsing element (as left padding) rather than as a
-              `gap` on the button, so when AnimatePresence unmounts it there is
-              no leftover flex gap to collapse — which was causing the glass to
-              snap sideways at the end of the stage-2 transition. */}
-          <AnimatePresence initial={false}>
-            {!compact && (
-              <motion.span
-                key="search-label"
-                className="flex items-center gap-1.5 overflow-hidden whitespace-nowrap pl-1.5"
-                initial={{ opacity: 0, width: 0 }}
-                animate={{ opacity: 1, width: "auto" }}
-                exit={{ opacity: 0, width: 0 }}
-                transition={layerTransition}
-              >
-                <span className="hidden text-[11.5px] md:inline">Search</span>
-                <kbd className="hidden rounded border border-border px-1 py-0.5 font-mono text-[9px] text-muted-foreground/80 md:inline">
-                  ⌘K
-                </kbd>
-              </motion.span>
-            )}
-          </AnimatePresence>
+          {/* The label collapses to zero when compact, leaving just the glass.
+              We animate a NUMERIC maxWidth (not width:"auto") on an
+              always-mounted element: animating to "auto" makes framer-motion
+              measure a target pixel width once, but the sibling "zero" logo
+              shrinks at the same time and reflows the row, so that measurement
+              goes stale and snaps on the final frame — the jump you saw. A
+              fixed numeric target springs cleanly and never re-measures. */}
+          <motion.span
+            className="flex items-center gap-1.5 overflow-hidden whitespace-nowrap"
+            initial={false}
+            animate={{
+              maxWidth: compact ? 0 : 80,
+              opacity: compact ? 0 : 1,
+              paddingLeft: compact ? 0 : 6,
+            }}
+            transition={layerTransition}
+          >
+            <span className="hidden text-[11.5px] md:inline">Search</span>
+            <kbd className="hidden rounded border border-border px-1 py-0.5 font-mono text-[9px] text-muted-foreground/80 md:inline">
+              ⌘K
+            </kbd>
+          </motion.span>
         </button>
         <motion.span
           className="font-semibold tracking-tight text-foreground"

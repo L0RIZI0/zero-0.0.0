@@ -51,9 +51,14 @@ const dayVariants = {
 export function TimelineStrip({
   spaceId,
   accent,
+  stage = 0,
 }: {
   spaceId: string
   accent?: string
+  /** Shell dive stage (0 root, 1/2 deeper). At root the "Today" label floats
+   *  higher above the ruler; at stages 1/2 it drops to align with the hour
+   *  timestamps so the strip reads tighter as the chrome compacts. */
+  stage?: number
 }) {
   const { open, stack, dataVersion, requestPulse, openSourceOf, notifyDataChanged } = useZeroNav()
   const [menu, setMenu] = useState<ContextMenuState | null>(null)
@@ -179,10 +184,10 @@ export function TimelineStrip({
           {isToday ? (
             <motion.div
               key="today-label"
-              initial={{ opacity: 0, y: -4 }}
-              animate={{ opacity: 1, y: 0 }}
+              initial={false}
+              animate={{ opacity: 1, y: stage === 0 ? -14 : 0 }}
               exit={{ opacity: 0, y: -4 }}
-              transition={panelTransition}
+              transition={layerTransition}
               className="absolute inset-x-0 bottom-0 flex items-end justify-center"
             >
               <span className="bg-background px-1.5 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
