@@ -18,18 +18,7 @@ import {
 } from "@/lib/zero/data"
 import type { Entity, TaskPriority } from "@/lib/zero/types"
 import { useZeroNav, useRowSelection, ADD_KEY } from "@/lib/zero/nav-store"
-import {
-  layerTransition,
-  taskLayoutId,
-  taskTitleId,
-  spaceLayoutId,
-  spaceTitleId,
-  eventRowLayoutId,
-  eventRowTitleId,
-  instantRowLayoutId,
-  instantRowTitleId,
-  glyphId,
-} from "@/lib/zero/motion"
+import { layerTransition } from "@/lib/zero/motion"
 import { NodeGlyph, NODE_KIND_META, type NodeKind } from "./node-glyph"
 import { ContextMenu, type ContextMenuState } from "./context-menu"
 import { cn } from "@/lib/utils"
@@ -77,32 +66,20 @@ function TaskRow({
   onContext: (e: React.MouseEvent) => void
 }) {
   const [done, setDone] = useState(!!task.completed)
-  const { openTask, stack } = useZeroNav()
+  const { openTask } = useZeroNav()
   const { lift, hoverProps, ref } = useRowSelection("list", task.id)
 
-  // This row stays mounted while its window is open, and it carries the shared
-  // taskLayoutId. If it kept that layoutId while the frame is also open, TWO
-  // elements would own the same layoutId and Framer's frame-expand morph breaks
-  // (the frame opens with no chrome). So while open, swap in an inert
-  // placeholder so the layoutId lives only on the active frame. (The dock's
-  // PinnedCard is different — it unmounts on open and uses no layoutId at all.)
-  if (stack.includes(task.id)) {
-    return (
-      <li>
-        <div
-          aria-hidden
-          className="h-[42px] w-full rounded-sm border border-dashed border-border/60 bg-secondary/30"
-        />
-      </li>
-    )
-  }
-
+  // The row is the morph SOURCE: it stays a plain element, tagged with
+  // data-morph-source so the opening window can measure its box and grow out of
+  // it (and shrink back into it on close). No shared layoutId / placeholder swap
+  // — the window covers the row once it grows, and the home body keeps the row
+  // mounted underneath. The `scale` lift is safe now that nothing projects a
+  // transform onto this node.
   return (
     <li>
       <motion.div
         ref={ref as React.Ref<HTMLDivElement>}
-        layoutId={taskLayoutId(task.id)}
-        transition={layerTransition}
+        data-morph-source={task.id}
         style={{ borderRadius: 4 }}
         onContextMenu={onContext}
         {...hoverProps}
@@ -120,13 +97,9 @@ function TaskRow({
           }}
           className={cn(GLYPH_BOX, "relative text-foreground")}
         >
-          <motion.span
-            layoutId={glyphId(task.id)}
-            transition={layerTransition}
-            className="flex items-center justify-center"
-          >
+          <span className="flex items-center justify-center">
             <NodeGlyph kind="task" filled={done} strokeWidth={2} />
-          </motion.span>
+          </span>
           {done && (
             <Check
               className="absolute h-2.5 w-2.5 text-background"
@@ -140,16 +113,14 @@ function TaskRow({
           onClick={() => openTask(task.id)}
           className="flex min-w-0 flex-1 flex-col text-left"
         >
-          <motion.span
-            layoutId={taskTitleId(task.id)}
-            transition={layerTransition}
+          <span
             className={cn(
               "truncate text-[13px] tracking-tight transition-colors",
               done ? "text-muted-foreground/60 line-through" : "text-foreground",
             )}
           >
             {task.title}
-          </motion.span>
+          </span>
           {task.tags && task.tags.length > 0 && (
             <span className="mt-0.5 truncate text-[11px] text-muted-foreground/70">
               {task.tags.map((t) => `#${t}`).join("  ")}
@@ -182,33 +153,23 @@ function EventRow({
   item: ContextItem
   onContext: (e: React.MouseEvent) => void
 }) {
-  const { open, stack, openSourceOf } = useZeroNav()
+  const { open } = useZeroNav()
   const event = item.event!
   const hasRange = typeof event.start === "number" && typeof event.end === "number"
   const cancelled = !!event.cancelled
   const { lift, hoverProps, ref } = useRowSelection("list", event.id)
 
-  // When opened FROM this row, hand the row layoutId to the frame so the morph
-  // reads as the row growing into the window. (If it was opened from the
-  // timeline instead, the row stays put and the timeline owns the morph.)
-  if (stack.includes(event.id) && openSourceOf(event.id) === "row") {
-    return (
-      <li>
-        <div
-          aria-hidden
-          className="h-[42px] w-full rounded-sm border border-dashed border-border/60 bg-secondary/30"
-        />
-      </li>
-    )
-  }
-
+  // Plain morph source. An event lives in two places at once (this row and its
+  // timeline marker), so it is tagged with data-morph-where="row" — opening from
+  // here grows the window out of THIS row, while opening from the timeline grows
+  // it from the marker. No layoutId / placeholder swap.
   return (
     <li>
       <motion.button
         ref={ref as React.Ref<HTMLButtonElement>}
         type="button"
-        layoutId={eventRowLayoutId(event.id)}
-        transition={layerTransition}
+        data-morph-source={event.id}
+        data-morph-where="row"
         onClick={() => open(event.id, "row")}
         onContextMenu={onContext}
         {...hoverProps}
@@ -224,16 +185,14 @@ function EventRow({
         <span className={cn(GLYPH_BOX, "text-foreground")}>
           <NodeGlyph kind="event" />
         </span>
-        <motion.span
-          layoutId={eventRowTitleId(event.id)}
-          transition={layerTransition}
+        <span
           className={cn(
             "min-w-0 flex-1 truncate text-[13px] tracking-tight text-foreground",
             cancelled && "line-through",
           )}
         >
           {event.title}
-        </motion.span>
+        </span>
         <OpenTaskCount spaceId={event.id} />
         {hasRange && (
           <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground/70">
@@ -258,30 +217,20 @@ function InstantRow({
   item: ContextItem
   onContext: (e: React.MouseEvent) => void
 }) {
-  const { open, stack, openSourceOf } = useZeroNav()
+  const { open } = useZeroNav()
   const instant = item.entity
   const hasMoment = typeof instant.at === "number"
   const cancelled = !!instant.cancelled
   const { lift, hoverProps, ref } = useRowSelection("list", instant.id)
 
-  if (stack.includes(instant.id) && openSourceOf(instant.id) === "row") {
-    return (
-      <li>
-        <div
-          aria-hidden
-          className="h-[42px] w-full rounded-sm border border-dashed border-border/60 bg-secondary/30"
-        />
-      </li>
-    )
-  }
-
+  // Plain morph source, tagged with where="row" (mirrors EventRow).
   return (
     <li>
       <motion.button
         ref={ref as React.Ref<HTMLButtonElement>}
         type="button"
-        layoutId={instantRowLayoutId(instant.id)}
-        transition={layerTransition}
+        data-morph-source={instant.id}
+        data-morph-where="row"
         onClick={() => open(instant.id, "row")}
         onContextMenu={onContext}
         {...hoverProps}
@@ -297,16 +246,14 @@ function InstantRow({
         <span className={cn(GLYPH_BOX, "text-foreground")}>
           <NodeGlyph kind="instant" />
         </span>
-        <motion.span
-          layoutId={instantRowTitleId(instant.id)}
-          transition={layerTransition}
+        <span
           className={cn(
             "min-w-0 flex-1 truncate text-[13px] tracking-tight text-foreground",
             cancelled && "line-through",
           )}
         >
           {instant.title}
-        </motion.span>
+        </span>
         <OpenTaskCount spaceId={instant.id} />
         {hasMoment && (
           <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground/70">
@@ -328,31 +275,18 @@ function SpaceRow({
   item: ContextItem
   onContext: (e: React.MouseEvent) => void
 }) {
-  const { openSpace, stack } = useZeroNav()
+  const { openSpace } = useZeroNav()
   const space = item.space!
   const accent = space.accent ?? "var(--muted-foreground)"
   const { lift, hoverProps, ref } = useRowSelection("list", space.id)
 
-  // While this space is open as a frame, release the shared layoutId to the
-  // frame (see TaskRow note) via an inert placeholder so the morph stays clean.
-  if (stack.includes(space.id)) {
-    return (
-      <li>
-        <div
-          aria-hidden
-          className="h-[42px] w-full rounded-sm border border-dashed border-border/60 bg-secondary/30"
-        />
-      </li>
-    )
-  }
-
+  // Plain morph source (the window grows from this row's box on open).
   return (
     <li>
       <motion.button
         ref={ref as React.Ref<HTMLButtonElement>}
         type="button"
-        layoutId={spaceLayoutId(space.id)}
-        transition={layerTransition}
+        data-morph-source={space.id}
         onClick={() => openSpace(space.id)}
         onContextMenu={onContext}
         {...hoverProps}
@@ -362,26 +296,16 @@ function SpaceRow({
         }}
         className="group relative flex w-full items-center gap-3 overflow-hidden border border-border bg-card-solid px-2.5 py-2 text-left"
       >
-        <motion.span
-          layoutId={`${spaceLayoutId(space.id)}-accent`}
-          transition={layerTransition}
+        <span
           className="absolute left-0 top-0 h-full w-[3px]"
           style={{ backgroundColor: accent }}
         />
-        <motion.span
-          layoutId={glyphId(space.id)}
-          transition={layerTransition}
-          className={cn(GLYPH_BOX, "text-foreground")}
-        >
+        <span className={cn(GLYPH_BOX, "text-foreground")}>
           <NodeGlyph kind="space" />
-        </motion.span>
-        <motion.span
-          layoutId={spaceTitleId(space.id)}
-          transition={layerTransition}
-          className="min-w-0 flex-1 truncate text-[13px] tracking-tight text-foreground"
-        >
+        </span>
+        <span className="min-w-0 flex-1 truncate text-[13px] tracking-tight text-foreground">
           {space.title}
-        </motion.span>
+        </span>
         <OpenTaskCount spaceId={space.id} />
       </motion.button>
     </li>

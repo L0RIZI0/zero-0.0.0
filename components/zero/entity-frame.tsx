@@ -69,9 +69,11 @@ export function EntityFrame({
   const settleBox = mode === "open" ? targetRect : from
 
   const [box, setBox] = useState<Rect>(initialBox)
-  // Body is hidden while the box is small/animating and revealed once open; on
-  // close it hides immediately so only the header "thread" rides the shrink.
-  const [bodyVisible, setBodyVisible] = useState(false)
+  // Body visibility drives the content crossfade. OPEN: starts hidden (small box)
+  // and fades in once grown. CLOSING: starts VISIBLE at full size and fades out
+  // as the box shrinks — so the whole window appears to collapse into its source,
+  // not just a bare header thread.
+  const [bodyVisible, setBodyVisible] = useState(mode === "closing")
 
   useLayoutEffect(() => {
     const raf = requestAnimationFrame(() => {
@@ -82,7 +84,9 @@ export function EntityFrame({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const showBody = bodyVisible && isTop
+  // The frontmost open window shows its live body; the closing overlay shows a
+  // (fading) copy of its body so the shrink reads as the full window collapsing.
+  const showBody = bodyVisible && (isTop || mode === "closing")
   const hasRange = typeof entity.start === "number" && typeof entity.end === "number"
 
   return (

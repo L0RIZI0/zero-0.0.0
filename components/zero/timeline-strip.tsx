@@ -11,14 +11,7 @@ import {
   setEventCancelled,
 } from "@/lib/zero/data"
 import type { Entity } from "@/lib/zero/types"
-import {
-  panelTransition,
-  layerTransition,
-  eventLayoutId,
-  eventTitleId,
-  instantLayoutId,
-  instantTitleId,
-} from "@/lib/zero/motion"
+import { panelTransition, layerTransition } from "@/lib/zero/motion"
 import { useZeroNav } from "@/lib/zero/nav-store"
 import { NodeGlyph } from "./node-glyph"
 import { ContextMenu, type ContextMenuState } from "./context-menu"
@@ -75,7 +68,7 @@ export function TimelineStrip({
   spaceId: string
   accent?: string
 }) {
-  const { open, stack, dataVersion, requestPulse, openSourceOf, notifyDataChanged } = useZeroNav()
+  const { open, stack, dataVersion, requestPulse, notifyDataChanged } = useZeroNav()
   const [menu, setMenu] = useState<ContextMenuState | null>(null)
 
   // Shell compaction stage (0 root, 1 one child, 2 two+ children), mirroring
@@ -143,7 +136,6 @@ export function TimelineStrip({
   // it once settled so opening/closing a window still morphs smoothly. The
   // instant transition is a belt-and-suspenders guard for the boundary frames.
   const [viewMoving, setViewMoving] = useState(false)
-  const morphTransition = viewMoving ? { duration: 0 } : layerTransition
 
   // Absolute-minute → percentage across the viewport.
   const pct = (abs: number) => ((abs - viewStart) / WINDOW_SPAN) * 100
@@ -487,13 +479,10 @@ export function TimelineStrip({
               if (e.kind === "instant") {
                 const at = e.at ?? 0
                 const left = pct(at)
-                // The timeline marker only lends its shared layoutId to the
-                // frame when the window was opened FROM the timeline. If it was
-                // opened from the DO-list row, the row owns the morph, so the
-                // marker stays put (no overlay handed off). While the view
-                // scrolls the overlay stays mounted but tracks instantly (see
-                // morphTransition) so it can't lag behind as a ghost duplicate.
-                const showMorphOverlay = !isOpen || openSourceOf(e.id) !== "timeline"
+                // The marker is the timeline morph SOURCE: tagged with
+                // where="timeline" so opening from here grows the window out of
+                // this point (the DO-list row carries where="row" for the other
+                // entry path). No layoutId / overlay twin anymore.
                 return (
                   <div
                     key={e.id}
@@ -503,6 +492,8 @@ export function TimelineStrip({
                     <motion.button
                       type="button"
                       initial={false}
+                      data-morph-source={e.id}
+                      data-morph-where="timeline"
                       // Markers are never dimmed by relevance anymore — the
                       // user's whole schedule stays clear regardless of which
                       // child is open. Only a cancelled marker reads faded.
@@ -521,22 +512,6 @@ export function TimelineStrip({
                         <NodeGlyph kind="instant" filled strokeWidth={1.5} />
                       </span>
                     </motion.button>
-                    {showMorphOverlay && (
-                      <motion.div
-                        layoutId={viewMoving ? undefined : instantLayoutId(e.id)}
-                        transition={morphTransition}
-                        aria-hidden
-                        className="pointer-events-none absolute left-1/2 top-0 -translate-x-1/2"
-                      >
-                        <motion.span
-                          layoutId={viewMoving ? undefined : instantTitleId(e.id)}
-                          transition={morphTransition}
-                          className="sr-only"
-                        >
-                          {e.title}
-                        </motion.span>
-                      </motion.div>
-                    )}
                   </div>
                 )
               }
@@ -546,17 +521,6 @@ export function TimelineStrip({
               const end = e.end ?? start
               const left = pct(start)
               const width = ((end - start) / WINDOW_SPAN) * 100
-              // Events morph between the TIMELINE and their window when opened
-              // from the timeline. The overlay (which carries the shared
-              // layoutId) lives on the timeline whenever the event isn't open.
-              // If the event was opened from its DO-list row, the row owns the
-              // morph, so the timeline keeps its overlay. Because the chip below
-              // never owns a layoutId, navigation never slides it. While the
-              // view scrolls the overlay stays mounted but tracks instantly (see
-              // morphTransition) so it can't lag behind as a ghost duplicate of
-              // the crisp persistent chip.
-              const showMorphOverlay = !isOpen || openSourceOf(e.id) !== "timeline"
-
               const boxStyle = {
                 left: `calc(${left}% + 2px)`,
                 width: `calc(${Math.max(width, 6)}% - 4px)`,
@@ -571,13 +535,15 @@ export function TimelineStrip({
 
               return (
                 <div key={e.id} className="absolute h-5" style={boxStyle}>
-                  {/* Persistent chip — ALWAYS on the timeline. It never owns a
-                      layoutId, so it can't be morphed/slid away. Clicking an
-                      already-open event pulses its window instead of reopening;
-                      otherwise it opens the event. */}
+                  {/* Persistent chip — the timeline morph SOURCE. Tagged with
+                      where="timeline" so opening from here grows the window out
+                      of this chip's box. Clicking an already-open event pulses
+                      its window instead of reopening; otherwise it opens. */}
                   <motion.button
                     type="button"
                     initial={false}
+                    data-morph-source={e.id}
+                    data-morph-where="timeline"
                     // Chips are never dimmed by relevance anymore — the user's
                     // whole schedule stays clear regardless of which child is
                     // open. Only a cancelled event reads faded.
@@ -597,29 +563,6 @@ export function TimelineStrip({
                       {e.title}
                     </span>
                   </motion.button>
-
-                  {/* Morph overlay — a visual twin sitting exactly on top of the
-                      chip, carrying the shared layoutId so the expand animation
-                      reads as the chip growing into the window. It is
-                      non-interactive and unmounts on open (handing the id to the
-                      frame), leaving the persistent chip behind. */}
-                  {showMorphOverlay && (
-                    <motion.div
-                      layoutId={viewMoving ? undefined : eventLayoutId(e.id)}
-                      transition={morphTransition}
-                      aria-hidden
-                      className="pointer-events-none absolute inset-0 flex h-5 items-center overflow-hidden rounded-sm border-l-2 px-1.5 text-[10.5px] tracking-tight text-foreground/90 backdrop-blur-sm"
-                      style={chipVisual}
-                    >
-                      <motion.span
-                        layoutId={viewMoving ? undefined : eventTitleId(e.id)}
-                        transition={morphTransition}
-                        className="truncate"
-                      >
-                        {e.title}
-                      </motion.span>
-                    </motion.div>
-                  )}
                 </div>
               )
             })}
