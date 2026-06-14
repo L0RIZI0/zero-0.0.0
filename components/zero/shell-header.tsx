@@ -50,18 +50,23 @@ export function ShellHeader() {
       // search, logo) ABOVE the timeline, which now bleeds upward into the
       // header row with z-30 at depth. The header has no background, so the
       // timeline's centered day label still shows through the empty center gap.
-      className="relative z-40 flex items-center justify-between gap-4 px-5"
+      // pointer-events-none lets hovers/clicks fall through the header's empty
+      // areas to the timeline label / "Today" link underneath; the interactive
+      // side clusters re-enable pointer events on themselves.
+      className="pointer-events-none relative z-40 flex items-center justify-between gap-4 px-5"
       initial={false}
       animate={{ paddingTop: HEADER_PAD_Y[stage], paddingBottom: HEADER_PAD_Y[stage] }}
       transition={layerTransition}
     >
-      <div className="flex flex-1 items-center">
+      <div className="pointer-events-auto flex flex-1 items-center">
         <UserIdentity compact={compact} />
       </div>
 
       {/* Time/date: weekday on the left, time at the dead center of the bar,
           month+day on the right. The flanking weekday/date take equal flex
           basis so the time stays optically centered regardless of their width. */}
+      {/* Center date/time block inherits pointer-events-none from the header,
+          so hovers fall through to the timeline label/link underneath. */}
       <motion.div
         className="hidden flex-1 items-center justify-center gap-3 sm:flex"
         initial={false}
@@ -75,7 +80,7 @@ export function ShellHeader() {
         <span className="flex-1 truncate tracking-tight text-muted-foreground">{monthDay}</span>
       </motion.div>
 
-      <div className="flex flex-1 items-center justify-end gap-3">
+      <div className="pointer-events-auto flex flex-1 items-center justify-end gap-3">
         <button
           type="button"
           className={cn(

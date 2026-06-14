@@ -282,7 +282,11 @@ export function TimelineStrip({
             <motion.div
               key="off-today-controls"
               initial={{ opacity: 0, y: -4 }}
-              animate={{ opacity: 1, y: 0 }}
+              // Resting y nudges the centered label to sit optically balanced
+              // between the top date and the timestamps at each depth: a touch
+              // higher at the root, then progressively lower as the band tightens
+              // (it was reading too high at stages 1 and 2).
+              animate={{ opacity: 1, y: stage === 0 ? -2 : stage === 1 ? 1.5 : 3.5 }}
               exit={{ opacity: 0, y: -4 }}
               transition={panelTransition}
               className="absolute inset-x-0 top-0 bottom-3.5 flex items-center justify-center bg-background"
