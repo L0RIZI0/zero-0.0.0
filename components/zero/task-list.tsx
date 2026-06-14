@@ -37,6 +37,22 @@ import { cn } from "@/lib/utils"
 
 const KIND_ORDER: NodeKind[] = ["task", "space", "event", "instant"]
 
+/** The frame layoutId each DO-list row carries, by kind. Used so a committing
+ *  draft can adopt the exact id of the real row it becomes, letting Framer morph
+ *  one into the other (no disappear/reappear flicker). */
+function rowLayoutId(kind: NodeKind, id: string): string {
+  switch (kind) {
+    case "task":
+      return taskLayoutId(id)
+    case "space":
+      return spaceLayoutId(id)
+    case "event":
+      return eventRowLayoutId(id)
+    default:
+      return instantRowLayoutId(id)
+  }
+}
+
 const priorityDot: Record<TaskPriority, string> = {
   high: "bg-accent",
   medium: "bg-foreground/40",
@@ -494,24 +510,62 @@ function DraftRow({ spaceId, onDone }: { spaceId: string; onDone: () => void }) 
   const [kind, setKind] = useState<NodeKind>("task")
   const [title, setTitle] = useState("")
   const [anchor, setAnchor] = useState<{ left: number; top: number; bottom: number } | null>(null)
+  // Once set, the draft has committed and adopts this id's row layoutId so it
+  // morphs straight into the real row instead of vanishing and re-entering.
+  const [committedId, setCommittedId] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
+  const rowRef = useRef<HTMLLIElement>(null)
   const menuOpen = anchor !== null
 
   useEffect(() => {
     inputRef.current?.focus()
   }, [])
 
+  // Create the entity and flip into the committed phase. The entity is added to
+  // the store now, but the parent isn't told to re-read until the next frame
+  // (the effect below) — so for one paint only THIS draft holds the new row's
+  // layoutId. Then the real row mounts with the same id and Framer morphs the
+  // draft into it seamlessly.
   const commit = () => {
+    if (committedId) return
     const name = title.trim()
     if (!name) return
-    if (kind === "task") addTask({ title: name, spaceId })
-    else if (kind === "space") addSpace({ name, parentId: spaceId })
-    else if (kind === "event") addEvent({ title: name, spaceId })
-    else addInstant({ title: name, spaceId })
-    notifyDataChanged()
-    onDone()
+    const entity =
+      kind === "task"
+        ? addTask({ title: name, spaceId })
+        : kind === "space"
+          ? addSpace({ name, parentId: spaceId })
+          : kind === "event"
+            ? addEvent({ title: name, spaceId })
+            : addInstant({ title: name, spaceId })
+    setCommittedId(entity.id)
   }
+
+  useEffect(() => {
+    if (!committedId) return
+    const raf = requestAnimationFrame(() => {
+      notifyDataChanged()
+      onDone()
+    })
+    return () => cancelAnimationFrame(raf)
+  }, [committedId, notifyDataChanged, onDone])
+
+  // Clicking anywhere outside the draft row finishes it: save when there's a
+  // title, otherwise quietly cancel. While the glyph menu is open its own
+  // backdrop owns outside clicks, so we stand down.
+  useEffect(() => {
+    if (committedId) return
+    const onPointerDown = (e: PointerEvent) => {
+      if (menuOpen) return
+      if (rowRef.current?.contains(e.target as Node)) return
+      if (title.trim()) commit()
+      else onDone()
+    }
+    document.addEventListener("pointerdown", onPointerDown, true)
+    return () => document.removeEventListener("pointerdown", onPointerDown, true)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [menuOpen, committedId, title, kind])
 
   const toggleMenu = () => {
     if (menuOpen) {
@@ -522,54 +576,80 @@ function DraftRow({ spaceId, onDone }: { spaceId: string; onDone: () => void }) 
     if (r) setAnchor({ left: r.left, top: r.top, bottom: r.bottom })
   }
 
+  const committed = committedId !== null
+
   return (
     <motion.li
+      ref={rowRef}
       layout
       initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, scale: 0.96, transition: { duration: 0.16 } }}
+      // No exit animation once committed — the layoutId morph carries the visual
+      // over to the real row, so an exit fade would only fight it.
+      exit={committed ? undefined : { opacity: 0, scale: 0.96, transition: { duration: 0.16 } }}
       transition={layerTransition}
     >
-      <div
+      <motion.div
+        layoutId={committed ? rowLayoutId(kind, committedId!) : undefined}
+        transition={layerTransition}
         style={{ borderRadius: 4 }}
-        className="flex w-full items-center gap-3 border border-foreground/40 bg-card-solid px-2.5 py-2 text-left"
+        className={cn(
+          "flex w-full items-center gap-3 bg-card-solid px-2.5 py-2 text-left",
+          // Highlighted edge while editing; on commit it settles to the normal
+          // row border so the morph target matches a real row exactly.
+          committed ? "border border-border" : "border border-foreground/40",
+        )}
       >
-        <button
-          ref={triggerRef}
-          type="button"
-          aria-haspopup="listbox"
-          aria-expanded={menuOpen}
-          aria-label={`Type: ${NODE_KIND_META[kind].label}. Change type`}
-          onClick={toggleMenu}
-          className={cn(
-            "flex items-center gap-0.5 rounded-[3px] py-0.5 pl-0.5 pr-1 text-foreground transition-colors hover:bg-foreground/10",
-            menuOpen && "bg-foreground/10",
-          )}
-        >
-          <span className={GLYPH_BOX}>
-            <NodeGlyph kind={kind} filled={false} strokeWidth={2} />
+        {committed ? (
+          <span className={cn(GLYPH_BOX, "text-foreground")}>
+            <motion.span layoutId={glyphId(committedId!)} className="flex items-center justify-center">
+              <NodeGlyph kind={kind} filled={false} strokeWidth={2} />
+            </motion.span>
           </span>
-          <ChevronDown className="h-3 w-3 text-muted-foreground" />
-        </button>
+        ) : (
+          <button
+            ref={triggerRef}
+            type="button"
+            aria-haspopup="listbox"
+            aria-expanded={menuOpen}
+            aria-label={`Type: ${NODE_KIND_META[kind].label}. Change type`}
+            onClick={toggleMenu}
+            className={cn(
+              "flex items-center gap-0.5 rounded-[3px] py-0.5 pl-0.5 pr-1 text-foreground transition-colors hover:bg-foreground/10",
+              menuOpen && "bg-foreground/10",
+            )}
+          >
+            <span className={GLYPH_BOX}>
+              <NodeGlyph kind={kind} filled={false} strokeWidth={2} />
+            </span>
+            <ChevronDown className="h-3 w-3 text-muted-foreground" />
+          </button>
+        )}
 
-        <input
-          ref={inputRef}
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault()
-              commit()
-            } else if (e.key === "Escape") {
-              e.preventDefault()
-              if (menuOpen) setAnchor(null)
-              else onDone()
-            }
-          }}
-          placeholder={`Name this ${NODE_KIND_META[kind].label.toLowerCase()}…`}
-          className="min-w-0 flex-1 bg-transparent text-[13px] tracking-tight text-foreground outline-none placeholder:text-muted-foreground/50"
-        />
-      </div>
+        {committed ? (
+          <span className="min-w-0 flex-1 truncate text-[13px] tracking-tight text-foreground">
+            {title.trim()}
+          </span>
+        ) : (
+          <input
+            ref={inputRef}
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault()
+                commit()
+              } else if (e.key === "Escape") {
+                e.preventDefault()
+                if (menuOpen) setAnchor(null)
+                else onDone()
+              }
+            }}
+            placeholder={`Name this ${NODE_KIND_META[kind].label.toLowerCase()}…`}
+            className="min-w-0 flex-1 bg-transparent text-[13px] tracking-tight text-foreground outline-none placeholder:text-muted-foreground/50"
+          />
+        )}
+      </motion.div>
 
       <AnimatePresence>
         {menuOpen && (
