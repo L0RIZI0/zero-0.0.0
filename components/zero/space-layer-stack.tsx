@@ -1,6 +1,5 @@
 "use client"
 
-import { AnimatePresence } from "motion/react"
 import { getSpace, getTask, getEvent, getInstant } from "@/lib/zero/data"
 import { isTaskId, isEventId, isInstantId, useZeroNav } from "@/lib/zero/nav-store"
 import { LayerDepthContainer } from "./layer-depth-container"
@@ -12,10 +11,19 @@ import { InstantFrame } from "./instant-frame"
 export function SpaceLayerStack() {
   const { stack, closeSpace } = useZeroNav()
 
+  // NOTE: deliberately NO <AnimatePresence>. The row/card <-> frame morph is a
+  // shared-layoutId animation driven by the WorkSurface <LayoutGroup>. It is
+  // clean only when exactly ONE element owns a given layoutId at a time: on
+  // open the origin row swaps to an inert placeholder (dropping its id) as the
+  // frame mounts. On CLOSE we need the mirror — the frame must unmount the
+  // instant the stack pops so the re-appearing row/card is the sole owner and
+  // Framer morphs it FROM the frame's last box. AnimatePresence would keep the
+  // exiting frame mounted (still owning the id) while the row re-claims it,
+  // producing two live owners and the crossfade "ghost title/glyph". Rendering
+  // the stack directly = instant unmount = single owner = clean close.
   return (
     <div className="relative h-full w-full">
-      <AnimatePresence initial={false}>
-        {stack.map((nodeId, index) => {
+      {stack.map((nodeId, index) => {
           const isActive = index === stack.length - 1
           const depthFromTop = stack.length - 1 - index
 
@@ -68,8 +76,7 @@ export function SpaceLayerStack() {
               />
             </LayerDepthContainer>
           )
-        })}
-      </AnimatePresence>
+      })}
     </div>
   )
 }

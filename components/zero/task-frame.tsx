@@ -1,6 +1,6 @@
 "use client"
 
-import { motion, useIsPresent } from "motion/react"
+import { motion } from "motion/react"
 import { X, Check, Calendar, Flag, Hash } from "lucide-react"
 import type { Entity, TaskPriority } from "@/lib/zero/types"
 import { getSpace } from "@/lib/zero/data"
@@ -36,16 +36,14 @@ export function TaskFrame({
   // so opening and closing is a single continuous layout animation. (We keep
   // these live through the exit so Framer has a "from" box to morph the
   // re-mounting row out of; dropping them mid-exit would make the row snap.)
+  // Shared morph ids — the frame and its origin row/card own the same layoutIds
+  // so the open morph is one continuous layout animation. On close the frame
+  // unmounts immediately (SpaceLayerStack has no AnimatePresence), so there is
+  // never a second live owner and Framer morphs the row back from this frame's
+  // last box — no crossfade ghost.
   const bodyMorphId = taskLayoutId(task.id)
   const titleMorphId = taskTitleId(task.id)
   const glyphMorphId = glyphId(task.id)
-  // The body lives INSIDE this frame, so during the close morph the whole frame
-  // (with its panels + sub-rows) scales down to a list row — without help, all
-  // that content squishes messily mid-morph. We keep the layoutIds live (so the
-  // morph itself runs) but fade the body out the instant the frame starts
-  // exiting, leaving a clean title-only box to collapse — matching how the morph
-  // read when the body was a separate layer.
-  const isPresent = useIsPresent()
   // The task's origin parent provides the contextual accent; its parent plus
   // any tagged spaces make up the membership line.
   const primarySpaceId = task.parentId ?? "s_root"
@@ -151,12 +149,13 @@ export function TaskFrame({
 
       {/* Body (this task's subtasks / inputs / outputs) renders here inside the
           frame, only when active. Parent frames render an empty middle. It
-          fades in as the frame opens and out the moment it starts exiting, so
-          the close morph collapses a clean title-only box. */}
+          fades in as the frame expands so the content doesn't pop at full size;
+          on close the frame unmounts instantly (see SpaceLayerStack), so the
+          row morphs back as a clean title-only box with no body to squish. */}
       {isActive ? (
         <motion.div
           initial={{ opacity: 0 }}
-          animate={{ opacity: isPresent ? 1 : 0 }}
+          animate={{ opacity: 1 }}
           transition={{ duration: 0.18, ease: "easeOut" }}
           className="flex min-h-0 flex-1 flex-col"
         >

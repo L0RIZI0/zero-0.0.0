@@ -1,6 +1,6 @@
 "use client"
 
-import { motion, useIsPresent } from "motion/react"
+import { motion } from "motion/react"
 import { X, Clock, Hash } from "lucide-react"
 import type { Entity } from "@/lib/zero/types"
 import { getSpace } from "@/lib/zero/data"
@@ -58,11 +58,9 @@ export function InstantFrame({
   // TIMELINE marker — by adopting that source's shared ids.
   const { openSourceOf } = useZeroNav()
   const fromRow = openSourceOf(instant.id) === "row"
-  // Shared morph ids stay LIVE through the exit so the re-mounting source (row
-  // or timeline marker) has a "from" box to collapse out of; the body is faded
-  // out on exit (below) so the morph stays clean. We morph to/from whichever
-  // source the window was opened from.
-  const isPresent = useIsPresent()
+  // Morph to/from whichever source the window was opened from. On close the
+  // frame unmounts immediately (SpaceLayerStack has no AnimatePresence), so the
+  // source is the sole owner of these ids and morphs back cleanly — no ghost.
   const frameLayoutId = fromRow ? instantRowLayoutId(instant.id) : instantLayoutId(instant.id)
   const frameTitleId = fromRow ? instantRowTitleId(instant.id) : instantTitleId(instant.id)
   const accentMorphId = `${instantLayoutId(instant.id)}-accent`
@@ -142,12 +140,13 @@ export function InstantFrame({
       )}
 
       {/* Body (this instant's inputs / related items / outputs) renders inside
-          the frame when active, fading in on open and out on exit so the close
-          morph collapses a clean title-only box. */}
+          the frame when active, fading in as it expands; on close the frame
+          unmounts instantly (see SpaceLayerStack) so the source morphs back as a
+          clean title-only box. */}
       {isActive ? (
         <motion.div
           initial={{ opacity: 0 }}
-          animate={{ opacity: isPresent ? 1 : 0 }}
+          animate={{ opacity: 1 }}
           transition={{ duration: 0.18, ease: "easeOut" }}
           className="flex min-h-0 flex-1 flex-col"
         >

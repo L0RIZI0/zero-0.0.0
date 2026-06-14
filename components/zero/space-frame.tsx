@@ -1,6 +1,6 @@
 "use client"
 
-import { motion, useIsPresent } from "motion/react"
+import { motion } from "motion/react"
 import { X } from "lucide-react"
 import type { Entity } from "@/lib/zero/types"
 import { layerTransition, spaceLayoutId, spaceTitleId, glyphId, contentTransition } from "@/lib/zero/motion"
@@ -27,11 +27,9 @@ export function SpaceFrame({
 }) {
   const accent = space.accent ?? "var(--accent)"
 
-  // Shared morph ids stay LIVE through the exit so Framer has a "from" box to
-  // collapse the re-mounting dock card / row out of (dropping them mid-exit
-  // makes the destination snap). The body is faded out on exit instead (below),
-  // so the morphing box is clean title-only chrome.
-  const isPresent = useIsPresent()
+  // Shared morph ids — on close the frame unmounts immediately (SpaceLayerStack
+  // has no AnimatePresence), so the dock card / row is the sole owner and morphs
+  // back from this frame's last box with no crossfade ghost.
   const bodyMorphId = spaceLayoutId(space.id)
   const accentMorphId = `${spaceLayoutId(space.id)}-accent`
   const titleMorphId = spaceTitleId(space.id)
@@ -104,12 +102,13 @@ export function SpaceFrame({
       {/* The body (spaces row / tasks / inputs / outputs) is rendered HERE,
           inside the frame, only for the active (frontmost) frame. Receding
           parent frames render an empty middle — their bodies unmount, so only
-          the active entity's list is ever visible. It fades in on open and out
-          on exit so the close morph collapses a clean title-only box. */}
+          the active entity's list is ever visible. It fades in as the frame
+          expands; on close the frame unmounts instantly (see SpaceLayerStack),
+          so the dock card morphs back as a clean title-only box. */}
       {isActive ? (
         <motion.div
           initial={{ opacity: 0 }}
-          animate={{ opacity: isPresent ? 1 : 0 }}
+          animate={{ opacity: 1 }}
           transition={{ duration: 0.18, ease: "easeOut" }}
           className="flex min-h-0 flex-1 flex-col"
         >
