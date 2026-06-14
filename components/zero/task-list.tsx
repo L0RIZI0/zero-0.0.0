@@ -37,22 +37,6 @@ import { cn } from "@/lib/utils"
 
 const KIND_ORDER: NodeKind[] = ["task", "space", "event", "instant"]
 
-/** The frame layoutId each DO-list row carries, by kind. Used so a committing
- *  draft can adopt the exact id of the real row it becomes, letting Framer morph
- *  one into the other (no disappear/reappear flicker). */
-function rowLayoutId(kind: NodeKind, id: string): string {
-  switch (kind) {
-    case "task":
-      return taskLayoutId(id)
-    case "space":
-      return spaceLayoutId(id)
-    case "event":
-      return eventRowLayoutId(id)
-    default:
-      return instantRowLayoutId(id)
-  }
-}
-
 const priorityDot: Record<TaskPriority, string> = {
   high: "bg-accent",
   medium: "bg-foreground/40",
@@ -500,37 +484,46 @@ function GlyphMenu({
 /**
  * An inline, in-list draft for creating a new entity. Appears at the end of the
  * DO list when ADD is pressed: a focused title input with a leading glyph
- * picker (kind defaults to a task). ENTER commits it into the current context;
- * ESC discards the draft (animating out). The kind can only be chosen during
- * this draft stage — once committed it's fixed (for now). No save/cancel
- * buttons: the interaction is meant to be understood immediately.
+ * picker (kind defaults to a task).
+ *
+ * Interaction:
+ *  - ENTER (1st) creates the entity in the current context — the row settles
+ *    into a "created" state but stays put and keeps focus.
+ *  - ENTER (2nd) opens the just-created entity.
+ *  - Clicking outside saves when there's a title, or quietly cancels when empty.
+ *  - ESC cancels an empty draft (animated shrink-out); once created it just
+ *    closes (the entity is already saved).
+ *  - The kind can only be chosen while still a draft (before the first ENTER).
+ *
+ * Commit/close is deferred to the next animation frame with the exit animation
+ * disabled, so the draft is removed instantly the moment its real row appears —
+ * no disappear/reappear or push-down reflow hiccup.
  */
 function DraftRow({ spaceId, onDone }: { spaceId: string; onDone: () => void }) {
-  const { notifyDataChanged } = useZeroNav()
+  const { notifyDataChanged, open } = useZeroNav()
   const [kind, setKind] = useState<NodeKind>("task")
   const [title, setTitle] = useState("")
   const [anchor, setAnchor] = useState<{ left: number; top: number; bottom: number } | null>(null)
-  // Once set, the draft has committed and adopts this id's row layoutId so it
-  // morphs straight into the real row instead of vanishing and re-entering.
-  const [committedId, setCommittedId] = useState<string | null>(null)
+  // Id of the entity once the first ENTER has created it (null while drafting).
+  const [createdId, setCreatedId] = useState<string | null>(null)
+  // Flips on for any save/open finish so the exit is instant (no shrink) — the
+  // real row replaces the draft in the same frame with no slide.
+  const [leaving, setLeaving] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
   const rowRef = useRef<HTMLLIElement>(null)
+  const pendingOpenRef = useRef<string | null>(null)
   const menuOpen = anchor !== null
+  const created = createdId !== null
 
   useEffect(() => {
     inputRef.current?.focus()
   }, [])
 
-  // Create the entity and flip into the committed phase. The entity is added to
-  // the store now, but the parent isn't told to re-read until the next frame
-  // (the effect below) — so for one paint only THIS draft holds the new row's
-  // layoutId. Then the real row mounts with the same id and Framer morphs the
-  // draft into it seamlessly.
-  const commit = () => {
-    if (committedId) return
+  // Add the entity to the store (only once). Returns its id either way.
+  const createEntity = (): string => {
+    if (createdId) return createdId
     const name = title.trim()
-    if (!name) return
     const entity =
       kind === "task"
         ? addTask({ title: name, spaceId })
@@ -539,33 +532,65 @@ function DraftRow({ spaceId, onDone }: { spaceId: string; onDone: () => void }) 
           : kind === "event"
             ? addEvent({ title: name, spaceId })
             : addInstant({ title: name, spaceId })
-    setCommittedId(entity.id)
+    setCreatedId(entity.id)
+    return entity.id
+  }
+
+  // Tear the draft down on the next frame (instant exit), then surface the real
+  // row and optionally open it. Deferring by a frame lets the `leaving` re-render
+  // disable the exit animation before AnimatePresence removes the node.
+  const finish = (openId?: string | null) => {
+    if (leaving) return
+    pendingOpenRef.current = openId ?? null
+    setAnchor(null)
+    setLeaving(true)
   }
 
   useEffect(() => {
-    if (!committedId) return
+    if (!leaving) return
     const raf = requestAnimationFrame(() => {
       notifyDataChanged()
       onDone()
+      if (pendingOpenRef.current) open(pendingOpenRef.current, "row")
     })
     return () => cancelAnimationFrame(raf)
-  }, [committedId, notifyDataChanged, onDone])
+  }, [leaving, notifyDataChanged, onDone, open])
 
-  // Clicking anywhere outside the draft row finishes it: save when there's a
-  // title, otherwise quietly cancel. While the glyph menu is open its own
-  // backdrop owns outside clicks, so we stand down.
+  // Clicking outside finishes the draft: open-less save when there's a title (or
+  // it was already created), otherwise a quiet cancel. The glyph menu owns its
+  // own outside clicks via its backdrop, so we stand down while it's open.
   useEffect(() => {
-    if (committedId) return
+    if (leaving) return
     const onPointerDown = (e: PointerEvent) => {
       if (menuOpen) return
       if (rowRef.current?.contains(e.target as Node)) return
-      if (title.trim()) commit()
-      else onDone()
+      if (created || title.trim()) {
+        if (!created) createEntity()
+        finish(null)
+      } else {
+        onDone()
+      }
     }
     document.addEventListener("pointerdown", onPointerDown, true)
     return () => document.removeEventListener("pointerdown", onPointerDown, true)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [menuOpen, committedId, title, kind])
+  }, [menuOpen, leaving, created, title, kind])
+
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter") {
+      e.preventDefault()
+      if (!created) {
+        if (title.trim()) createEntity() // 1st ENTER — create, stay put.
+      } else {
+        finish(createdId) // 2nd ENTER — open the created entity.
+      }
+    } else if (e.key === "Escape") {
+      e.preventDefault()
+      if (menuOpen) setAnchor(null)
+      else if (created) finish(null) // already saved; just close.
+      else onDone() // discard empty/unsaved draft.
+    }
+  }
 
   const toggleMenu = () => {
     if (menuOpen) {
@@ -576,35 +601,29 @@ function DraftRow({ spaceId, onDone }: { spaceId: string; onDone: () => void }) 
     if (r) setAnchor({ left: r.left, top: r.top, bottom: r.bottom })
   }
 
-  const committed = committedId !== null
-
   return (
     <motion.li
       ref={rowRef}
       layout
       initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
-      // No exit animation once committed — the layoutId morph carries the visual
-      // over to the real row, so an exit fade would only fight it.
-      exit={committed ? undefined : { opacity: 0, scale: 0.96, transition: { duration: 0.16 } }}
+      // Instant removal on save/open (`leaving`) so the real row takes over with
+      // no slide; only a true cancel plays the shrink-out.
+      exit={leaving ? { opacity: 0, transition: { duration: 0 } } : { opacity: 0, scale: 0.96, transition: { duration: 0.16 } }}
       transition={layerTransition}
     >
-      <motion.div
-        layoutId={committed ? rowLayoutId(kind, committedId!) : undefined}
-        transition={layerTransition}
+      <div
         style={{ borderRadius: 4 }}
         className={cn(
-          "flex w-full items-center gap-3 bg-card-solid px-2.5 py-2 text-left",
-          // Highlighted edge while editing; on commit it settles to the normal
-          // row border so the morph target matches a real row exactly.
-          committed ? "border border-border" : "border border-foreground/40",
+          "flex w-full items-center gap-3 bg-card-solid px-2.5 py-2 text-left transition-colors",
+          // Highlighted edge while editing; settles to the normal row border once
+          // the entity has been created.
+          created ? "border border-border" : "border border-foreground/40",
         )}
       >
-        {committed ? (
+        {created ? (
           <span className={cn(GLYPH_BOX, "text-foreground")}>
-            <motion.span layoutId={glyphId(committedId!)} className="flex items-center justify-center">
-              <NodeGlyph kind={kind} filled={false} strokeWidth={2} />
-            </motion.span>
+            <NodeGlyph kind={kind} filled={false} strokeWidth={2} />
           </span>
         ) : (
           <button
@@ -626,30 +645,16 @@ function DraftRow({ spaceId, onDone }: { spaceId: string; onDone: () => void }) 
           </button>
         )}
 
-        {committed ? (
-          <span className="min-w-0 flex-1 truncate text-[13px] tracking-tight text-foreground">
-            {title.trim()}
-          </span>
-        ) : (
-          <input
-            ref={inputRef}
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault()
-                commit()
-              } else if (e.key === "Escape") {
-                e.preventDefault()
-                if (menuOpen) setAnchor(null)
-                else onDone()
-              }
-            }}
-            placeholder={`Name this ${NODE_KIND_META[kind].label.toLowerCase()}…`}
-            className="min-w-0 flex-1 bg-transparent text-[13px] tracking-tight text-foreground outline-none placeholder:text-muted-foreground/50"
-          />
-        )}
-      </motion.div>
+        <input
+          ref={inputRef}
+          value={title}
+          readOnly={created}
+          onChange={(e) => setTitle(e.target.value)}
+          onKeyDown={onKeyDown}
+          placeholder={`Name this ${NODE_KIND_META[kind].label.toLowerCase()}…`}
+          className="min-w-0 flex-1 bg-transparent text-[13px] tracking-tight text-foreground outline-none placeholder:text-muted-foreground/50"
+        />
+      </div>
 
       <AnimatePresence>
         {menuOpen && (
