@@ -32,16 +32,20 @@ export function TaskFrame({
   onClose: () => void
 }) {
   const [done, setDone] = useState(!!task.completed)
-  // While this frame is EXITING (close morph), the destination row is
-  // re-mounting and reclaiming these shared layoutIds. If the exiting frame
-  // kept them too, two live nodes would own each id and Framer would crossfade
-  // them — the faint offset title/glyph ghost. Dropping our ids the moment
-  // we're no longer present makes the row the sole owner, so it morphs cleanly
-  // from this frame's last snapshot.
+  // Shared morph ids — the frame and its origin row/card own the same layoutIds
+  // so opening and closing is a single continuous layout animation. (We keep
+  // these live through the exit so Framer has a "from" box to morph the
+  // re-mounting row out of; dropping them mid-exit would make the row snap.)
+  const bodyMorphId = taskLayoutId(task.id)
+  const titleMorphId = taskTitleId(task.id)
+  const glyphMorphId = glyphId(task.id)
+  // The body lives INSIDE this frame, so during the close morph the whole frame
+  // (with its panels + sub-rows) scales down to a list row — without help, all
+  // that content squishes messily mid-morph. We keep the layoutIds live (so the
+  // morph itself runs) but fade the body out the instant the frame starts
+  // exiting, leaving a clean title-only box to collapse — matching how the morph
+  // read when the body was a separate layer.
   const isPresent = useIsPresent()
-  const bodyMorphId = isPresent ? taskLayoutId(task.id) : undefined
-  const titleMorphId = isPresent ? taskTitleId(task.id) : undefined
-  const glyphMorphId = isPresent ? glyphId(task.id) : undefined
   // The task's origin parent provides the contextual accent; its parent plus
   // any tagged spaces make up the membership line.
   const primarySpaceId = task.parentId ?? "s_root"
@@ -146,9 +150,18 @@ export function TaskFrame({
       )}
 
       {/* Body (this task's subtasks / inputs / outputs) renders here inside the
-          frame, only when active. Parent frames render an empty middle. */}
+          frame, only when active. Parent frames render an empty middle. It
+          fades in as the frame opens and out the moment it starts exiting, so
+          the close morph collapses a clean title-only box. */}
       {isActive ? (
-        <EntityBody nodeId={task.id} />
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: isPresent ? 1 : 0 }}
+          transition={{ duration: 0.18, ease: "easeOut" }}
+          className="flex min-h-0 flex-1 flex-col"
+        >
+          <EntityBody nodeId={task.id} />
+        </motion.div>
       ) : (
         <div className="min-h-0 flex-1" aria-hidden />
       )}

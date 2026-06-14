@@ -16,6 +16,7 @@ import {
 import { usePulse } from "@/lib/zero/use-pulse"
 import { useZeroNav } from "@/lib/zero/nav-store"
 import { NodeGlyph } from "./node-glyph"
+import { EntityBody } from "./entity-body"
 
 /** Minutes-from-midnight → "9:00 AM". */
 function fmtTime(min: number): string {
@@ -60,21 +61,15 @@ export function EventFrame({
   // own ids and simply stays in place.)
   const { openSourceOf } = useZeroNav()
   const fromRow = openSourceOf(event.id) === "row"
-  // Drop shared layoutIds while exiting so the re-mounting source (row or
-  // timeline marker) is the sole owner and morphs cleanly back into place.
+  // Shared morph ids stay LIVE through the exit so the re-mounting source (row
+  // or timeline marker) has a "from" box to collapse out of; the body is faded
+  // out on exit (below) so the morph stays clean. We morph to/from whichever
+  // source the window was opened from.
   const isPresent = useIsPresent()
-  const frameLayoutId = !isPresent
-    ? undefined
-    : fromRow
-      ? eventRowLayoutId(event.id)
-      : eventLayoutId(event.id)
-  const frameTitleId = !isPresent
-    ? undefined
-    : fromRow
-      ? eventRowTitleId(event.id)
-      : eventTitleId(event.id)
-  const accentMorphId = isPresent ? `${eventLayoutId(event.id)}-accent` : undefined
-  const glyphMorphId = isPresent ? glyphId(event.id) : undefined
+  const frameLayoutId = fromRow ? eventRowLayoutId(event.id) : eventLayoutId(event.id)
+  const frameTitleId = fromRow ? eventRowTitleId(event.id) : eventTitleId(event.id)
+  const accentMorphId = `${eventLayoutId(event.id)}-accent`
+  const glyphMorphId = glyphId(event.id)
 
   return (
     <motion.div
@@ -154,8 +149,21 @@ export function EventFrame({
         </div>
       )}
 
-      {/* Transparent middle — the persistent frontmost content renders over it. */}
-      <div className="min-h-0 flex-1" aria-hidden />
+      {/* Body (this event's inputs / related items / outputs) renders inside the
+          frame when active, fading in on open and out on exit so the close morph
+          collapses a clean title-only box. */}
+      {isActive ? (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: isPresent ? 1 : 0 }}
+          transition={{ duration: 0.18, ease: "easeOut" }}
+          className="flex min-h-0 flex-1 flex-col"
+        >
+          <EntityBody nodeId={event.id} />
+        </motion.div>
+      ) : (
+        <div className="min-h-0 flex-1" aria-hidden />
+      )}
     </motion.div>
   )
 }

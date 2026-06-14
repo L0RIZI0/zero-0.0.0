@@ -27,14 +27,15 @@ export function SpaceFrame({
 }) {
   const accent = space.accent ?? "var(--accent)"
 
-  // While exiting (close morph), drop the shared layoutIds so the re-mounting
-  // dock card / list row is the sole owner and morphs cleanly from this frame's
-  // last snapshot — otherwise two live owners crossfade into an offset ghost.
+  // Shared morph ids stay LIVE through the exit so Framer has a "from" box to
+  // collapse the re-mounting dock card / row out of (dropping them mid-exit
+  // makes the destination snap). The body is faded out on exit instead (below),
+  // so the morphing box is clean title-only chrome.
   const isPresent = useIsPresent()
-  const bodyMorphId = isPresent ? spaceLayoutId(space.id) : undefined
-  const accentMorphId = isPresent ? `${spaceLayoutId(space.id)}-accent` : undefined
-  const titleMorphId = isPresent ? spaceTitleId(space.id) : undefined
-  const glyphMorphId = isPresent ? glyphId(space.id) : undefined
+  const bodyMorphId = spaceLayoutId(space.id)
+  const accentMorphId = `${spaceLayoutId(space.id)}-accent`
+  const titleMorphId = spaceTitleId(space.id)
+  const glyphMorphId = glyphId(space.id)
 
   // Space 0 (root) is borderless — the surface itself stands in for it.
   if (isRoot) return null
@@ -103,9 +104,17 @@ export function SpaceFrame({
       {/* The body (spaces row / tasks / inputs / outputs) is rendered HERE,
           inside the frame, only for the active (frontmost) frame. Receding
           parent frames render an empty middle — their bodies unmount, so only
-          the active entity's list is ever visible. */}
+          the active entity's list is ever visible. It fades in on open and out
+          on exit so the close morph collapses a clean title-only box. */}
       {isActive ? (
-        <EntityBody nodeId={space.id} />
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: isPresent ? 1 : 0 }}
+          transition={{ duration: 0.18, ease: "easeOut" }}
+          className="flex min-h-0 flex-1 flex-col"
+        >
+          <EntityBody nodeId={space.id} />
+        </motion.div>
       ) : (
         <div className="min-h-0 flex-1" aria-hidden />
       )}

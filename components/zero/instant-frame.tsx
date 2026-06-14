@@ -16,6 +16,7 @@ import {
 import { usePulse } from "@/lib/zero/use-pulse"
 import { useZeroNav } from "@/lib/zero/nav-store"
 import { NodeGlyph } from "./node-glyph"
+import { EntityBody } from "./entity-body"
 
 /** Minutes-from-midnight (+ optional seconds) → "9:00:30 AM". */
 function fmtInstant(min: number, seconds = 0): string {
@@ -57,21 +58,15 @@ export function InstantFrame({
   // TIMELINE marker — by adopting that source's shared ids.
   const { openSourceOf } = useZeroNav()
   const fromRow = openSourceOf(instant.id) === "row"
-  // Drop shared layoutIds while exiting so the re-mounting source (row or
-  // timeline marker) is the sole owner and morphs cleanly back into place.
+  // Shared morph ids stay LIVE through the exit so the re-mounting source (row
+  // or timeline marker) has a "from" box to collapse out of; the body is faded
+  // out on exit (below) so the morph stays clean. We morph to/from whichever
+  // source the window was opened from.
   const isPresent = useIsPresent()
-  const frameLayoutId = !isPresent
-    ? undefined
-    : fromRow
-      ? instantRowLayoutId(instant.id)
-      : instantLayoutId(instant.id)
-  const frameTitleId = !isPresent
-    ? undefined
-    : fromRow
-      ? instantRowTitleId(instant.id)
-      : instantTitleId(instant.id)
-  const accentMorphId = isPresent ? `${instantLayoutId(instant.id)}-accent` : undefined
-  const glyphMorphId = isPresent ? glyphId(instant.id) : undefined
+  const frameLayoutId = fromRow ? instantRowLayoutId(instant.id) : instantLayoutId(instant.id)
+  const frameTitleId = fromRow ? instantRowTitleId(instant.id) : instantTitleId(instant.id)
+  const accentMorphId = `${instantLayoutId(instant.id)}-accent`
+  const glyphMorphId = glyphId(instant.id)
 
   return (
     <motion.div
@@ -146,7 +141,21 @@ export function InstantFrame({
         </div>
       )}
 
-      <div className="min-h-0 flex-1" aria-hidden />
+      {/* Body (this instant's inputs / related items / outputs) renders inside
+          the frame when active, fading in on open and out on exit so the close
+          morph collapses a clean title-only box. */}
+      {isActive ? (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: isPresent ? 1 : 0 }}
+          transition={{ duration: 0.18, ease: "easeOut" }}
+          className="flex min-h-0 flex-1 flex-col"
+        >
+          <EntityBody nodeId={instant.id} />
+        </motion.div>
+      ) : (
+        <div className="min-h-0 flex-1" aria-hidden />
+      )}
     </motion.div>
   )
 }
