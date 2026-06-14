@@ -8,45 +8,30 @@ import { NodeGlyph } from "./node-glyph"
 import { EntityBody } from "./entity-body"
 
 /**
- * A child Space window — chrome only. It paints the bordered, off-white frame
- * and owns the title band (top); everything else (timeline, the spaces row,
- * tasks, inputs, outputs) lives in the persistent frontmost layer (FrontContent)
- * that reads in front of it. Space 0 (root) renders nothing here — its
- * background is the surface itself.
+ * A child Space window in the nested-doll stack. Renders the compact nav-bar
+ * header (accent edge + glyph + title + close) so the space's header peeks above
+ * its children. Root (Space 0) never renders a frame — it's the home backdrop in
+ * WorkSurface — so this component is only ever a depth >= 1 window.
  */
 export function SpaceFrame({
   space,
-  isRoot,
-  isActive,
-  depthFromTop,
-  onClose,
+  depth,
+  isTop,
+  onCloseTo,
 }: {
   space: Entity
-  isRoot: boolean
-  isActive: boolean
-  depthFromTop: number
-  onClose: () => void
+  depth: number
+  isTop: boolean
+  onCloseTo: (targetTopIndex: number) => void
 }) {
   const accent = space.accent ?? "var(--accent)"
 
-  // Render the full window (title band + body) for the active frame AND for the
-  // IMMEDIATE parent (one level down). Keeping the parent's body mounted means
-  // diving in draws the opaque child window OVER a still-visible parent (rather
-  // than blanking it first), and closing reveals a parent whose destination row
-  // is already laid out — so the shrink-into-row morph has a stable target.
-  // Deeper ancestors stay blank (and are hidden by LayerDepthContainer).
-  const showContent = isActive || depthFromTop === 1
-
-  // Shared morph ids — on close the frame unmounts immediately (SpaceLayerStack
-  // has no AnimatePresence), so the dock card / row is the sole owner and morphs
-  // back from this frame's last box with no crossfade ghost.
+  // Shared morph ids — the frame and its origin dock card / row own the same
+  // layoutIds. Static per-depth geometry keeps the morph projection clean.
   const bodyMorphId = spaceLayoutId(space.id)
   const accentMorphId = `${spaceLayoutId(space.id)}-accent`
   const titleMorphId = spaceTitleId(space.id)
   const glyphMorphId = glyphId(space.id)
-
-  // Space 0 (root) is borderless — the surface itself stands in for it.
-  if (isRoot) return null
 
   return (
     <motion.div
@@ -63,63 +48,54 @@ export function SpaceFrame({
         style={{ backgroundColor: accent }}
       />
 
-      {/* Title band. Only the active (frontmost) frame paints its header — a
-          receding parent frame would otherwise bleed its title / description /
-          close button through the opaque active layer. Sits above the frontmost
-          timeline; the timeline animates down to clear this band's height. */}
-      {showContent && (
-        <div className="flex items-start justify-between gap-3 px-6 pt-5 pb-3">
-          <div className="flex min-w-0 items-start gap-3">
-            <motion.span
-              layoutId={glyphMorphId}
-              transition={layerTransition}
-              className="mt-0.5 flex h-[24px] w-[24px] shrink-0 items-center justify-center text-foreground"
-            >
-              <NodeGlyph kind="space" />
-            </motion.span>
-            <div className="flex min-w-0 flex-col">
-              <motion.h2
-                layoutId={titleMorphId}
-                transition={layerTransition}
-                className="truncate text-[22px] font-medium leading-tight tracking-tight text-foreground"
-              >
-                {space.title}
-              </motion.h2>
-              {space.description && (
-                <motion.p
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  transition={{ ...contentTransition, delay: 0.08 }}
-                  className="mt-0.5 truncate text-[12.5px] text-muted-foreground"
-                >
-                  {space.description}
-                </motion.p>
-              )}
-            </div>
-          </div>
+      {/* Compact nav-bar header — always rendered so this space's title peeks
+          above its children. `pointer-events:auto` keeps the close button live
+          even when this is an ancestor window (its container is inert). */}
+      <div
+        className="relative flex min-h-[40px] items-center gap-2 px-3"
+        style={{ pointerEvents: "auto" }}
+      >
+        <motion.span
+          layoutId={glyphMorphId}
+          transition={layerTransition}
+          className="flex h-5 w-5 shrink-0 items-center justify-center text-foreground"
+        >
+          <NodeGlyph kind="space" />
+        </motion.span>
 
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label={`Close ${space.title}`}
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border bg-card/70 text-muted-foreground transition-colors hover:border-foreground/30 hover:text-foreground"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
+        <motion.h2
+          layoutId={titleMorphId}
+          transition={layerTransition}
+          className="min-w-0 flex-1 truncate whitespace-nowrap text-sm font-medium leading-tight tracking-tight text-foreground"
+        >
+          {space.title}
+        </motion.h2>
+
+        <button
+          type="button"
+          onClick={() => onCloseTo(depth - 1)}
+          aria-label={`Close ${space.title}`}
+          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-[4px] text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+
+      {/* Description — only the top window shows it (ancestors are covered below
+          their header peek). */}
+      {isTop && space.description && (
+        <motion.p
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ ...contentTransition, delay: 0.08 }}
+          className="truncate px-3 pb-2 pl-4 text-[12.5px] text-muted-foreground"
+        >
+          {space.description}
+        </motion.p>
       )}
 
-      {/* The body (spaces row / tasks / inputs / outputs) is rendered HERE,
-          inside the frame, only for the active (frontmost) frame. Receding
-          parent frames render an empty middle — their bodies unmount, so only
-          the active entity's list is ever visible. It is rendered at full
-          opacity (no fade) so that on close the dock card morphing within it
-          stays fully visible as the window shrinks back into the card. */}
-      {showContent ? (
-        <EntityBody nodeId={space.id} />
-      ) : (
-        <div className="min-h-0 flex-1" aria-hidden />
-      )}
+      {/* Body renders at full opacity so the close shrink stays fully visible. */}
+      <EntityBody nodeId={space.id} />
     </motion.div>
   )
 }

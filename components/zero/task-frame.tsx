@@ -17,36 +17,31 @@ const priorityLabel: Record<TaskPriority, string> = {
 }
 
 /**
- * A Task window — chrome only. Like SpaceFrame, it paints the bordered frame and
- * owns the title band (checkbox + title + meta), leaving the middle transparent
- * so the persistent frontmost content reads in front of it. A task has no
- * spaces dock, so its bottom band is minimal.
+ * A Task window. In the nested-doll stack every window renders the same compact
+ * header (glyph + title + close) so each ancestor's header peeks above its
+ * children, replacing the breadcrumb. The header is intentionally small (title
+ * ~14px, near the DO-list row's font) so the row → header shared-element morph
+ * barely scales and reads clean. The body renders below, full opacity.
  */
 export function TaskFrame({
   task,
-  isActive,
-  depthFromTop,
-  onClose,
+  depth,
+  isTop,
+  onCloseTo,
 }: {
   task: Entity
-  isActive: boolean
-  depthFromTop: number
-  onClose: () => void
+  depth: number
+  isTop: boolean
+  onCloseTo: (targetTopIndex: number) => void
 }) {
   const [done, setDone] = useState(!!task.completed)
-  // Render the full window for the active frame AND its immediate parent so the
-  // parent stays visible beneath the opaque child during the open/close morph.
-  const showContent = isActive || depthFromTop === 1
-  // Shared morph ids — the frame and its origin row/card own the same layoutIds
-  // so the open morph is one continuous layout animation. On close the frame
-  // unmounts immediately (SpaceLayerStack has no AnimatePresence), so there is
-  // never a second live owner and Framer morphs the row back from this frame's
-  // last box — no crossfade ghost.
+  // Shared morph ids — the frame and its origin row own the same layoutIds, so
+  // open/close is one continuous layout animation. Window geometry is static per
+  // depth (see LayerDepthContainer), so the morph projects cleanly.
   const bodyMorphId = taskLayoutId(task.id)
   const titleMorphId = taskTitleId(task.id)
   const glyphMorphId = glyphId(task.id)
-  // The task's origin parent provides the contextual accent; its parent plus
-  // any tagged spaces make up the membership line.
+
   const primarySpaceId = task.parentId ?? "s_root"
   const primarySpace = getSpace(primarySpaceId)
   const accent = primarySpace?.accent ?? "var(--accent)"
@@ -61,103 +56,89 @@ export function TaskFrame({
       style={{ borderRadius: 4 }}
       className="relative flex h-full w-full flex-col overflow-hidden border border-border bg-card shadow-[0_24px_80px_-32px_rgba(0,0,0,0.6)]"
     >
-      {/* Title band — only the active (frontmost) frame paints its header.
-          Parent frames recede behind the opaque active layer, so rendering
-          their checkbox / metadata / close button would bleed through. */}
-      {showContent && (
-        <div className="flex items-start justify-between gap-3 px-6 pt-5 pb-3">
-          <div className="flex min-w-0 items-start gap-3">
-            <button
-              type="button"
-              aria-label={done ? "Mark task incomplete" : "Mark task complete"}
-              onClick={() => setDone((d) => !d)}
-              className="group/check relative mt-0.5 flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-[4px] text-foreground transition-colors hover:bg-foreground/5"
-            >
-              {/* The kind glyph IS the checkbox — it travels here from the list
-                  row / dock card via the shared glyphId and scales up with the
-                  title. It fills + shows a check once the task is done (no second
-                  nested square). */}
-              <motion.span
-                layoutId={glyphMorphId}
-                transition={layerTransition}
-                className="flex h-[22px] w-[22px] items-center justify-center"
-              >
-                <NodeGlyph kind="task" filled={done} strokeWidth={1.75} />
-              </motion.span>
-              {done && (
-                <Check className="absolute h-3 w-3 text-background" strokeWidth={3} />
-              )}
-            </button>
-            <div className="flex min-w-0 flex-col">
-              <motion.h2
-                layoutId={titleMorphId}
-                transition={layerTransition}
-                className={cn(
-                  // whitespace-nowrap is REQUIRED: this h2 shares taskTitleId with
-                  // the list row's truncated (nowrap) span. If the title is allowed
-                  // to wrap, the intermediate widths during the size morph rewrap
-                  // the text and orphan fragments ("...duct"), which read as ghost
-                  // text. Keeping both ends single-line makes the morph a clean
-                  // scale with no reflow.
-                  "whitespace-nowrap text-[22px] font-medium leading-tight tracking-tight",
-                  done ? "text-muted-foreground/60 line-through" : "text-foreground",
-                )}
-              >
-                {task.title}
-              </motion.h2>
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ ...contentTransition, delay: 0.08 }}
-                className="mt-1 flex flex-wrap items-center gap-2"
-              >
-                <span className="truncate text-[12.5px] text-muted-foreground">
-                  {spaceNames.join(" · ")}
-                </span>
-                {task.dueDate && (
-                  <span className="flex items-center gap-1.5 rounded-sm border border-border bg-card/50 px-2 py-1 text-[11.5px] text-foreground">
-                    <Calendar className="h-3 w-3 text-muted-foreground" />
-                    {task.dueDate}
-                  </span>
-                )}
-                <span className="flex items-center gap-1.5 rounded-sm border border-border bg-card/50 px-2 py-1 text-[11.5px] text-foreground">
-                  <Flag className="h-3 w-3" style={{ color: accent }} />
-                  {priorityLabel[task.priority ?? "medium"]}
-                </span>
-                {(task.tags ?? []).map((t) => (
-                  <span
-                    key={t}
-                    className="flex items-center gap-1 rounded-sm border border-border bg-card/50 px-2 py-1 text-[11.5px] text-muted-foreground"
-                  >
-                    <Hash className="h-3 w-3" />
-                    {t}
-                  </span>
-                ))}
-              </motion.div>
-            </div>
-          </div>
-
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label={`Close ${task.title}`}
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border bg-card/70 text-muted-foreground transition-colors hover:border-foreground/30 hover:text-foreground"
+      {/* Compact nav-bar header — always rendered so this window's title peeks
+          above its children. `pointer-events:auto` re-enables interaction even
+          when this is an ancestor window (its container is inert), so its close
+          button still cascades the stack back to this level. */}
+      <div
+        className="relative flex min-h-[40px] items-center gap-2 px-3"
+        style={{ pointerEvents: "auto" }}
+      >
+        <button
+          type="button"
+          aria-label={done ? "Mark task incomplete" : "Mark task complete"}
+          onClick={() => setDone((d) => !d)}
+          className="group/check relative flex h-6 w-6 shrink-0 items-center justify-center rounded-[4px] text-foreground transition-colors hover:bg-foreground/5"
+        >
+          <motion.span
+            layoutId={glyphMorphId}
+            transition={layerTransition}
+            className="flex h-[18px] w-[18px] items-center justify-center"
           >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
+            <NodeGlyph kind="task" filled={done} strokeWidth={1.75} />
+          </motion.span>
+          {done && <Check className="absolute h-2.5 w-2.5 text-background" strokeWidth={3} />}
+        </button>
+
+        <motion.h2
+          layoutId={titleMorphId}
+          transition={layerTransition}
+          className={cn(
+            // whitespace-nowrap is REQUIRED: shares taskTitleId with the row's
+            // truncated (nowrap) span; allowing wrap mid-morph rewraps text and
+            // orphans fragments that read as ghosts.
+            "min-w-0 flex-1 truncate whitespace-nowrap text-sm font-medium leading-tight tracking-tight",
+            done ? "text-muted-foreground/60 line-through" : "text-foreground",
+          )}
+        >
+          {task.title}
+        </motion.h2>
+
+        <button
+          type="button"
+          onClick={() => onCloseTo(depth - 1)}
+          aria-label={`Close ${task.title}`}
+          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-[4px] text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+
+      {/* Meta line — only the top window shows it (ancestors are covered below
+          their header peek). Fades in after the morph settles. */}
+      {isTop && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ ...contentTransition, delay: 0.08 }}
+          className="flex flex-wrap items-center gap-2 px-3 pb-2"
+        >
+          <span className="truncate text-[12.5px] text-muted-foreground">{spaceNames.join(" · ")}</span>
+          {task.dueDate && (
+            <span className="flex items-center gap-1.5 rounded-sm border border-border bg-card/50 px-2 py-1 text-[11.5px] text-foreground">
+              <Calendar className="h-3 w-3 text-muted-foreground" />
+              {task.dueDate}
+            </span>
+          )}
+          <span className="flex items-center gap-1.5 rounded-sm border border-border bg-card/50 px-2 py-1 text-[11.5px] text-foreground">
+            <Flag className="h-3 w-3" style={{ color: accent }} />
+            {priorityLabel[task.priority ?? "medium"]}
+          </span>
+          {(task.tags ?? []).map((t) => (
+            <span
+              key={t}
+              className="flex items-center gap-1 rounded-sm border border-border bg-card/50 px-2 py-1 text-[11.5px] text-muted-foreground"
+            >
+              <Hash className="h-3 w-3" />
+              {t}
+            </span>
+          ))}
+        </motion.div>
       )}
 
-      {/* Body (this task's subtasks / inputs / outputs) renders here inside the
-          frame, only when active. Parent frames render an empty middle. It is
-          rendered at full opacity (no fade) so that on close the body — and the
-          re-mounting row morphing within it — stays fully visible as the window
-          shrinks back into the list row. */}
-      {showContent ? (
-        <EntityBody nodeId={task.id} />
-      ) : (
-        <div className="min-h-0 flex-1" aria-hidden />
-      )}
+      {/* Body renders at full opacity so that on close the body — and the row
+          morphing within it — stays fully visible as the window shrinks. */}
+      <EntityBody nodeId={task.id} />
     </motion.div>
   )
 }

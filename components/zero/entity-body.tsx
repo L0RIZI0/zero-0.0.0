@@ -34,7 +34,7 @@ export function EntityBody({ nodeId }: { nodeId: string }) {
       <div className="flex min-h-0 flex-1 flex-col pt-4">
         <div className="flex min-h-[180px] flex-1 gap-4">
           <div className="hidden w-[230px] shrink-0 md:flex">
-            <CollapsibleColumn title="Inputs" side="left" count={assetCount}>
+            <CollapsibleColumn title="Inputs" side="left" count={assetCount} defaultOpen={false}>
               <AssetPanel spaceId={nodeId} />
             </CollapsibleColumn>
           </div>
@@ -46,7 +46,7 @@ export function EntityBody({ nodeId }: { nodeId: string }) {
           </div>
 
           <div className="hidden w-[230px] shrink-0 md:flex">
-            <CollapsibleColumn title="Outputs" side="right" count={0}>
+            <CollapsibleColumn title="Outputs" side="right" count={0} defaultOpen={false}>
               <OutputPanel spaceId={nodeId} />
             </CollapsibleColumn>
           </div>

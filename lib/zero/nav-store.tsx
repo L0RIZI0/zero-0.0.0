@@ -61,6 +61,11 @@ interface ZeroNavContextValue {
   openTask: (taskId: string) => void
   /** Pop the top node (close current layer). */
   closeSpace: () => void
+  /** Close down until the window at `targetTopIndex` becomes the top, cascading
+   *  one level per stagger window so a deep close animates smoothly rather than
+   *  snapping. `targetTopIndex` is the absolute stack index that should remain
+   *  focused (e.g. closing the window at depth D calls `closeTo(D - 1)`). */
+  closeTo: (targetTopIndex: number) => void
   /** Jump to a specific depth in the stack (used by breadcrumb). */
   goToDepth: (depth: number) => void
   /** Bumps on any in-memory data mutation so selectors re-read fresh data. */
@@ -253,36 +258,48 @@ export function ZeroNavProvider({
     [sources],
   )
 
-  // Closing is serialized. Each layer collapse is a shared-element morph (~0.4s)
-  // kept mounted by AnimatePresence while it animates out. Firing several closes
-  // at once (rapid Escape / clicks) left multiple layers mid-exit and visible
-  // simultaneously, reading as a brief "all children open" overlap flash. We
-  // pop at most one layer per stagger window and queue any extra requests, so
-  // each layer exits cleanly on its own before the next begins.
-  const closeLockRef = useRef(false)
-  const pendingCloseRef = useRef(0)
+  // Closing is serialized and target-driven. Each layer collapse is a shared-
+  // element morph (~0.4s); firing several at once leaves multiple layers
+  // mid-exit and visible simultaneously (a "all children open" overlap flash).
+  // So we pop ONE layer per stagger window, walking the stack down to a target
+  // length. A live mirror of the stack length lets the timer loop decide whether
+  // to keep going without depending on stale closure state.
+  const stackRef = useRef(stack)
+  useEffect(() => {
+    stackRef.current = stack
+  }, [stack])
+
+  const targetLenRef = useRef(1)
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const closeSpace = useCallback(() => {
-    if (closeLockRef.current) {
-      // A close is already animating — remember this request and run it next.
-      pendingCloseRef.current += 1
-      return
+  // Walk the stack down to `targetLen` (>= 1), one pop per stagger window. If a
+  // loop is already running, we just retarget it (a new close request mid-
+  // cascade simply moves the goalpost). The stackRef mirror is committed by the
+  // effect above between ticks, so each tick reads the post-pop length.
+  const closeToLen = useCallback((targetLen: number) => {
+    targetLenRef.current = Math.max(1, targetLen)
+    if (closeTimerRef.current) return
+    const tick = () => {
+      closeTimerRef.current = null
+      if (stackRef.current.length <= targetLenRef.current) return
+      setStack((prev) => (prev.length > targetLenRef.current ? prev.slice(0, -1) : prev))
+      closeTimerRef.current = setTimeout(tick, CLOSE_STAGGER_MS)
     }
-    closeLockRef.current = true
-    setStack((prev) => (prev.length > 1 ? prev.slice(0, -1) : prev))
-
-    const release = () => {
-      if (pendingCloseRef.current > 0) {
-        pendingCloseRef.current -= 1
-        setStack((prev) => (prev.length > 1 ? prev.slice(0, -1) : prev))
-        closeTimerRef.current = setTimeout(release, CLOSE_STAGGER_MS)
-      } else {
-        closeLockRef.current = false
-      }
-    }
-    closeTimerRef.current = setTimeout(release, CLOSE_STAGGER_MS)
+    tick()
   }, [])
+
+  // Pop exactly one level beyond wherever the cascade currently aims.
+  const closeSpace = useCallback(() => {
+    const base = closeTimerRef.current ? targetLenRef.current : stackRef.current.length
+    closeToLen(base - 1)
+  }, [closeToLen])
+
+  // Close down so the window at `targetTopIndex` becomes the top (length =
+  // index + 1). Used by ancestor header close buttons in the nested-doll stack.
+  const closeTo = useCallback(
+    (targetTopIndex: number) => closeToLen(targetTopIndex + 1),
+    [closeToLen],
+  )
 
   // Clear any pending stagger timer on unmount.
   useEffect(() => {
@@ -349,6 +366,7 @@ export function ZeroNavProvider({
       openSpace: open,
       openTask: open,
       closeSpace,
+      closeTo,
       goToDepth,
       dataVersion,
       notifyDataChanged,
@@ -368,6 +386,7 @@ export function ZeroNavProvider({
     stack,
     open,
     closeSpace,
+    closeTo,
     goToDepth,
     dataVersion,
     notifyDataChanged,

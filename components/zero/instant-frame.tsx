@@ -29,26 +29,21 @@ function fmtInstant(min: number, seconds = 0): string {
 }
 
 /**
- * An Instant window — the fourth first-class kind. It mirrors the Event frame
- * exactly (bordered frame, title band, transparent middle) but represents a
- * single POINT in time rather than a span, so its time chip shows one precise
- * moment (down to the second) instead of a start–end range. Its shared layoutId
- * morphs between the timeline marker and this window.
+ * An Instant window — like the Event frame but for a single POINT in time, so
+ * its time chip shows one precise moment (down to the second) rather than a
+ * range. Same compact nested-doll header as the other kinds.
  */
 export function InstantFrame({
   instant,
-  isActive,
-  depthFromTop,
-  onClose,
+  depth,
+  isTop,
+  onCloseTo,
 }: {
   instant: Entity
-  isActive: boolean
-  depthFromTop: number
-  onClose: () => void
+  depth: number
+  isTop: boolean
+  onCloseTo: (targetTopIndex: number) => void
 }) {
-  // Active frame AND its immediate parent render full content so the parent
-  // stays visible beneath the opaque child during the open/close morph.
-  const showContent = isActive || depthFromTop === 1
   const parentSpaceId = instant.parentId ?? "s_root"
   const parentSpace = getSpace(parentSpaceId)
   const accent = parentSpace?.accent ?? "var(--accent)"
@@ -63,9 +58,6 @@ export function InstantFrame({
   // TIMELINE marker — by adopting that source's shared ids.
   const { openSourceOf } = useZeroNav()
   const fromRow = openSourceOf(instant.id) === "row"
-  // Morph to/from whichever source the window was opened from. On close the
-  // frame unmounts immediately (SpaceLayerStack has no AnimatePresence), so the
-  // source is the sole owner of these ids and morphs back cleanly — no ghost.
   const frameLayoutId = fromRow ? instantRowLayoutId(instant.id) : instantLayoutId(instant.id)
   const frameTitleId = fromRow ? instantRowTitleId(instant.id) : instantTitleId(instant.id)
   const accentMorphId = `${instantLayoutId(instant.id)}-accent`
@@ -87,71 +79,67 @@ export function InstantFrame({
         style={{ backgroundColor: accent }}
       />
 
-      {showContent && (
-        <div className="flex items-start justify-between gap-3 px-6 pt-5 pb-3">
-          <div className="flex min-w-0 items-start gap-3">
-            <motion.span
-              layoutId={glyphMorphId}
-              transition={layerTransition}
-              className="mt-1 flex h-[26px] w-[26px] shrink-0 items-center justify-center text-foreground"
+      {/* Compact nav-bar header — always rendered so this instant's title peeks
+          above its children; pointer-events stay live for ancestor close. */}
+      <div
+        className="relative flex min-h-[40px] items-center gap-2 px-3"
+        style={{ pointerEvents: "auto" }}
+      >
+        <motion.span
+          layoutId={glyphMorphId}
+          transition={layerTransition}
+          className="flex h-5 w-5 shrink-0 items-center justify-center text-foreground"
+        >
+          <NodeGlyph kind="instant" />
+        </motion.span>
+
+        <motion.h2
+          layoutId={frameTitleId}
+          transition={layerTransition}
+          className="min-w-0 flex-1 truncate whitespace-nowrap text-sm font-medium leading-tight tracking-tight text-foreground"
+        >
+          {instant.title}
+        </motion.h2>
+
+        <button
+          type="button"
+          onClick={() => onCloseTo(depth - 1)}
+          aria-label={`Close ${instant.title}`}
+          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-[4px] text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+
+      {/* Meta line — top window only (ancestors are covered below their peek). */}
+      {isTop && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ ...contentTransition, delay: 0.08 }}
+          className="flex flex-wrap items-center gap-2 px-3 pb-2 pl-4"
+        >
+          <span className="truncate text-[12.5px] text-muted-foreground">{spaceNames.join(" · ")}</span>
+          {hasMoment && (
+            <span className="flex items-center gap-1.5 rounded-sm border border-border bg-card/50 px-2 py-1 text-[11.5px] text-foreground">
+              <Clock className="h-3 w-3" style={{ color: accent }} />
+              {fmtInstant(instant.at!, instant.seconds ?? 0)}
+            </span>
+          )}
+          {(instant.tags ?? []).map((t) => (
+            <span
+              key={t}
+              className="flex items-center gap-1 rounded-sm border border-border bg-card/50 px-2 py-1 text-[11.5px] text-muted-foreground"
             >
-              <NodeGlyph kind="instant" />
-            </motion.span>
-            <div className="flex min-w-0 flex-col">
-              <motion.h2
-                layoutId={frameTitleId}
-                transition={layerTransition}
-                className="text-pretty text-[22px] font-medium leading-tight tracking-tight text-foreground"
-              >
-                {instant.title}
-              </motion.h2>
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ ...contentTransition, delay: 0.08 }}
-                className="mt-1 flex flex-wrap items-center gap-2"
-              >
-                <span className="truncate text-[12.5px] text-muted-foreground">
-                  {spaceNames.join(" · ")}
-                </span>
-                {hasMoment && (
-                  <span className="flex items-center gap-1.5 rounded-sm border border-border bg-card/50 px-2 py-1 text-[11.5px] text-foreground">
-                    <Clock className="h-3 w-3" style={{ color: accent }} />
-                    {fmtInstant(instant.at!, instant.seconds ?? 0)}
-                  </span>
-                )}
-                {(instant.tags ?? []).map((t) => (
-                  <span
-                    key={t}
-                    className="flex items-center gap-1 rounded-sm border border-border bg-card/50 px-2 py-1 text-[11.5px] text-muted-foreground"
-                  >
-                    <Hash className="h-3 w-3" />
-                    {t}
-                  </span>
-                ))}
-              </motion.div>
-            </div>
-          </div>
-
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label={`Close ${instant.title}`}
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border bg-card/70 text-muted-foreground transition-colors hover:border-foreground/30 hover:text-foreground"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
+              <Hash className="h-3 w-3" />
+              {t}
+            </span>
+          ))}
+        </motion.div>
       )}
 
-      {/* Body (this instant's inputs / related items / outputs) renders inside
-          the frame when active, at full opacity (no fade) so that on close the
-          source morphing within it stays visible as the window shrinks back. */}
-      {showContent ? (
-        <EntityBody nodeId={instant.id} />
-      ) : (
-        <div className="min-h-0 flex-1" aria-hidden />
-      )}
+      {/* Body renders at full opacity so the close shrink stays fully visible. */}
+      <EntityBody nodeId={instant.id} />
     </motion.div>
   )
 }

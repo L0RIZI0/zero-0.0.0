@@ -28,27 +28,21 @@ function fmtTime(min: number): string {
 }
 
 /**
- * An Event window — chrome only, the third first-class kind alongside Space and
- * Task. Like the others it paints the bordered frame and owns the title band
- * (glyph + title + time range), leaving the middle transparent so the
- * persistent frontmost content reads in front of it. An event has no children
- * of its own to dock, so its bottom band is minimal.
+ * An Event window in the nested-doll stack. Same compact header as the other
+ * kinds (glyph + title + close); its time range / membership show on the meta
+ * line for the top window only.
  */
 export function EventFrame({
   event,
-  isActive,
-  depthFromTop,
-  onClose,
+  depth,
+  isTop,
+  onCloseTo,
 }: {
   event: Entity
-  isActive: boolean
-  depthFromTop: number
-  onClose: () => void
+  depth: number
+  isTop: boolean
+  onCloseTo: (targetTopIndex: number) => void
 }) {
-  // Active frame AND its immediate parent render full content so the parent
-  // stays visible beneath the opaque child during the open/close morph.
-  const showContent = isActive || depthFromTop === 1
-  // The event's origin parent provides the contextual accent + membership line.
   const parentSpaceId = event.parentId ?? "s_root"
   const parentSpace = getSpace(parentSpaceId)
   const accent = parentSpace?.accent ?? "var(--accent)"
@@ -57,18 +51,13 @@ export function EventFrame({
     .filter(Boolean) as string[]
 
   const hasRange = typeof event.start === "number" && typeof event.end === "number"
-  // Bounce when the user re-clicks this event's timeline chip while it's open.
   const pulseControls = usePulse(event.id)
 
   // The window morphs to/from wherever it was opened: its DO-list ROW or its
-  // TIMELINE marker. We adopt that source's shared ids so the expand/collapse
-  // animation connects to the right element. (The non-source twin keeps its
-  // own ids and simply stays in place.)
+  // TIMELINE marker. We adopt that source's shared ids so expand/collapse
+  // connects to the right element.
   const { openSourceOf } = useZeroNav()
   const fromRow = openSourceOf(event.id) === "row"
-  // Morph to/from whichever source the window was opened from. On close the
-  // frame unmounts immediately (SpaceLayerStack has no AnimatePresence), so the
-  // source is the sole owner of these ids and morphs back cleanly — no ghost.
   const frameLayoutId = fromRow ? eventRowLayoutId(event.id) : eventLayoutId(event.id)
   const frameTitleId = fromRow ? eventRowTitleId(event.id) : eventTitleId(event.id)
   const accentMorphId = `${eventLayoutId(event.id)}-accent`
@@ -82,9 +71,7 @@ export function EventFrame({
       style={{ borderRadius: 4 }}
       className="relative flex h-full w-full flex-col overflow-hidden border border-border bg-card shadow-[0_24px_80px_-32px_rgba(0,0,0,0.6)]"
     >
-      {/* accent edge — shares element with the row/card accent. Only the
-          timeline morph carries a matching accent twin, so this is keyed to the
-          timeline layoutId regardless of source (a no-op when opened from row). */}
+      {/* accent edge — keyed to the timeline morph (no-op when opened from row). */}
       <motion.span
         layoutId={accentMorphId}
         transition={layerTransition}
@@ -92,74 +79,67 @@ export function EventFrame({
         style={{ backgroundColor: accent }}
       />
 
-      {/* Title band — only the active (frontmost) frame paints its header, so a
-          receding parent frame reads as a blank backdrop instead of bleeding
-          its glyph / metadata / close button through the active layer. */}
-      {showContent && (
-        <div className="flex items-start justify-between gap-3 px-6 pt-5 pb-3">
-          <div className="flex min-w-0 items-start gap-3">
-            <motion.span
-              layoutId={glyphMorphId}
-              transition={layerTransition}
-              className="mt-1 flex h-[26px] w-[26px] shrink-0 items-center justify-center text-foreground"
+      {/* Compact nav-bar header — always rendered so this event's title peeks
+          above its children; pointer-events stay live for ancestor close. */}
+      <div
+        className="relative flex min-h-[40px] items-center gap-2 px-3"
+        style={{ pointerEvents: "auto" }}
+      >
+        <motion.span
+          layoutId={glyphMorphId}
+          transition={layerTransition}
+          className="flex h-5 w-5 shrink-0 items-center justify-center text-foreground"
+        >
+          <NodeGlyph kind="event" />
+        </motion.span>
+
+        <motion.h2
+          layoutId={frameTitleId}
+          transition={layerTransition}
+          className="min-w-0 flex-1 truncate whitespace-nowrap text-sm font-medium leading-tight tracking-tight text-foreground"
+        >
+          {event.title}
+        </motion.h2>
+
+        <button
+          type="button"
+          onClick={() => onCloseTo(depth - 1)}
+          aria-label={`Close ${event.title}`}
+          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-[4px] text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+
+      {/* Meta line — top window only (ancestors are covered below their peek). */}
+      {isTop && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ ...contentTransition, delay: 0.08 }}
+          className="flex flex-wrap items-center gap-2 px-3 pb-2 pl-4"
+        >
+          <span className="truncate text-[12.5px] text-muted-foreground">{spaceNames.join(" · ")}</span>
+          {hasRange && (
+            <span className="flex items-center gap-1.5 rounded-sm border border-border bg-card/50 px-2 py-1 text-[11.5px] text-foreground">
+              <Clock className="h-3 w-3" style={{ color: accent }} />
+              {fmtTime(event.start!)} – {fmtTime(event.end!)}
+            </span>
+          )}
+          {(event.tags ?? []).map((t) => (
+            <span
+              key={t}
+              className="flex items-center gap-1 rounded-sm border border-border bg-card/50 px-2 py-1 text-[11.5px] text-muted-foreground"
             >
-              <NodeGlyph kind="event" />
-            </motion.span>
-            <div className="flex min-w-0 flex-col">
-              <motion.h2
-                layoutId={frameTitleId}
-                transition={layerTransition}
-                className="text-pretty text-[22px] font-medium leading-tight tracking-tight text-foreground"
-              >
-                {event.title}
-              </motion.h2>
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ ...contentTransition, delay: 0.08 }}
-                className="mt-1 flex flex-wrap items-center gap-2"
-              >
-                <span className="truncate text-[12.5px] text-muted-foreground">
-                  {spaceNames.join(" · ")}
-                </span>
-                {hasRange && (
-                  <span className="flex items-center gap-1.5 rounded-sm border border-border bg-card/50 px-2 py-1 text-[11.5px] text-foreground">
-                    <Clock className="h-3 w-3" style={{ color: accent }} />
-                    {fmtTime(event.start!)} – {fmtTime(event.end!)}
-                  </span>
-                )}
-                {(event.tags ?? []).map((t) => (
-                  <span
-                    key={t}
-                    className="flex items-center gap-1 rounded-sm border border-border bg-card/50 px-2 py-1 text-[11.5px] text-muted-foreground"
-                  >
-                    <Hash className="h-3 w-3" />
-                    {t}
-                  </span>
-                ))}
-              </motion.div>
-            </div>
-          </div>
-
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label={`Close ${event.title}`}
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border bg-card/70 text-muted-foreground transition-colors hover:border-foreground/30 hover:text-foreground"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
+              <Hash className="h-3 w-3" />
+              {t}
+            </span>
+          ))}
+        </motion.div>
       )}
 
-      {/* Body (this event's inputs / related items / outputs) renders inside the
-          frame when active, at full opacity (no fade) so that on close the
-          source morphing within it stays visible as the window shrinks back. */}
-      {showContent ? (
-        <EntityBody nodeId={event.id} />
-      ) : (
-        <div className="min-h-0 flex-1" aria-hidden />
-      )}
+      {/* Body renders at full opacity so the close shrink stays fully visible. */}
+      <EntityBody nodeId={event.id} />
     </motion.div>
   )
 }

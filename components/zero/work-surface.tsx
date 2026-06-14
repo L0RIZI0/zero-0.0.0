@@ -8,7 +8,6 @@ import { layerTransition } from "@/lib/zero/motion"
 import { SpaceLayerStack } from "./space-layer-stack"
 import { EntityBody } from "./entity-body"
 import { TimelineStrip } from "./timeline-strip"
-import { PathStack } from "./breadcrumb-path"
 
 /**
  * The composed work surface. The timeline is a persistent band pinned to the
@@ -32,14 +31,11 @@ import { PathStack } from "./breadcrumb-path"
 export function WorkSurface() {
   const { activeNode, stack } = useZeroNav()
   const contextSpaceId = activeNode.contextSpaceId
-  // The root entity's body is the base layer / home view. It stays mounted while
-  // root is the active view OR the IMMEDIATE parent of an open child (stack depth
-  // ≤ 2) so that diving root → space draws the opaque child window OVER a still-
-  // visible home view rather than blanking it first, and closing back to root
-  // reveals it beneath the shrinking frame. Two or more levels deep, root is
-  // fully occluded by the opaque parent frame, so we unmount it (and avoid any
-  // duplicate dock-card layoutId owners).
-  const showRootBody = stack.length <= 2
+  // The root entity's body is the permanent home backdrop at z-0. It is ALWAYS
+  // mounted: the depth-1 window grows over it on open and shrinks back into a
+  // dock card on close, so the card must always be present as the morph source.
+  // (When a space's window is open its dock card swaps to an inert placeholder,
+  // dropping its shared layoutId, so there is never a duplicate owner.)
   const rootId = stack[0]
   // The context may be a task/event (not a space), so fall back to the entity's
   // own accent when it isn't a space.
@@ -68,11 +64,6 @@ export function WorkSurface() {
         <TimelineStrip spaceId={contextSpaceId} accent={accent} />
       </motion.div>
 
-      {/* Breadcrumb — between the timeline and the focus window. */}
-      <div className="shrink-0">
-        <PathStack />
-      </div>
-
       {/* Focus-window region — the window opens here, beneath the timeline.
           This wrapper owns the clipping (rounded + overflow-hidden) that used to
           live on the card root, so the scaled-up parent frames still fade past
@@ -86,16 +77,13 @@ export function WorkSurface() {
             (a faint title ghost at the destination). Grouping them makes the morph
             a single clean projection. */}
         <LayoutGroup>
-          {/* Base layer — the ROOT entity's body (home view). Sits beneath the
-              frame stack and is mounted while root is the active view or the
-              immediate parent of an open child (see showRootBody). Its dock
-              cards share `layoutId`s with the frames above, so opening a space
-              morphs a card into its frame within this one LayoutGroup. */}
-          {showRootBody && (
-            <div className="absolute inset-0 z-0">
-              <EntityBody nodeId={rootId} />
-            </div>
-          )}
+          {/* Base layer — the ROOT entity's body (home view), always mounted as
+              the z-0 backdrop. Its dock cards share `layoutId`s with the frames
+              above, so opening a space morphs a card into its frame within this
+              one LayoutGroup, and closing morphs it back. */}
+          <div className="absolute inset-0 z-0">
+            <EntityBody nodeId={rootId} />
+          </div>
 
           {/* Window frames. Each active frame renders its OWN body (lists etc.)
               inside itself, so the row→frame morph is a single-tree layout
