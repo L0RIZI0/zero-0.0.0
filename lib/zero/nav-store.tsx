@@ -391,3 +391,42 @@ export function useZeroNav() {
   if (!ctx) throw new Error("useZeroNav must be used within ZeroNavProvider")
   return ctx
 }
+
+/** The lifted look (scale + shadow) a row/card gets when it's the active cell —
+ *  the same affordance these elements used to get purely on CSS :hover. */
+export const HIGHLIGHT_SHADOW = "0 12px 28px -10px rgba(0,0,0,0.28)"
+
+/**
+ * Wires a DO-list row or dock card into the shared selection model. Returns the
+ * single source of truth (`showHighlight`) for the lifted look:
+ *  - **mouse** mode: true only while the pointer is physically over the cell
+ *    (`hovered`), so leaving onto empty space highlights nothing.
+ *  - **keyboard** mode: true whenever this cell is the selection, so the
+ *    highlight persists with no pointer present.
+ * `hoverProps` records the selection on pointer-enter (mouse mode) so a follow-up
+ * Enter targets the hovered cell; the cell is scrolled into view when it becomes
+ * the keyboard selection.
+ */
+export function useRowSelection(region: SelectionRegion, key: string) {
+  const { selection, inputMode, select } = useZeroNav()
+  const [hovered, setHovered] = useState(false)
+  const ref = useRef<HTMLElement | null>(null)
+  const selected = selection?.region === region && selection.key === key
+  const showHighlight = hovered || (selected && inputMode === "keyboard")
+
+  useEffect(() => {
+    if (selected && inputMode === "keyboard") {
+      ref.current?.scrollIntoView({ block: "nearest", inline: "nearest" })
+    }
+  }, [selected, inputMode])
+
+  const hoverProps = {
+    onPointerEnter: () => {
+      setHovered(true)
+      select(region, key, "mouse")
+    },
+    onPointerLeave: () => setHovered(false),
+  }
+
+  return { selected, showHighlight, hoverProps, ref }
+}

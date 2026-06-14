@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { AnimatePresence } from "motion/react"
 import { PinOff, Trash2, Ban, RotateCcw } from "lucide-react"
 import {
@@ -26,7 +26,8 @@ import { ContextMenu, type ContextMenuState } from "./context-menu"
  * When a context has no pins, the whole row is hidden.
  */
 export function SpacesRow({ contextSpaceId }: { contextSpaceId: string }) {
-  const { open, dataVersion, notifyDataChanged } = useZeroNav()
+  const { open, dataVersion, notifyDataChanged, selection, moveSelection, publishNavOrder } =
+    useZeroNav()
   const [menu, setMenu] = useState<ContextMenuState | null>(null)
 
   // Re-read pins whenever data mutates or the context changes.
@@ -41,6 +42,54 @@ export function SpacesRow({ contextSpaceId }: { contextSpaceId: string }) {
     if (item.kind === "event") open(item.entity.parentId ?? "s_root")
     else open(item.entity.id)
   }
+
+  // Publish the dock's navigable order (card entity ids) for the store's
+  // arrow-key math. Recomputed whenever the pin set or context changes.
+  const dockKeys = useMemo(
+    () => pinned.map((p) => p.entity.id),
+    // dataVersion captures pin add/remove; contextSpaceId captures navigation.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [contextSpaceId, dataVersion],
+  )
+  useEffect(() => {
+    publishNavOrder("dock", dockKeys)
+  }, [dockKeys, publishNavOrder])
+
+  // Window-level keyboard handler, active only while the dock owns the
+  // selection: Enter opens the selected card; Left/Right move between cards;
+  // Down crosses back down into the DO list. Inert while a text input is focused.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!selection || selection.region !== "dock") return
+      const ae = document.activeElement as HTMLElement | null
+      if (ae && (ae.tagName === "INPUT" || ae.tagName === "TEXTAREA" || ae.isContentEditable)) return
+      switch (e.key) {
+        case "ArrowLeft":
+          e.preventDefault()
+          moveSelection("left")
+          break
+        case "ArrowRight":
+          e.preventDefault()
+          moveSelection("right")
+          break
+        case "ArrowDown":
+          e.preventDefault()
+          moveSelection("down")
+          break
+        case "Enter": {
+          e.preventDefault()
+          const item = pinned.find((p) => p.entity.id === selection.key)
+          if (item) openItem(item)
+          break
+        }
+      }
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+    // `pinned` is recomputed each render; including it keeps Enter targeting the
+    // current cards without resubscribing more than necessary.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selection, moveSelection, pinned])
 
   const openMenu = (e: React.MouseEvent, item: ContextItem) => {
     e.preventDefault()

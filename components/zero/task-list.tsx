@@ -1,13 +1,12 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { AnimatePresence, motion } from "motion/react"
 import { Check, Plus, Pin, Trash2, Ban, RotateCcw, ChevronDown } from "lucide-react"
 import {
   getContextItems,
   getOpenTaskCount,
-  getEntity,
   isPinned,
   pinItem,
   deleteEntity,
@@ -18,7 +17,7 @@ import {
   type ContextItem,
 } from "@/lib/zero/data"
 import type { Entity, TaskPriority } from "@/lib/zero/types"
-import { useZeroNav, ADD_KEY, isEventId, isInstantId } from "@/lib/zero/nav-store"
+import { useZeroNav, useRowSelection, ADD_KEY, HIGHLIGHT_SHADOW } from "@/lib/zero/nav-store"
 import {
   layerTransition,
   taskLayoutId,
@@ -49,46 +48,6 @@ const priorityDot: Record<TaskPriority, string> = {
  * rendered very slightly paler than the others, per the unified treatment.
  */
 const GLYPH_BOX = "flex h-4 w-4 shrink-0 items-center justify-center"
-
-/** The lifted/elevated look a row gets when it's the active (selected/hovered)
- *  cell — same scale + shadow the rows used to get purely on CSS hover. */
-const HIGHLIGHT_SHADOW = "0 12px 28px -10px rgba(0,0,0,0.28)"
-
-/**
- * Wires a DO-list row / dock card into the shared selection model.
- *
- * Returns `showHighlight`, the single source of truth for the lifted look:
- *  - In **mouse** mode it's true only while the pointer is physically over the
- *    row (`hovered`), so moving onto empty space leaves nothing highlighted.
- *  - In **keyboard** mode it's true whenever this row is the selection, so the
- *    highlight persists with no pointer present.
- * Pointer-enter also records the selection (mouse mode) so a subsequent Enter
- * acts on the hovered row. When this row becomes the keyboard selection it is
- * scrolled into view.
- */
-function useRowSelection(region: "list" | "dock", key: string) {
-  const { selection, inputMode, select } = useZeroNav()
-  const [hovered, setHovered] = useState(false)
-  const ref = useRef<HTMLElement | null>(null)
-  const selected = selection?.region === region && selection.key === key
-  const showHighlight = hovered || (selected && inputMode === "keyboard")
-
-  useEffect(() => {
-    if (selected && inputMode === "keyboard") {
-      ref.current?.scrollIntoView({ block: "nearest" })
-    }
-  }, [selected, inputMode])
-
-  const hoverProps = {
-    onPointerEnter: () => {
-      setHovered(true)
-      select(region, key, "mouse")
-    },
-    onPointerLeave: () => setHovered(false),
-  }
-
-  return { selected, showHighlight, hoverProps, ref }
-}
 
 /**
  * Trailing detail showing how many open (incomplete) DIRECT child tasks live
@@ -543,114 +502,90 @@ function GlyphMenu({
 }
 
 /**
- * An inline, in-list draft for creating a new entity. Appears at the end of the
- * DO list when ADD is pressed: a focused title input with a leading glyph
- * picker (kind defaults to a task).
+ * In-place editing presentation for a freshly-created (or being-renamed) DO-list
+ * entity. The entity ALREADY EXISTS in the store, so this is not a separate
+ * mount/unmount draft — it's the real row's slot rendered with a focused title
+ * input + glyph (kind) picker. That's what dissolves the old create-animation
+ * hiccup: the row is born in its final list position (directly above the ADD
+ * birther row) and merely swaps its inner presentation on commit.
  *
- * Interaction:
- *  - ENTER (1st) creates the entity in the current context — the row settles
- *    into a "created" state but stays put and keeps focus.
- *  - ENTER (2nd) opens the just-created entity.
- *  - Clicking outside saves when there's a title, or quietly cancels when empty.
- *  - ESC cancels an empty draft (animated shrink-out); once created it just
- *    closes (the entity is already saved).
- *  - The kind can only be chosen while still a draft (before the first ENTER).
- *
- * Commit/close is deferred to the next animation frame with the exit animation
- * disabled, so the draft is removed instantly the moment its real row appears —
- * no disappear/reappear or push-down reflow hiccup.
+ * Keys:
+ *  - Enter commits the title and exits editing (the list keeps the row selected,
+ *    so the next Enter opens it — the "second Enter opens" chain).
+ *  - Esc cancels: removes the entity if still untitled (animated shrink-out via
+ *    AnimatePresence), else just commits what's there.
+ *  - Click outside saves when titled, discards when empty.
+ * The glyph picker is only available here (while editing) and shows full,
+ * non-truncated helper text.
  */
-function DraftRow({ spaceId, onDone }: { spaceId: string; onDone: () => void }) {
-  const { notifyDataChanged, open } = useZeroNav()
-  const [kind, setKind] = useState<NodeKind>("task")
-  const [title, setTitle] = useState("")
+function EditRow({
+  entity,
+  onCommit,
+  onCancelEmpty,
+}: {
+  entity: Entity
+  onCommit: (id: string) => void
+  onCancelEmpty: (id: string) => void
+}) {
+  const { notifyDataChanged } = useZeroNav()
+  const [kind, setKind] = useState<NodeKind>(entity.kind as NodeKind)
+  const [title, setTitle] = useState(entity.title ?? "")
   const [anchor, setAnchor] = useState<{ left: number; top: number; bottom: number } | null>(null)
-  // Id of the entity once the first ENTER has created it (null while drafting).
-  const [createdId, setCreatedId] = useState<string | null>(null)
-  // Flips on for any save/open finish so the exit is instant (no shrink) — the
-  // real row replaces the draft in the same frame with no slide.
-  const [leaving, setLeaving] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
   const rowRef = useRef<HTMLLIElement>(null)
-  const pendingOpenRef = useRef<string | null>(null)
+  const doneRef = useRef(false) // guard so commit/cancel only fires once
   const menuOpen = anchor !== null
-  const created = createdId !== null
 
   useEffect(() => {
     inputRef.current?.focus()
   }, [])
 
-  // Add the entity to the store (only once). Returns its id either way.
-  const createEntity = (): string => {
-    if (createdId) return createdId
-    const name = title.trim()
-    const entity =
-      kind === "task"
-        ? addTask({ title: name, spaceId })
-        : kind === "space"
-          ? addSpace({ name, parentId: spaceId })
-          : kind === "event"
-            ? addEvent({ title: name, spaceId })
-            : addInstant({ title: name, spaceId })
-    setCreatedId(entity.id)
-    return entity.id
+  const commit = () => {
+    if (doneRef.current) return
+    doneRef.current = true
+    setEntityTitle(entity.id, title.trim())
+    onCommit(entity.id)
+  }
+  const cancel = () => {
+    if (doneRef.current) return
+    doneRef.current = true
+    onCancelEmpty(entity.id)
   }
 
-  // Tear the draft down on the next frame (instant exit), then surface the real
-  // row and optionally open it. Deferring by a frame lets the `leaving` re-render
-  // disable the exit animation before AnimatePresence removes the node.
-  const finish = (openId?: string | null) => {
-    if (leaving) return
-    pendingOpenRef.current = openId ?? null
-    setAnchor(null)
-    setLeaving(true)
-  }
-
+  // Outside pointer finishes the edit: save if titled, else discard. The glyph
+  // menu owns clicks via its own backdrop while open, so we stand down then.
   useEffect(() => {
-    if (!leaving) return
-    const raf = requestAnimationFrame(() => {
-      notifyDataChanged()
-      onDone()
-      if (pendingOpenRef.current) open(pendingOpenRef.current, "row")
-    })
-    return () => cancelAnimationFrame(raf)
-  }, [leaving, notifyDataChanged, onDone, open])
-
-  // Clicking outside finishes the draft: open-less save when there's a title (or
-  // it was already created), otherwise a quiet cancel. The glyph menu owns its
-  // own outside clicks via its backdrop, so we stand down while it's open.
-  useEffect(() => {
-    if (leaving) return
     const onPointerDown = (e: PointerEvent) => {
       if (menuOpen) return
       if (rowRef.current?.contains(e.target as Node)) return
-      if (created || title.trim()) {
-        if (!created) createEntity()
-        finish(null)
-      } else {
-        onDone()
-      }
+      if (title.trim()) commit()
+      else cancel()
     }
     document.addEventListener("pointerdown", onPointerDown, true)
     return () => document.removeEventListener("pointerdown", onPointerDown, true)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [menuOpen, leaving, created, title, kind])
+  }, [menuOpen, title])
 
   const onKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter") {
       e.preventDefault()
-      if (!created) {
-        if (title.trim()) createEntity() // 1st ENTER — create, stay put.
-      } else {
-        finish(createdId) // 2nd ENTER — open the created entity.
-      }
+      if (title.trim()) commit() // empty Enter is a no-op; keep editing
     } else if (e.key === "Escape") {
       e.preventDefault()
       if (menuOpen) setAnchor(null)
-      else if (created) finish(null) // already saved; just close.
-      else onDone() // discard empty/unsaved draft.
+      else if (title.trim()) commit()
+      else cancel()
     }
+  }
+
+  // Persist the kind change in place so the row keeps its identity/slot.
+  const pickKind = (k: NodeKind) => {
+    setKind(k)
+    changeEntityKind(entity.id, k)
+    notifyDataChanged()
+    setAnchor(null)
+    inputRef.current?.focus()
   }
 
   const toggleMenu = () => {
@@ -668,48 +603,34 @@ function DraftRow({ spaceId, onDone }: { spaceId: string; onDone: () => void }) 
       layout
       initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
-      // Instant removal on save/open (`leaving`) so the real row takes over with
-      // no slide; only a true cancel plays the shrink-out.
-      exit={leaving ? { opacity: 0, transition: { duration: 0 } } : { opacity: 0, scale: 0.96, transition: { duration: 0.16 } }}
+      exit={{ opacity: 0, scale: 0.96, transition: { duration: 0.16 } }}
       transition={layerTransition}
     >
       <div
         style={{ borderRadius: 4 }}
-        className={cn(
-          "flex w-full items-center gap-3 bg-card-solid px-2.5 py-2 text-left transition-colors",
-          // Highlighted edge while editing; settles to the normal row border once
-          // the entity has been created.
-          created ? "border border-border" : "border border-foreground/40",
-        )}
+        className="flex w-full items-center gap-3 border border-foreground/40 bg-card-solid px-2.5 py-2 text-left"
       >
-        {created ? (
-          <span className={cn(GLYPH_BOX, "text-foreground")}>
+        <button
+          ref={triggerRef}
+          type="button"
+          aria-haspopup="listbox"
+          aria-expanded={menuOpen}
+          aria-label={`Type: ${NODE_KIND_META[kind].label}. Change type`}
+          onClick={toggleMenu}
+          className={cn(
+            "flex items-center gap-0.5 rounded-[3px] py-0.5 pl-0.5 pr-1 text-foreground transition-colors hover:bg-foreground/10",
+            menuOpen && "bg-foreground/10",
+          )}
+        >
+          <span className={GLYPH_BOX}>
             <NodeGlyph kind={kind} filled={false} strokeWidth={2} />
           </span>
-        ) : (
-          <button
-            ref={triggerRef}
-            type="button"
-            aria-haspopup="listbox"
-            aria-expanded={menuOpen}
-            aria-label={`Type: ${NODE_KIND_META[kind].label}. Change type`}
-            onClick={toggleMenu}
-            className={cn(
-              "flex items-center gap-0.5 rounded-[3px] py-0.5 pl-0.5 pr-1 text-foreground transition-colors hover:bg-foreground/10",
-              menuOpen && "bg-foreground/10",
-            )}
-          >
-            <span className={GLYPH_BOX}>
-              <NodeGlyph kind={kind} filled={false} strokeWidth={2} />
-            </span>
-            <ChevronDown className="h-3 w-3 text-muted-foreground" />
-          </button>
-        )}
+          <ChevronDown className="h-3 w-3 text-muted-foreground" />
+        </button>
 
         <input
           ref={inputRef}
           value={title}
-          readOnly={created}
           onChange={(e) => setTitle(e.target.value)}
           onKeyDown={onKeyDown}
           placeholder={`Name this ${NODE_KIND_META[kind].label.toLowerCase()}…`}
@@ -722,11 +643,7 @@ function DraftRow({ spaceId, onDone }: { spaceId: string; onDone: () => void }) 
           <GlyphMenu
             anchor={anchor}
             kind={kind}
-            onSelect={(k) => {
-              setKind(k)
-              setAnchor(null)
-              inputRef.current?.focus()
-            }}
+            onSelect={pickKind}
             onClose={() => {
               setAnchor(null)
               inputRef.current?.focus()
@@ -738,8 +655,38 @@ function DraftRow({ spaceId, onDone }: { spaceId: string; onDone: () => void }) 
   )
 }
 
+/**
+ * The permanent terminal "+ADD" birther row. It is a selectable list cell
+ * (`key = ADD_KEY`); activating it (click, or Enter while selected) asks the
+ * list to birth a new entity. Always rendered last, so creating one never
+ * reflows the rows above it.
+ */
+function AddRow({ onActivate }: { onActivate: () => void }) {
+  const { showHighlight, hoverProps, ref } = useRowSelection("list", ADD_KEY)
+  return (
+    <li>
+      <motion.button
+        ref={ref as React.Ref<HTMLButtonElement>}
+        type="button"
+        onClick={onActivate}
+        {...hoverProps}
+        style={{ borderRadius: 4 }}
+        animate={{
+          scale: showHighlight ? 1.02 : 1,
+          boxShadow: showHighlight ? HIGHLIGHT_SHADOW : "0 0px 0px 0px rgba(0,0,0,0)",
+        }}
+        className="flex w-full items-center justify-center gap-1.5 border border-border bg-card-solid px-2.5 py-2 text-[12px] font-medium uppercase tracking-[0.08em] text-muted-foreground"
+      >
+        <Plus className="h-3.5 w-3.5" />
+        Add
+      </motion.button>
+    </li>
+  )
+}
+
 export function TaskList({ spaceId }: { spaceId: string }) {
-  const { dataVersion, notifyDataChanged } = useZeroNav()
+  const { dataVersion, notifyDataChanged, open, selection, select, moveSelection, publishNavOrder } =
+    useZeroNav()
   // Re-read whenever data mutates (new item created / pin changed) or context
   // changes. Pinned items are promoted to the SPACES row, so they're excluded
   // here.
@@ -748,7 +695,8 @@ export function TaskList({ spaceId }: { spaceId: string }) {
     [spaceId, dataVersion],
   )
   const [filter, setFilter] = useState<"open" | "all">("open")
-  const [creating, setCreating] = useState(false)
+  // Id of the row currently being edited inline (just-created or renaming).
+  const [editingId, setEditingId] = useState<string | null>(null)
   const [menu, setMenu] = useState<ContextMenuState | null>(null)
 
   // Reset filter view when the context changes.
@@ -762,6 +710,104 @@ export function TaskList({ spaceId }: { spaceId: string }) {
     [items, filter],
   )
   const openCount = items.filter((it) => it.kind === "task" && !it.task!.completed).length
+
+  // The navigable keys of the DO list, ALWAYS ending with the ADD birther row.
+  const listKeys = useMemo(() => [...shown.map((it) => it.id), ADD_KEY], [shown])
+
+  // Publish list order so the store can do arrow-key math centrally.
+  useEffect(() => {
+    publishNavOrder("list", listKeys)
+  }, [listKeys, publishNavOrder])
+
+  // Default selection when the viewed context changes: first DO item, or ADD
+  // when empty. No input mode is forced, so it won't paint a stray highlight
+  // until the user actually drives via mouse or keyboard.
+  useEffect(() => {
+    const first = shown[0]?.id
+    select("list", first ?? ADD_KEY)
+    // Only on context change — intentionally omit `shown`/`select`.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [spaceId])
+
+  // Birth a new entity: it's created in the store immediately (default kind
+  // task), appears as a real row directly above ADD, and enters edit mode while
+  // selected. Because the row is born in its final slot, nothing above reflows.
+  const beginCreate = useCallback(() => {
+    if (editingId) return
+    const entity = addTask({ title: "", spaceId })
+    notifyDataChanged()
+    setEditingId(entity.id)
+    select("list", entity.id, "keyboard")
+  }, [editingId, spaceId, notifyDataChanged, select])
+
+  // Commit edit: keep the row selected (keyboard mode) so the next Enter opens it.
+  const finishEdit = useCallback(
+    (id: string) => {
+      setEditingId(null)
+      notifyDataChanged()
+      select("list", id, "keyboard")
+    },
+    [notifyDataChanged, select],
+  )
+
+  // Cancel an untitled new row: delete it (AnimatePresence shrinks it out) and
+  // fall the selection back to the ADD row so the user can try again.
+  const cancelEdit = useCallback(
+    (id: string) => {
+      setEditingId(null)
+      deleteEntity(id)
+      notifyDataChanged()
+      select("list", ADD_KEY, "keyboard")
+    },
+    [notifyDataChanged, select],
+  )
+
+  // Window-level keyboard handler, active only when the DO list owns the
+  // selection and no text input is focused (so an EditRow's own input keeps
+  // Enter/Esc while editing). Arrows delegate to the store's spatial nav.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!selection || selection.region !== "list") return
+      const ae = document.activeElement as HTMLElement | null
+      if (ae && (ae.tagName === "INPUT" || ae.tagName === "TEXTAREA" || ae.isContentEditable)) return
+      const key = selection.key
+      switch (e.key) {
+        case "ArrowDown":
+          e.preventDefault()
+          moveSelection("down")
+          break
+        case "ArrowUp":
+          e.preventDefault()
+          moveSelection("up")
+          break
+        case "ArrowLeft":
+          moveSelection("left")
+          break
+        case "ArrowRight":
+          moveSelection("right")
+          break
+        case "Enter":
+          e.preventDefault()
+          if (key === ADD_KEY) beginCreate()
+          else open(key, "row")
+          break
+        case "Delete":
+        case "Backspace": {
+          if (key === ADD_KEY) break
+          e.preventDefault()
+          // Choose the neighbor to select BEFORE removing the current row.
+          const idx = listKeys.indexOf(key)
+          const neighbor = listKeys[idx + 1] ?? listKeys[idx - 1] ?? ADD_KEY
+          deleteEntity(key)
+          notifyDataChanged()
+          select("list", neighbor, "keyboard")
+          break
+        }
+      }
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [selection, moveSelection, open, beginCreate, listKeys, notifyDataChanged, select])
 
   const openMenu = (e: React.MouseEvent, item: ContextItem) => {
     e.preventDefault()
@@ -842,9 +888,12 @@ export function TaskList({ spaceId }: { spaceId: string }) {
         className="-mx-2 flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto px-2 no-scrollbar"
       >
         <AnimatePresence initial={false} mode="popLayout">
-          {/* Empty state intentionally renders nothing (no "Let's do" label). */}
+          {/* Empty state renders nothing but the ADD birther row below. The row
+              being edited swaps to EditRow in its own slot (no remount churn). */}
           {shown.map((it) =>
-            it.kind === "task" ? (
+            it.id === editingId ? (
+              <EditRow key={it.id} entity={it.entity} onCommit={finishEdit} onCancelEmpty={cancelEdit} />
+            ) : it.kind === "task" ? (
               <TaskRow key={it.id} task={it.task!} onContext={(e) => openMenu(e, it)} />
             ) : it.kind === "space" ? (
               <SpaceRow key={it.id} item={it} onContext={(e) => openMenu(e, it)} />
@@ -854,24 +903,10 @@ export function TaskList({ spaceId }: { spaceId: string }) {
               <InstantRow key={it.id} item={it} onContext={(e) => openMenu(e, it)} />
             ),
           )}
-          {/* The inline draft lives at the end of the list while creating. */}
-          {creating && <DraftRow key="draft" spaceId={spaceId} onDone={() => setCreating(false)} />}
+          {/* The ADD birther row is a permanent terminal list cell. */}
+          <AddRow key={ADD_KEY} onActivate={beginCreate} />
         </AnimatePresence>
       </ul>
-
-      <motion.button
-        type="button"
-        onClick={() => setCreating(true)}
-        style={{ borderRadius: 4 }}
-        whileHover={{
-          scale: 1.02,
-          boxShadow: "0 12px 28px -10px rgba(0,0,0,0.28)",
-        }}
-        className="mt-1.5 flex w-full items-center justify-center gap-1.5 border border-border bg-card-solid px-2.5 py-2 text-[12px] font-medium uppercase tracking-[0.08em] text-muted-foreground"
-      >
-        <Plus className="h-3.5 w-3.5" />
-        Add
-      </motion.button>
 
       <ContextMenu state={menu} onClose={() => setMenu(null)} />
     </section>

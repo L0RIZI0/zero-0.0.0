@@ -11,7 +11,7 @@ import {
   taskTitleId,
   glyphId,
 } from "@/lib/zero/motion"
-import { useZeroNav } from "@/lib/zero/nav-store"
+import { useZeroNav, useRowSelection, HIGHLIGHT_SHADOW } from "@/lib/zero/nav-store"
 import { NodeGlyph } from "./node-glyph"
 
 /**
@@ -62,6 +62,7 @@ export function PinnedCard({
   // the timeline), so they never need that swap.
   const hasFrame = isSpace || isTask
   const { stack } = useZeroNav()
+  const { showHighlight, hoverProps, ref } = useRowSelection("dock", item.entity.id)
 
   // While this space/task is open as a frame, release the shared layoutId to
   // the frame via an inert placeholder so the morph has exactly one live owner.
@@ -104,12 +105,17 @@ export function PinnedCard({
     // at opacity:0 on close. The task-list rows use the same <li> wrapper trick.
     <div className="shrink-0">
       <motion.button
+        ref={ref as React.Ref<HTMLButtonElement>}
         type="button"
         {...morphProps}
         onClick={onOpen}
         onContextMenu={onContextMenu}
+        {...hoverProps}
         style={{ borderRadius: 4 }}
-        whileHover={{ scale: 1.03, boxShadow: "0 14px 32px -12px rgba(0,0,0,0.3)" }}
+        animate={{
+          scale: showHighlight ? 1.03 : 1,
+          boxShadow: showHighlight ? HIGHLIGHT_SHADOW : "0 0px 0px 0px rgba(0,0,0,0)",
+        }}
         className="group relative flex h-[64px] w-[112px] flex-col justify-between overflow-hidden border border-border bg-card-solid px-2.5 py-2 text-left"
       >
         {/* accent edge — shares the element with the frame's accent strip for spaces */}
