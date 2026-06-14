@@ -62,10 +62,10 @@ function minuteOfDay(abs: number) {
 }
 
 export function TimelineStrip({
-  spaceId,
+  contextId,
   accent,
 }: {
-  spaceId: string
+  contextId: string
   accent?: string
 }) {
   const { open, stack, dataVersion, requestPulse, notifyDataChanged } = useZeroNav()
@@ -471,7 +471,7 @@ export function TimelineStrip({
               // step — we no longer dim by relevance, but will soon emphasize
               // related markers instead.
               // eslint-disable-next-line @typescript-eslint/no-unused-vars
-              const related = isInSubtree(spaceId, eventSpaceId)
+              const related = isInSubtree(contextId, eventSpaceId)
               const isOpen = stack.includes(e.id)
               const lane = i % 2
 

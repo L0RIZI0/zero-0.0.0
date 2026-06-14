@@ -1,8 +1,8 @@
-import type { ActiveNode } from "./nav-store"
+import type { ActiveEntity } from "./nav-store"
 
 /**
- * Shared geometry for the work surface. Each entity now renders its own body
- * (title band + spaces row + inputs/tasks/outputs) inside its window frame, so
+ * Shared geometry for the work surface. Each entity renders its own body
+ * (title band + dock + inputs/do-list/outputs) inside its window frame, so
  * there is no longer a separate frontmost layer to keep aligned. What remains
  * here is the depth-driven chrome: how the header bar and the persistent
  * timeline compact and lift as the user dives deeper.
@@ -22,8 +22,8 @@ import type { ActiveNode } from "./nav-store"
  */
 export type ShellStage = 0 | 1 | 2
 
-export function shellStageFor(node: ActiveNode): ShellStage {
-  return Math.min(node.depth, 2) as ShellStage
+export function shellStageFor(entity: ActiveEntity): ShellStage {
+  return Math.min(entity.depth, 2) as ShellStage
 }
 
 /** Top margin above the timeline — goes increasingly negative as the shell

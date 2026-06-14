@@ -29,21 +29,19 @@ import { TimelineStrip } from "./timeline-strip"
  * window's border, while the frame still owns its title band.
  */
 export function WorkSurface() {
-  const { activeNode, stack } = useZeroNav()
-  const contextSpaceId = activeNode.contextSpaceId
+  const { activeEntity, stack } = useZeroNav()
+  const contextId = activeEntity.contextId
   // The root entity's body is the permanent home backdrop at z-0. It is ALWAYS
-  // mounted: the depth-1 window grows over it on open and shrinks back into a
-  // dock card on close, so the card must always be present as the morph source.
-  // (When a space's window is open its dock card swaps to an inert placeholder,
-  // dropping its shared layoutId, so there is never a duplicate owner.)
+  // mounted: the depth-1 window grows over it on open and shrinks back into its
+  // dock card / row on close, so that morph source must always be present.
   const rootId = stack[0]
   // The context may be a task/event (not a space), so fall back to the entity's
   // own accent when it isn't a space.
-  const accent = getSpace(contextSpaceId)?.accent ?? getEntity(contextSpaceId)?.accent
+  const accent = getSpace(contextId)?.accent ?? getEntity(contextId)?.accent
 
   // As the user dives deeper, the whole interface compacts: the timeline slides
   // up toward the header bar (less top padding) at each stage.
-  const stage = shellStageFor(activeNode)
+  const stage = shellStageFor(activeEntity)
 
   return (
     // NOTE: the card is NOT `overflow-hidden`. Clipping lives on the focus-window
@@ -61,7 +59,7 @@ export function WorkSurface() {
         animate={{ marginTop: TIMELINE_TOP_PAD[stage] }}
         transition={layerTransition}
       >
-        <TimelineStrip spaceId={contextSpaceId} accent={accent} />
+        <TimelineStrip contextId={contextId} accent={accent} />
       </motion.div>
 
       {/* Focus-window region — the window opens here, beneath the timeline.
@@ -76,7 +74,7 @@ export function WorkSurface() {
             anymore — EntityFrame tweens explicit geometry (see entity-frame.tsx),
             which is why the title/border no longer stretch. */}
         <div className="absolute inset-0 z-0">
-          <EntityBody nodeId={rootId} />
+          <EntityBody entityId={rootId} />
         </div>
 
         {/* Window frames. The wrapper is click-through so that at root (no frame)

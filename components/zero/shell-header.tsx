@@ -37,11 +37,11 @@ function useClock() {
 
 export function ShellHeader() {
   const { time, weekday, monthDay } = useClock()
-  const { activeNode } = useZeroNav()
+  const { activeEntity } = useZeroNav()
   // The header bar reacts to dive depth. The whole bar slides up a touch at
   // stage 1 (first child) without any shrinking; it only compacts — avatar,
   // handle, search, logo — at stage 2 (a second child open).
-  const stage = shellStageFor(activeNode)
+  const stage = shellStageFor(activeEntity)
   const compact = stage === 2
 
   return (

@@ -30,38 +30,34 @@ export const ADD_KEY = "__add__"
  *  list always ends with `ADD_KEY`. */
 type NavOrder = { list: string[]; dock: string[] }
 
-export interface ActiveNode {
+export interface ActiveEntity {
   id: string
-  /** Depth in the stack — 0 is root (Space 0). */
+  /** Depth in the stack — 0 is root. */
   depth: number
   kind: EntityKind
-  /** True for any node below the root, i.e. a framed child window is open. */
+  /** True for any entity below the root, i.e. a framed child window is open. */
   isChild: boolean
-  /** The space id used for context filtering (a task resolves to its parent). */
-  contextSpaceId: string
+  /** The id used for context filtering. Every entity is its own context. */
+  contextId: string
   title: string
-  /** Present for spaces (and, later, tasks/events). Empty string when none. */
+  /** Entity description. Empty string when none. */
   description: string
 }
 
 interface ZeroNavContextValue {
   /** Stack of entity ids. stack[0] is always the root, "s_root". */
   stack: string[]
-  /** The currently focused (top of stack) node id. */
-  activeSpaceId: string
-  /** Rich description of the focused node — drives filtering + timeline offset. */
-  activeNode: ActiveNode
-  /** Push any entity onto the stack (dive deeper). Spaces and tasks open as
-   *  framed windows; events resolve to their parent space at the call site.
+  /** The currently focused (top of stack) entity id. */
+  activeId: string
+  /** Rich descriptor of the focused entity — drives filtering + timeline offset. */
+  activeEntity: ActiveEntity
+  /** Push any entity onto the stack (dive deeper). Every entity opens as a
+   *  framed window (events resolve to their parent at the call site).
    *  `source` records whether an event/instant was opened from its timeline
    *  marker or its DO-list row, so the frame can morph to/from the right one. */
   open: (id: string, source?: OpenSource) => void
-  /** Alias of `open`, kept for call sites that read as "open this space". */
-  openSpace: (spaceId: string) => void
-  /** Alias of `open`, kept for call sites that read as "open this task". */
-  openTask: (taskId: string) => void
-  /** Pop the top node (close current layer). */
-  closeSpace: () => void
+  /** Pop the top entity (close the frontmost window). */
+  close: () => void
   /** Close the window at absolute stack index `depth`. ONLY that window animates
    *  its shrink-back-to-source; any deeper children are removed instantly (they
    *  vanish without their own close animation). Used by every window's header
@@ -111,33 +107,6 @@ interface ZeroNavContextValue {
   publishNavOrder: (region: SelectionRegion, keys: string[]) => void
   /** Move the selection spatially. Always switches to keyboard input mode. */
   moveSelection: (dir: "up" | "down" | "left" | "right") => void
-}
-
-/**
- * Whether a node id refers to a task. Derived from the entity model; falls back
- * to the id prefix ("t") for ids not yet hydrated into the store.
- */
-export const isTaskId = (id: string) => {
-  const kind = getEntity(id)?.kind
-  return kind ? kind === "task" : id.startsWith("t")
-}
-
-/**
- * Whether a node id refers to an event. Derived from the entity model; falls
- * back to the id prefix ("e") for ids not yet hydrated into the store.
- */
-export const isEventId = (id: string) => {
-  const kind = getEntity(id)?.kind
-  return kind ? kind === "event" : id.startsWith("e")
-}
-
-/**
- * Whether a node id refers to an instant. Derived from the entity model; falls
- * back to the id prefix ("i") for ids not yet hydrated into the store.
- */
-export const isInstantId = (id: string) => {
-  const kind = getEntity(id)?.kind
-  return kind ? kind === "instant" : id.startsWith("i")
 }
 
 const ZeroNavContext = createContext<ZeroNavContextValue | null>(null)
@@ -305,15 +274,14 @@ export function ZeroNavProvider({
   }, [])
 
   // Escape / generic "close current" closes the frontmost window.
-  const closeSpace = useCallback(() => {
+  const close = useCallback(() => {
     closeWindow(stackRef.current.length - 1)
   }, [closeWindow])
 
   // Pressing Escape closes the current focus window (pops the top child),
-  // mirroring the close button — and routes through the same serialized
-  // closeSpace so rapid presses don't overlap. No-op at the root since there is
-  // nothing to collapse. We skip it while the user is mid-typing in a field so
-  // Escape can still serve its native role there.
+  // mirroring the close button. No-op at the root since there is nothing to
+  // collapse. We skip it while the user is mid-typing in a field so Escape can
+  // still serve its native role there.
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return
@@ -325,11 +293,11 @@ export function ZeroNavProvider({
           el.isContentEditable)
       )
         return
-      closeSpace()
+      close()
     }
     window.addEventListener("keydown", onKeyDown)
     return () => window.removeEventListener("keydown", onKeyDown)
-  }, [closeSpace])
+  }, [close])
 
   const value = useMemo<ZeroNavContextValue>(() => {
     const activeId = stack[stack.length - 1]
@@ -339,30 +307,27 @@ export function ZeroNavProvider({
 
     const title = entity?.title ?? ""
     const description = entity?.description ?? ""
-    // Every opened entity is its OWN context: the timeline / spaces row / lists
-    // filter to the active node's own children + tagged items. A leaf task or
-    // event simply has none, so its context is empty (rather than wrongly
-    // showing the parent's children, which also left the opened row as a gap).
-    const contextSpaceId = activeId
+    // Every opened entity is its OWN context: the timeline / dock / lists filter
+    // to the active entity's own children + tagged items. A leaf task or event
+    // simply has none, so its context is empty.
+    const contextId = activeId
 
-    const activeNode: ActiveNode = {
+    const activeEntity: ActiveEntity = {
       id: activeId,
       depth,
       kind,
       isChild: depth > 0,
-      contextSpaceId,
+      contextId,
       title,
       description,
     }
 
     return {
       stack,
-      activeSpaceId: activeId,
-      activeNode,
+      activeId,
+      activeEntity,
       open,
-      openSpace: open,
-      openTask: open,
-      closeSpace,
+      close,
       closeWindow,
       closing,
       finishClosing,
@@ -384,7 +349,7 @@ export function ZeroNavProvider({
   }, [
     stack,
     open,
-    closeSpace,
+    close,
     closeWindow,
     closing,
     finishClosing,

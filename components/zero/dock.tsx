@@ -11,34 +11,33 @@ import {
   type ContextItem,
 } from "@/lib/zero/data"
 import { useZeroNav } from "@/lib/zero/nav-store"
-import { PinnedCard } from "./pinned-card"
+import { DockCard } from "./dock-card"
 import { ContextMenu, type ContextMenuState } from "./context-menu"
 
 /**
- * The Spaces row — the horizontal strip of pinned items that sits between the
- * timeline and the inputs/tasks/outputs lists. It lives in the persistent
- * frontmost layer (FrontContent), so it re-reads the active context's pins
- * instantly on navigation rather than animating in with each window frame.
+ * The Dock — the horizontal strip of pinned entities that sits between the
+ * timeline and the inputs/do-list/outputs columns. It lives in the persistent
+ * frontmost layer, so it re-reads the active context's pins instantly on
+ * navigation rather than animating in with each window frame.
  *
- * Pins are per-context: an item shows here only in the space it was pinned
- * from. Items are promoted here via right-click "Pin to Spaces" in the task
- * list, and right-clicking a card here unpins it (sending it back to the list).
- * When a context has no pins, the whole row is hidden.
+ * Pins are per-context: an entity shows here only in the context it was pinned
+ * from. Entities are promoted here via right-click "Pin to Dock" in the do
+ * list, and right-clicking a card here unpins it. When a context has no pins,
+ * the whole dock collapses to a small gap.
  */
-export function SpacesRow({ contextSpaceId }: { contextSpaceId: string }) {
+export function Dock({ contextId }: { contextId: string }) {
   const { open, dataVersion, notifyDataChanged, selection, moveSelection, publishNavOrder } =
     useZeroNav()
   const [menu, setMenu] = useState<ContextMenuState | null>(null)
 
   // Re-read pins whenever data mutates or the context changes.
   void dataVersion
-  const pinned: ContextItem[] = getPinnedItems(contextSpaceId)
+  const pinned: ContextItem[] = getPinnedItems(contextId)
   const hasPins = pinned.length > 0
 
   const openItem = (item: ContextItem) => {
-    // Spaces and tasks open as their own framed window; an event resolves to
-    // its origin parent space (events aren't framed contexts of their own).
-    // An instant opens its own window directly (it morphs from the timeline).
+    // An event resolves to its origin parent space (events aren't framed
+    // contexts of their own); every other kind opens its own window.
     if (item.kind === "event") open(item.entity.parentId ?? "s_root")
     else open(item.entity.id)
   }
@@ -47,9 +46,9 @@ export function SpacesRow({ contextSpaceId }: { contextSpaceId: string }) {
   // arrow-key math. Recomputed whenever the pin set or context changes.
   const dockKeys = useMemo(
     () => pinned.map((p) => p.entity.id),
-    // dataVersion captures pin add/remove; contextSpaceId captures navigation.
+    // dataVersion captures pin add/remove; contextId captures navigation.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [contextSpaceId, dataVersion],
+    [contextId, dataVersion],
   )
   useEffect(() => {
     publishNavOrder("dock", dockKeys)
@@ -57,7 +56,7 @@ export function SpacesRow({ contextSpaceId }: { contextSpaceId: string }) {
 
   // Window-level keyboard handler, active only while the dock owns the
   // selection: Enter opens the selected card; Left/Right move between cards;
-  // Down crosses back down into the DO list. Inert while a text input is focused.
+  // Down crosses back down into the do list. Inert while a text input is focused.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!selection || selection.region !== "dock") return
@@ -101,10 +100,10 @@ export function SpacesRow({ contextSpaceId }: { contextSpaceId: string }) {
       y: e.clientY,
       items: [
         {
-          label: "Unpin from Spaces",
+          label: "Unpin from Dock",
           icon: <PinOff className="h-3.5 w-3.5" />,
           onSelect: () => {
-            unpinItem(contextSpaceId, item.id)
+            unpinItem(contextId, item.id)
             notifyDataChanged()
           },
         },
@@ -141,27 +140,18 @@ export function SpacesRow({ contextSpaceId }: { contextSpaceId: string }) {
       className={
         "pointer-events-auto flex shrink-0 flex-col items-center " +
         // When empty, keep a breathing gap between the timeline and the lists
-        // below; when populated, add extra top room now that the SPACES label
-        // (which used to provide that separation from the timeline) is gone.
+        // below; when populated, add extra top room.
         (hasPins ? "pb-1 pt-6" : "pt-5")
       }
     >
-      {/* The Dock has no visible label; spacing above adjusts based on whether
-          any items are pinned. The AnimatePresence below must stay mounted
-          regardless. */}
-
       {/* CRITICAL: key this container by context so it HARD-remounts when the
-          active context changes — exactly like the task list's `<ul key={spaceId}>`.
-          A persistent AnimatePresence (mode="popLayout") instead leaves the card
-          as a lingering "exiting" instance when its space opens (context → child,
-          pins empty); on close that stale exit collides with the re-entering card
-          and Framer strands it at opacity:0. A fresh per-context AnimatePresence
-          has no stale instances, so the shared-layoutId morph (frame ↔ card)
-          resolves cleanly in both directions. */}
-      <div key={contextSpaceId} className="flex w-full flex-wrap items-stretch justify-center gap-3">
+          active context changes — exactly like the do list's `<ul key={contextId}>`.
+          A fresh per-context AnimatePresence has no stale "exiting" instances,
+          so card enter/exit resolves cleanly in both directions. */}
+      <div key={contextId} className="flex w-full flex-wrap items-stretch justify-center gap-3">
         <AnimatePresence initial={false} mode="popLayout">
           {pinned.map((item) => (
-            <PinnedCard
+            <DockCard
               key={item.id}
               item={item}
               onOpen={() => openItem(item)}

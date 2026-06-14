@@ -8,21 +8,16 @@ import { useRowSelection } from "@/lib/zero/nav-store"
 import { NodeGlyph } from "./node-glyph"
 
 /**
- * A pinned item in the SPACES row — uniform across all kinds (space / task /
- * event): the kind glyph sits in the top-left corner, a compact detail line
- * showing the number of open tasks ({n} + task square) sits to its right, and
- * the title runs below.
- *
- * The open-task count is read from the item's "home" space: the space itself
- * for a pinned space, or the parent space for a pinned task/event.
+ * A pinned entity in the Dock — uniform across all kinds (space / task / event /
+ * instant): the kind glyph sits in the top-left corner, a compact detail line
+ * showing the number of open child tasks ({n} + task square) sits to its right,
+ * and the title runs below.
  *
  * MORPH SOURCE: this card tags itself with `data-morph-source={id}` (and
  * `data-morph-where="dock"`) so opening it lets EntityFrame measure this exact
- * box and grow the window out of it — and shrink back into it on close. No
- * shared `layoutId` is involved anymore, so there is no placeholder-swap dance
- * and no risk of two elements owning one id.
+ * box and grow the window out of it — and shrink back into it on close.
  */
-export function PinnedCard({
+export function DockCard({
   item,
   onOpen,
   onContextMenu,
@@ -31,13 +26,13 @@ export function PinnedCard({
   onOpen: () => void
   onContextMenu: (e: React.MouseEvent) => void
 }) {
-  // Accent comes from the item's home space: itself for a space, else its
+  // Accent comes from the entity's home space: itself for a space, else its
   // origin parent (tasks/events inherit their container's tint).
   const homeSpaceId = item.kind === "space" ? item.entity.id : item.entity.parentId ?? "s_root"
   const accent = getSpace(homeSpaceId)?.accent ?? "var(--muted-foreground)"
 
   // Every entity is a container, so the detail counts the open DIRECT child
-  // tasks of the item itself (a pinned task shows its own open subtasks).
+  // tasks of the entity itself (a pinned task shows its own open subtasks).
   const openCount = useMemo(() => getOpenTaskCount(item.entity.id), [item])
 
   const { lift, hoverProps, ref } = useRowSelection("dock", item.entity.id)

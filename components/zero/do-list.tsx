@@ -416,7 +416,7 @@ export function DoList({ contextId }: { contextId: string }) {
       y: e.clientY,
       items: [
         {
-          label: "Pin to Spaces",
+          label: "Pin to Dock",
           icon: <Pin className="h-3.5 w-3.5" />,
           onSelect: () => {
             pinItem(contextId, item.id)

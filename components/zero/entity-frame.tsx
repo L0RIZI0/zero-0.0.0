@@ -1,10 +1,11 @@
 "use client"
 
-import { useState } from "react"
-import { motion } from "motion/react"
+import { useEffect, useState } from "react"
+import { motion, useAnimationControls } from "motion/react"
 import { Check, X } from "lucide-react"
 import type { Entity } from "@/lib/zero/types"
 import { getSpace } from "@/lib/zero/data"
+import { useZeroNav } from "@/lib/zero/nav-store"
 import { layerTransition, type Rect } from "@/lib/zero/motion"
 import { NodeGlyph } from "./node-glyph"
 import { EntityBody } from "./entity-body"
@@ -59,6 +60,20 @@ export function EntityFrame({
   /** Called once a "closing" window finishes shrinking, so the store drops it. */
   onClosed?: () => void
 }) {
+  const { pulse } = useZeroNav()
+  const bounce = useAnimationControls()
+
+  // A re-click on this entity's already-open marker/chip requests a "pulse":
+  // a quick attention bounce. It runs on an inner wrapper so the outer geometry
+  // tween (open/close morph) is never disturbed. `pulse.n` increments on every
+  // request so the same id can bounce repeatedly.
+  useEffect(() => {
+    if (isTop && pulse && pulse.id === entity.id) {
+      bounce.start({ scale: [1, 1.015, 1], transition: { duration: 0.32, ease: "easeOut" } })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pulse?.id, pulse?.n])
+
   const isTask = entity.kind === "task"
   // Accent comes from the entity's home space (itself for a space, else its
   // parent), shown as a thin LEFT strip — the border itself stays neutral.
@@ -88,6 +103,9 @@ export function EntityFrame({
         if (mode === "closing") onClosed?.()
       }}
     >
+      {/* Inner wrapper carries the attention "pulse" bounce (re-click while open)
+          so it never collides with the outer geometry morph. */}
+      <motion.div className="absolute inset-0" animate={bounce} style={{ transformOrigin: "center" }}>
       {/* Left accent strip so the window reads as belonging to its space. */}
       <div className="absolute left-0 top-0 z-10 h-full w-[3px]" style={{ backgroundColor: accent }} aria-hidden />
 
@@ -151,6 +169,7 @@ export function EntityFrame({
           <EntityBody entityId={entity.id} />
         </motion.div>
       )}
+      </motion.div>
     </motion.div>
   )
 }
