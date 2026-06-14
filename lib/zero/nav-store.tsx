@@ -439,5 +439,12 @@ export function useRowSelection(region: SelectionRegion, key: string) {
     onPointerLeave: () => setHovered(false),
   }
 
-  return { selected, showHighlight, hoverProps, ref }
+  // `lift` drives the transform-scale part of the highlight. With the new
+  // single-tree layer model there is no `transform: scale` on the frames (the
+  // recede is pure inset), and exiting frames drop their shared layoutIds, so a
+  // scale on the row is safe and does not corrupt the close morph. Kept as a
+  // distinct flag so it can be decoupled from the paint-only shadow if needed.
+  const lift = showHighlight
+
+  return { selected, showHighlight, lift, hoverProps, ref }
 }

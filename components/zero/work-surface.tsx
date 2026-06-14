@@ -95,8 +95,11 @@ export function WorkSurface() {
 
           {/* Window frames. Each active frame renders its OWN body (lists etc.)
               inside itself, so the row→frame morph is a single-tree layout
-              animation rather than a cross-layer handoff. */}
-          <div className="absolute inset-0 z-10">
+              animation rather than a cross-layer handoff. The wrapper is
+              click-through so that at root (no frame) events reach the home body
+              at z-0; each active frame re-enables pointer events on itself via
+              LayerDepthContainer. */}
+          <div className="pointer-events-none absolute inset-0 z-10">
             <SpaceLayerStack />
           </div>
         </LayoutGroup>

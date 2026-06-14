@@ -62,7 +62,7 @@ export function PinnedCard({
   // the timeline), so they never need that swap.
   const hasFrame = isSpace || isTask
   const { stack } = useZeroNav()
-  const { showHighlight, hoverProps, ref } = useRowSelection("dock", item.entity.id)
+  const { showHighlight, lift, hoverProps, ref } = useRowSelection("dock", item.entity.id)
 
   // While this space/task is open as a frame, release the shared layoutId to
   // the frame via an inert placeholder so the morph has exactly one live owner.
@@ -113,6 +113,7 @@ export function PinnedCard({
         {...hoverProps}
         style={{ borderRadius: 4 }}
         animate={{
+          scale: lift ? 1.03 : 1,
           boxShadow: showHighlight ? HIGHLIGHT_SHADOW : HIGHLIGHT_SHADOW_NONE,
         }}
         className="group relative flex h-[64px] w-[112px] flex-col justify-between overflow-hidden border border-border bg-card-solid px-2.5 py-2 text-left"

@@ -52,6 +52,12 @@ export function SpaceLayerStack() {
           const space = getSpace(nodeId)
           if (!space) return null
           const isRoot = index === 0
+          // The root space renders no frame (the surface itself stands in for
+          // it) — its body is the z-0 home layer in WorkSurface. Rendering an
+          // (empty) active LayerDepthContainer for it would lay a full-bleed
+          // pointer-events:auto div over that home body and swallow every hover
+          // and click, so skip it entirely.
+          if (isRoot) return null
           return (
             <LayerDepthContainer key={nodeId} depthFromTop={depthFromTop} isActive={isActive}>
               <SpaceFrame
