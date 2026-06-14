@@ -32,7 +32,7 @@ export function SpaceLayerStack() {
             if (!task) return null
             return (
               <LayerDepthContainer key={nodeId} depthFromTop={depthFromTop} isActive={isActive}>
-                <TaskFrame task={task} isActive={isActive} onClose={closeSpace} />
+                <TaskFrame task={task} isActive={isActive} depthFromTop={depthFromTop} onClose={closeSpace} />
               </LayerDepthContainer>
             )
           }
@@ -42,7 +42,7 @@ export function SpaceLayerStack() {
             if (!event) return null
             return (
               <LayerDepthContainer key={nodeId} depthFromTop={depthFromTop} isActive={isActive}>
-                <EventFrame event={event} isActive={isActive} onClose={closeSpace} />
+                <EventFrame event={event} isActive={isActive} depthFromTop={depthFromTop} onClose={closeSpace} />
               </LayerDepthContainer>
             )
           }
@@ -52,7 +52,7 @@ export function SpaceLayerStack() {
             if (!instant) return null
             return (
               <LayerDepthContainer key={nodeId} depthFromTop={depthFromTop} isActive={isActive}>
-                <InstantFrame instant={instant} isActive={isActive} onClose={closeSpace} />
+                <InstantFrame instant={instant} isActive={isActive} depthFromTop={depthFromTop} onClose={closeSpace} />
               </LayerDepthContainer>
             )
           }
@@ -72,6 +72,7 @@ export function SpaceLayerStack() {
                 space={space}
                 isRoot={isRoot}
                 isActive={isActive}
+                depthFromTop={depthFromTop}
                 onClose={closeSpace}
               />
             </LayerDepthContainer>

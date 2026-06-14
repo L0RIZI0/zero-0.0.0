@@ -25,13 +25,18 @@ const priorityLabel: Record<TaskPriority, string> = {
 export function TaskFrame({
   task,
   isActive,
+  depthFromTop,
   onClose,
 }: {
   task: Entity
   isActive: boolean
+  depthFromTop: number
   onClose: () => void
 }) {
   const [done, setDone] = useState(!!task.completed)
+  // Render the full window for the active frame AND its immediate parent so the
+  // parent stays visible beneath the opaque child during the open/close morph.
+  const showContent = isActive || depthFromTop === 1
   // Shared morph ids — the frame and its origin row/card own the same layoutIds
   // so the open morph is one continuous layout animation. On close the frame
   // unmounts immediately (SpaceLayerStack has no AnimatePresence), so there is
@@ -54,12 +59,12 @@ export function TaskFrame({
       layoutId={bodyMorphId}
       transition={layerTransition}
       style={{ borderRadius: 4 }}
-      className="relative flex h-full w-full flex-col overflow-hidden border border-border bg-secondary/40 shadow-[0_24px_80px_-32px_rgba(0,0,0,0.6)]"
+      className="relative flex h-full w-full flex-col overflow-hidden border border-border bg-card shadow-[0_24px_80px_-32px_rgba(0,0,0,0.6)]"
     >
       {/* Title band — only the active (frontmost) frame paints its header.
           Parent frames recede behind the opaque active layer, so rendering
           their checkbox / metadata / close button would bleed through. */}
-      {isActive && (
+      {showContent && (
         <div className="flex items-start justify-between gap-3 px-6 pt-5 pb-3">
           <div className="flex min-w-0 items-start gap-3">
             <button
@@ -148,7 +153,7 @@ export function TaskFrame({
           rendered at full opacity (no fade) so that on close the body — and the
           re-mounting row morphing within it — stays fully visible as the window
           shrinks back into the list row. */}
-      {isActive ? (
+      {showContent ? (
         <EntityBody nodeId={task.id} />
       ) : (
         <div className="min-h-0 flex-1" aria-hidden />

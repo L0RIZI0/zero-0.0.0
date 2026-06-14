@@ -37,12 +37,17 @@ function fmtTime(min: number): string {
 export function EventFrame({
   event,
   isActive,
+  depthFromTop,
   onClose,
 }: {
   event: Entity
   isActive: boolean
+  depthFromTop: number
   onClose: () => void
 }) {
+  // Active frame AND its immediate parent render full content so the parent
+  // stays visible beneath the opaque child during the open/close morph.
+  const showContent = isActive || depthFromTop === 1
   // The event's origin parent provides the contextual accent + membership line.
   const parentSpaceId = event.parentId ?? "s_root"
   const parentSpace = getSpace(parentSpaceId)
@@ -75,7 +80,7 @@ export function EventFrame({
       transition={layerTransition}
       animate={pulseControls}
       style={{ borderRadius: 4 }}
-      className="relative flex h-full w-full flex-col overflow-hidden border border-border bg-secondary/40 shadow-[0_24px_80px_-32px_rgba(0,0,0,0.6)]"
+      className="relative flex h-full w-full flex-col overflow-hidden border border-border bg-card shadow-[0_24px_80px_-32px_rgba(0,0,0,0.6)]"
     >
       {/* accent edge — shares element with the row/card accent. Only the
           timeline morph carries a matching accent twin, so this is keyed to the
@@ -90,7 +95,7 @@ export function EventFrame({
       {/* Title band — only the active (frontmost) frame paints its header, so a
           receding parent frame reads as a blank backdrop instead of bleeding
           its glyph / metadata / close button through the active layer. */}
-      {isActive && (
+      {showContent && (
         <div className="flex items-start justify-between gap-3 px-6 pt-5 pb-3">
           <div className="flex min-w-0 items-start gap-3">
             <motion.span
@@ -150,7 +155,7 @@ export function EventFrame({
       {/* Body (this event's inputs / related items / outputs) renders inside the
           frame when active, at full opacity (no fade) so that on close the
           source morphing within it stays visible as the window shrinks back. */}
-      {isActive ? (
+      {showContent ? (
         <EntityBody nodeId={event.id} />
       ) : (
         <div className="min-h-0 flex-1" aria-hidden />

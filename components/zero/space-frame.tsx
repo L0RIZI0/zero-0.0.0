@@ -18,14 +18,24 @@ export function SpaceFrame({
   space,
   isRoot,
   isActive,
+  depthFromTop,
   onClose,
 }: {
   space: Entity
   isRoot: boolean
   isActive: boolean
+  depthFromTop: number
   onClose: () => void
 }) {
   const accent = space.accent ?? "var(--accent)"
+
+  // Render the full window (title band + body) for the active frame AND for the
+  // IMMEDIATE parent (one level down). Keeping the parent's body mounted means
+  // diving in draws the opaque child window OVER a still-visible parent (rather
+  // than blanking it first), and closing reveals a parent whose destination row
+  // is already laid out — so the shrink-into-row morph has a stable target.
+  // Deeper ancestors stay blank (and are hidden by LayerDepthContainer).
+  const showContent = isActive || depthFromTop === 1
 
   // Shared morph ids — on close the frame unmounts immediately (SpaceLayerStack
   // has no AnimatePresence), so the dock card / row is the sole owner and morphs
@@ -43,7 +53,7 @@ export function SpaceFrame({
       layoutId={bodyMorphId}
       transition={layerTransition}
       style={{ borderRadius: 4 }}
-      className="relative flex h-full w-full flex-col overflow-hidden border border-border bg-secondary/40 shadow-[0_24px_80px_-32px_rgba(0,0,0,0.6)]"
+      className="relative flex h-full w-full flex-col overflow-hidden border border-border bg-card shadow-[0_24px_80px_-32px_rgba(0,0,0,0.6)]"
     >
       {/* accent edge — shares element with the button's accent strip */}
       <motion.span
@@ -57,7 +67,7 @@ export function SpaceFrame({
           receding parent frame would otherwise bleed its title / description /
           close button through the opaque active layer. Sits above the frontmost
           timeline; the timeline animates down to clear this band's height. */}
-      {isActive && (
+      {showContent && (
         <div className="flex items-start justify-between gap-3 px-6 pt-5 pb-3">
           <div className="flex min-w-0 items-start gap-3">
             <motion.span
@@ -105,7 +115,7 @@ export function SpaceFrame({
           the active entity's list is ever visible. It is rendered at full
           opacity (no fade) so that on close the dock card morphing within it
           stays fully visible as the window shrinks back into the card. */}
-      {isActive ? (
+      {showContent ? (
         <EntityBody nodeId={space.id} />
       ) : (
         <div className="min-h-0 flex-1" aria-hidden />

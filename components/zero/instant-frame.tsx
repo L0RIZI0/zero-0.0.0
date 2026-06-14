@@ -38,12 +38,17 @@ function fmtInstant(min: number, seconds = 0): string {
 export function InstantFrame({
   instant,
   isActive,
+  depthFromTop,
   onClose,
 }: {
   instant: Entity
   isActive: boolean
+  depthFromTop: number
   onClose: () => void
 }) {
+  // Active frame AND its immediate parent render full content so the parent
+  // stays visible beneath the opaque child during the open/close morph.
+  const showContent = isActive || depthFromTop === 1
   const parentSpaceId = instant.parentId ?? "s_root"
   const parentSpace = getSpace(parentSpaceId)
   const accent = parentSpace?.accent ?? "var(--accent)"
@@ -72,7 +77,7 @@ export function InstantFrame({
       transition={layerTransition}
       animate={pulseControls}
       style={{ borderRadius: 4 }}
-      className="relative flex h-full w-full flex-col overflow-hidden border border-border bg-secondary/40 shadow-[0_24px_80px_-32px_rgba(0,0,0,0.6)]"
+      className="relative flex h-full w-full flex-col overflow-hidden border border-border bg-card shadow-[0_24px_80px_-32px_rgba(0,0,0,0.6)]"
     >
       {/* accent edge keyed to the timeline morph (a no-op when opened from row). */}
       <motion.span
@@ -82,7 +87,7 @@ export function InstantFrame({
         style={{ backgroundColor: accent }}
       />
 
-      {isActive && (
+      {showContent && (
         <div className="flex items-start justify-between gap-3 px-6 pt-5 pb-3">
           <div className="flex min-w-0 items-start gap-3">
             <motion.span
@@ -142,7 +147,7 @@ export function InstantFrame({
       {/* Body (this instant's inputs / related items / outputs) renders inside
           the frame when active, at full opacity (no fade) so that on close the
           source morphing within it stays visible as the window shrinks back. */}
-      {isActive ? (
+      {showContent ? (
         <EntityBody nodeId={instant.id} />
       ) : (
         <div className="min-h-0 flex-1" aria-hidden />

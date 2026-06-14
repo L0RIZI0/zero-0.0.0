@@ -32,11 +32,14 @@ import { PathStack } from "./breadcrumb-path"
 export function WorkSurface() {
   const { activeNode, stack } = useZeroNav()
   const contextSpaceId = activeNode.contextSpaceId
-  // The root entity's body is the base layer / home view. It is only mounted at
-  // root: deeper levels are covered by frames (which are translucent), so we
-  // unmount it both to avoid bleed-through and to let its dock cards morph
-  // cleanly into the opening frame.
-  const isRoot = stack.length === 1
+  // The root entity's body is the base layer / home view. It stays mounted while
+  // root is the active view OR the IMMEDIATE parent of an open child (stack depth
+  // ≤ 2) so that diving root → space draws the opaque child window OVER a still-
+  // visible home view rather than blanking it first, and closing back to root
+  // reveals it beneath the shrinking frame. Two or more levels deep, root is
+  // fully occluded by the opaque parent frame, so we unmount it (and avoid any
+  // duplicate dock-card layoutId owners).
+  const showRootBody = stack.length <= 2
   const rootId = stack[0]
   // The context may be a task/event (not a space), so fall back to the entity's
   // own accent when it isn't a space.
