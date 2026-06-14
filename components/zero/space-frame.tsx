@@ -102,18 +102,11 @@ export function SpaceFrame({
       {/* The body (spaces row / tasks / inputs / outputs) is rendered HERE,
           inside the frame, only for the active (frontmost) frame. Receding
           parent frames render an empty middle — their bodies unmount, so only
-          the active entity's list is ever visible. It fades in as the frame
-          expands; on close the frame unmounts instantly (see SpaceLayerStack),
-          so the dock card morphs back as a clean title-only box. */}
+          the active entity's list is ever visible. It is rendered at full
+          opacity (no fade) so that on close the dock card morphing within it
+          stays fully visible as the window shrinks back into the card. */}
       {isActive ? (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ duration: 0.18, ease: "easeOut" }}
-          className="flex min-h-0 flex-1 flex-col"
-        >
-          <EntityBody nodeId={space.id} />
-        </motion.div>
+        <EntityBody nodeId={space.id} />
       ) : (
         <div className="min-h-0 flex-1" aria-hidden />
       )}

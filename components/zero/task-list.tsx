@@ -17,7 +17,7 @@ import {
   type ContextItem,
 } from "@/lib/zero/data"
 import type { Entity, TaskPriority } from "@/lib/zero/types"
-import { useZeroNav, useRowSelection, ADD_KEY, HIGHLIGHT_SHADOW, HIGHLIGHT_SHADOW_NONE } from "@/lib/zero/nav-store"
+import { useZeroNav, useRowSelection, ADD_KEY } from "@/lib/zero/nav-store"
 import {
   layerTransition,
   taskLayoutId,
@@ -78,7 +78,7 @@ function TaskRow({
 }) {
   const [done, setDone] = useState(!!task.completed)
   const { openTask, stack } = useZeroNav()
-  const { showHighlight, lift, hoverProps, ref } = useRowSelection("list", task.id)
+  const { lift, hoverProps, ref } = useRowSelection("list", task.id)
 
   // This row stays mounted while its window is open, and it carries the shared
   // taskLayoutId. If it kept that layoutId while the frame is also open, TWO
@@ -108,7 +108,6 @@ function TaskRow({
         {...hoverProps}
         animate={{
           scale: lift ? 1.02 : 1,
-          boxShadow: showHighlight ? HIGHLIGHT_SHADOW : HIGHLIGHT_SHADOW_NONE,
         }}
         className="group flex w-full items-center gap-3 border border-border bg-card-solid px-2.5 py-2 text-left"
       >
@@ -187,7 +186,7 @@ function EventRow({
   const event = item.event!
   const hasRange = typeof event.start === "number" && typeof event.end === "number"
   const cancelled = !!event.cancelled
-  const { showHighlight, lift, hoverProps, ref } = useRowSelection("list", event.id)
+  const { lift, hoverProps, ref } = useRowSelection("list", event.id)
 
   // When opened FROM this row, hand the row layoutId to the frame so the morph
   // reads as the row growing into the window. (If it was opened from the
@@ -216,7 +215,6 @@ function EventRow({
         style={{ borderRadius: 4 }}
         animate={{
           scale: lift ? 1.02 : 1,
-          boxShadow: showHighlight ? HIGHLIGHT_SHADOW : HIGHLIGHT_SHADOW_NONE,
         }}
         className={cn(
           "group flex w-full items-center gap-3 border border-border bg-card-solid px-2.5 py-2 text-left",
@@ -264,7 +262,7 @@ function InstantRow({
   const instant = item.entity
   const hasMoment = typeof instant.at === "number"
   const cancelled = !!instant.cancelled
-  const { showHighlight, lift, hoverProps, ref } = useRowSelection("list", instant.id)
+  const { lift, hoverProps, ref } = useRowSelection("list", instant.id)
 
   if (stack.includes(instant.id) && openSourceOf(instant.id) === "row") {
     return (
@@ -290,7 +288,6 @@ function InstantRow({
         style={{ borderRadius: 4 }}
         animate={{
           scale: lift ? 1.02 : 1,
-          boxShadow: showHighlight ? HIGHLIGHT_SHADOW : HIGHLIGHT_SHADOW_NONE,
         }}
         className={cn(
           "group flex w-full items-center gap-3 border border-border bg-card-solid px-2.5 py-2 text-left",
@@ -334,7 +331,7 @@ function SpaceRow({
   const { openSpace, stack } = useZeroNav()
   const space = item.space!
   const accent = space.accent ?? "var(--muted-foreground)"
-  const { showHighlight, lift, hoverProps, ref } = useRowSelection("list", space.id)
+  const { lift, hoverProps, ref } = useRowSelection("list", space.id)
 
   // While this space is open as a frame, release the shared layoutId to the
   // frame (see TaskRow note) via an inert placeholder so the morph stays clean.
@@ -362,7 +359,6 @@ function SpaceRow({
         style={{ borderRadius: 4 }}
         animate={{
           scale: lift ? 1.02 : 1,
-          boxShadow: showHighlight ? HIGHLIGHT_SHADOW : HIGHLIGHT_SHADOW_NONE,
         }}
         className="group relative flex w-full items-center gap-3 overflow-hidden border border-border bg-card-solid px-2.5 py-2 text-left"
       >
@@ -681,7 +677,6 @@ function AddRow({ onActivate }: { onActivate: () => void }) {
         style={{ borderRadius: 4 }}
         animate={{
           scale: lift ? 1.02 : 1,
-          boxShadow: showHighlight ? HIGHLIGHT_SHADOW : HIGHLIGHT_SHADOW_NONE,
         }}
         className="flex w-full items-center justify-center gap-1.5 border border-border bg-card-solid px-2.5 py-2 text-[12px] font-medium uppercase tracking-[0.08em] text-muted-foreground"
       >

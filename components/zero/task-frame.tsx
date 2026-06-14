@@ -33,10 +33,6 @@ export function TaskFrame({
 }) {
   const [done, setDone] = useState(!!task.completed)
   // Shared morph ids — the frame and its origin row/card own the same layoutIds
-  // so opening and closing is a single continuous layout animation. (We keep
-  // these live through the exit so Framer has a "from" box to morph the
-  // re-mounting row out of; dropping them mid-exit would make the row snap.)
-  // Shared morph ids — the frame and its origin row/card own the same layoutIds
   // so the open morph is one continuous layout animation. On close the frame
   // unmounts immediately (SpaceLayerStack has no AnimatePresence), so there is
   // never a second live owner and Framer morphs the row back from this frame's
@@ -148,19 +144,12 @@ export function TaskFrame({
       )}
 
       {/* Body (this task's subtasks / inputs / outputs) renders here inside the
-          frame, only when active. Parent frames render an empty middle. It
-          fades in as the frame expands so the content doesn't pop at full size;
-          on close the frame unmounts instantly (see SpaceLayerStack), so the
-          row morphs back as a clean title-only box with no body to squish. */}
+          frame, only when active. Parent frames render an empty middle. It is
+          rendered at full opacity (no fade) so that on close the body — and the
+          re-mounting row morphing within it — stays fully visible as the window
+          shrinks back into the list row. */}
       {isActive ? (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ duration: 0.18, ease: "easeOut" }}
-          className="flex min-h-0 flex-1 flex-col"
-        >
-          <EntityBody nodeId={task.id} />
-        </motion.div>
+        <EntityBody nodeId={task.id} />
       ) : (
         <div className="min-h-0 flex-1" aria-hidden />
       )}

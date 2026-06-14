@@ -140,18 +140,10 @@ export function InstantFrame({
       )}
 
       {/* Body (this instant's inputs / related items / outputs) renders inside
-          the frame when active, fading in as it expands; on close the frame
-          unmounts instantly (see SpaceLayerStack) so the source morphs back as a
-          clean title-only box. */}
+          the frame when active, at full opacity (no fade) so that on close the
+          source morphing within it stays visible as the window shrinks back. */}
       {isActive ? (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ duration: 0.18, ease: "easeOut" }}
-          className="flex min-h-0 flex-1 flex-col"
-        >
-          <EntityBody nodeId={instant.id} />
-        </motion.div>
+        <EntityBody nodeId={instant.id} />
       ) : (
         <div className="min-h-0 flex-1" aria-hidden />
       )}
