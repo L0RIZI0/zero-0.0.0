@@ -629,18 +629,17 @@ export function getResource(id: string): Resource | undefined {
 /**
  * Direct children of a context — the entities whose ORIGIN parent is it, plus
  * entities LINKED (tagged) to it. This powers the task list: a context shows
- * its own children only, never the children of its children. Ordered spaces →
- * tasks → events so the stream reads consistently.
+ * its own children only, never the children of its children. Returned in
+ * CREATION order (oldest first): the `entities` array is in insertion order
+ * (seed first, user items appended), so we simply preserve it rather than
+ * sorting by kind. The user may reorder later via drag-and-drop.
  */
 export function getChildren(contextId: string): Entity[] {
-  const order: Record<EntityKind, number> = { space: 0, task: 1, event: 2, instant: 3 }
-  return entities
-    .filter(
-      (e) =>
-        e.id !== contextId &&
-        (e.parentId === contextId || e.taggedSpaceIds.includes(contextId)),
-    )
-    .sort((a, b) => order[a.kind] - order[b.kind])
+  return entities.filter(
+    (e) =>
+      e.id !== contextId &&
+      (e.parentId === contextId || e.taggedSpaceIds.includes(contextId)),
+  )
 }
 
 /**
@@ -1009,6 +1008,46 @@ export function addInstant(input: { title: string; spaceId: string }): Entity {
   userEntityIds.add(entity.id)
   persist()
   return entity
+}
+
+/** Set an entity's title (used as the inline draft commits its name). No-op if
+ *  the id is unknown. Persisted. */
+export function setEntityTitle(id: string, title: string): void {
+  const entity = byId.get(id)
+  if (!entity) return
+  entity.title = title
+  persist()
+}
+
+/**
+ * Change an entity's kind IN PLACE (same id/row), filling in sensible defaults
+ * for the target kind's relevant fields. Used by the inline draft's glyph picker
+ * so switching kind keeps the exact same list row (no remount/re-animate).
+ *
+ * Note: unlike `addSpace`, this intentionally does NOT auto-pin a space into the
+ * dock — an inline-created space stays in the DO list (and stays selected), so
+ * the keyboard create→open→sub-create chain keeps working. The user can pin it
+ * later from the context menu.
+ */
+export function changeEntityKind(id: string, kind: EntityKind): void {
+  const entity = byId.get(id)
+  if (!entity || entity.kind === kind) return
+  entity.kind = kind
+  if (kind === "task") {
+    entity.completed = entity.completed ?? false
+    entity.priority = entity.priority ?? "medium"
+    entity.tags = entity.tags ?? []
+  } else if (kind === "space") {
+    entity.description = entity.description ?? ""
+    entity.assignedResourceIds = entity.assignedResourceIds ?? []
+  } else if (kind === "event") {
+    entity.start = entity.start ?? hm(12, 0)
+    entity.end = entity.end ?? hm(13, 0)
+  } else if (kind === "instant") {
+    entity.at = entity.at ?? hm(12, 0)
+    entity.seconds = entity.seconds ?? 0
+  }
+  persist()
 }
 
 /**

@@ -7,18 +7,18 @@ import { Check, Plus, Pin, Trash2, Ban, RotateCcw, ChevronDown } from "lucide-re
 import {
   getContextItems,
   getOpenTaskCount,
+  getEntity,
   isPinned,
   pinItem,
   deleteEntity,
   setEventCancelled,
+  setEntityTitle,
+  changeEntityKind,
   addTask,
-  addSpace,
-  addEvent,
-  addInstant,
   type ContextItem,
 } from "@/lib/zero/data"
 import type { Entity, TaskPriority } from "@/lib/zero/types"
-import { useZeroNav } from "@/lib/zero/nav-store"
+import { useZeroNav, ADD_KEY, isEventId, isInstantId } from "@/lib/zero/nav-store"
 import {
   layerTransition,
   taskLayoutId,
@@ -50,6 +50,46 @@ const priorityDot: Record<TaskPriority, string> = {
  */
 const GLYPH_BOX = "flex h-4 w-4 shrink-0 items-center justify-center"
 
+/** The lifted/elevated look a row gets when it's the active (selected/hovered)
+ *  cell — same scale + shadow the rows used to get purely on CSS hover. */
+const HIGHLIGHT_SHADOW = "0 12px 28px -10px rgba(0,0,0,0.28)"
+
+/**
+ * Wires a DO-list row / dock card into the shared selection model.
+ *
+ * Returns `showHighlight`, the single source of truth for the lifted look:
+ *  - In **mouse** mode it's true only while the pointer is physically over the
+ *    row (`hovered`), so moving onto empty space leaves nothing highlighted.
+ *  - In **keyboard** mode it's true whenever this row is the selection, so the
+ *    highlight persists with no pointer present.
+ * Pointer-enter also records the selection (mouse mode) so a subsequent Enter
+ * acts on the hovered row. When this row becomes the keyboard selection it is
+ * scrolled into view.
+ */
+function useRowSelection(region: "list" | "dock", key: string) {
+  const { selection, inputMode, select } = useZeroNav()
+  const [hovered, setHovered] = useState(false)
+  const ref = useRef<HTMLElement | null>(null)
+  const selected = selection?.region === region && selection.key === key
+  const showHighlight = hovered || (selected && inputMode === "keyboard")
+
+  useEffect(() => {
+    if (selected && inputMode === "keyboard") {
+      ref.current?.scrollIntoView({ block: "nearest" })
+    }
+  }, [selected, inputMode])
+
+  const hoverProps = {
+    onPointerEnter: () => {
+      setHovered(true)
+      select(region, key, "mouse")
+    },
+    onPointerLeave: () => setHovered(false),
+  }
+
+  return { selected, showHighlight, hoverProps, ref }
+}
+
 /**
  * Trailing detail showing how many open (incomplete) DIRECT child tasks live
  * inside a space — a number followed by the task square glyph (e.g. "4 ■").
@@ -79,6 +119,7 @@ function TaskRow({
 }) {
   const [done, setDone] = useState(!!task.completed)
   const { openTask, stack } = useZeroNav()
+  const { showHighlight, hoverProps, ref } = useRowSelection("list", task.id)
 
   // This row stays mounted while its window is open, and it carries the shared
   // taskLayoutId. If it kept that layoutId while the frame is also open, TWO
@@ -100,13 +141,15 @@ function TaskRow({
   return (
     <li>
       <motion.div
+        ref={ref as React.Ref<HTMLDivElement>}
         layoutId={taskLayoutId(task.id)}
         transition={layerTransition}
         style={{ borderRadius: 4 }}
         onContextMenu={onContext}
-        whileHover={{
-          scale: 1.02,
-          boxShadow: "0 12px 28px -10px rgba(0,0,0,0.28)",
+        {...hoverProps}
+        animate={{
+          scale: showHighlight ? 1.02 : 1,
+          boxShadow: showHighlight ? HIGHLIGHT_SHADOW : "0 0px 0px 0px rgba(0,0,0,0)",
         }}
         className="group flex w-full items-center gap-3 border border-border bg-card-solid px-2.5 py-2 text-left"
       >
@@ -185,6 +228,7 @@ function EventRow({
   const event = item.event!
   const hasRange = typeof event.start === "number" && typeof event.end === "number"
   const cancelled = !!event.cancelled
+  const { showHighlight, hoverProps, ref } = useRowSelection("list", event.id)
 
   // When opened FROM this row, hand the row layoutId to the frame so the morph
   // reads as the row growing into the window. (If it was opened from the
@@ -203,13 +247,18 @@ function EventRow({
   return (
     <li>
       <motion.button
+        ref={ref as React.Ref<HTMLButtonElement>}
         type="button"
         layoutId={eventRowLayoutId(event.id)}
         transition={layerTransition}
         onClick={() => open(event.id, "row")}
         onContextMenu={onContext}
+        {...hoverProps}
         style={{ borderRadius: 4 }}
-        whileHover={{ scale: 1.02, boxShadow: "0 12px 28px -10px rgba(0,0,0,0.28)" }}
+        animate={{
+          scale: showHighlight ? 1.02 : 1,
+          boxShadow: showHighlight ? HIGHLIGHT_SHADOW : "0 0px 0px 0px rgba(0,0,0,0)",
+        }}
         className={cn(
           "group flex w-full items-center gap-3 border border-border bg-card-solid px-2.5 py-2 text-left",
           cancelled && "opacity-50",
@@ -256,6 +305,7 @@ function InstantRow({
   const instant = item.entity
   const hasMoment = typeof instant.at === "number"
   const cancelled = !!instant.cancelled
+  const { showHighlight, hoverProps, ref } = useRowSelection("list", instant.id)
 
   if (stack.includes(instant.id) && openSourceOf(instant.id) === "row") {
     return (
@@ -271,13 +321,18 @@ function InstantRow({
   return (
     <li>
       <motion.button
+        ref={ref as React.Ref<HTMLButtonElement>}
         type="button"
         layoutId={instantRowLayoutId(instant.id)}
         transition={layerTransition}
         onClick={() => open(instant.id, "row")}
         onContextMenu={onContext}
+        {...hoverProps}
         style={{ borderRadius: 4 }}
-        whileHover={{ scale: 1.02, boxShadow: "0 12px 28px -10px rgba(0,0,0,0.28)" }}
+        animate={{
+          scale: showHighlight ? 1.02 : 1,
+          boxShadow: showHighlight ? HIGHLIGHT_SHADOW : "0 0px 0px 0px rgba(0,0,0,0)",
+        }}
         className={cn(
           "group flex w-full items-center gap-3 border border-border bg-card-solid px-2.5 py-2 text-left",
           cancelled && "opacity-50",
@@ -320,6 +375,7 @@ function SpaceRow({
   const { openSpace, stack } = useZeroNav()
   const space = item.space!
   const accent = space.accent ?? "var(--muted-foreground)"
+  const { showHighlight, hoverProps, ref } = useRowSelection("list", space.id)
 
   // While this space is open as a frame, release the shared layoutId to the
   // frame (see TaskRow note) via an inert placeholder so the morph stays clean.
@@ -337,13 +393,18 @@ function SpaceRow({
   return (
     <li>
       <motion.button
+        ref={ref as React.Ref<HTMLButtonElement>}
         type="button"
         layoutId={spaceLayoutId(space.id)}
         transition={layerTransition}
         onClick={() => openSpace(space.id)}
         onContextMenu={onContext}
+        {...hoverProps}
         style={{ borderRadius: 4 }}
-        whileHover={{ scale: 1.02, boxShadow: "0 12px 28px -10px rgba(0,0,0,0.28)" }}
+        animate={{
+          scale: showHighlight ? 1.02 : 1,
+          boxShadow: showHighlight ? HIGHLIGHT_SHADOW : "0 0px 0px 0px rgba(0,0,0,0)",
+        }}
         className="group relative flex w-full items-center gap-3 overflow-hidden border border-border bg-card-solid px-2.5 py-2 text-left"
       >
         <motion.span

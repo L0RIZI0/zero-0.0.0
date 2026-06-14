@@ -11,6 +11,24 @@ import type { EntityKind } from "./types"
  */
 export type OpenSource = "timeline" | "row"
 
+/** The two navigable regions: the DO list and the pinned SPACES dock. */
+export type SelectionRegion = "list" | "dock"
+
+/** A single selected cell. `key` is an entity id, or `ADD_KEY` for the DO
+ *  list's terminal "+ADD" birther row. */
+export type Selection = { region: SelectionRegion; key: string } | null
+
+/** What last drove the selection. Governs whether a selected-but-unhovered item
+ *  renders its highlight: persistent for keyboard, pointer-bound for mouse. */
+export type InputMode = "mouse" | "keyboard"
+
+/** Sentinel key for the DO list's permanent terminal "+ADD" row. */
+export const ADD_KEY = "__add__"
+
+/** The ordered, navigable keys each region publishes for arrow-key math. The
+ *  list always ends with `ADD_KEY`. */
+type NavOrder = { list: string[]; dock: string[] }
+
 export interface ActiveNode {
   id: string
   /** Depth in the stack — 0 is root (Space 0). */
@@ -58,6 +76,25 @@ interface ZeroNavContextValue {
   /** How the entity at `id` was opened (defaults to "timeline" for events/
    *  instants when unknown). Lets a frame pick its morph source. */
   openSourceOf: (id: string) => OpenSource
+
+  // --- Selection + keyboard navigation ---------------------------------------
+  /** The single selected cell (DO-list row or dock card), or null. */
+  selection: Selection
+  /** What last drove the selection — gates highlight persistence. */
+  inputMode: InputMode
+  /** Select a cell. Pass `mode` to also set the input mode (mouse hover passes
+   *  "mouse", arrows pass "keyboard"); omit it to keep the current mode (used for
+   *  default selection on context change, which shouldn't force a highlight). */
+  select: (region: SelectionRegion, key: string, mode?: InputMode) => void
+  /** Clear the selection entirely. */
+  clearSelection: () => void
+  /** Force the input mode (the provider also flips it to "mouse" on pointermove). */
+  setInputMode: (mode: InputMode) => void
+  /** Components publish their current navigable key order (in an effect) so the
+   *  store can do arrow-key math centrally. */
+  publishNavOrder: (region: SelectionRegion, keys: string[]) => void
+  /** Move the selection spatially. Always switches to keyboard input mode. */
+  moveSelection: (dir: "up" | "down" | "left" | "right") => void
 }
 
 /**
@@ -110,6 +147,71 @@ export function ZeroNavProvider({
   // row). Only meaningful for events/instants; spaces/tasks ignore it.
   const [sources, setSources] = useState<Record<string, OpenSource>>({})
 
+  // --- Selection + keyboard navigation state ---------------------------------
+  const [selection, setSelection] = useState<Selection>(null)
+  const [inputMode, setInputModeState] = useState<InputMode>("mouse")
+  // Published navigable order per region. A ref (not state) since it changes on
+  // every list render but only ever needs to be *read* lazily by moveSelection —
+  // keeping it out of React state avoids a render loop.
+  const navOrderRef = useRef<NavOrder>({ list: [], dock: [] })
+  // Mirror inputMode in a ref so the global pointermove listener can read the
+  // current mode without re-subscribing on every change.
+  const inputModeRef = useRef<InputMode>("mouse")
+
+  const select = useCallback((region: SelectionRegion, key: string, mode?: InputMode) => {
+    if (mode) {
+      inputModeRef.current = mode
+      setInputModeState(mode)
+    }
+    setSelection({ region, key })
+  }, [])
+
+  const clearSelection = useCallback(() => setSelection(null), [])
+
+  const setInputMode = useCallback((mode: InputMode) => {
+    if (inputModeRef.current === mode) return
+    inputModeRef.current = mode
+    setInputModeState(mode)
+  }, [])
+
+  const publishNavOrder = useCallback((region: SelectionRegion, keys: string[]) => {
+    navOrderRef.current = { ...navOrderRef.current, [region]: keys }
+  }, [])
+
+  // Spatial arrow-key navigation. Dock sits ABOVE the list:
+  //  - list: Down/Up move within; Up on the first row crosses up into the dock.
+  //  - dock: Left/Right move between cards; Down returns to the list's first row.
+  const moveSelection = useCallback((dir: "up" | "down" | "left" | "right") => {
+    const { list, dock } = navOrderRef.current
+    setSelection((cur) => {
+      // Nothing selected yet: arrow keys seed a sensible default.
+      if (!cur) {
+        if (list.length) return { region: "list", key: list[0] }
+        if (dock.length) return { region: "dock", key: dock[0] }
+        return cur
+      }
+      if (cur.region === "list") {
+        const i = list.indexOf(cur.key)
+        if (i === -1) return list.length ? { region: "list", key: list[0] } : cur
+        if (dir === "down") return { region: "list", key: list[Math.min(i + 1, list.length - 1)] }
+        if (dir === "up") {
+          if (i === 0) return dock.length ? { region: "dock", key: dock[0] } : cur
+          return { region: "list", key: list[i - 1] }
+        }
+        return cur // left/right are no-ops within the vertical list
+      }
+      // cur.region === "dock"
+      const j = dock.indexOf(cur.key)
+      if (j === -1) return dock.length ? { region: "dock", key: dock[0] } : cur
+      if (dir === "left") return { region: "dock", key: dock[Math.max(j - 1, 0)] }
+      if (dir === "right") return { region: "dock", key: dock[Math.min(j + 1, dock.length - 1)] }
+      if (dir === "down") return list.length ? { region: "list", key: list[0] } : cur
+      return cur // up is a no-op at the top region
+    })
+    inputModeRef.current = "keyboard"
+    setInputModeState("keyboard")
+  }, [])
+
   const notifyDataChanged = useCallback(() => setDataVersion((v) => v + 1), [])
 
   const requestPulse = useCallback((id: string) => {
@@ -122,6 +224,20 @@ export function ZeroNavProvider({
   // restored items.
   useEffect(() => {
     if (hydrateFromStorage()) setDataVersion((v) => v + 1)
+  }, [])
+
+  // Any real mouse movement returns us to "mouse" mode, which collapses the
+  // persistent keyboard highlight (a selected row only stays lit under the
+  // pointer). Guarded by the ref so we don't setState on every pixel of motion.
+  useEffect(() => {
+    const onPointerMove = () => {
+      if (inputModeRef.current !== "mouse") {
+        inputModeRef.current = "mouse"
+        setInputModeState("mouse")
+      }
+    }
+    window.addEventListener("pointermove", onPointerMove, { passive: true })
+    return () => window.removeEventListener("pointermove", onPointerMove)
   }, [])
 
   const open = useCallback((id: string, source: OpenSource = "timeline") => {
@@ -239,9 +355,33 @@ export function ZeroNavProvider({
       pulse,
       requestPulse,
       openSourceOf,
+      selection,
+      inputMode,
+      select,
+      clearSelection,
+      setInputMode,
+      publishNavOrder,
+      moveSelection,
     }
     // dataVersion is included so title/description re-read after edits/hydration.
-  }, [stack, open, closeSpace, goToDepth, dataVersion, notifyDataChanged, pulse, requestPulse, openSourceOf])
+  }, [
+    stack,
+    open,
+    closeSpace,
+    goToDepth,
+    dataVersion,
+    notifyDataChanged,
+    pulse,
+    requestPulse,
+    openSourceOf,
+    selection,
+    inputMode,
+    select,
+    clearSelection,
+    setInputMode,
+    publishNavOrder,
+    moveSelection,
+  ])
 
   return <ZeroNavContext.Provider value={value}>{children}</ZeroNavContext.Provider>
 }
