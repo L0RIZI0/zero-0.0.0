@@ -1,6 +1,6 @@
 "use client"
 
-import { motion } from "motion/react"
+import { motion, useIsPresent } from "motion/react"
 import { X, Check, Calendar, Flag, Hash } from "lucide-react"
 import type { Entity, TaskPriority } from "@/lib/zero/types"
 import { getSpace } from "@/lib/zero/data"
@@ -31,6 +31,17 @@ export function TaskFrame({
   onClose: () => void
 }) {
   const [done, setDone] = useState(!!task.completed)
+  // While this frame is EXITING (a close morph), the persistent DO-list row has
+  // already reclaimed the shared layoutIds (its placeholder gate keys on the
+  // stack, which pops the instant close begins). If the exiting frame kept those
+  // same ids, Framer would have two live owners per id and crossfade them —
+  // leaving the faint, slightly-offset "ghost" of the title/glyph at the
+  // destination. Dropping our layoutIds the moment we're no longer present makes
+  // the row the sole owner, so it morphs down cleanly with no duplicate.
+  const isPresent = useIsPresent()
+  const bodyMorphId = isPresent ? taskLayoutId(task.id) : undefined
+  const titleMorphId = isPresent ? taskTitleId(task.id) : undefined
+  const glyphMorphId = isPresent ? glyphId(task.id) : undefined
   // The task's origin parent provides the contextual accent; its parent plus
   // any tagged spaces make up the membership line.
   const primarySpaceId = task.parentId ?? "s_root"
@@ -42,7 +53,7 @@ export function TaskFrame({
 
   return (
     <motion.div
-      layoutId={taskLayoutId(task.id)}
+      layoutId={bodyMorphId}
       transition={layerTransition}
       style={{ borderRadius: 4 }}
       className="relative flex h-full w-full flex-col overflow-hidden border border-border bg-secondary/40 shadow-[0_24px_80px_-32px_rgba(0,0,0,0.6)]"
@@ -64,7 +75,7 @@ export function TaskFrame({
                   title. It fills + shows a check once the task is done (no second
                   nested square). */}
               <motion.span
-                layoutId={glyphId(task.id)}
+                layoutId={glyphMorphId}
                 transition={layerTransition}
                 className="flex h-[22px] w-[22px] items-center justify-center"
               >
@@ -76,7 +87,7 @@ export function TaskFrame({
             </button>
             <div className="flex min-w-0 flex-col">
               <motion.h2
-                layoutId={taskTitleId(task.id)}
+                layoutId={titleMorphId}
                 transition={layerTransition}
                 className={cn(
                   // whitespace-nowrap is REQUIRED: this h2 shares taskTitleId with

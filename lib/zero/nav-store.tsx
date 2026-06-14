@@ -61,6 +61,13 @@ interface ZeroNavContextValue {
   openTask: (taskId: string) => void
   /** Pop the top node (close current layer). */
   closeSpace: () => void
+  /** True while a close morph is animating. The DO-list uses this to switch its
+   *  scroll container from `overflow-auto` to `overflow-visible` for the morph's
+   *  duration: a closing entity's title/row morphs IN from the frame header,
+   *  which sits ABOVE the list box, so an `auto`/`hidden` list would clip the
+   *  in-flight title to a fragment ("...roduct"). Going visible briefly lets it
+   *  travel uncliped, then we restore scrolling. */
+  isClosing: boolean
   /** Jump to a specific depth in the stack (used by breadcrumb). */
   goToDepth: (depth: number) => void
   /** Bumps on any in-memory data mutation so selectors re-read fresh data. */
@@ -263,6 +270,18 @@ export function ZeroNavProvider({
   const pendingCloseRef = useRef(0)
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  // `isClosing` stays true from the moment a layer is popped until its morph has
+  // visually settled, so the DO-list can un-clip its scroll box for the title's
+  // travel. A single trailing timer (reset on each pop) flips it back off.
+  const [isClosing, setIsClosing] = useState(false)
+  const closeMorphTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const markClosing = useCallback(() => {
+    setIsClosing(true)
+    if (closeMorphTimerRef.current) clearTimeout(closeMorphTimerRef.current)
+    closeMorphTimerRef.current = setTimeout(() => setIsClosing(false), CLOSE_MORPH_MS)
+  }, [])
+
   const closeSpace = useCallback(() => {
     if (closeLockRef.current) {
       // A close is already animating — remember this request and run it next.
@@ -270,11 +289,13 @@ export function ZeroNavProvider({
       return
     }
     closeLockRef.current = true
+    markClosing()
     setStack((prev) => (prev.length > 1 ? prev.slice(0, -1) : prev))
 
     const release = () => {
       if (pendingCloseRef.current > 0) {
         pendingCloseRef.current -= 1
+        markClosing()
         setStack((prev) => (prev.length > 1 ? prev.slice(0, -1) : prev))
         closeTimerRef.current = setTimeout(release, CLOSE_STAGGER_MS)
       } else {
@@ -282,7 +303,7 @@ export function ZeroNavProvider({
       }
     }
     closeTimerRef.current = setTimeout(release, CLOSE_STAGGER_MS)
-  }, [])
+  }, [markClosing])
 
   // Clear any pending stagger timer on unmount.
   useEffect(() => {
