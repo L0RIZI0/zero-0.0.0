@@ -11,7 +11,7 @@ import {
   taskTitleId,
   glyphId,
 } from "@/lib/zero/motion"
-import { useZeroNav, useRowSelection, HIGHLIGHT_SHADOW } from "@/lib/zero/nav-store"
+import { useZeroNav, useRowSelection, HIGHLIGHT_SHADOW, HIGHLIGHT_SHADOW_NONE } from "@/lib/zero/nav-store"
 import { NodeGlyph } from "./node-glyph"
 
 /**
@@ -113,8 +113,7 @@ export function PinnedCard({
         {...hoverProps}
         style={{ borderRadius: 4 }}
         animate={{
-          scale: showHighlight ? 1.03 : 1,
-          boxShadow: showHighlight ? HIGHLIGHT_SHADOW : "0 0px 0px 0px rgba(0,0,0,0)",
+          boxShadow: showHighlight ? HIGHLIGHT_SHADOW : HIGHLIGHT_SHADOW_NONE,
         }}
         className="group relative flex h-[64px] w-[112px] flex-col justify-between overflow-hidden border border-border bg-card-solid px-2.5 py-2 text-left"
       >

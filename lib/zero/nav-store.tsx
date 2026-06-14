@@ -392,9 +392,20 @@ export function useZeroNav() {
   return ctx
 }
 
-/** The lifted look (scale + shadow) a row/card gets when it's the active cell —
- *  the same affordance these elements used to get purely on CSS :hover. */
-export const HIGHLIGHT_SHADOW = "0 12px 28px -10px rgba(0,0,0,0.28)"
+/**
+ * The active-cell highlight — a selection ring + drop shadow, both expressed as
+ * `box-shadow`. CRITICAL: this is PAINT-ONLY (no `scale`/transform). These rows
+ * and dock cards own a shared `layoutId`, and Framer drives its open/close morph
+ * by writing `transform` on that same node. Animating `scale` here (as an
+ * earlier version did) clobbers that projection transform and strands stretched,
+ * low-opacity "ghosts" of the title/frame during the morph. `box-shadow` never
+ * touches `transform`, so the lift is safe to keep on a morphing node.
+ *
+ * `HIGHLIGHT_SHADOW_NONE` mirrors the same two-shadow structure (ring + drop) so
+ * Motion interpolates cleanly between the rest and active states.
+ */
+export const HIGHLIGHT_SHADOW = "0 0 0 1.5px var(--ring), 0 12px 28px -10px rgba(0,0,0,0.28)"
+export const HIGHLIGHT_SHADOW_NONE = "0 0 0 0px rgba(0,0,0,0), 0 0px 0px 0px rgba(0,0,0,0)"
 
 /**
  * Wires a DO-list row or dock card into the shared selection model. Returns the

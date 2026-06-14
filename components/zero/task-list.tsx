@@ -17,7 +17,7 @@ import {
   type ContextItem,
 } from "@/lib/zero/data"
 import type { Entity, TaskPriority } from "@/lib/zero/types"
-import { useZeroNav, useRowSelection, ADD_KEY, HIGHLIGHT_SHADOW } from "@/lib/zero/nav-store"
+import { useZeroNav, useRowSelection, ADD_KEY, HIGHLIGHT_SHADOW, HIGHLIGHT_SHADOW_NONE } from "@/lib/zero/nav-store"
 import {
   layerTransition,
   taskLayoutId,
@@ -107,8 +107,7 @@ function TaskRow({
         onContextMenu={onContext}
         {...hoverProps}
         animate={{
-          scale: showHighlight ? 1.02 : 1,
-          boxShadow: showHighlight ? HIGHLIGHT_SHADOW : "0 0px 0px 0px rgba(0,0,0,0)",
+          boxShadow: showHighlight ? HIGHLIGHT_SHADOW : HIGHLIGHT_SHADOW_NONE,
         }}
         className="group flex w-full items-center gap-3 border border-border bg-card-solid px-2.5 py-2 text-left"
       >
@@ -215,8 +214,7 @@ function EventRow({
         {...hoverProps}
         style={{ borderRadius: 4 }}
         animate={{
-          scale: showHighlight ? 1.02 : 1,
-          boxShadow: showHighlight ? HIGHLIGHT_SHADOW : "0 0px 0px 0px rgba(0,0,0,0)",
+          boxShadow: showHighlight ? HIGHLIGHT_SHADOW : HIGHLIGHT_SHADOW_NONE,
         }}
         className={cn(
           "group flex w-full items-center gap-3 border border-border bg-card-solid px-2.5 py-2 text-left",
@@ -289,8 +287,7 @@ function InstantRow({
         {...hoverProps}
         style={{ borderRadius: 4 }}
         animate={{
-          scale: showHighlight ? 1.02 : 1,
-          boxShadow: showHighlight ? HIGHLIGHT_SHADOW : "0 0px 0px 0px rgba(0,0,0,0)",
+          boxShadow: showHighlight ? HIGHLIGHT_SHADOW : HIGHLIGHT_SHADOW_NONE,
         }}
         className={cn(
           "group flex w-full items-center gap-3 border border-border bg-card-solid px-2.5 py-2 text-left",
@@ -361,8 +358,7 @@ function SpaceRow({
         {...hoverProps}
         style={{ borderRadius: 4 }}
         animate={{
-          scale: showHighlight ? 1.02 : 1,
-          boxShadow: showHighlight ? HIGHLIGHT_SHADOW : "0 0px 0px 0px rgba(0,0,0,0)",
+          boxShadow: showHighlight ? HIGHLIGHT_SHADOW : HIGHLIGHT_SHADOW_NONE,
         }}
         className="group relative flex w-full items-center gap-3 overflow-hidden border border-border bg-card-solid px-2.5 py-2 text-left"
       >
@@ -680,8 +676,7 @@ function AddRow({ onActivate }: { onActivate: () => void }) {
         {...hoverProps}
         style={{ borderRadius: 4 }}
         animate={{
-          scale: showHighlight ? 1.02 : 1,
-          boxShadow: showHighlight ? HIGHLIGHT_SHADOW : "0 0px 0px 0px rgba(0,0,0,0)",
+          boxShadow: showHighlight ? HIGHLIGHT_SHADOW : HIGHLIGHT_SHADOW_NONE,
         }}
         className="flex w-full items-center justify-center gap-1.5 border border-border bg-card-solid px-2.5 py-2 text-[12px] font-medium uppercase tracking-[0.08em] text-muted-foreground"
       >
