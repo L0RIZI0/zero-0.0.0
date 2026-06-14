@@ -52,11 +52,21 @@ export function LayerDepthContainer({
         visibility: occluded ? "hidden" : "visible",
       }}
     >
+      {/* CRITICAL (close morph): the ACTIVE layer's inset settles INSTANTLY, not
+          via the spring. On close, the parent goes from receded (inset -38) to
+          active (inset 0); if that 38px advance ANIMATES, the becoming-active
+          container is mid-animation exactly while the destination row inside its
+          body runs its shared-layoutId morph — and Framer's scale-correction for
+          that nested morph reads a moving ancestor and silently drops the SCALE
+          part (the row snaps to size and only its position eases: the "jump +
+          tiny slide" bug). Snapping the active inset to 0 gives the row a static
+          ancestor (like the dock's root body), so the frame→row shrink scales
+          cleanly. Receding layers (open) still animate for the push-back feel. */}
       <motion.div
         className="absolute overflow-hidden"
         initial={false}
         animate={{ top: -grow, right: -grow, bottom: -grow, left: -grow }}
-        transition={layerTransition}
+        transition={isActive ? { duration: 0 } : layerTransition}
       >
         {children}
       </motion.div>
