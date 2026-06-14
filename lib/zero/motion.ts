@@ -36,3 +36,27 @@ export const MORPH_WHERE_ATTR = "data-morph-where"
 /** Geometry of the nested-doll window stack (px), keyed off absolute depth. */
 export const TOP_PEEK_PX = 40
 export const SIDE_PX = 10
+
+/** A rectangle in viewport coordinates — the box a window morphs from / to. */
+export type Rect = { top: number; left: number; width: number; height: number }
+
+/**
+ * Measure the on-screen morph source for an entity (its DO-list row, dock card,
+ * or timeline marker) and return its VIEWPORT rect, or null if not mounted.
+ * Captured at click time (when the element is guaranteed present) and stored in
+ * the nav store, so the same box is reused for the close shrink even though the
+ * source is unmounted while the window is open. `where` disambiguates the two
+ * places an event/instant can live ("row" vs "timeline").
+ */
+export function captureSourceRect(id: string, where?: string): Rect | null {
+  if (typeof document === "undefined") return null
+  const esc = (window as unknown as { CSS?: typeof CSS }).CSS?.escape ?? ((s: string) => s)
+  const sel = where
+    ? `[${MORPH_SOURCE_ATTR}="${esc(id)}"][${MORPH_WHERE_ATTR}="${esc(where)}"]`
+    : `[${MORPH_SOURCE_ATTR}="${esc(id)}"]`
+  const el = document.querySelector(sel) as HTMLElement | null
+  if (!el) return null
+  const r = el.getBoundingClientRect()
+  if (r.width === 0 && r.height === 0) return null
+  return { top: r.top, left: r.left, width: r.width, height: r.height }
+}

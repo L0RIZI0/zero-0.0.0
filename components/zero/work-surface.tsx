@@ -1,11 +1,11 @@
 "use client"
 
-import { motion, LayoutGroup } from "motion/react"
+import { motion } from "motion/react"
 import { useZeroNav } from "@/lib/zero/nav-store"
 import { getSpace, getEntity } from "@/lib/zero/data"
 import { shellStageFor, TIMELINE_TOP_PAD } from "@/lib/zero/layout"
 import { layerTransition } from "@/lib/zero/motion"
-import { SpaceLayerStack } from "./space-layer-stack"
+import { EntityLayerStack } from "./entity-layer-stack"
 import { EntityBody } from "./entity-body"
 import { TimelineStrip } from "./timeline-strip"
 
@@ -69,32 +69,22 @@ export function WorkSurface() {
           live on the card root, so the scaled-up parent frames still fade past
           the edges while the timeline above stays free to overflow upward. */}
       <div className="relative min-h-0 flex-1 overflow-hidden rounded-md">
-        {/* A single LayoutGroup spans BOTH layers below. The window frames (B)
-            and the list/dock content (C) live in separate AnimatePresence trees,
-            but a shared-element morph (row/card <-> frame) crosses between them.
-            Without one LayoutGroup wrapping both, Framer can't coordinate the two
-            ends of a `layoutId`, so on close it leaves an uncoordinated duplicate
-            (a faint title ghost at the destination). Grouping them makes the morph
-            a single clean projection. */}
-        <LayoutGroup>
-          {/* Base layer — the ROOT entity's body (home view), always mounted as
-              the z-0 backdrop. Its dock cards share `layoutId`s with the frames
-              above, so opening a space morphs a card into its frame within this
-              one LayoutGroup, and closing morphs it back. */}
-          <div className="absolute inset-0 z-0">
-            <EntityBody nodeId={rootId} />
-          </div>
+        {/* Base layer — the ROOT entity's body (home view), always mounted as the
+            z-0 backdrop. Its dock cards and DO-list rows are the morph SOURCES:
+            the depth-1 window grows out of (and shrinks back into) the clicked
+            element's measured rect. No shared layoutId / LayoutGroup is involved
+            anymore — EntityFrame tweens explicit geometry (see entity-frame.tsx),
+            which is why the title/border no longer stretch. */}
+        <div className="absolute inset-0 z-0">
+          <EntityBody nodeId={rootId} />
+        </div>
 
-          {/* Window frames. Each active frame renders its OWN body (lists etc.)
-              inside itself, so the row→frame morph is a single-tree layout
-              animation rather than a cross-layer handoff. The wrapper is
-              click-through so that at root (no frame) events reach the home body
-              at z-0; each active frame re-enables pointer events on itself via
-              LayerDepthContainer. */}
-          <div className="pointer-events-none absolute inset-0 z-10">
-            <SpaceLayerStack />
-          </div>
-        </LayoutGroup>
+        {/* Window frames. The wrapper is click-through so that at root (no frame)
+            events reach the home body at z-0; each frame re-enables pointer
+            events on itself. */}
+        <div className="pointer-events-none absolute inset-0 z-10">
+          <EntityLayerStack />
+        </div>
       </div>
     </div>
   )
