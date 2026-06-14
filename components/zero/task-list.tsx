@@ -568,11 +568,19 @@ function EditRow({
   }, [menuOpen, title])
 
   const onKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter") {
+    // While editing, this input fully owns the keyboard. Stop the native event
+    // from reaching the window-level list handler: React 18 flushes the commit's
+    // state updates synchronously before the event bubbles to window, so without
+    // this the very Enter that commits would also be seen (with editing already
+    // torn down) and open the row.
+    if (e.key === "Enter" || e.key === "Escape") {
       e.preventDefault()
+      e.stopPropagation()
+      e.nativeEvent.stopImmediatePropagation()
+    }
+    if (e.key === "Enter") {
       if (title.trim()) commit() // empty Enter is a no-op; keep editing
     } else if (e.key === "Escape") {
-      e.preventDefault()
       if (menuOpen) setAnchor(null)
       else if (title.trim()) commit()
       else cancel()
@@ -768,6 +776,10 @@ export function TaskList({ spaceId }: { spaceId: string }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!selection || selection.region !== "list") return
+      // While a row is being edited, the EditRow's input fully owns the keyboard
+      // (its own Enter/Esc). Bailing on `editingId` — not on focus detection —
+      // prevents the same Enter that commits a title from also opening the row.
+      if (editingId) return
       const ae = document.activeElement as HTMLElement | null
       if (ae && (ae.tagName === "INPUT" || ae.tagName === "TEXTAREA" || ae.isContentEditable)) return
       const key = selection.key
@@ -807,7 +819,7 @@ export function TaskList({ spaceId }: { spaceId: string }) {
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
-  }, [selection, moveSelection, open, beginCreate, listKeys, notifyDataChanged, select])
+  }, [selection, editingId, moveSelection, open, beginCreate, listKeys, notifyDataChanged, select])
 
   const openMenu = (e: React.MouseEvent, item: ContextItem) => {
     e.preventDefault()
