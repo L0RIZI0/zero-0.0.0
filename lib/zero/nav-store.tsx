@@ -138,6 +138,13 @@ export const isInstantId = (id: string) => {
  */
 const CLOSE_STAGGER_MS = 240
 
+/**
+ * How long `isClosing` stays true after a pop — long enough to cover the layer
+ * morph's full settle (the spring runs ~400-500ms), so the DO-list keeps its
+ * scroll box un-clipped for the entire title travel, then restores scrolling.
+ */
+const CLOSE_MORPH_MS = 520
+
 const ZeroNavContext = createContext<ZeroNavContextValue | null>(null)
 
 export function ZeroNavProvider({
@@ -305,10 +312,11 @@ export function ZeroNavProvider({
     closeTimerRef.current = setTimeout(release, CLOSE_STAGGER_MS)
   }, [markClosing])
 
-  // Clear any pending stagger timer on unmount.
+  // Clear any pending timers on unmount.
   useEffect(() => {
     return () => {
       if (closeTimerRef.current) clearTimeout(closeTimerRef.current)
+      if (closeMorphTimerRef.current) clearTimeout(closeMorphTimerRef.current)
     }
   }, [])
 
@@ -370,6 +378,7 @@ export function ZeroNavProvider({
       openSpace: open,
       openTask: open,
       closeSpace,
+      isClosing,
       goToDepth,
       dataVersion,
       notifyDataChanged,
@@ -389,6 +398,7 @@ export function ZeroNavProvider({
     stack,
     open,
     closeSpace,
+    isClosing,
     goToDepth,
     dataVersion,
     notifyDataChanged,
@@ -440,11 +450,18 @@ export const HIGHLIGHT_SHADOW_NONE = "0 0 0 0px rgba(0,0,0,0), 0 0px 0px 0px rgb
  * the keyboard selection.
  */
 export function useRowSelection(region: SelectionRegion, key: string) {
-  const { selection, inputMode, select } = useZeroNav()
+  const { selection, inputMode, select, isClosing } = useZeroNav()
   const [hovered, setHovered] = useState(false)
   const ref = useRef<HTMLElement | null>(null)
   const selected = selection?.region === region && selection.key === key
   const showHighlight = hovered || (selected && inputMode === "keyboard")
+  // `lift` gates the transform-scale part of the highlight. A scale on the row
+  // (an ancestor of the shared-element title) is perfectly safe on its own, but
+  // it clobbers the layout projection if it's active WHILE a morph runs — which
+  // is exactly the close-into-a-selected-row case. Suppressing scale (but not
+  // the paint-only shadow) for the morph's duration keeps the satisfying lift
+  // for normal hover/keyboard selection without resurrecting the title ghost.
+  const lift = showHighlight && !isClosing
 
   useEffect(() => {
     if (selected && inputMode === "keyboard") {
@@ -460,5 +477,5 @@ export function useRowSelection(region: SelectionRegion, key: string) {
     onPointerLeave: () => setHovered(false),
   }
 
-  return { selected, showHighlight, hoverProps, ref }
+  return { selected, showHighlight, lift, hoverProps, ref }
 }

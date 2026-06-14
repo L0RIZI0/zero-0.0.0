@@ -78,7 +78,7 @@ function TaskRow({
 }) {
   const [done, setDone] = useState(!!task.completed)
   const { openTask, stack } = useZeroNav()
-  const { showHighlight, hoverProps, ref } = useRowSelection("list", task.id)
+  const { showHighlight, lift, hoverProps, ref } = useRowSelection("list", task.id)
 
   // This row stays mounted while its window is open, and it carries the shared
   // taskLayoutId. If it kept that layoutId while the frame is also open, TWO
@@ -107,6 +107,7 @@ function TaskRow({
         onContextMenu={onContext}
         {...hoverProps}
         animate={{
+          scale: lift ? 1.02 : 1,
           boxShadow: showHighlight ? HIGHLIGHT_SHADOW : HIGHLIGHT_SHADOW_NONE,
         }}
         className="group flex w-full items-center gap-3 border border-border bg-card-solid px-2.5 py-2 text-left"
@@ -186,7 +187,7 @@ function EventRow({
   const event = item.event!
   const hasRange = typeof event.start === "number" && typeof event.end === "number"
   const cancelled = !!event.cancelled
-  const { showHighlight, hoverProps, ref } = useRowSelection("list", event.id)
+  const { showHighlight, lift, hoverProps, ref } = useRowSelection("list", event.id)
 
   // When opened FROM this row, hand the row layoutId to the frame so the morph
   // reads as the row growing into the window. (If it was opened from the
@@ -214,6 +215,7 @@ function EventRow({
         {...hoverProps}
         style={{ borderRadius: 4 }}
         animate={{
+          scale: lift ? 1.02 : 1,
           boxShadow: showHighlight ? HIGHLIGHT_SHADOW : HIGHLIGHT_SHADOW_NONE,
         }}
         className={cn(
@@ -262,7 +264,7 @@ function InstantRow({
   const instant = item.entity
   const hasMoment = typeof instant.at === "number"
   const cancelled = !!instant.cancelled
-  const { showHighlight, hoverProps, ref } = useRowSelection("list", instant.id)
+  const { showHighlight, lift, hoverProps, ref } = useRowSelection("list", instant.id)
 
   if (stack.includes(instant.id) && openSourceOf(instant.id) === "row") {
     return (
@@ -287,6 +289,7 @@ function InstantRow({
         {...hoverProps}
         style={{ borderRadius: 4 }}
         animate={{
+          scale: lift ? 1.02 : 1,
           boxShadow: showHighlight ? HIGHLIGHT_SHADOW : HIGHLIGHT_SHADOW_NONE,
         }}
         className={cn(
@@ -331,7 +334,7 @@ function SpaceRow({
   const { openSpace, stack } = useZeroNav()
   const space = item.space!
   const accent = space.accent ?? "var(--muted-foreground)"
-  const { showHighlight, hoverProps, ref } = useRowSelection("list", space.id)
+  const { showHighlight, lift, hoverProps, ref } = useRowSelection("list", space.id)
 
   // While this space is open as a frame, release the shared layoutId to the
   // frame (see TaskRow note) via an inert placeholder so the morph stays clean.
@@ -358,6 +361,7 @@ function SpaceRow({
         {...hoverProps}
         style={{ borderRadius: 4 }}
         animate={{
+          scale: lift ? 1.02 : 1,
           boxShadow: showHighlight ? HIGHLIGHT_SHADOW : HIGHLIGHT_SHADOW_NONE,
         }}
         className="group relative flex w-full items-center gap-3 overflow-hidden border border-border bg-card-solid px-2.5 py-2 text-left"
@@ -666,7 +670,7 @@ function EditRow({
  * reflows the rows above it.
  */
 function AddRow({ onActivate }: { onActivate: () => void }) {
-  const { showHighlight, hoverProps, ref } = useRowSelection("list", ADD_KEY)
+  const { showHighlight, lift, hoverProps, ref } = useRowSelection("list", ADD_KEY)
   return (
     <li>
       <motion.button
@@ -676,6 +680,7 @@ function AddRow({ onActivate }: { onActivate: () => void }) {
         {...hoverProps}
         style={{ borderRadius: 4 }}
         animate={{
+          scale: lift ? 1.02 : 1,
           boxShadow: showHighlight ? HIGHLIGHT_SHADOW : HIGHLIGHT_SHADOW_NONE,
         }}
         className="flex w-full items-center justify-center gap-1.5 border border-border bg-card-solid px-2.5 py-2 text-[12px] font-medium uppercase tracking-[0.08em] text-muted-foreground"
@@ -688,7 +693,7 @@ function AddRow({ onActivate }: { onActivate: () => void }) {
 }
 
 export function TaskList({ spaceId }: { spaceId: string }) {
-  const { dataVersion, notifyDataChanged, open, selection, select, moveSelection, publishNavOrder } =
+  const { dataVersion, notifyDataChanged, open, selection, select, moveSelection, publishNavOrder, isClosing } =
     useZeroNav()
   // Re-read whenever data mutates (new item created / pin changed) or context
   // changes. Pinned items are promoted to the SPACES row, so they're excluded
@@ -889,10 +894,18 @@ export function TaskList({ spaceId }: { spaceId: string }) {
       {/* Keyed by context: switching nodes hard-swaps the list (instant, no
           cross-fade) while add/remove within a context still animates. The
           -mx-2/px-2 gutter gives the hover scale room so rows aren't clipped
-          horizontally by overflow-y's implicit overflow-x clip. */}
+          horizontally by overflow-y's implicit overflow-x clip.
+
+          While a close morph runs we drop to overflow-visible: the closing
+          entity's title morphs IN from the frame header (ABOVE this box), so an
+          `auto` clip would shear it to a fragment ("...roduct") mid-flight.
+          Restored to scrolling the moment the morph settles. */}
       <ul
         key={spaceId}
-        className="-mx-2 flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto px-2 no-scrollbar"
+        className={cn(
+          "-mx-2 flex min-h-0 flex-1 flex-col gap-1.5 px-2 no-scrollbar",
+          isClosing ? "overflow-visible" : "overflow-y-auto",
+        )}
       >
         <AnimatePresence initial={false} mode="popLayout">
           {/* Empty state renders nothing but the ADD birther row below. The row
