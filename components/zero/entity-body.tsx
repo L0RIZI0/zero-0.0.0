@@ -1,8 +1,8 @@
 "use client"
 
 import { getSpaceAssets } from "@/lib/zero/data"
-import { SpacesRow } from "./spaces-row"
-import { TaskList } from "./task-list"
+import { Dock } from "./dock"
+import { DoList } from "./do-list"
 import { AssetPanel } from "./asset-panel"
 import { OutputPanel } from "./output-panel"
 import { CollapsibleColumn } from "./collapsible-column"
@@ -22,32 +22,32 @@ import { CollapsibleColumn } from "./collapsible-column"
  * The timeline is NOT rendered here: it stays pinned and persistent at the top
  * of the surface (WorkSurface), above the focus window.
  */
-export function EntityBody({ nodeId }: { nodeId: string }) {
-  const assetCount = getSpaceAssets(nodeId).length
+export function EntityBody({ entityId }: { entityId: string }) {
+  const assetCount = getSpaceAssets(entityId).length
 
   return (
     <div className="flex min-h-0 flex-1 flex-col px-6 pb-5">
-      {/* Spaces row — pinned items for this context. SpacesRow hides its cards
-          when the context has no pins, so it collapses to a small gap. */}
-      <SpacesRow contextSpaceId={nodeId} />
+      {/* Dock — pinned items for this context. The Dock hides its cards when the
+          context has no pins, so it collapses to a small gap. */}
+      <Dock contextId={entityId} />
 
       <div className="flex min-h-0 flex-1 flex-col pt-4">
         <div className="flex min-h-[180px] flex-1 gap-4">
           <div className="hidden w-[230px] shrink-0 md:flex">
             <CollapsibleColumn title="Inputs" side="left" count={assetCount} defaultOpen={false}>
-              <AssetPanel spaceId={nodeId} />
+              <AssetPanel spaceId={entityId} />
             </CollapsibleColumn>
           </div>
 
           <div className="flex min-h-0 min-w-0 flex-1 flex-col items-center">
             <div className="flex min-h-0 w-full max-w-[80%] flex-1 flex-col">
-              <TaskList spaceId={nodeId} />
+              <DoList contextId={entityId} />
             </div>
           </div>
 
           <div className="hidden w-[230px] shrink-0 md:flex">
             <CollapsibleColumn title="Outputs" side="right" count={0} defaultOpen={false}>
-              <OutputPanel spaceId={nodeId} />
+              <OutputPanel spaceId={entityId} />
             </CollapsibleColumn>
           </div>
         </div>
