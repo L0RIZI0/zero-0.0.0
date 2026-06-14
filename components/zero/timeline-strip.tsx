@@ -307,7 +307,7 @@ export function TimelineStrip({
                         // reliable hit/feedback area once it collapses to just
                         // the icon at deeper stages.
                         "absolute top-1/2 flex -translate-y-1/2 items-center gap-0.5 whitespace-nowrap rounded-md px-1.5 py-1 text-[10px] font-medium leading-none text-muted-foreground/70 transition-colors hover:bg-foreground/10 hover:text-foreground",
-                        todayIsLeft ? "right-full mr-0.5" : "left-full ml-0.5 flex-row-reverse",
+                        todayIsLeft ? "right-full mr-2" : "left-full ml-2 flex-row-reverse",
                       )}
                     >
                       <Arrow className="h-3 w-3 shrink-0" strokeWidth={2.75} />
