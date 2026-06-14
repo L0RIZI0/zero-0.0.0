@@ -61,13 +61,6 @@ interface ZeroNavContextValue {
   openTask: (taskId: string) => void
   /** Pop the top node (close current layer). */
   closeSpace: () => void
-  /** True while a close morph is animating. The DO-list uses this to switch its
-   *  scroll container from `overflow-auto` to `overflow-visible` for the morph's
-   *  duration: a closing entity's title/row morphs IN from the frame header,
-   *  which sits ABOVE the list box, so an `auto`/`hidden` list would clip the
-   *  in-flight title to a fragment ("...roduct"). Going visible briefly lets it
-   *  travel uncliped, then we restore scrolling. */
-  isClosing: boolean
   /** Jump to a specific depth in the stack (used by breadcrumb). */
   goToDepth: (depth: number) => void
   /** Bumps on any in-memory data mutation so selectors re-read fresh data. */
@@ -137,13 +130,6 @@ export const isInstantId = (id: string) => {
  * into a multi-frame flash.
  */
 const CLOSE_STAGGER_MS = 240
-
-/**
- * How long `isClosing` stays true after a pop — long enough to cover the layer
- * morph's full settle (the spring runs ~400-500ms), so the DO-list keeps its
- * scroll box un-clipped for the entire title travel, then restores scrolling.
- */
-const CLOSE_MORPH_MS = 520
 
 const ZeroNavContext = createContext<ZeroNavContextValue | null>(null)
 
@@ -277,18 +263,6 @@ export function ZeroNavProvider({
   const pendingCloseRef = useRef(0)
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // `isClosing` stays true from the moment a layer is popped until its morph has
-  // visually settled, so the DO-list can un-clip its scroll box for the title's
-  // travel. A single trailing timer (reset on each pop) flips it back off.
-  const [isClosing, setIsClosing] = useState(false)
-  const closeMorphTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  const markClosing = useCallback(() => {
-    setIsClosing(true)
-    if (closeMorphTimerRef.current) clearTimeout(closeMorphTimerRef.current)
-    closeMorphTimerRef.current = setTimeout(() => setIsClosing(false), CLOSE_MORPH_MS)
-  }, [])
-
   const closeSpace = useCallback(() => {
     if (closeLockRef.current) {
       // A close is already animating — remember this request and run it next.
@@ -296,13 +270,11 @@ export function ZeroNavProvider({
       return
     }
     closeLockRef.current = true
-    markClosing()
     setStack((prev) => (prev.length > 1 ? prev.slice(0, -1) : prev))
 
     const release = () => {
       if (pendingCloseRef.current > 0) {
         pendingCloseRef.current -= 1
-        markClosing()
         setStack((prev) => (prev.length > 1 ? prev.slice(0, -1) : prev))
         closeTimerRef.current = setTimeout(release, CLOSE_STAGGER_MS)
       } else {
@@ -310,13 +282,12 @@ export function ZeroNavProvider({
       }
     }
     closeTimerRef.current = setTimeout(release, CLOSE_STAGGER_MS)
-  }, [markClosing])
+  }, [])
 
-  // Clear any pending timers on unmount.
+  // Clear any pending stagger timer on unmount.
   useEffect(() => {
     return () => {
       if (closeTimerRef.current) clearTimeout(closeTimerRef.current)
-      if (closeMorphTimerRef.current) clearTimeout(closeMorphTimerRef.current)
     }
   }, [])
 
@@ -378,7 +349,6 @@ export function ZeroNavProvider({
       openSpace: open,
       openTask: open,
       closeSpace,
-      isClosing,
       goToDepth,
       dataVersion,
       notifyDataChanged,
@@ -398,7 +368,6 @@ export function ZeroNavProvider({
     stack,
     open,
     closeSpace,
-    isClosing,
     goToDepth,
     dataVersion,
     notifyDataChanged,
@@ -450,18 +419,11 @@ export const HIGHLIGHT_SHADOW_NONE = "0 0 0 0px rgba(0,0,0,0), 0 0px 0px 0px rgb
  * the keyboard selection.
  */
 export function useRowSelection(region: SelectionRegion, key: string) {
-  const { selection, inputMode, select, isClosing } = useZeroNav()
+  const { selection, inputMode, select } = useZeroNav()
   const [hovered, setHovered] = useState(false)
   const ref = useRef<HTMLElement | null>(null)
   const selected = selection?.region === region && selection.key === key
   const showHighlight = hovered || (selected && inputMode === "keyboard")
-  // `lift` gates the transform-scale part of the highlight. A scale on the row
-  // (an ancestor of the shared-element title) is perfectly safe on its own, but
-  // it clobbers the layout projection if it's active WHILE a morph runs — which
-  // is exactly the close-into-a-selected-row case. Suppressing scale (but not
-  // the paint-only shadow) for the morph's duration keeps the satisfying lift
-  // for normal hover/keyboard selection without resurrecting the title ghost.
-  const lift = showHighlight && !isClosing
 
   useEffect(() => {
     if (selected && inputMode === "keyboard") {
@@ -477,5 +439,5 @@ export function useRowSelection(region: SelectionRegion, key: string) {
     onPointerLeave: () => setHovered(false),
   }
 
-  return { selected, showHighlight, lift, hoverProps, ref }
+  return { selected, showHighlight, hoverProps, ref }
 }
