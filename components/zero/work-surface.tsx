@@ -87,10 +87,11 @@ export function WorkSurface() {
             a single clean projection. */}
         <LayoutGroup>
           {/* Base layer — the ROOT entity's body (home view). Sits beneath the
-              frame stack and is only mounted at root. Its dock cards share
-              `layoutId`s with the frames above, so opening a space morphs a card
-              into its frame within this one LayoutGroup. */}
-          {isRoot && (
+              frame stack and is mounted while root is the active view or the
+              immediate parent of an open child (see showRootBody). Its dock
+              cards share `layoutId`s with the frames above, so opening a space
+              morphs a card into its frame within this one LayoutGroup. */}
+          {showRootBody && (
             <div className="absolute inset-0 z-0">
               <EntityBody nodeId={rootId} />
             </div>
