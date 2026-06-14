@@ -244,7 +244,15 @@ export function TimelineStrip({
           — keeping the band short so it stays clear of the date/time header. The
           zoom selector no longer lives here — it is a vertical list on the far
           left, beside the arrows. */}
-      <div className="relative mb-1 h-10">
+      <div
+        className={cn(
+          "relative mb-1 transition-[height] duration-300 ease-out",
+          // At stage 2 the band shrinks so the bottom-anchored hour ruler — and
+          // the timeline track + zoom selectors below it — ride a bit higher,
+          // balancing the day label between the top date and the timestamps.
+          stage === 2 ? "h-8" : "h-10",
+        )}
+      >
         {/* hour ruler — anchored to the bottom, aligned to the track width */}
         <div className="absolute inset-x-0 bottom-0 h-3.5" style={{ marginLeft: 40, marginRight: 40 }}>
           {ticks.map((m) => {
@@ -291,14 +299,25 @@ export function TimelineStrip({
                       aria-label="Back to today"
                       title="Back to today"
                       className={cn(
-                        "absolute top-1/2 flex -translate-y-1/2 items-center gap-0.5 whitespace-nowrap rounded-md px-1 text-[10px] font-medium leading-none text-muted-foreground/70 transition-colors hover:text-foreground",
-                        todayIsLeft ? "right-full mr-1" : "left-full ml-1 flex-row-reverse",
+                        // Generous padding + hover background give the arrow a
+                        // reliable hit/feedback area once it collapses to just
+                        // the icon at deeper stages.
+                        "absolute top-1/2 flex -translate-y-1/2 items-center gap-0.5 whitespace-nowrap rounded-md px-1.5 py-1 text-[10px] font-medium leading-none text-muted-foreground/70 transition-colors hover:bg-foreground/10 hover:text-foreground",
+                        todayIsLeft ? "right-full mr-0.5" : "left-full ml-0.5 flex-row-reverse",
                       )}
                     >
-                      <Arrow className="h-3 w-3" strokeWidth={2.75} />
-                      {/* Word only at the root; from the first child onward the
-                          chrome compacts to just the arrow. */}
-                      {stage === 0 && <span>TODAY</span>}
+                      <Arrow className="h-3 w-3 shrink-0" strokeWidth={2.75} />
+                      {/* The word smoothly collapses to zero width (and reopens)
+                          when leaving/entering the root stage, instead of
+                          popping in and out. Only visible at stage 0. */}
+                      <motion.span
+                        className="overflow-hidden"
+                        initial={false}
+                        animate={{ width: stage === 0 ? "auto" : 0, opacity: stage === 0 ? 1 : 0 }}
+                        transition={layerTransition}
+                      >
+                        TODAY
+                      </motion.span>
                     </button>
                   </span>
                 )
