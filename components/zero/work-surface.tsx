@@ -6,7 +6,7 @@ import { getSpace, getEntity } from "@/lib/zero/data"
 import { shellStageFor, TIMELINE_TOP_PAD } from "@/lib/zero/layout"
 import { layerTransition } from "@/lib/zero/motion"
 import { SpaceLayerStack } from "./space-layer-stack"
-import { FrontContent } from "./front-content"
+import { EntityBody } from "./entity-body"
 import { TimelineStrip } from "./timeline-strip"
 import { PathStack } from "./breadcrumb-path"
 
@@ -30,8 +30,14 @@ import { PathStack } from "./breadcrumb-path"
  * window's border, while the frame still owns its title band.
  */
 export function WorkSurface() {
-  const { activeNode } = useZeroNav()
+  const { activeNode, stack } = useZeroNav()
   const contextSpaceId = activeNode.contextSpaceId
+  // The root entity's body is the base layer / home view. It is only mounted at
+  // root: deeper levels are covered by frames (which are translucent), so we
+  // unmount it both to avoid bleed-through and to let its dock cards morph
+  // cleanly into the opening frame.
+  const isRoot = stack.length === 1
+  const rootId = stack[0]
   // The context may be a task/event (not a space), so fall back to the entity's
   // own accent when it isn't a space.
   const accent = getSpace(contextSpaceId)?.accent ?? getEntity(contextSpaceId)?.accent
@@ -77,16 +83,21 @@ export function WorkSurface() {
             (a faint title ghost at the destination). Grouping them makes the morph
             a single clean projection. */}
         <LayoutGroup>
-          {/* Layer B — window frames (root renders no frame, just transparent). */}
+          {/* Base layer — the ROOT entity's body (home view). Sits beneath the
+              frame stack and is only mounted at root. Its dock cards share
+              `layoutId`s with the frames above, so opening a space morphs a card
+              into its frame within this one LayoutGroup. */}
+          {isRoot && (
+            <div className="absolute inset-0 z-0">
+              <EntityBody nodeId={rootId} />
+            </div>
+          )}
+
+          {/* Window frames. Each active frame renders its OWN body (lists etc.)
+              inside itself, so the row→frame morph is a single-tree layout
+              animation rather than a cross-layer handoff. */}
           <div className="absolute inset-0 z-10">
             <SpaceLayerStack />
-          </div>
-
-          {/* Layer C — persistent frontmost content. The wrapper is click-through;
-              FrontContent re-enables pointer events on its interactive children so
-              the window frame's header below stays clickable. */}
-          <div className="pointer-events-none absolute inset-0 z-20">
-            <FrontContent />
           </div>
         </LayoutGroup>
       </div>

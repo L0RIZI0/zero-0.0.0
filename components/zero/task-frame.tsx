@@ -1,11 +1,12 @@
 "use client"
 
-import { motion } from "motion/react"
+import { motion, useIsPresent } from "motion/react"
 import { X, Check, Calendar, Flag, Hash } from "lucide-react"
 import type { Entity, TaskPriority } from "@/lib/zero/types"
 import { getSpace } from "@/lib/zero/data"
 import { layerTransition, taskLayoutId, taskTitleId, glyphId, contentTransition } from "@/lib/zero/motion"
 import { NodeGlyph } from "./node-glyph"
+import { EntityBody } from "./entity-body"
 import { useState } from "react"
 import { cn } from "@/lib/utils"
 
@@ -134,8 +135,13 @@ export function TaskFrame({
         </div>
       )}
 
-      {/* Transparent middle — the persistent frontmost content renders over it. */}
-      <div className="min-h-0 flex-1" aria-hidden />
+      {/* Body (this task's subtasks / inputs / outputs) renders here inside the
+          frame, only when active. Parent frames render an empty middle. */}
+      {isActive ? (
+        <EntityBody nodeId={task.id} />
+      ) : (
+        <div className="min-h-0 flex-1" aria-hidden />
+      )}
     </motion.div>
   )
 }

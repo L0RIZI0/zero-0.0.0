@@ -5,6 +5,7 @@ import { X } from "lucide-react"
 import type { Entity } from "@/lib/zero/types"
 import { layerTransition, spaceLayoutId, spaceTitleId, glyphId, contentTransition } from "@/lib/zero/motion"
 import { NodeGlyph } from "./node-glyph"
+import { EntityBody } from "./entity-body"
 
 /**
  * A child Space window — chrome only. It paints the bordered, off-white frame
@@ -90,9 +91,15 @@ export function SpaceFrame({
         </div>
       )}
 
-      {/* Transparent remainder — the persistent FrontContent layer (timeline /
-          spaces row / tasks / inputs / outputs) renders over this gap. */}
-      <div className="min-h-0 flex-1" aria-hidden />
+      {/* The body (spaces row / tasks / inputs / outputs) is rendered HERE,
+          inside the frame, only for the active (frontmost) frame. Receding
+          parent frames render an empty middle — their bodies unmount, so only
+          the active entity's list is ever visible. */}
+      {isActive ? (
+        <EntityBody nodeId={space.id} />
+      ) : (
+        <div className="min-h-0 flex-1" aria-hidden />
+      )}
     </motion.div>
   )
 }
