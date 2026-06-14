@@ -61,13 +61,18 @@ interface ZeroNavContextValue {
   openTask: (taskId: string) => void
   /** Pop the top node (close current layer). */
   closeSpace: () => void
-  /** Close down until the window at `targetTopIndex` becomes the top, cascading
-   *  one level per stagger window so a deep close animates smoothly rather than
-   *  snapping. `targetTopIndex` is the absolute stack index that should remain
-   *  focused (e.g. closing the window at depth D calls `closeTo(D - 1)`). */
-  closeTo: (targetTopIndex: number) => void
-  /** Jump to a specific depth in the stack (used by breadcrumb). */
-  goToDepth: (depth: number) => void
+  /** Close the window at absolute stack index `depth`. ONLY that window animates
+   *  its shrink-back-to-source; any deeper children are removed instantly (they
+   *  vanish without their own close animation). Used by every window's header
+   *  close button — clicking an ancestor's peeking header collapses everything
+   *  above it in one motion. */
+  closeWindow: (depth: number) => void
+  /** The window currently playing its close (shrink-to-source) animation, kept
+   *  mounted as an overlay until it finishes. `null` when nothing is closing. */
+  closing: { id: string; depth: number } | null
+  /** Called by the closing overlay once its shrink animation settles, so the
+   *  store can drop it from the render tree. */
+  finishClosing: (id: string) => void
   /** Bumps on any in-memory data mutation so selectors re-read fresh data. */
   dataVersion: number
   /** Signal that the underlying data arrays changed (entity added). */
@@ -129,13 +134,6 @@ export const isInstantId = (id: string) => {
   return kind ? kind === "instant" : id.startsWith("i")
 }
 
-/**
- * Minimum spacing between consecutive layer closes. Tuned just under the layer
- * morph's perceived settle time so queued closes feel snappy yet never overlap
- * into a multi-frame flash.
- */
-const CLOSE_STAGGER_MS = 240
-
 const ZeroNavContext = createContext<ZeroNavContextValue | null>(null)
 
 export function ZeroNavProvider({
@@ -146,6 +144,10 @@ export function ZeroNavProvider({
   rootSpaceId?: string
 }) {
   const [stack, setStack] = useState<string[]>([rootSpaceId])
+  // The window currently shrinking back to its source on close. Rendered as a
+  // standalone overlay by the layer stack so ONLY it animates while the deeper
+  // children it closed over are dropped instantly.
+  const [closing, setClosing] = useState<{ id: string; depth: number } | null>(null)
   const [dataVersion, setDataVersion] = useState(0)
   const [pulse, setPulse] = useState<{ id: string; n: number } | null>(null)
   // Per-entity record of how its window was opened (timeline marker vs DO-list
@@ -258,55 +260,37 @@ export function ZeroNavProvider({
     [sources],
   )
 
-  // Closing is serialized and target-driven. Each layer collapse is a shared-
-  // element morph (~0.4s); firing several at once leaves multiple layers
-  // mid-exit and visible simultaneously (a "all children open" overlap flash).
-  // So we pop ONE layer per stagger window, walking the stack down to a target
-  // length. A live mirror of the stack length lets the timer loop decide whether
-  // to keep going without depending on stale closure state.
+  // A live mirror of the stack so event handlers (close buttons, Escape) read
+  // the committed stack synchronously without stale-closure risk.
   const stackRef = useRef(stack)
   useEffect(() => {
     stackRef.current = stack
   }, [stack])
 
-  const targetLenRef = useRef(1)
-  const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  // Walk the stack down to `targetLen` (>= 1), one pop per stagger window. If a
-  // loop is already running, we just retarget it (a new close request mid-
-  // cascade simply moves the goalpost). The stackRef mirror is committed by the
-  // effect above between ticks, so each tick reads the post-pop length.
-  const closeToLen = useCallback((targetLen: number) => {
-    targetLenRef.current = Math.max(1, targetLen)
-    if (closeTimerRef.current) return
-    const tick = () => {
-      closeTimerRef.current = null
-      if (stackRef.current.length <= targetLenRef.current) return
-      setStack((prev) => (prev.length > targetLenRef.current ? prev.slice(0, -1) : prev))
-      closeTimerRef.current = setTimeout(tick, CLOSE_STAGGER_MS)
-    }
-    tick()
+  // Close the window at absolute index `depth`. We remove it AND everything
+  // above it from the stack in one update (deeper children vanish instantly),
+  // then mark it as `closing` so the layer stack mounts it once more as a
+  // standalone overlay that shrinks back into its source row/card. This is the
+  // whole "only the clicked window animates" behavior: the deeper levels are
+  // already gone, so they never play their own close.
+  const closeWindow = useCallback((depth: number) => {
+    const cur = stackRef.current
+    if (depth < 1 || depth >= cur.length) return
+    setClosing({ id: cur[depth], depth })
+    setStack(cur.slice(0, depth))
   }, [])
 
-  // Pop exactly one level beyond wherever the cascade currently aims.
+  // The closing overlay reports back here when its shrink settles so we can drop
+  // it. Guarded by id so a newer close (which replaced `closing`) isn't cleared
+  // by a stale completion from the previous one.
+  const finishClosing = useCallback((id: string) => {
+    setClosing((c) => (c && c.id === id ? null : c))
+  }, [])
+
+  // Escape / generic "close current" closes the frontmost window.
   const closeSpace = useCallback(() => {
-    const base = closeTimerRef.current ? targetLenRef.current : stackRef.current.length
-    closeToLen(base - 1)
-  }, [closeToLen])
-
-  // Close down so the window at `targetTopIndex` becomes the top (length =
-  // index + 1). Used by ancestor header close buttons in the nested-doll stack.
-  const closeTo = useCallback(
-    (targetTopIndex: number) => closeToLen(targetTopIndex + 1),
-    [closeToLen],
-  )
-
-  // Clear any pending stagger timer on unmount.
-  useEffect(() => {
-    return () => {
-      if (closeTimerRef.current) clearTimeout(closeTimerRef.current)
-    }
-  }, [])
+    closeWindow(stackRef.current.length - 1)
+  }, [closeWindow])
 
   // Pressing Escape closes the current focus window (pops the top child),
   // mirroring the close button — and routes through the same serialized
@@ -329,10 +313,6 @@ export function ZeroNavProvider({
     window.addEventListener("keydown", onKeyDown)
     return () => window.removeEventListener("keydown", onKeyDown)
   }, [closeSpace])
-
-  const goToDepth = useCallback((depth: number) => {
-    setStack((prev) => prev.slice(0, Math.max(1, depth + 1)))
-  }, [])
 
   const value = useMemo<ZeroNavContextValue>(() => {
     const activeId = stack[stack.length - 1]
@@ -366,8 +346,9 @@ export function ZeroNavProvider({
       openSpace: open,
       openTask: open,
       closeSpace,
-      closeTo,
-      goToDepth,
+      closeWindow,
+      closing,
+      finishClosing,
       dataVersion,
       notifyDataChanged,
       pulse,
@@ -386,8 +367,9 @@ export function ZeroNavProvider({
     stack,
     open,
     closeSpace,
-    closeTo,
-    goToDepth,
+    closeWindow,
+    closing,
+    finishClosing,
     dataVersion,
     notifyDataChanged,
     pulse,
@@ -413,15 +395,10 @@ export function useZeroNav() {
 
 /**
  * The active-cell highlight — a selection ring + drop shadow, both expressed as
- * `box-shadow`. CRITICAL: this is PAINT-ONLY (no `scale`/transform). These rows
- * and dock cards own a shared `layoutId`, and Framer drives its open/close morph
- * by writing `transform` on that same node. Animating `scale` here (as an
- * earlier version did) clobbers that projection transform and strands stretched,
- * low-opacity "ghosts" of the title/frame during the morph. `box-shadow` never
- * touches `transform`, so the lift is safe to keep on a morphing node.
- *
- * `HIGHLIGHT_SHADOW_NONE` mirrors the same two-shadow structure (ring + drop) so
- * Motion interpolates cleanly between the rest and active states.
+ * `box-shadow`. `HIGHLIGHT_SHADOW_NONE` mirrors the same two-shadow structure
+ * (ring + drop) so Motion interpolates cleanly between the rest and active
+ * states. Rows/cards are plain morph SOURCES now (no shared `layoutId`), so a
+ * `scale` lift on them is perfectly safe and never disturbs the window morph.
  */
 export const HIGHLIGHT_SHADOW = "0 0 0 1.5px var(--ring), 0 12px 28px -10px rgba(0,0,0,0.28)"
 export const HIGHLIGHT_SHADOW_NONE = "0 0 0 0px rgba(0,0,0,0), 0 0px 0px 0px rgba(0,0,0,0)"

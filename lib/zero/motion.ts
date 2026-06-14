@@ -22,38 +22,17 @@ export const panelTransition: Transition = {
   ease: [0.22, 0.61, 0.36, 1],
 }
 
-export const spaceLayoutId = (id: string) => `space-frame-${id}`
-export const spaceTitleId = (id: string) => `space-title-${id}`
-export const taskLayoutId = (id: string) => `task-frame-${id}`
-export const taskTitleId = (id: string) => `task-title-${id}`
 /**
- * Events have no window of their own (opening one dives into its parent space),
- * but they still morph between their DO-list row and their dock card, so they
- * carry their own identity for that pin/unpin transition.
+ * The single attribute name a morph SOURCE exposes so an opening window can
+ * measure the exact box to grow from (and shrink back to on close). Every
+ * DO-list row, dock card, and timeline marker tags itself with this + the entity
+ * id; events/instants also tag `data-morph-where` ("row" | "timeline") since
+ * they exist in two places at once. See `EntityFrame` for the geometry morph
+ * that replaced Framer's shared-`layoutId` projection.
  */
-export const eventLayoutId = (id: string) => `event-frame-${id}`
-export const eventTitleId = (id: string) => `event-title-${id}`
-/**
- * Instants mirror events: no window context of their own, but they morph
- * between their TIMELINE marker and their opened window, so they carry their
- * own identity for that transition.
- */
-export const instantLayoutId = (id: string) => `instant-frame-${id}`
-export const instantTitleId = (id: string) => `instant-title-${id}`
-/**
- * Events/instants can be opened from two places — their TIMELINE marker or
- * their DO-list ROW — and the window should grow from (and collapse back to)
- * whichever was used. The ids above belong to the timeline marker; these
- * belong to the DO-list row. They are deliberately distinct so the timeline
- * overlay and the row can coexist without two elements owning one id; the
- * frame simply adopts whichever set matches the source it was opened from.
- */
-export const eventRowLayoutId = (id: string) => `event-row-${id}`
-export const eventRowTitleId = (id: string) => `event-row-title-${id}`
-export const instantRowLayoutId = (id: string) => `instant-row-${id}`
-export const instantRowTitleId = (id: string) => `instant-row-title-${id}`
-/**
- * Per-entity glyph id so the kind icon travels continuously between the DO-list
- * row and the dock card (shared across space / task / event alike).
- */
-export const glyphId = (id: string) => `glyph-${id}`
+export const MORPH_SOURCE_ATTR = "data-morph-source"
+export const MORPH_WHERE_ATTR = "data-morph-where"
+
+/** Geometry of the nested-doll window stack (px), keyed off absolute depth. */
+export const TOP_PEEK_PX = 40
+export const SIDE_PX = 10
