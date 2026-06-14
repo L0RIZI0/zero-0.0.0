@@ -1,6 +1,6 @@
 "use client"
 
-import { motion } from "motion/react"
+import { motion, useIsPresent } from "motion/react"
 import { X, Clock, Hash } from "lucide-react"
 import type { Entity } from "@/lib/zero/types"
 import { getSpace } from "@/lib/zero/data"
@@ -60,8 +60,21 @@ export function EventFrame({
   // own ids and simply stays in place.)
   const { openSourceOf } = useZeroNav()
   const fromRow = openSourceOf(event.id) === "row"
-  const frameLayoutId = fromRow ? eventRowLayoutId(event.id) : eventLayoutId(event.id)
-  const frameTitleId = fromRow ? eventRowTitleId(event.id) : eventTitleId(event.id)
+  // Drop shared layoutIds while exiting so the re-mounting source (row or
+  // timeline marker) is the sole owner and morphs cleanly back into place.
+  const isPresent = useIsPresent()
+  const frameLayoutId = !isPresent
+    ? undefined
+    : fromRow
+      ? eventRowLayoutId(event.id)
+      : eventLayoutId(event.id)
+  const frameTitleId = !isPresent
+    ? undefined
+    : fromRow
+      ? eventRowTitleId(event.id)
+      : eventTitleId(event.id)
+  const accentMorphId = isPresent ? `${eventLayoutId(event.id)}-accent` : undefined
+  const glyphMorphId = isPresent ? glyphId(event.id) : undefined
 
   return (
     <motion.div
@@ -75,7 +88,7 @@ export function EventFrame({
           timeline morph carries a matching accent twin, so this is keyed to the
           timeline layoutId regardless of source (a no-op when opened from row). */}
       <motion.span
-        layoutId={`${eventLayoutId(event.id)}-accent`}
+        layoutId={accentMorphId}
         transition={layerTransition}
         className="absolute left-0 top-0 z-10 h-full w-[3px]"
         style={{ backgroundColor: accent }}
@@ -88,7 +101,7 @@ export function EventFrame({
         <div className="flex items-start justify-between gap-3 px-6 pt-5 pb-3">
           <div className="flex min-w-0 items-start gap-3">
             <motion.span
-              layoutId={glyphId(event.id)}
+              layoutId={glyphMorphId}
               transition={layerTransition}
               className="mt-1 flex h-[26px] w-[26px] shrink-0 items-center justify-center text-foreground"
             >

@@ -32,6 +32,16 @@ export function TaskFrame({
   onClose: () => void
 }) {
   const [done, setDone] = useState(!!task.completed)
+  // While this frame is EXITING (close morph), the destination row is
+  // re-mounting and reclaiming these shared layoutIds. If the exiting frame
+  // kept them too, two live nodes would own each id and Framer would crossfade
+  // them — the faint offset title/glyph ghost. Dropping our ids the moment
+  // we're no longer present makes the row the sole owner, so it morphs cleanly
+  // from this frame's last snapshot.
+  const isPresent = useIsPresent()
+  const bodyMorphId = isPresent ? taskLayoutId(task.id) : undefined
+  const titleMorphId = isPresent ? taskTitleId(task.id) : undefined
+  const glyphMorphId = isPresent ? glyphId(task.id) : undefined
   // The task's origin parent provides the contextual accent; its parent plus
   // any tagged spaces make up the membership line.
   const primarySpaceId = task.parentId ?? "s_root"
@@ -43,7 +53,7 @@ export function TaskFrame({
 
   return (
     <motion.div
-      layoutId={taskLayoutId(task.id)}
+      layoutId={bodyMorphId}
       transition={layerTransition}
       style={{ borderRadius: 4 }}
       className="relative flex h-full w-full flex-col overflow-hidden border border-border bg-secondary/40 shadow-[0_24px_80px_-32px_rgba(0,0,0,0.6)]"
@@ -65,7 +75,7 @@ export function TaskFrame({
                   title. It fills + shows a check once the task is done (no second
                   nested square). */}
               <motion.span
-                layoutId={glyphId(task.id)}
+                layoutId={glyphMorphId}
                 transition={layerTransition}
                 className="flex h-[22px] w-[22px] items-center justify-center"
               >
@@ -77,7 +87,7 @@ export function TaskFrame({
             </button>
             <div className="flex min-w-0 flex-col">
               <motion.h2
-                layoutId={taskTitleId(task.id)}
+                layoutId={titleMorphId}
                 transition={layerTransition}
                 className={cn(
                   // whitespace-nowrap is REQUIRED: this h2 shares taskTitleId with

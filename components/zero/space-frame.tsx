@@ -1,6 +1,6 @@
 "use client"
 
-import { motion } from "motion/react"
+import { motion, useIsPresent } from "motion/react"
 import { X } from "lucide-react"
 import type { Entity } from "@/lib/zero/types"
 import { layerTransition, spaceLayoutId, spaceTitleId, glyphId, contentTransition } from "@/lib/zero/motion"
@@ -27,19 +27,28 @@ export function SpaceFrame({
 }) {
   const accent = space.accent ?? "var(--accent)"
 
+  // While exiting (close morph), drop the shared layoutIds so the re-mounting
+  // dock card / list row is the sole owner and morphs cleanly from this frame's
+  // last snapshot — otherwise two live owners crossfade into an offset ghost.
+  const isPresent = useIsPresent()
+  const bodyMorphId = isPresent ? spaceLayoutId(space.id) : undefined
+  const accentMorphId = isPresent ? `${spaceLayoutId(space.id)}-accent` : undefined
+  const titleMorphId = isPresent ? spaceTitleId(space.id) : undefined
+  const glyphMorphId = isPresent ? glyphId(space.id) : undefined
+
   // Space 0 (root) is borderless — the surface itself stands in for it.
   if (isRoot) return null
 
   return (
     <motion.div
-      layoutId={spaceLayoutId(space.id)}
+      layoutId={bodyMorphId}
       transition={layerTransition}
       style={{ borderRadius: 4 }}
       className="relative flex h-full w-full flex-col overflow-hidden border border-border bg-secondary/40 shadow-[0_24px_80px_-32px_rgba(0,0,0,0.6)]"
     >
       {/* accent edge — shares element with the button's accent strip */}
       <motion.span
-        layoutId={`${spaceLayoutId(space.id)}-accent`}
+        layoutId={accentMorphId}
         transition={layerTransition}
         className="absolute left-0 top-0 z-10 h-full w-[3px]"
         style={{ backgroundColor: accent }}
@@ -53,7 +62,7 @@ export function SpaceFrame({
         <div className="flex items-start justify-between gap-3 px-6 pt-5 pb-3">
           <div className="flex min-w-0 items-start gap-3">
             <motion.span
-              layoutId={glyphId(space.id)}
+              layoutId={glyphMorphId}
               transition={layerTransition}
               className="mt-0.5 flex h-[24px] w-[24px] shrink-0 items-center justify-center text-foreground"
             >
@@ -61,7 +70,7 @@ export function SpaceFrame({
             </motion.span>
             <div className="flex min-w-0 flex-col">
               <motion.h2
-                layoutId={spaceTitleId(space.id)}
+                layoutId={titleMorphId}
                 transition={layerTransition}
                 className="truncate text-[22px] font-medium leading-tight tracking-tight text-foreground"
               >
