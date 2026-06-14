@@ -1,8 +1,9 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
+import { createPortal } from "react-dom"
 import { AnimatePresence, motion } from "motion/react"
-import { Check, Plus, Pin, Trash2, Ban, RotateCcw } from "lucide-react"
+import { Check, Plus, Pin, Trash2, Ban, RotateCcw, ChevronDown } from "lucide-react"
 import {
   getContextItems,
   getOpenTaskCount,
@@ -10,6 +11,10 @@ import {
   pinItem,
   deleteEntity,
   setEventCancelled,
+  addTask,
+  addSpace,
+  addEvent,
+  addInstant,
   type ContextItem,
 } from "@/lib/zero/data"
 import type { Entity, TaskPriority } from "@/lib/zero/types"
@@ -26,10 +31,11 @@ import {
   instantRowTitleId,
   glyphId,
 } from "@/lib/zero/motion"
-import { NodeGlyph } from "./node-glyph"
-import { CreateWindow } from "./create-window"
+import { NodeGlyph, NODE_KIND_META, type NodeKind } from "./node-glyph"
 import { ContextMenu, type ContextMenuState } from "./context-menu"
 import { cn } from "@/lib/utils"
+
+const KIND_ORDER: NodeKind[] = ["task", "space", "event", "instant"]
 
 const priorityDot: Record<TaskPriority, string> = {
   high: "bg-accent",
@@ -383,6 +389,209 @@ function fmtMoment(min: number, seconds: number) {
   return `${hr}:${String(m).padStart(2, "0")}:${String(seconds).padStart(2, "0")}${ampm}`
 }
 
+/**
+ * The glyph (kind) picker for the inline draft row. Rendered to a body portal
+ * so it escapes the DO list's `overflow-y-auto` clip, and anchored under the
+ * trigger (flipping above when there isn't room below). Unlike the old popup,
+ * the per-kind helper text is given room to show in full (no truncation).
+ */
+function GlyphMenu({
+  anchor,
+  kind,
+  onSelect,
+  onClose,
+}: {
+  anchor: { left: number; top: number; bottom: number } | null
+  kind: NodeKind
+  onSelect: (k: NodeKind) => void
+  onClose: () => void
+}) {
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => setMounted(true), [])
+
+  useEffect(() => {
+    if (!anchor) return
+    const close = () => onClose()
+    window.addEventListener("scroll", close, true)
+    window.addEventListener("resize", close)
+    return () => {
+      window.removeEventListener("scroll", close, true)
+      window.removeEventListener("resize", close)
+    }
+  }, [anchor, onClose])
+
+  if (!mounted || !anchor) return null
+
+  const MENU_W = 248
+  const itemH = 50
+  const menuH = KIND_ORDER.length * itemH + 8
+  const left = Math.min(anchor.left, window.innerWidth - MENU_W - 8)
+  // Open below the trigger; flip above if it would run off the bottom.
+  const below = anchor.bottom + 6
+  const top = below + menuH > window.innerHeight - 8 ? anchor.top - menuH - 6 : below
+
+  return createPortal(
+    <>
+      {/* invisible catcher closes the menu on any outside pointer press */}
+      <div className="fixed inset-0 z-[140]" onPointerDown={onClose} aria-hidden />
+      <motion.ul
+        role="listbox"
+        initial={{ opacity: 0, y: -6, scale: 0.97 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        exit={{ opacity: 0, y: -6, scale: 0.97 }}
+        transition={{ duration: 0.14, ease: [0.22, 0.61, 0.36, 1] }}
+        style={{ position: "fixed", left, top, width: MENU_W, transformOrigin: "top left" }}
+        className="z-[141] overflow-hidden rounded-md border border-border bg-popover p-1 shadow-[0_18px_50px_-20px_rgba(0,0,0,0.55)]"
+        onPointerDown={(e) => e.stopPropagation()}
+      >
+        {KIND_ORDER.map((k) => {
+          const selected = k === kind
+          return (
+            <li key={k}>
+              <button
+                type="button"
+                role="option"
+                aria-selected={selected}
+                onClick={() => onSelect(k)}
+                className={cn(
+                  "flex w-full items-center gap-2.5 rounded-[4px] px-2 py-1.5 text-left transition-colors",
+                  selected ? "bg-secondary" : "hover:bg-secondary/60",
+                )}
+              >
+                <span className="flex h-5 w-5 shrink-0 items-center justify-center text-foreground">
+                  <NodeGlyph kind={k} />
+                </span>
+                <span className="flex min-w-0 flex-col">
+                  <span className="text-[13px] font-medium leading-tight text-foreground">
+                    {NODE_KIND_META[k].label}
+                  </span>
+                  {/* Full helper text — no truncation. */}
+                  <span className="text-[11px] leading-snug text-muted-foreground">
+                    {NODE_KIND_META[k].description}
+                  </span>
+                </span>
+                {selected && <Check className="ml-auto h-3.5 w-3.5 shrink-0 text-foreground" />}
+              </button>
+            </li>
+          )
+        })}
+      </motion.ul>
+    </>,
+    document.body,
+  )
+}
+
+/**
+ * An inline, in-list draft for creating a new entity. Appears at the end of the
+ * DO list when ADD is pressed: a focused title input with a leading glyph
+ * picker (kind defaults to a task). ENTER commits it into the current context;
+ * ESC discards the draft (animating out). The kind can only be chosen during
+ * this draft stage — once committed it's fixed (for now). No save/cancel
+ * buttons: the interaction is meant to be understood immediately.
+ */
+function DraftRow({ spaceId, onDone }: { spaceId: string; onDone: () => void }) {
+  const { notifyDataChanged } = useZeroNav()
+  const [kind, setKind] = useState<NodeKind>("task")
+  const [title, setTitle] = useState("")
+  const [anchor, setAnchor] = useState<{ left: number; top: number; bottom: number } | null>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const menuOpen = anchor !== null
+
+  useEffect(() => {
+    inputRef.current?.focus()
+  }, [])
+
+  const commit = () => {
+    const name = title.trim()
+    if (!name) return
+    if (kind === "task") addTask({ title: name, spaceId })
+    else if (kind === "space") addSpace({ name, parentId: spaceId })
+    else if (kind === "event") addEvent({ title: name, spaceId })
+    else addInstant({ title: name, spaceId })
+    notifyDataChanged()
+    onDone()
+  }
+
+  const toggleMenu = () => {
+    if (menuOpen) {
+      setAnchor(null)
+      return
+    }
+    const r = triggerRef.current?.getBoundingClientRect()
+    if (r) setAnchor({ left: r.left, top: r.top, bottom: r.bottom })
+  }
+
+  return (
+    <motion.li
+      layout
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, scale: 0.96, transition: { duration: 0.16 } }}
+      transition={layerTransition}
+    >
+      <div
+        style={{ borderRadius: 4 }}
+        className="flex w-full items-center gap-3 border border-foreground/40 bg-card-solid px-2.5 py-2 text-left"
+      >
+        <button
+          ref={triggerRef}
+          type="button"
+          aria-haspopup="listbox"
+          aria-expanded={menuOpen}
+          aria-label={`Type: ${NODE_KIND_META[kind].label}. Change type`}
+          onClick={toggleMenu}
+          className={cn(
+            "flex items-center gap-0.5 rounded-[3px] py-0.5 pl-0.5 pr-1 text-foreground transition-colors hover:bg-foreground/10",
+            menuOpen && "bg-foreground/10",
+          )}
+        >
+          <span className={GLYPH_BOX}>
+            <NodeGlyph kind={kind} filled={false} strokeWidth={2} />
+          </span>
+          <ChevronDown className="h-3 w-3 text-muted-foreground" />
+        </button>
+
+        <input
+          ref={inputRef}
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault()
+              commit()
+            } else if (e.key === "Escape") {
+              e.preventDefault()
+              if (menuOpen) setAnchor(null)
+              else onDone()
+            }
+          }}
+          placeholder={`Name this ${NODE_KIND_META[kind].label.toLowerCase()}…`}
+          className="min-w-0 flex-1 bg-transparent text-[13px] tracking-tight text-foreground outline-none placeholder:text-muted-foreground/50"
+        />
+      </div>
+
+      <AnimatePresence>
+        {menuOpen && (
+          <GlyphMenu
+            anchor={anchor}
+            kind={kind}
+            onSelect={(k) => {
+              setKind(k)
+              setAnchor(null)
+              inputRef.current?.focus()
+            }}
+            onClose={() => {
+              setAnchor(null)
+              inputRef.current?.focus()
+            }}
+          />
+        )}
+      </AnimatePresence>
+    </motion.li>
+  )
+}
+
 export function TaskList({ spaceId }: { spaceId: string }) {
   const { dataVersion, notifyDataChanged } = useZeroNav()
   // Re-read whenever data mutates (new item created / pin changed) or context
@@ -487,34 +696,20 @@ export function TaskList({ spaceId }: { spaceId: string }) {
         className="-mx-2 flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto px-2 no-scrollbar"
       >
         <AnimatePresence initial={false} mode="popLayout">
-          {shown.length === 0 ? (
-            <li
-              key="empty"
-              className="px-2 py-5 text-center text-[12px] text-muted-foreground/60"
-            >
-              Let&apos;s do
-            </li>
-          ) : (
-            shown.map((it) =>
-              it.kind === "task" ? (
-                <TaskRow key={it.id} task={it.task!} onContext={(e) => openMenu(e, it)} />
-              ) : it.kind === "space" ? (
-                <SpaceRow key={it.id} item={it} onContext={(e) => openMenu(e, it)} />
-              ) : it.kind === "event" ? (
-                <EventRow
-                  key={it.id}
-                  item={it}
-                  onContext={(e) => openMenu(e, it)}
-                />
-              ) : (
-                <InstantRow
-                  key={it.id}
-                  item={it}
-                  onContext={(e) => openMenu(e, it)}
-                />
-              ),
-            )
+          {/* Empty state intentionally renders nothing (no "Let's do" label). */}
+          {shown.map((it) =>
+            it.kind === "task" ? (
+              <TaskRow key={it.id} task={it.task!} onContext={(e) => openMenu(e, it)} />
+            ) : it.kind === "space" ? (
+              <SpaceRow key={it.id} item={it} onContext={(e) => openMenu(e, it)} />
+            ) : it.kind === "event" ? (
+              <EventRow key={it.id} item={it} onContext={(e) => openMenu(e, it)} />
+            ) : (
+              <InstantRow key={it.id} item={it} onContext={(e) => openMenu(e, it)} />
+            ),
           )}
+          {/* The inline draft lives at the end of the list while creating. */}
+          {creating && <DraftRow key="draft" spaceId={spaceId} onDone={() => setCreating(false)} />}
         </AnimatePresence>
       </ul>
 
@@ -531,12 +726,6 @@ export function TaskList({ spaceId }: { spaceId: string }) {
         <Plus className="h-3.5 w-3.5" />
         Add
       </motion.button>
-
-      <AnimatePresence>
-        {creating && (
-          <CreateWindow spaceId={spaceId} onClose={() => setCreating(false)} />
-        )}
-      </AnimatePresence>
 
       <ContextMenu state={menu} onClose={() => setMenu(null)} />
     </section>
