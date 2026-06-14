@@ -79,7 +79,13 @@ export function TaskFrame({
                 layoutId={taskTitleId(task.id)}
                 transition={layerTransition}
                 className={cn(
-                  "text-pretty text-[22px] font-medium leading-tight tracking-tight",
+                  // whitespace-nowrap is REQUIRED: this h2 shares taskTitleId with
+                  // the list row's truncated (nowrap) span. If the title is allowed
+                  // to wrap, the intermediate widths during the size morph rewrap
+                  // the text and orphan fragments ("...duct"), which read as ghost
+                  // text. Keeping both ends single-line makes the morph a clean
+                  // scale with no reflow.
+                  "whitespace-nowrap text-[22px] font-medium leading-tight tracking-tight",
                   done ? "text-muted-foreground/60 line-through" : "text-foreground",
                 )}
               >

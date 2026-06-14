@@ -1,6 +1,6 @@
 "use client"
 
-import { motion } from "motion/react"
+import { motion, LayoutGroup } from "motion/react"
 import { useZeroNav } from "@/lib/zero/nav-store"
 import { getSpace, getEntity } from "@/lib/zero/data"
 import { shellStageFor, TIMELINE_TOP_PAD } from "@/lib/zero/layout"
@@ -69,17 +69,26 @@ export function WorkSurface() {
           live on the card root, so the scaled-up parent frames still fade past
           the edges while the timeline above stays free to overflow upward. */}
       <div className="relative min-h-0 flex-1 overflow-hidden rounded-md">
-        {/* Layer B — window frames (root renders no frame, just transparent). */}
-        <div className="absolute inset-0 z-10">
-          <SpaceLayerStack />
-        </div>
+        {/* A single LayoutGroup spans BOTH layers below. The window frames (B)
+            and the list/dock content (C) live in separate AnimatePresence trees,
+            but a shared-element morph (row/card <-> frame) crosses between them.
+            Without one LayoutGroup wrapping both, Framer can't coordinate the two
+            ends of a `layoutId`, so on close it leaves an uncoordinated duplicate
+            (a faint title ghost at the destination). Grouping them makes the morph
+            a single clean projection. */}
+        <LayoutGroup>
+          {/* Layer B — window frames (root renders no frame, just transparent). */}
+          <div className="absolute inset-0 z-10">
+            <SpaceLayerStack />
+          </div>
 
-        {/* Layer C — persistent frontmost content. The wrapper is click-through;
-            FrontContent re-enables pointer events on its interactive children so
-            the window frame's header below stays clickable. */}
-        <div className="pointer-events-none absolute inset-0 z-20">
-          <FrontContent />
-        </div>
+          {/* Layer C — persistent frontmost content. The wrapper is click-through;
+              FrontContent re-enables pointer events on its interactive children so
+              the window frame's header below stays clickable. */}
+          <div className="pointer-events-none absolute inset-0 z-20">
+            <FrontContent />
+          </div>
+        </LayoutGroup>
       </div>
     </div>
   )

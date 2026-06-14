@@ -5,10 +5,10 @@ import type { Transition } from "motion/react"
  * A single shared transition keeps the shared-element morph coherent.
  */
 export const layerTransition: Transition = {
-  type: "spring",
-  stiffness: 420,
-  damping: 44,
-  mass: 0.9,
+  // [v0] TEMP DIAGNOSTIC: slowed to a long tween to capture the close ghost.
+  type: "tween",
+  duration: 2,
+  ease: "linear",
 }
 
 export const contentTransition: Transition = {
