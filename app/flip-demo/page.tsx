@@ -354,6 +354,9 @@ function EntityView({ entity, variant }: { entity: Entity; variant: "dock" | "ro
   // Render as a window whenever it's open OR it's a deeper level fading out
   // during a multi-level close (so it keeps covering its parent's do-list).
   const asWindow = open || fadingWindow
+  // A space that is open but has a child window on top collapses its header into
+  // a vertical left spine (glyph stays put, title rotates anti-clockwise).
+  const spine = nav.isSpine(entity.id)
   const showBody = asWindow || closing
   const depth = open ? nav.depthOf(entity.id) : fadingWindow ? nav.fadingDepth(entity.id) : 0
   const fid = (part: string) => `${entity.id}-${part}`
@@ -386,11 +389,17 @@ function EntityView({ entity, variant }: { entity: Entity; variant: "dock" | "ro
       ? `absolute inset-0 flex cursor-pointer flex-col overflow-hidden border border-border bg-card-solid ${hoverCls}`
       : `absolute inset-0 flex cursor-pointer flex-col overflow-hidden rounded border border-border bg-card-solid ${hoverCls}`
 
-  const headerClass = asWindow
-    ? "flex items-center gap-3 border-b border-border py-4 pl-5 pr-12"
-    : variant === "dock"
-      ? "flex flex-col gap-1.5 px-2.5 py-2 pr-7"
-      : "flex h-full items-center gap-2 px-2.5 pr-7"
+  const headerClass = spine
+    ? // Spine: an opaque full-height bar pinned to the left edge (covers the
+      // do-list underneath in that strip). Glyph sits at top; the title rotates
+      // to read up the bar. z-10 keeps it above the body; the child window
+      // (higher stacking context) covers everything to the right of it.
+      "absolute inset-y-0 left-0 z-10 flex w-14 flex-col items-center gap-4 border-r border-border bg-card-solid pt-4"
+    : asWindow
+      ? "flex items-center gap-3 border-b border-border py-4 pl-5 pr-12"
+      : variant === "dock"
+        ? "flex flex-col gap-1.5 px-2.5 py-2 pr-7"
+        : "flex h-full items-center gap-2 px-2.5 pr-7"
 
   return (
     <div className={slotClass}>
@@ -401,7 +410,12 @@ function EntityView({ entity, variant }: { entity: Entity; variant: "dock" | "ro
         onClick={onFrameClick}
         style={
           asWindow
-            ? windowStyle(depth)
+            ? // Open windows use the stack-aware geometry (so a space's child
+              // insets from the LEFT for the spine); fading windows are leaving,
+              // so their exact resting spot no longer matters — depth is enough.
+              fadingWindow
+              ? windowStyle(depth)
+              : nav.styleFor(entity.id)
             : {
                 borderRadius: variant === "dock" ? 4 : 6,
                 // While shrinking closed, this frame is once again a row inside
@@ -461,13 +475,25 @@ function EntityView({ entity, variant }: { entity: Entity; variant: "dock" | "ro
           <h3
             data-flip-id={fid("title")}
             data-flip-role="inner"
-            style={{ fontSize: asWindow ? 18 : variant === "dock" ? 12 : 13 }}
+            style={{
+              fontSize: spine ? 15 : asWindow ? 18 : variant === "dock" ? 12 : 13,
+              // Rotation is applied via the `transform` channel (NOT Tailwind's
+              // `-rotate-90`, which uses the independent CSS `rotate` property).
+              // GSAP Flip captures/animates rotation through the transform matrix,
+              // so keeping it in `transform` lets Flip smoothly rotate the title
+              // between the horizontal header and the vertical spine — and cleanly
+              // clear it afterwards. Mixing the two channels left a stuck rotation.
+              transform: spine ? "rotate(-90deg)" : undefined,
+              transformOrigin: "center",
+            }}
             className={
-              asWindow
-                ? "flex-1 whitespace-nowrap font-semibold tracking-tight"
-                : variant === "dock"
-                  ? "w-full truncate font-medium leading-tight tracking-tight"
-                  : "flex-1 truncate font-medium tracking-tight"
+              spine
+                ? "whitespace-nowrap font-semibold tracking-tight"
+                : asWindow
+                  ? "flex-1 whitespace-nowrap font-semibold tracking-tight"
+                  : variant === "dock"
+                    ? "w-full truncate font-medium leading-tight tracking-tight"
+                    : "flex-1 truncate font-medium tracking-tight"
             }
           >
             {entity.title}
