@@ -65,18 +65,25 @@ export default function FlipDemoPage() {
     flushSync(() => setOpenId(nextOpenId))
 
     // Animate the same elements from their captured state to the new layout.
+    // NOTE: no `absolute: true`. Each card sits in a fixed-size dock SLOT that
+    // always holds its space, so the frame is already out of the dock's flex
+    // flow and siblings never reflow — meaning we don't need (and don't want)
+    // Flip to absolutely-position the targets. Making the header absolute is
+    // exactly what made the body snap into place at the end of the morph; with
+    // it gone, the body stays in its correct final position the whole time and
+    // only the header's glyph + title reflow via transforms.
     Flip.from(state, {
       duration: 0.55,
       ease: "power3.inOut",
-      absolute: true, // lift the morphing card out of flow so dock siblings don't drag it
       nested: true, // glyph + title reflow independently inside the frame
     })
 
-    // The body + close button mount/unmount with the open state, so fade them
-    // rather than letting them pop. (They are not flip elements.)
+    // The body + close button mount/unmount with the open state. Because the
+    // body now holds its correct position throughout the morph, a simple fade
+    // (no positional movement) is enough to keep it from popping.
     if (nextOpenId) {
       const chrome = stageRef.current.querySelectorAll(`[data-window="${nextOpenId}"] [data-fade]`)
-      gsap.fromTo(chrome, { opacity: 0 }, { opacity: 1, duration: 0.3, delay: 0.18 })
+      gsap.fromTo(chrome, { opacity: 0 }, { opacity: 1, duration: 0.3, delay: 0.15 })
     }
   }
 
@@ -125,18 +132,23 @@ function Card({
 }) {
   const fid = (part: string) => `${card.id}-${part}`
 
+  // Stable dock slot: this wrapper ALWAYS holds the card's 112x64 footprint in
+  // the dock flex row, whether the card is collapsed or expanded into a window.
+  // Because the slot never disappears, the sibling cards never shift — which is
+  // what previously caused the whole dock to flicker / "rejoin" on close.
   return (
-    <div
-      data-window={card.id}
-      data-flip-id={fid("frame")}
-      onClick={open ? undefined : onOpen}
-      style={{ borderRadius: open ? 8 : 4 }}
-      className={
-        open
-          ? "fixed inset-4 z-20 flex cursor-default flex-col overflow-hidden border border-border bg-card-solid shadow-2xl"
-          : "relative flex h-[64px] w-[112px] cursor-pointer flex-col overflow-hidden border border-border bg-card-solid transition-transform hover:scale-[1.03]"
-      }
-    >
+    <div className="relative h-[64px] w-[112px] shrink-0">
+      <div
+        data-window={card.id}
+        data-flip-id={fid("frame")}
+        onClick={open ? undefined : onOpen}
+        style={{ borderRadius: open ? 8 : 4 }}
+        className={
+          open
+            ? "fixed inset-4 z-20 flex cursor-default flex-col overflow-hidden border border-border bg-card-solid shadow-2xl"
+            : "absolute inset-0 flex cursor-pointer flex-col overflow-hidden border border-border bg-card-solid transition-transform hover:scale-[1.03]"
+        }
+      >
       <span
         data-flip-id={fid("accent")}
         className="absolute left-0 top-0 z-10 h-full w-[3px]"
@@ -222,6 +234,7 @@ function Card({
           </ul>
         </div>
       )}
+      </div>
     </div>
   )
 }
