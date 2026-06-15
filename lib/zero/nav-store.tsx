@@ -2,7 +2,6 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react"
 import { getEntity, hydrateFromStorage } from "./data"
-import { captureSourceRect, type Rect } from "./motion"
 import type { EntityKind } from "./types"
 
 /**
@@ -58,18 +57,12 @@ interface ZeroNavContextValue {
   open: (id: string, source?: OpenSource) => void
   /** Pop the top entity (close the frontmost window). */
   close: () => void
-  /** Close the window at absolute stack index `depth`. ONLY that window animates
-   *  its shrink-back-to-source; any deeper children are removed instantly (they
-   *  vanish without their own close animation). Used by every window's header
-   *  close button — clicking an ancestor's peeking header collapses everything
-   *  above it in one motion. */
+  /** Close the window at absolute stack index `depth`. That window's shared
+   *  frame/glyph/title morph back into its source row/card (which re-mounts and
+   *  re-owns those layoutIds); any deeper children are removed instantly. Used
+   *  by every window's header close button — clicking an ancestor's peeking
+   *  header collapses everything above it in one motion. */
   closeWindow: (depth: number) => void
-  /** The window currently playing its close (shrink-to-source) animation, kept
-   *  mounted as an overlay until it finishes. `null` when nothing is closing. */
-  closing: { id: string; depth: number } | null
-  /** Called by the closing overlay once its shrink animation settles, so the
-   *  store can drop it from the render tree. */
-  finishClosing: (id: string) => void
   /** Bumps on any in-memory data mutation so selectors re-read fresh data. */
   dataVersion: number
   /** Signal that the underlying data arrays changed (entity added). */
@@ -83,11 +76,6 @@ interface ZeroNavContextValue {
   /** How the entity at `id` was opened (defaults to "timeline" for events/
    *  instants when unknown). Lets a frame pick its morph source. */
   openSourceOf: (id: string) => OpenSource
-  /** The viewport rect of the row/card/marker this entity was opened from,
-   *  captured at click time and retained so the window can shrink back into it
-   *  on close even though the source is unmounted while the window is open.
-   *  Null when it was never captured (e.g. opened programmatically). */
-  sourceRectOf: (id: string) => Rect | null
 
   // --- Selection + keyboard navigation ---------------------------------------
   /** The single selected cell (DO-list row or dock card), or null. */
@@ -119,19 +107,11 @@ export function ZeroNavProvider({
   rootSpaceId?: string
 }) {
   const [stack, setStack] = useState<string[]>([rootSpaceId])
-  // The window currently shrinking back to its source on close. Rendered as a
-  // standalone overlay by the layer stack so ONLY it animates while the deeper
-  // children it closed over are dropped instantly.
-  const [closing, setClosing] = useState<{ id: string; depth: number } | null>(null)
   const [dataVersion, setDataVersion] = useState(0)
   const [pulse, setPulse] = useState<{ id: string; n: number } | null>(null)
   // Per-entity record of how its window was opened (timeline marker vs DO-list
-  // row). Only meaningful for events/instants; spaces/tasks ignore it.
+  // row). Elects the single shared-layout owner for dual-presence entities.
   const [sources, setSources] = useState<Record<string, OpenSource>>({})
-  // Per-entity viewport rect of the element the window was opened from, captured
-  // at click time. A ref (not state) because the morph reads it imperatively and
-  // it must never trigger a re-render. Reused for the close shrink.
-  const sourceRectsRef = useRef<Record<string, Rect>>({})
 
   // --- Selection + keyboard navigation state ---------------------------------
   const [selection, setSelection] = useState<Selection>(null)
@@ -227,11 +207,9 @@ export function ZeroNavProvider({
   }, [])
 
   const open = useCallback((id: string, source: OpenSource = "timeline") => {
-    // Capture the source element's box NOW, while it is still on screen — the
-    // window will grow out of it, and shrink back into it on close (by which
-    // point the source is unmounted, so this stored rect is the only reference).
-    const rect = captureSourceRect(id, source) ?? captureSourceRect(id)
-    if (rect) sourceRectsRef.current[id] = rect
+    // Record which on-screen copy was used (a timed entity lives as both a
+    // DO-list row and a timeline marker). The geometry itself is measured by
+    // Framer's shared-layout animation; no manual rect capture is needed.
     setSources((prev) => (prev[id] === source ? prev : { ...prev, [id]: source }))
     setStack((prev) => {
       if (prev[prev.length - 1] === id) return prev
@@ -244,8 +222,6 @@ export function ZeroNavProvider({
     [sources],
   )
 
-  const sourceRectOf = useCallback((id: string): Rect | null => sourceRectsRef.current[id] ?? null, [])
-
   // A live mirror of the stack so event handlers (close buttons, Escape) read
   // the committed stack synchronously without stale-closure risk.
   const stackRef = useRef(stack)
@@ -253,24 +229,16 @@ export function ZeroNavProvider({
     stackRef.current = stack
   }, [stack])
 
-  // Close the window at absolute index `depth`. We remove it AND everything
-  // above it from the stack in one update (deeper children vanish instantly),
-  // then mark it as `closing` so the layer stack mounts it once more as a
-  // standalone overlay that shrinks back into its source row/card. This is the
-  // whole "only the clicked window animates" behavior: the deeper levels are
-  // already gone, so they never play their own close.
+  // Close the window at absolute index `depth` by removing it AND everything
+  // above it from the stack in one update. There is no bespoke close animation:
+  // the closed window unmounts, its source row/card re-mounts and re-claims the
+  // shared frame/glyph/title layoutIds, and Framer morphs them back into place.
+  // Deeper children vanish instantly (no source on-screen to morph toward),
+  // giving the "only the clicked window animates" collapse for free.
   const closeWindow = useCallback((depth: number) => {
     const cur = stackRef.current
     if (depth < 1 || depth >= cur.length) return
-    setClosing({ id: cur[depth], depth })
     setStack(cur.slice(0, depth))
-  }, [])
-
-  // The closing overlay reports back here when its shrink settles so we can drop
-  // it. Guarded by id so a newer close (which replaced `closing`) isn't cleared
-  // by a stale completion from the previous one.
-  const finishClosing = useCallback((id: string) => {
-    setClosing((c) => (c && c.id === id ? null : c))
   }, [])
 
   // Escape / generic "close current" closes the frontmost window.
@@ -329,9 +297,6 @@ export function ZeroNavProvider({
       open,
       close,
       closeWindow,
-      closing,
-      finishClosing,
-      sourceRectOf,
       dataVersion,
       notifyDataChanged,
       pulse,
@@ -351,9 +316,6 @@ export function ZeroNavProvider({
     open,
     close,
     closeWindow,
-    closing,
-    finishClosing,
-    sourceRectOf,
     dataVersion,
     notifyDataChanged,
     pulse,
