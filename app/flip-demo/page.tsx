@@ -93,12 +93,19 @@ const SPACES: Entity[] = [
   },
 ]
 
-const DURATION = 2
+const DURATION = 0.66
 // A quick, elegant ease-OUT: motion launches fast and decelerates gently into
 // place (essentially no easing in). Opening feels brisk and welcoming rather
 // than sluggish. CSS-driven fades below use the matching `ease-out` Tailwind
 // utility so all motion shares the curve.
 const EASE = "power3.out"
+
+// Height of a window's horizontal header, in px. Load-bearing in several places
+// that must stay in lock-step: the header's own fixed height, the divider line's
+// top offset, and the closing body's top inset. Applied via inline styles (not a
+// Tailwind arbitrary class) so this single constant is the source of truth — a
+// dynamic `h-[${HEADER_H}px]` would not be picked up by Tailwind's compiler.
+const HEADER_H = 57
 
 // Flat index of every entity by id, so geometry can inspect an ancestor's KIND
 // (a space peeks differently than a task — see openWindowStyle).
@@ -427,13 +434,13 @@ function EntityView({ entity, variant }: { entity: Entity; variant: "dock" | "ro
         // rotation animate during a close (spine → horizontal header). With
         // content-driven padding the header's measured height changed as the title
         // settled, nudging the flex body ~4.5px down on the final frame — the
-        // reported end-of-close do-list "jump". A fixed 57px header (matching the
-        // divider's top offset) makes the body top constant throughout the morph.
-        // shrink-0 is essential: while the frame is still growing it is briefly
-        // shorter than its content's natural height, and without it flexbox would
-        // SHRINK this fixed-height header (then pop it back to 57px once there's
-        // room) — which shoved the body content down mid-open (the reported jump).
-        "relative z-10 flex h-[57px] shrink-0 items-center gap-3 pl-5 pr-12"
+        // reported end-of-close do-list "jump". The fixed HEADER_H height (applied
+        // inline on the element, matching the divider's top offset) makes the body
+        // top constant throughout the morph. shrink-0 is essential: while the frame
+        // is still growing it is briefly shorter than its content's natural height,
+        // and without it flexbox would SHRINK this fixed-height header (then pop it
+        // back once there's room) — which shoved the body content down mid-open.
+        "relative z-10 flex shrink-0 items-center gap-3 pl-5 pr-12"
       : variant === "dock"
         ? "flex flex-col gap-1.5 px-2.5 py-2 pr-7"
         : "flex h-full items-center gap-2 px-2.5 pr-7"
@@ -530,7 +537,10 @@ function EntityView({ entity, variant }: { entity: Entity; variant: "dock" | "ro
             just switches column→row layout, so the body always sits below it. The
             glyph + title (which ARE flipped, in transform mode) glide on top from
             their collapsed positions to their header positions. */}
-        <div className={headerClass}>
+        <div
+          className={headerClass}
+          style={asWindow && !spine ? { height: HEADER_H } : undefined}
+        >
           <span
             data-flip-id={fid("glyph")}
             data-flip-role="inner"
@@ -583,8 +593,8 @@ function EntityView({ entity, variant }: { entity: Entity; variant: "dock" | "ro
         {(asWindow || closing) && (
           <span
             aria-hidden
-            style={{ transitionDuration: `${DURATION}s` }}
-            className={`pointer-events-none absolute left-0 right-0 top-[57px] z-[5] h-px bg-border transition-opacity ease-out ${
+            style={{ top: HEADER_H, transitionDuration: `${DURATION}s` }}
+            className={`pointer-events-none absolute left-0 right-0 z-[5] h-px bg-border transition-opacity ease-out ${
               spine || closing ? "opacity-0" : "opacity-100"
             }`}
           />
@@ -596,6 +606,7 @@ function EntityView({ entity, variant }: { entity: Entity; variant: "dock" | "ro
           <div
             data-fade
             data-body
+            style={closing ? { top: HEADER_H } : undefined}
             className={
               // The scrollbar is hidden visually everywhere ([scrollbar-width:none]
               // + the webkit pseudo) while scrolling stays functional. When closing,
@@ -610,7 +621,7 @@ function EntityView({ entity, variant }: { entity: Entity; variant: "dock" | "ro
               // during the morph and resume `overflow-auto` once settled (descendant
               // is `fixed` again). The frame's own `overflow-hidden` bounds the rest.
               closing
-                ? "pointer-events-none absolute inset-x-0 bottom-0 top-[57px] overflow-hidden px-5 py-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                ? "pointer-events-none absolute inset-x-0 bottom-0 overflow-hidden px-5 py-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
                 : spine
                   ? // Push content clear of the left spine so the "ITEMS" label and
                     // do-list rows never sit underneath the vertical header.
