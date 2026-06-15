@@ -81,6 +81,7 @@ export function EntityFrame({
   const accent = getSpace(homeSpaceId)?.accent ?? "var(--muted-foreground)"
   const [done, setDone] = useState(!!entity.completed)
 
+  const closing = mode === "closing"
   const from = sourceRect ?? targetRect
   const initialBox = mode === "open" ? from : targetRect
   const animateBox = mode === "open" ? targetRect : from
@@ -96,11 +97,34 @@ export function EntityFrame({
       // Top window is fully interactive; ancestors are click-through EXCEPT their
       // header bar (which re-enables pointer events so its close button works).
       style={{ pointerEvents: isTop ? "auto" : "none" }}
-      initial={{ top: initialBox.top, left: initialBox.left, width: initialBox.width, height: initialBox.height }}
-      animate={{ top: animateBox.top, left: animateBox.left, width: animateBox.width, height: animateBox.height }}
-      transition={layerTransition}
+      initial={{
+        top: initialBox.top,
+        left: initialBox.left,
+        width: initialBox.width,
+        height: initialBox.height,
+        opacity: 1,
+      }}
+      animate={{
+        top: animateBox.top,
+        left: animateBox.left,
+        width: animateBox.width,
+        height: animateBox.height,
+        // On close, DISSOLVE over the final stretch of the shrink. The window's
+        // header (glyph + title, bold, side-by-side) can never pixel-match every
+        // target button (a dock card stacks title under the glyph; a DO-list row
+        // adds tags / counts / times the header lacks). Rather than snap at the
+        // end, we hold the window solid through most of the collapse, then fade
+        // it to 0 right as it lands on the button — so the real button underneath
+        // takes over seamlessly instead of popping into a mismatched layout.
+        opacity: closing ? [1, 1, 0] : 1,
+      }}
+      transition={
+        closing
+          ? { ...layerTransition, opacity: { duration: 0.45, ease: "easeIn", times: [0, 0.55, 1] } }
+          : layerTransition
+      }
       onAnimationComplete={() => {
-        if (mode === "closing") onClosed?.()
+        if (closing) onClosed?.()
       }}
     >
       {/* Inner wrapper carries the attention "pulse" bounce (re-click while open)
@@ -144,17 +168,22 @@ export function EntityFrame({
             {fmtTime(entity.start!)} – {fmtTime(entity.end!)}
           </span>
         )}
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation()
-            onClose()
-          }}
-          aria-label={`Close ${entity.title}`}
-          className="flex size-6 shrink-0 items-center justify-center rounded-[4px] text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
-        >
-          <X size={16} />
-        </button>
+        {/* The close button is hidden the instant a close begins (the closing
+            overlay never shows it), so it isn't lingering on a shrinking window
+            that's collapsing into a button which has no such control. */}
+        {!closing && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation()
+              onClose()
+            }}
+            aria-label={`Close ${entity.title}`}
+            className="flex size-6 shrink-0 items-center justify-center rounded-[4px] text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
+          >
+            <X size={16} />
+          </button>
+        )}
       </div>
 
       {/* Body crossfades so box scaling never distorts dense content. */}
