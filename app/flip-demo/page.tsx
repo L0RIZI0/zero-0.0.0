@@ -117,6 +117,10 @@ const SIDE = 10
 // from the top) so the space's glyph + rotated title stay visible down the side
 // — the seed of a future breadcrumb rail.
 const SPINE = 56
+// A space's child also drops a little from the top — about half a header height
+// — so the space's own X close button keeps its corner and proportions instead
+// of being flush against the child window.
+const SPACE_TOP_PEEK = 28
 
 // Depth-only style, used for windows that are FADING out during a multi-level
 // close (their exact resting geometry no longer matters as they retract).
@@ -144,6 +148,7 @@ function openWindowStyle(stack: string[], id: string): React.CSSProperties {
   for (let j = 0; j < idx; j++) {
     if (ENTITY_BY_ID.get(stack[j])?.kind === "space") {
       left += SPINE
+      top += SPACE_TOP_PEEK
     } else {
       top += TOP_PEEK
       left += SIDE
@@ -395,8 +400,10 @@ function EntityView({ entity, variant }: { entity: Entity; variant: "dock" | "ro
       // to read up the bar. z-10 keeps it above the body; the child window
       // (higher stacking context) covers everything to the right of it. No
       // border here — the separating line is a dedicated fading element (below),
-      // so it never "jumps" from horizontal to vertical.
-      "absolute inset-y-0 left-[3px] z-10 flex w-14 flex-col items-center gap-7 bg-card-solid pt-4"
+      // so it never "jumps" from horizontal to vertical. The opaque background is
+      // a separate fading layer (data-spine-bg) so it can fade in/out rather than
+      // popping over the content while the body slides aside.
+      "absolute inset-y-0 left-[3px] z-10 flex w-14 flex-col items-center gap-7 pt-4"
     : asWindow
       ? "relative flex items-center gap-3 py-4 pl-5 pr-12"
       : variant === "dock"
@@ -469,10 +476,24 @@ function EntityView({ entity, variant }: { entity: Entity; variant: "dock" | "ro
             glyph + title (which ARE flipped, in transform mode) glide on top from
             their collapsed positions to their header positions. */}
         <div className={headerClass}>
+          {/* Spine background — a dedicated opaque layer that FADES in/out via a
+              CSS opacity transition. Rendered for any window (so it persists
+              across the morph and can animate), but only opaque while this entity
+              is a spine. This way it eases in as the body slides aside on open
+              (and eases out on close) instead of instantly covering the content.
+              Behind the glyph/title, which are lifted with `relative`. */}
+          {asWindow && (
+            <span
+              aria-hidden
+              className={`pointer-events-none absolute inset-0 bg-card-solid transition-opacity duration-500 ${
+                spine ? "opacity-100" : "opacity-0"
+              }`}
+            />
+          )}
           <span
             data-flip-id={fid("glyph")}
             data-flip-role="inner"
-            className="flex h-5 w-5 shrink-0 items-center justify-center text-foreground"
+            className="relative flex h-5 w-5 shrink-0 items-center justify-center text-foreground"
           >
             <NodeGlyph kind={entity.kind} strokeWidth={1.75} />
           </span>
@@ -493,13 +514,13 @@ function EntityView({ entity, variant }: { entity: Entity; variant: "dock" | "ro
             }}
             className={
               spine
-                ? "whitespace-nowrap font-semibold tracking-tight"
+                ? "relative whitespace-nowrap font-semibold tracking-tight"
                 : asWindow
                   ? // Natural width (NOT flex-1): the box hugs the text so its
                     // center — the rotation pivot Flip animates — stays next to the
                     // glyph. A stretched box would put the pivot far right and make
                     // the title sweep a long arc into the spine.
-                    "whitespace-nowrap font-semibold tracking-tight"
+                    "relative whitespace-nowrap font-semibold tracking-tight"
                   : variant === "dock"
                     ? "w-full truncate font-medium leading-tight tracking-tight"
                     : "flex-1 truncate font-medium tracking-tight"
