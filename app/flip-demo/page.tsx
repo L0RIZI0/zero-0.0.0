@@ -121,6 +121,9 @@ const SPINE = 56
 // — so the space's own X close button keeps its corner and proportions instead
 // of being flush against the child window.
 const SPACE_TOP_PEEK = 28
+// …and insets a little from the RIGHT too, so the parent space's right edge
+// peeks instead of the two windows sharing the exact same right border.
+const SPACE_RIGHT_PEEK = 14
 
 // Depth-only style, used for windows that are FADING out during a multi-level
 // close (their exact resting geometry no longer matters as they retract).
@@ -149,6 +152,7 @@ function openWindowStyle(stack: string[], id: string): React.CSSProperties {
     if (ENTITY_BY_ID.get(stack[j])?.kind === "space") {
       left += SPINE
       top += SPACE_TOP_PEEK
+      right += SPACE_RIGHT_PEEK
     } else {
       top += TOP_PEEK
       left += SIDE
@@ -387,9 +391,13 @@ function EntityView({ entity, variant }: { entity: Entity; variant: "dock" | "ro
   const interactive = !asWindow && !closing
   const hoverCls = interactive ? "transition-colors hover:bg-foreground/5" : ""
   const frameClass = asWindow
-    ? // A fading window is mid-animation: disable its clicks so a stray click
-      // can't re-open it (it isn't in the live stack).
-      `flex cursor-default flex-col overflow-hidden border border-border bg-card-solid shadow-2xl ${fadingWindow ? "pointer-events-none" : ""}`
+    ? // Open windows have NO solid background on the frame itself — the fill is
+      // composed from independent layers below (an always-solid body base, plus a
+      // top-header strip and a left-spine strip that fade in/out). That's what lets
+      // the horizontal header crossfade in when a space un-spines, and the spine
+      // crossfade in when it spines. A fading window is mid-animation: disable its
+      // clicks so a stray click can't re-open it (it isn't in the live stack).
+      `flex cursor-default flex-col overflow-hidden border border-border shadow-2xl ${fadingWindow ? "pointer-events-none" : ""}`
     : variant === "dock"
       ? `absolute inset-0 flex cursor-pointer flex-col overflow-hidden border border-border bg-card-solid ${hoverCls}`
       : `absolute inset-0 flex cursor-pointer flex-col overflow-hidden rounded border border-border bg-card-solid ${hoverCls}`
@@ -438,6 +446,39 @@ function EntityView({ entity, variant }: { entity: Entity; variant: "dock" | "ro
         }
         className={frameClass}
       >
+        {/* Composed background for open windows (the frame itself is transparent).
+            Three layers so chrome can crossfade independently:
+              • base — the always-solid fill (covers the body / nested-doll opacity).
+                In window mode it starts BELOW the header strip so the header can
+                fade over emptiness; in spine mode it covers the whole frame (the
+                header is an absolute strip), keeping the X's top peek solid.
+              • header strip — fades IN when the window is horizontal, so a space
+                un-spining reveals its header as a gentle crossfade instead of a
+                solid bar snapping over the still-closing child.
+              • spine strip — fades IN when the space collapses to its left rail. */}
+        {asWindow && (
+          <>
+            <span
+              aria-hidden
+              className={`pointer-events-none absolute inset-x-0 bottom-0 bg-card-solid ${spine ? "top-0" : "top-[57px]"}`}
+            />
+            <span
+              aria-hidden
+              style={{ transitionDuration: `${DURATION}s` }}
+              className={`pointer-events-none absolute inset-x-0 top-0 h-[57px] bg-card-solid transition-opacity ${
+                spine ? "opacity-0" : "opacity-100"
+              }`}
+            />
+            <span
+              aria-hidden
+              style={{ transitionDuration: `${DURATION}s` }}
+              className={`pointer-events-none absolute inset-y-0 left-[3px] w-14 bg-card-solid transition-opacity ${
+                spine ? "opacity-100" : "opacity-0"
+              }`}
+            />
+          </>
+        )}
+
         {/* Accent strip — full-height absolute, tracks the frame size for free.
             The spine header is inset 3px from the left (below) so it never paints
             over this strip; that keeps the entity's colored border visible without
@@ -455,7 +496,11 @@ function EntityView({ entity, variant }: { entity: Entity; variant: "dock" | "ro
           </span>
         )}
 
-        {/* Close button — pinned to the corner, fades only, never a flip target. */}
+        {/* Close button — pinned to the corner, fades only, never a flip target.
+            When this space becomes a spine, it slides tighter into the very corner
+            (higher + more right) so it tucks into the slim top peek and is never
+            cropped by the child window. transition-all (synced to the morph
+            duration) makes that reposition glide rather than snap. */}
         {asWindow && (
           <button
             type="button"
@@ -465,7 +510,10 @@ function EntityView({ entity, variant }: { entity: Entity; variant: "dock" | "ro
               nav.closeSelf(entity.id)
             }}
             aria-label={`Close ${entity.title}`}
-            className="absolute right-3 top-3 z-20 flex size-6 items-center justify-center rounded-[4px] text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
+            style={{ transitionDuration: `${DURATION}s` }}
+            className={`absolute z-20 flex size-6 items-center justify-center rounded-[4px] text-muted-foreground transition-all hover:bg-foreground/5 hover:text-foreground ${
+              spine ? "right-1 top-1" : "right-3 top-3"
+            }`}
           >
             <X size={16} />
           </button>
@@ -485,7 +533,8 @@ function EntityView({ entity, variant }: { entity: Entity; variant: "dock" | "ro
           {asWindow && (
             <span
               aria-hidden
-              className={`pointer-events-none absolute inset-0 bg-card-solid transition-opacity duration-500 ${
+              style={{ transitionDuration: `${DURATION}s` }}
+              className={`pointer-events-none absolute inset-0 bg-card-solid transition-opacity ${
                 spine ? "opacity-100" : "opacity-0"
               }`}
             />
@@ -539,7 +588,8 @@ function EntityView({ entity, variant }: { entity: Entity; variant: "dock" | "ro
         {asWindow && (
           <span
             aria-hidden
-            className={`pointer-events-none absolute left-0 right-0 top-[57px] z-[5] h-px bg-border transition-opacity duration-300 ${
+            style={{ transitionDuration: `${DURATION}s` }}
+            className={`pointer-events-none absolute left-0 right-0 top-[57px] z-[5] h-px bg-border transition-opacity ${
               spine ? "opacity-0" : "opacity-100"
             }`}
           />
