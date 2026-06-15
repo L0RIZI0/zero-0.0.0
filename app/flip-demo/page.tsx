@@ -419,7 +419,13 @@ function EntityView({ entity, variant }: { entity: Entity; variant: "dock" | "ro
     : asWindow
       ? // z-10 keeps the glyph/title above the frame-level spine strip (z-8) so
         // they stay readable while that strip fades out during a close.
-        "relative z-10 flex items-center gap-3 py-4 pl-5 pr-12"
+        // FIXED height (not py-4): the title is a Flip target whose font-size and
+        // rotation animate during a close (spine → horizontal header). With
+        // content-driven padding the header's measured height changed as the title
+        // settled, nudging the flex body ~4.5px down on the final frame — the
+        // reported end-of-close do-list "jump". A fixed 57px header (matching the
+        // divider's top offset) makes the body top constant throughout the morph.
+        "relative z-10 flex h-[57px] items-center gap-3 pl-5 pr-12"
       : variant === "dock"
         ? "flex flex-col gap-1.5 px-2.5 py-2 pr-7"
         : "flex h-full items-center gap-2 px-2.5 pr-7"
@@ -562,13 +568,16 @@ function EntityView({ entity, variant }: { entity: Entity; variant: "dock" | "ro
             visually jumping from the header's bottom (horizontal window) to its
             side (vertical spine). It's pinned to the frame at the window header's
             bottom; when the space collapses to a spine it simply fades to 0 (and
-            fades back in on the way out). Tasks never spine, so theirs stays. */}
-        {asWindow && (
+            fades back in on the way out). Tasks never spine, so theirs stays.
+            Kept mounted while `closing` too (with opacity 0) so that collapsing a
+            window back to a row fades the line out instead of unmounting it
+            instantly — which read as the divider "suddenly disappearing". */}
+        {(asWindow || closing) && (
           <span
             aria-hidden
             style={{ transitionDuration: `${DURATION}s` }}
             className={`pointer-events-none absolute left-0 right-0 top-[57px] z-[5] h-px bg-border transition-opacity ${
-              spine ? "opacity-0" : "opacity-100"
+              spine || closing ? "opacity-0" : "opacity-100"
             }`}
           />
         )}
