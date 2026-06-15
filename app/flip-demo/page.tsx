@@ -118,8 +118,10 @@ type Nav = {
   isOpen: (id: string) => boolean
   isTop: (id: string) => boolean
   isClosing: (id: string) => boolean
+  isFadingWindow: (id: string) => boolean
   isAnimating: () => boolean
   depthOf: (id: string) => number
+  fadingDepth: (id: string) => number
   open: (id: string) => void
   closeAbove: (id: string) => void // collapse everything above this open entity (keep it)
   closeSelf: (id: string) => void // close this entity and everything above it
@@ -132,6 +134,12 @@ export default function FlipDemoPage() {
   // The entity whose window is currently shrinking closed; its body stays
   // mounted through the morph so it can scale down WITH the frame.
   const [closingId, setClosingId] = useState<string | null>(null)
+  // When several levels close at once (e.g. closing a root while its children
+  // are open), the levels DEEPER than the one morphing back stay mounted as
+  // windows and just fade out in place — otherwise they'd vanish instantly and
+  // briefly expose the parent's do-list before the morph. Each entry keeps the
+  // id and the window depth it should render at while fading.
+  const [fading, setFading] = useState<{ id: string; depth: number }[]>([])
   // True for the duration of any morph. Used to suppress body scrolling while
   // frames are mid-resize (otherwise the still-tiny window's overflowing content
   // flashes a scrollbar).
@@ -146,8 +154,13 @@ export default function FlipDemoPage() {
     const prev = stack
     const opening = nextStack.length > prev.length
     // When closing, the shallowest removed level is the one the user watches
-    // morph back into a row/card; deeper levels just vanish.
+    // morph back into a row/card; the levels DEEPER than it stay mounted as
+    // windows and fade out (rather than vanishing and exposing the parent list).
     const closingEntity = nextStack.length < prev.length ? prev[nextStack.length] : null
+    const fadingList: { id: string; depth: number }[] =
+      nextStack.length < prev.length
+        ? prev.slice(nextStack.length + 1).map((id, i) => ({ id, depth: nextStack.length + 1 + i }))
+        : []
 
     // ONE capture of every flip element (frames + their glyph/title), and ONE
     // Flip.from. Doing it in a single pass is what keeps the parent frame and
@@ -167,6 +180,7 @@ export default function FlipDemoPage() {
     flushSync(() => {
       setStack(nextStack)
       setClosingId(closingEntity)
+      setFading(fadingList)
       setAnimating(true)
     })
 
@@ -193,7 +207,24 @@ export default function FlipDemoPage() {
           { opacity: 0, scale: 0.15, transformOrigin: "top left", duration: DURATION * 0.7, ease: EASE },
         )
       }
-      gsap.delayedCall(DURATION, () => setClosingId((c) => (c === closingEntity ? null : c)))
+
+      // Deeper levels removed in the same gesture stay on top and fade in place,
+      // so they keep covering the parent's do-list until they're gone.
+      fadingList.forEach(({ id }) => {
+        const win = stage.querySelector<HTMLElement>(`[data-window="${id}"][data-flip-role="frame"]`)
+        if (win) gsap.fromTo(win, { opacity: 1 }, { opacity: 0, duration: DURATION * 0.7, ease: EASE })
+      })
+
+      gsap.delayedCall(DURATION, () => {
+        // Clear the inline opacity we tweened, so these persistent nodes are
+        // clean if they're ever shown again.
+        fadingList.forEach(({ id }) => {
+          const win = stage.querySelector<HTMLElement>(`[data-window="${id}"][data-flip-role="frame"]`)
+          if (win) gsap.set(win, { clearProps: "opacity" })
+        })
+        setFading([])
+        setClosingId((c) => (c === closingEntity ? null : c))
+      })
     }
   }
 
@@ -201,8 +232,10 @@ export default function FlipDemoPage() {
     isOpen: (id) => stack.includes(id),
     isTop: (id) => stack[stack.length - 1] === id,
     isClosing: (id) => closingId === id,
+    isFadingWindow: (id) => fading.some((f) => f.id === id),
     isAnimating: () => animating,
     depthOf: (id) => stack.indexOf(id),
+    fadingDepth: (id) => fading.find((f) => f.id === id)?.depth ?? 0,
     open: (id) => transition([...stack, id]),
     closeAbove: (id) => {
       const d = stack.indexOf(id)
@@ -254,9 +287,13 @@ function EntityView({ entity, variant }: { entity: Entity; variant: "dock" | "ro
   const nav = useContext(NavContext)
   const open = nav.isOpen(entity.id)
   const closing = nav.isClosing(entity.id)
+  const fadingWindow = nav.isFadingWindow(entity.id)
+  // Render as a window whenever it's open OR it's a deeper level fading out
+  // during a multi-level close (so it keeps covering its parent's do-list).
+  const asWindow = open || fadingWindow
   const animating = nav.isAnimating()
-  const showBody = open || closing
-  const depth = open ? nav.depthOf(entity.id) : 0
+  const showBody = asWindow || closing
+  const depth = open ? nav.depthOf(entity.id) : fadingWindow ? nav.fadingDepth(entity.id) : 0
   const fid = (part: string) => `${entity.id}-${part}`
 
   function onFrameClick(e: React.MouseEvent) {
@@ -277,15 +314,17 @@ function EntityView({ entity, variant }: { entity: Entity; variant: "dock" | "ro
   // background 95% transparent and the parent/home content would show straight
   // through it (the "background disappears early, then reappears" bug). Gate the
   // hover so it only applies to a settled, collapsed, interactive entity.
-  const interactive = !open && !closing
+  const interactive = !asWindow && !closing
   const hoverCls = interactive ? "transition-colors hover:bg-foreground/5" : ""
-  const frameClass = open
-    ? "flex cursor-default flex-col overflow-hidden border border-border bg-card-solid shadow-2xl"
+  const frameClass = asWindow
+    ? // A fading window is mid-animation: disable its clicks so a stray click
+      // can't re-open it (it isn't in the live stack).
+      `flex cursor-default flex-col overflow-hidden border border-border bg-card-solid shadow-2xl ${fadingWindow ? "pointer-events-none" : ""}`
     : variant === "dock"
       ? `absolute inset-0 flex cursor-pointer flex-col overflow-hidden border border-border bg-card-solid ${hoverCls}`
       : `absolute inset-0 flex cursor-pointer flex-col overflow-hidden rounded border border-border bg-card-solid ${hoverCls}`
 
-  const headerClass = open
+  const headerClass = asWindow
     ? "flex items-center gap-3 border-b border-border py-4 pl-5 pr-12"
     : variant === "dock"
       ? "flex flex-col gap-1.5 px-2.5 py-2 pr-7"
@@ -299,7 +338,7 @@ function EntityView({ entity, variant }: { entity: Entity; variant: "dock" | "ro
         data-flip-role="frame"
         onClick={onFrameClick}
         style={
-          open
+          asWindow
             ? windowStyle(depth)
             : {
                 borderRadius: variant === "dock" ? 4 : 6,
@@ -319,7 +358,7 @@ function EntityView({ entity, variant }: { entity: Entity; variant: "dock" | "ro
 
         {/* Child-count badge, collapsed only. Absolute so it stays out of the
             header flow (and never fights the title for space). */}
-        {!open && entity.children.length > 0 && (
+        {!asWindow && entity.children.length > 0 && (
           <span className="absolute right-2 top-2 z-10 flex items-center gap-0.5 text-[10px] text-muted-foreground/70">
             <span className="font-medium tabular-nums">{entity.children.length}</span>
             <span className="flex h-2.5 w-2.5 items-center justify-center">
@@ -329,7 +368,7 @@ function EntityView({ entity, variant }: { entity: Entity; variant: "dock" | "ro
         )}
 
         {/* Close button — pinned to the corner, fades only, never a flip target. */}
-        {open && (
+        {asWindow && (
           <button
             type="button"
             data-fade
@@ -360,9 +399,9 @@ function EntityView({ entity, variant }: { entity: Entity; variant: "dock" | "ro
           <h3
             data-flip-id={fid("title")}
             data-flip-role="inner"
-            style={{ fontSize: open ? 18 : variant === "dock" ? 12 : 13 }}
+            style={{ fontSize: asWindow ? 18 : variant === "dock" ? 12 : 13 }}
             className={
-              open
+              asWindow
                 ? "flex-1 whitespace-nowrap font-semibold tracking-tight"
                 : variant === "dock"
                   ? "w-full truncate font-medium leading-tight tracking-tight"
