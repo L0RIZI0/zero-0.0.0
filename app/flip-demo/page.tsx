@@ -308,7 +308,6 @@ function EntityView({ entity, variant }: { entity: Entity; variant: "dock" | "ro
   // Render as a window whenever it's open OR it's a deeper level fading out
   // during a multi-level close (so it keeps covering its parent's do-list).
   const asWindow = open || fadingWindow
-  const animating = nav.isAnimating()
   const showBody = asWindow || closing
   const depth = open ? nav.depthOf(entity.id) : fadingWindow ? nav.fadingDepth(entity.id) : 0
   const fid = (part: string) => `${entity.id}-${part}`
@@ -436,18 +435,19 @@ function EntityView({ entity, variant }: { entity: Entity; variant: "dock" | "ro
             data-fade
             data-body
             className={
-              // Only allow scrolling once the window is fully settled open. During
-              // any morph (and while closing) the frame is mid-resize, so its
-              // content overflows and would flash a scrollbar — clip it instead.
-              // When closing, pin the body absolutely so it is OUT of the frame's
-              // flex flow: that way the collapsed header/title lands in exactly the
+              // The scrollbar is hidden visually everywhere ([scrollbar-width:none]
+              // + the webkit pseudo) while scrolling stays functional. This avoids
+              // a whole class of timing races: a window mid-morph is briefly too
+              // short for its content, and the shared `animating` flag can't be
+              // perfectly synced to every frame's settle moment — so an auto
+              // scrollbar would intermittently flash. Hiding it sidesteps that
+              // entirely. When closing, pin the body absolutely so it is OUT of the
+              // frame's flex flow: that way the collapsed header/title lands in the
               // same spot whether the body is still mounted or already gone, which
               // removes the end-of-close title "snap down".
               closing
-                ? "pointer-events-none absolute inset-x-0 bottom-0 top-[57px] overflow-hidden px-5 py-4"
-                : open && !animating
-                  ? "flex-1 overflow-auto px-5 py-4"
-                  : "flex-1 overflow-hidden px-5 py-4"
+                ? "pointer-events-none absolute inset-x-0 bottom-0 top-[57px] overflow-hidden px-5 py-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                : "flex-1 overflow-auto px-5 py-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
             }
           >
             {entity.children.length > 0 ? (
