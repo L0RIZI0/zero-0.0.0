@@ -124,6 +124,9 @@ const SPACE_TOP_PEEK = 28
 // …and insets a little from the RIGHT too, so the parent space's right edge
 // peeks instead of the two windows sharing the exact same right border.
 const SPACE_RIGHT_PEEK = 14
+// …and from the BOTTOM, matching the right peek, so the parent's bottom edge
+// peeks symmetrically instead of the two windows sharing the same bottom border.
+const SPACE_BOTTOM_PEEK = 14
 
 // Depth-only style, used for windows that are FADING out during a multi-level
 // close (their exact resting geometry no longer matters as they retract).
@@ -148,18 +151,20 @@ function openWindowStyle(stack: string[], id: string): React.CSSProperties {
   let top = BASE
   let left = BASE
   let right = BASE
+  let bottom = BASE
   for (let j = 0; j < idx; j++) {
     if (ENTITY_BY_ID.get(stack[j])?.kind === "space") {
       left += SPINE
       top += SPACE_TOP_PEEK
       right += SPACE_RIGHT_PEEK
+      bottom += SPACE_BOTTOM_PEEK
     } else {
       top += TOP_PEEK
       left += SIDE
       right += SIDE
     }
   }
-  return { position: "fixed", top, left, right, bottom: BASE, zIndex: 20 + idx * 10, borderRadius: 8 }
+  return { position: "fixed", top, left, right, bottom, zIndex: 20 + idx * 10, borderRadius: 8 }
 }
 
 type Nav = {
@@ -409,7 +414,9 @@ function EntityView({ entity, variant }: { entity: Entity; variant: "dock" | "ro
       // popping over the content while the body slides aside.
       "absolute inset-y-0 left-[3px] z-10 flex w-14 flex-col items-center gap-7 pt-4"
     : asWindow
-      ? "relative flex items-center gap-3 py-4 pl-5 pr-12"
+      ? // z-10 keeps the glyph/title above the frame-level spine strip (z-8) so
+        // they stay readable while that strip fades out during a close.
+        "relative z-10 flex items-center gap-3 py-4 pl-5 pr-12"
       : variant === "dock"
         ? "flex flex-col gap-1.5 px-2.5 py-2 pr-7"
         : "flex h-full items-center gap-2 px-2.5 pr-7"
@@ -447,6 +454,26 @@ function EntityView({ entity, variant }: { entity: Entity; variant: "dock" | "ro
             over this strip; that keeps the entity's colored border visible without
             raising the strip's z-index (which would make it bleed past windows). */}
         <span className="absolute left-0 top-0 z-10 h-full w-[3px]" style={{ backgroundColor: entity.accent }} />
+
+        {/* Spine background — a FRAME-LEVEL opaque strip with FIXED geometry (the
+            narrow left rail), independent of the header's layout box. It fades in
+            when this space becomes a spine and fades out when it un-spines. Keeping
+            its geometry fixed (rather than `inset-0` inside the header) is what
+            prevents the old bug where, on close, the header box snapped from the
+            narrow bar to the full-width header and this still-opaque layer briefly
+            covered the closing child's top. As a narrow strip it never overlaps the
+            child window (which insets further right). z-[8] sits above the body
+            do-list (so it hides those rows under the rail) but below the glyph and
+            title (z-10) so they stay readable. */}
+        {asWindow && (
+          <span
+            aria-hidden
+            style={{ transitionDuration: `${DURATION}s` }}
+            className={`pointer-events-none absolute inset-y-0 left-[3px] z-[8] w-14 bg-card-solid transition-opacity ${
+              spine ? "opacity-100" : "opacity-0"
+            }`}
+          />
+        )}
 
         {/* Child-count badge, collapsed only. Absolute so it stays out of the
             header flow (and never fights the title for space). */}
@@ -487,21 +514,6 @@ function EntityView({ entity, variant }: { entity: Entity; variant: "dock" | "ro
             glyph + title (which ARE flipped, in transform mode) glide on top from
             their collapsed positions to their header positions. */}
         <div className={headerClass}>
-          {/* Spine background — a dedicated opaque layer that FADES in/out via a
-              CSS opacity transition. Rendered for any window (so it persists
-              across the morph and can animate), but only opaque while this entity
-              is a spine. This way it eases in as the body slides aside on open
-              (and eases out on close) instead of instantly covering the content.
-              Behind the glyph/title, which are lifted with `relative`. */}
-          {asWindow && (
-            <span
-              aria-hidden
-              style={{ transitionDuration: `${DURATION}s` }}
-              className={`pointer-events-none absolute inset-0 bg-card-solid transition-opacity ${
-                spine ? "opacity-100" : "opacity-0"
-              }`}
-            />
-          )}
           <span
             data-flip-id={fid("glyph")}
             data-flip-role="inner"
