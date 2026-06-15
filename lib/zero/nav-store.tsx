@@ -2,6 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react"
 import { getEntity, hydrateFromStorage } from "./data"
+import { captureSourceRect, type Rect } from "./motion"
 import type { EntityKind } from "./types"
 
 /**
@@ -57,13 +58,18 @@ interface ZeroNavContextValue {
   open: (id: string, source?: OpenSource) => void
   /** Pop the top entity (close the frontmost window). */
   close: () => void
-  /** Close the window at absolute stack index `depth`. That window's shared
-   *  frame/glyph/title morph back into its source row/card/marker (which
-   *  re-mounts and re-owns those layoutIds); any deeper children are removed
-   *  instantly (they vanish without their own animation). Used by every window's
-   *  header close button — clicking an ancestor's peeking header collapses
-   *  everything above it in one motion. */
+  /** Close the window at absolute stack index `depth`. ONLY that window animates
+   *  its shrink-back-to-source; any deeper children are removed instantly (they
+   *  vanish without their own close animation). Used by every window's header
+   *  close button — clicking an ancestor's peeking header collapses everything
+   *  above it in one motion. */
   closeWindow: (depth: number) => void
+  /** The window currently playing its close (shrink-to-source) animation, kept
+   *  mounted as an overlay until it finishes. `null` when nothing is closing. */
+  closing: { id: string; depth: number } | null
+  /** Called by the closing overlay once its shrink animation settles, so the
+   *  store can drop it from the render tree. */
+  finishClosing: (id: string) => void
   /** Bumps on any in-memory data mutation so selectors re-read fresh data. */
   dataVersion: number
   /** Signal that the underlying data arrays changed (entity added). */
@@ -77,6 +83,11 @@ interface ZeroNavContextValue {
   /** How the entity at `id` was opened (defaults to "timeline" for events/
    *  instants when unknown). Lets a frame pick its morph source. */
   openSourceOf: (id: string) => OpenSource
+  /** The viewport rect of the row/card/marker this entity was opened from,
+   *  captured at click time and retained so the window can shrink back into it
+   *  on close even though the source is unmounted while the window is open.
+   *  Null when it was never captured (e.g. opened programmatically). */
+  sourceRectOf: (id: string) => Rect | null
 
   // --- Selection + keyboard navigation ---------------------------------------
   /** The single selected cell (DO-list row or dock card), or null. */
@@ -117,6 +128,10 @@ export function ZeroNavProvider({
   // Per-entity record of how its window was opened (timeline marker vs DO-list
   // row). Only meaningful for events/instants; spaces/tasks ignore it.
   const [sources, setSources] = useState<Record<string, OpenSource>>({})
+  // Per-entity viewport rect of the element the window was opened from, captured
+  // at click time. A ref (not state) because the morph reads it imperatively and
+  // it must never trigger a re-render. Reused for the close shrink.
+  const sourceRectsRef = useRef<Record<string, Rect>>({})
 
   // --- Selection + keyboard navigation state ---------------------------------
   const [selection, setSelection] = useState<Selection>(null)
@@ -212,11 +227,11 @@ export function ZeroNavProvider({
   }, [])
 
   const open = useCallback((id: string, source: OpenSource = "timeline") => {
-    // Record which on-screen copy was used (a timed entity lives as both a
-    // DO-list row and a timeline marker). This elects the single shared-layout
-    // owner so the window grows out of — and collapses back into — the right
-    // one. The geometry itself is measured automatically by Framer's shared
-    // layout animation; no manual rect capture is needed.
+    // Capture the source element's box NOW, while it is still on screen — the
+    // window will grow out of it, and shrink back into it on close (by which
+    // point the source is unmounted, so this stored rect is the only reference).
+    const rect = captureSourceRect(id, source) ?? captureSourceRect(id)
+    if (rect) sourceRectsRef.current[id] = rect
     setSources((prev) => (prev[id] === source ? prev : { ...prev, [id]: source }))
     setStack((prev) => {
       if (prev[prev.length - 1] === id) return prev
@@ -228,6 +243,8 @@ export function ZeroNavProvider({
     (id: string): OpenSource => sources[id] ?? "timeline",
     [sources],
   )
+
+  const sourceRectOf = useCallback((id: string): Rect | null => sourceRectsRef.current[id] ?? null, [])
 
   // A live mirror of the stack so event handlers (close buttons, Escape) read
   // the committed stack synchronously without stale-closure risk.
@@ -314,6 +331,7 @@ export function ZeroNavProvider({
       closeWindow,
       closing,
       finishClosing,
+      sourceRectOf,
       dataVersion,
       notifyDataChanged,
       pulse,
@@ -335,6 +353,7 @@ export function ZeroNavProvider({
     closeWindow,
     closing,
     finishClosing,
+    sourceRectOf,
     dataVersion,
     notifyDataChanged,
     pulse,
