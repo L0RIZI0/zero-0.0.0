@@ -6,14 +6,7 @@ import { Check } from "lucide-react"
 import { getOpenTaskCount, type ContextItem } from "@/lib/zero/data"
 import type { TaskPriority } from "@/lib/zero/types"
 import { useZeroNav, useRowSelection } from "@/lib/zero/nav-store"
-import {
-  layerTransition,
-  FRAME_RADIUS,
-  frameLayoutId,
-  accentLayoutId,
-  glyphLayoutId,
-  titleLayoutId,
-} from "@/lib/zero/motion"
+import { MORPH_SOURCE_ATTR, MORPH_WHERE_ATTR } from "@/lib/zero/motion"
 import { NodeGlyph } from "./node-glyph"
 import { cn } from "@/lib/utils"
 
@@ -63,8 +56,8 @@ function OpenTaskCount({ entityId }: { entityId: string }) {
 }
 
 /**
- * ONE row for ANY entity kind in the DO list — the COLLAPSED state of an entity.
- * `kind` only changes a few details:
+ * ONE row for ANY entity kind in the DO list — there are no per-kind row
+ * components anymore. Everything is shared; `kind` only changes a few details:
  *
  *   - task    → leading glyph doubles as a completion toggle; trailing shows the
  *               due label + priority dot; title strikes through when done.
@@ -72,12 +65,10 @@ function OpenTaskCount({ entityId }: { entityId: string }) {
  *   - event   → trailing shows the open-task count + the time range.
  *   - instant → trailing shows the open-task count + the precise moment.
  *
- * SHARED-ELEMENT MORPH: the frame / accent / glyph / title are `motion` elements
- * carrying this entity's shared `layoutId`s, so opening the row hands them to its
- * window, which flies them into the expanded layout (and back here on close).
- * While the entity is open the row RELEASES those ids (keeps the same markup, but
- * drops the layoutIds) so the window is their sole owner — the row sits hidden
- * behind the full-size window anyway.
+ * The row is the morph SOURCE: it tags itself with `data-morph-source={id}` so
+ * the opening window can measure its box and grow out of it (and shrink back
+ * into it on close). Events/instants also exist on the timeline, so they add
+ * `data-morph-where="row"` to disambiguate which copy was clicked.
  */
 export function EntityRow({
   item,
@@ -86,7 +77,7 @@ export function EntityRow({
   item: ContextItem
   onContext: (e: React.MouseEvent) => void
 }) {
-  const { open, stack } = useZeroNav()
+  const { open } = useZeroNav()
   const e = item.entity
   const kind = e.kind
   const isTask = kind === "task"
@@ -100,12 +91,6 @@ export function EntityRow({
   const hasRange = typeof e.start === "number" && typeof e.end === "number"
   const hasMoment = typeof e.at === "number"
 
-  // Released while this entity's window is open — drop the shared layoutIds so
-  // the window owns them; the row stays mounted (hidden under the window).
-  const released = stack.includes(e.id)
-  const shared = (idFn: (id: string) => string) =>
-    released ? {} : { layoutId: idFn(e.id), transition: layerTransition }
-
   // Timed entities live in two places at once (this row AND a timeline marker),
   // so opening from here records source "row" to morph from the right one.
   const openThis = () => open(e.id, isTimed ? "row" : undefined)
@@ -114,60 +99,45 @@ export function EntityRow({
     <li>
       <motion.div
         ref={ref as React.Ref<HTMLDivElement>}
+        {...{ [MORPH_SOURCE_ATTR]: e.id, ...(isTimed ? { [MORPH_WHERE_ATTR]: "row" } : {}) }}
         onContextMenu={onContext}
         {...hoverProps}
-        animate={{ scale: lift && !released ? 1.02 : 1 }}
-        className={cn("group relative flex w-full items-center gap-3 px-2.5 py-2 text-left", cancelled && "opacity-50")}
+        style={{ borderRadius: 4 }}
+        animate={{ scale: lift ? 1.02 : 1 }}
+        className={cn(
+          "group relative flex w-full items-center gap-3 overflow-hidden border border-border bg-card-solid px-2.5 py-2 text-left",
+          cancelled && "opacity-50",
+        )}
       >
-        {/* FRAME — shared box (becomes the window frame on open). */}
-        <motion.span
-          {...shared(frameLayoutId)}
-          style={{ borderRadius: FRAME_RADIUS }}
-          className="absolute inset-0 -z-0 border border-border bg-card-solid"
-        />
         {accent && (
-          <motion.span
-            {...shared(accentLayoutId)}
-            className="absolute left-0 top-0 z-10 h-full w-[3px]"
-            style={{
-              backgroundColor: accent,
-              borderTopLeftRadius: FRAME_RADIUS,
-              borderBottomLeftRadius: FRAME_RADIUS,
-            }}
-          />
+          <span className="absolute left-0 top-0 h-full w-[3px]" style={{ backgroundColor: accent }} />
         )}
 
         {/* Task glyph doubles as the completion toggle (a single square). */}
         {isTask && (
-          <motion.button
-            {...shared(glyphLayoutId)}
+          <button
             type="button"
             aria-label={done ? "Mark task incomplete" : "Mark task complete"}
             onClick={(ev) => {
               ev.stopPropagation()
               setDone((d) => !d)
             }}
-            className={cn(GLYPH_BOX, "relative z-10 text-foreground")}
+            className={cn(GLYPH_BOX, "relative text-foreground")}
           >
             <NodeGlyph kind="task" filled={done} strokeWidth={2} />
             {done && <Check className="absolute h-2.5 w-2.5 text-background" strokeWidth={3.5} />}
-          </motion.button>
+          </button>
         )}
 
         {/* Open region — covers the glyph (non-task), title, and timed detail. */}
-        <button
-          type="button"
-          onClick={openThis}
-          className="relative z-10 flex min-w-0 flex-1 items-center gap-3 text-left"
-        >
+        <button type="button" onClick={openThis} className="flex min-w-0 flex-1 items-center gap-3 text-left">
           {!isTask && (
-            <motion.span {...shared(glyphLayoutId)} className={cn(GLYPH_BOX, "text-foreground")}>
+            <span className={cn(GLYPH_BOX, "text-foreground")}>
               <NodeGlyph kind={kind} />
-            </motion.span>
+            </span>
           )}
           <span className="flex min-w-0 flex-1 flex-col">
-            <motion.span
-              {...shared(titleLayoutId)}
+            <span
               className={cn(
                 "truncate text-[13px] tracking-tight transition-colors",
                 isTask && done
@@ -178,7 +148,7 @@ export function EntityRow({
               )}
             >
               {e.title}
-            </motion.span>
+            </span>
             {isTask && e.tags && e.tags.length > 0 && (
               <span className="mt-0.5 truncate text-[11px] text-muted-foreground/70">
                 {e.tags.map((t) => `#${t}`).join("  ")}
@@ -203,12 +173,10 @@ export function EntityRow({
 
         {/* Task-only trailing: due label + priority dot. */}
         {isTask && e.dueDate && (
-          <span className="relative z-10 shrink-0 text-[11px] tabular-nums text-muted-foreground/70">
-            {e.dueDate}
-          </span>
+          <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground/70">{e.dueDate}</span>
         )}
         {isTask && (
-          <span className={cn("relative z-10 h-1.5 w-1.5 shrink-0 rounded-full", priorityDot[e.priority ?? "medium"])} />
+          <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", priorityDot[e.priority ?? "medium"])} />
         )}
       </motion.div>
     </li>
