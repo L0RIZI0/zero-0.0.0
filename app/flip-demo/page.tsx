@@ -53,36 +53,45 @@ export default function FlipDemoPage() {
   const [openId, setOpenId] = useState<string | null>(null)
   const stageRef = useRef<HTMLDivElement>(null)
 
+  const DURATION = 0.55
+  const EASE = "power3.inOut"
+
   function flipTo(nextOpenId: string | null) {
     if (!stageRef.current) return
-    // Capture geometry + tweenable props of every (persistent) flip element.
-    const state = Flip.getState(stageRef.current.querySelectorAll("[data-flip-id]"), {
-      props: "fontSize,borderRadius",
+    const stage = stageRef.current
+
+    // TWO separate captures, because the frame and its inner content need
+    // DIFFERENT Flip strategies (mixing them in one call is what caused the
+    // header to detach and the body to snap):
+    //
+    //  - frame  → animated with `absolute: true`, which tweens REAL width/height
+    //             (not scale), so the box grows edge-to-edge with zero content
+    //             distortion. Being absolute is fine here: the frame is the only
+    //             thing leaving flow, and its dock slot holds its place.
+    //  - glyph/title → animated in TRANSFORM mode (no `absolute`), so they stay
+    //             in the header's flex flow. That keeps the header at its true
+    //             height throughout, so the body sits correctly below it the
+    //             whole time and never jumps. The title's size change rides on
+    //             the `fontSize` prop (a real font-size tween — stays crisp).
+    const frameState = Flip.getState(stage.querySelectorAll("[data-flip-role='frame']"), {
+      props: "borderRadius",
+    })
+    const innerState = Flip.getState(stage.querySelectorAll("[data-flip-role='inner']"), {
+      props: "fontSize",
     })
 
     // Commit the class swap synchronously so the new layout is live before we
-    // start the tween. The elements themselves are NOT recreated.
+    // start the tweens. The elements themselves are NOT recreated.
     flushSync(() => setOpenId(nextOpenId))
 
-    // Animate the same elements from their captured state to the new layout.
-    // NOTE: no `absolute: true`. Each card sits in a fixed-size dock SLOT that
-    // always holds its space, so the frame is already out of the dock's flex
-    // flow and siblings never reflow — meaning we don't need (and don't want)
-    // Flip to absolutely-position the targets. Making the header absolute is
-    // exactly what made the body snap into place at the end of the morph; with
-    // it gone, the body stays in its correct final position the whole time and
-    // only the header's glyph + title reflow via transforms.
-    Flip.from(state, {
-      duration: 0.55,
-      ease: "power3.inOut",
-      nested: true, // glyph + title reflow independently inside the frame
-    })
+    Flip.from(frameState, { duration: DURATION, ease: EASE, absolute: true })
+    Flip.from(innerState, { duration: DURATION, ease: EASE, nested: true })
 
     // The body + close button mount/unmount with the open state. Because the
-    // body now holds its correct position throughout the morph, a simple fade
+    // body holds its correct position throughout the morph, a simple fade
     // (no positional movement) is enough to keep it from popping.
     if (nextOpenId) {
-      const chrome = stageRef.current.querySelectorAll(`[data-window="${nextOpenId}"] [data-fade]`)
+      const chrome = stage.querySelectorAll(`[data-window="${nextOpenId}"] [data-fade]`)
       gsap.fromTo(chrome, { opacity: 0 }, { opacity: 1, duration: 0.3, delay: 0.15 })
     }
   }
@@ -141,6 +150,7 @@ function Card({
       <div
         data-window={card.id}
         data-flip-id={fid("frame")}
+        data-flip-role="frame"
         onClick={open ? undefined : onOpen}
         style={{ borderRadius: open ? 8 : 4 }}
         className={
@@ -149,16 +159,19 @@ function Card({
             : "absolute inset-0 flex cursor-pointer flex-col overflow-hidden border border-border bg-card-solid transition-transform hover:scale-[1.03]"
         }
       >
+      {/* Accent strip is full-height-absolute inside the frame, so it tracks the
+          frame's size automatically — no flip needed. */}
       <span
-        data-flip-id={fid("accent")}
         className="absolute left-0 top-0 z-10 h-full w-[3px]"
         style={{ backgroundColor: card.accent }}
       />
 
-      {/* Persistent header container: flips from column (card) to row (window),
-          carrying the persistent glyph + title with it. */}
+      {/* Persistent header container. It is NOT a flip target — it stays in the
+          frame's flex flow and simply switches column→row layout, so the body
+          always sits correctly below it. The glyph + title (which ARE flipped,
+          in transform mode) glide from their card positions to their header
+          positions on top of this instantly-relaid-out container. */}
       <div
-        data-flip-id={fid("head")}
         className={
           open
             ? "flex items-center gap-3 border-b border-border px-5 py-4"
@@ -168,6 +181,7 @@ function Card({
         <div className={open ? "contents" : "flex w-full items-start justify-between"}>
           <span
             data-flip-id={fid("glyph")}
+            data-flip-role="inner"
             className="flex h-5 w-5 shrink-0 items-center justify-center text-foreground"
           >
             <NodeGlyph kind={card.kind} strokeWidth={1.75} />
@@ -184,6 +198,7 @@ function Card({
 
         <h3
           data-flip-id={fid("title")}
+          data-flip-role="inner"
           style={{ fontSize: open ? 18 : 12 }}
           className={
             open
