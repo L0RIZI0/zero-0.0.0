@@ -144,16 +144,32 @@ export default function FlipDemoPage() {
     // morph back into a row/card; deeper levels just vanish.
     const closingEntity = nextStack.length < prev.length ? prev[nextStack.length] : null
 
-    const frameState = Flip.getState(stage.querySelectorAll("[data-flip-role='frame']"), { props: "borderRadius" })
-    const innerState = Flip.getState(stage.querySelectorAll("[data-flip-role='inner']"), { props: "fontSize" })
+    // ONE capture of every flip element (frames + their glyph/title), and ONE
+    // Flip.from. Doing it in a single pass is what keeps the parent frame and
+    // its nested glyph/title measured against the SAME before/after snapshot —
+    // so their deltas stay consistent and the glyph neither jumps on open nor
+    // lands misaligned on close. (Two separate Flip.from calls used to corrupt
+    // this: the frame call mutated layout before the inner call measured it.)
+    //
+    // `absolute` is a SELECTOR, not `true`: only the FRAMES are taken out of
+    // flow (so they grow edge-to-edge via real width/height, no scale/distortion).
+    // The glyph + title deliberately stay in the header's flex flow and animate
+    // with transforms, so the header keeps its true height and the body never
+    // jumps. `nested: true` lets the in-flow children compensate for their
+    // absolutely-flipping ancestor.
+    const state = Flip.getState(stage.querySelectorAll("[data-flip-id]"), { props: "fontSize,borderRadius" })
 
     flushSync(() => {
       setStack(nextStack)
       setClosingId(closingEntity)
     })
 
-    Flip.from(frameState, { duration: DURATION, ease: EASE, absolute: true })
-    Flip.from(innerState, { duration: DURATION, ease: EASE, nested: true })
+    Flip.from(state, {
+      duration: DURATION,
+      ease: EASE,
+      absolute: "[data-flip-role='frame']",
+      nested: true,
+    })
 
     if (opening) {
       const top = nextStack[nextStack.length - 1]
@@ -243,11 +259,20 @@ function EntityView({ entity, variant }: { entity: Entity; variant: "dock" | "ro
   // when this entity expands into a fixed window.
   const slotClass = variant === "dock" ? "relative h-[64px] w-[112px] shrink-0" : "relative h-9 w-full"
 
+  // The hover affordance uses `hover:bg-foreground/5`, which is a TRANSLUCENT
+  // background (~5% opaque). That's fine on a genuinely interactive collapsed
+  // card/row, but it must NOT be active while a window is animating closed: the
+  // shrinking frame still sits under the cursor, so :hover would make its
+  // background 95% transparent and the parent/home content would show straight
+  // through it (the "background disappears early, then reappears" bug). Gate the
+  // hover so it only applies to a settled, collapsed, interactive entity.
+  const interactive = !open && !closing
+  const hoverCls = interactive ? "transition-colors hover:bg-foreground/5" : ""
   const frameClass = open
     ? "flex cursor-default flex-col overflow-hidden border border-border bg-card-solid shadow-2xl"
     : variant === "dock"
-      ? "absolute inset-0 flex cursor-pointer flex-col overflow-hidden border border-border bg-card-solid transition-colors hover:bg-foreground/5"
-      : "absolute inset-0 flex cursor-pointer flex-col overflow-hidden rounded border border-border bg-card-solid transition-colors hover:bg-foreground/5"
+      ? `absolute inset-0 flex cursor-pointer flex-col overflow-hidden border border-border bg-card-solid ${hoverCls}`
+      : `absolute inset-0 flex cursor-pointer flex-col overflow-hidden rounded border border-border bg-card-solid ${hoverCls}`
 
   const headerClass = open
     ? "flex items-center gap-3 border-b border-border py-4 pl-5 pr-12"
