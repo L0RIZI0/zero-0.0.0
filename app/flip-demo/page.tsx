@@ -118,6 +118,7 @@ type Nav = {
   isOpen: (id: string) => boolean
   isTop: (id: string) => boolean
   isClosing: (id: string) => boolean
+  isAnimating: () => boolean
   depthOf: (id: string) => number
   open: (id: string) => void
   closeAbove: (id: string) => void // collapse everything above this open entity (keep it)
@@ -131,6 +132,10 @@ export default function FlipDemoPage() {
   // The entity whose window is currently shrinking closed; its body stays
   // mounted through the morph so it can scale down WITH the frame.
   const [closingId, setClosingId] = useState<string | null>(null)
+  // True for the duration of any morph. Used to suppress body scrolling while
+  // frames are mid-resize (otherwise the still-tiny window's overflowing content
+  // flashes a scrollbar).
+  const [animating, setAnimating] = useState(false)
   const stageRef = useRef<HTMLDivElement>(null)
 
   // Single entry point for every open/close. Captures Flip state, commits the
@@ -162,6 +167,7 @@ export default function FlipDemoPage() {
     flushSync(() => {
       setStack(nextStack)
       setClosingId(closingEntity)
+      setAnimating(true)
     })
 
     Flip.from(state, {
@@ -170,6 +176,9 @@ export default function FlipDemoPage() {
       absolute: "[data-flip-role='frame']",
       nested: true,
     })
+
+    // Re-enable scrolling only once the morph has fully settled.
+    gsap.delayedCall(DURATION, () => setAnimating(false))
 
     if (opening) {
       const top = nextStack[nextStack.length - 1]
@@ -192,6 +201,7 @@ export default function FlipDemoPage() {
     isOpen: (id) => stack.includes(id),
     isTop: (id) => stack[stack.length - 1] === id,
     isClosing: (id) => closingId === id,
+    isAnimating: () => animating,
     depthOf: (id) => stack.indexOf(id),
     open: (id) => transition([...stack, id]),
     closeAbove: (id) => {
@@ -244,6 +254,7 @@ function EntityView({ entity, variant }: { entity: Entity; variant: "dock" | "ro
   const nav = useContext(NavContext)
   const open = nav.isOpen(entity.id)
   const closing = nav.isClosing(entity.id)
+  const animating = nav.isAnimating()
   const showBody = open || closing
   const depth = open ? nav.depthOf(entity.id) : 0
   const fid = (part: string) => `${entity.id}-${part}`
@@ -365,7 +376,24 @@ function EntityView({ entity, variant }: { entity: Entity; variant: "dock" | "ro
         {/* Window body — children become openable rows; leaves show a note. Tagged
             data-body so the close handler can scale it down with the frame. */}
         {showBody && (
-          <div data-fade data-body className="flex-1 overflow-auto px-5 py-4">
+          <div
+            data-fade
+            data-body
+            className={
+              // Only allow scrolling once the window is fully settled open. During
+              // any morph (and while closing) the frame is mid-resize, so its
+              // content overflows and would flash a scrollbar — clip it instead.
+              // When closing, pin the body absolutely so it is OUT of the frame's
+              // flex flow: that way the collapsed header/title lands in exactly the
+              // same spot whether the body is still mounted or already gone, which
+              // removes the end-of-close title "snap down".
+              closing
+                ? "pointer-events-none absolute inset-x-0 bottom-0 top-[57px] overflow-hidden px-5 py-4"
+                : open && !animating
+                  ? "flex-1 overflow-auto px-5 py-4"
+                  : "flex-1 overflow-hidden px-5 py-4"
+            }
+          >
             {entity.children.length > 0 ? (
               <>
                 <p className="mb-3 text-xs font-medium uppercase tracking-wide text-muted-foreground/70">
