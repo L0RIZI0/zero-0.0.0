@@ -371,6 +371,9 @@ function EntityView({ entity, variant }: { entity: Entity; variant: "dock" | "ro
   // A space that is open but has a child window on top collapses its header into
   // a vertical left spine (glyph stays put, title rotates anti-clockwise).
   const spine = nav.isSpine(entity.id)
+  // True during any morph. Used to drop body clipping so a descendant window
+  // (temporarily position:absolute under Flip) isn't cropped mid-animation.
+  const animating = nav.isAnimating()
   const showBody = asWindow || closing
   const depth = open ? nav.depthOf(entity.id) : fadingWindow ? nav.fadingDepth(entity.id) : 0
   const fid = (part: string) => `${entity.id}-${part}`
@@ -587,13 +590,24 @@ function EntityView({ entity, variant }: { entity: Entity; variant: "dock" | "ro
               // frame's flex flow: that way the collapsed header/title lands in the
               // same spot whether the body is still mounted or already gone, which
               // removes the end-of-close title "snap down".
+              // While a morph is in progress, an open parent must NOT clip its
+              // body. A descendant window is normally `position: fixed` (which
+              // escapes ancestor overflow), but Flip switches it to `absolute`
+              // for the duration of the tween — and an `absolute` child IS
+              // clipped by this body's `overflow`. Since the body starts below
+              // the 57px header, that clipped away the child's overlapping top
+              // strip and revealed the parent behind it (the reported bug). Using
+              // `overflow-visible` during the morph lets the child render
+              // unclipped; once settled the descendant is `fixed` again, so we can
+              // safely resume `overflow-auto` for scrolling. The frame's own
+              // `overflow-hidden` still bounds everything at the window edge.
               closing
                 ? "pointer-events-none absolute inset-x-0 bottom-0 top-[57px] overflow-hidden px-5 py-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
                 : spine
                   ? // Push content clear of the left spine so the "ITEMS" label and
                     // do-list rows never sit underneath the vertical header.
-                    "flex-1 overflow-auto py-4 pl-16 pr-5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-                  : "flex-1 overflow-auto px-5 py-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                    `flex-1 py-4 pl-16 pr-5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${animating ? "overflow-visible" : "overflow-auto"}`
+                  : `flex-1 px-5 py-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${animating ? "overflow-visible" : "overflow-auto"}`
             }
           >
             {entity.children.length > 0 ? (
