@@ -93,7 +93,7 @@ const SPACES: Entity[] = [
   },
 ]
 
-const DURATION = 0.55
+const DURATION = 4
 const EASE = "power3.inOut"
 
 // Nested-doll geometry. A window at depth d sits below its parent's peeking
