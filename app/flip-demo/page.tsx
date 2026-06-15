@@ -93,8 +93,18 @@ const SPACES: Entity[] = [
   },
 ]
 
-const DURATION = 4
+const DURATION = 2
 const EASE = "power3.inOut"
+
+// Flat index of every entity by id, so geometry can inspect an ancestor's KIND
+// (a space peeks differently than a task — see openWindowStyle).
+const ENTITY_BY_ID = new Map<string, Entity>()
+;(function index(list: Entity[]) {
+  for (const e of list) {
+    ENTITY_BY_ID.set(e.id, e)
+    index(e.children)
+  }
+})(SPACES)
 
 // Nested-doll geometry. A window at depth d sits below its parent's peeking
 // header (TOP_PEEK px) and inset SIDE px more on each side, so every ancestor
@@ -102,6 +112,14 @@ const EASE = "power3.inOut"
 const BASE = 16
 const TOP_PEEK = 56
 const SIDE = 10
+// Width of the vertical "spine" a SPACE collapses its header into when it has a
+// child window open. Its child insets from the LEFT by this much (instead of
+// from the top) so the space's glyph + rotated title stay visible down the side
+// — the seed of a future breadcrumb rail.
+const SPINE = 56
+
+// Depth-only style, used for windows that are FADING out during a multi-level
+// close (their exact resting geometry no longer matters as they retract).
 function windowStyle(depth: number): React.CSSProperties {
   return {
     position: "fixed",
@@ -114,14 +132,39 @@ function windowStyle(depth: number): React.CSSProperties {
   }
 }
 
+// Stack-aware style for an OPEN window: walk its ancestors and let each one
+// reserve space according to its kind — a SPACE peels off a left spine, anything
+// else peeks from the top (the original nested-doll inset). This is what makes a
+// task open to the RIGHT of its parent space's spine rather than below it.
+function openWindowStyle(stack: string[], id: string): React.CSSProperties {
+  const idx = stack.indexOf(id)
+  let top = BASE
+  let left = BASE
+  let right = BASE
+  for (let j = 0; j < idx; j++) {
+    if (ENTITY_BY_ID.get(stack[j])?.kind === "space") {
+      left += SPINE
+    } else {
+      top += TOP_PEEK
+      left += SIDE
+      right += SIDE
+    }
+  }
+  return { position: "fixed", top, left, right, bottom: BASE, zIndex: 20 + idx * 10, borderRadius: 8 }
+}
+
 type Nav = {
   isOpen: (id: string) => boolean
   isTop: (id: string) => boolean
   isClosing: (id: string) => boolean
   isFadingWindow: (id: string) => boolean
   isAnimating: () => boolean
+  // A SPACE that is open but not the top window collapses its header into a
+  // vertical left spine (glyph stays put, title rotates anti-clockwise).
+  isSpine: (id: string) => boolean
   depthOf: (id: string) => number
   fadingDepth: (id: string) => number
+  styleFor: (id: string) => React.CSSProperties
   open: (id: string) => void
   closeAbove: (id: string) => void // collapse everything above this open entity (keep it)
   closeSelf: (id: string) => void // close this entity and everything above it
@@ -251,8 +294,11 @@ export default function FlipDemoPage() {
     isClosing: (id) => closingId === id,
     isFadingWindow: (id) => fading.some((f) => f.id === id),
     isAnimating: () => animating,
+    isSpine: (id) =>
+      stack.includes(id) && stack[stack.length - 1] !== id && ENTITY_BY_ID.get(id)?.kind === "space",
     depthOf: (id) => stack.indexOf(id),
     fadingDepth: (id) => fading.find((f) => f.id === id)?.depth ?? 0,
+    styleFor: (id) => openWindowStyle(stack, id),
     open: (id) => transition([...stack, id]),
     closeAbove: (id) => {
       const d = stack.indexOf(id)
