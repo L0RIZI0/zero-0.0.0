@@ -1,16 +1,14 @@
 "use client"
 
-import { useEffect, useState } from "react"
-import { motion, useAnimationControls } from "motion/react"
+import { useEffect, useLayoutEffect, useRef, useState } from "react"
 import { Check, X } from "lucide-react"
 import type { Entity } from "@/lib/zero/types"
 import { getSpace } from "@/lib/zero/data"
 import { useZeroNav } from "@/lib/zero/nav-store"
-import { layerTransition, type Rect } from "@/lib/zero/motion"
+import { HEADER_H, type Rect } from "@/lib/zero/motion"
+import { gsap, MORPH_DURATION, MORPH_EASE } from "@/lib/zero/flip-stage"
 import { NodeGlyph } from "./node-glyph"
 import { EntityBody } from "./entity-body"
-
-const HEADER_H = 40
 
 /** Minutes-from-midnight → "9:00 AM". */
 function fmtTime(min: number): string {
@@ -22,24 +20,31 @@ function fmtTime(min: number): string {
 }
 
 /**
- * Generic window for ANY entity kind — there is exactly one frame component, no
- * per-kind variants. Kind only changes a few details inside: the leading glyph
- * doubles as a completion toggle for tasks, and events/instants show their time.
+ * Generic GSAP-driven window for ANY entity kind — one frame component, no
+ * per-kind variants. Ported from the `flip-demo` prototype: Framer no longer
+ * touches a window; GSAP owns all window geometry + the header morph.
  *
- * MORPH MODEL: the window is a plain absolutely-positioned box that tweens
- * {top,left,width,height} between its measured SOURCE rect (the clicked
- * row/card/marker) and its static DEPTH-target rect, while the body crossfades.
- * Framer animates the box on mount from `initial`→`animate`, so:
- *   - open    : grows source → target, body fades IN (the "spawn from center").
- *   - closing : shrinks target → source, body fades OUT — the whole window
- *               collapses into its button, carrying the glyph + title with it.
- * Because the geometry is driven directly by initial/animate (not a post-mount
- * state flip), `onAnimationComplete` fires only after the real shrink — which is
- * what makes the close animation actually play.
+ * GEOMETRY (gsap, not React): the frame is absolutely positioned and GSAP owns
+ * its {top,left,width,height}. React's `style` only seeds the FIRST paint; after
+ * mount GSAP is the sole writer (the seed prop never changes, so React never
+ * fights it). On open the frame grows source→target; on close it shrinks
+ * target→source and dissolves, then unmounts.
+ *
+ * SPINE: a SPACE that is open but not frontmost collapses its header to a
+ * vertical left rail (rotated title). The frame BOX is unchanged — only the
+ * header layout switches — and the glyph + title morph between horizontal and
+ * vertical via GSAP Flip (orchestrated in nav-store as the stack changes), which
+ * is why they carry `data-flip-id`. The spine background + divider crossfade.
+ *
+ * Unlike the prototype, Zero's frames are flat SIBLINGS in the region (not
+ * nested), so a parent's `overflow-hidden` never clips the child window — the
+ * clipping gymnastics the prototype needed simply don't apply here.
  */
 export function EntityFrame({
   entity,
   isTop,
+  depth,
+  spine,
   targetRect,
   sourceRect,
   mode,
@@ -49,9 +54,14 @@ export function EntityFrame({
   entity: Entity
   /** Frontmost window — only it shows its body; ancestors show just the header. */
   isTop: boolean
-  /** Static destination box for this depth (where the open window rests). */
+  /** Absolute stack index; scopes this window's flip-ids so two same-id nodes
+   *  (the same entity can live in several do-lists at once) never collide. */
+  depth: number
+  /** This space is receded behind one of its own open children → vertical rail. */
+  spine: boolean
+  /** Static destination box for this stack position (where the open window rests). */
   targetRect: Rect
-  /** Measured box of the source row/card/marker; null falls back to a fade. */
+  /** Measured box of the source row/card/marker; null falls back to the target. */
   sourceRect: Rect | null
   /** "open" grows source→target; "closing" shrinks target→source then unmounts. */
   mode: "open" | "closing"
@@ -61,116 +71,182 @@ export function EntityFrame({
   onClosed?: () => void
 }) {
   const { pulse } = useZeroNav()
-  const bounce = useAnimationControls()
+  const frameRef = useRef<HTMLDivElement | null>(null)
+  const bodyRef = useRef<HTMLDivElement | null>(null)
+  const innerRef = useRef<HTMLDivElement | null>(null)
 
-  // A re-click on this entity's already-open marker/chip requests a "pulse":
-  // a quick attention bounce. It runs on an inner wrapper so the outer geometry
-  // tween (open/close morph) is never disturbed. `pulse.n` increments on every
-  // request so the same id can bounce repeatedly.
-  useEffect(() => {
-    if (isTop && pulse && pulse.id === entity.id) {
-      bounce.start({ scale: [1, 1.015, 1], transition: { duration: 0.32, ease: "easeOut" } })
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pulse?.id, pulse?.n])
-
+  const closing = mode === "closing"
   const isTask = entity.kind === "task"
-  // Accent comes from the entity's home space (itself for a space, else its
-  // parent), shown as a thin LEFT strip — the border itself stays neutral.
   const homeSpaceId = entity.kind === "space" ? entity.id : entity.parentId ?? "s_root"
   const accent = getSpace(homeSpaceId)?.accent ?? "var(--muted-foreground)"
   const [done, setDone] = useState(!!entity.completed)
 
-  const closing = mode === "closing"
-  const from = sourceRect ?? targetRect
-  const initialBox = mode === "open" ? from : targetRect
-  const animateBox = mode === "open" ? targetRect : from
-
-  // Body is mounted (and fades) only for the frontmost open window and for the
-  // closing overlay; receded ancestors show just their header strip.
-  const renderBody = isTop || mode === "closing"
+  // Body is mounted only for the frontmost open window and the closing overlay;
+  // receded ancestors (incl. spines) show just their header strip + card peeks.
+  const renderBody = isTop || closing
   const hasRange = typeof entity.start === "number" && typeof entity.end === "number"
 
+  // --- Geometry: open grow / close shrink + dissolve (runs once on mount). ---
+  useLayoutEffect(() => {
+    const el = frameRef.current
+    if (!el) return
+    const target = {
+      top: targetRect.top,
+      left: targetRect.left,
+      width: targetRect.width,
+      height: targetRect.height,
+    }
+    if (closing) {
+      const dest = sourceRect ?? targetRect
+      gsap.set(el, target)
+      // Hold opaque through most of the collapse, then dissolve over the final
+      // stretch so the real button underneath takes over without a layout pop.
+      gsap.to(el, {
+        top: dest.top,
+        left: dest.left,
+        width: dest.width,
+        height: dest.height,
+        duration: MORPH_DURATION,
+        ease: MORPH_EASE,
+        onComplete: () => onClosed?.(),
+      })
+      gsap.to(el, { opacity: 0, duration: MORPH_DURATION * 0.7, delay: MORPH_DURATION * 0.3, ease: "power2.in" })
+      return
+    }
+    // open: grow from the captured source box into the resting target.
+    const src = sourceRect ?? target
+    gsap.fromTo(
+      el,
+      { top: src.top, left: src.left, width: src.width, height: src.height },
+      { top: target.top, left: target.left, width: target.width, height: target.height, duration: MORPH_DURATION, ease: MORPH_EASE },
+    )
+    if (bodyRef.current) {
+      gsap.fromTo(bodyRef.current, { opacity: 0 }, { opacity: 1, duration: 0.22, ease: "power2.out", delay: 0.05 })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // --- Keep the resting box in sync on later target changes (resize), AFTER the
+  // initial open. Skips the first invocation so it never clobbers the grow. ---
+  const mountedRef = useRef(false)
+  useLayoutEffect(() => {
+    if (!mountedRef.current) {
+      mountedRef.current = true
+      return
+    }
+    const el = frameRef.current
+    if (!el || closing) return
+    gsap.set(el, {
+      top: targetRect.top,
+      left: targetRect.left,
+      width: targetRect.width,
+      height: targetRect.height,
+    })
+  }, [targetRect.top, targetRect.left, targetRect.width, targetRect.height, closing])
+
+  // --- Attention pulse (re-click an already-open marker): a quick scale bounce
+  // on the inner wrapper so it never disturbs the outer geometry. ---
+  useEffect(() => {
+    if (isTop && pulse && pulse.id === entity.id && innerRef.current) {
+      gsap.fromTo(innerRef.current, { scale: 1 }, { scale: 1.015, duration: 0.16, ease: "power2.out", yoyo: true, repeat: 1 })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pulse?.id, pulse?.n])
+
+  // flip-ids are stack-position-scoped (not bare ids) so the same entity in two
+  // do-lists never shares a flip-id. Only resident OPEN frames flip; the closing
+  // overlay shrinks via gsap geometry and must NOT carry flip-ids.
+  const flipGlyph = closing ? undefined : `glyph:${depth}`
+  const flipTitle = closing ? undefined : `title:${depth}`
+
+  // Seed only the FIRST paint; gsap owns geometry after mount.
+  const seed = closing ? targetRect : sourceRect ?? targetRect
+
   return (
-    <motion.div
-      className="absolute overflow-hidden rounded-md border border-border bg-card shadow-[0_24px_80px_-32px_rgba(0,0,0,0.6)]"
-      // Top window is fully interactive; ancestors are click-through EXCEPT their
-      // header bar (which re-enables pointer events so its close button works).
-      style={{ pointerEvents: isTop ? "auto" : "none" }}
-      initial={{
-        top: initialBox.top,
-        left: initialBox.left,
-        width: initialBox.width,
-        height: initialBox.height,
-        opacity: 1,
-      }}
-      animate={{
-        top: animateBox.top,
-        left: animateBox.left,
-        width: animateBox.width,
-        height: animateBox.height,
-        // On close, DISSOLVE over the final stretch of the shrink. The window's
-        // header (glyph + title, bold, side-by-side) can never pixel-match every
-        // target button (a dock card stacks title under the glyph; a DO-list row
-        // adds tags / counts / times the header lacks). Rather than snap at the
-        // end, we hold the window solid through most of the collapse, then fade
-        // it to 0 right as it lands on the button — so the real button underneath
-        // takes over seamlessly instead of popping into a mismatched layout.
-        opacity: closing ? [1, 1, 0] : 1,
-      }}
-      transition={
-        closing
-          ? { ...layerTransition, opacity: { duration: 0.45, ease: "easeIn", times: [0, 0.55, 1] } }
-          : layerTransition
-      }
-      onAnimationComplete={() => {
-        if (closing) onClosed?.()
+    <div
+      ref={frameRef}
+      className="absolute flex flex-col overflow-hidden rounded-md border border-border bg-card shadow-[0_24px_80px_-32px_rgba(0,0,0,0.6)]"
+      style={{
+        top: seed.top,
+        left: seed.left,
+        width: seed.width,
+        height: seed.height,
+        // Top window is fully interactive; ancestors are click-through except
+        // their header bar / close button (which re-enable pointer events).
+        pointerEvents: isTop ? "auto" : "none",
       }}
     >
-      {/* Inner wrapper carries the attention "pulse" bounce (re-click while open)
-          so it never collides with the outer geometry morph. */}
-      <motion.div className="absolute inset-0" animate={bounce} style={{ transformOrigin: "center" }}>
-      {/* Left accent strip so the window reads as belonging to its space. */}
-      <div className="absolute left-0 top-0 z-10 h-full w-[3px]" style={{ backgroundColor: accent }} aria-hidden />
+      <div ref={innerRef} className="absolute inset-0 flex flex-col" style={{ transformOrigin: "center" }}>
+        {/* Left accent strip — belongs-to-space cue; never overpainted by the spine. */}
+        <span className="absolute left-0 top-0 z-10 h-full w-[3px]" style={{ backgroundColor: accent }} aria-hidden />
 
-      {/* Header / nav bar — glyph + title + bare-X close. Always shown (this is
-          also the peeking bar for receded ancestors, whose header re-enables
-          pointer events so the user can click it to cascade-close to here). */}
-      <div
-        className="relative z-10 flex items-center gap-2 px-3"
-        style={{ height: HEADER_H, pointerEvents: "auto" }}
-      >
-        {isTask ? (
-          // For a task the glyph IS the completion toggle — a single square, so
-          // there is no second checkbox box beside it.
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation()
-              setDone((d) => !d)
+        {/* Spine background — a fixed narrow left rail that crossfades when this
+            space spines/un-spines. z-[8]: above the (unmounted-here) body, below
+            the glyph/title (z-10). */}
+        <span
+          aria-hidden
+          style={{ transitionDuration: `${MORPH_DURATION}s` }}
+          className={`pointer-events-none absolute inset-y-0 left-[3px] z-[8] w-14 bg-card transition-opacity ease-out ${
+            spine ? "opacity-100" : "opacity-0"
+          }`}
+        />
+
+        {/* Header — horizontal bar, or vertical spine rail when receded. */}
+        <div
+          className={
+            spine
+              ? "absolute inset-y-0 left-[3px] z-10 flex w-14 flex-col items-center gap-7 pt-4"
+              : "relative z-10 flex shrink-0 items-center gap-3 pl-5 pr-12"
+          }
+          style={spine ? undefined : { height: HEADER_H, pointerEvents: "auto" }}
+        >
+          {isTask ? (
+            <button
+              type="button"
+              data-flip-id={flipGlyph}
+              onClick={(e) => {
+                e.stopPropagation()
+                setDone((d) => !d)
+              }}
+              aria-label={done ? "Mark task incomplete" : "Mark task complete"}
+              className="relative flex size-5 shrink-0 items-center justify-center text-foreground"
+            >
+              <NodeGlyph kind="task" filled={done} strokeWidth={1.75} />
+              {done && <Check className="absolute h-3 w-3 text-background" strokeWidth={3.5} />}
+            </button>
+          ) : (
+            <span
+              data-flip-id={flipGlyph}
+              className="relative flex size-5 shrink-0 items-center justify-center text-foreground"
+            >
+              <NodeGlyph kind={entity.kind} strokeWidth={1.75} />
+            </span>
+          )}
+
+          <h3
+            data-flip-id={flipTitle}
+            style={{
+              fontSize: spine ? 15 : 18,
+              // Rotation via the transform channel so GSAP Flip animates it
+              // smoothly through the matrix (Tailwind's `rotate` is a separate
+              // CSS property Flip can't tween cleanly).
+              transform: spine ? "rotate(-90deg)" : undefined,
+              transformOrigin: "center",
             }}
-            aria-label={done ? "Mark task incomplete" : "Mark task complete"}
-            className="relative flex size-4 shrink-0 items-center justify-center text-foreground"
+            className="relative whitespace-nowrap font-semibold tracking-tight text-foreground"
           >
-            <NodeGlyph kind="task" filled={done} strokeWidth={2} />
-            {done && <Check className="absolute h-2.5 w-2.5 text-background" strokeWidth={3.5} />}
-          </button>
-        ) : (
-          <span className="flex size-4 shrink-0 items-center justify-center text-foreground">
-            <NodeGlyph kind={entity.kind} />
-          </span>
-        )}
-        <span className="min-w-0 flex-1 truncate text-sm font-medium tracking-tight text-foreground">
-          {entity.title}
-        </span>
-        {hasRange && isTop && (
-          <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
-            {fmtTime(entity.start!)} – {fmtTime(entity.end!)}
-          </span>
-        )}
-        {/* The close button is hidden the instant a close begins (the closing
-            overlay never shows it), so it isn't lingering on a shrinking window
-            that's collapsing into a button which has no such control. */}
+            {entity.title}
+          </h3>
+
+          {hasRange && isTop && !spine && (
+            <span className="ml-auto shrink-0 text-xs tabular-nums text-muted-foreground">
+              {fmtTime(entity.start!)} – {fmtTime(entity.end!)}
+            </span>
+          )}
+        </div>
+
+        {/* Close button — corner-pinned, fades only, never a flip target. Tucks
+            tighter into the corner when spined so the slim top peek never crops it. */}
         {!closing && (
           <button
             type="button"
@@ -179,26 +255,41 @@ export function EntityFrame({
               onClose()
             }}
             aria-label={`Close ${entity.title}`}
-            className="flex size-6 shrink-0 items-center justify-center rounded-[4px] text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
+            style={{ transitionDuration: `${MORPH_DURATION}s`, pointerEvents: "auto" }}
+            className={`absolute z-20 flex size-6 items-center justify-center rounded-[4px] text-muted-foreground transition-all ease-out hover:bg-foreground/5 hover:text-foreground ${
+              spine ? "right-1 top-1" : "right-3 top-3"
+            }`}
           >
             <X size={16} />
           </button>
         )}
-      </div>
 
-      {/* Body crossfades so box scaling never distorts dense content. */}
-      {renderBody && (
-        <motion.div
-          className="absolute inset-x-0 bottom-0 overflow-hidden"
-          style={{ top: HEADER_H }}
-          initial={{ opacity: mode === "open" ? 0 : 1 }}
-          animate={{ opacity: mode === "open" ? 1 : 0 }}
-          transition={{ duration: 0.18, ease: "easeOut" }}
-        >
-          <EntityBody entityId={entity.id} />
-        </motion.div>
-      )}
-      </motion.div>
-    </motion.div>
+        {/* Header divider — a dedicated fading line (not a border) so it eases
+            in/out instead of snapping between the header's bottom and side. */}
+        <span
+          aria-hidden
+          style={{ top: HEADER_H, transitionDuration: `${MORPH_DURATION}s` }}
+          className={`pointer-events-none absolute left-0 right-0 z-[5] h-px bg-border transition-opacity ease-out ${
+            spine || closing ? "opacity-0" : "opacity-100"
+          }`}
+        />
+
+        {/* Body — only the frontmost window (and the closing overlay) renders it.
+            EntityBody owns its own padding/scroll; here we just position + clip. */}
+        {renderBody && (
+          <div
+            ref={bodyRef}
+            className={
+              closing
+                ? "pointer-events-none absolute inset-x-0 bottom-0 overflow-hidden"
+                : "flex min-h-0 flex-1 flex-col overflow-hidden"
+            }
+            style={closing ? { top: HEADER_H } : undefined}
+          >
+            <EntityBody entityId={entity.id} />
+          </div>
+        )}
+      </div>
+    </div>
   )
 }
