@@ -94,11 +94,11 @@ const SPACES: Entity[] = [
 ]
 
 const DURATION = 2
-// A subtle accelerating ease-IN (slow to start, building speed toward arrival)
-// rather than the old slow-fast-slow inOut. It makes opening feel like crossing
-// a threshold into a space that rushes up to meet you. CSS-driven fades below
-// use the matching `ease-in` Tailwind utility so all motion shares the curve.
-const EASE = "power2.in"
+// A quick, elegant ease-OUT: motion launches fast and decelerates gently into
+// place (essentially no easing in). Opening feels brisk and welcoming rather
+// than sluggish. CSS-driven fades below use the matching `ease-out` Tailwind
+// utility so all motion shares the curve.
+const EASE = "power3.out"
 
 // Flat index of every entity by id, so geometry can inspect an ancestor's KIND
 // (a space peeks differently than a task — see openWindowStyle).
@@ -375,6 +375,9 @@ function EntityView({ entity, variant }: { entity: Entity; variant: "dock" | "ro
   // A space that is open but has a child window on top collapses its header into
   // a vertical left spine (glyph stays put, title rotates anti-clockwise).
   const spine = nav.isSpine(entity.id)
+  // True during any morph. Used to drop body clipping so a descendant window
+  // (temporarily position:absolute under Flip) isn't cropped mid-animation.
+  const animating = nav.isAnimating()
   const showBody = asWindow || closing
   const depth = open ? nav.depthOf(entity.id) : fadingWindow ? nav.fadingDepth(entity.id) : 0
   const fid = (part: string) => `${entity.id}-${part}`
@@ -400,14 +403,12 @@ function EntityView({ entity, variant }: { entity: Entity; variant: "dock" | "ro
   const interactive = !asWindow && !closing
   const hoverCls = interactive ? "transition-colors hover:bg-foreground/5" : ""
   const frameClass = asWindow
-    ? // No overflow clipping anywhere now (experiment): content is free to spill
-      // past a frame so nested contexts can visibly overlap their parents and the
-      // outside world. A fading window is mid-animation: disable its clicks so a
-      // stray click can't re-open it (it isn't in the live stack).
-      `flex cursor-default flex-col border border-border bg-card-solid shadow-2xl ${fadingWindow ? "pointer-events-none" : ""}`
+    ? // A fading window is mid-animation: disable its clicks so a stray click
+      // can't re-open it (it isn't in the live stack).
+      `flex cursor-default flex-col overflow-hidden border border-border bg-card-solid shadow-2xl ${fadingWindow ? "pointer-events-none" : ""}`
     : variant === "dock"
-      ? `absolute inset-0 flex cursor-pointer flex-col border border-border bg-card-solid ${hoverCls}`
-      : `absolute inset-0 flex cursor-pointer flex-col rounded border border-border bg-card-solid ${hoverCls}`
+      ? `absolute inset-0 flex cursor-pointer flex-col overflow-hidden border border-border bg-card-solid ${hoverCls}`
+      : `absolute inset-0 flex cursor-pointer flex-col overflow-hidden rounded border border-border bg-card-solid ${hoverCls}`
 
   const headerClass = spine
     ? // Spine: an opaque full-height bar pinned to the left edge (covers the
@@ -485,7 +486,7 @@ function EntityView({ entity, variant }: { entity: Entity; variant: "dock" | "ro
           <span
             aria-hidden
             style={{ transitionDuration: `${DURATION}s` }}
-            className={`pointer-events-none absolute inset-y-0 left-[3px] z-[8] w-14 bg-card-solid transition-opacity ease-in ${
+            className={`pointer-events-none absolute inset-y-0 left-[3px] z-[8] w-14 bg-card-solid transition-opacity ease-out ${
               spine ? "opacity-100" : "opacity-0"
             }`}
           />
@@ -517,7 +518,7 @@ function EntityView({ entity, variant }: { entity: Entity; variant: "dock" | "ro
             }}
             aria-label={`Close ${entity.title}`}
             style={{ transitionDuration: `${DURATION}s` }}
-            className={`absolute z-20 flex size-6 items-center justify-center rounded-[4px] text-muted-foreground transition-all ease-in hover:bg-foreground/5 hover:text-foreground ${
+            className={`absolute z-20 flex size-6 items-center justify-center rounded-[4px] text-muted-foreground transition-all ease-out hover:bg-foreground/5 hover:text-foreground ${
               spine ? "right-1 top-1" : "right-3 top-3"
             }`}
           >
@@ -583,7 +584,7 @@ function EntityView({ entity, variant }: { entity: Entity; variant: "dock" | "ro
           <span
             aria-hidden
             style={{ transitionDuration: `${DURATION}s` }}
-            className={`pointer-events-none absolute left-0 right-0 top-[57px] z-[5] h-px bg-border transition-opacity ease-in ${
+            className={`pointer-events-none absolute left-0 right-0 top-[57px] z-[5] h-px bg-border transition-opacity ease-out ${
               spine || closing ? "opacity-0" : "opacity-100"
             }`}
           />
@@ -596,21 +597,25 @@ function EntityView({ entity, variant }: { entity: Entity; variant: "dock" | "ro
             data-fade
             data-body
             className={
-              // overflow-visible everywhere (no clipping experiment): a child
-              // window is position:fixed when settled but Flip switches it to
-              // absolute mid-morph — with clipping, an ancestor body would crop
-              // the child's overlapping top. Leaving everything visible lets nested
-              // contexts overlap their parents freely. When closing, pin the body
-              // absolutely so it is OUT of the frame's flex flow: the collapsed
-              // header/title lands in the same spot whether the body is still
-              // mounted or already gone (removes the end-of-close title snap).
+              // The scrollbar is hidden visually everywhere ([scrollbar-width:none]
+              // + the webkit pseudo) while scrolling stays functional. When closing,
+              // pin the body absolutely so it is OUT of the frame's flex flow: the
+              // collapsed header/title lands in the same spot whether the body is
+              // still mounted or already gone (removes the end-of-close title snap).
+              // While a morph is in progress, an open parent must NOT clip its body:
+              // a descendant window is `position: fixed` when settled (escaping
+              // ancestor overflow), but Flip switches it to `absolute` for the
+              // tween — and an `absolute` child IS clipped by this body's overflow,
+              // which cropped the child's overlapping top. So use `overflow-visible`
+              // during the morph and resume `overflow-auto` once settled (descendant
+              // is `fixed` again). The frame's own `overflow-hidden` bounds the rest.
               closing
-                ? "pointer-events-none absolute inset-x-0 bottom-0 top-[57px] overflow-visible px-5 py-4"
+                ? "pointer-events-none absolute inset-x-0 bottom-0 top-[57px] overflow-hidden px-5 py-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
                 : spine
                   ? // Push content clear of the left spine so the "ITEMS" label and
                     // do-list rows never sit underneath the vertical header.
-                    "flex-1 overflow-visible py-4 pl-16 pr-5"
-                  : "flex-1 overflow-visible px-5 py-4"
+                    `flex-1 py-4 pl-16 pr-5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${animating ? "overflow-visible" : "overflow-auto"}`
+                  : `flex-1 px-5 py-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${animating ? "overflow-visible" : "overflow-auto"}`
             }
           >
             {entity.children.length > 0 ? (
