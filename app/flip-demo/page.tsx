@@ -391,13 +391,9 @@ function EntityView({ entity, variant }: { entity: Entity; variant: "dock" | "ro
   const interactive = !asWindow && !closing
   const hoverCls = interactive ? "transition-colors hover:bg-foreground/5" : ""
   const frameClass = asWindow
-    ? // Open windows have NO solid background on the frame itself — the fill is
-      // composed from independent layers below (an always-solid body base, plus a
-      // top-header strip and a left-spine strip that fade in/out). That's what lets
-      // the horizontal header crossfade in when a space un-spines, and the spine
-      // crossfade in when it spines. A fading window is mid-animation: disable its
-      // clicks so a stray click can't re-open it (it isn't in the live stack).
-      `flex cursor-default flex-col overflow-hidden border border-border shadow-2xl ${fadingWindow ? "pointer-events-none" : ""}`
+    ? // A fading window is mid-animation: disable its clicks so a stray click
+      // can't re-open it (it isn't in the live stack).
+      `flex cursor-default flex-col overflow-hidden border border-border bg-card-solid shadow-2xl ${fadingWindow ? "pointer-events-none" : ""}`
     : variant === "dock"
       ? `absolute inset-0 flex cursor-pointer flex-col overflow-hidden border border-border bg-card-solid ${hoverCls}`
       : `absolute inset-0 flex cursor-pointer flex-col overflow-hidden rounded border border-border bg-card-solid ${hoverCls}`
@@ -446,39 +442,6 @@ function EntityView({ entity, variant }: { entity: Entity; variant: "dock" | "ro
         }
         className={frameClass}
       >
-        {/* Composed background for open windows (the frame itself is transparent).
-            Three layers so chrome can crossfade independently:
-              • base — the always-solid fill (covers the body / nested-doll opacity).
-                In window mode it starts BELOW the header strip so the header can
-                fade over emptiness; in spine mode it covers the whole frame (the
-                header is an absolute strip), keeping the X's top peek solid.
-              • header strip — fades IN when the window is horizontal, so a space
-                un-spining reveals its header as a gentle crossfade instead of a
-                solid bar snapping over the still-closing child.
-              • spine strip — fades IN when the space collapses to its left rail. */}
-        {asWindow && (
-          <>
-            <span
-              aria-hidden
-              className={`pointer-events-none absolute inset-x-0 bottom-0 bg-card-solid ${spine ? "top-0" : "top-[57px]"}`}
-            />
-            <span
-              aria-hidden
-              style={{ transitionDuration: `${DURATION}s` }}
-              className={`pointer-events-none absolute inset-x-0 top-0 h-[57px] bg-card-solid transition-opacity ${
-                spine ? "opacity-0" : "opacity-100"
-              }`}
-            />
-            <span
-              aria-hidden
-              style={{ transitionDuration: `${DURATION}s` }}
-              className={`pointer-events-none absolute inset-y-0 left-[3px] w-14 bg-card-solid transition-opacity ${
-                spine ? "opacity-100" : "opacity-0"
-              }`}
-            />
-          </>
-        )}
-
         {/* Accent strip — full-height absolute, tracks the frame size for free.
             The spine header is inset 3px from the left (below) so it never paints
             over this strip; that keeps the entity's colored border visible without
