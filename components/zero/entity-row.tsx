@@ -100,12 +100,15 @@ export function EntityRow({
       <motion.div
         ref={ref as React.Ref<HTMLDivElement>}
         {...{ [MORPH_SOURCE_ATTR]: e.id, ...(isTimed ? { [MORPH_WHERE_ATTR]: "row" } : {}) }}
+        role="button"
+        aria-label={`Open ${e.title}`}
+        onClick={openThis}
         onContextMenu={onContext}
         {...hoverProps}
         style={{ borderRadius: 4 }}
         animate={{ scale: lift ? 1.02 : 1 }}
         className={cn(
-          "group relative flex w-full items-center gap-3 overflow-hidden border border-border bg-card-solid px-2.5 py-2 text-left",
+          "group relative flex w-full cursor-pointer items-center gap-3 overflow-hidden border border-border bg-card-solid px-2.5 py-2 text-left",
           cancelled && "opacity-50",
         )}
       >
@@ -129,8 +132,10 @@ export function EntityRow({
           </button>
         )}
 
-        {/* Open region — covers the glyph (non-task), title, and timed detail. */}
-        <button type="button" onClick={openThis} className="flex min-w-0 flex-1 items-center gap-3 text-left">
+        {/* Open region — the whole row opens (handler is on the row container so
+            the hover scale-spring can never swallow the click); this is just a
+            non-interactive layout wrapper for the glyph, title, and detail. */}
+        <div className="flex min-w-0 flex-1 items-center gap-3 text-left">
           {!isTask && (
             <span className={cn(GLYPH_BOX, "text-foreground")}>
               <NodeGlyph kind={kind} />
@@ -169,7 +174,7 @@ export function EntityRow({
               {fmtMoment(e.at!, e.seconds ?? 0)}
             </span>
           )}
-        </button>
+        </div>
 
         {/* Task-only trailing: due label + priority dot. */}
         {isTask && e.dueDate && (
