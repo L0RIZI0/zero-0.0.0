@@ -99,8 +99,10 @@ export function EntityFrame({
     if (closing) {
       const dest = sourceRect ?? targetRect
       gsap.set(el, target)
-      // Hold opaque through most of the collapse, then dissolve over the final
-      // stretch so the real button underneath takes over without a layout pop.
+      // Pure geometry shrink back into the source row — the EXACT inverse of the
+      // open grow, NOT the old "duplicate that fades its opacity out" workaround.
+      // The frame keeps full opacity the whole way; it simply collapses into the
+      // row's box and unmounts, revealing the live row that has reappeared there.
       gsap.to(el, {
         top: dest.top,
         left: dest.left,
@@ -110,7 +112,12 @@ export function EntityFrame({
         ease: MORPH_EASE,
         onComplete: () => onClosed?.(),
       })
-      gsap.to(el, { opacity: 0, duration: MORPH_DURATION * 0.7, delay: MORPH_DURATION * 0.3, ease: "power2.in" })
+      // Mirror open's body crossfade: open fades the body IN as it grows, so close
+      // fades it OUT as it shrinks. This is content-level only (matching open) —
+      // the frame chrome itself never changes opacity.
+      if (bodyRef.current) {
+        gsap.to(bodyRef.current, { opacity: 0, duration: MORPH_DURATION * 0.5, ease: "power2.in" })
+      }
       return
     }
     // open: grow from the captured source box into the resting target.
