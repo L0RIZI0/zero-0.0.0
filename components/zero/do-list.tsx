@@ -19,7 +19,7 @@ import type { Entity } from "@/lib/zero/types"
 import { useZeroNav, useRowSelection, ADD_KEY } from "@/lib/zero/nav-store"
 import { layerTransition } from "@/lib/zero/motion"
 import { NodeGlyph, NODE_KIND_META, type NodeKind } from "./node-glyph"
-import { EntityRow } from "./entity-row"
+import { EntityNode } from "./entity-node"
 import { ContextMenu, type ContextMenuState } from "./context-menu"
 import { cn } from "@/lib/utils"
 

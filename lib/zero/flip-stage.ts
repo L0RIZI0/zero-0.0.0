@@ -39,6 +39,9 @@ export { gsap }
  *  launches fast, decelerates gently — no easing in). */
 export const MORPH_DURATION = 0.66
 export const MORPH_EASE = "power3.out"
+/** Same duration as a CSS string, for the fade/transition chrome (spine bg,
+ *  divider, close-button reposition) that rides along with the Flip morph. */
+export const DURATION_S = `${MORPH_DURATION}s`
 
 type FlipState = ReturnType<typeof Flip.getState>
 

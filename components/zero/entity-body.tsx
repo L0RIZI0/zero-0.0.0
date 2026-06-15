@@ -22,14 +22,14 @@ import { CollapsibleColumn } from "./collapsible-column"
  * The timeline is NOT rendered here: it stays pinned and persistent at the top
  * of the surface (WorkSurface), above the focus window.
  */
-export function EntityBody({ entityId }: { entityId: string }) {
+export function EntityBody({ entityId, active = true }: { entityId: string; active?: boolean }) {
   const assetCount = getSpaceAssets(entityId).length
 
   return (
     <div className="flex min-h-0 flex-1 flex-col px-6 pb-5">
       {/* Dock — pinned items for this context. The Dock hides its cards when the
           context has no pins, so it collapses to a small gap. */}
-      <Dock contextId={entityId} />
+      <Dock contextId={entityId} active={active} />
 
       <div className="flex min-h-0 flex-1 flex-col pt-4">
         <div className="flex min-h-[180px] flex-1 gap-4">
@@ -41,7 +41,7 @@ export function EntityBody({ entityId }: { entityId: string }) {
 
           <div className="flex min-h-0 min-w-0 flex-1 flex-col items-center">
             <div className="flex min-h-0 w-full max-w-[80%] flex-1 flex-col">
-              <DoList contextId={entityId} />
+              <DoList contextId={entityId} active={active} />
             </div>
           </div>
 
