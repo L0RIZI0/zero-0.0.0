@@ -492,6 +492,8 @@ export function TimelineStrip({
                     <motion.button
                       type="button"
                       initial={false}
+                      data-morph-source={e.id}
+                      data-morph-where="timeline"
                       // Markers are never dimmed by relevance anymore — the
                       // user's whole schedule stays clear regardless of which
                       // child is open. Only a cancelled marker reads faded.
@@ -540,6 +542,8 @@ export function TimelineStrip({
                   <motion.button
                     type="button"
                     initial={false}
+                    data-morph-source={e.id}
+                    data-morph-where="timeline"
                     // Chips are never dimmed by relevance anymore — the user's
                     // whole schedule stays clear regardless of which child is
                     // open. Only a cancelled event reads faded.
