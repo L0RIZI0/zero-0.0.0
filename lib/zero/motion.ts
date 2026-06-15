@@ -1,4 +1,5 @@
 import type { Transition } from "motion/react"
+import type { EntityKind } from "./types"
 
 /**
  * Zero motion language: calm, precise, deterministic. No bounce.
@@ -36,6 +37,56 @@ export const MORPH_WHERE_ATTR = "data-morph-where"
 /** Geometry of the nested-doll window stack (px), keyed off absolute depth. */
 export const TOP_PEEK_PX = 40
 export const SIDE_PX = 10
+
+/**
+ * Window-stack geometry, ported from the `flip-demo` prototype. Region-relative:
+ * a depth-1 window fills the focus-window region exactly (no base inset); each
+ * deeper level reserves space according to its ANCESTORS' kinds so every
+ * ancestor stays partly visible behind it. Two reservation profiles:
+ *
+ *   - a SPACE ancestor collapses its header to a vertical left rail (the
+ *     "spine"), so its child insets from the LEFT (and peeks a little on the
+ *     other three sides, keeping the parent's corner + close button clear);
+ *   - any other ancestor (task/event/instant) peeks from the TOP, the original
+ *     nested-doll inset.
+ */
+export const HEADER_H = 57
+export const TASK_TOP_PEEK = 56
+export const TASK_SIDE = 10
+export const SPACE_SPINE = 56
+export const SPACE_TOP_PEEK = 28
+export const SPACE_RIGHT_PEEK = 14
+export const SPACE_BOTTOM_PEEK = 14
+
+/**
+ * Resting box for a window whose frame ANCESTORS (the in-stack windows above the
+ * root backdrop and below this one) have the given `ancestorKinds`, within a
+ * region of `region` px. Walking the kinds — rather than using a flat depth
+ * step — is what lets a task open to the RIGHT of its parent space's spine
+ * instead of merely below it.
+ */
+export function stackTargetRect(
+  ancestorKinds: EntityKind[],
+  region: { w: number; h: number },
+): Rect {
+  let top = 0
+  let left = 0
+  let right = 0
+  let bottom = 0
+  for (const kind of ancestorKinds) {
+    if (kind === "space") {
+      left += SPACE_SPINE
+      top += SPACE_TOP_PEEK
+      right += SPACE_RIGHT_PEEK
+      bottom += SPACE_BOTTOM_PEEK
+    } else {
+      top += TASK_TOP_PEEK
+      left += TASK_SIDE
+      right += TASK_SIDE
+    }
+  }
+  return { top, left, width: region.w - left - right, height: region.h - top - bottom }
+}
 
 /** A rectangle in viewport coordinates — the box a window morphs from / to. */
 export type Rect = { top: number; left: number; width: number; height: number }

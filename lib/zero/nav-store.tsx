@@ -1,8 +1,10 @@
 "use client"
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react"
+import { flushSync } from "react-dom"
 import { getEntity, hydrateFromStorage } from "./data"
 import { captureSourceRect, type Rect } from "./motion"
+import { captureHeaders, playHeaderMorph, gsap, MORPH_DURATION } from "./flip-stage"
 import type { EntityKind } from "./types"
 
 /**
@@ -70,6 +72,15 @@ interface ZeroNavContextValue {
   /** Called by the closing overlay once its shrink animation settles, so the
    *  store can drop it from the render tree. */
   finishClosing: (id: string) => void
+  /** True for the duration of any window morph (open or close). Frames use it to
+   *  drop body clipping mid-resize (so a descendant window isn't cropped) and to
+   *  gate hover affordances while a frame is animating. */
+  animating: boolean
+  /** A SPACE that is open but NOT the frontmost window — i.e. one of its own
+   *  children is open in front of it — collapses its header into a vertical left
+   *  spine. True only for such spaces; tasks/events never spine, and the root
+   *  backdrop (index 0) is never a frame so never a spine. */
+  isSpine: (id: string) => boolean
   /** Bumps on any in-memory data mutation so selectors re-read fresh data. */
   dataVersion: number
   /** Signal that the underlying data arrays changed (entity added). */
@@ -119,10 +130,20 @@ export function ZeroNavProvider({
   rootSpaceId?: string
 }) {
   const [stack, setStack] = useState<string[]>([rootSpaceId])
+  // A live mirror of the stack so event handlers + morph orchestrators read the
+  // committed stack synchronously without stale-closure risk.
+  const stackRef = useRef(stack)
+  useEffect(() => {
+    stackRef.current = stack
+  }, [stack])
   // The window currently shrinking back to its source on close. Rendered as a
   // standalone overlay by the layer stack so ONLY it animates while the deeper
   // children it closed over are dropped instantly.
   const [closing, setClosing] = useState<{ id: string; depth: number } | null>(null)
+  // True while any window morph is in flight. A ref mirrors it so the morph
+  // orchestrators can schedule the "settle" without stale-closure risk.
+  const [animating, setAnimating] = useState(false)
+  const settleTimer = useRef<ReturnType<typeof gsap.delayedCall> | null>(null)
   const [dataVersion, setDataVersion] = useState(0)
   const [pulse, setPulse] = useState<{ id: string; n: number } | null>(null)
   // Per-entity record of how its window was opened (timeline marker vs DO-list
@@ -226,18 +247,38 @@ export function ZeroNavProvider({
     return () => window.removeEventListener("pointermove", onPointerMove)
   }, [])
 
-  const open = useCallback((id: string, source: OpenSource = "timeline") => {
-    // Capture the source element's box NOW, while it is still on screen — the
-    // window will grow out of it, and shrink back into it on close (by which
-    // point the source is unmounted, so this stored rect is the only reference).
-    const rect = captureSourceRect(id, source) ?? captureSourceRect(id)
-    if (rect) sourceRectsRef.current[id] = rect
-    setSources((prev) => (prev[id] === source ? prev : { ...prev, [id]: source }))
-    setStack((prev) => {
-      if (prev[prev.length - 1] === id) return prev
-      return [...prev, id]
-    })
+  // Mark a morph as in flight and (re)schedule its settle. Re-enabling happens
+  // exactly one MORPH_DURATION after the latest gesture, so rapid dives keep the
+  // animating guard (overflow-visible, no hover) up until everything lands.
+  const beginMorph = useCallback(() => {
+    setAnimating(true)
+    settleTimer.current?.kill()
+    settleTimer.current = gsap.delayedCall(MORPH_DURATION, () => setAnimating(false))
   }, [])
+
+  const open = useCallback(
+    (id: string, source: OpenSource = "timeline") => {
+      // Re-clicking the already-open top is a no-op morph.
+      if (stackRef.current[stackRef.current.length - 1] === id) return
+      // Capture the source element's box NOW, while it is still on screen — the
+      // window grows out of it, and shrinks back into it on close (by which point
+      // the source is unmounted, so this stored rect is the only reference).
+      const rect = captureSourceRect(id, source) ?? captureSourceRect(id)
+      if (rect) sourceRectsRef.current[id] = rect
+      // Snapshot the resident ancestor headers BEFORE the stack changes, so the
+      // soon-to-be-spine space can Flip from its current horizontal header.
+      const headers = captureHeaders()
+      flushSync(() => {
+        setSources((prev) => (prev[id] === source ? prev : { ...prev, [id]: source }))
+        setStack((prev) => (prev[prev.length - 1] === id ? prev : [...prev, id]))
+      })
+      // After commit: morph the resident headers (new window grows via its own
+      // gsap.fromTo in EntityFrame, on the same duration/ease).
+      playHeaderMorph(headers)
+      beginMorph()
+    },
+    [beginMorph],
+  )
 
   const openSourceOf = useCallback(
     (id: string): OpenSource => sources[id] ?? "timeline",
@@ -246,25 +287,29 @@ export function ZeroNavProvider({
 
   const sourceRectOf = useCallback((id: string): Rect | null => sourceRectsRef.current[id] ?? null, [])
 
-  // A live mirror of the stack so event handlers (close buttons, Escape) read
-  // the committed stack synchronously without stale-closure risk.
-  const stackRef = useRef(stack)
-  useEffect(() => {
-    stackRef.current = stack
-  }, [stack])
-
   // Close the window at absolute index `depth`. We remove it AND everything
   // above it from the stack in one update (deeper children vanish instantly),
   // then mark it as `closing` so the layer stack mounts it once more as a
   // standalone overlay that shrinks back into its source row/card. This is the
   // whole "only the clicked window animates" behavior: the deeper levels are
   // already gone, so they never play their own close.
-  const closeWindow = useCallback((depth: number) => {
-    const cur = stackRef.current
-    if (depth < 1 || depth >= cur.length) return
-    setClosing({ id: cur[depth], depth })
-    setStack(cur.slice(0, depth))
-  }, [])
+  const closeWindow = useCallback(
+    (depth: number) => {
+      const cur = stackRef.current
+      if (depth < 1 || depth >= cur.length) return
+      // Snapshot resident headers BEFORE the stack shrinks, so an ancestor space
+      // that is about to un-spine can Flip from its current vertical rail back to
+      // a horizontal header.
+      const headers = captureHeaders()
+      flushSync(() => {
+        setClosing({ id: cur[depth], depth })
+        setStack(cur.slice(0, depth))
+      })
+      playHeaderMorph(headers)
+      beginMorph()
+    },
+    [beginMorph],
+  )
 
   // The closing overlay reports back here when its shrink settles so we can drop
   // it. Guarded by id so a newer close (which replaced `closing`) isn't cleared
@@ -322,6 +367,15 @@ export function ZeroNavProvider({
       description,
     }
 
+    // A space is a spine when it sits in the stack ABOVE the root backdrop
+    // (index >= 1) and BELOW the frontmost window (a child is open in front of
+    // it). The root (index 0) is the home backdrop, never a frame, so never a
+    // spine even though it is a space.
+    const isSpine = (id: string) => {
+      const idx = stack.indexOf(id)
+      return idx >= 1 && idx < stack.length - 1 && getEntity(id)?.kind === "space"
+    }
+
     return {
       stack,
       activeId,
@@ -331,6 +385,8 @@ export function ZeroNavProvider({
       closeWindow,
       closing,
       finishClosing,
+      animating,
+      isSpine,
       sourceRectOf,
       dataVersion,
       notifyDataChanged,
@@ -353,6 +409,7 @@ export function ZeroNavProvider({
     closeWindow,
     closing,
     finishClosing,
+    animating,
     sourceRectOf,
     dataVersion,
     notifyDataChanged,
