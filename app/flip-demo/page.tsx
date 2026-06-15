@@ -262,7 +262,20 @@ function EntityView({ entity, variant }: { entity: Entity; variant: "dock" | "ro
         data-flip-id={fid("frame")}
         data-flip-role="frame"
         onClick={onFrameClick}
-        style={open ? windowStyle(depth) : { borderRadius: variant === "dock" ? 4 : 6 }}
+        style={
+          open
+            ? windowStyle(depth)
+            : {
+                borderRadius: variant === "dock" ? 4 : 6,
+                // While shrinking closed, this frame is once again a row inside
+                // its parent's do-list, but Flip animates it back at full window
+                // size. Without a raised z-index, later-DOM sibling rows paint on
+                // top of it and the parent content bleeds through (it reads as a
+                // transparent window). Lifting it keeps it floating opaquely above
+                // its siblings until it lands in its row slot.
+                ...(closing ? { zIndex: 40 } : null),
+              }
+        }
         className={frameClass}
       >
         {/* Accent strip — full-height absolute, tracks the frame size for free. */}
