@@ -5,7 +5,7 @@ import { useZeroNav } from "@/lib/zero/nav-store"
 import { getSpace, getEntity } from "@/lib/zero/data"
 import { shellStageFor, TIMELINE_TOP_PAD } from "@/lib/zero/layout"
 import { layerTransition } from "@/lib/zero/motion"
-import { EntityLayerStack } from "./entity-layer-stack"
+import { registerStage } from "@/lib/zero/flip-stage"
 import { EntityBody } from "./entity-body"
 import { TimelineStrip } from "./timeline-strip"
 
@@ -62,27 +62,22 @@ export function WorkSurface() {
         <TimelineStrip contextId={contextId} accent={accent} />
       </motion.div>
 
-      {/* Focus-window region — the window opens here, beneath the timeline.
-          This wrapper owns the clipping (rounded + overflow-hidden) that used to
-          live on the card root, so the scaled-up parent frames still fade past
-          the edges while the timeline above stays free to overflow upward. */}
-      <div className="relative min-h-0 flex-1 overflow-hidden rounded-md">
-        {/* Base layer — the ROOT entity's body (home view), always mounted as the
-            z-0 backdrop. Its dock cards and DO-list rows are the morph SOURCES:
-            the depth-1 window grows out of (and shrinks back into) the clicked
-            element's measured rect. No shared layoutId / LayoutGroup is involved
-            anymore — EntityFrame tweens explicit geometry (see entity-frame.tsx),
-            which is why the title/border no longer stretch. */}
-        <div className="absolute inset-0 z-0">
-          <EntityBody entityId={rootId} />
-        </div>
+      {/* Focus-window region — the SINGLE recursive entity tree lives here. The
+          root entity's body (home view) is always mounted; its dock cards and
+          DO-list rows are themselves `EntityNode`s that morph IN PLACE into
+          fixed focus windows when opened, and shrink back into their own row on
+          close (same DOM node — no duplicate, no captured-rect drift). This
+          wrapper owns the clipping + establishes the positioning context the
+          opened windows are measured against (they use region-relative `fixed`).
 
-        {/* Window frames. The wrapper is click-through so that at root (no frame)
-            events reach the home body at z-0; each frame re-enables pointer
-            events on itself. */}
-        <div className="pointer-events-none absolute inset-0 z-10">
-          <EntityLayerStack />
-        </div>
+          `data-window-region` lets the Flip stage resolve this box's rect so a
+          window can fill it exactly at depth 1. */}
+      <div
+        ref={registerStage}
+        data-window-region
+        className="relative min-h-0 flex-1 overflow-hidden rounded-md"
+      >
+        <EntityBody entityId={rootId} active={activeEntity.id === rootId} />
       </div>
     </div>
   )

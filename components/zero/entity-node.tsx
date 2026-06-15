@@ -94,8 +94,9 @@ export function EntityNode({
         ? nav.closing!.depth
         : 0
 
+  const parentId = entity.parentId ?? "s_root"
   // Accent tint: a space uses its own; everything else inherits its home space's.
-  const homeSpaceId = isSpace ? entityId : entity.parentId ?? "s_root"
+  const homeSpaceId = isSpace ? entityId : parentId
   const accent = isSpace ? entity.accent ?? "var(--muted-foreground)" : getSpace(homeSpaceId)?.accent ?? null
   void nav.dataVersion // re-read counts when data mutates
   const openCount = getOpenTaskCount(entityId)
@@ -106,6 +107,12 @@ export function EntityNode({
 
   function onFrameClick(e: React.MouseEvent) {
     e.stopPropagation()
+    // An event is not a framed context of its own — opening it jumps to its
+    // origin space instead of morphing into a window.
+    if (kind === "event") {
+      nav.open(parentId)
+      return
+    }
     if (!open) nav.open(entityId)
     // A peeking ancestor (open but not frontmost): clicking it collapses every
     // window above it, bringing this one back to the front.

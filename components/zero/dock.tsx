@@ -11,7 +11,7 @@ import {
   type ContextItem,
 } from "@/lib/zero/data"
 import { useZeroNav } from "@/lib/zero/nav-store"
-import { DockCard } from "./dock-card"
+import { EntityNode } from "./entity-node"
 import { ContextMenu, type ContextMenuState } from "./context-menu"
 
 /**
@@ -25,7 +25,7 @@ import { ContextMenu, type ContextMenuState } from "./context-menu"
  * list, and right-clicking a card here unpins it. When a context has no pins,
  * the whole dock collapses to a small gap.
  */
-export function Dock({ contextId }: { contextId: string }) {
+export function Dock({ contextId, active = true }: { contextId: string; active?: boolean }) {
   const { open, dataVersion, notifyDataChanged, selection, moveSelection, publishNavOrder } =
     useZeroNav()
   const [menu, setMenu] = useState<ContextMenuState | null>(null)
@@ -51,13 +51,15 @@ export function Dock({ contextId }: { contextId: string }) {
     [contextId, dataVersion],
   )
   useEffect(() => {
+    if (!active) return
     publishNavOrder("dock", dockKeys)
-  }, [dockKeys, publishNavOrder])
+  }, [active, dockKeys, publishNavOrder])
 
   // Window-level keyboard handler, active only while the dock owns the
   // selection: Enter opens the selected card; Left/Right move between cards;
   // Down crosses back down into the do list. Inert while a text input is focused.
   useEffect(() => {
+    if (!active) return
     const onKey = (e: KeyboardEvent) => {
       if (!selection || selection.region !== "dock") return
       const ae = document.activeElement as HTMLElement | null
@@ -88,7 +90,7 @@ export function Dock({ contextId }: { contextId: string }) {
     // `pinned` is recomputed each render; including it keeps Enter targeting the
     // current cards without resubscribing more than necessary.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selection, moveSelection, pinned])
+  }, [active, selection, moveSelection, pinned])
 
   const openMenu = (e: React.MouseEvent, item: ContextItem) => {
     e.preventDefault()
@@ -151,10 +153,10 @@ export function Dock({ contextId }: { contextId: string }) {
       <div key={contextId} className="flex w-full flex-wrap items-stretch justify-center gap-3">
         <AnimatePresence initial={false} mode="popLayout">
           {pinned.map((item) => (
-            <DockCard
+            <EntityNode
               key={item.id}
-              item={item}
-              onOpen={() => openItem(item)}
+              entityId={item.entity.id}
+              variant="dock"
               onContextMenu={(e) => openMenu(e, item)}
             />
           ))}

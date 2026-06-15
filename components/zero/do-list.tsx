@@ -292,7 +292,7 @@ function AddRow({ onActivate }: { onActivate: () => void }) {
  * context's direct children (any kind) as generic `EntityRow`s, plus the inline
  * EditRow for a row being created/renamed, and the terminal ADD birther row.
  */
-export function DoList({ contextId }: { contextId: string }) {
+export function DoList({ contextId, active = true }: { contextId: string; active?: boolean }) {
   const { dataVersion, notifyDataChanged, open, selection, select, moveSelection, publishNavOrder } =
     useZeroNav()
   // Re-read whenever data mutates or context changes. Pinned items are promoted
@@ -318,16 +318,19 @@ export function DoList({ contextId }: { contextId: string }) {
   const listKeys = useMemo(() => [...shown.map((it) => it.id), ADD_KEY], [shown])
 
   useEffect(() => {
+    if (!active) return
     publishNavOrder("list", listKeys)
-  }, [listKeys, publishNavOrder])
+  }, [active, listKeys, publishNavOrder])
 
-  // Default selection when the viewed context changes.
+  // Default selection when the viewed context changes. Only the frontmost
+  // window (active) owns selection — ancestor do-lists stay mounted but inert.
   useEffect(() => {
+    if (!active) return
     const first = shown[0]?.id
     select("list", first ?? ADD_KEY)
-    // Only on context change — intentionally omit `shown`/`select`.
+    // Only on context change / activation — intentionally omit `shown`/`select`.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [contextId])
+  }, [contextId, active])
 
   // Birth a new entity: created in the store immediately (default kind task),
   // appears as a real row directly above ADD, and enters edit mode while selected.
@@ -363,6 +366,7 @@ export function DoList({ contextId }: { contextId: string }) {
   // Window-level keyboard handler, active only when the DO list owns the
   // selection and no text input is focused.
   useEffect(() => {
+    if (!active) return
     const onKey = (e: KeyboardEvent) => {
       if (!selection || selection.region !== "list") return
       if (editingId) return
@@ -404,7 +408,7 @@ export function DoList({ contextId }: { contextId: string }) {
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
-  }, [selection, editingId, moveSelection, open, beginCreate, listKeys, notifyDataChanged, select])
+  }, [active, selection, editingId, moveSelection, open, beginCreate, listKeys, notifyDataChanged, select])
 
   const openMenu = (e: React.MouseEvent, item: ContextItem) => {
     e.preventDefault()
@@ -479,7 +483,9 @@ export function DoList({ contextId }: { contextId: string }) {
             it.id === editingId ? (
               <EditRow key={it.id} entity={it.entity} onCommit={finishEdit} onCancelEmpty={cancelEdit} />
             ) : (
-              <EntityRow key={it.id} item={it} onContext={(e) => openMenu(e, it)} />
+              <li key={it.id}>
+                <EntityNode entityId={it.id} variant="row" onContextMenu={(e) => openMenu(e, it)} />
+              </li>
             ),
           )}
           {/* The ADD birther row is a permanent terminal list cell. */}
