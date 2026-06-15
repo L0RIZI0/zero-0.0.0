@@ -51,14 +51,20 @@ const CARDS: Demo[] = [
 
 export default function FlipDemoPage() {
   const [openId, setOpenId] = useState<string | null>(null)
+  // The card whose window is currently shrinking closed. Its body stays mounted
+  // for the duration of the close so it can scale down WITH the frame instead of
+  // vanishing the instant the frame starts shrinking.
+  const [closingId, setClosingId] = useState<string | null>(null)
   const stageRef = useRef<HTMLDivElement>(null)
 
-  const DURATION = 0.55
+  const DURATION = 1.6
   const EASE = "power3.inOut"
 
   function flipTo(nextOpenId: string | null) {
     if (!stageRef.current) return
     const stage = stageRef.current
+    const prevOpen = openId
+    const isClosing = nextOpenId === null && prevOpen !== null
 
     // TWO separate captures, because the frame and its inner content need
     // DIFFERENT Flip strategies (mixing them in one call is what caused the
@@ -81,18 +87,36 @@ export default function FlipDemoPage() {
     })
 
     // Commit the class swap synchronously so the new layout is live before we
-    // start the tweens. The elements themselves are NOT recreated.
-    flushSync(() => setOpenId(nextOpenId))
+    // start the tweens. The elements themselves are NOT recreated. On close we
+    // also flag the closing card so its body keeps rendering through the morph.
+    flushSync(() => {
+      setOpenId(nextOpenId)
+      setClosingId(isClosing ? prevOpen : null)
+    })
 
     Flip.from(frameState, { duration: DURATION, ease: EASE, absolute: true })
     Flip.from(innerState, { duration: DURATION, ease: EASE, nested: true })
 
-    // The body + close button mount/unmount with the open state. Because the
-    // body holds its correct position throughout the morph, a simple fade
-    // (no positional movement) is enough to keep it from popping.
     if (nextOpenId) {
+      // OPEN: the body + close button mount with the open state; a plain fade
+      // (no movement) keeps them from popping. The close button is positioned
+      // absolutely, so it just appears in the corner — it never slides.
       const chrome = stage.querySelectorAll(`[data-window="${nextOpenId}"] [data-fade]`)
       gsap.fromTo(chrome, { opacity: 0 }, { opacity: 1, duration: 0.3, delay: 0.15 })
+    } else if (isClosing) {
+      // CLOSE: keep the window body visible and shrink it down alongside the
+      // frame (origin top-left, where the frame collapses from), fading out over
+      // the first ~70% so it's gone before the dock card's own content settles.
+      const body = stage.querySelector<HTMLElement>(`[data-window="${prevOpen}"] [data-body]`)
+      if (body) {
+        gsap.fromTo(
+          body,
+          { opacity: 1, scale: 1 },
+          { opacity: 0, scale: 0.15, transformOrigin: "top left", duration: DURATION * 0.7, ease: EASE },
+        )
+      }
+      // Drop the body from the tree once the morph has settled.
+      gsap.delayedCall(DURATION, () => setClosingId((c) => (c === prevOpen ? null : c)))
     }
   }
 
@@ -120,7 +144,14 @@ export default function FlipDemoPage() {
 
         <div className="mt-auto flex items-end gap-3 border-t border-border px-6 py-6">
           {CARDS.map((c) => (
-            <Card key={c.id} card={c} open={c.id === openId} onOpen={() => flipTo(c.id)} onClose={() => flipTo(null)} />
+            <Card
+              key={c.id}
+              card={c}
+              open={c.id === openId}
+              closing={c.id === closingId}
+              onOpen={() => flipTo(c.id)}
+              onClose={() => flipTo(null)}
+            />
           ))}
         </div>
       </div>
@@ -131,15 +162,20 @@ export default function FlipDemoPage() {
 function Card({
   card,
   open,
+  closing,
   onOpen,
   onClose,
 }: {
   card: Demo
   open: boolean
+  closing: boolean
   onOpen: () => void
   onClose: () => void
 }) {
   const fid = (part: string) => `${card.id}-${part}`
+  // Body stays mounted while open AND while the window is shrinking closed, so
+  // it can scale down with the frame rather than disappearing instantly.
+  const showBody = open || closing
 
   // Stable dock slot: this wrapper ALWAYS holds the card's 112x64 footprint in
   // the dock flex row, whether the card is collapsed or expanded into a window.
@@ -166,6 +202,25 @@ function Card({
         style={{ backgroundColor: card.accent }}
       />
 
+      {/* Close button — deliberately NOT part of the header flow and NOT a flip
+          target. It is pinned to the frame's top-right corner and only fades in
+          / out, so it can never squeeze the title into two lines while the frame
+          is still narrow, and never slides across the screen during the morph. */}
+      {open && (
+        <button
+          type="button"
+          data-fade
+          onClick={(e) => {
+            e.stopPropagation()
+            onClose()
+          }}
+          aria-label={`Close ${card.title}`}
+          className="absolute right-3 top-3 z-20 flex size-6 items-center justify-center rounded-[4px] text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
+        >
+          <X size={16} />
+        </button>
+      )}
+
       {/* Persistent header container. It is NOT a flip target — it stays in the
           frame's flex flow and simply switches column→row layout, so the body
           always sits correctly below it. The glyph + title (which ARE flipped,
@@ -174,7 +229,7 @@ function Card({
       <div
         className={
           open
-            ? "flex items-center gap-3 border-b border-border px-5 py-4"
+            ? "flex items-center gap-3 border-b border-border py-4 pl-5 pr-12"
             : "flex flex-col gap-1.5 px-2.5 py-2"
         }
       >
@@ -202,31 +257,16 @@ function Card({
           style={{ fontSize: open ? 18 : 12 }}
           className={
             open
-              ? "flex-1 font-semibold tracking-tight"
+              ? "flex-1 whitespace-nowrap font-semibold tracking-tight"
               : "truncate font-medium leading-tight tracking-tight text-foreground"
           }
         >
           {card.title}
         </h3>
-
-        {open && (
-          <button
-            type="button"
-            data-fade
-            onClick={(e) => {
-              e.stopPropagation()
-              onClose()
-            }}
-            aria-label={`Close ${card.title}`}
-            className="flex size-6 items-center justify-center rounded-[4px] text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
-          >
-            <X size={16} />
-          </button>
-        )}
       </div>
 
-      {open && (
-        <div data-fade className="flex-1 px-5 py-4">
+      {showBody && (
+        <div data-fade data-body className="flex-1 px-5 py-4">
           <p className="mb-3 text-sm text-muted-foreground">These buttons are clickable during and after the morph:</p>
           <ul className="flex flex-col gap-2">
             {card.tasks.map((t) => (
