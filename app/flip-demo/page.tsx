@@ -208,19 +208,36 @@ export default function FlipDemoPage() {
         )
       }
 
-      // Deeper levels removed in the same gesture stay on top and fade in place,
-      // so they keep covering the parent's do-list until they're gone.
-      fadingList.forEach(({ id }) => {
+      // Deeper levels removed in the same gesture stay on top and TELESCOPE
+      // inward: they scale down toward the same top-left origin the parent's
+      // body collapses toward, while fading. That reads as the nested windows
+      // retracting back into their parent rather than just dissolving — and it
+      // keeps covering the parent's do-list until they're gone. The deepest
+      // window is furthest in, so we shrink it slightly more (depth-scaled) for
+      // a subtle stacked-telescope feel. Pure transform/opacity, so it's GPU
+      // cheap — no layout, no extra paint cost.
+      fadingList.forEach(({ id, depth }) => {
         const win = stage.querySelector<HTMLElement>(`[data-window="${id}"][data-flip-role="frame"]`)
-        if (win) gsap.fromTo(win, { opacity: 1 }, { opacity: 0, duration: DURATION * 0.7, ease: EASE })
+        if (!win) return
+        gsap.fromTo(
+          win,
+          { opacity: 1, scale: 1 },
+          {
+            opacity: 0,
+            scale: Math.max(0.1, 0.4 - depth * 0.08),
+            transformOrigin: "top left",
+            duration: DURATION * 0.7,
+            ease: EASE,
+          },
+        )
       })
 
       gsap.delayedCall(DURATION, () => {
-        // Clear the inline opacity we tweened, so these persistent nodes are
-        // clean if they're ever shown again.
+        // Clear the inline props we tweened, so these persistent nodes are clean
+        // if they're ever shown again.
         fadingList.forEach(({ id }) => {
           const win = stage.querySelector<HTMLElement>(`[data-window="${id}"][data-flip-role="frame"]`)
-          if (win) gsap.set(win, { clearProps: "opacity" })
+          if (win) gsap.set(win, { clearProps: "opacity,scale,transform" })
         })
         setFading([])
         setClosingId((c) => (c === closingEntity ? null : c))
