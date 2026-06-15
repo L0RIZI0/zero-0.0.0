@@ -393,10 +393,12 @@ function EntityView({ entity, variant }: { entity: Entity; variant: "dock" | "ro
     ? // Spine: an opaque full-height bar pinned to the left edge (covers the
       // do-list underneath in that strip). Glyph sits at top; the title rotates
       // to read up the bar. z-10 keeps it above the body; the child window
-      // (higher stacking context) covers everything to the right of it.
-      "absolute inset-y-0 left-0 z-10 flex w-14 flex-col items-center gap-4 border-r border-border bg-card-solid pt-4"
+      // (higher stacking context) covers everything to the right of it. No
+      // border here — the separating line is a dedicated fading element (below),
+      // so it never "jumps" from horizontal to vertical.
+      "absolute inset-y-0 left-[3px] z-10 flex w-14 flex-col items-center gap-7 bg-card-solid pt-4"
     : asWindow
-      ? "flex items-center gap-3 border-b border-border py-4 pl-5 pr-12"
+      ? "relative flex items-center gap-3 py-4 pl-5 pr-12"
       : variant === "dock"
         ? "flex flex-col gap-1.5 px-2.5 py-2 pr-7"
         : "flex h-full items-center gap-2 px-2.5 pr-7"
@@ -429,7 +431,10 @@ function EntityView({ entity, variant }: { entity: Entity; variant: "dock" | "ro
         }
         className={frameClass}
       >
-        {/* Accent strip — full-height absolute, tracks the frame size for free. */}
+        {/* Accent strip — full-height absolute, tracks the frame size for free.
+            The spine header is inset 3px from the left (below) so it never paints
+            over this strip; that keeps the entity's colored border visible without
+            raising the strip's z-index (which would make it bleed past windows). */}
         <span className="absolute left-0 top-0 z-10 h-full w-[3px]" style={{ backgroundColor: entity.accent }} />
 
         {/* Child-count badge, collapsed only. Absolute so it stays out of the
@@ -490,7 +495,11 @@ function EntityView({ entity, variant }: { entity: Entity; variant: "dock" | "ro
               spine
                 ? "whitespace-nowrap font-semibold tracking-tight"
                 : asWindow
-                  ? "flex-1 whitespace-nowrap font-semibold tracking-tight"
+                  ? // Natural width (NOT flex-1): the box hugs the text so its
+                    // center — the rotation pivot Flip animates — stays next to the
+                    // glyph. A stretched box would put the pivot far right and make
+                    // the title sweep a long arc into the spine.
+                    "whitespace-nowrap font-semibold tracking-tight"
                   : variant === "dock"
                     ? "w-full truncate font-medium leading-tight tracking-tight"
                     : "flex-1 truncate font-medium tracking-tight"
@@ -499,6 +508,21 @@ function EntityView({ entity, variant }: { entity: Entity; variant: "dock" | "ro
             {entity.title}
           </h3>
         </div>
+
+        {/* Header divider. A dedicated element (not a CSS border) so it can FADE
+            between states with a CSS opacity transition instead of the border
+            visually jumping from the header's bottom (horizontal window) to its
+            side (vertical spine). It's pinned to the frame at the window header's
+            bottom; when the space collapses to a spine it simply fades to 0 (and
+            fades back in on the way out). Tasks never spine, so theirs stays. */}
+        {asWindow && (
+          <span
+            aria-hidden
+            className={`pointer-events-none absolute left-0 right-0 top-[57px] z-[5] h-px bg-border transition-opacity duration-300 ${
+              spine ? "opacity-0" : "opacity-100"
+            }`}
+          />
+        )}
 
         {/* Window body — children become openable rows; leaves show a note. Tagged
             data-body so the close handler can scale it down with the frame. */}
@@ -519,7 +543,11 @@ function EntityView({ entity, variant }: { entity: Entity; variant: "dock" | "ro
               // removes the end-of-close title "snap down".
               closing
                 ? "pointer-events-none absolute inset-x-0 bottom-0 top-[57px] overflow-hidden px-5 py-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-                : "flex-1 overflow-auto px-5 py-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                : spine
+                  ? // Push content clear of the left spine so the "ITEMS" label and
+                    // do-list rows never sit underneath the vertical header.
+                    "flex-1 overflow-auto py-4 pl-16 pr-5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                  : "flex-1 overflow-auto px-5 py-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
             }
           >
             {entity.children.length > 0 ? (
