@@ -1,58 +1,71 @@
 "use client"
 
-import { useState } from "react"
-import { AnimatePresence, motion } from "motion/react"
+import { useLayoutEffect, useRef, useState } from "react"
 import { X, Check, ChevronRight, PanelLeft, PanelRight } from "lucide-react"
+import gsap from "gsap"
+import { Flip } from "gsap/Flip"
+import { CustomEase } from "gsap/CustomEase"
 import { cn } from "@/lib/utils"
 
 /**
- * HEXAGON SPACES — standalone exploration prototype.
+ * HEXAGON SPACES — standalone exploration prototype, now driven by GSAP (the same
+ * engine Zero uses in `lib/zero/flip-stage.ts`) instead of Framer Motion.
  *
- * Goal: understand what it means to give a *Space* entity a hexagon silhouette
- * across the THREE regions it can occupy in Zero, per the agreed model:
+ * WHY THE SWITCH: Framer's layout projection (`layoutId`) actively rewrites the
+ * transform matrix on the shared element every frame to keep its FLIP correction
+ * exact. That fought any `rotate` we put on the same node, which is why the dock
+ * "spin" only ever tilted out and snapped back. GSAP does no such projection — we
+ * own the transform outright — so a real rotation just works.
  *
- *   1. DO-LIST ROW  → stays a RECTANGLE (like today). Only its glyph is a hex.
- *   2. DOCK CARD    → a true HEXAGON, matching the Space glyph.
- *   3. WINDOW       → a true HEXAGON (the opened entity is shaped like its glyph).
+ * THE MODEL (unchanged):
+ *   1. DO-LIST ROW → RECTANGLE, hex glyph only.
+ *   2. DOCK CARD   → true HEXAGON (pointy-top, matches the glyph).
+ *   3. WINDOW      → flat-top HEXAGON (wide, near-rectangle; side points peek
+ *                    beside a nested child).
  *
- * This pass pushes on the HARD cases that decide feasibility:
- *   • ROW → WINDOW morph, shown deliberately: the row's hex glyph is the seed
- *     that grows into the full hexagon window (hexagon→hexagon throughout).
- *   • IN / OUT rails — Zero's signature side shortcuts — hugging the hexagon's
- *     two VERTICAL edges at the waist (the only straight edges a hexagon has).
- *   • NESTED CHILD — opening a sub-space stacks a second hexagon on top, with
- *     the parent peeking behind. Tests whether Zero's deep-stack model reads
- *     when every frame is a hexagon.
- *
- * The silhouette is a PERCENTAGE-based `clip-path`, so it stays hexagonal at
- * every size between a 24px glyph and a 560px window.
+ * HOW THE MORPH RUNS (mirrors Zero):
+ *   • On click we capture the launcher's rect (FIRST). React commits the open
+ *     window (LAST). In a useLayoutEffect (pre-paint) we set the window's hexagon
+ *     BACKGROUND layer to the launcher's transform, then tween it to identity —
+ *     a hand-rolled FLIP. Geometry (scaleX/scaleY + x/y), rotation, and the
+ *     clip-path reshape all ride the one tween.
+ *   • DOCK launch → the background spins ~120° clockwise (pointy-top HEX →
+ *     flat-top FLAT_HEX) while content fades in upright afterwards.
+ *   • ROW launch → the background reshapes RECT6 → FLAT_HEX with no spin, and the
+ *     glyph + title do their own little FLIP from the row up into the header.
+ *   • Content sits on a SEPARATE, non-transformed layer, so it never distorts or
+ *     rotates with the background.
  */
 
-// Regular pointy-top hexagon (points top & bottom) — same orientation as Zero's
-// Space glyph. Used for the dock cards + glyph identity. Percentage points keep
-// it hexagonal at any width/height.
+if (typeof window !== "undefined") {
+  gsap.registerPlugin(Flip, CustomEase)
+  // "zeroLand" — identical curve to Zero's flip-stage, so this prototype lands on
+  // the same beat as the real app.
+  if (!CustomEase.get?.("zeroLand")) {
+    CustomEase.create("zeroLand", "M0,0 C0.62,0.02 0.07,0.99 1,1")
+  }
+}
+
+// Slowed to 2s so the spin / reshape is easy to study (was the last request).
+const DUR = 2
+const EASE = "zeroLand"
+
+// Pointy-top hexagon — the Space glyph + dock card identity.
 const HEX = "polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)"
 
-// FLAT-TOP hexagon for the WINDOW: an EDGE sits on top/bottom (not a vertex), and
-// the left/right ends are points. Wide footprint → long horizontal top/bottom
-// edges, so it reads close to a rectangle, while the two side points poke out and
-// peek beside a child window when stacked. Vertices, in order: top-left,
-// top-right, right-point, bottom-right, bottom-left, left-point.
-// NB: a flat-top hexagon rotated 30° looks exactly like the pointy-top dock card,
-// which is what lets a dock launch spin in from a vertex-up pose to this edge-up
-// pose (see SPIN_DEG below).
+// Flat-top hexagon for the WINDOW: an edge on top/bottom, points at the sides.
+// Same 6-vertex COUNT as HEX and RECT6 so GSAP interpolates the clip-path
+// point-for-point during the reshape. Order: top-left, top-right, right-point,
+// bottom-right, bottom-left, left-point.
 const FLAT_HEX = "polygon(12% 0%, 88% 0%, 100% 50%, 88% 100%, 12% 100%, 0% 50%)"
 
-// A full-bounds RECTANGLE expressed with the SAME SIX vertices as FLAT_HEX, in the
-// same order (top-left, top-right, right-mid, bottom-right, bottom-left, left-mid),
-// so motion can interpolate clip-path rect→flat-hex point-for-point. This lets the
-// WHOLE row card visibly reshape into the hexagon during a row launch — no spin.
+// A rectangle written with the SAME six vertices as FLAT_HEX (top-left, top-right,
+// right-mid, bottom-right, bottom-left, left-mid), so a row launch can morph
+// rectangle → flat-hex cleanly.
 const RECT6 = "polygon(0% 0%, 100% 0%, 100% 50%, 100% 100%, 0% 100%, 0% 50%)"
 
-// Spin applied to a DOCK launch: the window enters rotated and unwinds to 0°
-// where the flat-top edge lands on top. NEGATIVE start so the turn resolves
-// CLOCKWISE (motion tweens from this value up toward 0). ~120° is a light,
-// quarter-ish turn rather than a full spin.
+// Dock-launch spin. Negative so the tween up to 0° resolves CLOCKWISE. ~120° is a
+// light, quarter-ish turn rather than a full spin.
 const SPIN_DEG = -120
 
 type SpaceItem = { id: string; label: string; done?: boolean }
@@ -61,7 +74,6 @@ type Space = {
   name: string
   blurb: string
   items: SpaceItem[]
-  // A nested sub-space, to exercise the hexagon stacking model.
   child?: Space
 }
 
@@ -128,55 +140,220 @@ const SPACES: Space[] = [
   },
 ]
 
-// One spring drives both the size morph and the position glide so the hexagon
-// feels like a single physical object expanding. Temporarily stretched to a fixed
-// 2s duration (a duration-based spring) so the spin/reshape is easy to study.
-const MORPH = { type: "spring" as const, duration: 2, bounce: 0.18 }
+type From = "dock" | "row"
+type OpenState = { id: string; from: From } | null
+type Rect = { top: number; left: number; width: number; height: number }
+type Launch = {
+  from: From
+  rect: Rect
+  glyph?: Rect
+  title?: { rect: Rect; fontSize: number }
+}
 
-type OpenState = { id: string; from: "dock" | "row" } | null
+const centerDelta = (from: Rect, to: Rect) => ({
+  dx: from.left + from.width / 2 - (to.left + to.width / 2),
+  dy: from.top + from.height / 2 - (to.top + to.height / 2),
+})
+
+// Stack offset for a window at `depth` given the current `top` index: deeper
+// ancestors sit further back (smaller) and higher up (shoulders peek).
+const offsetFor = (depth: number, top: number) => {
+  const below = top - depth
+  return { scale: 1 - below * 0.12, y: below * -54 }
+}
 
 export function HexagonDock() {
-  // The window stack: index 0 is the root space, each push is a nested child.
   const [open, setOpen] = useState<OpenState>(null)
   const [stack, setStack] = useState<Space[]>([])
 
   const rootSpace = SPACES.find((s) => s.id === open?.id) ?? null
 
-  function launch(id: string, from: "dock" | "row") {
+  // Imperative handles for the GSAP morph.
+  const backdropRef = useRef<HTMLDivElement>(null)
+  const groupRefs = useRef<HTMLDivElement[]>([])
+  const bgRefs = useRef<HTMLDivElement[]>([])
+  const contentRefs = useRef<HTMLDivElement[]>([])
+  const launchRef = useRef<Launch | null>(null)
+  const prevLenRef = useRef(0)
+  // While a close/pop tween is running we hold off the enter effect.
+  const animatingOutRef = useRef(false)
+
+  function launch(id: string, from: From, e: React.MouseEvent<HTMLButtonElement>) {
     const space = SPACES.find((s) => s.id === id)
     if (!space) return
+    const el = e.currentTarget
+    const rect = el.getBoundingClientRect()
+    const data: Launch = { from, rect: toRect(rect) }
+    if (from === "row") {
+      const g = el.querySelector("[data-row-glyph]")?.getBoundingClientRect()
+      const t = el.querySelector("[data-row-title]") as HTMLElement | null
+      if (g) data.glyph = toRect(g)
+      if (t) data.title = { rect: toRect(t.getBoundingClientRect()), fontSize: parseFloat(getComputedStyle(t).fontSize) }
+    }
+    launchRef.current = data
     setOpen({ id, from })
     setStack([space])
   }
-  function close() {
-    setOpen(null)
-    setStack([])
-  }
+
   function openChild(child: Space) {
     setStack((s) => [...s, child])
   }
-  function popChild() {
-    setStack((s) => (s.length > 1 ? s.slice(0, -1) : s))
+
+  function close() {
+    const launch = launchRef.current
+    const bg = bgRefs.current[0]
+    if (!launch || !bg) {
+      setOpen(null)
+      setStack([])
+      return
+    }
+    animatingOutRef.current = true
+    const top = stack.length - 1
+
+    // Telescope deeper levels inward.
+    for (let d = 1; d <= top; d++) {
+      const g = groupRefs.current[d]
+      if (g) gsap.to(g, { scale: 0.2, autoAlpha: 0, y: "-=40", duration: DUR * 0.6, ease: EASE })
+    }
+    // Fade the root content out fast.
+    const content = contentRefs.current[0]
+    if (content) gsap.to(content, { autoAlpha: 0, duration: DUR * 0.3, ease: EASE })
+
+    // Shrink + un-reshape + un-spin the background back into the launcher.
+    const W = toRect(bg.getBoundingClientRect())
+    const { dx, dy } = centerDelta(launch.rect, W)
+    const toClip = launch.from === "dock" ? HEX : RECT6
+    const toRot = launch.from === "dock" ? SPIN_DEG : 0
+    gsap.to(bg, {
+      x: dx,
+      y: dy,
+      scaleX: launch.rect.width / W.width,
+      scaleY: launch.rect.height / W.height,
+      rotation: toRot,
+      clipPath: toClip,
+      duration: DUR,
+      ease: EASE,
+    })
+    const inner = bg.firstElementChild
+    if (inner) gsap.to(inner, { clipPath: toClip, duration: DUR, ease: EASE })
+
+    if (backdropRef.current) gsap.to(backdropRef.current, { autoAlpha: 0, duration: DUR * 0.7, ease: EASE })
+
+    gsap.delayedCall(DUR, () => {
+      animatingOutRef.current = false
+      setOpen(null)
+      setStack([])
+    })
   }
 
-  // The window shares its layoutId with whichever region launched it, so the
-  // morph originates from the exact hexagon the user tapped.
-  const windowLayoutId =
-    open?.from === "dock" ? `dock-${open.id}` : open ? `row-${open.id}` : undefined
+  function popChild() {
+    const top = stack.length - 1
+    if (top < 1) return
+    animatingOutRef.current = true
+    const g = groupRefs.current[top]
+    if (g) gsap.to(g, { scale: 0.6, autoAlpha: 0, y: "+=30", duration: DUR * 0.55, ease: EASE })
+    // Bring the remaining ancestors forward one level.
+    for (let d = 0; d < top; d++) {
+      const o = offsetFor(d, top - 1)
+      const anc = groupRefs.current[d]
+      if (anc) gsap.to(anc, { scale: o.scale, y: o.y, duration: DUR, ease: EASE })
+    }
+    gsap.delayedCall(DUR * 0.55, () => {
+      animatingOutRef.current = false
+      setStack((s) => (s.length > 1 ? s.slice(0, -1) : s))
+    })
+  }
+
+  // The enter morph — runs pre-paint after each open/push so there is no flash.
+  useLayoutEffect(() => {
+    const len = stack.length
+    const prev = prevLenRef.current
+    prevLenRef.current = len
+    if (len === 0 || animatingOutRef.current) return
+    const top = len - 1
+
+    if (prev === 0 && len === 1) {
+      // INITIAL OPEN — backdrop + root morph from the launcher.
+      if (backdropRef.current) gsap.fromTo(backdropRef.current, { autoAlpha: 0 }, { autoAlpha: 1, duration: DUR * 0.45, ease: EASE })
+      enterRoot()
+    } else if (len > prev) {
+      // PUSH — the new top hexagon appears; ancestors slide back.
+      const g = groupRefs.current[top]
+      const o = offsetFor(top, top)
+      if (g) gsap.fromTo(g, { scale: o.scale * 0.82, autoAlpha: 0, y: o.y + 44 }, { scale: o.scale, autoAlpha: 1, y: o.y, duration: DUR, ease: EASE })
+      for (let d = 0; d < top; d++) {
+        const anc = groupRefs.current[d]
+        const ao = offsetFor(d, top)
+        if (anc) gsap.to(anc, { scale: ao.scale, y: ao.y, duration: DUR, ease: EASE })
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stack.length])
+
+  function enterRoot() {
+    const launch = launchRef.current
+    const bg = bgRefs.current[0]
+    const content = contentRefs.current[0]
+    if (!launch || !bg) return
+
+    // FIRST = launcher rect; LAST = the window's natural rect (measured now,
+    // pre-transform). Set the background to FIRST, then tween to LAST.
+    const W = toRect(bg.getBoundingClientRect())
+    const { dx, dy } = centerDelta(launch.rect, W)
+    const fromClip = launch.from === "dock" ? HEX : RECT6
+    const fromRot = launch.from === "dock" ? SPIN_DEG : 0
+    const inner = bg.firstElementChild
+
+    gsap.set(bg, { transformOrigin: "center center" })
+    gsap.fromTo(
+      bg,
+      { x: dx, y: dy, scaleX: launch.rect.width / W.width, scaleY: launch.rect.height / W.height, rotation: fromRot, clipPath: fromClip },
+      { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0, clipPath: FLAT_HEX, duration: DUR, ease: EASE },
+    )
+    if (inner) gsap.fromTo(inner, { clipPath: fromClip }, { clipPath: FLAT_HEX, duration: DUR, ease: EASE })
+
+    if (!content) return
+
+    if (launch.from === "dock") {
+      // Spin first, then fade the whole content in upright.
+      gsap.fromTo(content, { autoAlpha: 0 }, { autoAlpha: 1, delay: DUR * 0.5, duration: DUR * 0.3, ease: EASE })
+    } else {
+      // Row launch: glyph + title FLIP up from the row; everything else fades.
+      gsap.set(content, { autoAlpha: 1 })
+      const fades = content.querySelectorAll("[data-fade]")
+      gsap.fromTo(fades, { autoAlpha: 0 }, { autoAlpha: 1, delay: DUR * 0.25, duration: DUR * 0.3, ease: EASE })
+
+      const winGlyph = content.querySelector("[data-win-glyph]") as HTMLElement | null
+      if (launch.glyph && winGlyph) {
+        const last = toRect(winGlyph.getBoundingClientRect())
+        const { dx: gx, dy: gy } = centerDelta(launch.glyph, last)
+        gsap.fromTo(
+          winGlyph,
+          { x: gx, y: gy, scale: launch.glyph.width / last.width },
+          { x: 0, y: 0, scale: 1, duration: DUR, ease: EASE },
+        )
+      }
+      const winTitle = content.querySelector("[data-win-title]") as HTMLElement | null
+      if (launch.title && winTitle) {
+        const targetFont = parseFloat(getComputedStyle(winTitle).fontSize)
+        const last = toRect(winTitle.getBoundingClientRect())
+        gsap.fromTo(
+          winTitle,
+          { x: launch.title.rect.left - last.left, y: launch.title.rect.top - last.top, fontSize: launch.title.fontSize },
+          { x: 0, y: 0, fontSize: targetFont, duration: DUR, ease: EASE, transformOrigin: "left top" },
+        )
+      }
+    }
+  }
 
   return (
     <main className="relative flex min-h-svh flex-col bg-background text-foreground">
       <header className="px-6 pt-10 pb-6 text-center sm:pt-14">
-        <p className="text-xs font-medium uppercase tracking-[0.2em] text-muted-foreground">
-          Prototype
-        </p>
-        <h1 className="mt-2 text-balance font-sans text-2xl font-semibold tracking-tight sm:text-3xl">
-          Hexagon Spaces
-        </h1>
+        <p className="text-xs font-medium uppercase tracking-[0.2em] text-muted-foreground">Prototype · GSAP</p>
+        <h1 className="mt-2 text-balance font-sans text-2xl font-semibold tracking-tight sm:text-3xl">Hexagon Spaces</h1>
         <p className="mx-auto mt-3 max-w-lg text-pretty text-sm leading-relaxed text-muted-foreground">
-          A Space across its three regions. Rows stay rectangular (hex glyph
-          only); dock cards and the opened window are true hexagons. Open one,
-          then use the IN rail to push into a nested child hexagon.
+          A Space across its three regions, morphed with GSAP (Zero&apos;s engine). Rows stay rectangular (hex glyph only); the dock
+          card spins into the window; the row reshapes into it. Open one, then use the IN rail to push into a nested child.
         </p>
       </header>
 
@@ -186,53 +363,35 @@ export function HexagonDock() {
           <RegionLabel index={1} title="In the do-list" note="Rectangular row · hex glyph" />
           <ul className="mt-4 flex max-w-[180px] flex-col gap-1.5">
             {SPACES.map((space) => {
-              // While THIS row is the open window, unmount it (a duplicate
-              // layoutId would break the projection) and hold its footprint with
-              // a spacer so the list doesn't reflow.
               const morphing = open?.id === space.id && open.from === "row"
               return (
                 <li key={space.id}>
                   {morphing ? (
                     <div className="h-[60px]" aria-hidden />
                   ) : (
-                    // The WHOLE row card is the shared element. Its layoutId is
-                    // matched by the window, so the entire rectangle projects into
-                    // the hexagon — not just the glyph. At rest it's an ordinary
-                    // rounded rectangle row, exactly like today.
-                    <motion.button
-                      layoutId={`row-${space.id}`}
-                      onClick={() => launch(space.id, "row")}
+                    <button
+                      onClick={(e) => launch(space.id, "row", e)}
                       aria-label={`Open ${space.name}`}
-                      transition={MORPH}
                       className="group flex w-full items-center gap-3 rounded-lg border border-border bg-card px-3 py-2.5 text-left outline-none transition-colors hover:bg-secondary"
                     >
-                      {/* The row's only hexagon is its glyph badge. It carries a
-                          stable layoutId so it can SLIDE into the window's glyph
-                          (the morphing row is unmounted, so no duplicate id). */}
-                      <motion.span
-                        layoutId={`sglyph-${space.id}`}
-                        transition={MORPH}
+                      <span
+                        data-row-glyph
                         style={{ clipPath: HEX }}
                         className="flex h-[26px] w-[24px] shrink-0 items-center justify-center bg-foreground/10"
                       >
                         <HexGlyph className="h-3.5 w-3.5 text-foreground/80" />
-                      </motion.span>
+                      </span>
                       <span className="flex min-w-0 flex-1 flex-col">
-                        <motion.span
-                          layoutId={`stitle-${space.id}`}
-                          layout="position"
-                          transition={MORPH}
-                          className="truncate text-sm font-medium tracking-tight"
-                        >
+                        <span data-row-title className="truncate text-sm font-medium tracking-tight">
                           {space.name}
-                        </motion.span>
+                        </span>
                         <span className="truncate text-xs text-muted-foreground">{space.blurb}</span>
                       </span>
                       <span className="text-[11px] font-medium tabular-nums text-muted-foreground">
                         {space.items.filter((i) => !i.done).length}
                       </span>
                       <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground/60" />
-                    </motion.button>
+                    </button>
                   )}
                 </li>
               )
@@ -247,35 +406,27 @@ export function HexagonDock() {
             <ul className="flex flex-wrap items-center justify-center gap-6 sm:gap-7">
               {SPACES.map((space) => (
                 <li key={space.id} className="flex flex-col items-center">
-                  {/* Fixed cell holds the footprint so siblings never shift when
-                      this hexagon lifts out into a window. */}
                   <div className="relative h-[124px] w-[112px]">
                     {open?.id === space.id && open.from === "dock" ? (
                       <div className="h-full w-full" aria-hidden />
                     ) : (
-                      <motion.button
-                        layoutId={`dock-${space.id}`}
-                        onClick={() => launch(space.id, "dock")}
-                        transition={MORPH}
+                      <button
+                        onClick={(e) => launch(space.id, "dock", e)}
                         style={{ clipPath: HEX }}
                         className="group block h-full w-full bg-border outline-none"
                         aria-label={`Open ${space.name}`}
                       >
-                        {/* Inner hexagon inset fakes a crisp 1.5px hex ring
-                            (clip-path can't carry a border). */}
                         <span
                           style={{ clipPath: HEX }}
                           className="flex h-full w-full flex-col items-center justify-center gap-2 bg-card p-[1.5px] transition-colors group-hover:bg-secondary"
                         >
                           <HexGlyph className="h-7 w-7 text-foreground/80" />
-                          <span className="px-2 text-center text-[13px] font-medium leading-tight tracking-tight">
-                            {space.name}
-                          </span>
+                          <span className="px-2 text-center text-[13px] font-medium leading-tight tracking-tight">{space.name}</span>
                           <span className="text-[10px] font-medium tabular-nums text-muted-foreground">
                             {space.items.filter((i) => !i.done).length} open
                           </span>
                         </span>
-                      </motion.button>
+                      </button>
                     )}
                   </div>
                 </li>
@@ -285,238 +436,132 @@ export function HexagonDock() {
         </section>
       </div>
 
-      {/* Findings — what hexagon-ifying a Space actually costs. */}
+      {/* Findings. */}
       <section className="mx-auto w-full max-w-5xl px-5 pb-16">
         <RegionLabel index={3} title="What this means" note="Observations" />
         <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <Finding title="Rows are free">
-            Rectangular rows with a hex glyph keep lists scannable and aligned.
-            Zero risk — the glyph already carries the &quot;space&quot; identity,
-            and it spins as it morphs up into the window.
+          <Finding title="GSAP, like Zero">
+            Driven by a hand-rolled GSAP FLIP + the shared &quot;zeroLand&quot; ease. No layout projection means a real rotation
+            sticks instead of tilting back.
           </Finding>
           <Finding title="Flat-top reclaims space">
-            A wide flat-top hexagon (edge on top, points at the sides) reads
-            almost like a rectangle — only the four diagonal corners are lost, so
-            the list runs near full width across the middle.
+            A wide flat-top hexagon (edge on top, points at the sides) reads almost like a rectangle — only the four diagonal corners
+            are lost.
           </Finding>
           <Finding title="Two entries, two motions">
-            From the dock the whole card turns ~120° clockwise from vertex-up to
-            edge-up; from a row it reshapes rectangle→hexagon with no spin. Same
-            window, two arrivals.
+            From the dock the card spins ~120° clockwise (pointy-top → flat-top); from a row it reshapes rectangle → hexagon with no
+            spin. Same window, two arrivals.
           </Finding>
           <Finding title="Side points peek when nested">
-            A child window insets and the parent&apos;s left/right points poke out
-            beside it — a hexagon-native depth cue, replacing today&apos;s flush
-            left-edge spine.
+            A child window insets and the parent&apos;s left/right points poke out beside it — a hexagon-native depth cue.
           </Finding>
         </div>
       </section>
 
-      {/* WINDOW STACK — the same hexagon, grown, plus any nested children. */}
-      <AnimatePresence>
-        {rootSpace && stack.length > 0 && (
-          <motion.div
-            className="fixed inset-0 z-50 flex items-center justify-center p-4"
-            initial={{ backgroundColor: "oklch(0.235 0.006 60 / 0)" }}
-            animate={{ backgroundColor: "oklch(0.235 0.006 60 / 0.45)" }}
-            exit={{ backgroundColor: "oklch(0.235 0.006 60 / 0)" }}
-            transition={{ duration: 0.3 }}
-            onClick={close}
+      {/* WINDOW STACK. */}
+      {rootSpace && stack.length > 0 && (
+        <div ref={backdropRef} className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/40 p-4" onClick={close}>
+          <div
+            className="relative"
+            style={{ width: "min(94vw, 880px)", height: "min(86svh, 600px)" }}
+            onClick={(e) => e.stopPropagation()}
           >
-            {/* Stage holds the window footprint; children stack within it. */}
-            <div
-              className="relative"
-              style={{ width: "min(94vw, 880px)", height: "min(86svh, 600px)" }}
-              onClick={(e) => e.stopPropagation()}
-            >
-              {stack.map((space, depth) => {
-                const isTop = depth === stack.length - 1
-                // Each nested level insets and shifts up so the parent's top
-                // shoulders + glyph peek above the child — a hexagon-native peek.
-                const scale = 1 - depth * 0.12
-                const shiftY = depth * -54
-                // The ROOT launched from a ROW starts as a rectangle (matching the
-                // row card silhouette) and reshapes into the hexagon as it grows,
-                // so the entire card morphs — not just its size. Launched from the
-                // dock it's already a hexagon, so it stays hex throughout.
-                const reshapeFromRect = depth === 0 && open?.from === "row"
-                // Only a DOCK launch spins; a row launch reshapes (rect→flat-hex)
-                // with no rotation.
-                const spin = depth === 0 && open?.from === "dock"
-                return (
-                  <motion.div
-                    key={space.id}
-                    // Only the ROOT shares layout with the launcher (row/dock).
-                    // This element owns ONLY the position/size morph (scale, y,
-                    // opacity). It carries NO rotate/clipPath: layout projection
-                    // would fight those, which is what made the spin tilt-and-snap
-                    // back instead of turning. Shape + spin live on the bg layer.
-                    layoutId={depth === 0 ? windowLayoutId : undefined}
-                    initial={
-                      depth === 0 ? false : { opacity: 0, scale: scale * 0.8, y: shiftY + 40 }
-                    }
-                    animate={{ opacity: 1, scale, y: shiftY }}
-                    exit={
-                      depth === 0
-                        ? { opacity: 0, scale: 0.7 }
-                        : { opacity: 0, scale: scale * 0.85, y: shiftY + 30 }
-                    }
-                    transition={MORPH}
-                    // Depth 0 grows from its center; nested levels grow from the
-                    // top so the parent's shoulders + side points peek above/beside.
-                    style={{ transformOrigin: depth === 0 ? "center" : "center top" }}
-                    className="absolute inset-0"
+            {stack.map((space, depth) => {
+              const isTop = depth === stack.length - 1
+              return (
+                <div
+                  key={space.id}
+                  ref={(el) => {
+                    if (el) groupRefs.current[depth] = el
+                  }}
+                  className="absolute inset-0"
+                  style={{ transformOrigin: "center center" }}
+                >
+                  {/* ROTATING / RESHAPING BACKGROUND — owns the morph transform. */}
+                  <div
+                    ref={(el) => {
+                      if (el) bgRefs.current[depth] = el
+                    }}
+                    className="absolute inset-0 bg-border"
+                    style={{ clipPath: FLAT_HEX }}
                   >
-                    {/* ROTATING BACKGROUND LAYER — the hexagon region itself. It
-                        has no layoutId, so it can actually rotate (dock launch) and
-                        reshape (rect→hex on a row launch) without layout projection
-                        cancelling the transform. Holds the ring (bg-border) + the
-                        surface fill (bg-card), so the whole region spins as one. */}
-                    <motion.div
-                      initial={{
-                        clipPath: reshapeFromRect ? RECT6 : FLAT_HEX,
-                        rotate: spin ? SPIN_DEG : 0,
-                      }}
-                      animate={{ clipPath: FLAT_HEX, rotate: 0 }}
-                      exit={{
-                        clipPath: reshapeFromRect ? RECT6 : FLAT_HEX,
-                        rotate: spin ? SPIN_DEG : 0,
-                      }}
-                      transition={MORPH}
-                      style={{ transformOrigin: "center" }}
-                      className="absolute inset-0 bg-border"
-                    >
-                      <motion.div
-                        initial={{ clipPath: reshapeFromRect ? RECT6 : FLAT_HEX }}
-                        animate={{ clipPath: FLAT_HEX }}
-                        exit={{ clipPath: reshapeFromRect ? RECT6 : FLAT_HEX }}
-                        transition={MORPH}
-                        className={cn(
-                          "absolute inset-[2px] bg-card",
-                          !isTop && "brightness-[0.97]",
-                        )}
-                      />
-                    </motion.div>
+                    <div
+                      className={cn("absolute inset-[2px] bg-card", !isTop && "brightness-[0.97]")}
+                      style={{ clipPath: FLAT_HEX }}
+                    />
+                  </div>
 
-                    {/* CONTENT LAYER — sits above the rotating background and does
-                        NOT rotate, so text/glyph stay upright while the region
-                        spins beneath them. */}
-                    <div className="absolute inset-0 flex flex-col items-center">
-                      {isTop ? (
-                        <SpaceWindowContent
-                          space={space}
-                          slideId={depth === 0 && open?.from === "row" ? open.id : undefined}
-                        />
-                      ) : (
-                        // Ancestor peek — just the glyph + name near the top point.
-                        <div className="flex w-full flex-col items-center pt-[7%]">
-                          <HexGlyph className="h-5 w-5 text-foreground/60" />
-                          <span className="mt-1 text-xs font-medium text-muted-foreground">
-                            {space.name}
-                          </span>
-                        </div>
-                      )}
-                    </div>
-
-                    {isTop && (
-                      <>
-                        {/* IN / OUT rails — tuck by the left/right side points,
-                            where the flat-top hexagon reaches full width. */}
-                        <SideRail
-                          side="in"
-                          label={space.child ? `Open ${space.child.name}` : "No child space"}
-                          disabled={!space.child}
-                          onClick={() => space.child && openChild(space.child)}
-                        />
-                        <SideRail side="out" label="Outputs" disabled onClick={() => {}} />
-
-                        {/* Close (or back, when nested) — kept inside the
-                            silhouette near the top region. */}
-                        <motion.button
-                          onClick={depth === 0 ? close : popChild}
-                          initial={{ opacity: 0 }}
-                          animate={{ opacity: 1, transition: { delay: 0.16 } }}
-                          exit={{ opacity: 0, transition: { duration: 0.1 } }}
-                          className="absolute right-[6%] top-[7%] flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-                          aria-label={depth === 0 ? `Close ${space.name}` : `Back from ${space.name}`}
-                        >
-                          <X className="h-4 w-4" />
-                        </motion.button>
-                      </>
+                  {/* CONTENT — separate, never transformed by the morph. */}
+                  <div
+                    ref={(el) => {
+                      if (el) contentRefs.current[depth] = el
+                    }}
+                    className="absolute inset-0 flex flex-col items-center"
+                  >
+                    {isTop ? (
+                      <SpaceWindowContent space={space} />
+                    ) : (
+                      <div className="flex w-full flex-col items-center pt-[7%]">
+                        <HexGlyph className="h-5 w-5 text-foreground/60" />
+                        <span className="mt-1 text-xs font-medium text-muted-foreground">{space.name}</span>
+                      </div>
                     )}
-                  </motion.div>
-                )
-              })}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+                  </div>
+
+                  {isTop && (
+                    <>
+                      <SideRail
+                        side="in"
+                        label={space.child ? `Open ${space.child.name}` : "No child space"}
+                        disabled={!space.child}
+                        onClick={() => space.child && openChild(space.child)}
+                      />
+                      <SideRail side="out" label="Outputs" disabled onClick={() => {}} />
+                      <button
+                        onClick={depth === 0 ? close : popChild}
+                        className="absolute right-[6%] top-[7%] z-10 flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                        aria-label={depth === 0 ? `Close ${space.name}` : `Back from ${space.name}`}
+                        data-fade
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
     </main>
   )
 }
 
-/** The frontmost hexagon window's content. The flattened window only clips
- *  shallow corners, so content can run close to the edges like a real window —
- *  just keep the left/right rail gutters clear and ease the top/bottom slightly.
- *  When `slideId` is set (row launch), the glyph + title carry the SAME layoutIds
- *  as the originating row, so they glide from the row into the window header
- *  instead of cross-fading in. */
-function SpaceWindowContent({ space, slideId }: { space: Space; slideId?: string }) {
-  return (
-    <motion.div
-      className="flex h-full w-full flex-col items-center px-[12%] pt-[7%] pb-[6%]"
-    >
-      <motion.div
-        layoutId={slideId ? `sglyph-${slideId}` : undefined}
-        layout={slideId ? "position" : undefined}
-        className="flex items-center justify-center"
-        style={slideId ? { clipPath: HEX } : undefined}
-        // ROW launch: the glyph slides up from the row AND spins as it morphs in.
-        // DOCK launch: the window itself spun, so the glyph just fades in upright
-        // once that spin has settled (delayed) — never caught mid-rotation.
-        initial={slideId ? { rotate: SPIN_DEG - 30 } : { opacity: 0 }}
-        animate={
-          slideId
-            ? { rotate: 0 }
-            : { opacity: 1, transition: { delay: 0.34, duration: 0.25 } }
-        }
-        exit={slideId ? { rotate: SPIN_DEG - 30 } : { opacity: 0, transition: { duration: 0.1 } }}
-        transition={MORPH}
-      >
-        <HexGlyph className="h-9 w-9 text-foreground/80" />
-      </motion.div>
-      <motion.h2
-        layoutId={slideId ? `stitle-${slideId}` : undefined}
-        layout={slideId ? "position" : undefined}
-        className="mt-3 text-center text-xl font-semibold tracking-tight"
-        // Title slides in on a row launch; fades in after the spin on a dock launch.
-        initial={slideId ? undefined : { opacity: 0 }}
-        animate={slideId ? undefined : { opacity: 1, transition: { delay: 0.34, duration: 0.25 } }}
-        exit={slideId ? undefined : { opacity: 0, transition: { duration: 0.1 } }}
-        transition={MORPH}
-      >
-        {space.name}
-      </motion.h2>
-      <motion.p
-        className="mt-1 text-center text-xs text-muted-foreground"
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1, transition: { delay: slideId ? 0.12 : 0.34, duration: 0.25 } }}
-        exit={{ opacity: 0, transition: { duration: 0.12 } }}
-      >
-        {space.blurb}
-      </motion.p>
+const toRect = (r: { top: number; left: number; width: number; height: number }): Rect => ({
+  top: r.top,
+  left: r.left,
+  width: r.width,
+  height: r.height,
+})
 
-      <motion.ul
-        className="mt-5 flex w-full max-w-[520px] flex-col gap-1.5 overflow-y-auto"
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1, transition: { delay: slideId ? 0.12 : 0.34, duration: 0.25 } }}
-        exit={{ opacity: 0, transition: { duration: 0.12 } }}
-      >
+/** The frontmost hexagon window's content. The glyph + title carry data hooks so a
+ *  row launch can FLIP them up from the row; the blurb / list / close just fade. */
+function SpaceWindowContent({ space }: { space: Space }) {
+  return (
+    <div className="flex h-full w-full flex-col items-center px-[12%] pt-[7%] pb-[6%]">
+      <div data-win-glyph className="flex items-center justify-center" style={{ transformOrigin: "center center" }}>
+        <HexGlyph className="h-9 w-9 text-foreground/80" />
+      </div>
+      <h2 data-win-title className="mt-3 text-center text-xl font-semibold tracking-tight">
+        {space.name}
+      </h2>
+      <p data-fade className="mt-1 text-center text-xs text-muted-foreground">
+        {space.blurb}
+      </p>
+
+      <ul data-fade className="mt-5 flex w-full max-w-[520px] flex-col gap-1.5 overflow-y-auto">
         {space.items.map((item) => (
-          <li
-            key={item.id}
-            className="flex items-center gap-2.5 rounded-md bg-secondary/60 px-3 py-2"
-          >
+          <li key={item.id} className="flex items-center gap-2.5 rounded-md bg-secondary/60 px-3 py-2">
             <span
               className={cn(
                 "flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] border",
@@ -525,21 +570,17 @@ function SpaceWindowContent({ space, slideId }: { space: Space; slideId?: string
             >
               {item.done && <Check className="h-3 w-3" strokeWidth={3} />}
             </span>
-            <span className={cn("truncate text-sm", item.done && "text-muted-foreground line-through")}>
-              {item.label}
-            </span>
+            <span className={cn("truncate text-sm", item.done && "text-muted-foreground line-through")}>{item.label}</span>
           </li>
         ))}
-      </motion.ul>
-    </motion.div>
+      </ul>
+    </div>
   )
 }
 
 /**
- * IN / OUT side rail — sits in the gutter by the flat-top hexagon's left/right
- * POINT. The wide flat-top shape is at full width across its vertical middle, so
- * the rail tucks just inside the side point at mid-height, reading like a real
- * window's edge control.
+ * IN / OUT side rail — tucks just inside the flat-top hexagon's left/right point at
+ * mid-height, where the shape reaches full width.
  */
 function SideRail({
   side,
@@ -554,14 +595,12 @@ function SideRail({
 }) {
   const Icon = side === "in" ? PanelLeft : PanelRight
   return (
-    <motion.button
+    <button
       onClick={onClick}
       disabled={disabled}
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1, transition: { delay: 0.18 } }}
-      exit={{ opacity: 0, transition: { duration: 0.1 } }}
       aria-label={label}
       title={label}
+      data-fade
       className={cn(
         "absolute top-1/2 z-10 flex h-14 w-7 -translate-y-1/2 flex-col items-center justify-center gap-1",
         side === "in" ? "left-[1.5%]" : "right-[1.5%]",
@@ -569,10 +608,8 @@ function SideRail({
       )}
     >
       <Icon className="h-4 w-4" />
-      <span className="text-[9px] font-semibold uppercase tracking-wider [writing-mode:vertical-rl]">
-        {side}
-      </span>
-    </motion.button>
+      <span className="text-[9px] font-semibold uppercase tracking-wider [writing-mode:vertical-rl]">{side}</span>
+    </button>
   )
 }
 
@@ -583,9 +620,7 @@ function RegionLabel({ index, title, note }: { index: number; title: string; not
         {index}
       </span>
       <h3 className="text-sm font-semibold tracking-tight">{title}</h3>
-      <span className="ml-auto text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-        {note}
-      </span>
+      <span className="ml-auto text-[11px] font-medium uppercase tracking-wider text-muted-foreground">{note}</span>
     </div>
   )
 }
