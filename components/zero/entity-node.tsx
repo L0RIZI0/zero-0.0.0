@@ -5,7 +5,7 @@ import { Check, X } from "lucide-react"
 import { getEntity, getOpenTaskCount } from "@/lib/zero/data"
 import type { TaskPriority } from "@/lib/zero/types"
 import { useZeroNav, useRowSelection, HIGHLIGHT_SHADOW, HIGHLIGHT_SHADOW_NONE } from "@/lib/zero/nav-store"
-import { HEADER_H, ANCESTOR_HEADER_H, clipFor } from "@/lib/zero/motion"
+import { HEADER_H, ANCESTOR_HEADER_H, SPACE_CLIP_HEX } from "@/lib/zero/motion"
 import { DURATION_S, MORPH_CSS_EASE } from "@/lib/zero/flip-stage"
 import { NodeGlyph } from "./node-glyph"
 import { EntityBody } from "./entity-body"
@@ -154,11 +154,23 @@ export function EntityNode({
   // frame. Only a settled, collapsed node is interactive.
   const interactive = !asWindow && !isClosing
 
-  // Clip-path shape. ONLY Spaces use clip-path (so they can morph hexagon ⇄
-  // rectangle); tasks/events keep their rounded-rectangle `borderRadius` instead,
-  // so their designed asymmetric corners are preserved. `clipPath` is undefined
-  // for non-spaces, in which case the collapsed/window borderRadius applies.
-  const clipPath = isSpace ? clipFor(kind, variant, asWindow) : undefined
+  // Clip-path shape. A Space is a hexagon ONLY where nothing needs to escape it:
+  //   - its collapsed DOCK CARD (no children rendered inside), and
+  //   - the frontmost LEAF window (isTop) — a true hexagon with no child window
+  //     inside it to clip.
+  // The instant a child opens the Space stops being the leaf and reverts to a
+  // plain rounded-rect ancestor (clipPath undefined) so the child's fixed window
+  // is no longer cropped by the hexagon's corners. Tasks/events never clip.
+  const spaceLeafWindow = isSpace && asWindow && isTop
+  const clipPath = !isSpace
+    ? undefined
+    : asWindow
+      ? isTop
+        ? SPACE_CLIP_HEX
+        : undefined
+      : variant === "dock"
+        ? SPACE_CLIP_HEX
+        : undefined
 
   // Borderless design. No frames anywhere:
   //   - window / closing → solid surface (so parent content can't bleed through).
@@ -175,16 +187,20 @@ export function EntityNode({
         cancelled && "opacity-50",
       )
 
-  // Space windows are hexagons: the header is CENTERED at the top (matching the
-  // dock card's centered glyph+title, so the morph is a straight scale), pushed
-  // DOWN below the hexagon's tapering top point into the safe band. Non-space
-  // windows keep the left-aligned header.
+  // Header layout:
+  //   - LEAF Space window (hexagon) → header CENTERED at the top, pushed below the
+  //     hexagon's tapering top point (matching the dock card's centered glyph +
+  //     title so the morph is a straight scale).
+  //   - ancestor Space window OR any non-space window → left-aligned horizontal
+  //     header so the glyph + title sit near the top-LEFT corner and dominate the
+  //     children peeking below.
+  //   - dock card → centered column (glyph, title, then the open-task counter).
   const headerClass = asWindow
-    ? isSpace
+    ? spaceLeafWindow
       ? "relative z-10 flex shrink-0 flex-col items-center gap-1.5 px-4 pt-9"
       : cn("relative z-10 flex shrink-0 items-center gap-3 pr-12 pl-4")
     : variant === "dock"
-      ? "flex flex-1 flex-col gap-1.5 px-2.5 py-2 pr-7"
+      ? "flex flex-1 flex-col items-center justify-center gap-1 px-2 text-center"
       : "flex h-full items-center gap-2 px-2.5 pr-2.5"
 
   // ANCESTORS (open windows that are not the frontmost leaf — i.e. a dimmed Space

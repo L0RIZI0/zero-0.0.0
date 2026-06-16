@@ -129,28 +129,53 @@ export function stackTargetRect(
   let left = WINDOW_BASE_SIDE
   let right = WINDOW_BASE_SIDE
   let bottom = 0
-  for (const kind of ancestorKinds) {
-    if (kind === "space") {
-      // Centered over the hexagon: symmetric on all four sides so the parent's
-      // top point AND bottom point peek, and the child stays horizontally
-      // centered within the hexagon's wide mid-band.
-      top += SPACE_CHILD_PEEK_Y
-      bottom += SPACE_CHILD_PEEK_Y
-      left += SPACE_CHILD_PEEK_X
-      right += SPACE_CHILD_PEEK_X
-    } else {
-      // Non-space ancestor: original top-peek nested-doll, with a small right
-      // sliver so its collapsed Outs rail stays visible.
-      right += RIGHT_PEEK
-      top += TASK_TOP_PEEK
-      left += TASK_SIDE
-    }
+  // EVERY ancestor — space, task, event or instant — now uses the same top-peek
+  // nested-doll profile. A space stops being a centered hexagon the moment a
+  // child opens over it: it widens into a standard rounded-rect ancestor whose
+  // top band shows its glyph/title and whose left/right slivers expose its
+  // collapsed IN/OUT rails (matching the prototype's other entity kinds, and
+  // letting the fixed child window escape what used to be a clipping hexagon).
+  for (const _kind of ancestorKinds) {
+    right += RIGHT_PEEK
+    top += TASK_TOP_PEEK
+    left += TASK_SIDE
   }
   return { top, left, width: region.w - left - right, height: region.h - top - bottom }
 }
 
 /** A rectangle in viewport coordinates — the box a window morphs from / to. */
 export type Rect = { top: number; left: number; width: number; height: number }
+
+/**
+ * For the pointy-top hexagon clip `polygon(50% 0, 100% 25%, 100% 75%, 50% 100%,
+ * 0 75%, 0 25%)`, a TRUE regular hexagon has width : height = √3 : 2, i.e.
+ * width = height × 0.8660. Below this ratio the clip renders as a stretched
+ * (too-wide) hexagon; above it, too-narrow. We size the frontmost leaf Space
+ * window to honour it exactly so a freshly opened Space is a perfect hexagon.
+ */
+const HEX_W_OVER_H = Math.sqrt(3) / 2
+
+/**
+ * Largest perfect (regular) hexagon that fits inside `rect`, centered within it.
+ * Used for a Space window that is the frontmost LEAF (no child open): it ignores
+ * the wide focus region and instead occupies a true hexagon. As soon as a child
+ * opens the Space is no longer the leaf and reverts to the full `stackTargetRect`
+ * box — i.e. it "widens" to host the child.
+ */
+export function perfectHexInside(rect: Rect): Rect {
+  let height = rect.height
+  let width = height * HEX_W_OVER_H
+  if (width > rect.width) {
+    width = rect.width
+    height = width / HEX_W_OVER_H
+  }
+  return {
+    top: rect.top + (rect.height - height) / 2,
+    left: rect.left + (rect.width - width) / 2,
+    width,
+    height,
+  }
+}
 
 /**
  * Measure the on-screen morph source for an entity (its DO-list row, dock card,

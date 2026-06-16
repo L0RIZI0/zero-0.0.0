@@ -4,7 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { flushSync } from "react-dom"
 import { getEntity, hydrateFromStorage } from "./data"
 import { collapseEntityPanels } from "./panel-store"
-import { stackTargetRect } from "./motion"
+import { stackTargetRect, perfectHexInside } from "./motion"
 import { shellStageFor, WINDOW_TOP_LIFT } from "./layout"
 import {
   captureStage,
@@ -365,7 +365,13 @@ export function ZeroNavProvider({
     // root backdrop, below this window) and let each reserve space by its kind.
     const styleFor = (windowDepth: number): React.CSSProperties => {
       const ancestorKinds = stack.slice(1, windowDepth).map((sid) => getEntity(sid)?.kind ?? "task")
-      const rect = stackTargetRect(ancestorKinds, { w: liftedRegion.width, h: liftedRegion.height })
+      let rect = stackTargetRect(ancestorKinds, { w: liftedRegion.width, h: liftedRegion.height })
+      // The frontmost LEAF window, when it is a Space, is a PERFECT hexagon — it
+      // ignores the wide focus box and centers a true regular hexagon instead.
+      // (Deeper Space ancestors keep the full box so they widen to host children.)
+      const isLeaf = windowDepth === stack.length - 1
+      const isSpaceLeaf = isLeaf && (getEntity(stack[windowDepth])?.kind ?? "task") === "space"
+      if (isSpaceLeaf) rect = perfectHexInside(rect)
       return {
         position: "fixed",
         top: liftedRegion.top + rect.top,
@@ -373,10 +379,10 @@ export function ZeroNavProvider({
         width: rect.width,
         height: rect.height,
         zIndex: 20 + windowDepth * 10,
-        // Top-left square. Top-right gets a medium radius (16px — larger than the
-        // 8px bottom corners, smaller than the old 28px) for every window EXCEPT
-        // the first child opened from home (windowDepth === 1). (TL TR BR BL)
-        borderRadius: `0 ${windowDepth >= 2 ? "16px" : "0"} 8px 8px`,
+        // A leaf Space is hexagon-clipped (no radius). Otherwise: top-left square,
+        // top-right medium radius (16px) for every window EXCEPT the first child
+        // opened from home (windowDepth === 1). (TL TR BR BL)
+        borderRadius: isSpaceLeaf ? "0" : `0 ${windowDepth >= 2 ? "16px" : "0"} 8px 8px`,
       }
     }
 
