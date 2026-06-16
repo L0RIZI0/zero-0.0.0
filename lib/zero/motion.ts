@@ -5,9 +5,9 @@ import type { EntityKind } from "./types"
  * Zero motion language: calm, precise, deterministic. No bounce.
  * A single shared transition keeps the shared-element morph coherent.
  */
-// Shared easing: cubic-bezier(0, 1.2, .93, .97). The early >1 control point gives
-// a gentle overshoot-style acceleration so the motion feels alive rather than flat.
-export const MORPH_EASE: [number, number, number, number] = [0, 1.2, 0.93, 0.97]
+// Shared easing: cubic-bezier(0, .97, .76, .96). A quick early surge then a long,
+// soft settle so the motion feels alive rather than flat.
+export const MORPH_EASE: [number, number, number, number] = [0, 0.97, 0.76, 0.96]
 
 export const layerTransition: Transition = {
   duration: 0.66,
