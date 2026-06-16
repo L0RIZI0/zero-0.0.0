@@ -161,12 +161,13 @@ export function EntityNode({
       )
 
   const headerClass = spine
-    ? // No fixed gap between glyph and title: the glyph pins to the top (pt-4)
-      // and the title takes `my-auto` (below) to center in the REMAINING height.
-      // A long rotated title (e.g. "Home & Family") therefore sits at the
-      // window's vertical middle instead of butting up against — and overlapping
-      // — the glyph just above it.
-      "absolute inset-y-0 left-[3px] z-10 flex w-14 flex-col items-center pt-4"
+    ? // Glyph pinned to the TOP, title stacked just beneath it (top-aligned —
+      // this reads better than the centered variant). The title uses a vertical
+      // writing-mode below, so its layout box has real HEIGHT; that lets a small
+      // `gap-3` reliably separate it from the glyph and grow downward, instead of
+      // a rotate()'d box (zero layout height, centered) whose long titles like
+      // "Home & Family" expanded upward and overlapped the glyph.
+      "absolute inset-y-0 left-[3px] z-10 flex w-14 flex-col items-center gap-3 pt-4"
     : asWindow
       ? "relative z-10 flex shrink-0 items-center gap-3 pl-5 pr-12"
       : variant === "dock"
@@ -277,13 +278,17 @@ export function EntityNode({
             data-flip-role="inner"
             style={{
               fontSize: titleSize,
-              transform: spine ? "rotate(-90deg)" : undefined,
+              // Spine: a real vertical text box (height = title length) rotated
+              // 180° so it still reads bottom-to-top like before — but now flows
+              // and top-aligns in the header column instead of being a zero-height
+              // rotate() box. Non-spine titles stay horizontal.
+              ...(spine ? { writingMode: "vertical-rl" as const, transform: "rotate(180deg)" } : {}),
               transformOrigin: "center",
             }}
             className={cn(
               "relative tracking-tight",
               spine
-                ? "my-auto whitespace-nowrap font-semibold"
+                ? "whitespace-nowrap font-semibold"
                 : asWindow
                   ? "whitespace-nowrap font-semibold"
                   : variant === "dock"
@@ -361,7 +366,15 @@ export function EntityNode({
           <div
             data-fade
             data-body
-            style={isClosing ? { top: HEADER_H } : undefined}
+            // When this becomes a spine the header switches from an in-flow band
+            // (HEADER_H tall) to an absolutely-positioned vertical rail, which
+            // would free HEADER_H at the top of the body and shift its
+            // vertically-centered Inputs/Outputs rails UP. Re-reserve that height
+            // as padding so the body's content box — and those centered rails —
+            // stay exactly where they were in window mode.
+            style={
+              isClosing ? { top: HEADER_H } : spine ? { paddingTop: HEADER_H } : undefined
+            }
             className={cn(
               isClosing
                 ? "pointer-events-none absolute inset-x-0 bottom-0 overflow-hidden"

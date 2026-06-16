@@ -7,6 +7,17 @@ import { panelTransition } from "@/lib/zero/motion"
 import { cn } from "@/lib/utils"
 
 /**
+ * Module-level memory of each panel's open/closed state, keyed by
+ * `${entityId}:${side}`. EntityBody (and therefore every CollapsibleColumn) is
+ * re-rendered — and can be re-mounted — whenever the window stack changes, e.g.
+ * when a child window opens and the parent reflows to a spine. A plain local
+ * useState would reset to `defaultOpen` on each remount, which is why an
+ * expanded Inputs/Outputs panel snapped shut the moment a child opened. Holding
+ * the state outside React preserves the user's choice across those remounts.
+ */
+const panelOpenState = new Map<string, boolean>()
+
+/**
  * A borderless side column that lives inside a fixed-width slot. Collapsing it
  * swaps the full panel for a thin rail (aligned to the outer screen edge) with
  * a quick crossfade — the slot width never changes, so the center Tasks column
@@ -19,9 +30,10 @@ export function CollapsibleColumn({
   count,
   children,
   defaultOpen = true,
+  storeKey,
 }: {
   title: string
-  /** Short label shown on the vertical rail when collapsed (e.g. "Ins" / "Outs").
+  /** Short label shown on the vertical rail when collapsed (e.g. "In" / "Out").
    *  Falls back to the full `title` when omitted. The open panel always uses the
    *  full `title`. */
   collapsedTitle?: string
@@ -29,8 +41,15 @@ export function CollapsibleColumn({
   count?: number
   children: React.ReactNode
   defaultOpen?: boolean
+  /** Stable identity for remembering open/closed across remounts (see
+   *  `panelOpenState`). Usually `${entityId}:${side}`. */
+  storeKey?: string
 }) {
-  const [open, setOpen] = useState(defaultOpen)
+  const [open, setOpenState] = useState(() => (storeKey ? panelOpenState.get(storeKey) ?? defaultOpen : defaultOpen))
+  const setOpen = (next: boolean) => {
+    if (storeKey) panelOpenState.set(storeKey, next)
+    setOpenState(next)
+  }
 
   const OpenIcon = side === "left" ? PanelLeftClose : PanelRightClose
   const ClosedIcon = side === "left" ? PanelLeftOpen : PanelRightOpen
@@ -47,7 +66,11 @@ export function CollapsibleColumn({
             exit={{ opacity: 0, x: side === "left" ? -8 : 8 }}
             transition={panelTransition}
             className={cn(
-              "flex min-h-0 flex-col",
+              // `flex-1 min-h-0` makes the panel fill the column's (stable) height
+              // so its inner list SCROLLS. Without it the section sized to its
+              // content, the tall list grew the whole columns row, and the
+              // opposite side's centered rail got pushed down with it.
+              "flex min-h-0 flex-1 flex-col",
               // Pull the whole open panel outward so it hugs the screen edge
               // (its header label + the per-row continuity rails sit as close to
               // the edge as the collapsed rail does — bleeding is fine).
