@@ -32,17 +32,11 @@ import { CustomEase } from "gsap/CustomEase"
  */
 if (typeof window !== "undefined") {
   gsap.registerPlugin(Flip, CustomEase)
-  // "zeroLand": accelerate, hold speed, then a long soft landing — an ease-in-OUT
-  // rather than the previous front-loaded ease-out (which started fast and only
-  // ever slowed, reading as "linear then abrupt"). Control points (all
-  // x-monotonic — the earlier bug was a backward x fold that stalled GSAP):
-  //   P1 (0.32, 0.05) → initial slope ≈0.16: moves immediately but GENTLY, then
-  //                     builds speed through the first ~40% (the acceleration the
-  //                     motion was missing — more, and lasting longer).
-  //   P2 (0.6, 1)     → end slope 0 (1−1 over 1−0.6), so the deceleration spans the
-  //                     final ~40% and eases asymptotically into rest — a softer,
-  //                     longer landing instead of the abrupt last-15% knee.
-  CustomEase.create("zeroLand", "M0,0 C0.32,0.05 0.6,1 1,1")
+  // "zeroLand": cubic-bezier(0, 1.2, .93, .97). The P1 y of 1.2 (>1) gives a sharp
+  // early surge past the trajectory then a settle, so the motion reads lively
+  // rather than flat. Kept identical to MORPH_EASE in motion.ts so the GSAP Flip
+  // and the Framer-driven chrome share one curve.
+  CustomEase.create("zeroLand", "M0,0 C0,1.2 0.93,0.97 1,1")
 }
 
 export { gsap }
@@ -50,14 +44,14 @@ export { gsap }
 /** Quick, elegant motion shared by every window — the `zeroLand` ease-in-out curve
  *  (defined above): accelerates into a fast expansion/shrink, then eases out over
  *  the final ~40% for a soft, gentle landing. */
-export const MORPH_DURATION = 1
+export const MORPH_DURATION = 0.66
 export const MORPH_EASE = "zeroLand"
 /** Same duration as a CSS string, for the fade/transition chrome (spine bg,
  *  divider, close-button reposition) that rides along with the Flip morph. */
 export const DURATION_S = `${MORPH_DURATION}s`
 /** The `zeroLand` curve as a CSS timing function, so chrome that fades along with
- *  the morph (spine cover, divider) lands on the same late-ease beat as the Flip. */
-export const MORPH_CSS_EASE = "cubic-bezier(0.32, 0.05, 0.6, 1)"
+ *  the morph (spine cover, divider) lands on the same beat as the Flip. */
+export const MORPH_CSS_EASE = "cubic-bezier(0, 1.2, 0.93, 0.97)"
 
 type FlipState = ReturnType<typeof Flip.getState>
 
