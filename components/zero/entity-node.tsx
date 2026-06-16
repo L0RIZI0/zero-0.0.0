@@ -194,7 +194,14 @@ export function EntityNode({
   // TOP lands just under the glyph; SPINE_TITLE_GAP then pushes it further down
   // for a comfortable, deliberate gap below the glyph.
   const SPINE_TITLE_GAP = 18
-  const spineTitleMt = spine ? Math.max(0, (titleW - titleSize) / 2) + SPINE_TITLE_GAP : 0
+  // Cap the title's effective length on a spine: rather than letting a long title
+  // grow `spineTitleMt` ever-larger (which used to push the IN shortcut below it
+  // down the strip), the title is CROPPED at SPINE_TITLE_MAX_W (its un-rotated
+  // width, = its vertical extent once rotated) with an ellipsis, and the margin is
+  // computed from the clamped width so it never pushes past a fixed point.
+  const SPINE_TITLE_MAX_W = 150
+  const clampedTitleW = Math.min(titleW, SPINE_TITLE_MAX_W)
+  const spineTitleMt = spine ? Math.max(0, (clampedTitleW - titleSize) / 2) + SPINE_TITLE_GAP : 0
 
   return (
     <div className={slotClass}>
@@ -252,8 +259,11 @@ export function EntityNode({
             data-fade
             style={{ transitionDuration: DURATION_S }}
             className={cn(
+              // Nudged closer to the edge (was right-3) so the now-smaller cross
+              // reads as centered within the window's right peek margin when one
+              // exists. Spine keeps its tight top-corner placement.
               "absolute z-20 flex flex-col items-center gap-1",
-              spine ? "right-1 top-1" : "right-3 top-3",
+              spine ? "right-1 top-1" : "right-1.5 top-3",
             )}
           >
             <button
@@ -334,11 +344,14 @@ export function EntityNode({
               transform: spine ? "rotate(-90deg)" : undefined,
               transformOrigin: "center",
               marginTop: spineTitleMt || undefined,
+              // Crop an over-long spine title (with ellipsis) instead of letting it
+              // run the length of the strip and shove the IN shortcut down.
+              maxWidth: spine ? SPINE_TITLE_MAX_W : undefined,
             }}
             className={cn(
               "relative tracking-tight",
               spine
-                ? "whitespace-nowrap font-semibold"
+                ? "overflow-hidden text-ellipsis whitespace-nowrap font-semibold"
                 : asWindow
                   ? "whitespace-nowrap font-semibold"
                   : variant === "dock"

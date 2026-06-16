@@ -6,18 +6,18 @@ import type { EntityKind } from "./types"
  * A single shared transition keeps the shared-element morph coherent.
  */
 export const layerTransition: Transition = {
-  duration: 4,
+  duration: 1,
   ease: [0.22, 0.61, 0.36, 1],
 }
 
 export const contentTransition: Transition = {
-  duration: 4,
+  duration: 1,
   ease: [0.22, 0.61, 0.36, 1],
 }
 
 /** Quick, natural expand/collapse for the side panels (Inputs / Outputs). */
 export const panelTransition: Transition = {
-  duration: 4,
+  duration: 1,
   ease: [0.22, 0.61, 0.36, 1],
 }
 
@@ -50,7 +50,8 @@ export const SIDE_PX = 10
  */
 // Horizontal entity header height. Trimmed ~1/4 (was 57) for a more compact band.
 export const HEADER_H = 43
-export const TASK_TOP_PEEK = 56
+// Top peek trimmed a bit (was 56 / 28) so stacked ancestors sit a touch tighter.
+export const TASK_TOP_PEEK = 46
 // A non-space (task/event/instant) ancestor used to peek ONLY from the top (side
 // inset was just 10px), so a child window covered almost its entire body — hiding
 // the parent's collapsed IN/OUT rails. This side peek leaves a strip of the
@@ -58,7 +59,7 @@ export const TASK_TOP_PEEK = 56
 // close to RIGHT_PEEK so the left strip isn't noticeably wider than the right.
 export const TASK_SIDE = 26
 export const SPACE_SPINE = 56
-export const SPACE_TOP_PEEK = 28
+export const SPACE_TOP_PEEK = 22
 // Right peek reveals just a sliver of an ancestor's collapsed Outs rail beside
 // the child window. Applied uniformly to EVERY ancestor kind (space or
 // task/event/instant) — the right margin no longer differs by parent type, only

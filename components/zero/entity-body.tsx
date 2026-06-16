@@ -57,11 +57,15 @@ export function EntityBody({
   // the window at any size. Root (the always-mounted home) instead lifts by half
   // the timeline chrome above its region.
   const BODY_TOP_OFFSET = 19
-  const collapsedShiftY = isRoot ? -92 : -BODY_TOP_OFFSET
-  // On a spine, the IN rail nudges right so its icon center lines up with the
-  // vertically-centered glyph/title on the spine strip (measured: +7px over the
-  // old 14), and a further ~2px to clear the 3px accent border at the very edge.
-  const inShiftX = spine ? 21 : 0
+  // Home view exception: lift the rails by less than the full timeline-chrome
+  // height (was -92) so the collapsed IN/OUT panels sit a bit LOWER on the home
+  // view than dead-center — a deliberate visual exception just for the root.
+  const collapsedShiftY = isRoot ? -64 : -BODY_TOP_OFFSET
+  // The IN rail nudges right by 2px everywhere so its icon clears the window's
+  // left border. On a spine it instead aligns with the vertically-centered
+  // glyph/title on the spine strip; that earlier +2px border nudge made it sit a
+  // touch too far right, so it's trimmed back (21 → 19).
+  const inShiftX = spine ? 19 : 2
 
   const [inOpen, setInOpen] = usePanelOpen(`${entityId}:in`, false)
   const [outOpen, setOutOpen] = usePanelOpen(`${entityId}:out`, false)

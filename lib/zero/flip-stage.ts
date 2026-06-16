@@ -50,7 +50,7 @@ export { gsap }
 /** Quick, elegant motion shared by every window — the `zeroLand` ease-in-out curve
  *  (defined above): accelerates into a fast expansion/shrink, then eases out over
  *  the final ~40% for a soft, gentle landing. */
-export const MORPH_DURATION = 4
+export const MORPH_DURATION = 1
 export const MORPH_EASE = "zeroLand"
 /** Same duration as a CSS string, for the fade/transition chrome (spine bg,
  *  divider, close-button reposition) that rides along with the Flip morph. */
