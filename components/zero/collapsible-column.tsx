@@ -126,7 +126,10 @@ export function CollapsibleColumn({
               // `relative z-10` lifts it ABOVE the window's opaque spine cover
               // (z-8) so an ancestor spine's real (clickable) IN/OUT rail stays
               // visible + reachable over the vertical-header strip / right peek.
-              "relative z-10 flex flex-1 flex-col items-center justify-center gap-3",
+              // `group` + dimmed children: the rail rests at reduced opacity and
+              // smoothly returns to full on hover (the motion.div animates its own
+              // opacity to 1, so the resting dim lives on the inner content).
+              "group relative z-10 flex flex-1 flex-col items-center justify-center gap-3",
               side === "left" ? "-ml-5 self-start" : "-mr-5 self-end",
             )}
           >
@@ -141,12 +144,12 @@ export function CollapsibleColumn({
                 onBeforeExpand?.()
               }}
               aria-label={`Expand ${title}`}
-              className="flex h-7 w-7 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-secondary/70 hover:text-foreground"
+              className="flex h-7 w-7 items-center justify-center rounded-sm text-muted-foreground opacity-60 transition-all hover:bg-secondary/70 hover:text-foreground group-hover:opacity-100"
             >
               <ClosedIcon className="h-4 w-4" />
             </button>
             <span
-              className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground/70"
+              className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground/70 opacity-60 transition-opacity group-hover:opacity-100"
               style={{ writingMode: "vertical-rl" }}
             >
               {collapsedTitle ?? title}

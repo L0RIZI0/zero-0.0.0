@@ -72,6 +72,7 @@ export function EntityNode({
   const region = variant === "dock" ? "dock" : "list"
   const { showHighlight, hoverProps, ref } = useRowSelection(region, entityId)
   const [done, setDone] = useState(!!entity?.completed)
+  const [closeHover, setCloseHover] = useState(false)
 
   if (!entity) return null
 
@@ -245,22 +246,35 @@ export function EntityNode({
         {/* Close button — fades only, never a flip target; tucks tighter when
             this space is a spine so the child window never crops it. */}
         {asWindow && (
-          <button
-            type="button"
+          <div
             data-fade
-            onClick={(e) => {
-              e.stopPropagation()
-              nav.closeWindow(depth)
-            }}
-            aria-label={`Close ${entity.title}`}
             style={{ transitionDuration: DURATION_S }}
-            className={cn(
-              "absolute z-20 flex size-6 items-center justify-center rounded-[4px] text-muted-foreground transition-all ease-out hover:bg-foreground/5 hover:text-foreground",
-              spine ? "right-1 top-1" : "right-3 top-3",
-            )}
+            className={cn("absolute z-20 flex items-center gap-1.5", spine ? "right-1 top-1" : "right-3 top-3")}
           >
-            <X size={16} />
-          </button>
+            {/* Discreet entity title that fades in on close-button hover, so the
+                user knows which entity they're about to close. */}
+            <span
+              className={cn(
+                "pointer-events-none whitespace-nowrap text-[11px] font-medium text-muted-foreground transition-opacity duration-200",
+                closeHover ? "opacity-100" : "opacity-0",
+              )}
+            >
+              {entity.title}
+            </span>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation()
+                nav.closeWindow(depth)
+              }}
+              onPointerEnter={() => setCloseHover(true)}
+              onPointerLeave={() => setCloseHover(false)}
+              aria-label={`Close ${entity.title}`}
+              className="flex size-6 items-center justify-center rounded-[4px] text-muted-foreground transition-all ease-out hover:bg-foreground/5 hover:text-foreground"
+            >
+              <X size={16} />
+            </button>
+          </div>
         )}
 
         {/* Persistent header. NOT a flip target: it stays in the frame's flow and
