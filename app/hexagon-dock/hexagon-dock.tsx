@@ -50,9 +50,10 @@ const FLAT_HEX = "polygon(12% 0%, 88% 0%, 100% 50%, 88% 100%, 12% 100%, 0% 50%)"
 const RECT6 = "polygon(0% 0%, 100% 0%, 100% 50%, 100% 100%, 0% 100%, 0% 50%)"
 
 // Spin applied to a DOCK launch: the window enters rotated and unwinds to 0°
-// where the flat-top edge lands on top. ~300° reads as a lively turn without
-// feeling like an excessive full spin.
-const SPIN_DEG = 300
+// where the flat-top edge lands on top. NEGATIVE start so the turn resolves
+// CLOCKWISE (motion tweens from this value up toward 0). ~120° is a light,
+// quarter-ish turn rather than a full spin.
+const SPIN_DEG = -120
 
 type SpaceItem = { id: string; label: string; done?: boolean }
 type Space = {
@@ -299,9 +300,9 @@ export function HexagonDock() {
             the list runs near full width across the middle.
           </Finding>
           <Finding title="Two entries, two motions">
-            From the dock the whole card spins ~300° from vertex-up to edge-up;
-            from a row it reshapes rectangle→hexagon with no spin. Same window,
-            two arrivals.
+            From the dock the whole card turns ~120° clockwise from vertex-up to
+            edge-up; from a row it reshapes rectangle→hexagon with no spin. Same
+            window, two arrivals.
           </Finding>
           <Finding title="Side points peek when nested">
             A child window insets and the parent&apos;s left/right points poke out
