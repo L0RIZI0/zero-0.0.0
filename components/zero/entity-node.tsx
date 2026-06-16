@@ -207,6 +207,20 @@ export function EntityNode({
   const clampedTitleW = Math.min(titleW, SPINE_TITLE_MAX_W)
   const spineTitleMt = spine ? Math.max(0, (clampedTitleW - titleSize) / 2) + SPINE_TITLE_GAP : 0
 
+  // The window's resting fixed geometry (top/left/width/height in viewport px).
+  // Used both for the frame and to place the close-hover title just OUTSIDE the
+  // frame's right edge (the frame is overflow-hidden, so an in-frame title there
+  // would be clipped; a `fixed` title positioned from these numbers escapes it).
+  const winStyle = asWindow ? (fadingWindow ? nav.fadingStyleFor(depth) : nav.styleFor(depth)) : null
+  const closeTitleLeft =
+    winStyle && typeof winStyle.left === "number" && typeof winStyle.width === "number"
+      ? winStyle.left + winStyle.width + 8
+      : 0
+  // Vertically center the title on the X. The cluster sits at top-3 (12px) for a
+  // normal window / top-1 (4px) for a spine; the X is size-6 (24px) tall.
+  const closeTitleTop =
+    winStyle && typeof winStyle.top === "number" ? winStyle.top + (spine ? 4 : 12) + 12 : 0
+
   return (
     <div className={slotClass}>
       <div
@@ -222,9 +236,7 @@ export function EntityNode({
         {...(interactive ? hoverProps : {})}
         style={
           asWindow
-            ? fadingWindow
-              ? nav.fadingStyleFor(depth)
-              : nav.styleFor(depth)
+            ? (winStyle ?? undefined)
             : {
                 borderRadius: 4,
                 // While shrinking closed it is a row again, but Flip animates it
@@ -290,16 +302,18 @@ export function EntityNode({
             </button>
             {/* Discreet entity title that fades in on close-button hover, so the
                 user knows which entity they're about to close. Rendered HORIZONTAL
-                and positioned to the LEFT of the X (absolute, so it never shifts the
-                button), cropped with an ellipsis if too long.
+                and positioned to the RIGHT of the X (absolute, so it never shifts
+                the button), cropped with an ellipsis if too long. Kept subtle: a
+                lighter weight + dimmer color so it whispers rather than competes.
                 Gated on `!animating`: when a window opens, the X mounts right under
                 the cursor and `onPointerEnter` fires, which used to flash the title
                 during the expansion. Suppressing it until the morph finishes means
                 it only appears once the window has settled (and the pointer is
                 genuinely resting on the X). */}
             <span
+              style={{ left: closeTitleLeft, top: closeTitleTop, transform: "translateY(-50%)" }}
               className={cn(
-                "pointer-events-none absolute right-full top-1/2 mr-2 max-w-[200px] -translate-y-1/2 overflow-hidden text-ellipsis whitespace-nowrap text-[11px] font-medium text-muted-foreground transition-opacity duration-200",
+                "pointer-events-none fixed z-[60] max-w-[160px] overflow-hidden text-ellipsis whitespace-nowrap text-[11px] font-normal text-muted-foreground/50 transition-opacity duration-200",
                 closeHover && !animating ? "opacity-100" : "opacity-0",
               )}
             >

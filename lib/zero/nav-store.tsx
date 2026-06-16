@@ -378,7 +378,10 @@ export function ZeroNavProvider({
     }
 
     // Telescoping windows are leaving, so exact resting geometry is irrelevant —
-    // a depth-stepped box (treating ancestors as plain top-peeks) is enough.
+    // a depth-stepped box (treating ancestors as plain top-peeks) is enough. The
+    // +24 bottom overhang matches what the closing leaf had at rest, so its bottom
+    // doesn't snap up 24px when it switches from styleFor to fadingStyleFor at the
+    // start of the close (it just telescopes away from where it actually sat).
     const fadingStyleFor = (windowDepth: number): React.CSSProperties => {
       const ancestorKinds = Array(Math.max(0, windowDepth - 1)).fill("task") as EntityKind[]
       const rect = stackTargetRect(ancestorKinds, { w: regionRect.width, h: regionRect.height })
@@ -387,7 +390,7 @@ export function ZeroNavProvider({
         top: regionRect.top + rect.top,
         left: regionRect.left + rect.left,
         width: rect.width,
-        height: rect.height,
+        height: rect.height + 24,
         zIndex: 20 + windowDepth * 10,
         // Square top corners; bottom two stay rounded at 8px. (TL TR BR BL)
         borderRadius: "0 0 8px 8px",
