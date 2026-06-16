@@ -67,6 +67,14 @@ export function EntityBody({
   // touch too far right, so it's trimmed back (21 → 19).
   const inShiftX = spine ? 19 : 2
 
+  // When this window is the frontmost LEAF (active, and not the home root), the
+  // collapsed IN/OUT rails pull a bit further IN from the window edges so they
+  // breathe. As soon as a child opens — this window stops being the leaf
+  // (active → false) — they slide back to hugging the edge, matching every
+  // ancestor. CollapsibleColumn animates `x`, so toggling these values glides.
+  // Left rail insets by moving right (+x); right rail by moving left (−x).
+  const leafInset = active && !isRoot ? 14 : 0
+
   const [inOpen, setInOpen] = usePanelOpen(`${entityId}:in`, false)
   const [outOpen, setOutOpen] = usePanelOpen(`${entityId}:out`, false)
 
@@ -94,7 +102,7 @@ export function EntityBody({
             count={assetCount}
             open={inOpen}
             onOpenChange={setInOpen}
-            collapsedShiftX={inShiftX}
+            collapsedShiftX={inShiftX + leafInset}
             collapsedShiftY={collapsedShiftY}
             onBeforeExpand={onExpandPanel}
           >
@@ -129,6 +137,7 @@ export function EntityBody({
             count={0}
             open={outOpen}
             onOpenChange={setOutOpen}
+            collapsedShiftX={-leafInset}
             collapsedShiftY={collapsedShiftY}
             onBeforeExpand={onExpandPanel}
           >
