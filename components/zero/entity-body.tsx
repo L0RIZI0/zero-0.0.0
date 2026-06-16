@@ -32,8 +32,6 @@ export function EntityBody({
   entityId,
   active = true,
   isRoot = false,
-  spine = false,
-  onExpandPanel,
 }: {
   entityId: string
   active?: boolean
@@ -41,12 +39,6 @@ export function EntityBody({
    *  chrome, so rails centered in the region land below the screen's true middle.
    *  When set, the collapsed IN/OUT rails are lifted to the viewport center. */
   isRoot?: boolean
-  /** True when this body's window is a (space) spine — nudges the collapsed IN
-   *  rail right so it aligns with the vertical title/glyph on the spine strip. */
-  spine?: boolean
-  /** Provided when this body belongs to an ancestor spine: brings that ancestor
-   *  to the front so clicking its collapsed IN/OUT rail reveals the panel. */
-  onExpandPanel?: () => void
 }) {
   const assetCount = getSpaceAssets(entityId).length
   // The body fills the full window now (header band above it + asymmetric
@@ -62,10 +54,8 @@ export function EntityBody({
   // view than dead-center — a deliberate visual exception just for the root.
   const collapsedShiftY = isRoot ? -64 : -BODY_TOP_OFFSET
   // The IN rail nudges right by 2px everywhere so its icon clears the window's
-  // left border. On a spine it instead aligns with the vertically-centered
-  // glyph/title on the spine strip; that earlier +2px border nudge made it sit a
-  // touch too far right, so it's trimmed back (21 → 19).
-  const inShiftX = spine ? 19 : 2
+  // left edge.
+  const inShiftX = 2
 
   // When this window is the frontmost LEAF (active, and not the home root), the
   // collapsed IN/OUT rails pull a bit further IN from the window edges so they
@@ -104,7 +94,6 @@ export function EntityBody({
             onOpenChange={setInOpen}
             collapsedShiftX={inShiftX + leafInset}
             collapsedShiftY={collapsedShiftY}
-            onBeforeExpand={onExpandPanel}
           >
             <AssetPanel spaceId={entityId} />
           </CollapsibleColumn>
@@ -139,7 +128,6 @@ export function EntityBody({
             onOpenChange={setOutOpen}
             collapsedShiftX={-leafInset}
             collapsedShiftY={collapsedShiftY}
-            onBeforeExpand={onExpandPanel}
           >
             <OutputPanel spaceId={entityId} />
           </CollapsibleColumn>

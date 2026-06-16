@@ -1,11 +1,11 @@
 "use client"
 
-import { useState, useRef, useLayoutEffect } from "react"
+import { useState, useLayoutEffect } from "react"
 import { Check, X } from "lucide-react"
-import { getEntity, getOpenTaskCount, getSpace } from "@/lib/zero/data"
+import { getEntity, getOpenTaskCount } from "@/lib/zero/data"
 import type { TaskPriority } from "@/lib/zero/types"
 import { useZeroNav, useRowSelection, HIGHLIGHT_SHADOW, HIGHLIGHT_SHADOW_NONE } from "@/lib/zero/nav-store"
-import { HEADER_H, ANCESTOR_HEADER_H } from "@/lib/zero/motion"
+import { HEADER_H, ANCESTOR_HEADER_H, clipFor } from "@/lib/zero/motion"
 import { DURATION_S, MORPH_CSS_EASE } from "@/lib/zero/flip-stage"
 import { NodeGlyph } from "./node-glyph"
 import { EntityBody } from "./entity-body"
@@ -109,7 +109,6 @@ export function EntityNode({
   // telescoping out during a multi-level close (so it keeps covering its
   // parent's do-list as it retracts).
   const asWindow = ownsOpen || fadingWindow
-  const spine = nav.isSpine(entityId)
   const isTop = ownsOpen && nav.activeId === entityId
   const animating = nav.animating
   const showBody = asWindow || isClosing
@@ -128,10 +127,6 @@ export function EntityNode({
   // (stable across its own open/close) while distinct from the other copy.
   const flip = `${contextId}:${entityId}`
 
-  const parentId = entity.parentId ?? "s_root"
-  // Accent tint: a space uses its own; everything else inherits its home space's.
-  const homeSpaceId = isSpace ? entityId : parentId
-  const accent = isSpace ? entity.accent ?? "var(--muted-foreground)" : getSpace(homeSpaceId)?.accent ?? null
   void nav.dataVersion // re-read counts when data mutates
   const openCount = getOpenTaskCount(entityId)
 
@@ -158,74 +153,44 @@ export function EntityNode({
   // its translucent background would let parent content bleed through the moving
   // frame. Only a settled, collapsed node is interactive.
   const interactive = !asWindow && !isClosing
-  const hoverCls = interactive ? "transition-colors hover:bg-foreground/5" : ""
 
-  // `border-t-0` hides the TOP border only when expanded into a full window
-  // (asWindow); the inset/preview frame keeps all four borders.
+  // Clip-path shape. ONLY Spaces use clip-path (so they can morph hexagon ⇄
+  // rectangle); tasks/events keep their rounded-rectangle `borderRadius` instead,
+  // so their designed asymmetric corners are preserved. `clipPath` is undefined
+  // for non-spaces, in which case the collapsed/window borderRadius applies.
+  const clipPath = isSpace ? clipFor(kind, variant, asWindow) : undefined
+
+  // Borderless design. No frames anywhere:
+  //   - window / closing → solid surface (so parent content can't bleed through).
+  //   - dock card        → faint resting fill that brightens on hover.
+  //   - row              → no resting fill, hover highlight only.
   const frameClass = asWindow
     ? cn(
-        "flex cursor-default flex-col overflow-hidden border border-t-0 border-border bg-card-solid shadow-2xl",
+        "flex cursor-default flex-col overflow-hidden bg-card-solid shadow-2xl",
         fadingWindow && "pointer-events-none",
       )
     : cn(
-        "absolute inset-0 flex cursor-pointer flex-col overflow-hidden border border-border bg-card-solid",
+        "absolute inset-0 flex cursor-pointer flex-col overflow-hidden transition-colors",
+        variant === "dock" ? "bg-secondary/40 hover:bg-secondary" : "hover:bg-foreground/5",
         cancelled && "opacity-50",
-        hoverCls,
       )
 
-  const headerClass = spine
-    ? // Glyph pinned to the TOP, the rotated title top-aligned just beneath it.
-      // The title is a normal horizontal box rotated -90° (see its style); the
-      // measured `spineTitleMt` margin keeps long titles from overlapping the
-      // glyph without breaking the smooth single-rotation Flip.
-      "absolute inset-y-0 left-[3px] z-10 flex w-14 flex-col items-center pt-4"
-    : asWindow
-      ? // Non-space window headers pull the glyph/title slightly left (pl-4 vs
-        // pl-5) so the glyph reads as sitting above where an open child's LEFT
-        // border lands (a non-space parent peeks ~TASK_SIDE on the left). Spaces
-        // keep pl-5.
-        cn("relative z-10 flex shrink-0 items-center gap-3 pr-12", isSpace ? "pl-5" : "pl-4")
-      : variant === "dock"
-        ? "flex flex-1 flex-col gap-1.5 px-2.5 py-2 pr-7"
-        : "flex h-full items-center gap-2 px-2.5 pr-2.5"
+  const headerClass = asWindow
+    ? cn("relative z-10 flex shrink-0 items-center gap-3 pr-12", isSpace ? "pl-5" : "pl-4")
+    : variant === "dock"
+      ? "flex flex-1 flex-col gap-1.5 px-2.5 py-2 pr-7"
+      : "flex h-full items-center gap-2 px-2.5 pr-2.5"
 
-  // Non-spine ANCESTORS (stacked, non-leaf, settled windows) wear a more compact
-  // header than the frontmost leaf: a shorter band plus a smaller glyph + title,
-  // so depth reads as recession. The leaf keeps the full treatment. Spines and
-  // closing/collapsing frames are unchanged.
-  const ancestorHeader = asWindow && !spine && !isTop && !isClosing
+  // ANCESTORS (open windows that are not the frontmost leaf — i.e. a dimmed Space
+  // hexagon sitting behind an open child) wear a more compact header than the
+  // frontmost leaf: a shorter band plus a smaller glyph + title, so depth reads
+  // as recession. The leaf keeps the full treatment.
+  const ancestorHeader = asWindow && !isTop && !isClosing
   const headerH = ancestorHeader ? ANCESTOR_HEADER_H : HEADER_H
 
-  // Spine (vertical Space header): 15px, black — bumped +2 from 13. Compact
-  // ancestors: 13px (matching the spine's prior size + font style) and slightly
-  // dimmer (see className) so they recede behind the leaf. Leaf window: full 18px.
-  const titleSize = spine ? 15 : asWindow ? (ancestorHeader ? 13 : 18) : variant === "dock" ? 12 : 13
-
-  // Measure the title's HORIZONTAL width (offsetWidth ignores the rotate, so it's
-  // the un-rotated text length). In the spine we rotate the title -90° about its
-  // center; a centered rotation makes the text extend titleW/2 ABOVE its flow
-  // center, which is what used to push long titles ("Home & Family") up into the
-  // glyph. Pushing the flow box down by (titleW - titleH)/2 makes the rotated
-  // text's TOP land just below the glyph for ANY length — the "pivot point below
-  // the title" the design calls for — while keeping it a single smooth rotation
-  // that GSAP Flip can interpolate (unlike a writing-mode swap, which it can't).
-  const titleRef = useRef<HTMLHeadingElement>(null)
-  const [titleW, setTitleW] = useState(0)
-  useLayoutEffect(() => {
-    if (titleRef.current) setTitleW(titleRef.current.offsetWidth)
-  }, [entity.title, titleSize])
-  // `(titleW - titleSize)/2` cancels the rotation's upward reach so the title's
-  // TOP lands just under the glyph; SPINE_TITLE_GAP then pushes it further down
-  // for a comfortable, deliberate gap below the glyph.
-  const SPINE_TITLE_GAP = 18
-  // Cap the title's effective length on a spine: rather than letting a long title
-  // grow `spineTitleMt` ever-larger (which used to push the IN shortcut below it
-  // down the strip), the title is CROPPED at SPINE_TITLE_MAX_W (its un-rotated
-  // width, = its vertical extent once rotated) with an ellipsis, and the margin is
-  // computed from the clamped width so it never pushes past a fixed point.
-  const SPINE_TITLE_MAX_W = 150
-  const clampedTitleW = Math.min(titleW, SPINE_TITLE_MAX_W)
-  const spineTitleMt = spine ? Math.max(0, (clampedTitleW - titleSize) / 2) + SPINE_TITLE_GAP : 0
+  // Compact ancestor: 13px + dimmer (see className) so it recedes behind the
+  // leaf. Leaf window: full 18px.
+  const titleSize = asWindow ? (ancestorHeader ? 13 : 18) : variant === "dock" ? 12 : 13
 
   // The window's resting fixed geometry (top/left/width/height in viewport px).
   // Used both for the frame and to place the close-hover title just OUTSIDE the
@@ -239,10 +204,9 @@ export function EntityNode({
     winStyle && typeof winStyle.left === "number" && typeof winStyle.width === "number"
       ? winStyle.left + winStyle.width - 2
       : 0
-  // Vertically center the title on the X. The cluster sits at top-3 (12px) for a
-  // normal window / top-1 (4px) for a spine; the X is size-6 (24px) tall.
-  const closeTitleTop =
-    winStyle && typeof winStyle.top === "number" ? winStyle.top + (spine ? 4 : 12) + 12 : 0
+  // Vertically center the title on the X. The cluster sits at top-3 (12px); the X
+  // is size-6 (24px) tall.
+  const closeTitleTop = winStyle && typeof winStyle.top === "number" ? winStyle.top + 12 + 12 : 0
 
   return (
     <div className={slotClass}>
@@ -259,9 +223,15 @@ export function EntityNode({
         {...(interactive ? hoverProps : {})}
         style={
           asWindow
-            ? (winStyle ?? undefined)
+            ? // Spaces clip to a hexagon (no border radius); tasks/events keep the
+              // asymmetric borderRadius supplied by winStyle.
+              isSpace
+              ? { ...(winStyle ?? {}), borderRadius: 0, clipPath }
+              : (winStyle ?? undefined)
             : {
-                borderRadius: 4,
+                // Collapsed: Space dock cards are hexagons (clipPath), everything
+                // else a rounded rectangle.
+                ...(clipPath ? { clipPath } : { borderRadius: 4 }),
                 // While shrinking closed it is a row again, but Flip animates it
                 // at full window size; lift it above sibling rows so parent
                 // content can't bleed through until it lands in its slot.
@@ -272,38 +242,12 @@ export function EntityNode({
         }
         className={frameClass}
       >
-        {/* Accent strip — full-height, tracks the frame for free. */}
-        {accent && (
-          <span className="absolute left-0 top-0 z-10 h-full w-[3px]" style={{ backgroundColor: accent }} />
-        )}
-
-        {/* Spine background — a fixed-geometry opaque left rail that fades in when
-            this space becomes a spine and out when it un-spines, independent of
-            the header's layout box (prevents the close-time cover-up bug). */}
-        {asWindow && (
-          <span
-            aria-hidden
-            style={{ transitionDuration: DURATION_S, transitionTimingFunction: MORPH_CSS_EASE }}
-            className={cn(
-              "pointer-events-none absolute inset-y-0 left-[3px] z-[8] w-14 bg-card-solid transition-opacity",
-              spine ? "opacity-100" : "opacity-0",
-            )}
-          />
-        )}
-
-        {/* Close button — fades only, never a flip target; tucks tighter when
-            this space is a spine so the child window never crops it. */}
+        {/* Close button — fades only, never a flip target. */}
         {asWindow && (
           <div
             data-fade
             style={{ transitionDuration: DURATION_S }}
-            className={cn(
-              // Nudged closer to the edge (was right-3) so the now-smaller cross
-              // reads as centered within the window's right peek margin when one
-              // exists. Spine keeps its tight top-corner placement.
-              "absolute z-20 flex flex-col items-center gap-1",
-              spine ? "right-1 top-1" : "right-1.5 top-3",
-            )}
+            className="absolute right-1.5 top-3 z-20 flex flex-col items-center gap-1"
           >
             <button
               type="button"
@@ -346,8 +290,8 @@ export function EntityNode({
         )}
 
         {/* Persistent header. NOT a flip target: it stays in the frame's flow and
-            switches layout between collapsed row/card, window header, and spine.
-            The glyph + title (which ARE flipped) glide on top. */}
+            switches layout between collapsed row/card and window header. The glyph
+            + title (which ARE flipped) glide on top. */}
         <div
           className={headerClass}
           // Header height SNAPS to its target (no CSS transition): GSAP Flip owns
@@ -355,7 +299,7 @@ export function EntityNode({
           // own transition-[top]. A CSS height tween here would animate the
           // flex-centered glyph along an extra path that compounds with Flip's
           // transform — the "down-then-up" hop seen when opening a window.
-          style={asWindow && !spine ? { height: headerH } : undefined}
+          style={asWindow ? { height: headerH } : undefined}
         >
           {/* Glyph — for a collapsed task it doubles as the completion toggle. */}
           <span
@@ -365,7 +309,7 @@ export function EntityNode({
             // tween) so the glyph's ink fades smoothly to/from the dimmed ancestor
             // grey instead of jumping. Only on windows; rows stay snappy.
             style={
-              asWindow && !spine
+              asWindow
                 ? { transitionProperty: "color", transitionDuration: DURATION_S, transitionTimingFunction: MORPH_CSS_EASE }
                 : undefined
             }
@@ -382,8 +326,8 @@ export function EntityNode({
               // Glyph ink matches the title: compact ancestors are dimmed to
               // foreground/75 (like their title), everything else stays full ink.
               ancestorHeader ? "text-foreground/75" : "text-foreground",
-              // Leaf window + spine keep the full 20px glyph; compact ancestors
-              // (and collapsed rows) use 16px. The size change is animated by GSAP
+              // Leaf window keeps the full 20px glyph; compact ancestors (and
+              // collapsed rows) use 16px. The size change is animated by GSAP
               // Flip (this glyph is a flip target captured in captureStage), so no
               // CSS transition here — that would double-animate against Flip.
               asWindow && !ancestorHeader ? "h-5 w-5" : "h-4 w-4",
@@ -396,41 +340,29 @@ export function EntityNode({
           </span>
 
           <h3
-            ref={titleRef}
             data-flip-id={`${flip}-title`}
             data-flip-role="inner"
             style={{
               fontSize: titleSize,
-              // Spine: pure -90° rotation about the center (GSAP Flip tweens this
-              // smoothly). The measured top margin lowers the pivot so the rotated
-              // text clears the glyph regardless of title length.
-              transform: spine ? "rotate(-90deg)" : undefined,
-              transformOrigin: "center",
-              marginTop: spineTitleMt || undefined,
-              // Crop an over-long spine title (with ellipsis) instead of letting it
-              // run the length of the strip and shove the IN shortcut down.
-              maxWidth: spine ? SPINE_TITLE_MAX_W : undefined,
               // Color-only transition (see glyph) so the title ink fades smoothly
               // to/from the dimmed ancestor grey rather than snapping. Flip handles
               // position + fontSize; this only animates color, so they don't fight.
-              ...(asWindow && !spine
+              ...(asWindow
                 ? { transitionProperty: "color", transitionDuration: DURATION_S, transitionTimingFunction: MORPH_CSS_EASE }
                 : null),
             }}
             className={cn(
               "relative tracking-tight",
-              spine
-                ? "overflow-hidden text-ellipsis whitespace-nowrap font-semibold"
-                : asWindow
-                  ? // Compact ancestors pop slightly less than the leaf: dimmer ink
-                    // and one step lighter weight (semibold → medium).
-                    cn(
-                      "whitespace-nowrap",
-                      ancestorHeader ? "font-medium text-foreground/75" : "font-semibold",
-                    )
-                  : variant === "dock"
-                    ? "w-full truncate font-medium leading-tight"
-                    : "min-w-0 flex-1 truncate font-medium",
+              asWindow
+                ? // Compact ancestors pop slightly less than the leaf: dimmer ink
+                  // and one step lighter weight (semibold → medium).
+                  cn(
+                    "whitespace-nowrap",
+                    ancestorHeader ? "font-medium text-foreground/75" : "font-semibold",
+                  )
+                : variant === "dock"
+                  ? "w-full truncate font-medium leading-tight"
+                  : "min-w-0 flex-1 truncate font-medium",
               !asWindow && (isTask && done ? "text-muted-foreground/60 line-through" : cancelled ? "line-through" : ""),
             )}
           >
@@ -482,9 +414,10 @@ export function EntityNode({
         </div>
 
         {/* Header divider — a dedicated fading element (not a CSS border) so it
-            fades between window header and spine instead of jumping, and fades
-            out as the window collapses to a row. */}
-        {(asWindow || isClosing) && (
+            fades cleanly and slides as the header compacts, and fades out as the
+            window collapses to a row. Hidden for Space hexagons (a hard rule
+            across a hexagon's narrowing top reads as a stray clipped line). */}
+        {(asWindow || isClosing) && !isSpace && (
           <span
             aria-hidden
             style={{ top: headerH, transitionDuration: DURATION_S, transitionTimingFunction: MORPH_CSS_EASE }}
@@ -493,7 +426,7 @@ export function EntityNode({
               // subtle hairline rather than a hard rule. `top` animates too so it
               // glides as a leaf's header compacts into an ancestor's shorter one.
               "pointer-events-none absolute left-0 right-0 z-[5] h-px bg-border transition-[top,opacity]",
-              spine || isClosing ? "opacity-0" : "opacity-50",
+              isClosing ? "opacity-0" : "opacity-50",
             )}
           />
         )}
@@ -506,21 +439,8 @@ export function EntityNode({
           <div
             data-fade
             data-body
-            // When this becomes a spine the header switches from an in-flow band
-            // (HEADER_H tall) to an absolutely-positioned vertical rail, which
-            // would free HEADER_H at the top of the body and shift its
-            // vertically-centered Inputs/Outputs rails UP. Re-reserve that height
-            // as padding so the body's content box — and those centered rails —
-            // stay exactly where they were in window mode.
-            style={
-              isClosing ? { top: HEADER_H } : spine ? { paddingTop: HEADER_H } : undefined
-            }
+            style={isClosing ? { top: HEADER_H } : undefined}
             className={cn(
-              // No extra left padding in spine mode: window and spine bodies share
-              // the same horizontal box, so the columns (and the centered "IN n"
-              // rail) DON'T jump sideways when the header morphs vertical. The IN
-              // rail then sits over the vertical header strip — the title is
-              // top-aligned, the rail vertically centered, so they don't collide.
               isClosing
                 ? "pointer-events-none absolute inset-x-0 bottom-0 overflow-hidden"
                 : // `flex flex-col` so EntityBody (a flex-1 child) actually fills a
@@ -529,16 +449,16 @@ export function EntityNode({
                   // Inputs/Outputs rails centered on that short content near the top
                   // — so on tall screens they floated well above the window center.
                   "flex min-h-0 flex-1 flex-col",
+              // A Space window is hexagon-clipped, so its content is inset
+              // horizontally into the shape's safe band (the left/right edges are
+              // only full-width between 25%–75% height; padding keeps the columns
+              // and IN/OUT rails clear of the angled top/bottom points).
+              isSpace && !isClosing && "px-[8%]",
             )}
           >
             <EntityBody
               entityId={entityId}
               active={isTop && !isClosing}
-              spine={spine}
-              // When this is an ancestor spine (open but not frontmost), clicking
-              // its collapsed IN/OUT rail brings it to the front so the panel is
-              // actually visible — the same navigation as clicking the spine.
-              onExpandPanel={asWindow && !isTop ? () => nav.closeWindow(depth + 1) : undefined}
             />
           </div>
         )}

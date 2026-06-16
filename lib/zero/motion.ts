@@ -36,6 +36,27 @@ export const panelTransition: Transition = {
 export const MORPH_SOURCE_ATTR = "data-morph-source"
 export const MORPH_WHERE_ATTR = "data-morph-where"
 
+/**
+ * Clip-path shapes for the single-node morph. Spaces render as a regular hexagon
+ * (dock card + open window); everything else stays a rounded rectangle. Both are
+ * expressed as clip-paths so GSAP Flip can tween BETWEEN them in one pass (a
+ * Space row reshaping rect → hex on open, and back on close). Ported from the
+ * hexagon-dock prototype.
+ */
+export const SPACE_CLIP_HEX = "polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)"
+export const RECT_CLIP = "inset(0px round 4px)"
+
+/** The clip-path a node should wear given its kind, its collapsed variant, and
+ *  whether it is (or is becoming) an open window. Only Spaces ever become
+ *  hexagons. A Space's DOCK CARD is a hexagon even at rest (its clip tween on
+ *  open is a no-op, so it purely grows); a Space ROW is a rectangle at rest and
+ *  reshapes rect → hex as it opens (and back on close). */
+export function clipFor(kind: EntityKind, variant: "row" | "dock", asWindow: boolean): string {
+  if (kind !== "space") return RECT_CLIP
+  if (asWindow) return SPACE_CLIP_HEX
+  return variant === "dock" ? SPACE_CLIP_HEX : RECT_CLIP
+}
+
 /** Geometry of the nested-doll window stack (px), keyed off absolute depth. */
 export const TOP_PEEK_PX = 40
 export const SIDE_PX = 10

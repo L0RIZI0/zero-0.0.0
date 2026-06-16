@@ -90,7 +90,11 @@ export function captureStage(): FlipState | null {
   if (!stageEl) return null
   const targets = stageEl.querySelectorAll("[data-flip-id]")
   if (!targets.length) return null
-  return Flip.getState(targets, { props: "fontSize,borderRadius" })
+  // `clipPath` is captured so a Space's hexagon ⇄ rectangle reshape (dock card /
+  // row → hex window and back) tweens smoothly in the same single Flip pass that
+  // already morphs size, fontSize and borderRadius. Proven in the hexagon-dock
+  // prototype: without it the clip snapped at the end of the morph.
+  return Flip.getState(targets, { props: "fontSize,borderRadius,clipPath" })
 }
 
 type Key = { id: string; depth: number }
@@ -113,6 +117,14 @@ export function playStage(
       ease: MORPH_EASE,
       absolute: "[data-flip-role='frame']",
       nested: true,
+      props: "clipPath",
+      // Clear leftover sub-pixel transforms / will-change on the inner glyph+title
+      // when the morph lands so they settle crisply instead of shaking at the very
+      // end (prototype fix).
+      onComplete: () => {
+        const inner = stageEl?.querySelectorAll("[data-flip-role='inner']")
+        if (inner?.length) gsap.set(inner, { clearProps: "transform,willChange" })
+      },
     })
   }
   if (!stage) return
