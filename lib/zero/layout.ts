@@ -49,7 +49,7 @@ export function shellStageFor(entity: ActiveEntity): ShellStage {
 export const TIMELINE_LIFT_Y: Record<ShellStage, number> = {
   0: 0,
   1: -24,
-  2: -44,
+  2: -54,
 }
 
 /** How much the open windows grow UPWARD as the shell compacts. The window's

@@ -23,7 +23,13 @@ export function UserIdentity({
   const avatarSize = compact ? 21 : 36
 
   return (
-    <div className={cn("flex min-w-0 items-center gap-2.5", className)}>
+    <motion.div
+      className={cn("flex min-w-0 items-center", className)}
+      initial={false}
+      // Pull the name a touch closer to the avatar when compact (8px vs 10px).
+      animate={{ gap: compact ? 8 : 10 }}
+      transition={layerTransition}
+    >
       <motion.span
         className="relative shrink-0 overflow-hidden rounded-full border border-border"
         initial={false}
@@ -67,6 +73,6 @@ export function UserIdentity({
           )}
         </AnimatePresence>
       </span>
-    </div>
+    </motion.div>
   )
 }
