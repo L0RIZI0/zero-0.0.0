@@ -172,9 +172,30 @@ function SpaceEntity({
   const collapsedClip = variant === "dock" ? HEX : RECT6
   const clipPath = openLike ? HEX : collapsedClip
 
+  // Borderless: a single light fill (no inset ring). The whole hexagon is one
+  // flat, soft surface — matching the earlier prototype.
   const frameClass = asWindow
-    ? "fixed flex flex-col bg-border"
-    : cn("absolute inset-0 cursor-pointer bg-border outline-none", isClosing && "z-40")
+    ? "fixed flex flex-col items-center bg-secondary"
+    : cn("absolute inset-0 cursor-pointer bg-secondary outline-none", isClosing && "z-40")
+
+  // ONE persistent header (glyph + title) — exactly Zero's trick. It is NEVER
+  // swapped between branches; only its layout classes and the title's inline
+  // fontSize change. Because the SAME nodes persist, GSAP Flip can tween their
+  // position AND size (fontSize is captured), so the glyph and title GLIDE and
+  // scale smoothly between launcher and window instead of jumping.
+  const headerClass = asWindow
+    ? "relative z-10 flex w-full flex-col items-center gap-2.5 pt-[16%]"
+    : variant === "dock"
+      ? "relative flex h-full w-full flex-col items-center justify-center gap-1.5 px-4"
+      : "relative flex h-full w-full items-center gap-2.5 px-4"
+
+  const glyphSize = asWindow ? "h-9 w-9" : "h-4 w-4"
+  const titleSize = asWindow ? 20 : variant === "row" ? 14 : 12
+  const titleClass = asWindow
+    ? "text-center font-semibold tracking-tight"
+    : variant === "row"
+      ? "min-w-0 flex-1 truncate font-medium"
+      : "font-medium tracking-tight"
 
   return (
     <div className={slotClass}>
@@ -188,13 +209,35 @@ function SpaceEntity({
         style={{ clipPath, ...(asWindow ? winStyle ?? undefined : undefined) }}
         className={frameClass}
       >
-        {/* Inner face — a 2px-inset lighter layer gives the hairline border. */}
-        <div className="absolute inset-[2px] bg-card" style={{ clipPath }} />
+        {/* Persistent header — glyph + title. Same DOM nodes in every state. */}
+        <div className={headerClass}>
+          <span
+            data-flip-id={`${space.id}-glyph`}
+            data-flip-role="inner"
+            className="flex shrink-0 items-center justify-center text-foreground"
+          >
+            <HexGlyph className={glyphSize} />
+          </span>
+          <span
+            data-flip-id={`${space.id}-title`}
+            data-flip-role="inner"
+            style={{ fontSize: titleSize }}
+            className={titleClass}
+          >
+            {space.name}
+          </span>
+          {/* Count lives only in the collapsed launcher. */}
+          {!openLike && (
+            <OpenCount
+              n={openCount}
+              className={variant === "row" ? "text-[11px] text-muted-foreground/70" : "text-[10px] text-muted-foreground"}
+            />
+          )}
+        </div>
 
-        {openLike ? (
-          // ── WINDOW ──────────────────────────────────────────────────────────
-          // Inset into the hexagon's safe central band (top/bottom points clip).
-          <div className="relative flex h-full w-full flex-col items-center px-[16%] pt-[16%] pb-[14%]">
+        {/* Open-only chrome. Just fades; never a flip target. */}
+        {openLike && (
+          <>
             <button
               type="button"
               onClick={(e) => {
@@ -203,88 +246,35 @@ function SpaceEntity({
               }}
               data-fade
               aria-label={`Close ${space.name}`}
-              className="absolute right-[15%] top-[15%] z-10 flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+              className="absolute right-[15%] top-[15%] z-10 flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-background hover:text-foreground"
             >
               <X className="h-4 w-4" />
             </button>
 
-            <span
-              data-flip-id={`${space.id}-glyph`}
-              data-flip-role="inner"
-              className="flex items-center justify-center text-foreground"
-            >
-              <HexGlyph className="h-9 w-9" />
-            </span>
-            <h2
-              data-flip-id={`${space.id}-title`}
-              data-flip-role="inner"
-              className="mt-3 text-center text-xl font-semibold tracking-tight"
-            >
-              {space.name}
-            </h2>
-
-            <p data-fade className="mt-1 max-w-[260px] text-center text-xs leading-relaxed text-muted-foreground">
-              {space.blurb}
-            </p>
-
-            <ul data-fade className="mt-5 flex w-full max-w-[300px] flex-col gap-1.5 overflow-y-auto">
-              {space.items.map((item) => (
-                <li
-                  key={item.id}
-                  className="flex items-center gap-2.5 rounded-md px-3 py-2 text-left text-sm transition-colors hover:bg-secondary"
-                >
-                  <span
-                    className={cn(
-                      "flex h-4 w-4 shrink-0 items-center justify-center border",
-                      item.done ? "border-foreground/30 bg-foreground/10" : "border-foreground/40",
-                    )}
+            <div data-fade className="relative flex w-full flex-1 flex-col items-center overflow-hidden px-[16%] pb-[14%]">
+              <p className="mt-1 max-w-[260px] text-center text-xs leading-relaxed text-muted-foreground">
+                {space.blurb}
+              </p>
+              <ul className="mt-5 flex w-full max-w-[300px] flex-col gap-1.5 overflow-y-auto">
+                {space.items.map((item) => (
+                  <li
+                    key={item.id}
+                    className="flex items-center gap-2.5 rounded-md px-3 py-2 text-left text-sm transition-colors hover:bg-background"
                   >
-                    {item.done && <span className="h-1.5 w-1.5 bg-foreground/50" />}
-                  </span>
-                  <span className={cn(item.done && "text-muted-foreground line-through")}>{item.label}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        ) : variant === "dock" ? (
-          // ── DOCK CARD ─────────────────────────────────────────────────────────
-          <div className="relative flex h-full w-full flex-col items-center justify-center gap-1.5 px-4">
-            <span
-              data-flip-id={`${space.id}-glyph`}
-              data-flip-role="inner"
-              className="flex items-center justify-center text-foreground"
-            >
-              <HexGlyph className="h-4 w-4" />
-            </span>
-            <span
-              data-flip-id={`${space.id}-title`}
-              data-flip-role="inner"
-              className="text-xs font-medium tracking-tight"
-            >
-              {space.name}
-            </span>
-            <OpenCount n={openCount} className="text-[10px] text-muted-foreground" />
-          </div>
-        ) : (
-          // ── DO-LIST ROW ────────────────────────────────────────────────────────
-          <div className="relative flex h-full w-full items-center gap-2.5 px-3">
-            <span
-              data-flip-id={`${space.id}-glyph`}
-              data-flip-role="inner"
-              style={{ clipPath: HEX }}
-              className="flex h-[26px] w-[24px] shrink-0 items-center justify-center bg-foreground/10 text-foreground"
-            >
-              <HexGlyph className="h-3.5 w-3.5" />
-            </span>
-            <span
-              data-flip-id={`${space.id}-title`}
-              data-flip-role="inner"
-              className="min-w-0 flex-1 truncate text-sm font-medium"
-            >
-              {space.name}
-            </span>
-            <OpenCount n={openCount} className="text-[11px] text-muted-foreground/70" />
-          </div>
+                    <span
+                      className={cn(
+                        "flex h-4 w-4 shrink-0 items-center justify-center border",
+                        item.done ? "border-foreground/30 bg-foreground/10" : "border-foreground/40",
+                      )}
+                    >
+                      {item.done && <span className="h-1.5 w-1.5 bg-foreground/50" />}
+                    </span>
+                    <span className={cn(item.done && "text-muted-foreground line-through")}>{item.label}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </>
         )}
       </div>
     </div>
@@ -313,12 +303,14 @@ export function HexagonDock() {
   }, [])
 
   // Snapshot every flip part in the stage BEFORE the commit; replay AFTER it.
+  // Capturing fontSize lets Flip tween the title's size smoothly (no jump); the
+  // glyph (an svg sized via h-/w- classes) scales via its frame transform.
   function capture() {
     const stage = stageRef.current
     if (!stage) return null
     const targets = stage.querySelectorAll("[data-flip-id]")
     if (!targets.length) return null
-    return Flip.getState(targets, { props: "clipPath" })
+    return Flip.getState(targets, { props: "clipPath,fontSize" })
   }
 
   function openSpace(id: string) {
@@ -354,7 +346,7 @@ export function HexagonDock() {
       ease: EASE,
       absolute: "[data-flip-role='frame']",
       nested: true,
-      props: "clipPath",
+      props: "clipPath,fontSize",
     })
 
     const chrome = stage?.querySelectorAll("[data-fade]")
