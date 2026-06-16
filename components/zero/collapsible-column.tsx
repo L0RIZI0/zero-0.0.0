@@ -152,16 +152,18 @@ export function CollapsibleColumn({
                 onBeforeExpand?.()
               }}
               aria-label={`Expand ${title}`}
+              // No hover background/box anymore — the icon just brightens (opacity)
+              // exactly like the label below it. Icon is also a touch smaller.
               className={cn(
-                "flex h-7 w-7 items-center justify-center rounded-sm text-muted-foreground transition-all duration-200",
-                railHover ? "bg-secondary/70 text-foreground opacity-100" : "opacity-35",
+                "flex items-center justify-center text-muted-foreground transition-opacity duration-200",
+                railHover ? "text-foreground opacity-100" : "opacity-35",
               )}
             >
-              <ClosedIcon className="h-4 w-4" />
+              <ClosedIcon className="h-3.5 w-3.5" />
             </button>
             <span
               className={cn(
-                "text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground/70 transition-opacity duration-200",
+                "text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground/70 transition-opacity duration-200",
                 railHover ? "opacity-100" : "opacity-35",
               )}
               style={{ writingMode: "vertical-rl" }}

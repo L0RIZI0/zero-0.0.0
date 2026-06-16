@@ -77,10 +77,19 @@ export function WorkSurface() {
         data-window-region
         // `flex flex-col` so the always-mounted home EntityBody (flex-1) is
         // actually constrained to this region's height. Without it the region was
-        // a plain block, EntityBody sized to its content and overflowed (clipped
-        // by overflow-hidden) — an expanded Inputs panel then grew the columns row
-        // and pushed the opposite (centered) Outputs rail down.
-        className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-md"
+        // a plain block, EntityBody sized to its content and overflowed — an
+        // expanded Inputs panel then grew the columns row and pushed the opposite
+        // (centered) Outputs rail down.
+        //
+        // Clipping uses `clip-path` (an inset with a NEGATIVE bottom) instead of
+        // `overflow-hidden`. At rest the open windows are `position: fixed`, so
+        // overflow didn't clip them; but during the GSAP Flip morph the frames
+        // become `position: absolute` inside this region and overflow-hidden then
+        // clipped the stacked drop-shadows at the very bottom of the screen — they
+        // vanished mid-animation and snapped back when it ended. The negative
+        // bottom inset (−120px) leaves room for those shadows while still clipping
+        // the top/sides (so peeking parent frames stay contained).
+        className="relative flex min-h-0 flex-1 flex-col rounded-md [clip-path:inset(0px_0px_-120px_0px_round_6px)]"
       >
         <EntityBody entityId={rootId} active={activeEntity.id === rootId} isRoot />
       </div>

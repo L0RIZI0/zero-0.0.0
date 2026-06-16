@@ -148,7 +148,11 @@ export function Dock({ contextId, active = true }: { contextId: string; active?:
           active context changes — exactly like the do list's `<ul key={contextId}>`.
           A fresh per-context AnimatePresence has no stale "exiting" instances,
           so card enter/exit resolves cleanly in both directions. */}
-      <div key={contextId} className="flex w-full flex-wrap items-stretch justify-center gap-3">
+      {/* `flex-nowrap` keeps the dock on a SINGLE row at all times. It used to
+          `flex-wrap`, so while a window was still mid-expansion (container narrow)
+          the cards momentarily wrapped onto several lines before snapping back to
+          one once the frame reached full width. One line avoids that reflow. */}
+      <div key={contextId} className="flex w-full flex-nowrap items-stretch justify-center gap-3">
         <AnimatePresence initial={false} mode="popLayout">
           {pinned.map((item) => (
             <EntityNode

@@ -9,6 +9,7 @@ import { DoList } from "./do-list"
 import { AssetPanel } from "./asset-panel"
 import { OutputPanel } from "./output-panel"
 import { CollapsibleColumn } from "./collapsible-column"
+import { cn } from "@/lib/utils"
 
 /** Width of a side slot when its panel is OPEN, and the thin RAIL when collapsed. */
 const PANEL_OPEN_W = 230
@@ -87,9 +88,12 @@ export function EntityBody({
           </motion.div>
 
           {/* Center Tasks column — takes the remaining width, capped for a
-              comfortable reading measure, centered so it slides as sides change. */}
+              comfortable reading measure, centered so it slides as sides change.
+              On the home view the cap is 70% of the viewport so the do-list entries
+              read as a focused central column rather than spanning the whole width;
+              inside a focus window the fixed 720px measure is kept. */}
           <div className="flex min-h-0 min-w-0 flex-1 flex-col items-center">
-            <div className="flex min-h-0 w-full max-w-[720px] flex-1 flex-col">
+            <div className={cn("flex min-h-0 w-full flex-1 flex-col", isRoot ? "max-w-[70vw]" : "max-w-[720px]")}>
               <DoList contextId={entityId} active={active} />
             </div>
           </div>
