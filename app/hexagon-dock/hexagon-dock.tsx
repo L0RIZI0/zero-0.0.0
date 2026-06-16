@@ -167,20 +167,26 @@ function SpaceEntity({
     variant === "dock" ? "relative h-[150px] w-[130px] shrink-0" : "relative h-12 w-full max-w-md"
 
   // Collapsed frames are clipped to their launcher shape; the window is always a
-  // hexagon. Flip tweens clip-path between them (RECT6 → HEX for the row; the dock
-  // card is already HEX, so its clip-path tween is a no-op and it purely grows).
+  // hexagon. The clip-path is keyed off asWindow (NOT openLike) so that DURING the
+  // close the frame already targets its collapsed shape — Flip then tweens
+  // HEX → RECT6 for the row as it shrinks, instead of staying hexagonal and only
+  // snapping to a rectangle at the very end. The dock card is HEX in both states,
+  // so its clip-path tween is a no-op and it purely grows/shrinks.
   const collapsedClip = variant === "dock" ? HEX : RECT6
-  const clipPath = openLike ? HEX : collapsedClip
+  const clipPath = asWindow ? HEX : collapsedClip
 
-  // The expanded window keeps the soft filled surface. The collapsed launchers
-  // are transparent and only reveal that same fill on hover (a highlight), so the
-  // page stays clean. While closing, the frame is still the "window", so it keeps
-  // the fill as it shrinks back into the launcher.
+  // The expanded window keeps the soft filled surface. While closing, the frame
+  // keeps that fill as it shrinks back into the launcher. Collapsed launchers:
+  // the dock CARD has a faint resting fill that brightens on hover; the do-list
+  // ROW has no resting fill and only reveals the highlight on hover.
   const frameClass = asWindow
     ? "fixed flex flex-col items-center bg-secondary"
     : isClosing
       ? "absolute inset-0 bg-secondary z-40 outline-none"
-      : "absolute inset-0 cursor-pointer bg-transparent outline-none transition-colors duration-200 hover:bg-secondary"
+      : cn(
+          "absolute inset-0 cursor-pointer outline-none transition-colors duration-200 hover:bg-secondary",
+          variant === "dock" ? "bg-secondary/40" : "bg-transparent",
+        )
 
   // ONE persistent header (glyph + title) — exactly Zero's trick. It is NEVER
   // swapped between branches; only its layout classes and the title's inline
@@ -262,7 +268,7 @@ function SpaceEntity({
               <p className="mt-1 max-w-[260px] text-center text-xs leading-relaxed text-muted-foreground">
                 {space.blurb}
               </p>
-              <ul className="mt-5 flex w-full max-w-[300px] flex-col gap-1.5 overflow-y-auto">
+              <ul className="mt-5 flex w-full max-w-[300px] flex-col gap-1.5 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                 {space.items.map((item) => (
                   <li
                     key={item.id}
@@ -377,6 +383,14 @@ export function HexagonDock() {
 
   return (
     <main className="relative min-h-svh bg-background text-foreground">
+      {/* Hide every scrollbar everywhere. A scrollbar that appears/disappears
+          during the morph changes the layout width by a few px, which reads as a
+          shake/jitter at the end of open and close. */}
+      <style>{`
+        html, body { overflow-x: hidden; }
+        *::-webkit-scrollbar { width: 0 !important; height: 0 !important; display: none !important; }
+        * { scrollbar-width: none !important; -ms-overflow-style: none !important; }
+      `}</style>
       <div ref={stageRef} className="mx-auto flex max-w-2xl flex-col gap-12 px-6 py-16">
         <header className="text-center">
           <h1 className="text-pretty text-2xl font-semibold tracking-tight">Hexagon Spaces</h1>
