@@ -8,33 +8,29 @@ import { CustomEase } from "gsap/CustomEase"
 import { cn } from "@/lib/utils"
 
 /**
- * HEXAGON SPACES — standalone exploration prototype, now driven by GSAP (the same
+ * HEXAGON SPACES — standalone exploration prototype, driven by GSAP (the same
  * engine Zero uses in `lib/zero/flip-stage.ts`) instead of Framer Motion.
  *
- * WHY THE SWITCH: Framer's layout projection (`layoutId`) actively rewrites the
- * transform matrix on the shared element every frame to keep its FLIP correction
- * exact. That fought any `rotate` we put on the same node, which is why the dock
- * "spin" only ever tilted out and snapped back. GSAP does no such projection — we
- * own the transform outright — so a real rotation just works.
- *
- * THE MODEL (unchanged):
+ * THE MODEL:
  *   1. DO-LIST ROW → RECTANGLE, hex glyph only.
- *   2. DOCK CARD   → true HEXAGON (pointy-top, matches the glyph).
- *   3. WINDOW      → flat-top HEXAGON (wide, near-rectangle; side points peek
- *                    beside a nested child).
+ *   2. DOCK CARD   → true regular HEXAGON (pointy-top, matches the glyph).
+ *   3. WINDOW      → the SAME regular HEXAGON, just larger.
+ *
+ * No rotation, no stretched / flat-top hexagon anywhere — one pure regular
+ * hexagon shape (HEX) for both the dock card and the window, sized to the regular
+ * hexagon aspect ratio (HEX_RATIO) so it never looks squashed.
  *
  * HOW THE MORPH RUNS (mirrors Zero):
  *   • On click we capture the launcher's rect (FIRST). React commits the open
  *     window (LAST). In a useLayoutEffect (pre-paint) we set the window's hexagon
  *     BACKGROUND layer to the launcher's transform, then tween it to identity —
- *     a hand-rolled FLIP. Geometry (scaleX/scaleY + x/y), rotation, and the
- *     clip-path reshape all ride the one tween.
- *   • DOCK launch → the background spins ~120° clockwise (pointy-top HEX →
- *     flat-top FLAT_HEX) while content fades in upright afterwards.
- *   • ROW launch → the background reshapes RECT6 → FLAT_HEX with no spin, and the
- *     glyph + title do their own little FLIP from the row up into the header.
- *   • Content sits on a SEPARATE, non-transformed layer, so it never distorts or
- *     rotates with the background.
+ *     a hand-rolled FLIP. Geometry (scaleX/scaleY + x/y) and, for a row launch,
+ *     the clip-path reshape (RECT6 → HEX) ride the one tween.
+ *   • DOCK launch → hexagon → hexagon, so it is a pure scale/translate grow; no
+ *     clip-path change needed.
+ *   • ROW launch → the background reshapes RECT6 → HEX, and the glyph + title do
+ *     their own little FLIP from the row up into the header.
+ *   • Content sits on a SEPARATE, non-transformed layer, so it never distorts.
  */
 
 if (typeof window !== "undefined") {
@@ -46,27 +42,25 @@ if (typeof window !== "undefined") {
   }
 }
 
-// Slowed to 2s so the spin / reshape is easy to study (was the last request).
-const DUR = 2
+// Morph timing.
+const DUR = 0.62
 const EASE = "zeroLand"
 
-// Pointy-top hexagon — the Space glyph + dock card identity.
+// THE one shape: a regular pointy-top hexagon, used identically for the Space
+// glyph, the dock card, AND the window. Percentage points keep it a regular
+// hexagon at any size, AS LONG AS its container honors the regular-hexagon aspect
+// ratio (width / height = √3 / 2 ≈ 0.866 — see HEX_RATIO + the window sizing).
 const HEX = "polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)"
 
-// Flat-top hexagon for the WINDOW: an edge on top/bottom, points at the sides.
-// Same 6-vertex COUNT as HEX and RECT6 so GSAP interpolates the clip-path
-// point-for-point during the reshape. Order: top-left, top-right, right-point,
-// bottom-right, bottom-left, left-point.
-const FLAT_HEX = "polygon(12% 0%, 88% 0%, 100% 50%, 88% 100%, 12% 100%, 0% 50%)"
+// Regular pointy-top hexagon aspect ratio (width : height). The dock card and the
+// window are both sized to this so the clip-path renders as a TRUE regular hexagon
+// rather than a stretched one.
+const HEX_RATIO = Math.sqrt(3) / 2 // ≈ 0.866
 
-// A rectangle written with the SAME six vertices as FLAT_HEX (top-left, top-right,
-// right-mid, bottom-right, bottom-left, left-mid), so a row launch can morph
-// rectangle → flat-hex cleanly.
-const RECT6 = "polygon(0% 0%, 100% 0%, 100% 50%, 100% 100%, 0% 100%, 0% 50%)"
-
-// Dock-launch spin. Negative so the tween up to 0° resolves CLOCKWISE. ~120° is a
-// light, quarter-ish turn rather than a full spin.
-const SPIN_DEG = -120
+// A rectangle written with the SAME six vertices as HEX, in the same order
+// (top-mid, top-right, bottom-right, bottom-mid, bottom-left, top-left), so a ROW
+// launch can morph rectangle → hexagon point-for-point with GSAP.
+const RECT6 = "polygon(50% 0%, 100% 0%, 100% 100%, 50% 100%, 0% 100%, 0% 0%)"
 
 type SpaceItem = { id: string; label: string; done?: boolean }
 type Space = {
@@ -219,17 +213,15 @@ export function HexagonDock() {
     const content = contentRefs.current[0]
     if (content) gsap.to(content, { autoAlpha: 0, duration: DUR * 0.3, ease: EASE })
 
-    // Shrink + un-reshape + un-spin the background back into the launcher.
+    // Shrink + (for a row) un-reshape the background back into the launcher.
     const W = toRect(bg.getBoundingClientRect())
     const { dx, dy } = centerDelta(launch.rect, W)
     const toClip = launch.from === "dock" ? HEX : RECT6
-    const toRot = launch.from === "dock" ? SPIN_DEG : 0
     gsap.to(bg, {
       x: dx,
       y: dy,
       scaleX: launch.rect.width / W.width,
       scaleY: launch.rect.height / W.height,
-      rotation: toRot,
       clipPath: toClip,
       duration: DUR,
       ease: EASE,
@@ -300,23 +292,23 @@ export function HexagonDock() {
     // pre-transform). Set the background to FIRST, then tween to LAST.
     const W = toRect(bg.getBoundingClientRect())
     const { dx, dy } = centerDelta(launch.rect, W)
+    // Dock launch: hexagon → hexagon (no clip change). Row launch: rect → hexagon.
     const fromClip = launch.from === "dock" ? HEX : RECT6
-    const fromRot = launch.from === "dock" ? SPIN_DEG : 0
     const inner = bg.firstElementChild
 
     gsap.set(bg, { transformOrigin: "center center" })
     gsap.fromTo(
       bg,
-      { x: dx, y: dy, scaleX: launch.rect.width / W.width, scaleY: launch.rect.height / W.height, rotation: fromRot, clipPath: fromClip },
-      { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0, clipPath: FLAT_HEX, duration: DUR, ease: EASE },
+      { x: dx, y: dy, scaleX: launch.rect.width / W.width, scaleY: launch.rect.height / W.height, clipPath: fromClip },
+      { x: 0, y: 0, scaleX: 1, scaleY: 1, clipPath: HEX, duration: DUR, ease: EASE },
     )
-    if (inner) gsap.fromTo(inner, { clipPath: fromClip }, { clipPath: FLAT_HEX, duration: DUR, ease: EASE })
+    if (inner) gsap.fromTo(inner, { clipPath: fromClip }, { clipPath: HEX, duration: DUR, ease: EASE })
 
     if (!content) return
 
     if (launch.from === "dock") {
-      // Spin first, then fade the whole content in upright.
-      gsap.fromTo(content, { autoAlpha: 0 }, { autoAlpha: 1, delay: DUR * 0.5, duration: DUR * 0.3, ease: EASE })
+      // Dock → window is a pure grow; fade content in as it settles.
+      gsap.fromTo(content, { autoAlpha: 0 }, { autoAlpha: 1, delay: DUR * 0.35, duration: DUR * 0.4, ease: EASE })
     } else {
       // Row launch: glyph + title FLIP up from the row; everything else fades.
       gsap.set(content, { autoAlpha: 1 })
@@ -353,7 +345,7 @@ export function HexagonDock() {
         <h1 className="mt-2 text-balance font-sans text-2xl font-semibold tracking-tight sm:text-3xl">Hexagon Spaces</h1>
         <p className="mx-auto mt-3 max-w-lg text-pretty text-sm leading-relaxed text-muted-foreground">
           A Space across its three regions, morphed with GSAP (Zero&apos;s engine). Rows stay rectangular (hex glyph only); the dock
-          card spins into the window; the row reshapes into it. Open one, then use the IN rail to push into a nested child.
+          card and the window are the same pure regular hexagon. Open one, then use the IN rail to push into a nested child.
         </p>
       </header>
 
@@ -441,19 +433,20 @@ export function HexagonDock() {
         <RegionLabel index={3} title="What this means" note="Observations" />
         <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <Finding title="GSAP, like Zero">
-            Driven by a hand-rolled GSAP FLIP + the shared &quot;zeroLand&quot; ease. No layout projection means a real rotation
-            sticks instead of tilting back.
+            Driven by a hand-rolled GSAP FLIP + the shared &quot;zeroLand&quot; ease — the same engine as the real app, no Framer
+            layout projection.
           </Finding>
-          <Finding title="Flat-top reclaims space">
-            A wide flat-top hexagon (edge on top, points at the sides) reads almost like a rectangle — only the four diagonal corners
-            are lost.
+          <Finding title="One pure hexagon">
+            The dock card and the window are the exact same regular pointy-top hexagon, sized to the √3/2 aspect ratio so it never
+            looks squashed.
           </Finding>
           <Finding title="Two entries, two motions">
-            From the dock the card spins ~120° clockwise (pointy-top → flat-top); from a row it reshapes rectangle → hexagon with no
-            spin. Same window, two arrivals.
+            From the dock the card grows hexagon → hexagon (pure scale); from a row it reshapes rectangle → hexagon. Same window,
+            two arrivals.
           </Finding>
-          <Finding title="Side points peek when nested">
-            A child window insets and the parent&apos;s left/right points poke out beside it — a hexagon-native depth cue.
+          <Finding title="Content lives in the waist">
+            A regular hexagon clips its top/bottom points, so content insets into the central band and the IN/OUT rails hug the
+            vertical waist edges.
           </Finding>
         </div>
       </section>
@@ -463,7 +456,7 @@ export function HexagonDock() {
         <div ref={backdropRef} className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/40 p-4" onClick={close}>
           <div
             className="relative"
-            style={{ width: "min(94vw, 880px)", height: "min(86svh, 600px)" }}
+            style={{ height: "min(86svh, 600px)", width: "min(94vw, calc(min(86svh, 600px) * var(--hex-ratio)))", ["--hex-ratio" as string]: HEX_RATIO }}
             onClick={(e) => e.stopPropagation()}
           >
             {stack.map((space, depth) => {
@@ -477,17 +470,17 @@ export function HexagonDock() {
                   className="absolute inset-0"
                   style={{ transformOrigin: "center center" }}
                 >
-                  {/* ROTATING / RESHAPING BACKGROUND — owns the morph transform. */}
+                  {/* RESHAPING BACKGROUND — owns the morph transform. */}
                   <div
                     ref={(el) => {
                       if (el) bgRefs.current[depth] = el
                     }}
                     className="absolute inset-0 bg-border"
-                    style={{ clipPath: FLAT_HEX }}
+                    style={{ clipPath: HEX }}
                   >
                     <div
                       className={cn("absolute inset-[2px] bg-card", !isTop && "brightness-[0.97]")}
-                      style={{ clipPath: FLAT_HEX }}
+                      style={{ clipPath: HEX }}
                     />
                   </div>
 
@@ -501,7 +494,7 @@ export function HexagonDock() {
                     {isTop ? (
                       <SpaceWindowContent space={space} />
                     ) : (
-                      <div className="flex w-full flex-col items-center pt-[7%]">
+                      <div className="flex w-full flex-col items-center pt-[14%]">
                         <HexGlyph className="h-5 w-5 text-foreground/60" />
                         <span className="mt-1 text-xs font-medium text-muted-foreground">{space.name}</span>
                       </div>
@@ -519,7 +512,7 @@ export function HexagonDock() {
                       <SideRail side="out" label="Outputs" disabled onClick={() => {}} />
                       <button
                         onClick={depth === 0 ? close : popChild}
-                        className="absolute right-[6%] top-[7%] z-10 flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                        className="absolute right-[15%] top-[14%] z-10 flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
                         aria-label={depth === 0 ? `Close ${space.name}` : `Back from ${space.name}`}
                         data-fade
                       >
@@ -544,11 +537,13 @@ const toRect = (r: { top: number; left: number; width: number; height: number })
   height: r.height,
 })
 
-/** The frontmost hexagon window's content. The glyph + title carry data hooks so a
- *  row launch can FLIP them up from the row; the blurb / list / close just fade. */
+/** The frontmost hexagon window's content, kept inside the regular hexagon's safe
+ *  central band (top/bottom points are clipped, so we inset vertically). The glyph
+ *  + title carry data hooks so a row launch can FLIP them up from the row; the
+ *  blurb / list / close just fade. */
 function SpaceWindowContent({ space }: { space: Space }) {
   return (
-    <div className="flex h-full w-full flex-col items-center px-[12%] pt-[7%] pb-[6%]">
+    <div className="flex h-full w-full flex-col items-center px-[18%] pt-[16%] pb-[14%]">
       <div data-win-glyph className="flex items-center justify-center" style={{ transformOrigin: "center center" }}>
         <HexGlyph className="h-9 w-9 text-foreground/80" />
       </div>
@@ -559,7 +554,7 @@ function SpaceWindowContent({ space }: { space: Space }) {
         {space.blurb}
       </p>
 
-      <ul data-fade className="mt-5 flex w-full max-w-[520px] flex-col gap-1.5 overflow-y-auto">
+      <ul data-fade className="mt-5 flex w-full max-w-[300px] flex-col gap-1.5 overflow-y-auto">
         {space.items.map((item) => (
           <li key={item.id} className="flex items-center gap-2.5 rounded-md bg-secondary/60 px-3 py-2">
             <span
@@ -579,8 +574,8 @@ function SpaceWindowContent({ space }: { space: Space }) {
 }
 
 /**
- * IN / OUT side rail — tucks just inside the flat-top hexagon's left/right point at
- * mid-height, where the shape reaches full width.
+ * IN / OUT side rail — sits on the regular hexagon's vertical edge at the waist
+ * (mid-height), the one place a pointy-top hexagon offers a straight vertical run.
  */
 function SideRail({
   side,
