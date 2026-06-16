@@ -49,10 +49,10 @@ const FLAT_HEX = "polygon(12% 0%, 88% 0%, 100% 50%, 88% 100%, 12% 100%, 0% 50%)"
 // WHOLE row card visibly reshape into the hexagon during a row launch — no spin.
 const RECT6 = "polygon(0% 0%, 100% 0%, 100% 50%, 100% 100%, 0% 100%, 0% 50%)"
 
-// Spin applied to a DOCK launch: start a touch past a full turn so the window
-// enters as a vertex-up (pointy-top-looking) hexagon — matching the dock card it
-// grows from — and unwinds to 0° where the flat-top edge lands on top.
-const SPIN_DEG = 390
+// Spin applied to a DOCK launch: the window enters rotated and unwinds to 0°
+// where the flat-top edge lands on top. ~300° reads as a lively turn without
+// feeling like an excessive full spin.
+const SPIN_DEG = 300
 
 type SpaceItem = { id: string; label: string; done?: boolean }
 type Space = {
@@ -299,7 +299,7 @@ export function HexagonDock() {
             the list runs near full width across the middle.
           </Finding>
           <Finding title="Two entries, two motions">
-            From the dock the whole card spins ~390° from vertex-up to edge-up;
+            From the dock the whole card spins ~300° from vertex-up to edge-up;
             from a row it reshapes rectangle→hexagon with no spin. Same window,
             two arrivals.
           </Finding>
