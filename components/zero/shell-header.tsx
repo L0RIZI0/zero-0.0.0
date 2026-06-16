@@ -59,9 +59,14 @@ export function ShellHeader() {
       // unchanging box, so the WorkSurface card below — and therefore the
       // fixed-window region — never moves during a dive. (h-16 = avatar 36 + 2×14
       // padding = the natural stage-0 height, so resting layout is unchanged.)
-      className="pointer-events-none relative z-40 flex h-16 items-center justify-between gap-4 px-5"
+      className="pointer-events-none relative z-40 flex h-16 items-center justify-between gap-4"
       style={{ paddingTop: HEADER_PAD_Y, paddingBottom: HEADER_PAD_Y }}
       initial={false}
+      // At stage 2 the bar rides UP a touch (transform — no reflow, so the work
+      // surface below stays put) and its side margins tighten, pulling the avatar
+      // and "zero" logo nearer the screen edges. Both ease with the shared morph.
+      animate={{ y: compact ? -8 : 0, paddingLeft: compact ? 12 : 20, paddingRight: compact ? 12 : 20 }}
+      transition={layerTransition}
     >
       <div className="pointer-events-auto flex flex-1 items-center">
         <UserIdentity compact={compact} />
