@@ -55,7 +55,11 @@ export const TASK_TOP_PEEK = 56
 export const TASK_SIDE = 10
 export const SPACE_SPINE = 56
 export const SPACE_TOP_PEEK = 28
-export const SPACE_RIGHT_PEEK = 14
+// Right peek is wide enough (was 14) to reveal an ancestor space's collapsed
+// Outs rail beside the child window — so each ancestor in the stack keeps its
+// Inputs/Outputs reachable. It compounds per ancestor, so deeper dives let each
+// successive parent peek a little more on the right.
+export const SPACE_RIGHT_PEEK = 46
 export const SPACE_BOTTOM_PEEK = 14
 /**
  * Base horizontal inset applied to EVERY focus window (even the depth-1 child of

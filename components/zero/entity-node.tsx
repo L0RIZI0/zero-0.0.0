@@ -161,7 +161,12 @@ export function EntityNode({
       )
 
   const headerClass = spine
-    ? "absolute inset-y-0 left-[3px] z-10 flex w-14 flex-col items-center gap-7 pt-4"
+    ? // No fixed gap between glyph and title: the glyph pins to the top (pt-4)
+      // and the title takes `my-auto` (below) to center in the REMAINING height.
+      // A long rotated title (e.g. "Home & Family") therefore sits at the
+      // window's vertical middle instead of butting up against — and overlapping
+      // — the glyph just above it.
+      "absolute inset-y-0 left-[3px] z-10 flex w-14 flex-col items-center pt-4"
     : asWindow
       ? "relative z-10 flex shrink-0 items-center gap-3 pl-5 pr-12"
       : variant === "dock"
@@ -278,7 +283,7 @@ export function EntityNode({
             className={cn(
               "relative tracking-tight",
               spine
-                ? "whitespace-nowrap font-semibold"
+                ? "my-auto whitespace-nowrap font-semibold"
                 : asWindow
                   ? "whitespace-nowrap font-semibold"
                   : variant === "dock"

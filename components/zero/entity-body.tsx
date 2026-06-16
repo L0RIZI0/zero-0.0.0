@@ -34,7 +34,7 @@ export function EntityBody({ entityId, active = true }: { entityId: string; acti
       <div className="flex min-h-0 flex-1 flex-col pt-4">
         <div className="flex min-h-[180px] flex-1 gap-4">
           <div className="hidden w-[230px] shrink-0 md:flex">
-            <CollapsibleColumn title="Inputs" side="left" count={assetCount} defaultOpen={false}>
+            <CollapsibleColumn title="Inputs" collapsedTitle="Ins" side="left" count={assetCount} defaultOpen={false}>
               <AssetPanel spaceId={entityId} />
             </CollapsibleColumn>
           </div>
@@ -46,7 +46,7 @@ export function EntityBody({ entityId, active = true }: { entityId: string; acti
           </div>
 
           <div className="hidden w-[230px] shrink-0 md:flex">
-            <CollapsibleColumn title="Outputs" side="right" count={0} defaultOpen={false}>
+            <CollapsibleColumn title="Outputs" collapsedTitle="Outs" side="right" count={0} defaultOpen={false}>
               <OutputPanel spaceId={entityId} />
             </CollapsibleColumn>
           </div>

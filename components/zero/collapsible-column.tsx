@@ -14,12 +14,17 @@ import { cn } from "@/lib/utils"
  */
 export function CollapsibleColumn({
   title,
+  collapsedTitle,
   side,
   count,
   children,
   defaultOpen = true,
 }: {
   title: string
+  /** Short label shown on the vertical rail when collapsed (e.g. "Ins" / "Outs").
+   *  Falls back to the full `title` when omitted. The open panel always uses the
+   *  full `title`. */
+  collapsedTitle?: string
   side: "left" | "right"
   count?: number
   children: React.ReactNode
@@ -41,7 +46,13 @@ export function CollapsibleColumn({
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: side === "left" ? -8 : 8 }}
             transition={panelTransition}
-            className="flex min-h-0 flex-col"
+            className={cn(
+              "flex min-h-0 flex-col",
+              // Pull the whole open panel outward so it hugs the screen edge
+              // (its header label + the per-row continuity rails sit as close to
+              // the edge as the collapsed rail does — bleeding is fine).
+              side === "left" ? "-ml-4" : "-mr-4",
+            )}
           >
             <div
               className={cn(
@@ -99,12 +110,14 @@ export function CollapsibleColumn({
             exit={{ opacity: 0 }}
             transition={panelTransition}
             className={cn(
-              "flex flex-col items-center gap-3 pt-1",
-              // Rail hugs the outer screen edge of its fixed slot, then is pulled
-              // a further 20px outward (past the body's px-6) so it sits as close
-              // to the screen edge as the timeline chrome: the left (Inputs) rail
-              // lines up under the timeline's LYQ… zoom selectors, and the right
-              // (Outputs) rail mirrors it on the far side.
+              // flex-1 + justify-center makes the rail span the full column height
+              // and sit at its VERTICAL MIDDLE (it used to bunch up just under the
+              // dock). Hugs the outer screen edge of its slot, pulled a further
+              // 20px outward (past the body's px-6) so it sits as close to the
+              // edge as the timeline chrome — the left (Inputs) rail lines up
+              // under the timeline's LYQ… zoom selectors and the right (Outputs)
+              // rail mirrors it.
+              "flex flex-1 flex-col items-center justify-center gap-3",
               side === "left" ? "-ml-5 self-start" : "-mr-5 self-end",
             )}
           >
@@ -120,7 +133,7 @@ export function CollapsibleColumn({
               className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground/70"
               style={{ writingMode: "vertical-rl" }}
             >
-              {title}
+              {collapsedTitle ?? title}
               {typeof count === "number" ? `  ${count}` : ""}
             </span>
           </motion.div>
