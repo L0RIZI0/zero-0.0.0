@@ -53,10 +53,15 @@ export function ShellHeader() {
       // pointer-events-none lets hovers/clicks fall through the header's empty
       // areas to the timeline label / "Today" link underneath; the interactive
       // side clusters re-enable pointer events on themselves.
-      className="pointer-events-none relative z-40 flex items-center justify-between gap-4 px-5"
+      //
+      // FIXED height (h-16, with constant vertical padding) is what makes the
+      // stage-2 compaction safe: the avatar/handle/search/logo shrink WITHIN this
+      // unchanging box, so the WorkSurface card below — and therefore the
+      // fixed-window region — never moves during a dive. (h-16 = avatar 36 + 2×14
+      // padding = the natural stage-0 height, so resting layout is unchanged.)
+      className="pointer-events-none relative z-40 flex h-16 items-center justify-between gap-4 px-5"
+      style={{ paddingTop: HEADER_PAD_Y, paddingBottom: HEADER_PAD_Y }}
       initial={false}
-      animate={{ paddingTop: HEADER_PAD_Y[stage], paddingBottom: HEADER_PAD_Y[stage] }}
-      transition={layerTransition}
     >
       <div className="pointer-events-auto flex flex-1 items-center">
         <UserIdentity compact={compact} />

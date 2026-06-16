@@ -3,7 +3,7 @@
 import { motion } from "motion/react"
 import { useZeroNav } from "@/lib/zero/nav-store"
 import { getSpace, getEntity } from "@/lib/zero/data"
-import { shellStageFor, TIMELINE_TOP_PAD } from "@/lib/zero/layout"
+import { shellStageFor, TIMELINE_LIFT_Y, TIMELINE_TOP_PAD } from "@/lib/zero/layout"
 import { layerTransition } from "@/lib/zero/motion"
 import { registerStage } from "@/lib/zero/flip-stage"
 import { EntityBody } from "./entity-body"
@@ -50,13 +50,17 @@ export function WorkSurface() {
     // still rounds the card's own background; only the window region needs to
     // clip its scaled-up parent frames.
     <div className="relative flex h-full w-full flex-col rounded-md bg-background">
-      {/* Persistent timeline — always pinned above the focus window. Its top
-          margin animates negative with depth so it rises toward (and slightly
-          into) the header bar. Not clipped by the card, so it never crops. */}
+      {/* Persistent timeline — always pinned above the focus window. It rises
+          toward (and slightly into) the header bar with depth via a `transform`
+          (translateY), NOT a margin: that keeps the focus-window region's box
+          perfectly still through the morph (the region's rect anchors every fixed
+          window). The resting top margin stays constant. Not clipped by the card,
+          so it never crops. */}
       <motion.div
         className="relative z-30 shrink-0 px-6"
+        style={{ marginTop: TIMELINE_TOP_PAD }}
         initial={false}
-        animate={{ marginTop: TIMELINE_TOP_PAD[stage] }}
+        animate={{ y: TIMELINE_LIFT_Y[stage] }}
         transition={layerTransition}
       >
         <TimelineStrip contextId={contextId} accent={accent} />
