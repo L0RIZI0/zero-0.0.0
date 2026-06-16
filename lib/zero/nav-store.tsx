@@ -359,17 +359,21 @@ export function ZeroNavProvider({
     const styleFor = (windowDepth: number): React.CSSProperties => {
       const ancestorKinds = stack.slice(1, windowDepth).map((sid) => getEntity(sid)?.kind ?? "task")
       const rect = stackTargetRect(ancestorKinds, { w: regionRect.width, h: regionRect.height })
+      // The frontmost child (current leaf / focus) extends a bit BELOW the region
+      // bottom so it covers the stacked drop-shadows the ancestors pile up there.
+      // All windows share the same bottom edge, so only the leaf needs this; the
+      // region's clip-path already leaves −120px of room beneath for shadows.
+      const isLeaf = windowDepth === stack.length - 1
+      const LEAF_BOTTOM_OVERHANG = 24
       return {
         position: "fixed",
         top: regionRect.top + rect.top,
         left: regionRect.left + rect.left,
         width: rect.width,
-        height: rect.height,
+        height: rect.height + (isLeaf ? LEAF_BOTTOM_OVERHANG : 0),
         zIndex: 20 + windowDepth * 10,
-        // Top-left stays square. Top-right gets a large radius for every window
-        // EXCEPT the first child opened from home (windowDepth === 1), which keeps
-        // a square top-right. Bottom corners stay at the usual 8px. (TL TR BR BL)
-        borderRadius: `0 ${windowDepth >= 2 ? "28px" : "0"} 8px 8px`,
+        // Square top corners; bottom two stay rounded at 8px. (TL TR BR BL)
+        borderRadius: "0 0 8px 8px",
       }
     }
 
@@ -385,9 +389,8 @@ export function ZeroNavProvider({
         width: rect.width,
         height: rect.height,
         zIndex: 20 + windowDepth * 10,
-        // Top-left stays square. Top-right gets a large radius for every window
-        // EXCEPT the first child opened from home (windowDepth === 1). (TL TR BR BL)
-        borderRadius: `0 ${windowDepth >= 2 ? "28px" : "0"} 8px 8px`,
+        // Square top corners; bottom two stay rounded at 8px. (TL TR BR BL)
+        borderRadius: "0 0 8px 8px",
       }
     }
 
