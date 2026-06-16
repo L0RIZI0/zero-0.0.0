@@ -309,7 +309,7 @@ export function HexagonDock() {
             {/* Stage holds the window footprint; children stack within it. */}
             <div
               className="relative"
-              style={{ width: "min(92vw, 560px)", height: "min(86svh, 600px)" }}
+              style={{ width: "min(94vw, 880px)", height: "min(86svh, 600px)" }}
               onClick={(e) => e.stopPropagation()}
             >
               {stack.map((space, depth) => {
@@ -421,7 +421,7 @@ function SpaceWindowContent({ space }: { space: Space }) {
       <h2 className="mt-3 text-center text-xl font-semibold tracking-tight">{space.name}</h2>
       <p className="mt-1 text-center text-xs text-muted-foreground">{space.blurb}</p>
 
-      <ul className="mt-5 flex w-full max-w-[360px] flex-col gap-1.5 overflow-y-auto">
+      <ul className="mt-5 flex w-full max-w-[520px] flex-col gap-1.5 overflow-y-auto">
         {space.items.map((item) => (
           <li
             key={item.id}
