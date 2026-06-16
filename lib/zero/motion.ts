@@ -54,8 +54,9 @@ export const SIDE_PX = 10
  */
 // Horizontal entity header height. Trimmed ~1/4 (was 57) for a more compact band.
 export const HEADER_H = 43
-// Top peek trimmed a bit (was 56 / 28) so stacked ancestors sit a touch tighter.
-export const TASK_TOP_PEEK = 46
+// Top peek trimmed a bit (was 56 / 28, then 46 / 22, now −3 more) so stacked
+// ancestors sit a touch tighter.
+export const TASK_TOP_PEEK = 43
 // A non-space (task/event/instant) ancestor used to peek ONLY from the top (side
 // inset was just 10px), so a child window covered almost its entire body — hiding
 // the parent's collapsed IN/OUT rails. This side peek leaves a strip of the
@@ -63,7 +64,7 @@ export const TASK_TOP_PEEK = 46
 // close to RIGHT_PEEK so the left strip isn't noticeably wider than the right.
 export const TASK_SIDE = 26
 export const SPACE_SPINE = 56
-export const SPACE_TOP_PEEK = 22
+export const SPACE_TOP_PEEK = 19
 // Right peek reveals just a sliver of an ancestor's collapsed Outs rail beside
 // the child window. Applied uniformly to EVERY ancestor kind (space or
 // task/event/instant) — the right margin no longer differs by parent type, only

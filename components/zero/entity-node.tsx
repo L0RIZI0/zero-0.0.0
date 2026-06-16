@@ -289,18 +289,17 @@ export function EntityNode({
               <X size={14} strokeWidth={closeHover ? 2.25 : 1.5} />
             </button>
             {/* Discreet entity title that fades in on close-button hover, so the
-                user knows which entity they're about to close. Rotated clockwise
-                (vertical, reading top-to-bottom) and stacked BENEATH the X, so it
-                sits over the window's right peek margin without shifting layout.
+                user knows which entity they're about to close. Rendered HORIZONTAL
+                and positioned to the LEFT of the X (absolute, so it never shifts the
+                button), cropped with an ellipsis if too long.
                 Gated on `!animating`: when a window opens, the X mounts right under
                 the cursor and `onPointerEnter` fires, which used to flash the title
                 during the expansion. Suppressing it until the morph finishes means
                 it only appears once the window has settled (and the pointer is
                 genuinely resting on the X). */}
             <span
-              style={{ writingMode: "vertical-rl" }}
               className={cn(
-                "pointer-events-none whitespace-nowrap text-[11px] font-medium text-muted-foreground transition-opacity duration-200",
+                "pointer-events-none absolute right-full top-1/2 mr-2 max-w-[200px] -translate-y-1/2 overflow-hidden text-ellipsis whitespace-nowrap text-[11px] font-medium text-muted-foreground transition-opacity duration-200",
                 closeHover && !animating ? "opacity-100" : "opacity-0",
               )}
             >
