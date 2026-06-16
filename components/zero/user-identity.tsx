@@ -19,8 +19,8 @@ export function UserIdentity({
   compact?: boolean
   className?: string
 }) {
-  // 36px at rest, 24px (~a third smaller) when compact.
-  const avatarSize = compact ? 24 : 36
+  // 36px at rest, 21px when compact (a touch smaller than before).
+  const avatarSize = compact ? 21 : 36
 
   return (
     <div className={cn("flex min-w-0 items-center gap-2.5", className)}>
@@ -40,9 +40,14 @@ export function UserIdentity({
       </motion.span>
       <span className="flex min-w-0 flex-col leading-tight">
         <motion.span
-          className="truncate font-semibold tracking-tight text-foreground"
+          // Less prominent when compact: slightly smaller, lighter weight, and a
+          // dimmer color so the identity recedes as the focus window takes over.
+          className={cn(
+            "truncate tracking-tight transition-colors",
+            compact ? "font-medium text-foreground/65" : "font-semibold text-foreground",
+          )}
           initial={false}
-          animate={{ fontSize: compact ? 13 : 15 }}
+          animate={{ fontSize: compact ? 12.5 : 15 }}
           transition={layerTransition}
         >
           {currentUser.name}

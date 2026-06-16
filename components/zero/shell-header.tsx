@@ -65,7 +65,7 @@ export function ShellHeader() {
       // At stage 2 the bar rides UP a touch (transform — no reflow, so the work
       // surface below stays put) and its side margins tighten, pulling the avatar
       // and "zero" logo nearer the screen edges. Both ease with the shared morph.
-      animate={{ y: compact ? -16 : 0, paddingLeft: compact ? 4 : 20, paddingRight: compact ? 4 : 20 }}
+      animate={{ y: compact ? -16 : 0, paddingLeft: compact ? 10 : 20, paddingRight: compact ? 10 : 20 }}
       transition={layerTransition}
     >
       <div className="pointer-events-auto flex flex-1 items-center">
