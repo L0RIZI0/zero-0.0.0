@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import { AnimatePresence, motion } from "motion/react"
-import { X, Check, ChevronRight } from "lucide-react"
+import { X, Check, ChevronRight, PanelLeft, PanelRight } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 /**
@@ -12,19 +12,20 @@ import { cn } from "@/lib/utils"
  * across the THREE regions it can occupy in Zero, per the agreed model:
  *
  *   1. DO-LIST ROW  → stays a RECTANGLE (like today). Only its glyph is a hex.
- *                     The row shape is kind-agnostic, so spaces look like
- *                     everything else in a list. (Cheapest, zero layout risk.)
  *   2. DOCK CARD    → a true HEXAGON, matching the Space glyph.
  *   3. WINDOW       → a true HEXAGON (the opened entity is shaped like its glyph).
  *
- * Both the dock card and the row open the SAME hexagon window, via motion's
- * shared-layout (`layoutId`). Opening from the dock is a hexagon→hexagon morph
- * (clean). Opening from a row is the row's hex GLYPH growing into the window —
- * also hexagon→hexagon, which is why keeping the row rectangular but its glyph
- * hexagonal pays off: the seed of the window is already on screen.
+ * This pass pushes on the HARD cases that decide feasibility:
+ *   • ROW → WINDOW morph, shown deliberately: the row's hex glyph is the seed
+ *     that grows into the full hexagon window (hexagon→hexagon throughout).
+ *   • IN / OUT rails — Zero's signature side shortcuts — hugging the hexagon's
+ *     two VERTICAL edges at the waist (the only straight edges a hexagon has).
+ *   • NESTED CHILD — opening a sub-space stacks a second hexagon on top, with
+ *     the parent peeking behind. Tests whether Zero's deep-stack model reads
+ *     when every frame is a hexagon.
  *
  * The silhouette is a PERCENTAGE-based `clip-path`, so it stays hexagonal at
- * every size between a 22px glyph and a 560px window.
+ * every size between a 24px glyph and a 560px window.
  */
 
 // Regular pointy-top hexagon (points top & bottom) — same orientation as Zero's
@@ -32,7 +33,14 @@ import { cn } from "@/lib/utils"
 const HEX = "polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)"
 
 type SpaceItem = { id: string; label: string; done?: boolean }
-type Space = { id: string; name: string; blurb: string; items: SpaceItem[] }
+type Space = {
+  id: string
+  name: string
+  blurb: string
+  items: SpaceItem[]
+  // A nested sub-space, to exercise the hexagon stacking model.
+  child?: Space
+}
 
 const SPACES: Space[] = [
   {
@@ -45,6 +53,16 @@ const SPACES: Space[] = [
       { id: "a3", label: "Follow up with Romain" },
       { id: "a4", label: "Draft launch brief" },
     ],
+    child: {
+      id: "dayjob-strategy",
+      name: "Strategy",
+      blurb: "Nested sub-space",
+      items: [
+        { id: "s1", label: "Positioning memo" },
+        { id: "s2", label: "Competitor teardown", done: true },
+        { id: "s3", label: "Pricing model" },
+      ],
+    },
   },
   {
     id: "health",
@@ -55,6 +73,15 @@ const SPACES: Space[] = [
       { id: "b2", label: "Mobility session" },
       { id: "b3", label: "Book physio" },
     ],
+    child: {
+      id: "health-nutrition",
+      name: "Nutrition",
+      blurb: "Nested sub-space",
+      items: [
+        { id: "n1", label: "Meal prep Sunday" },
+        { id: "n2", label: "Log macros", done: true },
+      ],
+    },
   },
   {
     id: "journal",
@@ -79,14 +106,35 @@ const SPACES: Space[] = [
 ]
 
 // One spring drives both the size morph and the position glide so the hexagon
-// feels like a single physical object expanding, not a card cross-dissolving.
-const MORPH = { type: "spring" as const, stiffness: 320, damping: 34, mass: 0.9 }
+// feels like a single physical object expanding. Slightly softer than a snap so
+// the row→window expansion stays legible.
+const MORPH = { type: "spring" as const, stiffness: 260, damping: 32, mass: 1 }
 
 type OpenState = { id: string; from: "dock" | "row" } | null
 
 export function HexagonDock() {
+  // The window stack: index 0 is the root space, each push is a nested child.
   const [open, setOpen] = useState<OpenState>(null)
-  const openSpace = SPACES.find((s) => s.id === open?.id) ?? null
+  const [stack, setStack] = useState<Space[]>([])
+
+  const rootSpace = SPACES.find((s) => s.id === open?.id) ?? null
+
+  function launch(id: string, from: "dock" | "row") {
+    const space = SPACES.find((s) => s.id === id)
+    if (!space) return
+    setOpen({ id, from })
+    setStack([space])
+  }
+  function close() {
+    setOpen(null)
+    setStack([])
+  }
+  function openChild(child: Space) {
+    setStack((s) => [...s, child])
+  }
+  function popChild() {
+    setStack((s) => (s.length > 1 ? s.slice(0, -1) : s))
+  }
 
   // The window shares its layoutId with whichever region launched it, so the
   // morph originates from the exact hexagon the user tapped.
@@ -104,8 +152,8 @@ export function HexagonDock() {
         </h1>
         <p className="mx-auto mt-3 max-w-lg text-pretty text-sm leading-relaxed text-muted-foreground">
           A Space across its three regions. Rows stay rectangular (hex glyph
-          only); dock cards and the opened window are true hexagons. Tap a dock
-          hexagon or a row to morph into the window.
+          only); dock cards and the opened window are true hexagons. Open one,
+          then use the IN rail to push into a nested child hexagon.
         </p>
       </header>
 
@@ -117,7 +165,7 @@ export function HexagonDock() {
             {SPACES.map((space) => (
               <li key={space.id}>
                 <button
-                  onClick={() => setOpen({ id: space.id, from: "row" })}
+                  onClick={() => launch(space.id, "row")}
                   aria-label={`Open ${space.name}`}
                   className="group flex w-full items-center gap-3 rounded-lg border border-border bg-card px-3 py-2.5 text-left outline-none transition-colors hover:bg-secondary"
                 >
@@ -160,7 +208,7 @@ export function HexagonDock() {
                     ) : (
                       <motion.button
                         layoutId={`dock-${space.id}`}
-                        onClick={() => setOpen({ id: space.id, from: "dock" })}
+                        onClick={() => launch(space.id, "dock")}
                         transition={MORPH}
                         style={{ clipPath: HEX }}
                         className="group block h-full w-full bg-border outline-none"
@@ -193,110 +241,196 @@ export function HexagonDock() {
       {/* Findings — what hexagon-ifying a Space actually costs. */}
       <section className="mx-auto w-full max-w-5xl px-5 pb-16">
         <RegionLabel index={3} title="What this means" note="Observations" />
-        <div className="mt-4 grid gap-3 sm:grid-cols-3">
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <Finding title="Rows are free">
-            Keeping rows rectangular with a hex glyph means lists stay scannable
-            and aligned. Zero risk — the glyph already carries the &quot;space&quot;
-            identity.
+            Rectangular rows with a hex glyph keep lists scannable and aligned.
+            Zero risk — the glyph already carries the &quot;space&quot; identity.
           </Finding>
           <Finding title="Windows cost usable area">
-            A hexagon window wastes the four corners; content must live in a
-            central band (~60% width at the waist). Fine for a glanceable space
-            summary, tight for dense task lists or nested windows.
+            A hexagon wastes the four corners; content lives in a central band
+            (~66% width at the waist). Fine for a glanceable summary, tight for
+            dense lists.
           </Finding>
-          <Finding title="Chrome needs rethinking">
-            Close, IN/OUT rails, scroll edges and the header divider all assume
-            straight edges today. On a hexagon they must hug the slanted sides or
-            sit in the safe band — a real refactor of the window frame.
+          <Finding title="Rails fit the waist">
+            IN/OUT shortcuts land naturally on the two vertical edges at the
+            waist — the only straight sides a hexagon has. Above/below the waist
+            there is no vertical edge to hug.
+          </Finding>
+          <Finding title="Stacking gets loose">
+            Nested hexagons can&apos;t tile flush like rounded rectangles; a child
+            sits inset with the parent&apos;s shoulders peeking. Depth reads, but
+            the tidy left-edge spine of today is lost.
           </Finding>
         </div>
       </section>
 
-      {/* WINDOW — the same hexagon, grown. */}
+      {/* WINDOW STACK — the same hexagon, grown, plus any nested children. */}
       <AnimatePresence>
-        {openSpace && (
+        {rootSpace && stack.length > 0 && (
           <motion.div
             className="fixed inset-0 z-50 flex items-center justify-center p-4"
             initial={{ backgroundColor: "oklch(0.235 0.006 60 / 0)" }}
             animate={{ backgroundColor: "oklch(0.235 0.006 60 / 0.45)" }}
             exit={{ backgroundColor: "oklch(0.235 0.006 60 / 0)" }}
             transition={{ duration: 0.3 }}
-            onClick={() => setOpen(null)}
+            onClick={close}
           >
-            <motion.div
-              layoutId={windowLayoutId}
-              transition={MORPH}
-              style={{ clipPath: HEX, width: "min(92vw, 560px)", height: "min(86svh, 600px)" }}
-              className="relative bg-border"
+            {/* Stage holds the window footprint; children stack within it. */}
+            <div
+              className="relative"
+              style={{ width: "min(92vw, 560px)", height: "min(86svh, 600px)" }}
               onClick={(e) => e.stopPropagation()}
             >
-              {/* Inner hexagon — the window surface (same ring trick, wider). */}
-              <div
-                style={{ clipPath: HEX }}
-                className="flex h-full w-full flex-col items-center bg-card p-[2px]"
-              >
-                {/* Content lives in the hexagon's safe central band. The pointy
-                    top/bottom are intentionally breathing room: glyph in the
-                    upper third, list dead-center. */}
-                <motion.div
-                  className="flex h-full w-full flex-col items-center px-[17%] pt-[13%] pb-[11%]"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1, transition: { delay: 0.12, duration: 0.25 } }}
-                  exit={{ opacity: 0, transition: { duration: 0.12 } }}
-                >
-                  <HexGlyph className="h-9 w-9 text-foreground/80" />
-                  <h2 className="mt-3 text-center text-xl font-semibold tracking-tight">
-                    {openSpace.name}
-                  </h2>
-                  <p className="mt-1 text-center text-xs text-muted-foreground">{openSpace.blurb}</p>
+              {stack.map((space, depth) => {
+                const isTop = depth === stack.length - 1
+                // Each nested level insets and shifts up so the parent's top
+                // shoulders + glyph peek above the child — a hexagon-native peek.
+                const scale = 1 - depth * 0.12
+                const shiftY = depth * -54
+                return (
+                  <motion.div
+                    key={space.id}
+                    // Only the ROOT shares layout with the launcher (row/dock).
+                    layoutId={depth === 0 ? windowLayoutId : undefined}
+                    initial={depth === 0 ? undefined : { opacity: 0, scale: scale * 0.8, y: shiftY + 40 }}
+                    animate={{ opacity: 1, scale, y: shiftY }}
+                    exit={{ opacity: 0, scale: scale * 0.85, y: shiftY + 30 }}
+                    transition={MORPH}
+                    style={{ clipPath: HEX, transformOrigin: "center top" }}
+                    className="absolute inset-0 bg-border"
+                  >
+                    {/* Inner hexagon — the window surface. */}
+                    <div
+                      style={{ clipPath: HEX }}
+                      className={cn(
+                        "flex h-full w-full flex-col items-center bg-card p-[2px]",
+                        !isTop && "brightness-[0.97]",
+                      )}
+                    >
+                      {isTop ? (
+                        <SpaceWindowContent space={space} />
+                      ) : (
+                        // Ancestor peek — just the glyph + name near the top point.
+                        <div className="flex w-full flex-col items-center pt-[7%]">
+                          <HexGlyph className="h-5 w-5 text-foreground/60" />
+                          <span className="mt-1 text-xs font-medium text-muted-foreground">
+                            {space.name}
+                          </span>
+                        </div>
+                      )}
+                    </div>
 
-                  <ul className="mt-5 flex w-full max-w-[260px] flex-col gap-1.5 overflow-y-auto">
-                    {openSpace.items.map((item) => (
-                      <li
-                        key={item.id}
-                        className="flex items-center gap-2.5 rounded-md bg-secondary/60 px-3 py-2"
-                      >
-                        <span
-                          className={cn(
-                            "flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] border",
-                            item.done
-                              ? "border-accent bg-accent text-accent-foreground"
-                              : "border-border",
-                          )}
-                        >
-                          {item.done && <Check className="h-3 w-3" strokeWidth={3} />}
-                        </span>
-                        <span
-                          className={cn(
-                            "truncate text-sm",
-                            item.done && "text-muted-foreground line-through",
-                          )}
-                        >
-                          {item.label}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                </motion.div>
-              </div>
+                    {isTop && (
+                      <>
+                        {/* IN / OUT rails — hug the two vertical edges at the
+                            waist (the hexagon's only straight sides). */}
+                        <SideRail
+                          side="in"
+                          label={space.child ? `Open ${space.child.name}` : "No child space"}
+                          disabled={!space.child}
+                          onClick={() => space.child && openChild(space.child)}
+                        />
+                        <SideRail side="out" label="Outputs" disabled onClick={() => {}} />
 
-              {/* Close — nudged toward the upper region so it stays inside the
-                  hexagon silhouette (a corner X would fall outside the clip). */}
-              <motion.button
-                onClick={() => setOpen(null)}
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1, transition: { delay: 0.16 } }}
-                exit={{ opacity: 0, transition: { duration: 0.1 } }}
-                className="absolute right-[27%] top-[9%] flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-                aria-label={`Close ${openSpace.name}`}
-              >
-                <X className="h-4 w-4" />
-              </motion.button>
-            </motion.div>
+                        {/* Close (or back, when nested) — kept inside the
+                            silhouette near the top region. */}
+                        <motion.button
+                          onClick={depth === 0 ? close : popChild}
+                          initial={{ opacity: 0 }}
+                          animate={{ opacity: 1, transition: { delay: 0.16 } }}
+                          exit={{ opacity: 0, transition: { duration: 0.1 } }}
+                          className="absolute right-[27%] top-[8%] flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                          aria-label={depth === 0 ? `Close ${space.name}` : `Back from ${space.name}`}
+                        >
+                          <X className="h-4 w-4" />
+                        </motion.button>
+                      </>
+                    )}
+                  </motion.div>
+                )
+              })}
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
     </main>
+  )
+}
+
+/** The frontmost hexagon window's content, in the safe central band. */
+function SpaceWindowContent({ space }: { space: Space }) {
+  return (
+    <motion.div
+      className="flex h-full w-full flex-col items-center px-[16%] pt-[12%] pb-[10%]"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1, transition: { delay: 0.12, duration: 0.25 } }}
+      exit={{ opacity: 0, transition: { duration: 0.12 } }}
+    >
+      <HexGlyph className="h-9 w-9 text-foreground/80" />
+      <h2 className="mt-3 text-center text-xl font-semibold tracking-tight">{space.name}</h2>
+      <p className="mt-1 text-center text-xs text-muted-foreground">{space.blurb}</p>
+
+      <ul className="mt-5 flex w-full max-w-[260px] flex-col gap-1.5 overflow-y-auto">
+        {space.items.map((item) => (
+          <li
+            key={item.id}
+            className="flex items-center gap-2.5 rounded-md bg-secondary/60 px-3 py-2"
+          >
+            <span
+              className={cn(
+                "flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] border",
+                item.done ? "border-accent bg-accent text-accent-foreground" : "border-border",
+              )}
+            >
+              {item.done && <Check className="h-3 w-3" strokeWidth={3} />}
+            </span>
+            <span className={cn("truncate text-sm", item.done && "text-muted-foreground line-through")}>
+              {item.label}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </motion.div>
+  )
+}
+
+/**
+ * IN / OUT side rail — sits on the hexagon's vertical edge at the waist. This is
+ * the only place a hexagon offers a straight vertical run to hug; above and
+ * below the waist the edges slant inward.
+ */
+function SideRail({
+  side,
+  label,
+  disabled,
+  onClick,
+}: {
+  side: "in" | "out"
+  label: string
+  disabled?: boolean
+  onClick: () => void
+}) {
+  const Icon = side === "in" ? PanelLeft : PanelRight
+  return (
+    <motion.button
+      onClick={onClick}
+      disabled={disabled}
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1, transition: { delay: 0.18 } }}
+      exit={{ opacity: 0, transition: { duration: 0.1 } }}
+      aria-label={label}
+      title={label}
+      className={cn(
+        "absolute top-1/2 z-10 flex h-14 w-7 -translate-y-1/2 flex-col items-center justify-center gap-1",
+        side === "in" ? "left-[1.5%]" : "right-[1.5%]",
+        disabled ? "cursor-default text-muted-foreground/30" : "text-muted-foreground hover:text-foreground",
+      )}
+    >
+      <Icon className="h-4 w-4" />
+      <span className="text-[9px] font-semibold uppercase tracking-wider [writing-mode:vertical-rl]">
+        {side}
+      </span>
+    </motion.button>
   )
 }
 
