@@ -2,7 +2,6 @@
 
 import gsap from "gsap"
 import { Flip } from "gsap/Flip"
-import { CustomEase } from "gsap/CustomEase"
 
 /**
  * The GSAP Flip morph engine for Zero's focus-window region — a faithful port of
@@ -31,33 +30,25 @@ import { CustomEase } from "gsap/CustomEase"
  * inward (scale + fade) so they read as retracting into their parent.
  */
 if (typeof window !== "undefined") {
-  gsap.registerPlugin(Flip, CustomEase)
-  // Derived from the Figma "Smart Animate DIVE" curve (0.13, 0.8, 0, 0.97) but
-  // adjusted in two ways:
-  //   1. The original second control point sat at x=0 — BEHIND the first control
-  //      point's x=0.13 — so the curve's x folded backward. CSS tolerates that,
-  //      but GSAP CustomEase samples the path left→right and the fold stalls
-  //      progress for the first frames, which read as a "delay" before the morph
-  //      started. Keeping every control point x-monotonic removes that hitch.
-  //   2. The second control point is pulled toward the end (0.32, 1) so the long,
-  //      floaty deceleration tail is much shorter — it still launches hard
-  //      (y≈0.82 by x=0.13) but settles crisply instead of crawling the last few
-  //      percent across most of the timeline.
-  CustomEase.create("zeroDive", "M0,0 C0.13,0.82 0.32,1 1,1")
+  gsap.registerPlugin(Flip)
 }
 
 export { gsap }
 
-/** Quick, elegant motion shared by every window — the Figma DIVE curve: launches
- *  fast, then a long gentle deceleration that settles at the very end. */
+/** Quick, elegant motion shared by every window. A standard ease-OUT (no easing
+ *  in): the morph launches at full speed straight from the row — so the very
+ *  first frames are visible growth, not an instant jump — then decelerates into
+ *  place. `power2.out` (vs the previous `power3.out`) keeps that same smooth
+ *  launch but pulls the deceleration tail in, so the window settles sooner
+ *  instead of crawling the last few percent. */
 export const MORPH_DURATION = 2.5
-export const MORPH_EASE = "zeroDive"
+export const MORPH_EASE = "power2.out"
 /** Same duration as a CSS string, for the fade/transition chrome (spine bg,
  *  divider, close-button reposition) that rides along with the Flip morph. */
 export const DURATION_S = `${MORPH_DURATION}s`
-/** The DIVE curve as a CSS timing function, so chrome that fades along with the
- *  morph (spine cover, divider) decelerates on the exact same beat as the Flip. */
-export const MORPH_CSS_EASE = "cubic-bezier(0.13, 0.82, 0.32, 1)"
+/** CSS timing function matching `power2.out`, so chrome that fades along with the
+ *  morph (spine cover, divider) decelerates on the same beat as the Flip. */
+export const MORPH_CSS_EASE = "cubic-bezier(0.25, 0.46, 0.45, 0.94)"
 
 type FlipState = ReturnType<typeof Flip.getState>
 
