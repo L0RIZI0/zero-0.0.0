@@ -41,8 +41,11 @@ export const ADD_KEY = "__add__"
  *  list always ends with `ADD_KEY`. */
 type NavOrder = { list: string[]; dock: string[] }
 
-/** A window node in the stack, identified by entity id + its absolute depth. */
-export type WindowKey = { id: string; depth: number }
+/** A window node in the stack, identified by entity id + its absolute depth, plus
+ *  the id of the PARENT context it was opened from. `parent` disambiguates the
+ *  same entity referenced in multiple contexts: only the instance rendered inside
+ *  `parent` owns (and morphs into) the window. */
+export type WindowKey = { id: string; depth: number; parent: string }
 
 /** Viewport rect of the focus-window region; the origin for fixed window geometry. */
 type RegionRect = { top: number; left: number; width: number; height: number }
@@ -241,14 +244,24 @@ export function ZeroNavProvider({
     if (nextStack.length === prev.length && nextStack.every((v, i) => v === prev[i])) return
 
     const opening = nextStack.length > prev.length
+    // `parent` is read from the PRE-truncation stack so each closing/fading
+    // window knows which context instance owns it, even after the live stack has
+    // been shortened below it.
+    const closingDepth = nextStack.length
     const closingEntity: WindowKey | null =
-      nextStack.length < prev.length ? { id: prev[nextStack.length], depth: nextStack.length } : null
+      nextStack.length < prev.length
+        ? { id: prev[closingDepth], depth: closingDepth, parent: prev[closingDepth - 1] }
+        : null
     const fadingList: WindowKey[] =
       nextStack.length < prev.length
-        ? prev.slice(nextStack.length + 1).map((id, i) => ({ id, depth: nextStack.length + 1 + i }))
+        ? prev.slice(nextStack.length + 1).map((id, i) => {
+            const d = nextStack.length + 1 + i
+            return { id, depth: d, parent: prev[d - 1] }
+          })
         : []
+    const topDepth = nextStack.length - 1
     const topKey: WindowKey | null = opening
-      ? { id: nextStack[nextStack.length - 1], depth: nextStack.length - 1 }
+      ? { id: nextStack[topDepth], depth: topDepth, parent: nextStack[topDepth - 1] }
       : null
 
     // Keep the region rect fresh at the moment of the morph.
@@ -278,6 +291,10 @@ export function ZeroNavProvider({
     (id: string) => {
       const cur = stackRef.current
       if (cur[cur.length - 1] === id) return // re-opening the top is a no-op
+      // An entity can appear at most once in a path. If it is already open
+      // somewhere in this stack (e.g. the user clicked a second, collapsed
+      // reference of it in another context), don't push a duplicate entry.
+      if (cur.includes(id)) return
       transition([...cur, id])
     },
     [transition],

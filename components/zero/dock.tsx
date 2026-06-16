@@ -154,6 +154,7 @@ export function Dock({ contextId, active = true }: { contextId: string; active?:
             <EntityNode
               key={item.id}
               entityId={item.entity.id}
+              contextId={contextId}
               variant="dock"
               onContextMenu={(e) => openMenu(e, item)}
             />

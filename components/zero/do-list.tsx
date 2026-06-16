@@ -493,7 +493,12 @@ export function DoList({ contextId, active = true }: { contextId: string; active
               <EditRow key={it.id} entity={it.entity} onCommit={finishEdit} onCancelEmpty={cancelEdit} />
             ) : (
               <li key={it.id}>
-                <EntityNode entityId={it.id} variant="row" onContextMenu={(e) => openMenu(e, it)} />
+                <EntityNode
+                  entityId={it.id}
+                  contextId={contextId}
+                  variant="row"
+                  onContextMenu={(e) => openMenu(e, it)}
+                />
               </li>
             ),
           )}

@@ -75,7 +75,7 @@ export function TimelineStrip({
   // timeline no longer compacts/lifts as the user dives; it stays in its root
   // treatment so opening a child is purely the window morph, with no chrome
   // jump. Restore `Math.min(stack.length - 1, 2)` to reintroduce the adaptation.
-  const stage = 0
+  const stage: number = 0
 
   // Right-click any marker: cancel/restore (events & instants) or delete it.
   const openMenu = (e: React.MouseEvent, entity: Entity) => {

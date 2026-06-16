@@ -55,10 +55,15 @@ function fmtMoment(min: number, seconds: number) {
  */
 export function EntityNode({
   entityId,
+  contextId,
   variant,
   onContextMenu,
 }: {
   entityId: string
+  /** The id of the context (space) whose Dock/DO-list renders this node. This is
+   *  what makes the SAME entity, referenced in multiple contexts, resolve to a
+   *  single owning window instead of one window per rendered copy. */
+  contextId: string
   variant: "row" | "dock"
   onContextMenu?: (e: React.MouseEvent) => void
 }) {
@@ -74,25 +79,43 @@ export function EntityNode({
   const isTask = kind === "task"
   const isSpace = kind === "space"
 
-  const open = nav.stack.includes(entityId)
-  const isClosing = nav.closing?.id === entityId
-  const fadingEntry = nav.fading.find((f) => f.id === entityId)
+  // OWNERSHIP. The same entity can be referenced in several contexts, so it can
+  // be rendered by several do-lists/docks at once. Exactly ONE of those instances
+  // should morph into the focus window: the one whose parent context is the
+  // actual parent in the nav stack. Otherwise every copy turns into a window
+  // (the "duplicate window lower on screen" bug).
+  const stackDepth = nav.stack.indexOf(entityId)
+  const ownsOpen = stackDepth >= 1 && nav.stack[stackDepth - 1] === contextId
+  const closingEntry =
+    nav.closing && nav.closing.id === entityId && nav.closing.parent === contextId ? nav.closing : null
+  const fadingEntry = nav.fading.find((f) => f.id === entityId && f.parent === contextId) ?? null
+  const isClosing = !!closingEntry
   const fadingWindow = !!fadingEntry
-  // Render as a window when open OR while telescoping out during a multi-level
-  // close (so it keeps covering its parent's do-list as it retracts).
-  const asWindow = open || fadingWindow
+  // `open` here means "this instance owns the open window" — used for the click
+  // behaviour and the window/header/spine rendering below.
+  const open = ownsOpen
+  // Render as a window when this instance owns the open window OR while
+  // telescoping out during a multi-level close (so it keeps covering its
+  // parent's do-list as it retracts).
+  const asWindow = ownsOpen || fadingWindow
   const spine = nav.isSpine(entityId)
-  const isTop = nav.activeId === entityId
+  const isTop = ownsOpen && nav.activeId === entityId
   const animating = nav.animating
   const showBody = asWindow || isClosing
 
-  const depth = open
-    ? nav.stack.indexOf(entityId)
+  const depth = ownsOpen
+    ? stackDepth
     : fadingWindow
       ? fadingEntry!.depth
-      : isClosing
-        ? nav.closing!.depth
+      : closingEntry
+        ? closingEntry.depth
         : 0
+
+  // Per-instance flip-id prefix. Two references to the same entity (different
+  // contexts) must NOT share a flip-id, or GSAP Flip mismatches their before/
+  // after states. Scoping by context keeps each instance's morph self-consistent
+  // (stable across its own open/close) while distinct from the other copy.
+  const flip = `${contextId}:${entityId}`
 
   const parentId = entity.parentId ?? "s_root"
   // Accent tint: a space uses its own; everything else inherits its home space's.
@@ -153,7 +176,7 @@ export function EntityNode({
         ref={ref as React.Ref<HTMLDivElement>}
         data-window={entityId}
         data-depth={depth}
-        data-flip-id={`${entityId}-frame`}
+        data-flip-id={`${flip}-frame`}
         data-flip-role="frame"
         role="button"
         aria-label={asWindow ? undefined : `Open ${entity.title}`}
@@ -223,7 +246,7 @@ export function EntityNode({
         <div className={headerClass} style={asWindow && !spine ? { height: HEADER_H } : undefined}>
           {/* Glyph — for a collapsed task it doubles as the completion toggle. */}
           <span
-            data-flip-id={`${entityId}-glyph`}
+            data-flip-id={`${flip}-glyph`}
             data-flip-role="inner"
             onClick={
               interactive && isTask
@@ -245,7 +268,7 @@ export function EntityNode({
           </span>
 
           <h3
-            data-flip-id={`${entityId}-title`}
+            data-flip-id={`${flip}-title`}
             data-flip-role="inner"
             style={{
               fontSize: titleSize,
