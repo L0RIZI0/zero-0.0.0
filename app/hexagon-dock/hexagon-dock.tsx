@@ -33,22 +33,26 @@ import { cn } from "@/lib/utils"
 // it hexagonal at any width/height.
 const HEX = "polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)"
 
-// FLATTENED hexagon for the WINDOW: a near-rectangle with only shallow chamfers,
-// so the top/bottom edges run almost flat and the usable rectangular area is
-// maximized. Crucially it keeps the SAME SIX VERTICES IN THE SAME ORDER as HEX
-// (top-mid, top-right, bottom-right, bottom-mid, bottom-left, top-left), so the
-// RECT6→window clip-path morph still interpolates point-for-point. The "peak" at
-// 50% 0% / 50% 100% is pulled to the edges (y 0/100) and the side vertices are
-// brought to 6%/94%, turning the steep hexagon into a wide, hexagon-flavored
-// rectangle that still reads as a hex at the four angled corners.
-const HEX_WIN = "polygon(50% 0%, 100% 6%, 100% 94%, 50% 100%, 0% 94%, 0% 6%)"
+// FLAT-TOP hexagon for the WINDOW: an EDGE sits on top/bottom (not a vertex), and
+// the left/right ends are points. Wide footprint → long horizontal top/bottom
+// edges, so it reads close to a rectangle, while the two side points poke out and
+// peek beside a child window when stacked. Vertices, in order: top-left,
+// top-right, right-point, bottom-right, bottom-left, left-point.
+// NB: a flat-top hexagon rotated 30° looks exactly like the pointy-top dock card,
+// which is what lets a dock launch spin in from a vertex-up pose to this edge-up
+// pose (see SPIN_DEG below).
+const FLAT_HEX = "polygon(12% 0%, 88% 0%, 100% 50%, 88% 100%, 12% 100%, 0% 50%)"
 
-// A full-bounds RECTANGLE expressed with the SAME SIX vertices as HEX, in the
-// same order, so motion can interpolate clip-path rect→hex point-for-point. Each
-// vertex maps to its hex counterpart (top-mid, top-right, bottom-right,
-// bottom-mid, bottom-left, top-left). This lets the WHOLE row card visibly
-// reshape into the hexagon during the morph, instead of just resizing.
-const RECT6 = "polygon(50% 0%, 100% 0%, 100% 100%, 50% 100%, 0% 100%, 0% 0%)"
+// A full-bounds RECTANGLE expressed with the SAME SIX vertices as FLAT_HEX, in the
+// same order (top-left, top-right, right-mid, bottom-right, bottom-left, left-mid),
+// so motion can interpolate clip-path rect→flat-hex point-for-point. This lets the
+// WHOLE row card visibly reshape into the hexagon during a row launch — no spin.
+const RECT6 = "polygon(0% 0%, 100% 0%, 100% 50%, 100% 100%, 0% 100%, 0% 50%)"
+
+// Spin applied to a DOCK launch: start a touch past a full turn so the window
+// enters as a vertex-up (pointy-top-looking) hexagon — matching the dock card it
+// grows from — and unwinds to 0° where the flat-top edge lands on top.
+const SPIN_DEG = 390
 
 type SpaceItem = { id: string; label: string; done?: boolean }
 type Space = {
@@ -286,22 +290,23 @@ export function HexagonDock() {
         <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <Finding title="Rows are free">
             Rectangular rows with a hex glyph keep lists scannable and aligned.
-            Zero risk — the glyph already carries the &quot;space&quot; identity.
+            Zero risk — the glyph already carries the &quot;space&quot; identity,
+            and it spins as it morphs up into the window.
           </Finding>
-          <Finding title="Windows cost usable area">
-            A hexagon wastes the four corners; content lives in a central band
-            (~66% width at the waist). Fine for a glanceable summary, tight for
-            dense lists.
+          <Finding title="Flat-top reclaims space">
+            A wide flat-top hexagon (edge on top, points at the sides) reads
+            almost like a rectangle — only the four diagonal corners are lost, so
+            the list runs near full width across the middle.
           </Finding>
-          <Finding title="Rails fit the waist">
-            IN/OUT shortcuts land naturally on the two vertical edges at the
-            waist — the only straight sides a hexagon has. Above/below the waist
-            there is no vertical edge to hug.
+          <Finding title="Two entries, two motions">
+            From the dock the whole card spins ~390° from vertex-up to edge-up;
+            from a row it reshapes rectangle→hexagon with no spin. Same window,
+            two arrivals.
           </Finding>
-          <Finding title="Stacking gets loose">
-            Nested hexagons can&apos;t tile flush like rounded rectangles; a child
-            sits inset with the parent&apos;s shoulders peeking. Depth reads, but
-            the tidy left-edge spine of today is lost.
+          <Finding title="Side points peek when nested">
+            A child window insets and the parent&apos;s left/right points poke out
+            beside it — a hexagon-native depth cue, replacing today&apos;s flush
+            left-edge spine.
           </Finding>
         </div>
       </section>
@@ -334,6 +339,9 @@ export function HexagonDock() {
                 // so the entire card morphs — not just its size. Launched from the
                 // dock it's already a hexagon, so it stays hex throughout.
                 const reshapeFromRect = depth === 0 && open?.from === "row"
+                // Only a DOCK launch spins; a row launch reshapes (rect→flat-hex)
+                // with no rotation.
+                const spin = depth === 0 && open?.from === "dock"
                 return (
                   <motion.div
                     key={space.id}
@@ -342,25 +350,29 @@ export function HexagonDock() {
                     initial={
                       depth === 0
                         ? reshapeFromRect
-                          ? { clipPath: RECT6 }
-                          : { clipPath: HEX_WIN }
-                        : { opacity: 0, scale: scale * 0.8, y: shiftY + 40, clipPath: HEX_WIN }
+                          ? { clipPath: RECT6, rotate: 0 }
+                          : { clipPath: FLAT_HEX, rotate: spin ? SPIN_DEG : 0 }
+                        : { opacity: 0, scale: scale * 0.8, y: shiftY + 40, clipPath: FLAT_HEX }
                     }
-                    animate={{ opacity: 1, scale, y: shiftY, clipPath: HEX_WIN }}
+                    animate={{ opacity: 1, scale, y: shiftY, clipPath: FLAT_HEX, rotate: 0 }}
                     exit={
                       depth === 0 && reshapeFromRect
                         ? { clipPath: RECT6, opacity: 0 }
-                        : { opacity: 0, scale: scale * 0.85, y: shiftY + 30, clipPath: HEX_WIN }
+                        : depth === 0
+                          ? { clipPath: FLAT_HEX, opacity: 0, rotate: spin ? SPIN_DEG : 0, scale: 0.7 }
+                          : { opacity: 0, scale: scale * 0.85, y: shiftY + 30, clipPath: FLAT_HEX }
                     }
                     transition={MORPH}
-                    style={{ transformOrigin: "center top" }}
+                    // Depth 0 spins around its center; nested levels grow from the
+                    // top so the parent's shoulders + side points peek above/beside.
+                    style={{ transformOrigin: depth === 0 ? "center" : "center top" }}
                     className="absolute inset-0 bg-border"
                   >
                     {/* Inner hexagon — the window surface. Reshapes in lockstep. */}
                     <motion.div
-                      initial={{ clipPath: reshapeFromRect ? RECT6 : HEX_WIN }}
-                      animate={{ clipPath: HEX_WIN }}
-                      exit={{ clipPath: reshapeFromRect ? RECT6 : HEX_WIN }}
+                      initial={{ clipPath: reshapeFromRect ? RECT6 : FLAT_HEX }}
+                      animate={{ clipPath: FLAT_HEX }}
+                      exit={{ clipPath: reshapeFromRect ? RECT6 : FLAT_HEX }}
                       transition={MORPH}
                       className={cn(
                         "flex h-full w-full flex-col items-center bg-card p-[2px]",
@@ -385,8 +397,8 @@ export function HexagonDock() {
 
                     {isTop && (
                       <>
-                        {/* IN / OUT rails — hug the two vertical edges at the
-                            waist (the hexagon's only straight sides). */}
+                        {/* IN / OUT rails — tuck by the left/right side points,
+                            where the flat-top hexagon reaches full width. */}
                         <SideRail
                           side="in"
                           label={space.child ? `Open ${space.child.name}` : "No child space"}
@@ -433,24 +445,39 @@ function SpaceWindowContent({ space, slideId }: { space: Space; slideId?: string
     >
       <motion.div
         layoutId={slideId ? `sglyph-${slideId}` : undefined}
-        transition={MORPH}
+        layout={slideId ? "position" : undefined}
         className="flex items-center justify-center"
         style={slideId ? { clipPath: HEX } : undefined}
+        // ROW launch: the glyph slides up from the row AND spins as it morphs in.
+        // DOCK launch: the window itself spun, so the glyph just fades in upright
+        // once that spin has settled (delayed) — never caught mid-rotation.
+        initial={slideId ? { rotate: SPIN_DEG - 30 } : { opacity: 0 }}
+        animate={
+          slideId
+            ? { rotate: 0 }
+            : { opacity: 1, transition: { delay: 0.34, duration: 0.25 } }
+        }
+        exit={slideId ? { rotate: SPIN_DEG - 30 } : { opacity: 0, transition: { duration: 0.1 } }}
+        transition={MORPH}
       >
         <HexGlyph className="h-9 w-9 text-foreground/80" />
       </motion.div>
       <motion.h2
         layoutId={slideId ? `stitle-${slideId}` : undefined}
-        layout="position"
-        transition={MORPH}
+        layout={slideId ? "position" : undefined}
         className="mt-3 text-center text-xl font-semibold tracking-tight"
+        // Title slides in on a row launch; fades in after the spin on a dock launch.
+        initial={slideId ? undefined : { opacity: 0 }}
+        animate={slideId ? undefined : { opacity: 1, transition: { delay: 0.34, duration: 0.25 } }}
+        exit={slideId ? undefined : { opacity: 0, transition: { duration: 0.1 } }}
+        transition={MORPH}
       >
         {space.name}
       </motion.h2>
       <motion.p
         className="mt-1 text-center text-xs text-muted-foreground"
         initial={{ opacity: 0 }}
-        animate={{ opacity: 1, transition: { delay: 0.12, duration: 0.25 } }}
+        animate={{ opacity: 1, transition: { delay: slideId ? 0.12 : 0.34, duration: 0.25 } }}
         exit={{ opacity: 0, transition: { duration: 0.12 } }}
       >
         {space.blurb}
@@ -459,7 +486,7 @@ function SpaceWindowContent({ space, slideId }: { space: Space; slideId?: string
       <motion.ul
         className="mt-5 flex w-full max-w-[520px] flex-col gap-1.5 overflow-y-auto"
         initial={{ opacity: 0 }}
-        animate={{ opacity: 1, transition: { delay: 0.12, duration: 0.25 } }}
+        animate={{ opacity: 1, transition: { delay: slideId ? 0.12 : 0.34, duration: 0.25 } }}
         exit={{ opacity: 0, transition: { duration: 0.12 } }}
       >
         {space.items.map((item) => (
@@ -486,10 +513,10 @@ function SpaceWindowContent({ space, slideId }: { space: Space; slideId?: string
 }
 
 /**
- * IN / OUT side rail — hugs the window's long vertical edge. With the FLATTENED
- * window the straight vertical run spans nearly the full height (side vertices at
- * y6%/94%), so the rail no longer has to crowd a narrow waist — it sits centered
- * on an almost-full-height straight edge, just like a real window.
+ * IN / OUT side rail — sits in the gutter by the flat-top hexagon's left/right
+ * POINT. The wide flat-top shape is at full width across its vertical middle, so
+ * the rail tucks just inside the side point at mid-height, reading like a real
+ * window's edge control.
  */
 function SideRail({
   side,
