@@ -196,7 +196,10 @@ export function EntityNode({
   const ancestorHeader = asWindow && !spine && !isTop && !isClosing
   const headerH = ancestorHeader ? ANCESTOR_HEADER_H : HEADER_H
 
-  const titleSize = spine ? 13 : asWindow ? (ancestorHeader ? 15 : 18) : variant === "dock" ? 12 : 13
+  // Spine (vertical Space header): 15px, black — bumped +2 from 13. Compact
+  // ancestors: 13px (matching the spine's prior size + font style) and slightly
+  // dimmer (see className) so they recede behind the leaf. Leaf window: full 18px.
+  const titleSize = spine ? 15 : asWindow ? (ancestorHeader ? 13 : 18) : variant === "dock" ? 12 : 13
 
   // Measure the title's HORIZONTAL width (offsetWidth ignores the rotate, so it's
   // the un-rotated text length). In the spine we rotate the title -90° about its
@@ -401,7 +404,8 @@ export function EntityNode({
               spine
                 ? "overflow-hidden text-ellipsis whitespace-nowrap font-semibold"
                 : asWindow
-                  ? "whitespace-nowrap font-semibold"
+                  ? // Compact ancestors pop slightly less than the leaf (dimmer ink).
+                    cn("whitespace-nowrap font-semibold", ancestorHeader && "text-foreground/75")
                   : variant === "dock"
                     ? "w-full truncate font-medium leading-tight"
                     : "min-w-0 flex-1 truncate font-medium",
