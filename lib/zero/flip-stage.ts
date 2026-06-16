@@ -43,7 +43,7 @@ export { gsap }
 
 /** Quick, elegant motion shared by every window — the Figma DIVE curve: launches
  *  fast, then a long gentle deceleration that settles at the very end. */
-export const MORPH_DURATION = 2
+export const MORPH_DURATION = 4
 export const MORPH_EASE = "zeroDive"
 /** Same duration as a CSS string, for the fade/transition chrome (spine bg,
  *  divider, close-button reposition) that rides along with the Flip morph. */
