@@ -2,6 +2,7 @@
 
 import gsap from "gsap"
 import { Flip } from "gsap/Flip"
+import { CustomEase } from "gsap/CustomEase"
 
 /**
  * The GSAP Flip morph engine for Zero's focus-window region — a faithful port of
@@ -30,18 +31,26 @@ import { Flip } from "gsap/Flip"
  * inward (scale + fade) so they read as retracting into their parent.
  */
 if (typeof window !== "undefined") {
-  gsap.registerPlugin(Flip)
+  gsap.registerPlugin(Flip, CustomEase)
+  // The exact Figma "Smart Animate DIVE" curve. A CSS cubic-bezier(x1,y1,x2,y2)
+  // is the CustomEase path `M0,0 C x1,y1 x2,y2 1,1`, so 0.13,0.8,0,0.97 →
+  // below. It launches hard (y hits 0.8 by x=0.13) then holds a long, gentle
+  // glide so the deceleration lands right at the end.
+  CustomEase.create("zeroDive", "M0,0 C0.13,0.8 0,0.97 1,1")
 }
 
 export { gsap }
 
-/** Quick, elegant ease-out shared by every window motion (matches the prototype:
- *  launches fast, decelerates gently — no easing in). */
-export const MORPH_DURATION = 4
-export const MORPH_EASE = "power3.out"
+/** Quick, elegant motion shared by every window — the Figma DIVE curve: launches
+ *  fast, then a long gentle deceleration that settles at the very end. */
+export const MORPH_DURATION = 0.66
+export const MORPH_EASE = "zeroDive"
 /** Same duration as a CSS string, for the fade/transition chrome (spine bg,
  *  divider, close-button reposition) that rides along with the Flip morph. */
 export const DURATION_S = `${MORPH_DURATION}s`
+/** The DIVE curve as a CSS timing function, so chrome that fades along with the
+ *  morph (spine cover, divider) decelerates on the exact same beat as the Flip. */
+export const MORPH_CSS_EASE = "cubic-bezier(0.13, 0.8, 0, 0.97)"
 
 type FlipState = ReturnType<typeof Flip.getState>
 

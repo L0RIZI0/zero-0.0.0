@@ -6,7 +6,7 @@ import { getEntity, getOpenTaskCount, getSpace } from "@/lib/zero/data"
 import type { TaskPriority } from "@/lib/zero/types"
 import { useZeroNav, useRowSelection, HIGHLIGHT_SHADOW, HIGHLIGHT_SHADOW_NONE } from "@/lib/zero/nav-store"
 import { HEADER_H } from "@/lib/zero/motion"
-import { DURATION_S } from "@/lib/zero/flip-stage"
+import { DURATION_S, MORPH_CSS_EASE } from "@/lib/zero/flip-stage"
 import { NodeGlyph } from "./node-glyph"
 import { EntityBody } from "./entity-body"
 import { cn } from "@/lib/utils"
@@ -211,9 +211,9 @@ export function EntityNode({
         {asWindow && (
           <span
             aria-hidden
-            style={{ transitionDuration: DURATION_S }}
+            style={{ transitionDuration: DURATION_S, transitionTimingFunction: MORPH_CSS_EASE }}
             className={cn(
-              "pointer-events-none absolute inset-y-0 left-[3px] z-[8] w-14 bg-card-solid transition-opacity ease-out",
+              "pointer-events-none absolute inset-y-0 left-[3px] z-[8] w-14 bg-card-solid transition-opacity",
               spine ? "opacity-100" : "opacity-0",
             )}
           />
@@ -340,9 +340,9 @@ export function EntityNode({
         {(asWindow || isClosing) && (
           <span
             aria-hidden
-            style={{ top: HEADER_H, transitionDuration: DURATION_S }}
+            style={{ top: HEADER_H, transitionDuration: DURATION_S, transitionTimingFunction: MORPH_CSS_EASE }}
             className={cn(
-              "pointer-events-none absolute left-0 right-0 z-[5] h-px bg-border transition-opacity ease-out",
+              "pointer-events-none absolute left-0 right-0 z-[5] h-px bg-border transition-opacity",
               spine || isClosing ? "opacity-0" : "opacity-100",
             )}
           />
