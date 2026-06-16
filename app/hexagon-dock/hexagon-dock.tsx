@@ -347,39 +347,61 @@ export function HexagonDock() {
                   <motion.div
                     key={space.id}
                     // Only the ROOT shares layout with the launcher (row/dock).
+                    // This element owns ONLY the position/size morph (scale, y,
+                    // opacity). It carries NO rotate/clipPath: layout projection
+                    // would fight those, which is what made the spin tilt-and-snap
+                    // back instead of turning. Shape + spin live on the bg layer.
                     layoutId={depth === 0 ? windowLayoutId : undefined}
                     initial={
-                      depth === 0
-                        ? reshapeFromRect
-                          ? { clipPath: RECT6, rotate: 0 }
-                          : { clipPath: FLAT_HEX, rotate: spin ? SPIN_DEG : 0 }
-                        : { opacity: 0, scale: scale * 0.8, y: shiftY + 40, clipPath: FLAT_HEX }
+                      depth === 0 ? false : { opacity: 0, scale: scale * 0.8, y: shiftY + 40 }
                     }
-                    animate={{ opacity: 1, scale, y: shiftY, clipPath: FLAT_HEX, rotate: 0 }}
+                    animate={{ opacity: 1, scale, y: shiftY }}
                     exit={
-                      depth === 0 && reshapeFromRect
-                        ? { clipPath: RECT6, opacity: 0 }
-                        : depth === 0
-                          ? { clipPath: FLAT_HEX, opacity: 0, rotate: spin ? SPIN_DEG : 0, scale: 0.7 }
-                          : { opacity: 0, scale: scale * 0.85, y: shiftY + 30, clipPath: FLAT_HEX }
+                      depth === 0
+                        ? { opacity: 0, scale: 0.7 }
+                        : { opacity: 0, scale: scale * 0.85, y: shiftY + 30 }
                     }
                     transition={MORPH}
-                    // Depth 0 spins around its center; nested levels grow from the
+                    // Depth 0 grows from its center; nested levels grow from the
                     // top so the parent's shoulders + side points peek above/beside.
                     style={{ transformOrigin: depth === 0 ? "center" : "center top" }}
-                    className="absolute inset-0 bg-border"
+                    className="absolute inset-0"
                   >
-                    {/* Inner hexagon — the window surface. Reshapes in lockstep. */}
+                    {/* ROTATING BACKGROUND LAYER — the hexagon region itself. It
+                        has no layoutId, so it can actually rotate (dock launch) and
+                        reshape (rect→hex on a row launch) without layout projection
+                        cancelling the transform. Holds the ring (bg-border) + the
+                        surface fill (bg-card), so the whole region spins as one. */}
                     <motion.div
-                      initial={{ clipPath: reshapeFromRect ? RECT6 : FLAT_HEX }}
-                      animate={{ clipPath: FLAT_HEX }}
-                      exit={{ clipPath: reshapeFromRect ? RECT6 : FLAT_HEX }}
+                      initial={{
+                        clipPath: reshapeFromRect ? RECT6 : FLAT_HEX,
+                        rotate: spin ? SPIN_DEG : 0,
+                      }}
+                      animate={{ clipPath: FLAT_HEX, rotate: 0 }}
+                      exit={{
+                        clipPath: reshapeFromRect ? RECT6 : FLAT_HEX,
+                        rotate: spin ? SPIN_DEG : 0,
+                      }}
                       transition={MORPH}
-                      className={cn(
-                        "flex h-full w-full flex-col items-center bg-card p-[2px]",
-                        !isTop && "brightness-[0.97]",
-                      )}
+                      style={{ transformOrigin: "center" }}
+                      className="absolute inset-0 bg-border"
                     >
+                      <motion.div
+                        initial={{ clipPath: reshapeFromRect ? RECT6 : FLAT_HEX }}
+                        animate={{ clipPath: FLAT_HEX }}
+                        exit={{ clipPath: reshapeFromRect ? RECT6 : FLAT_HEX }}
+                        transition={MORPH}
+                        className={cn(
+                          "absolute inset-[2px] bg-card",
+                          !isTop && "brightness-[0.97]",
+                        )}
+                      />
+                    </motion.div>
+
+                    {/* CONTENT LAYER — sits above the rotating background and does
+                        NOT rotate, so text/glyph stay upright while the region
+                        spins beneath them. */}
+                    <div className="absolute inset-0 flex flex-col items-center">
                       {isTop ? (
                         <SpaceWindowContent
                           space={space}
@@ -394,7 +416,7 @@ export function HexagonDock() {
                           </span>
                         </div>
                       )}
-                    </motion.div>
+                    </div>
 
                     {isTop && (
                       <>
