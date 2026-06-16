@@ -32,6 +32,13 @@ import { cn } from "@/lib/utils"
 // Space glyph. Percentage points keep it hexagonal at any width/height.
 const HEX = "polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)"
 
+// A full-bounds RECTANGLE expressed with the SAME SIX vertices as HEX, in the
+// same order, so motion can interpolate clip-path rect→hex point-for-point. Each
+// vertex maps to its hex counterpart (top-mid, top-right, bottom-right,
+// bottom-mid, bottom-left, top-left). This lets the WHOLE row card visibly
+// reshape into the hexagon during the morph, instead of just resizing.
+const RECT6 = "polygon(50% 0%, 100% 0%, 100% 100%, 50% 100%, 0% 100%, 0% 0%)"
+
 type SpaceItem = { id: string; label: string; done?: boolean }
 type Space = {
   id: string
@@ -139,7 +146,7 @@ export function HexagonDock() {
   // The window shares its layoutId with whichever region launched it, so the
   // morph originates from the exact hexagon the user tapped.
   const windowLayoutId =
-    open?.from === "dock" ? `dock-${open.id}` : open ? `rowglyph-${open.id}` : undefined
+    open?.from === "dock" ? `dock-${open.id}` : open ? `row-${open.id}` : undefined
 
   return (
     <main className="relative flex min-h-svh flex-col bg-background text-foreground">
@@ -162,34 +169,47 @@ export function HexagonDock() {
         <section className="flex flex-col">
           <RegionLabel index={1} title="In the do-list" note="Rectangular row · hex glyph" />
           <ul className="mt-4 flex flex-col gap-1.5">
-            {SPACES.map((space) => (
-              <li key={space.id}>
-                <button
-                  onClick={() => launch(space.id, "row")}
-                  aria-label={`Open ${space.name}`}
-                  className="group flex w-full items-center gap-3 rounded-lg border border-border bg-card px-3 py-2.5 text-left outline-none transition-colors hover:bg-secondary"
-                >
-                  {/* Hex GLYPH badge — the row's only hexagon. Doubles as the
-                      shared element that grows into the window. */}
-                  <motion.span
-                    layoutId={open?.from === "row" ? undefined : `rowglyph-${space.id}`}
-                    style={{ clipPath: HEX }}
-                    transition={MORPH}
-                    className="flex h-[26px] w-[24px] shrink-0 items-center justify-center bg-foreground/10"
-                  >
-                    <HexGlyph className="h-3.5 w-3.5 text-foreground/80" />
-                  </motion.span>
-                  <span className="flex min-w-0 flex-1 flex-col">
-                    <span className="truncate text-sm font-medium tracking-tight">{space.name}</span>
-                    <span className="truncate text-xs text-muted-foreground">{space.blurb}</span>
-                  </span>
-                  <span className="text-[11px] font-medium tabular-nums text-muted-foreground">
-                    {space.items.filter((i) => !i.done).length}
-                  </span>
-                  <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground/60" />
-                </button>
-              </li>
-            ))}
+            {SPACES.map((space) => {
+              // While THIS row is the open window, unmount it (a duplicate
+              // layoutId would break the projection) and hold its footprint with
+              // a spacer so the list doesn't reflow.
+              const morphing = open?.id === space.id && open.from === "row"
+              return (
+                <li key={space.id}>
+                  {morphing ? (
+                    <div className="h-[60px]" aria-hidden />
+                  ) : (
+                    // The WHOLE row card is the shared element. Its layoutId is
+                    // matched by the window, so the entire rectangle projects into
+                    // the hexagon — not just the glyph. At rest it's an ordinary
+                    // rounded rectangle row, exactly like today.
+                    <motion.button
+                      layoutId={`row-${space.id}`}
+                      onClick={() => launch(space.id, "row")}
+                      aria-label={`Open ${space.name}`}
+                      transition={MORPH}
+                      className="group flex w-full items-center gap-3 rounded-lg border border-border bg-card px-3 py-2.5 text-left outline-none transition-colors hover:bg-secondary"
+                    >
+                      {/* The row's only hexagon is its glyph badge. */}
+                      <span
+                        style={{ clipPath: HEX }}
+                        className="flex h-[26px] w-[24px] shrink-0 items-center justify-center bg-foreground/10"
+                      >
+                        <HexGlyph className="h-3.5 w-3.5 text-foreground/80" />
+                      </span>
+                      <span className="flex min-w-0 flex-1 flex-col">
+                        <span className="truncate text-sm font-medium tracking-tight">{space.name}</span>
+                        <span className="truncate text-xs text-muted-foreground">{space.blurb}</span>
+                      </span>
+                      <span className="text-[11px] font-medium tabular-nums text-muted-foreground">
+                        {space.items.filter((i) => !i.done).length}
+                      </span>
+                      <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground/60" />
+                    </motion.button>
+                  )}
+                </li>
+              )
+            })}
           </ul>
         </section>
 
@@ -287,21 +307,39 @@ export function HexagonDock() {
                 // shoulders + glyph peek above the child — a hexagon-native peek.
                 const scale = 1 - depth * 0.12
                 const shiftY = depth * -54
+                // The ROOT launched from a ROW starts as a rectangle (matching the
+                // row card silhouette) and reshapes into the hexagon as it grows,
+                // so the entire card morphs — not just its size. Launched from the
+                // dock it's already a hexagon, so it stays hex throughout.
+                const reshapeFromRect = depth === 0 && open?.from === "row"
                 return (
                   <motion.div
                     key={space.id}
                     // Only the ROOT shares layout with the launcher (row/dock).
                     layoutId={depth === 0 ? windowLayoutId : undefined}
-                    initial={depth === 0 ? undefined : { opacity: 0, scale: scale * 0.8, y: shiftY + 40 }}
-                    animate={{ opacity: 1, scale, y: shiftY }}
-                    exit={{ opacity: 0, scale: scale * 0.85, y: shiftY + 30 }}
+                    initial={
+                      depth === 0
+                        ? reshapeFromRect
+                          ? { clipPath: RECT6 }
+                          : { clipPath: HEX }
+                        : { opacity: 0, scale: scale * 0.8, y: shiftY + 40, clipPath: HEX }
+                    }
+                    animate={{ opacity: 1, scale, y: shiftY, clipPath: HEX }}
+                    exit={
+                      depth === 0 && reshapeFromRect
+                        ? { clipPath: RECT6, opacity: 0 }
+                        : { opacity: 0, scale: scale * 0.85, y: shiftY + 30, clipPath: HEX }
+                    }
                     transition={MORPH}
-                    style={{ clipPath: HEX, transformOrigin: "center top" }}
+                    style={{ transformOrigin: "center top" }}
                     className="absolute inset-0 bg-border"
                   >
-                    {/* Inner hexagon — the window surface. */}
-                    <div
-                      style={{ clipPath: HEX }}
+                    {/* Inner hexagon — the window surface. Reshapes in lockstep. */}
+                    <motion.div
+                      initial={{ clipPath: reshapeFromRect ? RECT6 : HEX }}
+                      animate={{ clipPath: HEX }}
+                      exit={{ clipPath: reshapeFromRect ? RECT6 : HEX }}
+                      transition={MORPH}
                       className={cn(
                         "flex h-full w-full flex-col items-center bg-card p-[2px]",
                         !isTop && "brightness-[0.97]",
@@ -318,7 +356,7 @@ export function HexagonDock() {
                           </span>
                         </div>
                       )}
-                    </div>
+                    </motion.div>
 
                     {isTop && (
                       <>
