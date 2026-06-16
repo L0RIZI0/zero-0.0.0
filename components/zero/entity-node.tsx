@@ -170,7 +170,10 @@ export function EntityNode({
       // glyph without breaking the smooth single-rotation Flip.
       "absolute inset-y-0 left-[3px] z-10 flex w-14 flex-col items-center pt-4"
     : asWindow
-      ? "relative z-10 flex shrink-0 items-center gap-3 pl-5 pr-12"
+      ? // Non-space window headers pull the glyph/title left (pl-3 vs pl-5) so the
+        // glyph visually sits right above where an open child's LEFT border lands
+        // (a non-space parent peeks ~TASK_SIDE on the left). Spaces keep pl-5.
+        cn("relative z-10 flex shrink-0 items-center gap-3 pr-12", isSpace ? "pl-5" : "pl-3")
       : variant === "dock"
         ? "flex flex-1 flex-col gap-1.5 px-2.5 py-2 pr-7"
         : "flex h-full items-center gap-2 px-2.5 pr-2.5"
