@@ -52,11 +52,19 @@ export const SIDE_PX = 10
  *   - any other ancestor (task/event/instant) peeks from the TOP, the original
  *     nested-doll inset.
  */
-// Horizontal entity header height. Trimmed ~1/4 (was 57) for a more compact band.
+// Horizontal entity header height (the frontmost LEAF window uses this).
+// Trimmed ~1/4 (was 57) for a more compact band.
 export const HEADER_H = 43
-// Top peek trimmed a bit (was 56 / 28, then 46 / 22, now −2 more) so stacked
-// ancestors sit a touch tighter.
-export const TASK_TOP_PEEK = 44
+// Non-spine ANCESTOR (stacked, non-leaf) windows use a shorter header than the
+// leaf — sized between the full leaf header (43) and a Space's thin top-peek
+// (SPACE_TOP_PEEK, 20) — so stacked ancestors read as more recessed (smaller
+// glyph + title too, see entity-node) without collapsing all the way to a spine.
+export const ANCESTOR_HEADER_H = 35
+// Top peek for a task/event/instant ancestor: how much of it shows above its
+// child. Matches ANCESTOR_HEADER_H (+1, mirroring the leaf's 43→44 hairline gap)
+// so the visible band equals the now-shorter ancestor header with no empty strip
+// below the divider. Trimmed from 44 as part of making ancestors more compact.
+export const TASK_TOP_PEEK = 36
 // A non-space (task/event/instant) ancestor used to peek ONLY from the top (side
 // inset was just 10px), so a child window covered almost its entire body — hiding
 // the parent's collapsed IN/OUT rails. This side peek leaves a strip of the

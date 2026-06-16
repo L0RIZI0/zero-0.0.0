@@ -5,7 +5,7 @@ import { Check, X } from "lucide-react"
 import { getEntity, getOpenTaskCount, getSpace } from "@/lib/zero/data"
 import type { TaskPriority } from "@/lib/zero/types"
 import { useZeroNav, useRowSelection, HIGHLIGHT_SHADOW, HIGHLIGHT_SHADOW_NONE } from "@/lib/zero/nav-store"
-import { HEADER_H } from "@/lib/zero/motion"
+import { HEADER_H, ANCESTOR_HEADER_H } from "@/lib/zero/motion"
 import { DURATION_S, MORPH_CSS_EASE } from "@/lib/zero/flip-stage"
 import { NodeGlyph } from "./node-glyph"
 import { EntityBody } from "./entity-body"
@@ -189,7 +189,14 @@ export function EntityNode({
         ? "flex flex-1 flex-col gap-1.5 px-2.5 py-2 pr-7"
         : "flex h-full items-center gap-2 px-2.5 pr-2.5"
 
-  const titleSize = spine ? 13 : asWindow ? 18 : variant === "dock" ? 12 : 13
+  // Non-spine ANCESTORS (stacked, non-leaf, settled windows) wear a more compact
+  // header than the frontmost leaf: a shorter band plus a smaller glyph + title,
+  // so depth reads as recession. The leaf keeps the full treatment. Spines and
+  // closing/collapsing frames are unchanged.
+  const ancestorHeader = asWindow && !spine && !isTop && !isClosing
+  const headerH = ancestorHeader ? ANCESTOR_HEADER_H : HEADER_H
+
+  const titleSize = spine ? 13 : asWindow ? (ancestorHeader ? 15 : 18) : variant === "dock" ? 12 : 13
 
   // Measure the title's HORIZONTAL width (offsetWidth ignores the rotate, so it's
   // the un-rotated text length). In the spine we rotate the title -90° about its
@@ -338,7 +345,14 @@ export function EntityNode({
         {/* Persistent header. NOT a flip target: it stays in the frame's flow and
             switches layout between collapsed row/card, window header, and spine.
             The glyph + title (which ARE flipped) glide on top. */}
-        <div className={headerClass} style={asWindow && !spine ? { height: HEADER_H } : undefined}>
+        <div
+          className={cn(headerClass, asWindow && !spine && "transition-[height]")}
+          style={
+            asWindow && !spine
+              ? { height: headerH, transitionDuration: DURATION_S, transitionTimingFunction: MORPH_CSS_EASE }
+              : undefined
+          }
+        >
           {/* Glyph — for a collapsed task it doubles as the completion toggle. */}
           <span
             data-flip-id={`${flip}-glyph`}
@@ -353,7 +367,11 @@ export function EntityNode({
             }
             className={cn(
               "relative flex shrink-0 items-center justify-center text-foreground",
-              asWindow ? "h-5 w-5" : "h-4 w-4",
+              // Leaf window + spine keep the full 20px glyph; compact ancestors
+              // (and collapsed rows) use 16px. The size change is animated by GSAP
+              // Flip (this glyph is a flip target captured in captureStage), so no
+              // CSS transition here — that would double-animate against Flip.
+              asWindow && !ancestorHeader ? "h-5 w-5" : "h-4 w-4",
             )}
           >
             <NodeGlyph kind={kind} filled={isTask && done} strokeWidth={asWindow ? 1.75 : isTask ? 2 : 1.75} />
@@ -443,11 +461,12 @@ export function EntityNode({
         {(asWindow || isClosing) && (
           <span
             aria-hidden
-            style={{ top: HEADER_H, transitionDuration: DURATION_S, transitionTimingFunction: MORPH_CSS_EASE }}
+            style={{ top: headerH, transitionDuration: DURATION_S, transitionTimingFunction: MORPH_CSS_EASE }}
             className={cn(
               // Fainter than full border (opacity-50) so the header separator is a
-              // subtle hairline rather than a hard rule.
-              "pointer-events-none absolute left-0 right-0 z-[5] h-px bg-border transition-opacity",
+              // subtle hairline rather than a hard rule. `top` animates too so it
+              // glides as a leaf's header compacts into an ancestor's shorter one.
+              "pointer-events-none absolute left-0 right-0 z-[5] h-px bg-border transition-[top,opacity]",
               spine || isClosing ? "opacity-0" : "opacity-50",
             )}
           />
