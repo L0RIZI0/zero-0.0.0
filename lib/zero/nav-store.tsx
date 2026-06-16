@@ -359,18 +359,12 @@ export function ZeroNavProvider({
     const styleFor = (windowDepth: number): React.CSSProperties => {
       const ancestorKinds = stack.slice(1, windowDepth).map((sid) => getEntity(sid)?.kind ?? "task")
       const rect = stackTargetRect(ancestorKinds, { w: regionRect.width, h: regionRect.height })
-      // The frontmost child (current leaf / focus) extends a bit BELOW the region
-      // bottom so it covers the stacked drop-shadows the ancestors pile up there.
-      // All windows share the same bottom edge, so only the leaf needs this; the
-      // region's clip-path already leaves −120px of room beneath for shadows.
-      const isLeaf = windowDepth === stack.length - 1
-      const LEAF_BOTTOM_OVERHANG = 24
       return {
         position: "fixed",
         top: regionRect.top + rect.top,
         left: regionRect.left + rect.left,
         width: rect.width,
-        height: rect.height + (isLeaf ? LEAF_BOTTOM_OVERHANG : 0),
+        height: rect.height,
         zIndex: 20 + windowDepth * 10,
         // Square top corners; bottom two stay rounded at 8px. (TL TR BR BL)
         borderRadius: "0 0 8px 8px",
@@ -378,10 +372,7 @@ export function ZeroNavProvider({
     }
 
     // Telescoping windows are leaving, so exact resting geometry is irrelevant —
-    // a depth-stepped box (treating ancestors as plain top-peeks) is enough. The
-    // +24 bottom overhang matches what the closing leaf had at rest, so its bottom
-    // doesn't snap up 24px when it switches from styleFor to fadingStyleFor at the
-    // start of the close (it just telescopes away from where it actually sat).
+    // a depth-stepped box (treating ancestors as plain top-peeks) is enough.
     const fadingStyleFor = (windowDepth: number): React.CSSProperties => {
       const ancestorKinds = Array(Math.max(0, windowDepth - 1)).fill("task") as EntityKind[]
       const rect = stackTargetRect(ancestorKinds, { w: regionRect.width, h: regionRect.height })
@@ -390,7 +381,7 @@ export function ZeroNavProvider({
         top: regionRect.top + rect.top,
         left: regionRect.left + rect.left,
         width: rect.width,
-        height: rect.height + 24,
+        height: rect.height,
         zIndex: 20 + windowDepth * 10,
         // Square top corners; bottom two stay rounded at 8px. (TL TR BR BL)
         borderRadius: "0 0 8px 8px",

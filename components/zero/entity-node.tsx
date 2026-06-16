@@ -212,9 +212,12 @@ export function EntityNode({
   // frame's right edge (the frame is overflow-hidden, so an in-frame title there
   // would be clipped; a `fixed` title positioned from these numbers escapes it).
   const winStyle = asWindow ? (fadingWindow ? nav.fadingStyleFor(depth) : nav.styleFor(depth)) : null
+  // Sit the title just past the X. The X is inset 6px (right-1.5) from the
+  // window's right edge, so starting at edge − 2 places it ~4px right of the X's
+  // right side — snug instead of floating off in the peek margin.
   const closeTitleLeft =
     winStyle && typeof winStyle.left === "number" && typeof winStyle.width === "number"
-      ? winStyle.left + winStyle.width + 8
+      ? winStyle.left + winStyle.width - 2
       : 0
   // Vertically center the title on the X. The cluster sits at top-3 (12px) for a
   // normal window / top-1 (4px) for a spine; the X is size-6 (24px) tall.
