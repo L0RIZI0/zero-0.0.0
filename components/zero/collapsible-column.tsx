@@ -1,27 +1,19 @@
 "use client"
 
-import { useState } from "react"
 import { motion, AnimatePresence } from "motion/react"
 import { PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from "lucide-react"
 import { panelTransition } from "@/lib/zero/motion"
 import { cn } from "@/lib/utils"
 
 /**
- * Module-level memory of each panel's open/closed state, keyed by
- * `${entityId}:${side}`. EntityBody (and therefore every CollapsibleColumn) is
- * re-rendered — and can be re-mounted — whenever the window stack changes, e.g.
- * when a child window opens and the parent reflows to a spine. A plain local
- * useState would reset to `defaultOpen` on each remount, which is why an
- * expanded Inputs/Outputs panel snapped shut the moment a child opened. Holding
- * the state outside React preserves the user's choice across those remounts.
- */
-const panelOpenState = new Map<string, boolean>()
-
-/**
- * A borderless side column that lives inside a fixed-width slot. Collapsing it
- * swaps the full panel for a thin rail (aligned to the outer screen edge) with
- * a quick crossfade — the slot width never changes, so the center Tasks column
- * (and its centered TASKS label) stays put when a panel opens or closes.
+ * A borderless side column that lives inside its slot. Collapsing it swaps the
+ * full panel for a thin rail (aligned to the outer screen edge) with a quick
+ * crossfade.
+ *
+ * Fully CONTROLLED: the parent (EntityBody) owns the open state — via the
+ * reactive panel-store — so it can also animate the slot's width as the panel
+ * opens/closes (letting the center Tasks column slide + shrink) and auto-collapse
+ * the panels when a child window opens.
  */
 export function CollapsibleColumn({
   title,
@@ -29,41 +21,40 @@ export function CollapsibleColumn({
   side,
   count,
   children,
-  defaultOpen = true,
-  storeKey,
+  open,
+  onOpenChange,
+  collapsedShiftX = 0,
   collapsedShiftY = 0,
   onBeforeExpand,
 }: {
   title: string
   /** Short label shown on the vertical rail when collapsed (e.g. "In" / "Out").
-   *  Falls back to the full `title` when omitted. The open panel always uses the
-   *  full `title`. */
+   *  Falls back to the full `title` when omitted. The open panel uses `title`. */
   collapsedTitle?: string
   side: "left" | "right"
   count?: number
   children: React.ReactNode
-  defaultOpen?: boolean
-  /** Stable identity for remembering open/closed across remounts (see
-   *  `panelOpenState`). Usually `${entityId}:${side}`. */
-  storeKey?: string
-  /** Vertical px offset for the COLLAPSED rail only (transform translateY).
-   *  Used by the home view to lift its centered rails to the viewport middle.
-   *  Doesn't affect layout or the open panel. */
+  /** Controlled open state. */
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  /** Horizontal px offset for the COLLAPSED rail only. Used when this window is a
+   *  spine to nudge the IN rail right so it aligns with the vertical title/glyph. */
+  collapsedShiftX?: number
+  /** Vertical px offset for the COLLAPSED rail only. Used by the home view to lift
+   *  its centered rails to the viewport middle. */
   collapsedShiftY?: number
   /** Runs just before the panel expands. When this column belongs to an ancestor
    *  spine, EntityBody passes a fn that brings that ancestor to the front — so
-   *  clicking an ancestor's collapsed IN/OUT rail surfaces it AND its panel
-   *  (the open state is remembered by `storeKey` across the resulting remount). */
+   *  clicking an ancestor's collapsed IN/OUT rail surfaces it AND its panel. */
   onBeforeExpand?: () => void
 }) {
-  const [open, setOpenState] = useState(() => (storeKey ? panelOpenState.get(storeKey) ?? defaultOpen : defaultOpen))
-  const setOpen = (next: boolean) => {
-    if (storeKey) panelOpenState.set(storeKey, next)
-    setOpenState(next)
-  }
-
   const OpenIcon = side === "left" ? PanelLeftClose : PanelRightClose
   const ClosedIcon = side === "left" ? PanelLeftOpen : PanelRightOpen
+
+  const railShift =
+    collapsedShiftX || collapsedShiftY
+      ? { transform: `translate(${collapsedShiftX}px, ${collapsedShiftY}px)` }
+      : undefined
 
   return (
     <div className={cn("relative flex min-h-0 w-full flex-col", side === "right" && "order-last")}>
@@ -78,28 +69,22 @@ export function CollapsibleColumn({
             transition={panelTransition}
             className={cn(
               // `flex-1 min-h-0` makes the panel fill the column's (stable) height
-              // so its inner list SCROLLS. Without it the section sized to its
-              // content, the tall list grew the whole columns row, and the
-              // opposite side's centered rail got pushed down with it.
+              // so its inner list SCROLLS instead of growing the row.
               "flex min-h-0 flex-1 flex-col",
-              // Pull the whole open panel outward so it hugs the screen edge
-              // (its header label + the per-row continuity rails sit as close to
-              // the edge as the collapsed rail does — bleeding is fine).
+              // Pull the whole open panel outward so it hugs the screen edge.
               side === "left" ? "-ml-4" : "-mr-4",
             )}
           >
             <div
               className={cn(
                 "mb-1 flex items-center gap-1.5 px-1",
-                // Inputs: icon + label grouped on the left.
-                // Outputs: label + icon grouped on the right.
                 side === "left" ? "justify-start" : "justify-end",
               )}
             >
               {side === "left" && (
                 <button
                   type="button"
-                  onClick={() => setOpen(false)}
+                  onClick={() => onOpenChange(false)}
                   aria-label={`Collapse ${title}`}
                   className="flex h-6 w-6 items-center justify-center rounded-sm text-muted-foreground/70 transition-colors hover:bg-secondary/70 hover:text-foreground"
                 >
@@ -108,14 +93,12 @@ export function CollapsibleColumn({
               )}
               <h2 className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
                 {title}
-                {typeof count === "number" && (
-                  <span className="text-muted-foreground/60">{count}</span>
-                )}
+                {typeof count === "number" && <span className="text-muted-foreground/60">{count}</span>}
               </h2>
               {side === "right" && (
                 <button
                   type="button"
-                  onClick={() => setOpen(false)}
+                  onClick={() => onOpenChange(false)}
                   aria-label={`Collapse ${title}`}
                   className="flex h-6 w-6 items-center justify-center rounded-sm text-muted-foreground/70 transition-colors hover:bg-secondary/70 hover:text-foreground"
                 >
@@ -126,10 +109,6 @@ export function CollapsibleColumn({
             <div
               className={cn(
                 "min-h-0 flex-1 overflow-y-auto pr-1 no-scrollbar",
-                // Left (Inputs) column bleeds its scroll box to the viewport
-                // edge so the per-row continuity rails aren't clipped. pl-6
-                // keeps the content visually in place while -ml-6 extends the
-                // box leftward into Space 0's surface.
                 side === "left" && "-ml-6 pl-6",
               )}
             >
@@ -143,21 +122,13 @@ export function CollapsibleColumn({
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={panelTransition}
-            style={collapsedShiftY ? { transform: `translateY(${collapsedShiftY}px)` } : undefined}
+            style={railShift}
             className={cn(
-              // flex-1 + justify-center makes the rail span the full column height
-              // and sit at its VERTICAL MIDDLE (it used to bunch up just under the
-              // dock). Hugs the outer screen edge of its slot, pulled a further
-              // 20px outward (past the body's px-6) so it sits as close to the
-              // edge as the timeline chrome — the left (Inputs) rail lines up
-              // under the timeline's LYQ… zoom selectors and the right (Outputs)
-              // rail mirrors it. `collapsedShiftY` (home view only) lifts it to
-              // the viewport middle.
-              // `relative z-10` lifts the rail ABOVE the window's opaque spine
-              // cover (z-8): when this window becomes a spine, its real (clickable)
-              // IN rail stays visible over the vertical-header strip — and the
-              // matching OUT rail over the right peek — so every ancestor's
-              // Inputs/Outputs shortcut remains reachable instead of being hidden.
+              // flex-1 + justify-center centers the rail VERTICALLY in its column.
+              // It hugs the outer screen edge (-ml-5 / -mr-5, past the body px-6).
+              // `relative z-10` lifts it ABOVE the window's opaque spine cover
+              // (z-8) so an ancestor spine's real (clickable) IN/OUT rail stays
+              // visible + reachable over the vertical-header strip / right peek.
               "relative z-10 flex flex-1 flex-col items-center justify-center gap-3",
               side === "left" ? "-ml-5 self-start" : "-mr-5 self-end",
             )}
@@ -166,10 +137,10 @@ export function CollapsibleColumn({
               type="button"
               onClick={(e) => {
                 e.stopPropagation()
-                // Remember "open" first (survives the remount), then bring the
+                // Remember "open" first (survives any remount), then bring the
                 // owning ancestor to the front so its now-frontmost window shows
                 // the expanded panel.
-                setOpen(true)
+                onOpenChange(true)
                 onBeforeExpand?.()
               }}
               aria-label={`Expand ${title}`}

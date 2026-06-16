@@ -407,6 +407,7 @@ export function EntityNode({
             <EntityBody
               entityId={entityId}
               active={isTop && !isClosing}
+              spine={spine}
               // When this is an ancestor spine (open but not frontmost), clicking
               // its collapsed IN/OUT rail brings it to the front so the panel is
               // actually visible — the same navigation as clicking the spine.

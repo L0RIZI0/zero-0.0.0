@@ -52,7 +52,12 @@ export const SIDE_PX = 10
  */
 export const HEADER_H = 57
 export const TASK_TOP_PEEK = 56
-export const TASK_SIDE = 10
+// A non-space (task/event/instant) ancestor used to peek ONLY from the top (side
+// inset was just 10px), so a child window covered almost its entire body — hiding
+// the parent's collapsed IN/OUT rails. This wider side peek leaves a strip of the
+// parent on the left and right so those rails (≈48px slots at the edges) stay
+// visible and reachable, mirroring how a space ancestor peeks on the right.
+export const TASK_SIDE = 48
 export const SPACE_SPINE = 56
 export const SPACE_TOP_PEEK = 28
 // Right peek is wide enough (was 14) to reveal an ancestor space's collapsed

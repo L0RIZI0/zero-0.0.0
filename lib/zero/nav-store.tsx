@@ -3,6 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react"
 import { flushSync } from "react-dom"
 import { getEntity, hydrateFromStorage } from "./data"
+import { collapseEntityPanels } from "./panel-store"
 import { stackTargetRect } from "./motion"
 import {
   captureStage,
@@ -295,6 +296,9 @@ export function ZeroNavProvider({
       // somewhere in this stack (e.g. the user clicked a second, collapsed
       // reference of it in another context), don't push a duplicate entry.
       if (cur.includes(id)) return
+      // Opening a child folds the parent's IN/OUT panels so the parent reflows
+      // clean behind/around the child (and returns collapsed).
+      collapseEntityPanels(cur[cur.length - 1])
       transition([...cur, id])
     },
     [transition],
