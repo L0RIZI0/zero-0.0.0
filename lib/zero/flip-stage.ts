@@ -32,23 +32,24 @@ import { CustomEase } from "gsap/CustomEase"
  */
 if (typeof window !== "undefined") {
   gsap.registerPlugin(Flip, CustomEase)
-  // "zeroLand": fast, near-constant expansion that only eases in the final ~15%.
-  // Every power*.out ease is front-loaded (fastest at t=0, decelerating the WHOLE
-  // way), which is exactly the "slows down too early" feel. A late-knee curve
-  // fixes that. Control points (all x-monotonic — the earlier bug was a backward
-  // x fold that stalled GSAP at the start):
-  //   P1 (0.3, 0.45) → initial slope 1.5: a quick, visible launch (not the violent
-  //                    ~6x jump the old Figma curve had), staying fast.
-  //   P2 (0.82, 0.97) → the deceleration knee sits at ~82%, so the window holds
-  //                    speed through the middle and only softens for the last ~15%.
-  CustomEase.create("zeroLand", "M0,0 C0.3,0.45 0.82,0.97 1,1")
+  // "zeroLand": accelerate, hold speed, then a long soft landing — an ease-in-OUT
+  // rather than the previous front-loaded ease-out (which started fast and only
+  // ever slowed, reading as "linear then abrupt"). Control points (all
+  // x-monotonic — the earlier bug was a backward x fold that stalled GSAP):
+  //   P1 (0.32, 0.05) → initial slope ≈0.16: moves immediately but GENTLY, then
+  //                     builds speed through the first ~40% (the acceleration the
+  //                     motion was missing — more, and lasting longer).
+  //   P2 (0.6, 1)     → end slope 0 (1−1 over 1−0.6), so the deceleration spans the
+  //                     final ~40% and eases asymptotically into rest — a softer,
+  //                     longer landing instead of the abrupt last-15% knee.
+  CustomEase.create("zeroLand", "M0,0 C0.32,0.05 0.6,1 1,1")
 }
 
 export { gsap }
 
-/** Quick, elegant motion shared by every window — the `zeroLand` late-ease curve
- *  (defined above): expands/shrinks fast and near-constant, then softens only for
- *  the final ~15% so it lands gently instead of slowing down too early. */
+/** Quick, elegant motion shared by every window — the `zeroLand` ease-in-out curve
+ *  (defined above): accelerates into a fast expansion/shrink, then eases out over
+ *  the final ~40% for a soft, gentle landing. */
 export const MORPH_DURATION = 0.8
 export const MORPH_EASE = "zeroLand"
 /** Same duration as a CSS string, for the fade/transition chrome (spine bg,
@@ -56,7 +57,7 @@ export const MORPH_EASE = "zeroLand"
 export const DURATION_S = `${MORPH_DURATION}s`
 /** The `zeroLand` curve as a CSS timing function, so chrome that fades along with
  *  the morph (spine cover, divider) lands on the same late-ease beat as the Flip. */
-export const MORPH_CSS_EASE = "cubic-bezier(0.3, 0.45, 0.82, 0.97)"
+export const MORPH_CSS_EASE = "cubic-bezier(0.32, 0.05, 0.6, 1)"
 
 type FlipState = ReturnType<typeof Flip.getState>
 
