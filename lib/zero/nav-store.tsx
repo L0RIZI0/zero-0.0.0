@@ -366,8 +366,10 @@ export function ZeroNavProvider({
         width: rect.width,
         height: rect.height,
         zIndex: 20 + windowDepth * 10,
-        // Square top corners; bottom two stay rounded at 8px. (TL TR BR BL)
-        borderRadius: "0 0 8px 8px",
+        // Top-left square. Top-right gets a medium radius (16px — larger than the
+        // 8px bottom corners, smaller than the old 28px) for every window EXCEPT
+        // the first child opened from home (windowDepth === 1). (TL TR BR BL)
+        borderRadius: `0 ${windowDepth >= 2 ? "16px" : "0"} 8px 8px`,
       }
     }
 
@@ -383,8 +385,9 @@ export function ZeroNavProvider({
         width: rect.width,
         height: rect.height,
         zIndex: 20 + windowDepth * 10,
-        // Square top corners; bottom two stay rounded at 8px. (TL TR BR BL)
-        borderRadius: "0 0 8px 8px",
+        // Top-left square. Top-right medium radius (16px) for every window EXCEPT
+        // the first child opened from home (windowDepth === 1). (TL TR BR BL)
+        borderRadius: `0 ${windowDepth >= 2 ? "16px" : "0"} 8px 8px`,
       }
     }
 
