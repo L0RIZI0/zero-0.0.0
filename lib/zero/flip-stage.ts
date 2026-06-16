@@ -32,11 +32,18 @@ import { CustomEase } from "gsap/CustomEase"
  */
 if (typeof window !== "undefined") {
   gsap.registerPlugin(Flip, CustomEase)
-  // The exact Figma "Smart Animate DIVE" curve. A CSS cubic-bezier(x1,y1,x2,y2)
-  // is the CustomEase path `M0,0 C x1,y1 x2,y2 1,1`, so 0.13,0.8,0,0.97 →
-  // below. It launches hard (y hits 0.8 by x=0.13) then holds a long, gentle
-  // glide so the deceleration lands right at the end.
-  CustomEase.create("zeroDive", "M0,0 C0.13,0.8 0,0.97 1,1")
+  // Derived from the Figma "Smart Animate DIVE" curve (0.13, 0.8, 0, 0.97) but
+  // adjusted in two ways:
+  //   1. The original second control point sat at x=0 — BEHIND the first control
+  //      point's x=0.13 — so the curve's x folded backward. CSS tolerates that,
+  //      but GSAP CustomEase samples the path left→right and the fold stalls
+  //      progress for the first frames, which read as a "delay" before the morph
+  //      started. Keeping every control point x-monotonic removes that hitch.
+  //   2. The second control point is pulled toward the end (0.32, 1) so the long,
+  //      floaty deceleration tail is much shorter — it still launches hard
+  //      (y≈0.82 by x=0.13) but settles crisply instead of crawling the last few
+  //      percent across most of the timeline.
+  CustomEase.create("zeroDive", "M0,0 C0.13,0.82 0.32,1 1,1")
 }
 
 export { gsap }
@@ -50,7 +57,7 @@ export const MORPH_EASE = "zeroDive"
 export const DURATION_S = `${MORPH_DURATION}s`
 /** The DIVE curve as a CSS timing function, so chrome that fades along with the
  *  morph (spine cover, divider) decelerates on the exact same beat as the Flip. */
-export const MORPH_CSS_EASE = "cubic-bezier(0.13, 0.8, 0, 0.97)"
+export const MORPH_CSS_EASE = "cubic-bezier(0.13, 0.82, 0.32, 1)"
 
 type FlipState = ReturnType<typeof Flip.getState>
 
@@ -118,8 +125,12 @@ export function playStage(
   const sel = (k: Key, rest: string) => `[data-window="${k.id}"][data-depth="${k.depth}"] ${rest}`
 
   if (opts.opening && opts.top) {
+    // Fade the open-only chrome (body, close button) in immediately — no delay,
+    // so the content does not appear to lag behind the frame at the start (which
+    // contributed to the "delayed start" feel). Duration scales with the morph so
+    // it stays proportional at any MORPH_DURATION.
     const chrome = stage.querySelectorAll(sel(opts.top, "[data-fade]"))
-    if (chrome.length) gsap.fromTo(chrome, { opacity: 0 }, { opacity: 1, duration: 0.3, delay: 0.15 })
+    if (chrome.length) gsap.fromTo(chrome, { opacity: 0 }, { opacity: 1, duration: MORPH_DURATION * 0.45 })
   }
 
   if (opts.closing) {
