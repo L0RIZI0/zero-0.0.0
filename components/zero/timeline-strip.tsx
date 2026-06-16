@@ -298,19 +298,28 @@ export function TimelineStrip({
                 const todayIsLeft = dayOffset > 0
                 const Arrow = todayIsLeft ? ArrowLeft : ArrowRight
                 return (
-                  <span className="pointer-events-auto relative rounded bg-background px-2 py-0.5 text-[11px] font-medium tracking-tight text-foreground">
-                    {dayLabel}
+                  // Label + back-to-today control share ONE opaque rounded block so
+                  // they mask the timestamps behind them as a single continuous
+                  // unit (the arrow no longer floats outside the label's background).
+                  // The arrow sits on whichever side "today" lies — reversed row
+                  // when today is to the left.
+                  <div
+                    className={cn(
+                      "pointer-events-auto inline-flex items-center gap-1 rounded bg-background px-2 py-0.5",
+                      todayIsLeft ? "flex-row-reverse" : "flex-row",
+                    )}
+                  >
+                    <span className="whitespace-nowrap text-[11px] font-medium tracking-tight text-foreground">
+                      {dayLabel}
+                    </span>
                     <button
                       type="button"
                       onClick={goToday}
                       aria-label="Back to today"
                       title="Back to today"
                       className={cn(
-                        // Generous padding + hover background give the arrow a
-                        // reliable hit/feedback area once it collapses to just
-                        // the icon at deeper stages.
-                        "absolute top-1/2 flex -translate-y-1/2 items-center gap-0.5 whitespace-nowrap rounded-md px-1.5 py-1 text-[10px] font-medium leading-none text-muted-foreground/70 transition-colors hover:bg-foreground/10 hover:text-foreground",
-                        todayIsLeft ? "right-full mr-2" : "left-full ml-2 flex-row-reverse",
+                        "flex items-center gap-0.5 whitespace-nowrap rounded-md px-1 py-0.5 text-[10px] font-medium leading-none text-muted-foreground/70 transition-colors [&:hover]:text-foreground",
+                        todayIsLeft ? "flex-row" : "flex-row-reverse",
                       )}
                     >
                       <Arrow className="h-3 w-3 shrink-0" strokeWidth={2.75} />
@@ -326,7 +335,7 @@ export function TimelineStrip({
                         TODAY
                       </motion.span>
                     </button>
-                  </span>
+                  </div>
                 )
               })()}
             </motion.div>

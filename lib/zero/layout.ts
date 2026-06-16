@@ -48,8 +48,8 @@ export function shellStageFor(entity: ActiveEntity): ShellStage {
  *  header's empty area without being cropped. */
 export const TIMELINE_LIFT_Y: Record<ShellStage, number> = {
   0: 0,
-  1: -24,
-  2: -54,
+  1: -32,
+  2: -66,
 }
 
 /** How much the open windows grow UPWARD as the shell compacts. The window's
