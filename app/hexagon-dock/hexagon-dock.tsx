@@ -156,6 +156,7 @@ const SPACES: Space[] = [
 // background carries the id of whichever launcher opened it. At any instant only
 // one of {launcher, window} is mounted for a given id, so the match is exact.
 const fidFor = (from: "dock" | "row", id: string) => `hex-${from}-${id}`
+type LaunchMeta = { id: string; from: "dock" | "row" }
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
@@ -174,12 +175,13 @@ export function HexagonDock() {
   const rootSpace = SPACES.find((s) => s.id === open?.id) ?? null
 
   // The persistent hexagon for the about-to-open Space currently lives in the
-  // launcher (its data-glyph carries the flip-id). Snapshot it, then commit the
-  // window — Flip will match the same flip-id in the window and grow it across.
+  // launcher (it carries the flip-id). Snapshot it, then commit the window — Flip
+  // matches the same flip-id on the window's hexagon and grows one into the other.
   function launch(id: string, from: "dock" | "row") {
     const space = SPACES.find((s) => s.id === id)
     if (!space) return
-    flipState.current = Flip.getState(`[data-flip-id="${FID}"]`, { props: "clipPath,borderRadius" })
+    const fid = fidFor(from, id)
+    flipState.current = Flip.getState(`[data-flip-id="${fid}"]`, { props: "clipPath" })
     pendingRef.current = "open"
     launchMeta.current = { id, from }
     setOpen({ id, from })
@@ -187,9 +189,12 @@ export function HexagonDock() {
   }
 
   function close() {
-    if (!flipState.current) {
-      // No snapshot to return to — capture the window now so it still animates.
-      flipState.current = Flip.getState(`[data-flip-id="${FID}"]`, { props: "clipPath,borderRadius" })
+    const meta = launchMeta.current
+    const fid = meta ? fidFor(meta.from, meta.id) : null
+    if (fid) {
+      // Snapshot the window hexagon NOW (large); after commit the launcher
+      // hexagon (small) reappears with the same flip-id and Flip shrinks into it.
+      flipState.current = Flip.getState(`[data-flip-id="${fid}"]`, { props: "clipPath" })
     }
     pendingRef.current = "close"
     // Fade out the window body chrome up front; the hexagon itself will shrink.
@@ -241,8 +246,10 @@ export function HexagonDock() {
     pendingRef.current = null
     flipState.current = null
     const meta = launchMeta.current
+    const targets = document.querySelectorAll("[data-flip-id]")
+    console.log("[v0] flip play", pending, "targets:", targets.length, "ids:", Array.from(targets).map((t) => t.getAttribute("data-flip-id")).join(","))
 
-    Flip.from(state, {
+    const tl = Flip.from(state, {
       duration: DUR,
       ease: EASE,
       absolute: true,
@@ -252,6 +259,7 @@ export function HexagonDock() {
       onEnter: (els) => gsap.fromTo(els, { autoAlpha: 0 }, { autoAlpha: 1, duration: DUR * 0.5, ease: EASE }),
       onLeave: (els) => gsap.to(els, { autoAlpha: 0, duration: DUR * 0.4, ease: EASE }),
     })
+    console.log("[v0] flip tl duration:", tl.duration(), "totalTime:", tl.totalDuration())
 
     if (pending === "open") {
       const stage = stageRef.current
@@ -312,12 +320,13 @@ export function HexagonDock() {
                     <div className="h-[60px]" aria-hidden />
                   ) : (
                     <button
-                      onClick={(e) => launch(space.id, "row", e.currentTarget)}
+                      onClick={() => launch(space.id, "row")}
                       aria-label={`Open ${space.name}`}
                       className="group flex w-full items-center gap-3 rounded-lg border border-border bg-card px-3 py-2.5 text-left outline-none transition-colors hover:bg-secondary"
                     >
                       <span
                         data-glyph
+                        data-flip-id={fidFor("row", space.id)}
                         style={{ clipPath: HEX }}
                         className="flex h-[26px] w-[24px] shrink-0 items-center justify-center bg-foreground/10"
                       >
@@ -352,7 +361,8 @@ export function HexagonDock() {
                       <div className="h-full w-full" aria-hidden />
                     ) : (
                       <button
-                        onClick={(e) => launch(space.id, "dock", e.currentTarget)}
+                        onClick={() => launch(space.id, "dock")}
+                        data-flip-id={fidFor("dock", space.id)}
                         style={{ clipPath: HEX }}
                         className="group block h-full w-full bg-border outline-none"
                         aria-label={`Open ${space.name}`}
@@ -433,8 +443,16 @@ export function HexagonDock() {
                   className="absolute inset-0"
                   style={{ transform: `translateY(${shiftFor(depth)}px) scale(${scaleFor(depth)})`, transformOrigin: "center top" }}
                 >
-                  {/* RESHAPING BACKGROUND — owns the morph transform. */}
-                  <div data-bg data-depth={depth} className="absolute inset-0 bg-border" style={{ clipPath: HEX }}>
+                  {/* RESHAPING BACKGROUND — the persistent hexagon. At depth 0 it
+                      carries the launcher's flip-id, so GSAP Flip grows/shrinks it
+                      between the dock card / row glyph and this window. */}
+                  <div
+                    data-bg
+                    data-depth={depth}
+                    data-flip-id={depth === 0 && open ? fidFor(open.from, space.id) : undefined}
+                    className="absolute inset-0 bg-border"
+                    style={{ clipPath: HEX }}
+                  >
                     <div
                       className={cn("absolute inset-[2px] bg-card", !isTop && "brightness-[0.97]")}
                       style={{ clipPath: HEX }}
@@ -483,18 +501,13 @@ export function HexagonDock() {
 }
 
 /** The frontmost hexagon window's content, kept inside the regular hexagon's safe
- *  central band (top/bottom points are clipped, so we inset vertically). The glyph
- *  carries data-glyph so a row launch can FLIP it up from the row. */
+ *  central band (top/bottom points are clipped, so we inset vertically). All of it
+ *  fades (data-fade) while the persistent hexagon itself Flips in/out. */
 function SpaceWindowContent({ space }: { space: Space }) {
   return (
     <div className="flex h-full w-full flex-col items-center px-[18%] pt-[16%] pb-[14%]">
-      {/* glyph + title travel together as the header — they FLIP between the
-          launcher (dock card / row) and this position on open/close, so the
-          window never collapses to an empty hexagon. */}
-      <div data-header className="flex flex-col items-center">
-        <div data-glyph className="flex items-center justify-center">
-          <HexGlyph className="h-9 w-9 text-foreground/80" />
-        </div>
+      <div data-fade className="flex flex-col items-center">
+        <HexGlyph className="h-9 w-9 text-foreground/80" />
         <h2 className="mt-3 text-center text-xl font-semibold tracking-tight">{space.name}</h2>
       </div>
       <p data-fade className="mt-1 text-center text-xs text-muted-foreground">
