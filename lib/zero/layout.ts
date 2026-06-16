@@ -48,8 +48,25 @@ export function shellStageFor(entity: ActiveEntity): ShellStage {
  *  header's empty area without being cropped. */
 export const TIMELINE_LIFT_Y: Record<ShellStage, number> = {
   0: 0,
-  1: -10,
-  2: -18,
+  1: -24,
+  2: -44,
+}
+
+/** How much the open windows grow UPWARD as the shell compacts. The window's
+ *  bottom stays put; only its TOP rises by this many px (so it gets taller and
+ *  reads as "displayed higher"). Applied to the effective region every window is
+ *  measured against (see styleFor): top -= lift, height += lift, which leaves the
+ *  bottom exactly where it was.
+ *
+ *  Kept STRICTLY LESS than TIMELINE_LIFT_Y at the same stage: the region top sits
+ *  flush under the timeline's natural bottom, so windows may only rise as far as
+ *  the timeline vacates — otherwise the topmost (parent) frame would collide with
+ *  the timeline strip. The clip-path top inset on the region is widened to a
+ *  negative value to fit these taller windows. */
+export const WINDOW_TOP_LIFT: Record<ShellStage, number> = {
+  0: 0,
+  1: 16,
+  2: 34,
 }
 
 /** Resting top margin of the timeline (constant — the depth response is the

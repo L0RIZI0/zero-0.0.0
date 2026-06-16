@@ -5,6 +5,7 @@ import { flushSync } from "react-dom"
 import { getEntity, hydrateFromStorage } from "./data"
 import { collapseEntityPanels } from "./panel-store"
 import { stackTargetRect } from "./motion"
+import { shellStageFor, WINDOW_TOP_LIFT } from "./layout"
 import {
   captureStage,
   playStage,
@@ -354,15 +355,29 @@ export function ZeroNavProvider({
       return idx >= 1 && idx < stack.length - 1 && getEntity(id)?.kind === "space"
     }
 
+    // As the shell compacts the open windows grow UPWARD: their top rises by
+    // WINDOW_TOP_LIFT[stage] while their bottom stays put. We realize this by
+    // measuring against an "effective" region whose top is lifted and whose height
+    // is grown by the same amount — every window (parent + children) then shares
+    // the higher top and unchanged bottom. Driven by the leaf depth so all stacked
+    // windows lift together in one morph.
+    const lift = WINDOW_TOP_LIFT[shellStageFor(activeEntity)]
+    const liftedRegion = {
+      top: regionRect.top - lift,
+      left: regionRect.left,
+      width: regionRect.width,
+      height: regionRect.height + lift,
+    }
+
     // Fixed geometry for an open window: walk the in-stack ancestors (above the
     // root backdrop, below this window) and let each reserve space by its kind.
     const styleFor = (windowDepth: number): React.CSSProperties => {
       const ancestorKinds = stack.slice(1, windowDepth).map((sid) => getEntity(sid)?.kind ?? "task")
-      const rect = stackTargetRect(ancestorKinds, { w: regionRect.width, h: regionRect.height })
+      const rect = stackTargetRect(ancestorKinds, { w: liftedRegion.width, h: liftedRegion.height })
       return {
         position: "fixed",
-        top: regionRect.top + rect.top,
-        left: regionRect.left + rect.left,
+        top: liftedRegion.top + rect.top,
+        left: liftedRegion.left + rect.left,
         width: rect.width,
         height: rect.height,
         zIndex: 20 + windowDepth * 10,
@@ -377,11 +392,11 @@ export function ZeroNavProvider({
     // a depth-stepped box (treating ancestors as plain top-peeks) is enough.
     const fadingStyleFor = (windowDepth: number): React.CSSProperties => {
       const ancestorKinds = Array(Math.max(0, windowDepth - 1)).fill("task") as EntityKind[]
-      const rect = stackTargetRect(ancestorKinds, { w: regionRect.width, h: regionRect.height })
+      const rect = stackTargetRect(ancestorKinds, { w: liftedRegion.width, h: liftedRegion.height })
       return {
         position: "fixed",
-        top: regionRect.top + rect.top,
-        left: regionRect.left + rect.left,
+        top: liftedRegion.top + rect.top,
+        left: liftedRegion.left + rect.left,
         width: rect.width,
         height: rect.height,
         zIndex: 20 + windowDepth * 10,

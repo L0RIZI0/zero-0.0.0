@@ -93,7 +93,11 @@ export function WorkSurface() {
         // vanished mid-animation and snapped back when it ended. The negative
         // bottom inset (−120px) leaves room for those shadows while still clipping
         // the top/sides (so peeking parent frames stay contained).
-        className="relative flex min-h-0 flex-1 flex-col rounded-md [clip-path:inset(0px_0px_-120px_0px_round_6px)]"
+        // Top inset is NEGATIVE (−48px) so the windows — which grow upward past the
+        // region top as the shell compacts (WINDOW_TOP_LIFT) — are not clipped at
+        // their tops during the morph (when frames are `absolute` inside this box).
+        // The space above is the header's empty area, so nothing else shows there.
+        className="relative flex min-h-0 flex-1 flex-col rounded-md [clip-path:inset(-48px_0px_-120px_0px_round_6px)]"
       >
         <EntityBody entityId={rootId} active={activeEntity.id === rootId} isRoot />
       </div>
