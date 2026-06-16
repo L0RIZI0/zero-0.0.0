@@ -100,8 +100,12 @@ export function CollapsibleColumn({
             transition={panelTransition}
             className={cn(
               "flex flex-col items-center gap-3 pt-1",
-              // Rail hugs the outer screen edge of its fixed slot.
-              side === "left" ? "self-start" : "self-end",
+              // Rail hugs the outer screen edge of its fixed slot, then is pulled
+              // a further 20px outward (past the body's px-6) so it sits as close
+              // to the screen edge as the timeline chrome: the left (Inputs) rail
+              // lines up under the timeline's LYQ… zoom selectors, and the right
+              // (Outputs) rail mirrors it on the far side.
+              side === "left" ? "-ml-5 self-start" : "-mr-5 self-end",
             )}
           >
             <button

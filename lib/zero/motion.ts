@@ -57,6 +57,14 @@ export const SPACE_SPINE = 56
 export const SPACE_TOP_PEEK = 28
 export const SPACE_RIGHT_PEEK = 14
 export const SPACE_BOTTOM_PEEK = 14
+/**
+ * Base horizontal inset applied to EVERY focus window (even the depth-1 child of
+ * the home view, which has no ancestors). It makes each window a touch narrower
+ * on both sides so the home view's collapsed Inputs/Outputs rails — which hug the
+ * region's left/right edges — stay visible peeking out beside the open window.
+ * Only the sides inset; top/bottom still fill the region.
+ */
+export const WINDOW_BASE_SIDE = 44
 
 /**
  * Resting box for a window whose frame ANCESTORS (the in-stack windows above the
@@ -70,8 +78,8 @@ export function stackTargetRect(
   region: { w: number; h: number },
 ): Rect {
   let top = 0
-  let left = 0
-  let right = 0
+  let left = WINDOW_BASE_SIDE
+  let right = WINDOW_BASE_SIDE
   let bottom = 0
   for (const kind of ancestorKinds) {
     if (kind === "space") {
