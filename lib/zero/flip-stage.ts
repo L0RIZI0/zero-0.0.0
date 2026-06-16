@@ -32,11 +32,11 @@ import { CustomEase } from "gsap/CustomEase"
  */
 if (typeof window !== "undefined") {
   gsap.registerPlugin(Flip, CustomEase)
-  // "zeroLand": cubic-bezier(0, .97, .76, .96). A quick early surge then a long,
-  // soft settle so the motion reads lively rather than flat. Kept identical to
-  // MORPH_EASE in motion.ts so the GSAP Flip and the Framer-driven chrome share
-  // one curve.
-  CustomEase.create("zeroLand", "M0,0 C0,0.97 0.76,0.96 1,1")
+  // "zeroLand": cubic-bezier(.62, .02, .07, .99). A smooth ease-in-out with a firm
+  // pull through the middle and a soft settle so the motion reads deliberate. Kept
+  // identical to MORPH_EASE in motion.ts so the GSAP Flip and the Framer-driven
+  // chrome share one curve.
+  CustomEase.create("zeroLand", "M0,0 C0.62,0.02 0.07,0.99 1,1")
 }
 // (CSS equivalent of the curve above lives in MORPH_CSS_EASE below.)
 
@@ -52,7 +52,7 @@ export const MORPH_EASE = "zeroLand"
 export const DURATION_S = `${MORPH_DURATION}s`
 /** The `zeroLand` curve as a CSS timing function, so chrome that fades along with
  *  the morph (spine cover, divider) lands on the same beat as the Flip. */
-export const MORPH_CSS_EASE = "cubic-bezier(0, 0.97, 0.76, 0.96)"
+export const MORPH_CSS_EASE = "cubic-bezier(0.62, 0.02, 0.07, 0.99)"
 
 type FlipState = ReturnType<typeof Flip.getState>
 
