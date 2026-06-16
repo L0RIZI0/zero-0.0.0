@@ -179,7 +179,7 @@ export function HexagonDock() {
         {/* REGION 1 — DO-LIST: rectangular rows, hex glyph only. */}
         <section className="flex flex-col">
           <RegionLabel index={1} title="In the do-list" note="Rectangular row · hex glyph" />
-          <ul className="mt-4 flex flex-col gap-1.5">
+          <ul className="mt-4 flex max-w-[180px] flex-col gap-1.5">
             {SPACES.map((space) => {
               // While THIS row is the open window, unmount it (a duplicate
               // layoutId would break the projection) and hold its footprint with
@@ -215,6 +215,7 @@ export function HexagonDock() {
                       <span className="flex min-w-0 flex-1 flex-col">
                         <motion.span
                           layoutId={`stitle-${space.id}`}
+                          layout="position"
                           transition={MORPH}
                           className="truncate text-sm font-medium tracking-tight"
                         >
@@ -440,6 +441,7 @@ function SpaceWindowContent({ space, slideId }: { space: Space; slideId?: string
       </motion.div>
       <motion.h2
         layoutId={slideId ? `stitle-${slideId}` : undefined}
+        layout="position"
         transition={MORPH}
         className="mt-3 text-center text-xl font-semibold tracking-tight"
       >
