@@ -3,64 +3,69 @@
 import { useLayoutEffect, useRef, useState } from "react"
 import { X, Check, ChevronRight, PanelLeft, PanelRight } from "lucide-react"
 import gsap from "gsap"
-import { Flip } from "gsap/Flip"
 import { CustomEase } from "gsap/CustomEase"
 import { cn } from "@/lib/utils"
 
 /**
  * HEXAGON SPACES — standalone exploration prototype, driven by GSAP (the same
- * engine Zero uses in `lib/zero/flip-stage.ts`) instead of Framer Motion.
+ * engine Zero uses in `lib/zero/flip-stage.ts`), no Framer Motion.
  *
  * THE MODEL:
- *   1. DO-LIST ROW → RECTANGLE, hex glyph only.
- *   2. DOCK CARD   → true regular HEXAGON (pointy-top, matches the glyph).
- *   3. WINDOW      → the SAME regular HEXAGON, just larger.
+ *   1. DO-LIST ROW → stays a RECTANGLE. Only its glyph is a hexagon.
+ *   2. DOCK CARD   → a true regular pointy-top HEXAGON, matching the glyph.
+ *   3. WINDOW      → the SAME regular hexagon, just grown.
  *
  * No rotation, no stretched / flat-top hexagon anywhere — one pure regular
- * hexagon shape (HEX) for both the dock card and the window, sized to the regular
+ * hexagon (HEX) for both the dock card and the window, sized to the regular
  * hexagon aspect ratio (HEX_RATIO) so it never looks squashed.
  *
- * HOW THE MORPH RUNS (mirrors Zero):
+ * HOW THE MORPH RUNS (a hand-rolled GSAP FLIP, mirroring Zero):
  *   • On click we capture the launcher's rect (FIRST). React commits the open
- *     window (LAST). In a useLayoutEffect (pre-paint) we set the window's hexagon
- *     BACKGROUND layer to the launcher's transform, then tween it to identity —
- *     a hand-rolled FLIP. Geometry (scaleX/scaleY + x/y) and, for a row launch,
- *     the clip-path reshape (RECT6 → HEX) ride the one tween.
- *   • DOCK launch → hexagon → hexagon, so it is a pure scale/translate grow; no
- *     clip-path change needed.
- *   • ROW launch → the background reshapes RECT6 → HEX, and the glyph + title do
- *     their own little FLIP from the row up into the header.
- *   • Content sits on a SEPARATE, non-transformed layer, so it never distorts.
+ *     window; in a useLayoutEffect (pre-paint) we measure the window (LAST), set
+ *     the hexagon BACKGROUND layer to the launcher's transform, then tween it to
+ *     identity. Geometry (scaleX/scaleY + x/y) and — for a row launch — the
+ *     clip-path reshape (RECT6 → HEX) ride that one tween.
+ *   • DOCK launch → hexagon → hexagon: a pure scale/translate grow.
+ *   • ROW launch  → rectangle → hexagon reshape, and the glyph FLIPs up from the
+ *     row into the header.
+ *   • Content rides a SEPARATE, never-transformed layer, so text never distorts.
  */
 
-if (typeof window !== "undefined") {
-  gsap.registerPlugin(Flip, CustomEase)
-  // "zeroLand" — identical curve to Zero's flip-stage, so this prototype lands on
-  // the same beat as the real app.
-  if (!CustomEase.get?.("zeroLand")) {
-    CustomEase.create("zeroLand", "M0,0 C0.62,0.02 0.07,0.99 1,1")
-  }
-}
+// ── Shape + timing ──────────────────────────────────────────────────────────
 
-// Morph timing.
-const DUR = 0.62
-const EASE = "zeroLand"
-
-// THE one shape: a regular pointy-top hexagon, used identically for the Space
-// glyph, the dock card, AND the window. Percentage points keep it a regular
-// hexagon at any size, AS LONG AS its container honors the regular-hexagon aspect
-// ratio (width / height = √3 / 2 ≈ 0.866 — see HEX_RATIO + the window sizing).
+// THE one shape: a regular pointy-top hexagon (points top & bottom), used for the
+// glyph, the dock card, AND the window. Percentage points stay a regular hexagon
+// at any size AS LONG AS the container honors HEX_RATIO below.
 const HEX = "polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)"
-
-// Regular pointy-top hexagon aspect ratio (width : height). The dock card and the
-// window are both sized to this so the clip-path renders as a TRUE regular hexagon
-// rather than a stretched one.
-const HEX_RATIO = Math.sqrt(3) / 2 // ≈ 0.866
 
 // A rectangle written with the SAME six vertices as HEX, in the same order
 // (top-mid, top-right, bottom-right, bottom-mid, bottom-left, top-left), so a ROW
-// launch can morph rectangle → hexagon point-for-point with GSAP.
+// launch can morph rectangle → hexagon point-for-point.
 const RECT6 = "polygon(50% 0%, 100% 0%, 100% 100%, 50% 100%, 0% 100%, 0% 0%)"
+
+// Regular pointy-top hexagon aspect ratio (width : height) = √3 / 2. The dock card
+// and the window are both sized to this so the clip-path renders as a TRUE regular
+// hexagon rather than a stretched one.
+const HEX_RATIO = Math.sqrt(3) / 2 // ≈ 0.866
+
+const DUR = 0.62
+const EASE = "zeroLand"
+
+let easeReady = false
+function ensureEase() {
+  if (easeReady || typeof window === "undefined") return
+  gsap.registerPlugin(CustomEase)
+  // Same curve as Zero's MORPH_EASE: a firm pull through the middle, soft settle.
+  CustomEase.create("zeroLand", "M0,0 C0.62,0.02 0.07,0.99 1,1")
+  easeReady = true
+}
+
+// Resting transform for a window at a given depth: deeper levels sit slightly
+// smaller and lifted, so the parent's top shoulders + glyph peek above the child.
+const scaleFor = (depth: number) => 1 - depth * 0.12
+const shiftFor = (depth: number) => depth * -54
+
+// ── Data ─────────────────────────────────────────────────────────────────────
 
 type SpaceItem = { id: string; label: string; done?: boolean }
 type Space = {
@@ -134,57 +139,43 @@ const SPACES: Space[] = [
   },
 ]
 
-type From = "dock" | "row"
-type OpenState = { id: string; from: From } | null
-type Rect = { top: number; left: number; width: number; height: number }
-type Launch = {
-  from: From
-  rect: Rect
-  glyph?: Rect
-  title?: { rect: Rect; fontSize: number }
+// ── Geometry helpers ───────────────────────────────────────────────────────────
+
+type Rect = { left: number; top: number; width: number; height: number }
+const toRect = (r: DOMRect): Rect => ({ left: r.left, top: r.top, width: r.width, height: r.height })
+function centerDelta(from: Rect, to: Rect) {
+  return {
+    dx: from.left + from.width / 2 - (to.left + to.width / 2),
+    dy: from.top + from.height / 2 - (to.top + to.height / 2),
+  }
 }
 
-const centerDelta = (from: Rect, to: Rect) => ({
-  dx: from.left + from.width / 2 - (to.left + to.width / 2),
-  dy: from.top + from.height / 2 - (to.top + to.height / 2),
-})
+type Launch = { id: string; from: "dock" | "row"; rect: Rect; glyphRect: Rect | null }
 
-// Stack offset for a window at `depth` given the current `top` index: deeper
-// ancestors sit further back (smaller) and higher up (shoulders peek).
-const offsetFor = (depth: number, top: number) => {
-  const below = top - depth
-  return { scale: 1 - below * 0.12, y: below * -54 }
-}
+// ── Component ─────────────────────────────────────────────────────────────────
 
 export function HexagonDock() {
-  const [open, setOpen] = useState<OpenState>(null)
+  ensureEase()
+  const [open, setOpen] = useState<{ id: string; from: "dock" | "row" } | null>(null)
   const [stack, setStack] = useState<Space[]>([])
+
+  const stageRef = useRef<HTMLDivElement | null>(null)
+  const backdropRef = useRef<HTMLDivElement | null>(null)
+  const launchRef = useRef<Launch | null>(null)
+  const prevLenRef = useRef(0)
 
   const rootSpace = SPACES.find((s) => s.id === open?.id) ?? null
 
-  // Imperative handles for the GSAP morph.
-  const backdropRef = useRef<HTMLDivElement>(null)
-  const groupRefs = useRef<HTMLDivElement[]>([])
-  const bgRefs = useRef<HTMLDivElement[]>([])
-  const contentRefs = useRef<HTMLDivElement[]>([])
-  const launchRef = useRef<Launch | null>(null)
-  const prevLenRef = useRef(0)
-  // While a close/pop tween is running we hold off the enter effect.
-  const animatingOutRef = useRef(false)
-
-  function launch(id: string, from: From, e: React.MouseEvent<HTMLButtonElement>) {
+  function launch(id: string, from: "dock" | "row", el: HTMLElement) {
     const space = SPACES.find((s) => s.id === id)
     if (!space) return
-    const el = e.currentTarget
-    const rect = el.getBoundingClientRect()
-    const data: Launch = { from, rect: toRect(rect) }
-    if (from === "row") {
-      const g = el.querySelector("[data-row-glyph]")?.getBoundingClientRect()
-      const t = el.querySelector("[data-row-title]") as HTMLElement | null
-      if (g) data.glyph = toRect(g)
-      if (t) data.title = { rect: toRect(t.getBoundingClientRect()), fontSize: parseFloat(getComputedStyle(t).fontSize) }
+    const glyphEl = el.querySelector<HTMLElement>("[data-glyph]")
+    launchRef.current = {
+      id,
+      from,
+      rect: toRect(el.getBoundingClientRect()),
+      glyphRect: glyphEl ? toRect(glyphEl.getBoundingClientRect()) : null,
     }
-    launchRef.current = data
     setOpen({ id, from })
     setStack([space])
   }
@@ -193,155 +184,139 @@ export function HexagonDock() {
     setStack((s) => [...s, child])
   }
 
+  function popChild() {
+    const stage = stageRef.current
+    const depth = stack.length - 1
+    if (depth < 1) return
+    const win = stage?.querySelector<HTMLElement>(`[data-window-root][data-depth="${depth}"]`)
+    if (!win) {
+      setStack((s) => s.slice(0, -1))
+      return
+    }
+    gsap.to(win, {
+      autoAlpha: 0,
+      scale: scaleFor(depth) * 0.85,
+      y: shiftFor(depth) + 30,
+      duration: DUR * 0.7,
+      ease: EASE,
+      onComplete: () => setStack((s) => s.slice(0, -1)),
+    })
+  }
+
   function close() {
-    const launch = launchRef.current
-    const bg = bgRefs.current[0]
-    if (!launch || !bg) {
+    const stage = stageRef.current
+    const launchData = launchRef.current
+    if (!stage || !launchData) {
       setOpen(null)
       setStack([])
       return
     }
-    animatingOutRef.current = true
-    const top = stack.length - 1
-
-    // Telescope deeper levels inward.
-    for (let d = 1; d <= top; d++) {
-      const g = groupRefs.current[d]
-      if (g) gsap.to(g, { scale: 0.2, autoAlpha: 0, y: "-=40", duration: DUR * 0.6, ease: EASE })
+    // Fade any nested children quickly.
+    for (let d = 1; d < stack.length; d++) {
+      const w = stage.querySelector<HTMLElement>(`[data-window-root][data-depth="${d}"]`)
+      if (w) gsap.to(w, { autoAlpha: 0, duration: DUR * 0.4, ease: EASE })
     }
-    // Fade the root content out fast.
-    const content = contentRefs.current[0]
-    if (content) gsap.to(content, { autoAlpha: 0, duration: DUR * 0.3, ease: EASE })
-
-    // Shrink + (for a row) un-reshape the background back into the launcher.
+    const bg = stage.querySelector<HTMLElement>('[data-bg][data-depth="0"]')
+    if (!bg) {
+      setOpen(null)
+      setStack([])
+      return
+    }
     const W = toRect(bg.getBoundingClientRect())
-    const { dx, dy } = centerDelta(launch.rect, W)
-    const toClip = launch.from === "dock" ? HEX : RECT6
+    const { dx, dy } = centerDelta(launchData.rect, W)
+    const toClip = launchData.from === "dock" ? HEX : RECT6
+    const fade = stage.querySelectorAll('[data-window-root][data-depth="0"] [data-fade]')
+    if (fade.length) gsap.to(fade, { autoAlpha: 0, duration: DUR * 0.3, ease: EASE })
+    const inner = bg.firstElementChild
+    if (inner) gsap.to(inner, { clipPath: toClip, duration: DUR, ease: EASE })
+    if (backdropRef.current) gsap.to(backdropRef.current, { autoAlpha: 0, duration: DUR, ease: EASE })
     gsap.to(bg, {
       x: dx,
       y: dy,
-      scaleX: launch.rect.width / W.width,
-      scaleY: launch.rect.height / W.height,
+      scaleX: launchData.rect.width / W.width,
+      scaleY: launchData.rect.height / W.height,
       clipPath: toClip,
       duration: DUR,
       ease: EASE,
-    })
-    const inner = bg.firstElementChild
-    if (inner) gsap.to(inner, { clipPath: toClip, duration: DUR, ease: EASE })
-
-    if (backdropRef.current) gsap.to(backdropRef.current, { autoAlpha: 0, duration: DUR * 0.7, ease: EASE })
-
-    gsap.delayedCall(DUR, () => {
-      animatingOutRef.current = false
-      setOpen(null)
-      setStack([])
+      onComplete: () => {
+        setOpen(null)
+        setStack([])
+      },
     })
   }
 
-  function popChild() {
-    const top = stack.length - 1
-    if (top < 1) return
-    animatingOutRef.current = true
-    const g = groupRefs.current[top]
-    if (g) gsap.to(g, { scale: 0.6, autoAlpha: 0, y: "+=30", duration: DUR * 0.55, ease: EASE })
-    // Bring the remaining ancestors forward one level.
-    for (let d = 0; d < top; d++) {
-      const o = offsetFor(d, top - 1)
-      const anc = groupRefs.current[d]
-      if (anc) gsap.to(anc, { scale: o.scale, y: o.y, duration: DUR, ease: EASE })
-    }
-    gsap.delayedCall(DUR * 0.55, () => {
-      animatingOutRef.current = false
-      setStack((s) => (s.length > 1 ? s.slice(0, -1) : s))
-    })
-  }
-
-  // The enter morph — runs pre-paint after each open/push so there is no flash.
+  // Hand-rolled FLIP: run after each commit that grows the stack.
   useLayoutEffect(() => {
     const len = stack.length
     const prev = prevLenRef.current
     prevLenRef.current = len
-    if (len === 0 || animatingOutRef.current) return
-    const top = len - 1
-
-    if (prev === 0 && len === 1) {
-      // INITIAL OPEN — backdrop + root morph from the launcher.
-      if (backdropRef.current) gsap.fromTo(backdropRef.current, { autoAlpha: 0 }, { autoAlpha: 1, duration: DUR * 0.45, ease: EASE })
-      enterRoot()
-    } else if (len > prev) {
-      // PUSH — the new top hexagon appears; ancestors slide back.
-      const g = groupRefs.current[top]
-      const o = offsetFor(top, top)
-      if (g) gsap.fromTo(g, { scale: o.scale * 0.82, autoAlpha: 0, y: o.y + 44 }, { scale: o.scale, autoAlpha: 1, y: o.y, duration: DUR, ease: EASE })
-      for (let d = 0; d < top; d++) {
-        const anc = groupRefs.current[d]
-        const ao = offsetFor(d, top)
-        if (anc) gsap.to(anc, { scale: ao.scale, y: ao.y, duration: DUR, ease: EASE })
-      }
+    if (len === 0) return
+    if (len > prev) {
+      if (prev === 0) enterRoot()
+      else enterChild(len - 1)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stack.length])
 
   function enterRoot() {
-    const launch = launchRef.current
-    const bg = bgRefs.current[0]
-    const content = contentRefs.current[0]
-    if (!launch || !bg) return
+    const stage = stageRef.current
+    const launchData = launchRef.current
+    if (!stage || !launchData) return
+    const bg = stage.querySelector<HTMLElement>('[data-bg][data-depth="0"]')
+    const content = stage.querySelector<HTMLElement>('[data-content][data-depth="0"]')
+    if (!bg) return
 
-    // FIRST = launcher rect; LAST = the window's natural rect (measured now,
-    // pre-transform). Set the background to FIRST, then tween to LAST.
+    // FIRST = launcher rect; LAST = the window's natural rect (measured now).
     const W = toRect(bg.getBoundingClientRect())
-    const { dx, dy } = centerDelta(launch.rect, W)
-    // Dock launch: hexagon → hexagon (no clip change). Row launch: rect → hexagon.
-    const fromClip = launch.from === "dock" ? HEX : RECT6
+    const { dx, dy } = centerDelta(launchData.rect, W)
+    const fromClip = launchData.from === "dock" ? HEX : RECT6
     const inner = bg.firstElementChild
 
     gsap.set(bg, { transformOrigin: "center center" })
     gsap.fromTo(
       bg,
-      { x: dx, y: dy, scaleX: launch.rect.width / W.width, scaleY: launch.rect.height / W.height, clipPath: fromClip },
+      { x: dx, y: dy, scaleX: launchData.rect.width / W.width, scaleY: launchData.rect.height / W.height, clipPath: fromClip },
       { x: 0, y: 0, scaleX: 1, scaleY: 1, clipPath: HEX, duration: DUR, ease: EASE },
     )
     if (inner) gsap.fromTo(inner, { clipPath: fromClip }, { clipPath: HEX, duration: DUR, ease: EASE })
 
-    if (!content) return
+    if (backdropRef.current) gsap.fromTo(backdropRef.current, { autoAlpha: 0 }, { autoAlpha: 1, duration: DUR * 0.6, ease: EASE })
 
-    if (launch.from === "dock") {
-      // Dock → window is a pure grow; fade content in as it settles.
-      gsap.fromTo(content, { autoAlpha: 0 }, { autoAlpha: 1, delay: DUR * 0.35, duration: DUR * 0.4, ease: EASE })
-    } else {
-      // Row launch: glyph + title FLIP up from the row; everything else fades.
-      gsap.set(content, { autoAlpha: 1 })
-      const fades = content.querySelectorAll("[data-fade]")
-      gsap.fromTo(fades, { autoAlpha: 0 }, { autoAlpha: 1, delay: DUR * 0.25, duration: DUR * 0.3, ease: EASE })
+    // Content fades in as the shape settles.
+    const fade = stage.querySelectorAll('[data-window-root][data-depth="0"] [data-fade]')
+    if (fade.length) gsap.fromTo(fade, { autoAlpha: 0 }, { autoAlpha: 1, delay: DUR * 0.3, duration: DUR * 0.45, ease: EASE })
 
-      const winGlyph = content.querySelector("[data-win-glyph]") as HTMLElement | null
-      if (launch.glyph && winGlyph) {
-        const last = toRect(winGlyph.getBoundingClientRect())
-        const { dx: gx, dy: gy } = centerDelta(launch.glyph, last)
+    // Row launch: FLIP the glyph up from the row glyph into the header.
+    if (launchData.from === "row" && launchData.glyphRect && content) {
+      const glyph = content.querySelector<HTMLElement>("[data-glyph]")
+      if (glyph) {
+        const g = toRect(glyph.getBoundingClientRect())
+        const gd = centerDelta(launchData.glyphRect, g)
         gsap.fromTo(
-          winGlyph,
-          { x: gx, y: gy, scale: launch.glyph.width / last.width },
+          glyph,
+          { x: gd.dx, y: gd.dy, scale: launchData.glyphRect.width / g.width },
           { x: 0, y: 0, scale: 1, duration: DUR, ease: EASE },
-        )
-      }
-      const winTitle = content.querySelector("[data-win-title]") as HTMLElement | null
-      if (launch.title && winTitle) {
-        const targetFont = parseFloat(getComputedStyle(winTitle).fontSize)
-        const last = toRect(winTitle.getBoundingClientRect())
-        gsap.fromTo(
-          winTitle,
-          { x: launch.title.rect.left - last.left, y: launch.title.rect.top - last.top, fontSize: launch.title.fontSize },
-          { x: 0, y: 0, fontSize: targetFont, duration: DUR, ease: EASE, transformOrigin: "left top" },
         )
       }
     }
   }
 
+  function enterChild(depth: number) {
+    const stage = stageRef.current
+    if (!stage) return
+    const win = stage.querySelector<HTMLElement>(`[data-window-root][data-depth="${depth}"]`)
+    if (!win) return
+    gsap.fromTo(
+      win,
+      { autoAlpha: 0, scale: scaleFor(depth) * 0.86, y: shiftFor(depth) + 44 },
+      { autoAlpha: 1, scale: scaleFor(depth), y: shiftFor(depth), duration: DUR, ease: EASE },
+    )
+  }
+
   return (
     <main className="relative flex min-h-svh flex-col bg-background text-foreground">
       <header className="px-6 pt-10 pb-6 text-center sm:pt-14">
-        <p className="text-xs font-medium uppercase tracking-[0.2em] text-muted-foreground">Prototype · GSAP</p>
+        <p className="text-xs font-medium uppercase tracking-[0.2em] text-muted-foreground">Prototype</p>
         <h1 className="mt-2 text-balance font-sans text-2xl font-semibold tracking-tight sm:text-3xl">Hexagon Spaces</h1>
         <p className="mx-auto mt-3 max-w-lg text-pretty text-sm leading-relaxed text-muted-foreground">
           A Space across its three regions, morphed with GSAP (Zero&apos;s engine). Rows stay rectangular (hex glyph only); the dock
@@ -353,7 +328,7 @@ export function HexagonDock() {
         {/* REGION 1 — DO-LIST: rectangular rows, hex glyph only. */}
         <section className="flex flex-col">
           <RegionLabel index={1} title="In the do-list" note="Rectangular row · hex glyph" />
-          <ul className="mt-4 flex max-w-[180px] flex-col gap-1.5">
+          <ul className="mt-4 flex flex-col gap-1.5">
             {SPACES.map((space) => {
               const morphing = open?.id === space.id && open.from === "row"
               return (
@@ -362,21 +337,19 @@ export function HexagonDock() {
                     <div className="h-[60px]" aria-hidden />
                   ) : (
                     <button
-                      onClick={(e) => launch(space.id, "row", e)}
+                      onClick={(e) => launch(space.id, "row", e.currentTarget)}
                       aria-label={`Open ${space.name}`}
                       className="group flex w-full items-center gap-3 rounded-lg border border-border bg-card px-3 py-2.5 text-left outline-none transition-colors hover:bg-secondary"
                     >
                       <span
-                        data-row-glyph
+                        data-glyph
                         style={{ clipPath: HEX }}
                         className="flex h-[26px] w-[24px] shrink-0 items-center justify-center bg-foreground/10"
                       >
                         <HexGlyph className="h-3.5 w-3.5 text-foreground/80" />
                       </span>
                       <span className="flex min-w-0 flex-1 flex-col">
-                        <span data-row-title className="truncate text-sm font-medium tracking-tight">
-                          {space.name}
-                        </span>
+                        <span className="truncate text-sm font-medium tracking-tight">{space.name}</span>
                         <span className="truncate text-xs text-muted-foreground">{space.blurb}</span>
                       </span>
                       <span className="text-[11px] font-medium tabular-nums text-muted-foreground">
@@ -398,22 +371,26 @@ export function HexagonDock() {
             <ul className="flex flex-wrap items-center justify-center gap-6 sm:gap-7">
               {SPACES.map((space) => (
                 <li key={space.id} className="flex flex-col items-center">
-                  <div className="relative h-[124px] w-[112px]">
+                  {/* Fixed cell holds the footprint; sized to HEX_RATIO. */}
+                  <div className="relative h-[124px] w-[108px]">
                     {open?.id === space.id && open.from === "dock" ? (
                       <div className="h-full w-full" aria-hidden />
                     ) : (
                       <button
-                        onClick={(e) => launch(space.id, "dock", e)}
+                        onClick={(e) => launch(space.id, "dock", e.currentTarget)}
                         style={{ clipPath: HEX }}
                         className="group block h-full w-full bg-border outline-none"
                         aria-label={`Open ${space.name}`}
                       >
                         <span
+                          data-glyph
                           style={{ clipPath: HEX }}
                           className="flex h-full w-full flex-col items-center justify-center gap-2 bg-card p-[1.5px] transition-colors group-hover:bg-secondary"
                         >
                           <HexGlyph className="h-7 w-7 text-foreground/80" />
-                          <span className="px-2 text-center text-[13px] font-medium leading-tight tracking-tight">{space.name}</span>
+                          <span className="px-2 text-center text-[13px] font-medium leading-tight tracking-tight">
+                            {space.name}
+                          </span>
                           <span className="text-[10px] font-medium tabular-nums text-muted-foreground">
                             {space.items.filter((i) => !i.done).length} open
                           </span>
@@ -441,8 +418,8 @@ export function HexagonDock() {
             looks squashed.
           </Finding>
           <Finding title="Two entries, two motions">
-            From the dock the card grows hexagon → hexagon (pure scale); from a row it reshapes rectangle → hexagon. Same window,
-            two arrivals.
+            From the dock the card grows hexagon → hexagon (pure scale); from a row it reshapes rectangle → hexagon and the glyph
+            FLIPs up from the row.
           </Finding>
           <Finding title="Content lives in the waist">
             A regular hexagon clips its top/bottom points, so content insets into the central band and the IN/OUT rails hug the
@@ -453,10 +430,20 @@ export function HexagonDock() {
 
       {/* WINDOW STACK. */}
       {rootSpace && stack.length > 0 && (
-        <div ref={backdropRef} className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/40 p-4" onClick={close}>
+        <div
+          ref={backdropRef}
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ backgroundColor: "oklch(0.235 0.006 60 / 0.45)" }}
+          onClick={close}
+        >
           <div
+            ref={stageRef}
             className="relative"
-            style={{ height: "min(86svh, 600px)", width: "min(94vw, calc(min(86svh, 600px) * var(--hex-ratio)))", ["--hex-ratio" as string]: HEX_RATIO }}
+            style={{
+              height: "min(86svh, 600px)",
+              width: "min(94vw, calc(min(86svh, 600px) * var(--hex-ratio)))",
+              ["--hex-ratio" as string]: HEX_RATIO,
+            }}
             onClick={(e) => e.stopPropagation()}
           >
             {stack.map((space, depth) => {
@@ -464,33 +451,22 @@ export function HexagonDock() {
               return (
                 <div
                   key={space.id}
-                  ref={(el) => {
-                    if (el) groupRefs.current[depth] = el
-                  }}
+                  data-window-root
+                  data-depth={depth}
+                  data-window={space.id}
                   className="absolute inset-0"
-                  style={{ transformOrigin: "center center" }}
+                  style={{ transform: `translateY(${shiftFor(depth)}px) scale(${scaleFor(depth)})`, transformOrigin: "center top" }}
                 >
                   {/* RESHAPING BACKGROUND — owns the morph transform. */}
-                  <div
-                    ref={(el) => {
-                      if (el) bgRefs.current[depth] = el
-                    }}
-                    className="absolute inset-0 bg-border"
-                    style={{ clipPath: HEX }}
-                  >
+                  <div data-bg data-depth={depth} className="absolute inset-0 bg-border" style={{ clipPath: HEX }}>
                     <div
                       className={cn("absolute inset-[2px] bg-card", !isTop && "brightness-[0.97]")}
                       style={{ clipPath: HEX }}
                     />
                   </div>
 
-                  {/* CONTENT — separate, never transformed by the morph. */}
-                  <div
-                    ref={(el) => {
-                      if (el) contentRefs.current[depth] = el
-                    }}
-                    className="absolute inset-0 flex flex-col items-center"
-                  >
+                  {/* CONTENT — never transformed, so text/glyph stay crisp. */}
+                  <div data-content data-depth={depth} className="absolute inset-0 flex flex-col items-center">
                     {isTop ? (
                       <SpaceWindowContent space={space} />
                     ) : (
@@ -512,9 +488,9 @@ export function HexagonDock() {
                       <SideRail side="out" label="Outputs" disabled onClick={() => {}} />
                       <button
                         onClick={depth === 0 ? close : popChild}
+                        data-fade
                         className="absolute right-[15%] top-[14%] z-10 flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
                         aria-label={depth === 0 ? `Close ${space.name}` : `Back from ${space.name}`}
-                        data-fade
                       >
                         <X className="h-4 w-4" />
                       </button>
@@ -530,24 +506,16 @@ export function HexagonDock() {
   )
 }
 
-const toRect = (r: { top: number; left: number; width: number; height: number }): Rect => ({
-  top: r.top,
-  left: r.left,
-  width: r.width,
-  height: r.height,
-})
-
 /** The frontmost hexagon window's content, kept inside the regular hexagon's safe
  *  central band (top/bottom points are clipped, so we inset vertically). The glyph
- *  + title carry data hooks so a row launch can FLIP them up from the row; the
- *  blurb / list / close just fade. */
+ *  carries data-glyph so a row launch can FLIP it up from the row. */
 function SpaceWindowContent({ space }: { space: Space }) {
   return (
     <div className="flex h-full w-full flex-col items-center px-[18%] pt-[16%] pb-[14%]">
-      <div data-win-glyph className="flex items-center justify-center" style={{ transformOrigin: "center center" }}>
+      <div data-glyph data-fade className="flex items-center justify-center">
         <HexGlyph className="h-9 w-9 text-foreground/80" />
       </div>
-      <h2 data-win-title className="mt-3 text-center text-xl font-semibold tracking-tight">
+      <h2 data-fade className="mt-3 text-center text-xl font-semibold tracking-tight">
         {space.name}
       </h2>
       <p data-fade className="mt-1 text-center text-xs text-muted-foreground">
@@ -593,9 +561,9 @@ function SideRail({
     <button
       onClick={onClick}
       disabled={disabled}
+      data-fade
       aria-label={label}
       title={label}
-      data-fade
       className={cn(
         "absolute top-1/2 z-10 flex h-14 w-7 -translate-y-1/2 flex-col items-center justify-center gap-1",
         side === "in" ? "left-[1.5%]" : "right-[1.5%]",
