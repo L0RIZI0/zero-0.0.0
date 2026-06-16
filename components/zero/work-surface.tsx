@@ -75,7 +75,12 @@ export function WorkSurface() {
       <div
         ref={registerStage}
         data-window-region
-        className="relative min-h-0 flex-1 overflow-hidden rounded-md"
+        // `flex flex-col` so the always-mounted home EntityBody (flex-1) is
+        // actually constrained to this region's height. Without it the region was
+        // a plain block, EntityBody sized to its content and overflowed (clipped
+        // by overflow-hidden) — an expanded Inputs panel then grew the columns row
+        // and pushed the opposite (centered) Outputs rail down.
+        className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-md"
       >
         <EntityBody entityId={rootId} active={activeEntity.id === rootId} />
       </div>
