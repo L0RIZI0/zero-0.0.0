@@ -74,6 +74,16 @@ export function EntityNode({
   const [done, setDone] = useState(!!entity?.completed)
   const [closeHover, setCloseHover] = useState(false)
 
+  // Clear close-hover whenever a morph is running. When a window expands, its X
+  // mounts/moves under a stationary cursor and fires `onPointerEnter`, leaving
+  // `closeHover` stale-true once the morph ends — which flashed the close title
+  // even though the user never actually hovered. Resetting here means the title
+  // only reappears on a genuine pointer-enter (i.e. the cursor actually moving
+  // onto the X), not as a side effect of the window growing under the pointer.
+  useLayoutEffect(() => {
+    if (nav.animating) setCloseHover(false)
+  }, [nav.animating])
+
   if (!entity) return null
 
   const kind = entity.kind

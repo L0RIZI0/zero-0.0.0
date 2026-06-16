@@ -66,7 +66,7 @@ export const TIMELINE_LIFT_Y: Record<ShellStage, number> = {
 export const WINDOW_TOP_LIFT: Record<ShellStage, number> = {
   0: 0,
   1: 16,
-  2: 34,
+  2: 44,
 }
 
 /** Resting top margin of the timeline (constant — the depth response is the
