@@ -182,7 +182,7 @@ function SpaceEntity({
   const frameClass = asWindow
     ? "fixed flex flex-col items-center bg-secondary"
     : isClosing
-      ? "absolute inset-0 bg-secondary z-40 outline-none"
+      ? "absolute inset-0 bg-secondary z-50 outline-none"
       : cn(
           "absolute inset-0 cursor-pointer outline-none transition-colors duration-200 hover:bg-secondary",
           variant === "dock" ? "bg-secondary/40" : "bg-transparent",
