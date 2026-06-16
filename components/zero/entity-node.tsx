@@ -369,7 +369,10 @@ export function EntityNode({
                 : undefined
             }
             className={cn(
-              "relative flex shrink-0 items-center justify-center text-foreground",
+              "relative flex shrink-0 items-center justify-center",
+              // Glyph ink matches the title: compact ancestors are dimmed to
+              // foreground/75 (like their title), everything else stays full ink.
+              ancestorHeader ? "text-foreground/75" : "text-foreground",
               // Leaf window + spine keep the full 20px glyph; compact ancestors
               // (and collapsed rows) use 16px. The size change is animated by GSAP
               // Flip (this glyph is a flip target captured in captureStage), so no
@@ -404,8 +407,12 @@ export function EntityNode({
               spine
                 ? "overflow-hidden text-ellipsis whitespace-nowrap font-semibold"
                 : asWindow
-                  ? // Compact ancestors pop slightly less than the leaf (dimmer ink).
-                    cn("whitespace-nowrap font-semibold", ancestorHeader && "text-foreground/75")
+                  ? // Compact ancestors pop slightly less than the leaf: dimmer ink
+                    // and one step lighter weight (semibold → medium).
+                    cn(
+                      "whitespace-nowrap",
+                      ancestorHeader ? "font-medium text-foreground/75" : "font-semibold",
+                    )
                   : variant === "dock"
                     ? "w-full truncate font-medium leading-tight"
                     : "min-w-0 flex-1 truncate font-medium",
