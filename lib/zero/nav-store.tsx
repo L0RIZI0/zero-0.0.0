@@ -436,10 +436,13 @@ export const HIGHLIGHT_SHADOW_NONE = "0 0 0 0px rgba(0,0,0,0), 0 0px 0px 0px rgb
  */
 export function useRowSelection(region: SelectionRegion, key: string) {
   const { selection, inputMode, select } = useZeroNav()
-  const [hovered, setHovered] = useState(false)
   const ref = useRef<HTMLElement | null>(null)
   const selected = selection?.region === region && selection.key === key
-  const showHighlight = hovered || (selected && inputMode === "keyboard")
+  // The accent ring/lift is now KEYBOARD-ONLY. Mouse hover no longer paints the
+  // orange ring (it felt heavy and noisy on every pointer move); hovered rows get
+  // only the subtle `hover:bg-foreground/5` tint applied in the markup. Arrow-key
+  // navigation still shows the ring so the focused cell is locatable.
+  const showHighlight = selected && inputMode === "keyboard"
 
   useEffect(() => {
     if (selected && inputMode === "keyboard") {
@@ -447,12 +450,10 @@ export function useRowSelection(region: SelectionRegion, key: string) {
     }
   }, [selected, inputMode])
 
+  // Hovering still moves the selection cursor to this cell (so a subsequent
+  // keystroke acts on what the mouse is over) — it just no longer paints a ring.
   const hoverProps = {
-    onPointerEnter: () => {
-      setHovered(true)
-      select(region, key, "mouse")
-    },
-    onPointerLeave: () => setHovered(false),
+    onPointerEnter: () => select(region, key, "mouse"),
   }
 
   const lift = showHighlight

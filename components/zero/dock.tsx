@@ -36,10 +36,8 @@ export function Dock({ contextId, active = true }: { contextId: string; active?:
   const hasPins = pinned.length > 0
 
   const openItem = (item: ContextItem) => {
-    // An event resolves to its origin parent space (events aren't framed
-    // contexts of their own); every other kind opens its own window.
-    if (item.kind === "event") open(item.entity.parentId ?? "s_root")
-    else open(item.entity.id)
+    // Every kind — including events/instants — opens its own window now.
+    open(item.entity.id)
   }
 
   // Publish the dock's navigable order (card entity ids) for the store's

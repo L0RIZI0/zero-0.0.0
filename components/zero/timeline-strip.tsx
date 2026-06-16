@@ -68,7 +68,7 @@ export function TimelineStrip({
   contextId: string
   accent?: string
 }) {
-  const { open, stack, dataVersion, requestPulse, notifyDataChanged } = useZeroNav()
+  const { stack, dataVersion, notifyDataChanged } = useZeroNav()
   const [menu, setMenu] = useState<ContextMenuState | null>(null)
 
   // Shell compaction stage (0 root, 1 one child, 2 two+ children), mirroring
@@ -499,7 +499,9 @@ export function TimelineStrip({
                       // child is open. Only a cancelled marker reads faded.
                       animate={{ opacity: e.cancelled ? 0.45 : 1 }}
                       transition={panelTransition}
-                      onClick={() => (isOpen ? requestPulse(e.id) : open(e.id, "timeline"))}
+                      // Opening entities FROM the timeline is intentionally
+                      // disabled for now (a later feature). The marker stays
+                      // purely informational; right-click still offers its menu.
                       onContextMenu={(ev) => openMenu(ev, e)}
                       aria-current={isOpen ? "true" : undefined}
                       title={`${e.title} · ${fmt(at)}`}
@@ -549,7 +551,8 @@ export function TimelineStrip({
                     // open. Only a cancelled event reads faded.
                     animate={{ opacity: e.cancelled ? 0.45 : 1 }}
                     transition={panelTransition}
-                    onClick={() => (isOpen ? requestPulse(e.id) : open(e.id, "timeline"))}
+                    // Opening entities FROM the timeline is intentionally disabled
+                    // for now (a later feature) — the chip is informational only.
                     onContextMenu={(ev) => openMenu(ev, e)}
                     aria-current={isOpen ? "true" : undefined}
                     title={`${e.title} · ${fmt(start)}–${fmt(end)}`}

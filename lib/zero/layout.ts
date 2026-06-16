@@ -38,17 +38,28 @@ export function shellStageFor(entity: ActiveEntity): ShellStage {
  *  row — pushing past it makes the off-today link/label collide with the date —
  *  so the deepest lift stops just under it. The header itself also compacts with
  *  depth, lifting the card top, so stage 2 still sits highest overall. */
+// NOTE: held CONSTANT across depth (was -18/-17 at deeper stages). The depth-
+// driven lift reflowed the focus-window region downward/upward mid-morph, so the
+// home backdrop (and any parent body) visibly "jumped" while a child window grew
+// or shrank — and it also shifted the region whose rect anchors every fixed
+// window's geometry, leaving freshly opened windows a few px off. A stable region
+// top keeps the morph rock-solid and the parent dead still. A non-reflowing
+// timeline lift (e.g. transform-based) can be reintroduced later if desired.
 export const TIMELINE_TOP_PAD: Record<ShellStage, number> = {
   0: 2,
-  1: -18,
-  2: -17,
+  1: 2,
+  2: 2,
 }
 
 /** Vertical padding of the header bar — the whole bar slides up as the user
  *  dives. It already eases up a touch at stage 1 (no shrinking yet — that is
  *  reserved for stage 2), then tightens fully when the chrome compacts. */
+// Also held CONSTANT now (was 14/10/8). Shrinking the header padding with depth
+// moved the WorkSurface card — and therefore the window region — up by a few px
+// during a dive, which is the same reflow-jump described above. Keeping it fixed
+// guarantees the region's top never moves between depths.
 export const HEADER_PAD_Y: Record<ShellStage, number> = {
   0: 14,
-  1: 10,
-  2: 8,
+  1: 14,
+  2: 14,
 }

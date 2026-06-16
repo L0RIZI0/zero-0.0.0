@@ -107,12 +107,10 @@ export function EntityNode({
 
   function onFrameClick(e: React.MouseEvent) {
     e.stopPropagation()
-    // An event is not a framed context of its own — opening it jumps to its
-    // origin space instead of morphing into a window.
-    if (kind === "event") {
-      nav.open(parentId)
-      return
-    }
+    // Every entity — spaces, tasks, AND events/instants — opens into its own
+    // window by morphing in place. (Events used to redirect to their parent
+    // space, which made them feel unclickable: their parent was usually already
+    // the open context, so the redirect was a no-op.)
     if (!open) nav.open(entityId)
     // A peeking ancestor (open but not frontmost): clicking it collapses every
     // window above it, bringing this one back to the front.

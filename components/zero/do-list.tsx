@@ -293,7 +293,7 @@ function AddRow({ onActivate }: { onActivate: () => void }) {
  * EditRow for a row being created/renamed, and the terminal ADD birther row.
  */
 export function DoList({ contextId, active = true }: { contextId: string; active?: boolean }) {
-  const { dataVersion, notifyDataChanged, open, selection, select, moveSelection, publishNavOrder } =
+  const { dataVersion, notifyDataChanged, open, selection, select, moveSelection, publishNavOrder, animating } =
     useZeroNav()
   // Re-read whenever data mutates or context changes. Pinned items are promoted
   // to the dock, so they're excluded here.
@@ -474,8 +474,17 @@ export function DoList({ contextId, active = true }: { contextId: string; active
 
       {/* Keyed by context: switching entities hard-swaps the list (instant, no
           cross-fade) while add/remove within a context still animates. */}
+      {/* While a window morph is in flight the overflow MUST be visible: opening a
+          task row grows the SAME node into a fixed window, and GSAP Flip parks it
+          at `position: absolute` for the duration of the tween. An absolute child
+          is clipped by this scroller's bounds, so a clipped overflow would crop
+          the growing window to the narrow column and only "release" it when Flip
+          restores `position: fixed` at the very end (the disappearing-then-
+          reappearing task bug). Visible overflow during the morph lets it escape;
+          it returns to a normal scroller the instant the morph settles. */}
       <ul
         key={contextId}
+        style={animating ? { overflow: "visible" } : undefined}
         className="-mx-2 flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto px-2 no-scrollbar"
       >
         <AnimatePresence initial={false} mode="popLayout">
