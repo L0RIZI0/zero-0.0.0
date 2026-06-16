@@ -172,11 +172,15 @@ function SpaceEntity({
   const collapsedClip = variant === "dock" ? HEX : RECT6
   const clipPath = openLike ? HEX : collapsedClip
 
-  // Borderless: a single light fill (no inset ring). The whole hexagon is one
-  // flat, soft surface — matching the earlier prototype.
+  // The expanded window keeps the soft filled surface. The collapsed launchers
+  // are transparent and only reveal that same fill on hover (a highlight), so the
+  // page stays clean. While closing, the frame is still the "window", so it keeps
+  // the fill as it shrinks back into the launcher.
   const frameClass = asWindow
     ? "fixed flex flex-col items-center bg-secondary"
-    : cn("absolute inset-0 cursor-pointer bg-secondary outline-none", isClosing && "z-40")
+    : isClosing
+      ? "absolute inset-0 bg-secondary z-40 outline-none"
+      : "absolute inset-0 cursor-pointer bg-transparent outline-none transition-colors duration-200 hover:bg-secondary"
 
   // ONE persistent header (glyph + title) — exactly Zero's trick. It is NEVER
   // swapped between branches; only its layout classes and the title's inline
@@ -189,8 +193,8 @@ function SpaceEntity({
       ? "relative flex h-full w-full flex-col items-center justify-center gap-1.5 px-4"
       : "relative flex h-full w-full items-center gap-2.5 px-4"
 
-  const glyphSize = asWindow ? "h-9 w-9" : "h-4 w-4"
-  const titleSize = asWindow ? 20 : variant === "row" ? 14 : 12
+  const glyphSize = asWindow ? "h-9 w-9" : variant === "dock" ? "h-7 w-7" : "h-4 w-4"
+  const titleSize = asWindow ? 20 : variant === "row" ? 14 : 15
   const titleClass = asWindow
     ? "text-center font-semibold tracking-tight"
     : variant === "row"
@@ -226,8 +230,11 @@ function SpaceEntity({
           >
             {space.name}
           </span>
-          {/* Count lives only in the collapsed launcher. */}
-          {!openLike && (
+          {/* Count belongs to the collapsed launcher. Render it whenever the frame
+              is NOT the open window — including the whole close shrink — so the
+              collapsed DOM never changes shape at the end of the morph (otherwise
+              the centered glyph + title jump up the instant the count appears). */}
+          {!asWindow && (
             <OpenCount
               n={openCount}
               className={variant === "row" ? "text-[11px] text-muted-foreground/70" : "text-[10px] text-muted-foreground"}
@@ -347,6 +354,12 @@ export function HexagonDock() {
       absolute: "[data-flip-role='frame']",
       nested: true,
       props: "clipPath,fontSize",
+      // Clear leftover sub-pixel transforms / will-change when the morph lands so
+      // the glyph + title settle crisply instead of shaking at the very end.
+      onComplete: () => {
+        const inner = stage?.querySelectorAll("[data-flip-role='inner']")
+        if (inner?.length) gsap.set(inner, { clearProps: "transform,willChange" })
+      },
     })
 
     const chrome = stage?.querySelectorAll("[data-fade]")
