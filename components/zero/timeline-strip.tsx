@@ -284,7 +284,7 @@ export function TimelineStrip({
               // stage 2 the whole timeline has ridden far up via the transform lift,
               // so the label is pushed well down toward the timestamps to clear the
               // date/time in the top header it was otherwise overlapping.
-              animate={{ opacity: 1, y: stage === 0 ? -2 : stage === 1 ? 1.5 : 16 }}
+              animate={{ opacity: 1, y: stage === 0 ? 0 : stage === 1 ? 3.5 : 18 }}
               exit={{ opacity: 0, y: -4 }}
               transition={panelTransition}
               // No background on this full-width box: at stage 2 it slides down (y)
