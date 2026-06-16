@@ -225,8 +225,20 @@ export function HexagonDock() {
     const W = toRect(bg.getBoundingClientRect())
     const { dx, dy } = centerDelta(launchData.rect, W)
     const toClip = launchData.from === "dock" ? HEX : RECT6
+    // Body chrome (blurb, list, rails, close) fades. The HEADER (glyph + title)
+    // does NOT fade — it FLIPs back down into the launcher card/row so the window
+    // visibly collapses INTO the card instead of emptying out then popping back.
     const fade = stage.querySelectorAll('[data-window-root][data-depth="0"] [data-fade]')
     if (fade.length) gsap.to(fade, { autoAlpha: 0, duration: DUR * 0.3, ease: EASE })
+    const header = stage.querySelector<HTMLElement>('[data-window-root][data-depth="0"] [data-header]')
+    if (header) {
+      const h = toRect(header.getBoundingClientRect())
+      const hd = centerDelta(launchData.rect, h)
+      const headerScale = launchData.from === "dock" ? launchData.rect.width / h.width : 0.5
+      gsap.to(header, { x: hd.dx, y: hd.dy, scale: headerScale, duration: DUR, ease: EASE })
+      // Cross-fade the header out only in the final stretch, as the card reappears.
+      gsap.to(header, { autoAlpha: 0, delay: DUR * 0.62, duration: DUR * 0.38, ease: EASE })
+    }
     const inner = bg.firstElementChild
     if (inner) gsap.to(inner, { clipPath: toClip, duration: DUR, ease: EASE })
     if (backdropRef.current) gsap.to(backdropRef.current, { autoAlpha: 0, duration: DUR, ease: EASE })
@@ -263,7 +275,6 @@ export function HexagonDock() {
     const launchData = launchRef.current
     if (!stage || !launchData) return
     const bg = stage.querySelector<HTMLElement>('[data-bg][data-depth="0"]')
-    const content = stage.querySelector<HTMLElement>('[data-content][data-depth="0"]')
     if (!bg) return
 
     // FIRST = launcher rect; LAST = the window's natural rect (measured now).
@@ -282,22 +293,22 @@ export function HexagonDock() {
 
     if (backdropRef.current) gsap.fromTo(backdropRef.current, { autoAlpha: 0 }, { autoAlpha: 1, duration: DUR * 0.6, ease: EASE })
 
-    // Content fades in as the shape settles.
+    // Body chrome (blurb, list, rails, close) fades in as the shape settles.
     const fade = stage.querySelectorAll('[data-window-root][data-depth="0"] [data-fade]')
     if (fade.length) gsap.fromTo(fade, { autoAlpha: 0 }, { autoAlpha: 1, delay: DUR * 0.3, duration: DUR * 0.45, ease: EASE })
 
-    // Row launch: FLIP the glyph up from the row glyph into the header.
-    if (launchData.from === "row" && launchData.glyphRect && content) {
-      const glyph = content.querySelector<HTMLElement>("[data-glyph]")
-      if (glyph) {
-        const g = toRect(glyph.getBoundingClientRect())
-        const gd = centerDelta(launchData.glyphRect, g)
-        gsap.fromTo(
-          glyph,
-          { x: gd.dx, y: gd.dy, scale: launchData.glyphRect.width / g.width },
-          { x: 0, y: 0, scale: 1, duration: DUR, ease: EASE },
-        )
-      }
+    // The HEADER (glyph + title) grows UP out of the launcher card/row, so the
+    // window appears to expand FROM the card rather than fading in over it.
+    const header = stage.querySelector<HTMLElement>('[data-window-root][data-depth="0"] [data-header]')
+    if (header) {
+      const h = toRect(header.getBoundingClientRect())
+      const hd = centerDelta(launchData.rect, h)
+      const headerScale = launchData.from === "dock" ? launchData.rect.width / h.width : 0.5
+      gsap.fromTo(
+        header,
+        { x: hd.dx, y: hd.dy, scale: headerScale, autoAlpha: 0 },
+        { x: 0, y: 0, scale: 1, autoAlpha: 1, duration: DUR, ease: EASE },
+      )
     }
   }
 
@@ -391,9 +402,10 @@ export function HexagonDock() {
                           <span className="px-2 text-center text-[13px] font-medium leading-tight tracking-tight">
                             {space.name}
                           </span>
-                          <span className="text-[10px] font-medium tabular-nums text-muted-foreground">
-                            {space.items.filter((i) => !i.done).length} open
-                          </span>
+                          <OpenCount
+                            n={space.items.filter((i) => !i.done).length}
+                            className="text-[10px] text-muted-foreground"
+                          />
                         </span>
                       </button>
                     )}
@@ -512,12 +524,15 @@ export function HexagonDock() {
 function SpaceWindowContent({ space }: { space: Space }) {
   return (
     <div className="flex h-full w-full flex-col items-center px-[18%] pt-[16%] pb-[14%]">
-      <div data-glyph data-fade className="flex items-center justify-center">
-        <HexGlyph className="h-9 w-9 text-foreground/80" />
+      {/* glyph + title travel together as the header — they FLIP between the
+          launcher (dock card / row) and this position on open/close, so the
+          window never collapses to an empty hexagon. */}
+      <div data-header className="flex flex-col items-center">
+        <div data-glyph className="flex items-center justify-center">
+          <HexGlyph className="h-9 w-9 text-foreground/80" />
+        </div>
+        <h2 className="mt-3 text-center text-xl font-semibold tracking-tight">{space.name}</h2>
       </div>
-      <h2 data-fade className="mt-3 text-center text-xl font-semibold tracking-tight">
-        {space.name}
-      </h2>
       <p data-fade className="mt-1 text-center text-xs text-muted-foreground">
         {space.blurb}
       </p>
@@ -610,5 +625,26 @@ function HexGlyph({ className }: { className?: string }) {
         vectorEffect="non-scaling-stroke"
       />
     </svg>
+  )
+}
+
+/** Small square = a "task" mark, exactly like Zero's open-count stat on a dock card. */
+function TaskSquareGlyph({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} aria-hidden="true">
+      <rect x="4.5" y="4.5" width="15" height="15" fill="none" stroke="currentColor" strokeWidth={1.75} vectorEffect="non-scaling-stroke" />
+    </svg>
+  )
+}
+
+/** Open-task count + task-square glyph (the "3 □" stat used on dock cards / rows). */
+function OpenCount({ n, className }: { n: number; className?: string }) {
+  return (
+    <span className={cn("flex items-center gap-1 tabular-nums", className)}>
+      <span className="font-medium">{n}</span>
+      <span className="flex h-2.5 w-2.5 items-center justify-center">
+        <TaskSquareGlyph className="h-2.5 w-2.5" />
+      </span>
+    </span>
   )
 }
