@@ -147,7 +147,10 @@ export function EntityNode({
   }
 
   // Stable collapsed footprint so siblings never shift when this lifts out.
-  const slotClass = variant === "dock" ? "relative h-[64px] w-[112px] shrink-0" : "relative h-9 w-full"
+  // Dock card footprint is a PERFECT pointy-top hexagon: width = height × 0.866
+  // (√3/2). 88 × 76 honours that ratio so the clip renders as a regular hexagon
+  // instead of a stretched/widened one.
+  const slotClass = variant === "dock" ? "relative h-[88px] w-[76px] shrink-0" : "relative h-9 w-full"
 
   // Hover tint must NOT be live while the frame is a window or shrinking closed:
   // its translucent background would let parent content bleed through the moving
@@ -172,13 +175,20 @@ export function EntityNode({
         ? SPACE_CLIP_HEX
         : undefined
 
+  // An ancestor Space (open, behind a child) gets a faint all-around border and a
+  // slightly lowered background so it reads as a recessed backdrop hosting the
+  // child windows above it.
+  const ancestorSpace = asWindow && isSpace && !isTop && !isClosing
+
   // Borderless design. No frames anywhere:
-  //   - window / closing → solid surface (so parent content can't bleed through).
-  //   - dock card        → faint resting fill that brightens on hover.
-  //   - row              → no resting fill, hover highlight only.
+  //   - leaf / closing window → solid surface (so parent content can't bleed through).
+  //   - ancestor Space        → slightly dimmed surface + faint full border.
+  //   - dock card             → faint resting fill that brightens on hover.
+  //   - row                   → no resting fill, hover highlight only.
   const frameClass = asWindow
     ? cn(
-        "flex cursor-default flex-col overflow-hidden bg-card-solid shadow-2xl",
+        "flex cursor-default flex-col overflow-hidden shadow-2xl",
+        ancestorSpace ? "border border-border bg-muted/60" : "bg-card-solid",
         fadingWindow && "pointer-events-none",
       )
     : cn(
@@ -203,20 +213,15 @@ export function EntityNode({
       ? "flex flex-1 flex-col items-center justify-center gap-1 px-2 text-center"
       : "flex h-full items-center gap-2 px-2.5 pr-2.5"
 
-  // ANCESTORS (open windows that are not the frontmost leaf — i.e. a dimmed Space
-  // hexagon sitting behind an open child) wear a more compact header than the
-  // frontmost leaf: a shorter band plus a smaller glyph + title, so depth reads
-  // as recession. The leaf keeps the full treatment.
+  // ANCESTORS (open windows that are not the frontmost leaf) wear a more compact
+  // header than the frontmost leaf: a shorter band plus a smaller glyph + title,
+  // so depth reads as recession. The leaf keeps the full treatment.
   const ancestorHeader = asWindow && !isTop && !isClosing
-  // A Space hexagon reserves a tall top band so its centered header clears the
-  // top point and the work-surface starts within the full-width mid-section.
-  const headerH = isSpace
-    ? ancestorHeader
-      ? 64
-      : 96
-    : ancestorHeader
-      ? ANCESTOR_HEADER_H
-      : HEADER_H
+  // Only the LEAF Space hexagon reserves a tall top band so its CENTERED header
+  // clears the hexagon's top point and the work-surface starts within the
+  // full-width mid-section. An ancestor Space is a plain rect again, so it uses
+  // the same compact horizontal header band as every other ancestor.
+  const headerH = spaceLeafWindow ? 96 : ancestorHeader ? ANCESTOR_HEADER_H : HEADER_H
 
   // Compact ancestor: 13px + dimmer (see className) so it recedes behind the
   // leaf. Leaf window: full 18px.
@@ -253,9 +258,10 @@ export function EntityNode({
         {...(interactive ? hoverProps : {})}
         style={
           asWindow
-            ? // Spaces clip to a hexagon (no border radius); tasks/events keep the
-              // asymmetric borderRadius supplied by winStyle.
-              isSpace
+            ? // Only the LEAF Space clips to a hexagon (no border radius). An
+              // ancestor Space — and every task/event — keeps the rounded-rect
+              // borderRadius supplied by winStyle so its children aren't cropped.
+              spaceLeafWindow
               ? { ...(winStyle ?? {}), borderRadius: 0, clipPath }
               : (winStyle ?? undefined)
             : {
@@ -272,16 +278,18 @@ export function EntityNode({
         }
         className={frameClass}
       >
-        {/* Close button — fades only, never a flip target. On a Space hexagon it
-            is pulled IN from the clipped top-right corner into the shape's safe
-            band (matching the prototype's top-[14%] right-[14%]). */}
+        {/* Close button — fades only, never a flip target. On a LEAF Space hexagon
+            it is pulled in to sit just inside the top-RIGHT vertex (the corner is
+            clipped, so it rides the safe band near it). Ancestor Spaces and all
+            other windows are rectangles, so the X sits in the true top-right
+            corner — which, for an ancestor Space, is the top of its right peek. */}
         {asWindow && (
           <div
             data-fade
             style={{ transitionDuration: DURATION_S }}
             className={cn(
               "absolute z-20 flex flex-col items-center gap-1",
-              isSpace ? "right-[14%] top-[14%]" : "right-1.5 top-3",
+              spaceLeafWindow ? "right-[8%] top-[24%]" : "right-1.5 top-3",
             )}
           >
             <button
@@ -437,9 +445,10 @@ export function EntityNode({
             </>
           )}
 
-          {/* Collapsed dock-card top-right stat. */}
+          {/* Collapsed dock-card open-task counter — centered in the column flow,
+              directly below the title (not pinned to a corner). */}
           {!asWindow && !isClosing && variant === "dock" && (
-            <span className="absolute right-2 top-2 flex items-center gap-1 text-[10px] text-muted-foreground/70">
+            <span className="flex items-center gap-1 text-[10px] text-muted-foreground/70">
               <span className="font-medium tabular-nums">{openCount}</span>
               <span className="flex h-2.5 w-2.5 items-center justify-center">
                 <NodeGlyph kind="task" strokeWidth={1.5} />
@@ -450,9 +459,10 @@ export function EntityNode({
 
         {/* Header divider — a dedicated fading element (not a CSS border) so it
             fades cleanly and slides as the header compacts, and fades out as the
-            window collapses to a row. Hidden for Space hexagons (a hard rule
-            across a hexagon's narrowing top reads as a stray clipped line). */}
-        {(asWindow || isClosing) && !isSpace && (
+            window collapses to a row. Hidden only for the LEAF Space hexagon (a
+            hard rule across a hexagon's narrowing top reads as a stray clipped
+            line); ancestor Spaces are rects again, so they show it. */}
+        {(asWindow || isClosing) && !spaceLeafWindow && (
           <span
             aria-hidden
             style={{ top: headerH, transitionDuration: DURATION_S, transitionTimingFunction: MORPH_CSS_EASE }}
@@ -484,11 +494,12 @@ export function EntityNode({
                   // Inputs/Outputs rails centered on that short content near the top
                   // — so on tall screens they floated well above the window center.
                   "flex min-h-0 flex-1 flex-col",
-              // A Space window is hexagon-clipped, so its content is inset
-              // horizontally into the shape's safe band (the left/right edges are
-              // only full-width between 25%–75% height; padding keeps the columns
-              // and IN/OUT rails clear of the angled top/bottom points).
-              isSpace && !isClosing && "px-[8%]",
+              // Only the LEAF Space hexagon insets its content horizontally into
+              // the shape's safe band. Kept small (px-[4%]) so the vertically
+              // centered IN/OUT rails — which live at the hexagon's full-width
+              // mid-section — sit close to its left/right edges. Ancestor Spaces
+              // are rects again, so no inset.
+              spaceLeafWindow && "px-[4%]",
             )}
           >
             <EntityBody

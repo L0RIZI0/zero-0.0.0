@@ -44,18 +44,6 @@ export const MORPH_WHERE_ATTR = "data-morph-where"
  * hexagon-dock prototype.
  */
 export const SPACE_CLIP_HEX = "polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)"
-export const RECT_CLIP = "inset(0px round 4px)"
-
-/** The clip-path a node should wear given its kind, its collapsed variant, and
- *  whether it is (or is becoming) an open window. Only Spaces ever become
- *  hexagons. A Space's DOCK CARD is a hexagon even at rest (its clip tween on
- *  open is a no-op, so it purely grows); a Space ROW is a rectangle at rest and
- *  reshapes rect → hex as it opens (and back on close). */
-export function clipFor(kind: EntityKind, variant: "row" | "dock", asWindow: boolean): string {
-  if (kind !== "space") return RECT_CLIP
-  if (asWindow) return SPACE_CLIP_HEX
-  return variant === "dock" ? SPACE_CLIP_HEX : RECT_CLIP
-}
 
 /** Geometry of the nested-doll window stack (px), keyed off absolute depth. */
 export const TOP_PEEK_PX = 40
@@ -64,15 +52,11 @@ export const SIDE_PX = 10
 /**
  * Window-stack geometry. Region-relative: a depth-1 window fills the focus-window
  * region exactly (no base inset); each deeper level reserves space according to
- * its ANCESTORS' kinds so every ancestor stays partly visible behind it. Two
- * reservation profiles:
- *
- *   - a SPACE ancestor stays a large hexagon BENEATH its child (dimmed). The
- *     child opens CENTERED over it with a symmetric top+bottom inset, so the
- *     hexagon's top point and bottom point peek above and below the child. (No
- *     more "spine" — the parent keeps its full hexagon identity.)
- *   - any other ancestor (task/event/instant) peeks from the TOP, the original
- *     nested-doll inset.
+ * its ancestors so every ancestor stays partly visible behind it. EVERY ancestor
+ * kind — including a Space — uses the same TOP-peek nested-doll profile: a Space
+ * is a perfect hexagon only while it is the frontmost leaf, and widens into a
+ * standard rounded-rect ancestor (top band + side IN/OUT peeks) the moment a
+ * child opens over it.
  */
 // Horizontal entity header height (the frontmost LEAF window uses this).
 // Trimmed ~1/4 (was 57) for a more compact band.
@@ -93,17 +77,8 @@ export const TASK_TOP_PEEK = 36
 // parent on the left so its IN rail stays visible and reachable. Trimmed to sit
 // close to RIGHT_PEEK so the left strip isn't noticeably wider than the right.
 export const TASK_SIDE = 26
-// A SPACE ancestor stays a big hexagon behind its centered child. The child
-// insets SYMMETRICALLY top + bottom by this much, revealing the hexagon's top and
-// bottom points (where the title/glyph and a sliver of the parent show). Larger
-// than the old top-only peek because it must clear the hexagon's tapering point.
-export const SPACE_CHILD_PEEK_Y = 48
-// And insets symmetrically left + right so the child stays centered within the
-// hexagon's wide mid-band (25%–75% height is full width; the child must sit
-// inside that to avoid poking past the angled sides).
-export const SPACE_CHILD_PEEK_X = 36
-// Right peek reveals just a sliver of a NON-space ancestor's collapsed Outs rail
-// beside the child window. (Space ancestors use the symmetric X peek above.)
+// Right peek reveals just a sliver of an ancestor's collapsed Outs rail beside
+// the child window.
 export const RIGHT_PEEK = 24
 /**
  * Base horizontal inset applied to EVERY focus window (even the depth-1 child of
@@ -117,9 +92,8 @@ export const WINDOW_BASE_SIDE = 44
 /**
  * Resting box for a window whose frame ANCESTORS (the in-stack windows above the
  * root backdrop and below this one) have the given `ancestorKinds`, within a
- * region of `region` px. Walking the kinds — rather than using a flat depth
- * step — lets a child center over a parent SPACE hexagon (symmetric inset) while
- * a child of a task/event still peeks from the top.
+ * region of `region` px. Walking the kinds keeps the per-ancestor reservation
+ * uniform across kinds now that Spaces no longer use a special centered profile.
  */
 export function stackTargetRect(
   ancestorKinds: EntityKind[],
