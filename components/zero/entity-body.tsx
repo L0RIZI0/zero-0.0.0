@@ -49,9 +49,14 @@ export function EntityBody({
   onExpandPanel?: () => void
 }) {
   const assetCount = getSpaceAssets(entityId).length
-  // Half the timeline-chrome height above the region (≈92px); lifting the
-  // collapsed rails by this much re-centers them on the whole display.
-  const collapsedShiftY = isRoot ? -92 : 0
+  // The body content box sits BELOW the window's header band (plus its padding),
+  // so a rail centered in the body lands ~27px below the window's true vertical
+  // center — i.e. below the midpoint of the left/right borders. This constant is
+  // independent of window height (header + padding are fixed), so lifting the
+  // collapsed rail by it re-centers the shortcut icon on the window at any size.
+  // Root (the always-mounted home) instead lifts by half the timeline chrome.
+  const BODY_TOP_OFFSET = 27
+  const collapsedShiftY = isRoot ? -92 : -BODY_TOP_OFFSET
   // On a spine, the IN rail nudges right so its icon center lines up with the
   // vertically-centered glyph/title on the spine strip (measured: +7px over the
   // old 14), and a further ~2px to clear the 3px accent border at the very edge.

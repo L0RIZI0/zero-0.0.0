@@ -137,40 +137,48 @@ export function CollapsibleColumn({
               // Dimmed children rest at reduced opacity and return to full on
               // hover via `railHover` state (the motion.div animates its own
               // opacity to 1, so the resting dim lives on the inner content).
-              "relative z-10 flex flex-1 flex-col items-center justify-center gap-3",
+              "relative z-10 flex flex-1 flex-col items-center justify-center",
               side === "left" ? "-ml-5 self-start" : "-mr-5 self-end",
             )}
           >
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation()
-                // Remember "open" first (survives any remount), then bring the
-                // owning ancestor to the front so its now-frontmost window shows
-                // the expanded panel.
-                onOpenChange(true)
-                onBeforeExpand?.()
-              }}
-              aria-label={`Expand ${title}`}
-              // No hover background/box anymore — the icon just brightens (opacity)
-              // exactly like the label below it. Icon is also a touch smaller.
-              className={cn(
-                "flex items-center justify-center text-muted-foreground transition-opacity duration-200",
-                railHover ? "text-foreground opacity-100" : "opacity-35",
-              )}
-            >
-              <ClosedIcon className="h-3 w-3" />
-            </button>
-            <span
-              className={cn(
-                "text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground/70 transition-opacity duration-200",
-                railHover ? "opacity-100" : "opacity-35",
-              )}
-              style={{ writingMode: "vertical-rl" }}
-            >
-              {collapsedTitle ?? title}
-              {typeof count === "number" ? `  ${count}` : ""}
-            </span>
+            {/* Only the ICON is centered on the column's vertical midline (which
+                spans the full window body), so the shortcut sits dead-center on the
+                window's left/right border. The vertical label is absolutely
+                positioned BELOW the icon, so its (tall) height no longer drags the
+                centered stack upward — previously centering the icon+label together
+                pushed the icon above the true center, worsening on taller windows. */}
+            <div className="relative flex items-center justify-center">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  // Remember "open" first (survives any remount), then bring the
+                  // owning ancestor to the front so its now-frontmost window shows
+                  // the expanded panel.
+                  onOpenChange(true)
+                  onBeforeExpand?.()
+                }}
+                aria-label={`Expand ${title}`}
+                // No hover background/box — the icon just brightens (opacity)
+                // exactly like the label below it. Icon is also a touch smaller.
+                className={cn(
+                  "flex items-center justify-center text-muted-foreground transition-opacity duration-200",
+                  railHover ? "text-foreground opacity-100" : "opacity-35",
+                )}
+              >
+                <ClosedIcon className="h-3 w-3" />
+              </button>
+              <span
+                className={cn(
+                  "absolute left-1/2 top-full mt-2 -translate-x-1/2 text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground/70 transition-opacity duration-200",
+                  railHover ? "opacity-100" : "opacity-35",
+                )}
+                style={{ writingMode: "vertical-rl" }}
+              >
+                {collapsedTitle ?? title}
+                {typeof count === "number" ? `  ${count}` : ""}
+              </span>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>

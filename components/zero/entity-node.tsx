@@ -150,13 +150,15 @@ export function EntityNode({
   const interactive = !asWindow && !isClosing
   const hoverCls = interactive ? "transition-colors hover:bg-foreground/5" : ""
 
+  // `border-t-0` hides the TOP border on every entity frame (kept on the other
+  // three sides) per design.
   const frameClass = asWindow
     ? cn(
-        "flex cursor-default flex-col overflow-hidden border border-border bg-card-solid shadow-2xl",
+        "flex cursor-default flex-col overflow-hidden border border-t-0 border-border bg-card-solid shadow-2xl",
         fadingWindow && "pointer-events-none",
       )
     : cn(
-        "absolute inset-0 flex cursor-pointer flex-col overflow-hidden border border-border bg-card-solid",
+        "absolute inset-0 flex cursor-pointer flex-col overflow-hidden border border-t-0 border-border bg-card-solid",
         cancelled && "opacity-50",
         hoverCls,
       )
@@ -263,9 +265,14 @@ export function EntityNode({
               onPointerEnter={() => setCloseHover(true)}
               onPointerLeave={() => setCloseHover(false)}
               aria-label={`Close ${entity.title}`}
-              className="flex size-6 items-center justify-center rounded-[4px] text-muted-foreground transition-all ease-out hover:bg-foreground/5 hover:text-foreground"
+              // No faint hover square anymore — the cross itself reads thinner at
+              // rest and thickens + brightens on hover for the affordance.
+              className={cn(
+                "flex size-6 items-center justify-center transition-colors ease-out",
+                closeHover ? "text-foreground" : "text-muted-foreground",
+              )}
             >
-              <X size={16} />
+              <X size={16} strokeWidth={closeHover ? 2.25 : 1.5} />
             </button>
             {/* Discreet entity title that fades in on close-button hover, so the
                 user knows which entity they're about to close. Rotated clockwise
