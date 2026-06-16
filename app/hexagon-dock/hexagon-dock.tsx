@@ -29,8 +29,19 @@ import { cn } from "@/lib/utils"
  */
 
 // Regular pointy-top hexagon (points top & bottom) — same orientation as Zero's
-// Space glyph. Percentage points keep it hexagonal at any width/height.
+// Space glyph. Used for the dock cards + glyph identity. Percentage points keep
+// it hexagonal at any width/height.
 const HEX = "polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)"
+
+// FLATTENED hexagon for the WINDOW: a near-rectangle with only shallow chamfers,
+// so the top/bottom edges run almost flat and the usable rectangular area is
+// maximized. Crucially it keeps the SAME SIX VERTICES IN THE SAME ORDER as HEX
+// (top-mid, top-right, bottom-right, bottom-mid, bottom-left, top-left), so the
+// RECT6→window clip-path morph still interpolates point-for-point. The "peak" at
+// 50% 0% / 50% 100% is pulled to the edges (y 0/100) and the side vertices are
+// brought to 6%/94%, turning the steep hexagon into a wide, hexagon-flavored
+// rectangle that still reads as a hex at the four angled corners.
+const HEX_WIN = "polygon(50% 0%, 100% 6%, 100% 94%, 50% 100%, 0% 94%, 0% 6%)"
 
 // A full-bounds RECTANGLE expressed with the SAME SIX vertices as HEX, in the
 // same order, so motion can interpolate clip-path rect→hex point-for-point. Each
@@ -321,14 +332,14 @@ export function HexagonDock() {
                       depth === 0
                         ? reshapeFromRect
                           ? { clipPath: RECT6 }
-                          : { clipPath: HEX }
-                        : { opacity: 0, scale: scale * 0.8, y: shiftY + 40, clipPath: HEX }
+                          : { clipPath: HEX_WIN }
+                        : { opacity: 0, scale: scale * 0.8, y: shiftY + 40, clipPath: HEX_WIN }
                     }
-                    animate={{ opacity: 1, scale, y: shiftY, clipPath: HEX }}
+                    animate={{ opacity: 1, scale, y: shiftY, clipPath: HEX_WIN }}
                     exit={
                       depth === 0 && reshapeFromRect
                         ? { clipPath: RECT6, opacity: 0 }
-                        : { opacity: 0, scale: scale * 0.85, y: shiftY + 30, clipPath: HEX }
+                        : { opacity: 0, scale: scale * 0.85, y: shiftY + 30, clipPath: HEX_WIN }
                     }
                     transition={MORPH}
                     style={{ transformOrigin: "center top" }}
@@ -336,9 +347,9 @@ export function HexagonDock() {
                   >
                     {/* Inner hexagon — the window surface. Reshapes in lockstep. */}
                     <motion.div
-                      initial={{ clipPath: reshapeFromRect ? RECT6 : HEX }}
-                      animate={{ clipPath: HEX }}
-                      exit={{ clipPath: reshapeFromRect ? RECT6 : HEX }}
+                      initial={{ clipPath: reshapeFromRect ? RECT6 : HEX_WIN }}
+                      animate={{ clipPath: HEX_WIN }}
+                      exit={{ clipPath: reshapeFromRect ? RECT6 : HEX_WIN }}
                       transition={MORPH}
                       className={cn(
                         "flex h-full w-full flex-col items-center bg-card p-[2px]",
@@ -377,7 +388,7 @@ export function HexagonDock() {
                           initial={{ opacity: 0 }}
                           animate={{ opacity: 1, transition: { delay: 0.16 } }}
                           exit={{ opacity: 0, transition: { duration: 0.1 } }}
-                          className="absolute right-[27%] top-[8%] flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                          className="absolute right-[6%] top-[7%] flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
                           aria-label={depth === 0 ? `Close ${space.name}` : `Back from ${space.name}`}
                         >
                           <X className="h-4 w-4" />
@@ -395,11 +406,13 @@ export function HexagonDock() {
   )
 }
 
-/** The frontmost hexagon window's content, in the safe central band. */
+/** The frontmost hexagon window's content. The flattened window only clips
+ *  shallow corners, so content can run close to the edges like a real window —
+ *  just keep the left/right rail gutters clear and ease the top/bottom slightly. */
 function SpaceWindowContent({ space }: { space: Space }) {
   return (
     <motion.div
-      className="flex h-full w-full flex-col items-center px-[16%] pt-[12%] pb-[10%]"
+      className="flex h-full w-full flex-col items-center px-[12%] pt-[7%] pb-[6%]"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1, transition: { delay: 0.12, duration: 0.25 } }}
       exit={{ opacity: 0, transition: { duration: 0.12 } }}
@@ -408,7 +421,7 @@ function SpaceWindowContent({ space }: { space: Space }) {
       <h2 className="mt-3 text-center text-xl font-semibold tracking-tight">{space.name}</h2>
       <p className="mt-1 text-center text-xs text-muted-foreground">{space.blurb}</p>
 
-      <ul className="mt-5 flex w-full max-w-[260px] flex-col gap-1.5 overflow-y-auto">
+      <ul className="mt-5 flex w-full max-w-[360px] flex-col gap-1.5 overflow-y-auto">
         {space.items.map((item) => (
           <li
             key={item.id}
@@ -433,9 +446,10 @@ function SpaceWindowContent({ space }: { space: Space }) {
 }
 
 /**
- * IN / OUT side rail — sits on the hexagon's vertical edge at the waist. This is
- * the only place a hexagon offers a straight vertical run to hug; above and
- * below the waist the edges slant inward.
+ * IN / OUT side rail — hugs the window's long vertical edge. With the FLATTENED
+ * window the straight vertical run spans nearly the full height (side vertices at
+ * y6%/94%), so the rail no longer has to crowd a narrow waist — it sits centered
+ * on an almost-full-height straight edge, just like a real window.
  */
 function SideRail({
   side,
