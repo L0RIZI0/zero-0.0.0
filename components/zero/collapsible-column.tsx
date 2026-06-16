@@ -32,6 +32,7 @@ export function CollapsibleColumn({
   defaultOpen = true,
   storeKey,
   collapsedShiftY = 0,
+  onBeforeExpand,
 }: {
   title: string
   /** Short label shown on the vertical rail when collapsed (e.g. "In" / "Out").
@@ -49,6 +50,11 @@ export function CollapsibleColumn({
    *  Used by the home view to lift its centered rails to the viewport middle.
    *  Doesn't affect layout or the open panel. */
   collapsedShiftY?: number
+  /** Runs just before the panel expands. When this column belongs to an ancestor
+   *  spine, EntityBody passes a fn that brings that ancestor to the front — so
+   *  clicking an ancestor's collapsed IN/OUT rail surfaces it AND its panel
+   *  (the open state is remembered by `storeKey` across the resulting remount). */
+  onBeforeExpand?: () => void
 }) {
   const [open, setOpenState] = useState(() => (storeKey ? panelOpenState.get(storeKey) ?? defaultOpen : defaultOpen))
   const setOpen = (next: boolean) => {
@@ -147,13 +153,25 @@ export function CollapsibleColumn({
               // under the timeline's LYQ… zoom selectors and the right (Outputs)
               // rail mirrors it. `collapsedShiftY` (home view only) lifts it to
               // the viewport middle.
-              "flex flex-1 flex-col items-center justify-center gap-3",
+              // `relative z-10` lifts the rail ABOVE the window's opaque spine
+              // cover (z-8): when this window becomes a spine, its real (clickable)
+              // IN rail stays visible over the vertical-header strip — and the
+              // matching OUT rail over the right peek — so every ancestor's
+              // Inputs/Outputs shortcut remains reachable instead of being hidden.
+              "relative z-10 flex flex-1 flex-col items-center justify-center gap-3",
               side === "left" ? "-ml-5 self-start" : "-mr-5 self-end",
             )}
           >
             <button
               type="button"
-              onClick={() => setOpen(true)}
+              onClick={(e) => {
+                e.stopPropagation()
+                // Remember "open" first (survives the remount), then bring the
+                // owning ancestor to the front so its now-frontmost window shows
+                // the expanded panel.
+                setOpen(true)
+                onBeforeExpand?.()
+              }}
               aria-label={`Expand ${title}`}
               className="flex h-7 w-7 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-secondary/70 hover:text-foreground"
             >

@@ -26,6 +26,7 @@ export function EntityBody({
   entityId,
   active = true,
   isRoot = false,
+  onExpandPanel,
 }: {
   entityId: string
   active?: boolean
@@ -33,6 +34,9 @@ export function EntityBody({
    *  chrome, so rails centered in the region land below the screen's true middle.
    *  When set, the collapsed IN/OUT rails are lifted to the viewport center. */
   isRoot?: boolean
+  /** Provided when this body belongs to an ancestor spine: brings that ancestor
+   *  to the front so clicking its collapsed IN/OUT rail reveals the panel. */
+  onExpandPanel?: () => void
 }) {
   const assetCount = getSpaceAssets(entityId).length
   // Half the timeline-chrome height above the region (≈92px); lifting the
@@ -56,6 +60,7 @@ export function EntityBody({
               defaultOpen={false}
               storeKey={`${entityId}:in`}
               collapsedShiftY={collapsedShiftY}
+              onBeforeExpand={onExpandPanel}
             >
               <AssetPanel spaceId={entityId} />
             </CollapsibleColumn>
@@ -76,6 +81,7 @@ export function EntityBody({
               defaultOpen={false}
               storeKey={`${entityId}:out`}
               collapsedShiftY={collapsedShiftY}
+              onBeforeExpand={onExpandPanel}
             >
               <OutputPanel spaceId={entityId} />
             </CollapsibleColumn>

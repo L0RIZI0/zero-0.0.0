@@ -2,7 +2,7 @@
 
 import { useState, useRef, useLayoutEffect } from "react"
 import { Check, X } from "lucide-react"
-import { getEntity, getOpenTaskCount, getSpace, getSpaceAssets } from "@/lib/zero/data"
+import { getEntity, getOpenTaskCount, getSpace } from "@/lib/zero/data"
 import type { TaskPriority } from "@/lib/zero/types"
 import { useZeroNav, useRowSelection, HIGHLIGHT_SHADOW, HIGHLIGHT_SHADOW_NONE } from "@/lib/zero/nav-store"
 import { HEADER_H } from "@/lib/zero/motion"
@@ -123,7 +123,6 @@ export function EntityNode({
   const accent = isSpace ? entity.accent ?? "var(--muted-foreground)" : getSpace(homeSpaceId)?.accent ?? null
   void nav.dataVersion // re-read counts when data mutates
   const openCount = getOpenTaskCount(entityId)
-  const inputCount = getSpaceAssets(entityId).length
 
   const hasRange = typeof entity.start === "number" && typeof entity.end === "number"
   const hasMoment = typeof entity.at === "number"
@@ -173,7 +172,7 @@ export function EntityNode({
         ? "flex flex-1 flex-col gap-1.5 px-2.5 py-2 pr-7"
         : "flex h-full items-center gap-2 px-2.5 pr-2.5"
 
-  const titleSize = spine ? 15 : asWindow ? 18 : variant === "dock" ? 12 : 13
+  const titleSize = spine ? 13 : asWindow ? 18 : variant === "dock" ? 12 : 13
 
   // Measure the title's HORIZONTAL width (offsetWidth ignores the rotate, so it's
   // the un-rotated text length). In the spine we rotate the title -90° about its
@@ -188,7 +187,11 @@ export function EntityNode({
   useLayoutEffect(() => {
     if (titleRef.current) setTitleW(titleRef.current.offsetWidth)
   }, [entity.title, titleSize])
-  const spineTitleMt = spine ? Math.max(0, (titleW - titleSize) / 2) : 0
+  // `(titleW - titleSize)/2` cancels the rotation's upward reach so the title's
+  // TOP lands just under the glyph; SPINE_TITLE_GAP then pushes it further down
+  // for a comfortable, deliberate gap below the glyph.
+  const SPINE_TITLE_GAP = 18
+  const spineTitleMt = spine ? Math.max(0, (titleW - titleSize) / 2) + SPINE_TITLE_GAP : 0
 
   return (
     <div className={slotClass}>
@@ -237,23 +240,6 @@ export function EntityNode({
               spine ? "opacity-100" : "opacity-0",
             )}
           />
-        )}
-
-        {/* Spine "IN n" indicator — the body's Inputs rail lives below the opaque
-            spine cover (z-8) and would be hidden, so when this space is a spine we
-            surface its input count here, above the cover (z-10), vertically
-            centered over the vertical-header strip. Fades with the spine. */}
-        {asWindow && inputCount > 0 && (
-          <span
-            aria-hidden
-            style={{ transitionDuration: DURATION_S, transitionTimingFunction: MORPH_CSS_EASE }}
-            className={cn(
-              "pointer-events-none absolute left-[3px] top-1/2 z-10 flex w-14 -translate-y-1/2 items-center justify-center gap-1 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground/70 transition-opacity",
-              spine ? "opacity-100" : "opacity-0",
-            )}
-          >
-            <span style={{ writingMode: "vertical-rl", transform: "rotate(180deg)" }}>{`In  ${inputCount}`}</span>
-          </span>
         )}
 
         {/* Close button — fades only, never a flip target; tucks tighter when
@@ -418,7 +404,14 @@ export function EntityNode({
                 : "min-h-0 flex-1",
             )}
           >
-            <EntityBody entityId={entityId} active={isTop && !isClosing} />
+            <EntityBody
+              entityId={entityId}
+              active={isTop && !isClosing}
+              // When this is an ancestor spine (open but not frontmost), clicking
+              // its collapsed IN/OUT rail brings it to the front so the panel is
+              // actually visible — the same navigation as clicking the spine.
+              onExpandPanel={asWindow && !isTop ? () => nav.closeWindow(depth + 1) : undefined}
+            />
           </div>
         )}
       </div>
