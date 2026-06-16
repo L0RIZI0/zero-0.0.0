@@ -4,6 +4,7 @@ import { useLayoutEffect, useRef, useState } from "react"
 import { X, Check, ChevronRight, PanelLeft, PanelRight } from "lucide-react"
 import gsap from "gsap"
 import { CustomEase } from "gsap/CustomEase"
+import { Flip } from "gsap/Flip"
 import { cn } from "@/lib/utils"
 
 /**
@@ -54,7 +55,7 @@ const EASE = "zeroLand"
 let easeReady = false
 function ensureEase() {
   if (easeReady || typeof window === "undefined") return
-  gsap.registerPlugin(CustomEase)
+  gsap.registerPlugin(CustomEase, Flip)
   // Same curve as Zero's MORPH_EASE: a firm pull through the middle, soft settle.
   CustomEase.create("zeroLand", "M0,0 C0.62,0.02 0.07,0.99 1,1")
   easeReady = true
@@ -139,18 +140,22 @@ const SPACES: Space[] = [
   },
 ]
 
-// ── Geometry helpers ───────────────────────────────────────────────────────────
+// ── Flip identity ───────────────────────────────────────────────────────────
 
-type Rect = { left: number; top: number; width: number; height: number }
-const toRect = (r: DOMRect): Rect => ({ left: r.left, top: r.top, width: r.width, height: r.height })
-function centerDelta(from: Rect, to: Rect) {
-  return {
-    dx: from.left + from.width / 2 - (to.left + to.width / 2),
-    dy: from.top + from.height / 2 - (to.top + to.height / 2),
-  }
-}
-
-type Launch = { id: string; from: "dock" | "row"; rect: Rect; glyphRect: Rect | null }
+// THE load-bearing idea (lifted from Zero): there is ONE persistent hexagon per
+// launcher, identified by a shared data-flip-id. The hexagon exists in the
+// launcher (small — dock card or row glyph) and in the window (large). They are
+// different DOM nodes, but because GSAP Flip matches by flip-id across a React
+// commit, it treats them as the SAME object and tweens one into the other. So the
+// hexagon literally grows out of the card and shrinks back into it — never an
+// empty shell that pops.
+//
+// Each Space is shown in BOTH the row list and the dock, so the flip-id must
+// encode the region too (otherwise two nodes share an id and Flip can't tell which
+// to match). Every launcher carries its own id permanently; the open window's
+// background carries the id of whichever launcher opened it. At any instant only
+// one of {launcher, window} is mounted for a given id, so the match is exact.
+const fidFor = (from: "dock" | "row", id: string) => `hex-${from}-${id}`
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
@@ -161,23 +166,46 @@ export function HexagonDock() {
 
   const stageRef = useRef<HTMLDivElement | null>(null)
   const backdropRef = useRef<HTMLDivElement | null>(null)
-  const launchRef = useRef<Launch | null>(null)
-  const prevLenRef = useRef(0)
+  // Flip.getState snapshot captured BEFORE a commit; replayed AFTER it.
+  const flipState = useRef<Flip.FlipState | null>(null)
+  const pendingRef = useRef<"open" | "close" | null>(null)
+  const launchMeta = useRef<LaunchMeta | null>(null)
 
   const rootSpace = SPACES.find((s) => s.id === open?.id) ?? null
 
-  function launch(id: string, from: "dock" | "row", el: HTMLElement) {
+  // The persistent hexagon for the about-to-open Space currently lives in the
+  // launcher (its data-glyph carries the flip-id). Snapshot it, then commit the
+  // window — Flip will match the same flip-id in the window and grow it across.
+  function launch(id: string, from: "dock" | "row") {
     const space = SPACES.find((s) => s.id === id)
     if (!space) return
-    const glyphEl = el.querySelector<HTMLElement>("[data-glyph]")
-    launchRef.current = {
-      id,
-      from,
-      rect: toRect(el.getBoundingClientRect()),
-      glyphRect: glyphEl ? toRect(glyphEl.getBoundingClientRect()) : null,
-    }
+    flipState.current = Flip.getState(`[data-flip-id="${FID}"]`, { props: "clipPath,borderRadius" })
+    pendingRef.current = "open"
+    launchMeta.current = { id, from }
     setOpen({ id, from })
     setStack([space])
+  }
+
+  function close() {
+    if (!flipState.current) {
+      // No snapshot to return to — capture the window now so it still animates.
+      flipState.current = Flip.getState(`[data-flip-id="${FID}"]`, { props: "clipPath,borderRadius" })
+    }
+    pendingRef.current = "close"
+    // Fade out the window body chrome up front; the hexagon itself will shrink.
+    const stage = stageRef.current
+    if (stage) {
+      const fade = stage.querySelectorAll("[data-fade]")
+      if (fade.length) gsap.to(fade, { autoAlpha: 0, duration: DUR * 0.32, ease: EASE })
+      for (let d = 1; d < stack.length; d++) {
+        const w = stage.querySelector<HTMLElement>(`[data-window-root][data-depth="${d}"]`)
+        if (w) gsap.to(w, { autoAlpha: 0, duration: DUR * 0.4, ease: EASE })
+      }
+    }
+    if (backdropRef.current) gsap.to(backdropRef.current, { autoAlpha: 0, duration: DUR, ease: EASE })
+    // Commit the close; the layout effect replays the captured launcher state.
+    setOpen(null)
+    setStack([])
   }
 
   function openChild(child: Space) {
@@ -203,114 +231,50 @@ export function HexagonDock() {
     })
   }
 
-  function close() {
-    const stage = stageRef.current
-    const launchData = launchRef.current
-    if (!stage || !launchData) {
-      setOpen(null)
-      setStack([])
-      return
-    }
-    // Fade any nested children quickly.
-    for (let d = 1; d < stack.length; d++) {
-      const w = stage.querySelector<HTMLElement>(`[data-window-root][data-depth="${d}"]`)
-      if (w) gsap.to(w, { autoAlpha: 0, duration: DUR * 0.4, ease: EASE })
-    }
-    const bg = stage.querySelector<HTMLElement>('[data-bg][data-depth="0"]')
-    if (!bg) {
-      setOpen(null)
-      setStack([])
-      return
-    }
-    const W = toRect(bg.getBoundingClientRect())
-    const { dx, dy } = centerDelta(launchData.rect, W)
-    const toClip = launchData.from === "dock" ? HEX : RECT6
-    // Body chrome (blurb, list, rails, close) fades. The HEADER (glyph + title)
-    // does NOT fade — it FLIPs back down into the launcher card/row so the window
-    // visibly collapses INTO the card instead of emptying out then popping back.
-    const fade = stage.querySelectorAll('[data-window-root][data-depth="0"] [data-fade]')
-    if (fade.length) gsap.to(fade, { autoAlpha: 0, duration: DUR * 0.3, ease: EASE })
-    const header = stage.querySelector<HTMLElement>('[data-window-root][data-depth="0"] [data-header]')
-    if (header) {
-      const h = toRect(header.getBoundingClientRect())
-      const hd = centerDelta(launchData.rect, h)
-      const headerScale = launchData.from === "dock" ? launchData.rect.width / h.width : 0.5
-      gsap.to(header, { x: hd.dx, y: hd.dy, scale: headerScale, duration: DUR, ease: EASE })
-      // Cross-fade the header out only in the final stretch, as the card reappears.
-      gsap.to(header, { autoAlpha: 0, delay: DUR * 0.62, duration: DUR * 0.38, ease: EASE })
-    }
-    const inner = bg.firstElementChild
-    if (inner) gsap.to(inner, { clipPath: toClip, duration: DUR, ease: EASE })
-    if (backdropRef.current) gsap.to(backdropRef.current, { autoAlpha: 0, duration: DUR, ease: EASE })
-    gsap.to(bg, {
-      x: dx,
-      y: dy,
-      scaleX: launchData.rect.width / W.width,
-      scaleY: launchData.rect.height / W.height,
-      clipPath: toClip,
+  // After every commit: if we have a captured Flip state, play it. This is the
+  // single mechanism that drives BOTH open (small → large) and close (large →
+  // small) — the same persistent hexagon node, matched by flip-id.
+  useLayoutEffect(() => {
+    const pending = pendingRef.current
+    const state = flipState.current
+    if (!pending || !state) return
+    pendingRef.current = null
+    flipState.current = null
+    const meta = launchMeta.current
+
+    Flip.from(state, {
       duration: DUR,
       ease: EASE,
-      onComplete: () => {
-        setOpen(null)
-        setStack([])
-      },
+      absolute: true,
+      // A row launcher's glyph is a hexagon already, so no shape tween is needed;
+      // the dock card is also a hexagon. The window hexagon is the same shape, so
+      // Flip just scales/translates it — a clean grow/shrink.
+      onEnter: (els) => gsap.fromTo(els, { autoAlpha: 0 }, { autoAlpha: 1, duration: DUR * 0.5, ease: EASE }),
+      onLeave: (els) => gsap.to(els, { autoAlpha: 0, duration: DUR * 0.4, ease: EASE }),
     })
-  }
 
-  // Hand-rolled FLIP: run after each commit that grows the stack.
+    if (pending === "open") {
+      const stage = stageRef.current
+      if (stage) {
+        const fade = stage.querySelectorAll('[data-window-root][data-depth="0"] [data-fade]')
+        if (fade.length)
+          gsap.fromTo(fade, { autoAlpha: 0 }, { autoAlpha: 1, delay: DUR * 0.35, duration: DUR * 0.45, ease: EASE })
+      }
+      if (backdropRef.current)
+        gsap.fromTo(backdropRef.current, { autoAlpha: 0 }, { autoAlpha: 1, duration: DUR * 0.6, ease: EASE })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, stack.length])
+
+  // Child push/pop (depths ≥ 1) is a plain grow, not a flip.
+  const prevLenRef = useRef(0)
   useLayoutEffect(() => {
     const len = stack.length
     const prev = prevLenRef.current
     prevLenRef.current = len
-    if (len === 0) return
-    if (len > prev) {
-      if (prev === 0) enterRoot()
-      else enterChild(len - 1)
-    }
+    if (len > prev && prev >= 1) enterChild(len - 1)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stack.length])
-
-  function enterRoot() {
-    const stage = stageRef.current
-    const launchData = launchRef.current
-    if (!stage || !launchData) return
-    const bg = stage.querySelector<HTMLElement>('[data-bg][data-depth="0"]')
-    if (!bg) return
-
-    // FIRST = launcher rect; LAST = the window's natural rect (measured now).
-    const W = toRect(bg.getBoundingClientRect())
-    const { dx, dy } = centerDelta(launchData.rect, W)
-    const fromClip = launchData.from === "dock" ? HEX : RECT6
-    const inner = bg.firstElementChild
-
-    gsap.set(bg, { transformOrigin: "center center" })
-    gsap.fromTo(
-      bg,
-      { x: dx, y: dy, scaleX: launchData.rect.width / W.width, scaleY: launchData.rect.height / W.height, clipPath: fromClip },
-      { x: 0, y: 0, scaleX: 1, scaleY: 1, clipPath: HEX, duration: DUR, ease: EASE },
-    )
-    if (inner) gsap.fromTo(inner, { clipPath: fromClip }, { clipPath: HEX, duration: DUR, ease: EASE })
-
-    if (backdropRef.current) gsap.fromTo(backdropRef.current, { autoAlpha: 0 }, { autoAlpha: 1, duration: DUR * 0.6, ease: EASE })
-
-    // Body chrome (blurb, list, rails, close) fades in as the shape settles.
-    const fade = stage.querySelectorAll('[data-window-root][data-depth="0"] [data-fade]')
-    if (fade.length) gsap.fromTo(fade, { autoAlpha: 0 }, { autoAlpha: 1, delay: DUR * 0.3, duration: DUR * 0.45, ease: EASE })
-
-    // The HEADER (glyph + title) grows UP out of the launcher card/row, so the
-    // window appears to expand FROM the card rather than fading in over it.
-    const header = stage.querySelector<HTMLElement>('[data-window-root][data-depth="0"] [data-header]')
-    if (header) {
-      const h = toRect(header.getBoundingClientRect())
-      const hd = centerDelta(launchData.rect, h)
-      const headerScale = launchData.from === "dock" ? launchData.rect.width / h.width : 0.5
-      gsap.fromTo(
-        header,
-        { x: hd.dx, y: hd.dy, scale: headerScale, autoAlpha: 0 },
-        { x: 0, y: 0, scale: 1, autoAlpha: 1, duration: DUR, ease: EASE },
-      )
-    }
-  }
 
   function enterChild(depth: number) {
     const stage = stageRef.current
