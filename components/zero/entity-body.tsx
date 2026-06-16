@@ -52,73 +52,79 @@ export function EntityBody({
   // Half the timeline-chrome height above the region (≈92px); lifting the
   // collapsed rails by this much re-centers them on the whole display.
   const collapsedShiftY = isRoot ? -92 : 0
-  // On a spine, the IN rail nudges right to line up with the centered glyph/title.
-  const inShiftX = spine ? 14 : 0
+  // On a spine, the IN rail nudges right so its icon center lines up with the
+  // vertically-centered glyph/title on the spine strip (measured: +7px over the
+  // old 14), and a further ~2px to clear the 3px accent border at the very edge.
+  const inShiftX = spine ? 21 : 0
 
   const [inOpen, setInOpen] = usePanelOpen(`${entityId}:in`, false)
   const [outOpen, setOutOpen] = usePanelOpen(`${entityId}:out`, false)
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col px-6 pb-5">
-      {/* Dock — pinned items for this context. */}
-      <Dock contextId={entityId} active={active} />
-
-      <div className="flex min-h-0 flex-1 flex-col pt-4">
-        <div className="flex min-h-[180px] flex-1 gap-4">
-          {/* Inputs slot — width animates between rail and open panel. */}
-          <motion.div
-            className="hidden shrink-0 md:flex"
-            initial={false}
-            animate={{ width: inOpen ? PANEL_OPEN_W : PANEL_RAIL_W }}
-            transition={panelTransition}
+    <div className="flex min-h-0 flex-1 flex-col px-6 pb-5 pt-4">
+      {/* Single full-height row: Inputs · (Dock + Tasks) · Outputs. The Dock now
+          lives INSIDE the center column (instead of spanning the top of the whole
+          body) so the Inputs/Outputs slots run the FULL body height — their
+          collapsed rails therefore center on the window itself, identically for
+          every window regardless of how tall its dock is. (Previously the rails
+          centered in the post-dock area, so docked spaces pushed them down and
+          empty-dock tasks didn't — they never lined up.) */}
+      <div className="flex min-h-[180px] flex-1 gap-4">
+        {/* Inputs slot — width animates between rail and open panel. */}
+        <motion.div
+          className="hidden shrink-0 md:flex"
+          initial={false}
+          animate={{ width: inOpen ? PANEL_OPEN_W : PANEL_RAIL_W }}
+          transition={panelTransition}
+        >
+          <CollapsibleColumn
+            title="Inputs"
+            collapsedTitle="In"
+            side="left"
+            count={assetCount}
+            open={inOpen}
+            onOpenChange={setInOpen}
+            collapsedShiftX={inShiftX}
+            collapsedShiftY={collapsedShiftY}
+            onBeforeExpand={onExpandPanel}
           >
-            <CollapsibleColumn
-              title="Inputs"
-              collapsedTitle="In"
-              side="left"
-              count={assetCount}
-              open={inOpen}
-              onOpenChange={setInOpen}
-              collapsedShiftX={inShiftX}
-              collapsedShiftY={collapsedShiftY}
-              onBeforeExpand={onExpandPanel}
-            >
-              <AssetPanel spaceId={entityId} />
-            </CollapsibleColumn>
-          </motion.div>
+            <AssetPanel spaceId={entityId} />
+          </CollapsibleColumn>
+        </motion.div>
 
-          {/* Center Tasks column — takes the remaining width, capped for a
-              comfortable reading measure, centered so it slides as sides change.
-              On the home view the cap is 70% of the viewport so the do-list entries
-              read as a focused central column rather than spanning the whole width;
-              inside a focus window the fixed 720px measure is kept. */}
-          <div className="flex min-h-0 min-w-0 flex-1 flex-col items-center">
-            <div className={cn("flex min-h-0 w-full flex-1 flex-col", isRoot ? "max-w-[70vw]" : "max-w-[720px]")}>
+        {/* Center column — Dock (pinned items) above the Tasks do-list. Takes the
+            remaining width, capped for a comfortable reading measure, centered so
+            it slides as the sides change. On the home view the cap is 70% of the
+            viewport; inside a focus window the fixed 720px measure is kept. */}
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col items-center">
+          <div className={cn("flex min-h-0 w-full flex-1 flex-col", isRoot ? "max-w-[70vw]" : "max-w-[720px]")}>
+            <Dock contextId={entityId} active={active} />
+            <div className="flex min-h-0 flex-1 flex-col pt-4">
               <DoList contextId={entityId} active={active} />
             </div>
           </div>
-
-          {/* Outputs slot — mirrors the Inputs slot. */}
-          <motion.div
-            className="hidden shrink-0 md:flex"
-            initial={false}
-            animate={{ width: outOpen ? PANEL_OPEN_W : PANEL_RAIL_W }}
-            transition={panelTransition}
-          >
-            <CollapsibleColumn
-              title="Outputs"
-              collapsedTitle="Out"
-              side="right"
-              count={0}
-              open={outOpen}
-              onOpenChange={setOutOpen}
-              collapsedShiftY={collapsedShiftY}
-              onBeforeExpand={onExpandPanel}
-            >
-              <OutputPanel spaceId={entityId} />
-            </CollapsibleColumn>
-          </motion.div>
         </div>
+
+        {/* Outputs slot — mirrors the Inputs slot. */}
+        <motion.div
+          className="hidden shrink-0 md:flex"
+          initial={false}
+          animate={{ width: outOpen ? PANEL_OPEN_W : PANEL_RAIL_W }}
+          transition={panelTransition}
+        >
+          <CollapsibleColumn
+            title="Outputs"
+            collapsedTitle="Out"
+            side="right"
+            count={0}
+            open={outOpen}
+            onOpenChange={setOutOpen}
+            collapsedShiftY={collapsedShiftY}
+            onBeforeExpand={onExpandPanel}
+          >
+            <OutputPanel spaceId={entityId} />
+          </CollapsibleColumn>
+        </motion.div>
       </div>
     </div>
   )

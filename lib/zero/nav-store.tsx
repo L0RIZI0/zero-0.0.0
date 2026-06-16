@@ -366,7 +366,8 @@ export function ZeroNavProvider({
         width: rect.width,
         height: rect.height,
         zIndex: 20 + windowDepth * 10,
-        borderRadius: 8,
+        // Square top-left corner (TL TR BR BL); other three stay rounded.
+        borderRadius: "0 8px 8px 8px",
       }
     }
 
@@ -382,7 +383,8 @@ export function ZeroNavProvider({
         width: rect.width,
         height: rect.height,
         zIndex: 20 + windowDepth * 10,
-        borderRadius: 8,
+        // Square top-left corner (TL TR BR BL); other three stay rounded.
+        borderRadius: "0 8px 8px 8px",
       }
     }
 

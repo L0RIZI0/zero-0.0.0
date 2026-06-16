@@ -159,7 +159,7 @@ export function CollapsibleColumn({
                 railHover ? "text-foreground opacity-100" : "opacity-35",
               )}
             >
-              <ClosedIcon className="h-3.5 w-3.5" />
+              <ClosedIcon className="h-3 w-3" />
             </button>
             <span
               className={cn(

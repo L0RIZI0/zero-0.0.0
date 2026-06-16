@@ -54,9 +54,9 @@ export const TASK_TOP_PEEK = 56
 // A non-space (task/event/instant) ancestor used to peek ONLY from the top (side
 // inset was just 10px), so a child window covered almost its entire body — hiding
 // the parent's collapsed IN/OUT rails. This side peek leaves a strip of the
-// parent on the left and right so those rails stay visible and reachable. Pared
-// back ~1/3 (was 48) so the peek is present but not overly generous.
-export const TASK_SIDE = 32
+// parent on the left so its IN rail stays visible and reachable. Trimmed to sit
+// close to RIGHT_PEEK so the left strip isn't noticeably wider than the right.
+export const TASK_SIDE = 26
 export const SPACE_SPINE = 56
 export const SPACE_TOP_PEEK = 28
 // Right peek reveals just a sliver of an ancestor's collapsed Outs rail beside
