@@ -287,13 +287,18 @@ export function TimelineStrip({
               animate={{ opacity: 1, y: stage === 0 ? -2 : stage === 1 ? 1.5 : 16 }}
               exit={{ opacity: 0, y: -4 }}
               transition={panelTransition}
-              className="absolute inset-x-0 top-0 bottom-3.5 flex items-center justify-center bg-background"
+              // No background on this full-width box: at stage 2 it slides down (y)
+              // toward the timestamps, and an opaque band here would mask the whole
+              // hour ruler. Only the centered label itself carries a local
+              // background (below), so it hides just the timestamps directly behind
+              // it — the rest stay visible and reappear as the user scrubs the day.
+              className="pointer-events-none absolute inset-x-0 top-0 bottom-3.5 flex items-center justify-center"
             >
               {(() => {
                 const todayIsLeft = dayOffset > 0
                 const Arrow = todayIsLeft ? ArrowLeft : ArrowRight
                 return (
-                  <span className="relative text-[11px] font-medium tracking-tight text-foreground">
+                  <span className="pointer-events-auto relative rounded bg-background px-2 py-0.5 text-[11px] font-medium tracking-tight text-foreground">
                     {dayLabel}
                     <button
                       type="button"
@@ -395,10 +400,14 @@ export function TimelineStrip({
                   // Evenly-gapped letters with comfortable breathing room. Hover
                   // feedback is a font highlight only (no square background): an
                   // inactive letter brightens toward full strength on hover.
+                  // NB: uses the arbitrary `[&:hover]` variant rather than Tailwind's
+                  // `hover:` — the latter is gated behind `@media (hover: hover)`,
+                  // which doesn't match in the preview (and some hybrid devices), so
+                  // the highlight silently never fired. `[&:hover]` is ungated.
                   "rounded-[3px] px-1 py-0.5 text-[9px] font-semibold leading-none tracking-wide transition-colors",
                   view === key
                     ? "text-foreground"
-                    : "text-muted-foreground/40 hover:text-foreground/80",
+                    : "text-muted-foreground/40 [&:hover]:text-foreground/80",
                 )}
               >
                 {key}

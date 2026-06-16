@@ -445,8 +445,10 @@ export function EntityNode({
             aria-hidden
             style={{ top: HEADER_H, transitionDuration: DURATION_S, transitionTimingFunction: MORPH_CSS_EASE }}
             className={cn(
+              // Fainter than full border (opacity-50) so the header separator is a
+              // subtle hairline rather than a hard rule.
               "pointer-events-none absolute left-0 right-0 z-[5] h-px bg-border transition-opacity",
-              spine || isClosing ? "opacity-0" : "opacity-100",
+              spine || isClosing ? "opacity-0" : "opacity-50",
             )}
           />
         )}
