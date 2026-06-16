@@ -129,9 +129,9 @@ const SPACES: Space[] = [
 ]
 
 // One spring drives both the size morph and the position glide so the hexagon
-// feels like a single physical object expanding. Slightly softer than a snap so
-// the row→window expansion stays legible.
-const MORPH = { type: "spring" as const, stiffness: 260, damping: 32, mass: 1 }
+// feels like a single physical object expanding. Temporarily stretched to a fixed
+// 2s duration (a duration-based spring) so the spin/reshape is easy to study.
+const MORPH = { type: "spring" as const, duration: 2, bounce: 0.18 }
 
 type OpenState = { id: string; from: "dock" | "row" } | null
 
