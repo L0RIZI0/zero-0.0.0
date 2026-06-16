@@ -89,9 +89,6 @@ interface ZeroNavContextValue {
   fading: WindowKey[]
   /** True for the duration of any window morph (open or close). */
   animating: boolean
-  /** A SPACE that is open but NOT the frontmost window collapses its header into
-   *  a vertical left spine. */
-  isSpine: (id: string) => boolean
   /** Fixed-position geometry for an OPEN window at the given absolute depth,
    *  measured from the focus-window region. */
   styleFor: (depth: number) => React.CSSProperties
@@ -350,11 +347,6 @@ export function ZeroNavProvider({
       description,
     }
 
-    const isSpine = (id: string) => {
-      const idx = stack.indexOf(id)
-      return idx >= 1 && idx < stack.length - 1 && getEntity(id)?.kind === "space"
-    }
-
     // As the shell compacts the open windows grow UPWARD: their top rises by
     // WINDOW_TOP_LIFT[stage] while their bottom stays put. We realize this by
     // measuring against an "effective" region whose top is lifted and whose height
@@ -413,11 +405,10 @@ export function ZeroNavProvider({
       open,
       close,
       closeWindow,
-      closing,
-      fading,
-      animating,
-      isSpine,
-      styleFor,
+    closing,
+    fading,
+    animating,
+    styleFor,
       fadingStyleFor,
       dataVersion,
       notifyDataChanged,

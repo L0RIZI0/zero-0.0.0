@@ -175,8 +175,14 @@ export function EntityNode({
         cancelled && "opacity-50",
       )
 
+  // Space windows are hexagons: the header is CENTERED at the top (matching the
+  // dock card's centered glyph+title, so the morph is a straight scale), pushed
+  // DOWN below the hexagon's tapering top point into the safe band. Non-space
+  // windows keep the left-aligned header.
   const headerClass = asWindow
-    ? cn("relative z-10 flex shrink-0 items-center gap-3 pr-12", isSpace ? "pl-5" : "pl-4")
+    ? isSpace
+      ? "relative z-10 flex shrink-0 flex-col items-center gap-1.5 px-4 pt-9"
+      : cn("relative z-10 flex shrink-0 items-center gap-3 pr-12 pl-4")
     : variant === "dock"
       ? "flex flex-1 flex-col gap-1.5 px-2.5 py-2 pr-7"
       : "flex h-full items-center gap-2 px-2.5 pr-2.5"
@@ -186,7 +192,15 @@ export function EntityNode({
   // frontmost leaf: a shorter band plus a smaller glyph + title, so depth reads
   // as recession. The leaf keeps the full treatment.
   const ancestorHeader = asWindow && !isTop && !isClosing
-  const headerH = ancestorHeader ? ANCESTOR_HEADER_H : HEADER_H
+  // A Space hexagon reserves a tall top band so its centered header clears the
+  // top point and the work-surface starts within the full-width mid-section.
+  const headerH = isSpace
+    ? ancestorHeader
+      ? 64
+      : 96
+    : ancestorHeader
+      ? ANCESTOR_HEADER_H
+      : HEADER_H
 
   // Compact ancestor: 13px + dimmer (see className) so it recedes behind the
   // leaf. Leaf window: full 18px.
@@ -242,12 +256,17 @@ export function EntityNode({
         }
         className={frameClass}
       >
-        {/* Close button — fades only, never a flip target. */}
+        {/* Close button — fades only, never a flip target. On a Space hexagon it
+            is pulled IN from the clipped top-right corner into the shape's safe
+            band (matching the prototype's top-[14%] right-[14%]). */}
         {asWindow && (
           <div
             data-fade
             style={{ transitionDuration: DURATION_S }}
-            className="absolute right-1.5 top-3 z-20 flex flex-col items-center gap-1"
+            className={cn(
+              "absolute z-20 flex flex-col items-center gap-1",
+              isSpace ? "right-[14%] top-[14%]" : "right-1.5 top-3",
+            )}
           >
             <button
               type="button"

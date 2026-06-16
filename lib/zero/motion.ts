@@ -62,14 +62,15 @@ export const TOP_PEEK_PX = 40
 export const SIDE_PX = 10
 
 /**
- * Window-stack geometry, ported from the `flip-demo` prototype. Region-relative:
- * a depth-1 window fills the focus-window region exactly (no base inset); each
- * deeper level reserves space according to its ANCESTORS' kinds so every
- * ancestor stays partly visible behind it. Two reservation profiles:
+ * Window-stack geometry. Region-relative: a depth-1 window fills the focus-window
+ * region exactly (no base inset); each deeper level reserves space according to
+ * its ANCESTORS' kinds so every ancestor stays partly visible behind it. Two
+ * reservation profiles:
  *
- *   - a SPACE ancestor collapses its header to a vertical left rail (the
- *     "spine"), so its child insets from the LEFT (and peeks a little on the
- *     other three sides, keeping the parent's corner + close button clear);
+ *   - a SPACE ancestor stays a large hexagon BENEATH its child (dimmed). The
+ *     child opens CENTERED over it with a symmetric top+bottom inset, so the
+ *     hexagon's top point and bottom point peek above and below the child. (No
+ *     more "spine" — the parent keeps its full hexagon identity.)
  *   - any other ancestor (task/event/instant) peeks from the TOP, the original
  *     nested-doll inset.
  */
@@ -92,15 +93,18 @@ export const TASK_TOP_PEEK = 36
 // parent on the left so its IN rail stays visible and reachable. Trimmed to sit
 // close to RIGHT_PEEK so the left strip isn't noticeably wider than the right.
 export const TASK_SIDE = 26
-export const SPACE_SPINE = 56
-export const SPACE_TOP_PEEK = 20
-// Right peek reveals just a sliver of an ancestor's collapsed Outs rail beside
-// the child window. Applied uniformly to EVERY ancestor kind (space or
-// task/event/instant) — the right margin no longer differs by parent type, only
-// the LEFT does (spine vs. task side inset). Kept small (task-over-task sized),
-// NOT as generous as the space spine on the left. Compounds per ancestor.
+// A SPACE ancestor stays a big hexagon behind its centered child. The child
+// insets SYMMETRICALLY top + bottom by this much, revealing the hexagon's top and
+// bottom points (where the title/glyph and a sliver of the parent show). Larger
+// than the old top-only peek because it must clear the hexagon's tapering point.
+export const SPACE_CHILD_PEEK_Y = 48
+// And insets symmetrically left + right so the child stays centered within the
+// hexagon's wide mid-band (25%–75% height is full width; the child must sit
+// inside that to avoid poking past the angled sides).
+export const SPACE_CHILD_PEEK_X = 36
+// Right peek reveals just a sliver of a NON-space ancestor's collapsed Outs rail
+// beside the child window. (Space ancestors use the symmetric X peek above.)
 export const RIGHT_PEEK = 24
-export const SPACE_BOTTOM_PEEK = 14
 /**
  * Base horizontal inset applied to EVERY focus window (even the depth-1 child of
  * the home view, which has no ancestors). It makes each window a touch narrower
@@ -114,8 +118,8 @@ export const WINDOW_BASE_SIDE = 44
  * Resting box for a window whose frame ANCESTORS (the in-stack windows above the
  * root backdrop and below this one) have the given `ancestorKinds`, within a
  * region of `region` px. Walking the kinds — rather than using a flat depth
- * step — is what lets a task open to the RIGHT of its parent space's spine
- * instead of merely below it.
+ * step — lets a child center over a parent SPACE hexagon (symmetric inset) while
+ * a child of a task/event still peeks from the top.
  */
 export function stackTargetRect(
   ancestorKinds: EntityKind[],
@@ -126,13 +130,18 @@ export function stackTargetRect(
   let right = WINDOW_BASE_SIDE
   let bottom = 0
   for (const kind of ancestorKinds) {
-    // Right peek is uniform across ancestor kinds; only the left differs.
-    right += RIGHT_PEEK
     if (kind === "space") {
-      left += SPACE_SPINE
-      top += SPACE_TOP_PEEK
-      bottom += SPACE_BOTTOM_PEEK
+      // Centered over the hexagon: symmetric on all four sides so the parent's
+      // top point AND bottom point peek, and the child stays horizontally
+      // centered within the hexagon's wide mid-band.
+      top += SPACE_CHILD_PEEK_Y
+      bottom += SPACE_CHILD_PEEK_Y
+      left += SPACE_CHILD_PEEK_X
+      right += SPACE_CHILD_PEEK_X
     } else {
+      // Non-space ancestor: original top-peek nested-doll, with a small right
+      // sliver so its collapsed Outs rail stays visible.
+      right += RIGHT_PEEK
       top += TASK_TOP_PEEK
       left += TASK_SIDE
     }
