@@ -23,7 +23,15 @@ import type { ActiveEntity } from "./nav-store"
 export type ShellStage = 0 | 1 | 2
 
 export function shellStageFor(entity: ActiveEntity): ShellStage {
-  return Math.min(entity.depth, 2) as ShellStage
+  // FROZEN AT STAGE 0 for now. The depth-driven chrome compaction (timeline lift
+  // + header tightening) animated unevenly across dives — nothing on the first
+  // child (since the pad values are flat) then a visible jump on the second when
+  // `compact` and the timeline's stage-2 treatments kicked in. Per design call,
+  // the chrome no longer reacts to depth at all, so window opens/closes are the
+  // only motion. Restore `Math.min(entity.depth, 2)` to bring the adaptation back
+  // once it can be done without reflowing the window region.
+  void entity
+  return 0
 }
 
 /** Top margin above the timeline — goes increasingly negative as the shell

@@ -71,10 +71,11 @@ export function TimelineStrip({
   const { stack, dataVersion, notifyDataChanged } = useZeroNav()
   const [menu, setMenu] = useState<ContextMenuState | null>(null)
 
-  // Shell compaction stage (0 root, 1 one child, 2 two+ children), mirroring
-  // shellStageFor. Drives the most compact treatments — e.g. the "Today" link
-  // collapses to just its arrow and the zoom selector tightens at stage 2.
-  const stage = Math.min(stack.length - 1, 2)
+  // Shell compaction stage — FROZEN AT 0 for now (see shellStageFor). The
+  // timeline no longer compacts/lifts as the user dives; it stays in its root
+  // treatment so opening a child is purely the window morph, with no chrome
+  // jump. Restore `Math.min(stack.length - 1, 2)` to reintroduce the adaptation.
+  const stage = 0
 
   // Right-click any marker: cancel/restore (events & instants) or delete it.
   const openMenu = (e: React.MouseEvent, entity: Entity) => {
