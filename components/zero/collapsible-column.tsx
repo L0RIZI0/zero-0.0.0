@@ -1,5 +1,6 @@
 "use client"
 
+import { useState } from "react"
 import { motion, AnimatePresence } from "motion/react"
 import { PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from "lucide-react"
 import { panelTransition } from "@/lib/zero/motion"
@@ -50,6 +51,11 @@ export function CollapsibleColumn({
 }) {
   const OpenIcon = side === "left" ? PanelLeftClose : PanelRightClose
   const ClosedIcon = side === "left" ? PanelLeftOpen : PanelRightOpen
+
+  // Hover handled via React state (not Tailwind `group-hover:`) — the CSS hover
+  // variant is gated behind `@media (hover: hover)` in Tailwind v4 and didn't
+  // fire reliably here. State-driven opacity always works, like the close button.
+  const [railHover, setRailHover] = useState(false)
 
   return (
     <div className={cn("relative flex min-h-0 w-full flex-col", side === "right" && "order-last")}>
@@ -120,16 +126,18 @@ export function CollapsibleColumn({
             animate={{ opacity: 1, x: collapsedShiftX, y: collapsedShiftY }}
             exit={{ opacity: 0 }}
             transition={panelTransition}
+            onPointerEnter={() => setRailHover(true)}
+            onPointerLeave={() => setRailHover(false)}
             className={cn(
               // flex-1 + justify-center centers the rail VERTICALLY in its column.
               // It hugs the outer screen edge (-ml-5 / -mr-5, past the body px-6).
               // `relative z-10` lifts it ABOVE the window's opaque spine cover
               // (z-8) so an ancestor spine's real (clickable) IN/OUT rail stays
               // visible + reachable over the vertical-header strip / right peek.
-              // `group` + dimmed children: the rail rests at reduced opacity and
-              // smoothly returns to full on hover (the motion.div animates its own
+              // Dimmed children rest at reduced opacity and return to full on
+              // hover via `railHover` state (the motion.div animates its own
               // opacity to 1, so the resting dim lives on the inner content).
-              "group relative z-10 flex flex-1 flex-col items-center justify-center gap-3",
+              "relative z-10 flex flex-1 flex-col items-center justify-center gap-3",
               side === "left" ? "-ml-5 self-start" : "-mr-5 self-end",
             )}
           >
@@ -144,12 +152,18 @@ export function CollapsibleColumn({
                 onBeforeExpand?.()
               }}
               aria-label={`Expand ${title}`}
-              className="flex h-7 w-7 items-center justify-center rounded-sm text-muted-foreground opacity-60 transition-all hover:bg-secondary/70 hover:text-foreground group-hover:opacity-100"
+              className={cn(
+                "flex h-7 w-7 items-center justify-center rounded-sm text-muted-foreground transition-all duration-200",
+                railHover ? "bg-secondary/70 text-foreground opacity-100" : "opacity-35",
+              )}
             >
               <ClosedIcon className="h-4 w-4" />
             </button>
             <span
-              className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground/70 opacity-60 transition-opacity group-hover:opacity-100"
+              className={cn(
+                "text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground/70 transition-opacity duration-200",
+                railHover ? "opacity-100" : "opacity-35",
+              )}
               style={{ writingMode: "vertical-rl" }}
             >
               {collapsedTitle ?? title}

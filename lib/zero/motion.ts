@@ -6,20 +6,18 @@ import type { EntityKind } from "./types"
  * A single shared transition keeps the shared-element morph coherent.
  */
 export const layerTransition: Transition = {
-  type: "spring",
-  stiffness: 420,
-  damping: 44,
-  mass: 0.9,
+  duration: 4,
+  ease: [0.22, 0.61, 0.36, 1],
 }
 
 export const contentTransition: Transition = {
-  duration: 0.32,
+  duration: 4,
   ease: [0.22, 0.61, 0.36, 1],
 }
 
 /** Quick, natural expand/collapse for the side panels (Inputs / Outputs). */
 export const panelTransition: Transition = {
-  duration: 0.24,
+  duration: 4,
   ease: [0.22, 0.61, 0.36, 1],
 }
 
@@ -61,12 +59,12 @@ export const TASK_TOP_PEEK = 56
 export const TASK_SIDE = 32
 export const SPACE_SPINE = 56
 export const SPACE_TOP_PEEK = 28
-// Right peek is wide enough to reveal an ancestor's collapsed Outs rail beside
-// the child window — so each ancestor in the stack keeps its Outputs reachable.
-// Applied uniformly to EVERY ancestor kind (space or task/event/instant): the
-// right margin no longer differs by parent type, only the LEFT does (spine vs.
-// task side inset). Compounds per ancestor, so deeper dives peek a little more.
-export const RIGHT_PEEK = 46
+// Right peek reveals just a sliver of an ancestor's collapsed Outs rail beside
+// the child window. Applied uniformly to EVERY ancestor kind (space or
+// task/event/instant) — the right margin no longer differs by parent type, only
+// the LEFT does (spine vs. task side inset). Kept small (task-over-task sized),
+// NOT as generous as the space spine on the left. Compounds per ancestor.
+export const RIGHT_PEEK = 24
 export const SPACE_BOTTOM_PEEK = 14
 /**
  * Base horizontal inset applied to EVERY focus window (even the depth-1 child of

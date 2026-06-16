@@ -249,18 +249,11 @@ export function EntityNode({
           <div
             data-fade
             style={{ transitionDuration: DURATION_S }}
-            className={cn("absolute z-20 flex items-center gap-1.5", spine ? "right-1 top-1" : "right-3 top-3")}
+            className={cn(
+              "absolute z-20 flex flex-col items-center gap-1",
+              spine ? "right-1 top-1" : "right-3 top-3",
+            )}
           >
-            {/* Discreet entity title that fades in on close-button hover, so the
-                user knows which entity they're about to close. */}
-            <span
-              className={cn(
-                "pointer-events-none whitespace-nowrap text-[11px] font-medium text-muted-foreground transition-opacity duration-200",
-                closeHover ? "opacity-100" : "opacity-0",
-              )}
-            >
-              {entity.title}
-            </span>
             <button
               type="button"
               onClick={(e) => {
@@ -274,6 +267,19 @@ export function EntityNode({
             >
               <X size={16} />
             </button>
+            {/* Discreet entity title that fades in on close-button hover, so the
+                user knows which entity they're about to close. Rotated clockwise
+                (vertical, reading top-to-bottom) and stacked BENEATH the X, so it
+                sits over the window's right peek margin without shifting layout. */}
+            <span
+              style={{ writingMode: "vertical-rl" }}
+              className={cn(
+                "pointer-events-none whitespace-nowrap text-[11px] font-medium text-muted-foreground transition-opacity duration-200",
+                closeHover ? "opacity-100" : "opacity-0",
+              )}
+            >
+              {entity.title}
+            </span>
           </div>
         )}
 
