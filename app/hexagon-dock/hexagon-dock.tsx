@@ -201,15 +201,25 @@ export function HexagonDock() {
                       transition={MORPH}
                       className="group flex w-full items-center gap-3 rounded-lg border border-border bg-card px-3 py-2.5 text-left outline-none transition-colors hover:bg-secondary"
                     >
-                      {/* The row's only hexagon is its glyph badge. */}
-                      <span
+                      {/* The row's only hexagon is its glyph badge. It carries a
+                          stable layoutId so it can SLIDE into the window's glyph
+                          (the morphing row is unmounted, so no duplicate id). */}
+                      <motion.span
+                        layoutId={`sglyph-${space.id}`}
+                        transition={MORPH}
                         style={{ clipPath: HEX }}
                         className="flex h-[26px] w-[24px] shrink-0 items-center justify-center bg-foreground/10"
                       >
                         <HexGlyph className="h-3.5 w-3.5 text-foreground/80" />
-                      </span>
+                      </motion.span>
                       <span className="flex min-w-0 flex-1 flex-col">
-                        <span className="truncate text-sm font-medium tracking-tight">{space.name}</span>
+                        <motion.span
+                          layoutId={`stitle-${space.id}`}
+                          transition={MORPH}
+                          className="truncate text-sm font-medium tracking-tight"
+                        >
+                          {space.name}
+                        </motion.span>
                         <span className="truncate text-xs text-muted-foreground">{space.blurb}</span>
                       </span>
                       <span className="text-[11px] font-medium tabular-nums text-muted-foreground">
@@ -357,7 +367,10 @@ export function HexagonDock() {
                       )}
                     >
                       {isTop ? (
-                        <SpaceWindowContent space={space} />
+                        <SpaceWindowContent
+                          space={space}
+                          slideId={depth === 0 && open?.from === "row" ? open.id : undefined}
+                        />
                       ) : (
                         // Ancestor peek — just the glyph + name near the top point.
                         <div className="flex w-full flex-col items-center pt-[7%]">
@@ -408,20 +421,45 @@ export function HexagonDock() {
 
 /** The frontmost hexagon window's content. The flattened window only clips
  *  shallow corners, so content can run close to the edges like a real window —
- *  just keep the left/right rail gutters clear and ease the top/bottom slightly. */
-function SpaceWindowContent({ space }: { space: Space }) {
+ *  just keep the left/right rail gutters clear and ease the top/bottom slightly.
+ *  When `slideId` is set (row launch), the glyph + title carry the SAME layoutIds
+ *  as the originating row, so they glide from the row into the window header
+ *  instead of cross-fading in. */
+function SpaceWindowContent({ space, slideId }: { space: Space; slideId?: string }) {
   return (
     <motion.div
       className="flex h-full w-full flex-col items-center px-[12%] pt-[7%] pb-[6%]"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1, transition: { delay: 0.12, duration: 0.25 } }}
-      exit={{ opacity: 0, transition: { duration: 0.12 } }}
     >
-      <HexGlyph className="h-9 w-9 text-foreground/80" />
-      <h2 className="mt-3 text-center text-xl font-semibold tracking-tight">{space.name}</h2>
-      <p className="mt-1 text-center text-xs text-muted-foreground">{space.blurb}</p>
+      <motion.div
+        layoutId={slideId ? `sglyph-${slideId}` : undefined}
+        transition={MORPH}
+        className="flex items-center justify-center"
+        style={slideId ? { clipPath: HEX } : undefined}
+      >
+        <HexGlyph className="h-9 w-9 text-foreground/80" />
+      </motion.div>
+      <motion.h2
+        layoutId={slideId ? `stitle-${slideId}` : undefined}
+        transition={MORPH}
+        className="mt-3 text-center text-xl font-semibold tracking-tight"
+      >
+        {space.name}
+      </motion.h2>
+      <motion.p
+        className="mt-1 text-center text-xs text-muted-foreground"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1, transition: { delay: 0.12, duration: 0.25 } }}
+        exit={{ opacity: 0, transition: { duration: 0.12 } }}
+      >
+        {space.blurb}
+      </motion.p>
 
-      <ul className="mt-5 flex w-full max-w-[520px] flex-col gap-1.5 overflow-y-auto">
+      <motion.ul
+        className="mt-5 flex w-full max-w-[520px] flex-col gap-1.5 overflow-y-auto"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1, transition: { delay: 0.12, duration: 0.25 } }}
+        exit={{ opacity: 0, transition: { duration: 0.12 } }}
+      >
         {space.items.map((item) => (
           <li
             key={item.id}
@@ -440,7 +478,7 @@ function SpaceWindowContent({ space }: { space: Space }) {
             </span>
           </li>
         ))}
-      </ul>
+      </motion.ul>
     </motion.div>
   )
 }
