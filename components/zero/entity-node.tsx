@@ -349,17 +349,26 @@ export function EntityNode({
             switches layout between collapsed row/card, window header, and spine.
             The glyph + title (which ARE flipped) glide on top. */}
         <div
-          className={cn(headerClass, asWindow && !spine && "transition-[height]")}
-          style={
-            asWindow && !spine
-              ? { height: headerH, transitionDuration: DURATION_S, transitionTimingFunction: MORPH_CSS_EASE }
-              : undefined
-          }
+          className={headerClass}
+          // Header height SNAPS to its target (no CSS transition): GSAP Flip owns
+          // the glyph/title motion during a morph, and the divider slides via its
+          // own transition-[top]. A CSS height tween here would animate the
+          // flex-centered glyph along an extra path that compounds with Flip's
+          // transform — the "down-then-up" hop seen when opening a window.
+          style={asWindow && !spine ? { height: headerH } : undefined}
         >
           {/* Glyph — for a collapsed task it doubles as the completion toggle. */}
           <span
             data-flip-id={`${flip}-glyph`}
             data-flip-role="inner"
+            // Color-only CSS transition (independent of Flip's transform/fontSize
+            // tween) so the glyph's ink fades smoothly to/from the dimmed ancestor
+            // grey instead of jumping. Only on windows; rows stay snappy.
+            style={
+              asWindow && !spine
+                ? { transitionProperty: "color", transitionDuration: DURATION_S, transitionTimingFunction: MORPH_CSS_EASE }
+                : undefined
+            }
             onClick={
               interactive && isTask
                 ? (e) => {
@@ -401,6 +410,12 @@ export function EntityNode({
               // Crop an over-long spine title (with ellipsis) instead of letting it
               // run the length of the strip and shove the IN shortcut down.
               maxWidth: spine ? SPINE_TITLE_MAX_W : undefined,
+              // Color-only transition (see glyph) so the title ink fades smoothly
+              // to/from the dimmed ancestor grey rather than snapping. Flip handles
+              // position + fontSize; this only animates color, so they don't fight.
+              ...(asWindow && !spine
+                ? { transitionProperty: "color", transitionDuration: DURATION_S, transitionTimingFunction: MORPH_CSS_EASE }
+                : null),
             }}
             className={cn(
               "relative tracking-tight",
