@@ -50,14 +50,15 @@ export const SIDE_PX = 10
  *   - any other ancestor (task/event/instant) peeks from the TOP, the original
  *     nested-doll inset.
  */
-export const HEADER_H = 57
+// Horizontal entity header height. Trimmed ~1/4 (was 57) for a more compact band.
+export const HEADER_H = 43
 export const TASK_TOP_PEEK = 56
 // A non-space (task/event/instant) ancestor used to peek ONLY from the top (side
 // inset was just 10px), so a child window covered almost its entire body — hiding
-// the parent's collapsed IN/OUT rails. This wider side peek leaves a strip of the
-// parent on the left and right so those rails (≈48px slots at the edges) stay
-// visible and reachable, mirroring how a space ancestor peeks on the right.
-export const TASK_SIDE = 48
+// the parent's collapsed IN/OUT rails. This side peek leaves a strip of the
+// parent on the left and right so those rails stay visible and reachable. Pared
+// back ~1/3 (was 48) so the peek is present but not overly generous.
+export const TASK_SIDE = 32
 export const SPACE_SPINE = 56
 export const SPACE_TOP_PEEK = 28
 // Right peek is wide enough (was 14) to reveal an ancestor space's collapsed

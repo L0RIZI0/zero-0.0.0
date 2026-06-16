@@ -51,11 +51,6 @@ export function CollapsibleColumn({
   const OpenIcon = side === "left" ? PanelLeftClose : PanelRightClose
   const ClosedIcon = side === "left" ? PanelLeftOpen : PanelRightOpen
 
-  const railShift =
-    collapsedShiftX || collapsedShiftY
-      ? { transform: `translate(${collapsedShiftX}px, ${collapsedShiftY}px)` }
-      : undefined
-
   return (
     <div className={cn("relative flex min-h-0 w-full flex-col", side === "right" && "order-last")}>
       <AnimatePresence mode="wait" initial={false}>
@@ -118,11 +113,13 @@ export function CollapsibleColumn({
         ) : (
           <motion.div
             key="closed"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
+            // x/y are animated (not a static transform) so when this window
+            // becomes a spine and `collapsedShiftX` changes, the IN rail SLIDES
+            // into the vertical-header center on the morph beat instead of jumping.
+            initial={{ opacity: 0, x: collapsedShiftX, y: collapsedShiftY }}
+            animate={{ opacity: 1, x: collapsedShiftX, y: collapsedShiftY }}
             exit={{ opacity: 0 }}
             transition={panelTransition}
-            style={railShift}
             className={cn(
               // flex-1 + justify-center centers the rail VERTICALLY in its column.
               // It hugs the outer screen edge (-ml-5 / -mr-5, past the body px-6).
