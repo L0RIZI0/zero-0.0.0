@@ -41,7 +41,7 @@ export { gsap }
  *  place. `power2.out` (vs the previous `power3.out`) keeps that same smooth
  *  launch but pulls the deceleration tail in, so the window settles sooner
  *  instead of crawling the last few percent. */
-export const MORPH_DURATION = 2.5
+export const MORPH_DURATION = 0.8
 export const MORPH_EASE = "power2.out"
 /** Same duration as a CSS string, for the fade/transition chrome (spine bg,
  *  divider, close-button reposition) that rides along with the Flip morph. */
