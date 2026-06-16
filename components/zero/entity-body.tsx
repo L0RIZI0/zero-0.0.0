@@ -22,8 +22,22 @@ import { CollapsibleColumn } from "./collapsible-column"
  * The timeline is NOT rendered here: it stays pinned and persistent at the top
  * of the surface (WorkSurface), above the focus window.
  */
-export function EntityBody({ entityId, active = true }: { entityId: string; active?: boolean }) {
+export function EntityBody({
+  entityId,
+  active = true,
+  isRoot = false,
+}: {
+  entityId: string
+  active?: boolean
+  /** The always-mounted home view. Its region sits BELOW the fixed timeline
+   *  chrome, so rails centered in the region land below the screen's true middle.
+   *  When set, the collapsed IN/OUT rails are lifted to the viewport center. */
+  isRoot?: boolean
+}) {
   const assetCount = getSpaceAssets(entityId).length
+  // Half the timeline-chrome height above the region (≈92px); lifting the
+  // collapsed rails by this much re-centers them on the whole display.
+  const collapsedShiftY = isRoot ? -92 : 0
 
   return (
     <div className="flex min-h-0 flex-1 flex-col px-6 pb-5">
@@ -41,6 +55,7 @@ export function EntityBody({ entityId, active = true }: { entityId: string; acti
               count={assetCount}
               defaultOpen={false}
               storeKey={`${entityId}:in`}
+              collapsedShiftY={collapsedShiftY}
             >
               <AssetPanel spaceId={entityId} />
             </CollapsibleColumn>
@@ -60,6 +75,7 @@ export function EntityBody({ entityId, active = true }: { entityId: string; acti
               count={0}
               defaultOpen={false}
               storeKey={`${entityId}:out`}
+              collapsedShiftY={collapsedShiftY}
             >
               <OutputPanel spaceId={entityId} />
             </CollapsibleColumn>

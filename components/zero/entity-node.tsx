@@ -1,8 +1,8 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useRef, useLayoutEffect } from "react"
 import { Check, X } from "lucide-react"
-import { getEntity, getOpenTaskCount, getSpace } from "@/lib/zero/data"
+import { getEntity, getOpenTaskCount, getSpace, getSpaceAssets } from "@/lib/zero/data"
 import type { TaskPriority } from "@/lib/zero/types"
 import { useZeroNav, useRowSelection, HIGHLIGHT_SHADOW, HIGHLIGHT_SHADOW_NONE } from "@/lib/zero/nav-store"
 import { HEADER_H } from "@/lib/zero/motion"
@@ -123,6 +123,7 @@ export function EntityNode({
   const accent = isSpace ? entity.accent ?? "var(--muted-foreground)" : getSpace(homeSpaceId)?.accent ?? null
   void nav.dataVersion // re-read counts when data mutates
   const openCount = getOpenTaskCount(entityId)
+  const inputCount = getSpaceAssets(entityId).length
 
   const hasRange = typeof entity.start === "number" && typeof entity.end === "number"
   const hasMoment = typeof entity.at === "number"
@@ -161,13 +162,11 @@ export function EntityNode({
       )
 
   const headerClass = spine
-    ? // Glyph pinned to the TOP, title stacked just beneath it (top-aligned —
-      // this reads better than the centered variant). The title uses a vertical
-      // writing-mode below, so its layout box has real HEIGHT; that lets a small
-      // `gap-3` reliably separate it from the glyph and grow downward, instead of
-      // a rotate()'d box (zero layout height, centered) whose long titles like
-      // "Home & Family" expanded upward and overlapped the glyph.
-      "absolute inset-y-0 left-[3px] z-10 flex w-14 flex-col items-center gap-3 pt-4"
+    ? // Glyph pinned to the TOP, the rotated title top-aligned just beneath it.
+      // The title is a normal horizontal box rotated -90° (see its style); the
+      // measured `spineTitleMt` margin keeps long titles from overlapping the
+      // glyph without breaking the smooth single-rotation Flip.
+      "absolute inset-y-0 left-[3px] z-10 flex w-14 flex-col items-center pt-4"
     : asWindow
       ? "relative z-10 flex shrink-0 items-center gap-3 pl-5 pr-12"
       : variant === "dock"
@@ -175,6 +174,21 @@ export function EntityNode({
         : "flex h-full items-center gap-2 px-2.5 pr-2.5"
 
   const titleSize = spine ? 15 : asWindow ? 18 : variant === "dock" ? 12 : 13
+
+  // Measure the title's HORIZONTAL width (offsetWidth ignores the rotate, so it's
+  // the un-rotated text length). In the spine we rotate the title -90° about its
+  // center; a centered rotation makes the text extend titleW/2 ABOVE its flow
+  // center, which is what used to push long titles ("Home & Family") up into the
+  // glyph. Pushing the flow box down by (titleW - titleH)/2 makes the rotated
+  // text's TOP land just below the glyph for ANY length — the "pivot point below
+  // the title" the design calls for — while keeping it a single smooth rotation
+  // that GSAP Flip can interpolate (unlike a writing-mode swap, which it can't).
+  const titleRef = useRef<HTMLHeadingElement>(null)
+  const [titleW, setTitleW] = useState(0)
+  useLayoutEffect(() => {
+    if (titleRef.current) setTitleW(titleRef.current.offsetWidth)
+  }, [entity.title, titleSize])
+  const spineTitleMt = spine ? Math.max(0, (titleW - titleSize) / 2) : 0
 
   return (
     <div className={slotClass}>
@@ -223,6 +237,23 @@ export function EntityNode({
               spine ? "opacity-100" : "opacity-0",
             )}
           />
+        )}
+
+        {/* Spine "IN n" indicator — the body's Inputs rail lives below the opaque
+            spine cover (z-8) and would be hidden, so when this space is a spine we
+            surface its input count here, above the cover (z-10), vertically
+            centered over the vertical-header strip. Fades with the spine. */}
+        {asWindow && inputCount > 0 && (
+          <span
+            aria-hidden
+            style={{ transitionDuration: DURATION_S, transitionTimingFunction: MORPH_CSS_EASE }}
+            className={cn(
+              "pointer-events-none absolute left-[3px] top-1/2 z-10 flex w-14 -translate-y-1/2 items-center justify-center gap-1 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground/70 transition-opacity",
+              spine ? "opacity-100" : "opacity-0",
+            )}
+          >
+            <span style={{ writingMode: "vertical-rl", transform: "rotate(180deg)" }}>{`In  ${inputCount}`}</span>
+          </span>
         )}
 
         {/* Close button — fades only, never a flip target; tucks tighter when
@@ -274,16 +305,17 @@ export function EntityNode({
           </span>
 
           <h3
+            ref={titleRef}
             data-flip-id={`${flip}-title`}
             data-flip-role="inner"
             style={{
               fontSize: titleSize,
-              // Spine: a real vertical text box (height = title length) rotated
-              // 180° so it still reads bottom-to-top like before — but now flows
-              // and top-aligns in the header column instead of being a zero-height
-              // rotate() box. Non-spine titles stay horizontal.
-              ...(spine ? { writingMode: "vertical-rl" as const, transform: "rotate(180deg)" } : {}),
+              // Spine: pure -90° rotation about the center (GSAP Flip tweens this
+              // smoothly). The measured top margin lowers the pivot so the rotated
+              // text clears the glyph regardless of title length.
+              transform: spine ? "rotate(-90deg)" : undefined,
               transformOrigin: "center",
+              marginTop: spineTitleMt || undefined,
             }}
             className={cn(
               "relative tracking-tight",
@@ -376,11 +408,14 @@ export function EntityNode({
               isClosing ? { top: HEADER_H } : spine ? { paddingTop: HEADER_H } : undefined
             }
             className={cn(
+              // No extra left padding in spine mode: window and spine bodies share
+              // the same horizontal box, so the columns (and the centered "IN n"
+              // rail) DON'T jump sideways when the header morphs vertical. The IN
+              // rail then sits over the vertical header strip — the title is
+              // top-aligned, the rail vertically centered, so they don't collide.
               isClosing
                 ? "pointer-events-none absolute inset-x-0 bottom-0 overflow-hidden"
-                : spine
-                  ? "min-h-0 flex-1 pl-10"
-                  : "min-h-0 flex-1",
+                : "min-h-0 flex-1",
             )}
           >
             <EntityBody entityId={entityId} active={isTop && !isClosing} />

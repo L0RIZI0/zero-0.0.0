@@ -82,7 +82,7 @@ export function WorkSurface() {
         // and pushed the opposite (centered) Outputs rail down.
         className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-md"
       >
-        <EntityBody entityId={rootId} active={activeEntity.id === rootId} />
+        <EntityBody entityId={rootId} active={activeEntity.id === rootId} isRoot />
       </div>
     </div>
   )

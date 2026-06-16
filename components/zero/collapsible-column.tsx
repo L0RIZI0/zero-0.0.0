@@ -31,6 +31,7 @@ export function CollapsibleColumn({
   children,
   defaultOpen = true,
   storeKey,
+  collapsedShiftY = 0,
 }: {
   title: string
   /** Short label shown on the vertical rail when collapsed (e.g. "In" / "Out").
@@ -44,6 +45,10 @@ export function CollapsibleColumn({
   /** Stable identity for remembering open/closed across remounts (see
    *  `panelOpenState`). Usually `${entityId}:${side}`. */
   storeKey?: string
+  /** Vertical px offset for the COLLAPSED rail only (transform translateY).
+   *  Used by the home view to lift its centered rails to the viewport middle.
+   *  Doesn't affect layout or the open panel. */
+  collapsedShiftY?: number
 }) {
   const [open, setOpenState] = useState(() => (storeKey ? panelOpenState.get(storeKey) ?? defaultOpen : defaultOpen))
   const setOpen = (next: boolean) => {
@@ -132,6 +137,7 @@ export function CollapsibleColumn({
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={panelTransition}
+            style={collapsedShiftY ? { transform: `translateY(${collapsedShiftY}px)` } : undefined}
             className={cn(
               // flex-1 + justify-center makes the rail span the full column height
               // and sit at its VERTICAL MIDDLE (it used to bunch up just under the
@@ -139,7 +145,8 @@ export function CollapsibleColumn({
               // 20px outward (past the body's px-6) so it sits as close to the
               // edge as the timeline chrome — the left (Inputs) rail lines up
               // under the timeline's LYQ… zoom selectors and the right (Outputs)
-              // rail mirrors it.
+              // rail mirrors it. `collapsedShiftY` (home view only) lifts it to
+              // the viewport middle.
               "flex flex-1 flex-col items-center justify-center gap-3",
               side === "left" ? "-ml-5 self-start" : "-mr-5 self-end",
             )}
