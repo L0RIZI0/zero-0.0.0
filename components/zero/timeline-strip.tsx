@@ -71,11 +71,13 @@ export function TimelineStrip({
   const { stack, dataVersion, notifyDataChanged } = useZeroNav()
   const [menu, setMenu] = useState<ContextMenuState | null>(null)
 
-  // Shell compaction stage — FROZEN AT 0 for now (see shellStageFor). The
-  // timeline no longer compacts/lifts as the user dives; it stays in its root
-  // treatment so opening a child is purely the window morph, with no chrome
-  // jump. Restore `Math.min(stack.length - 1, 2)` to reintroduce the adaptation.
-  const stage: number = 0
+  // Shell compaction stage (0 home, 1 first child, 2+ deeper), mirroring
+  // shellStageFor. Used ONLY for non-reflowing treatments here — the off-today
+  // label's vertical position and the "TODAY" word collapse. The timeline's
+  // actual lift is handled externally via a transform in work-surface, and the
+  // label band height is held constant below, so reading the real stage no longer
+  // reflows the window region.
+  const stage: number = Math.min(stack.length - 1, 2)
 
   // Right-click any marker: cancel/restore (events & instants) or delete it.
   const openMenu = (e: React.MouseEvent, entity: Entity) => {
@@ -239,11 +241,12 @@ export function TimelineStrip({
           left, beside the arrows. */}
       <div
         className={cn(
-          "relative mb-1 transition-[height] duration-300 ease-out",
-          // At stage 2 the band shrinks so the bottom-anchored hour ruler — and
-          // the timeline track + zoom selectors below it — ride a bit higher,
-          // balancing the day label between the top date and the timestamps.
-          stage === 2 ? "h-8" : "h-10",
+          "relative mb-1",
+          // Height held CONSTANT across depth. The band sits above the focus-window
+          // region (which is flex-1 below it), so changing its height would push
+          // the region up/down and reflow every fixed window mid-morph. The timeline
+          // already rides higher with depth via the external transform lift.
+          "h-10",
         )}
       >
         {/* hour ruler — anchored to the bottom, aligned to the track width */}
@@ -277,9 +280,11 @@ export function TimelineStrip({
               initial={{ opacity: 0, y: -4 }}
               // Resting y nudges the centered label to sit optically balanced
               // between the top date and the timestamps at each depth: a touch
-              // higher at the root, then progressively lower as the band tightens
-              // (it was reading too high at stages 1 and 2).
-              animate={{ opacity: 1, y: stage === 0 ? -2 : stage === 1 ? 1.5 : 3.5 }}
+              // higher at the root, then progressively lower as the depth grows. At
+              // stage 2 the whole timeline has ridden far up via the transform lift,
+              // so the label is pushed well down toward the timestamps to clear the
+              // date/time in the top header it was otherwise overlapping.
+              animate={{ opacity: 1, y: stage === 0 ? -2 : stage === 1 ? 1.5 : 16 }}
               exit={{ opacity: 0, y: -4 }}
               transition={panelTransition}
               className="absolute inset-x-0 top-0 bottom-3.5 flex items-center justify-center bg-background"
@@ -305,12 +310,12 @@ export function TimelineStrip({
                     >
                       <Arrow className="h-3 w-3 shrink-0" strokeWidth={2.75} />
                       {/* The word smoothly collapses to zero width (and reopens)
-                          when leaving/entering the root stage, instead of
-                          popping in and out. Only visible at stage 0. */}
+                          instead of popping in/out. Visible at stages 0 and 1;
+                          only the arrow remains at stage 2 (most compact). */}
                       <motion.span
                         className="overflow-hidden"
                         initial={false}
-                        animate={{ width: stage === 0 ? "auto" : 0, opacity: stage === 0 ? 1 : 0 }}
+                        animate={{ width: stage <= 1 ? "auto" : 0, opacity: stage <= 1 ? 1 : 0 }}
                         transition={layerTransition}
                       >
                         TODAY
@@ -387,11 +392,10 @@ export function TimelineStrip({
                 aria-label={`${label} view`}
                 title={`${label} view`}
                 className={cn(
-                  // Evenly-gapped letters with comfortable breathing room. A
-                  // hover background gives feedback on every letter, including
-                  // the active one whose text is already full strength and so
-                  // wouldn't change on a color-only hover.
-                  "rounded-[3px] px-1 py-0.5 text-[9px] font-semibold leading-none tracking-wide transition-colors hover:bg-foreground/10",
+                  // Evenly-gapped letters with comfortable breathing room. Hover
+                  // feedback is a font highlight only (no square background): an
+                  // inactive letter brightens toward full strength on hover.
+                  "rounded-[3px] px-1 py-0.5 text-[9px] font-semibold leading-none tracking-wide transition-colors",
                   view === key
                     ? "text-foreground"
                     : "text-muted-foreground/40 hover:text-foreground/80",
