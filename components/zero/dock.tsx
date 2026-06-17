@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react"
 import { AnimatePresence } from "motion/react"
 import { PinOff, Trash2, Ban, RotateCcw } from "lucide-react"
 import {
+  getEntity,
   getPinnedItems,
   unpinItem,
   deleteEntity,
@@ -34,6 +35,11 @@ export function Dock({ contextId, active = true }: { contextId: string; active?:
   void dataVersion
   const pinned: ContextItem[] = getPinnedItems(contextId)
   const hasPins = pinned.length > 0
+
+  // Pinned cards inside a NON-space entity's dock (a task/event/instant context)
+  // are spaced a little wider than inside a Space, where they pack tighter.
+  const parentIsSpace = getEntity(contextId)?.kind === "space"
+  const dockGap = parentIsSpace ? "gap-3" : "gap-5"
 
   const openItem = (item: ContextItem) => {
     // Every kind — including events/instants — opens its own window now.
@@ -152,7 +158,7 @@ export function Dock({ contextId, active = true }: { contextId: string; active?:
           `flex-wrap`, so while a window was still mid-expansion (container narrow)
           the cards momentarily wrapped onto several lines before snapping back to
           one once the frame reached full width. One line avoids that reflow. */}
-      <div key={contextId} className="flex w-full flex-nowrap items-stretch justify-center gap-3">
+      <div key={contextId} className={"flex w-full flex-nowrap items-stretch justify-center " + dockGap}>
         <AnimatePresence initial={false} mode="popLayout">
           {pinned.map((item) => (
             <EntityNode

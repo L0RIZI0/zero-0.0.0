@@ -42,6 +42,13 @@ function surfaceAt(depth: number) {
   return `color-mix(in oklab, var(--background), var(--foreground) ${depth * SURFACE_STEP_PCT}%)`
 }
 
+// Depth at which the surface ramp crosses its midpoint (≈50% toward foreground):
+// past it the surface is closer to the foreground colour than to the background,
+// so the default light ink stops being readable and text/icons must flip to the
+// page base colour instead. 50 / 9 ≈ 5.55, so depth 6 is the first level where
+// the flipped (dark-in-dark-mode) ink wins on contrast.
+const SURFACE_FLIP_DEPTH = 6
+
 const priorityDot: Record<TaskPriority, string> = {
   high: "bg-accent",
   medium: "bg-foreground/40",
@@ -175,6 +182,27 @@ export function EntityNode({
   const restSurface = surfaceAt(contextDepth)
   const highlightColor = surfaceAt(contextDepth + 1)
 
+  // Depth of the surface this node's TEXT sits on: a window paints surfaceAt(depth);
+  // a collapsed row/card rests on its context's surfaceAt(contextDepth). Past the
+  // ramp midpoint that surface is lighter than mid-grey, so the default light ink
+  // becomes unreadable — flip the header subtree's ink to the page BASE colour
+  // (`--background`: dark in dark-mode, light in light-mode), which always
+  // contrasts the lightened surface. Scoped to the header `<div>` only (set via
+  // `inkStyle` below), so window chrome with its own opaque background — the ADD
+  // button, the create menu, the IN/OUT rails — is left untouched.
+  const surfaceDepth = asWindow ? depth : contextDepth
+  const inkStyle =
+    surfaceDepth >= SURFACE_FLIP_DEPTH
+      ? ({ "--foreground": "var(--background)", "--muted-foreground": "var(--background)" } as unknown as React.CSSProperties)
+      : undefined
+
+  // Dock cards carry a faint-but-noticeable resting fill — a slight lift toward
+  // the hover colour — so they read as tappable chips even before hover. Do-list
+  // rows stay fully invisible at rest. BOTH share the identical hover highlight
+  // (`highlightColor`), so a card and a same-parent row light up the same way.
+  const collapsedRest =
+    variant === "dock" ? `color-mix(in oklab, ${restSurface}, ${highlightColor} 45%)` : restSurface
+
   void nav.dataVersion // re-read counts when data mutates
   const openCount = getOpenTaskCount(entityId)
 
@@ -196,9 +224,9 @@ export function EntityNode({
 
   // Stable collapsed footprint so siblings never shift when this lifts out.
   // Dock card footprint is a PERFECT pointy-top hexagon: width = height × 0.866
-  // (√3/2). 88 × 76 honours that ratio so the clip renders as a regular hexagon
-  // instead of a stretched/widened one.
-  const slotClass = variant === "dock" ? "relative h-[88px] w-[76px] shrink-0" : "relative h-9 w-full"
+  // (√3/2). 96 × 83 honours that ratio (96 × 0.866 ≈ 83) so the clip renders as a
+  // regular hexagon — slightly larger than before for a more substantial card.
+  const slotClass = variant === "dock" ? "relative h-[96px] w-[83px] shrink-0" : "relative h-9 w-full"
 
   // Hover tint must NOT be live while the frame is a window or shrinking closed:
   // its translucent background would let parent content bleed through the moving
@@ -276,7 +304,7 @@ export function EntityNode({
 
   // Compact ancestor: 13px + dimmer (see className) so it recedes behind the
   // leaf. Leaf window: full 18px.
-  const titleSize = asWindow ? (ancestorHeader ? 13 : 18) : variant === "dock" ? 12 : 13
+  const titleSize = asWindow ? (ancestorHeader ? 13 : 18) : variant === "dock" ? 13 : 13
 
   // The window's resting fixed geometry (top/left/width/height in viewport px).
   // Used both for the frame and to place the close-hover title just OUTSIDE the
@@ -356,7 +384,7 @@ export function EntityNode({
                 // adopts when opened — on mouse hover OR keyboard selection. While
                 // shrinking closed, hold the highlight so it matches the window it
                 // retracts from (both opaque → no bleed-through, no early fade).
-                backgroundColor: hovered || showHighlight || isClosing ? highlightColor : restSurface,
+                backgroundColor: hovered || showHighlight || isClosing ? highlightColor : collapsedRest,
                 boxShadow: showHighlight ? HIGHLIGHT_SHADOW : HIGHLIGHT_SHADOW_NONE,
                 transition: "box-shadow 0.18s ease-out, background-color 0.18s ease-out",
               })
@@ -427,7 +455,9 @@ export function EntityNode({
           // own transition-[top]. A CSS height tween here would animate the
           // flex-centered glyph along an extra path that compounds with Flip's
           // transform — the "down-then-up" hop seen when opening a window.
-          style={asWindow ? { height: headerH } : undefined}
+          // `inkStyle` (when present) flips the ink dark for deep, light surfaces;
+          // scoped here so only the glyph/title/meta are affected.
+          style={asWindow ? { height: headerH, ...inkStyle } : inkStyle}
         >
           {/* Glyph — for a collapsed task it doubles as the completion toggle. */}
           <span
@@ -454,11 +484,17 @@ export function EntityNode({
               // Glyph ink matches the title: compact ancestors are dimmed to
               // foreground/75 (like their title), everything else stays full ink.
               ancestorHeader ? "text-foreground/75" : "text-foreground",
-              // Leaf window keeps the full 20px glyph; compact ancestors (and
-              // collapsed rows) use 16px. The size change is animated by GSAP
-              // Flip (this glyph is a flip target captured in captureStage), so no
-              // CSS transition here — that would double-animate against Flip.
-              asWindow && !ancestorHeader ? "h-5 w-5" : "h-4 w-4",
+              // Leaf window keeps the full 20px glyph; compact ancestors use 16px.
+              // A collapsed DOCK CARD uses 18px (slightly larger than a do-list
+              // row's 16px) so the enlarged card stays harmonious. The size change
+              // is animated by GSAP Flip (this glyph is a flip target captured in
+              // captureStage), so no CSS transition here — that would double-animate
+              // against Flip.
+              asWindow && !ancestorHeader
+                ? "h-5 w-5"
+                : !asWindow && variant === "dock"
+                  ? "h-[18px] w-[18px]"
+                  : "h-4 w-4",
             )}
           >
             <NodeGlyph kind={kind} filled={isTask && done} strokeWidth={asWindow ? 1.75 : isTask ? 2 : 1.75} />
