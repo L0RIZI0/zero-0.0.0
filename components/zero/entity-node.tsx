@@ -127,6 +127,19 @@ export function EntityNode({
   // (stable across its own open/close) while distinct from the other copy.
   const flip = `${contextId}:${entityId}`
 
+  // The surface this node's collapsed row sits ON: the always-mounted home view
+  // (root context) is painted on the page `bg-background`; every other context is
+  // a focus window whose frame is `bg-card-solid`. A row's resting fill is set to
+  // match that parent surface so the row reads as INVISIBLE at rest, while still
+  // being fully OPAQUE. This matters during the CLOSING morph: a closing window
+  // uses this same row className (asWindow is false while `isClosing`) as GSAP
+  // Flip shrinks it back into its slot. With a transparent row fill the window's
+  // background vanished the instant the close began (the "background disappears
+  // too early" bug); an opaque fill matching the parent keeps the surface solid
+  // for the whole morph.
+  const isRootContext = contextId === nav.stack[0]
+  const rowSurface = isRootContext ? "bg-background" : "bg-card-solid"
+
   void nav.dataVersion // re-read counts when data mutates
   const openCount = getOpenTaskCount(entityId)
 
@@ -184,7 +197,9 @@ export function EntityNode({
   //   - leaf / closing window → solid surface (so parent content can't bleed through).
   //   - ancestor Space        → slightly dimmed surface + faint full border.
   //   - dock card             → faint resting fill that brightens on hover.
-  //   - row                   → no resting fill, hover highlight only.
+  //   - row                   → OPAQUE fill matching its parent surface so it reads
+  //     as invisible at rest yet keeps a solid background through the close morph;
+  //     hover lifts it with a faint foreground tint.
   const frameClass = asWindow
     ? cn(
         "flex cursor-default flex-col overflow-hidden shadow-2xl",
@@ -193,7 +208,7 @@ export function EntityNode({
       )
     : cn(
         "absolute inset-0 flex cursor-pointer flex-col overflow-hidden transition-colors",
-        variant === "dock" ? "bg-secondary/40 hover:bg-secondary" : "hover:bg-foreground/5",
+        variant === "dock" ? "bg-secondary/40 hover:bg-secondary" : cn(rowSurface, "hover:bg-foreground/5"),
         cancelled && "opacity-50",
       )
 

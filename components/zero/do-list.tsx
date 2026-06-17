@@ -312,7 +312,6 @@ export function DoList({ contextId, active = true }: { contextId: string; active
     () => (filter === "open" ? items.filter((it) => it.kind !== "task" || !it.entity.completed) : items),
     [items, filter],
   )
-  const openCount = items.filter((it) => it.kind === "task" && !it.entity.completed).length
 
   // The navigable keys of the DO list, ALWAYS ending with the ADD birther row.
   const listKeys = useMemo(() => [...shown.map((it) => it.id), ADD_KEY], [shown])
@@ -453,25 +452,9 @@ export function DoList({ contextId, active = true }: { contextId: string; active
 
   return (
     <section aria-label="Do list" className="flex min-h-0 flex-col">
-      {/* The DO label is hidden; the Open/All filters stay pinned to the right. */}
-      <div className="relative mb-1 flex h-5 items-center justify-end px-1">
-        <div className="flex items-center gap-1">
-          {(["open", "all"] as const).map((f) => (
-            <button
-              key={f}
-              type="button"
-              onClick={() => setFilter(f)}
-              className={cn(
-                "rounded-md px-1.5 py-0.5 text-[11px] capitalize transition-colors",
-                filter === f ? "text-foreground" : "text-muted-foreground/70 hover:text-foreground",
-              )}
-            >
-              {f === "open" ? `Open ${openCount}` : "All"}
-            </button>
-          ))}
-        </div>
-      </div>
-
+      {/* The DO label and the Open/All filters are hidden. The list still defaults
+          to the "open" filter internally (see `filter` state); only its toggle UI
+          is removed. */}
       {/* Keyed by context: switching entities hard-swaps the list (instant, no
           cross-fade) while add/remove within a context still animates. */}
       {/* While a window morph is in flight the overflow MUST be visible: opening a

@@ -99,15 +99,19 @@ export function EntityBody({
           </CollapsibleColumn>
         </motion.div>
 
-        {/* Center column — Dock (pinned items) above the Tasks do-list. Takes the
-            remaining width, capped for a comfortable reading measure, centered so
-            it slides as the sides change. On the home view the cap is 70% of the
-            viewport; inside a focus window the fixed 720px measure is kept. */}
+        {/* Center column — Tasks do-list ABOVE the Dock (pinned items) at every
+            level, including the home view. The do-list takes the remaining height
+            (flex-1) and the Dock sits beneath it. Capped for a comfortable reading
+            measure and centered so it slides as the sides change. On the home view
+            the cap is 70% of the viewport; inside a focus window the fixed 720px
+            measure is kept. */}
         <div className="flex min-h-0 min-w-0 flex-1 flex-col items-center">
           <div className={cn("flex min-h-0 w-full flex-1 flex-col", isRoot ? "max-w-[70vw]" : "max-w-[720px]")}>
-            <Dock contextId={entityId} active={active} />
-            <div className="flex min-h-0 flex-1 flex-col pt-4">
+            <div className="flex min-h-0 flex-1 flex-col">
               <DoList contextId={entityId} active={active} />
+            </div>
+            <div className="pt-4">
+              <Dock contextId={entityId} active={active} />
             </div>
           </div>
         </div>
