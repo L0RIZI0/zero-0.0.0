@@ -11,12 +11,20 @@ import { NodeGlyph } from "./node-glyph"
 import { EntityBody } from "./entity-body"
 import { cn } from "@/lib/utils"
 
-// Hexagon-following drop shadow for LEAF Space windows. `shadow-2xl` (a box-
-// shadow) is clipped away by the hexagon clip-path, so it's reproduced here as a
-// `filter: drop-shadow`, which renders after clipping and traces the hex outline.
-// Two stacked layers approximate the soft, lifted box-shadow look (drop-shadow
-// has no spread parameter).
-const SPACE_DROP_SHADOW = "drop-shadow(0 16px 24px rgb(0 0 0 / 0.28)) drop-shadow(0 4px 8px rgb(0 0 0 / 0.22))"
+// Hexagon-following drop shadow for LEAF Space windows. A CSS clip-path clips
+// away box-shadow, so the hexagon's `shadow-2xl` never renders — that's why a
+// Space showed no depth against its parent while task/event siblings (rounded
+// rects, unclipped) keep theirs. `filter: drop-shadow` is applied AFTER clipping,
+// so it traces the hex outline and restores the cue.
+//
+// On this near-black dark theme a purely dark shadow is invisible (black on
+// black), so the stack pairs a faint LIGHT rim — a 1px near-edge light glow that
+// crisply outlines where the hexagon begins/ends on top of an identically
+// colored parent — with a strong dark ambient + contact shadow that grounds it
+// and reads as elevation. The rim is what makes the boundary legible; the dark
+// layers supply the lift.
+const SPACE_DROP_SHADOW =
+  "drop-shadow(0 0 0.75px rgb(255 255 255 / 0.55)) drop-shadow(0 0 3px rgb(255 255 255 / 0.18)) drop-shadow(0 20px 32px rgb(0 0 0 / 0.7)) drop-shadow(0 6px 12px rgb(0 0 0 / 0.55))"
 
 const priorityDot: Record<TaskPriority, string> = {
   high: "bg-accent",
