@@ -130,22 +130,25 @@ export type Rect = { top: number; left: number; width: number; height: number }
 const HEX_W_OVER_H = Math.sqrt(3) / 2
 
 /**
- * Largest perfect (regular) hexagon that fits inside `rect`, centered within it.
- * Used for a Space window that is the frontmost LEAF (no child open): it ignores
- * the wide focus region and instead occupies a true hexagon. As soon as a child
- * opens the Space is no longer the leaf and reverts to the full `stackTargetRect`
- * box — i.e. it "widens" to host the child.
+ * Perfect (regular) hexagon that fills the FULL WIDTH `rect` allows, centered
+ * within it. Used for a Space window that is the frontmost LEAF (no child open).
+ *
+ * Unlike a height-constrained fit (which would leave wide empty side gaps), this
+ * takes the entire parent-allowed width — `rect.width`, which already reserves
+ * the side peek (WINDOW_BASE_SIDE etc.) so the parent's IN/OUT rails stay visible
+ * beside it. Honouring the regular-hexagon ratio then makes the height
+ * `width / 0.866`, which is TALLER than the region: the hexagon intentionally
+ * bleeds above (behind the top header / timeline) and below (off the bottom of
+ * the screen) while keeping its perfect six-sided shape. It is centered on the
+ * rect vertically so the overflow is symmetric. As soon as a child opens the
+ * Space is no longer the leaf and reverts to the full `stackTargetRect` box.
  */
 export function perfectHexInside(rect: Rect): Rect {
-  let height = rect.height
-  let width = height * HEX_W_OVER_H
-  if (width > rect.width) {
-    width = rect.width
-    height = width / HEX_W_OVER_H
-  }
+  const width = rect.width
+  const height = width / HEX_W_OVER_H
   return {
     top: rect.top + (rect.height - height) / 2,
-    left: rect.left + (rect.width - width) / 2,
+    left: rect.left,
     width,
     height,
   }
