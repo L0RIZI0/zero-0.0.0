@@ -104,6 +104,10 @@ export function EntityNode({
   const { showHighlight, hoverProps, ref } = useRowSelection(region, entityId)
   const [done, setDone] = useState(!!entity?.completed)
   const [closeHover, setCloseHover] = useState(false)
+  // Mouse-hover state for the collapsed row/card. Driven in JS (not a Tailwind
+  // `hover:` class) so the background can be the dynamic per-depth `surfaceAt`
+  // color — the same value the node's window adopts when opened.
+  const [hovered, setHovered] = useState(false)
 
   // Clear close-hover whenever a morph is running. When a window expands, its X
   // mounts/moves under a stationary cursor and fires `onPointerEnter`, leaving
@@ -238,10 +242,9 @@ export function EntityNode({
         fadingWindow && "pointer-events-none",
       )
     : cn(
-        // Mouse hover is CSS-driven (the lift/ring is keyboard-only). `--rest` and
-        // `--hl` are set inline per node (the surface ramp), so this one static
-        // pair of classes gives do-list rows AND dock cards the identical hover.
-        "absolute inset-0 flex cursor-pointer flex-col overflow-hidden bg-[var(--rest)] hover:bg-[var(--hl)]",
+        // Background is set inline (JS-driven hover) so it can use the dynamic
+        // per-depth `surfaceAt` color. One effect for do-list rows AND dock cards.
+        "absolute inset-0 flex cursor-pointer flex-col overflow-hidden",
         cancelled && "opacity-50",
       )
 
@@ -303,7 +306,15 @@ export function EntityNode({
         aria-label={asWindow ? undefined : `Open ${entity.title}`}
         onClick={onFrameClick}
         onContextMenu={onContextMenu}
-        {...(interactive ? hoverProps : {})}
+        onPointerEnter={() => {
+          // Moves the keyboard selection cursor here (existing behavior) AND sets
+          // the local mouse-hover flag that paints the unified highlight.
+          if (interactive) hoverProps.onPointerEnter()
+          if (!asWindow) setHovered(true)
+        }}
+        onPointerLeave={() => {
+          if (!asWindow) setHovered(false)
+        }}
         style={
           asWindow
             ?               // Only the LEAF Space clips to a hexagon (no border radius). An
@@ -339,18 +350,16 @@ export function EntityNode({
                 // at full window size; lift it above sibling rows so parent
                 // content can't bleed through until it lands in its slot.
                 ...(isClosing ? { zIndex: 40 } : null),
-                // ONE unified hover for do-list rows AND dock cards (see frameClass:
-                // `bg-[var(--rest)] hover:bg-[var(--hl)]`). `--rest` is the parent
-                // surface (invisible at rest); `--hl` the next ramp step — the exact
-                // color this node's window adopts when opened. When keyboard-selected
-                // (showHighlight) or while shrinking closed, `--rest` is forced to the
-                // highlight so it matches the window it morphs to/from (both opaque →
-                // no bleed-through, no early fade).
-                "--rest": showHighlight || isClosing ? highlightColor : restSurface,
-                "--hl": highlightColor,
+                // ONE unified hover for do-list rows AND dock cards: rest at the
+                // parent surface `restSurface` (invisible), lift to `highlightColor`
+                // — the next ramp step, i.e. the EXACT color this node's window
+                // adopts when opened — on mouse hover OR keyboard selection. While
+                // shrinking closed, hold the highlight so it matches the window it
+                // retracts from (both opaque → no bleed-through, no early fade).
+                backgroundColor: hovered || showHighlight || isClosing ? highlightColor : restSurface,
                 boxShadow: showHighlight ? HIGHLIGHT_SHADOW : HIGHLIGHT_SHADOW_NONE,
                 transition: "box-shadow 0.18s ease-out, background-color 0.18s ease-out",
-              } as unknown as React.CSSProperties)
+              })
         }
         className={frameClass}
       >
