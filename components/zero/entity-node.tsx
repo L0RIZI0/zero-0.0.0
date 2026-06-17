@@ -26,6 +26,22 @@ import { cn } from "@/lib/utils"
 const SPACE_DROP_SHADOW =
   "drop-shadow(0 0 0.75px rgb(255 255 255 / 0.55)) drop-shadow(0 0 3px rgb(255 255 255 / 0.18)) drop-shadow(0 20px 32px rgb(0 0 0 / 0.7)) drop-shadow(0 6px 12px rgb(0 0 0 / 0.55))"
 
+// Unified surface ramp. Every nesting level's window background is the page
+// `--background` mixed one fixed step further toward `--foreground`, so deeper
+// windows read progressively lighter (a depth cue) while staying theme-aware and
+// fully opaque. depth 0 == the home view surface.
+//
+// This single ramp powers BOTH the hover highlight and the window backgrounds: a
+// collapsed node (do-list row OR dock card) rests on its parent's surface
+// (invisible) and, on hover, lifts to surfaceAt(parentDepth + 1) — which is the
+// EXACT color its own window takes when opened. So the hover preview and the
+// opened window share one color, and the hover effect is identical everywhere.
+const SURFACE_STEP_PCT = 9
+function surfaceAt(depth: number) {
+  if (depth <= 0) return "var(--background)"
+  return `color-mix(in oklab, var(--background), var(--foreground) ${depth * SURFACE_STEP_PCT}%)`
+}
+
 const priorityDot: Record<TaskPriority, string> = {
   high: "bg-accent",
   medium: "bg-foreground/40",
@@ -142,18 +158,18 @@ export function EntityNode({
   // (stable across its own open/close) while distinct from the other copy.
   const flip = `${contextId}:${entityId}`
 
-  // The surface this node's collapsed row sits ON: the always-mounted home view
-  // (root context) is painted on the page `bg-background`; every other context is
-  // a focus window whose frame is `bg-card-solid`. A row's resting fill is set to
-  // match that parent surface so the row reads as INVISIBLE at rest, while still
-  // being fully OPAQUE. This matters during the CLOSING morph: a closing window
-  // uses this same row className (asWindow is false while `isClosing`) as GSAP
-  // Flip shrinks it back into its slot. With a transparent row fill the window's
-  // background vanished the instant the close began (the "background disappears
-  // too early" bug); an opaque fill matching the parent keeps the surface solid
-  // for the whole morph.
-  const isRootContext = contextId === nav.stack[0]
-  const rowSurface = isRootContext ? "bg-background" : "bg-card-solid"
+  // Depth of THIS node's CONTEXT — the parent window it is rendered inside (home
+  // == 0, the first opened window == 1, and so on). The collapsed node's resting
+  // fill matches that parent surface so it reads as INVISIBLE at rest, while
+  // staying fully OPAQUE (important for the close morph: a closing window reuses
+  // this collapsed background as GSAP Flip shrinks it back, so it must not turn
+  // transparent and let parent content bleed through).
+  const contextDepth = Math.max(0, nav.stack.indexOf(contextId))
+  // Resting surface = parent window's background (invisible at rest). Highlight =
+  // the NEXT step up — the unified hover color AND the exact background this
+  // node's own window adopts when opened (depth contextDepth + 1).
+  const restSurface = surfaceAt(contextDepth)
+  const highlightColor = surfaceAt(contextDepth + 1)
 
   void nav.dataVersion // re-read counts when data mutates
   const openCount = getOpenTaskCount(entityId)
@@ -208,22 +224,24 @@ export function EntityNode({
   // child windows above it.
   const ancestorSpace = asWindow && isSpace && !isTop && !isClosing
 
-  // Borderless design. No frames anywhere:
-  //   - leaf / closing window → solid surface (so parent content can't bleed through).
-  //   - ancestor Space        → slightly dimmed surface + faint full border.
-  //   - dock card             → faint resting fill that brightens on hover.
-  //   - row                   → OPAQUE fill matching its parent surface so it reads
-  //     as invisible at rest yet keeps a solid background through the close morph;
-  //     hover lifts it with a faint foreground tint.
+  // Borderless design. Backgrounds are driven by the inline `surfaceAt` ramp
+  // (see the style prop below), NOT utility classes, so every level shares one
+  // hover effect and windows match their hover-preview color:
+  //   - leaf / closing / task window → surfaceAt(depth) (opaque, depth-lightened).
+  //   - ancestor Space               → keeps a faint full border + dimmed surface.
+  //   - dock card AND do-list row     → identical: rest at the parent surface
+  //     (invisible), lift to surfaceAt(parentDepth + 1) on hover.
   const frameClass = asWindow
     ? cn(
         "flex cursor-default flex-col overflow-hidden shadow-2xl",
-        ancestorSpace ? "border border-border bg-muted/60" : "bg-card-solid",
+        ancestorSpace && "border border-border bg-muted/60",
         fadingWindow && "pointer-events-none",
       )
     : cn(
-        "absolute inset-0 flex cursor-pointer flex-col overflow-hidden transition-colors",
-        variant === "dock" ? "bg-secondary/40 hover:bg-secondary" : cn(rowSurface, "hover:bg-foreground/5"),
+        // Mouse hover is CSS-driven (the lift/ring is keyboard-only). `--rest` and
+        // `--hl` are set inline per node (the surface ramp), so this one static
+        // pair of classes gives do-list rows AND dock cards the identical hover.
+        "absolute inset-0 flex cursor-pointer flex-col overflow-hidden bg-[var(--rest)] hover:bg-[var(--hl)]",
         cancelled && "opacity-50",
       )
 
@@ -296,6 +314,9 @@ export function EntityNode({
                   ...(winStyle ?? {}),
                   borderRadius: 0,
                   clipPath,
+                  // Depth-lightened opaque surface; equals the hover highlight the
+                  // dock card showed, so the open morph has no color jump.
+                  backgroundColor: surfaceAt(depth),
                   // A CSS clip-path clips away box-shadow, so the hexagon's
                   // `shadow-2xl` never renders — that's why Spaces lacked the drop
                   // shadow that task/event windows show against their parent. A
@@ -303,8 +324,14 @@ export function EntityNode({
                   // the hexagon outline and restores the same depth cue.
                   filter: SPACE_DROP_SHADOW,
                 }
-              : (winStyle ?? undefined)
-            : {
+              : {
+                  ...(winStyle ?? {}),
+                  // Ancestor Spaces keep their dimmed `bg-muted/60` (set in
+                  // frameClass); every other window gets the depth-lightened
+                  // surface that matches its hover-preview color.
+                  ...(ancestorSpace ? null : { backgroundColor: surfaceAt(depth) }),
+                }
+            : ({
                 // Collapsed: Space dock cards are hexagons (clipPath), everything
                 // else a rounded rectangle.
                 ...(clipPath ? { clipPath } : { borderRadius: 4 }),
@@ -312,9 +339,18 @@ export function EntityNode({
                 // at full window size; lift it above sibling rows so parent
                 // content can't bleed through until it lands in its slot.
                 ...(isClosing ? { zIndex: 40 } : null),
+                // ONE unified hover for do-list rows AND dock cards (see frameClass:
+                // `bg-[var(--rest)] hover:bg-[var(--hl)]`). `--rest` is the parent
+                // surface (invisible at rest); `--hl` the next ramp step — the exact
+                // color this node's window adopts when opened. When keyboard-selected
+                // (showHighlight) or while shrinking closed, `--rest` is forced to the
+                // highlight so it matches the window it morphs to/from (both opaque →
+                // no bleed-through, no early fade).
+                "--rest": showHighlight || isClosing ? highlightColor : restSurface,
+                "--hl": highlightColor,
                 boxShadow: showHighlight ? HIGHLIGHT_SHADOW : HIGHLIGHT_SHADOW_NONE,
-                transition: "box-shadow 0.18s ease-out",
-              }
+                transition: "box-shadow 0.18s ease-out, background-color 0.18s ease-out",
+              } as unknown as React.CSSProperties)
         }
         className={frameClass}
       >
