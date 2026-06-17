@@ -316,11 +316,21 @@ export function EntityNode({
   // right side — snug instead of floating off in the peek margin.
   const closeTitleLeft =
     winStyle && typeof winStyle.left === "number" && typeof winStyle.width === "number"
-      ? winStyle.left + winStyle.width - 2
+      ? // Leaf Space: the X is inset 8% from the right edge, so place the title
+        // just right of it (~92% across + a small gap) instead of at the very edge.
+        spaceLeafWindow
+        ? winStyle.left + winStyle.width * 0.92 + 6
+        : winStyle.left + winStyle.width - 2
       : 0
   // Vertically center the title on the X. The cluster sits at top-3 (12px); the X
-  // is size-6 (24px) tall.
-  const closeTitleTop = winStyle && typeof winStyle.top === "number" ? winStyle.top + 12 + 12 : 0
+  // is size-6 (24px) tall. A leaf Space pushes the X into the visible band, so the
+  // title follows it down by the same --hex-inset-y (resolved as a calc string).
+  const closeTitleTop =
+    winStyle && typeof winStyle.top === "number"
+      ? spaceLeafWindow
+        ? `calc(${winStyle.top}px + var(--hex-inset-y) + 20px)`
+        : winStyle.top + 12 + 12
+      : 0
 
   return (
     <div className={slotClass}>
@@ -353,6 +363,13 @@ export function EntityNode({
                   ...(winStyle ?? {}),
                   borderRadius: 0,
                   clipPath,
+                  // The hexagon overflows the region top/bottom; pad the content
+                  // (header + body) inward by that overflow so it lands in the
+                  // shape's visible, full-width middle band. Padding is inside the
+                  // border-box, so the clip + background still fill the whole
+                  // (bleeding) hexagon.
+                  paddingTop: "var(--hex-inset-y)",
+                  paddingBottom: "var(--hex-inset-y)",
                   // Depth-lightened opaque surface; equals the hover highlight the
                   // dock card showed, so the open morph has no color jump.
                   backgroundColor: surfaceAt(depth),
@@ -399,10 +416,16 @@ export function EntityNode({
         {asWindow && (
           <div
             data-fade
-            style={{ transitionDuration: DURATION_S }}
+            // For a leaf Space the X rides the visible band (content is padded down
+            // by --hex-inset-y), kept inside the right edge so it clears the
+            // clipped slope. Other windows: true top-right corner.
+            style={{
+              transitionDuration: DURATION_S,
+              ...(spaceLeafWindow ? { top: "calc(var(--hex-inset-y) + 8px)", right: "8%" } : null),
+            }}
             className={cn(
               "absolute z-20 flex flex-col items-center gap-1",
-              spaceLeafWindow ? "right-[8%] top-[24%]" : "right-1.5 top-3",
+              spaceLeafWindow ? "" : "right-1.5 top-3",
             )}
           >
             <button

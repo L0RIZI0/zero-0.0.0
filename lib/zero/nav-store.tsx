@@ -371,7 +371,18 @@ export function ZeroNavProvider({
       // (Deeper Space ancestors keep the full box so they widen to host children.)
       const isLeaf = windowDepth === stack.length - 1
       const isSpaceLeaf = isLeaf && (getEntity(stack[windowDepth])?.kind ?? "task") === "space"
-      if (isSpaceLeaf) rect = perfectHexInside(rect)
+      // A leaf Space now fills the FULL parent-allowed WIDTH as a perfect hexagon,
+      // so its height (= width / 0.866) overflows the box and the shape bleeds
+      // above (behind the header/timeline) and below (off-screen). `hexInsetY` is
+      // how far it overflows the box on EACH side; the window pads its content
+      // vertically by it (via the `--hex-inset-y` CSS var) so the work-surface
+      // stays inside the hexagon's visible, full-width middle band.
+      let hexInsetY = 0
+      if (isSpaceLeaf) {
+        const box = rect
+        rect = perfectHexInside(rect)
+        hexInsetY = Math.max(0, (rect.height - box.height) / 2)
+      }
       return {
         position: "fixed",
         top: liftedRegion.top + rect.top,
@@ -383,6 +394,7 @@ export function ZeroNavProvider({
         // top-right medium radius (16px) for every window EXCEPT the first child
         // opened from home (windowDepth === 1). (TL TR BR BL)
         borderRadius: isSpaceLeaf ? "0" : `0 ${windowDepth >= 2 ? "16px" : "0"} 8px 8px`,
+        ...(isSpaceLeaf ? ({ ["--hex-inset-y"]: `${hexInsetY}px` } as React.CSSProperties) : null),
       }
     }
 
