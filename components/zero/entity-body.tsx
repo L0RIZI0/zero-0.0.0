@@ -107,7 +107,10 @@ export function EntityBody({
             measure is kept. */}
         <div className="flex min-h-0 min-w-0 flex-1 flex-col items-center">
           <div className={cn("flex min-h-0 w-full flex-1 flex-col", isRoot ? "max-w-[70vw]" : "max-w-[720px]")}>
-            <div className="flex min-h-0 flex-1 flex-col">
+            {/* Do-list (including its ADD button) is narrowed to 2/3 of the measure
+                and centered, so the task column reads as a tighter list. The Dock
+                below keeps the full measure width. */}
+            <div className="flex min-h-0 w-2/3 flex-1 flex-col self-center">
               <DoList contextId={entityId} active={active} />
             </div>
             <div className="pt-4">

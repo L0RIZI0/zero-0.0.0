@@ -11,6 +11,13 @@ import { NodeGlyph } from "./node-glyph"
 import { EntityBody } from "./entity-body"
 import { cn } from "@/lib/utils"
 
+// Hexagon-following drop shadow for LEAF Space windows. `shadow-2xl` (a box-
+// shadow) is clipped away by the hexagon clip-path, so it's reproduced here as a
+// `filter: drop-shadow`, which renders after clipping and traces the hex outline.
+// Two stacked layers approximate the soft, lifted box-shadow look (drop-shadow
+// has no spread parameter).
+const SPACE_DROP_SHADOW = "drop-shadow(0 16px 24px rgb(0 0 0 / 0.28)) drop-shadow(0 4px 8px rgb(0 0 0 / 0.22))"
+
 const priorityDot: Record<TaskPriority, string> = {
   high: "bg-accent",
   medium: "bg-foreground/40",
@@ -273,11 +280,21 @@ export function EntityNode({
         {...(interactive ? hoverProps : {})}
         style={
           asWindow
-            ? // Only the LEAF Space clips to a hexagon (no border radius). An
+            ?               // Only the LEAF Space clips to a hexagon (no border radius). An
               // ancestor Space — and every task/event — keeps the rounded-rect
               // borderRadius supplied by winStyle so its children aren't cropped.
               spaceLeafWindow
-              ? { ...(winStyle ?? {}), borderRadius: 0, clipPath }
+              ? {
+                  ...(winStyle ?? {}),
+                  borderRadius: 0,
+                  clipPath,
+                  // A CSS clip-path clips away box-shadow, so the hexagon's
+                  // `shadow-2xl` never renders — that's why Spaces lacked the drop
+                  // shadow that task/event windows show against their parent. A
+                  // `filter: drop-shadow` is applied AFTER clipping, so it follows
+                  // the hexagon outline and restores the same depth cue.
+                  filter: SPACE_DROP_SHADOW,
+                }
               : (winStyle ?? undefined)
             : {
                 // Collapsed: Space dock cards are hexagons (clipPath), everything
