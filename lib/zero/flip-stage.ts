@@ -94,12 +94,12 @@ export function captureStage(): FlipState | null {
   // row → hex window and back) tweens smoothly in the same single Flip pass that
   // already morphs size, fontSize and borderRadius. Proven in the hexagon-dock
   // prototype: without it the clip snapped at the end of the morph.
-  // `backgroundColor` is captured for the SAME reason: when the stack deepens past
-  // the surface cap (leafDepth > 3), every ancestor recedes one shade darker. Flip
-  // nulls CSS transitions on its targets during the morph, so without capturing the
-  // colour here that recede would SNAP at the start of the open/close. Letting Flip
-  // own the colour makes it tween old→new across the morph on the shared curve.
-  return Flip.getState(targets, { props: "fontSize,borderRadius,clipPath,backgroundColor" })
+  // NOTE: `backgroundColor` is deliberately NOT captured/animated by Flip. The
+  // per-depth surface recede is handled by a CSS `background-color` transition on
+  // each frame (see entity-node). Letting Flip own the colour interpolated from the
+  // captured "from" value, which flashed black for a newly-entering window (it
+  // grows out of a row) in light mode and dipped ancestors too dark in dark mode.
+  return Flip.getState(targets, { props: "fontSize,borderRadius,clipPath" })
 }
 
 type Key = { id: string; depth: number }
@@ -125,10 +125,11 @@ export function playStage(
       ease: MORPH_EASE,
       absolute: "[data-flip-role='frame']",
       nested: true,
-      // `backgroundColor` rides the morph too (see captureStage): the per-depth
-      // surface recede that fires when the stack crosses the cap now tweens on the
-      // morph curve instead of snapping (Flip nulls CSS transitions on its targets).
-      props: "clipPath,backgroundColor",
+      // Only `clipPath` rides the morph (hexagon ⇄ rectangle). Background colour is
+      // intentionally left to its own CSS transition (see captureStage + entity-node)
+      // so entering windows and receding ancestors don't interpolate from a bad
+      // captured "from" colour.
+      props: "clipPath",
       // Clear leftover sub-pixel transforms / will-change on the inner glyph+title
       // when the morph lands so they settle crisply instead of shaking at the very
       // end (prototype fix).
