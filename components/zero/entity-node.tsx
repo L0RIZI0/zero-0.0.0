@@ -16,7 +16,6 @@ import {
   surfaceAt,
   telescopicLevel,
   telescopicSurface,
-  RIGHT_PEEK,
 } from "@/lib/zero/motion"
 import { DURATION_S, MORPH_CSS_EASE } from "@/lib/zero/flip-stage"
 import { NodeGlyph } from "./node-glyph"
@@ -462,14 +461,11 @@ export function EntityNode({
               transitionDuration: DURATION_S,
               ...(spaceLeafWindow ? { top: "calc(25% + 6px)", right: "16px" } : null),
             }}
-            // z-[35]: threads BETWEEN the hover-peek catcher (now z-30) and the
-            // child window. Frames are position:fixed but nested in the DOM, so a
-            // child window resolves at z-40 INSIDE this ancestor's stacking context.
-            // The close must sit ABOVE the catcher (else the full-height catcher
-            // swallows its pointer events and hovering an ancestor's X never fires
-            // setCloseHover → no highlight) but BELOW the child window (z-40) — a
-            // higher value like z-[60] escapes above the child and paints this
-            // ancestor's X over the leaf. 30 < 35 < 40 satisfies both.
+            // z-[35]: must stay BELOW the child window. Frames are position:fixed
+            // but nested in the DOM, so a child window resolves at z-40 INSIDE this
+            // ancestor's stacking context. A higher value (e.g. z-[60]) would escape
+            // above the child and paint this ancestor's X over the leaf header; 35
+            // keeps the X confined to this ancestor's own exposed top-right corner.
             className={cn(
               "absolute z-[35] flex flex-col items-center gap-1",
               spaceLeafWindow ? "" : "right-1.5 top-3",
@@ -516,29 +512,6 @@ export function EntityNode({
           />
         )}
 
-        {/* Hover-peek catcher. EVERY buried ancestor (the leaf's direct parent and
-            up, down to the home view's first child) now shows only a hairline
-            RIGHT_PEEK_SLIVER of its OUT rail. This invisible strip rides their right
-            edge; hovering the exposed sliver tells the nav layer to shrink every
-            DEEPER window from the right (via the --peek-shrink CSS var) so THIS
-            ancestor's full OUT rail is exposed, then restores on leave. The direct
-            parent is included too (depth === leafDepth − 1): revealing it shrinks
-            just the leaf, exposing the parent's rail exactly like deeper ancestors.
-            The strip is wider than the resting sliver so that, once the reveal opens
-            the gap, the pointer stays over it (no collapse flicker) anywhere in the
-            exposed band. z-30 sits BELOW the child window (z-40, so only the exposed
-            part is live) and BELOW the close button (z-[35], so the X in the exposed
-            top-right corner stays hoverable). (Leaf/home are never buried, so
-            `!isTop` is enough.) */}
-        {asWindow && !isTop && (
-          <div
-            aria-hidden
-            onMouseEnter={() => nav.revealAncestor(depth)}
-            onMouseLeave={() => nav.clearReveal()}
-            className="absolute inset-y-0 right-0 z-30"
-            style={{ width: RIGHT_PEEK + 8 }}
-          />
-        )}
 
         {/* Persistent header. NOT a flip target: it stays in the frame's flow and
             switches layout between collapsed row/card and window header. The glyph
