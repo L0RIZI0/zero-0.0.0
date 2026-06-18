@@ -750,22 +750,23 @@ export function EntityNode({
 
           {/* Collapsed dock-card open-task counter — centered in the column flow,
               directly below the title (not pinned to a corner).
-              It is rendered all through the CLOSE morph (not gated by !isClosing),
-              just held at opacity-0 and faded in once closed. The counter sits in
-              the vertically-centred column flow, so if it only MOUNTED after the
-              close finished it would add height to a centred column and shove
-              glyph+title upward — the abrupt "jump up" at the very end. Keeping it
-              mounted (occupying its space) the whole time means the column height is
-              constant, so GSAP Flip's captured final layout already accounts for it
-              and glyph+title settle smoothly into place; the opacity tween then
-              brings the counter in gently instead of popping. */}
+              Rendered all through the CLOSE morph (not gated by !isClosing) so it
+              always occupies its space: the counter lives in the vertically-centred
+              column, so if it only MOUNTED after the close finished it would add
+              height to that centred column and shove glyph+title upward — the abrupt
+              "jump up" at the very end. With it mounted the whole time the column
+              height is constant and GSAP Flip's captured final layout already
+              accounts for it, so glyph+title settle smoothly.
+              For the appearance itself we use a keyframe fade (`animate-in fade-in`)
+              rather than an opacity TRANSITION. The counter only mounts at the START
+              of the close (the instant `asWindow` flips false), so the keyframe plays
+              on mount and runs CONCURRENTLY with the morph. The previous transition
+              was keyed on `isClosing` flipping false, which only happens once the
+              morph has already FINISHED, so the fade ran late and felt like it was
+              waiting for the close to complete. `fade-in` is opacity-only (no
+              slide/zoom) so it never nudges glyph+title. */}
           {!asWindow && variant === "dock" && (
-            <span
-              className={cn(
-                "flex items-center gap-1 text-[10px] text-muted-foreground/70 transition-opacity duration-200",
-                isClosing ? "opacity-0" : "opacity-100",
-              )}
-            >
+            <span className="flex animate-in items-center gap-1 fade-in text-[10px] text-muted-foreground/70 duration-700">
               <span className="font-medium tabular-nums">{openCount}</span>
               <span className="flex h-2.5 w-2.5 items-center justify-center">
                 <NodeGlyph kind="task" strokeWidth={1.5} />
