@@ -462,13 +462,16 @@ export function EntityNode({
               transitionDuration: DURATION_S,
               ...(spaceLeafWindow ? { top: "calc(25% + 6px)", right: "16px" } : null),
             }}
-            // z-[60]: must sit ABOVE the hover-peek catcher strip (z-40) that also
-            // rides this window's right edge. Otherwise the full-height catcher
-            // covers the close button in the exposed top-right corner and swallows
-            // its pointer events, so hovering an ancestor's X never fires
-            // setCloseHover → the close-window highlight never appears.
+            // z-[35]: threads BETWEEN the hover-peek catcher (now z-30) and the
+            // child window. Frames are position:fixed but nested in the DOM, so a
+            // child window resolves at z-40 INSIDE this ancestor's stacking context.
+            // The close must sit ABOVE the catcher (else the full-height catcher
+            // swallows its pointer events and hovering an ancestor's X never fires
+            // setCloseHover → no highlight) but BELOW the child window (z-40) — a
+            // higher value like z-[60] escapes above the child and paints this
+            // ancestor's X over the leaf. 30 < 35 < 40 satisfies both.
             className={cn(
-              "absolute z-[60] flex flex-col items-center gap-1",
+              "absolute z-[35] flex flex-col items-center gap-1",
               spaceLeafWindow ? "" : "right-1.5 top-3",
             )}
           >
@@ -523,14 +526,16 @@ export function EntityNode({
             just the leaf, exposing the parent's rail exactly like deeper ancestors.
             The strip is wider than the resting sliver so that, once the reveal opens
             the gap, the pointer stays over it (no collapse flicker) anywhere in the
-            exposed band. Sits below the child window (lower z), so only its exposed
-            part is live. (The leaf/home are never buried, so `!isTop` is enough.) */}
+            exposed band. z-30 sits BELOW the child window (z-40, so only the exposed
+            part is live) and BELOW the close button (z-[35], so the X in the exposed
+            top-right corner stays hoverable). (Leaf/home are never buried, so
+            `!isTop` is enough.) */}
         {asWindow && !isTop && (
           <div
             aria-hidden
             onMouseEnter={() => nav.revealAncestor(depth)}
             onMouseLeave={() => nav.clearReveal()}
-            className="absolute inset-y-0 right-0 z-40"
+            className="absolute inset-y-0 right-0 z-30"
             style={{ width: RIGHT_PEEK + 8 }}
           />
         )}
