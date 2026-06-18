@@ -265,15 +265,6 @@ export function EntityNode({
   // leaf; closing un-spines it (leafDepth shrinks → condition flips → rotates back).
   const isSpine = asWindow && !isTop && leafDepth - depth >= VERTICAL_BEHIND
 
-  // Rotation pivot for the title: always the span's CENTER (`50% 50%`). The span's
-  // layout box (its full unrotated width) is centered in the narrow spine strip by
-  // `items-center`, so rotating about that box's center keeps the resulting
-  // vertical column centered in the strip — independent of title length. Pivoting
-  // about the left end instead (`0% 50%`) would seat the column at
-  // `stripCenter − textWidth/2`, pushing long titles off the window's left edge
-  // where they get clipped. Center origin also reads as a clean spin-in-place.
-  const spineTitleOrigin = "50% 50%"
-
   // Header layout:
   //   - SPINE ancestor → a narrow full-height strip pinned to the LEFT edge; glyph
   //     at the top, the rotated title reading up beneath it. Width matches the
@@ -559,16 +550,28 @@ export function EntityNode({
                 React also drops the standalone CSS `rotate` property). The span is
                 NOT a Flip target, so its `transform` is untouched by Flip and
                 animates purely via its own CSS transition — the title rotates AND
-                slides at once. -90deg = 90° counter-clockwise; the dynamic
-                transform-origin pins the glyph-adjacent end so a LONG title sweeps
-                the shortest visible path instead of a wide arc about its center. */}
+                slides at once.
+
+                Geometry (why `translateX(-50%) rotate(-90deg)` about `100% 50%`):
+                the span is centered in the 26px strip, so its box center sits at
+                the strip center. Rotating -90° (CCW, reads bottom-to-top) about the
+                span's RIGHT-center anchors the resulting column's TOP at a CONSTANT
+                offset below the glyph — independent of title length. That kills both
+                bugs: long titles can no longer grow UP into the glyph (they hang
+                straight down), and every title shares the same glyph→title gap
+                (previously a center pivot made the top float with text length, so
+                longer words crept closer to the glyph). The right-center pivot
+                leaves the column offset right by half the title width; the outer
+                `translateX(-50%)` (half the span's OWN width) exactly cancels that,
+                re-centering the narrow column in the strip for any length. Both
+                transform parts interpolate, so the morph still rotates AND slides. */}
             <span
               className="inline-block whitespace-nowrap"
               style={
                 asWindow
                   ? {
-                      transform: isSpine ? "rotate(-90deg)" : "rotate(0deg)",
-                      transformOrigin: spineTitleOrigin,
+                      transform: isSpine ? "translateX(-50%) rotate(-90deg)" : "translateX(0) rotate(0deg)",
+                      transformOrigin: "100% 50%",
                       transitionProperty: "transform",
                       transitionDuration: DURATION_S,
                       transitionTimingFunction: MORPH_CSS_EASE,
