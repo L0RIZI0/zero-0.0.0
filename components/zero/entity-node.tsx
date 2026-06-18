@@ -465,13 +465,14 @@ export function EntityNode({
           <div
             data-fade
             // For a leaf Space the X sits just inside the hexagon's top-RIGHT
-            // vertex: that vertex is at 25% of the frame height, which is exactly
-            // the `--hex-inset-y` line where the shape first reaches full width, so
-            // we drop a few px below it (clearing the rounded corner) and tuck close
-            // to the right edge. Other windows: true top-right corner.
+            // vertex. That vertex is at 25% of the frame HEIGHT — the only height at
+            // which the hexagon reaches the frame's full width (above it the shape
+            // slopes inward, so anchoring to --hex-inset-y, ~20%, would drop the X
+            // out in the clipped-away corner). So we anchor to 25% and nudge down+in
+            // a few px to clear the rounded corner. Other windows: true top-right.
             style={{
               transitionDuration: DURATION_S,
-              ...(spaceLeafWindow ? { top: "calc(var(--hex-inset-y) + 10px)", right: "14px" } : null),
+              ...(spaceLeafWindow ? { top: "calc(25% + 6px)", right: "16px" } : null),
             }}
             className={cn(
               "absolute z-20 flex flex-col items-center gap-1",
