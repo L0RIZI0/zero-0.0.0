@@ -613,23 +613,33 @@ export function EntityNode({
                   // The title is a Flip target that SLIDES between header slots (leaf
                   // hexagon centre ↔ ancestor/spine left ↔ dock-card centre). For that
                   // slide to be smooth in EVERY direction the box must HUG its content
-                  // (auto width) at every endpoint, with horizontal placement owned by
-                  // the flex parent (items-center for the leaf column, left for the
-                  // ancestor row). A full-width `text-center` box instead made Flip
-                  // scale a fixed-width box, so the text snapped to one edge on the
-                  // half of the morph Flip couldn't interpolate text-align for (the
-                  // "title jumps left when a child opens" glitch). `whitespace-nowrap`
-                  // keeps the box single-line so its width is purely the text.
+                  // (`whitespace-nowrap`, auto width) at every endpoint, with horizontal
+                  // placement owned by the flex parent (items-center for the leaf column,
+                  // left for the ancestor row).
+                  //
+                  // `text-center` is applied to BOTH window variants (leaf + ancestor),
+                  // not just the leaf. At rest it is a no-op — the box hugs its text, so
+                  // there is nothing to centre within. It matters only DURING the morph:
+                  // GSAP Flip pins an explicit, interpolating WIDTH on the box while it
+                  // tweens, and that width is wider than the text's natural width at the
+                  // in-between font size; with the default left alignment the glyphs sat
+                  // at the left edge of that over-wide box and visibly drifted left of the
+                  // glyph before snapping back at completion. Centring keeps the text on
+                  // the box's centre line throughout. Applying it uniformly (rather than
+                  // leaf-only) means a leaf→ancestor morph has no text-align CHANGE to
+                  // snap on — the earlier `w-full text-center` regression.
                   cn(
-                    "whitespace-nowrap",
+                    "whitespace-nowrap text-center",
                     ancestorHeader ? "font-medium text-foreground/75" : "font-semibold",
                   )
                 : variant === "dock"
                   ? // Hug content (centered by the dock header's items-center) so the
                     // box model matches the leaf hexagon title it morphs into — see the
                     // window-title note above. `max-w-full` keeps long names truncating
-                    // within the card instead of overflowing.
-                    "max-w-full truncate font-medium leading-tight"
+                    // within the card instead of overflowing. `text-center` keeps the
+                    // text on the box centre line during the morph for the same reason as
+                    // the window titles (Flip's interpolating explicit width).
+                    "max-w-full truncate text-center font-medium leading-tight"
                   : "min-w-0 flex-1 truncate font-medium",
               !asWindow && (isTask && done ? "text-muted-foreground/60 line-through" : cancelled ? "line-through" : ""),
             )}
