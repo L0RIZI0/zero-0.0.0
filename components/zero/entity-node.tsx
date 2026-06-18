@@ -232,7 +232,14 @@ export function EntityNode({
         : SPACE_CLIP_RECT
       : variant === "dock"
         ? SPACE_CLIP_HEX
-        : undefined
+        : // A collapsed DO-LIST row Space is clipped to SPACE_CLIP_RECT — a full-box
+          // rectangle traced by the SAME six vertices as the hexagon. Visually it is
+          // identical to an unclipped box, but it gives Flip a 6-point "from" state so
+          // opening morphs rect → hex point-for-point (just like the dock card morphs
+          // hex → hex). Without it the captured clip was `none`, which Flip can't
+          // interpolate into a polygon, so the hexagon snapped in and expanded — the
+          // bug. Rows of other kinds (task/event) stay unclipped.
+          SPACE_CLIP_RECT
   // Only the LEAF hexagon needs the SVG outline (a clip-path can't carry a border
   // or shadow, and a straight-edged ring can't trace a hexagon). The square
   // rectangle (ancestor/parent) uses a simple inset ring instead, so it gets no
