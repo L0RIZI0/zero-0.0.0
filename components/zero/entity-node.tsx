@@ -611,6 +611,16 @@ export function EntityNode({
                   // and one step lighter weight (semibold → medium).
                   cn(
                     "whitespace-nowrap",
+                    // A LEAF Space hexagon has a centered column header, so the title
+                    // gets a full-width, center-aligned box — exactly like the dock
+                    // card title it morphs from (`w-full ... text-center`). Without
+                    // this the leaf title box hugs its text; while GSAP Flip transiently
+                    // sizes that box through the fontSize morph the un-centered text
+                    // floated LEFT of the glyph + hexagon centre and only snapped back
+                    // to centre when Flip cleared at the end. Matching the box model on
+                    // both morph endpoints keeps the text centred the whole way. Ancestor
+                    // and spine titles stay left-aligned (their headers are horizontal).
+                    spaceLeafWindow && "w-full text-center",
                     ancestorHeader ? "font-medium text-foreground/75" : "font-semibold",
                   )
                 : variant === "dock"
