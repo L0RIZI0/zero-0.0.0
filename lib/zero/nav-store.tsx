@@ -438,7 +438,14 @@ export function ZeroNavProvider({
         position: "fixed",
         top: liftedRegion.top + rect.top,
         left: liftedRegion.left + rect.left,
-        width: rect.width,
+        // Resting width is `rect.width`, but we subtract `--peek-shrink` (default
+        // 0px) so the hover-peek reveal can shrink this frame from the RIGHT with no
+        // React re-render — the left edge stays pinned, the right edge slides in.
+        // While a morph is animating, Flip owns the width directly, so we emit the
+        // plain number and skip the var to avoid fighting the tween. (The matching
+        // `width` CSS transition is added in entity-node, where the active branch's
+        // own `transition` string lives, so it can't be clobbered.)
+        width: animating ? rect.width : `calc(${rect.width}px - var(--peek-shrink, 0px))`,
         height: rect.height,
         zIndex: 20 + windowDepth * 10,
         // A Space (leaf hexagon OR expanded rectangle) is clip-path-shaped, so it

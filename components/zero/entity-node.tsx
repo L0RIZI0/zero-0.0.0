@@ -15,6 +15,7 @@ import {
   surfaceAt,
   telescopicLevel,
   telescopicSurface,
+  RIGHT_PEEK,
 } from "@/lib/zero/motion"
 import { DURATION_S, MORPH_CSS_EASE } from "@/lib/zero/flip-stage"
 import { NodeGlyph } from "./node-glyph"
@@ -357,7 +358,10 @@ export function EntityNode({
                   // transition lets ancestors recede smoothly as the stack
                   // deepens/retracts.
                   backgroundColor: telescopicSurface(depth, leafDepth, isDark),
-                  transition: `background-color ${DURATION_S} ${MORPH_CSS_EASE}`,
+                  // Background recede + the hover-peek width shrink. Width is only
+                  // transitioned at rest (`!animating`); during a morph Flip drives
+                  // width directly, so transitioning it too would double-animate.
+                  transition: `background-color ${DURATION_S} ${MORPH_CSS_EASE}${animating ? "" : `, width ${DURATION_S} ${MORPH_CSS_EASE}`}`,
                   // A CSS clip-path clips away box-shadow, so the hexagon's
                   // `shadow-2xl` never renders — a `filter: drop-shadow` (applied
                   // AFTER clipping) follows the hexagon outline and restores the
@@ -375,7 +379,9 @@ export function EntityNode({
                   // expanded ancestor Space also adds its rectangle clip-path
                   // (SPACE_CLIP_RECT) — the same six points the hexagon morphs to.
                   backgroundColor: telescopicSurface(depth, leafDepth, isDark),
-                  transition: `background-color ${DURATION_S} ${MORPH_CSS_EASE}`,
+                  // Background recede + the hover-peek width shrink (rest only; Flip
+                  // owns width during morphs — see the leaf-space branch above).
+                  transition: `background-color ${DURATION_S} ${MORPH_CSS_EASE}${animating ? "" : `, width ${DURATION_S} ${MORPH_CSS_EASE}`}`,
                   ...(clipPath ? { clipPath } : null),
                 }
             : ({
@@ -456,6 +462,27 @@ export function EntityNode({
               showCloseBorder ? "opacity-100" : "opacity-0",
             )}
             style={{ borderRadius: "inherit" }}
+          />
+        )}
+
+        {/* Hover-peek catcher. Buried IN-BETWEEN ancestors (everything from the home
+            view's first child down to the leaf's grandparent) show only a hairline
+            RIGHT_PEEK_SLIVER of their OUT rail. This invisible strip rides their
+            right edge; hovering the exposed sliver tells the nav layer to shrink
+            every DEEPER window from the right (via the --peek-shrink CSS var) so
+            THIS ancestor's full OUT rail is exposed, then restores on leave. It is
+            only the leaf's grandparent and higher: the leaf's direct parent already
+            shows a full peek, and the leaf/home are never buried. The strip is wider
+            than the resting sliver so that, once the reveal opens the gap, the
+            pointer stays over it (no collapse flicker) anywhere in the exposed band.
+            Sits below the child window (lower z), so only its exposed part is live. */}
+        {asWindow && !isTop && depth < leafDepth - 1 && (
+          <div
+            aria-hidden
+            onMouseEnter={() => nav.revealAncestor(depth)}
+            onMouseLeave={() => nav.clearReveal()}
+            className="absolute inset-y-0 right-0 z-40"
+            style={{ width: RIGHT_PEEK + 8 }}
           />
         )}
 
