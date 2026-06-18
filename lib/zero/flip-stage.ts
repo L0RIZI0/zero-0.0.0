@@ -94,7 +94,12 @@ export function captureStage(): FlipState | null {
   // row → hex window and back) tweens smoothly in the same single Flip pass that
   // already morphs size, fontSize and borderRadius. Proven in the hexagon-dock
   // prototype: without it the clip snapped at the end of the morph.
-  return Flip.getState(targets, { props: "fontSize,borderRadius,clipPath" })
+  // `backgroundColor` is captured for the SAME reason: when the stack deepens past
+  // the surface cap (leafDepth > 3), every ancestor recedes one shade darker. Flip
+  // nulls CSS transitions on its targets during the morph, so without capturing the
+  // colour here that recede would SNAP at the start of the open/close. Letting Flip
+  // own the colour makes it tween old→new across the morph on the shared curve.
+  return Flip.getState(targets, { props: "fontSize,borderRadius,clipPath,backgroundColor" })
 }
 
 type Key = { id: string; depth: number }
@@ -120,7 +125,10 @@ export function playStage(
       ease: MORPH_EASE,
       absolute: "[data-flip-role='frame']",
       nested: true,
-      props: "clipPath",
+      // `backgroundColor` rides the morph too (see captureStage): the per-depth
+      // surface recede that fires when the stack crosses the cap now tweens on the
+      // morph curve instead of snapping (Flip nulls CSS transitions on its targets).
+      props: "clipPath,backgroundColor",
       // Clear leftover sub-pixel transforms / will-change on the inner glyph+title
       // when the morph lands so they settle crisply instead of shaking at the very
       // end (prototype fix).
