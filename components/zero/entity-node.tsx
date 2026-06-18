@@ -222,9 +222,8 @@ export function EntityNode({
   const spaceWindow = isSpace && asWindow
   const spaceLeafWindow = spaceWindow && isTop
   // An EXPANDED ancestor Space window: a Space with a child open over it. Its clip
-  // is a PERFECT full-box rectangle, so — unlike the leaf hexagon — its corners are
-  // rounded by a real CSS border-radius (matching every other window exactly) and
-  // its boundary is a rounded inset ring, not an SVG outline.
+  // is a square full-box rectangle (identical to any other square window), but the
+  // clip strips the normal shadow-2xl, so its boundary is supplied by an inset ring.
   const spaceAncestorWindow = spaceWindow && !isTop
   const clipPath = !isSpace
     ? undefined
@@ -235,9 +234,9 @@ export function EntityNode({
       : variant === "dock"
         ? SPACE_CLIP_HEX
         : undefined
-  // Only the LEAF hexagon needs the SVG outline (a clip-path can't be bordered or
-  // shadowed, and border-radius can't trace a hexagon). The expanded rectangle uses
-  // border-radius + an inset ring instead, so it gets no outline.
+  // Only the LEAF hexagon needs the SVG outline (a clip-path can't carry a border
+  // or shadow, and a straight-edged ring can't trace a hexagon). The square
+  // rectangle uses a simple inset ring instead, so it gets no outline.
   const spaceOutlinePoints = spaceLeafWindow ? SPACE_HEX_POINTS : null
 
   // Borderless design. Backgrounds are driven by the inline `surfaceAt` ramp
@@ -379,18 +378,16 @@ export function EntityNode({
                   // owns width during morphs — see the leaf-space branch above).
                   transition: `background-color ${DURATION_S} ${MORPH_CSS_EASE}${animating ? "" : `, width ${DURATION_S} ${MORPH_CSS_EASE}`}`,
                   // An expanded ancestor Space keeps its rectangle clip-path AT ALL
-                  // TIMES (a perfect full-box rect — the same 30 points the hexagon
+                  // TIMES (a square full-box rect — the same six points the hexagon
                   // morphs to). Pinning it is what kills the old flicker: previously
                   // the clip was swapped for a plain radius whenever the stack
                   // settled, so every open/close made the Space pop at the morph's
                   // start and end. Now Flip just interpolates the points rect → hex
-                  // with nothing to snap. Because the clip is a full box, the frame's
-                  // own border-radius (from winStyle, same as any window) rounds the
-                  // corners — so a Space rectangle's corners match a task window's
-                  // exactly. A full-box clip still strips the outer shadow-2xl,
-                  // though, so the visible boundary is a rounded INSET ring (which
-                  // follows that border-radius). Only for ancestor Spaces — task/
-                  // event windows have no clip and keep their real shadow-2xl.
+                  // with nothing to snap. Since every window is square, this full-box
+                  // rect is visually identical to any other window — but the clip
+                  // strips the outer shadow-2xl, so its boundary is a 1px INSET ring.
+                  // Only for ancestor Spaces — task/event windows have no clip and
+                  // keep their real shadow-2xl.
                   ...(clipPath
                     ? {
                         clipPath,
@@ -400,8 +397,9 @@ export function EntityNode({
                 }
             : ({
                 // Collapsed: Space dock cards are hexagons (clipPath), everything
-                // else a rounded rectangle.
-                ...(clipPath ? { clipPath } : { borderRadius: 4 }),
+                // else a SQUARE rectangle (matching the square windows they morph
+                // into — every entity surface is square).
+                ...(clipPath ? { clipPath } : { borderRadius: 0 }),
                 // While shrinking closed it is a row again, but Flip animates it
                 // at full window size; lift it above sibling rows so parent
                 // content can't bleed through until it lands in its slot.

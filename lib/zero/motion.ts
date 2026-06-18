@@ -37,33 +37,20 @@ export const MORPH_SOURCE_ATTR = "data-morph-source"
 export const MORPH_WHERE_ATTR = "data-morph-where"
 
 /**
- * Clip-path shapes for the single-node morph. Spaces render as a hexagon (dock
- * card + open window); everything else stays a rounded rectangle. Both are
- * expressed as clip-paths so GSAP Flip can tween BETWEEN them in one pass (a
- * Space row reshaping rect → hex on open, and back on close). Ported from the
- * hexagon-dock prototype.
+ * Clip-path shapes for the single-node morph. A Space LEAF renders as a hexagon;
+ * everything else is a plain rectangle (square corners — every window is square,
+ * so an expanded Space rectangle is visually identical to any other window). Both
+ * shapes are expressed as clip-paths with the SAME six points in the SAME order,
+ * so GSAP Flip tweens BETWEEN them point-for-point in one pass: a Space reshapes
+ * rect → hex on open and hex → rect on close, with nothing to snap.
  *
- * The hexagon's six sharp vertices are SOFTENED into small rounded corners (so a
- * Space reads with gentle corners like every other rounded-rect entity, instead
- * of razor points). A clip-path `polygon()` can only draw straight segments, so
- * each corner is a short quadratic-Bézier fillet SAMPLED into a few points — see
- * `roundedPolygonPoints`. The same generator builds both the hexagon and its
- * flattened rectangle from the SAME vertex count, so every output point keeps a
- * 1:1 counterpart and Flip still interpolates the two clip-paths point-for-point.
+ * The rectangle is the hexagon "flattened": the two slanted upper vertices ride
+ * up to the top edge and the two lower vertices drop to the bottom edge — exactly
+ * the shape an EXPANDED Space takes once a child opens over it.
  */
-// Corner-fillet fraction + segment count for the HEXAGON clip. The rectangle clip
-// is left perfectly SHARP (fillet 0) and rounds its corners with a real CSS
-// border-radius on the frame instead — that's how a Space rectangle matches every
-// other rounded-rect window's 8px corners exactly. Both shapes are still sampled
-// into the SAME point count so GSAP Flip morphs one into the other point-for-point.
-const CORNER_FILLET = 0.02
-const CORNER_SEG = 4
-
-// Base (sharp) vertices, clockwise from the top. The rectangle is the hexagon
-// "flattened": the two slanted upper vertices ride to the top edge and the two
-// lower vertices drop to the bottom edge — the shape an EXPANDED Space takes once
-// a child opens over it. Same order + count as the hexagon (point-for-point morph).
-const HEX_VERTS: [number, number][] = [
+// Six hexagon vertices (0..100 percent space), clockwise from the top. Exported so
+// the leaf's SVG boundary outline traces the exact same shape as the clip.
+export const SPACE_HEX_POINTS: [number, number][] = [
   [50, 0],
   [100, 25],
   [100, 75],
@@ -71,7 +58,7 @@ const HEX_VERTS: [number, number][] = [
   [0, 75],
   [0, 25],
 ]
-const RECT_VERTS: [number, number][] = [
+const SPACE_RECT_VERTS: [number, number][] = [
   [50, 0],
   [100, 0],
   [100, 100],
@@ -80,47 +67,10 @@ const RECT_VERTS: [number, number][] = [
   [0, 0],
 ]
 
-/**
- * Round a polygon's corners (coords in 0..100 percent space) by replacing each
- * sharp vertex with a quadratic-Bézier fillet (control = the vertex, endpoints =
- * `f` of the way along each adjacent edge), sampled into `seg + 1` straight
- * points. A colinear corner (e.g. the rectangle's flat top edge) stays flat, so
- * the generator is safe to run on both shapes and still yields matching counts.
- */
-function roundedPolygonPoints(verts: [number, number][], f: number, seg: number): [number, number][] {
-  const n = verts.length
-  const out: [number, number][] = []
-  for (let i = 0; i < n; i++) {
-    const [px, py] = verts[(i - 1 + n) % n]
-    const [vx, vy] = verts[i]
-    const [nx, ny] = verts[(i + 1) % n]
-    const ex = vx + f * (px - vx)
-    const ey = vy + f * (py - vy)
-    const xx = vx + f * (nx - vx)
-    const xy = vy + f * (ny - vy)
-    for (let s = 0; s <= seg; s++) {
-      const t = s / seg
-      const mt = 1 - t
-      const x = mt * mt * ex + 2 * mt * t * vx + t * t * xx
-      const y = mt * mt * ey + 2 * mt * t * vy + t * t * xy
-      out.push([Math.round(x * 100) / 100, Math.round(y * 100) / 100])
-    }
-  }
-  return out
-}
-
 const toPolygon = (pts: [number, number][]) => `polygon(${pts.map(([x, y]) => `${x}% ${y}%`).join(", ")})`
 
-/** Rounded HEXAGON corner points (0..100 space). Also drives the leaf hexagon's
- *  SVG boundary outline, so its visible edge traces the exact same shape as the
- *  clip. */
-export const SPACE_HEX_POINTS = roundedPolygonPoints(HEX_VERTS, CORNER_FILLET, CORNER_SEG)
 export const SPACE_CLIP_HEX = toPolygon(SPACE_HEX_POINTS)
-/** The expanded-ancestor rectangle clip is a PERFECT full-box rectangle (fillet 0,
- *  but the SAME 30-point structure as the hexagon so Flip morphs between them
- *  cleanly). Its visible corners are rounded by a real CSS border-radius on the
- *  frame — identical to a task/event window — not by this clip. */
-export const SPACE_CLIP_RECT = toPolygon(roundedPolygonPoints(RECT_VERTS, 0, CORNER_SEG))
+export const SPACE_CLIP_RECT = toPolygon(SPACE_RECT_VERTS)
 
 /**
  * Telescopic, theme-aware, CAPPED surface model. A surface is the page

@@ -448,14 +448,12 @@ export function ZeroNavProvider({
         width: animating ? rect.width : `calc(${rect.width}px - var(--peek-shrink, 0px))`,
         height: rect.height,
         zIndex: 20 + windowDepth * 10,
-        // A LEAF Space is a hexagon (clip-path shaped) and needs no border radius.
-        // But an EXPANDED ancestor Space has a perfect full-box rectangle clip, so it
-        // takes the SAME border-radius as any other window — that real radius is what
-        // rounds its corners (making a Space rectangle's corners match a task
-        // window's exactly), since its clip is a sharp box. Other windows: top-left
-        // square, subtle 8px top-right (matching the bottom) for every window EXCEPT
-        // the first child opened from home (windowDepth === 1). (TL TR BR BL)
-        borderRadius: isSpaceLeaf ? "0" : `0 ${windowDepth >= 2 ? "8px" : "0"} 8px 8px`,
+        // Every window has SQUARE corners — the simplest rule that keeps all
+        // entities harmonious. The only non-rectangular window is a Space LEAF (a
+        // hexagon, via clip-path); an expanded ancestor Space is a sharp full-box
+        // rectangle clip, so with square corners it is visually identical to any
+        // other window. No CSS-radius vs clip-path corner matching to reconcile.
+        borderRadius: "0",
         // Only the leaf hexagon overflows the box and pads its content into the
         // visible band; an expanded ancestor rectangle fills its box normally.
         ...(isSpaceLeaf ? ({ ["--hex-inset-y"]: `${hexInsetY}px` } as React.CSSProperties) : null),
@@ -474,10 +472,8 @@ export function ZeroNavProvider({
         width: rect.width,
         height: rect.height,
         zIndex: 20 + windowDepth * 10,
-        // Top-left square. Subtle top-right radius (8px, matching the bottom) for
-        // every window EXCEPT the first child opened from home (windowDepth === 1).
-        // (TL TR BR BL)
-        borderRadius: `0 ${windowDepth >= 2 ? "8px" : "0"} 8px 8px`,
+        // Square corners — every window is square (see styleFor).
+        borderRadius: "0",
       }
     }
 
