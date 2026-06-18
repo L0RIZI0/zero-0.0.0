@@ -51,10 +51,11 @@ export const MORPH_WHERE_ATTR = "data-morph-where"
  * flattened rectangle from the SAME vertex count, so every output point keeps a
  * 1:1 counterpart and Flip still interpolates the two clip-paths point-for-point.
  */
-// Fraction of each adjacent edge consumed by a corner fillet, and how many
-// straight segments approximate that fillet's curve. Kept SMALL so a Space reads
-// with discrete corners like every other rounded-rect window (an 8px-ish round),
-// not a heavily-rounded blob; both clips share them so their point counts match.
+// Corner-fillet fraction + segment count for the HEXAGON clip. The rectangle clip
+// is left perfectly SHARP (fillet 0) and rounds its corners with a real CSS
+// border-radius on the frame instead — that's how a Space rectangle matches every
+// other rounded-rect window's 8px corners exactly. Both shapes are still sampled
+// into the SAME point count so GSAP Flip morphs one into the other point-for-point.
 const CORNER_FILLET = 0.02
 const CORNER_SEG = 4
 
@@ -110,13 +111,16 @@ function roundedPolygonPoints(verts: [number, number][], f: number, seg: number)
 
 const toPolygon = (pts: [number, number][]) => `polygon(${pts.map(([x, y]) => `${x}% ${y}%`).join(", ")})`
 
-/** Rounded corner points (0..100 space) for both Space shapes. These also drive
- *  the SVG boundary outline, so the visible edge traces the exact same shape as
- *  the clip — for the leaf hexagon AND the expanded-ancestor rectangle. */
+/** Rounded HEXAGON corner points (0..100 space). Also drives the leaf hexagon's
+ *  SVG boundary outline, so its visible edge traces the exact same shape as the
+ *  clip. */
 export const SPACE_HEX_POINTS = roundedPolygonPoints(HEX_VERTS, CORNER_FILLET, CORNER_SEG)
-export const SPACE_RECT_POINTS = roundedPolygonPoints(RECT_VERTS, CORNER_FILLET, CORNER_SEG)
 export const SPACE_CLIP_HEX = toPolygon(SPACE_HEX_POINTS)
-export const SPACE_CLIP_RECT = toPolygon(SPACE_RECT_POINTS)
+/** The expanded-ancestor rectangle clip is a PERFECT full-box rectangle (fillet 0,
+ *  but the SAME 30-point structure as the hexagon so Flip morphs between them
+ *  cleanly). Its visible corners are rounded by a real CSS border-radius on the
+ *  frame — identical to a task/event window — not by this clip. */
+export const SPACE_CLIP_RECT = toPolygon(roundedPolygonPoints(RECT_VERTS, 0, CORNER_SEG))
 
 /**
  * Telescopic, theme-aware, CAPPED surface model. A surface is the page

@@ -448,11 +448,14 @@ export function ZeroNavProvider({
         width: animating ? rect.width : `calc(${rect.width}px - var(--peek-shrink, 0px))`,
         height: rect.height,
         zIndex: 20 + windowDepth * 10,
-        // A Space (leaf hexagon OR expanded rectangle) is clip-path-shaped, so it
-        // needs no border radius. Other windows: top-left square, and a subtle
-        // top-right radius (8px, matching the bottom corners) for every window
-        // EXCEPT the first child opened from home (windowDepth === 1). (TL TR BR BL)
-        borderRadius: isSpaceWindow ? "0" : `0 ${windowDepth >= 2 ? "8px" : "0"} 8px 8px`,
+        // A LEAF Space is a hexagon (clip-path shaped) and needs no border radius.
+        // But an EXPANDED ancestor Space has a perfect full-box rectangle clip, so it
+        // takes the SAME border-radius as any other window — that real radius is what
+        // rounds its corners (making a Space rectangle's corners match a task
+        // window's exactly), since its clip is a sharp box. Other windows: top-left
+        // square, subtle 8px top-right (matching the bottom) for every window EXCEPT
+        // the first child opened from home (windowDepth === 1). (TL TR BR BL)
+        borderRadius: isSpaceLeaf ? "0" : `0 ${windowDepth >= 2 ? "8px" : "0"} 8px 8px`,
         // Only the leaf hexagon overflows the box and pads its content into the
         // visible band; an expanded ancestor rectangle fills its box normally.
         ...(isSpaceLeaf ? ({ ["--hex-inset-y"]: `${hexInsetY}px` } as React.CSSProperties) : null),

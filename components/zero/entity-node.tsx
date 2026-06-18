@@ -13,7 +13,6 @@ import {
   SPACE_CLIP_HEX,
   SPACE_CLIP_RECT,
   SPACE_HEX_POINTS,
-  SPACE_RECT_POINTS,
   surfaceAt,
   telescopicLevel,
   telescopicSurface,
@@ -222,9 +221,10 @@ export function EntityNode({
   // Tasks/events never clip.
   const spaceWindow = isSpace && asWindow
   const spaceLeafWindow = spaceWindow && isTop
-  // An EXPANDED ancestor Space window (rectangle clip): a Space with a child open
-  // over it. Like the leaf it is clip-path shaped, so its boundary comes from the
-  // SVG outline rather than a box-shadow.
+  // An EXPANDED ancestor Space window: a Space with a child open over it. Its clip
+  // is a PERFECT full-box rectangle, so — unlike the leaf hexagon — its corners are
+  // rounded by a real CSS border-radius (matching every other window exactly) and
+  // its boundary is a rounded inset ring, not an SVG outline.
   const spaceAncestorWindow = spaceWindow && !isTop
   const clipPath = !isSpace
     ? undefined
@@ -235,9 +235,10 @@ export function EntityNode({
       : variant === "dock"
         ? SPACE_CLIP_HEX
         : undefined
-  // Boundary-outline points matching whichever Space clip is active (hexagon for
-  // the leaf, rectangle for an expanded ancestor); null for non-Space windows.
-  const spaceOutlinePoints = spaceLeafWindow ? SPACE_HEX_POINTS : spaceAncestorWindow ? SPACE_RECT_POINTS : null
+  // Only the LEAF hexagon needs the SVG outline (a clip-path can't be bordered or
+  // shadowed, and border-radius can't trace a hexagon). The expanded rectangle uses
+  // border-radius + an inset ring instead, so it gets no outline.
+  const spaceOutlinePoints = spaceLeafWindow ? SPACE_HEX_POINTS : null
 
   // Borderless design. Backgrounds are driven by the inline `surfaceAt` ramp
   // (see the style prop below), NOT utility classes, so every level shares one
@@ -378,16 +379,24 @@ export function EntityNode({
                   // owns width during morphs — see the leaf-space branch above).
                   transition: `background-color ${DURATION_S} ${MORPH_CSS_EASE}${animating ? "" : `, width ${DURATION_S} ${MORPH_CSS_EASE}`}`,
                   // An expanded ancestor Space keeps its rectangle clip-path AT ALL
-                  // TIMES (the same rounded points the hexagon morphs to). Pinning it
-                  // is what kills the old flicker: previously the clip was swapped
-                  // for a plain `borderRadius` whenever the stack settled, so every
-                  // open/close made the Space pop shape+shadow at the morph's start
-                  // and end. Keeping the clip constant means Flip simply interpolates
-                  // the points rect → hex with nothing to snap. The clip strips
-                  // box-shadow, so the boundary is the SVG outline overlay below.
-                  // (clipPath is only truthy here for ancestor Spaces — task/event
-                  // windows have none and keep their shadow-2xl + radius.)
-                  ...(clipPath ? { clipPath } : null),
+                  // TIMES (a perfect full-box rect — the same 30 points the hexagon
+                  // morphs to). Pinning it is what kills the old flicker: previously
+                  // the clip was swapped for a plain radius whenever the stack
+                  // settled, so every open/close made the Space pop at the morph's
+                  // start and end. Now Flip just interpolates the points rect → hex
+                  // with nothing to snap. Because the clip is a full box, the frame's
+                  // own border-radius (from winStyle, same as any window) rounds the
+                  // corners — so a Space rectangle's corners match a task window's
+                  // exactly. A full-box clip still strips the outer shadow-2xl,
+                  // though, so the visible boundary is a rounded INSET ring (which
+                  // follows that border-radius). Only for ancestor Spaces — task/
+                  // event windows have no clip and keep their real shadow-2xl.
+                  ...(clipPath
+                    ? {
+                        clipPath,
+                        boxShadow: `inset 0 0 0 1px ${isDark ? "rgb(255 255 255 / 0.30)" : "rgb(0 0 0 / 0.22)"}`,
+                      }
+                    : null),
                 }
             : ({
                 // Collapsed: Space dock cards are hexagons (clipPath), everything
@@ -410,15 +419,15 @@ export function EntityNode({
         }
         className={frameClass}
       >
-        {/* Space window boundary (leaf hexagon OR expanded-ancestor rectangle).
-            Space windows carry no box-shadow (the clip-path erases it), so this SVG
-            supplies the entire boundary. It traces the EXACT same rounded points as
-            the active clip (percentage coords map identically), giving a crisp
-            hairline that follows the same softened corners and separates the Space
-            from an identically-colored parent behind it. The frame clips its
-            children to the shape, so the stroke's outer half is clipped away and a
-            clean ~1px inner rim remains. `non-scaling-stroke` keeps it a uniform
-            hairline despite the viewBox stretching to the window's size. */}
+        {/* Leaf-hexagon boundary. A clip-path can't carry a border or box-shadow, so
+            this SVG traces the EXACT same rounded points as the hexagon clip
+            (percentage coords map identically), giving a crisp hairline that
+            separates the Space from an identically-colored parent behind it. The
+            frame clips its children to the hexagon, so the stroke's outer half is
+            clipped away and a clean ~1px inner rim remains. `non-scaling-stroke`
+            keeps it a uniform hairline despite the viewBox stretching to the window's
+            size. (The expanded rectangle uses border-radius + an inset ring instead
+            — see the ancestor style branch above.) */}
         {spaceOutlinePoints && (
           <svg
             aria-hidden
