@@ -13,6 +13,7 @@ import {
   SPACE_CLIP_HEX,
   SPACE_CLIP_RECT,
   SPACE_HEX_POINTS,
+  SPACE_RECT_POINTS,
   surfaceAt,
   telescopicLevel,
   telescopicSurface,
@@ -23,35 +24,12 @@ import { NodeGlyph } from "./node-glyph"
 import { EntityBody } from "./entity-body"
 import { cn } from "@/lib/utils"
 
-// Hexagon-following drop shadow for LEAF Space windows. A CSS clip-path clips
-// away box-shadow, so the hexagon's `shadow-2xl` never renders — that's why a
-// Space showed no depth against its parent while task/event siblings (rounded
-// rects, unclipped) keep theirs. `filter: drop-shadow` is applied AFTER clipping,
-// so it traces the hex outline and restores the cue.
-//
-// On this near-black dark theme a purely dark shadow is invisible (black on
-// black), so the stack pairs a faint LIGHT rim — a 1px near-edge light glow that
-// crisply outlines where the hexagon begins/ends on top of an identically
-// colored parent — with a strong dark ambient + contact shadow that grounds it
-// and reads as elevation. The rim is what makes the boundary legible; the dark
-// layers supply the lift.
-// A clip-path clips away box-shadow, so the leaf Space's depth cue comes from a
-// `filter: drop-shadow` stack that traces the hexagon outline instead. The RIM
-// (the first two crisp, near-zero-blur shadows) must be theme-aware: a WHITE rim
-// reads on the dark theme but is invisible white-on-white in light mode, so light
-// mode uses a DARK rim. The ambient cast shadows below are always dark (they read
-// on either background).
-function spaceDropShadow(isDark: boolean): string {
-  const rim = isDark
-    ? "drop-shadow(0 0 1px rgb(255 255 255 / 0.85)) drop-shadow(0 0 2.5px rgb(255 255 255 / 0.28))"
-    : "drop-shadow(0 0 1px rgb(0 0 0 / 0.45)) drop-shadow(0 0 2.5px rgb(0 0 0 / 0.18))"
-  const ambient = isDark
-    ? "drop-shadow(0 20px 32px rgb(0 0 0 / 0.7)) drop-shadow(0 6px 12px rgb(0 0 0 / 0.55))"
-    : "drop-shadow(0 16px 28px rgb(0 0 0 / 0.22)) drop-shadow(0 5px 10px rgb(0 0 0 / 0.16))"
-  return `${rim} ${ambient}`
-}
-
-
+// Space windows (leaf hexagon AND expanded-ancestor rectangle) are clip-path
+// shaped, and a clip-path clips away box-shadow — so they carry NO drop shadow.
+// Their boundary against an identically-colored parent is supplied entirely by a
+// crisp SVG outline (see the overlay in the frame below), which reads cleanly in
+// both themes and — unlike a `filter: drop-shadow` — never forces a layer
+// re-rasterization or re-anchors fixed children during the Flip morph.
 
 const priorityDot: Record<TaskPriority, string> = {
   high: "bg-accent",
@@ -244,6 +222,10 @@ export function EntityNode({
   // Tasks/events never clip.
   const spaceWindow = isSpace && asWindow
   const spaceLeafWindow = spaceWindow && isTop
+  // An EXPANDED ancestor Space window (rectangle clip): a Space with a child open
+  // over it. Like the leaf it is clip-path shaped, so its boundary comes from the
+  // SVG outline rather than a box-shadow.
+  const spaceAncestorWindow = spaceWindow && !isTop
   const clipPath = !isSpace
     ? undefined
     : asWindow
@@ -253,6 +235,9 @@ export function EntityNode({
       : variant === "dock"
         ? SPACE_CLIP_HEX
         : undefined
+  // Boundary-outline points matching whichever Space clip is active (hexagon for
+  // the leaf, rectangle for an expanded ancestor); null for non-Space windows.
+  const spaceOutlinePoints = spaceLeafWindow ? SPACE_HEX_POINTS : spaceAncestorWindow ? SPACE_RECT_POINTS : null
 
   // Borderless design. Backgrounds are driven by the inline `surfaceAt` ramp
   // (see the style prop below), NOT utility classes, so every level shares one
@@ -376,14 +361,10 @@ export function EntityNode({
                   // transitioned at rest (`!animating`); during a morph Flip drives
                   // width directly, so transitioning it too would double-animate.
                   transition: `background-color ${DURATION_S} ${MORPH_CSS_EASE}${animating ? "" : `, width ${DURATION_S} ${MORPH_CSS_EASE}`}`,
-                  // A CSS clip-path clips away box-shadow, so the hexagon's
-                  // `shadow-2xl` never renders — a `filter: drop-shadow` (applied
-                  // AFTER clipping) follows the hexagon outline and restores the
-                  // depth cue. Only the LEAF gets it: a CSS `filter` establishes a
-                  // containing block for `position: fixed` descendants, so on an
-                  // ancestor it would re-anchor the child window to this frame and
-                  // throw it off-screen. The leaf has no fixed child, so it's safe.
-                  filter: spaceDropShadow(isDark),
+                  // No `filter: drop-shadow` here: a CSS filter forces the layer to
+                  // re-rasterize on every Flip transform (the flicker) and would
+                  // establish a containing block for fixed descendants. The hexagon
+                  // boundary is drawn by the SVG outline overlay below instead.
                 }
               : {
                   ...(winStyle ?? {}),
@@ -396,16 +377,17 @@ export function EntityNode({
                   // Background recede + the hover-peek width shrink (rest only; Flip
                   // owns width during morphs — see the leaf-space branch above).
                   transition: `background-color ${DURATION_S} ${MORPH_CSS_EASE}${animating ? "" : `, width ${DURATION_S} ${MORPH_CSS_EASE}`}`,
-                  // An expanded ancestor Space is a clip-path RECTANGLE — but a
-                  // clip-path clips away the frame's `shadow-2xl` (same reason the
-                  // leaf hexagon needs a drop-shadow filter). So once SETTLED we drop
-                  // the clip and round the corners, and the shadow renders exactly
-                  // like every other unclipped window. The clip is only kept WHILE
-                  // animating, when Flip tweens the six points between hexagon and
-                  // rectangle; the brief shadow loss during that morph is unseen.
+                  // An expanded ancestor Space keeps its rectangle clip-path AT ALL
+                  // TIMES (the same rounded points the hexagon morphs to). Pinning it
+                  // is what kills the old flicker: previously the clip was swapped
+                  // for a plain `borderRadius` whenever the stack settled, so every
+                  // open/close made the Space pop shape+shadow at the morph's start
+                  // and end. Keeping the clip constant means Flip simply interpolates
+                  // the points rect → hex with nothing to snap. The clip strips
+                  // box-shadow, so the boundary is the SVG outline overlay below.
                   // (clipPath is only truthy here for ancestor Spaces — task/event
-                  // windows have none and already keep their shadow + radius.)
-                  ...(clipPath ? (animating ? { clipPath } : { borderRadius: "0 8px 8px 8px" }) : null),
+                  // windows have none and keep their shadow-2xl + radius.)
+                  ...(clipPath ? { clipPath } : null),
                 }
             : ({
                 // Collapsed: Space dock cards are hexagons (clipPath), everything
@@ -428,17 +410,16 @@ export function EntityNode({
         }
         className={frameClass}
       >
-        {/* Leaf Space boundary. A clip-path erases box-shadow AND borders, so the
-            hexagon edge can't be drawn the usual way — and a drop-shadow is too
-            faint to separate the Space from a same-colored parent behind it. This
-            SVG traces the EXACT same rounded points as SPACE_CLIP_HEX (percentage
-            coords map identically to the clip), giving a crisp hairline outline
-            that follows the same softened corners. The frame clips its children to
-            the hexagon, so the stroke's outer half is clipped away and a clean ~1px
-            inner rim remains. `non-scaling-stroke` keeps it a uniform hairline
-            despite the viewBox stretching to the window's size. Leaf only: ancestor
-            Spaces drop their clip when settled and use a real shadow-2xl. */}
-        {spaceLeafWindow && (
+        {/* Space window boundary (leaf hexagon OR expanded-ancestor rectangle).
+            Space windows carry no box-shadow (the clip-path erases it), so this SVG
+            supplies the entire boundary. It traces the EXACT same rounded points as
+            the active clip (percentage coords map identically), giving a crisp
+            hairline that follows the same softened corners and separates the Space
+            from an identically-colored parent behind it. The frame clips its
+            children to the shape, so the stroke's outer half is clipped away and a
+            clean ~1px inner rim remains. `non-scaling-stroke` keeps it a uniform
+            hairline despite the viewBox stretching to the window's size. */}
+        {spaceOutlinePoints && (
           <svg
             aria-hidden
             className="pointer-events-none absolute inset-0 z-[1] h-full w-full"
@@ -446,7 +427,7 @@ export function EntityNode({
             preserveAspectRatio="none"
           >
             <polygon
-              points={SPACE_HEX_POINTS.map(([x, y]) => `${x},${y}`).join(" ")}
+              points={spaceOutlinePoints.map(([x, y]) => `${x},${y}`).join(" ")}
               fill="none"
               stroke={isDark ? "rgb(255 255 255 / 0.45)" : "rgb(0 0 0 / 0.32)"}
               strokeWidth={2}

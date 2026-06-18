@@ -112,22 +112,9 @@ export function playStage(
 ) {
   const stage = stageEl
   if (state) {
-    // PERFORMANCE: a leaf Space frame carries `filter: drop-shadow(...)` so its
-    // hexagon gets a depth shadow (clip-path strips the normal box-shadow). But a
-    // drop-shadow filter re-rasterizes a blurred copy of the element EVERY frame
-    // as it grows during the morph — the single biggest cost in a Space open/close
-    // (measured ~19fps vs ~33fps for a plain task). The shadow only reads on the
-    // settled, zoomed-out hexagon, so we strip it for the duration of the morph
-    // and restore it on completion — invisible to the user, far snappier. We
-    // snapshot each frame's inline filter first, null it, then put it back verbatim.
-    const filtered: { el: HTMLElement; filter: string }[] = []
-    stage?.querySelectorAll<HTMLElement>("[data-flip-role='frame']").forEach((el) => {
-      const f = el.style.filter
-      if (f && f !== "none") {
-        filtered.push({ el, filter: f })
-        el.style.filter = "none"
-      }
-    })
+    // Space windows carry NO filter (their boundary is an SVG outline, not a
+    // drop-shadow), so there is nothing to strip here — the morph stays cheap
+    // because no layer is re-rasterized blurred on every frame as it grows.
     Flip.from(state, {
       duration: MORPH_DURATION,
       ease: MORPH_EASE,
@@ -136,14 +123,10 @@ export function playStage(
       props: "clipPath",
       // Clear leftover sub-pixel transforms / will-change on the inner glyph+title
       // when the morph lands so they settle crisply instead of shaking at the very
-      // end (prototype fix). Also restore the leaf Space's drop-shadow now that the
-      // hexagon is at rest (cheap when not animating).
+      // end (prototype fix).
       onComplete: () => {
         const inner = stageEl?.querySelectorAll("[data-flip-role='inner']")
         if (inner?.length) gsap.set(inner, { clearProps: "transform,willChange" })
-        filtered.forEach(({ el, filter }) => {
-          el.style.filter = filter
-        })
       },
     })
   }

@@ -52,10 +52,11 @@ export const MORPH_WHERE_ATTR = "data-morph-where"
  * 1:1 counterpart and Flip still interpolates the two clip-paths point-for-point.
  */
 // Fraction of each adjacent edge consumed by a corner fillet, and how many
-// straight segments approximate that fillet's curve. Tuned for a soft-but-subtle
-// round on the big hexagon; both clips share them so their point counts match.
-const CORNER_FILLET = 0.055
-const CORNER_SEG = 5
+// straight segments approximate that fillet's curve. Kept SMALL so a Space reads
+// with discrete corners like every other rounded-rect window (an 8px-ish round),
+// not a heavily-rounded blob; both clips share them so their point counts match.
+const CORNER_FILLET = 0.02
+const CORNER_SEG = 4
 
 // Base (sharp) vertices, clockwise from the top. The rectangle is the hexagon
 // "flattened": the two slanted upper vertices ride to the top edge and the two
@@ -109,11 +110,13 @@ function roundedPolygonPoints(verts: [number, number][], f: number, seg: number)
 
 const toPolygon = (pts: [number, number][]) => `polygon(${pts.map(([x, y]) => `${x}% ${y}%`).join(", ")})`
 
-/** Rounded hexagon corner points (0..100 space) — also drives the SVG outline so
- *  the visible boundary traces the exact same shape as the clip. */
+/** Rounded corner points (0..100 space) for both Space shapes. These also drive
+ *  the SVG boundary outline, so the visible edge traces the exact same shape as
+ *  the clip — for the leaf hexagon AND the expanded-ancestor rectangle. */
 export const SPACE_HEX_POINTS = roundedPolygonPoints(HEX_VERTS, CORNER_FILLET, CORNER_SEG)
+export const SPACE_RECT_POINTS = roundedPolygonPoints(RECT_VERTS, CORNER_FILLET, CORNER_SEG)
 export const SPACE_CLIP_HEX = toPolygon(SPACE_HEX_POINTS)
-export const SPACE_CLIP_RECT = toPolygon(roundedPolygonPoints(RECT_VERTS, CORNER_FILLET, CORNER_SEG))
+export const SPACE_CLIP_RECT = toPolygon(SPACE_RECT_POINTS)
 
 /**
  * Telescopic, theme-aware, CAPPED surface model. A surface is the page
