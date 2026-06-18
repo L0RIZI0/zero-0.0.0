@@ -10,18 +10,18 @@ import type { EntityKind } from "./types"
 export const MORPH_EASE: [number, number, number, number] = [0.62, 0.02, 0.07, 0.99]
 
 export const layerTransition: Transition = {
-  duration: 0.66,
+  duration: 2,
   ease: MORPH_EASE,
 }
 
 export const contentTransition: Transition = {
-  duration: 0.66,
+  duration: 2,
   ease: MORPH_EASE,
 }
 
 /** Quick, natural expand/collapse for the side panels (Inputs / Outputs). */
 export const panelTransition: Transition = {
-  duration: 0.66,
+  duration: 2,
   ease: MORPH_EASE,
 }
 
