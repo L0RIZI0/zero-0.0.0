@@ -427,6 +427,33 @@ export function EntityNode({
         }
         className={frameClass}
       >
+        {/* Leaf Space boundary. A clip-path erases box-shadow AND borders, so the
+            hexagon edge can't be drawn the usual way — and a drop-shadow is too
+            faint to separate the Space from a same-colored parent behind it. This
+            SVG traces the EXACT same 6 points as SPACE_CLIP_HEX (percentage coords
+            map identically to the clip), giving a crisp hairline outline. The frame
+            clips its children to the hexagon, so the stroke's outer half is clipped
+            away and a clean ~1px inner rim remains. `non-scaling-stroke` keeps it a
+            uniform hairline despite the viewBox stretching to the window's size.
+            Leaf only: ancestor Spaces drop their clip when settled and use a real
+            shadow-2xl, so they need no overlay. */}
+        {spaceLeafWindow && (
+          <svg
+            aria-hidden
+            className="pointer-events-none absolute inset-0 z-[1] h-full w-full"
+            viewBox="0 0 100 100"
+            preserveAspectRatio="none"
+          >
+            <polygon
+              points="50,0 100,25 100,75 50,100 0,75 0,25"
+              fill="none"
+              stroke={isDark ? "rgb(255 255 255 / 0.45)" : "rgb(0 0 0 / 0.32)"}
+              strokeWidth={2}
+              vectorEffect="non-scaling-stroke"
+            />
+          </svg>
+        )}
+
         {/* Close button — fades only, never a flip target. On a LEAF Space hexagon
             it is pulled in to sit just inside the top-RIGHT vertex (the corner is
             clipped, so it rides the safe band near it). Ancestor Spaces and all
