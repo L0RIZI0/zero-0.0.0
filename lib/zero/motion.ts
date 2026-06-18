@@ -149,7 +149,7 @@ export const RIGHT_PEEK = 24
 // leaf's grandparent) collapse their right peek to a barely-there sliver. Their
 // OUT rails would only crowd the stack and steal horizontal space from the leaf,
 // so they recede to a hairline while the leaf, its parent, and home stay legible.
-export const RIGHT_PEEK_SLIVER = 6
+export const RIGHT_PEEK_SLIVER = 8
 /**
  * Base horizontal inset applied to EVERY focus window (even the depth-1 child of
  * the home view, which has no ancestors). It makes each window a touch narrower
