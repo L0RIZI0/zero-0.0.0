@@ -34,8 +34,21 @@ import { cn } from "@/lib/utils"
 // colored parent — with a strong dark ambient + contact shadow that grounds it
 // and reads as elevation. The rim is what makes the boundary legible; the dark
 // layers supply the lift.
-const SPACE_DROP_SHADOW =
-  "drop-shadow(0 0 1px rgb(255 255 255 / 0.85)) drop-shadow(0 0 2.5px rgb(255 255 255 / 0.28)) drop-shadow(0 20px 32px rgb(0 0 0 / 0.7)) drop-shadow(0 6px 12px rgb(0 0 0 / 0.55))"
+// A clip-path clips away box-shadow, so the leaf Space's depth cue comes from a
+// `filter: drop-shadow` stack that traces the hexagon outline instead. The RIM
+// (the first two crisp, near-zero-blur shadows) must be theme-aware: a WHITE rim
+// reads on the dark theme but is invisible white-on-white in light mode, so light
+// mode uses a DARK rim. The ambient cast shadows below are always dark (they read
+// on either background).
+function spaceDropShadow(isDark: boolean): string {
+  const rim = isDark
+    ? "drop-shadow(0 0 1px rgb(255 255 255 / 0.85)) drop-shadow(0 0 2.5px rgb(255 255 255 / 0.28))"
+    : "drop-shadow(0 0 1px rgb(0 0 0 / 0.45)) drop-shadow(0 0 2.5px rgb(0 0 0 / 0.18))"
+  const ambient = isDark
+    ? "drop-shadow(0 20px 32px rgb(0 0 0 / 0.7)) drop-shadow(0 6px 12px rgb(0 0 0 / 0.55))"
+    : "drop-shadow(0 16px 28px rgb(0 0 0 / 0.22)) drop-shadow(0 5px 10px rgb(0 0 0 / 0.16))"
+  return `${rim} ${ambient}`
+}
 
 
 
@@ -369,7 +382,7 @@ export function EntityNode({
                   // containing block for `position: fixed` descendants, so on an
                   // ancestor it would re-anchor the child window to this frame and
                   // throw it off-screen. The leaf has no fixed child, so it's safe.
-                  filter: SPACE_DROP_SHADOW,
+                  filter: spaceDropShadow(isDark),
                 }
               : {
                   ...(winStyle ?? {}),
