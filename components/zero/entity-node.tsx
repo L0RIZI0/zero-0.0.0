@@ -35,7 +35,7 @@ import { cn } from "@/lib/utils"
 // and reads as elevation. The rim is what makes the boundary legible; the dark
 // layers supply the lift.
 const SPACE_DROP_SHADOW =
-  "drop-shadow(0 0 0.75px rgb(255 255 255 / 0.55)) drop-shadow(0 0 3px rgb(255 255 255 / 0.18)) drop-shadow(0 20px 32px rgb(0 0 0 / 0.7)) drop-shadow(0 6px 12px rgb(0 0 0 / 0.55))"
+  "drop-shadow(0 0 1px rgb(255 255 255 / 0.85)) drop-shadow(0 0 2.5px rgb(255 255 255 / 0.28)) drop-shadow(0 20px 32px rgb(0 0 0 / 0.7)) drop-shadow(0 6px 12px rgb(0 0 0 / 0.55))"
 
 
 
