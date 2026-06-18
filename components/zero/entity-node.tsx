@@ -354,13 +354,18 @@ export function EntityNode({
                   ...(winStyle ?? {}),
                   borderRadius: 0,
                   clipPath,
-                  // The hexagon overflows the region top/bottom; pad the content
-                  // (header + body) inward by that overflow so it lands in the
-                  // shape's visible, full-width middle band. Padding is inside the
-                  // border-box, so the clip + background still fill the whole
-                  // (bleeding) hexagon.
-                  paddingTop: "var(--hex-inset-y)",
-                  paddingBottom: "var(--hex-inset-y)",
+                  // The hexagon overflows the region top/bottom; the content (header +
+                  // body) is inset into the shape's visible, full-width middle band by
+                  // a `margin` on those children (header marginTop, body marginBottom —
+                  // both `var(--hex-inset-y)`), NOT by padding here. Padding is part of
+                  // the border-box, so with `box-sizing: border-box` the frame's height
+                  // could never shrink below paddingTop + paddingBottom (~282px). While
+                  // GSAP Flip animates the frame's height down to the dock-card/row size
+                  // (~96px) that floor made it freeze tall → the card flashed a
+                  // vertically STRETCHED hexagon at the morph's start. Child margins do
+                  // not inflate a fixed-height flex container, so the frame's height now
+                  // animates freely while the content keeps the exact same resting
+                  // offset (overflow-hidden clips it harmlessly while collapsed).
                   // Telescoped, theme-aware capped surface. A background-color
                   // transition lets ancestors recede smoothly as the stack
                   // deepens/retracts.
@@ -533,7 +538,14 @@ export function EntityNode({
           // flex-centered glyph along an extra path that compounds with Flip's
           // transform — the "down-then-up" hop seen when opening a window. A SPINE
           // is full-height (absolute inset-y-0), so it takes no fixed height.
-          style={asWindow && !isSpine ? { height: headerH } : undefined}
+          //
+          // marginTop carries the leaf hexagon's TOP inset — `var(--hex-inset-y)`,
+          // set only on a Space-leaf window, 0 elsewhere. It was previously the
+          // frame's paddingTop, but padding floored the frame's border-box height and
+          // froze the open morph as a stretched hexagon (see the frame style note). As
+          // a margin it offsets the header identically at rest without inflating the
+          // frame, letting Flip shrink the frame to dock-card/row size.
+          style={asWindow && !isSpine ? { height: headerH, marginTop: "var(--hex-inset-y, 0px)" } : undefined}
         >
           {/* Glyph — for a collapsed task it doubles as the completion toggle. */}
           <span
@@ -722,7 +734,11 @@ export function EntityNode({
           <div
             data-fade
             data-body
-            style={isClosing ? { top: HEADER_H } : undefined}
+            // marginBottom carries the leaf hexagon's BOTTOM inset — `var(--hex-inset-y)`,
+            // set only on a Space-leaf window, 0 elsewhere. Was the frame's paddingBottom;
+            // moved to a margin so it no longer floors the frame's height during the morph
+            // (see the frame style note). Skipped while closing (the body is absolute then).
+            style={isClosing ? { top: HEADER_H } : { marginBottom: "var(--hex-inset-y, 0px)" }}
             className={cn(
               isClosing
                 ? "pointer-events-none absolute inset-x-0 bottom-0 overflow-hidden"
