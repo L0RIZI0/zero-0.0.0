@@ -265,12 +265,14 @@ export function EntityNode({
   // leaf; closing un-spines it (leafDepth shrinks → condition flips → rotates back).
   const isSpine = asWindow && !isTop && leafDepth - depth >= VERTICAL_BEHIND
 
-  // Rotation pivot for the title. Rotating -90° about the title's LEFT end
-  // (`0% 50%`, the glyph-adjacent side) pins that end while the rest swings up, so
-  // however LONG the title is it rotates/slides along the shortest visible path
-  // from its horizontal position rather than sweeping a wide arc about its center.
-  // The horizontal header keeps the default center origin.
-  const spineTitleOrigin = isSpine ? "0% 50%" : "50% 50%"
+  // Rotation pivot for the title: always the span's CENTER (`50% 50%`). The span's
+  // layout box (its full unrotated width) is centered in the narrow spine strip by
+  // `items-center`, so rotating about that box's center keeps the resulting
+  // vertical column centered in the strip — independent of title length. Pivoting
+  // about the left end instead (`0% 50%`) would seat the column at
+  // `stripCenter − textWidth/2`, pushing long titles off the window's left edge
+  // where they get clipped. Center origin also reads as a clean spin-in-place.
+  const spineTitleOrigin = "50% 50%"
 
   // Header layout:
   //   - SPINE ancestor → a narrow full-height strip pinned to the LEFT edge; glyph
