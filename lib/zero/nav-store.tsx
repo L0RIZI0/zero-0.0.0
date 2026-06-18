@@ -4,7 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { flushSync } from "react-dom"
 import { getEntity, hydrateFromStorage } from "./data"
 import { collapseEntityPanels } from "./panel-store"
-import { stackTargetRect, perfectHexInside, VERTICAL_BEHIND } from "./motion"
+import { stackTargetRect, perfectHexInside, VERTICAL_BEHIND, RIGHT_PEEK, RIGHT_PEEK_SLIVER } from "./motion"
 import { shellStageFor, WINDOW_TOP_LIFT } from "./layout"
 import {
   captureStage,
@@ -94,6 +94,12 @@ interface ZeroNavContextValue {
   styleFor: (depth: number) => React.CSSProperties
   /** Depth-only fixed geometry for a telescoping (fading) window. */
   fadingStyleFor: (depth: number) => React.CSSProperties
+  /** Hover-peek reveal: while the user hovers a buried ancestor's right edge,
+   *  every window DEEPER than `depth` shrinks from the right (imperatively, via a
+   *  CSS var — no React re-render) so that ancestor's full OUT rail is exposed. */
+  revealAncestor: (depth: number) => void
+  /** Undo `revealAncestor` — all windows expand back to their resting width. */
+  clearReveal: () => void
   /** Bumps on any in-memory data mutation so selectors re-read fresh data. */
   dataVersion: number
   /** Signal that the underlying data arrays changed (entity added). */
@@ -242,6 +248,13 @@ export function ZeroNavProvider({
     const prev = stackRef.current
     if (nextStack.length === prev.length && nextStack.every((v, i) => v === prev[i])) return
 
+    // A stack change invalidates any active hover-peek reveal; drop it BEFORE the
+    // Flip capture so frames are measured/settled at their true resting width.
+    if (typeof document !== "undefined")
+      document
+        .querySelectorAll<HTMLElement>("[data-window][style*='--peek-shrink']")
+        .forEach((w) => w.style.removeProperty("--peek-shrink"))
+
     const opening = nextStack.length > prev.length
     // `parent` is read from the PRE-truncation stack so each closing/fading
     // window knows which context instance owns it, even after the live stack has
@@ -315,6 +328,33 @@ export function ZeroNavProvider({
   const close = useCallback(() => {
     closeWindow(stackRef.current.length - 1)
   }, [closeWindow])
+
+  // --- Hover-peek reveal -----------------------------------------------------
+  // Buried in-between ancestors normally show only a hairline RIGHT_PEEK_SLIVER of
+  // their OUT rail (see stackTargetRect). Hovering one's right edge should expose
+  // its FULL rail by shrinking every deeper window from the right by exactly the
+  // sliver→full difference. We do this IMPERATIVELY: each window's width is
+  // `calc(var(--win-w) - var(--peek-shrink, 0px))`, so toggling the `--peek-shrink`
+  // CSS variable on the affected frames re-sizes them with a pure CSS transition
+  // and ZERO React re-renders — the whole stack is only a handful of nodes, so it
+  // is effectively free. (Width is the only correct channel: a transform would
+  // move the left edge too; here the left edge stays put and the right edge slides
+  // in, widening the gap that reveals the ancestor's rail.)
+  const PEEK_REVEAL_PX = RIGHT_PEEK - RIGHT_PEEK_SLIVER
+  const revealAncestor = useCallback((depth: number) => {
+    if (typeof document === "undefined") return
+    document.querySelectorAll<HTMLElement>("[data-window][data-depth]").forEach((w) => {
+      const d = Number(w.dataset.depth)
+      if (d > depth) w.style.setProperty("--peek-shrink", `${PEEK_REVEAL_PX}px`)
+      else w.style.removeProperty("--peek-shrink")
+    })
+  }, [PEEK_REVEAL_PX])
+  const clearReveal = useCallback(() => {
+    if (typeof document === "undefined") return
+    document
+      .querySelectorAll<HTMLElement>("[data-window][style*='--peek-shrink']")
+      .forEach((w) => w.style.removeProperty("--peek-shrink"))
+  }, [])
 
   // Escape closes the current focus window (unless typing in a field).
   useEffect(() => {
@@ -402,10 +442,10 @@ export function ZeroNavProvider({
         height: rect.height,
         zIndex: 20 + windowDepth * 10,
         // A Space (leaf hexagon OR expanded rectangle) is clip-path-shaped, so it
-        // needs no border radius. Other windows: top-left square, top-right medium
-        // radius (16px) for every window EXCEPT the first child opened from home
-        // (windowDepth === 1). (TL TR BR BL)
-        borderRadius: isSpaceWindow ? "0" : `0 ${windowDepth >= 2 ? "16px" : "0"} 8px 8px`,
+        // needs no border radius. Other windows: top-left square, and a subtle
+        // top-right radius (8px, matching the bottom corners) for every window
+        // EXCEPT the first child opened from home (windowDepth === 1). (TL TR BR BL)
+        borderRadius: isSpaceWindow ? "0" : `0 ${windowDepth >= 2 ? "8px" : "0"} 8px 8px`,
         // Only the leaf hexagon overflows the box and pads its content into the
         // visible band; an expanded ancestor rectangle fills its box normally.
         ...(isSpaceLeaf ? ({ ["--hex-inset-y"]: `${hexInsetY}px` } as React.CSSProperties) : null),
@@ -424,9 +464,10 @@ export function ZeroNavProvider({
         width: rect.width,
         height: rect.height,
         zIndex: 20 + windowDepth * 10,
-        // Top-left square. Top-right medium radius (16px) for every window EXCEPT
-        // the first child opened from home (windowDepth === 1). (TL TR BR BL)
-        borderRadius: `0 ${windowDepth >= 2 ? "16px" : "0"} 8px 8px`,
+        // Top-left square. Subtle top-right radius (8px, matching the bottom) for
+        // every window EXCEPT the first child opened from home (windowDepth === 1).
+        // (TL TR BR BL)
+        borderRadius: `0 ${windowDepth >= 2 ? "8px" : "0"} 8px 8px`,
       }
     }
 
@@ -442,6 +483,8 @@ export function ZeroNavProvider({
     animating,
     styleFor,
       fadingStyleFor,
+      revealAncestor,
+      clearReveal,
       dataVersion,
       notifyDataChanged,
       setRegionRect,
@@ -460,6 +503,8 @@ export function ZeroNavProvider({
     open,
     close,
     closeWindow,
+    revealAncestor,
+    clearReveal,
     closing,
     fading,
     animating,
