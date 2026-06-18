@@ -12,6 +12,7 @@ import {
   VERTICAL_BEHIND,
   SPACE_CLIP_HEX,
   SPACE_CLIP_RECT,
+  SPACE_HEX_POINTS,
   surfaceAt,
   telescopicLevel,
   telescopicSurface,
@@ -430,13 +431,13 @@ export function EntityNode({
         {/* Leaf Space boundary. A clip-path erases box-shadow AND borders, so the
             hexagon edge can't be drawn the usual way — and a drop-shadow is too
             faint to separate the Space from a same-colored parent behind it. This
-            SVG traces the EXACT same 6 points as SPACE_CLIP_HEX (percentage coords
-            map identically to the clip), giving a crisp hairline outline. The frame
-            clips its children to the hexagon, so the stroke's outer half is clipped
-            away and a clean ~1px inner rim remains. `non-scaling-stroke` keeps it a
-            uniform hairline despite the viewBox stretching to the window's size.
-            Leaf only: ancestor Spaces drop their clip when settled and use a real
-            shadow-2xl, so they need no overlay. */}
+            SVG traces the EXACT same rounded points as SPACE_CLIP_HEX (percentage
+            coords map identically to the clip), giving a crisp hairline outline
+            that follows the same softened corners. The frame clips its children to
+            the hexagon, so the stroke's outer half is clipped away and a clean ~1px
+            inner rim remains. `non-scaling-stroke` keeps it a uniform hairline
+            despite the viewBox stretching to the window's size. Leaf only: ancestor
+            Spaces drop their clip when settled and use a real shadow-2xl. */}
         {spaceLeafWindow && (
           <svg
             aria-hidden
@@ -445,10 +446,11 @@ export function EntityNode({
             preserveAspectRatio="none"
           >
             <polygon
-              points="50,0 100,25 100,75 50,100 0,75 0,25"
+              points={SPACE_HEX_POINTS.map(([x, y]) => `${x},${y}`).join(" ")}
               fill="none"
               stroke={isDark ? "rgb(255 255 255 / 0.45)" : "rgb(0 0 0 / 0.32)"}
               strokeWidth={2}
+              strokeLinejoin="round"
               vectorEffect="non-scaling-stroke"
             />
           </svg>
@@ -462,12 +464,14 @@ export function EntityNode({
         {asWindow && (
           <div
             data-fade
-            // For a leaf Space the X rides the visible band (content is padded down
-            // by --hex-inset-y), kept inside the right edge so it clears the
-            // clipped slope. Other windows: true top-right corner.
+            // For a leaf Space the X sits just inside the hexagon's top-RIGHT
+            // vertex: that vertex is at 25% of the frame height, which is exactly
+            // the `--hex-inset-y` line where the shape first reaches full width, so
+            // we drop a few px below it (clearing the rounded corner) and tuck close
+            // to the right edge. Other windows: true top-right corner.
             style={{
               transitionDuration: DURATION_S,
-              ...(spaceLeafWindow ? { top: "calc(var(--hex-inset-y) + 8px)", right: "8%" } : null),
+              ...(spaceLeafWindow ? { top: "calc(var(--hex-inset-y) + 10px)", right: "14px" } : null),
             }}
             className={cn(
               "absolute z-20 flex flex-col items-center gap-1",
