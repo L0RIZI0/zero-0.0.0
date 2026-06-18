@@ -596,6 +596,19 @@ export function EntityNode({
             data-flip-role="inner"
             style={{
               fontSize: titleSize,
+              // FIXED line-box height (px), constant across every title state.
+              // The header is `items-center`, so the title is vertically centred
+              // against the glyph. GSAP Flip tweens this title's `fontSize` between
+              // the row/dock size (13px) and the leaf-window size (18px); with the
+              // default (font-relative) line-height the title's BOX height tweened
+              // too (~20px → ~26px → ~20px), and `items-center` turned half of that
+              // delta into a vertical shift that SNAPPED ~4px the instant Flip's
+              // clearProps fired at completion — the "title jumps down 3-4px at the
+              // end of every open" glitch. Pinning the line-box to a constant 20px
+              // (comfortably fits the 18px max font) keeps the box height identical
+              // in Flip's captured AND final states, so the font tween no longer
+              // moves the centre line and there is nothing left to snap.
+              lineHeight: "20px",
               // Color-only CSS transition (ancestor dimming). GSAP Flip owns this
               // element's position + fontSize (it SLIDES the title between the
               // horizontal header slot and the spine strip), so we must not also
