@@ -139,15 +139,8 @@ export function playStage(
       // end (prototype fix). Also restore the leaf Space's drop-shadow now that the
       // hexagon is at rest (cheap when not animating).
       onComplete: () => {
-        // Clear leftover transforms on inner targets so they settle crisply —
-        // EXCEPT spine titles (data-flip-keep-transform), whose resting
-        // `rotate(-90deg)` must survive or the vertical title would snap flat.
-        const inner = stageEl?.querySelectorAll(
-          "[data-flip-role='inner']:not([data-flip-keep-transform])",
-        )
+        const inner = stageEl?.querySelectorAll("[data-flip-role='inner']")
         if (inner?.length) gsap.set(inner, { clearProps: "transform,willChange" })
-        const kept = stageEl?.querySelectorAll("[data-flip-role='inner'][data-flip-keep-transform]")
-        if (kept?.length) gsap.set(kept, { clearProps: "willChange" })
         filtered.forEach(({ el, filter }) => {
           el.style.filter = filter
         })

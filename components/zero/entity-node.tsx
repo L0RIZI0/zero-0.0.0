@@ -526,28 +526,28 @@ export function EntityNode({
           <h3
             data-flip-id={`${flip}-title`}
             data-flip-role="inner"
-            // A SPINE title keeps its resting transform out of GSAP's reach: the
-            // morph end clears `transform` on flip targets, which would snap the
-            // rotation flat. This marker tells flip-stage to leave this target's
-            // transform alone so the settled spine stays vertical.
-            data-flip-keep-transform={isSpine ? "" : undefined}
             style={{
               fontSize: titleSize,
-              // SPINE rotation via the `transform` channel (NOT the standalone CSS
-              // `rotate` property, which React drops here and GSAP Flip can't
-              // animate). Flip captures/animates rotation through the transform
-              // matrix, so the title smoothly rotates AND slides between the
-              // horizontal header slot and the vertical spine in one motion.
-              // -90deg = 90° counter-clockwise.
-              ...(asWindow ? { transform: isSpine ? "rotate(-90deg)" : undefined } : null),
-              // Pivot at the title's LEFT (glyph-adjacent) end so a LONG title
-              // rotates/slides along the shortest visible path — that end stays
-              // pinned near the glyph instead of sweeping a wide arc about center.
+              // SPINE rotation. Driven by the STANDALONE `rotate` property (not
+              // `transform`) for two reasons: (1) it composes on top of the
+              // `transform` matrix GSAP Flip uses to slide the title between header
+              // positions, so the title rotates AND glides in one smooth motion;
+              // (2) flip-stage clears `transform` on inner targets when a morph
+              // ends, but leaves `rotate` alone, so the resting spine keeps its
+              // angle instead of snapping back flat. -90deg = 90° counter-clockwise.
+              ...(asWindow ? { rotate: isSpine ? "-90deg" : "0deg" } : null),
+              // Pivot near the glyph-adjacent end of the title so a LONG title
+              // rotates/slides along the shortest visible path (anchored by the
+              // glyph) instead of sweeping a wide arc from its far center.
               ...(asWindow ? { transformOrigin: spineTitleOrigin } : null),
-              // Color-only CSS transition (ancestor dimming). Flip owns position,
-              // fontSize AND rotation, so it must not also be a CSS transition here.
+              // Animate color (ancestor dimming) AND the spine rotation; Flip owns
+              // position + fontSize, so listing only these here never fights it.
               ...(asWindow
-                ? { transitionProperty: "color", transitionDuration: DURATION_S, transitionTimingFunction: MORPH_CSS_EASE }
+                ? {
+                    transitionProperty: "color, rotate",
+                    transitionDuration: DURATION_S,
+                    transitionTimingFunction: MORPH_CSS_EASE,
+                  }
                 : null),
             }}
             className={cn(
@@ -628,10 +628,7 @@ export function EntityNode({
               // subtle hairline rather than a hard rule. `top` animates too so it
               // glides as a leaf's header compacts into an ancestor's shorter one.
               "pointer-events-none absolute left-0 right-0 z-[5] h-px bg-border transition-[top,opacity]",
-              // A SPINE has no horizontal header band for the rule to underline, so
-              // it fades out; it fades back in when the window un-spines to a
-              // horizontal header. Closing also fades it out.
-              isClosing || isSpine ? "opacity-0" : "opacity-50",
+              isClosing ? "opacity-0" : "opacity-50",
             )}
           />
         )}
