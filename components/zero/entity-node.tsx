@@ -617,19 +617,26 @@ export function EntityNode({
                   // placement owned by the flex parent (items-center for the leaf column,
                   // left for the ancestor row).
                   //
-                  // `text-center` is applied to BOTH window variants (leaf + ancestor),
-                  // not just the leaf. At rest it is a no-op — the box hugs its text, so
-                  // there is nothing to centre within. It matters only DURING the morph:
-                  // GSAP Flip pins an explicit, interpolating WIDTH on the box while it
-                  // tweens, and that width is wider than the text's natural width at the
-                  // in-between font size; with the default left alignment the glyphs sat
-                  // at the left edge of that over-wide box and visibly drifted left of the
-                  // glyph before snapping back at completion. Centring keeps the text on
-                  // the box's centre line throughout. Applying it uniformly (rather than
-                  // leaf-only) means a leaf→ancestor morph has no text-align CHANGE to
-                  // snap on — the earlier `w-full text-center` regression.
+                  // Text alignment must match the HEADER's alignment, because during the
+                  // morph GSAP Flip pins an explicit, interpolating WIDTH on the box that
+                  // doesn't equal the text's natural width at the in-between font size — so
+                  // the text rides whichever edge `text-align` picks:
+                  //   • SPACE windows have a CENTRED anchor (leaf = centred hexagon column;
+                  //     ancestor hugs-left but morphs to/from that centred leaf and from the
+                  //     centred dock card). They need `text-center` so the text stays on the
+                  //     box's centre line through the width tween. Applied to BOTH leaf and
+                  //     ancestor so a Space leaf↔ancestor morph has no text-align change to
+                  //     snap on.
+                  //   • TASK / EVENT windows have a LEFT anchor (left-aligned horizontal
+                  //     header) and open from a left-aligned do-list ROW. They must stay
+                  //     left-aligned; `text-center` here parked the text in the middle of
+                  //     Flip's wide interpolating box and let it drift sideways during the
+                  //     expansion (the "title jumps to the middle of the row then slides"
+                  //     glitch). Left alignment keeps the text glued to the box's left edge,
+                  //     which Flip translates smoothly from the row slot.
                   cn(
-                    "whitespace-nowrap text-center",
+                    "whitespace-nowrap",
+                    isSpace && "text-center",
                     ancestorHeader ? "font-medium text-foreground/75" : "font-semibold",
                   )
                 : variant === "dock"
@@ -640,7 +647,19 @@ export function EntityNode({
                     // text on the box centre line during the morph for the same reason as
                     // the window titles (Flip's interpolating explicit width).
                     "max-w-full truncate text-center font-medium leading-tight"
-                  : "min-w-0 flex-1 truncate font-medium",
+                  : // DO-LIST ROW. The title must HUG its content here too — it is the
+                    // "from" state of a row→window open morph, and every window title is a
+                    // content-hugging box. Previously this was `flex-1` (a WIDE box that
+                    // spanned the row). GSAP Flip captured that wide width and tweened it
+                    // down to the window's hug width; the window title's `text-center`
+                    // then parked the text in the MIDDLE of that wide box at the start
+                    // (the "title jumps to the middle of the row" glitch) and let it drift
+                    // as the width shrank. Hugging the content makes the captured box ≈ the
+                    // text, so the title simply SLIDES from its row slot to the window slot.
+                    // `mr-auto` absorbs the free space the old `flex-1` used to occupy, so
+                    // trailing meta (counts / time / due) still sits flush right; `max-w-full
+                    // truncate` preserves ellipsis for long names.
+                    "min-w-0 max-w-full truncate mr-auto font-medium",
               !asWindow && (isTask && done ? "text-muted-foreground/60 line-through" : cancelled ? "line-through" : ""),
             )}
           >
