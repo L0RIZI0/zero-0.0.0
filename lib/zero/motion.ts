@@ -215,13 +215,14 @@ export function stackTargetRect(
     // back to the full peek so geometry stays consistent with older callers.
     right += leafDepth == null ? RIGHT_PEEK : RIGHT_PEEK_SLIVER
     left += TASK_SIDE
-    if (!ancestorVertical?.[i]) {
-      top += TASK_TOP_PEEK
-      // When THIS ancestor is a Space, nudge its child an extra 2px down so the
-      // Space's top border peeks above the child. The accumulating `top` carries
-      // the shift to all deeper descendants relative to the Space.
-      if (kind === "space") top += SPACE_CHILD_TOP_PEEK
-    }
+    if (!ancestorVertical?.[i]) top += TASK_TOP_PEEK
+    // When THIS ancestor is a Space, nudge its child an extra 2px down so the
+    // Space's top border peeks above the child. This is applied REGARDLESS of the
+    // spine check above: an ancestor Space is always in rectangle mode (the hexagon
+    // is leaf-only), so even when it's a vertical spine — which normally shares its
+    // top with its child — its child should still drop 2px so the Space's top edge
+    // shows. The accumulating `top` carries the shift to all deeper descendants.
+    if (kind === "space") top += SPACE_CHILD_TOP_PEEK
   })
   return { top, left, width: region.w - left - right, height: region.h - top - bottom }
 }
