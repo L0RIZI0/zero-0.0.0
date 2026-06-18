@@ -61,6 +61,10 @@ type FlipState = ReturnType<typeof Flip.getState>
 // its viewport rect is the origin for every fixed-positioned window.
 let stageEl: HTMLElement | null = null
 
+// Per-frame background colour snapshot from the most recent `captureStage`, keyed
+// by flip-id. Consumed once by the next `playStage` to drive the manual colour FLIP.
+let capturedBg: Map<string, string> | null = null
+
 export function registerStage(el: HTMLElement | null) {
   stageEl = el
 }
@@ -90,15 +94,24 @@ export function captureStage(): FlipState | null {
   if (!stageEl) return null
   const targets = stageEl.querySelectorAll("[data-flip-id]")
   if (!targets.length) return null
+  // Record every FRAME's pre-morph background colour, keyed by flip-id, so
+  // `playStage` can replay it into a real CSS transition (a manual colour FLIP —
+  // see playStage for why). Only frames carry a surface colour.
+  const colors = new Map<string, string>()
+  stageEl.querySelectorAll<HTMLElement>("[data-flip-role='frame'][data-flip-id]").forEach((f) => {
+    const id = f.getAttribute("data-flip-id")
+    if (id) colors.set(id, getComputedStyle(f).backgroundColor)
+  })
+  capturedBg = colors
   // `clipPath` is captured so a Space's hexagon ⇄ rectangle reshape (dock card /
   // row → hex window and back) tweens smoothly in the same single Flip pass that
   // already morphs size, fontSize and borderRadius. Proven in the hexagon-dock
   // prototype: without it the clip snapped at the end of the morph.
-  // NOTE: `backgroundColor` is deliberately NOT captured/animated by Flip. The
-  // per-depth surface recede is handled by a CSS `background-color` transition on
-  // each frame (see entity-node). Letting Flip own the colour interpolated from the
-  // captured "from" value, which flashed black for a newly-entering window (it
-  // grows out of a row) in light mode and dipped ancestors too dark in dark mode.
+  // NOTE: `backgroundColor` is deliberately NOT captured/animated by Flip. Flip
+  // would interpolate it from a bad captured value — flashing black for a newly
+  // entering window (it has no prior colour, so GSAP tweens up from transparent
+  // black) and fighting the CSS transition on receding ancestors. We drive the
+  // colour ourselves in playStage instead.
   return Flip.getState(targets, { props: "fontSize,borderRadius,clipPath" })
 }
 
@@ -138,7 +151,35 @@ export function playStage(
         if (inner?.length) gsap.set(inner, { clearProps: "transform,willChange" })
       },
     })
+
+    // Manual colour FLIP. `Flip.from` makes every frame `position:absolute` and
+    // hard-sets `transition:none` for the whole morph (GSAP Flip internals), which
+    // kills the CSS `background-color` transition on the frame — so the per-depth
+    // surface recede (ancestors darkening when the stack crosses the cap) would
+    // SNAP. We replay it by hand: for each frame that existed before the morph,
+    // pin its OLD colour with no transition, force a reflow, then re-enable the
+    // colour transition and set the NEW (already-committed) colour so the browser
+    // tweens old→new over the morph. CSS colour interpolation is premultiplied, so
+    // there is no black midpoint. Entering windows have no captured colour → they
+    // are skipped and simply render at their target (no flash). Background colour
+    // is NOT a Flip prop, so nothing fights this tween (no dark dip).
+    if (capturedBg && stage) {
+      const from = capturedBg
+      stage.querySelectorAll<HTMLElement>("[data-flip-role='frame'][data-flip-id]").forEach((f) => {
+        const id = f.getAttribute("data-flip-id")
+        const prev = id ? from.get(id) : undefined
+        if (!prev) return
+        const target = getComputedStyle(f).backgroundColor
+        if (prev === target) return
+        f.style.transition = "none"
+        f.style.backgroundColor = prev
+        void f.offsetWidth // force reflow so the old colour is committed first
+        f.style.transition = `background-color ${DURATION_S} ${MORPH_CSS_EASE}`
+        f.style.backgroundColor = target
+      })
+    }
   }
+  capturedBg = null
   if (!stage) return
 
   const sel = (k: Key, rest: string) => `[data-window="${k.id}"][data-depth="${k.depth}"] ${rest}`
