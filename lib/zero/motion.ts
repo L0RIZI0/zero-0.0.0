@@ -151,7 +151,7 @@ export const TASK_TOP_PEEK = 36
 // px lower so a sliver of the Space's top border shows above the child. Because the
 // loop accumulates `top` across ancestors, this shift cascades — grandchildren and
 // deeper descendants move down by the same amount relative to the Space.
-export const SPACE_CHILD_TOP_PEEK = 2
+export const SPACE_CHILD_TOP_PEEK = 4
 // A non-space (task/event/instant) ancestor used to peek ONLY from the top (side
 // inset was just 10px), so a child window covered almost its entire body — hiding
 // the parent's collapsed IN/OUT rails. This side peek leaves a strip of the
