@@ -235,8 +235,10 @@ export function EntityNode({
         : undefined
   // Only the LEAF hexagon needs the SVG outline (a clip-path can't carry a border
   // or shadow, and a straight-edged ring can't trace a hexagon). The square
-  // rectangle uses a simple inset ring instead, so it gets no outline.
-  const spaceOutlinePoints = spaceLeafWindow ? SPACE_HEX_POINTS : null
+  // rectangle (ancestor/parent) uses a simple inset ring instead, so it gets no
+  // outline. In DARK mode the leaf hexagon drops its outline entirely (the dark
+  // surface reads cleanly without it); light mode keeps the hairline for contrast.
+  const spaceOutlinePoints = spaceLeafWindow && !isDark ? SPACE_HEX_POINTS : null
 
   // Borderless design. Backgrounds are driven by the inline `surfaceAt` ramp
   // (see the style prop below), NOT utility classes, so every level shares one
