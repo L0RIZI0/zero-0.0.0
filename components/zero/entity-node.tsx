@@ -609,22 +609,27 @@ export function EntityNode({
               asWindow
                 ? // Compact ancestors pop slightly less than the leaf: dimmer ink
                   // and one step lighter weight (semibold → medium).
+                  //
+                  // The title is a Flip target that SLIDES between header slots (leaf
+                  // hexagon centre ↔ ancestor/spine left ↔ dock-card centre). For that
+                  // slide to be smooth in EVERY direction the box must HUG its content
+                  // (auto width) at every endpoint, with horizontal placement owned by
+                  // the flex parent (items-center for the leaf column, left for the
+                  // ancestor row). A full-width `text-center` box instead made Flip
+                  // scale a fixed-width box, so the text snapped to one edge on the
+                  // half of the morph Flip couldn't interpolate text-align for (the
+                  // "title jumps left when a child opens" glitch). `whitespace-nowrap`
+                  // keeps the box single-line so its width is purely the text.
                   cn(
                     "whitespace-nowrap",
-                    // A LEAF Space hexagon has a centered column header, so the title
-                    // gets a full-width, center-aligned box — exactly like the dock
-                    // card title it morphs from (`w-full ... text-center`). Without
-                    // this the leaf title box hugs its text; while GSAP Flip transiently
-                    // sizes that box through the fontSize morph the un-centered text
-                    // floated LEFT of the glyph + hexagon centre and only snapped back
-                    // to centre when Flip cleared at the end. Matching the box model on
-                    // both morph endpoints keeps the text centred the whole way. Ancestor
-                    // and spine titles stay left-aligned (their headers are horizontal).
-                    spaceLeafWindow && "w-full text-center",
                     ancestorHeader ? "font-medium text-foreground/75" : "font-semibold",
                   )
                 : variant === "dock"
-                  ? "w-full truncate font-medium leading-tight"
+                  ? // Hug content (centered by the dock header's items-center) so the
+                    // box model matches the leaf hexagon title it morphs into — see the
+                    // window-title note above. `max-w-full` keeps long names truncating
+                    // within the card instead of overflowing.
+                    "max-w-full truncate font-medium leading-tight"
                   : "min-w-0 flex-1 truncate font-medium",
               !asWindow && (isTask && done ? "text-muted-foreground/60 line-through" : cancelled ? "line-through" : ""),
             )}
