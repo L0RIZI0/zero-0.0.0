@@ -310,27 +310,13 @@ export function EntityNode({
   // frame's right edge (the frame is overflow-hidden, so an in-frame title there
   // would be clipped; a `fixed` title positioned from these numbers escapes it).
   const winStyle = asWindow ? (fadingWindow ? nav.fadingStyleFor(depth) : nav.styleFor(depth)) : null
-  // Sit the title just past the X. The X is inset 6px (right-1.5) from the
-  // window's right edge, so starting at edge − 2 places it ~4px right of the X's
-  // right side — snug instead of floating off in the peek margin.
-  const closeTitleLeft =
-    winStyle && typeof winStyle.left === "number" && typeof winStyle.width === "number"
-      ? // Leaf Space hexagon: the X is inset 8% from the right edge, so place the
-        // title just right of it (~92% across + a small gap) instead of at the very
-        // edge. Expanded ancestor Spaces use the normal top-right corner.
-        spaceLeafWindow
-        ? winStyle.left + winStyle.width * 0.92 + 6
-        : winStyle.left + winStyle.width - 2
-      : 0
-  // Vertically center the title on the X. The cluster sits at top-3 (12px); the X
-  // is size-6 (24px) tall. A leaf Space hexagon pushes the X into the visible band,
-  // so the title follows it down by the same --hex-inset-y (resolved as a calc).
-  const closeTitleTop =
-    winStyle && typeof winStyle.top === "number"
-      ? spaceLeafWindow
-        ? `calc(${winStyle.top}px + var(--hex-inset-y) + 20px)`
-        : winStyle.top + 12 + 12
-      : 0
+  // Close-button affordance: instead of showing the window's title next to the X,
+  // hovering an ANCESTOR's close button outlines that whole window so it's obvious
+  // which one the button belongs to. Restricted to ancestors (`!isTop`), which are
+  // always rectangles here — the frontmost LEAF needs no hint (it's the obvious
+  // target) and skipping it avoids bordering the clipped hexagon. Gated on
+  // `!animating` so the morph never flashes it.
+  const showCloseBorder = asWindow && !isTop && closeHover && !animating
 
   return (
     <div className={slotClass}>
@@ -449,26 +435,26 @@ export function EntityNode({
             >
               <X size={14} strokeWidth={closeHover ? 2.25 : 1.5} />
             </button>
-            {/* Discreet entity title that fades in on close-button hover, so the
-                user knows which entity they're about to close. Rendered HORIZONTAL
-                and positioned to the RIGHT of the X (absolute, so it never shifts
-                the button), cropped with an ellipsis if too long. Kept subtle: a
-                lighter weight + dimmer color so it whispers rather than competes.
-                Gated on `!animating`: when a window opens, the X mounts right under
-                the cursor and `onPointerEnter` fires, which used to flash the title
-                during the expansion. Suppressing it until the morph finishes means
-                it only appears once the window has settled (and the pointer is
-                genuinely resting on the X). */}
-            <span
-              style={{ left: closeTitleLeft, top: closeTitleTop, transform: "translateY(-50%)" }}
-              className={cn(
-                "pointer-events-none fixed z-[60] max-w-[160px] overflow-hidden text-ellipsis whitespace-nowrap text-[11px] font-normal text-muted-foreground/50 transition-opacity duration-200",
-                closeHover && !animating ? "opacity-100" : "opacity-0",
-              )}
-            >
-              {entity.title}
-            </span>
           </div>
+        )}
+
+        {/* Close-hover highlight: an inset outline that fades in over the whole
+            ANCESTOR window while its close button is hovered, identifying which
+            window the X will close. Rendered INSIDE the frame (inset-0, not a
+            half-out outline) so it never bleeds past the rounded-rect or the
+            ancestor Space's rectangle clip-path. `borderRadius: inherit` matches
+            the frame's corners; `pointer-events-none` keeps it inert. The visible
+            edges trace the ancestor's exposed peek, which is exactly what the user
+            needs to see. */}
+        {asWindow && !isTop && (
+          <div
+            aria-hidden
+            className={cn(
+              "pointer-events-none absolute inset-0 z-50 border-2 border-foreground/55 transition-opacity duration-200 ease-out",
+              showCloseBorder ? "opacity-100" : "opacity-0",
+            )}
+            style={{ borderRadius: "inherit" }}
+          />
         )}
 
         {/* Persistent header. NOT a flip target: it stays in the frame's flow and
