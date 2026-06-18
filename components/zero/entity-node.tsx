@@ -382,7 +382,16 @@ export function EntityNode({
                   // Background recede + the hover-peek width shrink (rest only; Flip
                   // owns width during morphs — see the leaf-space branch above).
                   transition: `background-color ${DURATION_S} ${MORPH_CSS_EASE}${animating ? "" : `, width ${DURATION_S} ${MORPH_CSS_EASE}`}`,
-                  ...(clipPath ? { clipPath } : null),
+                  // An expanded ancestor Space is a clip-path RECTANGLE — but a
+                  // clip-path clips away the frame's `shadow-2xl` (same reason the
+                  // leaf hexagon needs a drop-shadow filter). So once SETTLED we drop
+                  // the clip and round the corners, and the shadow renders exactly
+                  // like every other unclipped window. The clip is only kept WHILE
+                  // animating, when Flip tweens the six points between hexagon and
+                  // rectangle; the brief shadow loss during that morph is unseen.
+                  // (clipPath is only truthy here for ancestor Spaces — task/event
+                  // windows have none and already keep their shadow + radius.)
+                  ...(clipPath ? (animating ? { clipPath } : { borderRadius: "0 8px 8px 8px" }) : null),
                 }
             : ({
                 // Collapsed: Space dock cards are hexagons (clipPath), everything
