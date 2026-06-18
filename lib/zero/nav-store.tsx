@@ -4,7 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { flushSync } from "react-dom"
 import { getEntity, hydrateFromStorage } from "./data"
 import { collapseEntityPanels } from "./panel-store"
-import { stackTargetRect, perfectHexInside } from "./motion"
+import { stackTargetRect, perfectHexInside, VERTICAL_BEHIND } from "./motion"
 import { shellStageFor, WINDOW_TOP_LIFT } from "./layout"
 import {
   captureStage,
@@ -364,8 +364,17 @@ export function ZeroNavProvider({
     // Fixed geometry for an open window: walk the in-stack ancestors (above the
     // root backdrop, below this window) and let each reserve space by its kind.
     const styleFor = (windowDepth: number): React.CSSProperties => {
+      const leafDepth = stack.length - 1
       const ancestorKinds = stack.slice(1, windowDepth).map((sid) => getEntity(sid)?.kind ?? "task")
-      let rect = stackTargetRect(ancestorKinds, { w: liftedRegion.width, h: liftedRegion.height })
+      // ancestorKinds[i] is the window at depth (1 + i). It renders as a vertical
+      // SPINE — and therefore reserves no top peek — when it sits ≥ VERTICAL_BEHIND
+      // levels behind the leaf. Keep this rule identical to entity-node's `isSpine`.
+      const ancestorVertical = ancestorKinds.map((_k, i) => leafDepth - (1 + i) >= VERTICAL_BEHIND)
+      let rect = stackTargetRect(
+        ancestorKinds,
+        { w: liftedRegion.width, h: liftedRegion.height },
+        ancestorVertical,
+      )
       // A Space is a PERFECT hexagon only while it is the frontmost LEAF (no child
       // open): it ignores the wide box and centers a viewport-capped regular
       // hexagon whose four side corners stay on-screen (top/bottom points bleed

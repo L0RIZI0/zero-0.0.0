@@ -122,6 +122,14 @@ export const HEADER_H = 43
 // (SPACE_TOP_PEEK, 20) — so stacked ancestors read as more recessed (smaller
 // glyph + title too, see entity-node) without collapsing all the way to a spine.
 export const ANCESTOR_HEADER_H = 35
+
+// How many levels an ancestor must sit BEHIND the frontmost leaf before its
+// header collapses from a horizontal band into a vertical SPINE (glyph at top,
+// title rotated to read up a narrow left strip). At distance ≥ 3 the window is so
+// deeply buried that a horizontal header would only waste a top peek and push the
+// leaf further down screen; a spine reclaims that by stacking these ancestors
+// HORIZONTALLY (left strips) instead of vertically. distance = leafDepth - depth.
+export const VERTICAL_BEHIND = 3
 // Top peek for a task/event/instant ancestor: how much of it shows above its
 // child. Matches ANCESTOR_HEADER_H (+1, mirroring the leaf's 43→44 hairline gap)
 // so the visible band equals the now-shorter ancestor header with no empty strip
@@ -154,22 +162,26 @@ export const WINDOW_BASE_SIDE = 44
 export function stackTargetRect(
   ancestorKinds: EntityKind[],
   region: { w: number; h: number },
+  // Per-ancestor flag (parallel to `ancestorKinds`) marking spine ancestors —
+  // those collapsed to a vertical left strip because they sit ≥ VERTICAL_BEHIND
+  // levels behind the leaf. A spine ancestor reserves its left/right peeks (so its
+  // strip + IN/OUT rails stay visible) but NO top peek: its child aligns to the
+  // SAME top, so deeply-stacked spines fan out horizontally instead of marching
+  // the leaf ever further down the screen.
+  ancestorVertical?: boolean[],
 ): Rect {
   let top = 0
   let left = WINDOW_BASE_SIDE
   let right = WINDOW_BASE_SIDE
   let bottom = 0
-  // EVERY ancestor — space, task, event or instant — now uses the same top-peek
-  // nested-doll profile. A space stops being a centered hexagon the moment a
-  // child opens over it: it widens into a standard rounded-rect ancestor whose
-  // top band shows its glyph/title and whose left/right slivers expose its
-  // collapsed IN/OUT rails (matching the prototype's other entity kinds, and
-  // letting the fixed child window escape what used to be a clipping hexagon).
-  for (const _kind of ancestorKinds) {
+  // EVERY ancestor — space, task, event or instant — uses the same nested-doll
+  // profile. Side peeks always accumulate (left strip + IN/OUT rails stay visible);
+  // the TOP peek is skipped for spine ancestors so their child shares their top.
+  ancestorKinds.forEach((_kind, i) => {
     right += RIGHT_PEEK
-    top += TASK_TOP_PEEK
     left += TASK_SIDE
-  }
+    if (!ancestorVertical?.[i]) top += TASK_TOP_PEEK
+  })
   return { top, left, width: region.w - left - right, height: region.h - top - bottom }
 }
 

@@ -9,6 +9,7 @@ import { useZeroNav, useRowSelection, HIGHLIGHT_SHADOW, HIGHLIGHT_SHADOW_NONE } 
 import {
   HEADER_H,
   ANCESTOR_HEADER_H,
+  VERTICAL_BEHIND,
   SPACE_CLIP_HEX,
   SPACE_CLIP_RECT,
   surfaceAt,
@@ -256,7 +257,19 @@ export function EntityNode({
         cancelled && "opacity-50",
       )
 
+  // SPINE: a stacked ancestor sitting ≥ VERTICAL_BEHIND levels behind the leaf
+  // collapses its horizontal header into a vertical left strip — glyph pinned to
+  // the top, title rotated 90° CCW to read up the strip. These ancestors reserve
+  // no top peek (see stackTargetRect), so they fan out as nested LEFT strips
+  // instead of pushing the leaf down the screen. Never the leaf, never a hexagon
+  // leaf; closing un-spines it (leafDepth shrinks → condition flips → rotates back).
+  const isSpine = asWindow && !isTop && leafDepth - depth >= VERTICAL_BEHIND
+
   // Header layout:
+  //   - SPINE ancestor → a narrow full-height strip pinned to the LEFT edge; glyph
+  //     at the top, the rotated title reading up beneath it. Width matches the
+  //     window's visible left peek so it sits exactly over that exposed sliver, and
+  //     the glyph lines up with the collapsed IN rail in the same strip.
   //   - LEAF Space window (hexagon) → header CENTERED at the top, pushed below the
   //     hexagon's tapering top point (matching the dock card's centered glyph +
   //     title so the morph is a straight scale).
@@ -265,9 +278,11 @@ export function EntityNode({
   //     children peeking below.
   //   - dock card → centered column (glyph, title, then the open-task counter).
   const headerClass = asWindow
-    ? spaceLeafWindow
-      ? "relative z-10 flex shrink-0 flex-col items-center gap-1.5 px-4 pt-9"
-      : cn("relative z-10 flex shrink-0 items-center gap-3 pr-12 pl-4")
+    ? isSpine
+      ? "absolute inset-y-0 left-0 z-10 flex w-[26px] flex-col items-center gap-3 pt-3"
+      : spaceLeafWindow
+        ? "relative z-10 flex shrink-0 flex-col items-center gap-1.5 px-4 pt-9"
+        : cn("relative z-10 flex shrink-0 items-center gap-3 pr-12 pl-4")
     : variant === "dock"
       ? "flex flex-1 flex-col items-center justify-center gap-1 px-2 text-center"
       : "flex h-full items-center gap-2 px-2.5 pr-2.5"
@@ -453,8 +468,9 @@ export function EntityNode({
           // the glyph/title motion during a morph, and the divider slides via its
           // own transition-[top]. A CSS height tween here would animate the
           // flex-centered glyph along an extra path that compounds with Flip's
-          // transform — the "down-then-up" hop seen when opening a window.
-          style={asWindow ? { height: headerH } : undefined}
+          // transform — the "down-then-up" hop seen when opening a window. A SPINE
+          // is full-height (absolute inset-y-0), so it takes no fixed height.
+          style={asWindow && !isSpine ? { height: headerH } : undefined}
         >
           {/* Glyph — for a collapsed task it doubles as the completion toggle. */}
           <span
@@ -505,11 +521,26 @@ export function EntityNode({
             data-flip-role="inner"
             style={{
               fontSize: titleSize,
-              // Color-only transition (see glyph) so the title ink fades smoothly
-              // to/from the dimmed ancestor grey rather than snapping. Flip handles
-              // position + fontSize; this only animates color, so they don't fight.
+              // SPINE rotation. Driven by the STANDALONE `rotate` property (not
+              // `transform`) for two reasons: (1) it composes on top of the
+              // `transform` matrix GSAP Flip uses to slide the title between header
+              // positions, so the title rotates AND glides in one smooth motion;
+              // (2) flip-stage clears `transform` on inner targets when a morph
+              // ends, but leaves `rotate` alone, so the resting spine keeps its
+              // angle instead of snapping back flat. -90deg = 90° counter-clockwise.
+              ...(asWindow ? { rotate: isSpine ? "-90deg" : "0deg" } : null),
+              // Pivot near the glyph-adjacent end of the title so a LONG title
+              // rotates/slides along the shortest visible path (anchored by the
+              // glyph) instead of sweeping a wide arc from its far center.
+              ...(asWindow ? { transformOrigin: spineTitleOrigin } : null),
+              // Animate color (ancestor dimming) AND the spine rotation; Flip owns
+              // position + fontSize, so listing only these here never fights it.
               ...(asWindow
-                ? { transitionProperty: "color", transitionDuration: DURATION_S, transitionTimingFunction: MORPH_CSS_EASE }
+                ? {
+                    transitionProperty: "color, rotate",
+                    transitionDuration: DURATION_S,
+                    transitionTimingFunction: MORPH_CSS_EASE,
+                  }
                 : null),
             }}
             className={cn(
