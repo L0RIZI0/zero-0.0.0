@@ -462,8 +462,13 @@ export function EntityNode({
               transitionDuration: DURATION_S,
               ...(spaceLeafWindow ? { top: "calc(25% + 6px)", right: "16px" } : null),
             }}
+            // z-[60]: must sit ABOVE the hover-peek catcher strip (z-40) that also
+            // rides this window's right edge. Otherwise the full-height catcher
+            // covers the close button in the exposed top-right corner and swallows
+            // its pointer events, so hovering an ancestor's X never fires
+            // setCloseHover → the close-window highlight never appears.
             className={cn(
-              "absolute z-20 flex flex-col items-center gap-1",
+              "absolute z-[60] flex flex-col items-center gap-1",
               spaceLeafWindow ? "" : "right-1.5 top-3",
             )}
           >
