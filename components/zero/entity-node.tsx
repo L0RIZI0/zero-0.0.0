@@ -265,6 +265,13 @@ export function EntityNode({
   // leaf; closing un-spines it (leafDepth shrinks → condition flips → rotates back).
   const isSpine = asWindow && !isTop && leafDepth - depth >= VERTICAL_BEHIND
 
+  // Rotation pivot for the title. Rotating -90° about the title's LEFT end
+  // (`0% 50%`, the glyph-adjacent side) pins that end while the rest swings up, so
+  // however LONG the title is it rotates/slides along the shortest visible path
+  // from its horizontal position rather than sweeping a wide arc about its center.
+  // The horizontal header keeps the default center origin.
+  const spineTitleOrigin = isSpine ? "0% 50%" : "50% 50%"
+
   // Header layout:
   //   - SPINE ancestor → a narrow full-height strip pinned to the LEFT edge; glyph
   //     at the top, the rotated title reading up beneath it. Width matches the
@@ -621,7 +628,10 @@ export function EntityNode({
               // subtle hairline rather than a hard rule. `top` animates too so it
               // glides as a leaf's header compacts into an ancestor's shorter one.
               "pointer-events-none absolute left-0 right-0 z-[5] h-px bg-border transition-[top,opacity]",
-              isClosing ? "opacity-0" : "opacity-50",
+              // A SPINE has no horizontal header band for the rule to underline, so
+              // it fades out; it fades back in when the window un-spines to a
+              // horizontal header. Closing also fades it out.
+              isClosing || isSpine ? "opacity-0" : "opacity-50",
             )}
           />
         )}
