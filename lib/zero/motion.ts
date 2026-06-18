@@ -129,7 +129,7 @@ export const ANCESTOR_HEADER_H = 35
 // deeply buried that a horizontal header would only waste a top peek and push the
 // leaf further down screen; a spine reclaims that by stacking these ancestors
 // HORIZONTALLY (left strips) instead of vertically. distance = leafDepth - depth.
-export const VERTICAL_BEHIND = 1
+export const VERTICAL_BEHIND = 3
 // Top peek for a task/event/instant ancestor: how much of it shows above its
 // child. Matches ANCESTOR_HEADER_H (+1, mirroring the leaf's 43→44 hairline gap)
 // so the visible band equals the now-shorter ancestor header with no empty strip
