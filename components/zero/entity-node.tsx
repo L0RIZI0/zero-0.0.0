@@ -26,28 +26,40 @@ import { cn } from "@/lib/utils"
 const SPACE_DROP_SHADOW =
   "drop-shadow(0 0 0.75px rgb(255 255 255 / 0.55)) drop-shadow(0 0 3px rgb(255 255 255 / 0.18)) drop-shadow(0 20px 32px rgb(0 0 0 / 0.7)) drop-shadow(0 6px 12px rgb(0 0 0 / 0.55))"
 
-// Unified surface ramp. Every nesting level's window background is the page
-// `--background` mixed one fixed step further toward `--foreground`, so deeper
-// windows read progressively lighter (a depth cue) while staying theme-aware and
-// fully opaque. depth 0 == the home view surface.
-//
-// This single ramp powers BOTH the hover highlight and the window backgrounds: a
-// collapsed node (do-list row OR dock card) rests on its parent's surface
-// (invisible) and, on hover, lifts to surfaceAt(parentDepth + 1) — which is the
-// EXACT color its own window takes when opened. So the hover preview and the
-// opened window share one color, and the hover effect is identical everywhere.
+// Unified surface ramp. A surface is the page `--background` mixed `level` fixed
+// steps toward `--foreground`, so a higher level reads lighter in dark mode /
+// darker in light mode while staying theme-aware and fully opaque. level 0 == the
+// page background (home view).
 const SURFACE_STEP_PCT = 9
-function surfaceAt(depth: number) {
-  if (depth <= 0) return "var(--background)"
-  return `color-mix(in oklab, var(--background), var(--foreground) ${depth * SURFACE_STEP_PCT}%)`
+function surfaceAt(level: number) {
+  if (level <= 0) return "var(--background)"
+  return `color-mix(in oklab, var(--background), var(--foreground) ${level * SURFACE_STEP_PCT}%)`
 }
 
-// Depth at which the surface ramp crosses its midpoint (≈50% toward foreground):
-// past it the surface is closer to the foreground colour than to the background,
-// so the default light ink stops being readable and text/icons must flip to the
-// page base colour instead. 50 / 9 ≈ 5.55, so depth 6 is the first level where
-// the flipped (dark-in-dark-mode) ink wins on contrast.
-const SURFACE_FLIP_DEPTH = 6
+// Surface brightness is CAPPED at this effective level. A window's background
+// never travels more than SURFACE_CAP_LEVEL steps toward `--foreground`
+// (3 × 9% = 27%), so the UI stays unmistakably "dark in dark mode / light in
+// light mode" no matter how deep the stack goes — a deep leaf never burns the
+// eyes, and window text/icons stay readable WITHOUT any per-depth ink flip.
+const SURFACE_CAP_LEVEL = 3
+
+// TELESCOPIC depth → level mapping. Color tracks a window's distance from the
+// LEAF rather than its absolute depth: the frontmost leaf sits at the cap once
+// the stack is deep enough, and each ancestor recedes one step toward
+// `--background`. The whole ramp is shifted DOWN by the stack's overflow past the
+// cap, then clamped:
+//   overflow = max(0, leafDepth - cap);  level(d) = clamp(d - overflow, 0, cap).
+// So the leaf is always ≤ cap, home is always 0, and several deep ancestors
+// collapse onto the same background tone (acceptable, and visually calm). On
+// shallow stacks (leafDepth ≤ cap) it degrades to the plain ramp (depth 1 →
+// level 1, depth 2 → level 2, …).
+function effectiveLevel(depth: number, leafDepth: number) {
+  const overflow = Math.max(0, leafDepth - SURFACE_CAP_LEVEL)
+  return Math.min(SURFACE_CAP_LEVEL, Math.max(0, depth - overflow))
+}
+function effectiveSurface(depth: number, leafDepth: number) {
+  return surfaceAt(effectiveLevel(depth, leafDepth))
+}
 
 const priorityDot: Record<TaskPriority, string> = {
   high: "bg-accent",
@@ -176,25 +188,16 @@ export function EntityNode({
   // this collapsed background as GSAP Flip shrinks it back, so it must not turn
   // transparent and let parent content bleed through).
   const contextDepth = Math.max(0, nav.stack.indexOf(contextId))
-  // Resting surface = parent window's background (invisible at rest). Highlight =
-  // the NEXT step up — the unified hover color AND the exact background this
-  // node's own window adopts when opened (depth contextDepth + 1).
-  const restSurface = surfaceAt(contextDepth)
-  const highlightColor = surfaceAt(contextDepth + 1)
-
-  // Depth of the surface this node's TEXT sits on: a window paints surfaceAt(depth);
-  // a collapsed row/card rests on its context's surfaceAt(contextDepth). Past the
-  // ramp midpoint that surface is lighter than mid-grey, so the default light ink
-  // becomes unreadable — flip the header subtree's ink to the page BASE colour
-  // (`--background`: dark in dark-mode, light in light-mode), which always
-  // contrasts the lightened surface. Scoped to the header `<div>` only (set via
-  // `inkStyle` below), so window chrome with its own opaque background — the ADD
-  // button, the create menu, the IN/OUT rails — is left untouched.
-  const surfaceDepth = asWindow ? depth : contextDepth
-  const inkStyle =
-    surfaceDepth >= SURFACE_FLIP_DEPTH
-      ? ({ "--foreground": "var(--background)", "--muted-foreground": "var(--background)" } as unknown as React.CSSProperties)
-      : undefined
+  // The frontmost open window's depth. It drives the telescopic mapping so the
+  // leaf is capped and ancestors recede relative to it.
+  const leafDepth = Math.max(0, nav.stack.length - 1)
+  // Resting surface = parent window's (telescoped) background, so the collapsed
+  // node is invisible at rest. Highlight = ONE ramp step brighter than that — the
+  // unified hover color. From the cap depth on, this highlight is one step brighter
+  // than the opened window's capped background; that small, intentional mismatch is
+  // accepted (the hover still reads as a clear lift).
+  const restSurface = effectiveSurface(contextDepth, leafDepth)
+  const highlightColor = surfaceAt(effectiveLevel(contextDepth, leafDepth) + 1)
 
   // Dock cards carry a faint-but-noticeable resting fill — a slight lift toward
   // the hover colour — so they read as tappable chips even before hover. Do-list
@@ -355,9 +358,10 @@ export function EntityNode({
                   // (bleeding) hexagon.
                   paddingTop: "var(--hex-inset-y)",
                   paddingBottom: "var(--hex-inset-y)",
-                  // Depth-lightened opaque surface; equals the hover highlight the
-                  // dock card showed, so the open morph has no color jump.
-                  backgroundColor: surfaceAt(depth),
+                  // Telescoped, capped opaque surface. A background-color transition
+                  // lets ancestors recede smoothly as the stack deepens/retracts.
+                  backgroundColor: effectiveSurface(depth, leafDepth),
+                  transition: `background-color ${DURATION_S} ${MORPH_CSS_EASE}`,
                   // A CSS clip-path clips away box-shadow, so the hexagon's
                   // `shadow-2xl` never renders — a `filter: drop-shadow` (applied
                   // AFTER clipping) follows the hexagon outline and restores the
@@ -369,11 +373,13 @@ export function EntityNode({
                 }
               : {
                   ...(winStyle ?? {}),
-                  // Tasks/events: the depth-lightened surface matching their
-                  // hover-preview color. An EXPANDED ancestor Space adds its
-                  // rectangle clip-path (SPACE_CLIP_RECT) so it stays a clean
-                  // rectangle — the same six points the hexagon morphs to.
-                  backgroundColor: surfaceAt(depth),
+                  // Tasks/events AND expanded ancestor Spaces: the telescoped,
+                  // capped surface. The background-color transition makes ancestors
+                  // recede smoothly each time the stack deepens or retracts. An
+                  // expanded ancestor Space also adds its rectangle clip-path
+                  // (SPACE_CLIP_RECT) — the same six points the hexagon morphs to.
+                  backgroundColor: effectiveSurface(depth, leafDepth),
+                  transition: `background-color ${DURATION_S} ${MORPH_CSS_EASE}`,
                   ...(clipPath ? { clipPath } : null),
                 }
             : ({
@@ -467,9 +473,7 @@ export function EntityNode({
           // own transition-[top]. A CSS height tween here would animate the
           // flex-centered glyph along an extra path that compounds with Flip's
           // transform — the "down-then-up" hop seen when opening a window.
-          // `inkStyle` (when present) flips the ink dark for deep, light surfaces;
-          // scoped here so only the glyph/title/meta are affected.
-          style={asWindow ? { height: headerH, ...inkStyle } : inkStyle}
+          style={asWindow ? { height: headerH } : undefined}
         >
           {/* Glyph — for a collapsed task it doubles as the completion toggle. */}
           <span
