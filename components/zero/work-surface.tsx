@@ -1,10 +1,12 @@
 "use client"
 
 import { motion } from "motion/react"
+import { useTheme } from "next-themes"
 import { useZeroNav } from "@/lib/zero/nav-store"
 import { getSpace, getEntity } from "@/lib/zero/data"
 import { shellStageFor, TIMELINE_LIFT_Y, TIMELINE_TOP_PAD } from "@/lib/zero/layout"
-import { layerTransition } from "@/lib/zero/motion"
+import { layerTransition, telescopicSurface } from "@/lib/zero/motion"
+import { DURATION_S, MORPH_CSS_EASE } from "@/lib/zero/flip-stage"
 import { registerStage } from "@/lib/zero/flip-stage"
 import { EntityBody } from "./entity-body"
 import { TimelineStrip } from "./timeline-strip"
@@ -43,13 +45,26 @@ export function WorkSurface() {
   // up toward the header bar (less top padding) at each stage.
   const stage = shellStageFor(activeEntity)
 
+  // Home is window 0 in the telescopic surface model. In DARK mode it stays on
+  // pure --background (level 0) at every depth — a no-op. In LIGHT mode it is the
+  // deepest ancestor, so it darkens (capped) as the stack grows, completing the
+  // "leaf brightest, ancestors progressively darker" recede.
+  const { resolvedTheme } = useTheme()
+  const isDark = resolvedTheme !== "light"
+  const leafDepth = Math.max(0, stack.length - 1)
+  const homeSurface = telescopicSurface(0, leafDepth, isDark)
+  const homeBgTransition = `background-color ${DURATION_S} ${MORPH_CSS_EASE}`
+
   return (
     // NOTE: the card is NOT `overflow-hidden`. Clipping lives on the focus-window
     // region below instead, so the timeline can ride UP past the card's top edge
     // (toward the header) at deeper stages without being cropped. `rounded-md`
     // still rounds the card's own background; only the window region needs to
     // clip its scaled-up parent frames.
-    <div className="relative flex h-full w-full flex-col rounded-md bg-background">
+    <div
+      className="relative flex h-full w-full flex-col rounded-md"
+      style={{ backgroundColor: homeSurface, transition: homeBgTransition }}
+    >
       {/* Persistent timeline — always pinned above the focus window. It rises
           toward (and slightly into) the header bar with depth via a `transform`
           (translateY), NOT a margin: that keeps the focus-window region's box

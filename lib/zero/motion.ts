@@ -60,6 +60,48 @@ export const SPACE_CLIP_HEX = "polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 
  */
 export const SPACE_CLIP_RECT = "polygon(50% 0%, 100% 0%, 100% 100%, 50% 100%, 0% 100%, 0% 0%)"
 
+/**
+ * Telescopic, theme-aware, CAPPED surface model. A surface is the page
+ * `--background` mixed `level` fixed steps toward `--foreground`. The mix
+ * direction is the same in both themes, so a higher level is BRIGHTER in dark
+ * mode (foreground is light) and DARKER in light mode (foreground is dark).
+ *
+ * Colour tracks a window's DISTANCE FROM THE LEAF, not its absolute depth, and is
+ * clamped to `SURFACE_CAP_LEVEL` so the UI stays unmistakably "dark in dark mode /
+ * light in light mode" no matter how deep the stack goes — a deep leaf never burns
+ * the eyes, and window text/icons stay readable WITHOUT any per-depth ink flip.
+ *
+ * The leaf is always the BRIGHTEST and the home (window 0, deepest ancestor) the
+ * darkest; the difference between themes is only WHERE the leaf is anchored:
+ *   - Dark mode: leaf is ELEVATED toward the light foreground (capped); ancestors
+ *     recede toward the dark `--background`; home lands on pure `--background`.
+ *   - Light mode: leaf sits on the bright `--background`; ancestors darken toward
+ *     the foreground (capped); home is the darkest (capped) tone.
+ * On shallow stacks this degrades gracefully (leaf ≤ cap; home at its anchor).
+ */
+export const SURFACE_STEP_PCT = 9
+export const SURFACE_CAP_LEVEL = 3
+
+export function surfaceAt(level: number) {
+  if (level <= 0) return "var(--background)"
+  return `color-mix(in oklab, var(--background), var(--foreground) ${level * SURFACE_STEP_PCT}%)`
+}
+
+export function telescopicLevel(depth: number, leafDepth: number, isDark: boolean) {
+  const distance = Math.max(0, leafDepth - depth) // 0 at the leaf, grows for ancestors
+  if (isDark) {
+    // Leaf elevated (capped) → min(cap, leafDepth); each ancestor one step dimmer;
+    // home (largest distance) reaches level 0 = pure --background.
+    return Math.max(0, Math.min(SURFACE_CAP_LEVEL, leafDepth) - distance)
+  }
+  // Leaf on --background (level 0); each ancestor one step darker, capped.
+  return Math.min(SURFACE_CAP_LEVEL, distance)
+}
+
+export function telescopicSurface(depth: number, leafDepth: number, isDark: boolean) {
+  return surfaceAt(telescopicLevel(depth, leafDepth, isDark))
+}
+
 /** Geometry of the nested-doll window stack (px), keyed off absolute depth. */
 export const TOP_PEEK_PX = 40
 export const SIDE_PX = 10

@@ -1,11 +1,20 @@
 "use client"
 
 import { useState, useLayoutEffect } from "react"
+import { useTheme } from "next-themes"
 import { Check, X } from "lucide-react"
 import { getEntity, getOpenTaskCount } from "@/lib/zero/data"
 import type { TaskPriority } from "@/lib/zero/types"
 import { useZeroNav, useRowSelection, HIGHLIGHT_SHADOW, HIGHLIGHT_SHADOW_NONE } from "@/lib/zero/nav-store"
-import { HEADER_H, ANCESTOR_HEADER_H, SPACE_CLIP_HEX, SPACE_CLIP_RECT } from "@/lib/zero/motion"
+import {
+  HEADER_H,
+  ANCESTOR_HEADER_H,
+  SPACE_CLIP_HEX,
+  SPACE_CLIP_RECT,
+  surfaceAt,
+  telescopicLevel,
+  telescopicSurface,
+} from "@/lib/zero/motion"
 import { DURATION_S, MORPH_CSS_EASE } from "@/lib/zero/flip-stage"
 import { NodeGlyph } from "./node-glyph"
 import { EntityBody } from "./entity-body"
@@ -26,40 +35,7 @@ import { cn } from "@/lib/utils"
 const SPACE_DROP_SHADOW =
   "drop-shadow(0 0 0.75px rgb(255 255 255 / 0.55)) drop-shadow(0 0 3px rgb(255 255 255 / 0.18)) drop-shadow(0 20px 32px rgb(0 0 0 / 0.7)) drop-shadow(0 6px 12px rgb(0 0 0 / 0.55))"
 
-// Unified surface ramp. A surface is the page `--background` mixed `level` fixed
-// steps toward `--foreground`, so a higher level reads lighter in dark mode /
-// darker in light mode while staying theme-aware and fully opaque. level 0 == the
-// page background (home view).
-const SURFACE_STEP_PCT = 9
-function surfaceAt(level: number) {
-  if (level <= 0) return "var(--background)"
-  return `color-mix(in oklab, var(--background), var(--foreground) ${level * SURFACE_STEP_PCT}%)`
-}
 
-// Surface brightness is CAPPED at this effective level. A window's background
-// never travels more than SURFACE_CAP_LEVEL steps toward `--foreground`
-// (3 × 9% = 27%), so the UI stays unmistakably "dark in dark mode / light in
-// light mode" no matter how deep the stack goes — a deep leaf never burns the
-// eyes, and window text/icons stay readable WITHOUT any per-depth ink flip.
-const SURFACE_CAP_LEVEL = 3
-
-// TELESCOPIC depth → level mapping. Color tracks a window's distance from the
-// LEAF rather than its absolute depth: the frontmost leaf sits at the cap once
-// the stack is deep enough, and each ancestor recedes one step toward
-// `--background`. The whole ramp is shifted DOWN by the stack's overflow past the
-// cap, then clamped:
-//   overflow = max(0, leafDepth - cap);  level(d) = clamp(d - overflow, 0, cap).
-// So the leaf is always ≤ cap, home is always 0, and several deep ancestors
-// collapse onto the same background tone (acceptable, and visually calm). On
-// shallow stacks (leafDepth ≤ cap) it degrades to the plain ramp (depth 1 →
-// level 1, depth 2 → level 2, …).
-function effectiveLevel(depth: number, leafDepth: number) {
-  const overflow = Math.max(0, leafDepth - SURFACE_CAP_LEVEL)
-  return Math.min(SURFACE_CAP_LEVEL, Math.max(0, depth - overflow))
-}
-function effectiveSurface(depth: number, leafDepth: number) {
-  return surfaceAt(effectiveLevel(depth, leafDepth))
-}
 
 const priorityDot: Record<TaskPriority, string> = {
   high: "bg-accent",
@@ -118,6 +94,10 @@ export function EntityNode({
   onContextMenu?: (e: React.MouseEvent) => void
 }) {
   const nav = useZeroNav()
+  // Theme drives the telescopic surface direction. Default to dark when unresolved
+  // (the app's defaultTheme is "dark") so first paint matches and never flashes.
+  const { resolvedTheme } = useTheme()
+  const isDark = resolvedTheme !== "light"
   const entity = getEntity(entityId)
   const region = variant === "dock" ? "dock" : "list"
   const { showHighlight, hoverProps, ref } = useRowSelection(region, entityId)
@@ -192,12 +172,12 @@ export function EntityNode({
   // leaf is capped and ancestors recede relative to it.
   const leafDepth = Math.max(0, nav.stack.length - 1)
   // Resting surface = parent window's (telescoped) background, so the collapsed
-  // node is invisible at rest. Highlight = ONE ramp step brighter than that — the
-  // unified hover color. From the cap depth on, this highlight is one step brighter
-  // than the opened window's capped background; that small, intentional mismatch is
-  // accepted (the hover still reads as a clear lift).
-  const restSurface = effectiveSurface(contextDepth, leafDepth)
-  const highlightColor = surfaceAt(effectiveLevel(contextDepth, leafDepth) + 1)
+  // node is invisible at rest. Highlight = ONE ramp step further toward foreground
+  // than that — a clear hover lift (brighter in dark mode, a subtle darken in
+  // light mode). It no longer necessarily equals the opened window's background
+  // (the cap + telescoping decouple them); that intentional mismatch is accepted.
+  const restSurface = telescopicSurface(contextDepth, leafDepth, isDark)
+  const highlightColor = surfaceAt(telescopicLevel(contextDepth, leafDepth, isDark) + 1)
 
   // Dock cards carry a faint-but-noticeable resting fill — a slight lift toward
   // the hover colour — so they read as tappable chips even before hover. Do-list
@@ -358,9 +338,10 @@ export function EntityNode({
                   // (bleeding) hexagon.
                   paddingTop: "var(--hex-inset-y)",
                   paddingBottom: "var(--hex-inset-y)",
-                  // Telescoped, capped opaque surface. A background-color transition
-                  // lets ancestors recede smoothly as the stack deepens/retracts.
-                  backgroundColor: effectiveSurface(depth, leafDepth),
+                  // Telescoped, theme-aware capped surface. A background-color
+                  // transition lets ancestors recede smoothly as the stack
+                  // deepens/retracts.
+                  backgroundColor: telescopicSurface(depth, leafDepth, isDark),
                   transition: `background-color ${DURATION_S} ${MORPH_CSS_EASE}`,
                   // A CSS clip-path clips away box-shadow, so the hexagon's
                   // `shadow-2xl` never renders — a `filter: drop-shadow` (applied
@@ -378,7 +359,7 @@ export function EntityNode({
                   // recede smoothly each time the stack deepens or retracts. An
                   // expanded ancestor Space also adds its rectangle clip-path
                   // (SPACE_CLIP_RECT) — the same six points the hexagon morphs to.
-                  backgroundColor: effectiveSurface(depth, leafDepth),
+                  backgroundColor: telescopicSurface(depth, leafDepth, isDark),
                   transition: `background-color ${DURATION_S} ${MORPH_CSS_EASE}`,
                   ...(clipPath ? { clipPath } : null),
                 }
