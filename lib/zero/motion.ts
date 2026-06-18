@@ -130,25 +130,48 @@ export type Rect = { top: number; left: number; width: number; height: number }
 const HEX_W_OVER_H = Math.sqrt(3) / 2
 
 /**
- * Perfect (regular) hexagon that fills the FULL WIDTH `rect` allows, centered
- * within it. Used for a Space window that is the frontmost LEAF (no child open).
+ * Fraction of the visible region height (`rect.height`) that the hexagon's four
+ * SIDE corners (the 25%- and 75%-height vertices: upper-/lower-left and -right)
+ * are allowed to span. The hexagon is centered in the region, so its side-corner
+ * band measures `0.5 × height`; capping that band at `HEX_CORNER_BAND × region`
+ * guarantees the four side corners land inside the region with a small margin
+ * (here ~8% top and bottom), while the top/bottom POINTS still overflow off-screen
+ * (behind the header / past the bottom). Driven by viewport height — NOT width —
+ * so a "full-screen" hexagon on a wide monitor no longer grows so tall that those
+ * corners disappear.
+ */
+const HEX_CORNER_BAND = 0.84
+
+/**
+ * Largest perfect (regular) hexagon that fits inside `rect` while keeping its
+ * four SIDE corners visible. Used for every Space window (leaf or ancestor).
  *
- * Unlike a height-constrained fit (which would leave wide empty side gaps), this
- * takes the entire parent-allowed width — `rect.width`, which already reserves
- * the side peek (WINDOW_BASE_SIDE etc.) so the parent's IN/OUT rails stay visible
- * beside it. Honouring the regular-hexagon ratio then makes the height
- * `width / 0.866`, which is TALLER than the region: the hexagon intentionally
- * bleeds above (behind the top header / timeline) and below (off the bottom of
- * the screen) while keeping its perfect six-sided shape. It is centered on the
- * rect vertically so the overflow is symmetric. As soon as a child opens the
- * Space is no longer the leaf and reverts to the full `stackTargetRect` box.
+ * Two constraints, whichever is smaller wins:
+ *   1. WIDTH — never wider than the parent-allowed width (`rect.width`, which
+ *      already reserves the side peek so IN/OUT rails stay visible beside it).
+ *      This dominates on tall/narrow viewports.
+ *   2. HEIGHT — the side-corner band (`0.5 × height`) must fit within
+ *      `HEX_CORNER_BAND × rect.height`, i.e. `height ≤ HEX_CORNER_BAND × 2 ×
+ *      rect.height`. This dominates on WIDE viewports, where a width-driven
+ *      hexagon would be far too tall and push the side corners off-screen.
+ *
+ * The result is centered both axes within `rect`. The shape stays a perfect
+ * regular hexagon (ratio √3/2 preserved); only its overall scale adapts to the
+ * viewport. Its top/bottom points still bleed off-screen by design.
  */
 export function perfectHexInside(rect: Rect): Rect {
-  const width = rect.width
-  const height = width / HEX_W_OVER_H
+  // Start width-driven (full available width)…
+  let width = rect.width
+  let height = width / HEX_W_OVER_H
+  // …then cap by the viewport-height constraint so the side corners stay in view.
+  const maxHeight = HEX_CORNER_BAND * 2 * rect.height
+  if (height > maxHeight) {
+    height = maxHeight
+    width = height * HEX_W_OVER_H
+  }
   return {
     top: rect.top + (rect.height - height) / 2,
-    left: rect.left,
+    left: rect.left + (rect.width - width) / 2,
     width,
     height,
   }
