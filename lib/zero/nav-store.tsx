@@ -366,20 +366,20 @@ export function ZeroNavProvider({
     const styleFor = (windowDepth: number): React.CSSProperties => {
       const ancestorKinds = stack.slice(1, windowDepth).map((sid) => getEntity(sid)?.kind ?? "task")
       let rect = stackTargetRect(ancestorKinds, { w: liftedRegion.width, h: liftedRegion.height })
-      // A Space window is a PERFECT hexagon at ALL depths — frontmost leaf OR an
-      // ancestor hosting a child — so opening a child no longer morphs it from a
-      // hexagon into a rectangle; the shape simply stays put as the child grows
-      // over it. It fills the FULL parent-allowed WIDTH, so its height
-      // (= width / 0.866) overflows the box and the shape bleeds above (behind the
-      // header/timeline) and below (off-screen). `hexInsetY` is how far it
-      // overflows the box on EACH side; the window pads its content vertically by
-      // it (via the `--hex-inset-y` CSS var) so the work-surface stays inside the
-      // hexagon's visible, full-width middle band. Each deeper Space sits in a
-      // narrower box (accumulated peek), so it is a correspondingly smaller hexagon
-      // — preserving the recession cue.
+      // A Space is a PERFECT hexagon only while it is the frontmost LEAF (no child
+      // open): it ignores the wide box and centers a viewport-capped regular
+      // hexagon whose four side corners stay on-screen (top/bottom points bleed
+      // off). The moment a child opens it stops being the leaf and EXPANDS to fill
+      // the full ancestor box — bigger than the capped hexagon, so it reads as the
+      // Space zooming in until its hexagon edges flatten out into a rectangle (the
+      // frame's clip-path tweens hex → rect-polygon in the same Flip pass). The
+      // expanded ancestor is then a plain, cheap rectangle (no hex inset, no
+      // drop-shadow filter), which is also why opening/closing stays snappy.
       const isSpaceWindow = (getEntity(stack[windowDepth])?.kind ?? "task") === "space"
+      const isLeaf = windowDepth === stack.length - 1
+      const isSpaceLeaf = isSpaceWindow && isLeaf
       let hexInsetY = 0
-      if (isSpaceWindow) {
+      if (isSpaceLeaf) {
         const box = rect
         rect = perfectHexInside(rect)
         hexInsetY = Math.max(0, (rect.height - box.height) / 2)
@@ -391,11 +391,14 @@ export function ZeroNavProvider({
         width: rect.width,
         height: rect.height,
         zIndex: 20 + windowDepth * 10,
-        // A Space is hexagon-clipped (no radius). Otherwise: top-left square,
-        // top-right medium radius (16px) for every window EXCEPT the first child
-        // opened from home (windowDepth === 1). (TL TR BR BL)
+        // A Space (leaf hexagon OR expanded rectangle) is clip-path-shaped, so it
+        // needs no border radius. Other windows: top-left square, top-right medium
+        // radius (16px) for every window EXCEPT the first child opened from home
+        // (windowDepth === 1). (TL TR BR BL)
         borderRadius: isSpaceWindow ? "0" : `0 ${windowDepth >= 2 ? "16px" : "0"} 8px 8px`,
-        ...(isSpaceWindow ? ({ ["--hex-inset-y"]: `${hexInsetY}px` } as React.CSSProperties) : null),
+        // Only the leaf hexagon overflows the box and pads its content into the
+        // visible band; an expanded ancestor rectangle fills its box normally.
+        ...(isSpaceLeaf ? ({ ["--hex-inset-y"]: `${hexInsetY}px` } as React.CSSProperties) : null),
       }
     }
 

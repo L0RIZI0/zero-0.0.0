@@ -45,6 +45,21 @@ export const MORPH_WHERE_ATTR = "data-morph-where"
  */
 export const SPACE_CLIP_HEX = "polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)"
 
+/**
+ * The same six points as `SPACE_CLIP_HEX`, but flattened so the polygon traces a
+ * plain RECTANGLE: the two upper vertices ride up to the top edge and the two
+ * lower vertices drop to the bottom edge. It is the shape an EXPANDED Space takes
+ * once a child opens over it — the hexagon "grows" until its slanted top/bottom
+ * edges flatten out and it reads as a rectangle window.
+ *
+ * Crucially it keeps SIX points in the SAME order as the hexagon, so GSAP Flip
+ * interpolates between the two clip-paths point-for-point in a single pass (no
+ * snap, no pop). And because a settled ancestor's clip is then a static rectangle
+ * — no per-frame clip morph and no drop-shadow filter (leaf-only) — an expanded
+ * Space costs the same to render as any plain rounded-rect window.
+ */
+export const SPACE_CLIP_RECT = "polygon(50% 0%, 100% 0%, 100% 100%, 50% 100%, 0% 100%, 0% 0%)"
+
 /** Geometry of the nested-doll window stack (px), keyed off absolute depth. */
 export const TOP_PEEK_PX = 40
 export const SIDE_PX = 10

@@ -5,7 +5,7 @@ import { Check, X } from "lucide-react"
 import { getEntity, getOpenTaskCount } from "@/lib/zero/data"
 import type { TaskPriority } from "@/lib/zero/types"
 import { useZeroNav, useRowSelection, HIGHLIGHT_SHADOW, HIGHLIGHT_SHADOW_NONE } from "@/lib/zero/nav-store"
-import { HEADER_H, ANCESTOR_HEADER_H, SPACE_CLIP_HEX } from "@/lib/zero/motion"
+import { HEADER_H, ANCESTOR_HEADER_H, SPACE_CLIP_HEX, SPACE_CLIP_RECT } from "@/lib/zero/motion"
 import { DURATION_S, MORPH_CSS_EASE } from "@/lib/zero/flip-stage"
 import { NodeGlyph } from "./node-glyph"
 import { EntityBody } from "./entity-body"
@@ -233,24 +233,24 @@ export function EntityNode({
   // frame. Only a settled, collapsed node is interactive.
   const interactive = !asWindow && !isClosing
 
-  // Clip-path shape. A Space is a hexagon ONLY where nothing needs to escape it:
-  //   - its collapsed DOCK CARD (no children rendered inside), and
-  //   - the frontmost LEAF window (isTop) — a true hexagon with no child window
-  //     inside it to clip.
-  // The instant a child opens the Space stops being the leaf and reverts to a
-  // plain rounded-rect ancestor (clipPath undefined) so the child's fixed window
-  // is no longer cropped by the hexagon's corners. Tasks/events never clip.
-  // A Space window is a hexagon at ALL times — whether it is the frontmost LEAF
-  // or an ANCESTOR hosting a child. Keeping the shape constant means opening a
-  // child no longer morphs the Space from hexagon to rectangle. The clip stays on
-  // the frame (so GSAP Flip animates the hexagon ⇄ dock-card reshape), and because
-  // the full-bleed hexagon is full-width across the visible band, the child window
-  // nested inside is not visibly cropped by the off-screen top/bottom slopes.
+  // A Space is always shaped by a 6-point clip-path, but the shape depends on
+  // whether it is the frontmost LEAF or an EXPANDED ancestor:
+  //   - LEAF window (isTop) + collapsed DOCK CARD → a true regular HEXAGON.
+  //   - EXPANDED ancestor (a child is open over it) → the same six points
+  //     flattened into a RECTANGLE (SPACE_CLIP_RECT). Opening a child grows the
+  //     Space from the capped hexagon to the full box, and the clip tweens
+  //     hex → rect point-for-point in the same Flip pass, so the hexagon edges
+  //     visibly flatten out as it "expands" into a rectangle window. A settled
+  //     ancestor is then a static, cheap rectangle (no clip morph, no filter).
+  // Tasks/events never clip.
   const spaceWindow = isSpace && asWindow
+  const spaceLeafWindow = spaceWindow && isTop
   const clipPath = !isSpace
     ? undefined
     : asWindow
-      ? SPACE_CLIP_HEX
+      ? isTop
+        ? SPACE_CLIP_HEX
+        : SPACE_CLIP_RECT
       : variant === "dock"
         ? SPACE_CLIP_HEX
         : undefined
@@ -282,7 +282,7 @@ export function EntityNode({
   //     children peeking below.
   //   - dock card → centered column (glyph, title, then the open-task counter).
   const headerClass = asWindow
-    ? spaceWindow
+    ? spaceLeafWindow
       ? "relative z-10 flex shrink-0 flex-col items-center gap-1.5 px-4 pt-9"
       : cn("relative z-10 flex shrink-0 items-center gap-3 pr-12 pl-4")
     : variant === "dock"
@@ -291,16 +291,15 @@ export function EntityNode({
 
   // ANCESTORS (open windows that are not the frontmost leaf) wear a more compact
   // header than the frontmost leaf: a shorter band plus a smaller glyph + title,
-  // so depth reads as recession. The leaf keeps the full treatment.
-  // Spaces are EXCLUDED here: a Space window (leaf or ancestor) always wears the
-  // full centered hexagon header, never the compact ancestor band — so its shape
-  // and chrome stay identical when a child opens. Only non-space ancestors
-  // (tasks/events behind a child) get the compact treatment.
-  const ancestorHeader = asWindow && !isTop && !isClosing && !isSpace
-  // Every Space hexagon (leaf or ancestor) reserves a tall top band so its
-  // CENTERED header clears the hexagon's top point and the work-surface starts
-  // within the full-width mid-section.
-  const headerH = spaceWindow ? 96 : ancestorHeader ? ANCESTOR_HEADER_H : HEADER_H
+  // so depth reads as recession. This now INCLUDES an expanded ancestor Space —
+  // once a child opens it reads as a plain rectangle window, so it gets the same
+  // left-aligned compact header as every other ancestor. Only the frontmost LEAF
+  // Space keeps the tall centered hexagon header.
+  const ancestorHeader = asWindow && !isTop && !isClosing
+  // Only the LEAF Space hexagon reserves a tall top band so its CENTERED header
+  // clears the hexagon's top point; an expanded ancestor Space uses the compact
+  // ancestor band like any other stacked window.
+  const headerH = spaceLeafWindow ? 96 : ancestorHeader ? ANCESTOR_HEADER_H : HEADER_H
 
   // Compact ancestor: 13px + dimmer (see className) so it recedes behind the
   // leaf. Leaf window: full 18px.
@@ -316,18 +315,19 @@ export function EntityNode({
   // right side — snug instead of floating off in the peek margin.
   const closeTitleLeft =
     winStyle && typeof winStyle.left === "number" && typeof winStyle.width === "number"
-      ? // Space window: the X is inset 8% from the right edge, so place the title
-        // just right of it (~92% across + a small gap) instead of at the very edge.
-        spaceWindow
+      ? // Leaf Space hexagon: the X is inset 8% from the right edge, so place the
+        // title just right of it (~92% across + a small gap) instead of at the very
+        // edge. Expanded ancestor Spaces use the normal top-right corner.
+        spaceLeafWindow
         ? winStyle.left + winStyle.width * 0.92 + 6
         : winStyle.left + winStyle.width - 2
       : 0
   // Vertically center the title on the X. The cluster sits at top-3 (12px); the X
-  // is size-6 (24px) tall. A Space pushes the X into the visible band, so the
-  // title follows it down by the same --hex-inset-y (resolved as a calc string).
+  // is size-6 (24px) tall. A leaf Space hexagon pushes the X into the visible band,
+  // so the title follows it down by the same --hex-inset-y (resolved as a calc).
   const closeTitleTop =
     winStyle && typeof winStyle.top === "number"
-      ? spaceWindow
+      ? spaceLeafWindow
         ? `calc(${winStyle.top}px + var(--hex-inset-y) + 20px)`
         : winStyle.top + 12 + 12
       : 0
@@ -355,9 +355,9 @@ export function EntityNode({
         }}
         style={
           asWindow
-            ?               // Every Space window (leaf OR ancestor) clips to a hexagon (no border
-              // radius). Tasks/events keep the rounded-rect borderRadius from winStyle.
-              spaceWindow
+            ?               // The LEAF Space is a hexagon: it overflows the box, pads its content
+              // into the visible band, and carries the drop-shadow filter.
+              spaceLeafWindow
               ? {
                   ...(winStyle ?? {}),
                   borderRadius: 0,
@@ -375,19 +375,20 @@ export function EntityNode({
                   // A CSS clip-path clips away box-shadow, so the hexagon's
                   // `shadow-2xl` never renders — a `filter: drop-shadow` (applied
                   // AFTER clipping) follows the hexagon outline and restores the
-                  // depth cue. CRITICAL: only the LEAF gets it. A CSS `filter`
-                  // establishes a containing block for `position: fixed`
-                  // descendants, so putting it on an ANCESTOR space would re-anchor
-                  // the child window (a fixed DOM descendant) to this hexagon
-                  // instead of the viewport — throwing the child off-screen. The
-                  // leaf has no fixed child inside it, so it is safe there.
-                  ...(isTop ? { filter: SPACE_DROP_SHADOW } : null),
+                  // depth cue. Only the LEAF gets it: a CSS `filter` establishes a
+                  // containing block for `position: fixed` descendants, so on an
+                  // ancestor it would re-anchor the child window to this frame and
+                  // throw it off-screen. The leaf has no fixed child, so it's safe.
+                  filter: SPACE_DROP_SHADOW,
                 }
               : {
                   ...(winStyle ?? {}),
                   // Tasks/events: the depth-lightened surface matching their
-                  // hover-preview color.
+                  // hover-preview color. An EXPANDED ancestor Space adds its
+                  // rectangle clip-path (SPACE_CLIP_RECT) so it stays a clean
+                  // rectangle — the same six points the hexagon morphs to.
                   backgroundColor: surfaceAt(depth),
+                  ...(clipPath ? { clipPath } : null),
                 }
             : ({
                 // Collapsed: Space dock cards are hexagons (clipPath), everything
@@ -423,11 +424,11 @@ export function EntityNode({
             // clipped slope. Other windows: true top-right corner.
             style={{
               transitionDuration: DURATION_S,
-              ...(spaceWindow ? { top: "calc(var(--hex-inset-y) + 8px)", right: "8%" } : null),
+              ...(spaceLeafWindow ? { top: "calc(var(--hex-inset-y) + 8px)", right: "8%" } : null),
             }}
             className={cn(
               "absolute z-20 flex flex-col items-center gap-1",
-              spaceWindow ? "" : "right-1.5 top-3",
+              spaceLeafWindow ? "" : "right-1.5 top-3",
             )}
           >
             <button
@@ -605,10 +606,11 @@ export function EntityNode({
 
         {/* Header divider — a dedicated fading element (not a CSS border) so it
             fades cleanly and slides as the header compacts, and fades out as the
-            window collapses to a row. Hidden for any Space hexagon (a hard rule
-            across a hexagon's narrowing top reads as a stray clipped line);
-            tasks/events show it. */}
-        {(asWindow || isClosing) && !spaceWindow && (
+            window collapses to a row. Hidden for the LEAF Space hexagon (a hard
+            rule across the hexagon's narrowing top reads as a stray clipped line);
+            expanded ancestor Spaces are rectangles, so they show it like everything
+            else. */}
+        {(asWindow || isClosing) && !spaceLeafWindow && (
           <span
             aria-hidden
             style={{ top: headerH, transitionDuration: DURATION_S, transitionTimingFunction: MORPH_CSS_EASE }}
@@ -640,11 +642,12 @@ export function EntityNode({
                   // Inputs/Outputs rails centered on that short content near the top
                   // — so on tall screens they floated well above the window center.
                   "flex min-h-0 flex-1 flex-col",
-              // Any Space hexagon insets its content horizontally into the shape's
-              // safe band. Kept small (px-[4%]) so the vertically centered IN/OUT
-              // rails — which live at the hexagon's full-width mid-section — sit
-              // close to its left/right edges.
-              spaceWindow && "px-[4%]",
+              // Only the LEAF Space hexagon insets its content horizontally into the
+              // shape's safe band. Kept small (px-[4%]) so the vertically centered
+              // IN/OUT rails — which live at the hexagon's full-width mid-section —
+              // sit close to its left/right edges. Expanded ancestor Spaces are
+              // rectangles and fill normally.
+              spaceLeafWindow && "px-[4%]",
             )}
           >
             <EntityBody
