@@ -71,13 +71,14 @@ export const SPACE_CLIP_RECT = "polygon(50% 0%, 100% 0%, 100% 100%, 50% 100%, 0%
  * light in light mode" no matter how deep the stack goes — a deep leaf never burns
  * the eyes, and window text/icons stay readable WITHOUT any per-depth ink flip.
  *
- * The leaf is always the BRIGHTEST and the home (window 0, deepest ancestor) the
- * darkest; the difference between themes is only WHERE the leaf is anchored:
+ * The themes are intentionally ASYMMETRIC:
  *   - Dark mode: leaf is ELEVATED toward the light foreground (capped); ancestors
- *     recede toward the dark `--background`; home lands on pure `--background`.
- *   - Light mode: leaf sits on the bright `--background`; ancestors darken toward
- *     the foreground (capped); home is the darkest (capped) tone.
- * On shallow stacks this degrades gracefully (leaf ≤ cap; home at its anchor).
+ *     recede toward the dark `--background`; home (window 0) lands on pure
+ *     `--background`. This is what keeps a deep leaf from burning the eyes.
+ *   - Light mode: a NO-OP. Every window stays on the bright `--background`
+ *     (level 0); depth is conveyed entirely by the existing drop shadows, so the
+ *     UI never trends darker than the chosen light theme.
+ * On shallow stacks dark mode degrades gracefully (leaf ≤ cap; home at level 0).
  */
 export const SURFACE_STEP_PCT = 9
 export const SURFACE_CAP_LEVEL = 3
@@ -88,14 +89,12 @@ export function surfaceAt(level: number) {
 }
 
 export function telescopicLevel(depth: number, leafDepth: number, isDark: boolean) {
+  // Light mode: every window stays on --background; drop shadows alone show depth.
+  if (!isDark) return 0
+  // Dark mode: leaf elevated (capped) → min(cap, leafDepth); each ancestor one step
+  // dimmer; home (largest distance) reaches level 0 = pure --background.
   const distance = Math.max(0, leafDepth - depth) // 0 at the leaf, grows for ancestors
-  if (isDark) {
-    // Leaf elevated (capped) → min(cap, leafDepth); each ancestor one step dimmer;
-    // home (largest distance) reaches level 0 = pure --background.
-    return Math.max(0, Math.min(SURFACE_CAP_LEVEL, leafDepth) - distance)
-  }
-  // Leaf on --background (level 0); each ancestor one step darker, capped.
-  return Math.min(SURFACE_CAP_LEVEL, distance)
+  return Math.max(0, Math.min(SURFACE_CAP_LEVEL, leafDepth) - distance)
 }
 
 export function telescopicSurface(depth: number, leafDepth: number, isDark: boolean) {
