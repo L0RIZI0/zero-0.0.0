@@ -528,26 +528,12 @@ export function EntityNode({
             data-flip-role="inner"
             style={{
               fontSize: titleSize,
-              // SPINE rotation. Driven by the STANDALONE `rotate` property (not
-              // `transform`) for two reasons: (1) it composes on top of the
-              // `transform` matrix GSAP Flip uses to slide the title between header
-              // positions, so the title rotates AND glides in one smooth motion;
-              // (2) flip-stage clears `transform` on inner targets when a morph
-              // ends, but leaves `rotate` alone, so the resting spine keeps its
-              // angle instead of snapping back flat. -90deg = 90° counter-clockwise.
-              ...(asWindow ? { rotate: isSpine ? "-90deg" : "0deg" } : null),
-              // Pivot near the glyph-adjacent end of the title so a LONG title
-              // rotates/slides along the shortest visible path (anchored by the
-              // glyph) instead of sweeping a wide arc from its far center.
-              ...(asWindow ? { transformOrigin: spineTitleOrigin } : null),
-              // Animate color (ancestor dimming) AND the spine rotation; Flip owns
-              // position + fontSize, so listing only these here never fights it.
+              // Color-only CSS transition (ancestor dimming). GSAP Flip owns this
+              // element's position + fontSize (it SLIDES the title between the
+              // horizontal header slot and the spine strip), so we must not also
+              // declare a transform transition here or the two would fight.
               ...(asWindow
-                ? {
-                    transitionProperty: "color, rotate",
-                    transitionDuration: DURATION_S,
-                    transitionTimingFunction: MORPH_CSS_EASE,
-                  }
+                ? { transitionProperty: "color", transitionDuration: DURATION_S, transitionTimingFunction: MORPH_CSS_EASE }
                 : null),
             }}
             className={cn(
@@ -565,7 +551,31 @@ export function EntityNode({
               !asWindow && (isTask && done ? "text-muted-foreground/60 line-through" : cancelled ? "line-through" : ""),
             )}
           >
-            {entity.title}
+            {/* SPINE rotation lives on this INNER span, NOT the <h3>. The <h3> is a
+                GSAP Flip target (Flip slides it below the glyph and CLEARS its
+                transform on completion, which would wipe any rotation we put there;
+                React also drops the standalone CSS `rotate` property). The span is
+                NOT a Flip target, so its `transform` is untouched by Flip and
+                animates purely via its own CSS transition — the title rotates AND
+                slides at once. -90deg = 90° counter-clockwise; the dynamic
+                transform-origin pins the glyph-adjacent end so a LONG title sweeps
+                the shortest visible path instead of a wide arc about its center. */}
+            <span
+              className="inline-block whitespace-nowrap"
+              style={
+                asWindow
+                  ? {
+                      transform: isSpine ? "rotate(-90deg)" : "rotate(0deg)",
+                      transformOrigin: spineTitleOrigin,
+                      transitionProperty: "transform",
+                      transitionDuration: DURATION_S,
+                      transitionTimingFunction: MORPH_CSS_EASE,
+                    }
+                  : undefined
+              }
+            >
+              {entity.title}
+            </span>
           </h3>
 
           {/* Collapsed trailing meta — counts / time / due / priority. Hidden in
@@ -628,7 +638,10 @@ export function EntityNode({
               // subtle hairline rather than a hard rule. `top` animates too so it
               // glides as a leaf's header compacts into an ancestor's shorter one.
               "pointer-events-none absolute left-0 right-0 z-[5] h-px bg-border transition-[top,opacity]",
-              isClosing ? "opacity-0" : "opacity-50",
+              // A SPINE has no horizontal header band for the rule to underline, so
+              // it fades out, and fades back in when the window un-spines to a
+              // horizontal header. Closing also fades it out.
+              isClosing || isSpine ? "opacity-0" : "opacity-50",
             )}
           />
         )}
