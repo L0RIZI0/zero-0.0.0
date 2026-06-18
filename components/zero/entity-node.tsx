@@ -137,7 +137,24 @@ export function EntityNode({
   const asWindow = ownsOpen || fadingWindow
   const isTop = ownsOpen && nav.activeId === entityId
   const animating = nav.animating
-  const showBody = asWindow || isClosing
+
+  // Defer mounting the (expensive, recursive) window body — its do-list, dock and
+  // any nested windows — until the OPEN morph has finished. Mounting it at commit
+  // time, while GSAP Flip is inverting the frame from the small dock-card/row box,
+  // let the body's natural content height blow the frame's first morph frame up to
+  // full height for an instant: the card flashed a tall, vertically-stretched
+  // hexagon before settling. `bodyReady` latches true once this node is a window
+  // AND nothing is animating, and resets when it stops being a window. Crucially it
+  // only ever flips ON (never OFF while still a window), so an already-open ANCESTOR
+  // keeps its body mounted through a child's open/close morph — only a freshly
+  // opening leaf waits. A CLOSING window always shows its body so it retracts with
+  // its content intact.
+  const [bodyReady, setBodyReady] = useState(false)
+  useLayoutEffect(() => {
+    if (asWindow && !animating) setBodyReady(true)
+    else if (!asWindow) setBodyReady(false)
+  }, [asWindow, animating])
+  const showBody = isClosing || (asWindow && bodyReady)
 
   const depth = ownsOpen
     ? stackDepth
