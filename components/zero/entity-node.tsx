@@ -749,9 +749,23 @@ export function EntityNode({
           )}
 
           {/* Collapsed dock-card open-task counter — centered in the column flow,
-              directly below the title (not pinned to a corner). */}
-          {!asWindow && !isClosing && variant === "dock" && (
-            <span className="flex items-center gap-1 text-[10px] text-muted-foreground/70">
+              directly below the title (not pinned to a corner).
+              It is rendered all through the CLOSE morph (not gated by !isClosing),
+              just held at opacity-0 and faded in once closed. The counter sits in
+              the vertically-centred column flow, so if it only MOUNTED after the
+              close finished it would add height to a centred column and shove
+              glyph+title upward — the abrupt "jump up" at the very end. Keeping it
+              mounted (occupying its space) the whole time means the column height is
+              constant, so GSAP Flip's captured final layout already accounts for it
+              and glyph+title settle smoothly into place; the opacity tween then
+              brings the counter in gently instead of popping. */}
+          {!asWindow && variant === "dock" && (
+            <span
+              className={cn(
+                "flex items-center gap-1 text-[10px] text-muted-foreground/70 transition-opacity duration-200",
+                isClosing ? "opacity-0" : "opacity-100",
+              )}
+            >
               <span className="font-medium tabular-nums">{openCount}</span>
               <span className="flex h-2.5 w-2.5 items-center justify-center">
                 <NodeGlyph kind="task" strokeWidth={1.5} />
