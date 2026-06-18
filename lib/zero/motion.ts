@@ -147,6 +147,11 @@ export const VERTICAL_BEHIND = 3
 // so the visible band equals the now-shorter ancestor header with no empty strip
 // below the divider. Trimmed from 44 as part of making ancestors more compact.
 export const TASK_TOP_PEEK = 36
+// Extra top peek added ONLY when the ancestor is a Space: its child sits this many
+// px lower so a sliver of the Space's top border shows above the child. Because the
+// loop accumulates `top` across ancestors, this shift cascades — grandchildren and
+// deeper descendants move down by the same amount relative to the Space.
+export const SPACE_CHILD_TOP_PEEK = 2
 // A non-space (task/event/instant) ancestor used to peek ONLY from the top (side
 // inset was just 10px), so a child window covered almost its entire body — hiding
 // the parent's collapsed IN/OUT rails. This side peek leaves a strip of the
@@ -200,7 +205,7 @@ export function stackTargetRect(
   // EVERY ancestor — space, task, event or instant — uses the same nested-doll
   // profile. The LEFT strip always accumulates (IN rail / spine stays visible);
   // the TOP peek is skipped for spine ancestors so their child shares their top.
-  ancestorKinds.forEach((_kind, i) => {
+  ancestorKinds.forEach((kind, i) => {
     // `i`-th ancestor sits at stack depth `i + 1`. Its right peek is the OUT-rail
     // sliver THIS ancestor shows beside its child. EVERY ancestor (including the
     // leaf's direct parent) gets the thin sliver so the parent's OUT rail stays
@@ -210,7 +215,13 @@ export function stackTargetRect(
     // back to the full peek so geometry stays consistent with older callers.
     right += leafDepth == null ? RIGHT_PEEK : RIGHT_PEEK_SLIVER
     left += TASK_SIDE
-    if (!ancestorVertical?.[i]) top += TASK_TOP_PEEK
+    if (!ancestorVertical?.[i]) {
+      top += TASK_TOP_PEEK
+      // When THIS ancestor is a Space, nudge its child an extra 2px down so the
+      // Space's top border peeks above the child. The accumulating `top` carries
+      // the shift to all deeper descendants relative to the Space.
+      if (kind === "space") top += SPACE_CHILD_TOP_PEEK
+    }
   })
   return { top, left, width: region.w - left - right, height: region.h - top - bottom }
 }
