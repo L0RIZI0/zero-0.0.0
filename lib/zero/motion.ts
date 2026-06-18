@@ -141,9 +141,15 @@ export const TASK_TOP_PEEK = 36
 // parent on the left so its IN rail stays visible and reachable. Trimmed to sit
 // close to RIGHT_PEEK so the left strip isn't noticeably wider than the right.
 export const TASK_SIDE = 26
-// Right peek reveals just a sliver of an ancestor's collapsed Outs rail beside
-// the child window.
+// Right peek reveals an ancestor's collapsed Outs rail beside the child window.
+// Only the leaf's DIRECT parent gets this full peek (so its OUT rail reads
+// clearly); the home view shows its own rail via WINDOW_BASE_SIDE instead.
 export const RIGHT_PEEK = 24
+// In-between ancestors (everything from the home view's first child down to the
+// leaf's grandparent) collapse their right peek to a barely-there sliver. Their
+// OUT rails would only crowd the stack and steal horizontal space from the leaf,
+// so they recede to a hairline while the leaf, its parent, and home stay legible.
+export const RIGHT_PEEK_SLIVER = 6
 /**
  * Base horizontal inset applied to EVERY focus window (even the depth-1 child of
  * the home view, which has no ancestors). It makes each window a touch narrower
@@ -169,16 +175,27 @@ export function stackTargetRect(
   // SAME top, so deeply-stacked spines fan out horizontally instead of marching
   // the leaf ever further down the screen.
   ancestorVertical?: boolean[],
+  // Depth of the frontmost (leaf) window in the stack. Used to size right peeks:
+  // the leaf's DIRECT parent shows a full OUT rail, every other ancestor only a
+  // sliver. When omitted (e.g. the transient closing animation), all ancestors
+  // fall back to the full peek so geometry stays consistent with older callers.
+  leafDepth?: number,
 ): Rect {
   let top = 0
   let left = WINDOW_BASE_SIDE
   let right = WINDOW_BASE_SIDE
   let bottom = 0
   // EVERY ancestor — space, task, event or instant — uses the same nested-doll
-  // profile. Side peeks always accumulate (left strip + IN/OUT rails stay visible);
+  // profile. The LEFT strip always accumulates (IN rail / spine stays visible);
   // the TOP peek is skipped for spine ancestors so their child shares their top.
   ancestorKinds.forEach((_kind, i) => {
-    right += RIGHT_PEEK
+    // `i`-th ancestor sits at stack depth `i + 1`. Its right peek is the OUT-rail
+    // sliver THIS ancestor shows beside its child. Full only for the leaf's direct
+    // parent (depth leafDepth − 1); all in-between ancestors get the thin sliver so
+    // they stop eating the leaf's width. (Home, depth 0, isn't in this list — its
+    // rail shows via WINDOW_BASE_SIDE.)
+    const isLeafParent = leafDepth != null && i + 1 === leafDepth - 1
+    right += leafDepth == null || isLeafParent ? RIGHT_PEEK : RIGHT_PEEK_SLIVER
     left += TASK_SIDE
     if (!ancestorVertical?.[i]) top += TASK_TOP_PEEK
   })

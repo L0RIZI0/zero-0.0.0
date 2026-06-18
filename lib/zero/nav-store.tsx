@@ -374,6 +374,7 @@ export function ZeroNavProvider({
         ancestorKinds,
         { w: liftedRegion.width, h: liftedRegion.height },
         ancestorVertical,
+        leafDepth,
       )
       // A Space is a PERFECT hexagon only while it is the frontmost LEAF (no child
       // open): it ignores the wide box and centers a viewport-capped regular
