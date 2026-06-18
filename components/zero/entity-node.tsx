@@ -508,18 +508,19 @@ export function EntityNode({
           />
         )}
 
-        {/* Hover-peek catcher. Buried IN-BETWEEN ancestors (everything from the home
-            view's first child down to the leaf's grandparent) show only a hairline
-            RIGHT_PEEK_SLIVER of their OUT rail. This invisible strip rides their
-            right edge; hovering the exposed sliver tells the nav layer to shrink
-            every DEEPER window from the right (via the --peek-shrink CSS var) so
-            THIS ancestor's full OUT rail is exposed, then restores on leave. It is
-            only the leaf's grandparent and higher: the leaf's direct parent already
-            shows a full peek, and the leaf/home are never buried. The strip is wider
-            than the resting sliver so that, once the reveal opens the gap, the
-            pointer stays over it (no collapse flicker) anywhere in the exposed band.
-            Sits below the child window (lower z), so only its exposed part is live. */}
-        {asWindow && !isTop && depth < leafDepth - 1 && (
+        {/* Hover-peek catcher. EVERY buried ancestor (the leaf's direct parent and
+            up, down to the home view's first child) now shows only a hairline
+            RIGHT_PEEK_SLIVER of its OUT rail. This invisible strip rides their right
+            edge; hovering the exposed sliver tells the nav layer to shrink every
+            DEEPER window from the right (via the --peek-shrink CSS var) so THIS
+            ancestor's full OUT rail is exposed, then restores on leave. The direct
+            parent is included too (depth === leafDepth − 1): revealing it shrinks
+            just the leaf, exposing the parent's rail exactly like deeper ancestors.
+            The strip is wider than the resting sliver so that, once the reveal opens
+            the gap, the pointer stays over it (no collapse flicker) anywhere in the
+            exposed band. Sits below the child window (lower z), so only its exposed
+            part is live. (The leaf/home are never buried, so `!isTop` is enough.) */}
+        {asWindow && !isTop && (
           <div
             aria-hidden
             onMouseEnter={() => nav.revealAncestor(depth)}
