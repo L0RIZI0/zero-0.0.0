@@ -202,12 +202,13 @@ export function stackTargetRect(
   // the TOP peek is skipped for spine ancestors so their child shares their top.
   ancestorKinds.forEach((_kind, i) => {
     // `i`-th ancestor sits at stack depth `i + 1`. Its right peek is the OUT-rail
-    // sliver THIS ancestor shows beside its child. Full only for the leaf's direct
-    // parent (depth leafDepth − 1); all in-between ancestors get the thin sliver so
-    // they stop eating the leaf's width. (Home, depth 0, isn't in this list — its
-    // rail shows via WINDOW_BASE_SIDE.)
-    const isLeafParent = leafDepth != null && i + 1 === leafDepth - 1
-    right += leafDepth == null || isLeafParent ? RIGHT_PEEK : RIGHT_PEEK_SLIVER
+    // sliver THIS ancestor shows beside its child. EVERY ancestor (including the
+    // leaf's direct parent) gets the thin sliver so the parent's OUT rail stays
+    // hidden, matching all the in-between ancestors — the parent shouldn't be a
+    // special case. (Home, depth 0, isn't in this list — its rail shows via
+    // WINDOW_BASE_SIDE.) The `leafDepth == null` closing-animation path still falls
+    // back to the full peek so geometry stays consistent with older callers.
+    right += leafDepth == null ? RIGHT_PEEK : RIGHT_PEEK_SLIVER
     left += TASK_SIDE
     if (!ancestorVertical?.[i]) top += TASK_TOP_PEEK
   })

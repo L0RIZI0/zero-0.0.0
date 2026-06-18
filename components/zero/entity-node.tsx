@@ -490,20 +490,21 @@ export function EntityNode({
 
         {/* Close-hover highlight: an inset outline that fades in over the whole
             ANCESTOR window while its close button is hovered, identifying which
-            window the X will close. Rendered INSIDE the frame (inset-0, not a
-            half-out outline) so it never bleeds past the rounded-rect or the
-            ancestor Space's rectangle clip-path. `borderRadius: inherit` matches
-            the frame's corners; `pointer-events-none` keeps it inert. The visible
-            edges trace the ancestor's exposed peek, which is exactly what the user
-            needs to see. */}
+            window the X will close. Inset by 2px (NOT inset-0): ancestor Spaces are
+            always clip-path'd to their exact box, and a border sitting on that edge
+            gets its outer half clipped away to a near-invisible hairline — which is
+            why deeper ancestors appeared to lose the highlight entirely. Pulling the
+            ring 2px inward keeps its full 2px stroke inside the clip boundary so it
+            renders identically on clipped (Space) and unclipped (task/event)
+            ancestors. z-50 keeps it above all nested descendant windows;
+            `pointer-events-none` keeps it inert. */}
         {asWindow && !isTop && (
           <div
             aria-hidden
             className={cn(
-              "pointer-events-none absolute inset-0 z-50 border-2 border-foreground/55 transition-opacity duration-200 ease-out",
+              "pointer-events-none absolute inset-[2px] z-50 border-2 border-foreground/60 transition-opacity duration-200 ease-out",
               showCloseBorder ? "opacity-100" : "opacity-0",
             )}
-            style={{ borderRadius: "inherit" }}
           />
         )}
 
