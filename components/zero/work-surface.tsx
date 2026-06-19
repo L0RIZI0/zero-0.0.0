@@ -114,7 +114,7 @@ export function WorkSurface() {
         // The space above is the header's empty area, so nothing else shows there.
         className="relative flex min-h-0 flex-1 flex-col rounded-md [clip-path:inset(-48px_0px_-120px_0px_round_6px)]"
       >
-        <EntityBody entityId={rootId} active={activeEntity.id === rootId} isRoot />
+        <EntityBody entityId={rootId} active={activeEntity.id === rootId} isRoot centerList />
       </div>
     </div>
   )

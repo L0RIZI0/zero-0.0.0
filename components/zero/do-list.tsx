@@ -296,6 +296,7 @@ export function DoList({
   contextId,
   active = true,
   closing = false,
+  centered = false,
 }: {
   contextId: string
   active?: boolean
@@ -304,6 +305,11 @@ export function DoList({
    *  out of the list, so un-clipping would only let the scroller expand to its
    *  full natural height and shove the terminal ADD row up over the title. */
   closing?: boolean
+  /** Vertically center the list (incl. the ADD row) within its column instead of
+   *  top-aligning it. Uses `justify-center-safe`, so a short list sits in the
+   *  middle but a list that outgrows the column falls back to top-aligned and
+   *  scrolls normally (no clipped top). Portable opt-in: any entity can pass it. */
+  centered?: boolean
 }) {
   const { dataVersion, notifyDataChanged, open, selection, select, moveSelection, publishNavOrder, animating } =
     useZeroNav()
@@ -463,7 +469,10 @@ export function DoList({
   }
 
   return (
-    <section aria-label="Do list" className="flex min-h-0 flex-col">
+    // `flex-1` so the section fills the column height — the scrolling <ul> below is
+    // then a proper height-constrained scroller (and can center its content when
+    // asked) rather than a content-height block pinned to the top.
+    <section aria-label="Do list" className="flex min-h-0 flex-1 flex-col">
       {/* The DO label and the Open/All filters are hidden. The list still defaults
           to the "open" filter internally (see `filter` state); only its toggle UI
           is removed. */}
@@ -487,7 +496,12 @@ export function DoList({
         // tween. (The ADD row that used to jump here is now gated out by `active`
         // below, so it no longer matters that the list is unclipped during close.)
         style={animating ? { overflow: "visible" } : undefined}
-        className="-mx-2 flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto px-2 no-scrollbar"
+        className={cn(
+          "-mx-2 flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto px-2 no-scrollbar",
+          // Center the rows + ADD vertically when short; `-safe` falls back to
+          // top-aligned the moment the list overflows, so the top is never clipped.
+          centered && "justify-center-safe",
+        )}
       >
         <AnimatePresence initial={false} mode="popLayout">
           {shown.map((it) =>
