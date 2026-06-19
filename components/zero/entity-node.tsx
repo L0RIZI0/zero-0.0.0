@@ -335,12 +335,12 @@ export function EntityNode({
         ? // FLOATING in the hexagon's TOP TRIANGLE — the wedge above the central
           // rectangle (the band between the four side corners). The header spans
           // [0, --hex-inset-y] (height set via style) and is BOTTOM-aligned
-          // (justify-end + pb-3) so the glyph + title rest at near-full width just
-          // above the central rectangle, clear of the hexagon's tapering point (no
-          // side clipping) and clear of the do-list, which the body's symmetric inset
-          // margins keep inside the central rectangle below. This reserves the top of
-          // the hexagon for glyph/title (and a future description) in both states.
-          "absolute inset-x-0 top-0 z-10 flex flex-col items-center justify-end gap-1.5 px-4 pb-3"
+          // (justify-end + pb-1) so the glyph + title sit LOW in the triangle, right
+          // above the central rectangle, dominating the do-list directly beneath them
+          // while staying clear of the hexagon's tapering point (no side clipping). A
+          // future description would slot between this header and the do-list, pushing
+          // the glyph + title higher up the triangle.
+          "absolute inset-x-0 top-0 z-10 flex flex-col items-center justify-end gap-1.5 px-4 pb-1"
         : spaceAncestorWindow
           ? // FLOATING compact top-left band. Absolute; fixed band height via style so
             // the glyph/title stay vertically centered exactly as the old in-flow header.
@@ -524,7 +524,11 @@ export function EntityNode({
             corner — which, for an ancestor Space, is the top of its right peek. */}
         {asWindow && (
           <div
-            data-fade
+            // data-fade-late (NOT data-fade): the close button fades in over the BACK
+            // half of the open morph instead of with the body at the start, so it
+            // doesn't pop in early before the window has taken shape. Closing still
+            // just unmounts it (asWindow flips false), so this only affects opening.
+            data-fade-late
             // For a leaf Space the X sits just inside the hexagon's top-RIGHT
             // vertex. That vertex is at 25% of the frame HEIGHT — the only height at
             // which the hexagon reaches the frame's full width (above it the shape
@@ -533,6 +537,11 @@ export function EntityNode({
             // a few px to clear the rounded corner. Other windows: true top-right.
             style={{
               transitionDuration: DURATION_S,
+              // Scope the CSS transition to POSITION only. With the default
+              // (transition-property: all), the inline duration also animated opacity,
+              // which fought the GSAP fade-in tween and produced an erratic flicker.
+              // Restricting it to top/right/left lets GSAP cleanly own the opacity fade.
+              transitionProperty: "top, right, left",
               ...(spaceLeafWindow ? { top: "calc(25% + 6px)", right: "16px" } : null),
             }}
             // z-[35]: must stay BELOW the child window. Frames are position:fixed

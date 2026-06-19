@@ -213,6 +213,17 @@ export function playStage(
     // it stays proportional at any MORPH_DURATION.
     const chrome = stage.querySelectorAll(sel(opts.top, "[data-fade]"))
     if (chrome.length) gsap.fromTo(chrome, { opacity: 0 }, { opacity: 1, duration: MORPH_DURATION * 0.45 })
+
+    // Late chrome (the close button) fades in over the BACK half of the morph, after
+    // the frame has largely taken shape — so the X eases in rather than popping in
+    // early alongside the body. Delay + duration are scaled to the morph.
+    const lateChrome = stage.querySelectorAll(sel(opts.top, "[data-fade-late]"))
+    if (lateChrome.length)
+      gsap.fromTo(
+        lateChrome,
+        { opacity: 0 },
+        { opacity: 1, duration: MORPH_DURATION * 0.4, delay: MORPH_DURATION * 0.55, ease: MORPH_EASE },
+      )
   }
 
   if (opts.closing) {
