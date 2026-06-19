@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom"
-import { AnimatePresence, motion } from "motion/react"
+import { AnimatePresence, motion, type Transition } from "motion/react"
 import { Check, Plus, Pin, Trash2, Ban, RotateCcw, ChevronDown } from "lucide-react"
 import {
   getContextItems,
@@ -17,13 +17,22 @@ import {
 } from "@/lib/zero/data"
 import type { Entity } from "@/lib/zero/types"
 import { useZeroNav, useRowSelection, ADD_KEY } from "@/lib/zero/nav-store"
-import { layerTransition } from "@/lib/zero/motion"
+import { MORPH_EASE } from "@/lib/zero/motion"
 import { NodeGlyph, NODE_KIND_META, type NodeKind } from "./node-glyph"
 import { EntityNode } from "./entity-node"
 import { ContextMenu, type ContextMenuState } from "./context-menu"
 import { cn } from "@/lib/utils"
 
 const KIND_ORDER: NodeKind[] = ["task", "space", "event", "instant"]
+
+/**
+ * Reflow timing for DO-list edits (add / delete): rows glide to make room or
+ * close ranks, the new draft row fades in, a deleted row fades+shrinks out. It is
+ * MUCH quicker than the 2s window morph — list edits should feel responsive — but
+ * shares MORPH_EASE so it still reads as the same calm motion language (no bounce).
+ * Used as the `layout` transition on every list cell so they all move in lockstep.
+ */
+const ROW_REFLOW: Transition = { duration: 0.4, ease: MORPH_EASE }
 
 /** Shared leading glyph box, matching EntityRow so the edit row aligns. */
 const GLYPH_BOX = "flex h-4 w-4 shrink-0 items-center justify-center"
@@ -211,7 +220,7 @@ function EditRow({
       initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, scale: 0.96, transition: { duration: 0.16 } }}
-      transition={layerTransition}
+      transition={ROW_REFLOW}
     >
       <div
         style={{ borderRadius: 4 }}
@@ -270,7 +279,10 @@ function EditRow({
 function AddRow({ onActivate }: { onActivate: () => void }) {
   const { lift, hoverProps, ref } = useRowSelection("list", ADD_KEY)
   return (
-    <li>
+    // `layout` so ADD glides down to make room as a new draft row appears above it
+    // (and back up when a row is deleted), in lockstep with the other cells.
+    // `initial={false}`: ADD is always present, so it must never animate itself in.
+    <motion.li layout initial={false} transition={ROW_REFLOW}>
       <motion.button
         ref={ref as React.Ref<HTMLButtonElement>}
         type="button"
@@ -283,7 +295,7 @@ function AddRow({ onActivate }: { onActivate: () => void }) {
         <Plus className="h-3.5 w-3.5" />
         Add
       </motion.button>
-    </li>
+    </motion.li>
   )
 }
 
@@ -509,14 +521,27 @@ export function DoList({
             it.id === editingId ? (
               <EditRow key={it.id} entity={it.entity} onCommit={finishEdit} onCancelEmpty={cancelEdit} />
             ) : (
-              <li key={it.id}>
+              <motion.li
+                key={it.id}
+                // `layout` lets the row glide to its new slot when a sibling is added
+                // above/below or removed — this is what stops the list from "jumping"
+                // on every edit. `initial={false}` so neither pre-existing rows nor a
+                // row that just committed from its draft (EditRow → row, same key) ever
+                // flash an enter animation; the only entrance is the draft EditRow's.
+                // `exit` fades + slightly shrinks a deleted row while popLayout pulls it
+                // out of flow so the rows below slide up to close the gap.
+                layout
+                initial={false}
+                exit={{ opacity: 0, scale: 0.96, transition: { duration: 0.18 } }}
+                transition={ROW_REFLOW}
+              >
                 <EntityNode
                   entityId={it.id}
                   contextId={contextId}
                   variant="row"
                   onContextMenu={(e) => openMenu(e, it)}
                 />
-              </li>
+              </motion.li>
             ),
           )}
           {/* The ADD birther row is a permanent terminal list cell — but only while
