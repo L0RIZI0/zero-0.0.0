@@ -203,7 +203,24 @@ export function EntityNode({
   // a regular hexagon. The card is deliberately large/airy: the glyph + title +
   // open-counter keep their existing sizes and cluster in the central third, so the
   // extra footprint reads as generous breathing room around the content.
-  const slotClass = variant === "dock" ? "relative h-[150px] w-[130px] shrink-0" : "relative h-9 w-full"
+  const slotDims = variant === "dock" ? "h-[150px] w-[130px] shrink-0" : "h-9 w-full"
+  // The slot is `relative` ONLY in row/dock state. The frame's inner content anchors
+  // to the FRAME (which is `relative` as a row, `fixed` as a window), never to this
+  // slot, so the slot's `relative` is otherwise unused as a containing block.
+  //
+  // It MUST drop to `static` while OPENING into / sitting as a window: a window frame
+  // is `position: fixed` (viewport-relative), but during the morph GSAP Flip switches
+  // it to `position: absolute`. With a `relative` slot, that absolute resolves against
+  // THIS slot — which, for a nested open, lives in the parent window's do-list and
+  // slides/telescopes as the parent recedes. The frame then tracked the moving slot
+  // and landed ~8px off its true fixed position, so `clearProps` snapped it at the end
+  // (the open "end jump"). With `static`, Flip's absolute resolves against the stable
+  // document/viewport — matching the frame's resting `fixed` box — so it lands exactly.
+  //
+  // Closing keeps `relative`: that morph is separately tuned and the frame collapses
+  // back into this very slot, so it should stay anchored to it.
+  const slotPosition = asWindow && !isClosing ? "static" : "relative"
+  const slotClass = `${slotPosition} ${slotDims}`
 
   // Hover tint must NOT be live while the frame is a window or shrinking closed:
   // its translucent background would let parent content bleed through the moving
