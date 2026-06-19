@@ -301,17 +301,30 @@ export function EntityNode({
   // leaf; closing un-spines it (leafDepth shrinks → condition flips → rotates back).
   const isSpine = asWindow && !isTop && leafDepth - depth >= VERTICAL_BEHIND
 
+  // FLOATING HEADER (Space windows only). A Space window renders its glyph + title
+  // as an ABSOLUTELY-POSITIONED overlay instead of an in-flow header band, so the
+  // header reserves no vertical height and the body fills the whole frame. This is
+  // what stops the parent do-list from re-centering when a child opens: with no
+  // in-flow header, the do-list centers on the FRAME CENTER identically whether the
+  // Space is the leaf (tall hexagon) or an ancestor (short rectangle), so the
+  // leaf→ancestor flip no longer shifts it. The spine (its own full-height left
+  // strip) and task/event windows (left-aligned in-flow header) are unaffected.
+  // Closing Spaces also fall through to the old path (spaceWindow is false once
+  // asWindow flips false at close), leaving the tuned close morph untouched.
+  const floatingHeader = spaceWindow && !isSpine
+
   // Header layout:
   //   - SPINE ancestor → a narrow full-height strip pinned to the LEFT edge; glyph
   //     at the top, the rotated title reading up beneath it. Width matches the
   //     window's visible left peek so it sits exactly over that exposed sliver, and
   //     the glyph lines up with the collapsed IN rail in the same strip.
-  //   - LEAF Space window (hexagon) → header CENTERED at the top, pushed below the
-  //     hexagon's tapering top point (matching the dock card's centered glyph +
-  //     title so the morph is a straight scale).
-  //   - ancestor Space window OR any non-space window → left-aligned horizontal
-  //     header so the glyph + title sit near the top-LEFT corner and dominate the
-  //     children peeking below.
+  //   - LEAF Space window (hexagon) → glyph+title FLOAT (absolute) centered near the
+  //     top, below the hexagon's tapering top point (matching the dock card's
+  //     centered glyph + title so the morph is a straight scale).
+  //   - ancestor Space window → glyph+title FLOAT (absolute) top-left in a compact
+  //     35px band — visually identical to the old in-flow compact header.
+  //   - non-space window → in-flow left-aligned header so the glyph + title sit near
+  //     the top-LEFT corner and dominate the children peeking below.
   //   - dock card → centered column (glyph, title, then the open-task counter).
   const headerClass = asWindow
       ? isSpine
@@ -319,8 +332,16 @@ export function EntityNode({
           // by 3px for tighter alignment with the spine's top.
           "absolute inset-y-0 left-0 z-10 flex w-[26px] flex-col items-center gap-2 pt-[9px]"
       : spaceLeafWindow
-        ? "relative z-10 flex shrink-0 flex-col items-center gap-1.5 px-4 pt-9"
-        : cn("relative z-10 flex shrink-0 items-center gap-3 pr-12 pl-4")
+        ? // FLOATING centered column near the hexagon top. Absolute (no reserved
+          // height); top inset applied via style, pt-9 keeps the glyph's exact resting
+          // offset so the GSAP Flip endpoint is unchanged.
+          "absolute inset-x-0 top-0 z-10 flex flex-col items-center gap-1.5 px-4 pt-9"
+        : spaceAncestorWindow
+          ? // FLOATING compact top-left band. Absolute; fixed band height via style so
+            // the glyph/title stay vertically centered exactly as the old in-flow header.
+            "absolute inset-x-0 top-0 z-10 flex items-center gap-3 pr-12 pl-4"
+          : // Task / event window: in-flow left-aligned header (unchanged).
+            cn("relative z-10 flex shrink-0 items-center gap-3 pr-12 pl-4")
     : variant === "dock"
       ? "flex flex-1 flex-col items-center justify-center gap-1 px-2 text-center"
       : "flex h-full items-center gap-2 px-2.5 pr-2.5"
@@ -579,7 +600,21 @@ export function EntityNode({
           // froze the open morph as a stretched hexagon (see the frame style note). As
           // a margin it offsets the header identically at rest without inflating the
           // frame, letting Flip shrink the frame to dock-card/row size.
-          style={asWindow && !isSpine ? { height: headerH, marginTop: "var(--hex-inset-y, 0px)" } : undefined}
+          //
+          // FLOATING (Space windows): the header is absolute, so it reserves no flow
+          // height. The leaf sits below the hexagon top point via top:hex-inset (pt-9
+          // in the class adds the rest); the ancestor uses a fixed 35px band so the
+          // glyph/title stay vertically centered exactly where the in-flow header had
+          // them. Non-space windows keep the old in-flow height + top margin.
+          style={
+            floatingHeader
+              ? spaceLeafWindow
+                ? { top: "var(--hex-inset-y, 0px)" }
+                : { height: headerH }
+              : asWindow && !isSpine
+                ? { height: headerH, marginTop: "var(--hex-inset-y, 0px)" }
+                : undefined
+          }
         >
           {/* Glyph — for a collapsed task it doubles as the completion toggle. */}
           <span
@@ -849,7 +884,20 @@ export function EntityNode({
             // set only on a Space-leaf window, 0 elsewhere. Was the frame's paddingBottom;
             // moved to a margin so it no longer floors the frame's height during the morph
             // (see the frame style note). Skipped while closing (the body is absolute then).
-            style={isClosing ? { top: HEADER_H } : { marginBottom: "var(--hex-inset-y, 0px)" }}
+            //
+            // FLOATING (Space windows): the header is out of flow, so the body fills the
+            // frame. We apply the hex inset SYMMETRICALLY (top AND bottom) so the leaf's
+            // content stays inside the hexagon's visible band while its center coincides
+            // with the FRAME CENTER — the very same center an ancestor (inset 0) uses.
+            // That shared center is what keeps the do-list from re-centering when a child
+            // opens and the Space flips leaf→ancestor.
+            style={
+              isClosing
+                ? { top: HEADER_H }
+                : floatingHeader
+                  ? { marginTop: "var(--hex-inset-y, 0px)", marginBottom: "var(--hex-inset-y, 0px)" }
+                  : { marginBottom: "var(--hex-inset-y, 0px)" }
+            }
             className={cn(
               isClosing
                 ? // While closing, the body is taken out of flow as an absolute overlay
