@@ -286,8 +286,10 @@ export function EntityNode({
   //     children peeking below.
   //   - dock card → centered column (glyph, title, then the open-task counter).
   const headerClass = asWindow
-    ? isSpine
-      ? "absolute inset-y-0 left-0 z-10 flex w-[26px] flex-col items-center gap-2 pt-3"
+      ? isSpine
+        ? // pt-[9px] (= pt-3's 12px − 3px) lifts the glyph+title column up the strip
+          // by 3px for tighter alignment with the spine's top.
+          "absolute inset-y-0 left-0 z-10 flex w-[26px] flex-col items-center gap-2 pt-[9px]"
       : spaceLeafWindow
         ? "relative z-10 flex shrink-0 flex-col items-center gap-1.5 px-4 pt-9"
         : cn("relative z-10 flex shrink-0 items-center gap-3 pr-12 pl-4")
