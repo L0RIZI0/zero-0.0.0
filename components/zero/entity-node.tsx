@@ -243,11 +243,20 @@ export function EntityNode({
           // bug. Rows of other kinds (task/event) stay unclipped.
           SPACE_CLIP_RECT
   // Only the LEAF hexagon needs the SVG outline (a clip-path can't carry a border
-  // or shadow, and a straight-edged ring can't trace a hexagon). The square
-  // rectangle (ancestor/parent) uses a simple inset ring instead, so it gets no
-  // outline. In DARK mode the leaf hexagon drops its outline entirely (the dark
-  // surface reads cleanly without it); light mode keeps the hairline for contrast.
-  const spaceOutlinePoints = spaceLeafWindow && !isDark ? SPACE_HEX_POINTS : null
+  // or shadow, and a straight-edged ring can't trace a hexagon). In DARK mode the
+  // leaf hexagon drops its outline entirely (the dark surface reads cleanly without
+  // it); light mode keeps the hairline for contrast.
+  //
+  // We render the SVG for ANY light-mode Space state (dock card, do-list row, leaf
+  // or ancestor window) — not just the leaf window — and fade its OPACITY with the
+  // morph instead of mounting/unmounting it. The SVG is a child of the clip-path'd
+  // frame, so Flip's clip interpolation already trims the polygon to the frame's
+  // current shape during the morph; without keeping it mounted the hairline popped
+  // in at the end of an open and vanished at the start of a close. Opacity is 1 only
+  // for the leaf hexagon (the one state that should show the rim) and 0 otherwise,
+  // so it eases in as the hexagon forms and eases out as it collapses.
+  const spaceOutlinePoints = !isDark && isSpace ? SPACE_HEX_POINTS : null
+  const spaceOutlineVisible = spaceLeafWindow
 
   // Borderless design. Backgrounds are driven by the inline `surfaceAt` ramp
   // (see the style prop below), NOT utility classes, so every level shares one
@@ -446,6 +455,10 @@ export function EntityNode({
         {spaceOutlinePoints && (
           <svg
             aria-hidden
+            // Fade the rim in/out with the morph rather than mounting/unmounting it,
+            // so opening a Space eases the hairline in as the hexagon forms and
+            // closing eases it out as the hexagon collapses (see spaceOutlineVisible).
+            style={{ opacity: spaceOutlineVisible ? 1 : 0, transition: `opacity ${DURATION_S} ${MORPH_CSS_EASE}` }}
             className="pointer-events-none absolute inset-0 z-[1] h-full w-full"
             viewBox="0 0 100 100"
             preserveAspectRatio="none"
