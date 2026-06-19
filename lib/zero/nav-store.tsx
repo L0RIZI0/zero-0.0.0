@@ -388,10 +388,20 @@ export function ZeroNavProvider({
       const isLeaf = windowDepth === stack.length - 1
       const isSpaceLeaf = isSpaceWindow && isLeaf
       let hexInsetY = 0
+      // Distance from the hexagon's TOP POINT down to its upper side corners — i.e.
+      // the top of the central horizontal rectangle (the band between the four side
+      // corners). For a regular pointy-top hexagon that is exactly 1/4 of its height.
+      // This is the line the leaf header bottom-aligns to and the body insets to, so
+      // the glyph+title sit in the top wedge and the do-list lives in the central
+      // rectangle. NOTE this differs from `hexInsetY` (the hexagon's OVERFLOW past the
+      // visible box); on wide screens the overflow is smaller than the corner line,
+      // which is why anchoring to the overflow left the title floating too high.
+      let hexCornerInsetY = 0
       if (isSpaceLeaf) {
         const box = rect
         rect = perfectHexInside(rect)
         hexInsetY = Math.max(0, (rect.height - box.height) / 2)
+        hexCornerInsetY = rect.height * 0.25
       }
       return {
         position: "fixed",
