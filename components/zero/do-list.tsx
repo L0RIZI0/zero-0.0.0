@@ -128,80 +128,98 @@ function GlyphMenu({
 }
 
 /**
- * In-place editing presentation for a freshly-created (or being-renamed) DO-list
- * entity. The entity ALREADY EXISTS in the store, so this is the real row's slot
- * rendered with a focused title input + glyph (kind) picker.
+ * The permanent terminal entity-creation row. Replaces the old "+ADD" button and
+ * the on-demand EditRow: every DO list always ends with this draft input, so
+ * opening a child never adds or removes a row — there is no reflow and no jump.
+ *
+ * It is a PURELY LOCAL draft: no store entity exists until you commit, so an
+ * abandoned draft leaves nothing behind to clean up. Committing (Enter on a
+ * non-empty title) asks the parent to create the entity and select it (keyboard
+ * mode) so a SECOND Enter opens it — matching the old two-step gesture.
  */
-function EditRow({
-  entity,
-  onCommit,
-  onCancelEmpty,
+function CreateRow({
+  active,
+  onCreate,
+  onNavigateUp,
 }: {
-  entity: Entity
-  onCommit: (id: string) => void
-  onCancelEmpty: (id: string) => void
+  /** Only the active (top, interactive) window's row auto-focuses its input, so
+   *  ancestor windows that stay mounted don't fight over keyboard focus. */
+  active: boolean
+  /** Commit a non-empty draft. The parent creates the entity and selects it. */
+  onCreate: (title: string, kind: NodeKind) => void
+  /** ArrowUp out of the focused input hands selection back to the last real row. */
+  onNavigateUp: () => void
 }) {
-  const { notifyDataChanged } = useZeroNav()
-  const [kind, setKind] = useState<NodeKind>(entity.kind as NodeKind)
-  const [title, setTitle] = useState(entity.title ?? "")
+  const { select, selection, inputMode } = useZeroNav()
+  const [kind, setKind] = useState<NodeKind>("task")
+  const [title, setTitle] = useState("")
   const [anchor, setAnchor] = useState<{ left: number; top: number; bottom: number } | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
-  const rowRef = useRef<HTMLLIElement>(null)
-  const doneRef = useRef(false) // guard so commit/cancel only fires once
   const menuOpen = anchor !== null
 
-  useEffect(() => {
-    inputRef.current?.focus()
-  }, [])
+  const selected = selection?.region === "list" && selection.key === ADD_KEY
 
-  const commit = () => {
-    if (doneRef.current) return
-    doneRef.current = true
-    setEntityTitle(entity.id, title.trim())
-    onCommit(entity.id)
-  }
-  const cancel = () => {
-    if (doneRef.current) return
-    doneRef.current = true
-    onCancelEmpty(entity.id)
-  }
-
-  // Outside pointer finishes the edit: save if titled, else discard.
+  // Auto-focus when this window becomes the active (top) one, so you can type the
+  // moment it opens. `preventScroll` so focusing mid-open-morph doesn't yank the
+  // scroller and fight the animation.
   useEffect(() => {
-    const onPointerDown = (e: PointerEvent) => {
-      if (menuOpen) return
-      if (rowRef.current?.contains(e.target as Node)) return
-      if (title.trim()) commit()
-      else cancel()
-    }
-    document.addEventListener("pointerdown", onPointerDown, true)
-    return () => document.removeEventListener("pointerdown", onPointerDown, true)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [menuOpen, title])
+    if (active) inputRef.current?.focus({ preventScroll: true })
+  }, [active])
+
+  // Arrowing DOWN onto the creation slot (keyboard) refocuses the input so you can
+  // immediately type another entity.
+  useEffect(() => {
+    if (active && selected && inputMode === "keyboard") inputRef.current?.focus({ preventScroll: true })
+  }, [active, selected, inputMode])
+
+  // Commit the local draft. Empty title is a no-op (keep the row ready). On success
+  // we blur so the NEXT Enter is handled by the window-level list handler and OPENS
+  // the freshly-created (now selected) row — the old two-step create→open gesture.
+  //
+  // `keepFocus` is reserved for a future Ctrl+Enter "rapid add" (create then stay
+  // focused to type the next one); today every commit blurs.
+  const commit = (keepFocus = false) => {
+    const t = title.trim()
+    if (!t) return
+    onCreate(t, kind)
+    setTitle("")
+    setKind("task")
+    if (!keepFocus) inputRef.current?.blur()
+  }
 
   const onKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" || e.key === "Escape") {
+    if (menuOpen) {
+      if (e.key === "Escape") {
+        e.preventDefault()
+        setAnchor(null)
+      }
+      return
+    }
+    if (e.key === "Enter") {
       e.preventDefault()
       e.stopPropagation()
       e.nativeEvent.stopImmediatePropagation()
-    }
-    if (e.key === "Enter") {
-      if (title.trim()) commit() // empty Enter is a no-op; keep editing
+      commit()
+    } else if (e.key === "ArrowUp") {
+      // Hand selection back to the list; blur so the window handler takes over.
+      e.preventDefault()
+      e.stopPropagation()
+      e.nativeEvent.stopImmediatePropagation()
+      inputRef.current?.blur()
+      onNavigateUp()
     } else if (e.key === "Escape") {
-      if (menuOpen) setAnchor(null)
-      else if (title.trim()) commit()
-      else cancel()
+      // Blur so a subsequent Escape reaches the window handler (which closes it).
+      e.preventDefault()
+      inputRef.current?.blur()
     }
   }
 
-  // Persist the kind change in place so the row keeps its identity/slot.
+  // No store entity exists yet, so the kind is just local draft state.
   const pickKind = (k: NodeKind) => {
     setKind(k)
-    changeEntityKind(entity.id, k)
-    notifyDataChanged()
     setAnchor(null)
-    inputRef.current?.focus()
+    inputRef.current?.focus({ preventScroll: true })
   }
 
   const toggleMenu = () => {
@@ -214,15 +232,12 @@ function EditRow({
   }
 
   return (
-    <motion.li
-      ref={rowRef}
-      layout
-      initial={{ opacity: 0, y: 6 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, scale: 0.96, transition: { duration: 0.16 } }}
-      transition={ROW_REFLOW}
-    >
+    // `layout` so the row glides as siblings are added/removed; `initial={false}`
+    // because it's permanent (it must never animate itself in on open / context
+    // switch). No `exit` — it only leaves during a close, handled by the gate below.
+    <motion.li layout initial={false} transition={ROW_REFLOW}>
       <div
+        onPointerEnter={() => select("list", ADD_KEY, "mouse")}
         style={{ borderRadius: 4 }}
         className="flex w-full items-center gap-3 border border-foreground/40 bg-card-solid px-2.5 py-2 text-left"
       >
@@ -249,6 +264,7 @@ function EditRow({
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           onKeyDown={onKeyDown}
+          onFocus={() => select("list", ADD_KEY)}
           placeholder={`Name this ${NODE_KIND_META[kind].label.toLowerCase()}…`}
           className="min-w-0 flex-1 bg-transparent text-[13px] tracking-tight text-foreground outline-none placeholder:text-muted-foreground/50"
         />
@@ -272,37 +288,9 @@ function EditRow({
 }
 
 /**
- * The permanent terminal "+ADD" birther row. Activating it asks the list to
- * birth a new entity. Always rendered last, so creating one never reflows the
- * rows above it.
- */
-function AddRow({ onActivate }: { onActivate: () => void }) {
-  const { lift, hoverProps, ref } = useRowSelection("list", ADD_KEY)
-  return (
-    // `layout` so ADD glides down to make room as a new draft row appears above it
-    // (and back up when a row is deleted), in lockstep with the other cells.
-    // `initial={false}`: ADD is always present, so it must never animate itself in.
-    <motion.li layout initial={false} transition={ROW_REFLOW}>
-      <motion.button
-        ref={ref as React.Ref<HTMLButtonElement>}
-        type="button"
-        onClick={onActivate}
-        {...hoverProps}
-        style={{ borderRadius: 4 }}
-        animate={{ scale: lift ? 1.02 : 1 }}
-        className="flex w-full items-center justify-center gap-1.5 border border-border bg-card-solid px-2.5 py-2 text-[12px] font-medium uppercase tracking-[0.08em] text-muted-foreground"
-      >
-        <Plus className="h-3.5 w-3.5" />
-        Add
-      </motion.button>
-    </motion.li>
-  )
-}
-
-/**
  * The DO list — the central column of an entity's working surface. It lists the
- * context's direct children (any kind) as generic `EntityRow`s, plus the inline
- * EditRow for a row being created/renamed, and the terminal ADD birther row.
+ * context's direct children (any kind) as generic `EntityRow`s, plus a permanent
+ * terminal `CreateRow` (the always-present "name this…" draft input).
  */
 export function DoList({
   contextId,
@@ -333,7 +321,10 @@ export function DoList({
     [contextId, dataVersion],
   )
   const [filter, setFilter] = useState<"open" | "all">("open")
-  const [editingId, setEditingId] = useState<string | null>(null)
+  // The most recently created row. Only THIS row plays an enter animation (a gentle
+  // fade/slide as it's "born" from the creation input); all other rows mount with
+  // `initial={false}` so context switches and commits never flash the whole list.
+  const [bornId, setBornId] = useState<string | null>(null)
   const [menu, setMenu] = useState<ContextMenuState | null>(null)
 
   // Reset filter view when the context changes.
@@ -352,46 +343,39 @@ export function DoList({
     publishNavOrder("list", listKeys)
   }, [active, listKeys, publishNavOrder])
 
-  // Default selection when the viewed context changes. Only the frontmost
-  // window (active) owns selection — ancestor do-lists stay mounted but inert.
+  // Default selection when the viewed context changes. Only the frontmost window
+  // (active) owns selection — ancestor do-lists stay mounted but inert. We land on
+  // the terminal CreateRow (ADD_KEY) because its input auto-focuses on open, so the
+  // selection model should agree with where focus actually is.
   useEffect(() => {
     if (!active) return
-    const first = shown[0]?.id
-    select("list", first ?? ADD_KEY)
-    // Only on context change / activation — intentionally omit `shown`/`select`.
+    select("list", ADD_KEY)
+    // Only on context change / activation — intentionally omit `select`.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [contextId, active])
 
-  // Birth a new entity: created in the store immediately (default kind task),
-  // appears as a real row directly above ADD, and enters edit mode while selected.
-  const beginCreate = useCallback(() => {
-    if (editingId) return
-    const entity = addTask({ title: "", spaceId: contextId })
-    notifyDataChanged()
-    setEditingId(entity.id)
-    select("list", entity.id, "keyboard")
-  }, [editingId, contextId, notifyDataChanged, select])
-
-  // Commit edit: keep the row selected (keyboard mode) so the next Enter opens it.
-  const finishEdit = useCallback(
-    (id: string) => {
-      setEditingId(null)
+  // Create a child from the committed draft: a real entity with the chosen title +
+  // kind, then SELECTED in keyboard mode. Because the CreateRow blurs its input on
+  // commit, the next Enter is caught by the window handler below and OPENS this new
+  // (now selected) row — preserving the two-step create→open gesture. `bornId` marks
+  // it so it (and only it) fades in.
+  const createEntity = useCallback(
+    (title: string, kind: NodeKind) => {
+      const entity = addTask({ title, spaceId: contextId })
+      if (kind !== "task") changeEntityKind(entity.id, kind)
+      setBornId(entity.id)
       notifyDataChanged()
-      select("list", id, "keyboard")
+      select("list", entity.id, "keyboard")
     },
-    [notifyDataChanged, select],
+    [contextId, notifyDataChanged, select],
   )
 
-  // Cancel an untitled new row: delete it and fall selection back to ADD.
-  const cancelEdit = useCallback(
-    (id: string) => {
-      setEditingId(null)
-      deleteEntity(id)
-      notifyDataChanged()
-      select("list", ADD_KEY, "keyboard")
-    },
-    [notifyDataChanged, select],
-  )
+  // ArrowUp out of the creation input lands selection on the last real row (if any),
+  // handing keyboard control back to the normal list navigation.
+  const navigateUpToList = useCallback(() => {
+    const last = shown[shown.length - 1]?.id
+    if (last) select("list", last, "keyboard")
+  }, [shown, select])
 
   // Window-level keyboard handler, active only when the DO list owns the
   // selection and no text input is focused.
@@ -399,7 +383,8 @@ export function DoList({
     if (!active) return
     const onKey = (e: KeyboardEvent) => {
       if (!selection || selection.region !== "list") return
-      if (editingId) return
+      // When the CreateRow input has focus it owns the keys (Enter=commit,
+      // ArrowUp=hand back, etc.); this window-level handler stands down.
       const ae = document.activeElement as HTMLElement | null
       if (ae && (ae.tagName === "INPUT" || ae.tagName === "TEXTAREA" || ae.isContentEditable)) return
       const key = selection.key
@@ -419,9 +404,10 @@ export function DoList({
           moveSelection("right")
           break
         case "Enter":
+          // ADD_KEY (the creation row) is owned by its focused input, so by the time
+          // this runs `key` is a real row — Enter opens it.
           e.preventDefault()
-          if (key === ADD_KEY) beginCreate()
-          else open(key, "row")
+          if (key !== ADD_KEY) open(key, "row")
           break
         case "Delete":
         case "Backspace": {
@@ -438,7 +424,7 @@ export function DoList({
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
-  }, [active, selection, editingId, moveSelection, open, beginCreate, listKeys, notifyDataChanged, select])
+  }, [active, selection, moveSelection, open, listKeys, notifyDataChanged, select])
 
   const openMenu = (e: React.MouseEvent, item: ContextItem) => {
     e.preventDefault()
