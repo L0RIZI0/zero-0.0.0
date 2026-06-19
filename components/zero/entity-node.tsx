@@ -332,10 +332,15 @@ export function EntityNode({
           // by 3px for tighter alignment with the spine's top.
           "absolute inset-y-0 left-0 z-10 flex w-[26px] flex-col items-center gap-2 pt-[9px]"
       : spaceLeafWindow
-        ? // FLOATING centered column near the hexagon top. Absolute (no reserved
-          // height); top inset applied via style, pt-9 keeps the glyph's exact resting
-          // offset so the GSAP Flip endpoint is unchanged.
-          "absolute inset-x-0 top-0 z-10 flex flex-col items-center gap-1.5 px-4 pt-9"
+        ? // FLOATING in the hexagon's TOP TRIANGLE — the wedge above the central
+          // rectangle (the band between the four side corners). The header spans
+          // [0, --hex-inset-y] (height set via style) and is BOTTOM-aligned
+          // (justify-end + pb-3) so the glyph + title rest at near-full width just
+          // above the central rectangle, clear of the hexagon's tapering point (no
+          // side clipping) and clear of the do-list, which the body's symmetric inset
+          // margins keep inside the central rectangle below. This reserves the top of
+          // the hexagon for glyph/title (and a future description) in both states.
+          "absolute inset-x-0 top-0 z-10 flex flex-col items-center justify-end gap-1.5 px-4 pb-3"
         : spaceAncestorWindow
           ? // FLOATING compact top-left band. Absolute; fixed band height via style so
             // the glyph/title stay vertically centered exactly as the old in-flow header.
@@ -609,7 +614,11 @@ export function EntityNode({
           style={
             floatingHeader
               ? spaceLeafWindow
-                ? { top: "var(--hex-inset-y, 0px)" }
+                ? // Occupy the top triangle: top:0 (from the class) with height equal to
+                  // the hexagon's top inset, so the bottom-aligned glyph/title land just
+                  // above the central rectangle. A non-zero floor keeps it sane if the
+                  // inset var is ever 0 mid-morph.
+                  { height: "var(--hex-inset-y, 0px)" }
                 : { height: headerH }
               : asWindow && !isSpine
                 ? { height: headerH, marginTop: "var(--hex-inset-y, 0px)" }
