@@ -65,6 +65,13 @@ let stageEl: HTMLElement | null = null
 // by flip-id. Consumed once by the next `playStage` to drive the manual colour FLIP.
 let capturedBg: Map<string, string> | null = null
 
+// Per-frame drop-shadow snapshot from the most recent `captureStage`, keyed by
+// flip-id. Only NON-space frames are recorded (space frames are clip-path'd, which
+// hides any box-shadow). Consumed once by the next `playStage` so a closing window's
+// shadow can FADE OUT over the morph instead of vanishing the instant its window
+// classes (incl. `shadow-2xl`) are swapped for shadowless row/card classes.
+let capturedShadow: Map<string, string> | null = null
+
 export function registerStage(el: HTMLElement | null) {
   stageEl = el
 }
@@ -98,11 +105,22 @@ export function captureStage(): FlipState | null {
   // `playStage` can replay it into a real CSS transition (a manual colour FLIP —
   // see playStage for why). Only frames carry a surface colour.
   const colors = new Map<string, string>()
+  // Drop-shadow snapshot for the close-shadow fade (see capturedShadow). A frame
+  // that carries a clip-path is a Space window — its clip hides any box-shadow, so
+  // there is no visible shadow to fade and it is skipped. Only un-clipped (task /
+  // event / non-space) frames with a real shadow are recorded.
+  const shadows = new Map<string, string>()
   stageEl.querySelectorAll<HTMLElement>("[data-flip-role='frame'][data-flip-id]").forEach((f) => {
     const id = f.getAttribute("data-flip-id")
-    if (id) colors.set(id, getComputedStyle(f).backgroundColor)
+    if (!id) return
+    const cs = getComputedStyle(f)
+    colors.set(id, cs.backgroundColor)
+    if ((!cs.clipPath || cs.clipPath === "none") && cs.boxShadow && cs.boxShadow !== "none") {
+      shadows.set(id, cs.boxShadow)
+    }
   })
   capturedBg = colors
+  capturedShadow = shadows
   // `clipPath` is captured so a Space's hexagon ⇄ rectangle reshape (dock card /
   // row → hex window and back) tweens smoothly in the same single Flip pass that
   // already morphs size, fontSize and borderRadius. Proven in the hexagon-dock
@@ -179,7 +197,11 @@ export function playStage(
       })
     }
   }
+  // Grab the shadow snapshot into a local before clearing the module slot — it is
+  // consumed later (in the closing block below), after this reset point.
+  const shadowSnap = capturedShadow
   capturedBg = null
+  capturedShadow = null
   if (!stage) return
 
   const sel = (k: Key, rest: string) => `[data-window="${k.id}"][data-depth="${k.depth}"] ${rest}`
@@ -194,6 +216,36 @@ export function playStage(
   }
 
   if (opts.closing) {
+    // Fade the closing window's drop shadow out over the FIRST ~HALF of the morph
+    // instead of letting it vanish instantly. The frame morphs into its row/card
+    // (it does NOT fade its opacity like the deeper telescoping frames), so when
+    // React swaps its window classes — incl. `shadow-2xl` — for the shadowless
+    // row/card classes, the shadow disappeared in one frame (very obvious in light
+    // mode). We re-apply the captured shadow inline and tween its colour alpha to 0
+    // so it lingers, shrinking with the frame, then gently fades as it nears the row.
+    const closingFrame = stage.querySelector<HTMLElement>(
+      `[data-window="${opts.closing.id}"][data-depth="${opts.closing.depth}"][data-flip-role="frame"]`,
+    )
+    const prevShadow = closingFrame ? shadowSnap?.get(closingFrame.getAttribute("data-flip-id") ?? "") : undefined
+    if (closingFrame && prevShadow) {
+      // Same shadow geometry (offset/blur/spread), but every colour stop forced to
+      // zero alpha — GSAP tweens the alpha down so the shadow fades rather than
+      // popping to `none` (which is not interpolable).
+      const fadedShadow = prevShadow.replace(/rgba?\([^)]*\)/g, "rgba(0, 0, 0, 0)")
+      gsap.fromTo(
+        closingFrame,
+        { boxShadow: prevShadow },
+        {
+          boxShadow: fadedShadow,
+          duration: MORPH_DURATION * 0.55,
+          ease: MORPH_EASE,
+          // Drop the inline boxShadow afterward so the persistent node falls back to
+          // its class-driven shadow when it is opened as a window again.
+          onComplete: () => gsap.set(closingFrame, { clearProps: "boxShadow" }),
+        },
+      )
+    }
+
     const body = stage.querySelector<HTMLElement>(sel(opts.closing, "[data-body]"))
     if (body) {
       // Shrink toward the body's CENTER (was "top left", which made the content
