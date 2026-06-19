@@ -296,7 +296,7 @@ export function DoList({
   contextId,
   active = true,
   closing = false,
-  centered = false,
+  centered = true,
 }: {
   contextId: string
   active?: boolean
@@ -306,9 +306,10 @@ export function DoList({
    *  full natural height and shove the terminal ADD row up over the title. */
   closing?: boolean
   /** Vertically center the list (incl. the ADD row) within its column instead of
-   *  top-aligning it. Uses `justify-center-safe`, so a short list sits in the
-   *  middle but a list that outgrows the column falls back to top-aligned and
-   *  scrolls normally (no clipped top). Portable opt-in: any entity can pass it. */
+   *  top-aligning it. ON by default for every entity at every depth. Uses
+   *  `justify-center-safe`, so a short list sits in the middle but a list that
+   *  outgrows the column falls back to top-aligned and scrolls normally (no clipped
+   *  top). Pass `false` to force a specific list back to top-aligned. */
   centered?: boolean
 }) {
   const { dataVersion, notifyDataChanged, open, selection, select, moveSelection, publishNavOrder, animating } =

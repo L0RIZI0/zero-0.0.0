@@ -33,16 +33,16 @@ export function EntityBody({
   active = true,
   isRoot = false,
   closing = false,
-  centerList = false,
+  centerList = true,
 }: {
   entityId: string
   active?: boolean
   /** Forwarded to the DoList so it can keep its scroller clipped during this
    *  window's close morph (prevents the ADD row jumping up over the title). */
   closing?: boolean
-  /** Vertically center the do-list within its column (portable opt-in, forwarded
-   *  to DoList). Currently set only for the home root; flip it on for any other
-   *  entity to get the same centered layout. */
+  /** Vertically center the do-list within its column (forwarded to DoList). ON by
+   *  default for every entity at every depth; pass `false` to top-align a specific
+   *  entity's list. */
   centerList?: boolean
   /** The always-mounted home view. Its region sits BELOW the fixed timeline
    *  chrome, so rails centered in the region land below the screen's true middle.
