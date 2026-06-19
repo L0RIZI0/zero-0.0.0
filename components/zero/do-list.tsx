@@ -530,9 +530,17 @@ export function DoList({
                 // flash an enter animation; the only entrance is the draft EditRow's.
                 // `exit` fades + slightly shrinks a deleted row while popLayout pulls it
                 // out of flow so the rows below slide up to close the gap.
-                layout
+                //
+                // CRITICAL: disable framer layout while a WINDOW morph is in flight
+                // (`animating`). Opening a row grows that SAME node into a window driven
+                // by GSAP Flip (which transforms the row's frame/glyph/title and reflows
+                // its siblings). If framer also layout-animated these <li>s at the same
+                // time, the two systems fight over the same elements — the glyph/title
+                // flash out and back and the morph snaps on its first/last frame. Add/
+                // delete/reorder do NOT set `animating`, so those edits still animate.
+                layout={!animating}
                 initial={false}
-                exit={{ opacity: 0, scale: 0.96, transition: { duration: 0.18 } }}
+                exit={animating ? undefined : { opacity: 0, scale: 0.96, transition: { duration: 0.18 } }}
                 transition={ROW_REFLOW}
               >
                 <EntityNode
