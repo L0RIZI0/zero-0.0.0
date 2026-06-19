@@ -199,9 +199,11 @@ export function EntityNode({
 
   // Stable collapsed footprint so siblings never shift when this lifts out.
   // Dock card footprint is a PERFECT pointy-top hexagon: width = height × 0.866
-  // (√3/2). 96 × 83 honours that ratio (96 × 0.866 ≈ 83) so the clip renders as a
-  // regular hexagon — slightly larger than before for a more substantial card.
-  const slotClass = variant === "dock" ? "relative h-[96px] w-[83px] shrink-0" : "relative h-9 w-full"
+  // (√3/2). 150 × 130 honours that ratio (150 × 0.866 ≈ 130) so the clip renders as
+  // a regular hexagon. The card is deliberately large/airy: the glyph + title +
+  // open-counter keep their existing sizes and cluster in the central third, so the
+  // extra footprint reads as generous breathing room around the content.
+  const slotClass = variant === "dock" ? "relative h-[150px] w-[130px] shrink-0" : "relative h-9 w-full"
 
   // Hover tint must NOT be live while the frame is a window or shrinking closed:
   // its translucent background would let parent content bleed through the moving
