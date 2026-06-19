@@ -122,7 +122,19 @@ export function EntityBody({
             <div className="flex min-h-0 w-2/3 flex-1 flex-col self-center">
               <DoList contextId={entityId} active={active} closing={closing} centered={centerList} />
             </div>
-            <div className="pt-4">
+            {/* Dock (pinned child Spaces). On a SPACE LEAF it is pushed DOWN into the
+                hexagon's bottom triangle via translateY, so it sits lower — toward the
+                screen-bottom edge — instead of crowding the bottom of the central
+                rectangle directly under the do-list. The offset is a fraction of
+                --hex-corner-inset-y (the 25%-of-height corner line), which is set only
+                on the leaf frame and inherited here; it falls back to 0px on ancestors,
+                task/event windows, and the home root, so only the leaf dock drops.
+                Because it is a transform it does NOT change the do-list's flex layout
+                or center, so the no-jump invariant is untouched. */}
+            <div
+              className="pt-4"
+              style={{ transform: "translateY(calc(var(--hex-corner-inset-y, 0px) * 0.66))" }}
+            >
               <Dock contextId={entityId} active={active} />
             </div>
           </div>
