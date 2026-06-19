@@ -32,9 +32,13 @@ export function EntityBody({
   entityId,
   active = true,
   isRoot = false,
+  closing = false,
 }: {
   entityId: string
   active?: boolean
+  /** Forwarded to the DoList so it can keep its scroller clipped during this
+   *  window's close morph (prevents the ADD row jumping up over the title). */
+  closing?: boolean
   /** The always-mounted home view. Its region sits BELOW the fixed timeline
    *  chrome, so rails centered in the region land below the screen's true middle.
    *  When set, the collapsed IN/OUT rails are lifted to the viewport center. */
@@ -111,7 +115,7 @@ export function EntityBody({
                 and centered, so the task column reads as a tighter list. The Dock
                 below keeps the full measure width. */}
             <div className="flex min-h-0 w-2/3 flex-1 flex-col self-center">
-              <DoList contextId={entityId} active={active} />
+              <DoList contextId={entityId} active={active} closing={closing} />
             </div>
             <div className="pt-4">
               <Dock contextId={entityId} active={active} />

@@ -292,7 +292,19 @@ function AddRow({ onActivate }: { onActivate: () => void }) {
  * context's direct children (any kind) as generic `EntityRow`s, plus the inline
  * EditRow for a row being created/renamed, and the terminal ADD birther row.
  */
-export function DoList({ contextId, active = true }: { contextId: string; active?: boolean }) {
+export function DoList({
+  contextId,
+  active = true,
+  closing = false,
+}: {
+  contextId: string
+  active?: boolean
+  /** True while THIS window is playing its close morph. Suppresses the
+   *  `overflow: visible` escape hatch below — during a close no row is morphing
+   *  out of the list, so un-clipping would only let the scroller expand to its
+   *  full natural height and shove the terminal ADD row up over the title. */
+  closing?: boolean
+}) {
   const { dataVersion, notifyDataChanged, open, selection, select, moveSelection, publishNavOrder, animating } =
     useZeroNav()
   // Re-read whenever data mutates or context changes. Pinned items are promoted
@@ -467,7 +479,11 @@ export function DoList({ contextId, active = true }: { contextId: string; active
           it returns to a normal scroller the instant the morph settles. */}
       <ul
         key={contextId}
-        style={animating ? { overflow: "visible" } : undefined}
+        // `overflow: visible` only when a row is morphing OUT of this list (open),
+        // never while THIS window is closing — see the `closing` prop note. During a
+        // close the list must stay a clipped, height-constrained scroller so it does
+        // not expand to full height and shove the ADD row up over the title.
+        style={animating && !closing ? { overflow: "visible" } : undefined}
         className="-mx-2 flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto px-2 no-scrollbar"
       >
         <AnimatePresence initial={false} mode="popLayout">

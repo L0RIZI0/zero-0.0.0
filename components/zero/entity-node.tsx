@@ -848,6 +848,7 @@ export function EntityNode({
             <EntityBody
               entityId={entityId}
               active={isTop && !isClosing}
+              closing={isClosing}
             />
           </div>
         )}
