@@ -820,7 +820,17 @@ export function EntityNode({
             style={isClosing ? { top: HEADER_H } : { marginBottom: "var(--hex-inset-y, 0px)" }}
             className={cn(
               isClosing
-                ? "pointer-events-none absolute inset-x-0 bottom-0 overflow-hidden"
+                ? // Keep `flex flex-col` even while closing. The body is taken out of
+                  // flow (absolute overlay) so it can be scaled down as one unit during
+                  // the close, but EntityBody is a `flex-1` child that only stretches
+                  // inside a flex column. Without these classes the absolute body is a
+                  // plain block, EntityBody collapses to its ~min-h-[180px] natural
+                  // height anchored at the top, and the whole do-list (incl. the ADD
+                  // birther row) abruptly reflows upward at the start of the close — the
+                  // "ADD jumps above the list / title" glitch. With the flex column the
+                  // body keeps the exact open-state layout, so the content simply scales
+                  // and fades with no reflow.
+                  "pointer-events-none absolute inset-x-0 bottom-0 flex flex-col overflow-hidden"
                 : // `flex flex-col` so EntityBody (a flex-1 child) actually fills a
                   // tall window. Without it the body was a plain block, EntityBody
                   // sized to its content (~min-h), and the vertically-centered

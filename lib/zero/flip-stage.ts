@@ -196,10 +196,13 @@ export function playStage(
   if (opts.closing) {
     const body = stage.querySelector<HTMLElement>(sel(opts.closing, "[data-body]"))
     if (body) {
+      // Shrink toward the body's CENTER (was "top left", which made the content
+      // collapse into the upper-left corner of the window). Centering reads as the
+      // window's content imploding into the middle as it closes.
       gsap.fromTo(
         body,
         { opacity: 1, scale: 1 },
-        { opacity: 0, scale: 0.15, transformOrigin: "top left", duration: MORPH_DURATION * 0.7, ease: MORPH_EASE },
+        { opacity: 0, scale: 0.15, transformOrigin: "center", duration: MORPH_DURATION * 0.7, ease: MORPH_EASE },
       )
     }
     // Deeper levels removed in the same gesture telescope inward toward the same
