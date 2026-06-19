@@ -623,11 +623,14 @@ export function EntityNode({
           style={
             floatingHeader
               ? spaceLeafWindow
-                ? // Occupy the top triangle: top:0 (from the class) with height equal to
-                  // the hexagon's top inset, so the bottom-aligned glyph/title land just
-                  // above the central rectangle. A non-zero floor keeps it sane if the
-                  // inset var is ever 0 mid-morph.
-                  { height: "var(--hex-inset-y, 0px)" }
+                ? // Occupy the hexagon's TOP WEDGE: top:0 (from the class) with height
+                  // equal to the corner inset — the distance from the top point down to
+                  // the upper side corners (top of the central rectangle). The header is
+                  // bottom-aligned (justify-end), so the glyph/title rest right above the
+                  // central rectangle, dominating the do-list beneath. Using the corner
+                  // inset (not the smaller overflow inset) is what pulls the title down
+                  // to the rectangle on wide/tall hexagons where they diverge.
+                  { height: "var(--hex-corner-inset-y, 0px)" }
                 : { height: headerH }
               : asWindow && !isSpine
                 ? { height: headerH, marginTop: "var(--hex-inset-y, 0px)" }
@@ -904,16 +907,21 @@ export function EntityNode({
             // (see the frame style note). Skipped while closing (the body is absolute then).
             //
             // FLOATING (Space windows): the header is out of flow, so the body fills the
-            // frame. We apply the hex inset SYMMETRICALLY (top AND bottom) so the leaf's
-            // content stays inside the hexagon's visible band while its center coincides
-            // with the FRAME CENTER — the very same center an ancestor (inset 0) uses.
-            // That shared center is what keeps the do-list from re-centering when a child
-            // opens and the Space flips leaf→ancestor.
+            // frame. We inset it SYMMETRICALLY by the CORNER line (top AND bottom) so the
+            // leaf's content is confined to the central rectangle (between the four side
+            // corners) — the do-list lives there, beneath the glyph+title in the top
+            // wedge — while its center still coincides with the FRAME CENTER. An ancestor
+            // leaves --hex-corner-inset-y unset (→ 0px), so it also centers on the frame
+            // center; that shared center is what keeps the do-list from re-centering when
+            // a child opens and the Space flips leaf→ancestor.
             style={
               isClosing
                 ? { top: HEADER_H }
                 : floatingHeader
-                  ? { marginTop: "var(--hex-inset-y, 0px)", marginBottom: "var(--hex-inset-y, 0px)" }
+                  ? {
+                      marginTop: "var(--hex-corner-inset-y, 0px)",
+                      marginBottom: "var(--hex-corner-inset-y, 0px)",
+                    }
                   : { marginBottom: "var(--hex-inset-y, 0px)" }
             }
             className={cn(

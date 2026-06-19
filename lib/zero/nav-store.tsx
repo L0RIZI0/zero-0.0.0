@@ -418,7 +418,15 @@ export function ZeroNavProvider({
         borderRadius: "0",
         // Only the leaf hexagon overflows the box and pads its content into the
         // visible band; an expanded ancestor rectangle fills its box normally.
-        ...(isSpaceLeaf ? ({ ["--hex-inset-y"]: `${hexInsetY}px` } as React.CSSProperties) : null),
+        ...(isSpaceLeaf
+          ? ({
+              ["--hex-inset-y"]: `${hexInsetY}px`,
+              // Top point → upper side corners (top of the central rectangle). The leaf
+              // header bottom-aligns here and the body insets to it, so glyph+title sit
+              // in the top wedge and the do-list lives in the central rectangle.
+              ["--hex-corner-inset-y"]: `${hexCornerInsetY}px`,
+            } as React.CSSProperties)
+          : null),
       }
     }
 
