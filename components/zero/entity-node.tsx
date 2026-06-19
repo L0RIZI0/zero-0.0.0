@@ -765,13 +765,13 @@ export function EntityNode({
               morph has already FINISHED, so the fade ran late and felt like it was
               waiting for the close to complete. `fade-in` is opacity-only (no
               slide/zoom) so it never nudges glyph+title.
-              `delay-1000` holds it invisible through the first ~half of the ~2s close
-              morph, then `duration-700` finishes the fade near the END of the morph,
-              so the counter resolves as the card settles rather than appearing early.
-              `fill-mode-both` pins it at opacity 0 during the delay so it does not
-              flash in before the keyframe starts. */}
+              `delay-700` holds it invisible through the first part of the ~2s close
+              morph, then `duration-700` finishes the fade in the latter part of the
+              morph, so the counter resolves as the card settles rather than appearing
+              early. `fill-mode-both` pins it at opacity 0 during the delay so it does
+              not flash in before the keyframe starts. */}
           {!asWindow && variant === "dock" && (
-            <span className="flex animate-in items-center gap-1 fade-in fill-mode-both text-[10px] text-muted-foreground/70 delay-1000 duration-700">
+            <span className="flex animate-in items-center gap-1 fade-in fill-mode-both text-[10px] text-muted-foreground/70 delay-700 duration-700">
               <span className="font-medium tabular-nums">{openCount}</span>
               <span className="flex h-2.5 w-2.5 items-center justify-center">
                 <NodeGlyph kind="task" strokeWidth={1.5} />
