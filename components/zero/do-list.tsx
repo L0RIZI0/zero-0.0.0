@@ -137,12 +137,17 @@ function GlyphMenu({
  */
 function CreateRow({
   active,
+  animating,
   onCreate,
   onNavigateUp,
 }: {
   /** Only the active (top, interactive) window's row auto-focuses its input, so
    *  ancestor windows that stay mounted don't fight over keyboard focus. */
   active: boolean
+  /** True while a window OPEN/CLOSE morph is in flight. Disables framer `layout`
+   *  so this row doesn't independently animate (and overlap the list) as GSAP Flip
+   *  transforms the surrounding window frame — same guard the entity rows use. */
+  animating: boolean
   /** Commit a non-empty draft. The parent creates the entity and selects it. */
   onCreate: (title: string, kind: NodeKind) => void
   /** ArrowUp out of the focused input hands selection back to the last real row. */
@@ -233,7 +238,11 @@ function CreateRow({
     // `layout` so the row glides as siblings are added/removed; `initial={false}`
     // because it's permanent (it must never animate itself in on open / context
     // switch). No `exit` — it only leaves during a close, handled by the gate below.
-    <motion.li layout initial={false} transition={ROW_REFLOW}>
+    // `layout={!animating}`: during a window morph GSAP Flip transforms the enclosing
+    // frame, which framer would otherwise read as a layout shift and animate this row
+    // independently — making it jump and overlap the list. Disabling layout while
+    // morphing hands the whole frame (this row included) to Flip, in lockstep.
+    <motion.li layout={!animating} initial={false} transition={ROW_REFLOW}>
       <div
         onPointerEnter={() => select("list", ADD_KEY, "mouse")}
         style={{ borderRadius: 4 }}
@@ -540,7 +549,13 @@ export function DoList({
               it would otherwise jump up over the title as the body leaves flow. Only the
               active window's row actually grabs focus (see CreateRow `active`). */}
           {!closing && (
-            <CreateRow key={ADD_KEY} active={active} onCreate={createEntity} onNavigateUp={navigateUpToList} />
+            <CreateRow
+              key={ADD_KEY}
+              active={active}
+              animating={animating}
+              onCreate={createEntity}
+              onNavigateUp={navigateUpToList}
+            />
           )}
         </AnimatePresence>
       </ul>
