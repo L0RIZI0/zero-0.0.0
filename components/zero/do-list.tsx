@@ -501,8 +501,15 @@ export function DoList({
               </li>
             ),
           )}
-          {/* The ADD birther row is a permanent terminal list cell. */}
-          <AddRow key={ADD_KEY} onActivate={beginCreate} />
+          {/* The ADD birther row is a permanent terminal list cell — but only while
+              the list is ACTIVE (the interactive top window). It is the last cell, so
+              during a close morph it was the element that visibly jumped up over the
+              title as the body left flow. Gating on `active` (false while closing AND
+              while this window is a non-top/closing layer) drops it the instant the
+              window stops being interactive, so there is nothing left to jump; `closing`
+              is kept in the condition as a belt-and-braces guard. ADD is irrelevant on a
+              window you can no longer type into anyway. */}
+          {active && !closing && <AddRow key={ADD_KEY} onActivate={beginCreate} />}
         </AnimatePresence>
       </ul>
 
