@@ -479,11 +479,14 @@ export function DoList({
           it returns to a normal scroller the instant the morph settles. */}
       <ul
         key={contextId}
-        // `overflow: visible` only when a row is morphing OUT of this list (open),
-        // never while THIS window is closing — see the `closing` prop note. During a
-        // close the list must stay a clipped, height-constrained scroller so it does
-        // not expand to full height and shove the ADD row up over the title.
-        style={animating && !closing ? { overflow: "visible" } : undefined}
+        // `overflow: visible` during ANY morph (`animating`), including this window's
+        // close. The list is a height-constrained `overflow-y-auto` scroller at rest;
+        // if it stayed clipped during the close the rows would be cut off and the
+        // whole list appeared to vanish instantly while the intrinsic-height Dock
+        // stayed. Visible overflow lets the rows show and shrink with the body's scale
+        // tween. (The ADD row that used to jump here is now gated out by `active`
+        // below, so it no longer matters that the list is unclipped during close.)
+        style={animating ? { overflow: "visible" } : undefined}
         className="-mx-2 flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto px-2 no-scrollbar"
       >
         <AnimatePresence initial={false} mode="popLayout">
