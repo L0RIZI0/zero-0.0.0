@@ -3,20 +3,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { AnimatePresence, motion, type Transition } from "motion/react"
-import { Check, Plus, Pin, Trash2, Ban, RotateCcw, ChevronDown } from "lucide-react"
+import { Check, Pin, Trash2, Ban, RotateCcw, ChevronDown } from "lucide-react"
 import {
   getContextItems,
   isPinned,
   pinItem,
   deleteEntity,
   setEventCancelled,
-  setEntityTitle,
   changeEntityKind,
   addTask,
   type ContextItem,
 } from "@/lib/zero/data"
-import type { Entity } from "@/lib/zero/types"
-import { useZeroNav, useRowSelection, ADD_KEY } from "@/lib/zero/nav-store"
+import { useZeroNav, ADD_KEY } from "@/lib/zero/nav-store"
 import { MORPH_EASE } from "@/lib/zero/motion"
 import { NodeGlyph, NODE_KIND_META, type NodeKind } from "./node-glyph"
 import { EntityNode } from "./entity-node"
@@ -503,50 +501,47 @@ export function DoList({
         )}
       >
         <AnimatePresence initial={false} mode="popLayout">
-          {shown.map((it) =>
-            it.id === editingId ? (
-              <EditRow key={it.id} entity={it.entity} onCommit={finishEdit} onCancelEmpty={cancelEdit} />
-            ) : (
-              <motion.li
-                key={it.id}
-                // `layout` lets the row glide to its new slot when a sibling is added
-                // above/below or removed — this is what stops the list from "jumping"
-                // on every edit. `initial={false}` so neither pre-existing rows nor a
-                // row that just committed from its draft (EditRow → row, same key) ever
-                // flash an enter animation; the only entrance is the draft EditRow's.
-                // `exit` fades + slightly shrinks a deleted row while popLayout pulls it
-                // out of flow so the rows below slide up to close the gap.
-                //
-                // CRITICAL: disable framer layout while a WINDOW morph is in flight
-                // (`animating`). Opening a row grows that SAME node into a window driven
-                // by GSAP Flip (which transforms the row's frame/glyph/title and reflows
-                // its siblings). If framer also layout-animated these <li>s at the same
-                // time, the two systems fight over the same elements — the glyph/title
-                // flash out and back and the morph snaps on its first/last frame. Add/
-                // delete/reorder do NOT set `animating`, so those edits still animate.
-                layout={!animating}
-                initial={false}
-                exit={animating ? undefined : { opacity: 0, scale: 0.96, transition: { duration: 0.18 } }}
-                transition={ROW_REFLOW}
-              >
-                <EntityNode
-                  entityId={it.id}
-                  contextId={contextId}
-                  variant="row"
-                  onContextMenu={(e) => openMenu(e, it)}
-                />
-              </motion.li>
-            ),
+          {shown.map((it) => (
+            <motion.li
+              key={it.id}
+              // `layout` lets the row glide to its new slot when a sibling is added
+              // above/below or removed — this is what stops the list from "jumping"
+              // on every edit. Only the just-born row (committed from the CreateRow)
+              // plays an enter animation; every other row mounts with `initial={false}`
+              // so context switches and commits never flash the whole list.
+              // `exit` fades + slightly shrinks a deleted row while popLayout pulls it
+              // out of flow so the rows below slide up to close the gap.
+              //
+              // CRITICAL: disable framer layout while a WINDOW morph is in flight
+              // (`animating`). Opening a row grows that SAME node into a window driven
+              // by GSAP Flip (which transforms the row's frame/glyph/title and reflows
+              // its siblings). If framer also layout-animated these <li>s at the same
+              // time, the two systems fight over the same elements — the glyph/title
+              // flash out and back and the morph snaps on its first/last frame. Add/
+              // delete/reorder do NOT set `animating`, so those edits still animate.
+              layout={!animating}
+              initial={it.id === bornId ? { opacity: 0, y: 6 } : false}
+              animate={{ opacity: 1, y: 0 }}
+              exit={animating ? undefined : { opacity: 0, scale: 0.96, transition: { duration: 0.18 } }}
+              transition={ROW_REFLOW}
+            >
+              <EntityNode
+                entityId={it.id}
+                contextId={contextId}
+                variant="row"
+                onContextMenu={(e) => openMenu(e, it)}
+              />
+            </motion.li>
+          ))}
+          {/* The permanent terminal creation row. It is gated on `!closing` (NOT
+              `active`) so it stays present while you open a CHILD — opening a child no
+              longer adds/removes a list cell, so the list never reflows or jumps. It is
+              still dropped during this window's own CLOSE morph, where as the last cell
+              it would otherwise jump up over the title as the body leaves flow. Only the
+              active window's row actually grabs focus (see CreateRow `active`). */}
+          {!closing && (
+            <CreateRow key={ADD_KEY} active={active} onCreate={createEntity} onNavigateUp={navigateUpToList} />
           )}
-          {/* The ADD birther row is a permanent terminal list cell — but only while
-              the list is ACTIVE (the interactive top window). It is the last cell, so
-              during a close morph it was the element that visibly jumped up over the
-              title as the body left flow. Gating on `active` (false while closing AND
-              while this window is a non-top/closing layer) drops it the instant the
-              window stops being interactive, so there is nothing left to jump; `closing`
-              is kept in the condition as a belt-and-braces guard. ADD is irrelevant on a
-              window you can no longer type into anyway. */}
-          {active && !closing && <AddRow key={ADD_KEY} onActivate={beginCreate} />}
         </AnimatePresence>
       </ul>
 
