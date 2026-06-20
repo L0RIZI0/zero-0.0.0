@@ -1,8 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { AnimatePresence, motion, type Transition } from "motion/react"
-import { MORPH_EASE } from "@/lib/zero/motion"
+import { AnimatePresence } from "motion/react"
 import { PinOff, Trash2, Ban, RotateCcw } from "lucide-react"
 import {
   getEntity,
@@ -27,13 +26,8 @@ import { ContextMenu, type ContextMenuState } from "./context-menu"
  * list, and right-clicking a card here unpins it. When a context has no pins,
  * the whole dock collapses to a small gap.
  */
-// Shared-layout (pin/unpin fly) + sibling-reflow timing for dock cards. Matches the
-// do-list's ROW_REFLOW so a row and its dock card morph between each other at the
-// same pace and easing.
-const DOCK_REFLOW: Transition = { duration: 0.4, ease: MORPH_EASE }
-
 export function Dock({ contextId, active = true }: { contextId: string; active?: boolean }) {
-  const { open, dataVersion, notifyDataChanged, selection, moveSelection, publishNavOrder, animating } =
+  const { open, dataVersion, notifyDataChanged, selection, moveSelection, publishNavOrder } =
     useZeroNav()
   const [menu, setMenu] = useState<ContextMenuState | null>(null)
 
@@ -167,28 +161,13 @@ export function Dock({ contextId, active = true }: { contextId: string; active?:
       <div key={contextId} className={"flex w-full flex-nowrap items-stretch justify-center " + dockGap}>
         <AnimatePresence initial={false} mode="popLayout">
           {pinned.map((item) => (
-            // motion wrapper carries the SHARED layoutId with this entity's do-list
-            // row. On pin, the row unmounts and this card mounts in the same commit;
-            // framer flies/morphs the card out of the row's old box into the dock
-            // (and the reverse on unpin) instead of the item snapping into place.
-            // `layout={!animating}` lets sibling cards glide when one is added/removed.
-            // layoutId is gated off during a window morph so framer's projection can't
-            // fight GSAP Flip. (No `initial={false}` here — that suppresses the shared
-            // enter-from-previous-position animation we want.)
-            <motion.div
+            <EntityNode
               key={item.id}
-              layoutId={animating ? undefined : `pin-${contextId}-${item.entity.id}`}
-              transition={DOCK_REFLOW}
-              className="flex"
-              data-dbg-lid={animating ? "OFF" : `pin-${contextId}-${item.entity.id}`}
-            >
-              <EntityNode
-                entityId={item.entity.id}
-                contextId={contextId}
-                variant="dock"
-                onContextMenu={(e) => openMenu(e, item)}
-              />
-            </motion.div>
+              entityId={item.entity.id}
+              contextId={contextId}
+              variant="dock"
+              onContextMenu={(e) => openMenu(e, item)}
+            />
           ))}
         </AnimatePresence>
       </div>
