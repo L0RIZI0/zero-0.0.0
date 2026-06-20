@@ -938,23 +938,31 @@ export function EntityNode({
                       marginBottom: "var(--hex-corner-inset-y, 0px)",
                     }
                   : { marginBottom: "var(--hex-inset-y, 0px)" }),
-              // Crop the OPEN CHILD WINDOW to this (the parent's) content area. The
-              // child window grew from one of this body's do-list rows / dock cards, so
-              // at rest it is a `position: fixed` DOM descendant of THIS [data-body].
-              // A clip-path clips its whole subtree — fixed descendants included (the
-              // same mechanism the work-surface region uses) — so this trims the child
-              // (e.g. a leaf Space hexagon whose top point bleeds upward) at the parent
-              // body's TOP edge = just below the parent header. Without it the fixed
-              // child escaped this body entirely and was only clipped by the outermost
-              // region, so a deep leaf hexagon appeared cropped by the OLDEST ancestor
-              // instead of its direct parent. The morph already looked right because the
-              // child is `position: absolute` mid-flight and clipped by the parent
-              // frame's overflow-hidden; this makes the RESTING state match. Top-only
-              // inset (huge negative on the other three sides) so the child's sides,
-              // bottom point and drop shadow stay exactly as before. Only ancestors need
-              // it (a leaf has no open child) and never while closing.
+              // Crop the OPEN CHILD WINDOW to this (the parent's) WINDOW box. The child
+              // window grew from one of this body's do-list rows / dock cards, so at rest
+              // it is a `position: fixed` DOM descendant of THIS [data-body]. A clip-path
+              // clips its whole subtree — fixed descendants included (the same mechanism
+              // the work-surface region uses) — so this trims the child (e.g. a leaf
+              // Space hexagon whose top point bleeds upward) at the parent's top edge.
+              // Without it the fixed child escaped this body entirely and was only
+              // clipped by the outermost region, so a deep leaf hexagon appeared cropped
+              // by the OLDEST ancestor instead of its direct parent. The morph already
+              // looked right because the child is `position: absolute` mid-flight and
+              // clipped by the parent frame's overflow-hidden; this makes the RESTING
+              // state match.
+              //
+              // The crop line must be the parent FRAME top (= the parent WINDOW top),
+              // NOT the parent body top. Those coincide for a Space ancestor (floating
+              // header → body fills the frame), but a Task/Event ancestor has an in-flow
+              // header, so its body starts `headerH` BELOW the frame top — clipping at
+              // body-top there would crop the child below the parent's title header
+              // instead of at the window edge. So pull the top inset up by `headerH` in
+              // that case (0 when the header floats) to land on the frame top either way.
+              // Top-only inset (huge negative on the other three sides) so the child's
+              // sides, bottom point and drop shadow stay exactly as before. Only
+              // ancestors need it (a leaf has no open child) and never while closing.
               ...(asWindow && !isTop && !isClosing
-                ? { clipPath: "inset(0px -9999px -9999px -9999px)" }
+                ? { clipPath: `inset(${floatingHeader ? 0 : -headerH}px -9999px -9999px -9999px)` }
                 : null),
             }}
             className={cn(
