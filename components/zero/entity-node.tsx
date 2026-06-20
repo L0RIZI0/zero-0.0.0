@@ -954,7 +954,7 @@ export function EntityNode({
               // bottom point and drop shadow stay exactly as before. Only ancestors need
               // it (a leaf has no open child) and never while closing.
               ...(asWindow && !isTop && !isClosing
-                ? { clipPath: "inset(0px -2000px -2000px -2000px)" }
+                ? { clipPath: "inset(0px -9999px -9999px -9999px)" }
                 : null),
             }}
             className={cn(
