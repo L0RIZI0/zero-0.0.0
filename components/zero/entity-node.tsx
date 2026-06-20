@@ -218,7 +218,11 @@ export function EntityNode({
   // title + open-counter keep their sizes in either case — only the surrounding
   // breathing room changes.
   const dockSlot = contextDepth === 0 ? "h-[150px] w-[130px]" : "h-[116px] w-[100px]"
-  const slotDims = variant === "dock" ? `${dockSlot} shrink-0` : "h-9 w-full"
+  // Row slot height: h-11 (44px) gives the airier, more padded look — its inner
+  // content uses `h-full`, so this fixed height is what governs a row's vertical
+  // padding. Kept in sync with the CreateRow's vertical padding below so the draft
+  // input row is the same height as a real row.
+  const slotDims = variant === "dock" ? `${dockSlot} shrink-0` : "h-11 w-full"
   // The slot is `relative` ONLY in row/dock state. The frame's inner content anchors
   // to the FRAME (which is `relative` as a row, `fixed` as a window), never to this
   // slot, so the slot's `relative` is otherwise unused as a containing block.
