@@ -29,6 +29,16 @@ import { cn } from "@/lib/utils"
 // both themes and — unlike a `filter: drop-shadow` — never forces a layer
 // re-rasterization or re-anchors fixed children during the Flip morph.
 
+// Header divider (the hairline under a window's header) is hidden everywhere for
+// now. When an ancestor window has an open child, its divider painted ON TOP of the
+// child window's hexagon: at rest the child is `position: fixed` with no transformed
+// ancestor, so it escapes the parent frame's stacking context (the child only wins
+// the z-order DURING the morph, while Flip has the parent transformed). Reliably
+// making the child paint over the divider at rest means reworking that fixed-position
+// stacking escape, which is fragile. Until that rework, suppress the divider globally.
+// Flip to `true` to bring it back (e.g. once the child no longer escapes).
+const SHOW_HEADER_DIVIDER = false
+
 const priorityDot: Record<TaskPriority, string> = {
   high: "bg-accent",
   medium: "bg-foreground/40",
@@ -745,7 +755,17 @@ export function EntityNode({
                   cn(
                     "whitespace-nowrap",
                     isSpace && "text-center",
-                    ancestorHeader ? "font-medium text-foreground/75" : "font-semibold",
+                    // Weight: rows, dock cards and ancestor headers are all font-medium.
+                    // Keep a non-space (task/event) title font-medium in its LEAF header
+                    // too, so its weight is identical whether it's a row/card button or a
+                    // window header (leaf or ancestor) — it no longer pops heavier on open.
+                    // Space leaves keep the heavier font-semibold (this only affects
+                    // non-space entities, per request).
+                    ancestorHeader
+                      ? "font-medium text-foreground/75"
+                      : isSpace
+                        ? "font-semibold"
+                        : "font-medium",
                   )
                 : variant === "dock"
                   ? // Hug content (centered by the dock header's items-center) so the
@@ -881,7 +901,7 @@ export function EntityNode({
             rule across the hexagon's narrowing top reads as a stray clipped line);
             expanded ancestor Spaces are rectangles, so they show it like everything
             else. */}
-        {(asWindow || isClosing) && !spaceLeafWindow && (
+        {SHOW_HEADER_DIVIDER && (asWindow || isClosing) && !spaceLeafWindow && (
           <span
             aria-hidden
             style={{ top: headerH, transitionDuration: DURATION_S, transitionTimingFunction: MORPH_CSS_EASE }}
