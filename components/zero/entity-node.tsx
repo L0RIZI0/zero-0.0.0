@@ -921,7 +921,17 @@ export function EntityNode({
             // a child opens and the Space flips leaf→ancestor.
             style={
               isClosing
-                ? { top: HEADER_H }
+                ? // A closing SPACE was the leaf, whose resting body FILLS the frame
+                  // (the header floats over it) and centers the do-list on the frame
+                  // center. So fill the frame symmetrically here (top:0 + the class's
+                  // bottom-0) — anchoring at `top: HEADER_H` like other windows would
+                  // shift that center down ~HEADER_H/2 and make the do-list/CREATE-INPUT
+                  // visibly jump at the start of the close. A closing TASK/EVENT had an
+                  // in-flow header at rest, so its body already started at HEADER_H —
+                  // keep that so it likewise doesn't move.
+                  isSpace
+                  ? { top: 0 }
+                  : { top: HEADER_H }
                 : floatingHeader
                   ? {
                       marginTop: "var(--hex-corner-inset-y, 0px)",
@@ -932,16 +942,17 @@ export function EntityNode({
             className={cn(
               isClosing
                 ? // While closing, the body is taken out of flow as an absolute overlay
-                  // so it can be scaled+faded down as one unit. It MUST stay a plain
-                  // block here (NOT `flex flex-col`): the overlay is anchored only at the
-                  // bottom with no definite height, so a flex column would give its
-                  // `flex-1 min-h-0` children zero height — collapsing the
-                  // `overflow-y-auto` do-list to 0 and clipping every task row, so the
-                  // whole list vanished instantly at the start of the close while the
-                  // intrinsic-height Dock stayed. As a plain block the body sizes to its
-                  // natural content height, so the do-list keeps its rows and simply
-                  // shrinks with the scale tween.
-                  "pointer-events-none absolute inset-x-0 bottom-0 overflow-hidden"
+                  // so it can be scaled+faded down as one unit. It is anchored at BOTH
+                  // top (via the style block above — 0 for a Space, HEADER_H otherwise)
+                  // and bottom-0, so it has a DEFINITE height; that lets it stay a
+                  // `flex flex-col` whose `flex-1 min-h-0` children (EntityBody → the
+                  // do-list) fill and CENTER exactly as they did at rest. Keeping the
+                  // flex centering is what stops the do-list/CREATE-INPUT from snapping
+                  // from centered to top-aligned at the start of the close — the visible
+                  // jump. (A plain block here top-aligned the content, causing that
+                  // jump; the definite height means the flex column no longer collapses
+                  // the list to zero as the old comment warned.)
+                  "pointer-events-none absolute inset-x-0 bottom-0 flex min-h-0 flex-col overflow-hidden"
                 : // `flex flex-col` so EntityBody (a flex-1 child) actually fills a
                   // tall window. Without it the body was a plain block, EntityBody
                   // sized to its content (~min-h), and the vertically-centered
