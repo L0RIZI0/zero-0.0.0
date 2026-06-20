@@ -5,7 +5,7 @@ import { useTheme } from "next-themes"
 import { Check, X } from "lucide-react"
 import { getEntity, getOpenTaskCount } from "@/lib/zero/data"
 import type { TaskPriority } from "@/lib/zero/types"
-import { useZeroNav, useRowSelection, HIGHLIGHT_SHADOW, HIGHLIGHT_SHADOW_NONE } from "@/lib/zero/nav-store"
+import { useZeroNav, useRowSelection } from "@/lib/zero/nav-store"
 import {
   HEADER_H,
   ANCESTOR_HEADER_H,
@@ -498,9 +498,14 @@ export function EntityNode({
                 // adopts when opened — on mouse hover OR keyboard selection. While
                 // shrinking closed, hold the highlight so it matches the window it
                 // retracts from (both opaque → no bleed-through, no early fade).
+                // Keyboard selection shares the SAME cue as mouse hover: the filled
+                // `highlightColor` background (the exact color this node's window adopts
+                // when opened). A separate inset-ring "rectangle" for keyboard selection
+                // was redundant — the full-surface highlight already reads as a clear
+                // single-item cursor, and the design language uses that filled state
+                // everywhere — so it's been dropped.
                 backgroundColor: hovered || showHighlight || isClosing ? highlightColor : collapsedRest,
-                boxShadow: showHighlight ? HIGHLIGHT_SHADOW : HIGHLIGHT_SHADOW_NONE,
-                transition: "box-shadow 0.18s ease-out, background-color 0.18s ease-out",
+                transition: "background-color 0.18s ease-out",
               })
         }
         className={frameClass}
