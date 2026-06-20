@@ -1,6 +1,6 @@
 "use client"
 
-import { motion } from "motion/react"
+import { motion, LayoutGroup } from "motion/react"
 import { getSpaceAssets } from "@/lib/zero/data"
 import { panelTransition } from "@/lib/zero/motion"
 import { usePanelOpen } from "@/lib/zero/panel-store"
@@ -127,6 +127,12 @@ export function EntityBody({
               isRoot ? "max-w-[70vw]" : "max-w-[720px]",
             )}
           >
+            {/* LayoutGroup coordinates the do-list rows and dock cards so a shared
+                `layoutId` (pin-<ctx>-<id>) performs ONE magic-move animation across
+                the two otherwise-independent AnimatePresence trees — the row flies and
+                morphs into its dock card on pin (and back on unpin) instead of the item
+                teleporting. Without the group the two presences animate in isolation. */}
+            <LayoutGroup>
             {/* Do-list (including its ADD button) is narrowed to 2/3 of the measure
                 and centered, so the task column reads as a tighter list. The Dock
                 below keeps the full measure width. */}
@@ -157,6 +163,7 @@ export function EntityBody({
                 <Dock contextId={entityId} active={active} />
               </div>
             )}
+            </LayoutGroup>
           </div>
         </div>
 

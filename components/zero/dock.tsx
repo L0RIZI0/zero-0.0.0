@@ -1,7 +1,8 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { AnimatePresence } from "motion/react"
+import { AnimatePresence, motion, type Transition } from "motion/react"
+import { MORPH_EASE } from "@/lib/zero/motion"
 import { PinOff, Trash2, Ban, RotateCcw } from "lucide-react"
 import {
   getEntity,
@@ -26,8 +27,13 @@ import { ContextMenu, type ContextMenuState } from "./context-menu"
  * list, and right-clicking a card here unpins it. When a context has no pins,
  * the whole dock collapses to a small gap.
  */
+// Shared-layout (pin/unpin fly) + sibling-reflow timing for dock cards. Matches the
+// do-list's ROW_REFLOW so a row and its dock card morph between each other at the
+// same pace and easing.
+const DOCK_REFLOW: Transition = { duration: 0.4, ease: MORPH_EASE }
+
 export function Dock({ contextId, active = true }: { contextId: string; active?: boolean }) {
-  const { open, dataVersion, notifyDataChanged, selection, moveSelection, publishNavOrder } =
+  const { open, dataVersion, notifyDataChanged, selection, moveSelection, publishNavOrder, animating } =
     useZeroNav()
   const [menu, setMenu] = useState<ContextMenuState | null>(null)
 
@@ -161,13 +167,29 @@ export function Dock({ contextId, active = true }: { contextId: string; active?:
       <div key={contextId} className={"flex w-full flex-nowrap items-stretch justify-center " + dockGap}>
         <AnimatePresence initial={false} mode="popLayout">
           {pinned.map((item) => (
-            <EntityNode
+            // motion wrapper carries the SHARED layoutId with this entity's do-list
+            // row. On pin, the row unmounts and this card mounts in the same commit;
+            // framer flies/morphs the card out of the row's old box into the dock
+            // (and the reverse on unpin) instead of the item snapping into place.
+            // `layout={!animating}` lets sibling cards glide when one is added/removed.
+            // `initial={false}` so cards never self-animate on mount/context switch —
+            // only a genuine pin/unpin (a layoutId match) animates. layoutId is gated
+            // off during a window morph so framer's projection can't fight GSAP Flip.
+            <motion.div
               key={item.id}
-              entityId={item.entity.id}
-              contextId={contextId}
-              variant="dock"
-              onContextMenu={(e) => openMenu(e, item)}
-            />
+              layout={!animating}
+              layoutId={animating ? undefined : `pin-${contextId}-${item.entity.id}`}
+              initial={false}
+              transition={DOCK_REFLOW}
+              className="flex"
+            >
+              <EntityNode
+                entityId={item.entity.id}
+                contextId={contextId}
+                variant="dock"
+                onContextMenu={(e) => openMenu(e, item)}
+              />
+            </motion.div>
           ))}
         </AnimatePresence>
       </div>

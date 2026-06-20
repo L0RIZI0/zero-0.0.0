@@ -529,9 +529,20 @@ export function DoList({
               // flash out and back and the morph snaps on its first/last frame. Add/
               // delete/reorder do NOT set `animating`, so those edits still animate.
               layout={!animating}
+              // Shared-element id with the Dock card for the SAME entity. When this
+              // row is pinned it leaves the list and a card with this same layoutId
+              // mounts in the dock; framer then flies/morphs between the two boxes
+              // (and back on unpin) instead of the item teleporting. Namespaced by
+              // context so it can only ever match its own dock, never a same-id row
+              // in another mounted (ancestor) list. Gated to undefined while a WINDOW
+              // morph runs (`animating`): a live layoutId keeps framer's layout
+              // projection on, which would fight GSAP Flip as it parks the frame
+              // absolutely during open/close — exactly what `layout={!animating}`
+              // already guards against.
+              layoutId={animating ? undefined : `pin-${contextId}-${it.id}`}
               initial={it.id === bornId ? { opacity: 0, y: 6 } : false}
               animate={{ opacity: 1, y: 0 }}
-              exit={animating ? undefined : { opacity: 0, scale: 0.96, transition: { duration: 0.18 } }}
+              exit={undefined}
               transition={ROW_REFLOW}
             >
               <EntityNode
