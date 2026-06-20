@@ -8,6 +8,7 @@ import { NodeGlyph, NODE_KIND_META, type NodeKind } from "./node-glyph"
 import { addTask, addSpace, addEvent, addInstant } from "@/lib/zero/data"
 import { useZeroNav } from "@/lib/zero/nav-store"
 import { contentTransition } from "@/lib/zero/motion"
+import { CaretTextInput } from "./caret-text-input"
 import { cn } from "@/lib/utils"
 
 const KIND_ORDER: NodeKind[] = ["task", "space", "event", "instant"]
@@ -188,15 +189,16 @@ export function CreateWindow({
             </AnimatePresence>
           </div>
 
-          <input
+          <CaretTextInput
             ref={inputRef}
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter" && canSave) handleSave()
             }}
-            placeholder={`Name this ${NODE_KIND_META[kind].label.toLowerCase()}…`}
-            className="min-w-0 flex-[3] bg-transparent text-[15px] tracking-tight text-foreground outline-none placeholder:text-muted-foreground/60"
+            placeholder={`New ${NODE_KIND_META[kind].label.toLowerCase()}…`}
+            wrapperClassName="flex-[3]"
+            className="bg-transparent text-[15px] tracking-tight text-foreground outline-none placeholder:text-muted-foreground/60"
           />
         </div>
 

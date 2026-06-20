@@ -19,6 +19,7 @@ import { MORPH_EASE } from "@/lib/zero/motion"
 import { NodeGlyph, NODE_KIND_META, type NodeKind } from "./node-glyph"
 import { EntityNode } from "./entity-node"
 import { ContextMenu, type ContextMenuState } from "./context-menu"
+import { CaretTextInput } from "./caret-text-input"
 import { cn } from "@/lib/utils"
 
 const KIND_ORDER: NodeKind[] = ["task", "space", "event", "instant"]
@@ -138,6 +139,7 @@ function GlyphMenu({
 function CreateRow({
   active,
   animating,
+  closing,
   onCreate,
   onNavigateUp,
 }: {
@@ -148,6 +150,10 @@ function CreateRow({
    *  so this row doesn't independently animate (and overlap the list) as GSAP Flip
    *  transforms the surrounding window frame — same guard the entity rows use. */
   animating: boolean
+  /** True while THIS window is closing. The row stays mounted (so the centered list
+   *  doesn't re-center and jump when it would otherwise be removed) but fades out, so
+   *  its disappearance is smooth and any drift during the body's scale-down is hidden. */
+  closing: boolean
   /** Commit a non-empty draft. The parent creates the entity and selects it. */
   onCreate: (title: string, kind: NodeKind) => void
   /** ArrowUp out of the focused input hands selection back to the last real row. */
@@ -242,11 +248,18 @@ function CreateRow({
     // frame, which framer would otherwise read as a layout shift and animate this row
     // independently — making it jump and overlap the list. Disabling layout while
     // morphing hands the whole frame (this row included) to Flip, in lockstep.
-    <motion.li layout={!animating} initial={false} transition={ROW_REFLOW}>
+    <motion.li
+      layout={!animating}
+      initial={false}
+      // Fade out as the window closes (kept in flow so the centered list never jumps
+      // by losing this cell); a quick fade also hides any drift while the body shrinks.
+      animate={{ opacity: closing ? 0 : 1 }}
+      transition={closing ? { duration: 0.12, ease: "easeOut" } : ROW_REFLOW}
+    >
       <div
         onPointerEnter={() => select("list", ADD_KEY, "mouse")}
         style={{ borderRadius: 4 }}
-        className="flex w-full items-center gap-3 border border-foreground/40 bg-card-solid px-2.5 py-2 text-left"
+        className="flex w-full items-center gap-3 bg-card-solid px-2.5 py-2 text-left"
       >
         <button
           ref={triggerRef}
@@ -266,14 +279,14 @@ function CreateRow({
           <ChevronDown className="h-3 w-3 text-muted-foreground" />
         </button>
 
-        <input
+        <CaretTextInput
           ref={inputRef}
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           onKeyDown={onKeyDown}
           onFocus={() => select("list", ADD_KEY)}
-          placeholder={`Name this ${NODE_KIND_META[kind].label.toLowerCase()}…`}
-          className="min-w-0 flex-1 bg-transparent text-[13px] tracking-tight text-foreground outline-none placeholder:text-muted-foreground/50"
+          placeholder={`New ${NODE_KIND_META[kind].label.toLowerCase()}…`}
+          className="bg-transparent text-[13px] tracking-tight text-foreground outline-none placeholder:text-muted-foreground/50"
         />
       </div>
 
@@ -542,21 +555,20 @@ export function DoList({
               />
             </motion.li>
           ))}
-          {/* The permanent terminal creation row. It is gated on `!closing` (NOT
-              `active`) so it stays present while you open a CHILD — opening a child no
-              longer adds/removes a list cell, so the list never reflows or jumps. It is
-              still dropped during this window's own CLOSE morph, where as the last cell
-              it would otherwise jump up over the title as the body leaves flow. Only the
-              active window's row actually grabs focus (see CreateRow `active`). */}
-          {!closing && (
-            <CreateRow
-              key={ADD_KEY}
-              active={active}
-              animating={animating}
-              onCreate={createEntity}
-              onNavigateUp={navigateUpToList}
-            />
-          )}
+          {/* The permanent terminal creation row. It stays mounted at ALL times —
+              including while opening a CHILD and during this window's own CLOSE — so
+              the list never adds/removes a cell and the centered column never reflows
+              or jumps. During close it simply fades out (see CreateRow `closing`)
+              rather than being unmounted. Only the active window's row grabs focus
+              (see CreateRow `active`). */}
+          <CreateRow
+            key={ADD_KEY}
+            active={active}
+            animating={animating}
+            closing={closing}
+            onCreate={createEntity}
+            onNavigateUp={navigateUpToList}
+          />
         </AnimatePresence>
       </ul>
 
