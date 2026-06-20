@@ -221,7 +221,6 @@ function CreateRow({
       inputRef.current?.blur()
       onNavigateUp()
     } else if (e.key === "ArrowDown") {
-      console.log("[v0] CreateRow ArrowDown -> navigateDownToDock")
       // Drop into the dock below; blur so the dock's keyboard handler takes over.
       e.preventDefault()
       e.stopPropagation()
