@@ -199,11 +199,12 @@ export function EntityNode({
 
   // Stable collapsed footprint so siblings never shift when this lifts out.
   // Dock card footprint is a PERFECT pointy-top hexagon: width = height × 0.866
-  // (√3/2). 150 × 130 honours that ratio (150 × 0.866 ≈ 130) so the clip renders as
-  // a regular hexagon. The card is deliberately large/airy: the glyph + title +
-  // open-counter keep their existing sizes and cluster in the central third, so the
-  // extra footprint reads as generous breathing room around the content.
-  const slotDims = variant === "dock" ? "h-[150px] w-[130px] shrink-0" : "h-9 w-full"
+  // (√3/2). 116 × 100 honours that ratio (116 × 0.866 ≈ 100) so the clip renders as
+  // a regular hexagon. The card was shrunk from 150 × 130 so the dock fits within the
+  // hexagon's bottom triangle on shorter viewports without cropping; the glyph +
+  // title + open-counter KEEP their existing sizes and simply cluster more tightly,
+  // so the smaller footprint just trims the surrounding breathing room.
+  const slotDims = variant === "dock" ? "h-[116px] w-[100px] shrink-0" : "h-9 w-full"
   // The slot is `relative` ONLY in row/dock state. The frame's inner content anchors
   // to the FRAME (which is `relative` as a row, `fixed` as a window), never to this
   // slot, so the slot's `relative` is otherwise unused as a containing block.
@@ -955,6 +956,16 @@ export function EntityNode({
               entityId={entityId}
               active={isTop && !isClosing}
               closing={isClosing}
+              // Float the dock OUT of the do-list's flex flow for EVERY Space window —
+              // leaf AND ancestor. This is what preserves the no-jump invariant: the
+              // do-list then fills the full body and centers on the frame center
+              // IDENTICALLY whether Zero is the leaf (tall hexagon, corner inset > 0,
+              // dock dropped into the bottom triangle) or an ancestor (rectangle, corner
+              // inset 0, dock pinned to the body bottom). If only the leaf floated, the
+              // ancestor's in-flow dock would steal flex height and shove its list up,
+              // re-centering the parent list when a child opens. Tasks/events and the
+              // home root keep the in-flow dock. */
+              floatDock={spaceWindow}
             />
           </div>
         )}

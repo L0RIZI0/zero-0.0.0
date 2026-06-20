@@ -34,12 +34,18 @@ export function EntityBody({
   isRoot = false,
   closing = false,
   centerList = true,
+  floatDock = false,
 }: {
   entityId: string
   active?: boolean
   /** Forwarded to the DoList so it can keep its scroller clipped during this
    *  window's close morph (prevents the ADD row jumping up over the title). */
   closing?: boolean
+  /** Space-leaf only: float the Dock OUT of the do-list's flex column (absolute,
+   *  into the hexagon's bottom triangle) so the do-list always fills the full
+   *  central rectangle regardless of how many items are pinned. When false (home
+   *  root, ancestors, task/event windows) the Dock stays in flow beneath the list. */
+  floatDock?: boolean
   /** Vertically center the do-list within its column (forwarded to DoList). ON by
    *  default for every entity at every depth; pass `false` to top-align a specific
    *  entity's list. */
@@ -115,27 +121,42 @@ export function EntityBody({
             the cap is 70% of the viewport; inside a focus window the fixed 720px
             measure is kept. */}
         <div className="flex min-h-0 min-w-0 flex-1 flex-col items-center">
-          <div className={cn("flex min-h-0 w-full flex-1 flex-col", isRoot ? "max-w-[70vw]" : "max-w-[720px]")}>
+          <div
+            className={cn(
+              "relative flex min-h-0 w-full flex-1 flex-col",
+              isRoot ? "max-w-[70vw]" : "max-w-[720px]",
+            )}
+          >
             {/* Do-list (including its ADD button) is narrowed to 2/3 of the measure
                 and centered, so the task column reads as a tighter list. The Dock
                 below keeps the full measure width. */}
             <div className="flex min-h-0 w-2/3 flex-1 flex-col self-center">
               <DoList contextId={entityId} active={active} closing={closing} centered={centerList} />
             </div>
-            {/* Dock (pinned child Spaces). On a SPACE LEAF it is nudged DOWN into the
-                hexagon's bottom triangle so it sits lower — toward the screen-bottom
-                edge — instead of crowding the bottom of the central rectangle directly
-                under the do-list. We use position:relative + top (NOT transform): a
-                relative offset is purely visual (it does NOT change the do-list's flex
-                centering, so the no-jump invariant holds) AND it is invisible to GSAP
-                Flip, which only snapshots transforms — a child transform here polluted
-                Flip's measurement and threw the whole frame far down-screen. The offset
-                is a fraction of --hex-corner-inset-y (the 25%-of-height corner line),
-                set only on the leaf frame and inherited here; it falls back to 0px on
-                ancestors, task/event windows, and the home root, so only the leaf drops. */}
-            <div className="relative pt-4" style={{ top: "calc(var(--hex-corner-inset-y, 0px) * 0.2)" }}>
-              <Dock contextId={entityId} active={active} />
-            </div>
+            {floatDock ? (
+              /* SPACE LEAF: the Dock is pulled OUT of the do-list's flex column and
+                 pinned absolutely just below it (top:100% = the central-rectangle
+                 bottom / corner line), then nudged down into the hexagon's bottom
+                 triangle. Because it no longer occupies flex height, the do-list's
+                 flex-1 area always spans the FULL central rectangle — so the list
+                 centers identically whether or not items are pinned (fixes the list
+                 being squeezed upward by a tall dock). The lift keeps the dock clear
+                 of the screen-bottom edge on short viewports; it is a fraction of
+                 --hex-corner-inset-y so it scales with the hexagon. No transforms are
+                 used (only top/position), keeping it invisible to GSAP Flip. */
+              <div
+                className="absolute inset-x-0 flex justify-center"
+                style={{ top: "calc(100% - var(--hex-corner-inset-y, 0px) * 0.32)" }}
+              >
+                <div className="w-full">
+                  <Dock contextId={entityId} active={active} />
+                </div>
+              </div>
+            ) : (
+              <div className="pt-4">
+                <Dock contextId={entityId} active={active} />
+              </div>
+            )}
           </div>
         </div>
 
