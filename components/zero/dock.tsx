@@ -172,16 +172,15 @@ export function Dock({ contextId, active = true }: { contextId: string; active?:
             // framer flies/morphs the card out of the row's old box into the dock
             // (and the reverse on unpin) instead of the item snapping into place.
             // `layout={!animating}` lets sibling cards glide when one is added/removed.
-            // `initial={false}` so cards never self-animate on mount/context switch —
-            // only a genuine pin/unpin (a layoutId match) animates. layoutId is gated
-            // off during a window morph so framer's projection can't fight GSAP Flip.
+            // layoutId is gated off during a window morph so framer's projection can't
+            // fight GSAP Flip. (No `initial={false}` here — that suppresses the shared
+            // enter-from-previous-position animation we want.)
             <motion.div
               key={item.id}
-              layout={!animating}
               layoutId={animating ? undefined : `pin-${contextId}-${item.entity.id}`}
-              initial={false}
               transition={DOCK_REFLOW}
               className="flex"
+              data-dbg-lid={animating ? "OFF" : `pin-${contextId}-${item.entity.id}`}
             >
               <EntityNode
                 entityId={item.entity.id}

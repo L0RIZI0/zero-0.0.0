@@ -544,6 +544,7 @@ export function DoList({
               animate={{ opacity: 1, y: 0 }}
               exit={undefined}
               transition={ROW_REFLOW}
+              data-dbg-lid={animating ? "OFF" : `pin-${contextId}-${it.id}`}
             >
               <EntityNode
                 entityId={it.id}
