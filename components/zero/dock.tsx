@@ -61,7 +61,8 @@ export function Dock({ contextId, active = true }: { contextId: string; active?:
 
   // Window-level keyboard handler, active only while the dock owns the
   // selection: Enter opens the selected card; Left/Right move between cards;
-  // Down crosses back down into the do list. Inert while a text input is focused.
+  // Up crosses back UP into the do list (the dock now sits BELOW the list).
+  // Inert while a text input is focused.
   useEffect(() => {
     if (!active) return
     const onKey = (e: KeyboardEvent) => {
@@ -77,9 +78,9 @@ export function Dock({ contextId, active = true }: { contextId: string; active?:
           e.preventDefault()
           moveSelection("right")
           break
-        case "ArrowDown":
+        case "ArrowUp":
           e.preventDefault()
-          moveSelection("down")
+          moveSelection("up")
           break
         case "Enter": {
           e.preventDefault()

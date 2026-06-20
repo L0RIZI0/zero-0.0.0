@@ -180,7 +180,10 @@ export function ZeroNavProvider({
     navOrderRef.current = { ...navOrderRef.current, [region]: keys }
   }, [])
 
-  // Spatial arrow-key navigation. Dock sits ABOVE the list.
+  // Spatial arrow-key navigation. Dock sits BELOW the list (it was moved under the
+  // do-list), so the two regions connect at the list's BOTTOM: pressing DOWN from the
+  // last list entry (the CREATE-INPUT row) enters the dock, and pressing UP from a dock
+  // card returns to that last list entry.
   const moveSelection = useCallback((dir: "up" | "down" | "left" | "right") => {
     const { list, dock } = navOrderRef.current
     setSelection((cur) => {
@@ -192,18 +195,20 @@ export function ZeroNavProvider({
       if (cur.region === "list") {
         const i = list.indexOf(cur.key)
         if (i === -1) return list.length ? { region: "list", key: list[0] } : cur
-        if (dir === "down") return { region: "list", key: list[Math.min(i + 1, list.length - 1)] }
-        if (dir === "up") {
-          if (i === 0) return dock.length ? { region: "dock", key: dock[0] } : cur
-          return { region: "list", key: list[i - 1] }
+        if (dir === "down") {
+          // Past the last list entry (CREATE-INPUT row), drop into the dock below.
+          if (i === list.length - 1) return dock.length ? { region: "dock", key: dock[0] } : cur
+          return { region: "list", key: list[i + 1] }
         }
+        if (dir === "up") return { region: "list", key: list[Math.max(i - 1, 0)] }
         return cur
       }
       const j = dock.indexOf(cur.key)
       if (j === -1) return dock.length ? { region: "dock", key: dock[0] } : cur
       if (dir === "left") return { region: "dock", key: dock[Math.max(j - 1, 0)] }
       if (dir === "right") return { region: "dock", key: dock[Math.min(j + 1, dock.length - 1)] }
-      if (dir === "down") return list.length ? { region: "list", key: list[0] } : cur
+      // Up from the dock returns to the LAST list entry (CREATE-INPUT row) above it.
+      if (dir === "up") return list.length ? { region: "list", key: list[list.length - 1] } : cur
       return cur
     })
     inputModeRef.current = "keyboard"

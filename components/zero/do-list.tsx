@@ -142,6 +142,7 @@ function CreateRow({
   closing,
   onCreate,
   onNavigateUp,
+  onNavigateDown,
 }: {
   /** Only the active (top, interactive) window's row auto-focuses its input, so
    *  ancestor windows that stay mounted don't fight over keyboard focus. */
@@ -158,6 +159,8 @@ function CreateRow({
   onCreate: (title: string, kind: NodeKind) => void
   /** ArrowUp out of the focused input hands selection back to the last real row. */
   onNavigateUp: () => void
+  /** ArrowDown out of the focused input drops selection into the dock below. */
+  onNavigateDown: () => void
 }) {
   const { select, selection, inputMode } = useZeroNav()
   const [kind, setKind] = useState<NodeKind>("task")
@@ -217,6 +220,14 @@ function CreateRow({
       e.nativeEvent.stopImmediatePropagation()
       inputRef.current?.blur()
       onNavigateUp()
+    } else if (e.key === "ArrowDown") {
+      console.log("[v0] CreateRow ArrowDown -> navigateDownToDock")
+      // Drop into the dock below; blur so the dock's keyboard handler takes over.
+      e.preventDefault()
+      e.stopPropagation()
+      e.nativeEvent.stopImmediatePropagation()
+      inputRef.current?.blur()
+      onNavigateDown()
     } else if (e.key === "Escape") {
       // Blur so a subsequent Escape reaches the window handler (which closes it).
       e.preventDefault()
@@ -399,6 +410,12 @@ export function DoList({
     if (last) select("list", last, "keyboard")
   }, [shown, select])
 
+  // ArrowDown out of the creation input (the last list entry) drops into the dock
+  // below. The input owns its keys while focused, so the window-level handler can't
+  // run `moveSelection` for it — we trigger the same list→dock move directly. The
+  // CreateRow blurs its input first so the dock's keyboard handler then owns the keys.
+  const navigateDownToDock = useCallback(() => moveSelection("down"), [moveSelection])
+
   // Window-level keyboard handler, active only when the DO list owns the
   // selection and no text input is focused.
   useEffect(() => {
@@ -570,6 +587,7 @@ export function DoList({
             closing={closing}
             onCreate={createEntity}
             onNavigateUp={navigateUpToList}
+            onNavigateDown={navigateDownToDock}
           />
         </AnimatePresence>
       </ul>
