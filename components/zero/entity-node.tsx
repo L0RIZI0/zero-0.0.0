@@ -199,12 +199,16 @@ export function EntityNode({
 
   // Stable collapsed footprint so siblings never shift when this lifts out.
   // Dock card footprint is a PERFECT pointy-top hexagon: width = height × 0.866
-  // (√3/2). 116 × 100 honours that ratio (116 × 0.866 ≈ 100) so the clip renders as
-  // a regular hexagon. The card was shrunk from 150 × 130 so the dock fits within the
-  // hexagon's bottom triangle on shorter viewports without cropping; the glyph +
-  // title + open-counter KEEP their existing sizes and simply cluster more tightly,
-  // so the smaller footprint just trims the surrounding breathing room.
-  const slotDims = variant === "dock" ? "h-[116px] w-[100px] shrink-0" : "h-9 w-full"
+  // (√3/2). The size is CONTEXT-DEPENDENT:
+  //   • Home view (contextDepth === 0): the original 150 × 130 (150 × 0.866 ≈ 130).
+  //   • Everywhere else (Space leaf/ancestor, non-Space windows): the smaller
+  //     116 × 100 (116 × 0.866 ≈ 100), so the dock fits inside the hexagon leaf's
+  //     bottom triangle on short viewports without cropping.
+  // Both honour the √3/2 ratio so the clip stays a regular hexagon, and the glyph +
+  // title + open-counter keep their sizes in either case — only the surrounding
+  // breathing room changes.
+  const dockSlot = contextDepth === 0 ? "h-[150px] w-[130px]" : "h-[116px] w-[100px]"
+  const slotDims = variant === "dock" ? `${dockSlot} shrink-0` : "h-9 w-full"
   // The slot is `relative` ONLY in row/dock state. The frame's inner content anchors
   // to the FRAME (which is `relative` as a row, `fixed` as a window), never to this
   // slot, so the slot's `relative` is otherwise unused as a containing block.
