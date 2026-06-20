@@ -919,8 +919,8 @@ export function EntityNode({
             // leaves --hex-corner-inset-y unset (→ 0px), so it also centers on the frame
             // center; that shared center is what keeps the do-list from re-centering when
             // a child opens and the Space flips leaf→ancestor.
-            style={
-              isClosing
+            style={{
+              ...(isClosing
                 ? // A closing SPACE was the leaf, whose resting body FILLS the frame
                   // (the header floats over it) and centers the do-list on the frame
                   // center. So fill the frame symmetrically here (top:0 + the class's
@@ -937,8 +937,26 @@ export function EntityNode({
                       marginTop: "var(--hex-corner-inset-y, 0px)",
                       marginBottom: "var(--hex-corner-inset-y, 0px)",
                     }
-                  : { marginBottom: "var(--hex-inset-y, 0px)" }
-            }
+                  : { marginBottom: "var(--hex-inset-y, 0px)" }),
+              // Crop the OPEN CHILD WINDOW to this (the parent's) content area. The
+              // child window grew from one of this body's do-list rows / dock cards, so
+              // at rest it is a `position: fixed` DOM descendant of THIS [data-body].
+              // A clip-path clips its whole subtree — fixed descendants included (the
+              // same mechanism the work-surface region uses) — so this trims the child
+              // (e.g. a leaf Space hexagon whose top point bleeds upward) at the parent
+              // body's TOP edge = just below the parent header. Without it the fixed
+              // child escaped this body entirely and was only clipped by the outermost
+              // region, so a deep leaf hexagon appeared cropped by the OLDEST ancestor
+              // instead of its direct parent. The morph already looked right because the
+              // child is `position: absolute` mid-flight and clipped by the parent
+              // frame's overflow-hidden; this makes the RESTING state match. Top-only
+              // inset (huge negative on the other three sides) so the child's sides,
+              // bottom point and drop shadow stay exactly as before. Only ancestors need
+              // it (a leaf has no open child) and never while closing.
+              ...(asWindow && !isTop && !isClosing
+                ? { clipPath: "inset(0px -2000px -2000px -2000px)" }
+                : null),
+            }}
             className={cn(
               isClosing
                 ? // While closing, the body is taken out of flow as an absolute overlay
