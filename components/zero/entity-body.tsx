@@ -133,7 +133,7 @@ export function EntityBody({
                 is a fraction of --hex-corner-inset-y (the 25%-of-height corner line),
                 set only on the leaf frame and inherited here; it falls back to 0px on
                 ancestors, task/event windows, and the home root, so only the leaf drops. */}
-            <div className="relative pt-4" style={{ top: "calc(var(--hex-corner-inset-y, 0px) * 0.5)" }}>
+            <div className="relative pt-4" style={{ top: "calc(var(--hex-corner-inset-y, 0px) * 0.2)" }}>
               <Dock contextId={entityId} active={active} />
             </div>
           </div>
