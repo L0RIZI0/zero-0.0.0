@@ -260,8 +260,8 @@ function CreateRow({
         onPointerEnter={() => select("list", ADD_KEY, "mouse")}
         style={{ borderRadius: 4 }}
         // py-3 (12px) matches the taller h-11 entity rows so the draft input row is the
-        // same height; px stays in step with the row's horizontal padding.
-        className="flex w-full items-center gap-3 bg-card-solid px-2.5 py-3 text-left"
+        // same height; px-4 matches the row's horizontal padding.
+        className="flex w-full items-center gap-3 bg-card-solid px-4 py-3 text-left"
       >
         <button
           ref={triggerRef}

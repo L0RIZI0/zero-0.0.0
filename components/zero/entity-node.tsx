@@ -368,7 +368,7 @@ export function EntityNode({
             cn("relative z-10 flex shrink-0 items-center gap-3 pr-12 pl-4")
     : variant === "dock"
       ? "flex flex-1 flex-col items-center justify-center gap-1 px-2 text-center"
-      : "flex h-full items-center gap-2 px-2.5 pr-2.5"
+      : "flex h-full items-center gap-2 px-4"
 
   // ANCESTORS (open windows that are not the frontmost leaf) wear a more compact
   // header than the frontmost leaf: a shorter band plus a smaller glyph + title,
