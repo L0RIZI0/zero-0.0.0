@@ -39,12 +39,24 @@ export function EntityBody({
   closing = false,
   centerList = true,
   floatDock = false,
+  railShift = 0,
+  railBleedLeft = PANEL_RAIL_W,
+  railBleedRight = PANEL_RAIL_W,
 }: {
   entityId: string
   active?: boolean
   /** Forwarded to the DoList so it can keep its scroller clipped during this
    *  window's close morph (prevents the ADD row jumping up over the title). */
   closing?: boolean
+  /** Vertical px offset that re-centers the rails on the FRAME center (0 when the
+   *  body fills the frame; −headerH/2 for an in-flow header). ANIMATED, so the
+   *  rails slide as a window's header changes (e.g. ancestor → spine). */
+  railShift?: number
+  /** Collapsed-rail width per side = the visible bleed strip of this window once a
+   *  child covers it, so the rail centers within that sliver instead of clipping at
+   *  the frame edge. Defaults to the full rail (leaf / home root, uncovered). */
+  railBleedLeft?: number
+  railBleedRight?: number
   /** Space-leaf only: float the Dock OUT of the do-list's flex column (absolute,
    *  into the hexagon's bottom triangle) so the do-list always fills the full
    *  central rectangle regardless of how many items are pinned. When false (home
@@ -102,7 +114,7 @@ export function EntityBody({
       </div>
 
       {/* Inputs — overlaid rail/panel hugging the LEFT edge, centered on the frame. */}
-      <PanelSlot side="left" open={inOpen}>
+      <PanelSlot side="left" open={inOpen} shift={railShift} bleed={railBleedLeft}>
         <CollapsibleColumn
           title="Inputs"
           collapsedTitle="In"
@@ -116,7 +128,7 @@ export function EntityBody({
       </PanelSlot>
 
       {/* Outputs — mirror of Inputs on the RIGHT edge. */}
-      <PanelSlot side="right" open={outOpen}>
+      <PanelSlot side="right" open={outOpen} shift={railShift} bleed={railBleedRight}>
         <CollapsibleColumn
           title="Outputs"
           collapsedTitle="Out"
@@ -133,27 +145,51 @@ export function EntityBody({
 }
 
 /**
- * Absolute overlay for one side panel. Anchored to the frame's true vertical
- * center via `--rail-center-shift` (set by entity-node; 0 on the home root). The
- * wrapper is `pointer-events-none` so the do-list underneath stays interactive
+ * Absolute overlay for one side panel, pinned to the window's left/right edge.
+ *
+ * Three things animate on the morph beat so the rail tracks the window smoothly
+ * instead of snapping:
+ *   • `shift` (translateY) re-centers the rail on the FRAME center as the header
+ *     changes (e.g. ancestor → spine), via a dedicated node so it composes with
+ *     the static `-translate-y-1/2` self-centering below.
+ *   • collapsed `width` = the window's visible `bleed` sliver, so the rail SLIDES
+ *     in from the frame edge and centers within the strip a covered ancestor
+ *     exposes (no clipping) — widening back to the full rail / open panel.
+ *   • `scale` gives a covered ancestor's rail a slight shrink for a recessed look.
+ *
+ * The wrapper is `pointer-events-none` so the do-list underneath stays interactive
  * wherever the panel is transparent; the panel itself re-enables pointer events.
- * Width animates between the collapsed rail and the open panel on the morph beat,
- * and `maxHeight` bounds an open panel so its inner list scrolls.
  */
-function PanelSlot({ side, open, children }: { side: "left" | "right"; open: boolean; children: React.ReactNode }) {
+function PanelSlot({
+  side,
+  open,
+  shift,
+  bleed,
+  children,
+}: {
+  side: "left" | "right"
+  open: boolean
+  shift: number
+  bleed: number
+  children: React.ReactNode
+}) {
+  // Shrink only a COLLAPSED rail that's narrower than the full width (a covered
+  // ancestor); the open panel and uncovered (leaf/home) rails stay at scale 1.
+  const collapsedScale = !open && bleed < PANEL_RAIL_W ? 0.85 : 1
   return (
-    <div
-      className={cn("pointer-events-none absolute z-10 hidden md:flex", side === "left" ? "left-0" : "right-0")}
-      style={{ top: "calc(50% + var(--rail-center-shift, 0px))", transform: "translateY(-50%)" }}
-    >
-      <motion.div
-        className="pointer-events-auto flex min-h-0 flex-col"
-        initial={false}
-        animate={{ width: open ? PANEL_OPEN_W : PANEL_RAIL_W }}
-        transition={panelTransition}
-        style={{ maxHeight: "calc(50vh)" }}
-      >
-        {children}
+    <div className={cn("pointer-events-none absolute top-1/2 z-10 hidden md:flex", side === "left" ? "left-0" : "right-0")}>
+      <motion.div initial={false} animate={{ y: shift }} transition={panelTransition}>
+        <div className="-translate-y-1/2">
+          <motion.div
+            className="pointer-events-auto flex min-h-0 flex-col"
+            initial={false}
+            animate={{ width: open ? PANEL_OPEN_W : bleed, scale: collapsedScale }}
+            transition={panelTransition}
+            style={{ maxHeight: "calc(50vh)" }}
+          >
+            {children}
+          </motion.div>
+        </div>
       </motion.div>
     </div>
   )

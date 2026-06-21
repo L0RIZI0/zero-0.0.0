@@ -10,6 +10,8 @@ import {
   HEADER_H,
   ANCESTOR_HEADER_H,
   VERTICAL_BEHIND,
+  TASK_SIDE,
+  RIGHT_PEEK,
   SPACE_CLIP_HEX,
   SPACE_CLIP_RECT,
   SPACE_HEX_POINTS,
@@ -391,26 +393,39 @@ export function EntityNode({
   // ancestor band like any other stacked window.
   const headerH = spaceLeafWindow ? 96 : ancestorHeader ? ANCESTOR_HEADER_H : HEADER_H
 
-  // Vertical offset that re-centers the IN/OUT panel rails on the FRAME center
-  // (consumed as `--rail-center-shift` by EntityBody's panel overlay, which is
-  // anchored at `top: 50%` of [data-body]). The body's center coincides with the
-  // frame center ONLY when its top and bottom insets are equal; when they differ
-  // by the header band the rails would otherwise sit half a header too low. The
-  // shift is exactly (bottomInset − topInset) / 2 for the body in each state — no
-  // magic constants:
-  //   • floating header (Space window): body fills the frame symmetrically → 0
-  //   • in-flow header (task/event/ancestor): body starts headerH down → −headerH/2
-  //   • closing: the body re-anchors (space fills from top:0 → 0; task from
-  //     top:HEADER_H → −HEADER_H/2)
-  // This is what stops the rails drifting/jumping when a window's ancestor rank
-  // (hence header height) changes as a child opens.
+  // Vertical offset that re-centers the IN/OUT panel rails on the FRAME center.
+  // EntityBody anchors the overlay at the body's vertical center and ANIMATES a
+  // translateY of this value, so the rails land on the true middle of the window's
+  // edges and SLIDE (never jump) when a window's role changes. The body's center
+  // equals the frame center only when its top and bottom insets match; the shift
+  // is exactly (bottomInset − topInset) / 2 — no magic constants:
+  //   • body FILLS the frame (header is absolute, reserves no in-flow height) → 0.
+  //     This is every Space window (floating header) AND every SPINE ancestor
+  //     (its header is an absolute left strip) — the previously-missing spine case
+  //     that made the rails jump up ~headerH/2 the moment an ancestor spined.
+  //   • in-flow header (task/event/non-spine ancestor): body starts headerH down
+  //     → −headerH/2.
+  //   • closing: the body re-anchors (space fills from top:0 → 0; task → −HEADER_H/2).
+  const bodyFillsFrame = floatingHeader || isSpine
   const railCenterShift = isClosing
     ? isSpace
       ? 0
       : -HEADER_H / 2
-    : floatingHeader
+    : bodyFillsFrame
       ? 0
       : -headerH / 2
+
+  // Visible BLEED strip beside this window — how much of it shows on each side
+  // once a child covers it (so the collapsed IN/OUT rail can size+center itself to
+  // sit in the middle of that sliver instead of being clipped at the frame edge).
+  // The frontmost leaf (and home root) isn't covered, so its rail keeps the full
+  // width (undefined → EntityBody's PANEL_RAIL_W default). A covered ancestor only
+  // exposes its accumulated side peek: TASK_SIDE on the left, RIGHT_PEEK right
+  // (matches stackTargetRect). Animating these widths also smooths the leaf↔
+  // ancestor transition.
+  const covered = asWindow && !isTop && !isClosing
+  const railBleedLeft = covered ? TASK_SIDE : undefined
+  const railBleedRight = covered ? RIGHT_PEEK : undefined
 
   // Compact ancestor: 13px + dimmer (see className) so it recedes behind the
   // leaf. Leaf window: full 18px.
@@ -979,9 +994,6 @@ export function EntityNode({
             // center; that shared center is what keeps the do-list from re-centering when
             // a child opens and the Space flips leaf→ancestor.
             style={{
-              // Re-centers the IN/OUT rails on the FRAME center (EntityBody's panel
-              // overlay reads this; see railCenterShift above). Inherits to the rails.
-              ...({ ["--rail-center-shift"]: `${railCenterShift}px` } as React.CSSProperties),
               ...(isClosing
                 ? // A closing SPACE was the leaf, whose resting body FILLS the frame
                   // (the header floats over it) and centers the do-list on the frame
@@ -1059,6 +1071,9 @@ export function EntityNode({
               entityId={entityId}
               active={isTop && !isClosing}
               closing={isClosing}
+              railShift={railCenterShift}
+              railBleedLeft={railBleedLeft}
+              railBleedRight={railBleedRight}
               // Float the dock OUT of the do-list's flex flow for EVERY Space body —
               // leaf AND ancestor, AND while CLOSING. This is what preserves the
               // no-jump invariant: the do-list then fills the full body and centers on
