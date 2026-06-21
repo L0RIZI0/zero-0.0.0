@@ -369,17 +369,20 @@ const octagonPoints = (W: number, H: number): [number, number][] => {
 /**
  * The eight clip points for a Space mid-morph, interpolated point-by-point at the LIVE
  * frame size so shapes stay correct as the frame resizes. `q` is "leaf-ness" (1 at the
- * leaf end of the morph). Two families:
+ * leaf end of the morph). The hexagon WAYPOINT (at SPACE_SPLIT_AT) depends on the source:
  *
- *   • card/row ⇄ leaf — the waypoint at SPACE_SPLIT_AT is a perfect REGULAR hexagon:
- *       q∈[0,SPLIT]  source → regular hexagon  (card: identity, already the hexagon;
- *                                               row: rectangle → hexagon, mid-edge
- *                                               points slide straight in, no diamond)
- *       q∈[SPLIT,1]  regular hexagon → octagon (apex splits, sides spread to full width)
+ *   • dock CARD ⇄ leaf — a perfect centered REGULAR hexagon. The card is already a
+ *     regular hexagon and must STAY regular as it grows (no stretch), so the waypoint is
+ *     regularHexPoints and the card→hex leg is an identity.
+ *   • do-list ROW ⇄ leaf — a FULL-WIDTH pinned hexagon (spaceClipPoints(50, LEAF_HY)).
+ *     The row's left/right corners stay pinned to the frame's side edges and only move
+ *     VERTICALLY to y=LEAF_HY; the apex twins (already at the top/bottom mid-edge) stay
+ *     put. Result: NO width shrink — the shape spans the full frame the whole time, the
+ *     hexagon is shaped purely by the corners sliding up/down.
  *   • ancestor ⇄ leaf — no hexagon: full-box rectangle ⇄ octagon directly.
  *
- * The regular hexagon and the resting octagon are exact at the endpoints; transient
- * frames during the SPLIT may deviate from 120°, which is expected mid-morph.
+ * Past the split, the waypoint hexagon morphs to the resting octagon (apex splits, side
+ * points rise). Endpoints are exact; transient split frames may deviate from 120°.
  */
 export function spaceMorphPoints(
   p: number,
@@ -395,7 +398,9 @@ export function spaceMorphPoints(
     // Octagon ⇄ full-box rectangle (corner-based points), no hexagon waypoint.
     return lerpPoints(spaceClipPoints(0, 0), octagonPoints(W, H), q)
   }
-  const hex = regularHexPoints(W, H)
+  // Card waypoint = centered regular hexagon (must not stretch); row waypoint =
+  // full-width pinned hexagon (must not shrink in width).
+  const hex = other === "card" ? regularHexPoints(W, H) : spaceClipPoints(50, LEAF_HY)
   if (q >= SPACE_SPLIT_AT) {
     const f = (q - SPACE_SPLIT_AT) / (1 - SPACE_SPLIT_AT)
     return lerpPoints(hex, octagonPoints(W, H), f)

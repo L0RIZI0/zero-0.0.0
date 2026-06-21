@@ -275,12 +275,33 @@ export function playStage(
   const sel = (k: Key, rest: string) => `[data-window="${k.id}"][data-depth="${k.depth}"] ${rest}`
 
   if (opts.opening && opts.top) {
-    // Fade the open-only chrome (body, close button) in immediately — no delay,
-    // so the content does not appear to lag behind the frame at the start (which
-    // contributed to the "delayed start" feel). Duration scales with the morph so
-    // it stays proportional at any MORPH_DURATION.
-    const chrome = stage.querySelectorAll(sel(opts.top, "[data-fade]"))
+    // Fade any pure-fade chrome in immediately — no delay, so it doesn't appear to lag
+    // behind the frame at the start. The do-list BODY is handled separately below (it
+    // also scales), so exclude it here to avoid two competing opacity tweens.
+    const chrome = stage.querySelectorAll(sel(opts.top, "[data-fade]:not([data-body])"))
     if (chrome.length) gsap.fromTo(chrome, { opacity: 0 }, { opacity: 1, duration: MORPH_DURATION * 0.45 })
+
+    // Open body: scale UP + fade IN from center — the exact mirror of the close (which
+    // scales the body down to 0.15 + fades out). Previously the body only faded, so it
+    // looked static/full-size while the hexagon simply unveiled it; now it grows into
+    // the leaf frame as the frame expands.
+    const body = stage.querySelector<HTMLElement>(sel(opts.top, "[data-body]"))
+    if (body) {
+      gsap.fromTo(
+        body,
+        { opacity: 0, scale: 0.15 },
+        {
+          opacity: 1,
+          scale: 1,
+          transformOrigin: "center",
+          duration: MORPH_DURATION * 0.7,
+          ease: MORPH_EASE,
+          // Clear the inline transform afterward so the settled body has no leftover
+          // scale (it's a persistent node reused as a row/ancestor later).
+          onComplete: () => gsap.set(body, { clearProps: "scale,transform" }),
+        },
+      )
+    }
 
     // Late chrome (the close button) eases in starting at 0.3 of the morph (0.6s at
     // the default 2s) over 0.4 of it (0.8s), so it is fully visible at 0.7 (1.4s) and
