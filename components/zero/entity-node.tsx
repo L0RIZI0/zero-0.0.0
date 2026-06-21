@@ -278,10 +278,13 @@ export function EntityNode({
   const spaceWindow = isSpace && asWindow
   const spaceLeafWindow = spaceWindow && isTop
   const spaceAncestorWindow = spaceWindow && !isTop
-  // Leaf octagon flat-edge inset (%). Read from the window style; defaults to the
-  // hexagon (50) if absent so a Space never renders unclipped.
+  // Leaf octagon insets (%), read from the window style: ax = flat top/bottom inset,
+  // ay = corner-bracket height. Fall back to the regular hexagon (50, LEAF_HY) if
+  // absent so a Space never renders unclipped.
   const leafAx = winStyle ? Number((winStyle as Record<string, unknown>)["--space-ax"]) : NaN
-  const leafClip = Number.isFinite(leafAx) ? spaceClip(leafAx, LEAF_HY) : SPACE_CLIP_HEX
+  const leafAyRaw = winStyle ? Number((winStyle as Record<string, unknown>)["--space-ay"]) : NaN
+  const leafAy = Number.isFinite(leafAyRaw) ? leafAyRaw : LEAF_HY
+  const leafClip = Number.isFinite(leafAx) ? spaceClip(leafAx, leafAy) : SPACE_CLIP_HEX
   const clipPath = !isSpace
     ? undefined
     : asWindow
@@ -309,7 +312,7 @@ export function EntityNode({
     mounted && !isDark && isSpace
       ? asWindow
         ? spaceLeafWindow
-          ? spaceClipPoints(leafAx, LEAF_HY)
+          ? spaceClipPoints(leafAx, leafAy)
           : spaceClipPoints(0, 0)
         : variant === "dock"
           ? SPACE_HEX_POINTS

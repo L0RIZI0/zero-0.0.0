@@ -260,17 +260,32 @@ export function octagonLeafInside(rect: Rect): Rect {
 }
 
 /**
- * Horizontal inset (% of width) of the leaf octagon's flat top/bottom edges that
- * makes the slanted corners a TRUE 120° interior angle at the given frame size.
- * The slant runs `ax%·W` horizontally over `hy%·H` vertically; a 120° corner needs
- * rise : run = √3 : 1, i.e. `ax%·W = (hy%·H)/√3` → `ax = hy·H / (√3·W)` (in percent).
- * Clamped to [0, 50] so a very tall/narrow frame can't push the flat edge past the
- * brackets (which would invert the octagon).
+ * Vertical height (px) of the leaf octagon's corner brackets. FIXED in pixels (not a
+ * fraction of the window) so the slanted corners stay a small, consistent accent
+ * while the VERTICAL side edges — and the central rectangle between them — take ALL
+ * the remaining height. This is what makes the corners hug the top/bottom edges
+ * (they "reach the parent" before the flat edge spreads) and gives the content a
+ * tall workable rectangle, instead of the old corners eating 25% of height per side.
+ * Sized a touch above the leaf header (HEADER_H = 43) so the top wedge still fits the
+ * glyph + title comfortably.
  */
-export function spaceLeafAx(width: number, height: number, hy = LEAF_HY): number {
-  if (width <= 0) return 0
-  const ax = (hy * height) / (Math.sqrt(3) * width)
-  return Math.max(0, Math.min(50, ax))
+export const LEAF_BRACKET_PX = 60
+
+/**
+ * The leaf octagon's two clip insets for a frame of `width × height`, holding a TRUE
+ * 120° interior corner. The bracket is `LEAF_BRACKET_PX` tall (capped at a quarter of
+ * a short window so the header still fits and the shape can't invert); a 120° corner
+ * needs horizontal-run : vertical-rise = 1 : √3, so the flat-edge inset is
+ * `bracketPx / √3` wide. Both are returned as PERCENTS of the frame.
+ *   hy = bracket height ÷ height        (vertical inset of the left/right brackets)
+ *   ax = (bracket ÷ √3) ÷ width         (horizontal inset of the flat top/bottom)
+ */
+export function spaceLeafInsets(width: number, height: number): { ax: number; hy: number } {
+  if (width <= 0 || height <= 0) return { ax: 0, hy: 0 }
+  const bracketPx = Math.min(LEAF_BRACKET_PX, height * 0.25)
+  const hy = (bracketPx / height) * 100
+  const ax = Math.min(50, (bracketPx / Math.sqrt(3) / width) * 100)
+  return { ax, hy }
 }
 
 /**

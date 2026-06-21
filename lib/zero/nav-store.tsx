@@ -4,7 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { flushSync } from "react-dom"
 import { getEntity, hydrateFromStorage } from "./data"
 import { collapseEntityPanels } from "./panel-store"
-  import { stackTargetRect, octagonLeafInside, spaceLeafAx, VERTICAL_BEHIND } from "./motion"
+  import { stackTargetRect, octagonLeafInside, spaceLeafInsets, VERTICAL_BEHIND } from "./motion"
 import { shellStageFor, WINDOW_TOP_LIFT } from "./layout"
 import {
   captureStage,
@@ -401,19 +401,24 @@ export function ZeroNavProvider({
       // visible box); on wide screens the overflow is smaller than the corner line,
       // which is why anchoring to the overflow left the title floating too high.
       let hexCornerInsetY = 0
-      // Horizontal inset (%) of the octagon's flat top/bottom edges — the only knob
-      // that distinguishes the wide leaf octagon (small ax) from the dock hexagon
-      // (ax=50) and ancestor rectangle (ax=0). Passed to the frame as `--space-ax`.
+      // The leaf octagon's flat-edge inset (%), the only knob distinguishing the wide
+      // leaf octagon from the dock hexagon (50) and ancestor rectangle (0). Passed to
+      // the frame as `--space-ax`.
       let spaceAx = 0
+      let spaceAy = 0
       if (isSpaceLeaf) {
         // The octagon fills the whole box (full width minus side peeks, full height),
-        // so there is NO off-screen bleed → content top inset is 0. The central band
-        // still starts at the bracket line (25% of height), where the octagon is
-        // full width, so the header/body layout is identical to the old hexagon.
+        // so there is NO off-screen bleed → content top inset is 0. Corner brackets are
+        // a FIXED pixel height (LEAF_BRACKET_PX): they hug the top/bottom edges and the
+        // central rectangle the header/body inset to (`--hex-corner-inset-y`) gets all
+        // the remaining height — instead of the corners eating ~25% per side.
         rect = octagonLeafInside(rect)
         hexInsetY = 0
-        hexCornerInsetY = rect.height * 0.25
-        spaceAx = spaceLeafAx(rect.width, rect.height)
+        const insets = spaceLeafInsets(rect.width, rect.height)
+        spaceAx = insets.ax
+        spaceAy = insets.hy
+        // Px height of the top/bottom wedge = bracket height = hy% of the frame.
+        hexCornerInsetY = (insets.hy / 100) * rect.height
       }
       return {
         position: "fixed",
@@ -437,9 +442,11 @@ export function ZeroNavProvider({
               // header bottom-aligns here and the body insets to it, so glyph+title sit
               // in the top wedge and the do-list lives in the central rectangle.
               ["--hex-corner-inset-y"]: `${hexCornerInsetY}px`,
-              // Drives the octagon clip + SVG outline in entity-node (true-120° flat-
-              // edge inset). Unitless number; entity-node reads & rebuilds the polygon.
+              // Drive the octagon clip + SVG outline in entity-node (true-120° corner):
+              // ax = flat top/bottom inset, ay = bracket height. Unitless percents;
+              // entity-node reads both and rebuilds the polygon.
               ["--space-ax"]: `${spaceAx}`,
+              ["--space-ay"]: `${spaceAy}`,
             } as React.CSSProperties)
           : null),
       }
