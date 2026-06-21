@@ -257,53 +257,65 @@ export function EntityNode({
   // frame. Only a settled, collapsed node is interactive.
   const interactive = !asWindow && !isClosing
 
-  // A Space is always shaped by a 6-point clip-path, but the shape depends on
-  // whether it is the frontmost LEAF or an EXPANDED ancestor:
-  //   - LEAF window (isTop) + collapsed DOCK CARD → a true regular HEXAGON.
-  //   - EXPANDED ancestor (a child is open over it) → the same six points
-  //     flattened into a RECTANGLE (SPACE_CLIP_RECT). Opening a child grows the
-  //     Space from the capped hexagon to the full box, and the clip tweens
-  //     hex → rect point-for-point in the same Flip pass, so the hexagon edges
-  //     visibly flatten out as it "expands" into a rectangle window. A settled
-  //     ancestor is then a static, cheap rectangle (no clip morph, no filter).
+  // Resting window geometry (also carries the leaf's `--space-ax`). Computed here
+  // (not just before the return) because the clip + outline below derive from it.
+  const winStyle = asWindow ? (fadingWindow ? nav.fadingStyleFor(depth) : nav.styleFor(depth)) : null
+
+  // A Space is always shaped by the SAME 8-point clip-path; only its two insets
+  // change between states:
+  //   - LEAF window (isTop) → a wide OCTAGON: full-box width with true-120° corner
+  //     brackets (ax from `--space-ax`, computed in nav-store for the frame size).
+  //   - EXPANDED ancestor (a child is open over it) → the same eight points
+  //     flattened into a RECTANGLE (SPACE_CLIP_RECT). Opening a child grows the Space
+  //     to the full box and the clip tweens octagon → rect point-for-point in the
+  //     same Flip pass, so the corner brackets ride out to the corners as it expands.
+  //   - collapsed DOCK CARD → a regular HEXAGON (ax=50, top/bottom points coincide);
+  //     a DO-LIST row → the rectangle (a Flip-interpolable polygon "from" state).
   // Tasks/events never clip.
   const spaceWindow = isSpace && asWindow
   const spaceLeafWindow = spaceWindow && isTop
-  // An EXPANDED ancestor Space window: a Space with a child open over it. Its clip
-  // is a square full-box rectangle (identical to any other square window), but the
-  // clip strips the normal shadow-2xl, so its boundary is supplied by an inset ring.
   const spaceAncestorWindow = spaceWindow && !isTop
+  // Leaf octagon flat-edge inset (%). Read from the window style; defaults to the
+  // hexagon (50) if absent so a Space never renders unclipped.
+  const leafAx = winStyle ? Number((winStyle as Record<string, unknown>)["--space-ax"]) : NaN
+  const leafClip = Number.isFinite(leafAx) ? spaceClip(leafAx, LEAF_HY) : SPACE_CLIP_HEX
   const clipPath = !isSpace
     ? undefined
     : asWindow
       ? isTop
-        ? SPACE_CLIP_HEX
+        ? leafClip
         : SPACE_CLIP_RECT
       : variant === "dock"
         ? SPACE_CLIP_HEX
         : // A collapsed DO-LIST row Space is clipped to SPACE_CLIP_RECT — a full-box
-          // rectangle traced by the SAME six vertices as the hexagon. Visually it is
-          // identical to an unclipped box, but it gives Flip a 6-point "from" state so
-          // opening morphs rect → hex point-for-point (just like the dock card morphs
-          // hex → hex). Without it the captured clip was `none`, which Flip can't
-          // interpolate into a polygon, so the hexagon snapped in and expanded — the
-          // bug. Rows of other kinds (task/event) stay unclipped.
+          // rectangle traced by the SAME vertices as the hexagon/octagon. Visually it
+          // is identical to an unclipped box, but it gives Flip a polygon "from" state
+          // so opening morphs rect → octagon point-for-point. Without it the captured
+          // clip was `none`, which Flip can't interpolate, so the shape snapped in.
+          // Rows of other kinds (task/event) stay unclipped.
           SPACE_CLIP_RECT
-  // Only the LEAF hexagon needs the SVG outline (a clip-path can't carry a border
-  // or shadow, and a straight-edged ring can't trace a hexagon). In DARK mode the
-  // leaf hexagon drops its outline entirely (the dark surface reads cleanly without
-  // it); light mode keeps the hairline for contrast.
-  //
-  // We render the SVG for ANY light-mode Space state (dock card, do-list row, leaf
-  // or ancestor window) — not just the leaf window — and fade its OPACITY with the
-  // morph instead of mounting/unmounting it. The SVG is a child of the clip-path'd
-  // frame, so Flip's clip interpolation already trims the polygon to the frame's
-  // current shape during the morph; without keeping it mounted the hairline popped
-  // in at the end of an open and vanished at the start of a close. Opacity is 1 only
-  // for the leaf hexagon (the one state that should show the rim) and 0 otherwise,
-  // so it eases in as the hexagon forms and eases out as it collapses.
-  const spaceOutlinePoints = mounted && !isDark && isSpace ? SPACE_HEX_POINTS : null
-  const spaceOutlineVisible = spaceLeafWindow
+  // LIGHT-mode Space boundary. A clip-path can't carry a border, so an SVG polygon
+  // traces the SAME live points as the clip — octagon for a leaf, rectangle for an
+  // ancestor — and is kept MOUNTED across states, fading only its opacity. Because
+  // it tracks the live shape, leaf → ancestor now morphs ONE continuous rim
+  // (octagon flattening to rectangle) instead of a hexagon rim fading out while a
+  // separate rectangle ring faded in — the awkward light-mode "swap" we're fixing.
+  // DARK mode renders no SVG (the dark surface reads cleanly; the ancestor's inset
+  // ring in the style branch supplies its boundary there), so dark is unchanged.
+  const spaceOutlinePoints =
+    mounted && !isDark && isSpace
+      ? asWindow
+        ? spaceLeafWindow
+          ? spaceClipPoints(leafAx, LEAF_HY)
+          : spaceClipPoints(0, 0)
+        : variant === "dock"
+          ? SPACE_HEX_POINTS
+          : spaceClipPoints(0, 0)
+      : null
+  // Visible (opacity 1) for both leaf and ancestor WINDOWS; the collapsed
+  // dock/row sources keep it mounted but transparent so it eases in as the shape
+  // forms on open and out as it collapses on close.
+  const spaceOutlineVisible = asWindow
 
   // Borderless design. Backgrounds are driven by the inline `surfaceAt` ramp
   // (see the style prop below), NOT utility classes, so every level shares one

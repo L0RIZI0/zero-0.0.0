@@ -43,40 +43,64 @@ export const MORPH_SOURCE_ATTR = "data-morph-source"
 export const MORPH_WHERE_ATTR = "data-morph-where"
 
 /**
- * Clip-path shapes for the single-node morph. A Space LEAF renders as a hexagon;
- * everything else is a plain rectangle (square corners — every window is square,
- * so an expanded Space rectangle is visually identical to any other window). Both
- * shapes are expressed as clip-paths with the SAME six points in the SAME order,
- * so GSAP Flip tweens BETWEEN them point-for-point in one pass: a Space reshapes
- * rect → hex on open and hex → rect on close, with nothing to snap.
+ * Unified Space clip — ONE 8-vertex polygon parameterized by two inset percents,
+ * so EVERY Space state (dock-card hexagon, wide leaf octagon, flat ancestor
+ * rectangle) is the SAME eight points in the SAME winding order. GSAP Flip then
+ * tweens between ANY two states point-for-point in a single pass with nothing to
+ * snap, and the SVG boundary traces the exact same points as the clip.
  *
- * The rectangle is the hexagon "flattened": the two slanted upper vertices ride
- * up to the top edge and the two lower vertices drop to the bottom edge — exactly
- * the shape an EXPANDED Space takes once a child opens over it.
+ *   ax = horizontal inset of the flat TOP & BOTTOM edges (% of width)
+ *        50 → the two top points (and the two bottom points) coincide → a pointy-
+ *             top regular HEXAGON (the dock card / collapsed source shape)
+ *         0 → the flat edge spans the full width → a rectangle edge
+ *   hy = vertical inset of the LEFT & RIGHT bracket vertices (% of height)
+ *        25 → the hexagon's four side corners; 0 → full-height rectangle edge
+ *
+ * Points, clockwise from the top-left corner of the flat top edge:
+ *   (ax,0) (100-ax,0) (100,hy) (100,100-hy) (100-ax,100) (ax,100) (0,100-hy) (0,hy)
+ *
+ * State map:
+ *   hexagon   = (50, 25)        → SPACE_HEX_POINTS / SPACE_CLIP_HEX (dock source)
+ *   rectangle = (0,  0)         → SPACE_CLIP_RECT (do-list row source, ancestor)
+ *   octagon   = (spaceLeafAx, 25) → the opened LEAF (true 120° corners, max width)
+ *
+ * Going hexagon → octagon, only `ax` changes: the doubled top/bottom points SPLIT
+ * and slide apart horizontally into the wide flat edges (the user-described "the
+ * hexagon keeps growing sideways"). Going octagon → rectangle, the bracket
+ * vertices ride to the corners and the flat edges spread to full width — the
+ * shape an EXPANDED Space takes once a child opens over it.
  */
-// Six hexagon vertices (0..100 percent space), clockwise from the top. Exported so
-// the leaf's SVG boundary outline traces the exact same shape as the clip.
-export const SPACE_HEX_POINTS: [number, number][] = [
-  [50, 0],
-  [100, 25],
-  [100, 75],
-  [50, 100],
-  [0, 75],
-  [0, 25],
-]
-const SPACE_RECT_VERTS: [number, number][] = [
-  [50, 0],
-  [100, 0],
-  [100, 100],
-  [50, 100],
-  [0, 100],
-  [0, 0],
-]
+export function spaceClipPoints(ax: number, hy: number): [number, number][] {
+  return [
+    [ax, 0],
+    [100 - ax, 0],
+    [100, hy],
+    [100, 100 - hy],
+    [100 - ax, 100],
+    [ax, 100],
+    [0, 100 - hy],
+    [0, hy],
+  ]
+}
 
 const toPolygon = (pts: [number, number][]) => `polygon(${pts.map(([x, y]) => `${x}% ${y}%`).join(", ")})`
 
-export const SPACE_CLIP_HEX = toPolygon(SPACE_HEX_POINTS)
-export const SPACE_CLIP_RECT = toPolygon(SPACE_RECT_VERTS)
+/** Clip-path string for a Space state from its two insets (see spaceClipPoints). */
+export const spaceClip = (ax: number, hy: number) => toPolygon(spaceClipPoints(ax, hy))
+
+/**
+ * Vertical inset (% of height) of the leaf octagon's bracket vertices. Matches the
+ * hexagon's side corners (25%), so opening only has to SPLIT/SLIDE the top & bottom
+ * points outward — the left/right bracket edges stay put — for a calm morph.
+ */
+export const LEAF_HY = 25
+
+// Eight hexagon vertices (top & bottom points doubled at 50%). Still a pointy-top
+// regular hexagon (the coincident points draw a zero-length edge). Exported so any
+// SVG boundary can trace the exact same shape as the clip.
+export const SPACE_HEX_POINTS = spaceClipPoints(50, LEAF_HY)
+export const SPACE_CLIP_HEX = spaceClip(50, LEAF_HY)
+export const SPACE_CLIP_RECT = spaceClip(0, 0)
 
 /**
  * Telescopic, theme-aware, CAPPED surface model. A surface is the page
@@ -225,60 +249,28 @@ export function stackTargetRect(
 export type Rect = { top: number; left: number; width: number; height: number }
 
 /**
- * For the pointy-top hexagon clip `polygon(50% 0, 100% 25%, 100% 75%, 50% 100%,
- * 0 75%, 0 25%)`, a TRUE regular hexagon has width : height = √3 : 2, i.e.
- * width = height × 0.8660. Below this ratio the clip renders as a stretched
- * (too-wide) hexagon; above it, too-narrow. We size the frontmost leaf Space
- * window to honour it exactly so a freshly opened Space is a perfect hexagon.
+ * The opened LEAF Space fills its WHOLE allowed box (full width minus the side
+ * peeks, full height); the unified 8-point clip then carves a wide OCTAGON out of
+ * it — maximizing content width instead of squeezing it into a centered regular
+ * hexagon, and avoiding a giant mostly-offscreen shape. Identity for now; kept as a
+ * named seam should we ever want a small inset.
  */
-const HEX_W_OVER_H = Math.sqrt(3) / 2
+export function octagonLeafInside(rect: Rect): Rect {
+  return rect
+}
 
 /**
- * Fraction of the visible region height (`rect.height`) that the hexagon's four
- * SIDE corners (the 25%- and 75%-height vertices: upper-/lower-left and -right)
- * are allowed to span. The hexagon is centered in the region, so its side-corner
- * band measures `0.5 × height`; capping that band at `HEX_CORNER_BAND × region`
- * guarantees the four side corners land inside the region with a small margin
- * (here ~8% top and bottom), while the top/bottom POINTS still overflow off-screen
- * (behind the header / past the bottom). Driven by viewport height — NOT width —
- * so a "full-screen" hexagon on a wide monitor no longer grows so tall that those
- * corners disappear.
+ * Horizontal inset (% of width) of the leaf octagon's flat top/bottom edges that
+ * makes the slanted corners a TRUE 120° interior angle at the given frame size.
+ * The slant runs `ax%·W` horizontally over `hy%·H` vertically; a 120° corner needs
+ * rise : run = √3 : 1, i.e. `ax%·W = (hy%·H)/√3` → `ax = hy·H / (√3·W)` (in percent).
+ * Clamped to [0, 50] so a very tall/narrow frame can't push the flat edge past the
+ * brackets (which would invert the octagon).
  */
-const HEX_CORNER_BAND = 0.84
-
-/**
- * Largest perfect (regular) hexagon that fits inside `rect` while keeping its
- * four SIDE corners visible. Used for every Space window (leaf or ancestor).
- *
- * Two constraints, whichever is smaller wins:
- *   1. WIDTH — never wider than the parent-allowed width (`rect.width`, which
- *      already reserves the side peek so IN/OUT rails stay visible beside it).
- *      This dominates on tall/narrow viewports.
- *   2. HEIGHT — the side-corner band (`0.5 × height`) must fit within
- *      `HEX_CORNER_BAND × rect.height`, i.e. `height ≤ HEX_CORNER_BAND × 2 ×
- *      rect.height`. This dominates on WIDE viewports, where a width-driven
- *      hexagon would be far too tall and push the side corners off-screen.
- *
- * The result is centered both axes within `rect`. The shape stays a perfect
- * regular hexagon (ratio √3/2 preserved); only its overall scale adapts to the
- * viewport. Its top/bottom points still bleed off-screen by design.
- */
-export function perfectHexInside(rect: Rect): Rect {
-  // Start width-driven (full available width)…
-  let width = rect.width
-  let height = width / HEX_W_OVER_H
-  // …then cap by the viewport-height constraint so the side corners stay in view.
-  const maxHeight = HEX_CORNER_BAND * 2 * rect.height
-  if (height > maxHeight) {
-    height = maxHeight
-    width = height * HEX_W_OVER_H
-  }
-  return {
-    top: rect.top + (rect.height - height) / 2,
-    left: rect.left + (rect.width - width) / 2,
-    width,
-    height,
-  }
+export function spaceLeafAx(width: number, height: number, hy = LEAF_HY): number {
+  if (width <= 0) return 0
+  const ax = (hy * height) / (Math.sqrt(3) * width)
+  return Math.max(0, Math.min(50, ax))
 }
 
 /**

@@ -4,7 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { flushSync } from "react-dom"
 import { getEntity, hydrateFromStorage } from "./data"
 import { collapseEntityPanels } from "./panel-store"
-import { stackTargetRect, perfectHexInside, VERTICAL_BEHIND } from "./motion"
+  import { stackTargetRect, octagonLeafInside, spaceLeafAx, VERTICAL_BEHIND } from "./motion"
 import { shellStageFor, WINDOW_TOP_LIFT } from "./layout"
 import {
   captureStage,
@@ -402,11 +402,19 @@ export function ZeroNavProvider({
       // visible box); on wide screens the overflow is smaller than the corner line,
       // which is why anchoring to the overflow left the title floating too high.
       let hexCornerInsetY = 0
+      // Horizontal inset (%) of the octagon's flat top/bottom edges — the only knob
+      // that distinguishes the wide leaf octagon (small ax) from the dock hexagon
+      // (ax=50) and ancestor rectangle (ax=0). Passed to the frame as `--space-ax`.
+      let spaceAx = 0
       if (isSpaceLeaf) {
-        const box = rect
-        rect = perfectHexInside(rect)
-        hexInsetY = Math.max(0, (rect.height - box.height) / 2)
+        // The octagon fills the whole box (full width minus side peeks, full height),
+        // so there is NO off-screen bleed → content top inset is 0. The central band
+        // still starts at the bracket line (25% of height), where the octagon is
+        // full width, so the header/body layout is identical to the old hexagon.
+        rect = octagonLeafInside(rect)
+        hexInsetY = 0
         hexCornerInsetY = rect.height * 0.25
+        spaceAx = spaceLeafAx(rect.width, rect.height)
       }
       return {
         position: "fixed",
@@ -426,10 +434,13 @@ export function ZeroNavProvider({
         ...(isSpaceLeaf
           ? ({
               ["--hex-inset-y"]: `${hexInsetY}px`,
-              // Top point → upper side corners (top of the central rectangle). The leaf
+              // Top edge → upper side corners (top of the central rectangle). The leaf
               // header bottom-aligns here and the body insets to it, so glyph+title sit
               // in the top wedge and the do-list lives in the central rectangle.
               ["--hex-corner-inset-y"]: `${hexCornerInsetY}px`,
+              // Drives the octagon clip + SVG outline in entity-node (true-120° flat-
+              // edge inset). Unitless number; entity-node reads & rebuilds the polygon.
+              ["--space-ax"]: `${spaceAx}`,
             } as React.CSSProperties)
           : null),
       }
