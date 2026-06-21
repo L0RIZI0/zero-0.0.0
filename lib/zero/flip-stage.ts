@@ -208,7 +208,6 @@ export function playStage(
         // deeper) keeps React's committed clip — driving it would needlessly animate it
         // from a degenerate q=0 rectangle and, if interrupted, leave it stuck as a rect.
         .filter((fr) => fr.source !== fr.target)
-      console.log("[v0] clip driver frames:", frames.map((f) => `${f.source}->${f.target}`))
       if (frames.length) {
         const driver = { p: 0 }
         gsap.to(driver, {
@@ -221,22 +220,6 @@ export function playStage(
               const r = fr.el.getBoundingClientRect()
               if (r.width <= 0 || r.height <= 0) continue
               const { ax, hy } = spaceMorphInsets(driver.p, r.width, r.height, fr.source, fr.target)
-              if (driver.p > 0.95)
-                console.log(
-                  "[v0] driver p=",
-                  driver.p.toFixed(3),
-                  "w=",
-                  Math.round(r.width),
-                  "h=",
-                  Math.round(r.height),
-                  "ax=",
-                  ax.toFixed(2),
-                  "hy=",
-                  hy.toFixed(2),
-                  "src/tgt=",
-                  fr.source,
-                  fr.target,
-                )
               fr.el.style.clipPath = spaceClip(ax, hy)
               if (fr.outline) {
                 fr.outline.setAttribute(

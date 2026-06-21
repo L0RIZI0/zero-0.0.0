@@ -325,10 +325,7 @@ export function spaceMorphBracketPx(p: number, liveWidth: number, source: SpaceK
   if (q >= SPACE_SPLIT_AT) {
     // Split zone (near the leaf): ease the apex down to the resting octagon bracket.
     const f = (q - SPACE_SPLIT_AT) / (1 - SPACE_SPLIT_AT)
-    const out = apex + (LEAF_BRACKET_PX - apex) * f
-    if (typeof window !== "undefined" && q > 0.95)
-      console.log("[v0] bracketPx split: q=", q.toFixed(3), "apex=", apex.toFixed(1), "f=", f.toFixed(3), "out=", out.toFixed(1), "other=", other)
-    return out
+    return apex + (LEAF_BRACKET_PX - apex) * f
   }
   // Hexagon zone (toward the source): a card holds the merged apex; a row forms it
   // from its flat top over the early part of the morph.
@@ -337,7 +334,8 @@ export function spaceMorphBracketPx(p: number, liveWidth: number, source: SpaceK
 
 /** Space clip insets (percents) mid-morph (see spaceMorphBracketPx + insetsFromBracketPx). */
 export function spaceMorphInsets(p: number, w: number, h: number, source: SpaceKind, target: SpaceKind) {
-  return insetsFromBracketPx(spaceMorphBracketPx(p, w, h, source, target), w, h)
+  // spaceMorphBracketPx takes (p, liveWidth, source, target) — NO height.
+  return insetsFromBracketPx(spaceMorphBracketPx(p, w, source, target), w, h)
 }
 
 /**
