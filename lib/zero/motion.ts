@@ -296,46 +296,113 @@ export function insetsFromBracketPx(ayPx: number, width: number, height: number)
 /** A Space frame's shape role, used to choose the morph path between two states. */
 export type SpaceKind = "leaf" | "ancestor" | "row" | "card"
 
-/** Bracket height (px) of a 120° MERGED-apex hexagon at width `w` (ax_px = w/2 ⇒
- *  ay_px = w/(2√3)). Tracking live width keeps the apex at exactly 120° as it grows. */
-const hexApexPx = (w: number) => w / (2 * SQRT3)
+/** Aspect ratio (height ÷ width) of a REGULAR pointy-top hexagon: width = √3·s,
+ *  height = 2·s ⇒ height/width = 2/√3 ≈ 1.1547. */
+const HEX_H_OVER_W = 2 / SQRT3
 
 /**
- * Per-frame corner-bracket height (px) for a Space mid-morph, given the eased morph
- * progress `p` (0 = source state → 1 = committed target state), the LIVE frame width,
- * and the source/target shape kinds. Combined with `insetsFromBracketPx` (which holds
- * 120° at all times) this produces, for the two morph families:
- *
- *   • LEAF ⇄ row/card  → a true 120° HEXAGON that grows/shrinks with the frame, then
- *     SPLITS into the wide octagon only past SPACE_SPLIT_AT (so it stays a hexagon
- *     almost the whole way). A row (rectangle source) forms the apex over the early
- *     part; a dock card (already a hexagon) starts at the apex directly.
- *   • LEAF ⇄ ancestor  → a flat octagon ⇄ rectangle with NO hexagon (both are wide
- *     windows): the bracket simply scales with leaf-ness.
+ * Eight points of a do-list ROW source clip. Visually a plain full rectangle, BUT its
+ * DOUBLED vertices sit at the MIDDLE of the top & bottom edges — (50,0) and (50,100) —
+ * not at the corners. When the row morphs into the hexagon those mid-edge points travel
+ * STRAIGHT UP/DOWN into the apexes (no sideways sweep ⇒ no diamond), while the real
+ * corners (100,0)/(0,0)/… become the hexagon's four side points. (Contrast
+ * SPACE_CLIP_RECT, whose doubled points are at the corners — correct for the ancestor
+ * rectangle, which morphs corners → octagon brackets.)
  */
-export function spaceMorphBracketPx(p: number, liveWidth: number, source: SpaceKind, target: SpaceKind): number {
-  const leafTarget = target === "leaf"
-  const leafSource = source === "leaf"
-  if (!leafTarget && !leafSource) return 0 // ancestor ⇄ ancestor: stays a rectangle
-  // q = "leaf-ness": 1 at the leaf end of the morph, 0 at the other end.
-  const q = leafTarget ? p : 1 - p
-  const other = leafTarget ? source : target
-  if (other === "ancestor") return LEAF_BRACKET_PX * q // octagon ⇄ rectangle, no hexagon
-  const apex = hexApexPx(liveWidth)
-  if (q >= SPACE_SPLIT_AT) {
-    // Split zone (near the leaf): ease the apex down to the resting octagon bracket.
-    const f = (q - SPACE_SPLIT_AT) / (1 - SPACE_SPLIT_AT)
-    return apex + (LEAF_BRACKET_PX - apex) * f
+export const ROW_RECT_POINTS: [number, number][] = [
+  [50, 0],
+  [50, 0],
+  [100, 0],
+  [100, 100],
+  [50, 100],
+  [50, 100],
+  [0, 100],
+  [0, 0],
+]
+export const ROW_RECT_CLIP = toPolygon(ROW_RECT_POINTS)
+
+/**
+ * Eight points of the LARGEST REGULAR (perfect, all-120°) pointy-top hexagon that fits
+ * inside a `W × H` frame, CENTERED. Unlike spaceClipPoints — which pins the apex to the
+ * frame's top/bottom and the side points to its left/right edges, so the hexagon is
+ * forced to fill the box and STRETCHES with the frame's aspect — this keeps the hexagon
+ * perfectly regular at ANY frame size (it simply gains top/side margins). The apex is
+ * doubled so it shares the 8-point winding with the octagon for point-by-point morphing.
+ */
+export function regularHexPoints(W: number, H: number): [number, number][] {
+  if (W <= 0 || H <= 0) return spaceClipPoints(50, LEAF_HY)
+  let hw: number
+  let hh: number
+  if (H / W >= HEX_H_OVER_W) {
+    hw = W // frame tall enough → width-limited: hexagon spans full width
+    hh = W * HEX_H_OVER_W
+  } else {
+    hh = H // frame too wide/short → height-limited: spans full height, narrower & centered
+    hw = H / HEX_H_OVER_W
   }
-  // Hexagon zone (toward the source): a card holds the merged apex; a row forms it
-  // from its flat top over the early part of the morph.
-  return other === "card" ? apex : apex * (q / SPACE_SPLIT_AT)
+  const ix = (((W - hw) / 2 / W) * 100) // side-point x inset (%)
+  const apexY = (((H - hh) / 2 / H) * 100) // apex y inset (%)
+  const sideY = apexY + (hh / 4 / H) * 100 // side points sit hh/4 below the hexagon's top
+  return [
+    [50, apexY],
+    [50, apexY],
+    [100 - ix, sideY],
+    [100 - ix, 100 - sideY],
+    [50, 100 - apexY],
+    [50, 100 - apexY],
+    [ix, 100 - sideY],
+    [ix, sideY],
+  ]
 }
 
-/** Space clip insets (percents) mid-morph (see spaceMorphBracketPx + insetsFromBracketPx). */
-export function spaceMorphInsets(p: number, w: number, h: number, source: SpaceKind, target: SpaceKind) {
-  // spaceMorphBracketPx takes (p, liveWidth, source, target) — NO height.
-  return insetsFromBracketPx(spaceMorphBracketPx(p, w, source, target), w, h)
+/** Component-wise lerp between two equal-length point lists. */
+function lerpPoints(a: [number, number][], b: [number, number][], t: number): [number, number][] {
+  return a.map(([ax, ay], i) => [ax + (b[i][0] - ax) * t, ay + (b[i][1] - ay) * t] as [number, number])
+}
+
+/** Resting LEAF octagon points (full width, true-120° corners) for a live frame size. */
+const octagonPoints = (W: number, H: number): [number, number][] => {
+  const { ax, hy } = spaceLeafInsets(W, H)
+  return spaceClipPoints(ax, hy)
+}
+
+/**
+ * The eight clip points for a Space mid-morph, interpolated point-by-point at the LIVE
+ * frame size so shapes stay correct as the frame resizes. `q` is "leaf-ness" (1 at the
+ * leaf end of the morph). Two families:
+ *
+ *   • card/row ⇄ leaf — the waypoint at SPACE_SPLIT_AT is a perfect REGULAR hexagon:
+ *       q∈[0,SPLIT]  source → regular hexagon  (card: identity, already the hexagon;
+ *                                               row: rectangle → hexagon, mid-edge
+ *                                               points slide straight in, no diamond)
+ *       q∈[SPLIT,1]  regular hexagon → octagon (apex splits, sides spread to full width)
+ *   • ancestor ⇄ leaf — no hexagon: full-box rectangle ⇄ octagon directly.
+ *
+ * The regular hexagon and the resting octagon are exact at the endpoints; transient
+ * frames during the SPLIT may deviate from 120°, which is expected mid-morph.
+ */
+export function spaceMorphPoints(
+  p: number,
+  W: number,
+  H: number,
+  source: SpaceKind,
+  target: SpaceKind,
+): [number, number][] {
+  const leafTarget = target === "leaf"
+  const other = leafTarget ? source : target
+  const q = leafTarget ? p : 1 - p
+  if (other === "ancestor") {
+    // Octagon ⇄ full-box rectangle (corner-based points), no hexagon waypoint.
+    return lerpPoints(spaceClipPoints(0, 0), octagonPoints(W, H), q)
+  }
+  const hex = regularHexPoints(W, H)
+  if (q >= SPACE_SPLIT_AT) {
+    const f = (q - SPACE_SPLIT_AT) / (1 - SPACE_SPLIT_AT)
+    return lerpPoints(hex, octagonPoints(W, H), f)
+  }
+  const f = q / SPACE_SPLIT_AT
+  const src = other === "card" ? hex : ROW_RECT_POINTS
+  return lerpPoints(src, hex, f)
 }
 
 /**

@@ -15,6 +15,8 @@ import {
   SPACE_CLIP_HEX,
   SPACE_CLIP_RECT,
   SPACE_HEX_POINTS,
+  ROW_RECT_CLIP,
+  ROW_RECT_POINTS,
   LEAF_HY,
   spaceClip,
   spaceClipPoints,
@@ -294,13 +296,14 @@ export function EntityNode({
         : SPACE_CLIP_RECT
       : variant === "dock"
         ? SPACE_CLIP_HEX
-        : // A collapsed DO-LIST row Space is clipped to SPACE_CLIP_RECT — a full-box
-          // rectangle traced by the SAME vertices as the hexagon/octagon. Visually it
-          // is identical to an unclipped box, but it gives Flip a polygon "from" state
-          // so opening morphs rect → octagon point-for-point. Without it the captured
-          // clip was `none`, which Flip can't interpolate, so the shape snapped in.
-          // Rows of other kinds (task/event) stay unclipped.
-          SPACE_CLIP_RECT
+        : // A collapsed DO-LIST row Space is clipped to ROW_RECT_CLIP — a full-box
+          // rectangle whose doubled vertices sit at the MIDDLE of the top/bottom edges
+          // (not the corners). Visually identical to an unclipped box, but it gives the
+          // morph driver a clean "from" state so opening morphs row → hexagon with the
+          // mid-edge points sliding straight to the apex (no diamond). Without a polygon
+          // "from" the clip was `none` and the shape snapped in. Task/event rows stay
+          // unclipped.
+          ROW_RECT_CLIP
   // Shape role of this Space, recorded on the frame as `data-space-kind` so the morph
   // driver (flip-stage) knows the source↔target shapes and can hold a true 120° corner
   // per frame, splitting the hexagon late. Undefined for non-Spaces (never clipped).
@@ -329,7 +332,7 @@ export function EntityNode({
           : spaceClipPoints(0, 0)
         : variant === "dock"
           ? SPACE_HEX_POINTS
-          : spaceClipPoints(0, 0)
+          : ROW_RECT_POINTS
       : null
   // Visible (opacity 1) for both leaf and ancestor WINDOWS; the collapsed
   // dock/row sources keep it mounted but transparent so it eases in as the shape

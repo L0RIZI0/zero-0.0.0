@@ -3,7 +3,7 @@
 import gsap from "gsap"
 import { Flip } from "gsap/Flip"
 import { CustomEase } from "gsap/CustomEase"
-import { MORPH_SECONDS, spaceMorphInsets, spaceClipPoints, spaceClip, type SpaceKind } from "./motion"
+import { MORPH_SECONDS, spaceMorphPoints, type SpaceKind } from "./motion"
 
 /**
  * The GSAP Flip morph engine for Zero's focus-window region — a faithful port of
@@ -182,13 +182,15 @@ export function playStage(
       },
     })
 
-    // Per-frame Space CLIP driver. Flip is NOT animating clipPath (it would drift the
-    // angle, see captureStage); instead we tween a progress 0→1 over the SAME duration
-    // and ease, and on every frame recompute each Space frame's clip from its LIVE
-    // pixel size — so the corner is a true 120° throughout and the hexagon splits late
-    // (spaceMorphInsets). We also rewrite the light-mode SVG outline polygon (same
-    // insets) so the rim tracks the body exactly. `p` runs from the SOURCE shape
-    // (captured kind) to the committed TARGET shape (current data-space-kind).
+    // Per-frame Space CLIP driver. Flip is NOT animating clipPath (it would interpolate
+    // polygon percentages while the frame resizes, stretching the hexagon and drifting
+    // the angle — see captureStage). Instead we tween progress 0→1 over the SAME
+    // duration/ease and, every frame, recompute each Space frame's clip points from its
+    // LIVE pixel size via spaceMorphPoints — which keeps the hexagon phase a PERFECT
+    // regular hexagon (centered, never stretched) and splits it late into the octagon.
+    // We rewrite the light-mode SVG outline polygon from the same points so the rim
+    // tracks the body exactly. `p` runs from the SOURCE shape (captured kind) to the
+    // committed TARGET shape (current data-space-kind).
     if (stage && capturedSpaceKind) {
       const sourceKinds = capturedSpaceKind
       const frames = Array.from(
@@ -219,15 +221,10 @@ export function playStage(
               // Live pixel size — read each frame because Flip resizes them per frame.
               const r = fr.el.getBoundingClientRect()
               if (r.width <= 0 || r.height <= 0) continue
-              const { ax, hy } = spaceMorphInsets(driver.p, r.width, r.height, fr.source, fr.target)
-              fr.el.style.clipPath = spaceClip(ax, hy)
+              const pts = spaceMorphPoints(driver.p, r.width, r.height, fr.source, fr.target)
+              fr.el.style.clipPath = `polygon(${pts.map(([x, y]) => `${x}% ${y}%`).join(", ")})`
               if (fr.outline) {
-                fr.outline.setAttribute(
-                  "points",
-                  spaceClipPoints(ax, hy)
-                    .map(([x, y]) => `${x},${y}`)
-                    .join(" "),
-                )
+                fr.outline.setAttribute("points", pts.map(([x, y]) => `${x},${y}`).join(" "))
               }
             }
           },
