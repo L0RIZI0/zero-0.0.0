@@ -182,6 +182,81 @@ export function playStage(
       },
     })
 
+    // Per-frame Space CLIP driver. Flip is NOT animating clipPath (it would drift the
+    // angle, see captureStage); instead we tween a progress 0→1 over the SAME duration
+    // and ease, and on every frame recompute each Space frame's clip from its LIVE
+    // pixel size — so the corner is a true 120° throughout and the hexagon splits late
+    // (spaceMorphInsets). We also rewrite the light-mode SVG outline polygon (same
+    // insets) so the rim tracks the body exactly. `p` runs from the SOURCE shape
+    // (captured kind) to the committed TARGET shape (current data-space-kind).
+    if (stage && capturedSpaceKind) {
+      const sourceKinds = capturedSpaceKind
+      const frames = Array.from(
+        stage.querySelectorAll<HTMLElement>("[data-flip-role='frame'][data-flip-id][data-space-kind]"),
+      )
+        .map((f) => {
+          const id = f.getAttribute("data-flip-id") || ""
+          return {
+            el: f,
+            source: sourceKinds.get(id) ?? (f.dataset.spaceKind as SpaceKind),
+            target: f.dataset.spaceKind as SpaceKind,
+            outline: f.querySelector<SVGPolygonElement>("polygon[data-space-outline]"),
+          }
+        })
+        // Only drive frames whose SHAPE actually changes. A frame that stays the same
+        // kind (e.g. a settled leaf on an incidental re-render, or an ancestor pushed
+        // deeper) keeps React's committed clip — driving it would needlessly animate it
+        // from a degenerate q=0 rectangle and, if interrupted, leave it stuck as a rect.
+        .filter((fr) => fr.source !== fr.target)
+      console.log("[v0] clip driver frames:", frames.map((f) => `${f.source}->${f.target}`))
+      if (frames.length) {
+        const driver = { p: 0 }
+        gsap.to(driver, {
+          p: 1,
+          duration: MORPH_DURATION,
+          ease: MORPH_EASE,
+          onUpdate: () => {
+            for (const fr of frames) {
+              // Live pixel size — read each frame because Flip resizes them per frame.
+              const r = fr.el.getBoundingClientRect()
+              if (r.width <= 0 || r.height <= 0) continue
+              const { ax, hy } = spaceMorphInsets(driver.p, r.width, r.height, fr.source, fr.target)
+              if (driver.p > 0.95)
+                console.log(
+                  "[v0] driver p=",
+                  driver.p.toFixed(3),
+                  "w=",
+                  Math.round(r.width),
+                  "h=",
+                  Math.round(r.height),
+                  "ax=",
+                  ax.toFixed(2),
+                  "hy=",
+                  hy.toFixed(2),
+                  "src/tgt=",
+                  fr.source,
+                  fr.target,
+                )
+              fr.el.style.clipPath = spaceClip(ax, hy)
+              if (fr.outline) {
+                fr.outline.setAttribute(
+                  "points",
+                  spaceClipPoints(ax, hy)
+                    .map(([x, y]) => `${x},${y}`)
+                    .join(" "),
+                )
+              }
+            }
+          },
+          // No onComplete reset: the final frame (p=1) already equals React's
+          // committed clip/outline for the target shape, so we LEAVE the inline value.
+          // Clearing it would briefly unclip the frame until React next re-renders
+          // (React set clipPath via inline style and won't re-apply an unchanged value).
+          // A later layout change (e.g. resize) re-renders and overrides it correctly.
+        })
+      }
+    }
+
     // Manual colour FLIP. `Flip.from` makes every frame `position:absolute` and
     // hard-sets `transition:none` for the whole morph (GSAP Flip internals), which
     // kills the CSS `background-color` transition on the frame — so the per-depth
@@ -214,6 +289,7 @@ export function playStage(
   const shadowSnap = capturedShadow
   capturedBg = null
   capturedShadow = null
+  capturedSpaceKind = null
   if (!stage) return
 
   const sel = (k: Key, rest: string) => `[data-window="${k.id}"][data-depth="${k.depth}"] ${rest}`

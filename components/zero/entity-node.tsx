@@ -21,6 +21,7 @@ import {
   surfaceAt,
   telescopicLevel,
   telescopicSurface,
+  type SpaceKind,
 } from "@/lib/zero/motion"
 import { DURATION_S, MORPH_CSS_EASE } from "@/lib/zero/flip-stage"
 import { NodeGlyph } from "./node-glyph"
@@ -300,6 +301,18 @@ export function EntityNode({
           // clip was `none`, which Flip can't interpolate, so the shape snapped in.
           // Rows of other kinds (task/event) stay unclipped.
           SPACE_CLIP_RECT
+  // Shape role of this Space, recorded on the frame as `data-space-kind` so the morph
+  // driver (flip-stage) knows the source↔target shapes and can hold a true 120° corner
+  // per frame, splitting the hexagon late. Undefined for non-Spaces (never clipped).
+  const spaceKind: SpaceKind | undefined = !isSpace
+    ? undefined
+    : asWindow
+      ? isTop
+        ? "leaf"
+        : "ancestor"
+      : variant === "dock"
+        ? "card"
+        : "row"
   // LIGHT-mode Space boundary. A clip-path can't carry a border, so an SVG polygon
   // traces the SAME live points as the clip — octagon for a leaf, rectangle for an
   // ancestor — and is kept MOUNTED across states, fading only its opacity. Because
@@ -470,6 +483,7 @@ export function EntityNode({
         data-depth={depth}
         data-flip-id={`${flip}-frame`}
         data-flip-role="frame"
+        data-space-kind={spaceKind}
         role="button"
         aria-label={asWindow ? undefined : `Open ${entity.title}`}
         onClick={onFrameClick}
@@ -595,6 +609,7 @@ export function EntityNode({
             preserveAspectRatio="none"
           >
             <polygon
+              data-space-outline
               points={spaceOutlinePoints.map(([x, y]) => `${x},${y}`).join(" ")}
               fill="none"
               stroke={isDark ? "rgb(255 255 255 / 0.45)" : "rgb(0 0 0 / 0.32)"}

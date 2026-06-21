@@ -62,7 +62,7 @@ export const MORPH_WHERE_ATTR = "data-morph-where"
  * State map:
  *   hexagon   = (50, 25)        → SPACE_HEX_POINTS / SPACE_CLIP_HEX (dock source)
  *   rectangle = (0,  0)         → SPACE_CLIP_RECT (do-list row source, ancestor)
- *   octagon   = (spaceLeafAx, 25) → the opened LEAF (true 120° corners, max width)
+ *   octagon   = spaceLeafInsets(w,h) → the opened LEAF (true 120° corners, max width)
  *
  * Going hexagon → octagon, only `ax` changes: the doubled top/bottom points SPLIT
  * and slide apart horizontally into the wide flat edges (the user-described "the
@@ -325,7 +325,10 @@ export function spaceMorphBracketPx(p: number, liveWidth: number, source: SpaceK
   if (q >= SPACE_SPLIT_AT) {
     // Split zone (near the leaf): ease the apex down to the resting octagon bracket.
     const f = (q - SPACE_SPLIT_AT) / (1 - SPACE_SPLIT_AT)
-    return apex + (LEAF_BRACKET_PX - apex) * f
+    const out = apex + (LEAF_BRACKET_PX - apex) * f
+    if (typeof window !== "undefined" && q > 0.95)
+      console.log("[v0] bracketPx split: q=", q.toFixed(3), "apex=", apex.toFixed(1), "f=", f.toFixed(3), "out=", out.toFixed(1), "other=", other)
+    return out
   }
   // Hexagon zone (toward the source): a card holds the merged apex; a row forms it
   // from its flat top over the early part of the morph.
