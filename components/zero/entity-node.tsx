@@ -949,9 +949,9 @@ export function EntityNode({
         )}
 
         {/* Window body — recursively renders this entity's own working surface
-            (its Dock + Inputs · Tasks · Outputs). Tagged data-body so close can
-            scale it down with the frame. Only the frontmost window's body is
-            "active" for keyboard / selection. */}
+            (Tasks do-list + Dock, with the Inputs/Outputs panels overlaid on the
+            side edges). Tagged data-body so close can scale it down with the frame.
+            Only the frontmost window's body is "active" for keyboard / selection. */}
         {showBody && (
           <div
             data-fade

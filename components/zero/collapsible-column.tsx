@@ -12,9 +12,9 @@ import { cn } from "@/lib/utils"
  * crossfade.
  *
  * Fully CONTROLLED: the parent (EntityBody) owns the open state — via the
- * reactive panel-store — so it can also animate the slot's width as the panel
- * opens/closes (letting the center Tasks column slide + shrink) and auto-collapse
- * the panels when a child window opens.
+ * reactive panel-store — so the open panel OVERLAYS the center column (the
+ * do-list never reflows) and the nav layer can auto-collapse the panels when a
+ * child window opens.
  */
 export function CollapsibleColumn({
   title,
@@ -24,9 +24,6 @@ export function CollapsibleColumn({
   children,
   open,
   onOpenChange,
-  collapsedShiftX = 0,
-  collapsedShiftY = 0,
-  onBeforeExpand,
 }: {
   title: string
   /** Short label shown on the vertical rail when collapsed (e.g. "In" / "Out").
@@ -38,16 +35,6 @@ export function CollapsibleColumn({
   /** Controlled open state. */
   open: boolean
   onOpenChange: (open: boolean) => void
-  /** Horizontal px offset for the COLLAPSED rail only. Used when this window is a
-   *  spine to nudge the IN rail right so it aligns with the vertical title/glyph. */
-  collapsedShiftX?: number
-  /** Vertical px offset for the COLLAPSED rail only. Used by the home view to lift
-   *  its centered rails to the viewport middle. */
-  collapsedShiftY?: number
-  /** Runs just before the panel expands. When this column belongs to an ancestor
-   *  spine, EntityBody passes a fn that brings that ancestor to the front — so
-   *  clicking an ancestor's collapsed IN/OUT rail surfaces it AND its panel. */
-  onBeforeExpand?: () => void
 }) {
   const OpenIcon = side === "left" ? PanelLeftClose : PanelRightClose
   const ClosedIcon = side === "left" ? PanelLeftOpen : PanelRightOpen
@@ -119,11 +106,10 @@ export function CollapsibleColumn({
         ) : (
           <motion.div
             key="closed"
-            // x/y are animated (not a static transform) so when this window
-            // becomes a spine and `collapsedShiftX` changes, the IN rail SLIDES
-            // into the vertical-header center on the morph beat instead of jumping.
-            initial={{ opacity: 0, x: collapsedShiftX, y: collapsedShiftY }}
-            animate={{ opacity: 1, x: collapsedShiftX, y: collapsedShiftY }}
+            // The rail is centered on the window edge by its PanelSlot overlay
+            // (anchored to the frame center), so it just crossfades here.
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={panelTransition}
             onPointerEnter={() => setRailHover(true)}
@@ -149,11 +135,7 @@ export function CollapsibleColumn({
               type="button"
               onClick={(e) => {
                 e.stopPropagation()
-                // Remember "open" first (survives any remount), then bring the
-                // owning ancestor to the front so its now-frontmost window shows
-                // the expanded panel.
                 onOpenChange(true)
-                onBeforeExpand?.()
               }}
               aria-label={`Expand ${title}`}
               // No hover background/box — the icon just brightens (opacity)

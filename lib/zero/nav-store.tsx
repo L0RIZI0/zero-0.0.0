@@ -510,39 +510,27 @@ export function useZeroNav() {
 }
 
 /**
- * The active-cell highlight — a selection ring + drop shadow, both expressed as
- * `box-shadow` so Motion interpolates cleanly between rest and active states.
- */
-export const HIGHLIGHT_SHADOW = "0 0 0 1.5px var(--ring), 0 12px 28px -10px rgba(0,0,0,0.28)"
-export const HIGHLIGHT_SHADOW_NONE = "0 0 0 0px rgba(0,0,0,0), 0 0px 0px 0px rgba(0,0,0,0)"
-
-/**
- * Wires a DO-list row or dock card into the shared selection model. Returns the
- * single source of truth (`showHighlight` / `lift`) for the lifted look.
+ * Wires a DO-list row or dock card into the shared selection model.
+ *
+ * `showHighlight` is the single source of truth for the highlighted look, and is
+ * KEYBOARD-ONLY: keyboard nav paints the cell with the same filled background it
+ * gets on hover (there is no separate selection ring). Mouse hover doesn't set it
+ * — it just moves the selection cursor here (via `hoverProps`) so a subsequent
+ * keystroke acts on whatever the pointer is over.
  */
 export function useRowSelection(region: SelectionRegion, key: string) {
   const { selection, inputMode, select } = useZeroNav()
   const ref = useRef<HTMLElement | null>(null)
   const selected = selection?.region === region && selection.key === key
-  // The accent ring/lift is now KEYBOARD-ONLY. Mouse hover no longer paints the
-  // orange ring (it felt heavy and noisy on every pointer move); hovered rows get
-  // only the subtle `hover:bg-foreground/5` tint applied in the markup. Arrow-key
-  // navigation still shows the ring so the focused cell is locatable.
   const showHighlight = selected && inputMode === "keyboard"
 
   useEffect(() => {
-    if (selected && inputMode === "keyboard") {
-      ref.current?.scrollIntoView({ block: "nearest", inline: "nearest" })
-    }
-  }, [selected, inputMode])
+    if (showHighlight) ref.current?.scrollIntoView({ block: "nearest", inline: "nearest" })
+  }, [showHighlight])
 
-  // Hovering still moves the selection cursor to this cell (so a subsequent
-  // keystroke acts on what the mouse is over) — it just no longer paints a ring.
   const hoverProps = {
     onPointerEnter: () => select(region, key, "mouse"),
   }
 
-  const lift = showHighlight
-
-  return { selected, showHighlight, lift, hoverProps, ref }
+  return { showHighlight, hoverProps, ref }
 }
