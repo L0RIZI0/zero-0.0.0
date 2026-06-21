@@ -162,7 +162,7 @@ function CreateRow({
   /** ArrowDown out of the focused input drops selection into the dock below. */
   onNavigateDown: () => void
 }) {
-  const { select, selection, inputMode } = useZeroNav()
+  const { select, selection, inputMode, close } = useZeroNav()
   const [kind, setKind] = useState<NodeKind>("task")
   const [title, setTitle] = useState("")
   const [anchor, setAnchor] = useState<{ left: number; top: number; bottom: number } | null>(null)
@@ -228,9 +228,18 @@ function CreateRow({
       inputRef.current?.blur()
       onNavigateDown()
     } else if (e.key === "Escape") {
-      // Blur so a subsequent Escape reaches the window handler (which closes it).
       e.preventDefault()
-      inputRef.current?.blur()
+      if (title.trim()) {
+        // There's a draft: first Escape just discards focus (and keeps the text),
+        // so a SECOND Escape then reaches the window handler to close the window.
+        inputRef.current?.blur()
+      } else {
+        // Empty field: skip the blur-then-close two-step and close the window now.
+        // (The window-level handler ignores Escape fired from an INPUT, so we close
+        // directly here.) `close` is a no-op at the home root, which has no window.
+        inputRef.current?.blur()
+        close()
+      }
     }
   }
 
