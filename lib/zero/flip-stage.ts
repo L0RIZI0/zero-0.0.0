@@ -76,12 +76,12 @@ let capturedBg: Map<string, string> | null = null
 let capturedShadow: Map<string, string> | null = null
 
 // Per-frame SOURCE Space shape kind (leaf/ancestor/row/card) from the most recent
-// `captureStage`, keyed by flip-id. The clip-path is NOT animated by Flip (Flip
-// interpolates the polygon percentages linearly, which lets the corner angle DRIFT as
-// the frame resizes and splits the hexagon early). Instead `playStage` drives the clip
-// itself, per frame, from the LIVE pixel size — holding a true 120° corner throughout
-// and splitting the hexagon late — interpolating between this source kind and the
-// committed target kind. See spaceMorphInsets.
+// `captureStage`, keyed by flip-id. The clip-path is NOT animated by Flip (Flip would
+// interpolate the polygon percentages while the frame resizes, STRETCHING the hexagon
+// and drifting the angle). Instead `playStage` drives the clip itself, per frame, from
+// the LIVE pixel size via spaceMorphPoints — keeping the hexagon phase a PERFECT
+// regular hexagon and splitting it late into the octagon — interpolating between this
+// source kind and the committed target kind.
 let capturedSpaceKind: Map<string, SpaceKind> | null = null
 
 export function registerStage(el: HTMLElement | null) {
