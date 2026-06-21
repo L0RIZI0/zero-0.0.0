@@ -259,33 +259,79 @@ export function octagonLeafInside(rect: Rect): Rect {
   return rect
 }
 
+export const SQRT3 = Math.sqrt(3)
+
 /**
- * Vertical height (px) of the leaf octagon's corner brackets. FIXED in pixels (not a
- * fraction of the window) so the slanted corners stay a small, consistent accent
- * while the VERTICAL side edges — and the central rectangle between them — take ALL
- * the remaining height. This is what makes the corners hug the top/bottom edges
- * (they "reach the parent" before the flat edge spreads) and gives the content a
- * tall workable rectangle, instead of the old corners eating 25% of height per side.
- * Sized a touch above the leaf header (HEADER_H = 43) so the top wedge still fits the
- * glyph + title comfortably.
+ * Vertical height (px) of the RESTING leaf octagon's corner brackets. FIXED in pixels
+ * (not a fraction of the window) so the slanted corners stay a small, consistent
+ * accent while the VERTICAL side edges — and the central rectangle between them —
+ * take ALL the remaining height. Sized a touch above the leaf header (HEADER_H = 43)
+ * so the top wedge still fits the glyph + title comfortably.
  */
 export const LEAF_BRACKET_PX = 60
 
 /**
- * The leaf octagon's two clip insets for a frame of `width × height`, holding a TRUE
- * 120° interior corner. The bracket is `LEAF_BRACKET_PX` tall (capped at a quarter of
- * a short window so the header still fits and the shape can't invert); a 120° corner
- * needs horizontal-run : vertical-rise = 1 : √3, so the flat-edge inset is
- * `bracketPx / √3` wide. Both are returned as PERCENTS of the frame.
- *   hy = bracket height ÷ height        (vertical inset of the left/right brackets)
- *   ax = (bracket ÷ √3) ÷ width         (horizontal inset of the flat top/bottom)
+ * Openness threshold ∈(0,1). BELOW it a Space is a single-point, growing 120°
+ * HEXAGON (top/bottom are one point); ABOVE it the point SPLITS and slides apart into
+ * the wide leaf OCTAGON. Higher ⇒ the hexagon persists longer before splitting (the
+ * split happens later in the open). The morph driver eases openness with a slow start
+ * (see flip-stage), so the frame grows as a hexagon first and only splits near the end.
+ */
+export const SPACE_SPLIT_O = 0.62
+
+// Bracket height (px) of the LARGEST merged 120° hexagon at width W: the slanted edges
+// meet at a single centre point, i.e. ax_px = W/2, and a 120° corner needs
+// ax_px = √3·ay_px, so ay_px = W/(2√3).
+const mergedAyPx = (width: number) => width / (2 * SQRT3)
+
+/**
+ * Space clip insets (PERCENTS) for an OPENNESS `o ∈ [0,1]` at a LIVE frame size,
+ * ALWAYS holding a true 120° interior corner — the angle is enforced in PIXELS
+ * (ax_px = √3·ay_px) so it never drifts as the frame changes size mid-morph.
+ *
+ *   o = 0              → ay_px 0                  → rectangle / point (a row source)
+ *   0 < o < SPLIT_O    → a growing MERGED 120° hexagon (single top/bottom point)
+ *   o = SPLIT_O        → the LARGEST merged hexagon (ax_px = W/2)
+ *   SPLIT_O < o < 1    → the point SPLITS; the flat top/bottom edges widen
+ *   o = 1              → the resting leaf OCTAGON (bracket = LEAF_BRACKET_PX)
+ *
+ * Driving the clip from this every animation frame keeps the corner at 120°
+ * throughout and lets the split be delayed via the openness schedule.
+ */
+export function spaceInsetsForOpenness(o: number, width: number, height: number): { ax: number; hy: number } {
+  if (width <= 0 || height <= 0) return { ax: 0, hy: 0 }
+  const t = Math.max(0, Math.min(1, o))
+  const merged = mergedAyPx(width)
+  let ayPx: number
+  if (t >= SPACE_SPLIT_O) {
+    // Split zone: ease from the largest merged hexagon down to the resting octagon.
+    const f = (t - SPACE_SPLIT_O) / (1 - SPACE_SPLIT_O)
+    ayPx = merged + (LEAF_BRACKET_PX - merged) * f
+  } else {
+    // Hexagon zone: a 120° hexagon growing from a point to its largest merged size.
+    ayPx = merged * (t / SPACE_SPLIT_O)
+  }
+  // Clamp into the frame while preserving 120° where possible: cap the bracket at half
+  // the height, derive the flat-edge inset as √3·ay, and if THAT exceeds half the width
+  // (frame too narrow for a full point) cap it — the corner then flattens gracefully.
+  ayPx = Math.min(ayPx, height / 2)
+  let axPx = SQRT3 * ayPx
+  if (axPx > width / 2) axPx = width / 2
+  return { ax: (axPx / width) * 100, hy: (ayPx / height) * 100 }
+}
+
+/** Clip-path string for an openness at a live size (see spaceInsetsForOpenness). */
+export const spaceClipForOpenness = (o: number, width: number, height: number) => {
+  const { ax, hy } = spaceInsetsForOpenness(o, width, height)
+  return spaceClip(ax, hy)
+}
+
+/**
+ * Resting LEAF octagon insets (openness 1) for a frame of `width × height`. Used by
+ * nav-store for the static clip vars and the header/body corner inset. True 120°.
  */
 export function spaceLeafInsets(width: number, height: number): { ax: number; hy: number } {
-  if (width <= 0 || height <= 0) return { ax: 0, hy: 0 }
-  const bracketPx = Math.min(LEAF_BRACKET_PX, height * 0.25)
-  const hy = (bracketPx / height) * 100
-  const ax = Math.min(50, (bracketPx / Math.sqrt(3) / width) * 100)
-  return { ax, hy }
+  return spaceInsetsForOpenness(1, width, height)
 }
 
 /**
