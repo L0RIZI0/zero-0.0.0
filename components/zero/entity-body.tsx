@@ -147,15 +147,21 @@ export function EntityBody({
 /**
  * Absolute overlay for one side panel, pinned to the window's left/right edge.
  *
- * Three things animate on the morph beat so the rail tracks the window smoothly
- * instead of snapping:
- *   • `shift` (translateY) re-centers the rail on the FRAME center as the header
- *     changes (e.g. ancestor → spine), via a dedicated node so it composes with
- *     the static `-translate-y-1/2` self-centering below.
- *   • collapsed `width` = the window's visible `bleed` sliver, so the rail SLIDES
- *     in from the frame edge and centers within the strip a covered ancestor
- *     exposes (no clipping) — widening back to the full rail / open panel.
- *   • `scale` gives a covered ancestor's rail a slight shrink for a recessed look.
+ * Vertical centering (`shift`) is applied INSTANTLY — NOT animated. The morph is a
+ * GSAP FLIP: at the React commit the body has already reflowed to its FINAL layout
+ * (e.g. header switches in-flow ⇄ absolute when a window spines), and the smooth
+ * motion comes from GSAP tweening the FRAME geometry, which carries this rail (a
+ * frame descendant) along with it. So the rail must sit at the frame's true center
+ * in the final layout immediately; the GSAP frame morph then slides it smoothly.
+ * Animating `shift` here instead re-introduced the pre-commit offset, making the
+ * rail jump (up when spining, down when un-spining) before easing back — the bug
+ * this avoids.
+ *
+ * `width` and `scale` DO animate on the morph beat: the collapsed rail eases
+ * between the full width and the window's visible `bleed` sliver (so it stays
+ * centered in the strip a covered ancestor exposes, never clipped), and a covered
+ * ancestor's rail gently shrinks for a recessed look. These are horizontal/size
+ * changes, so they don't affect the vertical anchor.
  *
  * The wrapper is `pointer-events-none` so the do-list underneath stays interactive
  * wherever the panel is transparent; the panel itself re-enables pointer events.
@@ -177,19 +183,18 @@ function PanelSlot({
   // ancestor); the open panel and uncovered (leaf/home) rails stay at scale 1.
   const collapsedScale = !open && bleed < PANEL_RAIL_W ? 0.85 : 1
   return (
-    <div className={cn("pointer-events-none absolute top-1/2 z-10 hidden md:flex", side === "left" ? "left-0" : "right-0")}>
-      <motion.div initial={false} animate={{ y: shift }} transition={panelTransition}>
-        <div className="-translate-y-1/2">
-          <motion.div
-            className="pointer-events-auto flex min-h-0 flex-col"
-            initial={false}
-            animate={{ width: open ? PANEL_OPEN_W : bleed, scale: collapsedScale }}
-            transition={panelTransition}
-            style={{ maxHeight: "calc(50vh)" }}
-          >
-            {children}
-          </motion.div>
-        </div>
+    <div
+      className={cn("pointer-events-none absolute top-1/2 z-10 hidden md:flex", side === "left" ? "left-0" : "right-0")}
+      style={{ transform: `translateY(calc(-50% + ${shift}px))` }}
+    >
+      <motion.div
+        className="pointer-events-auto flex min-h-0 flex-col"
+        initial={false}
+        animate={{ width: open ? PANEL_OPEN_W : bleed, scale: collapsedScale }}
+        transition={panelTransition}
+        style={{ maxHeight: "calc(50vh)" }}
+      >
+        {children}
       </motion.div>
     </div>
   )
