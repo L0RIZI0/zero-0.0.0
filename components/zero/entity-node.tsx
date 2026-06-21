@@ -382,6 +382,27 @@ export function EntityNode({
   // ancestor band like any other stacked window.
   const headerH = spaceLeafWindow ? 96 : ancestorHeader ? ANCESTOR_HEADER_H : HEADER_H
 
+  // Vertical offset that re-centers the IN/OUT panel rails on the FRAME center
+  // (consumed as `--rail-center-shift` by EntityBody's panel overlay, which is
+  // anchored at `top: 50%` of [data-body]). The body's center coincides with the
+  // frame center ONLY when its top and bottom insets are equal; when they differ
+  // by the header band the rails would otherwise sit half a header too low. The
+  // shift is exactly (bottomInset − topInset) / 2 for the body in each state — no
+  // magic constants:
+  //   • floating header (Space window): body fills the frame symmetrically → 0
+  //   • in-flow header (task/event/ancestor): body starts headerH down → −headerH/2
+  //   • closing: the body re-anchors (space fills from top:0 → 0; task from
+  //     top:HEADER_H → −HEADER_H/2)
+  // This is what stops the rails drifting/jumping when a window's ancestor rank
+  // (hence header height) changes as a child opens.
+  const railCenterShift = isClosing
+    ? isSpace
+      ? 0
+      : -HEADER_H / 2
+    : floatingHeader
+      ? 0
+      : -headerH / 2
+
   // Compact ancestor: 13px + dimmer (see className) so it recedes behind the
   // leaf. Leaf window: full 18px.
   const titleSize = asWindow ? (ancestorHeader ? 13 : 18) : variant === "dock" ? 13 : 13
@@ -949,6 +970,9 @@ export function EntityNode({
             // center; that shared center is what keeps the do-list from re-centering when
             // a child opens and the Space flips leaf→ancestor.
             style={{
+              // Re-centers the IN/OUT rails on the FRAME center (EntityBody's panel
+              // overlay reads this; see railCenterShift above). Inherits to the rails.
+              ...({ ["--rail-center-shift"]: `${railCenterShift}px` } as React.CSSProperties),
               ...(isClosing
                 ? // A closing SPACE was the leaf, whose resting body FILLS the frame
                   // (the header floats over it) and centers the do-list on the frame

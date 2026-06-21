@@ -62,12 +62,16 @@ export function EntityBody({
   const [outOpen, setOutOpen] = usePanelOpen(`${entityId}:out`, false)
 
   return (
-    <div className="relative flex min-h-0 flex-1 flex-col px-6 pb-5 pt-4">
+    // Unpadded root: fills [data-body] EXACTLY and is the offset parent for the
+    // panel overlays, so a panel's `top: 50%` resolves to the body's true vertical
+    // center. The reading padding lives on the inner center column instead, so it
+    // never skews where the rails sit.
+    <div className="relative flex min-h-0 flex-1 flex-col">
       {/* Center column — Tasks do-list ABOVE the Dock (pinned items). The list
           takes the remaining height (flex-1); the Dock sits beneath it. Capped for
           a comfortable reading measure and centered. Full width now: the side
           panels overlay it rather than stealing its space, so it never moves. */}
-      <div className="flex min-h-[180px] min-w-0 flex-1 flex-col items-center">
+      <div className="flex min-h-[180px] min-w-0 flex-1 flex-col items-center px-6 pb-5 pt-4">
         <div className={cn("relative flex min-h-0 w-full flex-1 flex-col", isRoot ? "max-w-[70vw]" : "max-w-[720px]")}>
           {/* Do-list narrowed to 2/3 of the measure and centered for a tighter
               list; the Dock below keeps the full measure width. */}
