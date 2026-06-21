@@ -57,10 +57,10 @@ export function CollapsibleColumn({
             transition={panelTransition}
             className={cn(
               // `flex-1 min-h-0` makes the panel fill the column's (stable) height
-              // so its inner list SCROLLS instead of growing the row.
-              "flex min-h-0 flex-1 flex-col",
-              // Pull the whole open panel outward so it hugs the screen edge.
-              side === "left" ? "-ml-4" : "-mr-4",
+              // so its inner list SCROLLS instead of growing the row. Small inset
+              // from the frame edge so the panel content clears the border; it
+              // overlays the center column inward (the do-list never reflows).
+              "flex min-h-0 flex-1 flex-col px-2",
             )}
           >
             <div
@@ -115,16 +115,15 @@ export function CollapsibleColumn({
             onPointerEnter={() => setRailHover(true)}
             onPointerLeave={() => setRailHover(false)}
             className={cn(
-              // flex-1 + justify-center centers the rail VERTICALLY in its column.
-              // It hugs the outer screen edge (-ml-5 / -mr-5, past the body px-6).
-              // `relative z-10` lifts it ABOVE the window's opaque spine cover
-              // (z-8) so an ancestor spine's real (clickable) IN/OUT rail stays
-              // visible + reachable over the vertical-header strip / right peek.
-              // Dimmed children rest at reduced opacity and return to full on
-              // hover via `railHover` state (the motion.div animates its own
-              // opacity to 1, so the resting dim lives on the inner content).
-              "relative z-10 flex flex-1 flex-col items-center justify-center gap-2",
-              side === "left" ? "-ml-5 self-start" : "-mr-5 self-end",
+              // Fills the PanelSlot's 48px rail (which is anchored flush to the
+              // window's left/right edge by the overlay) and centers the icon+label
+              // both ways, so the shortcut sits just inside the frame border at the
+              // edge's true vertical middle. `relative z-10` lifts it ABOVE the
+              // window's opaque spine cover (z-8) so an ancestor spine's real
+              // (clickable) IN/OUT rail stays visible + reachable over the
+              // vertical-header strip / right peek. Dimmed children rest at reduced
+              // opacity and brighten on hover via `railHover` state.
+              "relative z-10 flex w-full flex-1 flex-col items-center justify-center gap-2",
             )}
           >
             {/* Icon + vertical label render as ONE contiguous vertical line and the

@@ -100,6 +100,15 @@ export function EntityNode({
   // (the app's defaultTheme is "dark") so first paint matches and never flashes.
   const { resolvedTheme } = useTheme()
   const isDark = resolvedTheme !== "light"
+  // `resolvedTheme` is undefined during SSR / first client render, so we default
+  // `isDark` to dark there. That's flash-free for COLORS (a light user just sees
+  // colors settle), but the light-only hexagon rim is a STRUCTURAL branch (an
+  // <svg> that exists only when `!isDark`) — rendering it on the client's first
+  // paint while the server omitted it is a hydration mismatch. Gate that one
+  // branch behind `mounted` so first client paint matches the server, then the
+  // rim fades in after the theme has resolved.
+  const [mounted, setMounted] = useState(false)
+  useLayoutEffect(() => setMounted(true), [])
   const entity = getEntity(entityId)
   const region = variant === "dock" ? "dock" : "list"
   const { showHighlight, hoverProps, ref } = useRowSelection(region, entityId)
@@ -291,7 +300,7 @@ export function EntityNode({
   // in at the end of an open and vanished at the start of a close. Opacity is 1 only
   // for the leaf hexagon (the one state that should show the rim) and 0 otherwise,
   // so it eases in as the hexagon forms and eases out as it collapses.
-  const spaceOutlinePoints = !isDark && isSpace ? SPACE_HEX_POINTS : null
+  const spaceOutlinePoints = mounted && !isDark && isSpace ? SPACE_HEX_POINTS : null
   const spaceOutlineVisible = spaceLeafWindow
 
   // Borderless design. Backgrounds are driven by the inline `surfaceAt` ramp
