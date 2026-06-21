@@ -3,6 +3,7 @@
 import gsap from "gsap"
 import { Flip } from "gsap/Flip"
 import { CustomEase } from "gsap/CustomEase"
+import { MORPH_SECONDS } from "./motion"
 
 /**
  * The GSAP Flip morph engine for Zero's focus-window region — a faithful port of
@@ -44,8 +45,10 @@ export { gsap }
 
 /** Quick, elegant motion shared by every window — the `zeroLand` ease-in-out curve
  *  (defined above): accelerates into a fast expansion/shrink, then eases out over
- *  the final ~40% for a soft, gentle landing. */
-export const MORPH_DURATION = 2
+ *  the final ~40% for a soft, gentle landing. Duration is the single canonical
+ *  `MORPH_SECONDS` from motion.ts so the GSAP morph and all Framer/CSS chrome share
+ *  one beat. */
+export const MORPH_DURATION = MORPH_SECONDS
 export const MORPH_EASE = "zeroLand"
 /** Same duration as a CSS string, for the fade/transition chrome (spine bg,
  *  divider, close-button reposition) that rides along with the Flip morph. */

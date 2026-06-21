@@ -5,25 +5,31 @@ import type { EntityKind } from "./types"
  * Zero motion language: calm, precise, deterministic. No bounce.
  * A single shared transition keeps the shared-element morph coherent.
  */
+// ── Timing ──────────────────────────────────────────────────────────────────
+// ONE canonical duration drives the entire shared-element morph, so the GSAP Flip
+// (frames) and the Framer-driven chrome (surfaces, header, panels) always land on
+// the exact same beat. Deliberately 2s: shorter felt like dropped frames on the
+// heavier reshape/clip morphs. Tune the whole system from here — `flip-stage.ts`
+// derives its `MORPH_DURATION` from this same constant.
+export const MORPH_SECONDS = 2
+
 // Shared easing: cubic-bezier(.62, .02, .07, .99). A smooth ease-in-out with a
 // firm pull through the middle and a soft settle so the motion feels deliberate.
+// Mirrored in flip-stage.ts as a GSAP CustomEase ("zeroLand") and a CSS string
+// (MORPH_CSS_EASE) so Flip, CSS chrome and Framer chrome share one curve.
 export const MORPH_EASE: [number, number, number, number] = [0.62, 0.02, 0.07, 0.99]
 
-export const layerTransition: Transition = {
-  duration: 2,
-  ease: MORPH_EASE,
-}
-
-export const contentTransition: Transition = {
-  duration: 2,
-  ease: MORPH_EASE,
-}
-
-/** Quick, natural expand/collapse for the side panels (Inputs / Outputs). */
-export const panelTransition: Transition = {
-  duration: 2,
-  ease: MORPH_EASE,
-}
+// All three are the same beat as the morph; kept as distinct named exports so
+// their intent stays legible at call sites (and so any one can diverge later).
+const morphBeat: Transition = { duration: MORPH_SECONDS, ease: MORPH_EASE }
+/** Surfaces / backdrops receding or advancing as the window stack changes. */
+export const layerTransition: Transition = morphBeat
+/** Body content fading / sliding along with its window. */
+export const contentTransition: Transition = morphBeat
+/** IN / OUT side panels expanding & collapsing. The open panel OVERLAYS the
+ *  content (it doesn't reflow the center list), so this animation never waits on
+ *  any sibling layout — it starts the instant the panel toggles. */
+export const panelTransition: Transition = morphBeat
 
 /**
  * The single attribute name a morph SOURCE exposes so an opening window can
