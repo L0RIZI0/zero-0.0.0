@@ -3,7 +3,7 @@
 import gsap from "gsap"
 import { Flip } from "gsap/Flip"
 import { CustomEase } from "gsap/CustomEase"
-import { MORPH_SECONDS } from "./motion"
+import { MORPH_SECONDS, spaceMorphInsets, spaceClipPoints, spaceClip, type SpaceKind } from "./motion"
 
 /**
  * The GSAP Flip morph engine for Zero's focus-window region — a faithful port of
@@ -75,6 +75,15 @@ let capturedBg: Map<string, string> | null = null
 // classes (incl. `shadow-2xl`) are swapped for shadowless row/card classes.
 let capturedShadow: Map<string, string> | null = null
 
+// Per-frame SOURCE Space shape kind (leaf/ancestor/row/card) from the most recent
+// `captureStage`, keyed by flip-id. The clip-path is NOT animated by Flip (Flip
+// interpolates the polygon percentages linearly, which lets the corner angle DRIFT as
+// the frame resizes and splits the hexagon early). Instead `playStage` drives the clip
+// itself, per frame, from the LIVE pixel size — holding a true 120° corner throughout
+// and splitting the hexagon late — interpolating between this source kind and the
+// committed target kind. See spaceMorphInsets.
+let capturedSpaceKind: Map<string, SpaceKind> | null = null
+
 export function registerStage(el: HTMLElement | null) {
   stageEl = el
 }
@@ -113,6 +122,7 @@ export function captureStage(): FlipState | null {
   // there is no visible shadow to fade and it is skipped. Only un-clipped (task /
   // event / non-space) frames with a real shadow are recorded.
   const shadows = new Map<string, string>()
+  const kinds = new Map<string, SpaceKind>()
   stageEl.querySelectorAll<HTMLElement>("[data-flip-role='frame'][data-flip-id]").forEach((f) => {
     const id = f.getAttribute("data-flip-id")
     if (!id) return
@@ -121,19 +131,20 @@ export function captureStage(): FlipState | null {
     if ((!cs.clipPath || cs.clipPath === "none") && cs.boxShadow && cs.boxShadow !== "none") {
       shadows.set(id, cs.boxShadow)
     }
+    const kind = f.dataset.spaceKind as SpaceKind | undefined
+    if (kind) kinds.set(id, kind)
   })
   capturedBg = colors
   capturedShadow = shadows
-  // `clipPath` is captured so a Space's hexagon ⇄ rectangle reshape (dock card /
-  // row → hex window and back) tweens smoothly in the same single Flip pass that
-  // already morphs size, fontSize and borderRadius. Proven in the hexagon-dock
-  // prototype: without it the clip snapped at the end of the morph.
-  // NOTE: `backgroundColor` is deliberately NOT captured/animated by Flip. Flip
-  // would interpolate it from a bad captured value — flashing black for a newly
-  // entering window (it has no prior colour, so GSAP tweens up from transparent
-  // black) and fighting the CSS transition on receding ancestors. We drive the
-  // colour ourselves in playStage instead.
-  return Flip.getState(targets, { props: "fontSize,borderRadius,clipPath" })
+  capturedSpaceKind = kinds
+  // NOTE: `clipPath` is deliberately NOT a Flip prop. Flip interpolates the polygon
+  // PERCENTAGES linearly while the frame's pixel size changes, so the corner angle
+  // drifts off 120° and the hexagon splits early. `playStage` instead drives the clip
+  // per frame from the live pixel size (true 120° throughout, late split) — see
+  // capturedSpaceKind. `backgroundColor` is likewise NOT a Flip prop: Flip would
+  // interpolate it from a bad captured value (black flash for entering windows, and a
+  // fight with the CSS transition on receding ancestors); we drive colour in playStage.
+  return Flip.getState(targets, { props: "fontSize,borderRadius" })
 }
 
 type Key = { id: string; depth: number }
@@ -159,11 +170,9 @@ export function playStage(
       ease: MORPH_EASE,
       absolute: "[data-flip-role='frame']",
       nested: true,
-      // Only `clipPath` rides the morph (hexagon ⇄ rectangle). Background colour is
-      // intentionally left to its own CSS transition (see captureStage + entity-node)
-      // so entering windows and receding ancestors don't interpolate from a bad
-      // captured "from" colour.
-      props: "clipPath",
+      // Flip animates only size/position here. The Space clip-path is driven SEPARATELY
+      // per frame (see the Space clip driver below) so the corner holds a true 120° and
+      // the hexagon splits late; background colour rides its own CSS transition.
       // Clear leftover sub-pixel transforms / will-change on the inner glyph+title
       // when the morph lands so they settle crisply instead of shaking at the very
       // end (prototype fix).

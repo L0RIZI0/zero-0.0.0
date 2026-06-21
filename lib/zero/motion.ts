@@ -271,67 +271,79 @@ export const SQRT3 = Math.sqrt(3)
 export const LEAF_BRACKET_PX = 60
 
 /**
- * Openness threshold ∈(0,1). BELOW it a Space is a single-point, growing 120°
- * HEXAGON (top/bottom are one point); ABOVE it the point SPLITS and slides apart into
- * the wide leaf OCTAGON. Higher ⇒ the hexagon persists longer before splitting (the
- * split happens later in the open). The morph driver eases openness with a slow start
- * (see flip-stage), so the frame grows as a hexagon first and only splits near the end.
+ * Morph progress (measured from the LEAF end, 0..1) at which the hexagon apex SPLITS
+ * into the wide octagon's flat edge. Below it the Space is a 120° HEXAGON that simply
+ * GROWS with the frame; only above it do the top/bottom points split apart. High value
+ * ⇒ the hexagon persists almost the whole way and splits late (what the user wants).
  */
-export const SPACE_SPLIT_O = 0.62
-
-// Bracket height (px) of the LARGEST merged 120° hexagon at width W: the slanted edges
-// meet at a single centre point, i.e. ax_px = W/2, and a 120° corner needs
-// ax_px = √3·ay_px, so ay_px = W/(2√3).
-const mergedAyPx = (width: number) => width / (2 * SQRT3)
+export const SPACE_SPLIT_AT = 0.68
 
 /**
- * Space clip insets (PERCENTS) for an OPENNESS `o ∈ [0,1]` at a LIVE frame size,
- * ALWAYS holding a true 120° interior corner — the angle is enforced in PIXELS
- * (ax_px = √3·ay_px) so it never drifts as the frame changes size mid-morph.
- *
- *   o = 0              → ay_px 0                  → rectangle / point (a row source)
- *   0 < o < SPLIT_O    → a growing MERGED 120° hexagon (single top/bottom point)
- *   o = SPLIT_O        → the LARGEST merged hexagon (ax_px = W/2)
- *   SPLIT_O < o < 1    → the point SPLITS; the flat top/bottom edges widen
- *   o = 1              → the resting leaf OCTAGON (bracket = LEAF_BRACKET_PX)
- *
- * Driving the clip from this every animation frame keeps the corner at 120°
- * throughout and lets the split be delayed via the openness schedule.
+ * The Space's two clip insets (PERCENTS) for a desired corner-bracket height in PIXELS
+ * at a LIVE frame size, ALWAYS holding a true 120° interior corner. The angle is
+ * `ax_px = √3 · ay_px` (rise:run = √3:1 ⇒ 120°). If that flat-edge inset would exceed
+ * half the width, the two points have MERGED into a single 120° apex — a HEXAGON — so
+ * ax is clamped to 50%. Computing this from live PIXELS every frame is what stops the
+ * angle drifting as the frame changes size mid-morph.
  */
-export function spaceInsetsForOpenness(o: number, width: number, height: number): { ax: number; hy: number } {
+export function insetsFromBracketPx(ayPx: number, width: number, height: number): { ax: number; hy: number } {
   if (width <= 0 || height <= 0) return { ax: 0, hy: 0 }
-  const t = Math.max(0, Math.min(1, o))
-  const merged = mergedAyPx(width)
-  let ayPx: number
-  if (t >= SPACE_SPLIT_O) {
-    // Split zone: ease from the largest merged hexagon down to the resting octagon.
-    const f = (t - SPACE_SPLIT_O) / (1 - SPACE_SPLIT_O)
-    ayPx = merged + (LEAF_BRACKET_PX - merged) * f
-  } else {
-    // Hexagon zone: a 120° hexagon growing from a point to its largest merged size.
-    ayPx = merged * (t / SPACE_SPLIT_O)
-  }
-  // Clamp into the frame while preserving 120° where possible: cap the bracket at half
-  // the height, derive the flat-edge inset as √3·ay, and if THAT exceeds half the width
-  // (frame too narrow for a full point) cap it — the corner then flattens gracefully.
-  ayPx = Math.min(ayPx, height / 2)
-  let axPx = SQRT3 * ayPx
-  if (axPx > width / 2) axPx = width / 2
-  return { ax: (axPx / width) * 100, hy: (ayPx / height) * 100 }
+  const ay = Math.max(0, Math.min(ayPx, height / 2))
+  const axPx = Math.min(SQRT3 * ay, width / 2)
+  return { ax: (axPx / width) * 100, hy: (ay / height) * 100 }
 }
 
-/** Clip-path string for an openness at a live size (see spaceInsetsForOpenness). */
-export const spaceClipForOpenness = (o: number, width: number, height: number) => {
-  const { ax, hy } = spaceInsetsForOpenness(o, width, height)
-  return spaceClip(ax, hy)
+/** A Space frame's shape role, used to choose the morph path between two states. */
+export type SpaceKind = "leaf" | "ancestor" | "row" | "card"
+
+/** Bracket height (px) of a 120° MERGED-apex hexagon at width `w` (ax_px = w/2 ⇒
+ *  ay_px = w/(2√3)). Tracking live width keeps the apex at exactly 120° as it grows. */
+const hexApexPx = (w: number) => w / (2 * SQRT3)
+
+/**
+ * Per-frame corner-bracket height (px) for a Space mid-morph, given the eased morph
+ * progress `p` (0 = source state → 1 = committed target state), the LIVE frame width,
+ * and the source/target shape kinds. Combined with `insetsFromBracketPx` (which holds
+ * 120° at all times) this produces, for the two morph families:
+ *
+ *   • LEAF ⇄ row/card  → a true 120° HEXAGON that grows/shrinks with the frame, then
+ *     SPLITS into the wide octagon only past SPACE_SPLIT_AT (so it stays a hexagon
+ *     almost the whole way). A row (rectangle source) forms the apex over the early
+ *     part; a dock card (already a hexagon) starts at the apex directly.
+ *   • LEAF ⇄ ancestor  → a flat octagon ⇄ rectangle with NO hexagon (both are wide
+ *     windows): the bracket simply scales with leaf-ness.
+ */
+export function spaceMorphBracketPx(p: number, liveWidth: number, source: SpaceKind, target: SpaceKind): number {
+  const leafTarget = target === "leaf"
+  const leafSource = source === "leaf"
+  if (!leafTarget && !leafSource) return 0 // ancestor ⇄ ancestor: stays a rectangle
+  // q = "leaf-ness": 1 at the leaf end of the morph, 0 at the other end.
+  const q = leafTarget ? p : 1 - p
+  const other = leafTarget ? source : target
+  if (other === "ancestor") return LEAF_BRACKET_PX * q // octagon ⇄ rectangle, no hexagon
+  const apex = hexApexPx(liveWidth)
+  if (q >= SPACE_SPLIT_AT) {
+    // Split zone (near the leaf): ease the apex down to the resting octagon bracket.
+    const f = (q - SPACE_SPLIT_AT) / (1 - SPACE_SPLIT_AT)
+    return apex + (LEAF_BRACKET_PX - apex) * f
+  }
+  // Hexagon zone (toward the source): a card holds the merged apex; a row forms it
+  // from its flat top over the early part of the morph.
+  return other === "card" ? apex : apex * (q / SPACE_SPLIT_AT)
+}
+
+/** Space clip insets (percents) mid-morph (see spaceMorphBracketPx + insetsFromBracketPx). */
+export function spaceMorphInsets(p: number, w: number, h: number, source: SpaceKind, target: SpaceKind) {
+  return insetsFromBracketPx(spaceMorphBracketPx(p, w, h, source, target), w, h)
 }
 
 /**
- * Resting LEAF octagon insets (openness 1) for a frame of `width × height`. Used by
- * nav-store for the static clip vars and the header/body corner inset. True 120°.
+ * Resting LEAF octagon insets for a frame of `width × height` (bracket =
+ * LEAF_BRACKET_PX). Used by nav-store for the static clip vars and the header/body
+ * corner inset. True 120°.
  */
 export function spaceLeafInsets(width: number, height: number): { ax: number; hy: number } {
-  return spaceInsetsForOpenness(1, width, height)
+  return insetsFromBracketPx(LEAF_BRACKET_PX, width, height)
 }
 
 /**
