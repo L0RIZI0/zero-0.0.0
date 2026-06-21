@@ -380,15 +380,14 @@ export function ZeroNavProvider({
         { w: liftedRegion.width, h: liftedRegion.height },
         ancestorVertical,
       )
-      // A Space is a PERFECT hexagon only while it is the frontmost LEAF (no child
-      // open): it ignores the wide box and centers a viewport-capped regular
-      // hexagon whose four side corners stay on-screen (top/bottom points bleed
-      // off). The moment a child opens it stops being the leaf and EXPANDS to fill
-      // the full ancestor box — bigger than the capped hexagon, so it reads as the
-      // Space zooming in until its hexagon edges flatten out into a rectangle (the
-      // frame's clip-path tweens hex → rect-polygon in the same Flip pass). The
-      // expanded ancestor is then a plain, cheap rectangle (no hex inset, no
-      // drop-shadow filter), which is also why opening/closing stays snappy.
+      // A frontmost LEAF Space fills its WHOLE box (full width minus side peeks,
+      // full height) and the clip carves a wide OCTAGON from it — flat top/bottom
+      // edges with true-120° corner brackets and full-height vertical sides — for
+      // maximum content width with no giant off-screen shape. The moment a child
+      // opens it stops being the leaf and the clip flattens octagon → rectangle in
+      // the same Flip pass (brackets ride to the corners, flat edges spread to full
+      // width). The expanded ancestor is then a plain, cheap rectangle (no inset,
+      // no drop-shadow filter), which is also why opening/closing stays snappy.
       const isSpaceWindow = (getEntity(stack[windowDepth])?.kind ?? "task") === "space"
       const isLeaf = windowDepth === stack.length - 1
       const isSpaceLeaf = isSpaceWindow && isLeaf

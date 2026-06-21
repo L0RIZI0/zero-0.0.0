@@ -15,6 +15,9 @@ import {
   SPACE_CLIP_HEX,
   SPACE_CLIP_RECT,
   SPACE_HEX_POINTS,
+  LEAF_HY,
+  spaceClip,
+  spaceClipPoints,
   surfaceAt,
   telescopicLevel,
   telescopicSurface,
@@ -443,11 +446,11 @@ export function EntityNode({
   // leaf. Leaf window: full 18px.
   const titleSize = asWindow ? (ancestorHeader ? 13 : 18) : variant === "dock" ? 13 : 13
 
-  // The window's resting fixed geometry (top/left/width/height in viewport px).
-  // Used both for the frame and to place the close-hover title just OUTSIDE the
+  // `winStyle` (the window's resting fixed geometry: top/left/width/height in
+  // viewport px) is computed once near the top of the component — it also feeds the
+  // clip + outline. Used here to place the close-hover title just OUTSIDE the
   // frame's right edge (the frame is overflow-hidden, so an in-frame title there
   // would be clipped; a `fixed` title positioned from these numbers escapes it).
-  const winStyle = asWindow ? (fadingWindow ? nav.fadingStyleFor(depth) : nav.styleFor(depth)) : null
   // Close-button affordance: instead of showing the window's title next to the X,
   // hovering an ANCESTOR's close button outlines that whole window so it's obvious
   // which one the button belongs to. Restricted to ancestors (`!isTop`), which are
@@ -536,7 +539,8 @@ export function EntityNode({
                   ...(clipPath
                     ? {
                         clipPath,
-                        boxShadow: `inset 0 0 0 1px ${isDark ? "rgb(255 255 255 / 0.30)" : "rgb(0 0 0 / 0.22)"}`,
+                        // DARK only: light mode's boundary is the morphing SVG outline.
+                        ...(isDark ? { boxShadow: "inset 0 0 0 1px rgb(255 255 255 / 0.30)" } : null),
                       }
                     : null),
                 }
@@ -567,15 +571,15 @@ export function EntityNode({
         }
         className={frameClass}
       >
-        {/* Leaf-hexagon boundary. A clip-path can't carry a border or box-shadow, so
-            this SVG traces the EXACT same rounded points as the hexagon clip
-            (percentage coords map identically), giving a crisp hairline that
-            separates the Space from an identically-colored parent behind it. The
-            frame clips its children to the hexagon, so the stroke's outer half is
-            clipped away and a clean ~1px inner rim remains. `non-scaling-stroke`
-            keeps it a uniform hairline despite the viewBox stretching to the window's
-            size. (The expanded rectangle uses border-radius + an inset ring instead
-            — see the ancestor style branch above.) */}
+        {/* LIGHT-mode Space boundary (dark renders none — see spaceOutlinePoints). A
+            clip-path can't carry a border, so this SVG traces the EXACT same points as
+            the live clip (percentage coords map identically): the leaf OCTAGON, the
+            ancestor RECTANGLE, or the collapsed dock HEXAGON. Because the points track
+            the clip, a leaf→ancestor change morphs ONE continuous rim instead of
+            swapping a hexagon rim for a rectangle ring. The frame clips its children to
+            the shape, so the stroke's outer half is clipped away and a clean ~1px inner
+            rim remains. `non-scaling-stroke` keeps it a uniform hairline despite the
+            viewBox stretching to the window's size. */}
         {spaceOutlinePoints && (
           <svg
             aria-hidden
