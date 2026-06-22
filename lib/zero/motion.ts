@@ -413,45 +413,37 @@ export function spaceMorphPoints(
     // Octagon ⇄ full-box rectangle (corner-based points), no hexagon waypoint.
     return lerpPoints(spaceClipPoints(0, 0), octagonPoints(W, H), q)
   }
-  // The hexagon WAYPOINT is a TOP-PINNED hexagon at the octagon's LIVE side height:
-  // its apex twins are merged at the very top/bottom edges (50,0)/(50,100) and its
-  // side points already sit at the octagon's resting `hy`. Because only the merged
-  // top/bottom points differ from the octagon (x = 50 vs ax), the SPLIT leg below is
-  // a PURE HORIZONTAL slide of those points out to the flat edge — the side points
-  // never move during the split. This is the "apex splits only once it has reached
-  // the top" shape.
-  const { hy } = spaceLeafInsets(W, H)
+  // The hexagon WAYPOINT is a genuinely POINTY hexagon — apex twins merged at the very
+  // top/bottom edges (50,0)/(50,100) and SHOULDERS at LEAF_HY (25%), the same shoulder
+  // proportion as the dock-glyph regular hexagons. The earlier waypoint put the
+  // shoulders at the octagon's RESTING side height (~9% in a tall frame), which sits
+  // almost level with the apex and made the hexagon read as a flat, horizontally
+  // stretched slab. Pulling the shoulders down to 25% gives a real point.
+  //   • CARD source ⇄ leaf — a perfect centered REGULAR hexagon (narrow, never stretched),
+  //     so the pre-split leg is an identity: it STAYS a crisp regular hexagon and only
+  //     blooms to the wide octagon during the split.
+  //   • ROW source ⇄ leaf — a FULL-WIDTH pointy hexagon (side points pinned to the frame
+  //     edges), so the wide do-list row never pinches inward; its top/bottom edge corners
+  //     just slide to the 25% shoulders to carve the point.
   const octagon = octagonPoints(W, H)
-  const hexWaypoint = spaceClipPoints(50, hy)
+  const hexWaypoint = other === "card" ? regularHexPoints(W, H) : spaceClipPoints(50, LEAF_HY)
   if (q >= SPACE_SPLIT_AT) {
+    // SPLIT leg: the pointy hexagon blooms into the resting octagon — the merged apex
+    // splits apart horizontally and the shoulders rise/flatten from 25% to the octagon's
+    // resting height. The apex stays pinned to the top/bottom edge the whole way, so the
+    // split only ever happens AT the top, never before.
     const f = (q - SPACE_SPLIT_AT) / (1 - SPACE_SPLIT_AT)
     return lerpPoints(hexWaypoint, octagon, f)
   }
-  // PRE-SPLIT leg. The merged apex RISES all the way to the top edge while the shape
-  // opens out to the full-width pinned hexagon, in lock-step with the frame's growth —
-  // so the apex keeps pace VERTICALLY with the rising frame instead of stalling at a
-  // centered regular-hexagon proportion (whose apex SINKS as the frame turns tall) and
-  // then lurching up at the split. That stall-then-lurch was the mid-morph slowdown.
-  // The dock CARD starts from its own regular hexagon, so q=0 still matches the dock
-  // glyph exactly; the do-list ROW starts from its full rectangle.
+  // PRE-SPLIT leg. The apex twins are at the top/bottom EDGE in both the source and the
+  // waypoint, so the apex stays pinned to the edge throughout — the shape looks pointy
+  // immediately and there is no vertical apex lurch or mid-morph stall. Only the side
+  // shoulders travel (carving the point), on an ease-out quintic for a calm bezier-like
+  // open. The shape is a pure function of q, so this serves the close direction too.
   const fLinear = q / SPACE_SPLIT_AT
   const src = other === "card" ? regularHexPoints(W, H) : ROW_RECT_POINTS
-  // The four SIDE corners (indices 2,3,6,7) keep their existing ease-out QUINTIC
-  // trajectory/speed — this is the bezier-like opening the rest of the morph rides on.
-  const fCorners = 1 - Math.pow(1 - fLinear, 5)
-  const base = lerpPoints(src, hexWaypoint, fCorners)
-  // Run the APEX twins' VERTICAL travel (indices 0,1 top, 4,5 bottom) on a MUCH steeper
-  // front-load so the top apex reaches up (and the bottom apex reaches down) FAR sooner
-  // than the corners spread out. That makes the shape look like a proper "regular" tall
-  // hexagon almost immediately instead of a flat horizontally-stretched one, without
-  // touching the corners' path. Apex X is a constant 50 in both src and waypoint, so we
-  // only need to override Y. The shape is a pure function of q, so this also makes the
-  // closing direction's apex collapse home fast once the split points re-merge.
-  const fApexY = 1 - Math.pow(1 - fLinear, 12)
-  for (const i of [0, 1, 4, 5]) {
-    base[i][1] = src[i][1] + (hexWaypoint[i][1] - src[i][1]) * fApexY
-  }
-  return base
+  const f = 1 - Math.pow(1 - fLinear, 5)
+  return lerpPoints(src, hexWaypoint, f)
 }
 
 /**
