@@ -481,9 +481,11 @@ export function EntityNode({
   const railBleedLeft = covered ? TASK_SIDE : undefined
   const railBleedRight = covered ? RIGHT_PEEK : undefined
 
-  // Compact ancestor: 13px + dimmer (see className) so it recedes behind the
-  // leaf. Leaf window: full 18px.
-  const titleSize = asWindow ? (ancestorHeader ? 13 : 18) : variant === "dock" ? 13 : 13
+  // Compact ancestor: 13px + dimmer (see className) so it recedes behind the leaf.
+  // Leaf window: only SPACES enlarge to 18px — a non-space (task/event) leaf keeps
+  // the 13px it had as a row/dock button, so its title doesn't pop bigger on open.
+  // Collapsed row and dock are both 13px.
+  const titleSize = asWindow ? (ancestorHeader ? 13 : isSpace ? 18 : 13) : 13
 
   // `winStyle` (the window's resting fixed geometry: top/left/width/height in
   // viewport px) is computed once near the top of the component — it also feeds the
@@ -810,15 +812,16 @@ export function EntityNode({
               // Glyph ink matches the title: compact ancestors are dimmed to
               // foreground/75 (like their title), everything else stays full ink.
               ancestorHeader ? "text-foreground/75" : "text-foreground",
-              // Leaf window keeps the full 20px glyph; compact ancestors use 16px.
-              // A collapsed DOCK CARD uses 18px (slightly larger than a do-list
-              // row's 16px) so the enlarged card stays harmonious. The size change
-              // is animated by GSAP Flip (this glyph is a flip target captured in
-              // captureStage), so no CSS transition here — that would double-animate
-              // against Flip.
-              asWindow && !ancestorHeader
+              // Only a SPACE leaf keeps the enlarged 20px glyph. A non-space
+              // (task/event) leaf keeps its collapsed size — 18px if it opened from a
+              // dock card, 16px from a do-list row — so the glyph doesn't pop bigger on
+              // open. Compact ancestors use 16px; collapsed dock card 18px / row 16px.
+              // The size change is animated by GSAP Flip (this glyph is a flip target
+              // captured in captureStage), so no CSS transition here — that would
+              // double-animate against Flip.
+              asWindow && !ancestorHeader && isSpace
                 ? "h-5 w-5"
-                : !asWindow && variant === "dock"
+                : !ancestorHeader && variant === "dock"
                   ? "h-[18px] w-[18px]"
                   : "h-4 w-4",
             )}
@@ -892,13 +895,12 @@ export function EntityNode({
                     // Keep a non-space (task/event) title font-medium in its LEAF header
                     // too, so its weight is identical whether it's a row/card button or a
                     // window header (leaf or ancestor) — it no longer pops heavier on open.
-                    // Space LEAF title is the heaviest — font-bold ("more black") while
-                    // keeping its (big) leaf font-size; the ancestor it morphs into is
-                    // font-medium, so the weight eases down as a Space recedes to a spine.
+                    // Space leaves keep the heavier font-semibold (this only affects
+                    // non-space entities, per request).
                     ancestorHeader
                       ? "font-medium text-foreground/75"
                       : isSpace
-                        ? "font-bold"
+                        ? "font-semibold"
                         : "font-medium",
                   )
                 : variant === "dock"
