@@ -458,8 +458,8 @@ export function spaceMorphPoints(
   // collapse first, the point relaxes last).
   const src = other === "card" ? regularHexPoints(W, H) : ROW_RECT_POINTS
   const fLin = q / SPACE_SPLIT_AT
-  const fApex = 1 - Math.pow(1 - fLin, 2.4) // ease-out: corners travel further, faster, early
-  const fSides = Math.pow(fLin, 1.8) // ease-in: shoulders hold back, widen late
+  const fApex = 1 - Math.pow(1 - fLin, 4) // ease-out: corners travel further, faster, early
+  const fSides = Math.pow(fLin, 3) // ease-in: shoulders hold back, widen late
   const APEX = new Set([0, 1, 4, 5])
   return src.map(([sx, sy], i) => {
     const [wx, wy] = hexWaypoint[i]
