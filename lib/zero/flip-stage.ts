@@ -254,13 +254,22 @@ export function playStage(
         const id = f.getAttribute("data-flip-id")
         const prev = id ? from.get(id) : undefined
         if (!prev) return
-        const target = getComputedStyle(f).backgroundColor
-        if (prev === target) return
+        // Compare against the RESOLVED current colour (to skip frames whose colour did
+        // not actually change), but TWEEN TO THE EXPRESSION (`data-surface`, e.g.
+        // `var(--background)` / `color-mix(...)`). getComputedStyle resolves the CSS
+        // variables to a concrete rgb that is frozen to the current theme; baking that
+        // into the inline style left some frames stuck on the old theme's colour after a
+        // dark↔light toggle (React only rewrites the inline colour when its expression
+        // STRING changes, which it doesn't for level-0 windows that read the same in both
+        // themes). Ending the tween on the expression keeps the inline colour live.
+        const targetResolved = getComputedStyle(f).backgroundColor
+        const targetExpr = f.dataset.surface
+        if (!targetExpr || prev === targetResolved) return
         f.style.transition = "none"
         f.style.backgroundColor = prev
         void f.offsetWidth // force reflow so the old colour is committed first
         f.style.transition = `background-color ${DURATION_S} ${MORPH_CSS_EASE}`
-        f.style.backgroundColor = target
+        f.style.backgroundColor = targetExpr
       })
     }
   }

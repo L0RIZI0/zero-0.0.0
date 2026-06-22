@@ -204,6 +204,20 @@ export function EntityNode({
   const collapsedRest =
     variant === "dock" ? `color-mix(in oklab, ${restSurface}, ${highlightColor} 45%)` : restSurface
 
+  // The frame's intended background as a THEME-REACTIVE expression (var()/color-mix
+  // over --background/--foreground), matching whichever style branch is active below.
+  // Exposed on the frame as `data-surface` so the morph's manual colour FLIP can end
+  // its tween on this EXPRESSION rather than a getComputedStyle()-resolved concrete
+  // rgb. Ending on the expression keeps the inline colour theme-reactive after the
+  // morph, so toggling dark↔light recolours every frame even when React's style string
+  // is unchanged across themes (e.g. level-0 windows that read `var(--background)` in
+  // both) — that stale concrete colour was why some entities stayed dark after a switch.
+  const frameSurface = asWindow
+    ? telescopicSurface(depth, leafDepth, isDark)
+    : hovered || showHighlight || isClosing
+      ? highlightColor
+      : collapsedRest
+
   void nav.dataVersion // re-read counts when data mutates
   const openCount = getOpenTaskCount(entityId)
 
@@ -492,6 +506,9 @@ export function EntityNode({
         data-flip-id={`${flip}-frame`}
         data-flip-role="frame"
         data-space-kind={spaceKind}
+        // Theme-reactive surface expression for the morph's colour FLIP to settle on
+        // (keeps the post-morph inline colour responsive to dark↔light toggles).
+        data-surface={frameSurface}
         role="button"
         aria-label={asWindow ? undefined : `Open ${entity.title}`}
         onClick={onFrameClick}
@@ -529,7 +546,7 @@ export function EntityNode({
                   // Telescoped, theme-aware capped surface. A background-color
                   // transition lets ancestors recede smoothly as the stack
                   // deepens/retracts.
-                  backgroundColor: telescopicSurface(depth, leafDepth, isDark),
+                  backgroundColor: frameSurface,
                   // Background recede + the hover-peek width shrink. Width is only
                   // transitioned at rest (`!animating`); during a morph Flip drives
                   // width directly, so transitioning it too would double-animate.
@@ -546,7 +563,7 @@ export function EntityNode({
                   // recede smoothly each time the stack deepens or retracts. An
                   // expanded ancestor Space also adds its rectangle clip-path
                   // (SPACE_CLIP_RECT) — the same six points the hexagon morphs to.
-                  backgroundColor: telescopicSurface(depth, leafDepth, isDark),
+                  backgroundColor: frameSurface,
                   // Background recede + the hover-peek width shrink (rest only; Flip
                   // owns width during morphs — see the leaf-space branch above).
                   transition: `background-color ${DURATION_S} ${MORPH_CSS_EASE}${animating ? "" : `, width ${DURATION_S} ${MORPH_CSS_EASE}`}`,
@@ -590,7 +607,7 @@ export function EntityNode({
                 // was redundant — the full-surface highlight already reads as a clear
                 // single-item cursor, and the design language uses that filled state
                 // everywhere — so it's been dropped.
-                backgroundColor: hovered || showHighlight || isClosing ? highlightColor : collapsedRest,
+                backgroundColor: frameSurface,
                 transition: "background-color 0.18s ease-out",
               })
         }
