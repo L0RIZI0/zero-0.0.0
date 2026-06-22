@@ -26,6 +26,7 @@ import {
 } from "@/lib/zero/motion"
 import { DURATION_S, MORPH_CSS_EASE } from "@/lib/zero/flip-stage"
 import { NodeGlyph } from "./node-glyph"
+import { ResourceGlyph } from "./resource-glyph"
 import { EntityBody } from "./entity-body"
 import { cn } from "@/lib/utils"
 
@@ -141,6 +142,11 @@ export function EntityNode({
   const kind = entity.kind
   const isTask = kind === "task"
   const isSpace = kind === "space"
+  // A RESOURCE TASK is a task bound to a web surface (Zero as a contextual browser).
+  // When open it renders that surface (live embed or illustrative stand-in) in place
+  // of the do-list. The glyph+title header, IN/OUT rails and close all stay identical
+  // to a normal Task window — only the central working surface differs.
+  const isResource = isTask && !!entity.webUrl
 
   // OWNERSHIP. The same entity can be referenced in several contexts, so it can
   // be rendered by several do-lists/docks at once. Exactly ONE of those instances
@@ -826,9 +832,18 @@ export function EntityNode({
                   : "h-4 w-4",
             )}
           >
-            <NodeGlyph kind={kind} filled={isTask && done} strokeWidth={asWindow ? 1.75 : isTask ? 2 : 1.75} />
-            {!asWindow && isTask && done && (
-              <Check className="absolute h-2.5 w-2.5 text-background" strokeWidth={3.5} />
+            {isResource ? (
+              // Favicon-as-icon: a resource task shows its resource/site mark in every
+              // state (row, dock card, window header) so it reads as "the Figma tab",
+              // "the Photopea tab", etc. — Zero's contextual-browser identity.
+              <ResourceGlyph resourceId={entity.webResourceId} url={entity.webUrl} />
+            ) : (
+              <>
+                <NodeGlyph kind={kind} filled={isTask && done} strokeWidth={asWindow ? 1.75 : isTask ? 2 : 1.75} />
+                {!asWindow && isTask && done && (
+                  <Check className="absolute h-2.5 w-2.5 text-background" strokeWidth={3.5} />
+                )}
+              </>
             )}
           </span>
 
@@ -1175,6 +1190,7 @@ export function EntityNode({
               // of the close — the visible jump. Tasks/events and the home root keep the
               // in-flow dock. */
               floatDock={spaceWindow || (isSpace && isClosing)}
+              resource={isResource ? { url: entity.webUrl!, resourceId: entity.webResourceId } : undefined}
             />
           </div>
         )}

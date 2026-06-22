@@ -9,6 +9,7 @@ import { DoList } from "./do-list"
 import { AssetPanel } from "./asset-panel"
 import { OutputPanel } from "./output-panel"
 import { CollapsibleColumn } from "./collapsible-column"
+import { ResourceCanvas } from "./resource-canvas"
 import { cn } from "@/lib/utils"
 
 /** Width of a side panel when OPEN, and of the thin RAIL when collapsed. */
@@ -43,9 +44,16 @@ export function EntityBody({
   railShift = 0,
   railBleedLeft = PANEL_RAIL_W,
   railBleedRight = PANEL_RAIL_W,
+  resource,
 }: {
   entityId: string
   active?: boolean
+  /** When set, this is a RESOURCE TASK: the center surface is the bound web
+   *  resource (live embed or illustrative stand-in) instead of the do-list/Dock.
+   *  The Inputs/Outputs rails still render — a resource is work whose outputs wire
+   *  into the Task's Outputs. `url` is the page to open; `resourceId` selects the
+   *  catalog entry (branding + embed behavior). */
+  resource?: { url: string; resourceId?: string }
   /** Forwarded to the DoList so it can keep its scroller clipped during this
    *  window's close morph (prevents the ADD row jumping up over the title). */
   closing?: boolean
@@ -80,6 +88,16 @@ export function EntityBody({
     // center. The reading padding lives on the inner center column instead, so it
     // never skews where the rails sit.
     <div className="relative flex min-h-0 flex-1 flex-col">
+      {/* RESOURCE TASK: the center surface is the bound web resource, filling the
+          rectangular Task window almost edge-to-edge (a slim inset keeps it clear of
+          the Inputs/Outputs rails). The do-list/Dock are skipped entirely — this is
+          Zero acting as a contextual browser. */}
+      {resource ? (
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col px-3 pb-3 pt-2">
+          <ResourceCanvas url={resource.url} resourceId={resource.resourceId} />
+        </div>
+      ) : (
+        <>
       {/* Center column — Tasks do-list ABOVE the Dock (pinned items). The list
           takes the remaining height (flex-1); the Dock sits beneath it. Capped for
           a comfortable reading measure and centered. Full width now: the side
@@ -122,6 +140,8 @@ export function EntityBody({
           )}
         </div>
       </div>
+        </>
+      )}
 
       {/* Inputs — overlaid rail/panel hugging the LEFT edge, centered on the frame. */}
       <PanelSlot side="left" open={inOpen} shift={railShift} bleed={railBleedLeft}>
