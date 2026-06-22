@@ -415,15 +415,16 @@ export function EntityNode({
           // by 3px for tighter alignment with the spine's top.
           "absolute inset-y-0 left-0 z-10 flex w-[26px] flex-col items-center gap-2 pt-[9px]"
       : spaceLeafWindow
-        ? // FLOATING in the hexagon's TOP TRIANGLE — the wedge above the central
-          // rectangle (the band between the four side corners). The header spans
-          // [0, --hex-inset-y] (height set via style) and is BOTTOM-aligned
-          // (justify-end + pb-1) so the glyph + title sit LOW in the triangle, right
-          // above the central rectangle, dominating the do-list directly beneath them
-          // while staying clear of the hexagon's tapering point (no side clipping). A
-          // future description would slot between this header and the do-list, pushing
-          // the glyph + title higher up the triangle.
-          "absolute inset-x-0 top-0 z-10 flex flex-col items-center justify-end gap-1.5 px-4 pb-1"
+        ? // TOP-LEFT, like every other window header — glyph + title in a horizontal
+          // row near the top-left, dominating the do-list beneath. The leaf is an
+          // OCTAGON, so its top-left corner is cut by a diagonal (from the flat-top
+          // start at --space-ax% across, down to the left edge at --space-ay%). A flush
+          // pl-4 would let the glyph collide with / clip behind that diagonal, so the
+          // row is left-padded by the flat-top inset (--space-ax%, set via style) to
+          // sit just inside the diagonal. It occupies the top wedge band (height set
+          // via style) and is items-center, so it rides the vertical middle of that
+          // band where the octagon is already comfortably wide.
+          "absolute inset-x-0 top-0 z-10 flex items-center gap-3 pr-12"
         : spaceAncestorWindow
           ? // FLOATING compact top-left band. Absolute; fixed band height via style so
             // the glyph/title stay vertically centered exactly as the old in-flow header.
@@ -769,14 +770,15 @@ export function EntityNode({
           style={
             floatingHeader
               ? spaceLeafWindow
-                ? // Occupy the hexagon's TOP WEDGE: top:0 (from the class) with height
-                  // equal to the corner inset — the distance from the top point down to
+                ? // Occupy the octagon's TOP WEDGE: top:0 (from the class) with height
+                  // equal to the corner inset — the distance from the flat top down to
                   // the upper side corners (top of the central rectangle). The header is
-                  // bottom-aligned (justify-end), so the glyph/title rest right above the
-                  // central rectangle, dominating the do-list beneath. Using the corner
-                  // inset (not the smaller overflow inset) is what pulls the title down
-                  // to the rectangle on wide/tall hexagons where they diverge.
-                  { height: "var(--hex-corner-inset-y, 0px)" }
+                  // items-center, so glyph+title ride the vertical middle of that wedge,
+                  // sitting right above the do-list beneath. paddingLeft = the flat-top
+                  // inset (--space-ax %, measured against the full-width header) tucks
+                  // the row just inside the top-left DIAGONAL so the glyph clears the
+                  // octagon's cut corner instead of colliding with / hiding behind it.
+                  { height: "var(--hex-corner-inset-y, 0px)", paddingLeft: "calc(var(--space-ax, 0) * 1%)" }
                 : { height: headerH }
               : asWindow && !isSpine
                 ? { height: headerH, marginTop: "var(--hex-inset-y, 0px)" }
