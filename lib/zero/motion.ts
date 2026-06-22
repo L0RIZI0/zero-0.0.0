@@ -219,11 +219,11 @@ export function stackTargetRect(
   // the leaf ever further down the screen.
   ancestorVertical?: boolean[],
   // True when the window BEING computed is itself a Space. A Space child rises to
-  // OVERLAP its immediate parent's header/top — regardless of the parent's kind —
-  // so its IMMEDIATE parent (the last ancestor) reserves NO top peek for it. Deeper
-  // ancestors still reserve theirs, so the Space simply shares its parent's top edge
-  // (which may itself be pushed down by grandparents). Non-Space children keep the
-  // normal nested-doll top peek and stay visually inside their parent.
+  // OVERLAP its immediate parent's top ONLY when that parent is ALSO a Space — i.e.
+  // space-in-space shares the top edge, so the IMMEDIATE parent (last ancestor)
+  // reserves NO top peek. When a Space opens inside a NON-Space parent (task/event),
+  // it instead sits just below the parent's header like any other child. Deeper
+  // ancestors always reserve their peeks.
   selfIsSpace?: boolean,
 ): Rect {
   let top = 0
@@ -240,9 +240,12 @@ export function stackTargetRect(
     // WINDOW_BASE_SIDE.)
     right += RIGHT_PEEK
     left += TASK_SIDE
-    // A Space child overlaps its IMMEDIATE parent's top: skip the last ancestor's
-    // top reservations so the Space rises onto its parent's top edge (its header).
-    const skipTopPeek = selfIsSpace === true && i === ancestorKinds.length - 1
+    // A Space child overlaps its IMMEDIATE parent's top ONLY when that parent is a
+    // Space too: skip the last ancestor's top reservations so the Space rises onto
+    // its parent's top edge. A Space inside a non-Space parent keeps the normal peek
+    // and sits below the parent's header.
+    const skipTopPeek =
+      selfIsSpace === true && i === ancestorKinds.length - 1 && kind === "space"
     if (!ancestorVertical?.[i] && !skipTopPeek) top += TASK_TOP_PEEK
     // When THIS ancestor is a Space, nudge its child an extra few px down so the
     // Space's top border peeks above the child — UNLESS the child is itself a Space
