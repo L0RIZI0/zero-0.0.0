@@ -321,14 +321,10 @@ export function EntityNode({
   // it tracks the live shape, leaf → ancestor now morphs ONE continuous rim
   // (octagon flattening to rectangle) instead of a hexagon rim fading out while a
   // separate rectangle ring faded in — the awkward light-mode "swap" we're fixing.
-  // Live shape points for ANY Space frame in BOTH themes: the leaf OCTAGON, the
-  // ancestor RECTANGLE, or the collapsed dock HEXAGON / row RECTANGLE. These percentage
-  // coords map identically to the live clip, so the SVG overlays (inner shadow + rim)
-  // track the body exactly, and a leaf→ancestor change morphs ONE continuous shape.
-  // The morph (flip-stage) rewrites these points per frame on every shape-tracking
-  // polygon (`data-space-shape`).
-  const spaceShapePoints =
-    mounted && isSpace
+  // DARK mode renders no SVG (the dark surface reads cleanly; the ancestor's inset
+  // ring in the style branch supplies its boundary there), so dark is unchanged.
+  const spaceOutlinePoints =
+    mounted && !isDark && isSpace
       ? asWindow
         ? spaceLeafWindow
           ? spaceClipPoints(leafAx, leafAy)
@@ -337,13 +333,9 @@ export function EntityNode({
           ? SPACE_HEX_POINTS
           : ROW_RECT_POINTS
       : null
-  // Temporarily hide the LIGHT-mode rim to evaluate the borderless look (the inner
-  // shadow now supplies the boundary). Flip back to `true` to restore the rim.
-  const SHOW_SPACE_OUTLINE = false
-  const spaceOutlinePoints = SHOW_SPACE_OUTLINE && !isDark ? spaceShapePoints : null
-  // Inner shadow + rim are at full strength (opacity 1) for both leaf and ancestor
-  // WINDOWS; the collapsed dock/row sources keep them mounted but transparent so they
-  // ease in as the shape forms on open and out as it collapses on close.
+  // Visible (opacity 1) for both leaf and ancestor WINDOWS; the collapsed
+  // dock/row sources keep it mounted but transparent so it eases in as the shape
+  // forms on open and out as it collapses on close.
   const spaceOutlineVisible = asWindow
 
   // Borderless design. Backgrounds are driven by the inline `surfaceAt` ramp
@@ -522,10 +514,6 @@ export function EntityNode({
                   ...(winStyle ?? {}),
                   borderRadius: 0,
                   clipPath,
-                  // Inner shadow is drawn by the polygon-stroke SVG below (NOT box-shadow):
-                  // an inset box-shadow is cast from the rectangular border-box and only
-                  // then clipped, so it never reaches the octagon's DIAGONAL edges. A
-                  // stroke on the shape polygon follows every edge, diagonals included.
                   // The hexagon overflows the region top/bottom; the content (header +
                   // body) is inset into the shape's visible, full-width middle band by
                   // a `margin` on those children (header marginTop, body marginBottom —
@@ -576,9 +564,8 @@ export function EntityNode({
                   ...(clipPath
                     ? {
                         clipPath,
-                        // Inner shadow (and, in dark mode, the 1px boundary rim) is drawn
-                        // by the polygon-stroke SVG below so it follows every edge. It
-                        // REMAINS at full strength once a leaf becomes an ancestor.
+                        // DARK only: light mode's boundary is the morphing SVG outline.
+                        ...(isDark ? { boxShadow: "inset 0 0 0 1px rgb(255 255 255 / 0.30)" } : null),
                       }
                     : null),
                 }
@@ -609,64 +596,28 @@ export function EntityNode({
         }
         className={frameClass}
       >
-        {/* INNER SHADOW that follows EVERY edge — diagonals included. A CSS inset
-            box-shadow can't do this (it's cast from the rectangular border-box, then
-            clipped, so the chamfered corners get nothing). Instead we stroke the shape
-            polygon: a stroke hugs the path on all sides, and because the frame clips its
-            children to that same shape, each stroke's OUTER half is clipped away, leaving
-            its inner half as a soft band along every edge. Stacking a few widths (uniform
-            screen px via non-scaling-stroke) fakes the blur falloff. Dark mode adds a thin
-            light rim layer on top as the Space boundary. */}
-        {spaceShapePoints && (
-          <svg
-            aria-hidden
-            // Ease in/out with the morph (mirrors spaceOutlineVisible) so the depth blooms
-            // as the shape forms on open and fades as it collapses on close.
-            style={{ opacity: spaceOutlineVisible ? 1 : 0, transition: `opacity ${DURATION_S} ${MORPH_CSS_EASE}` }}
-            className="pointer-events-none absolute inset-0 z-[1] h-full w-full"
-            viewBox="0 0 100 100"
-            preserveAspectRatio="none"
-          >
-            {(isDark
-              ? [
-                  { w: 22, c: "0 0 0", o: 0.1 },
-                  { w: 11, c: "0 0 0", o: 0.22 },
-                  { w: 2, c: "255 255 255", o: 0.32 },
-                ]
-              : [
-                  { w: 16, c: "0 0 0", o: 0.05 },
-                  { w: 7, c: "0 0 0", o: 0.11 },
-                  { w: 2, c: "0 0 0", o: 0.22 },
-                ]
-            ).map((layer, i) => (
-              <polygon
-                key={i}
-                data-space-shape
-                points={spaceShapePoints.map(([x, y]) => `${x},${y}`).join(" ")}
-                fill="none"
-                stroke={`rgb(${layer.c} / ${layer.o})`}
-                strokeWidth={layer.w}
-                strokeLinejoin="round"
-                vectorEffect="non-scaling-stroke"
-              />
-            ))}
-          </svg>
-        )}
-
-        {/* LIGHT-mode Space boundary rim (hidden while SHOW_SPACE_OUTLINE is false). A
+        {/* LIGHT-mode Space boundary (dark renders none — see spaceOutlinePoints). A
             clip-path can't carry a border, so this SVG traces the EXACT same points as
-            the live clip. The frame clips its children to the shape, so the stroke's
-            outer half is clipped away and a clean ~1px inner rim remains. */}
+            the live clip (percentage coords map identically): the leaf OCTAGON, the
+            ancestor RECTANGLE, or the collapsed dock HEXAGON. Because the points track
+            the clip, a leaf→ancestor change morphs ONE continuous rim instead of
+            swapping a hexagon rim for a rectangle ring. The frame clips its children to
+            the shape, so the stroke's outer half is clipped away and a clean ~1px inner
+            rim remains. `non-scaling-stroke` keeps it a uniform hairline despite the
+            viewBox stretching to the window's size. */}
         {spaceOutlinePoints && (
           <svg
             aria-hidden
+            // Fade the rim in/out with the morph rather than mounting/unmounting it,
+            // so opening a Space eases the hairline in as the hexagon forms and
+            // closing eases it out as the hexagon collapses (see spaceOutlineVisible).
             style={{ opacity: spaceOutlineVisible ? 1 : 0, transition: `opacity ${DURATION_S} ${MORPH_CSS_EASE}` }}
             className="pointer-events-none absolute inset-0 z-[1] h-full w-full"
             viewBox="0 0 100 100"
             preserveAspectRatio="none"
           >
             <polygon
-              data-space-shape
+              data-space-outline
               points={spaceOutlinePoints.map(([x, y]) => `${x},${y}`).join(" ")}
               fill="none"
               stroke={isDark ? "rgb(255 255 255 / 0.45)" : "rgb(0 0 0 / 0.32)"}
@@ -1107,7 +1058,7 @@ export function EntityNode({
                   // bottom-0) — anchoring at `top: HEADER_H` like other windows would
                   // shift that center down ~HEADER_H/2 and make the do-list/CREATE-INPUT
                   // visibly jump at the start of the close. A closing TASK/EVENT had an
-                  // in-flow header at rest, so its body already started at HEADER_H ��
+                  // in-flow header at rest, so its body already started at HEADER_H —
                   // keep that so it likewise doesn't move.
                   isSpace
                   ? { top: 0 }

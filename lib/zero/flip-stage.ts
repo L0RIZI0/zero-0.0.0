@@ -202,11 +202,7 @@ export function playStage(
             el: f,
             source: sourceKinds.get(id) ?? (f.dataset.spaceKind as SpaceKind),
             target: f.dataset.spaceKind as SpaceKind,
-            // Every shape-tracking polygon (inner-shadow layers + optional rim) so they
-            // morph in lock-step with the clip. Scoped to THIS frame's own direct-child
-            // SVGs — `:scope > svg` — so a parent's morph never rewrites the points of a
-            // nested child Space's polygons (which live deeper in the subtree).
-            shapes: f.querySelectorAll<SVGPolygonElement>(":scope > svg > polygon[data-space-shape]"),
+            outline: f.querySelector<SVGPolygonElement>("polygon[data-space-outline]"),
           }
         })
         // Only drive frames whose SHAPE actually changes. A frame that stays the same
@@ -227,17 +223,13 @@ export function playStage(
               if (r.width <= 0 || r.height <= 0) continue
               const pts = spaceMorphPoints(driver.p, r.width, r.height, fr.source, fr.target)
               fr.el.style.clipPath = `polygon(${pts.map(([x, y]) => `${x}% ${y}%`).join(", ")})`
-              // Track every shape polygon (inner-shadow layers + rim) to the same points,
-              // so the inner shadow follows the morphing octagon edge for edge. The
-              // shadow's bloom in/out is handled by the SVG's CSS opacity transition.
-              if (fr.shapes.length) {
-                const polyPts = pts.map(([x, y]) => `${x},${y}`).join(" ")
-                fr.shapes.forEach((poly) => poly.setAttribute("points", polyPts))
+              if (fr.outline) {
+                fr.outline.setAttribute("points", pts.map(([x, y]) => `${x},${y}`).join(" "))
               }
             }
           },
           // No onComplete reset: the final frame (p=1) already equals React's
-          // committed clip / shape polygons for the target shape, so we LEAVE the values.
+          // committed clip/outline for the target shape, so we LEAVE the inline value.
           // Clearing it would briefly unclip the frame until React next re-renders
           // (React set clipPath via inline style and won't re-apply an unchanged value).
           // A later layout change (e.g. resize) re-renders and overrides it correctly.
