@@ -9,7 +9,6 @@ import { useZeroNav, useRowSelection } from "@/lib/zero/nav-store"
 import {
   HEADER_H,
   ANCESTOR_HEADER_H,
-  VERTICAL_BEHIND,
   TASK_SIDE,
   RIGHT_PEEK,
   SPACE_CLIP_HEX,
@@ -361,15 +360,15 @@ export function EntityNode({
   // strip — glyph pinned to the top, title rotated 90° CCW to read up the strip.
   // These ancestors reserve no top peek (see stackTargetRect), so they fan out as
   // nested LEFT strips instead of pushing the leaf down the screen.
-  //   • SPACE ancestors spine IMMEDIATELY — the moment a child opens inside them they
-  //     are no longer a "rectangle with a horizontal title": a Space only ever shows
-  //     as a hexagon/octagon leaf or a spine strip, never the in-between rectangle.
-  //   • Non-Space ancestors (task/event/instant) keep the nested-doll rectangle until
-  //     they sit ≥ VERTICAL_BEHIND levels behind the leaf, then spine.
+  // ONLY Spaces ever spine, and they do so IMMEDIATELY — the moment a child opens
+  // inside them they stop being a "rectangle with a horizontal title": a Space only
+  // ever shows as a hexagon/octagon leaf or a spine strip, never the in-between
+  // rectangle. Non-Space ancestors (task/event/instant) NEVER spine — they keep the
+  // nested-doll rectangle at every depth, no matter how far behind the leaf they sit.
   // Never the leaf, never a hexagon leaf; closing un-spines (the window becomes the
   // leaf again → condition flips → strip rotates back). Keep this rule identical to
   // nav-store's `ancestorVertical`.
-  const isSpine = asWindow && !isTop && (isSpace || leafDepth - depth >= VERTICAL_BEHIND)
+  const isSpine = asWindow && !isTop && isSpace
 
   // FLOATING HEADER (Space windows only). A Space window renders its glyph + title
   // as an ABSOLUTELY-POSITIONED overlay instead of an in-flow header band, so the

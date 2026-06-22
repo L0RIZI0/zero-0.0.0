@@ -4,7 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { flushSync } from "react-dom"
 import { getEntity, hydrateFromStorage } from "./data"
 import { collapseEntityPanels } from "./panel-store"
-  import { stackTargetRect, octagonLeafInside, spaceLeafInsets, VERTICAL_BEHIND } from "./motion"
+  import { stackTargetRect, octagonLeafInside, spaceLeafInsets } from "./motion"
 import { shellStageFor, WINDOW_TOP_LIFT } from "./layout"
 import {
   captureStage,
@@ -371,14 +371,12 @@ export function ZeroNavProvider({
     const styleFor = (windowDepth: number): React.CSSProperties => {
       const leafDepth = stack.length - 1
       const ancestorKinds = stack.slice(1, windowDepth).map((sid) => getEntity(sid)?.kind ?? "task")
-      // ancestorKinds[i] is the window at depth (1 + i). It renders as a vertical
-      // SPINE — and therefore reserves no top peek — when EITHER it is a Space (which
-      // spines the instant it becomes an ancestor, never showing as a rectangle) OR it
-      // sits ≥ VERTICAL_BEHIND levels behind the leaf. Keep this rule identical to
-      // entity-node's `isSpine`.
-      const ancestorVertical = ancestorKinds.map(
-        (k, i) => k === "space" || leafDepth - (1 + i) >= VERTICAL_BEHIND,
-      )
+      // ancestorKinds[i] is the window at depth (1 + i). ONLY a Space renders as a
+      // vertical SPINE — and therefore reserves no top peek — and it does so the
+      // instant it becomes an ancestor, never showing as a rectangle. Non-Space
+      // ancestors NEVER spine; they stay nested-doll rectangles at every depth. Keep
+      // this rule identical to entity-node's `isSpine`.
+      const ancestorVertical = ancestorKinds.map((k) => k === "space")
       // A Space window (at any depth, leaf or ancestor) overlaps its immediate
       // parent's top/header, so stackTargetRect skips the last ancestor's top peek.
       const selfIsSpace = (getEntity(stack[windowDepth])?.kind ?? "task") === "space"
