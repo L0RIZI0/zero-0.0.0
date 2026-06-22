@@ -281,17 +281,22 @@ export const LEAF_BRACKET_PX = 60
  * GROWS and TRAVELS with the frame as a single merged apex; only above it do the
  * top/bottom points split apart.
  *
- * This `q` is the SAME eased value (`driver.p`) that GSAP Flip uses to interpolate the
- * frame's position, so `q` is exactly the fraction of the distance the frame's apex has
- * travelled toward its FINAL top edge (the parent window's top for a space parent, or
- * the parent header's bottom for a non-space parent — see stackTargetRect). The apex
- * therefore "reaches the top" at q ≈ 1, so the split must start very late: we want the
- * merged apex to ride all the way up and only fan into the octagon once it has arrived.
- * 0.9 ⇒ the hexagon persists for ~90% of the travel; the split then plays out over the
- * ease's slow tail (the `zeroLand` curve decelerates hard near the end, so q 0.9→1.0
- * still spans enough real time for a smooth, non-abrupt split right at the top).
+ * The PRE-SPLIT leg (q below this) always ends with the merged apex pinned to the top
+ * edge — so the apex "reaches the top" exactly at the split boundary regardless of where
+ * that boundary sits. That means this threshold does NOT need to be near 1 to satisfy
+ * "the apex only splits once it has reached the top"; the geometry guarantees it.
+ *
+ * It is deliberately kept AWAY from the driver's slow ease-out tail. The `driver.p`
+ * (zeroLand) reaches ~0.9 around the time-midpoint and then CRAWLS through 0.9→1.0 over
+ * the whole back half of the morph. With the threshold at 0.9 the entire hexagon→octagon
+ * SPLIT was crammed into that crawling tail, so the shape reached the pointy hexagon and
+ * then appeared to HOLD / ease-out for a long beat before finally blooming. Dropping it
+ * to 0.5 puts the split squarely in the driver's FAST middle: the apex rises and the
+ * point carves over the first half, then the bloom into the octagon flows immediately
+ * and continuously through the back half (the driver's natural ease-out becomes the
+ * octagon's soft landing, not a pre-bloom pause).
  */
-export const SPACE_SPLIT_AT = 0.9
+export const SPACE_SPLIT_AT = 0.5
 
 /**
  * The Space's two clip insets (PERCENTS) for a desired corner-bracket height in PIXELS
@@ -413,20 +418,20 @@ export function spaceMorphPoints(
     // Octagon ⇄ full-box rectangle (corner-based points), no hexagon waypoint.
     return lerpPoints(spaceClipPoints(0, 0), octagonPoints(W, H), q)
   }
-  // The hexagon WAYPOINT is a genuinely POINTY hexagon — apex twins merged at the very
-  // top/bottom edges (50,0)/(50,100) and SHOULDERS at LEAF_HY (25%), the same shoulder
-  // proportion as the dock-glyph regular hexagons. The earlier waypoint put the
-  // shoulders at the octagon's RESTING side height (~9% in a tall frame), which sits
-  // almost level with the apex and made the hexagon read as a flat, horizontally
-  // stretched slab. Pulling the shoulders down to 25% gives a real point.
-  //   • CARD source ⇄ leaf — a perfect centered REGULAR hexagon (narrow, never stretched),
-  //     so the pre-split leg is an identity: it STAYS a crisp regular hexagon and only
-  //     blooms to the wide octagon during the split.
-  //   • ROW source ⇄ leaf — a FULL-WIDTH pointy hexagon (side points pinned to the frame
-  //     edges), so the wide do-list row never pinches inward; its top/bottom edge corners
-  //     just slide to the 25% shoulders to carve the point.
+  // The hexagon WAYPOINT is a genuinely POINTY, TOP-PINNED hexagon — apex twins merged
+  // at the very top/bottom edges (50,0)/(50,100), side points at the frame edges, and
+  // SHOULDERS at LEAF_HY (25%), the same shoulder proportion as the dock-glyph hexagons.
+  // It is the SAME waypoint for both the card and the row source, which is essential:
+  // the pre-split leg must actually CARRY the merged apex up to the top edge so that,
+  // by the time the split begins, the apex is already AT the top (honoring "apex only
+  // splits once it has reached the top"). An earlier version used the dock's own centered
+  // regular hexagon AS the card waypoint, which made the card's pre-split leg a no-op
+  // (regularHex → regularHex): the card sat as a static regular hexagon for the whole
+  // pre-split and only transformed during the split — which read as a long ease-out HOLD
+  // before it became an octagon. Using the top-pinned waypoint makes the apex rise and
+  // the point carve continuously across the pre-split instead.
   const octagon = octagonPoints(W, H)
-  const hexWaypoint = other === "card" ? regularHexPoints(W, H) : spaceClipPoints(50, LEAF_HY)
+  const hexWaypoint = spaceClipPoints(50, LEAF_HY)
   if (q >= SPACE_SPLIT_AT) {
     // SPLIT leg: the pointy hexagon blooms into the resting octagon — the merged apex
     // splits apart horizontally and the shoulders rise/flatten from 25% to the octagon's
@@ -435,14 +440,16 @@ export function spaceMorphPoints(
     const f = (q - SPACE_SPLIT_AT) / (1 - SPACE_SPLIT_AT)
     return lerpPoints(hexWaypoint, octagon, f)
   }
-  // PRE-SPLIT leg. The apex twins are at the top/bottom EDGE in both the source and the
-  // waypoint, so the apex stays pinned to the edge throughout — the shape looks pointy
-  // immediately and there is no vertical apex lurch or mid-morph stall. Only the side
-  // shoulders travel (carving the point), on an ease-out quintic for a calm bezier-like
-  // open. The shape is a pure function of q, so this serves the close direction too.
+  // PRE-SPLIT leg. The shape morphs from the source toward the top-pinned pointy hexagon,
+  // so the merged apex RISES to the top edge and the point carves continuously — there is
+  // no static hold. The CARD starts from the dock's centered regular hexagon; the do-list
+  // ROW starts from its full rectangle. Motion uses a FRONT-LOADED power curve (exponent
+  // < 1): fast at the start — honoring "faster early" — with a NON-ZERO terminal slope
+  // (0.7 at f=1) so it does NOT decay to a stall as it hands off to the split leg. The
+  // shape is a pure function of q, so this serves the close direction too.
   const fLinear = q / SPACE_SPLIT_AT
   const src = other === "card" ? regularHexPoints(W, H) : ROW_RECT_POINTS
-  const f = 1 - Math.pow(1 - fLinear, 5)
+  const f = Math.pow(fLinear, 0.7)
   return lerpPoints(src, hexWaypoint, f)
 }
 
