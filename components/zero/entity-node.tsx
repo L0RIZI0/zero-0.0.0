@@ -892,12 +892,13 @@ export function EntityNode({
                     // Keep a non-space (task/event) title font-medium in its LEAF header
                     // too, so its weight is identical whether it's a row/card button or a
                     // window header (leaf or ancestor) — it no longer pops heavier on open.
-                    // Space leaves keep the heavier font-semibold (this only affects
-                    // non-space entities, per request).
+                    // Space LEAF title is the heaviest — font-bold ("more black") while
+                    // keeping its (big) leaf font-size; the ancestor it morphs into is
+                    // font-medium, so the weight eases down as a Space recedes to a spine.
                     ancestorHeader
                       ? "font-medium text-foreground/75"
                       : isSpace
-                        ? "font-semibold"
+                        ? "font-bold"
                         : "font-medium",
                   )
                 : variant === "dock"
