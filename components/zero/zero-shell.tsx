@@ -25,7 +25,11 @@ function ZeroShellInner() {
       style={{ backgroundColor: homeSurface, transition: `background-color ${DURATION_S} ${MORPH_CSS_EASE}` }}
     >
       <ShellHeader />
-      <div className="relative min-h-0 flex-1 px-2 pb-2 sm:px-3 sm:pb-3">
+      {/* No bottom padding: the focus-window region reaches the viewport bottom so an
+          open Space's octagon (and the dock pinned inside its lower wedge) extends all
+          the way down — no home backdrop bleeding below the frame. Side padding stays
+          for the IN/OUT rail breathing room. */}
+      <div className="relative min-h-0 flex-1 px-2 pb-0 sm:px-3">
         <WorkSurface />
       </div>
     </main>

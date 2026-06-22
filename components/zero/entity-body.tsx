@@ -91,16 +91,17 @@ export function EntityBody({
             <DoList contextId={entityId} active={active} closing={closing} centered={centerList} />
           </div>
           {floatDock ? (
-            /* SPACE LEAF: pull the Dock OUT of the do-list flex column and pin it
-               just below the central rectangle (top:100%), nudged down into the
-               hexagon's bottom triangle. Freed of flex height, the do-list always
-               spans the full central rectangle, so it centers identically whether
-               or not items are pinned. The lift scales with the hexagon corner
-               inset; no transforms (so GSAP Flip never sees it). */
-            <div
-              className="absolute inset-x-0 flex justify-center"
-              style={{ top: "calc(100% - var(--hex-corner-inset-y, 0px) * 0.32)" }}
-            >
+            /* SPACE LEAF: pull the Dock OUT of the do-list flex column and pin it to
+               the BOTTOM of the central area so its cards sit INSIDE the octagon's
+               lower wedge (never hanging past the frame's bottom edge, which used to
+               crop them off the viewport). Anchored at `bottom`, the dock grows
+               UPWARD from just inside the frame bottom; freed of flex height, the
+               do-list always spans the full central rectangle, so it centers
+               identically whether or not items are pinned. `pointer-events-none` on
+               the wrapper keeps the do-list's bottom rows clickable through the
+               dock's empty padding; the Dock itself re-enables pointer events. No
+               transforms (so GSAP Flip never sees it). */
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-center">
               <div className="w-full">
                 <Dock contextId={entityId} active={active} />
               </div>
