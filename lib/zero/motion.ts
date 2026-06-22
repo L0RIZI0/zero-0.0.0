@@ -278,10 +278,20 @@ export const LEAF_BRACKET_PX = 60
 /**
  * Morph progress (measured from the LEAF end, 0..1) at which the hexagon apex SPLITS
  * into the wide octagon's flat edge. Below it the Space is a 120° HEXAGON that simply
- * GROWS with the frame; only above it do the top/bottom points split apart. High value
- * ⇒ the hexagon persists almost the whole way and splits late (what the user wants).
+ * GROWS and TRAVELS with the frame as a single merged apex; only above it do the
+ * top/bottom points split apart.
+ *
+ * This `q` is the SAME eased value (`driver.p`) that GSAP Flip uses to interpolate the
+ * frame's position, so `q` is exactly the fraction of the distance the frame's apex has
+ * travelled toward its FINAL top edge (the parent window's top for a space parent, or
+ * the parent header's bottom for a non-space parent — see stackTargetRect). The apex
+ * therefore "reaches the top" at q ≈ 1, so the split must start very late: we want the
+ * merged apex to ride all the way up and only fan into the octagon once it has arrived.
+ * 0.9 ⇒ the hexagon persists for ~90% of the travel; the split then plays out over the
+ * ease's slow tail (the `zeroLand` curve decelerates hard near the end, so q 0.9→1.0
+ * still spans enough real time for a smooth, non-abrupt split right at the top).
  */
-export const SPACE_SPLIT_AT = 0.68
+export const SPACE_SPLIT_AT = 0.9
 
 /**
  * The Space's two clip insets (PERCENTS) for a desired corner-bracket height in PIXELS
