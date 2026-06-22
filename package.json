@@ -2,11 +2,15 @@
   "name": "my-project",
   "version": "0.1.0",
   "private": true,
+  "main": "electron/main.cjs",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "electron": "electron .",
+    "electron:dev": "concurrently -k -n NEXT,ELECTRON -c blue,magenta \"next dev\" \"wait-on tcp:3000 && electron .\"",
+    "electron:build": "cross-env BUILD_TARGET=electron next build && electron-builder"
   },
   "dependencies": {
     "@base-ui/react": "^1.5.0",
@@ -29,8 +33,35 @@
     "@types/node": "^24",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "concurrently": "^10.0.3",
+    "cross-env": "^10.1.0",
+    "electron": "^42.4.1",
+    "electron-builder": "^26.15.3",
     "postcss": "^8.5",
     "tailwindcss": "^4.2.0",
-    "typescript": "5.7.3"
+    "typescript": "5.7.3",
+    "wait-on": "^9.0.10"
+  },
+  "build": {
+    "appId": "app.zero.desktop",
+    "productName": "Zero",
+    "files": [
+      "out/**/*",
+      "electron/**/*"
+    ],
+    "directories": {
+      "output": "release"
+    },
+    "mac": {
+      "target": "dmg",
+      "category": "public.app-category.productivity"
+    },
+    "win": {
+      "target": "nsis"
+    },
+    "linux": {
+      "target": "AppImage",
+      "category": "Utility"
+    }
   }
 }
