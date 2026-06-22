@@ -94,6 +94,22 @@ export interface Entity {
   seconds?: number
   /** Free-text labels. */
   tags?: string[]
+
+  // --- Web resource binding (the "contextual browser") ----------------------
+  /**
+   * When set, this entity is a RESOURCE TASK: opening it shows a live web surface
+   * (or an illustrative stand-in) instead of a do-list. This is how Zero behaves
+   * as a contextual browser — a Figma/Photopea/etc. tab that lives inside a Task
+   * and whose outputs can later wire into the Task's Outputs. Holds the URL the
+   * task opens. Present on `kind: "task"` entities created from a URL or resource.
+   */
+  webUrl?: string
+  /**
+   * Optional id into the known web-resource catalog (see `web-resources.ts`) for
+   * branding + embed behavior. Absent for an arbitrary typed URL (which falls back
+   * to generic embed + hostname branding).
+   */
+  webResourceId?: string
 }
 
 export interface Resource {

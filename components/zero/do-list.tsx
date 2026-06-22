@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { AnimatePresence, motion, type Transition } from "motion/react"
-import { Check, Pin, Trash2, Ban, RotateCcw, ChevronDown } from "lucide-react"
+import { Check, Pin, Trash2, Ban, RotateCcw, ChevronDown, Globe } from "lucide-react"
 import {
   getContextItems,
   isPinned,
@@ -12,11 +12,22 @@ import {
   setEventCancelled,
   changeEntityKind,
   addTask,
+  addWebTask,
   type ContextItem,
 } from "@/lib/zero/data"
+import {
+  WEB_RESOURCES,
+  getWebResource,
+  resolveWebResourceByUrl,
+  looksLikeUrl,
+  normalizeUrl,
+  webDisplayName,
+  type WebResource,
+} from "@/lib/zero/web-resources"
 import { useZeroNav, ADD_KEY } from "@/lib/zero/nav-store"
 import { MORPH_EASE } from "@/lib/zero/motion"
 import { NodeGlyph, NODE_KIND_META, type NodeKind } from "./node-glyph"
+import { ResourceGlyph } from "./resource-glyph"
 import { EntityNode } from "./entity-node"
 import { ContextMenu, type ContextMenuState } from "./context-menu"
 import { CaretTextInput } from "./caret-text-input"
@@ -127,6 +138,101 @@ function GlyphMenu({
 }
 
 /**
+ * The RESOURCE launcher menu — the second way to summon a web resource into a Task
+ * (the first being typing a URL into the input). Lists the known catalog (Photopea
+ * live, Figma/Notion/Linear illustrative); picking one creates a resource task in
+ * this context. Portaled + anchored like `GlyphMenu` so it escapes the list clip.
+ */
+function ResourceMenu({
+  anchor,
+  onSelect,
+  onClose,
+}: {
+  anchor: { left: number; top: number; bottom: number } | null
+  onSelect: (r: WebResource) => void
+  onClose: () => void
+}) {
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => setMounted(true), [])
+
+  useEffect(() => {
+    if (!anchor) return
+    const close = () => onClose()
+    window.addEventListener("scroll", close, true)
+    window.addEventListener("resize", close)
+    return () => {
+      window.removeEventListener("scroll", close, true)
+      window.removeEventListener("resize", close)
+    }
+  }, [anchor, onClose])
+
+  if (!mounted || !anchor) return null
+
+  const MENU_W = 268
+  const itemH = 52
+  const menuH = WEB_RESOURCES.length * itemH + 34
+  // Right-align the menu to the trigger (the launcher sits at the row's right end).
+  const left = Math.max(8, Math.min(anchor.left - MENU_W + 28, window.innerWidth - MENU_W - 8))
+  const below = anchor.bottom + 6
+  const top = below + menuH > window.innerHeight - 8 ? anchor.top - menuH - 6 : below
+
+  return createPortal(
+    <>
+      <div className="fixed inset-0 z-[140]" onPointerDown={onClose} aria-hidden />
+      <motion.div
+        role="listbox"
+        aria-label="Open a resource"
+        initial={{ opacity: 0, y: -6, scale: 0.97 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        exit={{ opacity: 0, y: -6, scale: 0.97 }}
+        transition={{ duration: 0.14, ease: [0.22, 0.61, 0.36, 1] }}
+        style={{ position: "fixed", left, top, width: MENU_W, transformOrigin: "top right" }}
+        className="z-[141] overflow-hidden rounded-md border border-border bg-popover p-1 shadow-[0_18px_50px_-20px_rgba(0,0,0,0.55)]"
+        onPointerDown={(e) => e.stopPropagation()}
+      >
+        <p className="px-2 pb-1 pt-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/70">
+          Open a resource
+        </p>
+        {WEB_RESOURCES.map((r) => (
+          <button
+            key={r.id}
+            type="button"
+            role="option"
+            aria-selected={false}
+            onClick={() => onSelect(r)}
+            className="flex w-full items-center gap-2.5 rounded-[4px] px-2 py-1.5 text-left transition-colors hover:bg-secondary/60"
+          >
+            <span className="h-6 w-6 shrink-0">
+              <ResourceGlyph resourceId={r.id} />
+            </span>
+            <span className="flex min-w-0 flex-1 flex-col">
+              <span className="flex items-center gap-1.5">
+                <span className="text-[13px] font-medium leading-tight text-foreground">{r.name}</span>
+                <span
+                  className={cn(
+                    "rounded-[3px] px-1 py-px text-[9px] font-medium uppercase tracking-wide",
+                    r.mode === "live"
+                      ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
+                      : "bg-foreground/10 text-muted-foreground",
+                  )}
+                >
+                  {r.mode === "live" ? "Live" : "Native"}
+                </span>
+              </span>
+              <span className="truncate text-[11px] leading-snug text-muted-foreground">{r.tagline}</span>
+            </span>
+          </button>
+        ))}
+        <p className="px-2 pb-1 pt-1 text-[10px] leading-snug text-muted-foreground/60">
+          …or type any URL in the field.
+        </p>
+      </motion.div>
+    </>,
+    document.body,
+  )
+}
+
+/**
  * The permanent terminal entity-creation row. Replaces the old "+ADD" button and
  * the on-demand EditRow: every DO list always ends with this draft input, so
  * opening a child never adds or removes a row — there is no reflow and no jump.
@@ -141,6 +247,7 @@ function CreateRow({
   animating,
   closing,
   onCreate,
+  onCreateWeb,
   onNavigateUp,
   onNavigateDown,
 }: {
@@ -157,6 +264,10 @@ function CreateRow({
   closing: boolean
   /** Commit a non-empty draft. The parent creates the entity and selects it. */
   onCreate: (title: string, kind: NodeKind) => void
+  /** Summon a web resource: either a URL typed into the field, or a pick from the
+   *  resource launcher. The parent creates a resource task and selects it (it then
+   *  opens with the normal two-step gesture). */
+  onCreateWeb: (url: string, resourceId?: string) => void
   /** ArrowUp out of the focused input hands selection back to the last real row. */
   onNavigateUp: () => void
   /** ArrowDown out of the focused input drops selection into the dock below. */
@@ -166,9 +277,17 @@ function CreateRow({
   const [kind, setKind] = useState<NodeKind>("task")
   const [title, setTitle] = useState("")
   const [anchor, setAnchor] = useState<{ left: number; top: number; bottom: number } | null>(null)
+  const [resAnchor, setResAnchor] = useState<{ left: number; top: number; bottom: number } | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
+  const resTriggerRef = useRef<HTMLButtonElement>(null)
   const menuOpen = anchor !== null
+  const resMenuOpen = resAnchor !== null
+  // When the draft text reads as a URL/bare domain, committing it summons a web
+  // resource instead of creating a plain task — so the leading glyph and the
+  // placeholder both flip to reflect that.
+  const isUrl = looksLikeUrl(title)
+  const urlResource = isUrl ? resolveWebResourceByUrl(normalizeUrl(title)) : undefined
 
   const selected = selection?.region === "list" && selection.key === ADD_KEY
 
@@ -194,17 +313,24 @@ function CreateRow({
   const commit = (keepFocus = false) => {
     const t = title.trim()
     if (!t) return
-    onCreate(t, kind)
+    // A URL-like draft becomes a RESOURCE TASK (web surface); anything else is a
+    // normal entity of the chosen kind.
+    if (looksLikeUrl(t)) {
+      onCreateWeb(normalizeUrl(t))
+    } else {
+      onCreate(t, kind)
+    }
     setTitle("")
     setKind("task")
     if (!keepFocus) inputRef.current?.blur()
   }
 
   const onKeyDown = (e: React.KeyboardEvent) => {
-    if (menuOpen) {
+    if (menuOpen || resMenuOpen) {
       if (e.key === "Escape") {
         e.preventDefault()
         setAnchor(null)
+        setResAnchor(null)
       }
       return
     }
@@ -259,6 +385,24 @@ function CreateRow({
     if (r) setAnchor({ left: r.left, top: r.top, bottom: r.bottom })
   }
 
+  const toggleResMenu = () => {
+    if (resMenuOpen) {
+      setResAnchor(null)
+      return
+    }
+    const r = resTriggerRef.current?.getBoundingClientRect()
+    if (r) setResAnchor({ left: r.left, top: r.top, bottom: r.bottom })
+  }
+
+  // Pick a resource from the launcher: create it (the parent selects it; the
+  // normal second Enter / click then opens it) and reset the draft.
+  const pickResource = (r: WebResource) => {
+    onCreateWeb(r.url, r.id)
+    setResAnchor(null)
+    setTitle("")
+    inputRef.current?.blur()
+  }
+
   return (
     // `layout` so the row glides as siblings are added/removed; `initial={false}`
     // because it's permanent (it must never animate itself in on open / context
@@ -287,17 +431,25 @@ function CreateRow({
           type="button"
           aria-haspopup="listbox"
           aria-expanded={menuOpen}
-          aria-label={`Type: ${NODE_KIND_META[kind].label}. Change type`}
+          // While the draft is a URL the kind chooser is irrelevant (it commits as a
+          // resource), so the trigger just reflects "resource" and the chevron hides.
+          aria-label={isUrl ? "Resource (from URL)" : `Type: ${NODE_KIND_META[kind].label}. Change type`}
           onClick={toggleMenu}
+          disabled={isUrl}
           className={cn(
             "flex items-center gap-0.5 rounded-[3px] py-0.5 pl-0.5 pr-1 text-foreground transition-colors hover:bg-foreground/10",
             menuOpen && "bg-foreground/10",
+            isUrl && "cursor-default hover:bg-transparent",
           )}
         >
           <span className={GLYPH_BOX}>
-            <NodeGlyph kind={kind} filled={false} strokeWidth={2} />
+            {isUrl ? (
+              <ResourceGlyph resourceId={urlResource?.id} url={normalizeUrl(title)} />
+            ) : (
+              <NodeGlyph kind={kind} filled={false} strokeWidth={2} />
+            )}
           </span>
-          <ChevronDown className="h-3 w-3 text-muted-foreground" />
+          {!isUrl && <ChevronDown className="h-3 w-3 text-muted-foreground" />}
         </button>
 
         <CaretTextInput
@@ -306,9 +458,28 @@ function CreateRow({
           onChange={(e) => setTitle(e.target.value)}
           onKeyDown={onKeyDown}
           onFocus={() => select("list", ADD_KEY)}
-          placeholder={`New ${NODE_KIND_META[kind].label.toLowerCase()}…`}
-          className="bg-transparent text-[13px] tracking-tight text-foreground outline-none placeholder:text-muted-foreground/50"
+          placeholder={`New ${NODE_KIND_META[kind].label.toLowerCase()}… or paste a URL`}
+          className="min-w-0 flex-1 bg-transparent text-[13px] tracking-tight text-foreground outline-none placeholder:text-muted-foreground/50"
         />
+
+        {/* Resource launcher — the second entry point. Hidden once the field already
+            reads as a URL (committing handles that). */}
+        {!isUrl && (
+          <button
+            ref={resTriggerRef}
+            type="button"
+            aria-haspopup="listbox"
+            aria-expanded={resMenuOpen}
+            aria-label="Open a resource"
+            onClick={toggleResMenu}
+            className={cn(
+              "flex h-6 w-6 shrink-0 items-center justify-center rounded-[4px] text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground",
+              resMenuOpen && "bg-foreground/10 text-foreground",
+            )}
+          >
+            <Globe className="h-4 w-4" strokeWidth={1.75} />
+          </button>
+        )}
       </div>
 
       <AnimatePresence>
@@ -319,6 +490,16 @@ function CreateRow({
             onSelect={pickKind}
             onClose={() => {
               setAnchor(null)
+              inputRef.current?.focus()
+            }}
+          />
+        )}
+        {resMenuOpen && (
+          <ResourceMenu
+            anchor={resAnchor}
+            onSelect={pickResource}
+            onClose={() => {
+              setResAnchor(null)
               inputRef.current?.focus()
             }}
           />
@@ -404,6 +585,26 @@ export function DoList({
     (title: string, kind: NodeKind) => {
       const entity = addTask({ title, spaceId: contextId })
       if (kind !== "task") changeEntityKind(entity.id, kind)
+      setBornId(entity.id)
+      notifyDataChanged()
+      select("list", entity.id, "keyboard")
+    },
+    [contextId, notifyDataChanged, select],
+  )
+
+  // Create a RESOURCE TASK from a typed URL or a launcher pick: a task bound to a
+  // web surface, titled by the matched resource (or its hostname). Selected in
+  // keyboard mode like a normal create, so the same second-Enter / click opens it
+  // — at which point its body renders the resource instead of a do-list.
+  const createWebEntity = useCallback(
+    (url: string, resourceId?: string) => {
+      const resource = getWebResource(resourceId) ?? resolveWebResourceByUrl(url)
+      const entity = addWebTask({
+        title: webDisplayName(url, resource?.id),
+        url,
+        spaceId: contextId,
+        resourceId: resource?.id,
+      })
       setBornId(entity.id)
       notifyDataChanged()
       select("list", entity.id, "keyboard")
@@ -594,6 +795,7 @@ export function DoList({
             animating={animating}
             closing={closing}
             onCreate={createEntity}
+            onCreateWeb={createWebEntity}
             onNavigateUp={navigateUpToList}
             onNavigateDown={navigateDownToDock}
           />

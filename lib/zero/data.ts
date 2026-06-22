@@ -953,6 +953,37 @@ export function addTask(input: { title: string; spaceId: string }): Entity {
   return entity
 }
 
+/**
+ * Create a RESOURCE TASK — a task bound to a web resource/URL. Opening it shows a
+ * web surface (live embed or illustrative stand-in) instead of a do-list. This is
+ * the create path behind the "type a URL / pick a resource" gesture. Title falls
+ * back to the resource/host name when the user only supplied a URL.
+ */
+export function addWebTask(input: {
+  title: string
+  url: string
+  spaceId: string
+  resourceId?: string
+}): Entity {
+  const entity: Entity = {
+    id: uid("t"),
+    kind: "task",
+    title: input.title,
+    parentId: input.spaceId,
+    taggedSpaceIds: [],
+    completed: false,
+    priority: "medium",
+    tags: [],
+    webUrl: input.url,
+    webResourceId: input.resourceId,
+  }
+  entities.push(entity)
+  byId.set(entity.id, entity)
+  userEntityIds.add(entity.id)
+  persist()
+  return entity
+}
+
 export function addSpace(input: { name: string; parentId: string }): Entity {
   const entity: Entity = {
     id: uid("s"),
