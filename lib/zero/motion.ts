@@ -467,7 +467,7 @@ export function spaceMorphPoints(
   const isCard = other === "card"
   const src = isCard ? regularHexPoints(W, H) : ROW_RECT_POINTS
   const fLin = q / SPACE_SPLIT_AT
-  const easeOut = 1 - Math.pow(1 - fLin, 4) // front-loaded: fast/far early
+  const easeOut = 1 - Math.pow(1 - fLin, 7) // front-loaded: fast/far early
   const easeIn = Math.pow(fLin, 3) // held back: moves late
   const fApex = easeOut
   const fSides = isCard ? easeIn : easeOut
