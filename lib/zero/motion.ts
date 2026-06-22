@@ -413,16 +413,30 @@ export function spaceMorphPoints(
     // Octagon ⇄ full-box rectangle (corner-based points), no hexagon waypoint.
     return lerpPoints(spaceClipPoints(0, 0), octagonPoints(W, H), q)
   }
-  // Card waypoint = centered regular hexagon (must not stretch); row waypoint =
-  // full-width pinned hexagon (must not shrink in width).
-  const hex = other === "card" ? regularHexPoints(W, H) : spaceClipPoints(50, LEAF_HY)
+  // The hexagon WAYPOINT is a TOP-PINNED hexagon at the octagon's LIVE side height:
+  // its apex twins are merged at the very top/bottom edges (50,0)/(50,100) and its
+  // side points already sit at the octagon's resting `hy`. Because only the merged
+  // top/bottom points differ from the octagon (x = 50 vs ax), the SPLIT leg below is
+  // a PURE HORIZONTAL slide of those points out to the flat edge — the side points
+  // never move during the split. This is the "apex splits only once it has reached
+  // the top" shape.
+  const { hy } = spaceLeafInsets(W, H)
+  const octagon = octagonPoints(W, H)
+  const hexWaypoint = spaceClipPoints(50, hy)
   if (q >= SPACE_SPLIT_AT) {
     const f = (q - SPACE_SPLIT_AT) / (1 - SPACE_SPLIT_AT)
-    return lerpPoints(hex, octagonPoints(W, H), f)
+    return lerpPoints(hexWaypoint, octagon, f)
   }
+  // PRE-SPLIT leg. The merged apex RISES all the way to the top edge while the shape
+  // opens out to the full-width pinned hexagon, in lock-step with the frame's growth —
+  // so the apex keeps pace VERTICALLY with the rising frame instead of stalling at a
+  // centered regular-hexagon proportion (whose apex SINKS as the frame turns tall) and
+  // then lurching up at the split. That stall-then-lurch was the mid-morph slowdown.
+  // The dock CARD starts from its own regular hexagon, so q=0 still matches the dock
+  // glyph exactly; the do-list ROW starts from its full rectangle.
   const f = q / SPACE_SPLIT_AT
-  const src = other === "card" ? hex : ROW_RECT_POINTS
-  return lerpPoints(src, hex, f)
+  const src = other === "card" ? regularHexPoints(W, H) : ROW_RECT_POINTS
+  return lerpPoints(src, hexWaypoint, f)
 }
 
 /**
