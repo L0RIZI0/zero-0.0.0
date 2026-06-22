@@ -657,12 +657,12 @@ export function EntityNode({
             // doesn't pop in early before the window has taken shape. Closing still
             // just unmounts it (asWindow flips false), so this only affects opening.
             data-fade-late
-            // For a leaf Space the X sits just inside the hexagon's top-RIGHT
-            // vertex. That vertex is at 25% of the frame HEIGHT — the only height at
-            // which the hexagon reaches the frame's full width (above it the shape
-            // slopes inward, so anchoring to --hex-inset-y, ~20%, would drop the X
-            // out in the clipped-away corner). So we anchor to 25% and nudge down+in
-            // a few px to clear the rounded corner. Other windows: true top-right.
+            // For a leaf Space the X sits just inside the octagon's upper-right
+            // corner — the TOP of the right VERTICAL edge, which the settled octagon
+            // reaches at ~9.2% of the frame height. It shares the OUT rail's horizontal
+            // center (24px in from the right edge) so the two read as a vertical column
+            // hugging the right edge: X at the top corner, OUT below it at mid-height.
+            // A few px of down-nudge clears the angled chamfer above the corner.
             style={{
               transitionDuration: DURATION_S,
               // Scope the CSS transition to POSITION only. With the default
@@ -673,10 +673,10 @@ export function EntityNode({
               // SLIDES from the normal top-right corner into the centered-on-peek spot.
               transitionProperty: "top, right, left",
               ...(spaceLeafWindow
-                ? // Hug the hexagon's top-RIGHT vertex (the full-width shoulder at 25%
-                  // height): a small down-nudge clears the rounded corner and a tight
-                  // right inset sits the X just inside the edge, right at the corner.
-                  { top: "calc(25% + 2px)", right: "8px" }
+                ? // Top of the octagon's right vertical edge (~9.2%), nudged down a few
+                  // px to clear the chamfer; right: 12px centers the 24px-wide X on the
+                  // OUT rail's 24px-from-edge axis so they align as a right-edge column.
+                  { top: "calc(9.2% + 4px)", right: "12px" }
                 : isSpine
                   ? // SPINE ancestor: mirror the left spine strip's glyph. The right
                     // BLEED is RIGHT_PEEK (24px) wide; the button is size-6 (24px), so
