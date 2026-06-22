@@ -372,9 +372,13 @@ export function ZeroNavProvider({
       const leafDepth = stack.length - 1
       const ancestorKinds = stack.slice(1, windowDepth).map((sid) => getEntity(sid)?.kind ?? "task")
       // ancestorKinds[i] is the window at depth (1 + i). It renders as a vertical
-      // SPINE — and therefore reserves no top peek — when it sits ≥ VERTICAL_BEHIND
-      // levels behind the leaf. Keep this rule identical to entity-node's `isSpine`.
-      const ancestorVertical = ancestorKinds.map((_k, i) => leafDepth - (1 + i) >= VERTICAL_BEHIND)
+      // SPINE — and therefore reserves no top peek — when EITHER it is a Space (which
+      // spines the instant it becomes an ancestor, never showing as a rectangle) OR it
+      // sits ≥ VERTICAL_BEHIND levels behind the leaf. Keep this rule identical to
+      // entity-node's `isSpine`.
+      const ancestorVertical = ancestorKinds.map(
+        (k, i) => k === "space" || leafDepth - (1 + i) >= VERTICAL_BEHIND,
+      )
       // A Space window (at any depth, leaf or ancestor) overlaps its immediate
       // parent's top/header, so stackTargetRect skips the last ancestor's top peek.
       const selfIsSpace = (getEntity(stack[windowDepth])?.kind ?? "task") === "space"

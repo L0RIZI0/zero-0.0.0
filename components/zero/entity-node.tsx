@@ -357,13 +357,19 @@ export function EntityNode({
         cancelled && "opacity-50",
       )
 
-  // SPINE: a stacked ancestor sitting ≥ VERTICAL_BEHIND levels behind the leaf
-  // collapses its horizontal header into a vertical left strip — glyph pinned to
-  // the top, title rotated 90° CCW to read up the strip. These ancestors reserve
-  // no top peek (see stackTargetRect), so they fan out as nested LEFT strips
-  // instead of pushing the leaf down the screen. Never the leaf, never a hexagon
-  // leaf; closing un-spines it (leafDepth shrinks → condition flips → rotates back).
-  const isSpine = asWindow && !isTop && leafDepth - depth >= VERTICAL_BEHIND
+  // SPINE: an ancestor window collapses its horizontal header into a vertical left
+  // strip — glyph pinned to the top, title rotated 90° CCW to read up the strip.
+  // These ancestors reserve no top peek (see stackTargetRect), so they fan out as
+  // nested LEFT strips instead of pushing the leaf down the screen.
+  //   • SPACE ancestors spine IMMEDIATELY — the moment a child opens inside them they
+  //     are no longer a "rectangle with a horizontal title": a Space only ever shows
+  //     as a hexagon/octagon leaf or a spine strip, never the in-between rectangle.
+  //   • Non-Space ancestors (task/event/instant) keep the nested-doll rectangle until
+  //     they sit ≥ VERTICAL_BEHIND levels behind the leaf, then spine.
+  // Never the leaf, never a hexagon leaf; closing un-spines (the window becomes the
+  // leaf again → condition flips → strip rotates back). Keep this rule identical to
+  // nav-store's `ancestorVertical`.
+  const isSpine = asWindow && !isTop && (isSpace || leafDepth - depth >= VERTICAL_BEHIND)
 
   // FLOATING HEADER (Space windows only). A Space window renders its glyph + title
   // as an ABSOLUTELY-POSITIONED overlay instead of an in-flow header band, so the
