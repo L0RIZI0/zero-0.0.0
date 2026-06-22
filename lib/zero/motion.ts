@@ -445,17 +445,27 @@ export function spaceMorphPoints(
   // no static hold. The CARD starts from the dock's centered regular hexagon; the do-list
   // ROW starts from its full rectangle.
   //
-  // Pacing is LINEAR in q here (NOT a front-loaded power curve). The driver `q` itself is
-  // already eased by `zeroLand` (fast through the middle), and a front-loaded curve ON TOP
-  // of that made the pointy hexagon SATURATE early and then DWELL — the shape looked
-  // "done" well before the split boundary, reading as an ease-out pause before the octagon
-  // bloom. A linear map makes the point carve at a constant rate that completes EXACTLY at
-  // SPACE_SPLIT_AT, so the bloom begins the instant the hexagon finishes — no dwell, one
-  // continuous gesture. The shape is a pure function of q, so this serves the close
-  // direction too.
+  // The eight points are paced on TWO decoupled curves so the hexagon stays POINTY rather
+  // than widening into a flat slab too early (both still reach 1 exactly at SPACE_SPLIT_AT,
+  // so the endpoints are unchanged and the bloom hands off with no dwell):
+  //   • APEX / top-bottom corners (indices 0,1,4,5) — FRONT-LOADED (ease-out). They cover
+  //     most of their vertical rise to the top/bottom edge EARLY, so the point is carved
+  //     up front and the shape reads as a tall, pointy hexagon from the start.
+  //   • SIDE shoulders (indices 2,3,6,7) — HELD BACK (ease-in). The left/right widening is
+  //     deferred so the shape does NOT stretch out horizontally too soon; the sides only
+  //     fan to full width late in the leg, just before the split.
+  // The shape is a pure function of q, so this also serves the close direction (the sides
+  // collapse first, the point relaxes last).
   const src = other === "card" ? regularHexPoints(W, H) : ROW_RECT_POINTS
-  const f = q / SPACE_SPLIT_AT
-  return lerpPoints(src, hexWaypoint, f)
+  const fLin = q / SPACE_SPLIT_AT
+  const fApex = 1 - Math.pow(1 - fLin, 2.4) // ease-out: corners travel further, faster, early
+  const fSides = Math.pow(fLin, 1.8) // ease-in: shoulders hold back, widen late
+  const APEX = new Set([0, 1, 4, 5])
+  return src.map(([sx, sy], i) => {
+    const [wx, wy] = hexWaypoint[i]
+    const t = APEX.has(i) ? fApex : fSides
+    return [sx + (wx - sx) * t, sy + (wy - sy) * t] as [number, number]
+  })
 }
 
 /**
