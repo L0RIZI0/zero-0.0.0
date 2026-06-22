@@ -375,10 +375,14 @@ export function ZeroNavProvider({
       // SPINE — and therefore reserves no top peek — when it sits ≥ VERTICAL_BEHIND
       // levels behind the leaf. Keep this rule identical to entity-node's `isSpine`.
       const ancestorVertical = ancestorKinds.map((_k, i) => leafDepth - (1 + i) >= VERTICAL_BEHIND)
+      // A Space window (at any depth, leaf or ancestor) overlaps its immediate
+      // parent's top/header, so stackTargetRect skips the last ancestor's top peek.
+      const selfIsSpace = (getEntity(stack[windowDepth])?.kind ?? "task") === "space"
       let rect = stackTargetRect(
         ancestorKinds,
         { w: liftedRegion.width, h: liftedRegion.height },
         ancestorVertical,
+        selfIsSpace,
       )
       // A frontmost LEAF Space fills its WHOLE box (full width minus side peeks,
       // full height) and the clip carves a wide OCTAGON from it — flat top/bottom
@@ -388,9 +392,8 @@ export function ZeroNavProvider({
       // the same Flip pass (brackets ride to the corners, flat edges spread to full
       // width). The expanded ancestor is then a plain, cheap rectangle (no inset,
       // no drop-shadow filter), which is also why opening/closing stays snappy.
-      const isSpaceWindow = (getEntity(stack[windowDepth])?.kind ?? "task") === "space"
       const isLeaf = windowDepth === stack.length - 1
-      const isSpaceLeaf = isSpaceWindow && isLeaf
+      const isSpaceLeaf = selfIsSpace && isLeaf
       let hexInsetY = 0
       // Distance from the hexagon's TOP POINT down to its upper side corners — i.e.
       // the top of the central horizontal rectangle (the band between the four side

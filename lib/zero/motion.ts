@@ -218,6 +218,13 @@ export function stackTargetRect(
   // SAME top, so deeply-stacked spines fan out horizontally instead of marching
   // the leaf ever further down the screen.
   ancestorVertical?: boolean[],
+  // True when the window BEING computed is itself a Space. A Space child rises to
+  // OVERLAP its immediate parent's header/top — regardless of the parent's kind —
+  // so its IMMEDIATE parent (the last ancestor) reserves NO top peek for it. Deeper
+  // ancestors still reserve theirs, so the Space simply shares its parent's top edge
+  // (which may itself be pushed down by grandparents). Non-Space children keep the
+  // normal nested-doll top peek and stay visually inside their parent.
+  selfIsSpace?: boolean,
 ): Rect {
   let top = 0
   let left = WINDOW_BASE_SIDE
@@ -233,14 +240,16 @@ export function stackTargetRect(
     // WINDOW_BASE_SIDE.)
     right += RIGHT_PEEK
     left += TASK_SIDE
-    if (!ancestorVertical?.[i]) top += TASK_TOP_PEEK
-    // When THIS ancestor is a Space, nudge its child an extra 2px down so the
-    // Space's top border peeks above the child. This is applied REGARDLESS of the
-    // spine check above: an ancestor Space is always in rectangle mode (the hexagon
-    // is leaf-only), so even when it's a vertical spine — which normally shares its
-    // top with its child — its child should still drop 2px so the Space's top edge
-    // shows. The accumulating `top` carries the shift to all deeper descendants.
-    if (kind === "space") top += SPACE_CHILD_TOP_PEEK
+    // A Space child overlaps its IMMEDIATE parent's top: skip the last ancestor's
+    // top reservations so the Space rises onto its parent's top edge (its header).
+    const skipTopPeek = selfIsSpace === true && i === ancestorKinds.length - 1
+    if (!ancestorVertical?.[i] && !skipTopPeek) top += TASK_TOP_PEEK
+    // When THIS ancestor is a Space, nudge its child an extra few px down so the
+    // Space's top border peeks above the child — UNLESS the child is itself a Space
+    // (skipTopPeek), which instead overlaps this border. Applied regardless of the
+    // spine check: an ancestor Space is always in rectangle mode (hexagon is
+    // leaf-only). The accumulating `top` carries the shift to all deeper descendants.
+    if (kind === "space" && !skipTopPeek) top += SPACE_CHILD_TOP_PEEK
   })
   return { top, left, width: region.w - left - right, height: region.h - top - bottom }
 }
