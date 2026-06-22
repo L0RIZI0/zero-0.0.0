@@ -647,8 +647,21 @@ export function EntityNode({
               // (transition-property: all), the inline duration also animated opacity,
               // which fought the GSAP fade-in tween and produced an erratic flicker.
               // Restricting it to top/right/left lets GSAP cleanly own the opacity fade.
+              // Because these are inline values that flip when the window SPINES, the X
+              // SLIDES from the normal top-right corner into the centered-on-peek spot.
               transitionProperty: "top, right, left",
-              ...(spaceLeafWindow ? { top: "calc(25% + 6px)", right: "16px" } : null),
+              ...(spaceLeafWindow
+                ? { top: "calc(25% + 6px)", right: "16px" }
+                : isSpine
+                  ? // SPINE ancestor: mirror the left spine strip's glyph. The right
+                    // BLEED is RIGHT_PEEK (24px) wide; the button is size-6 (24px), so
+                    // `right: 0` makes it fill and center the X exactly on that peek
+                    // (instead of `right-1.5`, which crowded it toward the children).
+                    // `top: 5px` lifts the X so its center (~17px) lines up with the
+                    // spine glyph's center (pt-[9px] + half a 16px glyph), so the X
+                    // reads as the right-side twin of the glyph.
+                    { top: "5px", right: "0px" }
+                  : null),
             }}
             // z-[35]: must stay BELOW the child window. Frames are position:fixed
             // but nested in the DOM, so a child window resolves at z-40 INSIDE this
@@ -657,7 +670,9 @@ export function EntityNode({
             // keeps the X confined to this ancestor's own exposed top-right corner.
             className={cn(
               "absolute z-[35] flex flex-col items-center gap-1",
-              spaceLeafWindow ? "" : "right-1.5 top-3",
+              // Leaf hexagon + spine use inline top/right (above); everyone else uses
+              // the static top-right corner.
+              spaceLeafWindow || isSpine ? "" : "right-1.5 top-3",
             )}
           >
             <button

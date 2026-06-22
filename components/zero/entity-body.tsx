@@ -15,8 +15,6 @@ import { cn } from "@/lib/utils"
 const PANEL_OPEN_W = 230
 const PANEL_RAIL_W = 48
 
-/** Comfortable margin (px) between the floated Space dock and the frame's bottom edge. */
-const DOCK_BOTTOM_GAP = 20
 
 /**
  * An entity's working surface: its Tasks do-list + Dock (center), with the
@@ -94,21 +92,24 @@ export function EntityBody({
             <DoList contextId={entityId} active={active} closing={closing} centered={centerList} />
           </div>
           {floatDock ? (
-            /* SPACE LEAF: pull the Dock OUT of the do-list flex column and drop it into
-               the octagon's BOTTOM triangle, DOCK_BOTTOM_GAP px above the FRAME's
-               bottom edge. `[data-body]` is only the octagon's CENTRAL RECTANGLE (inset
-               top+bottom by `--hex-corner-inset-y`); this wrapper's offset parent fills
-               that body, so `bottom: 0` lands at the BODY bottom — one corner-inset
-               ABOVE the frame bottom (mid-window, too high). Offsetting `bottom` by
-               `GAP − corner-inset` pushes the dock down through the bottom wedge to sit
-               exactly GAP px above the true frame bottom. Freed of flex height, the
-               do-list always spans the full central rectangle, so it centers identically
-               whether or not items are pinned. `pointer-events-none` lets the do-list's
-               bottom rows stay clickable through the dock's empty padding; the Dock
-               re-enables pointer events. No transforms (so GSAP Flip never sees it). */
+            /* SPACE LEAF: pull the Dock OUT of the do-list flex column and drop it
+               FLUSH to the octagon's bottom edge — exactly mirroring the home view,
+               where the dock sits flush to the work-area bottom and its only gap is
+               the Dock's own internal spacing below the card glyphs. `[data-body]` is
+               only the octagon's CENTRAL RECTANGLE (inset top+bottom by
+               `--hex-corner-inset-y`); this wrapper's offset parent fills that body, so
+               `bottom: 0` lands at the BODY bottom — one corner-inset ABOVE the frame
+               bottom (mid-window, too high). Offsetting `bottom` by `-corner-inset`
+               pushes the dock down through the bottom wedge to sit flush with the true
+               frame bottom, so the resulting visual margin matches home identically.
+               Freed of flex height, the do-list always spans the full central rectangle,
+               so it centers identically whether or not items are pinned.
+               `pointer-events-none` lets the do-list's bottom rows stay clickable
+               through the dock's empty padding; the Dock re-enables pointer events. No
+               transforms (so GSAP Flip never sees it). */
             <div
               className="pointer-events-none absolute inset-x-0 flex justify-center"
-              style={{ bottom: `calc(${DOCK_BOTTOM_GAP}px - var(--hex-corner-inset-y, 0px))` }}
+              style={{ bottom: `calc(var(--hex-corner-inset-y, 0px) * -1)` }}
             >
               <div className="w-full">
                 <Dock contextId={entityId} active={active} />
