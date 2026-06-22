@@ -673,7 +673,10 @@ export function EntityNode({
               // SLIDES from the normal top-right corner into the centered-on-peek spot.
               transitionProperty: "top, right, left",
               ...(spaceLeafWindow
-                ? { top: "calc(25% + 6px)", right: "16px" }
+                ? // Hug the hexagon's top-RIGHT vertex (the full-width shoulder at 25%
+                  // height): a small down-nudge clears the rounded corner and a tight
+                  // right inset sits the X just inside the edge, right at the corner.
+                  { top: "calc(25% + 2px)", right: "8px" }
                 : isSpine
                   ? // SPINE ancestor: mirror the left spine strip's glyph. The right
                     // BLEED is RIGHT_PEEK (24px) wide; the button is size-6 (24px), so
@@ -1133,12 +1136,15 @@ export function EntityNode({
                   // Inputs/Outputs rails centered on that short content near the top
                   // — so on tall screens they floated well above the window center.
                   "flex min-h-0 flex-1 flex-col",
-              // Only the LEAF Space hexagon insets its content horizontally into the
-              // shape's safe band. Kept small (px-[4%]) so the vertically centered
-              // IN/OUT rails — which live at the hexagon's full-width mid-section —
-              // sit close to its left/right edges. Expanded ancestor Spaces are
-              // rectangles and fill normally.
-              spaceLeafWindow && "px-[4%]",
+              // NOTE: no horizontal padding here, on purpose. The IN/OUT rails are an
+              // absolute overlay anchored to this body's left/right edges, so any padding
+              // would push them inward — and worse, a LEAF-only inset (the old `px-[4%]`)
+              // was REMOVED the instant the Space spined to an ancestor, snapping both
+              // rails outward by that padding in one frame (the "jump into place" on
+              // peek/bleed). With the body always flush to the frame, the rails sit close
+              // to the edges like a Task window AND keep a stable anchor across the
+              // leaf→spine flip, so only their width tweens (smoothly). The do-list/Dock
+              // stay safely inset via their own centered `max-w` + `w-2/3` column.
             )}
           >
             <EntityBody
