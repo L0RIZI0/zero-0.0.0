@@ -435,19 +435,23 @@ export function spaceMorphPoints(
   // The dock CARD starts from its own regular hexagon, so q=0 still matches the dock
   // glyph exactly; the do-list ROW starts from its full rectangle.
   const fLinear = q / SPACE_SPLIT_AT
-  // FRONT-LOAD the apex with an ease-out QUINTIC (very steep slope at f=0, flat at f=1).
-  // The shape is a pure function of q, so this single concave curve serves BOTH
-  // directions:
-  //   • opening (q sweeps 0→split) ⇒ the apex covers most of its rise EARLY and reaches
-  //     a HIGH position before the curve flattens — "faster early, slows only near the
-  //     very top". A higher exponent pushes that deceleration knee further up: at the
-  //     midpoint the quintic is already ~97% risen vs ~88% for a cubic.
-  //   • closing (q sweeps split→0) ⇒ df/dq is largest near q=0, so once the split apex
-  //     points have collapsed back together the apex snaps home FAST — "faster at the
-  //     end of the shrink".
-  const f = 1 - Math.pow(1 - fLinear, 5)
   const src = other === "card" ? regularHexPoints(W, H) : ROW_RECT_POINTS
-  return lerpPoints(src, hexWaypoint, f)
+  // The four SIDE corners (indices 2,3,6,7) keep their existing ease-out QUINTIC
+  // trajectory/speed — this is the bezier-like opening the rest of the morph rides on.
+  const fCorners = 1 - Math.pow(1 - fLinear, 5)
+  const base = lerpPoints(src, hexWaypoint, fCorners)
+  // Run the APEX twins' VERTICAL travel (indices 0,1 top, 4,5 bottom) on a MUCH steeper
+  // front-load so the top apex reaches up (and the bottom apex reaches down) FAR sooner
+  // than the corners spread out. That makes the shape look like a proper "regular" tall
+  // hexagon almost immediately instead of a flat horizontally-stretched one, without
+  // touching the corners' path. Apex X is a constant 50 in both src and waypoint, so we
+  // only need to override Y. The shape is a pure function of q, so this also makes the
+  // closing direction's apex collapse home fast once the split points re-merge.
+  const fApexY = 1 - Math.pow(1 - fLinear, 12)
+  for (const i of [0, 1, 4, 5]) {
+    base[i][1] = src[i][1] + (hexWaypoint[i][1] - src[i][1]) * fApexY
+  }
+  return base
 }
 
 /**
