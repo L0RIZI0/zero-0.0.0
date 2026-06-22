@@ -445,21 +445,32 @@ export function spaceMorphPoints(
   // no static hold. The CARD starts from the dock's centered regular hexagon; the do-list
   // ROW starts from its full rectangle.
   //
-  // The eight points are paced on TWO decoupled curves so the hexagon stays POINTY rather
-  // than widening into a flat slab too early (both still reach 1 exactly at SPACE_SPLIT_AT,
-  // so the endpoints are unchanged and the bloom hands off with no dwell):
-  //   • APEX / top-bottom corners (indices 0,1,4,5) — FRONT-LOADED (ease-out). They cover
-  //     most of their vertical rise to the top/bottom edge EARLY, so the point is carved
-  //     up front and the shape reads as a tall, pointy hexagon from the start.
-  //   • SIDE shoulders (indices 2,3,6,7) — HELD BACK (ease-in). The left/right widening is
-  //     deferred so the shape does NOT stretch out horizontally too soon; the sides only
-  //     fan to full width late in the leg, just before the split.
-  // The shape is a pure function of q, so this also serves the close direction (the sides
-  // collapse first, the point relaxes last).
-  const src = other === "card" ? regularHexPoints(W, H) : ROW_RECT_POINTS
+  // The eight points are paced on decoupled curves (all still reach 1 exactly at
+  // SPACE_SPLIT_AT, so the endpoints are unchanged and the bloom hands off with no dwell).
+  // The two sources need OPPOSITE treatment because the shape's "point" is carved by
+  // different vertices in each:
+  //
+  //   • dock CARD (regularHexPoints → top-pinned hexagon): the point already exists; the
+  //     side shoulders (2,3,6,7) must WIDEN outward (x: inset → frame edge) and the apex
+  //     (0,1,4,5) must RISE (y → top/bottom edge). Here we FRONT-LOAD the apex (rise early)
+  //     and HOLD BACK the sides (ease-in) so the hexagon stays narrow/pointy and does not
+  //     flatten into a wide slab too soon.
+  //
+  //   • do-list ROW (full rectangle → top-pinned hexagon): the apex twins do NOT move at
+  //     all (already at the top/bottom mid-edge); the point is carved ENTIRELY by the side
+  //     corners (2,3,6,7) sliding their Y inward. So for the row those corners must be
+  //     FRONT-LOADED — otherwise the rectangle just GROWS as a rectangle for many frames
+  //     before abruptly becoming a hexagon. Front-loading them makes the rectangle morph
+  //     into a hexagon right away, with almost no rectangle phase.
+  //
+  // The shape is a pure function of q, so each curve also serves the close direction.
+  const isCard = other === "card"
+  const src = isCard ? regularHexPoints(W, H) : ROW_RECT_POINTS
   const fLin = q / SPACE_SPLIT_AT
-  const fApex = 1 - Math.pow(1 - fLin, 4) // ease-out: corners travel further, faster, early
-  const fSides = Math.pow(fLin, 3) // ease-in: shoulders hold back, widen late
+  const easeOut = 1 - Math.pow(1 - fLin, 4) // front-loaded: fast/far early
+  const easeIn = Math.pow(fLin, 3) // held back: moves late
+  const fApex = easeOut
+  const fSides = isCard ? easeIn : easeOut
   const APEX = new Set([0, 1, 4, 5])
   return src.map(([sx, sy], i) => {
     const [wx, wy] = hexWaypoint[i]
