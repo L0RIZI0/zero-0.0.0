@@ -434,7 +434,15 @@ export function spaceMorphPoints(
   // then lurching up at the split. That stall-then-lurch was the mid-morph slowdown.
   // The dock CARD starts from its own regular hexagon, so q=0 still matches the dock
   // glyph exactly; the do-list ROW starts from its full rectangle.
-  const f = q / SPACE_SPLIT_AT
+  const fLinear = q / SPACE_SPLIT_AT
+  // FRONT-LOAD the apex with an ease-out cubic (steep slope at f=0, flat at f=1). The
+  // shape is a pure function of q, so this single concave curve serves BOTH directions:
+  //   • opening (q sweeps 0→split) ⇒ the apex covers most of its rise EARLY, then eases
+  //     into the waypoint — "faster early in the expansion";
+  //   • closing (q sweeps split→0) ⇒ df/dq is largest near q=0, so once the split apex
+  //     points have collapsed back together the apex snaps home FAST — "faster at the
+  //     end of the shrink".
+  const f = 1 - Math.pow(1 - fLinear, 3)
   const src = other === "card" ? regularHexPoints(W, H) : ROW_RECT_POINTS
   return lerpPoints(src, hexWaypoint, f)
 }
