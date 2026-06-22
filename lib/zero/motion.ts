@@ -143,33 +143,6 @@ export function telescopicSurface(depth: number, leafDepth: number, isDark: bool
   return surfaceAt(telescopicLevel(depth, leafDepth, isDark))
 }
 
-/**
- * INNER shadow (inset box-shadow) for a Space surface, by `strength` ∈ [0,1]:
- *   0 = collapsed row-button / dock-card → no shadow
- *   1 = expanded leaf octagon (and it REMAINS at 1 once the leaf becomes an ancestor)
- *
- * Why inset and not a normal drop shadow: a `clip-path` polygon clips the element's
- * paint to the hexagon/octagon, which clips an OUTER box-shadow away entirely. An INSET
- * shadow is painted INSIDE the box, so the part that lands within the polygon survives
- * the clip and traces the real angled edges — giving the shape genuine inner depth.
- *
- * The morph driver tweens `strength` from the source shape's value to the target's, so
- * the shadow blooms in as a row/card opens into the octagon and fades out on close. At
- * rest React commits strength 1 (leaf/ancestor) or omits the shadow (collapsed).
- */
-export function spaceInnerShadow(strength: number, isDark: boolean): string {
-  const s = Math.max(0, Math.min(1, strength))
-  if (s <= 0.001) return "none"
-  const r = (n: number) => (n * s).toFixed(3)
-  if (isDark) {
-    // 1px inset rim (the dark-mode Space boundary) + a tighter, slightly stronger
-    // inner darkening (less blur = reads closer/less distant, a touch more opaque).
-    return `inset 0 0 0 1px rgb(255 255 255 / ${r(0.3)}), inset 0 1px 16px rgb(0 0 0 / ${r(0.6)})`
-  }
-  // Light mode: a tighter, slightly stronger inner darkening (no rim).
-  return `inset 0 1px 12px rgb(0 0 0 / ${r(0.18)})`
-}
-
 /** Geometry of the nested-doll window stack (px), keyed off absolute depth. */
 export const TOP_PEEK_PX = 40
 export const SIDE_PX = 10
