@@ -15,6 +15,9 @@ import { cn } from "@/lib/utils"
 const PANEL_OPEN_W = 230
 const PANEL_RAIL_W = 48
 
+/** Comfortable margin (px) between the floated Space dock and the frame's bottom edge. */
+const DOCK_BOTTOM_GAP = 20
+
 /**
  * An entity's working surface: its Tasks do-list + Dock (center), with the
  * Inputs / Outputs side panels OVERLAID on the left/right edges.
