@@ -162,12 +162,12 @@ export function spaceInnerShadow(strength: number, isDark: boolean): string {
   if (s <= 0.001) return "none"
   const r = (n: number) => (n * s).toFixed(3)
   if (isDark) {
-    // 1px inset rim (the dark-mode Space boundary) + a soft inner darkening.
-    return `inset 0 0 0 1px rgb(255 255 255 / ${r(0.3)}), inset 0 1px 30px rgb(0 0 0 / ${r(0.5)})`
+    // 1px inset rim (the dark-mode Space boundary) + a tighter, slightly stronger
+    // inner darkening (less blur = reads closer/less distant, a touch more opaque).
+    return `inset 0 0 0 1px rgb(255 255 255 / ${r(0.3)}), inset 0 1px 16px rgb(0 0 0 / ${r(0.6)})`
   }
-  // Light mode: the boundary is the SVG outline overlay, so only a soft inner darkening
-  // (no rim, which would double the outline).
-  return `inset 0 1px 22px rgb(0 0 0 / ${r(0.12)})`
+  // Light mode: a tighter, slightly stronger inner darkening (no rim).
+  return `inset 0 1px 12px rgb(0 0 0 / ${r(0.18)})`
 }
 
 /** Geometry of the nested-doll window stack (px), keyed off absolute depth. */

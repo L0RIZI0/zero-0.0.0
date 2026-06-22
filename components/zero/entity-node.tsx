@@ -324,8 +324,11 @@ export function EntityNode({
   // separate rectangle ring faded in — the awkward light-mode "swap" we're fixing.
   // DARK mode renders no SVG (the dark surface reads cleanly; the ancestor's inset
   // ring in the style branch supplies its boundary there), so dark is unchanged.
+  // Temporarily hide the LIGHT-mode rim to evaluate the borderless look (the inner
+  // shadow now supplies the boundary). Flip back to `true` to restore the rim.
+  const SHOW_SPACE_OUTLINE = false
   const spaceOutlinePoints =
-    mounted && !isDark && isSpace
+    SHOW_SPACE_OUTLINE && mounted && !isDark && isSpace
       ? asWindow
         ? spaceLeafWindow
           ? spaceClipPoints(leafAx, leafAy)
