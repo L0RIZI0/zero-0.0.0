@@ -91,17 +91,24 @@ export function EntityBody({
             <DoList contextId={entityId} active={active} closing={closing} centered={centerList} />
           </div>
           {floatDock ? (
-            /* SPACE LEAF: pull the Dock OUT of the do-list flex column and pin it to
-               the BOTTOM of the central area so its cards sit INSIDE the octagon's
-               lower wedge (never hanging past the frame's bottom edge, which used to
-               crop them off the viewport). Anchored at `bottom`, the dock grows
-               UPWARD from just inside the frame bottom; freed of flex height, the
-               do-list always spans the full central rectangle, so it centers
-               identically whether or not items are pinned. `pointer-events-none` on
-               the wrapper keeps the do-list's bottom rows clickable through the
-               dock's empty padding; the Dock itself re-enables pointer events. No
+            /* SPACE LEAF: pull the Dock OUT of the do-list flex column and drop it into
+               the octagon's BOTTOM triangle, ~20px above the FRAME's bottom edge.
+               `[data-body]` is only the octagon's CENTRAL RECTANGLE (inset top+bottom
+               by `--hex-corner-inset-y`), so a plain `bottom-0` would land at ~75% of
+               the frame — mid-window, too high. The frame bottom sits one corner-inset
+               BELOW the body bottom, so a negative `bottom` of `-corner-inset` pushes
+               the dock down past the body into the bottom wedge; +DOCK_BOTTOM_GAP keeps
+               a comfortable margin off the very bottom. (Offset parent here is inset
+               +20px above the frame bottom, so this nets ~DOCK_BOTTOM_GAP px clearance.)
+               Freed of flex height, the do-list always spans the full central rectangle,
+               so it centers identically whether or not items are pinned.
+               `pointer-events-none` lets the do-list's bottom rows stay clickable
+               through the dock's empty padding; the Dock re-enables pointer events. No
                transforms (so GSAP Flip never sees it). */
-            <div className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-center">
+            <div
+              className="pointer-events-none absolute inset-x-0 flex justify-center"
+              style={{ bottom: `calc(${DOCK_BOTTOM_GAP}px - var(--hex-corner-inset-y, 0px) - ${DOCK_BOTTOM_GAP}px)` }}
+            >
               <div className="w-full">
                 <Dock contextId={entityId} active={active} />
               </div>
