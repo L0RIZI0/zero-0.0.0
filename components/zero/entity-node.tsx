@@ -22,6 +22,7 @@ import {
   surfaceAt,
   telescopicLevel,
   telescopicSurface,
+  spaceInnerShadow,
   type SpaceKind,
 } from "@/lib/zero/motion"
 import { DURATION_S, MORPH_CSS_EASE } from "@/lib/zero/flip-stage"
@@ -514,6 +515,11 @@ export function EntityNode({
                   ...(winStyle ?? {}),
                   borderRadius: 0,
                   clipPath,
+                  // Full inner shadow — an inset box-shadow survives the octagon clip
+                  // (an outer drop shadow would be clipped away) and traces the angled
+                  // edges, giving the expanded leaf real depth. The morph driver tweens
+                  // this in from 0 as the row/card opens (see playStage).
+                  boxShadow: spaceInnerShadow(1, isDark),
                   // The hexagon overflows the region top/bottom; the content (header +
                   // body) is inset into the shape's visible, full-width middle band by
                   // a `margin` on those children (header marginTop, body marginBottom —
@@ -564,8 +570,11 @@ export function EntityNode({
                   ...(clipPath
                     ? {
                         clipPath,
-                        // DARK only: light mode's boundary is the morphing SVG outline.
-                        ...(isDark ? { boxShadow: "inset 0 0 0 1px rgb(255 255 255 / 0.30)" } : null),
+                        // The inner shadow REMAINS at full strength once a leaf becomes
+                        // an ancestor. In dark mode this also supplies the 1px boundary
+                        // rim; in light mode the boundary is the morphing SVG outline and
+                        // the helper emits only the soft inner darkening.
+                        boxShadow: spaceInnerShadow(1, isDark),
                       }
                     : null),
                 }

@@ -3,7 +3,7 @@
 import gsap from "gsap"
 import { Flip } from "gsap/Flip"
 import { CustomEase } from "gsap/CustomEase"
-import { MORPH_SECONDS, spaceMorphPoints, type SpaceKind } from "./motion"
+import { MORPH_SECONDS, spaceMorphPoints, spaceInnerShadow, type SpaceKind } from "./motion"
 
 /**
  * The GSAP Flip morph engine for Zero's focus-window region — a faithful port of
@@ -211,6 +211,11 @@ export function playStage(
         // from a degenerate q=0 rectangle and, if interrupted, leave it stuck as a rect.
         .filter((fr) => fr.source !== fr.target)
       if (frames.length) {
+        // Inner-shadow strength per shape: the expanded octagon (leaf) and the ancestor
+        // it becomes carry the full inset shadow; the collapsed row/card carry none. The
+        // shadow blooms in/out as the frame morphs between these (see spaceInnerShadow).
+        const isDark = !document.documentElement.classList.contains("light")
+        const shadowStrength = (k: SpaceKind) => (k === "leaf" || k === "ancestor" ? 1 : 0)
         const driver = { p: 0 }
         gsap.to(driver, {
           p: 1,
@@ -226,6 +231,12 @@ export function playStage(
               if (fr.outline) {
                 fr.outline.setAttribute("points", pts.map(([x, y]) => `${x},${y}`).join(" "))
               }
+              // Tween the inner shadow from the source strength to the target strength.
+              // At p=1 this equals React's committed boxShadow for the target shape, so —
+              // like the clipPath above — we leave the inline value (no pop on settle).
+              const from = shadowStrength(fr.source)
+              const to = shadowStrength(fr.target)
+              fr.el.style.boxShadow = spaceInnerShadow(from + (to - from) * driver.p, isDark)
             }
           },
           // No onComplete reset: the final frame (p=1) already equals React's
