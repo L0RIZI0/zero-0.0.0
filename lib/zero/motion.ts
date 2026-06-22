@@ -443,13 +443,18 @@ export function spaceMorphPoints(
   // PRE-SPLIT leg. The shape morphs from the source toward the top-pinned pointy hexagon,
   // so the merged apex RISES to the top edge and the point carves continuously — there is
   // no static hold. The CARD starts from the dock's centered regular hexagon; the do-list
-  // ROW starts from its full rectangle. Motion uses a FRONT-LOADED power curve (exponent
-  // < 1): fast at the start — honoring "faster early" — with a NON-ZERO terminal slope
-  // (0.7 at f=1) so it does NOT decay to a stall as it hands off to the split leg. The
-  // shape is a pure function of q, so this serves the close direction too.
-  const fLinear = q / SPACE_SPLIT_AT
+  // ROW starts from its full rectangle.
+  //
+  // Pacing is LINEAR in q here (NOT a front-loaded power curve). The driver `q` itself is
+  // already eased by `zeroLand` (fast through the middle), and a front-loaded curve ON TOP
+  // of that made the pointy hexagon SATURATE early and then DWELL — the shape looked
+  // "done" well before the split boundary, reading as an ease-out pause before the octagon
+  // bloom. A linear map makes the point carve at a constant rate that completes EXACTLY at
+  // SPACE_SPLIT_AT, so the bloom begins the instant the hexagon finishes — no dwell, one
+  // continuous gesture. The shape is a pure function of q, so this serves the close
+  // direction too.
   const src = other === "card" ? regularHexPoints(W, H) : ROW_RECT_POINTS
-  const f = Math.pow(fLinear, 0.7)
+  const f = q / SPACE_SPLIT_AT
   return lerpPoints(src, hexWaypoint, f)
 }
 
