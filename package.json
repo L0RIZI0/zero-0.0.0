@@ -9,7 +9,7 @@
     "start": "next start",
     "lint": "eslint .",
     "electron": "electron .",
-    "electron:dev": "concurrently -k -n NEXT,ELECTRON -c blue,magenta \"next dev\" \"wait-on tcp:3000 && electron .\"",
+    "electron:dev": "concurrently -k -n NEXT,ELECTRON -c blue,magenta \"next dev\" \"wait-on tcp:3000 && electronmon .\"",
     "electron:build": "cross-env BUILD_TARGET=electron next build && electron-builder"
   },
   "dependencies": {
@@ -37,6 +37,7 @@
     "cross-env": "^10.1.0",
     "electron": "^42.4.1",
     "electron-builder": "^26.15.3",
+    "electronmon": "^2.0.4",
     "postcss": "^8.5",
     "tailwindcss": "^4.2.0",
     "typescript": "5.7.3",
@@ -63,6 +64,11 @@
       "target": "AppImage",
       "category": "Utility"
     }
+  },
+  "electronmon": {
+    "patterns": [
+      "electron/**/*"
+    ]
   },
   "pnpm": {
     "onlyBuiltDependencies": [

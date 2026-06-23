@@ -116,6 +116,54 @@ app.on("window-all-closed", () => {
 /** @type {Map<string, import('electron').WebContentsView>} */
 const resourceViews = new Map()
 
+/** Partitions whose session has already had its embedding guards stripped. */
+const preparedPartitions = new Set()
+
+// A modern Chrome UA. Electron's default UA contains "Electron/…" and the app
+// name, which some sites (Google included) treat as an unsupported browser. The
+// Chrome version is kept roughly aligned with the bundled Chromium.
+const RESOURCE_UA =
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
+
+/**
+ * Make a partitioned session embeddable. Sites defend against being embedded with
+ * `X-Frame-Options`, CSP `frame-ancestors`, and cross-origin isolation headers —
+ * which is exactly what produces the blank view / ERR_BLOCKED_BY_RESPONSE. Since a
+ * resource view is top-level content the user explicitly opened (not a tracking
+ * frame), we strip those response headers, the same approach Electron-based
+ * browsers use to host arbitrary sites. Registered once per partition.
+ */
+function prepareResourceSession(partition) {
+  if (preparedPartitions.has(partition)) return
+  preparedPartitions.add(partition)
+  const ses = session.fromPartition(partition)
+  ses.setUserAgent(RESOURCE_UA)
+
+  const STRIP = new Set([
+    "x-frame-options",
+    "content-security-policy",
+    "content-security-policy-report-only",
+    "cross-origin-opener-policy",
+    "cross-origin-embedder-policy",
+    "cross-origin-resource-policy",
+  ])
+
+  ses.webRequest.onHeadersReceived((details, callback) => {
+    const headers = details.responseHeaders || {}
+    for (const key of Object.keys(headers)) {
+      if (STRIP.has(key.toLowerCase())) delete headers[key]
+    }
+    callback({ responseHeaders: headers })
+  })
+
+  // Send a Chrome-like UA on the request side too (some sites sniff the header,
+  // not just navigator.userAgent).
+  ses.webRequest.onBeforeSendHeaders((details, callback) => {
+    details.requestHeaders["User-Agent"] = RESOURCE_UA
+    callback({ requestHeaders: details.requestHeaders })
+  })
+}
+
 /** Snap a CSS-pixel rect from the renderer to integer device-independent bounds. */
 function toBounds(rect) {
   return {
@@ -150,6 +198,7 @@ ipcMain.handle("zero:resource:mount", async (_e, args) => {
 
   // Per-resource persistent partition → independent, sticky logins ("subscriptions").
   const partition = `persist:resource:${resourceId || "web"}`
+  prepareResourceSession(partition)
   const view = new WebContentsView({
     webPreferences: {
       partition,
