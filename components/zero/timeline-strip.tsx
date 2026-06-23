@@ -467,13 +467,19 @@ export function TimelineStrip({
             />
 
             {/* now marker — pinned at today 1:05pm in absolute time; scrolls out
-                of view as the user drags away from today. */}
+                of view as the user drags away from today. A crisp accent rule
+                capped by a small filled dot at top and bottom reads as a precise
+                "this instant" pointer on the lifeline. */}
             <div
-              className="pointer-events-none absolute bottom-1 top-1 z-10 w-px"
+              className="pointer-events-none absolute -bottom-px -top-px z-20 w-px"
               style={{ left: `${pct(NOW_ABS)}%`, backgroundColor: accent ?? "var(--accent)" }}
             >
               <span
-                className="absolute -left-[3px] -top-1 h-[7px] w-[7px] rounded-full"
+                className="absolute -left-[2.5px] -top-[3px] h-[6px] w-[6px] rounded-full ring-2 ring-card"
+                style={{ backgroundColor: accent ?? "var(--accent)" }}
+              />
+              <span
+                className="absolute -bottom-[3px] -left-[2.5px] h-[6px] w-[6px] rounded-full ring-2 ring-card"
                 style={{ backgroundColor: accent ?? "var(--accent)" }}
               />
             </div>
@@ -528,15 +534,30 @@ export function TimelineStrip({
                       onContextMenu={(ev) => openMenu(ev, e)}
                       aria-current={isOpen ? "true" : undefined}
                       title={`${e.title} · ${fmt(at)}`}
-                      className="flex flex-col items-center transition-[filter] hover:brightness-110"
+                    className="flex flex-col items-center transition-[filter] hover:brightness-110"
+                  >
+                    <span
+                      className="relative flex h-3.5 w-3.5 items-center justify-center"
+                      style={{ color: markerColor }}
                     >
+                      {/* Soft accent halo — the Linear milestone "glow" that lifts
+                          the point marker off the track. Guarded for the neutral
+                          (oklch) fallback, where a hex+alpha suffix is invalid. */}
                       <span
-                        className="flex h-3 w-3 items-center justify-center"
-                        style={{ color: markerColor }}
-                      >
+                        className="absolute inset-[-3px] rounded-full"
+                        style={{
+                          backgroundColor: color
+                            ? `${color}24`
+                            : "color-mix(in oklab, var(--foreground) 12%, transparent)",
+                        }}
+                        aria-hidden
+                      />
+                      {/* relative z-[1]: paint the glyph ABOVE the absolute halo. */}
+                      <span className="relative z-[1] flex h-full w-full items-center justify-center">
                         <NodeGlyph kind="instant" filled strokeWidth={1.5} />
                       </span>
-                    </motion.button>
+                    </span>
+                  </motion.button>
                   </div>
                 )
               }
@@ -549,17 +570,19 @@ export function TimelineStrip({
               const boxStyle = {
                 left: `calc(${left}% + 2px)`,
                 width: `calc(${Math.max(width, 6)}% - 4px)`,
-                top: lane === 0 ? 6 : 28,
+                top: lane === 0 ? 5 : 29,
               } as const
-              // Brighter fill now that the overlay no longer doubles up on top
-              // of the chip — keeps the chips popping on their own.
+              // Linear-style "elevated bar": the whole bar carries a soft accent
+              // TINT with a 1px accent border (no heavy left rule), and a small
+              // rounded colour swatch leads the title — the project-colour cue
+              // Linear places beside each bar. Subtle shadow lifts it off the track.
               const chipVisual = {
-                borderLeftColor: markerColor,
-                backgroundColor: color ? `${color}40` : "var(--secondary)",
+                borderColor: color ? `${color}59` : "var(--border)",
+                backgroundColor: color ? `${color}26` : "var(--secondary)",
               } as const
 
               return (
-                <div key={e.id} className="absolute h-5" style={boxStyle}>
+                <div key={e.id} className="absolute h-[22px]" style={boxStyle}>
                   {/* Persistent chip — the timeline morph SOURCE. Tagged with
                       where="timeline" so opening from here grows the window out
                       of this chip's box. Clicking an already-open event pulses
@@ -580,11 +603,19 @@ export function TimelineStrip({
                     aria-current={isOpen ? "true" : undefined}
                     title={`${e.title} · ${fmt(start)}–${fmt(end)}`}
                     className={cn(
-                      "flex h-5 w-full items-center overflow-hidden rounded-sm border-l-2 px-1.5 text-[10.5px] tracking-tight",
-                      "text-foreground/90 backdrop-blur-sm transition-[filter] hover:brightness-110",
+                      "flex h-[22px] w-full items-center gap-1.5 overflow-hidden rounded-md border px-1.5 text-[10.5px] tracking-tight",
+                      "text-foreground/85 shadow-sm backdrop-blur-sm transition-[filter] hover:brightness-110",
                     )}
                     style={chipVisual}
                   >
+                    {/* Leading colour swatch — the bar's owner-space cue. Title
+                        keeps showing INSIDE the bar (truncating when the span is
+                        too narrow), matching the current behaviour. */}
+                    <span
+                      className="h-1.5 w-1.5 shrink-0 rounded-[2px]"
+                      style={{ backgroundColor: markerColor }}
+                      aria-hidden
+                    />
                     <span className={cn("truncate", e.cancelled && "line-through")}>
                       {e.title}
                     </span>
