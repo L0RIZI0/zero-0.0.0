@@ -33,18 +33,18 @@ export function WindowControls() {
       // Stacked just above the logo, right-aligned to its edge, so the logo stays
       // flush with the window edge. Hidden by default; fades in when the corner
       // (the parent `group`) is hovered, or while a control has focus.
-      className="absolute bottom-full right-0 mb-px flex items-center gap-px opacity-0 transition-opacity duration-200 group-hover:opacity-100 focus-within:opacity-100"
+      className="absolute bottom-full right-0 mb-0.5 flex items-center gap-1 opacity-0 transition-opacity duration-200 group-hover:opacity-100 focus-within:opacity-100"
       style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
       aria-label="Window controls"
     >
       <ControlButton label="Minimize" onClick={() => win.minimize()}>
-        <Minus className="h-3 w-3" />
+        <Minus className="h-2.5 w-2.5" />
       </ControlButton>
       <ControlButton label={maximized ? "Restore" : "Maximize"} onClick={() => win.toggleMaximize()}>
-        {maximized ? <Copy className="h-2.5 w-2.5 -scale-x-100" /> : <Square className="h-2.5 w-2.5" />}
+        {maximized ? <Copy className="h-2 w-2 -scale-x-100" /> : <Square className="h-2 w-2" />}
       </ControlButton>
       <ControlButton label="Close" danger onClick={() => win.close()}>
-        <X className="h-3 w-3" />
+        <X className="h-2.5 w-2.5" />
       </ControlButton>
     </div>
   )
@@ -67,7 +67,7 @@ function ControlButton({
       onClick={onClick}
       aria-label={label}
       className={cn(
-        "flex h-5 w-5 items-center justify-center rounded text-muted-foreground transition-colors",
+        "flex h-4 w-4 items-center justify-center rounded-sm text-muted-foreground transition-colors",
         danger
           ? "hover:bg-destructive hover:text-destructive-foreground"
           : "hover:bg-foreground/10 hover:text-foreground",
