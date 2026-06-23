@@ -315,11 +315,53 @@ export function ZeroNavProvider({
       return
     }
     setRegionRect(getRegionRect())
+
+    // Snapshot the nodes that carry a flip-id BEFORE the commit. After the
+    // commit, framer's AnimatePresence keeps the just-removed source node alive
+    // for a couple hundred ms to play its exit — so for a beat there are TWO
+    // live nodes with the SAME data-flip-id (the dying source + the freshly
+    // mounted destination). GSAP Flip's id-lookup can only hold one element per
+    // id, so the collision makes it grab the wrong (dying) node and the real
+    // one teleports. We record the pre-commit nodes here so we can neutralize
+    // those exact stale ghosts immediately after the commit.
+    const before = new Map<string, Element>()
+    if (typeof document !== "undefined") {
+      document.querySelectorAll("[data-flip-id]").forEach((el) => {
+        const id = el.getAttribute("data-flip-id")
+        if (id) before.set(id, el)
+      })
+    }
+
     const state = captureStage()
     flushSync(() => {
       mutate()
       setAnimating(true)
     })
+
+    // Kill the collision: for any flip-id now owned by more than one node, the
+    // stale ghost is the pre-commit node (the one framer is exiting). Strip its
+    // id and hide it so Flip's rematch query sees exactly one node per id and
+    // flies the real source→destination element. Framer still owns the ghost's
+    // unmount, so we only mutate presentation, never the tree.
+    if (typeof document !== "undefined") {
+      const byId = new Map<string, Element[]>()
+      document.querySelectorAll("[data-flip-id]").forEach((el) => {
+        const id = el.getAttribute("data-flip-id")
+        if (!id) return
+        const list = byId.get(id) ?? []
+        list.push(el)
+        byId.set(id, list)
+      })
+      byId.forEach((nodes, id) => {
+        if (nodes.length < 2) return
+        const stale = before.get(id)
+        if (stale && nodes.includes(stale)) {
+          ;(stale as HTMLElement).style.visibility = "hidden"
+          stale.removeAttribute("data-flip-id")
+        }
+      })
+    }
+
     playStage(state, { opening: false, top: null, closing: null, fading: [], rematch: true })
     settleTimer.current?.kill()
     settleTimer.current = gsap.delayedCall(MORPH_DURATION, () => {
