@@ -102,7 +102,15 @@ interface ZeroNavContextValue {
    *  commit synchronously with the `animating` gate raised so framer stands down,
    *  then play one Flip.from. Rows ⇄ dock cards glide because they share a
    *  data-flip-id across the two subtrees. */
-  morphCommit: (mutate: () => void) => void
+  morphCommit: (mutate: () => void, key?: string) => void
+  /** Flip-id of the entity whose right-click context menu is open, or null.
+   *  That entity renders its hover/highlight look while the menu is up. */
+  menuKey: string | null
+  /** Set/clear the entity whose context menu is open (its flip-id). */
+  setMenuKey: (key: string | null) => void
+  /** Flip-id of the entity currently flying between the do-list and dock during
+   *  a pin/unpin morph, or null. Kept lit for the whole flight. */
+  morphKey: string | null
   /** Register the focus-window region's current viewport rect (WorkSurface). */
   setRegionRect: (rect: RegionRect) => void
   /** A transient "attention" ping for an already-open entity. */
@@ -144,6 +152,15 @@ export function ZeroNavProvider({
   const [fading, setFading] = useState<WindowKey[]>([])
   const [animating, setAnimating] = useState(false)
   const settleTimer = useRef<ReturnType<typeof gsap.delayedCall> | null>(null)
+
+  // Flip-id (`${contextId}:${entityId}`) of the entity that should render its
+  // hover/highlight look even though the pointer may not be over it: `menuKey`
+  // while its right-click context menu is open, `morphKey` while it is flying
+  // between the do-list and the dock. Keying by flip-id (not region) means the
+  // held look carries across the row→card swap, since the row and the card
+  // share the same key — the landed node stays lit through the whole morph.
+  const [menuKey, setMenuKey] = useState<string | null>(null)
+  const [morphKey, setMorphKey] = useState<string | null>(null)
 
   const [dataVersion, setDataVersion] = useState(0)
   const [pulse, setPulse] = useState<{ id: string; n: number } | null>(null)
@@ -307,7 +324,7 @@ export function ZeroNavProvider({
    * mutation under reduced motion / before the stage mounts, so the data change
    * is never lost.
    */
-  const morphCommit = useCallback((mutate: () => void) => {
+  const morphCommit = useCallback((mutate: () => void, key?: string) => {
     const reduced =
       typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
     if (reduced) {
@@ -336,6 +353,11 @@ export function ZeroNavProvider({
     flushSync(() => {
       mutate()
       setAnimating(true)
+      // Keep the morphing entity lit for the whole flight, regardless of where
+      // the pointer is. Set inside the same commit so the freshly-mounted
+      // destination node (row→card or card→row) renders highlighted on its very
+      // first frame instead of flashing to rest.
+      if (key) setMorphKey(key)
     })
 
     // Kill the collision: for any flip-id now owned by more than one node, the
@@ -366,6 +388,7 @@ export function ZeroNavProvider({
     settleTimer.current?.kill()
     settleTimer.current = gsap.delayedCall(MORPH_DURATION, () => {
       setAnimating(false)
+      setMorphKey(null)
     })
   }, [setRegionRect])
 
@@ -567,6 +590,9 @@ export function ZeroNavProvider({
       dataVersion,
       notifyDataChanged,
       morphCommit,
+      menuKey,
+      setMenuKey,
+      morphKey,
       setRegionRect,
       pulse,
       requestPulse,
@@ -590,6 +616,8 @@ export function ZeroNavProvider({
     dataVersion,
     notifyDataChanged,
     morphCommit,
+    menuKey,
+    morphKey,
     setRegionRect,
     pulse,
     requestPulse,

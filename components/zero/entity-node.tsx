@@ -218,9 +218,15 @@ export function EntityNode({
   // morph, so toggling dark↔light recolours every frame even when React's style string
   // is unchanged across themes (e.g. level-0 windows that read `var(--background)` in
   // both) — that stale concrete colour was why some entities stayed dark after a switch.
+  // "Held" lit state that does NOT depend on the pointer being over the node:
+  // true while THIS entity's right-click menu is open (`menuKey`) or while it is
+  // flying between the do-list and the dock (`morphKey`). Keyed by the shared
+  // flip-id, so the highlight survives the row→card swap and the node lands lit.
+  const held = nav.menuKey === flip || (animating && nav.morphKey === flip)
+
   const frameSurface = asWindow
     ? telescopicSurface(depth, leafDepth, isDark)
-    : hovered || showHighlight || isClosing
+    : hovered || showHighlight || isClosing || held
       ? highlightColor
       : collapsedRest
 

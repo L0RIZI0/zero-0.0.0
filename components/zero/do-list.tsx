@@ -534,7 +534,7 @@ export function DoList({
    *  top). Pass `false` to force a specific list back to top-aligned. */
   centered?: boolean
 }) {
-  const { dataVersion, notifyDataChanged, morphCommit, open, selection, select, moveSelection, publishNavOrder, animating } =
+  const { dataVersion, notifyDataChanged, morphCommit, setMenuKey, open, selection, select, moveSelection, publishNavOrder, animating } =
     useZeroNav()
   // Re-read whenever data mutates or context changes. Pinned items are promoted
   // to the dock, so they're excluded here.
@@ -677,6 +677,8 @@ export function DoList({
   const openMenu = (e: React.MouseEvent, item: ContextItem) => {
     e.preventDefault()
     e.stopPropagation()
+    // Keep this row lit while its menu is open (pointer may move onto the menu).
+    setMenuKey(`${contextId}:${item.id}`)
     const canCancel = item.kind === "event" || item.kind === "instant"
     const isCancelled = !!item.entity.cancelled
     setMenu({
@@ -693,7 +695,7 @@ export function DoList({
             morphCommit(() => {
               pinItem(contextId, item.id)
               notifyDataChanged()
-            })
+            }, `${contextId}:${item.id}`)
           },
         },
         ...(canCancel
@@ -807,7 +809,13 @@ export function DoList({
         </AnimatePresence>
       </ul>
 
-      <ContextMenu state={menu} onClose={() => setMenu(null)} />
+      <ContextMenu
+        state={menu}
+        onClose={() => {
+          setMenu(null)
+          setMenuKey(null)
+        }}
+      />
     </section>
   )
 }

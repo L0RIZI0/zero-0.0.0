@@ -27,7 +27,7 @@ import { ContextMenu, type ContextMenuState } from "./context-menu"
  * the whole dock collapses to a small gap.
  */
 export function Dock({ contextId, active = true }: { contextId: string; active?: boolean }) {
-  const { open, dataVersion, notifyDataChanged, morphCommit, selection, moveSelection, publishNavOrder } =
+  const { open, dataVersion, notifyDataChanged, morphCommit, setMenuKey, selection, moveSelection, publishNavOrder } =
     useZeroNav()
   const [menu, setMenu] = useState<ContextMenuState | null>(null)
 
@@ -100,6 +100,8 @@ export function Dock({ contextId, active = true }: { contextId: string; active?:
   const openMenu = (e: React.MouseEvent, item: ContextItem) => {
     e.preventDefault()
     e.stopPropagation()
+    // Keep this card lit while its menu is open (pointer may move onto the menu).
+    setMenuKey(`${contextId}:${item.id}`)
     const canCancel = item.kind === "event" || item.kind === "instant"
     const isCancelled = !!item.entity.cancelled
     setMenu({
@@ -116,7 +118,7 @@ export function Dock({ contextId, active = true }: { contextId: string; active?:
             morphCommit(() => {
               unpinItem(contextId, item.id)
               notifyDataChanged()
-            })
+            }, `${contextId}:${item.id}`)
           },
         },
         ...(canCancel
@@ -178,7 +180,13 @@ export function Dock({ contextId, active = true }: { contextId: string; active?:
         </AnimatePresence>
       </div>
 
-      <ContextMenu state={menu} onClose={() => setMenu(null)} />
+      <ContextMenu
+        state={menu}
+        onClose={() => {
+          setMenu(null)
+          setMenuKey(null)
+        }}
+      />
     </div>
   )
 }
