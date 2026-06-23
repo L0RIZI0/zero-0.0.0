@@ -67,8 +67,10 @@
   "pnpm": {
     "onlyBuiltDependencies": [
       "electron",
+      "esbuild"
+    ],
+    "ignoredBuiltDependencies": [
       "electron-winstaller",
-      "esbuild",
       "sharp",
       "msw"
     ]
