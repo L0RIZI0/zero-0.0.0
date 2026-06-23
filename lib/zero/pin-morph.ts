@@ -1,168 +1,94 @@
 "use client"
 
-import { gsap } from "./flip-stage"
-import { spaceMorphPoints, type SpaceKind } from "./motion"
+import { flushSync } from "react-dom"
+import { captureStage, playStage, gsap } from "./flip-stage"
 
 /**
  * The PIN morph — a smooth row ⇄ dock-card transition.
  *
  * Pinning/unpinning moves an entity between two SEPARATE React subtrees (the
- * DO-list `<ul>` and the Dock `<div>`), so the single-persistent-node technique
- * the window morph relies on does NOT apply here: on pin the source row is
- * unmounted and a brand-new card is mounted elsewhere. There is no shared DOM
- * node to grow in place.
+ * DO-list `<ul>` and the Dock), so there is no single persistent DOM node to
+ * grow in place. But the row and the dock card BOTH carry the same
+ * `data-flip-id` (`${contextId}:${entityId}-frame`, plus matching ids on their
+ * nested glyph/title) and BOTH live inside the focus-window region (the GSAP
+ * Flip "stage"). That is all GSAP Flip needs: matching by flip-id, it animates
+ * the just-mounted card FROM the just-unmounted row's recorded position — the
+ * exact same engine the window open/close morph uses (`captureStage` → commit →
+ * `playStage`). The frame glides, the glyph + title ride along (`nested`), and
+ * Spaces morph their clip rectangle⇄hexagon — no clone, all real elements.
  *
- * Instead we fly a SELF-CONTAINED CLONE of the source node across the gap on a
- * fixed overlay (document.body, above everything), then cross-fade it into the
- * freshly-committed destination node. This is deliberately decoupled from the
- * GSAP Flip window engine: the clone carries NO `data-flip-*` identity, lives
- * OUTSIDE the focus-window stage, and is fully removed on completion — so it can
- * never be captured by `captureStage`/`playStage` or leave a stray inline style
- * that would corrupt the next window morph.
- *
- * Continuity comes from three things tweening together: the frame's
- * position+size (a manual FLIP), the glyph+title riding along inside the clone,
- * and — for Spaces — the clip-path morphing rectangle⇄hexagon via the very same
- * `spaceMorphPoints` driver the window morph uses (so the corner stays a true
- * 120° and the hexagon forms/dissolves cleanly).
+ * THE ONE WRINKLE: the DO-list animates a removed row out with a short framer
+ * `exit` (AnimatePresence `popLayout`). So for the ~0.18s after we commit a pin,
+ * the OLD row is still in the DOM, mid-exit, carrying the SAME flip-id as the
+ * brand-new dock card — a duplicate that would make `Flip.from` match two nodes
+ * for one id and animate the wrong one. We defuse this generically: right after
+ * the synchronous commit, any element that existed BEFORE the commit yet now
+ * shares its flip-id with a freshly-mounted twin is "neutralised" — its flip
+ * identity is stripped (so Flip ignores it) and it is hidden (so there is no
+ * faint double image while framer finishes fading it). The new card is then the
+ * sole match and morphs cleanly from the captured row position.
  */
-
-/** Quick, deliberate beat — much faster than the 2s window morph (a pin is a
- *  light, frequent gesture) but on the shared `zeroLand` curve so it reads as the
- *  same calm motion language. */
-const PIN_MORPH_S = 0.52
-
-type Direction = "pin" | "unpin"
-
 type PinMorphOpts = {
-  /** The per-instance flip prefix `${contextId}:${entityId}`. The frame node is
-   *  `${flip}-frame` — and crucially the row and the dock card BOTH carry this
-   *  same id (they are mutually exclusive in the DOM), so one query resolves the
-   *  source before the mutation and the destination after it. */
-  flip: string
-  /** Spaces clip to a hexagon as a card and a rectangle as a row, so their morph
-   *  also drives the clip-path. Non-spaces just translate/scale + cross-fade. */
-  isSpace: boolean
-  /** `"pin"` flies row→card; `"unpin"` flies card→row. */
-  direction: Direction
-  /** Commit the store change (pin/unpin + notifyDataChanged). Invoked AFTER the
-   *  source rect+clone are captured, so React can unmount the source and mount
-   *  the destination while the clone stands in for the gap. */
+  /** Commit the store change (pin/unpin + notifyDataChanged). Run inside
+   *  `flushSync` so the row→card swap paints before we measure + animate. */
   mutate: () => void
 }
 
-const lerp = (a: number, b: number, p: number) => a + (b - a) * p
-
 function prefersReducedMotion() {
   return (
-    typeof window !== "undefined" &&
-    window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
+    typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
   )
 }
 
-/**
- * Run a pin/unpin with a flying-clone morph. Falls back to a plain mutation (no
- * animation) when there is no source node to fly from or the user prefers
- * reduced motion — so the data change always happens regardless.
- */
-export function pinMorph({ flip, isSpace, direction, mutate }: PinMorphOpts) {
-  const sel = `[data-flip-id="${CSS.escape(`${flip}-frame`)}"][data-flip-role="frame"]`
-  const source = typeof document !== "undefined" ? document.querySelector<HTMLElement>(sel) : null
+/** Strip every flip identity inside (and on) a node so GSAP Flip cannot match
+ *  it, then hide it — used to retire a framer-exiting duplicate of a node that
+ *  has just been re-mounted elsewhere. */
+function neutralize(el: Element) {
+  const parts = [el, ...el.querySelectorAll("[data-flip-id]")]
+  for (const p of parts) {
+    p.removeAttribute("data-flip-id")
+    p.removeAttribute("data-flip-role")
+  }
+  gsap.set(el, { opacity: 0 })
+}
 
-  if (!source || prefersReducedMotion()) {
+/**
+ * Run a pin/unpin with the shared Flip-stage morph. Falls back to a plain
+ * synchronous mutation (no animation) under reduced motion or before the stage
+ * has mounted — so the data change always happens regardless.
+ */
+export function pinMorph({ mutate }: PinMorphOpts) {
+  if (typeof document === "undefined" || prefersReducedMotion()) {
     mutate()
     return
   }
 
-  const srcRect = source.getBoundingClientRect()
+  // Remember every flip node that exists BEFORE the commit, so we can recognise
+  // post-commit duplicates as the stale (framer-exiting) originals.
+  const before = new Set<Element>(document.querySelectorAll("[data-flip-id]"))
 
-  // Build the flying ghost from the live source node so it carries the exact
-  // glyph, title, fill and (for spaces) clip the user is looking at.
-  const ghost = source.cloneNode(true) as HTMLElement
-  // Strip identity so the window-morph engine can never pick it up, and so it
-  // isn't a duplicate of any real node.
-  ghost.removeAttribute("data-flip-id")
-  ghost.removeAttribute("data-window")
-  ghost.removeAttribute("id")
-  ghost.setAttribute("data-pin-ghost", "")
-  ghost.setAttribute("aria-hidden", "true")
-  Object.assign(ghost.style, {
-    position: "fixed",
-    margin: "0",
-    top: `${srcRect.top}px`,
-    left: `${srcRect.left}px`,
-    width: `${srcRect.width}px`,
-    height: `${srcRect.height}px`,
-    zIndex: "200",
-    pointerEvents: "none",
-    willChange: "top, left, width, height",
-  } satisfies Partial<CSSStyleDeclaration>)
-  document.body.appendChild(ghost)
+  // Snapshot the pre-pin layout, commit synchronously, then morph from the
+  // snapshot to the freshly-committed layout. `playStage` no-ops safely when the
+  // capture is null (stage not mounted yet), so the mutation is never lost.
+  const state = captureStage()
+  flushSync(() => {
+    mutate()
+  })
 
-  // Commit the data change: React unmounts the source row / mounts the dock card
-  // (or vice-versa). The ghost covers the gap meanwhile.
-  mutate()
+  // Retire any stale duplicate: a flip-id now shared by an old (exiting) node and
+  // a new one. Keep the new node; neutralise the old so Flip matches exactly one.
+  const byId = new Map<string, Element[]>()
+  for (const el of document.querySelectorAll("[data-flip-id]")) {
+    const id = el.getAttribute("data-flip-id")
+    if (!id) continue
+    const list = byId.get(id)
+    if (list) list.push(el)
+    else byId.set(id, [el])
+  }
+  for (const els of byId.values()) {
+    if (els.length < 2) continue
+    for (const el of els) if (before.has(el)) neutralize(el)
+  }
 
-  const sourceKind: SpaceKind = direction === "pin" ? "row" : "card"
-  const targetKind: SpaceKind = direction === "pin" ? "card" : "row"
-
-  const cleanup = () => ghost.remove()
-
-  // Wait for React's commit to paint (two frames), then measure the destination
-  // node — same flip-id, now the only match — and fly to it.
-  requestAnimationFrame(() =>
-    requestAnimationFrame(() => {
-      const dest = document.querySelector<HTMLElement>(sel)
-      if (!dest) {
-        // Destination never materialised (e.g. filtered out): just fade the ghost.
-        gsap.to(ghost, { opacity: 0, duration: 0.2, ease: "power1.in", onComplete: cleanup })
-        return
-      }
-
-      const dstRect = dest.getBoundingClientRect()
-      // Hold the real destination invisible until the cross-fade, so the ghost
-      // and the node never double-image.
-      gsap.set(dest, { opacity: 0 })
-
-      const driver = { p: 0 }
-      gsap.to(driver, {
-        p: 1,
-        duration: PIN_MORPH_S,
-        ease: "zeroLand",
-        onUpdate: () => {
-          const p = driver.p
-          const w = lerp(srcRect.width, dstRect.width, p)
-          const h = lerp(srcRect.height, dstRect.height, p)
-          ghost.style.width = `${w}px`
-          ghost.style.height = `${h}px`
-          ghost.style.top = `${lerp(srcRect.top, dstRect.top, p)}px`
-          ghost.style.left = `${lerp(srcRect.left, dstRect.left, p)}px`
-          if (isSpace) {
-            const pts = spaceMorphPoints(p, w, h, sourceKind, targetKind)
-            ghost.style.clipPath = `polygon(${pts.map(([x, y]) => `${x}% ${y}%`).join(", ")})`
-          }
-        },
-        onComplete: () => {
-          gsap.set(dest, { clearProps: "opacity" })
-          cleanup()
-        },
-      })
-
-      // Cross-fade over the final stretch: the ghost dissolves as the real node
-      // resolves in its place, hiding any glyph/title LAYOUT difference between a
-      // horizontal row and a centered card.
-      gsap.to(ghost, {
-        opacity: 0,
-        duration: PIN_MORPH_S * 0.4,
-        delay: PIN_MORPH_S * 0.6,
-        ease: "power1.in",
-      })
-      gsap.to(dest, {
-        opacity: 1,
-        duration: PIN_MORPH_S * 0.45,
-        delay: PIN_MORPH_S * 0.55,
-        ease: "power1.out",
-      })
-    }),
-  )
+  playStage(state, { opening: false, top: null, closing: null, fading: [] })
 }

@@ -688,13 +688,9 @@ export function DoList({
           label: "Pin to Dock",
           icon: <Pin className="h-3.5 w-3.5" />,
           onSelect: () => {
-            // Fly the row's clone down into its new dock card (row → hexagon),
-            // committing the pin mid-flight. Falls back to a plain pin when there's
-            // no node to fly from / reduced motion.
+            // Morph the row down into its new dock card (frame + glyph + title
+            // glide, Spaces morph rectangle→hexagon) via the shared Flip stage.
             pinMorph({
-              flip: `${contextId}:${item.id}`,
-              isSpace: item.kind === "space",
-              direction: "pin",
               mutate: () => {
                 pinItem(contextId, item.id)
                 notifyDataChanged()

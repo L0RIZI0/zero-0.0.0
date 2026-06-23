@@ -111,12 +111,9 @@ export function Dock({ contextId, active = true }: { contextId: string; active?:
           label: "Unpin from Dock",
           icon: <PinOff className="h-3.5 w-3.5" />,
           onSelect: () => {
-            // Fly the card's clone back up into its do-list row (hexagon → row),
-            // committing the unpin mid-flight.
+            // Morph the card back up into its do-list row (frame + glyph + title
+            // glide, Spaces morph hexagon→rectangle) via the shared Flip stage.
             pinMorph({
-              flip: `${contextId}:${item.id}`,
-              isSpace: item.kind === "space",
-              direction: "unpin",
               mutate: () => {
                 unpinItem(contextId, item.id)
                 notifyDataChanged()
