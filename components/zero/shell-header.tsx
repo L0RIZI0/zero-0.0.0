@@ -137,17 +137,20 @@ export function ShellHeader() {
             </kbd>
           </motion.span>
         </button>
-        <motion.span
-          className="font-semibold tracking-tight text-foreground"
-          initial={false}
-          animate={{ fontSize: compact ? 16 : 20 }}
-          transition={layerTransition}
-        >
-          zero
-        </motion.span>
-        {/* Frameless window min/max/close — renders only in the desktop app on
-            Windows/Linux; null on web and macOS. Sits just past the logo. */}
-        <WindowControls />
+        {/* Logo stays flush at the right edge; the window controls are stacked
+            ABOVE it (absolutely positioned) so they add no horizontal spacing,
+            and fade in only when the corner is hovered. */}
+        <div className="group relative flex items-center">
+          <WindowControls />
+          <motion.span
+            className="font-semibold tracking-tight text-foreground"
+            initial={false}
+            animate={{ fontSize: compact ? 16 : 20 }}
+            transition={layerTransition}
+          >
+            zero
+          </motion.span>
+        </div>
       </div>
     </motion.header>
   )
