@@ -38,8 +38,12 @@ export function ResourceCanvas({
   // Electron preload; undefined in the browser, and during SSR).
   const [isDesktop, setIsDesktop] = useState(false)
   useEffect(() => {
-    setIsDesktop(typeof window !== "undefined" && !!window.zero?.isDesktop)
-  }, [])
+    const detected = typeof window !== "undefined" && !!window.zero?.isDesktop
+    console.log(
+      `[v0] ResourceCanvas mount → window.zero=${typeof window !== "undefined" && !!window.zero} isDesktop=${detected} hasOnStatus=${typeof window !== "undefined" && typeof window.zero?.resource?.onStatus === "function"} url=${url}`,
+    )
+    setIsDesktop(detected)
+  }, [url])
 
   if (isDesktop) {
     return (
