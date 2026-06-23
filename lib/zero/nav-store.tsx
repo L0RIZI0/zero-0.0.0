@@ -320,7 +320,7 @@ export function ZeroNavProvider({
       mutate()
       setAnimating(true)
     })
-    playStage(state, { opening: false, top: null, closing: null, fading: [] })
+    playStage(state, { opening: false, top: null, closing: null, fading: [], rematch: true })
     settleTimer.current?.kill()
     settleTimer.current = gsap.delayedCall(MORPH_DURATION, () => {
       setAnimating(false)

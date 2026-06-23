@@ -158,7 +158,23 @@ type Key = { id: string; depth: number }
  */
 export function playStage(
   state: FlipState | null,
-  opts: { opening: boolean; top: Key | null; closing: Key | null; fading: Key[] },
+  opts: {
+    opening: boolean
+    top: Key | null
+    closing: Key | null
+    fading: Key[]
+    /**
+     * When true, re-query the live DOM for the morph targets instead of
+     * re-measuring the originally-captured element references. REQUIRED for
+     * cross-element morphs (pin/unpin) where the node that carries a given
+     * `data-flip-id` is REMOVED and a brand-new node with the same id is
+     * mounted elsewhere (row ⇄ dock card): Flip only matches the new node if it
+     * is present in the destination state, which means it must be re-queried.
+     * Window open/close reuses the same element reference, so it leaves this
+     * off and keeps the original (cheaper, conflict-free) behaviour.
+     */
+    rematch?: boolean
+  },
 ) {
   const stage = stageEl
   if (state) {
@@ -168,6 +184,9 @@ export function playStage(
     Flip.from(state, {
       duration: MORPH_DURATION,
       ease: MORPH_EASE,
+      // Re-query live DOM so newly-mounted nodes (the swapped-in row/card) join
+      // the destination state and get matched to the captured node by flip-id.
+      targets: opts.rematch && stage ? stage.querySelectorAll("[data-flip-id]") : undefined,
       absolute: "[data-flip-role='frame']",
       nested: true,
       // Flip animates only size/position here. The Space clip-path is driven SEPARATELY
