@@ -411,6 +411,18 @@ export function spaceMorphPoints(
   source: SpaceKind,
   target: SpaceKind,
 ): [number, number][] {
+  // PIN / UNPIN: a DIRECT dock-card ⇄ do-list-row morph. Neither end is a leaf
+  // window, so the leaf/octagon waypoint logic below does NOT apply — routing this
+  // pair through it sent the shape through a stretched, full-width hexagon (the
+  // "stretched diamond"). Instead morph the row's full-box rectangle straight to
+  // the card's centered REGULAR hexagon. `regularHexPoints` recomputes from the
+  // LIVE frame size every frame, so the hexagon stays perfectly regular (never
+  // stretches with the frame's changing aspect) across the whole flight. `p` runs
+  // source→target, so anchor the hexagon at whichever end is the card.
+  if ((source === "card" && target === "row") || (source === "row" && target === "card")) {
+    const hex = regularHexPoints(W, H)
+    return source === "card" ? lerpPoints(hex, ROW_RECT_POINTS, p) : lerpPoints(ROW_RECT_POINTS, hex, p)
+  }
   const leafTarget = target === "leaf"
   const other = leafTarget ? source : target
   const q = leafTarget ? p : 1 - p

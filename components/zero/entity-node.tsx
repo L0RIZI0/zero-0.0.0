@@ -370,15 +370,24 @@ export function EntityNode({
   //   - leaf / ancestor Space / closing / task window → surfaceAt(depth).
   //   - dock card AND do-list row → identical: rest at the parent surface
   //     (invisible), lift to surfaceAt(parentDepth + 1) on hover.
+  // Clip own content at REST so the body/glyph stay inside the card/window shape,
+  // but let it spill DURING a morph: the glyph + title are flip targets that travel
+  // their own arc between the row/card header and the window header, and a fast box
+  // resize would otherwise crop them against the shrinking frame until the morph
+  // landed. `overflow-visible` while `animating` frees them; the window body keeps
+  // its OWN `overflow-hidden` (see EntityBody), so nothing else spills.
+  const overflowClass = animating ? "overflow-visible" : "overflow-hidden"
   const frameClass = asWindow
     ? cn(
-        "flex cursor-default flex-col overflow-hidden shadow-2xl",
+        "flex cursor-default flex-col shadow-2xl",
+        overflowClass,
         fadingWindow && "pointer-events-none",
       )
     : cn(
         // Background is set inline (JS-driven hover) so it can use the dynamic
         // per-depth `surfaceAt` color. One effect for do-list rows AND dock cards.
-        "absolute inset-0 flex cursor-pointer flex-col overflow-hidden",
+        "absolute inset-0 flex cursor-pointer flex-col",
+        overflowClass,
         cancelled && "opacity-50",
       )
 
