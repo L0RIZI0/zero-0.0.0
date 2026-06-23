@@ -22,10 +22,31 @@ export interface ZeroDesktopBridge {
   openExternal: (url: string) => void
 }
 
+export interface ZeroMenuContext {
+  id: string
+  resourceId: string
+  url: string
+  pageTitle: string
+  selectionText: string
+  linkURL: string
+  srcURL: string
+  mediaType: string
+  isEditable: boolean
+}
+
+export interface ZeroMenuBridge {
+  onShow: (cb: (ctx: ZeroMenuContext) => void) => () => void
+  action: (actionId: string) => void
+  dismiss: () => void
+  resize: (size: { width: number; height: number; anchorOffsetX?: number; anchorOffsetY?: number }) => void
+}
+
 declare global {
   interface Window {
     /** Present only inside the Zero desktop (Electron) app. */
     zero?: ZeroDesktopBridge
+    /** Present only inside the branded context-menu overlay window. */
+    zeroMenu?: ZeroMenuBridge
   }
 }
 

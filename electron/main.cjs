@@ -8,7 +8,7 @@
 // ResourceCanvas) is STEP 2 and is intentionally not here yet — see the IPC stub
 // in preload.cjs and the comments at the bottom of this file for where it slots in.
 
-const { app, BrowserWindow, WebContentsView, protocol, net, shell, session, ipcMain } = require("electron")
+const { app, BrowserWindow, WebContentsView, protocol, net, shell, session, ipcMain, screen } = require("electron")
 const path = require("node:path")
 const { pathToFileURL } = require("node:url")
 
@@ -214,6 +214,13 @@ ipcMain.handle("zero:resource:mount", async (_e, args) => {
   mainWindow.contentView.addChildView(view)
   resourceViews.set(id, view)
 
+  // Right-click anywhere in the resource → Zero's own branded context menu, drawn
+  // in a transparent overlay window stacked ABOVE this native view (a DOM menu
+  // can't paint over a native WebContentsView, so the menu is itself native).
+  view.webContents.on("context-menu", (_e2, params) => {
+    showResourceMenu({ id, resourceId, url, params })
+  })
+
   // Links that try to open a new window (e.g. OAuth popups) open a real child
   // browser window rather than being denied, so sign-in flows work.
   view.webContents.setWindowOpenHandler(({ url: openUrl }) => {
@@ -283,3 +290,122 @@ ipcMain.on("zero:resource:unmount", (_e, id) => destroyResourceView(id))
 ipcMain.on("zero:open-external", (_e, url) => {
   if (typeof url === "string" && /^https?:\/\//.test(url)) shell.openExternal(url)
 })
+
+// ── Branded context-menu overlay ─────────────────────────────────────────────
+// The menu is a transparent, frameless child window (so it floats above the native
+// resource views and can show Zero's own themed UI with real rounded corners +
+// shadow). It loads the /desktop/context-menu route, receives the right-click
+// context, reports its measured size, and dismisses on blur / action / Escape.
+
+/** @type {BrowserWindow | null} */
+let menuWin = null
+let menuReady = false
+// Where the click happened, in screen px; the menu's top-left anchors here.
+let menuAnchor = { x: 0, y: 0 }
+
+function menuURL() {
+  return isDev ? `${DEV_URL}/desktop/context-menu` : "app://local/desktop/context-menu/"
+}
+
+function ensureMenuWin() {
+  if (menuWin && !menuWin.isDestroyed()) return menuWin
+  menuReady = false
+  menuWin = new BrowserWindow({
+    parent: mainWindow ?? undefined,
+    width: 280,
+    height: 380,
+    show: false,
+    frame: false,
+    transparent: true,
+    resizable: false,
+    movable: false,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    skipTaskbar: true,
+    hasShadow: false, // we draw our own shadow in CSS so rounded corners read right
+    backgroundColor: "#00000000",
+    webPreferences: {
+      preload: path.join(__dirname, "menu-preload.cjs"),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  })
+  menuWin.setMenuBarVisibility(false)
+  menuWin.loadURL(menuURL())
+  menuWin.webContents.once("did-finish-load", () => {
+    menuReady = true
+  })
+  // Click outside → lose focus → dismiss.
+  menuWin.on("blur", () => hideMenu())
+  menuWin.on("closed", () => {
+    menuWin = null
+    menuReady = false
+  })
+  return menuWin
+}
+
+function hideMenu() {
+  if (menuWin && !menuWin.isDestroyed() && menuWin.isVisible()) menuWin.hide()
+}
+
+function showResourceMenu({ id, resourceId, url, params }) {
+  if (!mainWindow) return
+  const view = resourceViews.get(id)
+  const win = ensureMenuWin()
+
+  // Translate the click (relative to the resource view's web contents) into screen
+  // coordinates: window content origin + the view's offset + the local click point.
+  const content = mainWindow.getContentBounds()
+  const vb = view ? view.getBounds() : { x: 0, y: 0 }
+  menuAnchor = {
+    x: Math.round(content.x + vb.x + params.x),
+    y: Math.round(content.y + vb.y + params.y),
+  }
+  win.setPosition(menuAnchor.x, menuAnchor.y)
+
+  const payload = {
+    id,
+    resourceId: resourceId || "",
+    url: url || "",
+    pageTitle: params.titleText || "",
+    selectionText: params.selectionText || "",
+    linkURL: params.linkURL || "",
+    srcURL: params.srcURL || "",
+    mediaType: params.mediaType || "none",
+    isEditable: !!params.isEditable,
+  }
+
+  const send = () => win.webContents.send("zero:menu:show", payload)
+  if (menuReady) send()
+  else win.webContents.once("did-finish-load", send)
+
+  win.showInactive()
+  win.focus()
+}
+
+// The menu route reports its rendered size (including a transparent margin for the
+// shadow); place + size the overlay, clamped to the current display's work area.
+ipcMain.on("zero:menu:resize", (_e, { width, height, anchorOffsetX = 0, anchorOffsetY = 0 }) => {
+  if (!menuWin || menuWin.isDestroyed()) return
+  const w = Math.max(1, Math.ceil(width))
+  const h = Math.max(1, Math.ceil(height))
+  const disp = screen.getDisplayNearestPoint(menuAnchor)
+  const wa = disp.workArea
+  let x = menuAnchor.x - Math.round(anchorOffsetX)
+  let y = menuAnchor.y - Math.round(anchorOffsetY)
+  // Keep fully on-screen; if it would overflow, shift back (and flip up if needed).
+  if (x + w > wa.x + wa.width) x = wa.x + wa.width - w
+  if (y + h > wa.y + wa.height) y = Math.max(wa.y, menuAnchor.y - h + Math.round(anchorOffsetY))
+  x = Math.max(wa.x, x)
+  y = Math.max(wa.y, y)
+  menuWin.setBounds({ x: Math.round(x), y: Math.round(y), width: w, height: h })
+})
+
+ipcMain.on("zero:menu:action", (_e, actionId) => {
+  console.log(`[v0] menu:action ${actionId}`)
+  hideMenu()
+})
+
+ipcMain.on("zero:menu:dismiss", () => hideMenu())
