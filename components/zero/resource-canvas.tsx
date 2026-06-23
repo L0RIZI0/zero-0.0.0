@@ -44,7 +44,14 @@ export function ResourceCanvas({
   if (isDesktop) {
     return (
       <div className="h-full w-full overflow-hidden bg-card">
-        <NativeSurface id={id} url={url} resourceId={resourceId} active={active} name={webDisplayName(url, resource?.id)} />
+        <NativeSurface
+          id={id}
+          url={url}
+          resourceId={resourceId}
+          active={active}
+          name={webDisplayName(url, resource?.id)}
+          resource={resource}
+        />
       </div>
     )
   }
@@ -68,21 +75,36 @@ export function ResourceCanvas({
  * DOM we can't clip/transform it, so we stream its bounds on every layout change
  * (resize, scroll, and the open/close morph) via rAF, and tear it down on unmount.
  */
+const OFFSCREEN = { x: -10000, y: -10000, width: 0, height: 0 }
+// Native views can't be GPU-transformed/clipped like the DOM, so during the open
+// morph they'd visibly trail the window. Instead we keep the view UNMOUNTED while
+// the rect is still changing, show a blurred branded preview in the DOM, and only
+// mount + snap the live view in once the rect has been STABLE for a few frames.
+const STABLE_FRAMES = 6
+const SETTLE_TIMEOUT_MS = 1600
+
 function NativeSurface({
   id,
   url,
   resourceId,
   active,
   name,
+  resource,
 }: {
   id: string
   url: string
   resourceId?: string
   active: boolean
   name: string
+  resource?: WebResource
 }) {
   const holderRef = useRef<HTMLDivElement>(null)
-  const [ready, setReady] = useState(false)
+  // settling = morph/load in progress (blurred preview shown); live = snapped in.
+  const [phase, setPhase] = useState<"settling" | "live" | "error">("settling")
+  const [detail, setDetail] = useState("")
+  const [retryKey, setRetryKey] = useState(0)
+  const activeRef = useRef(active)
+  activeRef.current = active
 
   useLayoutEffect(() => {
     const bridge = window.zero
@@ -90,50 +112,127 @@ function NativeSurface({
     if (!bridge || !holder) return
 
     let raf = 0
-    let last = ""
+    let stable = 0
+    let lastKey = ""
+    let mounted = false
+    let lastSent = ""
+    const start = performance.now()
+
     const rectOf = () => {
       const r = holder.getBoundingClientRect()
       return { x: r.x, y: r.y, width: r.width, height: r.height }
     }
+    const keyOf = (r: { x: number; y: number; width: number; height: number }) =>
+      `${Math.round(r.x)},${Math.round(r.y)},${Math.round(r.width)},${Math.round(r.height)}`
 
-    // Mount the native view at the current rect, then keep it pinned each frame.
-    // A per-frame diff avoids spamming IPC when nothing moved. While the open/close
-    // morph runs the rect changes every frame, so this naturally tracks it.
-    bridge.resource.mount({ id, url, resourceId, rect: rectOf() }).then(() => setReady(true))
-
-    const tick = () => {
-      const rect = rectOf()
-      const key = `${Math.round(rect.x)},${Math.round(rect.y)},${Math.round(rect.width)},${Math.round(rect.height)}`
-      if (key !== last) {
-        last = key
-        bridge.resource.setBounds({ id, rect })
+    // Reveal (snap-in) or error, driven by the native load result for THIS task.
+    const offStatus = bridge.resource.onStatus((s) => {
+      if (s.id !== id) return
+      if (s.ok) setPhase("live")
+      else {
+        setDetail(s.detail || "")
+        setPhase("error")
       }
-      raf = requestAnimationFrame(tick)
+    })
+
+    const loop = () => {
+      const rect = rectOf()
+      const key = keyOf(rect)
+      if (!mounted) {
+        // Wait for the morph to settle (rect unchanged for N frames) before mounting.
+        if (key === lastKey) stable++
+        else {
+          stable = 0
+          lastKey = key
+        }
+        const settled = stable >= STABLE_FRAMES || performance.now() - start > SETTLE_TIMEOUT_MS
+        if (settled && activeRef.current && rect.width > 0) {
+          mounted = true
+          lastSent = key
+          bridge.resource.mount({ id, url, resourceId, rect })
+        }
+      } else {
+        // Live: keep the native view pinned to the placeholder; park it offscreen
+        // when this window isn't the active leaf so it can't paint over ancestors.
+        const onScreen = activeRef.current
+        const sendKey = onScreen ? key : "off"
+        if (sendKey !== lastSent) {
+          lastSent = sendKey
+          bridge.resource.setBounds({ id, rect: onScreen ? rect : OFFSCREEN })
+        }
+      }
+      raf = requestAnimationFrame(loop)
     }
-    raf = requestAnimationFrame(tick)
+    raf = requestAnimationFrame(loop)
 
     return () => {
       cancelAnimationFrame(raf)
+      offStatus()
       bridge.resource.unmount(id)
     }
-  }, [id, url, resourceId])
+  }, [id, url, resourceId, retryKey])
 
-  // Hide the native view (by collapsing the placeholder offscreen) when this window
-  // isn't the active leaf, so it doesn't paint over ancestors behind the active one.
-  useEffect(() => {
-    const bridge = window.zero
-    const holder = holderRef.current
-    if (!bridge || !holder) return
-    if (active) return
-    bridge.resource.setBounds({ id, rect: { x: -10000, y: -10000, width: 0, height: 0 } })
-  }, [active, id])
+  const covered = phase !== "live" // blurred preview/error sits over the (empty) holder
 
   return (
-    <div ref={holderRef} className="relative h-full w-full">
-      {!ready && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-background">
-          <span className="h-6 w-6 animate-spin rounded-full border-2 border-border border-t-foreground" aria-hidden />
-          <p className="text-[13px] text-muted-foreground">{`Loading ${name}…`}</p>
+    <div ref={holderRef} className="relative h-full w-full bg-card">
+      {/* Blurred branded preview — visible during the morph + initial load, then
+          fades out as the live native view snaps in. */}
+      <div
+        className={cn(
+          "absolute inset-0 transition-opacity duration-200",
+          covered ? "opacity-100" : "pointer-events-none opacity-0",
+        )}
+        aria-hidden={!covered}
+      >
+        <div className="absolute inset-0 scale-105 opacity-70 blur-[8px]">
+          {resource ? <PreviewSkeleton resource={resource} /> : <div className="h-full w-full bg-muted" />}
+        </div>
+        <div className="absolute inset-0 bg-background/40" />
+        {phase !== "error" && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
+            <span className="h-10 w-10">
+              <ResourceGlyph resourceId={resource?.id} url={url} />
+            </span>
+            <div className="flex items-center gap-2">
+              <span className="h-4 w-4 animate-spin rounded-full border-2 border-border border-t-foreground" aria-hidden />
+              <p className="text-[13px] text-muted-foreground">{`Loading ${name}…`}</p>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Graceful failure (e.g. a site that refuses to load) — never a dead white
+          view; offer a retry and an escape hatch to the real browser. */}
+      {phase === "error" && (
+        <div className="absolute inset-0 flex items-center justify-center px-6">
+          <div className="flex max-w-[320px] flex-col items-center gap-3 rounded-xl border border-border bg-popover/95 px-6 py-6 text-center shadow-[0_24px_60px_-24px_rgba(0,0,0,0.5)]">
+            <span className="h-11 w-11">
+              <ResourceGlyph resourceId={resource?.id} url={url} />
+            </span>
+            <p className="text-pretty text-sm font-medium leading-snug">{`${name} couldn't be loaded here`}</p>
+            {detail && <p className="text-pretty text-xs leading-relaxed text-muted-foreground">{detail}</p>}
+            <div className="flex items-center gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setPhase("settling")
+                  setDetail("")
+                  setRetryKey((k) => k + 1)
+                }}
+                className="rounded-md bg-secondary px-3 py-1.5 text-[12px] font-medium text-secondary-foreground transition-colors hover:bg-secondary/80"
+              >
+                Retry
+              </button>
+              <button
+                type="button"
+                onClick={() => window.zero?.openExternal(url)}
+                className="rounded-md px-3 py-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground"
+              >
+                Open in browser
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

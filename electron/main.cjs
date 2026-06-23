@@ -189,6 +189,7 @@ function destroyResourceView(id) {
 ipcMain.handle("zero:resource:mount", async (_e, args) => {
   if (!mainWindow) return
   const { id, url, resourceId, rect } = args
+  console.log(`[v0] resource:mount id=${id} resourceId=${resourceId || "-"} url=${url}`)
   // Already mounted (e.g. re-open): just reposition so work-in-progress survives.
   const existing = resourceViews.get(id)
   if (existing) {
@@ -238,10 +239,28 @@ ipcMain.handle("zero:resource:mount", async (_e, args) => {
     })
   })
 
+  // Tell the renderer when a load finishes or fails, so it can reveal the view
+  // (snap-in) or show a graceful error/open-externally affordance.
+  const report = (ok, detail) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("zero:resource:status", { id, ok, detail })
+    }
+  }
+  view.webContents.on("did-finish-load", () => {
+    console.log(`[v0] resource:loaded id=${id}`)
+    report(true)
+  })
+  view.webContents.on("did-fail-load", (_e2, code, desc, validatedURL, isMainFrame) => {
+    // -3 == ERR_ABORTED, fired for benign client-side redirects; ignore it.
+    if (!isMainFrame || code === -3) return
+    console.log(`[v0] resource:failed id=${id} code=${code} desc=${desc} url=${validatedURL}`)
+    report(false, desc || `error ${code}`)
+  })
+
   try {
     await view.webContents.loadURL(url)
-  } catch {
-    /* navigation errors (blocked, offline) are shown by the view itself */
+  } catch (err) {
+    console.log(`[v0] resource:loadURL threw id=${id} ${err?.message || err}`)
   }
 })
 
@@ -251,3 +270,7 @@ ipcMain.on("zero:resource:set-bounds", (_e, { id, rect }) => {
 })
 
 ipcMain.on("zero:resource:unmount", (_e, id) => destroyResourceView(id))
+
+ipcMain.on("zero:open-external", (_e, url) => {
+  if (typeof url === "string" && /^https?:\/\//.test(url)) shell.openExternal(url)
+})

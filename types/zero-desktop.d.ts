@@ -17,7 +17,9 @@ export interface ZeroDesktopBridge {
     setBounds: (args: { id: string; rect: ZeroResourceMountArgs["rect"] }) => void
     unmount: (id: string) => void
     onOutput: (cb: (payload: { id: string; name: string; dataUrl: string }) => void) => () => void
+    onStatus: (cb: (payload: { id: string; ok: boolean; detail?: string }) => void) => () => void
   }
+  openExternal: (url: string) => void
 }
 
 declare global {

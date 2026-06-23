@@ -28,5 +28,13 @@ contextBridge.exposeInMainWorld("zero", {
       ipcRenderer.on("zero:resource:output", handler)
       return () => ipcRenderer.removeListener("zero:resource:output", handler)
     },
+    /** Load status per task: { id, ok, detail } — drives snap-in vs error overlay. */
+    onStatus: (cb) => {
+      const handler = (_e, payload) => cb(payload)
+      ipcRenderer.on("zero:resource:status", handler)
+      return () => ipcRenderer.removeListener("zero:resource:status", handler)
+    },
   },
+  /** Open a URL in the user's real external browser (graceful fallback). */
+  openExternal: (url) => ipcRenderer.send("zero:open-external", url),
 })
