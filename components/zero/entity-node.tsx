@@ -370,25 +370,48 @@ export function EntityNode({
   //   - leaf / ancestor Space / closing / task window → surfaceAt(depth).
   //   - dock card AND do-list row → identical: rest at the parent surface
   //     (invisible), lift to surfaceAt(parentDepth + 1) on hover.
-  // COLLAPSED (row/card) morph only: let the glyph + title spill past the frame box
-  // while it resizes during a pin/unpin. They are flip targets that travel their own
-  // arc between the row's horizontal header and the card's centered column, and the
-  // shrinking frame would otherwise crop them until the morph landed. This helps
-  // NON-Space rows/cards, whose only clipper is `overflow` — a Space is additionally
-  // shaped by a `clip-path`, which clips descendants regardless of overflow, so its
-  // glyph still needs the separate fill-layer treatment. Windows keep `overflow-hidden`
-  // at all times so an opening window's body never spills past its forming frame.
-  const collapsedOverflow = !asWindow && animating ? "overflow-visible" : "overflow-hidden"
+  // SHAPE / FILL SPLIT (uncrops the glyph + title during every morph).
+  // The visible surface — background colour, the Space `clip-path` (hexagon / octagon
+  // / rect), the dark-mode inset ring — lives on a dedicated `[data-shape]` child that
+  // sits at `inset-0 z-0` BEHIND the content. The frame itself carries NO clip and is
+  // `overflow-visible`, so the glyph + title (flip targets that travel their own arc
+  // between header slots) are never clipped against the resizing/odd-shaped frame box
+  // mid-flight — the cropping we're fixing. Content (header, body, divider, close
+  // chrome) is lifted to `z-10` so it paints ABOVE the fill. The flip-stage drivers
+  // (clip morph + colour FLIP + bg/shadow capture) now read/write this `[data-shape]`
+  // child instead of the frame — see flip-stage.ts.
+  const shapeStyle: React.CSSProperties = {
+    backgroundColor: frameSurface,
+    ...(clipPath ? { clipPath } : { borderRadius: 0 }),
+    // DARK ancestor/leaf-less Space windows draw their boundary as an inset ring
+    // (light mode uses the SVG outline). Same condition as before, just relocated
+    // onto the clipped fill so the ring still rides the shape edge.
+    ...(asWindow && !spaceLeafWindow && clipPath && isDark
+      ? { boxShadow: "inset 0 0 0 1px rgb(255 255 255 / 0.30)" }
+      : null),
+    // Background recede transition (ancestors darkening as the stack deepens). Window
+    // uses the morph duration; collapsed rows/cards keep the snappy hover fade. Width
+    // is NOT transitioned here — that stays on the frame (Flip owns it during morphs).
+    transition: asWindow
+      ? `background-color ${DURATION_S} ${MORPH_CSS_EASE}`
+      : "background-color 0.18s ease-out",
+  }
   const frameClass = asWindow
     ? cn(
-        "flex cursor-default flex-col overflow-hidden shadow-2xl",
+        // overflow-visible (was hidden): the clip now lives on [data-shape], so the
+        // frame no longer needs to clip — and must not, or it would re-crop the glyph.
+        "flex cursor-default flex-col overflow-visible",
+        // shadow-2xl ONLY for unclipped (task/event) windows. A Space window is clipped
+        // (hexagon/octagon/rect) on its fill child; previously the clip lived on the
+        // FRAME and swallowed its drop shadow, so Spaces never showed one (their
+        // boundary is the inset ring / SVG outline). With the frame now unclipped, a
+        // shadow-2xl here would paint a RECTANGULAR shadow behind the hexagon — so it's
+        // gated off whenever the Space carries a clip-path.
+        !clipPath && "shadow-2xl",
         fadingWindow && "pointer-events-none",
       )
     : cn(
-        // Background is set inline (JS-driven hover) so it can use the dynamic
-        // per-depth `surfaceAt` color. One effect for do-list rows AND dock cards.
-        "absolute inset-0 flex cursor-pointer flex-col",
-        collapsedOverflow,
+        "absolute inset-0 flex cursor-pointer flex-col overflow-visible",
         cancelled && "opacity-50",
       )
 
@@ -454,8 +477,11 @@ export function EntityNode({
           : // Task / event window: in-flow left-aligned header (unchanged).
             cn("relative z-10 flex shrink-0 items-center gap-3 pr-12 pl-4")
     : variant === "dock"
-      ? "flex flex-1 flex-col items-center justify-center gap-1 px-2 text-center"
-      : "flex h-full items-center gap-2 px-4"
+      ? // relative z-10: sit above the [data-shape] fill layer (z-0) so the glyph/title
+        // paint over the hexagon surface (collapsed headers had no positioning before
+        // the fill split, when the frame's own background was the backmost layer).
+        "relative z-10 flex flex-1 flex-col items-center justify-center gap-1 px-2 text-center"
+      : "relative z-10 flex h-full items-center gap-2 px-4"
 
   // ANCESTORS (open windows that are not the frontmost leaf) wear a more compact
   // header than the frontmost leaf: a shorter band plus a smaller glyph + title,
@@ -548,127 +574,67 @@ export function EntityNode({
           if (!asWindow) setHovered(false)
         }}
         style={
+          // Frame carries GEOMETRY ONLY now — position/size (winStyle), squared
+          // corners, the rest-only width transition, and the closing z-lift. The
+          // surface colour, clip-path and ring all moved to the [data-shape] fill
+          // child below (so the frame can be overflow-visible and never crop the
+          // glyph/title). Width is transitioned only at rest; during a morph GSAP
+          // Flip drives width directly, so transitioning it too would double-animate.
           asWindow
-            ?               // The LEAF Space is a hexagon: it overflows the box, pads its content
-              // into the visible band, and carries the drop-shadow filter.
-              spaceLeafWindow
-              ? {
-                  ...(winStyle ?? {}),
-                  borderRadius: 0,
-                  clipPath,
-                  // The hexagon overflows the region top/bottom; the content (header +
-                  // body) is inset into the shape's visible, full-width middle band by
-                  // a `margin` on those children (header marginTop, body marginBottom —
-                  // both `var(--hex-inset-y)`), NOT by padding here. Padding is part of
-                  // the border-box, so with `box-sizing: border-box` the frame's height
-                  // could never shrink below paddingTop + paddingBottom (~282px). While
-                  // GSAP Flip animates the frame's height down to the dock-card/row size
-                  // (~96px) that floor made it freeze tall → the card flashed a
-                  // vertically STRETCHED hexagon at the morph's start. Child margins do
-                  // not inflate a fixed-height flex container, so the frame's height now
-                  // animates freely while the content keeps the exact same resting
-                  // offset (overflow-hidden clips it harmlessly while collapsed).
-                  // Telescoped, theme-aware capped surface. A background-color
-                  // transition lets ancestors recede smoothly as the stack
-                  // deepens/retracts.
-                  backgroundColor: frameSurface,
-                  // Background recede + the hover-peek width shrink. Width is only
-                  // transitioned at rest (`!animating`); during a morph Flip drives
-                  // width directly, so transitioning it too would double-animate.
-                  transition: `background-color ${DURATION_S} ${MORPH_CSS_EASE}${animating ? "" : `, width ${DURATION_S} ${MORPH_CSS_EASE}`}`,
-                  // No `filter: drop-shadow` here: a CSS filter forces the layer to
-                  // re-rasterize on every Flip transform (the flicker) and would
-                  // establish a containing block for fixed descendants. The hexagon
-                  // boundary is drawn by the SVG outline overlay below instead.
-                }
-              : {
-                  ...(winStyle ?? {}),
-                  // Tasks/events AND expanded ancestor Spaces: the telescoped,
-                  // capped surface. The background-color transition makes ancestors
-                  // recede smoothly each time the stack deepens or retracts. An
-                  // expanded ancestor Space also adds its rectangle clip-path
-                  // (SPACE_CLIP_RECT) — the same six points the hexagon morphs to.
-                  backgroundColor: frameSurface,
-                  // Background recede + the hover-peek width shrink (rest only; Flip
-                  // owns width during morphs — see the leaf-space branch above).
-                  transition: `background-color ${DURATION_S} ${MORPH_CSS_EASE}${animating ? "" : `, width ${DURATION_S} ${MORPH_CSS_EASE}`}`,
-                  // An expanded ancestor Space keeps its rectangle clip-path AT ALL
-                  // TIMES (a square full-box rect — the same six points the hexagon
-                  // morphs to). Pinning it is what kills the old flicker: previously
-                  // the clip was swapped for a plain radius whenever the stack
-                  // settled, so every open/close made the Space pop at the morph's
-                  // start and end. Now Flip just interpolates the points rect → hex
-                  // with nothing to snap. Since every window is square, this full-box
-                  // rect is visually identical to any other window — but the clip
-                  // strips the outer shadow-2xl, so its boundary is a 1px INSET ring.
-                  // Only for ancestor Spaces — task/event windows have no clip and
-                  // keep their real shadow-2xl.
-                  ...(clipPath
-                    ? {
-                        clipPath,
-                        // DARK only: light mode's boundary is the morphing SVG outline.
-                        ...(isDark ? { boxShadow: "inset 0 0 0 1px rgb(255 255 255 / 0.30)" } : null),
-                      }
-                    : null),
-                }
-            : ({
-                // Collapsed: Space dock cards are hexagons (clipPath), everything
-                // else a SQUARE rectangle (matching the square windows they morph
-                // into — every entity surface is square).
-                ...(clipPath ? { clipPath } : { borderRadius: 0 }),
-                // While shrinking closed it is a row again, but Flip animates it
-                // at full window size; lift it above sibling rows so parent
-                // content can't bleed through until it lands in its slot.
+            ? {
+                ...(winStyle ?? {}),
+                borderRadius: 0,
+                ...(animating ? null : { transition: `width ${DURATION_S} ${MORPH_CSS_EASE}` }),
+              }
+            : {
+                // While shrinking closed it is a row again, but Flip animates it at full
+                // window size; lift it above sibling rows so parent content can't bleed
+                // through until it lands in its slot.
                 ...(isClosing ? { zIndex: 40 } : null),
-                // ONE unified hover for do-list rows AND dock cards: rest at the
-                // parent surface `restSurface` (invisible), lift to `highlightColor`
-                // — the next ramp step, i.e. the EXACT color this node's window
-                // adopts when opened — on mouse hover OR keyboard selection. While
-                // shrinking closed, hold the highlight so it matches the window it
-                // retracts from (both opaque → no bleed-through, no early fade).
-                // Keyboard selection shares the SAME cue as mouse hover: the filled
-                // `highlightColor` background (the exact color this node's window adopts
-                // when opened). A separate inset-ring "rectangle" for keyboard selection
-                // was redundant — the full-surface highlight already reads as a clear
-                // single-item cursor, and the design language uses that filled state
-                // everywhere — so it's been dropped.
-                backgroundColor: frameSurface,
-                transition: "background-color 0.18s ease-out",
-              })
+              }
         }
         className={frameClass}
       >
-        {/* LIGHT-mode Space boundary (dark renders none — see spaceOutlinePoints). A
-            clip-path can't carry a border, so this SVG traces the EXACT same points as
-            the live clip (percentage coords map identically): the leaf OCTAGON, the
-            ancestor RECTANGLE, or the collapsed dock HEXAGON. Because the points track
-            the clip, a leaf→ancestor change morphs ONE continuous rim instead of
-            swapping a hexagon rim for a rectangle ring. The frame clips its children to
-            the shape, so the stroke's outer half is clipped away and a clean ~1px inner
-            rim remains. `non-scaling-stroke` keeps it a uniform hairline despite the
-            viewBox stretching to the window's size. */}
-        {spaceOutlinePoints && (
-          <svg
-            aria-hidden
-            // Fade the rim in/out with the morph rather than mounting/unmounting it,
-            // so opening a Space eases the hairline in as the hexagon forms and
-            // closing eases it out as the hexagon collapses (see spaceOutlineVisible).
-            style={{ opacity: spaceOutlineVisible ? 1 : 0, transition: `opacity ${DURATION_S} ${MORPH_CSS_EASE}` }}
-            className="pointer-events-none absolute inset-0 z-[1] h-full w-full"
-            viewBox="0 0 100 100"
-            preserveAspectRatio="none"
-          >
-            <polygon
-              data-space-outline
-              points={spaceOutlinePoints.map(([x, y]) => `${x},${y}`).join(" ")}
-              fill="none"
-              stroke={isDark ? "rgb(255 255 255 / 0.45)" : "rgb(0 0 0 / 0.32)"}
-              strokeWidth={2}
-              strokeLinejoin="round"
-              vectorEffect="non-scaling-stroke"
-            />
-          </svg>
-        )}
+        {/* SHAPE / FILL layer — the visible surface. Carries the background colour, the
+            Space clip-path and the dark inset ring (all via shapeStyle), and hosts the
+            light-mode outline SVG. `inset-0 z-0` so it fills the frame and paints BEHIND
+            the z-10 content; because the clip lives HERE (not on the frame) the frame
+            stays overflow-visible and the glyph/title are never cropped mid-morph. The
+            flip-stage drivers target this element (`[data-shape]`) for the clip + colour
+            tweens. pointer-events-none so it never intercepts the frame's click/hover. */}
+        <div data-shape aria-hidden className="pointer-events-none absolute inset-0 z-0" style={shapeStyle}>
+          {/* LIGHT-mode Space boundary (dark renders none — see spaceOutlinePoints). A
+              clip-path can't carry a border, so this SVG traces the EXACT same points as
+              the live clip (percentage coords map identically): the leaf OCTAGON, the
+              ancestor RECTANGLE, or the collapsed dock HEXAGON. Because the points track
+              the clip, a leaf→ancestor change morphs ONE continuous rim instead of
+              swapping a hexagon rim for a rectangle ring. The fill clips its children to
+              the shape, so the stroke's outer half is clipped away and a clean ~1px inner
+              rim remains. `non-scaling-stroke` keeps it a uniform hairline despite the
+              viewBox stretching to the window's size. */}
+          {spaceOutlinePoints && (
+            <svg
+              aria-hidden
+              // Fade the rim in/out with the morph rather than mounting/unmounting it,
+              // so opening a Space eases the hairline in as the hexagon forms and
+              // closing eases it out as the hexagon collapses (see spaceOutlineVisible).
+              style={{ opacity: spaceOutlineVisible ? 1 : 0, transition: `opacity ${DURATION_S} ${MORPH_CSS_EASE}` }}
+              className="absolute inset-0 z-[1] h-full w-full"
+              viewBox="0 0 100 100"
+              preserveAspectRatio="none"
+            >
+              <polygon
+                data-space-outline
+                points={spaceOutlinePoints.map(([x, y]) => `${x},${y}`).join(" ")}
+                fill="none"
+                stroke={isDark ? "rgb(255 255 255 / 0.45)" : "rgb(0 0 0 / 0.32)"}
+                strokeWidth={2}
+                strokeLinejoin="round"
+                vectorEffect="non-scaling-stroke"
+              />
+            </svg>
+          )}
+        </div>
 
         {/* Close button — fades only, never a flip target. On a LEAF Space hexagon
             it is pulled in to sit just inside the top-RIGHT vertex (the corner is
@@ -1167,13 +1133,15 @@ export function EntityNode({
                   // jump. (A plain block here top-aligned the content, causing that
                   // jump; the definite height means the flex column no longer collapses
                   // the list to zero as the old comment warned.)
-                  "pointer-events-none absolute inset-x-0 bottom-0 flex min-h-0 flex-col overflow-hidden"
+                  "pointer-events-none absolute inset-x-0 bottom-0 z-10 flex min-h-0 flex-col overflow-hidden"
                 : // `flex flex-col` so EntityBody (a flex-1 child) actually fills a
                   // tall window. Without it the body was a plain block, EntityBody
                   // sized to its content (~min-h), and the vertically-centered
                   // Inputs/Outputs rails centered on that short content near the top
                   // — so on tall screens they floated well above the window center.
-                  "flex min-h-0 flex-1 flex-col",
+                  // relative z-10: paint above the [data-shape] fill layer (z-0) so the
+                  // window's working surface sits over the clipped background, not under it.
+                  "relative z-10 flex min-h-0 flex-1 flex-col",
               // NOTE: no horizontal padding here, on purpose. The IN/OUT rails are an
               // absolute overlay anchored to this body's left/right edges, so any padding
               // would push them inward — and worse, a LEAF-only inset (the old `px-[4%]`)

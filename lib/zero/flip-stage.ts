@@ -126,9 +126,14 @@ export function captureStage(): FlipState | null {
   stageEl.querySelectorAll<HTMLElement>("[data-flip-role='frame'][data-flip-id]").forEach((f) => {
     const id = f.getAttribute("data-flip-id")
     if (!id) return
+    // Surface colour + clip now live on the [data-shape] fill child (see entity-node);
+    // the drop shadow (shadow-2xl) still lives on the FRAME. So read bg/clip from the
+    // shape and the box-shadow from the frame.
+    const shape = f.querySelector<HTMLElement>("[data-shape]")
     const cs = getComputedStyle(f)
-    colors.set(id, cs.backgroundColor)
-    if ((!cs.clipPath || cs.clipPath === "none") && cs.boxShadow && cs.boxShadow !== "none") {
+    const shapeCs = shape ? getComputedStyle(shape) : cs
+    colors.set(id, shapeCs.backgroundColor)
+    if ((!shapeCs.clipPath || shapeCs.clipPath === "none") && cs.boxShadow && cs.boxShadow !== "none") {
       shadows.set(id, cs.boxShadow)
     }
     const kind = f.dataset.spaceKind as SpaceKind | undefined
@@ -219,6 +224,10 @@ export function playStage(
           const id = f.getAttribute("data-flip-id") || ""
           return {
             el: f,
+            // The clip-path lives on the [data-shape] fill child now (so the frame can
+            // stay overflow-visible and not crop the glyph). Drive the clip THERE; the
+            // shape is inset-0 within the frame, so the frame's live rect IS its size.
+            shape: f.querySelector<HTMLElement>("[data-shape]") ?? f,
             source: sourceKinds.get(id) ?? (f.dataset.spaceKind as SpaceKind),
             target: f.dataset.spaceKind as SpaceKind,
             outline: f.querySelector<SVGPolygonElement>("polygon[data-space-outline]"),
@@ -241,7 +250,7 @@ export function playStage(
               const r = fr.el.getBoundingClientRect()
               if (r.width <= 0 || r.height <= 0) continue
               const pts = spaceMorphPoints(driver.p, r.width, r.height, fr.source, fr.target)
-              fr.el.style.clipPath = `polygon(${pts.map(([x, y]) => `${x}% ${y}%`).join(", ")})`
+              fr.shape.style.clipPath = `polygon(${pts.map(([x, y]) => `${x}% ${y}%`).join(", ")})`
               if (fr.outline) {
                 fr.outline.setAttribute("points", pts.map(([x, y]) => `${x},${y}`).join(" "))
               }
@@ -273,6 +282,11 @@ export function playStage(
         const id = f.getAttribute("data-flip-id")
         const prev = id ? from.get(id) : undefined
         if (!prev) return
+        // The surface colour lives on the [data-shape] fill child now; the target colour
+        // EXPRESSION (`data-surface`) is still published on the frame. So tween the colour
+        // on the shape, but read the expression from the frame. (Fallback to the frame if
+        // the shape is missing, so this degrades gracefully.)
+        const shape = f.querySelector<HTMLElement>("[data-shape]") ?? f
         // Compare against the RESOLVED current colour (to skip frames whose colour did
         // not actually change), but TWEEN TO THE EXPRESSION (`data-surface`, e.g.
         // `var(--background)` / `color-mix(...)`). getComputedStyle resolves the CSS
@@ -281,14 +295,14 @@ export function playStage(
         // dark↔light toggle (React only rewrites the inline colour when its expression
         // STRING changes, which it doesn't for level-0 windows that read the same in both
         // themes). Ending the tween on the expression keeps the inline colour live.
-        const targetResolved = getComputedStyle(f).backgroundColor
+        const targetResolved = getComputedStyle(shape).backgroundColor
         const targetExpr = f.dataset.surface
         if (!targetExpr || prev === targetResolved) return
-        f.style.transition = "none"
-        f.style.backgroundColor = prev
-        void f.offsetWidth // force reflow so the old colour is committed first
-        f.style.transition = `background-color ${DURATION_S} ${MORPH_CSS_EASE}`
-        f.style.backgroundColor = targetExpr
+        shape.style.transition = "none"
+        shape.style.backgroundColor = prev
+        void shape.offsetWidth // force reflow so the old colour is committed first
+        shape.style.transition = `background-color ${DURATION_S} ${MORPH_CSS_EASE}`
+        shape.style.backgroundColor = targetExpr
       })
     }
   }
