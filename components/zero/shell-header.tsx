@@ -4,6 +4,7 @@ import { useEffect, useState } from "react"
 import { motion } from "motion/react"
 import { Search } from "lucide-react"
 import { UserIdentity } from "./user-identity"
+import { WindowControls } from "./window-controls"
 import { useZeroNav } from "@/lib/zero/nav-store"
 import { shellStageFor, HEADER_PAD_Y } from "@/lib/zero/layout"
 import { layerTransition } from "@/lib/zero/motion"
@@ -60,7 +61,9 @@ export function ShellHeader() {
       // fixed-window region — never moves during a dive. (h-16 = avatar 36 + 2×14
       // padding = the natural stage-0 height, so resting layout is unchanged.)
       className="pointer-events-none relative z-40 flex h-16 items-center justify-between gap-4"
-      style={{ paddingTop: HEADER_PAD_Y, paddingBottom: HEADER_PAD_Y }}
+      // The header doubles as the frameless window's drag handle (desktop). Empty
+      // areas drag the window; interactive clusters below opt out with no-drag.
+      style={{ paddingTop: HEADER_PAD_Y, paddingBottom: HEADER_PAD_Y, WebkitAppRegion: "drag" } as React.CSSProperties}
       initial={false}
       // At stage 2 the bar rides UP a touch (transform — no reflow, so the work
       // surface below stays put) and its side margins tighten, pulling the avatar
@@ -68,7 +71,10 @@ export function ShellHeader() {
       animate={{ y: compact ? -16 : 0, paddingLeft: compact ? 10 : 20, paddingRight: compact ? 10 : 20 }}
       transition={layerTransition}
     >
-      <div className="pointer-events-auto flex flex-1 items-center">
+      <div
+        className="pointer-events-auto flex flex-1 items-center"
+        style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
+      >
         <UserIdentity compact={compact} />
       </div>
 
@@ -90,7 +96,10 @@ export function ShellHeader() {
         <span className="flex-1 truncate tracking-tight text-muted-foreground">{monthDay}</span>
       </motion.div>
 
-      <div className="pointer-events-auto flex flex-1 items-center justify-end gap-3">
+      <div
+        className="pointer-events-auto flex flex-1 items-center justify-end gap-3"
+        style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
+      >
         <button
           type="button"
           className={cn(
@@ -136,6 +145,9 @@ export function ShellHeader() {
         >
           zero
         </motion.span>
+        {/* Frameless window min/max/close — renders only in the desktop app on
+            Windows/Linux; null on web and macOS. Sits just past the logo. */}
+        <WindowControls />
       </div>
     </motion.header>
   )

@@ -8,7 +8,7 @@
 // ResourceCanvas) is STEP 2 and is intentionally not here yet — see the IPC stub
 // in preload.cjs and the comments at the bottom of this file for where it slots in.
 
-const { app, BrowserWindow, WebContentsView, protocol, net, shell, session, ipcMain, screen } = require("electron")
+const { app, BrowserWindow, WebContentsView, protocol, net, shell, session, ipcMain, screen, Menu } = require("electron")
 const path = require("node:path")
 const { pathToFileURL } = require("node:url")
 
@@ -39,8 +39,11 @@ function createWindow() {
     height: 900,
     minWidth: 880,
     minHeight: 600,
-    // Frameless-ish, modern feel; the app draws its own chrome (timeline, etc.).
-    titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "default",
+    // Zero draws its OWN chrome (timeline + in-app window controls), so there's no
+    // native title bar or menu. On macOS we keep the OS traffic-lights (users
+    // expect them top-left) via hiddenInset; on Windows/Linux we go fully
+    // frameless and render custom min/max/close in the header.
+    ...(process.platform === "darwin" ? { titleBarStyle: "hiddenInset" } : { frame: false }),
     backgroundColor: "#0b0b0c",
     show: false,
     webPreferences: {
@@ -50,6 +53,16 @@ function createWindow() {
       sandbox: true,
     },
   })
+
+  // Report maximize/unmaximize so the in-app control can swap its restore/maximize
+  // icon to match the real window state.
+  const sendMaxState = () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("zero:win:maximized", mainWindow.isMaximized())
+    }
+  }
+  mainWindow.on("maximize", sendMaxState)
+  mainWindow.on("unmaximize", sendMaxState)
 
   // Avoid a white flash: reveal only once the first paint is ready.
   mainWindow.once("ready-to-show", () => mainWindow?.show())
@@ -78,6 +91,10 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  // Drop the default application menu (File/Edit/View/Window) on Windows/Linux —
+  // Zero is chromeless there. macOS keeps a menu so ⌘Q / ⌘H etc. still work.
+  if (process.platform !== "darwin") Menu.setApplicationMenu(null)
+
   if (!isDev) {
     // Serve the static export. `app://local/<path>` → `<OUT_DIR>/<path>`, with a
     // sane fallback to index.html so client-side routing still resolves.
@@ -290,6 +307,16 @@ ipcMain.on("zero:resource:unmount", (_e, id) => destroyResourceView(id))
 ipcMain.on("zero:open-external", (_e, url) => {
   if (typeof url === "string" && /^https?:\/\//.test(url)) shell.openExternal(url)
 })
+
+// ── In-app window controls (frameless Windows/Linux) ─────────────────────────
+ipcMain.on("zero:win:minimize", () => mainWindow?.minimize())
+ipcMain.on("zero:win:toggle-maximize", () => {
+  if (!mainWindow) return
+  if (mainWindow.isMaximized()) mainWindow.unmaximize()
+  else mainWindow.maximize()
+})
+ipcMain.on("zero:win:close", () => mainWindow?.close())
+ipcMain.handle("zero:win:is-maximized", () => !!mainWindow?.isMaximized())
 
 // ── Branded context-menu overlay ─────────────────────────────────────────────
 // The menu is a transparent, frameless child window (so it floats above the native

@@ -20,6 +20,13 @@ export interface ZeroDesktopBridge {
     onStatus: (cb: (payload: { id: string; ok: boolean; detail?: string }) => void) => () => void
   }
   openExternal: (url: string) => void
+  win: {
+    minimize: () => void
+    toggleMaximize: () => void
+    close: () => void
+    isMaximized: () => Promise<boolean>
+    onMaximizeChange: (cb: (maximized: boolean) => void) => () => void
+  }
 }
 
 export interface ZeroMenuContext {

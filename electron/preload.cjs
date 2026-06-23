@@ -37,4 +37,18 @@ contextBridge.exposeInMainWorld("zero", {
   },
   /** Open a URL in the user's real external browser (graceful fallback). */
   openExternal: (url) => ipcRenderer.send("zero:open-external", url),
+
+  /** Frameless window controls, rendered inside Zero's own header. */
+  win: {
+    minimize: () => ipcRenderer.send("zero:win:minimize"),
+    toggleMaximize: () => ipcRenderer.send("zero:win:toggle-maximize"),
+    close: () => ipcRenderer.send("zero:win:close"),
+    isMaximized: () => ipcRenderer.invoke("zero:win:is-maximized"),
+    /** Subscribe to real maximize-state changes so the icon stays in sync. */
+    onMaximizeChange: (cb) => {
+      const handler = (_e, value) => cb(!!value)
+      ipcRenderer.on("zero:win:maximized", handler)
+      return () => ipcRenderer.removeListener("zero:win:maximized", handler)
+    },
+  },
 })
