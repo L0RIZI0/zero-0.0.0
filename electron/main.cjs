@@ -8,7 +8,7 @@
 // ResourceCanvas) is STEP 2 and is intentionally not here yet — see the IPC stub
 // in preload.cjs and the comments at the bottom of this file for where it slots in.
 
-const { app, BrowserWindow, protocol, net, shell } = require("electron")
+const { app, BrowserWindow, WebContentsView, protocol, net, shell, session, ipcMain } = require("electron")
 const path = require("node:path")
 const { pathToFileURL } = require("node:url")
 
@@ -72,6 +72,7 @@ function createWindow() {
   })
 
   mainWindow.on("closed", () => {
+    resourceViews.clear()
     mainWindow = null
   })
 }
@@ -104,9 +105,100 @@ app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit()
 })
 
-// ── STEP 2 anchor ───────────────────────────────────────────────────────────
-// The native resource host will live here: ipcMain.handle("zero:resource:mount",
-// …) creating a WebContentsView per resource task, positioned to match the DOM
-// placeholder rect streamed from ResourceCanvas, with a per-resource partitioned
-// session (persist:<resourceId>) so logins stick. Tearing down on unmount/close.
-// Left as a stub until the shell (this file) is verified running locally.
+// ── STEP 2: native resource host ─────────────────────────────────────────────
+// Each open RESOURCE TASK gets a real Chromium WebContentsView, loaded as
+// top-level content (so X-Frame-Options / frame-ancestors do NOT apply — Figma,
+// Notion, Linear, anything loads live). The view is a native layer that floats
+// ABOVE the DOM; ResourceCanvas renders a transparent placeholder and streams its
+// screen rect here, so the native view tracks the placeholder through scrolls,
+// window resizes and the open/close morph.
+
+/** @type {Map<string, import('electron').WebContentsView>} */
+const resourceViews = new Map()
+
+/** Snap a CSS-pixel rect from the renderer to integer device-independent bounds. */
+function toBounds(rect) {
+  return {
+    x: Math.round(rect.x),
+    y: Math.round(rect.y),
+    width: Math.max(0, Math.round(rect.width)),
+    height: Math.max(0, Math.round(rect.height)),
+  }
+}
+
+function destroyResourceView(id) {
+  const view = resourceViews.get(id)
+  if (!view) return
+  try {
+    mainWindow?.contentView.removeChildView(view)
+    view.webContents.close()
+  } catch {
+    /* already gone */
+  }
+  resourceViews.delete(id)
+}
+
+ipcMain.handle("zero:resource:mount", async (_e, args) => {
+  if (!mainWindow) return
+  const { id, url, resourceId, rect } = args
+  // Already mounted (e.g. re-open): just reposition so work-in-progress survives.
+  const existing = resourceViews.get(id)
+  if (existing) {
+    existing.setBounds(toBounds(rect))
+    return
+  }
+
+  // Per-resource persistent partition → independent, sticky logins ("subscriptions").
+  const partition = `persist:resource:${resourceId || "web"}`
+  const view = new WebContentsView({
+    webPreferences: {
+      partition,
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  })
+  view.setBackgroundColor("#ffffff")
+  view.setBounds(toBounds(rect))
+  mainWindow.contentView.addChildView(view)
+  resourceViews.set(id, view)
+
+  // Links that try to open a new window (e.g. OAuth popups) open a real child
+  // browser window rather than being denied, so sign-in flows work.
+  view.webContents.setWindowOpenHandler(({ url: openUrl }) => {
+    if (/^https?:\/\//.test(openUrl)) {
+      return {
+        action: "allow",
+        overrideBrowserWindowOptions: { autoHideMenuBar: true, width: 520, height: 680 },
+      }
+    }
+    return { action: "deny" }
+  })
+
+  // OUTPUTS BRIDGE: when the resource produces a file (export/download), notify the
+  // renderer so it can later wire into the Task's Outputs. Capture the saved path.
+  view.webContents.session.on("will-download", (_evt, item) => {
+    const name = item.getFilename()
+    item.once("done", (_d, state) => {
+      if (state === "completed" && mainWindow) {
+        mainWindow.webContents.send("zero:resource:output", {
+          id,
+          name,
+          dataUrl: pathToFileURL(item.getSavePath()).toString(),
+        })
+      }
+    })
+  })
+
+  try {
+    await view.webContents.loadURL(url)
+  } catch {
+    /* navigation errors (blocked, offline) are shown by the view itself */
+  }
+})
+
+ipcMain.on("zero:resource:set-bounds", (_e, { id, rect }) => {
+  const view = resourceViews.get(id)
+  if (view) view.setBounds(toBounds(rect))
+})
+
+ipcMain.on("zero:resource:unmount", (_e, id) => destroyResourceView(id))

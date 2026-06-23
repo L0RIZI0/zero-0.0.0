@@ -94,7 +94,7 @@ export function EntityBody({
           Zero acting as a contextual browser. */}
       {resource ? (
         <div className="flex min-h-0 min-w-0 flex-1 flex-col px-3 pb-3 pt-2">
-          <ResourceCanvas url={resource.url} resourceId={resource.resourceId} />
+          <ResourceCanvas id={entityId} url={resource.url} resourceId={resource.resourceId} active={active} />
         </div>
       ) : (
         <>

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useLayoutEffect, useRef, useState } from "react"
 import { getWebResource, resolveWebResourceByUrl, webDisplayName, type WebResource } from "@/lib/zero/web-resources"
 import { ResourceGlyph } from "./resource-glyph"
 import { cn } from "@/lib/utils"
@@ -12,27 +12,129 @@ import { cn } from "@/lib/utils"
  * design, a resource is a CONTEXT, not a mini-browser — the Task's own header glyph
  * (the resource favicon/monogram) and title already identify it.
  *
- * Two render paths, chosen by the catalog's `mode`:
- *  - "live"          → a real <iframe>. Photopea (and any frame-friendly site) loads
- *                      fully, so you genuinely work and export real files. An unknown
- *                      typed URL is also attempted live.
- *  - "illustrative"  → a branded faux-app stand-in for sites that refuse framing
- *                      (Figma/Notion/Linear). It reads the concept and states it
- *                      "opens natively in the Zero desktop app".
- *
- * In the eventual Electron build the live path swaps to a native WebContentsView with
- * no change here — every resource becomes truly live.
+ * Three render paths:
+ *  - DESKTOP (Electron) → a native WebContentsView (see `NativeSurface`). Loaded as
+ *                         top-level content, so frame-blocking headers don't apply:
+ *                         Figma, Notion, Linear, anything loads LIVE. This is the
+ *                         whole point of the desktop app.
+ *  - WEB · "live"       → a real <iframe>. Photopea (and any frame-friendly site)
+ *                         loads fully so you genuinely work and export real files.
+ *  - WEB · "illustrative" → a branded faux-app stand-in for sites that refuse
+ *                         framing, noting it "opens natively in the Zero desktop app".
  */
-export function ResourceCanvas({ url, resourceId }: { url: string; resourceId?: string }) {
+export function ResourceCanvas({
+  id,
+  url,
+  resourceId,
+  active = true,
+}: {
+  id: string
+  url: string
+  resourceId?: string
+  active?: boolean
+}) {
   const resource = getWebResource(resourceId) ?? resolveWebResourceByUrl(url)
-  const illustrative = resource?.mode === "illustrative"
+  // Feature-detect the desktop bridge once on mount (window.zero is injected by the
+  // Electron preload; undefined in the browser, and during SSR).
+  const [isDesktop, setIsDesktop] = useState(false)
+  useEffect(() => {
+    setIsDesktop(typeof window !== "undefined" && !!window.zero?.isDesktop)
+  }, [])
 
+  if (isDesktop) {
+    return (
+      <div className="h-full w-full overflow-hidden bg-card">
+        <NativeSurface id={id} url={url} resourceId={resourceId} active={active} name={webDisplayName(url, resource?.id)} />
+      </div>
+    )
+  }
+
+  const illustrative = resource?.mode === "illustrative"
   return (
     <div className="h-full w-full overflow-hidden bg-card">
       {illustrative ? (
         <IllustrativeSurface resource={resource!} />
       ) : (
         <LiveSurface url={url} name={webDisplayName(url, resource?.id)} />
+      )}
+    </div>
+  )
+}
+
+/**
+ * DESKTOP path. Renders a transparent PLACEHOLDER and drives a native
+ * WebContentsView (which lives in the Electron main process, floating above the DOM)
+ * to track this placeholder's screen rect. Because the native view isn't part of the
+ * DOM we can't clip/transform it, so we stream its bounds on every layout change
+ * (resize, scroll, and the open/close morph) via rAF, and tear it down on unmount.
+ */
+function NativeSurface({
+  id,
+  url,
+  resourceId,
+  active,
+  name,
+}: {
+  id: string
+  url: string
+  resourceId?: string
+  active: boolean
+  name: string
+}) {
+  const holderRef = useRef<HTMLDivElement>(null)
+  const [ready, setReady] = useState(false)
+
+  useLayoutEffect(() => {
+    const bridge = window.zero
+    const holder = holderRef.current
+    if (!bridge || !holder) return
+
+    let raf = 0
+    let last = ""
+    const rectOf = () => {
+      const r = holder.getBoundingClientRect()
+      return { x: r.x, y: r.y, width: r.width, height: r.height }
+    }
+
+    // Mount the native view at the current rect, then keep it pinned each frame.
+    // A per-frame diff avoids spamming IPC when nothing moved. While the open/close
+    // morph runs the rect changes every frame, so this naturally tracks it.
+    bridge.resource.mount({ id, url, resourceId, rect: rectOf() }).then(() => setReady(true))
+
+    const tick = () => {
+      const rect = rectOf()
+      const key = `${Math.round(rect.x)},${Math.round(rect.y)},${Math.round(rect.width)},${Math.round(rect.height)}`
+      if (key !== last) {
+        last = key
+        bridge.resource.setBounds({ id, rect })
+      }
+      raf = requestAnimationFrame(tick)
+    }
+    raf = requestAnimationFrame(tick)
+
+    return () => {
+      cancelAnimationFrame(raf)
+      bridge.resource.unmount(id)
+    }
+  }, [id, url, resourceId])
+
+  // Hide the native view (by collapsing the placeholder offscreen) when this window
+  // isn't the active leaf, so it doesn't paint over ancestors behind the active one.
+  useEffect(() => {
+    const bridge = window.zero
+    const holder = holderRef.current
+    if (!bridge || !holder) return
+    if (active) return
+    bridge.resource.setBounds({ id, rect: { x: -10000, y: -10000, width: 0, height: 0 } })
+  }, [active, id])
+
+  return (
+    <div ref={holderRef} className="relative h-full w-full">
+      {!ready && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-background">
+          <span className="h-6 w-6 animate-spin rounded-full border-2 border-border border-t-foreground" aria-hidden />
+          <p className="text-[13px] text-muted-foreground">{`Loading ${name}…`}</p>
+        </div>
       )}
     </div>
   )
