@@ -246,6 +246,7 @@ function CreateRow({
   active,
   animating,
   closing,
+  flipId,
   onCreate,
   onCreateWeb,
   onNavigateUp,
@@ -262,6 +263,12 @@ function CreateRow({
    *  doesn't re-center and jump when it would otherwise be removed) but fades out, so
    *  its disappearance is smooth and any drift during the body's scale-down is hidden. */
   closing: boolean
+  /** Stable Flip id for the draft row's <li>. Makes the row a participant in the
+   *  pin/unpin morph: because it's always mounted it PERSISTS across the commit, so
+   *  GSAP Flip matches it and SLIDES it to its new slot in lockstep with the frames
+   *  (instead of jumping the instant the list grows/shrinks). On window open/close it
+   *  enters/leaves rather than persists, so the stage's Flip.from ignores it. */
+  flipId: string
   /** Commit a non-empty draft. The parent creates the entity and selects it. */
   onCreate: (title: string, kind: NodeKind) => void
   /** Summon a web resource: either a URL typed into the field, or a pick from the
@@ -412,6 +419,9 @@ function CreateRow({
     // independently — making it jump and overlap the list. Disabling layout while
     // morphing hands the whole frame (this row included) to Flip, in lockstep.
     <motion.li
+      // Persisting Flip target: slides to its new slot when an entity is pinned/
+      // unpinned above it, in lockstep with the morphing frames (see `flipId` prop).
+      data-flip-id={flipId}
       layout={!animating}
       initial={false}
       // Fade out as the window closes (kept in flow so the centered list never jumps
@@ -801,6 +811,7 @@ export function DoList({
             active={active}
             animating={animating}
             closing={closing}
+            flipId={`${contextId}:__create__`}
             onCreate={createEntity}
             onCreateWeb={createWebEntity}
             onNavigateUp={navigateUpToList}

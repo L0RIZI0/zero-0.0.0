@@ -370,24 +370,25 @@ export function EntityNode({
   //   - leaf / ancestor Space / closing / task window → surfaceAt(depth).
   //   - dock card AND do-list row → identical: rest at the parent surface
   //     (invisible), lift to surfaceAt(parentDepth + 1) on hover.
-  // Clip own content at REST so the body/glyph stay inside the card/window shape,
-  // but let it spill DURING a morph: the glyph + title are flip targets that travel
-  // their own arc between the row/card header and the window header, and a fast box
-  // resize would otherwise crop them against the shrinking frame until the morph
-  // landed. `overflow-visible` while `animating` frees them; the window body keeps
-  // its OWN `overflow-hidden` (see EntityBody), so nothing else spills.
-  const overflowClass = animating ? "overflow-visible" : "overflow-hidden"
+  // COLLAPSED (row/card) morph only: let the glyph + title spill past the frame box
+  // while it resizes during a pin/unpin. They are flip targets that travel their own
+  // arc between the row's horizontal header and the card's centered column, and the
+  // shrinking frame would otherwise crop them until the morph landed. This helps
+  // NON-Space rows/cards, whose only clipper is `overflow` — a Space is additionally
+  // shaped by a `clip-path`, which clips descendants regardless of overflow, so its
+  // glyph still needs the separate fill-layer treatment. Windows keep `overflow-hidden`
+  // at all times so an opening window's body never spills past its forming frame.
+  const collapsedOverflow = !asWindow && animating ? "overflow-visible" : "overflow-hidden"
   const frameClass = asWindow
     ? cn(
-        "flex cursor-default flex-col shadow-2xl",
-        overflowClass,
+        "flex cursor-default flex-col overflow-hidden shadow-2xl",
         fadingWindow && "pointer-events-none",
       )
     : cn(
         // Background is set inline (JS-driven hover) so it can use the dynamic
         // per-depth `surfaceAt` color. One effect for do-list rows AND dock cards.
         "absolute inset-0 flex cursor-pointer flex-col",
-        overflowClass,
+        collapsedOverflow,
         cancelled && "opacity-50",
       )
 
@@ -943,7 +944,7 @@ export function EntityNode({
                     // text on the box centre line during the morph for the same reason as
                     // the window titles (Flip's interpolating explicit width).
                     "max-w-full truncate text-center font-medium leading-tight"
-                  : // DO-LIST ROW. The title must HUG its content here too — it is the
+                  : // DO-LIST ROW. The title must HUG its content here too �� it is the
                     // "from" state of a row→window open morph, and every window title is a
                     // content-hugging box. Previously this was `flex-1` (a WIDE box that
                     // spanned the row). GSAP Flip captured that wide width and tweened it
