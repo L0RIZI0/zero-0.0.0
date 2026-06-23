@@ -26,6 +26,7 @@ import {
 } from "@/lib/zero/web-resources"
 import { useZeroNav, ADD_KEY } from "@/lib/zero/nav-store"
 import { MORPH_EASE } from "@/lib/zero/motion"
+import { pinMorph } from "@/lib/zero/pin-morph"
 import { NodeGlyph, NODE_KIND_META, type NodeKind } from "./node-glyph"
 import { ResourceGlyph } from "./resource-glyph"
 import { EntityNode } from "./entity-node"
@@ -687,8 +688,18 @@ export function DoList({
           label: "Pin to Dock",
           icon: <Pin className="h-3.5 w-3.5" />,
           onSelect: () => {
-            pinItem(contextId, item.id)
-            notifyDataChanged()
+            // Fly the row's clone down into its new dock card (row → hexagon),
+            // committing the pin mid-flight. Falls back to a plain pin when there's
+            // no node to fly from / reduced motion.
+            pinMorph({
+              flip: `${contextId}:${item.id}`,
+              isSpace: item.kind === "space",
+              direction: "pin",
+              mutate: () => {
+                pinItem(contextId, item.id)
+                notifyDataChanged()
+              },
+            })
           },
         },
         ...(canCancel

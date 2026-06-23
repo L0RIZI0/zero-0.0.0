@@ -12,6 +12,7 @@ import {
   type ContextItem,
 } from "@/lib/zero/data"
 import { useZeroNav } from "@/lib/zero/nav-store"
+import { pinMorph } from "@/lib/zero/pin-morph"
 import { EntityNode } from "./entity-node"
 import { ContextMenu, type ContextMenuState } from "./context-menu"
 
@@ -110,8 +111,17 @@ export function Dock({ contextId, active = true }: { contextId: string; active?:
           label: "Unpin from Dock",
           icon: <PinOff className="h-3.5 w-3.5" />,
           onSelect: () => {
-            unpinItem(contextId, item.id)
-            notifyDataChanged()
+            // Fly the card's clone back up into its do-list row (hexagon → row),
+            // committing the unpin mid-flight.
+            pinMorph({
+              flip: `${contextId}:${item.id}`,
+              isSpace: item.kind === "space",
+              direction: "unpin",
+              mutate: () => {
+                unpinItem(contextId, item.id)
+                notifyDataChanged()
+              },
+            })
           },
         },
         ...(canCancel
