@@ -151,3 +151,18 @@ export function normalizeUrl(input: string): string {
 export function webDisplayName(url: string, resourceId?: string): string {
   return getWebResource(resourceId)?.name ?? hostOf(url) ?? url
 }
+
+/**
+ * Best-effort REAL favicon for a resource/URL. We resolve the host (catalog
+ * domain first, else the typed URL's host) and fetch its icon through Google's
+ * favicon service, which returns a clean square PNG at the requested size for any
+ * public site — so a Figma/Notion/Linear task (or any pinned website) shows its
+ * genuine mark instead of a monogram. The glyph falls back to the monogram tile
+ * if this is null or the image fails to load. `size` should be the rendered px so
+ * the icon is crisp on hi-dpi (request 2× the box).
+ */
+export function webFaviconUrl(resource: WebResource | undefined, url?: string, size = 64): string | null {
+  const host = resource?.domains[0] ?? hostOf(url ?? "")
+  if (!host) return null
+  return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(host)}&sz=${size}`
+}
