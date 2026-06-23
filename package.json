@@ -9,7 +9,7 @@
     "start": "next start",
     "lint": "eslint .",
     "electron": "electron .",
-    "electron:dev": "concurrently -k -n NEXT,ELECTRON -c blue,magenta \"next dev\" \"wait-on tcp:3000 && electronmon .\"",
+    "electron:dev": "concurrently -k -n NEXT,ELECTRON -c blue,magenta \"cross-env CHOKIDAR_USEPOLLING=true WATCHPACK_POLLING=true next dev\" \"wait-on tcp:3000 && electronmon .\"",
     "electron:build": "cross-env BUILD_TARGET=electron next build && electron-builder"
   },
   "dependencies": {
