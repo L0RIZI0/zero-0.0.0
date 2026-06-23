@@ -205,6 +205,8 @@ ipcMain.handle("zero:resource:mount", async (_e, args) => {
       partition,
       contextIsolation: true,
       nodeIntegration: false,
+      // Keep loading/painting at full speed while parked offscreen during the morph.
+      backgroundThrottling: false,
     },
   })
   view.setBackgroundColor("#ffffff")
@@ -246,6 +248,13 @@ ipcMain.handle("zero:resource:mount", async (_e, args) => {
       mainWindow.webContents.send("zero:resource:status", { id, ok, detail })
     }
   }
+  // dom-ready fires once the main-frame DOM is parsed — first paint is imminent.
+  // Reveal here (not on did-finish-load, which waits for every subresource) so
+  // heavy sites like Figma snap in seconds earlier.
+  view.webContents.once("dom-ready", () => {
+    console.log(`[v0] resource:dom-ready id=${id}`)
+    report(true)
+  })
   view.webContents.on("did-finish-load", () => {
     console.log(`[v0] resource:loaded id=${id}`)
     report(true)

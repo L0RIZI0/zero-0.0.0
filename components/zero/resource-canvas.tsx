@@ -79,13 +79,21 @@ export function ResourceCanvas({
  * DOM we can't clip/transform it, so we stream its bounds on every layout change
  * (resize, scroll, and the open/close morph) via rAF, and tear it down on unmount.
  */
-const OFFSCREEN = { x: -10000, y: -10000, width: 0, height: 0 }
 // Native views can't be GPU-transformed/clipped like the DOM, so during the open
-// morph they'd visibly trail the window. Instead we keep the view UNMOUNTED while
-// the rect is still changing, show a blurred branded preview in the DOM, and only
-// mount + snap the live view in once the rect has been STABLE for a few frames.
+// morph they'd visibly trail the window. The trick: mount the view IMMEDIATELY but
+// PARKED OFFSCREEN at full size — so the (slow) network load runs concurrently with
+// the open animation — then snap it onto the placeholder the moment the page is
+// dom-ready AND the morph has settled. A blurred branded preview covers the gap.
 const STABLE_FRAMES = 6
 const SETTLE_TIMEOUT_MS = 1600
+// Full-size but pushed far off the left edge: keeps the view loading/painting (no
+// background throttling, unlike a zero-size rect) while staying invisible.
+const hiddenRectOf = (r: { y: number; width: number; height: number }) => ({
+  x: -100000,
+  y: Math.max(0, Math.round(r.y)),
+  width: Math.max(1, Math.round(r.width)),
+  height: Math.max(1, Math.round(r.height)),
+})
 
 function NativeSurface({
   id,
@@ -118,7 +126,8 @@ function NativeSurface({
     let raf = 0
     let stable = 0
     let lastKey = ""
-    let mounted = false
+    let ready = false // page reported dom-ready
+    let revealed = false // native view snapped onto the placeholder
     let lastSent = ""
     const start = performance.now()
 
@@ -129,10 +138,14 @@ function NativeSurface({
     const keyOf = (r: { x: number; y: number; width: number; height: number }) =>
       `${Math.round(r.x)},${Math.round(r.y)},${Math.round(r.width)},${Math.round(r.height)}`
 
-    // Reveal (snap-in) or error, driven by the native load result for THIS task.
+    // Mount NOW, parked offscreen, so the network load begins immediately rather
+    // than waiting for the morph to finish — this is the main latency win.
+    bridge.resource.mount({ id, url, resourceId, rect: hiddenRectOf(rectOf()) })
+
+    // dom-ready (ok) lets us snap in; failure shows the graceful error overlay.
     const offStatus = bridge.resource.onStatus((s) => {
       if (s.id !== id) return
-      if (s.ok) setPhase("live")
+      if (s.ok) ready = true
       else {
         setDetail(s.detail || "")
         setPhase("error")
@@ -142,27 +155,37 @@ function NativeSurface({
     const loop = () => {
       const rect = rectOf()
       const key = keyOf(rect)
-      if (!mounted) {
-        // Wait for the morph to settle (rect unchanged for N frames) before mounting.
-        if (key === lastKey) stable++
-        else {
-          stable = 0
-          lastKey = key
-        }
-        const settled = stable >= STABLE_FRAMES || performance.now() - start > SETTLE_TIMEOUT_MS
-        if (settled && activeRef.current && rect.width > 0) {
-          mounted = true
+      // Track morph stability every frame.
+      if (key === lastKey) stable++
+      else {
+        stable = 0
+        lastKey = key
+      }
+      const settled = stable >= STABLE_FRAMES || performance.now() - start > SETTLE_TIMEOUT_MS
+
+      if (!revealed) {
+        // Snap in only once the page is ready, the morph has settled, and we're the
+        // active leaf — otherwise keep it parked offscreen (still loading).
+        if (ready && settled && activeRef.current && rect.width > 0) {
+          revealed = true
           lastSent = key
-          bridge.resource.mount({ id, url, resourceId, rect })
+          bridge.resource.setBounds({ id, rect })
+          setPhase("live")
+        } else {
+          const hk = `hidden:${Math.round(rect.width)}x${Math.round(rect.height)}`
+          if (hk !== lastSent) {
+            lastSent = hk
+            bridge.resource.setBounds({ id, rect: hiddenRectOf(rect) })
+          }
         }
       } else {
-        // Live: keep the native view pinned to the placeholder; park it offscreen
-        // when this window isn't the active leaf so it can't paint over ancestors.
+        // Live: pin to the placeholder; park offscreen when not the active leaf so
+        // it can't paint over ancestors behind the active one.
         const onScreen = activeRef.current
         const sendKey = onScreen ? key : "off"
         if (sendKey !== lastSent) {
           lastSent = sendKey
-          bridge.resource.setBounds({ id, rect: onScreen ? rect : OFFSCREEN })
+          bridge.resource.setBounds({ id, rect: onScreen ? rect : hiddenRectOf(rect) })
         }
       }
       raf = requestAnimationFrame(loop)
