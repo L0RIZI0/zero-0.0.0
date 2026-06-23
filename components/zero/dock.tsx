@@ -12,7 +12,6 @@ import {
   type ContextItem,
 } from "@/lib/zero/data"
 import { useZeroNav } from "@/lib/zero/nav-store"
-import { pinMorph } from "@/lib/zero/pin-morph"
 import { EntityNode } from "./entity-node"
 import { ContextMenu, type ContextMenuState } from "./context-menu"
 
@@ -28,7 +27,7 @@ import { ContextMenu, type ContextMenuState } from "./context-menu"
  * the whole dock collapses to a small gap.
  */
 export function Dock({ contextId, active = true }: { contextId: string; active?: boolean }) {
-  const { open, dataVersion, notifyDataChanged, selection, moveSelection, publishNavOrder } =
+  const { open, dataVersion, notifyDataChanged, morphCommit, selection, moveSelection, publishNavOrder } =
     useZeroNav()
   const [menu, setMenu] = useState<ContextMenuState | null>(null)
 
@@ -112,12 +111,11 @@ export function Dock({ contextId, active = true }: { contextId: string; active?:
           icon: <PinOff className="h-3.5 w-3.5" />,
           onSelect: () => {
             // Morph the card back up into its do-list row (frame + glyph + title
-            // glide, Spaces morph hexagon→rectangle) via the shared Flip stage.
-            pinMorph({
-              mutate: () => {
-                unpinItem(contextId, item.id)
-                notifyDataChanged()
-              },
+            // glide, Spaces morph hexagon→rectangle) via the shared Flip stage —
+            // `morphCommit` raises the `animating` gate so framer stands down.
+            morphCommit(() => {
+              unpinItem(contextId, item.id)
+              notifyDataChanged()
             })
           },
         },

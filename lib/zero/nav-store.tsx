@@ -98,6 +98,11 @@ interface ZeroNavContextValue {
   dataVersion: number
   /** Signal that the underlying data arrays changed (entity added). */
   notifyDataChanged: () => void
+  /** Run a data mutation (e.g. pin/unpin) AS a stage morph: snapshot the layout,
+   *  commit synchronously with the `animating` gate raised so framer stands down,
+   *  then play one Flip.from. Rows ⇄ dock cards glide because they share a
+   *  data-flip-id across the two subtrees. */
+  morphCommit: (mutate: () => void) => void
   /** Register the focus-window region's current viewport rect (WorkSurface). */
   setRegionRect: (rect: RegionRect) => void
   /** A transient "attention" ping for an already-open entity. */
@@ -287,6 +292,37 @@ export function ZeroNavProvider({
       setClosing((c) =>
         c && closingEntity && c.id === closingEntity.id && c.depth === closingEntity.depth ? null : c,
       )
+      setAnimating(false)
+    })
+  }, [setRegionRect])
+
+  /**
+   * Morph an arbitrary data mutation (no stack change) — used by pin/unpin to
+   * fly a DO-list row into its dock card and back. Mirrors `transition`: snapshot
+   * → commit synchronously WITH `animating` raised (so framer's row layout/exit
+   * and dock enter stand down and GSAP Flip alone drives every node) → one
+   * Flip.from. The row and card share `${context}:${id}-frame`, so Flip matches
+   * them across the two subtrees and the frame + glyph + title glide as one
+   * (Spaces also morph their clip rectangle⇄hexagon). Falls back to a plain
+   * mutation under reduced motion / before the stage mounts, so the data change
+   * is never lost.
+   */
+  const morphCommit = useCallback((mutate: () => void) => {
+    const reduced =
+      typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
+    if (reduced) {
+      mutate()
+      return
+    }
+    setRegionRect(getRegionRect())
+    const state = captureStage()
+    flushSync(() => {
+      mutate()
+      setAnimating(true)
+    })
+    playStage(state, { opening: false, top: null, closing: null, fading: [] })
+    settleTimer.current?.kill()
+    settleTimer.current = gsap.delayedCall(MORPH_DURATION, () => {
       setAnimating(false)
     })
   }, [setRegionRect])
@@ -488,6 +524,7 @@ export function ZeroNavProvider({
       fadingStyleFor,
       dataVersion,
       notifyDataChanged,
+      morphCommit,
       setRegionRect,
       pulse,
       requestPulse,
@@ -510,6 +547,7 @@ export function ZeroNavProvider({
     regionRect,
     dataVersion,
     notifyDataChanged,
+    morphCommit,
     setRegionRect,
     pulse,
     requestPulse,
