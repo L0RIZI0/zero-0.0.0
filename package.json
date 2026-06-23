@@ -63,5 +63,14 @@
       "target": "AppImage",
       "category": "Utility"
     }
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "electron",
+      "electron-winstaller",
+      "esbuild",
+      "sharp",
+      "msw"
+    ]
   }
 }
