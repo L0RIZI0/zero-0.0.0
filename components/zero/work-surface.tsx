@@ -32,7 +32,7 @@ import { TimelineStrip } from "./timeline-strip"
  * window's border, while the frame still owns its title band.
  */
 export function WorkSurface() {
-  const { activeEntity, stack } = useZeroNav()
+  const { activeEntity, stack, fading } = useZeroNav()
   const contextId = activeEntity.contextId
   // The root entity's body is the permanent home backdrop at z-0. It is ALWAYS
   // mounted: the depth-1 window grows over it on open and shrinks back into its
@@ -130,6 +130,18 @@ export function WorkSurface() {
         {stack.map((id, depth) =>
           depth >= 1 && isDetachedChild(id, stack[depth - 1]) ? (
             <EntityNode key={`detached:${depth}:${id}`} entityId={id} contextId={stack[depth - 1]} variant="row" />
+          ) : null,
+        )}
+
+        {/* CLOSING detached windows. On a detached close we pop the stack
+            immediately (so state is never stale) but keep the window mounted for
+            its shrink animation by placing it in `fading`. Once popped it is no
+            longer in `stack`, so we mount fading detached entries here too. The
+            EntityNode keeps rendering as a window because `fadingEntry` matches;
+            it unmounts when the fade list clears at the end of the morph. */}
+        {fading.map((f) =>
+          !stack.includes(f.id) && isDetachedChild(f.id, f.parent) ? (
+            <EntityNode key={`fading:${f.depth}:${f.id}`} entityId={f.id} contextId={f.parent} variant="row" />
           ) : null,
         )}
       </div>

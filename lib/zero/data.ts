@@ -691,15 +691,17 @@ export function getChildren(contextId: string): Entity[] {
 }
 
 /**
- * Whether `childId` would appear inside `hostId`'s do-list / dock — i.e. `host`
- * is the child's structural parent OR a space it is tagged into. This is the
- * exact membership rule `getChildren` uses, so it is the test for whether an
- * entity has an IN-PLACE owning node when `host` is open.
+ * Whether `childId` has an IN-PLACE owning node inside `hostId` — i.e. it would
+ * render in `host`'s DO-LIST (structural parent or tagged space) OR in `host`'s
+ * DOCK (pinned there). Either gives the entity a row/card to morph out of and
+ * back into, so it is NOT detached. (A pinned space, e.g. Health on home, is a
+ * dock member even though home is not its parent — without the pin check it would
+ * be wrongly treated as detached and open from center instead of its dock card.)
  */
 export function isMemberOf(childId: string, hostId: string): boolean {
   const e = byId.get(childId)
   if (!e) return false
-  return e.parentId === hostId || e.taggedSpaceIds.includes(hostId)
+  return e.parentId === hostId || e.taggedSpaceIds.includes(hostId) || isPinned(hostId, childId)
 }
 
 /**
