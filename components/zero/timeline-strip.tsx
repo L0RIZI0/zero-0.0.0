@@ -257,7 +257,7 @@ export function TimelineStrip({
             return (
               <span
                 key={m}
-                className="absolute bottom-0 -translate-x-1/2 text-[10px] tabular-nums text-muted-foreground/60"
+                className="absolute bottom-0 -translate-x-1/2 text-[9.5px] font-medium tabular-nums tracking-tight text-muted-foreground/45"
                 style={{ left: `${left}%` }}
               >
                 {fmt(minuteOfDay(m))}
@@ -451,7 +451,7 @@ export function TimelineStrip({
                   key={m}
                   className={cn(
                     "pointer-events-none absolute bottom-0 top-0 w-px",
-                    isMajor ? "bg-border/60" : "bg-border/25",
+                    isMajor ? "bg-border/40" : "bg-border/15",
                   )}
                   style={{ left: `${left}%` }}
                 />
@@ -516,7 +516,9 @@ export function TimelineStrip({
                   <div
                     key={e.id}
                     className="absolute flex -translate-x-1/2 flex-col items-center"
-                    style={{ left: `${left}%`, top: lane === 0 ? 4 : 26 }}
+                    // Centred within the same two 24px lanes the bars use, so a point
+                    // marker sits vertically aligned with the bars on its row.
+                    style={{ left: `${left}%`, top: lane === 0 ? 9 : 37 }}
                   >
                     <motion.button
                       type="button"
@@ -570,7 +572,9 @@ export function TimelineStrip({
               const boxStyle = {
                 left: `calc(${left}% + 2px)`,
                 width: `calc(${Math.max(width, 6)}% - 4px)`,
-                top: lane === 0 ? 5 : 29,
+                // Two lanes of 24px in the 56px track: 4 top pad, 4 inter-lane gap,
+                // 4 bottom pad. More breathing room than the old 22px/2px layout.
+                top: lane === 0 ? 4 : 32,
               } as const
               // Linear-style "elevated bar": the whole bar carries a soft accent
               // TINT with a 1px accent border (no heavy left rule), and a small
@@ -582,7 +586,7 @@ export function TimelineStrip({
               } as const
 
               return (
-                <div key={e.id} className="absolute h-[22px]" style={boxStyle}>
+                <div key={e.id} className="absolute h-6" style={boxStyle}>
                   {/* Persistent chip — the timeline morph SOURCE. Tagged with
                       where="timeline" so opening from here grows the window out
                       of this chip's box. Clicking an already-open event pulses
@@ -603,7 +607,7 @@ export function TimelineStrip({
                     aria-current={isOpen ? "true" : undefined}
                     title={`${e.title} · ${fmt(start)}–${fmt(end)}`}
                     className={cn(
-                      "flex h-[22px] w-full items-center gap-1.5 overflow-hidden rounded-md border px-1.5 text-[10.5px] tracking-tight",
+                      "flex h-6 w-full items-center gap-1.5 overflow-hidden rounded-md border px-2 text-[10.5px] tracking-tight",
                       "text-foreground/85 shadow-sm backdrop-blur-sm transition-[filter] hover:brightness-110",
                     )}
                     style={chipVisual}
