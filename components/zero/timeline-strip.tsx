@@ -803,7 +803,14 @@ export function TimelineStrip({
                     title={`${e.title} · ${fmt(start)}–${fmt(end)}`}
                     className={cn(
                       "flex h-6 w-full items-center gap-1.5 overflow-hidden rounded-md border px-2 text-[10.5px] tracking-tight",
-                      "text-foreground/85 shadow-sm backdrop-blur-sm transition-[filter] hover:brightness-110",
+                      // NOTE: deliberately NO backdrop-blur here. The chip repositions
+                      // every frame (its parent's `left` is recomputed from viewStart)
+                      // during a day-scroll tween. A moving backdrop-filter element
+                      // leaves a residual composited "ghost" smear pinned at its old
+                      // spot in Chrome — the chip then appears to slide over to meet a
+                      // stationary copy of itself. The tinted background + border read
+                      // identically without the blur, so we drop it to kill the ghost.
+                      "text-foreground/85 shadow-sm transition-[filter] hover:brightness-110",
                     )}
                     style={chipVisual}
                   >
