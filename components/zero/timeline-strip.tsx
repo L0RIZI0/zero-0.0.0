@@ -466,10 +466,12 @@ export function TimelineStrip({
             const color = getInheritedAccent(e.parentId ?? "s_root") ?? NEUTRAL_MARKER
             const isOpen = stack.includes(e.id)
             const hovered = hoveredInstant === e.id
-            // Hover thickens + darkens all three pieces together. Uses
-            // muted-foreground (a mid-gray) rather than full foreground so the
-            // emphasis reads as a gentle darken, not a harsh black.
-            const lineColor = hovered ? "var(--muted-foreground)" : color
+            // The three pieces always carry the instant's own accent. Hover does
+            // NOT swap to gray — instead it AMPLIFIES that accent (a saturation +
+            // brightness filter on the whole pin), so a blue instant gets bluer,
+            // a green one greener, etc. The near-black label background is
+            // unaffected by saturate(), so only the colored marks intensify.
+            const lineColor = color
             const onEnter = () => setHoveredInstant(e.id)
             const onLeave = () => setHoveredInstant((cur) => (cur === e.id ? null : cur))
             return (
@@ -477,12 +479,14 @@ export function TimelineStrip({
                 key={e.id}
                 // pointer-events-none here so only the three visual pieces are
                 // interactive (event chips below stay clickable through the gaps).
-                className="pointer-events-none absolute bottom-0 flex w-4 flex-col items-center"
+                // The hover filter intensifies the accent across all three at once.
+                className="pointer-events-none absolute bottom-0 flex w-4 flex-col items-center transition-[filter] duration-300 ease-out"
                 style={{
                   left: `${left}%`,
                   top: -INSTANT_HEAD_H,
                   transform: "translateX(-50%)",
                   opacity: e.cancelled ? 0.45 : 1,
+                  filter: hovered ? "saturate(2) brightness(1.15)" : "none",
                 }}
               >
                 {/* STEM — from just under the triangle to the track bottom,
@@ -519,7 +523,7 @@ export function TimelineStrip({
                   onContextMenu={(ev) => openMenu(ev, e)}
                   aria-current={isOpen ? "true" : undefined}
                   title={`${e.title} · ${fmt(at)}`}
-                  className="pointer-events-auto relative z-10 flex h-3 w-3 items-center justify-center"
+                  className="pointer-events-auto relative z-10 flex h-2.5 w-2.5 items-center justify-center"
                 >
                   <NodeGlyph kind="instant" filled strokeWidth={1.5} />
                 </motion.button>
@@ -531,7 +535,7 @@ export function TimelineStrip({
                   onMouseEnter={onEnter}
                   onMouseLeave={onLeave}
                   className={cn(
-                    "pointer-events-auto relative z-10 mt-1 max-h-[52px] truncate rounded-[2px] bg-background py-0.5 text-[10px] leading-none tracking-tight",
+                    "pointer-events-auto relative z-10 mt-1 max-h-[52px] truncate rounded-[3px] bg-background px-1 py-1.5 text-[10px] leading-none tracking-tight",
                     "transition-[color,font-weight] duration-300 ease-out",
                     e.cancelled && "line-through",
                   )}
