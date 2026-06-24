@@ -53,20 +53,42 @@ const priorityDot: Record<TaskPriority, string> = {
   low: "bg-foreground/20",
 }
 
-function fmtTime(min: number) {
-  const h = Math.floor(min / 60)
-  const m = min % 60
+// Time is absolute epoch ms now (see Schedule). These formatters take a
+// timestamp and render the time-of-day; `fmtDue` renders a relative day label.
+function fmtTime(epoch: number) {
+  const d = new Date(epoch)
+  const h = d.getHours()
+  const m = d.getMinutes()
   const ampm = h >= 12 ? "pm" : "am"
   const hr = h % 12 === 0 ? 12 : h % 12
   return m === 0 ? `${hr}${ampm}` : `${hr}:${String(m).padStart(2, "0")}${ampm}`
 }
 
-function fmtMoment(min: number, seconds: number) {
-  const h = Math.floor(min / 60)
-  const m = min % 60
+function fmtMoment(epoch: number) {
+  const d = new Date(epoch)
+  const h = d.getHours()
+  const m = d.getMinutes()
+  const s = d.getSeconds()
   const ampm = h >= 12 ? "pm" : "am"
   const hr = h % 12 === 0 ? 12 : h % 12
-  return `${hr}:${String(m).padStart(2, "0")}:${String(seconds).padStart(2, "0")}${ampm}`
+  return `${hr}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}${ampm}`
+}
+
+/** Relative day label for a deadline: "Today" / "Tomorrow" / weekday within a
+ *  week / "Mon D" further out. Replaces the old free-text `dueDate`. */
+function fmtDue(epoch: number) {
+  const due = new Date(epoch)
+  const startOfDay = (d: Date) => {
+    const x = new Date(d)
+    x.setHours(0, 0, 0, 0)
+    return x.getTime()
+  }
+  const days = Math.round((startOfDay(due) - startOfDay(new Date())) / 86_400_000)
+  if (days === 0) return "Today"
+  if (days === 1) return "Tomorrow"
+  if (days === -1) return "Yesterday"
+  if (days > 1 && days < 7) return due.toLocaleDateString(undefined, { weekday: "short" })
+  return due.toLocaleDateString(undefined, { month: "short", day: "numeric" })
 }
 
 /**
@@ -233,8 +255,9 @@ export function EntityNode({
   void nav.dataVersion // re-read counts when data mutates
   const openCount = getOpenTaskCount(entityId)
 
-  const hasRange = typeof entity.start === "number" && typeof entity.end === "number"
-  const hasMoment = typeof entity.at === "number"
+  const sched = entity.schedule
+  const hasRange = typeof sched?.startAt === "number" && typeof sched?.endAt === "number"
+  const hasMoment = typeof sched?.at === "number"
   const cancelled = !!entity.cancelled
 
   function onFrameClick(e: React.MouseEvent) {
@@ -979,18 +1002,18 @@ export function EntityNode({
               )}
               {hasRange && (
                 <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground/70">
-                  {fmtTime(entity.start!)}
+                  {fmtTime(sched!.startAt!)}
                   {"\u2013"}
-                  {fmtTime(entity.end!)}
+                  {fmtTime(sched!.endAt!)}
                 </span>
               )}
               {kind === "instant" && hasMoment && (
                 <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground/70">
-                  {fmtMoment(entity.at!, entity.seconds ?? 0)}
+                  {fmtMoment(sched!.at!)}
                 </span>
               )}
-              {isTask && entity.dueDate && (
-                <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground/70">{entity.dueDate}</span>
+              {isTask && typeof sched?.dueAt === "number" && (
+                <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground/70">{fmtDue(sched.dueAt)}</span>
               )}
               {isTask && (
                 <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", priorityDot[entity.priority ?? "medium"])} />

@@ -179,7 +179,32 @@ export const resources: Resource[] = [
 // subtree dimming via collectDescendants / isInSubtree.
 // ----------------------------------------------------------------------------
 
-const hm = (h: number, m = 0) => h * 60 + m
+// --- Demo time anchor -------------------------------------------------------
+// Time is absolute epoch ms now (see Schedule). Seed data is anchored to the
+// REAL current date at module load, so the demo always looks "live" — today's
+// blocks sit on today, the now-marker is real. (Non-deterministic across days,
+// which is the intended trade-off.)
+export const DAY_MS = 86_400_000
+
+/** Local midnight of today, epoch ms. Computed once at module load. */
+const START_OF_TODAY = (() => {
+  const d = new Date()
+  d.setHours(0, 0, 0, 0)
+  return d.getTime()
+})()
+
+/** Epoch ms for TODAY at h:m(:s) local. Keeps seed rows readable: `t(9, 30)`. */
+const t = (h: number, m = 0, s = 0) => START_OF_TODAY + h * 3_600_000 + m * 60_000 + s * 1000
+
+/** Epoch ms for a day-offset from today at h:m local. `dayT(1, 9)` = tomorrow 9am. */
+const dayT = (dayOffset: number, h = 0, m = 0) => t(h, m) + dayOffset * DAY_MS
+
+/** Next occurrence (today or future) of weekday `wd` (0=Sun..6=Sat) at `h:00`. */
+const nextWeekday = (wd: number, h = 17) => {
+  const today = new Date(START_OF_TODAY).getDay()
+  const delta = (wd - today + 7) % 7
+  return dayT(delta, h)
+}
 
 const ACCENT = {
   dayjob: "#2F6FED",
@@ -383,7 +408,7 @@ export const entities: Entity[] = [
     parentId: "s_zero",
     taggedSpaceIds: ["s_deck", "s_strategy"],
     completed: false,
-    dueDate: "Today",
+    schedule: { dueAt: t(17) },
     priority: "high",
     tags: ["deck", "narrative"],
   },
@@ -394,7 +419,7 @@ export const entities: Entity[] = [
     parentId: "s_zero",
     taggedSpaceIds: ["s_product"],
     completed: false,
-    dueDate: "Today",
+    schedule: { dueAt: t(17) },
     priority: "high",
     tags: ["motion", "product"],
   },
@@ -405,7 +430,7 @@ export const entities: Entity[] = [
     parentId: "s_root",
     taggedSpaceIds: [],
     completed: true,
-    dueDate: "Today",
+    schedule: { dueAt: t(17) },
     priority: "medium",
     tags: ["ritual"],
   },
@@ -416,7 +441,7 @@ export const entities: Entity[] = [
     parentId: "s_dayjob",
     taggedSpaceIds: ["s_product", "s_zero"],
     completed: false,
-    dueDate: "Mon",
+    schedule: { dueAt: nextWeekday(1) },
     priority: "medium",
     tags: ["product"],
   },
@@ -427,7 +452,7 @@ export const entities: Entity[] = [
     parentId: "s_zero",
     taggedSpaceIds: ["s_product"],
     completed: false,
-    dueDate: "This week",
+    schedule: { dueAt: nextWeekday(5) },
     priority: "low",
     tags: ["system"],
   },
@@ -438,7 +463,7 @@ export const entities: Entity[] = [
     parentId: "s_zero",
     taggedSpaceIds: ["s_deck"],
     completed: false,
-    dueDate: "Wed",
+    schedule: { dueAt: nextWeekday(3) },
     priority: "high",
     tags: ["deck"],
   },
@@ -449,7 +474,7 @@ export const entities: Entity[] = [
     parentId: "s_dayjob",
     taggedSpaceIds: ["s_team"],
     completed: false,
-    dueDate: "Today",
+    schedule: { dueAt: t(17) },
     priority: "medium",
     tags: ["people"],
   },
@@ -460,7 +485,7 @@ export const entities: Entity[] = [
     parentId: "s_personal",
     taggedSpaceIds: ["s_health"],
     completed: false,
-    dueDate: "This week",
+    schedule: { dueAt: nextWeekday(5) },
     priority: "low",
     tags: ["errand"],
   },
@@ -471,7 +496,7 @@ export const entities: Entity[] = [
     parentId: "s_personal",
     taggedSpaceIds: ["s_home"],
     completed: false,
-    dueDate: "Today",
+    schedule: { dueAt: t(17) },
     priority: "low",
     tags: ["errand"],
   },
@@ -482,7 +507,7 @@ export const entities: Entity[] = [
     parentId: "s_personal",
     taggedSpaceIds: ["s_journal"],
     completed: false,
-    dueDate: "Today",
+    schedule: { dueAt: t(17) },
     priority: "low",
     tags: ["ritual"],
   },
@@ -493,7 +518,7 @@ export const entities: Entity[] = [
     parentId: "s_health",
     taggedSpaceIds: ["s_training"],
     completed: false,
-    dueDate: "Today",
+    schedule: { dueAt: t(17) },
     priority: "medium",
     tags: ["training"],
   },
@@ -504,20 +529,20 @@ export const entities: Entity[] = [
     parentId: "s_dayjob",
     taggedSpaceIds: ["s_admin"],
     completed: false,
-    dueDate: "Thu",
+    schedule: { dueAt: nextWeekday(4) },
     priority: "medium",
     tags: ["admin"],
   },
 
   // --- Events ---------------------------------------------------------------
-  { id: "e1", kind: "event", title: "Daily standup", parentId: "s_dayjob", taggedSpaceIds: [], start: hm(9), end: hm(9, 30) },
-  { id: "e2", kind: "event", title: "Deep work block", parentId: "s_zero", taggedSpaceIds: [], start: hm(9, 45), end: hm(11, 30) },
-  { id: "e3", kind: "event", title: "Product review", parentId: "s_product", taggedSpaceIds: [], start: hm(11, 30), end: hm(12, 15) },
-  { id: "e4", kind: "event", title: "Lunch", parentId: "s_personal", taggedSpaceIds: [], start: hm(12, 30), end: hm(13, 15) },
-  { id: "e5", kind: "event", title: "Investor prep", parentId: "s_deck", taggedSpaceIds: [], start: hm(13, 30), end: hm(14, 45) },
-  { id: "e6", kind: "event", title: "Admin hour", parentId: "s_admin", taggedSpaceIds: [], start: hm(15), end: hm(16) },
-  { id: "e7", kind: "event", title: "Workout", parentId: "s_training", taggedSpaceIds: [], start: hm(17, 30), end: hm(18, 30) },
-  { id: "e8", kind: "event", title: "Evening reset", parentId: "s_journal", taggedSpaceIds: [], start: hm(21), end: hm(21, 30) },
+  { id: "e1", kind: "event", title: "Daily standup", parentId: "s_dayjob", taggedSpaceIds: [], schedule: { startAt: t(9), endAt: t(9, 30) } },
+  { id: "e2", kind: "event", title: "Deep work block", parentId: "s_zero", taggedSpaceIds: [], schedule: { startAt: t(9, 45), endAt: t(11, 30) } },
+  { id: "e3", kind: "event", title: "Product review", parentId: "s_product", taggedSpaceIds: [], schedule: { startAt: t(11, 30), endAt: t(12, 15) } },
+  { id: "e4", kind: "event", title: "Lunch", parentId: "s_personal", taggedSpaceIds: [], schedule: { startAt: t(12, 30), endAt: t(13, 15) } },
+  { id: "e5", kind: "event", title: "Investor prep", parentId: "s_deck", taggedSpaceIds: [], schedule: { startAt: t(13, 30), endAt: t(14, 45) } },
+  { id: "e6", kind: "event", title: "Admin hour", parentId: "s_admin", taggedSpaceIds: [], schedule: { startAt: t(15), endAt: t(16) } },
+  { id: "e7", kind: "event", title: "Workout", parentId: "s_training", taggedSpaceIds: [], schedule: { startAt: t(17, 30), endAt: t(18, 30) } },
+  { id: "e8", kind: "event", title: "Evening reset", parentId: "s_journal", taggedSpaceIds: [], schedule: { startAt: t(21), endAt: t(21, 30) } },
 ]
 
 // ----------------------------------------------------------------------------
@@ -753,15 +778,59 @@ export function getSpaceTasks(spaceId: string): Entity[] {
   )
 }
 
+// ----------------------------------------------------------------------------
+// Timeline back-compat shim.
+//
+// The canonical time model is now absolute epoch ms on `entity.schedule`. The
+// current timeline (timeline-strip.tsx) still works in MINUTES-FROM-MIDNIGHT
+// (`start`/`end`/`at`/`seconds`). Rather than rewrite the timeline now (that's
+// the next pass), `getSpaceEvents` returns a `TimelineEntity` — the entity plus
+// those minute fields DERIVED from `schedule` — so the timeline keeps working
+// unchanged. The derivation is read-only (a shallow clone); it never mutates the
+// stored entity. When the timeline is reworked to position by epoch directly,
+// this shim can be deleted.
+// ----------------------------------------------------------------------------
+
+/** An Entity augmented with derived minutes-from-midnight fields for the legacy
+ *  timeline. Do NOT persist these — they are recomputed from `schedule`. */
+export type TimelineEntity = Entity & {
+  start?: number
+  end?: number
+  at?: number
+  seconds?: number
+}
+
+const minutesOfDay = (epoch: number): number => {
+  const d = new Date(epoch)
+  return d.getHours() * 60 + d.getMinutes()
+}
+
+function toTimelineEntity(e: Entity): TimelineEntity {
+  const s = e.schedule
+  return {
+    ...e,
+    start: s?.startAt != null ? minutesOfDay(s.startAt) : undefined,
+    end: s?.endAt != null ? minutesOfDay(s.endAt) : undefined,
+    at: s?.at != null ? minutesOfDay(s.at) : undefined,
+    seconds: s?.at != null ? new Date(s.at).getSeconds() : undefined,
+  }
+}
+
 /** Events AND instants anywhere in a space's subtree. Drives the timeline —
- *  events render as spans, instants as single-point markers. */
-export function getSpaceEvents(spaceId: string): Entity[] {
+ *  events render as spans, instants as single-point markers. Returns
+ *  {@link TimelineEntity} (entity + derived minute fields) — see shim above. */
+export function getSpaceEvents(spaceId: string): TimelineEntity[] {
   const isTimed = (e: Entity) => e.kind === "event" || e.kind === "instant"
-  if (spaceId === "s_root") return entities.filter(isTimed)
-  const descendants = collectDescendants(spaceId)
-  return entities.filter(
-    (e) => isTimed(e) && e.parentId !== null && descendants.has(e.parentId),
-  )
+  const matched =
+    spaceId === "s_root"
+      ? entities.filter(isTimed)
+      : (() => {
+          const descendants = collectDescendants(spaceId)
+          return entities.filter(
+            (e) => isTimed(e) && e.parentId !== null && descendants.has(e.parentId),
+          )
+        })()
+  return matched.map(toTimelineEntity)
 }
 
 /** Assets anywhere in a space's subtree. */
@@ -886,6 +955,37 @@ function persist() {
   })
 }
 
+/**
+ * Fold a pre-schedule persisted entity (old flat minutes-from-midnight fields
+ * `start`/`end`/`at`/`seconds` and free-text `dueDate`) into the new `schedule`
+ * object, anchored to today. Mutates in place; no-op once `schedule` exists or
+ * no legacy fields are present. Keeps localStorage data from older builds valid.
+ */
+function migrateLegacyTime(entity: Entity): void {
+  if (entity.schedule) return
+  // Legacy fields are no longer on the Entity type; read via a loose view.
+  const legacy = entity as Entity & {
+    start?: number
+    end?: number
+    at?: number
+    seconds?: number
+    dueDate?: string
+  }
+  const fromMin = (min: number, sec = 0) => t(Math.floor(min / 60), min % 60, sec)
+  const schedule: NonNullable<Entity["schedule"]> = {}
+  if (typeof legacy.start === "number") schedule.startAt = fromMin(legacy.start)
+  if (typeof legacy.end === "number") schedule.endAt = fromMin(legacy.end)
+  if (typeof legacy.at === "number") schedule.at = fromMin(legacy.at, legacy.seconds ?? 0)
+  // Old free-text dueDate can't be parsed reliably; default a labelled due to 5pm today.
+  if (legacy.dueDate) schedule.dueAt = t(17)
+  if (Object.keys(schedule).length > 0) entity.schedule = schedule
+  delete legacy.start
+  delete legacy.end
+  delete legacy.at
+  delete legacy.seconds
+  delete legacy.dueDate
+}
+
 let _hydrated = false
 
 /**
@@ -901,6 +1001,7 @@ export function hydrateFromStorage(): boolean {
 
   for (const entity of stored.entities) {
     if (byId.has(entity.id)) continue
+    migrateLegacyTime(entity)
     entities.push(entity)
     byId.set(entity.id, entity)
     userEntityIds.add(entity.id)
@@ -1012,8 +1113,8 @@ export function addEvent(input: { title: string; spaceId: string }): Entity {
     title: input.title,
     parentId: input.spaceId,
     taggedSpaceIds: [],
-    start: hm(12, 0),
-    end: hm(13, 0),
+    // Defaults to a noon→1pm block TODAY (absolute epoch ms).
+    schedule: { startAt: t(12), endAt: t(13) },
   }
   entities.push(entity)
   byId.set(entity.id, entity)
@@ -1024,15 +1125,14 @@ export function addEvent(input: { title: string; spaceId: string }): Entity {
 
 export function addInstant(input: { title: string; spaceId: string }): Entity {
   // An instant is a single point in time (down-triangle). It defaults to noon
-  // exactly; precision down to the second is carried on `seconds`.
+  // today exactly; sub-minute precision is free now that `at` is absolute ms.
   const entity: Entity = {
     id: uid("i"),
     kind: "instant",
     title: input.title,
     parentId: input.spaceId,
     taggedSpaceIds: [],
-    at: hm(12, 0),
-    seconds: 0,
+    schedule: { at: t(12) },
   }
   entities.push(entity)
   byId.set(entity.id, entity)
@@ -1072,11 +1172,9 @@ export function changeEntityKind(id: string, kind: EntityKind): void {
     entity.description = entity.description ?? ""
     entity.assignedResourceIds = entity.assignedResourceIds ?? []
   } else if (kind === "event") {
-    entity.start = entity.start ?? hm(12, 0)
-    entity.end = entity.end ?? hm(13, 0)
+    entity.schedule = { startAt: t(12), endAt: t(13), ...entity.schedule }
   } else if (kind === "instant") {
-    entity.at = entity.at ?? hm(12, 0)
-    entity.seconds = entity.seconds ?? 0
+    entity.schedule = { at: t(12), ...entity.schedule }
   }
   persist()
 }

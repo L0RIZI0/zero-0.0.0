@@ -49,6 +49,58 @@ export interface User {
  */
 export type EntityKind = "space" | "task" | "event" | "instant"
 
+/** Absolute time, in epoch milliseconds (the `Date.now()` value). Replaces the
+ *  old "minutes from midnight" representation so spans can cross days/weeks/years
+ *  and recurrence is expressible. */
+export type Epoch = number
+
+/**
+ * Recurrence rule for a repeating schedule. Absent `repeat` = a one-off.
+ * Deliberately a small subset of iCal RRULE — enough for "every weekday",
+ * "every 2 weeks on Mon/Wed", "monthly", etc.
+ */
+export interface Recurrence {
+  freq: "daily" | "weekly" | "monthly" | "yearly"
+  /** Every N units of `freq` (default 1). */
+  interval?: number
+  /** For weekly rules: weekdays 0(Sun)–6(Sat) the event lands on. */
+  byWeekday?: number[]
+  /** Optional end of the series (inclusive), epoch ms. */
+  until?: Epoch
+}
+
+/**
+ * All of an entity's TIMING, grouped in one optional object. Presence of
+ * `schedule` is the single "is this entity scheduled?" check. Every field is
+ * optional and relevant to different kinds:
+ *
+ *   - event   → `startAt` + `endAt` (a contiguous span).
+ *   - instant → `at` (a single point in time).
+ *   - task    → `dueAt` (a deadline) and/or `timebox` (effort budget).
+ *
+ * `duration` vs `timebox` are intentionally distinct:
+ *   - `duration` is the length of a CONTIGUOUS block (usually `endAt - startAt`).
+ *   - `timebox` is a planned EFFORT BUDGET in minutes that may be spread across
+ *     many separate sessions (e.g. "spend 5h on this over the week"), so it is
+ *     independent of any single start/end.
+ */
+export interface Schedule {
+  /** Contiguous span start (events, timed blocks). */
+  startAt?: Epoch
+  /** Contiguous span end. */
+  endAt?: Epoch
+  /** A single point in time (instants). */
+  at?: Epoch
+  /** Deadline (tasks). Was the free-text `dueDate`; now machine-readable. */
+  dueAt?: Epoch
+  /** Length of a contiguous block, in MINUTES. */
+  duration?: number
+  /** Effort budget in MINUTES, independent of when it happens (may span sessions). */
+  timebox?: number
+  /** Recurrence; absent = one-off. */
+  repeat?: Recurrence
+}
+
 export interface Entity {
   id: string
   kind: EntityKind
@@ -80,18 +132,14 @@ export interface Entity {
   assignedResourceIds?: string[]
   /** Mainly tasks. */
   priority?: TaskPriority
-  /** Free-text due label ("Today", "Mon", "This week"); mainly tasks. */
-  dueDate?: string
-  /** Minutes from midnight; mainly events. Kept numeric for timeline math. */
-  start?: number
-  end?: number
   /**
-   * Minutes from midnight for an `instant` — a single point in time rather than
-   * a span. `seconds` carries the sub-minute precision (0–59) so an instant can
-   * be pinned to a specific second.
+   * All timing for this entity (start/end span, instant point, due date, effort
+   * budget, recurrence) — grouped in one optional object. Replaces the former
+   * flat `start`/`end`/`at`/`seconds` (minutes-from-midnight) and the free-text
+   * `dueDate`. See {@link Schedule}. Sub-second/`seconds` precision is now free,
+   * since `at` is an absolute timestamp.
    */
-  at?: number
-  seconds?: number
+  schedule?: Schedule
   /** Free-text labels. */
   tags?: string[]
 
