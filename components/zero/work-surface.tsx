@@ -129,7 +129,13 @@ export function WorkSurface() {
             morphDetached) from the launching placement's rect, or the region center. */}
         {stack.map((id, depth) =>
           depth >= 1 && isDetachedChild(id, stack[depth - 1]) ? (
-            <EntityNode key={`detached:${depth}:${id}`} entityId={id} contextId={stack[depth - 1]} variant="row" />
+            <EntityNode
+              key={`detached:${depth}:${id}`}
+              entityId={id}
+              contextId={stack[depth - 1]}
+              variant="row"
+              detached
+            />
           ) : null,
         )}
 
@@ -141,7 +147,13 @@ export function WorkSurface() {
             it unmounts when the fade list clears at the end of the morph. */}
         {fading.map((f) =>
           !stack.includes(f.id) && isDetachedChild(f.id, f.parent) ? (
-            <EntityNode key={`fading:${f.depth}:${f.id}`} entityId={f.id} contextId={f.parent} variant="row" />
+            <EntityNode
+              key={`fading:${f.depth}:${f.id}`}
+              entityId={f.id}
+              contextId={f.parent}
+              variant="row"
+              detached
+            />
           ) : null,
         )}
       </div>

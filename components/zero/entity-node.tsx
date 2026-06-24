@@ -116,6 +116,7 @@ export function EntityNode({
   contextId,
   variant,
   onContextMenu,
+  detached = false,
 }: {
   entityId: string
   /** The id of the context (space) whose Dock/DO-list renders this node. This is
@@ -124,6 +125,13 @@ export function EntityNode({
   contextId: string
   variant: "row" | "dock"
   onContextMenu?: (e: React.MouseEvent) => void
+  /** Mounted as a standalone DETACHED window (no in-place row exists for it; see
+   *  work-surface). Only affects the CLOSING (fading) frame: a detached window has
+   *  no row to telescope back into, so when it is popped from the stack and shrinks
+   *  toward its launch point it must keep rendering as its own LEAF (octagon, opaque
+   *  surface, floating header) instead of momentarily flipping to an ancestor
+   *  spine/transparent rect. */
+  detached?: boolean
 }) {
   const nav = useZeroNav()
   // Theme drives the telescopic surface direction. Default to dark when unresolved
@@ -189,7 +197,13 @@ export function EntityNode({
   // telescoping out during a multi-level close (so it keeps covering its
   // parent's do-list as it retracts).
   const asWindow = ownsOpen || fadingWindow
-  const isTop = ownsOpen && nav.activeId === entityId
+  // A DETACHED window that has been popped and is now shrinking closed. It has no
+  // row/ancestor to recede into, so it must keep its own LEAF identity for the
+  // whole shrink (see `detached` prop). Only the fading phase needs this: while
+  // OPEN it is a normal stack leaf, and drilling a child into it still telescopes
+  // it to an ancestor spine through the usual stack logic.
+  const detachedFading = detached && fadingWindow && !ownsOpen
+  const isTop = (ownsOpen && nav.activeId === entityId) || detachedFading
   const animating = nav.animating
   const showBody = asWindow || isClosing
 
@@ -215,8 +229,11 @@ export function EntityNode({
   // transparent and let parent content bleed through).
   const contextDepth = Math.max(0, nav.stack.indexOf(contextId))
   // The frontmost open window's depth. It drives the telescopic mapping so the
-  // leaf is capped and ancestors recede relative to it.
-  const leafDepth = Math.max(0, nav.stack.length - 1)
+  // leaf is capped and ancestors recede relative to it. A detached window that is
+  // shrinking closed has already been popped, so the live stack's leaf sits BELOW
+  // it; treat the detached window as its own leaf so its surface stays the opaque
+  // foreground fill (not a receded/transparent ancestor tone) for the whole shrink.
+  const leafDepth = detachedFading ? depth : Math.max(0, nav.stack.length - 1)
   // Resting surface = parent window's (telescoped) background, so the collapsed
   // node is invisible at rest. Highlight = ONE ramp step further toward foreground
   // than that — a clear hover lift (brighter in dark mode, a subtle darken in
@@ -313,7 +330,17 @@ export function EntityNode({
 
   // Resting window geometry (also carries the leaf's `--space-ax`). Computed here
   // (not just before the return) because the clip + outline below derive from it.
-  const winStyle = asWindow ? (fadingWindow ? nav.fadingStyleFor(depth) : nav.styleFor(depth)) : null
+  // A detached window shrinking closed keeps its LEAF geometry (forceLeaf) rather
+  // than the telescoping `fadingStyleFor` box — it has no row to retract into and
+  // is morphed toward its launch point by `morphDetached` instead. `selfKind` is
+  // passed because it has been popped from the stack and can't be read back.
+  const winStyle = asWindow
+    ? detachedFading
+      ? nav.styleFor(depth, { forceLeaf: true, selfKind: kind })
+      : fadingWindow
+        ? nav.fadingStyleFor(depth)
+        : nav.styleFor(depth)
+    : null
 
   // A Space is always shaped by the SAME 8-point clip-path; only its two insets
   // change between states:

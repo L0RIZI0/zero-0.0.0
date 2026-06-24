@@ -142,25 +142,38 @@ export function morphDetached(
   const target = frame.getBoundingClientRect()
   if (target.width <= 0 || target.height <= 0) return
   const src = origin ?? centerOriginRect()
-  const from = {
+  // Geometry only — opacity is handled separately so the frame stays SOLID while it
+  // grows/shrinks (it should read as the window physically retracting into the chip,
+  // not dissolving). The fill is opaque, so a scaled-down frame simply looks like a
+  // tiny version of the window sitting on the chip.
+  const fromGeom = {
     x: src.left - target.left,
     y: src.top - target.top,
     scaleX: src.width / target.width,
     scaleY: src.height / target.height,
-    opacity: 0,
     transformOrigin: "0 0",
   }
-  const to = { x: 0, y: 0, scaleX: 1, scaleY: 1, opacity: 1, transformOrigin: "0 0" }
+  const toGeom = { x: 0, y: 0, scaleX: 1, scaleY: 1, transformOrigin: "0 0" }
   if (opening) {
-    gsap.fromTo(frame, from, {
-      ...to,
+    gsap.fromTo(frame, fromGeom, {
+      ...toGeom,
       duration: MORPH_DURATION,
       ease: MORPH_EASE,
       // Clear inline transform so the settled window has no leftover scale.
       onComplete: () => gsap.set(frame, { clearProps: "transform,opacity" }),
     })
+    // Snap to opaque almost immediately — only the first sliver hides the pop-in.
+    gsap.fromTo(frame, { opacity: 0 }, { opacity: 1, duration: MORPH_DURATION * 0.15, ease: "power1.out" })
   } else {
-    gsap.fromTo(frame, to, { ...from, duration: MORPH_DURATION, ease: MORPH_EASE })
+    gsap.fromTo(frame, toGeom, { ...fromGeom, duration: MORPH_DURATION, ease: MORPH_EASE })
+    // Stay fully opaque while it retracts; fade out only in the final sliver, by which
+    // point the frame is already chip-sized — so it tucks away rather than dissolving.
+    gsap.to(frame, {
+      opacity: 0,
+      duration: MORPH_DURATION * 0.2,
+      delay: MORPH_DURATION * 0.8,
+      ease: "power1.in",
+    })
   }
 }
 

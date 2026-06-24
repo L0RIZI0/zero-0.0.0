@@ -89,8 +89,12 @@ interface ZeroNavContextValue {
   /** True for the duration of any window morph (open or close). */
   animating: boolean
   /** Fixed-position geometry for an OPEN window at the given absolute depth,
-   *  measured from the focus-window region. */
-  styleFor: (depth: number) => React.CSSProperties
+   *  measured from the focus-window region. `opts.forceLeaf` computes the LEAF
+   *  (octagon) geometry even when the entry is no longer the top of the stack —
+   *  used by a DETACHED window shrinking closed, which has already been popped
+   *  but must keep its leaf shape; `opts.selfKind` supplies that popped entry's
+   *  kind since it can't be read back from the stack. */
+  styleFor: (depth: number, opts?: { forceLeaf?: boolean; selfKind?: EntityKind }) => React.CSSProperties
   /** Depth-only fixed geometry for a telescoping (fading) window. */
   fadingStyleFor: (depth: number) => React.CSSProperties
   /** Bumps on any in-memory data mutation so selectors re-read fresh data. */
@@ -540,7 +544,10 @@ export function ZeroNavProvider({
 
     // Fixed geometry for an open window: walk the in-stack ancestors (above the
     // root backdrop, below this window) and let each reserve space by its kind.
-    const styleFor = (windowDepth: number): React.CSSProperties => {
+    const styleFor = (
+      windowDepth: number,
+      opts?: { forceLeaf?: boolean; selfKind?: EntityKind },
+    ): React.CSSProperties => {
       const leafDepth = stack.length - 1
       const ancestorKinds = stack.slice(1, windowDepth).map((sid) => getEntity(sid)?.kind ?? "task")
       // ancestorKinds[i] is the window at depth (1 + i). ONLY a Space renders as a
@@ -551,7 +558,10 @@ export function ZeroNavProvider({
       const ancestorVertical = ancestorKinds.map((k) => k === "space")
       // A Space window (at any depth, leaf or ancestor) overlaps its immediate
       // parent's top/header, so stackTargetRect skips the last ancestor's top peek.
-      const selfIsSpace = (getEntity(stack[windowDepth])?.kind ?? "task") === "space"
+      // A detached window being measured after its pop is no longer in `stack`, so
+      // fall back to the explicitly-passed `selfKind`.
+      const selfKind = opts?.selfKind ?? getEntity(stack[windowDepth])?.kind ?? "task"
+      const selfIsSpace = selfKind === "space"
       let rect = stackTargetRect(
         ancestorKinds,
         { w: liftedRegion.width, h: liftedRegion.height },
@@ -566,7 +576,7 @@ export function ZeroNavProvider({
       // the same Flip pass (brackets ride to the corners, flat edges spread to full
       // width). The expanded ancestor is then a plain, cheap rectangle (no inset,
       // no drop-shadow filter), which is also why opening/closing stays snappy.
-      const isLeaf = windowDepth === stack.length - 1
+      const isLeaf = opts?.forceLeaf || windowDepth === stack.length - 1
       const isSpaceLeaf = selfIsSpace && isLeaf
       let hexInsetY = 0
       // Distance from the hexagon's TOP POINT down to its upper side corners — i.e.
