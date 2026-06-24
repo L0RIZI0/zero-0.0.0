@@ -156,7 +156,7 @@ export function TimelineStrip({
   contextId: string
   accent?: string
 }) {
-  const { stack, dataVersion, notifyDataChanged } = useZeroNav()
+  const { stack, dataVersion, notifyDataChanged, openTo } = useZeroNav()
   const [menu, setMenu] = useState<ContextMenuState | null>(null)
 
   // Shell compaction stage (0 home, 1 first child, 2+ deeper), mirroring
@@ -593,9 +593,9 @@ export function TimelineStrip({
                 >
                   {e.title}
                 </span>
-                {/* TRIANGLE head — the timeline morph SOURCE (where="timeline").
-                    Opening from the timeline is disabled for now; right-click
-                    still offers the menu. */}
+                {/* TRIANGLE head — clicking opens the instant's whole containment
+                    chain (like the event chips); right-click still offers the
+                    menu. */}
                 <motion.button
                   type="button"
                   initial={false}
@@ -609,6 +609,7 @@ export function TimelineStrip({
                   }}
                   onMouseEnter={onEnter}
                   onMouseLeave={onLeave}
+                  onClick={() => openTo(e.id)}
                   onContextMenu={(ev) => openMenu(ev, e)}
                   aria-current={isOpen ? "true" : undefined}
                   title={`${e.title} · ${fmt(at)}`}
@@ -796,8 +797,12 @@ export function TimelineStrip({
                     // open. Only a cancelled event reads faded.
                     animate={{ opacity: e.cancelled ? 0.45 : 1 }}
                     transition={panelTransition}
-                    // Opening entities FROM the timeline is intentionally disabled
-                    // for now (a later feature) — the chip is informational only.
+                    // Click opens the entity's WHOLE containment chain (e.g. the
+                    // Workout chip opens Health → Workout). openTo pulses instead
+                    // if it's already open. We don't morph the chip into the
+                    // window — the standard telescoping open plays — so there's no
+                    // shared-layoutId source to manage.
+                    onClick={() => openTo(e.id)}
                     onContextMenu={(ev) => openMenu(ev, e)}
                     aria-current={isOpen ? "true" : undefined}
                     title={`${e.title} · ${fmt(start)}–${fmt(end)}`}

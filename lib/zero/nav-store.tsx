@@ -2,7 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react"
 import { flushSync } from "react-dom"
-import { getEntity, hydrateFromStorage } from "./data"
+import { getAncestorPath, getEntity, hydrateFromStorage } from "./data"
 import { collapseEntityPanels } from "./panel-store"
   import { stackTargetRect, octagonLeafInside, spaceLeafInsets } from "./motion"
 import { shellStageFor, WINDOW_TOP_LIFT } from "./layout"
@@ -117,6 +117,10 @@ interface ZeroNavContextValue {
   pulse: { id: string; n: number } | null
   /** Ask the open window for `id` to bounce (re-clicked its timeline chip). */
   requestPulse: (id: string) => void
+  /** Open an entity by its full containment path (root→…→id), telescoping every
+   *  ancestor open in one morph. Pulses instead if it's already open. Used by
+   *  the timeline chips. */
+  openTo: (id: string) => void
 
   // --- Selection + keyboard navigation ---------------------------------------
   selection: Selection
@@ -408,6 +412,36 @@ export function ZeroNavProvider({
     [transition],
   )
 
+  /**
+   * Open an entity by its FULL containment path, regardless of where the user
+   * currently is — used by the timeline chips (clicking "Workout" opens Health
+   * then Workout). Resolves the ancestor path (root→…→id) and telescopes the
+   * whole stack open in one morph. If the entity is ALREADY open at the top of
+   * the current stack, we don't re-navigate — we pulse its window to draw the
+   * eye. Unknown ids are ignored.
+   */
+  const openTo = useCallback(
+    (id: string) => {
+      const path = getAncestorPath(id)
+      if (path.length === 0) return
+      const cur = stackRef.current
+      // Already the focused leaf → just bounce it instead of reopening.
+      if (cur[cur.length - 1] === id) {
+        requestPulse(id)
+        return
+      }
+      // Open somewhere mid-stack already (an ancestor is focused or it sits in
+      // the current path) → pulse rather than rebuild a conflicting stack.
+      if (cur.includes(id)) {
+        requestPulse(id)
+        return
+      }
+      collapseEntityPanels(cur[cur.length - 1])
+      transition(path)
+    },
+    [transition, requestPulse],
+  )
+
   // Close the window at absolute index `depth` (and everything above it).
   const closeWindow = useCallback(
     (depth: number) => {
@@ -580,6 +614,7 @@ export function ZeroNavProvider({
       activeId,
       activeEntity,
       open,
+      openTo,
       close,
       closeWindow,
     closing,
@@ -607,6 +642,7 @@ export function ZeroNavProvider({
   }, [
     stack,
     open,
+    openTo,
     close,
     closeWindow,
     closing,
