@@ -609,10 +609,6 @@ export function TimelineStrip({
           })}
         </div>
 
-        {/* continuity rails — extend to the screen edges */}
-        <div className="absolute left-0 right-0 top-0 h-px bg-border" />
-        <div className="absolute bottom-0 left-0 right-0 h-px bg-border" />
-
         <div className="flex h-full items-stretch">
           {/* Zoom selector — a vertical list of single capital letters pinned to
               the far-left screen edge, left of the back arrow: Life, Year,
@@ -665,7 +661,7 @@ export function TimelineStrip({
             type="button"
             onClick={goPrev}
             aria-label="Previous day"
-            className="flex w-10 shrink-0 items-center justify-center text-muted-foreground/70 transition-colors hover:bg-secondary/40 hover:text-foreground"
+            className="flex w-10 shrink-0 items-center justify-center border-y border-border text-muted-foreground/70 transition-colors hover:bg-secondary/40 hover:text-foreground"
           >
             <ChevronLeft className="h-4 w-4" />
           </button>
@@ -677,6 +673,12 @@ export function TimelineStrip({
             ref={viewportRef}
             className="relative h-full flex-1 overflow-hidden border-x border-border bg-card/50"
           >
+            {/* centered lifeline — a single horizontal rule through the track's
+                vertical middle. Rendered first so every later sibling (gridlines,
+                now-marker, event chips, instants) paints ON TOP of it — the line
+                visibly runs behind the chips. */}
+            <div className="pointer-events-none absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-border" />
+
             {/* hour gridlines — every 1h, with even-hour lines stronger than
                 the in-between odd-hour lines to preserve the 2h timestamp rhythm */}
             {gridTicks.map((m) => {
@@ -813,7 +815,7 @@ export function TimelineStrip({
             type="button"
             onClick={goNext}
             aria-label="Next day"
-            className="flex w-10 shrink-0 items-center justify-center text-muted-foreground/70 transition-colors hover:bg-secondary/40 hover:text-foreground"
+            className="flex w-10 shrink-0 items-center justify-center border-y border-border text-muted-foreground/70 transition-colors hover:bg-secondary/40 hover:text-foreground"
           >
             <ChevronRight className="h-4 w-4" />
           </button>
