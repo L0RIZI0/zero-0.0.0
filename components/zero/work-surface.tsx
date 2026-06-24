@@ -3,12 +3,13 @@
 import { motion } from "motion/react"
 import { useTheme } from "next-themes"
 import { useZeroNav } from "@/lib/zero/nav-store"
-import { getSpace, getEntity } from "@/lib/zero/data"
+import { getSpace, getEntity, isDetachedChild } from "@/lib/zero/data"
 import { shellStageFor, TIMELINE_LIFT_Y, TIMELINE_TOP_PAD } from "@/lib/zero/layout"
 import { layerTransition, telescopicSurface } from "@/lib/zero/motion"
 import { DURATION_S, MORPH_CSS_EASE } from "@/lib/zero/flip-stage"
 import { registerStage } from "@/lib/zero/flip-stage"
 import { EntityBody } from "./entity-body"
+import { EntityNode } from "./entity-node"
 import { TimelineStrip } from "./timeline-strip"
 
 /**

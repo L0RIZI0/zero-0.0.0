@@ -691,6 +691,29 @@ export function getChildren(contextId: string): Entity[] {
 }
 
 /**
+ * Whether `childId` would appear inside `hostId`'s do-list / dock — i.e. `host`
+ * is the child's structural parent OR a space it is tagged into. This is the
+ * exact membership rule `getChildren` uses, so it is the test for whether an
+ * entity has an IN-PLACE owning node when `host` is open.
+ */
+export function isMemberOf(childId: string, hostId: string): boolean {
+  const e = byId.get(childId)
+  if (!e) return false
+  return e.parentId === hostId || e.taggedSpaceIds.includes(hostId)
+}
+
+/**
+ * The inverse of {@link isMemberOf}: `childId` does NOT belong to `hostId`'s
+ * do-list/dock, so opening it "under" `host` in the nav stack has no in-place row
+ * to morph from — it must be rendered as a DETACHED window (see work-surface) and
+ * morphed from an explicit origin instead. The root has no host (never detached).
+ */
+export function isDetachedChild(childId: string, hostId: string | undefined): boolean {
+  if (!hostId) return false
+  return !isMemberOf(childId, hostId)
+}
+
+/**
  * Count of DIRECT child tasks (origin + tagged) that are still incomplete.
  * Child spaces and events are intentionally not counted. Drives the "N ■"
  * detail shown on pinned cards and space rows.

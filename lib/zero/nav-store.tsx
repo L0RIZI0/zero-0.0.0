@@ -2,7 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react"
 import { flushSync } from "react-dom"
-import { getEntity, hydrateFromStorage } from "./data"
+import { getEntity, hydrateFromStorage, isDetachedChild } from "./data"
 import { collapseEntityPanels } from "./panel-store"
   import { stackTargetRect, octagonLeafInside, spaceLeafInsets } from "./motion"
 import { shellStageFor, WINDOW_TOP_LIFT } from "./layout"
@@ -13,6 +13,7 @@ import {
   getRegionRect,
   gsap,
   MORPH_DURATION,
+  morphDetached,
 } from "./flip-stage"
 import type { EntityKind } from "./types"
 import type { OpenOrigin } from "./placement"
@@ -156,6 +157,12 @@ export function ZeroNavProvider({
   // timeline chip / search). `null` => use the legacy in-place morph, else center.
   const pendingOriginRef = useRef<OpenOrigin | null>(null)
 
+  // Origin remembered PER detached open id, so the close morph can shrink the
+  // window back toward the SAME point it grew from (the launching chip's rect, or
+  // null = region center). Set when a detached window opens; read + deleted on its
+  // close. Detached windows have no persistent row, so this is the only record.
+  const detachedOrigins = useRef<Map<string, OpenOrigin | null>>(new Map())
+
   // Flip-id (`${contextId}:${entityId}`) of the entity that should render its
   // hover/highlight look even though the pointer may not be over it: `menuKey`
   // while its right-click context menu is open, `morphKey` while it is flying
@@ -296,6 +303,41 @@ export function ZeroNavProvider({
     // Keep the region rect fresh at the moment of the morph.
     setRegionRect(getRegionRect())
 
+    // DETACHED CLOSE — the closing top has no in-place row under it (its host is
+    // not its parent/tag), so there is nothing for a Flip morph to shrink it back
+    // into. Instead of the capture→commit→Flip dance, we shrink the LIVE window
+    // frame toward its remembered origin FIRST (it is still mounted), then commit
+    // the pop once it has retracted (which simply unmounts the overlay, revealing
+    // the untouched view beneath). Only the simple case — closing exactly the
+    // detached top with nothing telescoping above it — takes this path; anything
+    // more falls through to the normal morph.
+    if (
+      !opening &&
+      closingEntity &&
+      fadingList.length === 0 &&
+      isDetachedChild(closingEntity.id, closingEntity.parent)
+    ) {
+      const origin = detachedOrigins.current.get(closingEntity.id) ?? null
+      setAnimating(true)
+      morphDetached(closingEntity, origin?.rect ?? null, false)
+      settleTimer.current?.kill()
+      settleTimer.current = gsap.delayedCall(MORPH_DURATION, () => {
+        detachedOrigins.current.delete(closingEntity.id)
+        setStack(nextStack)
+        setAnimating(false)
+      })
+      return
+    }
+
+    // DETACHED OPEN — the new top is not a member of the window below it, so it
+    // will be rendered standalone (see work-surface) and grown from an explicit
+    // origin rather than an in-place row. Remember that origin so its eventual
+    // close can shrink back to the same point.
+    const detachedTop = !!(topKey && isDetachedChild(topKey.id, topKey.parent))
+    const topOrigin = detachedTop ? pendingOriginRef.current : null
+    if (detachedTop && topKey) detachedOrigins.current.set(topKey.id, topOrigin)
+    pendingOriginRef.current = null
+
     const state = captureStage()
     flushSync(() => {
       setStack(nextStack)
@@ -303,7 +345,13 @@ export function ZeroNavProvider({
       setFading(fadingList)
       setAnimating(true)
     })
-    playStage(state, { opening, top: topKey, closing: closingEntity, fading: fadingList })
+    playStage(state, {
+      opening,
+      top: topKey,
+      closing: closingEntity,
+      fading: fadingList,
+      detachedTop: detachedTop ? { origin: topOrigin?.rect ?? null } : undefined,
+    })
 
     settleTimer.current?.kill()
     settleTimer.current = gsap.delayedCall(MORPH_DURATION, () => {

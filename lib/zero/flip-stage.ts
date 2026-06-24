@@ -4,6 +4,7 @@ import gsap from "gsap"
 import { Flip } from "gsap/Flip"
 import { CustomEase } from "gsap/CustomEase"
 import { MORPH_SECONDS, spaceMorphPoints, type SpaceKind } from "./motion"
+import type { OriginRect } from "./placement"
 
 /**
  * The GSAP Flip morph engine for Zero's focus-window region — a faithful port of
@@ -103,6 +104,66 @@ export function windowKey(id: string, depth: number) {
   return `${depth}::${id}`
 }
 
+/** A small box at the focus-region center — the fallback origin for a DETACHED
+ *  open with no on-screen placement (search / programmatic): the window grows
+ *  from / shrinks toward the middle rather than a corner. */
+function centerOriginRect(): OriginRect {
+  const r = getRegionRect()
+  const w = 56
+  const h = 56
+  return { top: r.top + r.height / 2 - h / 2, left: r.left + r.width / 2 - w / 2, width: w, height: h }
+}
+
+/**
+ * Grow (opening) or shrink (closing) a DETACHED window's frame between its
+ * committed window rect and a visual `origin` rect (or the region center when
+ * null). Unlike the in-place morph, a detached window has no persistent row to
+ * morph out of / back into — it is rendered standalone (see work-surface), so we
+ * drive its frame with a plain transform tween.
+ *
+ * Because `transform` scales the painted result — including the Space leaf's
+ * clip-path hexagon — a single scale+translate naturally carries BOTH the generic
+ * rectangle and the hexagon shape from the origin, with no separate clip driver.
+ * The window's body + chrome live inside the frame, so they ride along for free.
+ *
+ * `transformOrigin: 0 0` keeps the math simple: we map the frame's top-left to the
+ * origin's top-left and scale by the size ratio.
+ */
+export function morphDetached(
+  key: { id: string; depth: number },
+  origin: OriginRect | null,
+  opening: boolean,
+) {
+  if (!stageEl) return
+  const frame = stageEl.querySelector<HTMLElement>(
+    `[data-window="${key.id}"][data-depth="${key.depth}"][data-flip-role="frame"]`,
+  )
+  if (!frame) return
+  const target = frame.getBoundingClientRect()
+  if (target.width <= 0 || target.height <= 0) return
+  const src = origin ?? centerOriginRect()
+  const from = {
+    x: src.left - target.left,
+    y: src.top - target.top,
+    scaleX: src.width / target.width,
+    scaleY: src.height / target.height,
+    opacity: 0,
+    transformOrigin: "0 0",
+  }
+  const to = { x: 0, y: 0, scaleX: 1, scaleY: 1, opacity: 1, transformOrigin: "0 0" }
+  if (opening) {
+    gsap.fromTo(frame, from, {
+      ...to,
+      duration: MORPH_DURATION,
+      ease: MORPH_EASE,
+      // Clear inline transform so the settled window has no leftover scale.
+      onComplete: () => gsap.set(frame, { clearProps: "transform,opacity" }),
+    })
+  } else {
+    gsap.fromTo(frame, to, { ...from, duration: MORPH_DURATION, ease: MORPH_EASE })
+  }
+}
+
 /**
  * Snapshot the positions of EVERY flip part in the stage (frames + their
  * glyph/title). MUST be called synchronously BEFORE the stack state change so it
@@ -168,6 +229,13 @@ export function playStage(
     top: Key | null
     closing: Key | null
     fading: Key[]
+    /**
+     * When set, the opening `top` window is DETACHED (opened standalone, e.g. from
+     * a timeline chip) — it has no captured row to grow out of, so its frame is
+     * grown from `origin` (or region center when null) via `morphDetached`, and the
+     * in-place body scale is skipped (the frame transform already carries the body).
+     */
+    detachedTop?: { origin: OriginRect | null }
     /**
      * When true, re-query the live DOM for the morph targets instead of
      * re-measuring the originally-captured element references. REQUIRED for
@@ -317,6 +385,13 @@ export function playStage(
   const sel = (k: Key, rest: string) => `[data-window="${k.id}"][data-depth="${k.depth}"] ${rest}`
 
   if (opts.opening && opts.top) {
+    // DETACHED open: the window has no captured row to grow from. Drive its frame
+    // from the origin rect (or center) — the transform carries the body + clip — and
+    // skip the in-place body scale below so they don't compound.
+    if (opts.detachedTop) {
+      morphDetached(opts.top, opts.detachedTop.origin, true)
+    }
+
     // Fade any pure-fade chrome in immediately — no delay, so it doesn't appear to lag
     // behind the frame at the start. The do-list BODY is handled separately below (it
     // also scales), so exclude it here to avoid two competing opacity tweens.
@@ -326,8 +401,9 @@ export function playStage(
     // Open body: scale UP + fade IN from center — the exact mirror of the close (which
     // scales the body down to 0.15 + fades out). Previously the body only faded, so it
     // looked static/full-size while the hexagon simply unveiled it; now it grows into
-    // the leaf frame as the frame expands.
-    const body = stage.querySelector<HTMLElement>(sel(opts.top, "[data-body]"))
+    // the leaf frame as the frame expands. Skipped for a detached open (the frame
+    // transform already scales the body in).
+    const body = opts.detachedTop ? null : stage.querySelector<HTMLElement>(sel(opts.top, "[data-body]"))
     if (body) {
       gsap.fromTo(
         body,
