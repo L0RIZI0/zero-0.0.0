@@ -4,9 +4,10 @@ import { useTheme } from "next-themes"
 import { ShellHeader } from "./shell-header"
 import { WorkSurface } from "./work-surface"
 import { ThemeToggle } from "./theme-toggle"
+import { SpotlightWindow } from "./spotlight-window"
 import { ZeroNavProvider, useZeroNav } from "@/lib/zero/nav-store"
 import { telescopicSurface } from "@/lib/zero/motion"
-import { DURATION_VAR, MORPH_CSS_EASE } from "@/lib/zero/flip-stage"
+import { DURATION_S, MORPH_CSS_EASE } from "@/lib/zero/flip-stage"
 
 // Inner shell — runs inside ZeroNavProvider so it can read the stack. The whole
 // home chrome (top header + timeline + work area) is window 0 of the telescopic
@@ -22,7 +23,7 @@ function ZeroShellInner() {
   return (
     <main
       className="flex h-dvh w-full flex-col overflow-hidden"
-      style={{ backgroundColor: homeSurface, transition: `background-color ${DURATION_VAR} ${MORPH_CSS_EASE}` }}
+      style={{ backgroundColor: homeSurface, transition: `background-color ${DURATION_S} ${MORPH_CSS_EASE}` }}
     >
       <ShellHeader />
       {/* No bottom padding: the focus-window region reaches the viewport bottom so an
@@ -38,8 +39,9 @@ function ZeroShellInner() {
 
 export function ZeroShell() {
   return (
-    <ZeroNavProvider>
+      <ZeroNavProvider>
       <ZeroShellInner />
+      <SpotlightWindow />
       <ThemeToggle />
     </ZeroNavProvider>
   )

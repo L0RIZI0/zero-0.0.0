@@ -754,26 +754,6 @@ export function getInheritedAccent(spaceId: string | null): string | undefined {
   return undefined
 }
 
-/**
- * The full open path from the root down to `id`, inclusive — e.g. the Workout
- * space resolves to ["s_root", "s_health", "s_workout"]. Walks `parentId` up to
- * the root and reverses. Returns [] if the id is unknown. This is the stack the
- * nav store telescopes through to open an entity (and all its ancestors) at once
- * — e.g. when clicking its chip on the timeline. The root has `parentId: null`,
- * so it naturally terminates the walk and sits at index 0.
- */
-export function getAncestorPath(id: string): string[] {
-  const path: string[] = []
-  let current = byId.get(id)
-  const seen = new Set<string>() // cycle guard (data should never cycle, but be safe)
-  while (current && !seen.has(current.id)) {
-    seen.add(current.id)
-    path.push(current.id)
-    current = current.parentId ? byId.get(current.parentId) : undefined
-  }
-  return path.reverse()
-}
-
 /** A task entity by id (undefined for non-task ids). */
 export function getTask(id: string): Entity | undefined {
   const e = byId.get(id)

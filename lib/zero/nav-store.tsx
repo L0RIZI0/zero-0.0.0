@@ -2,7 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react"
 import { flushSync } from "react-dom"
-import { getAncestorPath, getEntity, hydrateFromStorage } from "./data"
+import { getEntity, hydrateFromStorage } from "./data"
 import { collapseEntityPanels } from "./panel-store"
   import { stackTargetRect, octagonLeafInside, spaceLeafInsets } from "./motion"
 import { shellStageFor, WINDOW_TOP_LIFT } from "./layout"
@@ -13,7 +13,6 @@ import {
   getRegionRect,
   gsap,
   MORPH_DURATION,
-  setMorphScale,
 } from "./flip-stage"
 import type { EntityKind } from "./types"
 
@@ -52,6 +51,13 @@ export type WindowKey = { id: string; depth: number; parent: string }
 
 /** Viewport rect of the focus-window region; the origin for fixed window geometry. */
 type RegionRect = { top: number; left: number; width: number; height: number }
+
+/** Viewport rect of the control that launched a spotlight (e.g. a timeline
+ *  chip) — the visual origin the overlay grows from / shrinks back toward. */
+export type SpotlightRect = { top: number; left: number; width: number; height: number }
+
+/** A standalone entity opened on top of the current view (see provider notes). */
+export type Spotlight = { id: string; originRect: SpotlightRect }
 
 export interface ActiveEntity {
   id: string
@@ -118,10 +124,14 @@ interface ZeroNavContextValue {
   pulse: { id: string; n: number } | null
   /** Ask the open window for `id` to bounce (re-clicked its timeline chip). */
   requestPulse: (id: string) => void
-  /** Open an entity by its full containment path (root→…→id), telescoping every
-   *  ancestor open in one morph. Pulses instead if it's already open. Used by
-   *  the timeline chips. */
-  openTo: (id: string) => void
+  /** The entity currently open as a standalone spotlight overlay (e.g. from a
+   *  timeline chip), or `null`. Decoupled from `stack`. */
+  spotlight: Spotlight | null
+  /** Open `id` as a spotlight overlay growing from `originRect` (the launching
+   *  control's viewport rect). Does not touch the navigation stack. */
+  openSpotlight: (id: string, originRect: SpotlightRect) => void
+  /** Dismiss the spotlight overlay, revealing the untouched view beneath. */
+  closeSpotlight: () => void
 
   // --- Selection + keyboard navigation ---------------------------------------
   selection: Selection
@@ -157,8 +167,14 @@ export function ZeroNavProvider({
   const [fading, setFading] = useState<WindowKey[]>([])
   const [animating, setAnimating] = useState(false)
   const settleTimer = useRef<ReturnType<typeof gsap.delayedCall> | null>(null)
-  // Drives the sequential telescope in `openTo` (one hop per MORPH_DURATION).
-  const drillTimer = useRef<ReturnType<typeof gsap.delayedCall> | null>(null)
+
+  // SPOTLIGHT: a single entity opened standalone (e.g. from a timeline chip),
+  // floating ON TOP of the current view rather than nested in the open `stack`.
+  // It carries the viewport rect of the control that launched it (the chip) so
+  // the overlay can grow from / shrink back toward that point. `null` = closed.
+  // This is intentionally decoupled from `stack`: closing it just unmounts the
+  // overlay and reveals the untouched prior view beneath.
+  const [spotlight, setSpotlight] = useState<Spotlight | null>(null)
 
   // Flip-id (`${contextId}:${entityId}`) of the entity that should render its
   // hover/highlight look even though the pointer may not be over it: `menuKey`
@@ -416,74 +432,22 @@ export function ZeroNavProvider({
   )
 
   /**
-   * Open an entity by its FULL containment path, regardless of where the user
-   * currently is — used by the timeline chips (clicking "Workout" opens Health
-   * then Workout). Resolves the ancestor path (root→…→id) and TELESCOPES down to
-   * it one level at a time.
+   * Open an entity as a standalone SPOTLIGHT overlay — used by the timeline
+   * chips. Unlike `open`, this does NOT touch the navigation `stack`: the target
+   * floats on top of whatever the user was looking at, and closing it (see
+   * `closeSpotlight`) reveals that prior view exactly as it was.
    *
-   * Why one level at a time (not a single multi-level `transition`)? The Flip
-   * morph needs a real on-screen "from" node for every window it grows. A deep
-   * tile (e.g. the Workout card) only exists once its PARENT window is open and
-   * its do-list has rendered — so a single root→Health→Workout jump has no
-   * source for Workout and it flies in from a garbage off-screen rect. Opening
-   * Health first, letting it settle, THEN opening Workout means each hop morphs
-   * from a tile that actually exists — exactly like a manual drill-down.
-   *
-   * To keep the WHOLE sequence feeling as snappy as a single open, every hop is
-   * time-scaled to 1/hops via setMorphScale, and the hops are chained on that
-   * shorter beat — so N hops still land in one canonical MORPH_DURATION instead
-   * of N×. The scale is restored to 1 once the final hop settles.
-   *
-   * If the entity is already open anywhere in the stack, we pulse it instead of
-   * re-navigating. Unknown ids are ignored.
+   * `originRect` is the viewport rect of the launching control (the chip), so
+   * the overlay can grow from a point behind it and shrink back on close. If the
+   * entity is already the open spotlight, this is a no-op. Unknown ids ignored.
    */
-  const openTo = useCallback(
-    (id: string) => {
-      const path = getAncestorPath(id)
-      if (path.length === 0) return
-      const cur = stackRef.current
-      if (cur.includes(id)) {
-        requestPulse(id)
-        return
-      }
-      drillTimer.current?.kill() // cancel any in-flight telescope from a prior click
+  const openSpotlight = useCallback((id: string, originRect: SpotlightRect) => {
+    if (!getEntity(id)) return
+    setSpotlight((prev) => (prev?.id === id ? prev : { id, originRect }))
+  }, [])
 
-      // Longest shared prefix of where we ARE and where we're GOING.
-      let common = 0
-      while (common < cur.length && common < path.length && cur[common] === path[common]) common++
-
-      // Count the steps this telescope will play: an optional collapse-to-common
-      // (when the current stack diverges) plus one open per remaining level. Each
-      // step is morph-scaled so they sum to a single canonical beat.
-      const collapses = cur.length > common ? 1 : 0
-      const opens = path.length - common
-      const hops = collapses + opens
-      const hopBeat = MORPH_DURATION / hops
-      setMorphScale(1 / hops)
-
-      // One hop: append the next entity (morphs from its now-visible do-list
-      // tile), then schedule the following hop after THIS hop's (scaled) beat.
-      // After the last hop, restore the canonical morph beat.
-      const drill = (depth: number) => {
-        if (depth >= path.length) {
-          setMorphScale(1)
-          return
-        }
-        open(path[depth])
-        drillTimer.current = gsap.delayedCall(hopBeat, () => drill(depth + 1))
-      }
-
-      if (collapses) {
-        // Current stack diverges from the path — collapse back to the shared
-        // ancestor first (one telescoping close), then drill down from there.
-        transition(path.slice(0, common))
-        drillTimer.current = gsap.delayedCall(hopBeat, () => drill(common))
-      } else {
-        drill(common)
-      }
-    },
-    [open, transition, requestPulse],
-  )
+  /** Dismiss the spotlight overlay, revealing the untouched view beneath. */
+  const closeSpotlight = useCallback(() => setSpotlight(null), [])
 
   // Close the window at absolute index `depth` (and everything above it).
   const closeWindow = useCallback(
@@ -657,7 +621,6 @@ export function ZeroNavProvider({
       activeId,
       activeEntity,
       open,
-      openTo,
       close,
       closeWindow,
     closing,
@@ -674,6 +637,9 @@ export function ZeroNavProvider({
       setRegionRect,
       pulse,
       requestPulse,
+      spotlight,
+      openSpotlight,
+      closeSpotlight,
       selection,
       inputMode,
       select,
@@ -685,7 +651,6 @@ export function ZeroNavProvider({
   }, [
     stack,
     open,
-    openTo,
     close,
     closeWindow,
     closing,
@@ -700,6 +665,9 @@ export function ZeroNavProvider({
     setRegionRect,
     pulse,
     requestPulse,
+    spotlight,
+    openSpotlight,
+    closeSpotlight,
     selection,
     inputMode,
     select,

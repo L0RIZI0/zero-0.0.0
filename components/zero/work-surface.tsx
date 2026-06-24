@@ -6,7 +6,7 @@ import { useZeroNav } from "@/lib/zero/nav-store"
 import { getSpace, getEntity } from "@/lib/zero/data"
 import { shellStageFor, TIMELINE_LIFT_Y, TIMELINE_TOP_PAD } from "@/lib/zero/layout"
 import { layerTransition, telescopicSurface } from "@/lib/zero/motion"
-import { DURATION_VAR, MORPH_CSS_EASE } from "@/lib/zero/flip-stage"
+import { DURATION_S, MORPH_CSS_EASE } from "@/lib/zero/flip-stage"
 import { registerStage } from "@/lib/zero/flip-stage"
 import { EntityBody } from "./entity-body"
 import { TimelineStrip } from "./timeline-strip"
@@ -53,7 +53,7 @@ export function WorkSurface() {
   const isDark = resolvedTheme !== "light"
   const leafDepth = Math.max(0, stack.length - 1)
   const homeSurface = telescopicSurface(0, leafDepth, isDark)
-  const homeBgTransition = `background-color ${DURATION_VAR} ${MORPH_CSS_EASE}`
+  const homeBgTransition = `background-color ${DURATION_S} ${MORPH_CSS_EASE}`
 
   return (
     // NOTE: the card is NOT `overflow-hidden`. Clipping lives on the focus-window

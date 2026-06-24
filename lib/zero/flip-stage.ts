@@ -53,39 +53,6 @@ export const MORPH_EASE = "zeroLand"
 /** Same duration as a CSS string, for the fade/transition chrome (spine bg,
  *  divider, close-button reposition) that rides along with the Flip morph. */
 export const DURATION_S = `${MORPH_DURATION}s`
-/** Duration value for CSS chrome transitions that should follow the morph scale:
- *  reads the runtime `--zmd` override if a telescope set one, else falls back to
- *  the canonical `DURATION_S`. Use this (not DURATION_S) for any chrome meant to
- *  stay in lock-step with a scaled multi-hop open. */
-export const DURATION_VAR = `var(--zmd, ${DURATION_S})`
-
-/**
- * Runtime duration scale for ONE upcoming morph. 1 = the canonical beat
- * (MORPH_SECONDS). A multi-level telescope (see nav-store `openTo`) sets this to
- * 1/hops so the whole sequence of hops still lands in a single canonical beat
- * rather than N×.
- *
- * It feeds BOTH halves of a morph so they never desync:
- *   - GSAP tweens read it via `D()` (below).
- *   - CSS/Framer chrome reads the published `--zmd` custom property. Every chrome
- *     transition string is written as `var(--zmd, <DURATION_S>)`, so when the
- *     variable is UNSET (the default, scale === 1) behaviour is byte-for-byte
- *     identical to before — we only override during a telescope.
- */
-let morphScale = 1
-/** The active morph duration in seconds (canonical beat × current scale). */
-export function D(): number {
-  return MORPH_DURATION * morphScale
-}
-/** Set the scale for upcoming morph(s) and publish it to CSS chrome via `--zmd`.
- *  Pass 1 to restore the canonical beat (clears the override). */
-export function setMorphScale(scale: number) {
-  morphScale = scale
-  if (typeof document === "undefined") return
-  const root = document.documentElement
-  if (scale === 1) root.style.removeProperty("--zmd")
-  else root.style.setProperty("--zmd", `${MORPH_DURATION * scale}s`)
-}
 /** The `zeroLand` curve as a CSS timing function, so chrome that fades along with
  *  the morph (spine cover, divider) lands on the same beat as the Flip. */
 export const MORPH_CSS_EASE = "cubic-bezier(0.62, 0.02, 0.07, 0.99)"
@@ -220,7 +187,7 @@ export function playStage(
     // drop-shadow), so there is nothing to strip here — the morph stays cheap
     // because no layer is re-rasterized blurred on every frame as it grows.
     Flip.from(state, {
-      duration: D(),
+      duration: MORPH_DURATION,
       ease: MORPH_EASE,
       // Re-query live DOM so newly-mounted nodes (the swapped-in row/card) join
       // the destination state and get matched to the captured node by flip-id.
@@ -275,7 +242,7 @@ export function playStage(
         const driver = { p: 0 }
         gsap.to(driver, {
           p: 1,
-          duration: D(),
+          duration: MORPH_DURATION,
           ease: MORPH_EASE,
           onUpdate: () => {
             for (const fr of frames) {
@@ -334,7 +301,7 @@ export function playStage(
         shape.style.transition = "none"
         shape.style.backgroundColor = prev
         void shape.offsetWidth // force reflow so the old colour is committed first
-        shape.style.transition = `background-color ${D()}s ${MORPH_CSS_EASE}`
+        shape.style.transition = `background-color ${DURATION_S} ${MORPH_CSS_EASE}`
         shape.style.backgroundColor = targetExpr
       })
     }
@@ -354,7 +321,7 @@ export function playStage(
     // behind the frame at the start. The do-list BODY is handled separately below (it
     // also scales), so exclude it here to avoid two competing opacity tweens.
     const chrome = stage.querySelectorAll(sel(opts.top, "[data-fade]:not([data-body])"))
-    if (chrome.length) gsap.fromTo(chrome, { opacity: 0 }, { opacity: 1, duration: D() * 0.45 })
+    if (chrome.length) gsap.fromTo(chrome, { opacity: 0 }, { opacity: 1, duration: MORPH_DURATION * 0.45 })
 
     // Open body: scale UP + fade IN from center — the exact mirror of the close (which
     // scales the body down to 0.15 + fades out). Previously the body only faded, so it
@@ -369,7 +336,7 @@ export function playStage(
           opacity: 1,
           scale: 1,
           transformOrigin: "center",
-          duration: D() * 0.7,
+          duration: MORPH_DURATION * 0.7,
           ease: MORPH_EASE,
           // Clear the inline transform afterward so the settled body has no leftover
           // scale (it's a persistent node reused as a row/ancestor later).
@@ -388,7 +355,7 @@ export function playStage(
       gsap.fromTo(
         lateChrome,
         { opacity: 0 },
-        { opacity: 1, duration: D() * 0.4, delay: D() * 0.3, ease: MORPH_EASE },
+        { opacity: 1, duration: MORPH_DURATION * 0.4, delay: MORPH_DURATION * 0.3, ease: MORPH_EASE },
       )
   }
 
@@ -414,7 +381,7 @@ export function playStage(
         { boxShadow: prevShadow },
         {
           boxShadow: fadedShadow,
-          duration: D() * 0.55,
+          duration: MORPH_DURATION * 0.55,
           ease: MORPH_EASE,
           // Drop the inline boxShadow afterward so the persistent node falls back to
           // its class-driven shadow when it is opened as a window again.
@@ -431,7 +398,7 @@ export function playStage(
       gsap.fromTo(
         body,
         { opacity: 1, scale: 1 },
-        { opacity: 0, scale: 0.15, transformOrigin: "center", duration: D() * 0.7, ease: MORPH_EASE },
+        { opacity: 0, scale: 0.15, transformOrigin: "center", duration: MORPH_DURATION * 0.7, ease: MORPH_EASE },
       )
     }
     // Deeper levels removed in the same gesture telescope inward toward the same
@@ -447,7 +414,7 @@ export function playStage(
           opacity: 0,
           scale: Math.max(0.1, 0.4 - depth * 0.08),
           transformOrigin: "top left",
-          duration: D() * 0.7,
+          duration: MORPH_DURATION * 0.7,
           ease: MORPH_EASE,
         },
       )
