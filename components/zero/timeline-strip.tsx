@@ -218,6 +218,12 @@ export function TimelineStrip({
     return () => clearInterval(id)
   }, [])
 
+  // Which instant pin is hovered. Drives the shared thicken/darken effect across
+  // the pin's triangle + label + stem. Done in React state (not `group-hover:`
+  // utilities) because the triangle is a framer-motion node whose inline styles
+  // would override class-based transforms, and so the effect is fully reliable.
+  const [hoveredInstant, setHoveredInstant] = useState<string | null>(null)
+
   // Selected zoom span (skeleton — only "D" actually drives the view for now).
   const [view, setView] = useState<ViewKey>("D")
 
@@ -445,9 +451,9 @@ export function TimelineStrip({
             vertical STEM dropping from the triangle to the bottom of the track.
             The title sits OVER the stem (z-10 above the z-0 line, so the line is
             hidden behind the text). Hovering any part — triangle, label or stem —
-            thickens and darkens all three together via the shared `group`. The
-            container is inset to match the viewport so a pin lands exactly on its
-            time, and only rendered while within the visible window. */}
+            thickens and darkens all three together (state-driven, see
+            hoveredInstant). The container is inset to match the viewport so a pin
+            lands exactly on its time, and only rendered while in the window. */}
         <div
           className="pointer-events-none absolute inset-y-0 z-30"
           style={{ left: VIEWPORT_INSET_LEFT, right: VIEWPORT_INSET_RIGHT }}
@@ -459,37 +465,37 @@ export function TimelineStrip({
             if (left < 0 || left > 100) return null
             const color = getInheritedAccent(e.parentId ?? "s_root") ?? NEUTRAL_MARKER
             const isOpen = stack.includes(e.id)
+            const hovered = hoveredInstant === e.id
+            // Hover thickens + darkens all three pieces together.
+            const lineColor = hovered ? "var(--foreground)" : color
+            const onEnter = () => setHoveredInstant(e.id)
+            const onLeave = () => setHoveredInstant((cur) => (cur === e.id ? null : cur))
             return (
               <div
                 key={e.id}
-                // `group` drives the shared hover; `--mk` exposes the instant's
-                // accent so children default to it and group-hover can override
-                // to foreground (the higher-specificity group-hover wins over the
-                // arbitrary `text-[color:var(--mk)]`). pointer-events-none here so
-                // only the three visual pieces are interactive (chips stay clickable).
-                className="group pointer-events-none absolute bottom-0 flex w-4 flex-col items-center"
-                style={
-                  {
-                    left: `${left}%`,
-                    top: -INSTANT_HEAD_H,
-                    transform: "translateX(-50%)",
-                    opacity: e.cancelled ? 0.45 : 1,
-                    // CSS var for the accent; consumed via text-[color:var(--mk)].
-                    "--mk": color,
-                  } as Record<string, string | number>
-                }
+                // pointer-events-none here so only the three visual pieces are
+                // interactive (event chips below stay clickable through the gaps).
+                className="pointer-events-none absolute bottom-0 flex w-4 flex-col items-center"
+                style={{
+                  left: `${left}%`,
+                  top: -INSTANT_HEAD_H,
+                  transform: "translateX(-50%)",
+                  opacity: e.cancelled ? 0.45 : 1,
+                }}
               >
                 {/* STEM — from just under the triangle to the track bottom,
                     centered and BEHIND the label text. A wide invisible hit area
                     (`before:`) makes the thin line easy to hover. */}
                 <span
                   aria-hidden
+                  onMouseEnter={onEnter}
+                  onMouseLeave={onLeave}
                   className={cn(
-                    "pointer-events-auto absolute bottom-0 left-1/2 top-3 z-0 w-px -translate-x-1/2",
-                    "bg-[color:var(--mk)] transition-[width,background-color] duration-150",
-                    "group-hover:w-0.5 group-hover:bg-foreground",
+                    "pointer-events-auto absolute bottom-0 left-1/2 top-3 z-0 -translate-x-1/2",
+                    "transition-[width,background-color] duration-150",
                     "before:absolute before:inset-y-0 before:-inset-x-1 before:content-['']",
                   )}
+                  style={{ width: hovered ? 2 : 1, backgroundColor: lineColor }}
                 />
                 {/* TRIANGLE head — the timeline morph SOURCE (where="timeline").
                     Opening from the timeline is disabled for now; right-click
@@ -500,27 +506,31 @@ export function TimelineStrip({
                   data-morph-source={e.id}
                   data-morph-where="timeline"
                   transition={panelTransition}
+                  onMouseEnter={onEnter}
+                  onMouseLeave={onLeave}
                   onContextMenu={(ev) => openMenu(ev, e)}
                   aria-current={isOpen ? "true" : undefined}
                   title={`${e.title} · ${fmt(at)}`}
-                  className={cn(
-                    "pointer-events-auto relative z-10 flex h-3 w-3 items-center justify-center",
-                    "text-[color:var(--mk)] transition-transform duration-150",
-                    "group-hover:scale-125 group-hover:text-foreground",
-                  )}
+                  className="pointer-events-auto relative z-10 flex h-3 w-3 items-center justify-center transition-transform duration-150"
+                  style={{ color: lineColor, scale: hovered ? 1.25 : 1 }}
                 >
                   <NodeGlyph kind="instant" filled strokeWidth={1.5} />
                 </motion.button>
                 {/* LABEL — rotated, hanging under the triangle, painted OVER the
                     stem so the line vanishes behind the glyphs. */}
                 <span
+                  onMouseEnter={onEnter}
+                  onMouseLeave={onLeave}
                   className={cn(
-                    "pointer-events-auto relative z-10 mt-1 max-h-[52px] truncate text-[10px] font-medium leading-none tracking-tight",
-                    "text-[color:var(--mk)] transition-colors duration-150",
-                    "group-hover:font-semibold group-hover:text-foreground",
+                    "pointer-events-auto relative z-10 mt-1 max-h-[52px] truncate text-[10px] leading-none tracking-tight",
+                    "transition-[color,font-weight] duration-150",
                     e.cancelled && "line-through",
                   )}
-                  style={{ writingMode: "vertical-rl" }}
+                  style={{
+                    writingMode: "vertical-rl",
+                    color: lineColor,
+                    fontWeight: hovered ? 600 : 500,
+                  }}
                   title={e.title}
                 >
                   {e.title}
