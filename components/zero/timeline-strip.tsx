@@ -14,6 +14,7 @@ import {
 import type { Entity } from "@/lib/zero/types"
 import { panelTransition, layerTransition } from "@/lib/zero/motion"
 import { useZeroNav } from "@/lib/zero/nav-store"
+import { placementKey, resolveOriginRect } from "@/lib/zero/placement"
 import { NodeGlyph } from "./node-glyph"
 import { ContextMenu, type ContextMenuState } from "./context-menu"
 import { cn } from "@/lib/utils"
@@ -156,8 +157,19 @@ export function TimelineStrip({
   contextId: string
   accent?: string
 }) {
-  const { stack, dataVersion, notifyDataChanged } = useZeroNav()
+  const { stack, dataVersion, notifyDataChanged, open } = useZeroNav()
   const [menu, setMenu] = useState<ContextMenuState | null>(null)
+
+  // Open an entity FROM its timeline chip. The chip is tagged with a placement
+  // key (data-placement), so the origin resolver returns this chip's live rect —
+  // the window grows out from behind it (and shrinks back to it on close). When
+  // the entity isn't a member of the open context, the nav layer renders it as a
+  // standalone (detached) window; when it IS a member it morphs in place. Either
+  // way the call is the same — one uniform open law.
+  const openFromChip = (id: string) => {
+    const key = placementKey("timeline", contextId, id)
+    open(id, resolveOriginRect(id, { placement: key, preferSource: "timeline" }) ?? undefined)
+  }
 
   // Shell compaction stage (0 home, 1 first child, 2+ deeper), mirroring
   // shellStageFor. Used ONLY for non-reflowing treatments here — the off-today
@@ -593,15 +605,14 @@ export function TimelineStrip({
                 >
                   {e.title}
                 </span>
-                {/* TRIANGLE head. Click-to-open is being rebuilt on the new
-                    placement/origin model (Stage D); right-click still offers the
-                    menu. The data-morph-source/where tags below are the seed of
-                    the placement registry finished in Stage B. */}
+                {/* TRIANGLE head — clicking opens the instant's window, grown from
+                    behind this chip (the placement key resolves to this rect).
+                    Right-click still offers the menu. */}
                 <motion.button
                   type="button"
                   initial={false}
-                  data-morph-source={e.id}
-                  data-morph-where="timeline"
+                  data-placement={placementKey("timeline", contextId, e.id)}
+                  data-morph-kind="generic"
                   // Spring on scale, tween on color — a smooth, lively emphasis.
                   animate={{ scale: hovered ? 1.25 : 1, color }}
                   transition={{
@@ -610,6 +621,7 @@ export function TimelineStrip({
                   }}
                   onMouseEnter={onEnter}
                   onMouseLeave={onLeave}
+                  onClick={() => openFromChip(e.id)}
                   onContextMenu={(ev) => openMenu(ev, e)}
                   aria-current={isOpen ? "true" : undefined}
                   title={`${e.title} · ${fmt(at)}`}
@@ -783,24 +795,24 @@ export function TimelineStrip({
 
               return (
                 <div key={e.occKey} className="absolute h-6" style={boxStyle}>
-                  {/* Persistent chip — the timeline morph SOURCE. Tagged with
-                      where="timeline" so opening from here grows the window out
-                      of this chip's box. Clicking an already-open event pulses
-                      its window instead of reopening; otherwise it opens. */}
+                  {/* Persistent chip — the timeline morph SOURCE. Tagged with a
+                      placement key so opening from here grows the window out of
+                      this chip's box (and shrinks back to it on close). */}
                   <motion.button
                     type="button"
                     initial={false}
-                    data-morph-source={e.id}
-                    data-morph-where="timeline"
+                    data-placement={placementKey("timeline", contextId, e.id)}
+                    data-morph-kind="generic"
                     // Chips are never dimmed by relevance anymore — the user's
                     // whole schedule stays clear regardless of which child is
                     // open. Only a cancelled event reads faded.
                     animate={{ opacity: e.cancelled ? 0.45 : 1 }}
                     transition={panelTransition}
-                    // Click-to-open is being rebuilt on the placement/origin model
-                    // (Stage D): a click will call open(id, origin) where origin is
-                    // resolved from this chip's placement, morphing the full entity
-                    // window out of the chip. Right-click still offers the menu.
+                    // Opens the event's full window, grown from behind this chip.
+                    // Whether the entity is a member of the open context (in-place
+                    // morph) or not (standalone/detached window), the call is the
+                    // same. Right-click still offers the menu.
+                    onClick={() => openFromChip(e.id)}
                     onContextMenu={(ev) => openMenu(ev, e)}
                     aria-current={isOpen ? "true" : undefined}
                     title={`${e.title} · ${fmt(start)}–${fmt(end)}`}

@@ -17,6 +17,7 @@ import {
 } from "./flip-stage"
 import type { EntityKind } from "./types"
 import type { OpenOrigin } from "./placement"
+import { resolveOriginRect } from "./placement"
 
 // `OpenOrigin` (imported from ./placement) carries the viewport rect + kind the
 // window should morph FROM when an entity is opened from a placement that has no
@@ -317,9 +318,15 @@ export function ZeroNavProvider({
       fadingList.length === 0 &&
       isDetachedChild(closingEntity.id, closingEntity.parent)
     ) {
-      const origin = detachedOrigins.current.get(closingEntity.id) ?? null
+      // Prefer the LIVE rect of the original placement (the timeline stays pinned
+      // on top while a window is open, so the launching chip is usually still
+      // visible and may have shifted) — fall back to the rect captured at open.
+      const stored = detachedOrigins.current.get(closingEntity.id) ?? null
+      const live = stored?.placement
+        ? resolveOriginRect(closingEntity.id, { placement: stored.placement })
+        : null
       setAnimating(true)
-      morphDetached(closingEntity, origin?.rect ?? null, false)
+      morphDetached(closingEntity, (live ?? stored)?.rect ?? null, false)
       settleTimer.current?.kill()
       settleTimer.current = gsap.delayedCall(MORPH_DURATION, () => {
         detachedOrigins.current.delete(closingEntity.id)

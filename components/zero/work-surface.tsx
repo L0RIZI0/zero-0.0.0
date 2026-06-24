@@ -116,6 +116,22 @@ export function WorkSurface() {
         className="relative flex min-h-0 flex-1 flex-col rounded-md [clip-path:inset(-48px_0px_-120px_0px_round_6px)]"
       >
         <EntityBody entityId={rootId} active={activeEntity.id === rootId} isRoot centerList />
+
+        {/* DETACHED WINDOWS. The recursive in-place tree above only reaches a stack
+            entry through its host's do-list/dock. When an entry's host is NOT its
+            structural parent/tag (e.g. it was opened from a timeline chip or search),
+            that chain breaks — there is no in-place row to morph from. We mount such
+            entries as standalone EntityNodes here: passing contextId = the stack entry
+            below makes `ownsOpen` true, so each renders as a FULL focus window through
+            all the normal machinery (its own members then recurse in-place inside it).
+            Each window is `position: fixed` against the region, so DOM nesting here is
+            irrelevant to layout. The morph is driven imperatively (flip-stage's
+            morphDetached) from the launching placement's rect, or the region center. */}
+        {stack.map((id, depth) =>
+          depth >= 1 && isDetachedChild(id, stack[depth - 1]) ? (
+            <EntityNode key={`detached:${depth}:${id}`} entityId={id} contextId={stack[depth - 1]} variant="row" />
+          ) : null,
+        )}
       </div>
     </div>
   )
