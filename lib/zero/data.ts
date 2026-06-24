@@ -1098,6 +1098,39 @@ export function addInstant(input: { title: string; spaceId: string }): Entity {
   return entity
 }
 
+/**
+ * Rough inline time parser for instant creation. Looks for a `--<time>` token
+ * anywhere in the title — e.g. "Standup --4pm", "Ping --16:30", "Call --9:15am",
+ * "Sync --7" — and returns the CLEANED title (token stripped) plus an absolute
+ * epoch for TODAY at that time. No / invalid token → `{ title, at: undefined }`
+ * and the caller keeps the default noon. Intentionally minimal: a proper time
+ * picker comes later; this just lets the user scatter instants across the day.
+ */
+export function parseInstantTime(raw: string): { title: string; at?: number } {
+  const m = raw.match(/\s*--\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i)
+  if (!m || m.index == null) return { title: raw.trim() }
+  let h = parseInt(m[1], 10)
+  const min = m[2] ? parseInt(m[2], 10) : 0
+  const ampm = m[3]?.toLowerCase()
+  if (ampm === "pm" && h < 12) h += 12
+  if (ampm === "am" && h === 12) h = 0
+  if (h > 23 || min > 59) return { title: raw.trim() } // out of range → ignore token
+  const start = new Date()
+  start.setHours(0, 0, 0, 0)
+  const at = start.getTime() + h * 3_600_000 + min * 60_000
+  const cleaned = (raw.slice(0, m.index) + raw.slice(m.index + m[0].length)).trim()
+  return { title: cleaned || raw.trim(), at }
+}
+
+/** Set an instant's moment (absolute epoch ms). No-op unless the entity exists
+ *  and is an instant. Persisted. */
+export function setInstantAt(id: string, at: number): void {
+  const entity = byId.get(id)
+  if (!entity || entity.kind !== "instant") return
+  entity.schedule = { ...entity.schedule, at }
+  persist()
+}
+
 /** Set an entity's title (used as the inline draft commits its name). No-op if
  *  the id is unknown. Persisted. */
 export function setEntityTitle(id: string, title: string): void {

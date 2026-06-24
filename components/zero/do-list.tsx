@@ -13,6 +13,8 @@ import {
   changeEntityKind,
   addTask,
   addWebTask,
+  parseInstantTime,
+  setInstantAt,
   type ContextItem,
 } from "@/lib/zero/data"
 import {
@@ -593,8 +595,13 @@ export function DoList({
   // it so it (and only it) fades in.
   const createEntity = useCallback(
     (title: string, kind: NodeKind) => {
-      const entity = addTask({ title, spaceId: contextId })
+      // Instants support a rough inline time token ("Ping --4pm"): strip it from
+      // the title and apply it as the instant's moment. Other kinds keep the
+      // title verbatim.
+      const parsed = kind === "instant" ? parseInstantTime(title) : { title, at: undefined }
+      const entity = addTask({ title: parsed.title, spaceId: contextId })
       if (kind !== "task") changeEntityKind(entity.id, kind)
+      if (kind === "instant" && parsed.at != null) setInstantAt(entity.id, parsed.at)
       setBornId(entity.id)
       notifyDataChanged()
       select("list", entity.id, "keyboard")

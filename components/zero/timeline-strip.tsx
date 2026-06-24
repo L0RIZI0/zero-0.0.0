@@ -122,10 +122,19 @@ const SELECTOR_W = 24 // zoom-selector letter column (Tailwind w-6)
 const VIEWPORT_INSET_LEFT = SELECTOR_W + ARROW_W // selector + prev arrow
 const VIEWPORT_INSET_RIGHT = ARROW_W // next arrow only
 
-// Height (px) reserved ABOVE the track for an instant pin's head: the
-// down-triangle plus the rotated title that hangs beneath it. The stem then
-// continues from the triangle down to the bottom of the track.
-const INSTANT_HEAD_H = 72
+// Instant-pin geometry (px), all measured from the TRACK's top edge with
+// negative = ABOVE the track. A pin is: a down-triangle HEAD with its title
+// horizontally to the LEFT, and a thin vertical STEM dropping from just under
+// the triangle to the track bottom. Heads sit ABOVE the hour ruler so they never
+// cover the timestamps; colliding pins stack UPWARD by INSTANT_ROW_STEP.
+const INSTANT_TRI = 10 // triangle glyph box (px)
+const INSTANT_HEAD_CLEARANCE = 22 // gap above track top for the LOWEST triangle bottom (clears the timestamps)
+const INSTANT_ROW_STEP = 16 // vertical rise per stacked level
+const INSTANT_STEM_GAP = 2 // gap between triangle bottom and stem top
+// Rough per-character width (px) of the 10px label, used only to estimate
+// horizontal footprints for collision stacking — not for actual layout.
+const INSTANT_CHAR_W = 5.6
+const INSTANT_LABEL_PAD = 26 // label padding + triangle + gap, added to text width estimate
 
 // Time-of-day label for an absolute epoch ms (local time).
 function fmt(epoch: number) {
@@ -224,6 +233,21 @@ export function TimelineStrip({
   // would override class-based transforms, and so the effect is fully reliable.
   const [hoveredInstant, setHoveredInstant] = useState<string | null>(null)
 
+  // Pixel width of the instant-pin layer, tracked so collision stacking can
+  // reason about real horizontal footprints (label widths are in px, positions
+  // in %). Updated via ResizeObserver; 0 until first measure (one frame).
+  const pinLayerRef = useRef<HTMLDivElement | null>(null)
+  const [pinLayerW, setPinLayerW] = useState(0)
+  useEffect(() => {
+    const el = pinLayerRef.current
+    if (!el) return
+    const update = () => setPinLayerW(el.clientWidth)
+    update()
+    const ro = new ResizeObserver(update)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+
   // Selected zoom span (skeleton — only "D" actually drives the view for now).
   const [view, setView] = useState<ViewKey>("D")
 
@@ -249,6 +273,38 @@ export function TimelineStrip({
   // Which day the CENTER of the window lands in, relative to today (day 0).
   const dayOffset = Math.floor((viewStart + WINDOW_SPAN / 2 - startOfToday) / DAY_MS)
   const isToday = dayOffset === 0
+
+  // Vertical stacking level per instant so their LEFT-side labels don't collide.
+  // Each pin's footprint is [triangle.x - estLabelWidth, triangle.x] in px (the
+  // label hangs to the left). Greedy interval packing (sorted by left edge):
+  // a pin reuses the lowest level whose last footprint has ended, else opens a
+  // new (higher) level. Recomputed as the data, scroll, or layer width changes.
+  const instantLevel = useMemo(() => {
+    const items = evts
+      .filter((e) => e.kind === "instant")
+      .map((e) => {
+        const x = (pct(e.schedule?.at ?? 0) / 100) * pinLayerW
+        const estW = e.title.length * INSTANT_CHAR_W + INSTANT_LABEL_PAD
+        return { id: e.id, left: x - estW, right: x }
+      })
+      .sort((a, b) => a.left - b.left)
+    const levelEnds: number[] = []
+    const level = new Map<string, number>()
+    for (const it of items) {
+      // 6px breathing room between adjacent footprints on the same level.
+      let lvl = levelEnds.findIndex((end) => end + 6 <= it.left)
+      if (lvl === -1) {
+        lvl = levelEnds.length
+        levelEnds.push(it.right)
+      } else {
+        levelEnds[lvl] = it.right
+      }
+      level.set(it.id, lvl)
+    }
+    return level
+    // pct depends on viewStart; including it directly keeps the deps explicit.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [evts, viewStart, pinLayerW])
 
   // Smoothly animate the view to an absolute target (used by the arrows and the
   // "Back to Today" link). A fixed ~0.5s eased tween reads as a crisp scroll
@@ -446,15 +502,16 @@ export function TimelineStrip({
       {/* Full-bleed timeline: top/bottom borders run to the frame edges to
           suggest continuity with yesterday/tomorrow. Arrows flank the track. */}
       <div className="relative -mx-6 h-14">
-        {/* Instant pins — one unified, full-height marker per instant: a
-            down-triangle HEAD with the rotated title hanging beneath it, and a
-            vertical STEM dropping from the triangle to the bottom of the track.
-            The title sits OVER the stem (z-10 above the z-0 line, so the line is
-            hidden behind the text). Hovering any part — triangle, label or stem —
-            thickens and darkens all three together (state-driven, see
-            hoveredInstant). The container is inset to match the viewport so a pin
-            lands exactly on its time, and only rendered while in the window. */}
+        {/* Instant pins — one marker per instant: a down-triangle HEAD with its
+            title HORIZONTALLY to the LEFT, and a thin vertical STEM dropping from
+            just under the triangle down to the track bottom. Heads sit ABOVE the
+            hour ruler so they never cover the timestamps; pins whose left-side
+            labels would collide stack UPWARD (instantLevel). Hovering any part —
+            triangle, label or stem — amplifies the instant's accent across all
+            three (a saturate/brightness filter on the wrapper). Inset to match
+            the viewport so a pin lands exactly on its time. */}
         <div
+          ref={pinLayerRef}
           className="pointer-events-none absolute inset-y-0 z-30"
           style={{ left: VIEWPORT_INSET_LEFT, right: VIEWPORT_INSET_RIGHT }}
         >
@@ -466,43 +523,63 @@ export function TimelineStrip({
             const color = getInheritedAccent(e.parentId ?? "s_root") ?? NEUTRAL_MARKER
             const isOpen = stack.includes(e.id)
             const hovered = hoveredInstant === e.id
-            // The three pieces always carry the instant's own accent. Hover does
-            // NOT swap to gray — instead it AMPLIFIES that accent (a saturation +
-            // brightness filter on the whole pin), so a blue instant gets bluer,
-            // a green one greener, etc. The near-black label background is
-            // unaffected by saturate(), so only the colored marks intensify.
-            const lineColor = color
             const onEnter = () => setHoveredInstant(e.id)
             const onLeave = () => setHoveredInstant((cur) => (cur === e.id ? null : cur))
+            // Stacking level → vertical position. Level 0 is the lowest (just
+            // above the timestamps); each higher level rises by INSTANT_ROW_STEP.
+            // All offsets are negative (above the track top).
+            const level = instantLevel.get(e.id) ?? 0
+            const triBottom = -(INSTANT_HEAD_CLEARANCE + level * INSTANT_ROW_STEP)
+            const triTop = triBottom - INSTANT_TRI
+            const triMid = triBottom - INSTANT_TRI / 2
             return (
               <div
                 key={e.id}
-                // pointer-events-none here so only the three visual pieces are
-                // interactive (event chips below stay clickable through the gaps).
-                // The hover filter intensifies the accent across all three at once.
-                className="pointer-events-none absolute bottom-0 flex w-4 flex-col items-center transition-[filter] duration-300 ease-out"
+                // Zero-width wrapper pinned at the instant's time; its three
+                // pieces hang off this center. pointer-events-none so only the
+                // pieces are interactive; the filter intensifies the accent.
+                className="pointer-events-none absolute bottom-0 top-0 w-0 transition-[filter] duration-300 ease-out"
                 style={{
                   left: `${left}%`,
-                  top: -INSTANT_HEAD_H,
-                  transform: "translateX(-50%)",
                   opacity: e.cancelled ? 0.45 : 1,
                   filter: hovered ? "saturate(2) brightness(1.15)" : "none",
                 }}
               >
-                {/* STEM — from just under the triangle to the track bottom,
-                    centered and BEHIND the label text. A wide invisible hit area
-                    (`before:`) makes the thin line easy to hover. */}
+                {/* STEM — from 2px under the triangle down to the track bottom,
+                    centered on the time. A wide invisible hit area eases hover. */}
                 <span
                   aria-hidden
                   onMouseEnter={onEnter}
                   onMouseLeave={onLeave}
                   className={cn(
-                    "pointer-events-auto absolute bottom-0 left-1/2 top-3 z-0 -translate-x-1/2",
+                    "pointer-events-auto absolute bottom-0 left-0 z-0 -translate-x-1/2",
                     "transition-[width,background-color] duration-300 ease-out",
                     "before:absolute before:inset-y-0 before:-inset-x-1 before:content-['']",
                   )}
-                  style={{ width: hovered ? 2 : 1, backgroundColor: lineColor }}
+                  style={{ top: triBottom + INSTANT_STEM_GAP, width: hovered ? 2 : 1, backgroundColor: color }}
                 />
+                {/* LABEL — horizontal, hanging to the LEFT of the triangle and
+                    vertically centered on it. Opaque bg so the stem can't show
+                    through where they cross. */}
+                <span
+                  onMouseEnter={onEnter}
+                  onMouseLeave={onLeave}
+                  className={cn(
+                    "pointer-events-auto absolute z-10 whitespace-nowrap rounded-[3px] bg-background px-1 py-0.5 text-right text-[10px] leading-none tracking-tight",
+                    "transition-[color,font-weight] duration-300 ease-out",
+                    e.cancelled && "line-through",
+                  )}
+                  style={{
+                    right: INSTANT_TRI / 2 + 4,
+                    top: triMid,
+                    transform: "translateY(-50%)",
+                    color,
+                    fontWeight: hovered ? 600 : 500,
+                  }}
+                  title={e.title}
+                >
+                  {e.title}
+                </span>
                 {/* TRIANGLE head — the timeline morph SOURCE (where="timeline").
                     Opening from the timeline is disabled for now; right-click
                     still offers the menu. */}
@@ -511,9 +588,8 @@ export function TimelineStrip({
                   initial={false}
                   data-morph-source={e.id}
                   data-morph-where="timeline"
-                  // Spring on scale, tween on color — together they read as a
-                  // smooth, lively emphasis rather than an instant snap.
-                  animate={{ scale: hovered ? 1.25 : 1, color: lineColor }}
+                  // Spring on scale, tween on color — a smooth, lively emphasis.
+                  animate={{ scale: hovered ? 1.25 : 1, color }}
                   transition={{
                     scale: { type: "spring", stiffness: 400, damping: 25 },
                     color: { duration: 0.3, ease: "easeOut" },
@@ -523,31 +599,11 @@ export function TimelineStrip({
                   onContextMenu={(ev) => openMenu(ev, e)}
                   aria-current={isOpen ? "true" : undefined}
                   title={`${e.title} · ${fmt(at)}`}
-                  className="pointer-events-auto relative z-10 flex h-2.5 w-2.5 items-center justify-center"
+                  className="pointer-events-auto absolute left-0 z-10 flex -translate-x-1/2 items-center justify-center"
+                  style={{ top: triTop, height: INSTANT_TRI, width: INSTANT_TRI }}
                 >
                   <NodeGlyph kind="instant" filled strokeWidth={1.5} />
                 </motion.button>
-                {/* LABEL — rotated, hanging under the triangle. An OPAQUE
-                    background (matching the track) sits behind the text so the
-                    stem is fully hidden behind the label rather than showing
-                    through the gaps between glyphs. */}
-                <span
-                  onMouseEnter={onEnter}
-                  onMouseLeave={onLeave}
-                  className={cn(
-                    "pointer-events-auto relative z-10 mt-1 max-h-[52px] truncate rounded-[3px] bg-background px-1 py-1.5 text-[10px] leading-none tracking-tight",
-                    "transition-[color,font-weight] duration-300 ease-out",
-                    e.cancelled && "line-through",
-                  )}
-                  style={{
-                    writingMode: "vertical-rl",
-                    color: lineColor,
-                    fontWeight: hovered ? 600 : 500,
-                  }}
-                  title={e.title}
-                >
-                  {e.title}
-                </span>
               </div>
             )
           })}
