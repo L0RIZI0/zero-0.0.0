@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { AnimatePresence, motion, animate } from "motion/react"
 import { ChevronLeft, ChevronRight, ArrowLeft, ArrowRight, Trash2, Ban, RotateCcw } from "lucide-react"
 import {
@@ -17,17 +17,36 @@ import { NodeGlyph } from "./node-glyph"
 import { ContextMenu, type ContextMenuState } from "./context-menu"
 import { cn } from "@/lib/utils"
 
-const DAY = 24 * 60 // minutes in a day
-const DEFAULT_START = 8 * 60 // 08:00 — left edge of a day's default framing
-const DEFAULT_END = 22 * 60 // 22:00 — right edge of a day's default framing
+const HOUR_MS = 3_600_000
+const DAY_MS = 86_400_000
+const DEFAULT_START_H = 8 // 08:00 — left edge of a day's default framing
+const DEFAULT_END_H = 22 // 22:00 — right edge of a day's default framing
 // The visible window is always this wide (14h). The continuous "lifeline" is
-// expressed in ABSOLUTE minutes measured from midnight of today (day 0), so
-// today 8am = 480, tomorrow 1am = 1500, yesterday 11pm = -60, etc. `viewStart`
-// is the absolute minute pinned to the left edge of the viewport.
-const WINDOW_SPAN = DEFAULT_END - DEFAULT_START // 840
+// now expressed in ABSOLUTE epoch milliseconds (Date.now()-style), so events
+// position by their real timestamps and naturally scroll across days. `viewStart`
+// is the epoch ms pinned to the left edge of the viewport.
+const WINDOW_SPAN = (DEFAULT_END_H - DEFAULT_START_H) * HOUR_MS // 14h in ms
 
-// "Now" for the prototype: today at 1:05pm, in absolute minutes.
-const NOW_ABS = 13 * 60 + 5
+/** Local midnight of `epoch`'s day, epoch ms. */
+function startOfDay(epoch: number): number {
+  const d = new Date(epoch)
+  d.setHours(0, 0, 0, 0)
+  return d.getTime()
+}
+
+/**
+ * Hour-aligned ruler ticks across the visible window. Walks LOCAL hour
+ * boundaries (robust across timezones / DST, unlike fixed-ms stepping) from the
+ * first `stepH`-aligned hour at/after `viewStart` to the right edge. Epoch ms.
+ */
+function hourTicks(stepH: number, viewStart: number): number[] {
+  const d = new Date(viewStart)
+  d.setMinutes(0, 0, 0)
+  while (d.getHours() % stepH !== 0 || d.getTime() < viewStart) d.setHours(d.getHours() + 1)
+  const out: number[] = []
+  for (; d.getTime() <= viewStart + WINDOW_SPAN; d.setHours(d.getHours() + stepH)) out.push(d.getTime())
+  return out
+}
 
 // Timeline zoom spans, ordered top→bottom for the vertical selector: Life,
 // Year, Quarter, Month, Week, Day. Only "D" (the default 8am–10pm day view) is
@@ -48,17 +67,58 @@ type ViewKey = (typeof VIEWS)[number][0]
 // as real markers without claiming a brand color.
 const NEUTRAL_MARKER = "oklch(0.72 0.004 75)"
 
-function fmt(min: number) {
-  const h = Math.floor(min / 60)
-  const m = min % 60
+/** A timed entity's [start, end] epoch interval. Instants are a zero-width
+ *  point [at, at]; events are their [startAt, endAt] span. */
+function entitySpan(e: Entity): [number, number] {
+  const s = e.schedule
+  if (e.kind === "instant") {
+    const a = s?.at ?? 0
+    return [a, a]
+  }
+  const st = s?.startAt ?? 0
+  return [st, s?.endAt ?? st]
+}
+
+/**
+ * Greedy interval lane-packing (proper gantt behaviour, replacing the old
+ * arbitrary `index % 2`). Items are sorted by start, then each is placed in the
+ * first lane whose previous item has already ended; otherwise a new lane opens.
+ * Non-overlapping schedules collapse to a single lane; only genuine time
+ * conflicts stack. Returns id→lane plus the total lane count.
+ */
+function packLanes(evts: Entity[]): { lane: Map<string, number>; count: number } {
+  const sorted = [...evts].sort((a, b) => entitySpan(a)[0] - entitySpan(b)[0])
+  const laneEnds: number[] = []
+  const lane = new Map<string, number>()
+  for (const e of sorted) {
+    const [s, en] = entitySpan(e)
+    let idx = laneEnds.findIndex((end) => end <= s)
+    if (idx === -1) {
+      idx = laneEnds.length
+      laneEnds.push(en)
+    } else {
+      laneEnds[idx] = en
+    }
+    lane.set(e.id, idx)
+  }
+  return { lane, count: Math.max(1, laneEnds.length) }
+}
+
+// Track layout: the strip is 56px tall (h-14). Lanes are 24px with a 4px gap,
+// and the used lanes are vertically CENTERED so a single-lane day sits in the
+// middle rather than pinned to the top.
+const TRACK_H = 56
+const LANE_H = 24
+const LANE_GAP = 4
+
+// Time-of-day label for an absolute epoch ms (local time).
+function fmt(epoch: number) {
+  const d = new Date(epoch)
+  const h = d.getHours()
+  const m = d.getMinutes()
   const ampm = h >= 12 ? "pm" : "am"
   const hr = h % 12 === 0 ? 12 : h % 12
   return m === 0 ? `${hr}${ampm}` : `${hr}:${String(m).padStart(2, "0")}${ampm}`
-}
-
-// Minute-of-day (0..1439) for an absolute minute, handling negatives.
-function minuteOfDay(abs: number) {
-  return ((Math.round(abs) % DAY) + DAY) % DAY
 }
 
 export function TimelineStrip({
@@ -117,13 +177,30 @@ export function TimelineStrip({
   // keeps spatial context. `spaceId` is the active node's context space.
   const evts = useMemo(() => getSpaceEvents("s_root"), [dataVersion])
 
+  // Overlap-based lane assignment for the whole timed set (events + instants),
+  // recomputed only when the data changes. Non-overlapping schedules share one
+  // centered lane; real time conflicts stack onto additional lanes.
+  const lanes = useMemo(() => packLanes(evts), [evts])
+  const contentH = lanes.count * LANE_H + (lanes.count - 1) * LANE_GAP
+  // Top edge (px) of a given lane within the 56px track, used lanes centered.
+  const laneTop = (lane: number) => Math.max(2, (TRACK_H - contentH) / 2) + lane * (LANE_H + LANE_GAP)
+
   // --- Continuous lifeline state -------------------------------------------
-  // `viewStart` is the absolute minute at the left edge of the viewport. It can
+  // `viewStart` is the absolute epoch ms at the left edge of the viewport. It can
   // be any real value — dragging scrubs it freely (a continuous lifeline of
-  // time), while the arrows snap to a day's default 8am–10pm framing.
-  const [viewStart, setViewStart] = useState(DEFAULT_START)
+  // time), while the arrows snap to a day's default 8am–10pm framing. Initialised
+  // to today's 8am so the default view frames the working day.
+  const [viewStart, setViewStart] = useState(() => startOfDay(Date.now()) + DEFAULT_START_H * HOUR_MS)
   const viewportRef = useRef<HTMLDivElement | null>(null)
   const animRef = useRef<ReturnType<typeof animate> | null>(null)
+
+  // Live "now" — a real timestamp, refreshed each minute so the now-marker
+  // creeps along the lifeline. (A timer, not data fetching.)
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 30_000)
+    return () => clearInterval(id)
+  }, [])
 
   // Selected zoom span (skeleton — only "D" actually drives the view for now).
   const [view, setView] = useState<ViewKey>("D")
@@ -140,11 +217,15 @@ export function TimelineStrip({
   // instant transition is a belt-and-suspenders guard for the boundary frames.
   const [viewMoving, setViewMoving] = useState(false)
 
-  // Absolute-minute → percentage across the viewport.
-  const pct = (abs: number) => ((abs - viewStart) / WINDOW_SPAN) * 100
+  // Epoch ms → percentage across the viewport.
+  const pct = (epoch: number) => ((epoch - viewStart) / WINDOW_SPAN) * 100
+
+  // Local midnight of today, recomputed from `now` so it stays correct across a
+  // day boundary while the strip is mounted.
+  const startOfToday = useMemo(() => startOfDay(now), [now])
 
   // Which day the CENTER of the window lands in, relative to today (day 0).
-  const dayOffset = Math.floor((viewStart + WINDOW_SPAN / 2) / DAY)
+  const dayOffset = Math.floor((viewStart + WINDOW_SPAN / 2 - startOfToday) / DAY_MS)
   const isToday = dayOffset === 0
 
   // Smoothly animate the view to an absolute target (used by the arrows and the
@@ -163,10 +244,10 @@ export function TimelineStrip({
     })
   }
 
-  const dayDefaultStart = (offset: number) => offset * DAY + DEFAULT_START
+  const dayDefaultStart = (offset: number) => startOfToday + offset * DAY_MS + DEFAULT_START_H * HOUR_MS
   const goPrev = () => animateView(dayDefaultStart(dayOffset - 1))
   const goNext = () => animateView(dayDefaultStart(dayOffset + 1))
-  const goToday = () => animateView(DEFAULT_START)
+  const goToday = () => animateView(dayDefaultStart(0))
 
   // Free-scroll drag: dragging right reveals earlier time (viewStart shrinks).
   // We use window listeners (not pointer capture) so marker clicks are never
@@ -181,8 +262,8 @@ export function TimelineStrip({
     const startX = e.clientX
     const startView = viewStart
     const move = (ev: PointerEvent) => {
-      const deltaMin = ((ev.clientX - startX) / width) * WINDOW_SPAN
-      setViewStart(startView - deltaMin)
+      const deltaMs = ((ev.clientX - startX) / width) * WINDOW_SPAN
+      setViewStart(startView - deltaMs)
     }
     const up = () => {
       setViewMoving(false)
@@ -213,22 +294,12 @@ export function TimelineStrip({
 
   // Dynamic hour ruler: timestamps every 2h across the visible window,
   // including the night hours that scroll into view as the user drags.
-  const ticks = useMemo(() => {
-    const first = Math.ceil(viewStart / 120) * 120
-    const out: number[] = []
-    for (let m = first; m <= viewStart + WINDOW_SPAN; m += 120) out.push(m)
-    return out
-  }, [viewStart])
+  const ticks = useMemo(() => hourTicks(2, viewStart), [viewStart])
 
   // Gridlines every 1h (denser than the 2h timestamps). Lines on an even hour
   // (where a timestamp sits) read as "major"; the in-between odd-hour lines are
   // fainter so the 2h rhythm stays legible.
-  const gridTicks = useMemo(() => {
-    const first = Math.ceil(viewStart / 60) * 60
-    const out: number[] = []
-    for (let m = first; m <= viewStart + WINDOW_SPAN; m += 60) out.push(m)
-    return out
-  }, [viewStart])
+  const gridTicks = useMemo(() => hourTicks(1, viewStart), [viewStart])
 
   return (
     <section aria-label="Timeline" className="px-1">
@@ -260,7 +331,7 @@ export function TimelineStrip({
                 className="absolute bottom-0 -translate-x-1/2 text-[9.5px] font-medium tabular-nums tracking-tight text-muted-foreground/45"
                 style={{ left: `${left}%` }}
               >
-                {fmt(minuteOfDay(m))}
+                {fmt(m)}
               </span>
             )
           })}
@@ -353,7 +424,7 @@ export function TimelineStrip({
         <div className="pointer-events-none absolute bottom-full left-10 right-10 z-0">
           {evts.map((e) => {
             if (e.kind !== "instant") return null
-            const left = pct(e.at ?? 0)
+            const left = pct(e.schedule?.at ?? 0)
             if (left < 0 || left > 100) return null
             const labelColor = getInheritedAccent(e.parentId ?? "s_root") ?? NEUTRAL_MARKER
             return (
@@ -445,7 +516,7 @@ export function TimelineStrip({
             {gridTicks.map((m) => {
               const left = pct(m)
               if (left < 0 || left > 100) return null
-              const isMajor = (m / 60) % 2 === 0
+              const isMajor = new Date(m).getHours() % 2 === 0
               return (
                 <div
                   key={m}
@@ -466,13 +537,13 @@ export function TimelineStrip({
               aria-hidden
             />
 
-            {/* now marker — pinned at today 1:05pm in absolute time; scrolls out
-                of view as the user drags away from today. A crisp accent rule
-                capped by a small filled dot at top and bottom reads as a precise
-                "this instant" pointer on the lifeline. */}
+            {/* now marker — the live current time (`now`, refreshed each ~30s);
+                scrolls out of view as the user drags away from today. A crisp
+                accent rule capped by a small filled dot at top and bottom reads
+                as a precise "this instant" pointer on the lifeline. */}
             <div
               className="pointer-events-none absolute -bottom-px -top-px z-20 w-px"
-              style={{ left: `${pct(NOW_ABS)}%`, backgroundColor: accent ?? "var(--accent)" }}
+              style={{ left: `${pct(now)}%`, backgroundColor: accent ?? "var(--accent)" }}
             >
               <span
                 className="absolute -left-[2.5px] -top-[3px] h-[6px] w-[6px] rounded-full ring-2 ring-card"
@@ -487,7 +558,7 @@ export function TimelineStrip({
             {/* events + instants. Each carries the accent of the space it
                 belongs to and opens its own window. Positioned in absolute time
                 so they scroll in/out with the lifeline. */}
-            {evts.map((e, i) => {
+            {evts.map((e) => {
               const eventSpaceId = e.parentId ?? "s_root"
               // A child inherits the nearest ancestor accent (e.g. an item in
               // Zero → magenta). Items under the root ("Space 0"), which has no
@@ -502,11 +573,12 @@ export function TimelineStrip({
               // eslint-disable-next-line @typescript-eslint/no-unused-vars
               const related = isInSubtree(contextId, eventSpaceId)
               const isOpen = stack.includes(e.id)
-              const lane = i % 2
+              // Overlap-packed lane (see packLanes); 0 when nothing conflicts.
+              const lane = lanes.lane.get(e.id) ?? 0
 
               // --- Instant: a single point marker (down triangle) -----------
               if (e.kind === "instant") {
-                const at = e.at ?? 0
+                const at = e.schedule?.at ?? 0
                 const left = pct(at)
                 // The marker is the timeline morph SOURCE: tagged with
                 // where="timeline" so opening from here grows the window out of
@@ -516,9 +588,9 @@ export function TimelineStrip({
                   <div
                     key={e.id}
                     className="absolute flex -translate-x-1/2 flex-col items-center"
-                    // Centred within the same two 24px lanes the bars use, so a point
-                    // marker sits vertically aligned with the bars on its row.
-                    style={{ left: `${left}%`, top: lane === 0 ? 9 : 37 }}
+                    // Centred vertically within its packed lane (the ~14px marker
+                    // inside the 24px lane), so a point sits aligned with the bars.
+                    style={{ left: `${left}%`, top: laneTop(lane) + (LANE_H - 14) / 2 }}
                   >
                     <motion.button
                       type="button"
@@ -565,16 +637,15 @@ export function TimelineStrip({
               }
 
               // --- Event: a span chip ---------------------------------------
-              const start = e.start ?? 0
-              const end = e.end ?? start
+              const start = e.schedule?.startAt ?? 0
+              const end = e.schedule?.endAt ?? start
               const left = pct(start)
               const width = ((end - start) / WINDOW_SPAN) * 100
               const boxStyle = {
                 left: `calc(${left}% + 2px)`,
                 width: `calc(${Math.max(width, 6)}% - 4px)`,
-                // Two lanes of 24px in the 56px track: 4 top pad, 4 inter-lane gap,
-                // 4 bottom pad. More breathing room than the old 22px/2px layout.
-                top: lane === 0 ? 4 : 32,
+                // Top of the bar's packed lane within the centered lane stack.
+                top: laneTop(lane),
               } as const
               // Linear-style "elevated bar": the whole bar carries a soft accent
               // TINT with a 1px accent border (no heavy left rule), and a small

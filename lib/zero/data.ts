@@ -778,59 +778,16 @@ export function getSpaceTasks(spaceId: string): Entity[] {
   )
 }
 
-// ----------------------------------------------------------------------------
-// Timeline back-compat shim.
-//
-// The canonical time model is now absolute epoch ms on `entity.schedule`. The
-// current timeline (timeline-strip.tsx) still works in MINUTES-FROM-MIDNIGHT
-// (`start`/`end`/`at`/`seconds`). Rather than rewrite the timeline now (that's
-// the next pass), `getSpaceEvents` returns a `TimelineEntity` — the entity plus
-// those minute fields DERIVED from `schedule` — so the timeline keeps working
-// unchanged. The derivation is read-only (a shallow clone); it never mutates the
-// stored entity. When the timeline is reworked to position by epoch directly,
-// this shim can be deleted.
-// ----------------------------------------------------------------------------
-
-/** An Entity augmented with derived minutes-from-midnight fields for the legacy
- *  timeline. Do NOT persist these — they are recomputed from `schedule`. */
-export type TimelineEntity = Entity & {
-  start?: number
-  end?: number
-  at?: number
-  seconds?: number
-}
-
-const minutesOfDay = (epoch: number): number => {
-  const d = new Date(epoch)
-  return d.getHours() * 60 + d.getMinutes()
-}
-
-function toTimelineEntity(e: Entity): TimelineEntity {
-  const s = e.schedule
-  return {
-    ...e,
-    start: s?.startAt != null ? minutesOfDay(s.startAt) : undefined,
-    end: s?.endAt != null ? minutesOfDay(s.endAt) : undefined,
-    at: s?.at != null ? minutesOfDay(s.at) : undefined,
-    seconds: s?.at != null ? new Date(s.at).getSeconds() : undefined,
-  }
-}
-
 /** Events AND instants anywhere in a space's subtree. Drives the timeline —
- *  events render as spans, instants as single-point markers. Returns
- *  {@link TimelineEntity} (entity + derived minute fields) — see shim above. */
-export function getSpaceEvents(spaceId: string): TimelineEntity[] {
+ *  events render as spans, instants as single-point markers. Time is read
+ *  directly off `entity.schedule` (absolute epoch ms) by the timeline. */
+export function getSpaceEvents(spaceId: string): Entity[] {
   const isTimed = (e: Entity) => e.kind === "event" || e.kind === "instant"
-  const matched =
-    spaceId === "s_root"
-      ? entities.filter(isTimed)
-      : (() => {
-          const descendants = collectDescendants(spaceId)
-          return entities.filter(
-            (e) => isTimed(e) && e.parentId !== null && descendants.has(e.parentId),
-          )
-        })()
-  return matched.map(toTimelineEntity)
+  if (spaceId === "s_root") return entities.filter(isTimed)
+  const descendants = collectDescendants(spaceId)
+  return entities.filter(
+    (e) => isTimed(e) && e.parentId !== null && descendants.has(e.parentId),
+  )
 }
 
 /** Assets anywhere in a space's subtree. */
