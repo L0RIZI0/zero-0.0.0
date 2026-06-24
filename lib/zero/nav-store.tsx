@@ -156,6 +156,8 @@ export function ZeroNavProvider({
   const [fading, setFading] = useState<WindowKey[]>([])
   const [animating, setAnimating] = useState(false)
   const settleTimer = useRef<ReturnType<typeof gsap.delayedCall> | null>(null)
+  // Drives the sequential telescope in `openTo` (one hop per MORPH_DURATION).
+  const drillTimer = useRef<ReturnType<typeof gsap.delayedCall> | null>(null)
 
   // Flip-id (`${contextId}:${entityId}`) of the entity that should render its
   // hover/highlight look even though the pointer may not be over it: `menuKey`
@@ -415,31 +417,55 @@ export function ZeroNavProvider({
   /**
    * Open an entity by its FULL containment path, regardless of where the user
    * currently is — used by the timeline chips (clicking "Workout" opens Health
-   * then Workout). Resolves the ancestor path (root→…→id) and telescopes the
-   * whole stack open in one morph. If the entity is ALREADY open at the top of
-   * the current stack, we don't re-navigate — we pulse its window to draw the
-   * eye. Unknown ids are ignored.
+   * then Workout). Resolves the ancestor path (root→…→id) and TELESCOPES down to
+   * it one level at a time.
+   *
+   * Why one level at a time (not a single multi-level `transition`)? The Flip
+   * morph needs a real on-screen "from" node for every window it grows. A deep
+   * tile (e.g. the Workout card) only exists once its PARENT window is open and
+   * its do-list has rendered — so a single root→Health→Workout jump has no
+   * source for Workout and it flies in from a garbage off-screen rect. Opening
+   * Health first, letting it settle, THEN opening Workout means each hop morphs
+   * from a tile that actually exists — exactly like a manual drill-down.
+   *
+   * If the entity is already open anywhere in the stack, we pulse it instead of
+   * re-navigating. Unknown ids are ignored.
    */
   const openTo = useCallback(
     (id: string) => {
       const path = getAncestorPath(id)
       if (path.length === 0) return
       const cur = stackRef.current
-      // Already the focused leaf → just bounce it instead of reopening.
-      if (cur[cur.length - 1] === id) {
-        requestPulse(id)
-        return
-      }
-      // Open somewhere mid-stack already (an ancestor is focused or it sits in
-      // the current path) → pulse rather than rebuild a conflicting stack.
       if (cur.includes(id)) {
         requestPulse(id)
         return
       }
-      collapseEntityPanels(cur[cur.length - 1])
-      transition(path)
+      drillTimer.current?.kill() // cancel any in-flight telescope from a prior click
+
+      // Longest shared prefix of where we ARE and where we're GOING.
+      let common = 0
+      while (common < cur.length && common < path.length && cur[common] === path[common]) common++
+
+      // One hop: append the next entity on the path (morphs from its now-visible
+      // do-list tile), then schedule the following hop after the morph settles.
+      const drill = (depth: number) => {
+        if (depth >= path.length) return
+        open(path[depth])
+        if (depth + 1 < path.length) {
+          drillTimer.current = gsap.delayedCall(MORPH_DURATION, () => drill(depth + 1))
+        }
+      }
+
+      if (cur.length > common) {
+        // Current stack diverges from the path — collapse back to the shared
+        // ancestor first (one telescoping close), then drill down from there.
+        transition(path.slice(0, common))
+        drillTimer.current = gsap.delayedCall(MORPH_DURATION, () => drill(common))
+      } else {
+        drill(common)
+      }
     },
-    [transition, requestPulse],
+    [open, transition, requestPulse],
   )
 
   // Close the window at absolute index `depth` (and everything above it).
