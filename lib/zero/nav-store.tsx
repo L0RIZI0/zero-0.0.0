@@ -306,12 +306,14 @@ export function ZeroNavProvider({
 
     // DETACHED CLOSE — the closing top has no in-place row under it (its host is
     // not its parent/tag), so there is nothing for a Flip morph to shrink it back
-    // into. Instead of the capture→commit→Flip dance, we shrink the LIVE window
-    // frame toward its remembered origin FIRST (it is still mounted), then commit
-    // the pop once it has retracted (which simply unmounts the overlay, revealing
-    // the untouched view beneath). Only the simple case — closing exactly the
-    // detached top with nothing telescoping above it — takes this path; anything
-    // more falls through to the normal morph.
+    // into; we shrink its frame toward its remembered origin with morphDetached
+    // instead. CRUCIALLY this still commits the stack IMMEDIATELY (flushSync), the
+    // same as the normal path — the logical pop happens now (so stackRef is fresh
+    // and any subsequent click is correct), and the window is kept MOUNTED purely
+    // for the exit animation by putting it in `fading` (which keeps EntityNode
+    // rendering it as a full window; see work-surface, which mounts detached
+    // fading entries). The settle timer then only does cosmetic cleanup, exactly
+    // like the normal path — so a follow-up transition that kills it is harmless.
     if (
       !opening &&
       closingEntity &&
@@ -325,12 +327,19 @@ export function ZeroNavProvider({
       const live = stored?.placement
         ? resolveOriginRect(closingEntity.id, { placement: stored.placement })
         : null
-      setAnimating(true)
-      morphDetached(closingEntity, (live ?? stored)?.rect ?? null, false)
+      const originRect = (live ?? stored)?.rect ?? null
+      detachedOrigins.current.delete(closingEntity.id)
+      flushSync(() => {
+        setStack(nextStack)
+        setFading([closingEntity])
+        setClosing(null)
+        setAnimating(true)
+      })
+      morphDetached(closingEntity, originRect, false)
       settleTimer.current?.kill()
       settleTimer.current = gsap.delayedCall(MORPH_DURATION, () => {
-        detachedOrigins.current.delete(closingEntity.id)
-        setStack(nextStack)
+        clearFadingProps([closingEntity])
+        setFading([])
         setAnimating(false)
       })
       return
