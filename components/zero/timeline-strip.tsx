@@ -122,6 +122,11 @@ const SELECTOR_W = 24 // zoom-selector letter column (Tailwind w-6)
 const VIEWPORT_INSET_LEFT = SELECTOR_W + ARROW_W // selector + prev arrow
 const VIEWPORT_INSET_RIGHT = ARROW_W // next arrow only
 
+// Height (px) reserved ABOVE the track for an instant pin's head: the
+// down-triangle plus the rotated title that hangs beneath it. The stem then
+// continues from the triangle down to the bottom of the track.
+const INSTANT_HEAD_H = 72
+
 // Time-of-day label for an absolute epoch ms (local time).
 function fmt(epoch: number) {
   const d = new Date(epoch)
@@ -188,10 +193,10 @@ export function TimelineStrip({
   // keeps spatial context. `spaceId` is the active node's context space.
   const evts = useMemo(() => getSpaceEvents("s_root"), [dataVersion])
 
-  // Overlap-based lane assignment for the whole timed set (events + instants),
-  // recomputed only when the data changes. Non-overlapping schedules share one
+  // Overlap-based lane assignment for EVENT spans only (instants now render as
+  // full-height pins, independent of lanes). Non-overlapping events share one
   // centered lane; real time conflicts stack onto additional lanes.
-  const lanes = useMemo(() => packLanes(evts), [evts])
+  const lanes = useMemo(() => packLanes(evts.filter((e) => e.kind === "event")), [evts])
   const contentH = lanes.count * LANE_H + (lanes.count - 1) * LANE_GAP
   // Top edge (px) of a given lane within the 56px track, used lanes centered.
   const laneTop = (lane: number) => Math.max(2, (TRACK_H - contentH) / 2) + lane * (LANE_H + LANE_GAP)
@@ -435,37 +440,92 @@ export function TimelineStrip({
       {/* Full-bleed timeline: top/bottom borders run to the frame edges to
           suggest continuity with yesterday/tomorrow. Arrows flank the track. */}
       <div className="relative -mx-6 h-14">
-        {/* Instant labels — written vertically and anchored to the TOP of the
-            track so they rise above the marker without adding layout height.
-            Inset to EXACTLY match the viewport (selector + arrows) so a label
-            sits directly above its marker; only rendered while within the
-            visible window so they don't bleed over the arrows. */}
+        {/* Instant pins — one unified, full-height marker per instant: a
+            down-triangle HEAD with the rotated title hanging beneath it, and a
+            vertical STEM dropping from the triangle to the bottom of the track.
+            The title sits OVER the stem (z-10 above the z-0 line, so the line is
+            hidden behind the text). Hovering any part — triangle, label or stem —
+            thickens and darkens all three together via the shared `group`. The
+            container is inset to match the viewport so a pin lands exactly on its
+            time, and only rendered while within the visible window. */}
         <div
-          className="pointer-events-none absolute bottom-full z-0"
+          className="pointer-events-none absolute inset-y-0 z-30"
           style={{ left: VIEWPORT_INSET_LEFT, right: VIEWPORT_INSET_RIGHT }}
         >
           {evts.map((e) => {
             if (e.kind !== "instant") return null
-            const left = pct(e.schedule?.at ?? 0)
+            const at = e.schedule?.at ?? 0
+            const left = pct(at)
             if (left < 0 || left > 100) return null
-            const labelColor = getInheritedAccent(e.parentId ?? "s_root") ?? NEUTRAL_MARKER
+            const color = getInheritedAccent(e.parentId ?? "s_root") ?? NEUTRAL_MARKER
+            const isOpen = stack.includes(e.id)
             return (
-              <span
+              <div
                 key={e.id}
-                className={cn(
-                  "absolute bottom-1 max-h-[40vh] truncate text-[10px] font-medium leading-none tracking-tight",
-                  e.cancelled && "line-through opacity-50",
-                )}
-                style={{
-                  left: `${left}%`,
-                  color: labelColor,
-                  writingMode: "vertical-rl",
-                  transform: "translateX(-50%)",
-                }}
-                title={e.title}
+                // `group` drives the shared hover; `--mk` exposes the instant's
+                // accent so children default to it and group-hover can override
+                // to foreground (the higher-specificity group-hover wins over the
+                // arbitrary `text-[color:var(--mk)]`). pointer-events-none here so
+                // only the three visual pieces are interactive (chips stay clickable).
+                className="group pointer-events-none absolute bottom-0 flex w-4 flex-col items-center"
+                style={
+                  {
+                    left: `${left}%`,
+                    top: -INSTANT_HEAD_H,
+                    transform: "translateX(-50%)",
+                    opacity: e.cancelled ? 0.45 : 1,
+                    // CSS var for the accent; consumed via text-[color:var(--mk)].
+                    "--mk": color,
+                  } as Record<string, string | number>
+                }
               >
-                {e.title}
-              </span>
+                {/* STEM — from just under the triangle to the track bottom,
+                    centered and BEHIND the label text. A wide invisible hit area
+                    (`before:`) makes the thin line easy to hover. */}
+                <span
+                  aria-hidden
+                  className={cn(
+                    "pointer-events-auto absolute bottom-0 left-1/2 top-3 z-0 w-px -translate-x-1/2",
+                    "bg-[color:var(--mk)] transition-[width,background-color] duration-150",
+                    "group-hover:w-0.5 group-hover:bg-foreground",
+                    "before:absolute before:inset-y-0 before:-inset-x-1 before:content-['']",
+                  )}
+                />
+                {/* TRIANGLE head — the timeline morph SOURCE (where="timeline").
+                    Opening from the timeline is disabled for now; right-click
+                    still offers the menu. */}
+                <motion.button
+                  type="button"
+                  initial={false}
+                  data-morph-source={e.id}
+                  data-morph-where="timeline"
+                  transition={panelTransition}
+                  onContextMenu={(ev) => openMenu(ev, e)}
+                  aria-current={isOpen ? "true" : undefined}
+                  title={`${e.title} · ${fmt(at)}`}
+                  className={cn(
+                    "pointer-events-auto relative z-10 flex h-3 w-3 items-center justify-center",
+                    "text-[color:var(--mk)] transition-transform duration-150",
+                    "group-hover:scale-125 group-hover:text-foreground",
+                  )}
+                >
+                  <NodeGlyph kind="instant" filled strokeWidth={1.5} />
+                </motion.button>
+                {/* LABEL — rotated, hanging under the triangle, painted OVER the
+                    stem so the line vanishes behind the glyphs. */}
+                <span
+                  className={cn(
+                    "pointer-events-auto relative z-10 mt-1 max-h-[52px] truncate text-[10px] font-medium leading-none tracking-tight",
+                    "text-[color:var(--mk)] transition-colors duration-150",
+                    "group-hover:font-semibold group-hover:text-foreground",
+                    e.cancelled && "line-through",
+                  )}
+                  style={{ writingMode: "vertical-rl" }}
+                  title={e.title}
+                >
+                  {e.title}
+                </span>
+              </div>
             )
           })}
         </div>
@@ -600,68 +660,11 @@ export function TimelineStrip({
               // eslint-disable-next-line @typescript-eslint/no-unused-vars
               const related = isInSubtree(contextId, eventSpaceId)
               const isOpen = stack.includes(e.id)
+              // Instants render as full-height pins in their own overlay (above),
+              // not as in-track markers — skip them here.
+              if (e.kind === "instant") return null
               // Overlap-packed lane (see packLanes); 0 when nothing conflicts.
               const lane = lanes.lane.get(e.id) ?? 0
-
-              // --- Instant: a single point marker (down triangle) -----------
-              if (e.kind === "instant") {
-                const at = e.schedule?.at ?? 0
-                const left = pct(at)
-                // The marker is the timeline morph SOURCE: tagged with
-                // where="timeline" so opening from here grows the window out of
-                // this point (the DO-list row carries where="row" for the other
-                // entry path). No layoutId / overlay twin anymore.
-                return (
-                  <div
-                    key={e.id}
-                    className="absolute flex -translate-x-1/2 flex-col items-center"
-                    // Centred vertically within its packed lane (the ~14px marker
-                    // inside the 24px lane), so a point sits aligned with the bars.
-                    style={{ left: `${left}%`, top: laneTop(lane) + (LANE_H - 14) / 2 }}
-                  >
-                    <motion.button
-                      type="button"
-                      initial={false}
-                      data-morph-source={e.id}
-                      data-morph-where="timeline"
-                      // Markers are never dimmed by relevance anymore — the
-                      // user's whole schedule stays clear regardless of which
-                      // child is open. Only a cancelled marker reads faded.
-                      animate={{ opacity: e.cancelled ? 0.45 : 1 }}
-                      transition={panelTransition}
-                      // Opening entities FROM the timeline is intentionally
-                      // disabled for now (a later feature). The marker stays
-                      // purely informational; right-click still offers its menu.
-                      onContextMenu={(ev) => openMenu(ev, e)}
-                      aria-current={isOpen ? "true" : undefined}
-                      title={`${e.title} · ${fmt(at)}`}
-                    className="flex flex-col items-center transition-[filter] hover:brightness-110"
-                  >
-                    <span
-                      className="relative flex h-3.5 w-3.5 items-center justify-center"
-                      style={{ color: markerColor }}
-                    >
-                      {/* Soft accent halo — the Linear milestone "glow" that lifts
-                          the point marker off the track. Guarded for the neutral
-                          (oklch) fallback, where a hex+alpha suffix is invalid. */}
-                      <span
-                        className="absolute inset-[-3px] rounded-full"
-                        style={{
-                          backgroundColor: color
-                            ? `${color}24`
-                            : "color-mix(in oklab, var(--foreground) 12%, transparent)",
-                        }}
-                        aria-hidden
-                      />
-                      {/* relative z-[1]: paint the glyph ABOVE the absolute halo. */}
-                      <span className="relative z-[1] flex h-full w-full items-center justify-center">
-                        <NodeGlyph kind="instant" filled strokeWidth={1.5} />
-                      </span>
-                    </span>
-                  </motion.button>
-                  </div>
-                )
-              }
 
               // --- Event: a span chip ---------------------------------------
               const start = e.schedule?.startAt ?? 0
