@@ -35,7 +35,7 @@ import { ContextMenu, type ContextMenuState } from "./context-menu"
 import { CaretTextInput } from "./caret-text-input"
 import { cn } from "@/lib/utils"
 
-const KIND_ORDER: NodeKind[] = ["task", "space", "event", "instant"]
+const KIND_ORDER: NodeKind[] = ["task", "space", "resource", "event", "instant", "community"]
 
 /**
  * Reflow timing for DO-list edits (add / delete): rows glide to make room or

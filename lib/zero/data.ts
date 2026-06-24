@@ -1165,6 +1165,10 @@ export function changeEntityKind(id: string, kind: EntityKind): void {
     entity.schedule = { startAt: t(12), endAt: t(13), ...entity.schedule }
   } else if (kind === "instant") {
     entity.schedule = { at: t(12), ...entity.schedule }
+  } else if (kind === "resource" || kind === "community") {
+    // Both are containers like a space: they hold things and carry a blurb.
+    entity.description = entity.description ?? ""
+    entity.assignedResourceIds = entity.assignedResourceIds ?? []
   }
   persist()
 }

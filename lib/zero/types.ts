@@ -40,6 +40,8 @@ export interface User {
  *   - `task`    — a unit of work; still a container (it can hold subtasks).
  *   - `event`   — a scheduled span (start→end); also a container at its core.
  *   - `instant` — like an event, but a single point in time rather than a span.
+ *   - `resource`  — a referenced asset/tool/material the work draws on.
+ *   - `community` — a place gathering people and discussions (subreddit-like).
  *
  * Containment is recursive: any entity can contain any other entity. The shared
  * attributes below are present on every kind; only some are *relevant* per kind
@@ -47,7 +49,7 @@ export interface User {
  * priority/dueDate, a space about description), so renderers show fields
  * conditionally rather than the model splitting into separate shapes.
  */
-export type EntityKind = "space" | "task" | "event" | "instant"
+export type EntityKind = "space" | "task" | "event" | "instant" | "resource" | "community"
 
 /** Absolute time, in epoch milliseconds (the `Date.now()` value). Replaces the
  *  old "minutes from midnight" representation so spans can cross days/weeks/years
