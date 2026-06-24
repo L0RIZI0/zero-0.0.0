@@ -111,6 +111,17 @@ const TRACK_H = 56
 const LANE_H = 24
 const LANE_GAP = 4
 
+// Horizontal chrome flanking the scrolling viewport, in px. The viewport is the
+// shared coordinate space for gridlines, the now-marker and every event/instant.
+// Any OVERLAY that must line up with it (the hour ruler above the track, the
+// vertical instant labels) has to use these exact insets — hand-tuned guesses
+// drift out of alignment. The zoom selector is pinned to a fixed width precisely
+// so these insets stay deterministic.
+const ARROW_W = 40 // prev / next day chevron buttons (Tailwind w-10)
+const SELECTOR_W = 24 // zoom-selector letter column (Tailwind w-6)
+const VIEWPORT_INSET_LEFT = SELECTOR_W + ARROW_W // selector + prev arrow
+const VIEWPORT_INSET_RIGHT = ARROW_W // next arrow only
+
 // Time-of-day label for an absolute epoch ms (local time).
 function fmt(epoch: number) {
   const d = new Date(epoch)
@@ -312,7 +323,9 @@ export function TimelineStrip({
           left, beside the arrows. */}
       <div
         className={cn(
-          "relative mb-1",
+          // Full-bleed to match the track below, so the ruler shares the track's
+          // coordinate origin and its ticks can line up with the gridlines.
+          "relative mb-1 -mx-6",
           // Height held CONSTANT across depth. The band sits above the focus-window
           // region (which is flex-1 below it), so changing its height would push
           // the region up/down and reflow every fixed window mid-morph. The timeline
@@ -320,8 +333,13 @@ export function TimelineStrip({
           "h-10",
         )}
       >
-        {/* hour ruler — anchored to the bottom, aligned to the track width */}
-        <div className="absolute inset-x-0 bottom-0 h-3.5" style={{ marginLeft: 40, marginRight: 40 }}>
+        {/* hour ruler — anchored to the bottom, inset to exactly match the
+            scrolling viewport (selector + arrows) so timestamps sit on top of
+            their gridlines rather than drifting left. */}
+        <div
+          className="absolute inset-x-0 bottom-0 h-3.5"
+          style={{ marginLeft: VIEWPORT_INSET_LEFT, marginRight: VIEWPORT_INSET_RIGHT }}
+        >
           {ticks.map((m) => {
             const left = pct(m)
             if (left < 0 || left > 100) return null
@@ -419,9 +437,13 @@ export function TimelineStrip({
       <div className="relative -mx-6 h-14">
         {/* Instant labels — written vertically and anchored to the TOP of the
             track so they rise above the marker without adding layout height.
-            Inset `left-10 right-10` to match the viewport; only rendered while
-            within the visible window so they don't bleed over the arrows. */}
-        <div className="pointer-events-none absolute bottom-full left-10 right-10 z-0">
+            Inset to EXACTLY match the viewport (selector + arrows) so a label
+            sits directly above its marker; only rendered while within the
+            visible window so they don't bleed over the arrows. */}
+        <div
+          className="pointer-events-none absolute bottom-full z-0"
+          style={{ left: VIEWPORT_INSET_LEFT, right: VIEWPORT_INSET_RIGHT }}
+        >
           {evts.map((e) => {
             if (e.kind !== "instant") return null
             const left = pct(e.schedule?.at ?? 0)
@@ -459,8 +481,13 @@ export function TimelineStrip({
               full strength; the rest are discrete grey and brighten on hover.
               Skeleton for now — only "D" actually drives the view. */}
           <div
+            // Fixed width (SELECTOR_W) so the viewport's left inset is
+            // deterministic and the ruler / instant-label overlays can align to
+            // it. The column is `flex-col`, so width is independent of the
+            // animated vertical gap.
+            style={{ width: SELECTOR_W }}
             className={cn(
-              "relative z-10 flex shrink-0 flex-col items-center justify-center bg-background pl-0.5 pr-[7px]",
+              "relative z-10 flex shrink-0 flex-col items-center justify-center bg-background",
               // The spread tightens at stage 2 where the chrome is most compact.
               // A CSS transition on `gap` glides the shrink/expand smoothly —
               // more reliable than animating shorthand `gap` through motion.
