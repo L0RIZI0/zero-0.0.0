@@ -24,7 +24,7 @@ import {
   telescopicSurface,
   type SpaceKind,
 } from "@/lib/zero/motion"
-import { DURATION_S, MORPH_CSS_EASE } from "@/lib/zero/flip-stage"
+import { DURATION_VAR, MORPH_CSS_EASE } from "@/lib/zero/flip-stage"
 import { NodeGlyph } from "./node-glyph"
 import { ResourceGlyph } from "./resource-glyph"
 import { EntityBody } from "./entity-body"
@@ -416,7 +416,7 @@ export function EntityNode({
     // uses the morph duration; collapsed rows/cards keep the snappy hover fade. Width
     // is NOT transitioned here — that stays on the frame (Flip owns it during morphs).
     transition: asWindow
-      ? `background-color ${DURATION_S} ${MORPH_CSS_EASE}`
+      ? `background-color ${DURATION_VAR} ${MORPH_CSS_EASE}`
       : "background-color 0.18s ease-out",
   }
   const frameClass = asWindow
@@ -607,7 +607,7 @@ export function EntityNode({
             ? {
                 ...(winStyle ?? {}),
                 borderRadius: 0,
-                ...(animating ? null : { transition: `width ${DURATION_S} ${MORPH_CSS_EASE}` }),
+                ...(animating ? null : { transition: `width ${DURATION_VAR} ${MORPH_CSS_EASE}` }),
               }
             : {
                 // While shrinking closed it is a row again, but Flip animates it at full
@@ -641,7 +641,7 @@ export function EntityNode({
               // Fade the rim in/out with the morph rather than mounting/unmounting it,
               // so opening a Space eases the hairline in as the hexagon forms and
               // closing eases it out as the hexagon collapses (see spaceOutlineVisible).
-              style={{ opacity: spaceOutlineVisible ? 1 : 0, transition: `opacity ${DURATION_S} ${MORPH_CSS_EASE}` }}
+              style={{ opacity: spaceOutlineVisible ? 1 : 0, transition: `opacity ${DURATION_VAR} ${MORPH_CSS_EASE}` }}
               className="absolute inset-0 z-[1] h-full w-full"
               viewBox="0 0 100 100"
               preserveAspectRatio="none"
@@ -678,7 +678,7 @@ export function EntityNode({
             // hugging the right edge: X at the top corner, OUT below it at mid-height.
             // A few px of down-nudge clears the angled chamfer above the corner.
             style={{
-              transitionDuration: DURATION_S,
+              transitionDuration: DURATION_VAR,
               // Scope the CSS transition to POSITION only. With the default
               // (transition-property: all), the inline duration also animated opacity,
               // which fought the GSAP fade-in tween and produced an erratic flicker.
@@ -807,7 +807,7 @@ export function EntityNode({
             // grey instead of jumping. Only on windows; rows stay snappy.
             style={
               asWindow
-                ? { transitionProperty: "color", transitionDuration: DURATION_S, transitionTimingFunction: MORPH_CSS_EASE }
+                ? { transitionProperty: "color", transitionDuration: DURATION_VAR, transitionTimingFunction: MORPH_CSS_EASE }
                 : undefined
             }
             onClick={
@@ -875,7 +875,7 @@ export function EntityNode({
               // horizontal header slot and the spine strip), so we must not also
               // declare a transform transition here or the two would fight.
               ...(asWindow
-                ? { transitionProperty: "color", transitionDuration: DURATION_S, transitionTimingFunction: MORPH_CSS_EASE }
+                ? { transitionProperty: "color", transitionDuration: DURATION_VAR, transitionTimingFunction: MORPH_CSS_EASE }
                 : null),
             }}
             className={cn(
@@ -978,7 +978,7 @@ export function EntityNode({
                       transform: isSpine ? "translateX(-50%) rotate(-90deg)" : "translateX(0) rotate(0deg)",
                       transformOrigin: "100% 50%",
                       transitionProperty: "transform",
-                      transitionDuration: DURATION_S,
+                      transitionDuration: DURATION_VAR,
                       transitionTimingFunction: MORPH_CSS_EASE,
                     }
                   : undefined
@@ -1062,7 +1062,7 @@ export function EntityNode({
         {SHOW_HEADER_DIVIDER && (asWindow || isClosing) && !spaceLeafWindow && (
           <span
             aria-hidden
-            style={{ top: headerH, transitionDuration: DURATION_S, transitionTimingFunction: MORPH_CSS_EASE }}
+            style={{ top: headerH, transitionDuration: DURATION_VAR, transitionTimingFunction: MORPH_CSS_EASE }}
             className={cn(
               // Fainter than full border (opacity-50) so the header separator is a
               // subtle hairline rather than a hard rule. `top` animates too so it

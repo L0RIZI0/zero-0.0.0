@@ -13,6 +13,7 @@ import {
   getRegionRect,
   gsap,
   MORPH_DURATION,
+  setMorphScale,
 } from "./flip-stage"
 import type { EntityKind } from "./types"
 
@@ -428,6 +429,11 @@ export function ZeroNavProvider({
    * Health first, letting it settle, THEN opening Workout means each hop morphs
    * from a tile that actually exists — exactly like a manual drill-down.
    *
+   * To keep the WHOLE sequence feeling as snappy as a single open, every hop is
+   * time-scaled to 1/hops via setMorphScale, and the hops are chained on that
+   * shorter beat — so N hops still land in one canonical MORPH_DURATION instead
+   * of N×. The scale is restored to 1 once the final hop settles.
+   *
    * If the entity is already open anywhere in the stack, we pulse it instead of
    * re-navigating. Unknown ids are ignored.
    */
@@ -446,21 +452,32 @@ export function ZeroNavProvider({
       let common = 0
       while (common < cur.length && common < path.length && cur[common] === path[common]) common++
 
-      // One hop: append the next entity on the path (morphs from its now-visible
-      // do-list tile), then schedule the following hop after the morph settles.
+      // Count the steps this telescope will play: an optional collapse-to-common
+      // (when the current stack diverges) plus one open per remaining level. Each
+      // step is morph-scaled so they sum to a single canonical beat.
+      const collapses = cur.length > common ? 1 : 0
+      const opens = path.length - common
+      const hops = collapses + opens
+      const hopBeat = MORPH_DURATION / hops
+      setMorphScale(1 / hops)
+
+      // One hop: append the next entity (morphs from its now-visible do-list
+      // tile), then schedule the following hop after THIS hop's (scaled) beat.
+      // After the last hop, restore the canonical morph beat.
       const drill = (depth: number) => {
-        if (depth >= path.length) return
-        open(path[depth])
-        if (depth + 1 < path.length) {
-          drillTimer.current = gsap.delayedCall(MORPH_DURATION, () => drill(depth + 1))
+        if (depth >= path.length) {
+          setMorphScale(1)
+          return
         }
+        open(path[depth])
+        drillTimer.current = gsap.delayedCall(hopBeat, () => drill(depth + 1))
       }
 
-      if (cur.length > common) {
+      if (collapses) {
         // Current stack diverges from the path — collapse back to the shared
         // ancestor first (one telescoping close), then drill down from there.
         transition(path.slice(0, common))
-        drillTimer.current = gsap.delayedCall(MORPH_DURATION, () => drill(common))
+        drillTimer.current = gsap.delayedCall(hopBeat, () => drill(common))
       } else {
         drill(common)
       }
