@@ -466,8 +466,10 @@ export function TimelineStrip({
             const color = getInheritedAccent(e.parentId ?? "s_root") ?? NEUTRAL_MARKER
             const isOpen = stack.includes(e.id)
             const hovered = hoveredInstant === e.id
-            // Hover thickens + darkens all three pieces together.
-            const lineColor = hovered ? "var(--foreground)" : color
+            // Hover thickens + darkens all three pieces together. Uses
+            // muted-foreground (a mid-gray) rather than full foreground so the
+            // emphasis reads as a gentle darken, not a harsh black.
+            const lineColor = hovered ? "var(--muted-foreground)" : color
             const onEnter = () => setHoveredInstant(e.id)
             const onLeave = () => setHoveredInstant((cur) => (cur === e.id ? null : cur))
             return (
@@ -492,7 +494,7 @@ export function TimelineStrip({
                   onMouseLeave={onLeave}
                   className={cn(
                     "pointer-events-auto absolute bottom-0 left-1/2 top-3 z-0 -translate-x-1/2",
-                    "transition-[width,background-color] duration-150",
+                    "transition-[width,background-color] duration-300 ease-out",
                     "before:absolute before:inset-y-0 before:-inset-x-1 before:content-['']",
                   )}
                   style={{ width: hovered ? 2 : 1, backgroundColor: lineColor }}
@@ -505,25 +507,32 @@ export function TimelineStrip({
                   initial={false}
                   data-morph-source={e.id}
                   data-morph-where="timeline"
-                  transition={panelTransition}
+                  // Spring on scale, tween on color — together they read as a
+                  // smooth, lively emphasis rather than an instant snap.
+                  animate={{ scale: hovered ? 1.25 : 1, color: lineColor }}
+                  transition={{
+                    scale: { type: "spring", stiffness: 400, damping: 25 },
+                    color: { duration: 0.3, ease: "easeOut" },
+                  }}
                   onMouseEnter={onEnter}
                   onMouseLeave={onLeave}
                   onContextMenu={(ev) => openMenu(ev, e)}
                   aria-current={isOpen ? "true" : undefined}
                   title={`${e.title} · ${fmt(at)}`}
-                  className="pointer-events-auto relative z-10 flex h-3 w-3 items-center justify-center transition-transform duration-150"
-                  style={{ color: lineColor, scale: hovered ? 1.25 : 1 }}
+                  className="pointer-events-auto relative z-10 flex h-3 w-3 items-center justify-center"
                 >
                   <NodeGlyph kind="instant" filled strokeWidth={1.5} />
                 </motion.button>
-                {/* LABEL — rotated, hanging under the triangle, painted OVER the
-                    stem so the line vanishes behind the glyphs. */}
+                {/* LABEL — rotated, hanging under the triangle. An OPAQUE
+                    background (matching the track) sits behind the text so the
+                    stem is fully hidden behind the label rather than showing
+                    through the gaps between glyphs. */}
                 <span
                   onMouseEnter={onEnter}
                   onMouseLeave={onLeave}
                   className={cn(
-                    "pointer-events-auto relative z-10 mt-1 max-h-[52px] truncate text-[10px] leading-none tracking-tight",
-                    "transition-[color,font-weight] duration-150",
+                    "pointer-events-auto relative z-10 mt-1 max-h-[52px] truncate rounded-[2px] bg-background py-0.5 text-[10px] leading-none tracking-tight",
+                    "transition-[color,font-weight] duration-300 ease-out",
                     e.cancelled && "line-through",
                   )}
                   style={{
