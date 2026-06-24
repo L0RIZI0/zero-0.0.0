@@ -671,7 +671,7 @@ export function TimelineStrip({
               never intercepted. */}
           <div
             ref={viewportRef}
-            className="relative h-full flex-1 overflow-hidden border-x border-border bg-card/50"
+            className="relative h-full flex-1 overflow-hidden border-x border-border"
           >
             {/* centered lifeline — a single horizontal rule through the track's
                 vertical middle. Rendered first so every later sibling (gridlines,
