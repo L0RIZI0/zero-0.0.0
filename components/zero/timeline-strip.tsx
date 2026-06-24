@@ -130,7 +130,7 @@ const VIEWPORT_INSET_RIGHT = ARROW_W // next arrow only
 const INSTANT_TRI = 10 // triangle glyph box (px)
 const INSTANT_HEAD_CLEARANCE = 22 // gap above track top for the LOWEST triangle bottom (clears the timestamps)
 const INSTANT_ROW_STEP = 16 // vertical rise per stacked level
-const INSTANT_STEM_GAP = 2 // gap between triangle bottom and stem top
+const INSTANT_STEM_GAP = 1 // gap between triangle bottom and stem top
 // Rough per-character width (px) of the 10px label, used only to estimate
 // horizontal footprints for collision stacking — not for actual layout.
 const INSTANT_CHAR_W = 5.6
