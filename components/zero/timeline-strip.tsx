@@ -5,7 +5,8 @@ import { AnimatePresence, motion, animate } from "motion/react"
 import { ChevronLeft, ChevronRight, ArrowLeft, ArrowRight, Trash2, Ban, RotateCcw } from "lucide-react"
 import {
   getInheritedAccent,
-  getSpaceEvents,
+  getTimelineOccurrences,
+  type TimelineOccurrence,
   isInSubtree,
   deleteEntity,
   setEventCancelled,
@@ -84,9 +85,11 @@ function entitySpan(e: Entity): [number, number] {
  * arbitrary `index % 2`). Items are sorted by start, then each is placed in the
  * first lane whose previous item has already ended; otherwise a new lane opens.
  * Non-overlapping schedules collapse to a single lane; only genuine time
- * conflicts stack. Returns id→lane plus the total lane count.
+ * conflicts stack. Returns occKey→lane plus the total lane count. Keyed by
+ * `occKey` (not `id`) so distinct occurrences of the same recurring series are
+ * packed independently.
  */
-function packLanes(evts: Entity[]): { lane: Map<string, number>; count: number } {
+function packLanes(evts: TimelineOccurrence[]): { lane: Map<string, number>; count: number } {
   const sorted = [...evts].sort((a, b) => entitySpan(a)[0] - entitySpan(b)[0])
   const laneEnds: number[] = []
   const lane = new Map<string, number>()
@@ -99,7 +102,7 @@ function packLanes(evts: Entity[]): { lane: Map<string, number>; count: number }
     } else {
       laneEnds[idx] = en
     }
-    lane.set(e.id, idx)
+    lane.set(e.occKey, idx)
   }
   return { lane, count: Math.max(1, laneEnds.length) }
 }
@@ -197,19 +200,6 @@ export function TimelineStrip({
     })
   }
 
-  // The timeline always shows the FULL day (all events). When a child window is
-  // open, events outside its subtree dim rather than disappear, so the user
-  // keeps spatial context. `spaceId` is the active node's context space.
-  const evts = useMemo(() => getSpaceEvents("s_root"), [dataVersion])
-
-  // Overlap-based lane assignment for EVENT spans only (instants now render as
-  // full-height pins, independent of lanes). Non-overlapping events share one
-  // centered lane; real time conflicts stack onto additional lanes.
-  const lanes = useMemo(() => packLanes(evts.filter((e) => e.kind === "event")), [evts])
-  const contentH = lanes.count * LANE_H + (lanes.count - 1) * LANE_GAP
-  // Top edge (px) of a given lane within the 56px track, used lanes centered.
-  const laneTop = (lane: number) => Math.max(2, (TRACK_H - contentH) / 2) + lane * (LANE_H + LANE_GAP)
-
   // --- Continuous lifeline state -------------------------------------------
   // `viewStart` is the absolute epoch ms at the left edge of the viewport. It can
   // be any real value — dragging scrubs it freely (a continuous lifeline of
@@ -274,6 +264,29 @@ export function TimelineStrip({
   const dayOffset = Math.floor((viewStart + WINDOW_SPAN / 2 - startOfToday) / DAY_MS)
   const isToday = dayOffset === 0
 
+  // Timed entities EXPANDED into concrete per-day occurrences. Recurring items
+  // (e.g. the daily Workout space) yield one occurrence per matching day so they
+  // repeat across the lifeline as the user scrolls. The range is the visible day
+  // ±1 day of padding (rounded to midnights), so it only recomputes when the
+  // view crosses a day boundary, not on every drag frame.
+  const occRangeStart = startOfDay(viewStart) - DAY_MS
+  const occRangeEnd = startOfDay(viewStart) + 2 * DAY_MS
+  const evts = useMemo(
+    () => getTimelineOccurrences("s_root", occRangeStart, occRangeEnd),
+    [dataVersion, occRangeStart, occRangeEnd],
+  )
+
+  // Overlap-based lane assignment for span chips (events AND scheduled spaces;
+  // instants render as full-height pins, independent of lanes). Non-overlapping
+  // spans share one centered lane; real time conflicts stack onto more lanes.
+  const lanes = useMemo(
+    () => packLanes(evts.filter((e) => e.kind === "event" || e.kind === "space")),
+    [evts],
+  )
+  const contentH = lanes.count * LANE_H + (lanes.count - 1) * LANE_GAP
+  // Top edge (px) of a given lane within the 56px track, used lanes centered.
+  const laneTop = (lane: number) => Math.max(2, (TRACK_H - contentH) / 2) + lane * (LANE_H + LANE_GAP)
+
   // Vertical stacking level per instant so their LEFT-side labels don't collide.
   // Each pin's footprint is [triangle.x - estLabelWidth, triangle.x] in px (the
   // label hangs to the left). Greedy interval packing (sorted by left edge):
@@ -285,7 +298,7 @@ export function TimelineStrip({
       .map((e) => {
         const x = (pct(e.schedule?.at ?? 0) / 100) * pinLayerW
         const estW = e.title.length * INSTANT_CHAR_W + INSTANT_LABEL_PAD
-        return { id: e.id, left: x - estW, right: x }
+        return { key: e.occKey, left: x - estW, right: x }
       })
       .sort((a, b) => a.left - b.left)
     const levelEnds: number[] = []
@@ -299,7 +312,7 @@ export function TimelineStrip({
       } else {
         levelEnds[lvl] = it.right
       }
-      level.set(it.id, lvl)
+      level.set(it.key, lvl)
     }
     return level
     // pct depends on viewStart; including it directly keeps the deps explicit.
@@ -528,13 +541,13 @@ export function TimelineStrip({
             // Stacking level → vertical position. Level 0 is the lowest (just
             // above the timestamps); each higher level rises by INSTANT_ROW_STEP.
             // All offsets are negative (above the track top).
-            const level = instantLevel.get(e.id) ?? 0
+            const level = instantLevel.get(e.occKey) ?? 0
             const triBottom = -(INSTANT_HEAD_CLEARANCE + level * INSTANT_ROW_STEP)
             const triTop = triBottom - INSTANT_TRI
             const triMid = triBottom - INSTANT_TRI / 2
             return (
               <div
-                key={e.id}
+                key={e.occKey}
                 // Zero-width wrapper pinned at the instant's time; its three
                 // pieces hang off this center. pointer-events-none so only the
                 // pieces are interactive; the filter intensifies the accent.
@@ -745,7 +758,7 @@ export function TimelineStrip({
               // not as in-track markers — skip them here.
               if (e.kind === "instant") return null
               // Overlap-packed lane (see packLanes); 0 when nothing conflicts.
-              const lane = lanes.lane.get(e.id) ?? 0
+              const lane = lanes.lane.get(e.occKey) ?? 0
 
               // --- Event: a span chip ---------------------------------------
               const start = e.schedule?.startAt ?? 0
@@ -768,7 +781,7 @@ export function TimelineStrip({
               } as const
 
               return (
-                <div key={e.id} className="absolute h-6" style={boxStyle}>
+                <div key={e.occKey} className="absolute h-6" style={boxStyle}>
                   {/* Persistent chip — the timeline morph SOURCE. Tagged with
                       where="timeline" so opening from here grows the window out
                       of this chip's box. Clicking an already-open event pulses

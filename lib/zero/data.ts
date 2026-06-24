@@ -1,4 +1,4 @@
-import type { Asset, Entity, EntityKind, Resource, User } from "./types"
+import type { Asset, Entity, EntityKind, Recurrence, Resource, User } from "./types"
 import { readUserItems, writeUserItems } from "./persistence"
 
 export const currentUser: User = {
@@ -398,6 +398,30 @@ export const entities: Entity[] = [
     assignedResourceIds: ["r_health", "r_sheet"],
     accent: ACCENT.health,
   },
+  // Workout — a SPACE (a daily world to invest in), not a one-off event. It
+  // carries a recurring schedule (30min every day at 17:45) so it surfaces on
+  // the timeline as a repeating chip, and it CONTAINS the exercise checklist
+  // (w1–w6 below) the user ticks off each session. Over time this world can grow
+  // stats, progress, and history.
+  {
+    id: "s_workout",
+    kind: "space",
+    title: "Workout",
+    parentId: "s_health",
+    taggedSpaceIds: [],
+    description: "30 min every day at 17:45 — show up, move, log it.",
+    assignedResourceIds: ["r_health", "r_notes", "r_ai"],
+    accent: ACCENT.health,
+    schedule: { startAt: t(17, 45), endAt: t(18, 15), repeat: { freq: "daily" } },
+  },
+
+  // --- Workout exercises (the Workout space's daily checklist) ---------------
+  { id: "w1", kind: "task", title: "Warm-up & mobility", parentId: "s_workout", taggedSpaceIds: [], completed: false, priority: "medium", tags: ["workout"] },
+  { id: "w2", kind: "task", title: "Squats — 4×8", parentId: "s_workout", taggedSpaceIds: [], completed: false, priority: "high", tags: ["workout", "legs"] },
+  { id: "w3", kind: "task", title: "Bench press — 4×8", parentId: "s_workout", taggedSpaceIds: [], completed: false, priority: "high", tags: ["workout", "push"] },
+  { id: "w4", kind: "task", title: "Pull-ups — 3× max", parentId: "s_workout", taggedSpaceIds: [], completed: false, priority: "high", tags: ["workout", "pull"] },
+  { id: "w5", kind: "task", title: "Core circuit", parentId: "s_workout", taggedSpaceIds: [], completed: false, priority: "medium", tags: ["workout", "core"] },
+  { id: "w6", kind: "task", title: "Cooldown stretch", parentId: "s_workout", taggedSpaceIds: [], completed: false, priority: "low", tags: ["workout"] },
 
   // --- Tasks ----------------------------------------------------------------
   // Multi-space tasks re-parented to a single origin; the rest become tags.
@@ -541,7 +565,6 @@ export const entities: Entity[] = [
   { id: "e4", kind: "event", title: "Lunch", parentId: "s_personal", taggedSpaceIds: [], schedule: { startAt: t(12, 30), endAt: t(13, 15) } },
   { id: "e5", kind: "event", title: "Investor prep", parentId: "s_deck", taggedSpaceIds: [], schedule: { startAt: t(13, 30), endAt: t(14, 45) } },
   { id: "e6", kind: "event", title: "Admin hour", parentId: "s_admin", taggedSpaceIds: [], schedule: { startAt: t(15), endAt: t(16) } },
-  { id: "e7", kind: "event", title: "Workout", parentId: "s_training", taggedSpaceIds: [], schedule: { startAt: t(17, 30), endAt: t(18, 30) } },
   { id: "e8", kind: "event", title: "Evening reset", parentId: "s_journal", taggedSpaceIds: [], schedule: { startAt: t(21), endAt: t(21, 30) } },
 ]
 
@@ -778,16 +801,126 @@ export function getSpaceTasks(spaceId: string): Entity[] {
   )
 }
 
-/** Events AND instants anywhere in a space's subtree. Drives the timeline —
- *  events render as spans, instants as single-point markers. Time is read
- *  directly off `entity.schedule` (absolute epoch ms) by the timeline. */
+/** Timed entities anywhere in a space's subtree. Drives the timeline — events
+ *  render as spans, instants as single-point markers, and SCHEDULED SPACES
+ *  (a space with its own `schedule`, e.g. a recurring "Workout" world) render
+ *  as span chips too. Time is read directly off `entity.schedule` (absolute
+ *  epoch ms). Recurring entities are expanded into per-day occurrences by
+ *  getTimelineOccurrences; this selector returns the underlying entities. */
 export function getSpaceEvents(spaceId: string): Entity[] {
-  const isTimed = (e: Entity) => e.kind === "event" || e.kind === "instant"
+  const isTimed = (e: Entity) =>
+    e.kind === "event" || e.kind === "instant" || (e.kind === "space" && !!e.schedule)
   if (spaceId === "s_root") return entities.filter(isTimed)
   const descendants = collectDescendants(spaceId)
   return entities.filter(
     (e) => isTimed(e) && e.parentId !== null && descendants.has(e.parentId),
   )
+}
+
+/**
+ * A concrete, placed instance of a timed entity on the timeline. One-off
+ * entities yield a single occurrence; recurring ones yield one per matching day
+ * within the queried range. Each occurrence carries the entity's identity and
+ * resolved `schedule`, plus a unique `occKey` for React/lane bookkeeping.
+ */
+export interface TimelineOccurrence extends Entity {
+  /** Unique per rendered occurrence (a recurring series produces several). */
+  occKey: string
+}
+
+/** Local midnight (epoch ms) for the day containing `epoch`. */
+function dayStartOf(epoch: number): number {
+  const d = new Date(epoch)
+  d.setHours(0, 0, 0, 0)
+  return d.getTime()
+}
+
+/**
+ * Does the local day starting at `dayStart` match `repeat` (anchored at the
+ * series' first occurrence `anchor`)? Implements the small RRULE subset in
+ * `Recurrence`: daily / weekly(+byWeekday) / monthly / yearly, each with an
+ * optional `interval` and `until`.
+ */
+function dayMatchesRecurrence(dayStart: number, anchor: number, repeat: Recurrence): boolean {
+  const anchorDay = dayStartOf(anchor)
+  if (dayStart < anchorDay) return false
+  if (repeat.until != null && dayStart > repeat.until) return false
+  const interval = Math.max(1, repeat.interval ?? 1)
+  const daysSince = Math.round((dayStart - anchorDay) / DAY_MS)
+  switch (repeat.freq) {
+    case "daily":
+      return daysSince % interval === 0
+    case "weekly": {
+      const wd = new Date(dayStart).getDay()
+      const allowed = repeat.byWeekday ?? [new Date(anchor).getDay()]
+      if (!allowed.includes(wd)) return false
+      return Math.floor(daysSince / 7) % interval === 0
+    }
+    case "monthly": {
+      const a = new Date(anchor)
+      const d = new Date(dayStart)
+      if (a.getDate() !== d.getDate()) return false
+      const months = (d.getFullYear() - a.getFullYear()) * 12 + (d.getMonth() - a.getMonth())
+      return months >= 0 && months % interval === 0
+    }
+    case "yearly": {
+      const a = new Date(anchor)
+      const d = new Date(dayStart)
+      return (
+        d.getMonth() === a.getMonth() &&
+        d.getDate() === a.getDate() &&
+        (d.getFullYear() - a.getFullYear()) % interval === 0
+      )
+    }
+  }
+}
+
+/**
+ * Timed entities for a space's subtree, EXPANDED into concrete occurrences
+ * within [rangeStart, rangeEnd]. One-offs pass through unchanged; recurring
+ * schedules emit one occurrence per matching local day, preserving the anchor's
+ * wall-clock time-of-day (DST-safe, via setHours). Drives the timeline.
+ */
+export function getTimelineOccurrences(
+  spaceId: string,
+  rangeStart: number,
+  rangeEnd: number,
+): TimelineOccurrence[] {
+  const out: TimelineOccurrence[] = []
+  for (const e of getSpaceEvents(spaceId)) {
+    const s = e.schedule
+    if (!s) continue
+    const anchor = s.at ?? s.startAt
+    if (anchor == null) continue
+
+    if (!s.repeat) {
+      // One-off: pass through (the timeline clips to the viewport itself).
+      out.push({ ...e, occKey: e.id })
+      continue
+    }
+
+    const duration = s.startAt != null && s.endAt != null ? s.endAt - s.startAt : 0
+    const anchorDate = new Date(anchor)
+    // Walk each local day in range; emit an occurrence on matching days. Using a
+    // Date stepper (setDate) keeps midnights correct across DST boundaries.
+    const cursor = new Date(rangeStart)
+    cursor.setHours(0, 0, 0, 0)
+    while (cursor.getTime() <= rangeEnd) {
+      const dayStart = cursor.getTime()
+      if (dayMatchesRecurrence(dayStart, anchor, s.repeat)) {
+        const occDate = new Date(dayStart)
+        occDate.setHours(anchorDate.getHours(), anchorDate.getMinutes(), anchorDate.getSeconds(), 0)
+        const occStart = occDate.getTime()
+        const schedule =
+          s.at != null
+            ? { ...s, at: occStart }
+            : { ...s, startAt: occStart, endAt: occStart + duration }
+        out.push({ ...e, schedule, occKey: `${e.id}@${dayStart}` })
+      }
+      cursor.setDate(cursor.getDate() + 1)
+    }
+  }
+  return out
 }
 
 /** Assets anywhere in a space's subtree. */
