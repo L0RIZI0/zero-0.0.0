@@ -4,7 +4,6 @@ import { useTheme } from "next-themes"
 import { ShellHeader } from "./shell-header"
 import { WorkSurface } from "./work-surface"
 import { ThemeToggle } from "./theme-toggle"
-import { SpotlightWindow } from "./spotlight-window"
 import { ZeroNavProvider, useZeroNav } from "@/lib/zero/nav-store"
 import { telescopicSurface } from "@/lib/zero/motion"
 import { DURATION_S, MORPH_CSS_EASE } from "@/lib/zero/flip-stage"
@@ -41,7 +40,6 @@ export function ZeroShell() {
   return (
       <ZeroNavProvider>
       <ZeroShellInner />
-      <SpotlightWindow />
       <ThemeToggle />
     </ZeroNavProvider>
   )

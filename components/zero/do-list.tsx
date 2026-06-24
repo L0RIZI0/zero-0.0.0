@@ -672,7 +672,9 @@ export function DoList({
           // ADD_KEY (the creation row) is owned by its focused input, so by the time
           // this runs `key` is a real row — Enter opens it.
           e.preventDefault()
-          if (key !== ADD_KEY) open(key, "row")
+          // No explicit origin: this row has an in-place owning node, so the
+          // legacy single-node morph grows the window out of the row itself.
+          if (key !== ADD_KEY) open(key)
           break
         case "Delete":
         case "Backspace": {

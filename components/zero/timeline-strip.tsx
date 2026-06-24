@@ -156,7 +156,7 @@ export function TimelineStrip({
   contextId: string
   accent?: string
 }) {
-  const { stack, dataVersion, notifyDataChanged, openSpotlight } = useZeroNav()
+  const { stack, dataVersion, notifyDataChanged } = useZeroNav()
   const [menu, setMenu] = useState<ContextMenuState | null>(null)
 
   // Shell compaction stage (0 home, 1 first child, 2+ deeper), mirroring
@@ -593,9 +593,10 @@ export function TimelineStrip({
                 >
                   {e.title}
                 </span>
-                {/* TRIANGLE head — clicking opens the instant as a standalone
-                    SPOTLIGHT overlay growing from behind this chip; right-click
-                    still offers the menu. */}
+                {/* TRIANGLE head. Click-to-open is being rebuilt on the new
+                    placement/origin model (Stage D); right-click still offers the
+                    menu. The data-morph-source/where tags below are the seed of
+                    the placement registry finished in Stage B. */}
                 <motion.button
                   type="button"
                   initial={false}
@@ -609,7 +610,6 @@ export function TimelineStrip({
                   }}
                   onMouseEnter={onEnter}
                   onMouseLeave={onLeave}
-                  onClick={(ev) => openSpotlight(e.id, ev.currentTarget.getBoundingClientRect())}
                   onContextMenu={(ev) => openMenu(ev, e)}
                   aria-current={isOpen ? "true" : undefined}
                   title={`${e.title} · ${fmt(at)}`}
@@ -797,12 +797,10 @@ export function TimelineStrip({
                     // open. Only a cancelled event reads faded.
                     animate={{ opacity: e.cancelled ? 0.45 : 1 }}
                     transition={panelTransition}
-                    // Click opens this entity as a standalone SPOTLIGHT overlay
-                    // that grows from behind the chip (its viewport rect is the
-                    // visual origin) and floats over the current view — no nesting
-                    // into the nav stack, no telescoping. Closing it reveals the
-                    // untouched prior view.
-                    onClick={(ev) => openSpotlight(e.id, ev.currentTarget.getBoundingClientRect())}
+                    // Click-to-open is being rebuilt on the placement/origin model
+                    // (Stage D): a click will call open(id, origin) where origin is
+                    // resolved from this chip's placement, morphing the full entity
+                    // window out of the chip. Right-click still offers the menu.
                     onContextMenu={(ev) => openMenu(ev, e)}
                     aria-current={isOpen ? "true" : undefined}
                     title={`${e.title} · ${fmt(start)}–${fmt(end)}`}

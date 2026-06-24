@@ -15,15 +15,12 @@ import {
   MORPH_DURATION,
 } from "./flip-stage"
 import type { EntityKind } from "./types"
+import type { OpenOrigin } from "./placement"
 
-/**
- * Where an entity's window was opened FROM. Events/instants exist in two places
- * at once (their DO-list row and their timeline marker). Retained so callers
- * (the timeline) can keep their existing signature; the single-node morph itself
- * no longer needs it — the window IS the row, so it always morphs from the right
- * element automatically.
- */
-export type OpenSource = "timeline" | "row"
+// `OpenOrigin` (imported from ./placement) carries the viewport rect + kind the
+// window should morph FROM when an entity is opened from a placement that has no
+// in-place owning node (e.g. a timeline chip, or search). When omitted, the open
+// uses the legacy in-place morph (window IS the row) where available, else center.
 
 /** The two navigable regions: the DO list and the pinned SPACES dock. */
 export type SelectionRegion = "list" | "dock"
@@ -52,13 +49,6 @@ export type WindowKey = { id: string; depth: number; parent: string }
 /** Viewport rect of the focus-window region; the origin for fixed window geometry. */
 type RegionRect = { top: number; left: number; width: number; height: number }
 
-/** Viewport rect of the control that launched a spotlight (e.g. a timeline
- *  chip) — the visual origin the overlay grows from / shrinks back toward. */
-export type SpotlightRect = { top: number; left: number; width: number; height: number }
-
-/** A standalone entity opened on top of the current view (see provider notes). */
-export type Spotlight = { id: string; originRect: SpotlightRect }
-
 export interface ActiveEntity {
   id: string
   /** Depth in the stack — 0 is root. */
@@ -82,7 +72,7 @@ interface ZeroNavContextValue {
   activeEntity: ActiveEntity
   /** Push any entity onto the stack (dive deeper). `source` is accepted for
    *  backward compatibility (timeline markers) but no longer affects the morph. */
-  open: (id: string, source?: OpenSource) => void
+  open: (id: string, origin?: OpenOrigin) => void
   /** Pop the top entity (close the frontmost window). */
   close: () => void
   /** Close the window at absolute stack index `depth`: that window morphs back
@@ -124,14 +114,6 @@ interface ZeroNavContextValue {
   pulse: { id: string; n: number } | null
   /** Ask the open window for `id` to bounce (re-clicked its timeline chip). */
   requestPulse: (id: string) => void
-  /** The entity currently open as a standalone spotlight overlay (e.g. from a
-   *  timeline chip), or `null`. Decoupled from `stack`. */
-  spotlight: Spotlight | null
-  /** Open `id` as a spotlight overlay growing from `originRect` (the launching
-   *  control's viewport rect). Does not touch the navigation stack. */
-  openSpotlight: (id: string, originRect: SpotlightRect) => void
-  /** Dismiss the spotlight overlay, revealing the untouched view beneath. */
-  closeSpotlight: () => void
 
   // --- Selection + keyboard navigation ---------------------------------------
   selection: Selection
@@ -168,13 +150,11 @@ export function ZeroNavProvider({
   const [animating, setAnimating] = useState(false)
   const settleTimer = useRef<ReturnType<typeof gsap.delayedCall> | null>(null)
 
-  // SPOTLIGHT: a single entity opened standalone (e.g. from a timeline chip),
-  // floating ON TOP of the current view rather than nested in the open `stack`.
-  // It carries the viewport rect of the control that launched it (the chip) so
-  // the overlay can grow from / shrink back toward that point. `null` = closed.
-  // This is intentionally decoupled from `stack`: closing it just unmounts the
-  // overlay and reveals the untouched prior view beneath.
-  const [spotlight, setSpotlight] = useState<Spotlight | null>(null)
+  // The explicit visual origin for the CURRENT open, set by `open(id, origin)`
+  // right before it commits and consumed by the morph (Stage C). Used only when
+  // an entity is opened from a placement that has no in-place owning node (e.g. a
+  // timeline chip / search). `null` => use the legacy in-place morph, else center.
+  const pendingOriginRef = useRef<OpenOrigin | null>(null)
 
   // Flip-id (`${contextId}:${entityId}`) of the entity that should render its
   // hover/highlight look even though the pointer may not be over it: `menuKey`
@@ -416,13 +396,17 @@ export function ZeroNavProvider({
   }, [setRegionRect])
 
   const open = useCallback(
-    (id: string) => {
+    (id: string, origin?: OpenOrigin) => {
       const cur = stackRef.current
       if (cur[cur.length - 1] === id) return // re-opening the top is a no-op
       // An entity can appear at most once in a path. If it is already open
       // somewhere in this stack (e.g. the user clicked a second, collapsed
       // reference of it in another context), don't push a duplicate entry.
       if (cur.includes(id)) return
+      // Stash the explicit origin for the morph to consume on this commit (Stage
+      // C). Cleared by the morph once read; harmless if unread (legacy in-place
+      // morph is used whenever an owning node exists).
+      pendingOriginRef.current = origin ?? null
       // Opening a child folds the parent's IN/OUT panels so the parent reflows
       // clean behind/around the child (and returns collapsed).
       collapseEntityPanels(cur[cur.length - 1])
@@ -430,24 +414,6 @@ export function ZeroNavProvider({
     },
     [transition],
   )
-
-  /**
-   * Open an entity as a standalone SPOTLIGHT overlay — used by the timeline
-   * chips. Unlike `open`, this does NOT touch the navigation `stack`: the target
-   * floats on top of whatever the user was looking at, and closing it (see
-   * `closeSpotlight`) reveals that prior view exactly as it was.
-   *
-   * `originRect` is the viewport rect of the launching control (the chip), so
-   * the overlay can grow from a point behind it and shrink back on close. If the
-   * entity is already the open spotlight, this is a no-op. Unknown ids ignored.
-   */
-  const openSpotlight = useCallback((id: string, originRect: SpotlightRect) => {
-    if (!getEntity(id)) return
-    setSpotlight((prev) => (prev?.id === id ? prev : { id, originRect }))
-  }, [])
-
-  /** Dismiss the spotlight overlay, revealing the untouched view beneath. */
-  const closeSpotlight = useCallback(() => setSpotlight(null), [])
 
   // Close the window at absolute index `depth` (and everything above it).
   const closeWindow = useCallback(
@@ -637,9 +603,6 @@ export function ZeroNavProvider({
       setRegionRect,
       pulse,
       requestPulse,
-      spotlight,
-      openSpotlight,
-      closeSpotlight,
       selection,
       inputMode,
       select,
@@ -665,9 +628,6 @@ export function ZeroNavProvider({
     setRegionRect,
     pulse,
     requestPulse,
-    spotlight,
-    openSpotlight,
-    closeSpotlight,
     selection,
     inputMode,
     select,
