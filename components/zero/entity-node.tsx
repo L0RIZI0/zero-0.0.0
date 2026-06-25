@@ -24,6 +24,8 @@ import {
   telescopicSurface,
   type SpaceKind,
 } from "@/lib/zero/motion"
+import gsap from "gsap"
+import { Flip } from "gsap/Flip"
 import { DURATION_S, MORPH_CSS_EASE } from "@/lib/zero/flip-stage"
 import { NodeGlyph } from "./node-glyph"
 import { ResourceGlyph } from "./resource-glyph"
@@ -51,6 +53,41 @@ const priorityDot: Record<TaskPriority, string> = {
   high: "bg-accent",
   medium: "bg-foreground/40",
   low: "bg-foreground/20",
+}
+
+// --- "Sent as request" row reflow -----------------------------------------
+//
+// When a task is sent, its collapsed do-list row flips from the normal
+//   [glyph] [title] ……… [meta]
+// arrangement to a mirrored one where the glyph sits hard against the row's RIGHT
+// edge, the title is right-aligned just to its left, and the trailing meta moves
+// to the far LEFT:
+//   [meta] ……… [title →][glyph]
+// It's achieved purely with flex `order` + one `auto` margin (the spacer hops from
+// the title to the meta). The slide between the two arrangements is animated by a
+// GSAP Flip in the component. These token sets are shared by the JSX (resting
+// state) and the imperative Flip invert so the two can never drift apart.
+const REQ_REST = { glyph: "order-1", title: "order-2 mr-auto", meta: "order-3" }
+const REQ_SENT = { glyph: "order-3", title: "order-2 text-right", meta: "order-1 mr-auto" }
+
+/** Imperatively force the row's three flip parts into the rest- or sent-layout by
+ *  swapping the token sets above. Used only to re-create the PRE-toggle layout for
+ *  Flip.getState (React has already painted the post-toggle one), so the captured
+ *  "from" state is the old arrangement and Flip can slide into the new. */
+function setReqLayout(
+  glyph: Element | null,
+  title: Element | null,
+  meta: Element | null,
+  sent: boolean,
+) {
+  const swap = (el: Element | null, on: string, off: string) => {
+    if (!el) return
+    el.classList.remove(...off.split(" "))
+    el.classList.add(...on.split(" "))
+  }
+  swap(glyph, sent ? REQ_SENT.glyph : REQ_REST.glyph, sent ? REQ_REST.glyph : REQ_SENT.glyph)
+  swap(title, sent ? REQ_SENT.title : REQ_REST.title, sent ? REQ_REST.title : REQ_SENT.title)
+  swap(meta, sent ? REQ_SENT.meta : REQ_REST.meta, sent ? REQ_REST.meta : REQ_SENT.meta)
 }
 
 // Time is absolute epoch ms now (see Schedule). These formatters take a
@@ -179,6 +216,50 @@ export function EntityNode({
     setHovered(!asWindowRef.current && !!el && el.matches(":hover"))
   }, [nav.animating, ref])
 
+  // "Sent as request" row reflow. `sentRef` mirrors the fully-derived `sent` flag
+  // (set during render below, after `asWindow`/`isTask` exist) so this effect — which
+  // must run BEFORE the early return to satisfy the rules of hooks — can read it.
+  const reqHeaderRef = useRef<HTMLDivElement | null>(null)
+  const sentRef = useRef(false)
+  const prevSentRef = useRef(false)
+  // Lit highlight that does NOT depend on the pointer, held for the whole reflow so
+  // the row keeps its hover surface while the glyph morphs and slides (the menu has
+  // closed by then, so there's no real hover to rely on).
+  const [reqAnimating, setReqAnimating] = useState(false)
+
+  useLayoutEffect(() => {
+    const sent = sentRef.current
+    // While the node is (un)morphing between row and window — or rendered AS a window
+    // — the big open/close Flip owns the glyph/title and the meta isn't mounted, so a
+    // request reflow here would fight it. Just keep the tracker in sync.
+    if (asWindowRef.current || nav.animating) {
+      prevSentRef.current = sent
+      return
+    }
+    if (prevSentRef.current === sent) return
+    const wasSent = prevSentRef.current
+    prevSentRef.current = sent
+    const root = reqHeaderRef.current
+    if (!root) return
+    const glyph = root.querySelector<HTMLElement>('[data-req-flip="glyph"]')
+    const title = root.querySelector<HTMLElement>('[data-req-flip="title"]')
+    const meta = root.querySelector<HTMLElement>('[data-req-flip="meta"]')
+    const targets = [glyph, title, meta].filter(Boolean) as HTMLElement[]
+    if (targets.length < 2) return
+    // React already painted the NEW layout; re-apply the OLD one, snapshot it as the
+    // Flip "from", then restore the NEW layout (matching React) and slide into it.
+    setReqLayout(glyph, title, meta, wasSent)
+    const state = Flip.getState(targets)
+    setReqLayout(glyph, title, meta, sent)
+    setReqAnimating(true)
+    Flip.from(state, {
+      duration: 0.5,
+      ease: "power3.inOut",
+      absolute: true,
+      onComplete: () => setReqAnimating(false),
+    })
+  }, [nav.dataVersion, nav.animating])
+
   if (!entity) return null
 
   const kind = entity.kind
@@ -212,6 +293,14 @@ export function EntityNode({
   // Expose the latest value to the settle effect above (declared before the early
   // return, so it can't read `asWindow` directly).
   asWindowRef.current = asWindow
+
+  // A collapsed TASK row that has been sent as a request. `rowReq` gates the request
+  // layout tokens so they're only ever applied to a real collapsed row (never a
+  // window/dock header, where flex `order` would scramble the layout). `sent` drives
+  // both the resting layout and the Flip reflow effect above (via `sentRef`).
+  const rowReq = !asWindow && variant === "row"
+  const sent = rowReq && isTask && !!entity.requested
+  sentRef.current = sent
   // A DETACHED window that has been popped and is now shrinking closed. It has no
   // row/ancestor to recede into, so it must keep its own LEAF identity for the
   // whole shrink (see `detached` prop). Only the fading phase needs this: while
@@ -280,7 +369,7 @@ export function EntityNode({
 
   const frameSurface = asWindow
     ? telescopicSurface(depth, leafDepth, isDark)
-    : hovered || showHighlight || isClosing || held
+    : hovered || showHighlight || isClosing || held || reqAnimating
       ? highlightColor
       : collapsedRest
 
@@ -802,6 +891,7 @@ export function EntityNode({
             switches layout between collapsed row/card and window header. The glyph
             + title (which ARE flipped) glide on top. */}
         <div
+          ref={reqHeaderRef}
           className={headerClass}
           // Header height SNAPS to its target (no CSS transition): GSAP Flip owns
           // the glyph/title motion during a morph, and the divider slides via its
@@ -844,6 +934,7 @@ export function EntityNode({
           <span
             data-flip-id={`${flip}-glyph`}
             data-flip-role="inner"
+            data-req-flip="glyph"
             // Color-only CSS transition (independent of Flip's transform/fontSize
             // tween) so the glyph's ink fades smoothly to/from the dimmed ancestor
             // grey instead of jumping. Only on windows; rows stay snappy.
@@ -877,6 +968,8 @@ export function EntityNode({
                 : !ancestorHeader && variant === "dock"
                   ? "h-[18px] w-[18px]"
                   : "h-4 w-4",
+              // Sent-as-request reflow: hop the glyph to the row's right edge.
+              rowReq && (sent ? REQ_SENT.glyph : REQ_REST.glyph),
             )}
           >
             {isResource ? (
@@ -902,6 +995,7 @@ export function EntityNode({
           <h3
             data-flip-id={`${flip}-title`}
             data-flip-role="inner"
+            data-req-flip="title"
             style={{
               fontSize: titleSize,
               // FIXED line-box height (px), constant across every title state.
@@ -989,11 +1083,15 @@ export function EntityNode({
                     // (the "title jumps to the middle of the row" glitch) and let it drift
                     // as the width shrank. Hugging the content makes the captured box ≈ the
                     // text, so the title simply SLIDES from its row slot to the window slot.
-                    // `mr-auto` absorbs the free space the old `flex-1` used to occupy, so
-                    // trailing meta (counts / time / due) still sits flush right; `max-w-full
-                    // truncate` preserves ellipsis for long names.
-                    "min-w-0 max-w-full truncate mr-auto font-medium",
+                    // The `mr-auto` that absorbs the free space (so trailing meta sits
+                    // flush right) is applied via the request tokens below — REQ_REST keeps
+                    // it for normal rows, REQ_SENT drops it and right-aligns when sent.
+                    // `max-w-full truncate` preserves ellipsis for long names.
+                    "min-w-0 max-w-full truncate font-medium",
               !asWindow && (isTask && done ? "text-muted-foreground/60 line-through" : cancelled ? "line-through" : ""),
+              // Sent-as-request reflow: right-align the title against the moved glyph
+              // (sent) or keep the normal left layout with mr-auto spacer (rest).
+              rowReq && (sent ? REQ_SENT.title : REQ_REST.title),
             )}
           >
             {/* SPINE rotation lives on this INNER span, NOT the <h3>. The <h3> is a
@@ -1036,9 +1134,16 @@ export function EntityNode({
           </h3>
 
           {/* Collapsed trailing meta — counts / time / due / priority. Hidden in
-              every window/spine/closing state so the header reads cleanly. */}
+              every window/spine/closing state so the header reads cleanly. Wrapped in
+              a single flex box (`data-req-flip="meta"`) so it moves as ONE Flip target
+              during the sent-as-request reflow — where it hops to the row's far LEFT
+              (REQ_SENT) instead of sitting flush right (REQ_REST). gap-2 mirrors the
+              header's own gap so the items keep their spacing inside the wrapper. */}
           {!asWindow && !isClosing && variant === "row" && (
-            <>
+            <div
+              data-req-flip="meta"
+              className={cn("flex shrink-0 items-center gap-2", sent ? REQ_SENT.meta : REQ_REST.meta)}
+            >
               {!isTask && openCount > 0 && (
                 <span className="flex shrink-0 items-center gap-1 text-[11px] text-muted-foreground/70">
                   <span className="font-medium tabular-nums">{openCount}</span>
@@ -1065,7 +1170,7 @@ export function EntityNode({
               {isTask && (
                 <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", priorityDot[entity.priority ?? "medium"])} />
               )}
-            </>
+            </div>
           )}
 
           {/* Collapsed dock-card open-task counter — centered in the column flow,
