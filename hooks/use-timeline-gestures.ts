@@ -68,19 +68,21 @@ const ZOOM_K = 0.0022
 // This reads markedly silkier than exponential decay (which starts at full speed),
 // for the price of one velocity float per dimension and a couple of multiplies/frame.
   // OMEGA is the angular frequency (rad/s): higher = snappier, lower = more languid.
-  // Settle time ≈ 6/(ζ·OMEGA). Dropped to 6 for HEAVY inertia — the zoom carries
+  // Settle time ≈ 6/(ζ·OMEGA). Kept low (6) for HEAVY inertia — the zoom carries
   // momentum and keeps gliding well after each notch instead of arriving quickly, so
-  // mouse-wheel notches accumulate into one long, continuous, elastic glide (paired
-  // with the ζ=0.38 overshoot below). This is the playful, weighted feel to show off.
+  // mouse-wheel notches accumulate into one long, continuous, elastic glide. This is
+  // the playful, weighted feel to show off.
   const OMEGA = 6
 // ZETA is the damping ratio. 1 = critically damped (no overshoot). We run it UNDER 1
 // so the zoom carries real spring elasticity — it overshoots the target span by a few
 // percent and eases back for a lively, bouncy settle. This is safe now that start is
 // cursor-anchored (see anchorRef): even though the SPAN overshoots, the cursor time
 // stays pinned every frame, so the elasticity reads as a lively scale bounce with zero
-// horizontal slide. 0.55 ≈ ~12% overshoot that corrects in a SINGLE rebound — one clean
-// bounce, no train of 2–3 oscillations. The low OMEGA still gives it weighty inertia.
-const ZETA = 0.55
+// horizontal slide. 0.7 ≈ ~5% overshoot — ONE clean visible bounce then rest (the
+// second oscillation is <0.3%, imperceptible), so there's no train of bounces. The low
+// OMEGA still gives it weighty inertia, which is where most of the "elastic" feel comes
+// from; damping just controls how many times it crosses the target.
+const ZETA = 0.7
 // Clamp dt so a tab regaining focus (huge dt) can't teleport the view in one step.
 const MAX_DT = 1 / 30
 // Settle thresholds: stop the loop once position AND velocity are negligible.
