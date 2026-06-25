@@ -58,9 +58,9 @@ interface Options {
 }
 
 // Wheel sensitivity (per normalized pixel of deltaY). The ease loop glides between
-// notches, so each notch can be gentle — but trackpads emit small deltas, so this is
-// turned up to keep pinch/scroll zooming from feeling laborious.
-const ZOOM_K = 0.0018
+// notches, so each notch injects a punch of momentum that the spring carries; turned
+// up so a single scroll flick travels a satisfying distance and feeds the bounce.
+const ZOOM_K = 0.0022
 // The committed view chases the target with a CRITICALLY-DAMPED SPRING rather than
 // plain exponential smoothing. A spring has inertia: it eases *in* (velocity ramps
 // from zero) as well as out, and — because velocity carries across wheel notches —
@@ -68,18 +68,19 @@ const ZOOM_K = 0.0018
 // This reads markedly silkier than exponential decay (which starts at full speed),
 // for the price of one velocity float per dimension and a couple of multiplies/frame.
   // OMEGA is the angular frequency (rad/s): higher = snappier, lower = more languid.
-  // Settle time ≈ 6/(ζ·OMEGA). Lowered to 7 for more INERTIA — the zoom carries
+  // Settle time ≈ 6/(ζ·OMEGA). Dropped to 6 for HEAVY inertia — the zoom carries
   // momentum and keeps gliding well after each notch instead of arriving quickly, so
-  // mouse-wheel notches accumulate into one continuous, elastic glide (paired with the
-  // ζ=0.5 overshoot below). This is the heavier, more "weighted" feel that worked.
-  const OMEGA = 7
+  // mouse-wheel notches accumulate into one long, continuous, elastic glide (paired
+  // with the ζ=0.38 overshoot below). This is the playful, weighted feel to show off.
+  const OMEGA = 6
 // ZETA is the damping ratio. 1 = critically damped (no overshoot). We run it UNDER 1
 // so the zoom carries real spring elasticity — it overshoots the target span by a few
 // percent and eases back for a lively, bouncy settle. This is safe now that start is
 // cursor-anchored (see anchorRef): even though the SPAN overshoots, the cursor time
-// stays pinned every frame, so the elasticity reads as a tasteful scale bounce with
-// zero horizontal slide. 0.5 ≈ ~16% overshoot — clearly springy, still controlled.
-const ZETA = 0.5
+// stays pinned every frame, so the elasticity reads as a pronounced scale bounce with
+// zero horizontal slide. 0.38 ≈ ~28% overshoot with a faint second rebound — bouncy
+// and fun to play with, while the cursor anchor keeps it from ever feeling unstable.
+const ZETA = 0.38
 // Clamp dt so a tab regaining focus (huge dt) can't teleport the view in one step.
 const MAX_DT = 1 / 30
 // Settle thresholds: stop the loop once position AND velocity are negligible.
