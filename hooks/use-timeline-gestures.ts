@@ -69,12 +69,13 @@ const ZOOM_K = 0.0009
 // OMEGA is the angular frequency (rad/s): higher = snappier, lower = more languid.
 // Settle time ≈ 6/(ζ·OMEGA), so 13 ≈ ~0.5 s glide at the damping below.
 const OMEGA = 13
-// ZETA is the damping ratio. 1 = critically damped (no overshoot). We run it a touch
-// UNDER 1 so the zoom settles with a subtle spring life rather than a flat stop, but
-// kept gentle (0.85 ≈ ~1% overshoot) so it never feels like it over-corrects. The
-// cursor-anchored start (see anchorRef) keeps even this tiny span overshoot pinned
-// under the pointer — no horizontal slide.
-const ZETA = 0.85
+// ZETA is the damping ratio. 1 = critically damped (no overshoot). We run it UNDER 1
+// so the zoom carries real spring elasticity — it overshoots the target span by a few
+// percent and eases back for a lively, bouncy settle. This is safe now that start is
+// cursor-anchored (see anchorRef): even though the SPAN overshoots, the cursor time
+// stays pinned every frame, so the elasticity reads as a tasteful scale bounce with
+// zero horizontal slide. 0.7 ≈ ~5% overshoot.
+const ZETA = 0.7
 // Clamp dt so a tab regaining focus (huge dt) can't teleport the view in one step.
 const MAX_DT = 1 / 30
 // Settle thresholds: stop the loop once position AND velocity are negligible.

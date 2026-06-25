@@ -494,21 +494,29 @@ export function TimelineStrip({
   }, [clusters, startMs, spanMs, width])
 
   // --- Animated view transitions (selector presets, "Now" jump) ------------
-  // Animate a 0→1 driver and interpolate startMs LINEARLY and spanMs
-  // GEOMETRICALLY (so zoom reads evenly across orders of magnitude).
-  const animateTo = (targetStart: number, targetSpan: number) => {
+  // Animate a 0→1 driver, interpolating spanMs GEOMETRICALLY (so zoom reads evenly
+  // across orders of magnitude). For the start we support two modes:
+  //   • default: lerp startMs linearly.
+  //   • anchored (anchorMs given): hold that instant's SCREEN FRACTION on a linear
+  //     path from where it sits now → where it sits at the target. This keeps an
+  //     already-visible anchor (e.g. "now") gliding smoothly into place instead of
+  //     swinging in from an edge — the same pinning trick the cursor zoom uses, since
+  //     a linear start + geometric span otherwise desyncs a fixed timestamp's path.
+  const animateTo = (targetStart: number, targetSpan: number, anchorMs?: number) => {
     animRef.current?.stop()
     const s0 = startMs
     const sp0 = spanMs
     const spT = clampSpan(targetSpan)
+    const anchored = anchorMs != null
+    const f0 = anchored ? (anchorMs - s0) / sp0 : 0
+    const fT = anchored ? (anchorMs - targetStart) / spT : 0
     animRef.current = animate(0, 1, {
       duration: 0.5,
       ease: [0.32, 0.72, 0, 1],
       onUpdate: (t) => {
-        setVp({
-          startMs: s0 + (targetStart - s0) * t,
-          spanMs: sp0 * Math.pow(spT / sp0, t),
-        })
+        const span = sp0 * Math.pow(spT / sp0, t)
+        const start = anchored ? anchorMs - (f0 + (fT - f0) * t) * span : s0 + (targetStart - s0) * t
+        setVp({ startMs: start, spanMs: span })
       },
     })
   }
@@ -522,8 +530,9 @@ export function TimelineStrip({
   // Step one viewport-width earlier / later (chevit arrows).
   const panBy = (dir: -1 | 1) => animateTo(startMs + dir * spanMs * 0.9, spanMs)
 
-  // "Now": frame today at Day zoom, centered on the current moment.
-  const goNow = () => animateTo(now - VIEW_SPAN_MS.D / 2, VIEW_SPAN_MS.D)
+  // "Now": frame today at Day zoom, centered on the current moment. Anchored on `now`
+  // so when it's already on screen it glides smoothly to center instead of flying in.
+  const goNow = () => animateTo(now - VIEW_SPAN_MS.D / 2, VIEW_SPAN_MS.D, now)
 
   const nowVisible = pct(now) >= 0 && pct(now) <= 100
   // The jump-to-now control is shown UNLESS we're already on the canonical home view:
@@ -583,7 +592,7 @@ export function TimelineStrip({
                   t.major
                     ? "font-semibold text-muted-foreground/70"
                     : t.sub
-                      ? "font-normal text-muted-foreground/25" // faint coarse-hour sub labels
+                      ? "font-normal text-muted-foreground/50" // coarse-hour sub labels (lighter than minors)
                       : "font-medium text-muted-foreground/40",
                 )}
                 style={{ left: `${left}%` }}
