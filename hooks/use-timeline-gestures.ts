@@ -67,16 +67,18 @@ const ZOOM_K = 0.0018
 // successive notches build natural momentum, then it settles with no overshoot.
 // This reads markedly silkier than exponential decay (which starts at full speed),
 // for the price of one velocity float per dimension and a couple of multiplies/frame.
-// OMEGA is the angular frequency (rad/s): higher = snappier, lower = more languid.
-// Settle time ≈ 6/(ζ·OMEGA), so 13 ≈ ~0.5 s glide at the damping below.
-const OMEGA = 13
+  // OMEGA is the angular frequency (rad/s): higher = snappier, lower = more languid.
+  // Settle time ≈ 6/(ζ·OMEGA). Lowered to 10 so the post-notch overshoot lingers long
+  // enough to actually READ as a bounce (at 13 it settled too fast to perceive,
+  // especially with discrete mouse-wheel notches that nearly catch up between ticks).
+  const OMEGA = 10
 // ZETA is the damping ratio. 1 = critically damped (no overshoot). We run it UNDER 1
 // so the zoom carries real spring elasticity — it overshoots the target span by a few
 // percent and eases back for a lively, bouncy settle. This is safe now that start is
 // cursor-anchored (see anchorRef): even though the SPAN overshoots, the cursor time
 // stays pinned every frame, so the elasticity reads as a tasteful scale bounce with
-// zero horizontal slide. 0.6 ≈ ~9% overshoot — springy but not wobbly.
-const ZETA = 0.6
+// zero horizontal slide. 0.5 ≈ ~16% overshoot — clearly springy, still controlled.
+const ZETA = 0.5
 // Clamp dt so a tab regaining focus (huge dt) can't teleport the view in one step.
 const MAX_DT = 1 / 30
 // Settle thresholds: stop the loop once position AND velocity are negligible.
