@@ -111,12 +111,31 @@ export const GRAIN_MS: Record<Grain, number> = {
 }
 
 /** Pick the finest grain whose unit is at least ~70px wide at the current zoom,
- *  so individual units are visually distinguishable. This is the LOD pivot. */
+ *  so individual units are visually distinguishable. This is the LOD pivot used by
+ *  the DATA layer (which bucket to aggregate into) and the scrubber precision. */
 export function lodGrain(spanMs: number, width: number): Grain {
   const pxPerMs = Math.max(1, width) / spanMs
   const MIN_UNIT_PX = 70
   for (const g of GRAIN_ORDER) {
     if (GRAIN_MS[g] * pxPerMs >= MIN_UNIT_PX) return g
+  }
+  return "decade"
+}
+
+// The RULER is intentionally finer than the data LOD: we want a densely populated
+// set of graduations (so the scale always feels alive) while keeping LABELS spaced
+// out enough to read. A minor graduation only needs ~32px; a *labeled* tick needs
+// ~52px from its neighbour, so labels are thinned to "nice" steps independently of
+// how many tick marks we draw. This is why hours keep showing far longer than they
+// did when ticks were locked to the 70px data grain.
+const MIN_TICK_PX = 32
+const MIN_LABEL_PX = 52
+
+/** Finest grain whose unit is at least ~32px — the graduation density of the ruler. */
+export function tickGrain(spanMs: number, width: number): Grain {
+  const pxPerMs = Math.max(1, width) / spanMs
+  for (const g of GRAIN_ORDER) {
+    if (GRAIN_MS[g] * pxPerMs >= MIN_TICK_PX) return g
   }
   return "decade"
 }
@@ -131,6 +150,55 @@ export interface Tick {
   ms: number
   label: string
   major: boolean
+  /** Whether to render this tick's text. ALL ticks draw a graduation line, but
+   *  minor labels are thinned to "nice" steps so they never crowd. Majors are
+   *  always labeled. */
+  labeled: boolean
+}
+
+// "Nice" label steps per grain, in counts of that grain's own unit. The thinner
+// picks the SMALLEST step whose pixel spacing clears MIN_LABEL_PX, so labels land
+// on round values (every 2h, 3h, 6h… / every 5 days / every 5 years…).
+const LABEL_STEPS: Record<Grain, number[]> = {
+  hour: [1, 2, 3, 4, 6, 12],
+  day: [1, 2, 5, 10],
+  week: [1, 2, 4],
+  month: [1, 2, 3, 6],
+  quarter: [1, 2, 4],
+  year: [1, 2, 5, 10, 25, 50],
+  decade: [1, 2, 5],
+}
+
+/** Stable integer index of a date in units of `grain`, used for label divisibility.
+ *  Resets at the next-coarser boundary where that boundary is itself a major tick
+ *  (e.g. hours reset each day, days each month) so labels re-anchor to round values. */
+function unitIndex(grain: Grain, d: Date): number {
+  switch (grain) {
+    case "hour":
+      return d.getHours()
+    case "day":
+      return d.getDate() - 1
+    case "week":
+      return Math.floor(d.getTime() / WEEK_MS)
+    case "month":
+      return d.getMonth()
+    case "quarter":
+      return Math.floor(d.getMonth() / 3)
+    case "year":
+      return d.getFullYear()
+    case "decade":
+      return Math.floor(d.getFullYear() / 10)
+  }
+}
+
+/** Pick the smallest nice label step (in grain units) that clears MIN_LABEL_PX. */
+function pickLabelStep(grain: Grain, pxPerMs: number): number {
+  const minorPx = GRAIN_MS[grain] * pxPerMs
+  const steps = LABEL_STEPS[grain]
+  for (const s of steps) {
+    if (s * minorPx >= MIN_LABEL_PX) return s
+  }
+  return steps[steps.length - 1]
 }
 
 interface GrainTickConfig {
@@ -214,8 +282,10 @@ const TICK_CONFIG: Record<Grain, GrainTickConfig> = {
  * ticks reads as major, not doubled).
  */
 export function timelineTicks(startMs: number, spanMs: number, width: number): Tick[] {
-  const grain = lodGrain(spanMs, width)
+  const grain = tickGrain(spanMs, width)
   const cfg = TICK_CONFIG[grain]
+  const pxPerMs = Math.max(1, width) / spanMs
+  const labelStep = pickLabelStep(grain, pxPerMs)
   const lo = new Date(startMs - spanMs * 0.05)
   const hi = new Date(startMs + spanMs * 1.05)
 
@@ -224,12 +294,14 @@ export function timelineTicks(startMs: number, spanMs: number, width: number): T
   for (const d of cfg.major.range(lo, hi)) {
     const ms = d.getTime()
     majorSet.add(ms)
-    out.push({ ms, label: cfg.fmtMajor(d), major: true })
+    out.push({ ms, label: cfg.fmtMajor(d), major: true, labeled: true })
   }
   for (const d of cfg.minor.range(lo, hi)) {
     const ms = d.getTime()
     if (majorSet.has(ms)) continue // already a major tick
-    out.push({ ms, label: cfg.fmtMinor(d), major: false })
+    // Draw every minor graduation, but only label those on a nice step boundary.
+    const labeled = unitIndex(grain, d) % labelStep === 0
+    out.push({ ms, label: cfg.fmtMinor(d), major: false, labeled })
   }
   out.sort((a, b) => a.ms - b.ms)
   return out

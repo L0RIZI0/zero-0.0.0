@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useRef, useState } from "react"
-import { AnimatePresence, motion, animate } from "motion/react"
+import { motion, animate } from "motion/react"
 import { ChevronLeft, ChevronRight, Crosshair, Trash2, Ban, RotateCcw, Repeat } from "lucide-react"
 import {
   getInheritedAccent,
@@ -398,6 +398,7 @@ export function TimelineStrip({
           style={{ marginLeft: VIEWPORT_INSET_LEFT, marginRight: VIEWPORT_INSET_RIGHT }}
         >
           {ticks.map((t) => {
+            if (!t.labeled) return null // unlabeled minors still draw a gridline below
             const left = pct(t.ms)
             if (left < 0 || left > 100) return null
             return (
@@ -415,18 +416,18 @@ export function TimelineStrip({
           })}
         </div>
 
-        {/* Center label + jump-to-now. The label stays centered; the Now control
-            is hung off its edge so appending it never shifts the label. */}
-        <AnimatePresence initial={false}>
-          {(!nowVisible || activeView !== "D") && (
-            <motion.div
-              key="center-controls"
-              initial={{ opacity: 0, y: -4 }}
-              animate={{ opacity: 1, y: stage === 0 ? -5 : stage === 1 ? 1.5 : 18 }}
-              exit={{ opacity: 0, y: -4 }}
-              transition={panelTransition}
-              className="pointer-events-none absolute inset-x-0 top-0 bottom-3.5 flex items-center justify-center"
-            >
+        {/* Center label + jump-to-now. The date label is ALWAYS shown (so it never
+            jarringly vanishes when you land on today at Day zoom); only the jump
+            control toggles, and it does so consistently on a single rule: visible
+            whenever "now" is off-screen, at any zoom. The Now control is hung off
+            the label's edge so appending it never shifts the label. */}
+        <motion.div
+          key="center-controls"
+          initial={{ opacity: 0, y: -4 }}
+          animate={{ opacity: 1, y: stage === 0 ? -5 : stage === 1 ? 1.5 : 18 }}
+          transition={panelTransition}
+          className="pointer-events-none absolute inset-x-0 top-0 bottom-3.5 flex items-center justify-center"
+        >
               <div className="pointer-events-auto inline-flex items-center gap-1 rounded bg-background px-2 py-0.5">
                 <span className="whitespace-nowrap text-[11px] font-medium tracking-tight text-foreground">
                   {centerLabel}
@@ -451,9 +452,7 @@ export function TimelineStrip({
                   </button>
                 )}
               </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
+        </motion.div>
       </div>
 
       {/* Full-bleed timeline. Arrows flank the track; the zoom selector pins left. */}
@@ -634,7 +633,8 @@ export function TimelineStrip({
                   key={`g-${t.ms}-${t.major ? "M" : "m"}`}
                   className={cn(
                     "pointer-events-none absolute bottom-0 top-0 w-px",
-                    t.major ? "bg-border/40" : "bg-border/15",
+                    // three tiers: context lines > labeled graduations > bare graduations
+                    t.major ? "bg-border/40" : t.labeled ? "bg-border/20" : "bg-border/[0.08]",
                   )}
                   style={{ left: `${left}%` }}
                 />
