@@ -237,7 +237,14 @@ export function NodeGlyph({
   }, [request])
 
   return (
-    <svg viewBox="0 0 24 24" className={cn("h-full w-full", className)} aria-hidden="true">
+    // overflow visible so the "sent" edge can sit just below the square's bottom
+    // edge without the root SVG's default `overflow:hidden` clipping it. Every kind
+    // silhouette stays inside the 24-box, so only the request edge uses it.
+    <svg
+      viewBox="0 0 24 24"
+      className={cn("h-full w-full overflow-visible", className)}
+      aria-hidden="true"
+    >
       <polygon
         ref={polyRef}
         points={ptsToString(dispRef.current)}
