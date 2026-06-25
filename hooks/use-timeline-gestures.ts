@@ -45,6 +45,12 @@ interface Options {
   /** Clamp bounds for the span. */
   minSpan: number
   maxSpan: number
+  /** Re-bind the wheel listener once this flips true. The strip swaps a
+   *  pre-hydration PLACEHOLDER (which transiently carries `viewportRef`) for the
+   *  REAL viewport element after mount; since `viewportRef`/bounds are otherwise
+   *  stable, this flag is what re-runs the bind effect so the listener lands on
+   *  the live element instead of the discarded placeholder. */
+  enabled?: boolean
   /** Called when a gesture starts / ends (drives the strip's "moving" flag, and
    *  lets it stop any running tween). */
   onGestureStart?: () => void
@@ -119,6 +125,7 @@ export function useTimelineGestures({
   onChange,
   minSpan,
   maxSpan,
+  enabled = true,
   onGestureStart,
   onGestureEnd,
 }: Options) {
@@ -265,9 +272,11 @@ export function useTimelineGestures({
       currentRef.current = null
       targetRef.current = null
     }
-    // viewportRef is stable; bounds rarely change. Re-bind only if they do.
+    // `enabled` is included so the listener re-binds when the real viewport
+    // replaces the pre-hydration placeholder. viewportRef is stable; bounds rarely
+    // change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [viewportRef, minSpan, maxSpan])
+  }, [viewportRef, minSpan, maxSpan, enabled])
 
   // --- Drag-to-pan: returned handler for the empty-track surface -----------
   // Stays 1:1 with the pointer (no easing) — interrupts any running ease loop.

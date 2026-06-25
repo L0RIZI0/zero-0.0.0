@@ -7,6 +7,7 @@ import {
   getInheritedAccent,
   isInSubtree,
   getEntity,
+  entities,
   type TimelineOccurrence,
   deleteEntity,
   setEventCancelled,
@@ -140,35 +141,45 @@ export interface Ribbon {
   laneCount: number // how many sub-lanes it spans
 }
 
+/** Lexicographic compare of two numeric "tree path" keys (shorter-prefix first). */
+function compareKey(a: number[], b: number[]): number {
+  const n = Math.min(a.length, b.length)
+  for (let i = 0; i < n; i++) {
+    if (a[i] !== b[i]) return a[i] - b[i]
+  }
+  return a.length - b.length
+}
+
 /** SPACE-GROUPED ribbon packing (the time.graphics "folder" model). Bars are
  *  grouped by their containing space; each group becomes a horizontal RIBBON that
  *  occupies a contiguous block of global lanes. Within a ribbon, overlapping items
- *  still stack into sub-lanes (via `packGroup`). Ribbons are ordered by earliest
- *  member so the timeline reads top-to-bottom by first appearance. */
+ *  still stack into sub-lanes (via `packGroup`). Ribbons are ordered by the SPACE
+ *  TREE (depth-first, via `orderKey`) so a parent space and all its descendant
+ *  spaces stay contiguous in the stack — e.g. Zero, then Product and Deck right
+ *  below it — rather than scattering by earliest event time. */
 function packRibbons(
   bars: Bar[],
   rightEdge: (b: Bar) => number,
   groupOf: (b: Bar) => string,
   spaceMeta: (spaceId: string) => { title: string; color: string },
+  orderKey: (spaceId: string) => number[],
 ): { lane: Map<string, number>; count: number; ribbons: Ribbon[] } {
-  // Bucket bars by space, tracking each group's earliest start for ordering.
-  const groups = new Map<string, { bars: Bar[]; minFrom: number }>()
+  // Bucket bars by their containing space.
+  const groups = new Map<string, Bar[]>()
   for (const b of bars) {
     const g = groupOf(b)
     const entry = groups.get(g)
-    if (entry) {
-      entry.bars.push(b)
-      entry.minFrom = Math.min(entry.minFrom, b.from)
-    } else {
-      groups.set(g, { bars: [b], minFrom: b.from })
-    }
+    if (entry) entry.push(b)
+    else groups.set(g, [b])
   }
-  const ordered = [...groups.entries()].sort((a, b) => a[1].minFrom - b[1].minFrom)
+  // Order ribbons by their space's depth-first position in the tree.
+  const ordered = [...groups.keys()].sort((a, b) => compareKey(orderKey(a), orderKey(b)))
 
   const lane = new Map<string, number>()
   const ribbons: Ribbon[] = []
   let baseLane = 0
-  for (const [spaceId, { bars: groupBars }] of ordered) {
+  for (const spaceId of ordered) {
+    const groupBars = groups.get(spaceId)!
     const { subLane, count } = packGroup(groupBars, rightEdge)
     for (const b of groupBars) lane.set(b.key, baseLane + (subLane.get(b.key) ?? 0))
     const meta = spaceMeta(spaceId)
@@ -289,6 +300,8 @@ export function TimelineStrip({
     },
     minSpan: MIN_SPAN_MS,
     maxSpan: MAX_SPAN_MS,
+    // Re-bind the wheel listener once the real viewport replaces the placeholder.
+    enabled: mounted,
     onGestureStart: () => {
       animRef.current?.stop()
     },
@@ -410,10 +423,30 @@ export function TimelineStrip({
     title: getEntity(spaceId)?.title ?? "Timeline",
     color: getInheritedAccent(spaceId) ?? NEUTRAL_MARKER,
   })
+  // Declaration-order index of every entity, used as the per-level tiebreak so the
+  // tree ordering follows how spaces are authored (siblings in declared order).
+  const declIndex = useMemo(() => {
+    const m = new Map<string, number>()
+    entities.forEach((e, i) => m.set(e.id, i))
+    return m
+  }, [])
+  // Tree-path key for a space: the chain of declaration indices from root down to
+  // the space. Sorting ribbons by this (lexicographically) yields a depth-first
+  // pre-order, keeping a parent space and its descendants contiguous.
+  const orderKey = (spaceId: string): number[] => {
+    const path: number[] = []
+    let id: string | null | undefined = spaceId
+    let guard = 0
+    while (id && guard++ < 32) {
+      path.push(declIndex.get(id) ?? 0)
+      id = getEntity(id)?.parentId
+    }
+    return path.reverse()
+  }
   const lanes = useMemo(
-    () => packRibbons(bars, barRightEdge, groupOf, spaceMeta),
+    () => packRibbons(bars, barRightEdge, groupOf, spaceMeta, orderKey),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [bars, barRightEdge, contextId, rootId],
+    [bars, barRightEdge, contextId, rootId, declIndex],
   )
   // Show ribbon labels/backgrounds only when there's more than one space in view —
   // a single group keeps the clean centered lifeline with no extra chrome.
@@ -583,15 +616,14 @@ export function TimelineStrip({
 
       {/* Full-bleed timeline. Arrows flank the track; the zoom selector pins left.
           The track height is dynamic: it grows to fit stacked overlapping lanes. The
-          height is animated with an UNDERDAMPED spring so the focus region below
-          settles with a wavy ripple rather than a flat ease (item 4). This animates a
-          layout property, but only fires on discrete lane-count changes — never during
-          the zoom glide — so it doesn't affect zoom/pan smoothness. */}
+          height eases with a short, soft ease-out (NO overshoot/ripple) so the focus
+          region below lands quickly and gently. Only fires on discrete lane-count
+          changes — never during the zoom glide — so it can't affect zoom smoothness. */}
       <motion.div
         className="relative -mx-6"
         initial={false}
         animate={{ height: trackH }}
-        transition={{ type: "spring", stiffness: 280, damping: 16, mass: 1 }}
+        transition={{ duration: 0.26, ease: [0.22, 1, 0.36, 1] }}
       >
         {/* Instant layer — pins (singletons) and density bubbles (clusters). */}
         <div
@@ -824,12 +856,15 @@ export function TimelineStrip({
                       borderLeft: `2px solid ${r.color}66`,
                     }}
                   >
-                    {/* sticky left label — pinned, does not pan with the lifeline */}
+                    {/* sticky left label — pinned, does not pan with the lifeline.
+                        Solid opaque chip (no backdrop-blur): the blur is imperceptible
+                        over the near-black timeline and is the costly GPU effect, so a
+                        crisp opaque tag is both cheaper and far more legible. */}
                     <button
                       type="button"
                       onClick={() => r.spaceId !== "s_root" && open(r.spaceId)}
                       title={r.title}
-                      className="pointer-events-auto absolute left-1 top-1/2 flex max-w-[40%] -translate-y-1/2 items-center gap-1 rounded bg-card/85 px-1 py-0.5 text-[9.5px] font-medium leading-none tracking-tight text-foreground/75 backdrop-blur-sm transition-colors hover:text-foreground"
+                      className="pointer-events-auto absolute left-1 top-1/2 flex max-w-[42%] -translate-y-1/2 items-center gap-1 rounded border border-border/70 bg-card px-1.5 py-0.5 text-[9.5px] font-medium leading-none tracking-tight text-foreground/80 shadow-sm transition-colors hover:text-foreground"
                     >
                       <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: r.color }} aria-hidden />
                       <span className="truncate">{r.title}</span>
