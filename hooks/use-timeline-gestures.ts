@@ -54,18 +54,33 @@ interface Options {
 // Wheel sensitivity (per normalized pixel of deltaY). Lower than before because
 // the ease loop now glides between notches, so each notch can be gentler.
 const ZOOM_K = 0.0009
-// Smoothing TIME CONSTANT (seconds), not a per-frame fraction. Each frame we move
-// the committed view toward the target by `1 - exp(-dt / TAU)`, which is the
-// frame-rate-INDEPENDENT form of exponential smoothing: the glide takes the same
-// wall-clock time whether the display is 60, 120, or 144 Hz (a fixed per-frame
-// fraction would settle ~2.4× faster on a 144 Hz panel and lurch on a slow one).
-// ~0.13 s reads as a luxurious-but-responsive slide; raise it for a longer glide.
-const TAU = 0.13
+// The committed view chases the target with a CRITICALLY-DAMPED SPRING rather than
+// plain exponential smoothing. A spring has inertia: it eases *in* (velocity ramps
+// from zero) as well as out, and — because velocity carries across wheel notches —
+// successive notches build natural momentum, then it settles with no overshoot.
+// This reads markedly silkier than exponential decay (which starts at full speed),
+// for the price of one velocity float per dimension and a couple of multiplies/frame.
+// OMEGA is the angular frequency (rad/s): higher = snappier, lower = more languid.
+// Critically-damped settle time ≈ 6/OMEGA, so 13 ≈ ~0.45 s glide.
+const OMEGA = 13
 // Clamp dt so a tab regaining focus (huge dt) can't teleport the view in one step.
 const MAX_DT = 1 / 30
-// Settle thresholds: stop the loop once we're within these of the target.
-const SPAN_EPS = 1e-3 // in log-ratio
-const START_EPS = 1e-4 // as a fraction of span
+// Settle thresholds: stop the loop once position AND velocity are negligible.
+const SPAN_EPS = 1e-3 // log-ratio position
+const START_EPS = 1e-4 // start position, as a fraction of span
+const VEL_EPS = 1e-3 // velocity, relative (1/s) — keeps the spring from idling
+
+/** Analytic one-step solver for a critically-damped spring (no overshoot).
+ *  Returns the new position and velocity after `dt` seconds chasing `target`.
+ *  y(t) = (A + B·t)·e^(−ω·t), with A = x−target, B = v + ω·A. */
+function springStep(x: number, v: number, target: number, omega: number, dt: number) {
+  const a = x - target
+  const b = v + omega * a
+  const e = Math.exp(-omega * dt)
+  const pos = target + (a + b * dt) * e
+  const vel = (b - omega * (a + b * dt)) * e
+  return { pos, vel }
+}
 
 /** Normalize a wheel delta to pixels regardless of the device's deltaMode
  *  (0 = pixel, 1 = line, 2 = page). Windows mice often report lines. */
@@ -111,6 +126,12 @@ export function useTimelineGestures({
   const rafRef = useRef<number | null>(null)
   // Timestamp of the previous ease frame, for frame-rate-independent smoothing.
   const lastTRef = useRef<number | null>(null)
+  // Spring velocities, one per dimension: zoom runs in LOG-span space (so velocity
+  // is geometric, matching how zoom feels) and pan in start-ms space. Carried across
+  // frames AND across notches to build momentum; zeroed only when a gesture begins
+  // fresh or the loop ends.
+  const velLogRef = useRef(0)
+  const velStartRef = useRef(0)
 
   const clampSpan = (s: number) => Math.min(maxSpan, Math.max(minSpan, s))
 
@@ -133,13 +154,22 @@ export function useTimelineGestures({
       lastTRef.current = ts
       // First frame of a loop has no prior timestamp — use a nominal 60 Hz step.
       const dt = last == null ? 1 / 60 : Math.min(MAX_DT, (ts - last) / 1000)
-      const a = 1 - Math.exp(-dt / TAU) // frame-rate-independent smoothing factor
 
-      let nextSpan = cur.spanMs * Math.pow(tgt.spanMs / cur.spanMs, a)
-      let nextStart = cur.startMs + (tgt.startMs - cur.startMs) * a
+      // Advance each dimension's critically-damped spring by the real elapsed time.
+      const logStep = springStep(Math.log(cur.spanMs), velLogRef.current, Math.log(tgt.spanMs), OMEGA, dt)
+      const startStep = springStep(cur.startMs, velStartRef.current, tgt.startMs, OMEGA, dt)
+      velLogRef.current = logStep.vel
+      velStartRef.current = startStep.vel
+      let nextSpan = Math.exp(logStep.pos)
+      let nextStart = startStep.pos
 
-      const spanSettled = Math.abs(Math.log(tgt.spanMs / nextSpan)) < SPAN_EPS
-      const startSettled = Math.abs(tgt.startMs - nextStart) < tgt.spanMs * START_EPS
+      // Settle once BOTH position and velocity are negligible in each dimension —
+      // velocity matters too, else the spring could coast past its eps and idle.
+      const spanSettled =
+        Math.abs(Math.log(tgt.spanMs / nextSpan)) < SPAN_EPS && Math.abs(velLogRef.current) < VEL_EPS
+      const startSettled =
+        Math.abs(tgt.startMs - nextStart) < tgt.spanMs * START_EPS &&
+        Math.abs(velStartRef.current) < tgt.spanMs * VEL_EPS
       if (spanSettled && startSettled) {
         // Snap exactly onto target and end the gesture.
         nextSpan = tgt.spanMs
@@ -151,6 +181,8 @@ export function useTimelineGestures({
         targetRef.current = null
         rafRef.current = null
         lastTRef.current = null
+        velLogRef.current = 0
+        velStartRef.current = 0
         endCbRef.current?.()
         return
       }
@@ -172,8 +204,12 @@ export function useTimelineGestures({
       const rect = el.getBoundingClientRect()
       const width = rect.width || 1
       // Seed gesture state from the live prop the first time, so we glide from
-      // exactly where the view currently is.
-      if (!currentRef.current) currentRef.current = viewRef.current
+      // exactly where the view currently is — and start the spring at rest.
+      if (!currentRef.current) {
+        currentRef.current = viewRef.current
+        velLogRef.current = 0
+        velStartRef.current = 0
+      }
       const base = targetRef.current ?? currentRef.current
       startCbRef.current?.()
 
@@ -205,6 +241,8 @@ export function useTimelineGestures({
       if (rafRef.current != null) cancelAnimationFrame(rafRef.current)
       rafRef.current = null
       lastTRef.current = null
+      velLogRef.current = 0
+      velStartRef.current = 0
       currentRef.current = null
       targetRef.current = null
     }
@@ -222,6 +260,8 @@ export function useTimelineGestures({
       cancelAnimationFrame(rafRef.current)
       rafRef.current = null
       lastTRef.current = null
+      velLogRef.current = 0
+      velStartRef.current = 0
     }
     targetRef.current = null
     const startX = e.clientX
