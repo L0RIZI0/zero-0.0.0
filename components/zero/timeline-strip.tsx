@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react"
 import { motion, animate } from "motion/react"
-import { ChevronLeft, ChevronRight, ChevronDown, Crosshair, Trash2, Ban, RotateCcw, Repeat, Eye, EyeOff } from "lucide-react"
+import { ChevronLeft, ChevronRight, Crosshair, Trash2, Ban, RotateCcw, Repeat, Eye, EyeOff } from "lucide-react"
 import {
   getInheritedAccent,
   isInSubtree,
@@ -89,6 +89,7 @@ const MAX_STACK_LANES = 18
 // as faint minimal markers. Entering a space auto-collapses the OTHER mothers.
 const RAIL_H = 7 // height of a collapsed mother's reopen rail
 const MOTHER_GAP = 6 // vertical gap between mother blocks (rails or lane stacks)
+const MOTHER_COL_W = 20 // width of the left column holding an EXPANDED mother's vertical title
 
 /** A contiguous block of lanes sharing one top-level ancestor. `motherId === null`
  *  means the lanes live directly at root (no mother ribbon — left ungrouped). */
@@ -564,9 +565,6 @@ export function TimelineStrip({
   const blockOfLane = (lane: number) =>
     layout.blocks.find((b) => lane >= b.m.baseLane && lane < b.m.baseLane + b.m.laneCount)
   const toggleMother = (id: string, collapsed: boolean) => setOverride((o) => ({ ...o, [id]: !collapsed }))
-  // Y of every VISIBLE lane (relative to laneToY origin), ascending — fallen chips
-  // from collapsed mothers spread across these so they land ON the displayed lanes.
-  const visibleLaneYs = useMemo(() => [...layout.laneToY.values()].sort((a, b) => a - b), [layout])
 
   // Vertical stacking so cluster/pin LEFT-side labels don't collide. Footprint is
   // [x - estLabelWidth, x] in px; greedy interval packing by left edge.
@@ -1186,48 +1184,42 @@ export function TimelineStrip({
               )
             })}
 
-            {/* FALLEN MINIMAL CHIPS — a collapsed mother's events don't vanish; they
-                drop onto the still-visible lanes as faint minimal markers (a vertical
-                color edge + thin duration line), spread across those lanes by index.
-                Shown by default; hidden per-mother via the eye toggle (`chipsHidden`),
-                and brightened with their title revealed while the mother's rail is
-                hovered. Clicking one opens that entity directly. */}
+            {/* RAIL HIGHLIGHTS — a collapsed mother's events don't vanish; instead of
+                falling onto the visible lanes, each event is painted AS a bright tick
+                directly ON that mother's thin rail, at its own time position. The rail
+                becomes a compressed one-line preview of the folded mother. Shown by
+                default; hidden per-mother via the eye toggle (`chipsHidden`) and
+                brightened while the mother's rail is hovered (`hoveredMother`).
+                pointer-events-none so a click anywhere on the rail still expands it. */}
             {showRibbons &&
               layout.blocks.flatMap((blk) => {
                 const mId = blk.m.motherId
                 if (!blk.collapsed || !mId || chipsHidden[mId]) return []
                 const hi = hoveredMother === mId
+                const railY = offsetY + blk.top
                 const motherBars = bars.filter((b) => blockOfLane(lanes.lane.get(b.key) ?? 0)?.m.motherId === mId)
                 return motherBars
-                  .map((b, i) => {
+                  .map((b) => {
                     const left = pct(b.from)
                     const widthPct = ((b.to - b.from) / spanMs) * 100
                     if (left > 100 || left + widthPct < 0) return null
                     const color = b.color || NEUTRAL_MARKER
-                    const y = visibleLaneYs.length ? visibleLaneYs[i % visibleLaneYs.length] : contentH / 2 - LANE_H / 2
                     return (
-                      <button
-                        key={`fallen:${b.key}`}
-                        type="button"
-                        onClick={() => b.entity && openFromChip(b.entity.id)}
-                        onContextMenu={(ev) => b.entity && openMenu(ev, b.entity)}
+                      <div
+                        key={`railtick:${b.key}`}
+                        className="pointer-events-none absolute z-10 rounded-full transition-[opacity] duration-150"
                         title={b.title}
-                        className="absolute z-10 flex h-6 items-end overflow-visible transition-[opacity] duration-150"
                         style={{
                           left: `calc(${left}% + 2px)`,
-                          width: `calc(${Math.max(widthPct, 0.8)}% - 4px)`,
-                          top: offsetY + y,
-                          opacity: hi ? 0.95 : UNRELATED_OPACITY,
+                          width: `calc(${Math.max(widthPct, 0.6)}% - 2px)`,
+                          minWidth: 3,
+                          top: railY + 1,
+                          height: RAIL_H - 2,
+                          backgroundColor: color,
+                          opacity: hi ? 1 : 0.85,
+                          boxShadow: hi ? `0 0 6px ${color}` : undefined,
                         }}
-                      >
-                        <span className="absolute bottom-0 left-0 h-4 w-[2px] rounded-full" style={{ backgroundColor: color }} aria-hidden />
-                        <span className="absolute inset-x-0 bottom-0 h-[2px] rounded-full" style={{ backgroundColor: color, opacity: 0.6 }} aria-hidden />
-                        {hi && (
-                          <span className="pointer-events-none absolute bottom-1.5 left-1.5 whitespace-nowrap text-[10px] leading-none tracking-tight text-foreground/80">
-                            {b.title}
-                          </span>
-                        )}
-                      </button>
+                      />
                     )
                   })
                   .filter(Boolean)
@@ -1243,38 +1235,21 @@ export function TimelineStrip({
                 const blk = blockOfLane(r.baseLane)
                 if (blk?.collapsed) return null // folded — its mother rail-label is drawn below
                 const mId = blk?.m.motherId ?? null
-                const isLead = mId != null && r.spaceId === mId
                 const bandTop = laneTop(r.baseLane) - 3
                 const bandH = r.laneCount * LANE_H + (r.laneCount - 1) * LANE_GAP + 6
                 const related = atRootFocus || r.spaceId === contextId || isInSubtree(contextId, r.spaceId)
                 const top = bandTop + bandH / 2
-                // The MOTHER's lead ribbon: its label is the FOLD control (clicking the
-                // title collapses the whole mother). Sub-space labels keep opening their
-                // space. A chevron marks the foldable mother title.
-                if (isLead && mId) {
-                  return (
-                    <button
-                      key={`ribbon-label:${r.spaceId}`}
-                      type="button"
-                      onClick={() => toggleMother(mId, false)}
-                      title={`Collapse ${r.title}`}
-                      className="absolute z-20 flex max-w-[42%] items-center gap-1 rounded border border-border/70 bg-card px-1.5 py-0.5 text-[9.5px] font-medium leading-none tracking-tight text-foreground/80 shadow-sm transition-[opacity,colors,top] duration-300 ease-out hover:text-foreground"
-                      style={{ left: 4, top, transform: "translateY(-50%)", opacity: related ? 1 : UNRELATED_OPACITY }}
-                    >
-                      <ChevronDown className="h-2.5 w-2.5 shrink-0 opacity-60" aria-hidden />
-                      <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: r.color }} aria-hidden />
-                      <span className="truncate">{r.title}</span>
-                    </button>
-                  )
-                }
+                // Lanes always just OPEN their space now — the fold control lives in the
+                // rotated mother column to the left (rendered in the pass below). Lanes
+                // inside a mother group shift right by MOTHER_COL_W to clear that column.
                 return (
                   <button
                     key={`ribbon-label:${r.spaceId}`}
                     type="button"
                     onClick={() => r.spaceId !== "s_root" && open(r.spaceId)}
                     title={r.title}
-                    className="absolute z-20 flex max-w-[42%] items-center gap-1 rounded border border-border/70 bg-card px-1.5 py-0.5 text-[9.5px] font-medium leading-none tracking-tight text-foreground/80 shadow-sm transition-[opacity,colors,top] duration-300 ease-out hover:text-foreground"
-                    style={{ left: 4, top, transform: "translateY(-50%)", opacity: related ? 1 : UNRELATED_OPACITY }}
+                    className="absolute z-20 flex max-w-[42%] items-center gap-1 rounded border border-border/70 bg-card px-1.5 py-0.5 text-[9.5px] font-medium leading-none tracking-tight text-foreground/80 shadow-sm transition-[opacity,colors,top,left] duration-300 ease-out hover:text-foreground"
+                    style={{ left: mId ? 4 + MOTHER_COL_W : 4, top, transform: "translateY(-50%)", opacity: related ? 1 : UNRELATED_OPACITY }}
                   >
                     <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: r.color }} aria-hidden />
                     <span className="truncate">{r.title}</span>
@@ -1282,9 +1257,51 @@ export function TimelineStrip({
                 )
               })}
 
+            {/* EXPANDED MOTHER COLUMN — the mother's title rotated 90° anticlockwise in a
+                slim column at the FAR LEFT, vertically centered across all its lanes
+                (e.g. a vertical "Day Job" sitting left of the Admin/Day Job lanes). This
+                IS the fold control: clicking it collapses the mother, dropping it back to
+                the horizontal rail label below. `vertical-rl` + rotate(180deg) makes the
+                text read bottom→top (a true 90° CCW). */}
+            {showRibbons &&
+              layout.blocks.map((blk) => {
+                const mId = blk.m.motherId
+                if (blk.collapsed || !mId) return null
+                const related = atRootFocus || mId === contextId || isInSubtree(contextId, mId)
+                return (
+                  <button
+                    key={`mcol:${mId}`}
+                    type="button"
+                    onClick={() => toggleMother(mId, false)}
+                    title={`Collapse ${blk.m.title}`}
+                    className="absolute z-20 flex flex-col items-center justify-center rounded border border-border/70 bg-card py-0.5 text-[9.5px] font-semibold leading-none tracking-tight shadow-sm transition-[opacity,top,height] duration-300 ease-out hover:brightness-125"
+                    style={{
+                      left: 4,
+                      top: offsetY + blk.top,
+                      height: blk.height,
+                      width: MOTHER_COL_W - 4,
+                      color: blk.m.color,
+                      borderColor: `${blk.m.color}40`,
+                      opacity: related ? 1 : UNRELATED_OPACITY,
+                    }}
+                  >
+                    <span
+                      className="overflow-hidden text-ellipsis whitespace-nowrap"
+                      // Give a readable floor (~46px) so single-lane mothers (e.g. Health,
+                      // whose block is only one LANE_H tall) still show their name, letting
+                      // it overflow gently into the surrounding gaps rather than clipping to
+                      // one letter. Multi-lane blocks clamp to their own height.
+                      style={{ writingMode: "vertical-rl", transform: "rotate(180deg)", maxHeight: Math.max(blk.height - 6, 46) }}
+                    >
+                      {blk.m.title}
+                    </span>
+                  </button>
+                )
+              })}
+
             {/* COLLAPSED MOTHER LABELS — sit on the rail: a fold/expand title (click to
-                reopen) plus an eye toggle to hide/show the fallen minimal chips. Hovering
-                here highlights those chips on the visible lanes. */}
+                reopen) plus an eye toggle to hide/show the rail highlight ticks. Hovering
+                here brightens those ticks on the rail. */}
             {showRibbons &&
               layout.blocks.map((blk) => {
                 const mId = blk.m.motherId
@@ -1311,7 +1328,7 @@ export function TimelineStrip({
                     <button
                       type="button"
                       onClick={() => setChipsHidden((s) => ({ ...s, [mId]: chipsOn }))}
-                      title={chipsOn ? "Hide chips" : "Show chips"}
+                      title={chipsOn ? "Hide events" : "Show events"}
                       aria-pressed={!chipsOn}
                       className="flex items-center justify-center rounded border border-border/70 bg-card p-0.5 text-foreground/60 shadow-sm transition-colors hover:text-foreground"
                     >
