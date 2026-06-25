@@ -61,8 +61,13 @@ const ZOOM_K = 0.0009
 // This reads markedly silkier than exponential decay (which starts at full speed),
 // for the price of one velocity float per dimension and a couple of multiplies/frame.
 // OMEGA is the angular frequency (rad/s): higher = snappier, lower = more languid.
-// Critically-damped settle time ≈ 6/OMEGA, so 13 ≈ ~0.45 s glide.
+// Settle time ≈ 6/(ζ·OMEGA), so 13 ≈ ~0.5 s glide at the damping below.
 const OMEGA = 13
+// ZETA is the damping ratio. 1 = critically damped (no overshoot). We run it a touch
+// UNDER 1 so the zoom carries a little spring "bounce" — it overshoots the target by
+// a few percent and eases back, giving the motion more lively, elastic character
+// (the requested intensity bump) without becoming visibly wobbly. 0.68 ≈ ~6% overshoot.
+const ZETA = 0.68
 // Clamp dt so a tab regaining focus (huge dt) can't teleport the view in one step.
 const MAX_DT = 1 / 30
 // Settle thresholds: stop the loop once position AND velocity are negligible.
@@ -70,11 +75,23 @@ const SPAN_EPS = 1e-3 // log-ratio position
 const START_EPS = 1e-4 // start position, as a fraction of span
 const VEL_EPS = 1e-3 // velocity, relative (1/s) — keeps the spring from idling
 
-/** Analytic one-step solver for a critically-damped spring (no overshoot).
- *  Returns the new position and velocity after `dt` seconds chasing `target`.
- *  y(t) = (A + B·t)·e^(−ω·t), with A = x−target, B = v + ω·A. */
-function springStep(x: number, v: number, target: number, omega: number, dt: number) {
-  const a = x - target
+/** Analytic one-step solver for a damped harmonic oscillator chasing `target`.
+ *  Handles both the underdamped (ζ<1, overshoots) and critically-damped (ζ=1) cases,
+ *  advancing position+velocity by exactly `dt` seconds. Frame-rate independent. */
+function springStep(x: number, v: number, target: number, omega: number, zeta: number, dt: number) {
+  const a = x - target // current offset from target
+  if (zeta < 1) {
+    // Underdamped: decaying sinusoid → a gentle overshoot before settling.
+    const wd = omega * Math.sqrt(1 - zeta * zeta) // damped frequency
+    const e = Math.exp(-zeta * omega * dt)
+    const c = Math.cos(wd * dt)
+    const s = Math.sin(wd * dt)
+    const coB = (v + zeta * omega * a) / wd
+    const pos = target + e * (a * c + coB * s)
+    const vel = e * (-zeta * omega * (a * c + coB * s) + wd * (-a * s + coB * c))
+    return { pos, vel }
+  }
+  // Critically damped: y(t) = (A + B·t)·e^(−ω·t), no overshoot.
   const b = v + omega * a
   const e = Math.exp(-omega * dt)
   const pos = target + (a + b * dt) * e
@@ -155,9 +172,11 @@ export function useTimelineGestures({
       // First frame of a loop has no prior timestamp — use a nominal 60 Hz step.
       const dt = last == null ? 1 / 60 : Math.min(MAX_DT, (ts - last) / 1000)
 
-      // Advance each dimension's critically-damped spring by the real elapsed time.
-      const logStep = springStep(Math.log(cur.spanMs), velLogRef.current, Math.log(tgt.spanMs), OMEGA, dt)
-      const startStep = springStep(cur.startMs, velStartRef.current, tgt.startMs, OMEGA, dt)
+      // Advance each dimension's spring by the real elapsed time. ZOOM (log-span)
+      // runs slightly underdamped for that lively bounce; PAN (start) stays critically
+      // damped (ζ=1) so the position never slides past and snaps back.
+      const logStep = springStep(Math.log(cur.spanMs), velLogRef.current, Math.log(tgt.spanMs), OMEGA, ZETA, dt)
+      const startStep = springStep(cur.startMs, velStartRef.current, tgt.startMs, OMEGA, 1, dt)
       velLogRef.current = logStep.vel
       velStartRef.current = startStep.vel
       let nextSpan = Math.exp(logStep.pos)

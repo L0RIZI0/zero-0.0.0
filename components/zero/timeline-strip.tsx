@@ -6,6 +6,7 @@ import { ChevronLeft, ChevronRight, Crosshair, Trash2, Ban, RotateCcw, Repeat } 
 import {
   getInheritedAccent,
   isInSubtree,
+  getEntity,
   type TimelineOccurrence,
   deleteEntity,
   setEventCancelled,
@@ -66,10 +67,11 @@ const LANE_GAP = 4
 const CHIP_COLLAPSE_PX = 46
 // Vertical breathing room above+below the stacked lanes when the track grows.
 const TRACK_PAD_Y = 6
-// Hard ceiling on how many overlapping lanes can grow the track, so a dense pile-up
-// can't push the entire focus region off-screen. Beyond this, extra lanes overflow
-// (clipped) rather than growing further — a deliberate "get the gist" compromise.
-const MAX_STACK_LANES = 6
+// Hard ceiling on how many lanes can grow the track, so a dense pile-up (or many
+// space ribbons) can't push the entire focus region off-screen. Beyond this, extra
+// lanes overflow (clipped) rather than growing further — a deliberate "get the gist"
+// compromise. Sized to comfortably fit the typical set of top-level space ribbons.
+const MAX_STACK_LANES = 9
 
 // Horizontal chrome flanking the scrolling viewport, in px. The viewport is the
 // shared coordinate space for gridlines, the now-marker and every marker. Any
@@ -107,16 +109,16 @@ interface Bar {
   childId?: string
 }
 
-/** Greedy interval lane-packing — items sorted by start, each placed in the first
- *  lane whose previous item's VISUAL footprint has ended; else a new lane opens.
- *  `rightEdge(b)` returns the bar's effective right edge in ms: for a labeled chip
- *  that's its real `to`, but for a COLLAPSED marker it extends past `to` to cover
- *  the title floated above the line (which overflows the tiny span) — so two
- *  time-adjacent markers whose labels would overlap get separate lanes. */
-function packLanes(bars: Bar[], rightEdge: (b: Bar) => number): { lane: Map<string, number>; count: number } {
+/** Greedy interval lane-packing within ONE group — items sorted by start, each
+ *  placed in the first sub-lane whose previous item's VISUAL footprint has ended;
+ *  else a new sub-lane opens. `rightEdge(b)` is the bar's effective right edge in
+ *  ms (extended past `to` when its label bleeds beyond the span), so time-adjacent
+ *  items whose labels would overlap get separate sub-lanes. Returns the per-key
+ *  sub-lane and how many sub-lanes the group needed. */
+function packGroup(bars: Bar[], rightEdge: (b: Bar) => number): { subLane: Map<string, number>; count: number } {
   const sorted = [...bars].sort((a, b) => a.from - b.from)
   const laneEnds: number[] = []
-  const lane = new Map<string, number>()
+  const subLane = new Map<string, number>()
   for (const b of sorted) {
     let idx = laneEnds.findIndex((end) => end <= b.from)
     if (idx === -1) {
@@ -125,9 +127,55 @@ function packLanes(bars: Bar[], rightEdge: (b: Bar) => number): { lane: Map<stri
     } else {
       laneEnds[idx] = rightEdge(b)
     }
-    lane.set(b.key, idx)
+    subLane.set(b.key, idx)
   }
-  return { lane, count: Math.max(1, laneEnds.length) }
+  return { subLane, count: Math.max(1, laneEnds.length) }
+}
+
+export interface Ribbon {
+  spaceId: string
+  title: string
+  color: string
+  baseLane: number // first global lane this ribbon occupies
+  laneCount: number // how many sub-lanes it spans
+}
+
+/** SPACE-GROUPED ribbon packing (the time.graphics "folder" model). Bars are
+ *  grouped by their containing space; each group becomes a horizontal RIBBON that
+ *  occupies a contiguous block of global lanes. Within a ribbon, overlapping items
+ *  still stack into sub-lanes (via `packGroup`). Ribbons are ordered by earliest
+ *  member so the timeline reads top-to-bottom by first appearance. */
+function packRibbons(
+  bars: Bar[],
+  rightEdge: (b: Bar) => number,
+  groupOf: (b: Bar) => string,
+  spaceMeta: (spaceId: string) => { title: string; color: string },
+): { lane: Map<string, number>; count: number; ribbons: Ribbon[] } {
+  // Bucket bars by space, tracking each group's earliest start for ordering.
+  const groups = new Map<string, { bars: Bar[]; minFrom: number }>()
+  for (const b of bars) {
+    const g = groupOf(b)
+    const entry = groups.get(g)
+    if (entry) {
+      entry.bars.push(b)
+      entry.minFrom = Math.min(entry.minFrom, b.from)
+    } else {
+      groups.set(g, { bars: [b], minFrom: b.from })
+    }
+  }
+  const ordered = [...groups.entries()].sort((a, b) => a[1].minFrom - b[1].minFrom)
+
+  const lane = new Map<string, number>()
+  const ribbons: Ribbon[] = []
+  let baseLane = 0
+  for (const [spaceId, { bars: groupBars }] of ordered) {
+    const { subLane, count } = packGroup(groupBars, rightEdge)
+    for (const b of groupBars) lane.set(b.key, baseLane + (subLane.get(b.key) ?? 0))
+    const meta = spaceMeta(spaceId)
+    ribbons.push({ spaceId, title: meta.title, color: meta.color, baseLane, laneCount: count })
+    baseLane += count
+  }
+  return { lane, count: Math.max(1, baseLane), ribbons }
 }
 
 export function TimelineStrip({
@@ -341,22 +389,35 @@ export function TimelineStrip({
     return out
   }, [spans, rolled, query])
 
-  // Footprint right-edge (ms) for lane-packing: a labeled chip ends at `to`, but a
-  // COLLAPSED marker (narrower than CHIP_COLLAPSE_PX) reserves extra room for its
-  // overflowing title so adjacent markers don't pile their labels on top of each
-  // other — they stack into separate lanes instead. `msPerPx` converts the px
-  // estimates (label chars, min chip) into the ms axis the packer reasons in.
+  // Footprint right-edge (ms) for lane-packing. Whenever a bar's TITLE is wider than
+  // its span on screen, the label bleeds past the span's right edge (item 3 / the
+  // collapsed marker) — so we reserve that label width in the packer. Adjacent items
+  // whose labels would collide therefore stack into separate sub-lanes rather than
+  // overlapping. `msPerPx` converts px label estimates into the ms axis.
   const msPerPx = spanMs / Math.max(1, width)
   const barRightEdge = useMemo(() => {
     return (b: Bar) => {
-      const spanPx = ((b.to - b.from) / spanMs) * width
-      if (spanPx >= CHIP_COLLAPSE_PX) return b.to
-      const labelPx = b.title.length * 5.6 + 8
+      const labelPx = b.title.length * 5.6 + 14
       return b.from + Math.max(b.to - b.from, labelPx * msPerPx)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [spanMs, width, msPerPx])
-  const lanes = useMemo(() => packLanes(bars, barRightEdge), [bars, barRightEdge])
+  }, [msPerPx])
+
+  // Space-grouped ribbon packing: each bar's containing space becomes a horizontal
+  // ribbon; items stack into sub-lanes within their ribbon when they overlap.
+  const groupOf = (b: Bar) => b.entity?.parentId ?? (b.kind === "band" ? contextId : rootId)
+  const spaceMeta = (spaceId: string) => ({
+    title: getEntity(spaceId)?.title ?? "Timeline",
+    color: getInheritedAccent(spaceId) ?? NEUTRAL_MARKER,
+  })
+  const lanes = useMemo(
+    () => packRibbons(bars, barRightEdge, groupOf, spaceMeta),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [bars, barRightEdge, contextId, rootId],
+  )
+  // Show ribbon labels/backgrounds only when there's more than one space in view —
+  // a single group keeps the clean centered lifeline with no extra chrome.
+  const showRibbons = lanes.ribbons.length > 1
   const contentH = lanes.count * LANE_H + (lanes.count - 1) * LANE_GAP
   // The track GROWS VERTICALLY to fit however many lanes the overlapping bars need
   // (capped so a pathological pile-up can't swallow the screen). When it's taller
@@ -521,11 +582,16 @@ export function TimelineStrip({
       </div>
 
       {/* Full-bleed timeline. Arrows flank the track; the zoom selector pins left.
-          The track height is dynamic: it grows to fit stacked overlapping lanes and
-          eases back, pushing the focus region below it down/up smoothly. */}
-      <div
-        className="relative -mx-6 transition-[height] duration-300 ease-out"
-        style={{ height: trackH }}
+          The track height is dynamic: it grows to fit stacked overlapping lanes. The
+          height is animated with an UNDERDAMPED spring so the focus region below
+          settles with a wavy ripple rather than a flat ease (item 4). This animates a
+          layout property, but only fires on discrete lane-count changes — never during
+          the zoom glide — so it doesn't affect zoom/pan smoothness. */}
+      <motion.div
+        className="relative -mx-6"
+        initial={false}
+        animate={{ height: trackH }}
+        transition={{ type: "spring", stiffness: 280, damping: 16, mass: 1 }}
       >
         {/* Instant layer — pins (singletons) and density bubbles (clusters). */}
         <div
@@ -737,6 +803,41 @@ export function TimelineStrip({
               </div>
             )}
 
+            {/* ribbon backgrounds + left labels — one horizontal band per space
+                (the time.graphics "folder" model). Behind the bars; only shown when
+                more than one space is in view. */}
+            {showRibbons &&
+              lanes.ribbons.map((r) => {
+                const top = laneTop(r.baseLane) - 3
+                const h = r.laneCount * LANE_H + (r.laneCount - 1) * LANE_GAP + 6
+                const related = atRootFocus || r.spaceId === contextId || isInSubtree(contextId, r.spaceId)
+                const op = related ? 1 : UNRELATED_OPACITY
+                return (
+                  <div
+                    key={`ribbon:${r.spaceId}`}
+                    className="pointer-events-none absolute inset-x-0 z-0 rounded-r-md transition-[opacity,top,height] duration-300 ease-out"
+                    style={{
+                      top,
+                      height: h,
+                      opacity: op,
+                      backgroundColor: `${r.color}0d`,
+                      borderLeft: `2px solid ${r.color}66`,
+                    }}
+                  >
+                    {/* sticky left label — pinned, does not pan with the lifeline */}
+                    <button
+                      type="button"
+                      onClick={() => r.spaceId !== "s_root" && open(r.spaceId)}
+                      title={r.title}
+                      className="pointer-events-auto absolute left-1 top-1/2 flex max-w-[40%] -translate-y-1/2 items-center gap-1 rounded bg-card/85 px-1 py-0.5 text-[9.5px] font-medium leading-none tracking-tight text-foreground/75 backdrop-blur-sm transition-colors hover:text-foreground"
+                    >
+                      <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: r.color }} aria-hidden />
+                      <span className="truncate">{r.title}</span>
+                    </button>
+                  </div>
+                )
+              })}
+
             {/* bars — events, scheduled spaces, rollup bands, recurring streams. */}
             {bars.map((b) => {
               const lane = lanes.lane.get(b.key) ?? 0
@@ -808,8 +909,8 @@ export function TimelineStrip({
 
               // COLLAPSED MARKER — when the span is too narrow for a labeled chip, it
               // becomes a smooth horizontal line the width of the span, a vertical
-              // color edge on its left, and the title floated above-left (allowed to
-              // overflow past the tiny span, the way an instant pin's label does).
+              // color edge rising at its left, and the title set to the RIGHT of that
+              // vertical connector (free to overflow past the tiny span).
               if (widthPx < CHIP_COLLAPSE_PX) {
                 return (
                   <motion.button
@@ -827,21 +928,21 @@ export function TimelineStrip({
                     className="absolute flex h-6 items-end overflow-visible transition-[filter] hover:brightness-110"
                     style={boxStyle}
                   >
-                    {/* title floated above the line, left-aligned, free to overflow */}
+                    {/* vertical color connector rising from the duration line */}
+                    <span
+                      className="absolute bottom-0 left-0 h-4 w-[2px] rounded-full"
+                      style={{ backgroundColor: markerColor }}
+                      aria-hidden
+                    />
+                    {/* title to the RIGHT of the vertical connector, near its top */}
                     <span
                       className={cn(
-                        "pointer-events-none absolute bottom-3 left-0 whitespace-nowrap text-[10px] leading-none tracking-tight text-foreground/80",
+                        "pointer-events-none absolute bottom-1.5 left-1.5 whitespace-nowrap text-[10px] leading-none tracking-tight text-foreground/80",
                         b.cancelled && "line-through",
                       )}
                     >
                       {b.title}
                     </span>
-                    {/* vertical color edge anchoring the left of the span */}
-                    <span
-                      className="absolute bottom-0 left-0 h-3 w-[2px] rounded-full"
-                      style={{ backgroundColor: markerColor }}
-                      aria-hidden
-                    />
                     {/* smooth horizontal line spanning the (short) duration */}
                     <span
                       className="absolute bottom-0 left-0 right-0 h-[2px] rounded-full"
@@ -866,7 +967,11 @@ export function TimelineStrip({
                     aria-current={isOpen ? "true" : undefined}
                     title={b.title}
                     className={cn(
-                      "flex h-6 w-full items-center gap-1.5 overflow-hidden rounded-md border px-2 text-[10.5px] tracking-tight",
+                      // overflow-visible (not hidden) so a title wider than the span
+                      // BLEEDS out past the colored frame to the right rather than
+                      // truncating — the packer reserves that label width so it never
+                      // collides with a neighbour (item 3).
+                      "flex h-6 w-full items-center gap-1.5 overflow-visible rounded-md border px-2 text-[10.5px] tracking-tight",
                       "text-foreground/85 shadow-sm transition-[filter] hover:brightness-110",
                     )}
                     style={{
@@ -875,7 +980,7 @@ export function TimelineStrip({
                     }}
                   >
                     <span className="h-1.5 w-1.5 shrink-0 rounded-[2px]" style={{ backgroundColor: b.color }} aria-hidden />
-                    <span className={cn("truncate", b.cancelled && "line-through")}>{b.title}</span>
+                    <span className={cn("whitespace-nowrap", b.cancelled && "line-through")}>{b.title}</span>
                   </motion.button>
                 </div>
               )
@@ -891,7 +996,7 @@ export function TimelineStrip({
             <ChevronRight className="h-4 w-4" />
           </button>
         </div>
-      </div>
+      </motion.div>
 
       <ContextMenu state={menu} onClose={() => setMenu(null)} />
     </section>
