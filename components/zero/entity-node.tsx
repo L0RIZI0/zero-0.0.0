@@ -1338,20 +1338,6 @@ export function EntityNode({
               railShift={railCenterShift}
               railBleedLeft={railBleedLeft}
               railBleedRight={railBleedRight}
-              // Float the dock OUT of the do-list's flex flow for EVERY Space body —
-              // leaf AND ancestor, AND while CLOSING. This is what preserves the
-              // no-jump invariant: the do-list then fills the full body and centers on
-              // the frame center IDENTICALLY whether Zero is the leaf (tall hexagon,
-              // corner inset > 0, dock dropped into the bottom triangle) or an ancestor
-              // (rectangle, corner inset 0, dock pinned to the body bottom). If only the
-              // leaf floated, the ancestor's in-flow dock would steal flex height and
-              // shove its list up, re-centering the parent list when a child opens.
-              // Including the CLOSE morph matters too: `spaceWindow` goes false the
-              // instant the window leaves the stack, so without this the dock would snap
-              // from floated to in-flow (and the list re-center upward) at the very start
-              // of the close — the visible jump. Tasks/events and the home root keep the
-              // in-flow dock. */
-              floatDock={spaceWindow || (isSpace && isClosing)}
               resource={isResource ? { url: entity.webUrl!, resourceId: entity.webResourceId } : undefined}
             />
           </div>

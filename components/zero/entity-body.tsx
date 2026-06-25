@@ -40,7 +40,6 @@ export function EntityBody({
   isRoot = false,
   closing = false,
   centerList = true,
-  floatDock = false,
   railShift = 0,
   railBleedLeft = PANEL_RAIL_W,
   railBleedRight = PANEL_RAIL_W,
@@ -66,11 +65,6 @@ export function EntityBody({
    *  the frame edge. Defaults to the full rail (leaf / home root, uncovered). */
   railBleedLeft?: number
   railBleedRight?: number
-  /** Space-leaf only: float the Dock OUT of the do-list's flex column (absolute,
-   *  into the hexagon's bottom triangle) so the do-list always fills the full
-   *  central rectangle regardless of how many items are pinned. When false (home
-   *  root, ancestors, task/event windows) the Dock stays in flow beneath the list. */
-  floatDock?: boolean
   /** Vertically center the do-list within its column (forwarded to DoList). */
   centerList?: boolean
   /** The always-mounted home view. Its body has no in-flow header, so its rails
@@ -98,46 +92,44 @@ export function EntityBody({
         </div>
       ) : (
         <>
-      {/* Center column — Tasks do-list ABOVE the Dock (pinned items). The list
-          takes the remaining height (flex-1); the Dock sits beneath it. Capped for
-          a comfortable reading measure and centered. Full width now: the side
-          panels overlay it rather than stealing its space, so it never moves. */}
-      <div className="flex min-h-[180px] min-w-0 flex-1 flex-col items-center px-6 pb-5 pt-4">
-        <div className={cn("relative flex min-h-0 w-full flex-1 flex-col", isRoot ? "max-w-[70vw]" : "max-w-[720px]")}>
-          {/* Do-list narrowed to 2/3 of the measure and centered for a tighter
-              list; the Dock below keeps the full measure width. */}
+      {/* REGION 0 (fill) — the do-list's region (see lib/zero/regions). It takes the
+          leftover height below any hug regions and CENTERS the do-list in that
+          available area, regardless of whether the dock has items. Tagged
+          `data-region` so it's identifiable in the region model; kept as this tuned
+          div (not <Region>) to preserve its exact min-height floor + flex centering.
+          The side panels overlay it rather than stealing its space, so it never
+          moves. */}
+      <div
+        data-region
+        data-region-grow="fill"
+        className="flex min-h-[180px] min-w-0 flex-1 flex-col items-center px-6 pb-5 pt-4"
+      >
+        <div className={cn("flex min-h-0 w-full flex-1 flex-col", isRoot ? "max-w-[70vw]" : "max-w-[720px]")}>
+          {/* Do-list narrowed to 2/3 of the measure and centered for a tighter list. */}
           <div className="flex min-h-0 w-2/3 flex-1 flex-col self-center">
             <DoList contextId={entityId} active={active} closing={closing} centered={centerList} />
           </div>
-          {floatDock ? (
-            /* SPACE LEAF: pull the Dock OUT of the do-list flex column and drop it
-               FLUSH to the octagon's bottom edge — exactly mirroring the home view,
-               where the dock sits flush to the work-area bottom and its only gap is
-               the Dock's own internal spacing below the card glyphs. `[data-body]` is
-               only the octagon's CENTRAL RECTANGLE (inset top+bottom by
-               `--hex-corner-inset-y`); this wrapper's offset parent fills that body, so
-               `bottom: 0` lands at the BODY bottom — one corner-inset ABOVE the frame
-               bottom (mid-window, too high). Offsetting `bottom` by `-corner-inset`
-               pushes the dock down through the bottom wedge to sit flush with the true
-               frame bottom, so the resulting visual margin matches home identically.
-               Freed of flex height, the do-list always spans the full central rectangle,
-               so it centers identically whether or not items are pinned.
-               `pointer-events-none` lets the do-list's bottom rows stay clickable
-               through the dock's empty padding; the Dock re-enables pointer events. No
-               transforms (so GSAP Flip never sees it). */
-            <div
-              className="pointer-events-none absolute inset-x-0 flex justify-center"
-              style={{ bottom: `calc(var(--hex-corner-inset-y, 0px) * -1)` }}
-            >
-              <div className="w-full">
-                <Dock contextId={entityId} active={active} />
-              </div>
-            </div>
-          ) : (
-            <div className="pt-4">
-              <Dock contextId={entityId} active={active} />
-            </div>
-          )}
+        </div>
+      </div>
+
+      {/* DOCK — exactly ONE per entity, and NOT part of any region: an overlay pinned
+          to the WINDOW's bottom edge, floating above the regions (z-10). The Dock
+          self-collapses to nothing when the context has no pinned items, so it's
+          "shown only when there are dock items" without a guard here. Universal now —
+          no per-kind branch: the bottom offset reads `--hex-corner-inset-y`, which is
+          set only on space-leaf octagons (→ pushes the dock down through the bottom
+          wedge to the true frame bottom) and is 0 on rectangular windows (→ flush at
+          the body/window bottom). Because it's anchored to `[data-body]` (the offset
+          parent), it pins to the window bottom regardless of how many regions stack
+          above. `pointer-events-none` lets the do-list's bottom rows stay clickable
+          through the dock's empty padding; the Dock re-enables pointer events. No
+          transforms, so GSAP Flip never sees it. */}
+      <div
+        className="pointer-events-none absolute inset-x-0 z-10 flex justify-center px-6"
+        style={{ bottom: `calc(var(--hex-corner-inset-y, 0px) * -1)` }}
+      >
+        <div className={cn("w-full", isRoot ? "max-w-[70vw]" : "max-w-[720px]")}>
+          <Dock contextId={entityId} active={active} />
         </div>
       </div>
         </>

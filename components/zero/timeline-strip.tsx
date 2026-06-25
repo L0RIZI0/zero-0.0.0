@@ -72,11 +72,13 @@ const LANE_GAP = 4
 const CHIP_COLLAPSE_ENABLED = false
 // Vertical breathing room above+below the stacked lanes when the track grows.
 const TRACK_PAD_Y = 6
-// Hard ceiling on how many lanes can grow the track, so a dense pile-up (or many
-// space ribbons) can't push the entire focus region off-screen. Beyond this, extra
-// lanes overflow (clipped) rather than growing further — a deliberate "get the gist"
-// compromise. Sized to comfortably fit the typical set of top-level space ribbons.
-const MAX_STACK_LANES = 9
+// Hard ceiling on how many lanes can grow the track, so a truly pathological pile-up
+// can't push the entire focus region off-screen. Beyond this, extra lanes overflow
+// (clipped) rather than growing further. Sized to comfortably fit the FULL set of
+// top-level life ribbons (each space ribbon can span several lanes during overlaps),
+// so a populated homeview shows every ribbon — the timeline grows and pushes region 0
+// down rather than cropping a ribbon (e.g. Health/Workout) at the bottom.
+const MAX_STACK_LANES = 18
 
 // Horizontal chrome flanking the scrolling viewport, in px. The viewport is the
 // shared coordinate space for gridlines, the now-marker and every marker. Any
