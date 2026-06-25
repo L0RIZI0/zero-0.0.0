@@ -253,8 +253,11 @@ export function EntityNode({
     setReqLayout(glyph, title, meta, sent)
     setReqAnimating(true)
     Flip.from(state, {
-      duration: 0.5,
-      ease: "power3.inOut",
+      // sine.inOut is the gentlest symmetric ease-in-out — it ramps the slide up and
+      // back down smoothly rather than the snappier acceleration of power3, so the
+      // glyph glides to the edge instead of darting.
+      duration: 0.55,
+      ease: "sine.inOut",
       absolute: true,
       onComplete: () => setReqAnimating(false),
     })
