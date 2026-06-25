@@ -54,9 +54,15 @@ interface Options {
 // Wheel sensitivity (per normalized pixel of deltaY). Lower than before because
 // the ease loop now glides between notches, so each notch can be gentler.
 const ZOOM_K = 0.0009
-// Per-frame approach fraction toward the target. ~0.18 at 60fps ≈ a ~150ms glide
-// to settle — smooth but responsive, no sense of drag.
-const SMOOTH = 0.18
+// Smoothing TIME CONSTANT (seconds), not a per-frame fraction. Each frame we move
+// the committed view toward the target by `1 - exp(-dt / TAU)`, which is the
+// frame-rate-INDEPENDENT form of exponential smoothing: the glide takes the same
+// wall-clock time whether the display is 60, 120, or 144 Hz (a fixed per-frame
+// fraction would settle ~2.4× faster on a 144 Hz panel and lurch on a slow one).
+// ~0.13 s reads as a luxurious-but-responsive slide; raise it for a longer glide.
+const TAU = 0.13
+// Clamp dt so a tab regaining focus (huge dt) can't teleport the view in one step.
+const MAX_DT = 1 / 30
 // Settle thresholds: stop the loop once we're within these of the target.
 const SPAN_EPS = 1e-3 // in log-ratio
 const START_EPS = 1e-4 // as a fraction of span
@@ -103,6 +109,8 @@ export function useTimelineGestures({
   const currentRef = useRef<View | null>(null)
   const targetRef = useRef<View | null>(null)
   const rafRef = useRef<number | null>(null)
+  // Timestamp of the previous ease frame, for frame-rate-independent smoothing.
+  const lastTRef = useRef<number | null>(null)
 
   const clampSpan = (s: number) => Math.min(maxSpan, Math.max(minSpan, s))
 
@@ -110,16 +118,25 @@ export function useTimelineGestures({
     const el = viewportRef.current
     if (!el) return
 
-    // Ease the committed view one step toward the target each frame.
-    const tick = () => {
+    // Ease the committed view one step toward the target each frame. The approach
+    // fraction `a` is derived from the real elapsed time, so the glide is smooth and
+    // identical regardless of the display's refresh rate.
+    const tick = (ts: number) => {
       const cur = currentRef.current
       const tgt = targetRef.current
       if (!cur || !tgt) {
         rafRef.current = null
+        lastTRef.current = null
         return
       }
-      let nextSpan = cur.spanMs * Math.pow(tgt.spanMs / cur.spanMs, SMOOTH)
-      let nextStart = cur.startMs + (tgt.startMs - cur.startMs) * SMOOTH
+      const last = lastTRef.current
+      lastTRef.current = ts
+      // First frame of a loop has no prior timestamp — use a nominal 60 Hz step.
+      const dt = last == null ? 1 / 60 : Math.min(MAX_DT, (ts - last) / 1000)
+      const a = 1 - Math.exp(-dt / TAU) // frame-rate-independent smoothing factor
+
+      let nextSpan = cur.spanMs * Math.pow(tgt.spanMs / cur.spanMs, a)
+      let nextStart = cur.startMs + (tgt.startMs - cur.startMs) * a
 
       const spanSettled = Math.abs(Math.log(tgt.spanMs / nextSpan)) < SPAN_EPS
       const startSettled = Math.abs(tgt.startMs - nextStart) < tgt.spanMs * START_EPS
@@ -133,6 +150,7 @@ export function useTimelineGestures({
         currentRef.current = null
         targetRef.current = null
         rafRef.current = null
+        lastTRef.current = null
         endCbRef.current?.()
         return
       }
@@ -142,7 +160,10 @@ export function useTimelineGestures({
       rafRef.current = requestAnimationFrame(tick)
     }
     const ensureLoop = () => {
-      if (rafRef.current == null) rafRef.current = requestAnimationFrame(tick)
+      if (rafRef.current == null) {
+        lastTRef.current = null
+        rafRef.current = requestAnimationFrame(tick)
+      }
     }
 
     // --- Wheel: zoom (vertical) + pan (horizontal) -------------------------
@@ -183,6 +204,7 @@ export function useTimelineGestures({
       el.removeEventListener("wheel", onWheel)
       if (rafRef.current != null) cancelAnimationFrame(rafRef.current)
       rafRef.current = null
+      lastTRef.current = null
       currentRef.current = null
       targetRef.current = null
     }
@@ -199,6 +221,7 @@ export function useTimelineGestures({
     if (rafRef.current != null) {
       cancelAnimationFrame(rafRef.current)
       rafRef.current = null
+      lastTRef.current = null
     }
     targetRef.current = null
     const startX = e.clientX
