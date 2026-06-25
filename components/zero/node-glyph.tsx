@@ -266,7 +266,10 @@ export function NodeGlyph({
         y2={REQUEST_PIVOT[1]}
         stroke="currentColor"
         strokeWidth={strokeWidth}
-        strokeLinecap="round"
+        // butt cap (not round): the line ends exactly at the square's bottom-right
+        // corner, so a round cap would bulge half a stroke-width past it as a little
+        // nub. butt terminates flush and matches the square's sharp miter joins.
+        strokeLinecap="butt"
         vectorEffect="non-scaling-stroke"
         opacity={0}
       />
