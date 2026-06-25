@@ -539,6 +539,11 @@ export function TimelineStrip({
   // --- Ruler ticks (two-tier, adaptive grain) ------------------------------
   const ticks = useMemo(() => timelineTicks(startMs, spanMs, width), [startMs, spanMs, width])
 
+  // Soft horizontal fade applied to the ruler graduations + labels, so ticks melt
+  // in/out at the left and right edges while panning instead of popping abruptly.
+  const edgeFade =
+    "linear-gradient(to right, transparent 0px, #000 32px, #000 calc(100% - 32px), transparent 100%)"
+
   // Pre-hydration placeholder: reserve the exact layout footprint (label band + track)
   // so revealing the real timeline doesn't shift anything. See `mounted` above.
   if (!mounted) {
@@ -555,10 +560,16 @@ export function TimelineStrip({
       {/* Label band above the ruler. Shows the granularity-aware center label and,
           when "now" is scrolled off-screen, a jump-to-now control. */}
       <div className={cn("relative mb-1 -mx-6", "h-10")}>
-        {/* ruler labels — anchored to the bottom, inset to match the viewport. */}
+        {/* ruler labels — anchored to the bottom, inset to match the viewport.
+            Edge-faded so labels melt in/out at the sides rather than popping. */}
         <div
           className="absolute inset-x-0 bottom-0 h-3.5"
-          style={{ marginLeft: VIEWPORT_INSET_LEFT, marginRight: VIEWPORT_INSET_RIGHT }}
+          style={{
+            marginLeft: VIEWPORT_INSET_LEFT,
+            marginRight: VIEWPORT_INSET_RIGHT,
+            maskImage: edgeFade,
+            WebkitMaskImage: edgeFade,
+          }}
         >
           {ticks.map((t) => {
             if (!t.labeled) return null // unlabeled minors still draw a gridline below
@@ -566,10 +577,14 @@ export function TimelineStrip({
             if (left < 0 || left > 100) return null
             return (
               <span
-                key={`${t.ms}-${t.major ? "M" : "m"}`}
+                key={`${t.ms}-${t.major ? "M" : t.sub ? "s" : "m"}`}
                 className={cn(
                   "absolute bottom-0 -translate-x-1/2 whitespace-nowrap text-[9.5px] tabular-nums tracking-tight",
-                  t.major ? "font-semibold text-muted-foreground/70" : "font-medium text-muted-foreground/40",
+                  t.major
+                    ? "font-semibold text-muted-foreground/70"
+                    : t.sub
+                      ? "font-normal text-muted-foreground/25" // faint coarse-hour sub labels
+                      : "font-medium text-muted-foreground/40",
                 )}
                 style={{ left: `${left}%` }}
               >
@@ -798,22 +813,35 @@ export function TimelineStrip({
             {/* centered lifeline rule */}
             <div className="pointer-events-none absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-border" />
 
-            {/* gridlines — major (context) lines stronger than minor. */}
-            {ticks.map((t) => {
-              const left = pct(t.ms)
-              if (left < 0 || left > 100) return null
-              return (
-                <div
-                  key={`g-${t.ms}-${t.major ? "M" : "m"}`}
-                  className={cn(
-                    "pointer-events-none absolute bottom-0 top-0 w-px",
-                    // three tiers: context lines > labeled graduations > bare graduations
-                    t.major ? "bg-border/40" : t.labeled ? "bg-border/20" : "bg-border/[0.08]",
-                  )}
-                  style={{ left: `${left}%` }}
-                />
-              )
-            })}
+            {/* gridlines — major (context) lines stronger than minor. Wrapped in an
+                edge-faded layer so graduations melt in/out at the sides while panning
+                rather than popping in/out at the hard viewport border. */}
+            <div
+              className="pointer-events-none absolute inset-0"
+              style={{ maskImage: edgeFade, WebkitMaskImage: edgeFade }}
+            >
+              {ticks.map((t) => {
+                const left = pct(t.ms)
+                if (left < 0 || left > 100) return null
+                return (
+                  <div
+                    key={`g-${t.ms}-${t.major ? "M" : t.sub ? "s" : "m"}`}
+                    className={cn(
+                      "absolute bottom-0 top-0 w-px",
+                      // four tiers: context > labeled minor > bare minor > faint sub
+                      t.major
+                        ? "bg-border/40"
+                        : t.sub
+                          ? "bg-border/[0.09]"
+                          : t.labeled
+                            ? "bg-border/20"
+                            : "bg-border/[0.08]",
+                    )}
+                    style={{ left: `${left}%` }}
+                  />
+                )
+              })}
+            </div>
 
             {/* drag surface — behind markers so it only catches empty-track drags. */}
             <div

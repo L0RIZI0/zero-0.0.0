@@ -173,6 +173,12 @@ export interface Tick {
    *  minor labels are thinned to "nice" steps so they never crowd. Majors are
    *  always labeled. */
   labeled: boolean
+  /** A finer-than-minor graduation drawn BETWEEN minor ticks (e.g. faint 6-hour
+   *  lines between day numbers) so the ruler stays dense and "higher" instead of
+   *  cliff-dropping all detail at a grain switch. Rendered fainter than a bare
+   *  minor; only emitted when there's pixel room, and only labeled when there's
+   *  enough room for that too. */
+  sub?: boolean
 }
 
 // "Nice" label steps per grain, in counts of that grain's own unit. The thinner
@@ -238,7 +244,17 @@ interface GrainTickConfig {
   fmtMinor: (d: Date) => string
   /** Major/context label. */
   fmtMajor: (d: Date) => string
+  /** Optional finer interval for faint SUB graduations between minors (e.g. 6h
+   *  lines between day numbers). Only emitted when wide enough; see SUB_TICK_MIN_PX. */
+  subMinor?: TimeInterval
+  /** Label for a sub graduation, shown only when sub spacing clears MIN_LABEL_PX. */
+  fmtSub?: (d: Date) => string
 }
+
+// Sub graduations only appear once they're at least this wide, and disappear below
+// it — which, paired with the edge fade, makes them fade in/out by density rather
+// than pop. Lower than MIN_TICK_PX so the ruler stays detailed between minor marks.
+const SUB_TICK_MIN_PX = 16
 
 const fmtHour = timeFormat("%-I%p") // 8AM
 const fmtHourMin = timeFormat("%-I:%M") // 8:30
@@ -297,14 +313,20 @@ const TICK_CONFIG: Record<RulerGrain, GrainTickConfig> = {
   day: {
     minor: timeDay.every(1)!,
     major: timeMonth.every(1)!,
-    fmtMinor: fmtDayNum,
+    fmtMinor: fmtWeekday, // "Thu 25" — weekday + day (month lives in the bold tier)
     fmtMajor: fmtMonthYear,
+    // Faint 6-hour graduations between days; labeled (6am / noon / 6pm) once wide.
+    subMinor: timeHour.every(6)!,
+    fmtSub: fmtHourLower,
   },
   week: {
     minor: timeWeek.every(1)!,
     major: timeMonth.every(1)!,
     fmtMinor: fmtWeekday,
     fmtMajor: fmtMonthYear,
+    // Faint per-day graduations between week marks; labeled (day number) once wide.
+    subMinor: timeDay.every(1)!,
+    fmtSub: fmtDayNum,
   },
   month: {
     minor: timeMonth.every(1)!,
@@ -347,6 +369,7 @@ export function timelineTicks(startMs: number, spanMs: number, width: number): T
   const hi = new Date(startMs + spanMs * 1.05)
 
   const majorSet = new Set<number>()
+  const minorSet = new Set<number>()
   const out: Tick[] = []
   for (const d of cfg.major.range(lo, hi)) {
     const ms = d.getTime()
@@ -355,13 +378,39 @@ export function timelineTicks(startMs: number, spanMs: number, width: number): T
   }
   for (const d of cfg.minor.range(lo, hi)) {
     const ms = d.getTime()
+    minorSet.add(ms)
     if (majorSet.has(ms)) continue // already a major tick
     // Draw every minor graduation, but only label those on a nice step boundary.
     const labeled = unitIndex(grain, d) % labelStep === 0
     out.push({ ms, label: cfg.fmtMinor(d), major: false, labeled })
   }
+  // Faint SUB graduations between minors, so detail doesn't cliff-drop at a grain
+  // switch (e.g. 6h lines between day numbers). Only when wide enough; labeled only
+  // when each clears MIN_LABEL_PX. Skipped where they coincide with a minor/major.
+  if (cfg.subMinor) {
+    const subUnitPx = estimateSubPx(cfg, pxPerMs)
+    if (subUnitPx >= SUB_TICK_MIN_PX) {
+      const labelSub = subUnitPx >= MIN_LABEL_PX
+      for (const d of cfg.subMinor.range(lo, hi)) {
+        const ms = d.getTime()
+        if (majorSet.has(ms) || minorSet.has(ms)) continue
+        out.push({ ms, label: cfg.fmtSub ? cfg.fmtSub(d) : "", major: false, labeled: labelSub, sub: true })
+      }
+    }
+  }
   out.sort((a, b) => a.ms - b.ms)
   return out
+}
+
+/** Pixel width of one sub-graduation unit, derived from the median gap of the
+ *  sub interval over a representative window (DST/uneven months make a fixed ms
+ *  estimate unreliable, so we measure two adjacent steps). */
+function estimateSubPx(cfg: GrainTickConfig, pxPerMs: number): number {
+  if (!cfg.subMinor) return 0
+  const a = new Date(2025, 0, 1)
+  const stepped = cfg.subMinor.range(a, new Date(a.getTime() + 7 * DAY_MS))
+  if (stepped.length < 2) return 0
+  return (stepped[1].getTime() - stepped[0].getTime()) * pxPerMs
 }
 
 // --- Scrubber label ---------------------------------------------------------
