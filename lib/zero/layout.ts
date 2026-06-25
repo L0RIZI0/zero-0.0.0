@@ -52,22 +52,27 @@ export const TIMELINE_LIFT_Y: Record<ShellStage, number> = {
   2: -66,
 }
 
-/** How much the open windows grow UPWARD as the shell compacts. The window's
- *  bottom stays put; only its TOP rises by this many px (so it gets taller and
- *  reads as "displayed higher"). Applied to the effective region every window is
- *  measured against (see styleFor): top -= lift, height += lift, which leaves the
- *  bottom exactly where it was.
+/** How much the open windows grow UPWARD as the shell compacts.
  *
- *  Kept STRICTLY LESS than TIMELINE_LIFT_Y at the same stage: the region top sits
- *  flush under the timeline's natural bottom, so windows may only rise as far as
- *  the timeline vacates — otherwise the topmost (parent) frame would collide with
- *  the timeline strip. The clip-path top inset on the region is widened to a
- *  negative value to fit these taller windows. */
+ *  ZERO at every stage now. Under the REGION model (see lib/zero/regions and
+ *  WorkSurface) region 0 — the window region — spans the FULL card height (from
+ *  just under the app bar to the surface bottom), so an open window already fills
+ *  to the top and its header sits directly beneath the app bar. The timeline is no
+ *  longer a band ABOVE the window that the window rises to meet; it is an OVERLAY
+ *  that drops to sit just below the active window's header (region 1, referenced
+ *  from entity 0). So there is nothing to "rise toward" — the lift is 0 and the
+ *  window's top is governed purely by region 0's rect. */
 export const WINDOW_TOP_LIFT: Record<ShellStage, number> = {
   0: 0,
-  1: 16,
-  2: 44,
+  1: 0,
+  2: 0,
 }
+
+/** Height of an open window's header band (glyph + title + close). Held constant
+ *  across depth (the header compacts its CONTENTS, not its box — see HEADER_PAD_Y),
+ *  so the timeline overlay can be positioned at a stable `headerBottom` offset
+ *  below the app bar when a window is open. Measured from the live layout. */
+export const HEADER_BAND_H = 60
 
 /** Resting top margin of the timeline (constant — the depth response is the
  *  transform above, which doesn't reflow). */
