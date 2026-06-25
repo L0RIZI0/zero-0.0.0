@@ -565,6 +565,11 @@ export const entities: Entity[] = [
   { id: "e4", kind: "event", title: "Lunch", parentId: "s_personal", taggedSpaceIds: [], schedule: { startAt: t(12, 30), endAt: t(13, 15) } },
   { id: "e5", kind: "event", title: "Investor prep", parentId: "s_deck", taggedSpaceIds: [], schedule: { startAt: t(13, 30), endAt: t(14, 45) } },
   { id: "e6", kind: "event", title: "Admin hour", parentId: "s_admin", taggedSpaceIds: [], schedule: { startAt: t(15), endAt: t(16) } },
+  // Overlapping events — real days double-book. These deliberately collide with the
+  // blocks above so the timeline demonstrates vertical lane-stacking (e9 runs through
+  // the deep-work + product-review window; e10 overlaps investor prep + admin hour).
+  { id: "e9", kind: "event", title: "1:1 with Sarah", parentId: "s_dayjob", taggedSpaceIds: [], schedule: { startAt: t(10, 30), endAt: t(11, 15) } },
+  { id: "e10", kind: "event", title: "Design sync", parentId: "s_product", taggedSpaceIds: [], schedule: { startAt: t(14), endAt: t(15, 30) } },
   { id: "e8", kind: "event", title: "Evening reset", parentId: "s_journal", taggedSpaceIds: [], schedule: { startAt: t(21), endAt: t(21, 30) } },
 ]
 

@@ -423,7 +423,7 @@ export function TimelineStrip({
     return (
       <section aria-label="Timeline" className="px-1">
         <div className="relative mb-1 -mx-6 h-10" />
-        <div className="relative -mx-6 h-14" ref={viewportRef} />
+        <div className="relative -mx-6" style={{ height: TRACK_H }} ref={viewportRef} />
       </section>
     )
   }
@@ -496,8 +496,13 @@ export function TimelineStrip({
         </motion.div>
       </div>
 
-      {/* Full-bleed timeline. Arrows flank the track; the zoom selector pins left. */}
-      <div className="relative -mx-6 h-14">
+      {/* Full-bleed timeline. Arrows flank the track; the zoom selector pins left.
+          The track height is dynamic: it grows to fit stacked overlapping lanes and
+          eases back, pushing the focus region below it down/up smoothly. */}
+      <div
+        className="relative -mx-6 transition-[height] duration-300 ease-out"
+        style={{ height: trackH }}
+      >
         {/* Instant layer — pins (singletons) and density bubbles (clusters). */}
         <div
           className="pointer-events-none absolute inset-y-0 z-30"
