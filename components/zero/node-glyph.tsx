@@ -291,17 +291,24 @@ export function NodeGlyph({
       {/* "Sent as request" accent — a single path (right-edge stub → corner → tip)
           so the corner is a clean linejoin, not two clashing caps. `d` is driven by
           the effect above; at rest it folds onto the square and is invisible.
-          fill="none" because open SVG paths default to a black fill. */}
-      <path
-        ref={reqRef}
-        d={requestAccentPath(request ? REQUEST_ANGLE_DEG : 0)}
-        fill="none"
-        stroke="currentColor"
-        strokeWidth={strokeWidth}
-        strokeLinejoin="miter"
-        strokeLinecap="butt"
-        vectorEffect="non-scaling-stroke"
-      />
+          fill="none" because open SVG paths default to a black fill.
+
+          ONLY rendered for the square (task) kind: the accent's resting geometry lies
+          on the square's right/bottom edges, so on any other silhouette (hexagon,
+          diamond, triangle…) it would show as a stray stroke. Requests are task-only
+          anyway, so gating here is both the bug fix and the correct semantics. */}
+      {kind === "task" && (
+        <path
+          ref={reqRef}
+          d={requestAccentPath(request ? REQUEST_ANGLE_DEG : 0)}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={strokeWidth}
+          strokeLinejoin="miter"
+          strokeLinecap="butt"
+          vectorEffect="non-scaling-stroke"
+        />
+      )}
     </svg>
   )
 }
