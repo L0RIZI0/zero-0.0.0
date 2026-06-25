@@ -102,7 +102,13 @@ export function EntityBody({
       <div
         data-region
         data-region-grow="fill"
-        className="flex min-h-[180px] min-w-0 flex-1 flex-col items-center px-6 pb-5 pt-4"
+        className="flex min-h-[180px] min-w-0 flex-1 flex-col items-center px-6 pb-5"
+        // RESERVE the overlay timeline's slot: the timeline (region 1) floats over
+        // this region, so the do-list must start below its bottom. `--region1-reserve`
+        // (set on the work-surface card) == that bottom in card coords; both the home
+        // body and a fixed window's body start at the card top, so one value reserves
+        // correctly in both. `+ 1rem` preserves the breathing room the old `pt-4` gave.
+        style={{ paddingTop: "calc(var(--region1-reserve, 0px) + 1rem)" }}
       >
         <div className={cn("flex min-h-0 w-full flex-1 flex-col", isRoot ? "max-w-[70vw]" : "max-w-[720px]")}>
           {/* Do-list narrowed to 2/3 of the measure and centered for a tighter list. */}

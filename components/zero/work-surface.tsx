@@ -5,38 +5,46 @@ import { motion } from "motion/react"
 import { useTheme } from "next-themes"
 import { useZeroNav } from "@/lib/zero/nav-store"
 import { getSpace, getEntity, isDetachedChild } from "@/lib/zero/data"
-import { shellStageFor, TIMELINE_LIFT_Y, TIMELINE_TOP_PAD } from "@/lib/zero/layout"
+import { shellStageFor, HEADER_BAND_H, TIMELINE_TOP_PAD } from "@/lib/zero/layout"
 import { entityRegions } from "@/lib/zero/regions"
-import { telescopicSurface } from "@/lib/zero/motion"
+import { layerTransition, telescopicSurface } from "@/lib/zero/motion"
 import { DURATION_S, MORPH_CSS_EASE } from "@/lib/zero/flip-stage"
 import { registerStage } from "@/lib/zero/flip-stage"
 import { EntityBody } from "./entity-body"
 import { EntityNode } from "./entity-node"
-import { Region } from "./region"
 import { TimelineStrip } from "./timeline-strip"
 
 /**
  * The composed work surface — and the renderer for ENTITY 0's REGION STACK
  * (see lib/zero/regions). Entity 0 (home) is special: its region 0 is the
- * recursive focus-window region that hosts the ENTIRE entity tree, so its regions
- * are laid out here rather than inside an EntityBody.
+ * recursive focus-window region that hosts the ENTIRE entity tree.
  *
- * Home's content area is a vertical flex column of regions:
+ * REGION MODEL (overlay timeline):
  *
- *   ┌─────────────────────────────────────┐
- *   │  REGION 1 — timeline      (hug)       │  ← context-filtered; hugs its height
- *   │ ┌─────────────────────────────────┐  │     and PUSHES region 0 down. Lifts
- *   │ │ REGION 0 — content     (fill)    │  │     toward the header with depth via
- *   │ │  • home do-list (centered)       │  │     a transform (no reflow).
- *   │ │  • child focus windows open here │  │  ← region 0 is the window region:
- *   │ │    (position: fixed to this box) │  │     it fills the leftover space and
- *   │ └─────────────────────────────────┘  │     every fixed window is anchored to
- *   └─────────────────────────────────────┘     its rect.
+ *   ┌─────────────────────────────────────┐  ← card (below the app header bar)
+ *   │ ░ REGION 1 — timeline  (overlay) ░░░ │  ← entity 0's region 1. Absolutely
+ *   │ ┌─────────────────────────────────┐  │     positioned at `timelineTop`; NOT in
+ *   │ │ REGION 0 — window region (fill) │  │     flow. z-30, so it floats over region
+ *   │ │  • home do-list (below timeline) │  │     0. Its bottom defines a RESERVE that
+ *   │ │  • child focus windows open here │  │     content below it pads for.
+ *   │ └─────────────────────────────────┘  │  ← region 0 fills the WHOLE card now.
+ *   └─────────────────────────────────────┘     Every fixed window fills this rect.
  *
- * Because the timeline is region 1 ABOVE region 0, and children open INSIDE region
- * 0, the timeline naturally stays above child content at every depth (the "master
- * timeline flies with the user" behavior) without any re-parenting. The non-root
- * entities have only region 0 for now; their region stack lives in EntityBody.
+ * The timeline is the user's ONE master "region 1" (a timeless life artefact that
+ * follows them everywhere). A space child does not get its own region 1 — it
+ * REFERENCES entity 0's: structurally there is a single TimelineStrip here, and we
+ * just move it vertically.
+ *   • HOME (no window open): timeline rests at `TIMELINE_TOP_PAD` from the card top,
+ *     with the home do-list reserved below it → identical to before.
+ *   • WINDOW OPEN: the active window fills region 0 from the card top, so its header
+ *     (glyph + title + close) sits just under the app bar; the timeline drops to
+ *     `HEADER_BAND_H` (the header's bottom) and the window's content reserves the
+ *     slot below it. Visual order: app bar → entity header → timeline → content.
+ *
+ * Because region 0 == the full card, the home body and the active window's body both
+ * start at the card top, so the timeline's BOTTOM (`timelineTop + timelineH`) is a
+ * single RESERVE both consume via the `--region1-reserve` CSS var. And the IN/OUT
+ * rails (anchored to region 0's center) now center on the full entity for free.
  */
 export function WorkSurface() {
   const { activeEntity, stack, fading } = useZeroNav()
@@ -49,40 +57,39 @@ export function WorkSurface() {
   // own accent when it isn't a space.
   const accent = getSpace(contextId)?.accent ?? getEntity(contextId)?.accent
 
-  // As the user dives deeper, the whole interface compacts: the timeline slides
-  // up toward the header bar (less top padding) at each stage.
   const stage = shellStageFor(activeEntity)
 
-  // Entity 0's region stack (top → bottom). For home this is [timeline (hug),
-  // region 0 (fill)]; the hug regions are rendered above region 0 below. Region 0
-  // itself is the special window region (it hosts the whole recursive tree), so we
-  // render it explicitly rather than from this list.
-  const regions = entityRegions(true)
-  const hugRegions = regions.filter((r) => r.grow === "hug")
+  // Region 1 = entity 0's timeline (asserted by the region model). It's rendered as
+  // an absolute overlay below; region 0 is the window region rendered explicitly.
+  const hasTimeline = entityRegions(true).some((r) => r.component === "timeline")
 
-  // Home's IN/OUT side panels must center on the FULL entity (region 1 + region 0),
-  // not on region 0 alone — otherwise they drift down as the timeline grows. The
-  // panels live inside region 0's EntityBody and anchor to its center (top-1/2), so
-  // we shift them UP by half the timeline's occupied height. region 0's `offsetTop`
-  // within the card == exactly that height (the hug regions stacked above it incl.
-  // their top margin), so the correction is `-offsetTop / 2`. We remeasure whenever
-  // region 0 resizes (it shrinks as the timeline grows). registerStage is preserved
-  // via a combined ref so the Flip stage still resolves this box.
+  // Is a focus window open? When so, the timeline drops to sit just under the active
+  // window's header (HEADER_BAND_H) instead of at its home resting pad.
+  const windowOpen = stack.length > 0
+  const timelineTop = windowOpen ? HEADER_BAND_H : TIMELINE_TOP_PAD
+
+  // Measure the live timeline height so content below it (home do-list, the active
+  // window's content) can reserve `timelineTop + timelineH`. Exposed as the
+  // `--region1-reserve` CSS var on the card so EntityBody — at home AND inside every
+  // fixed window — consumes one value without prop drilling. registerStage is
+  // preserved via a combined ref so the Flip stage still resolves region 0's box.
   const regionElRef = useRef<HTMLDivElement | null>(null)
-  const [panelShift, setPanelShift] = useState(0)
+  const timelineElRef = useRef<HTMLDivElement | null>(null)
+  const [timelineH, setTimelineH] = useState(0)
   const setRegionRef = useCallback((el: HTMLDivElement | null) => {
     regionElRef.current = el
     registerStage(el)
   }, [])
   useEffect(() => {
-    const el = regionElRef.current
+    const el = timelineElRef.current
     if (!el) return
-    const measure = () => setPanelShift(-el.offsetTop / 2)
+    const measure = () => setTimelineH(el.offsetHeight)
     measure()
     const ro = new ResizeObserver(measure)
     ro.observe(el)
     return () => ro.disconnect()
   }, [])
+  const region1Reserve = timelineTop + timelineH
 
   // Home is window 0 in the telescopic surface model. In DARK mode it stays on
   // pure --background (level 0) at every depth — a no-op. In LIGHT mode it is the
@@ -102,37 +109,45 @@ export function WorkSurface() {
     // clip its scaled-up parent frames.
     <div
       className="relative flex h-full w-full flex-col rounded-md"
-      style={{ backgroundColor: homeSurface, transition: homeBgTransition }}
+      style={
+        {
+          backgroundColor: homeSurface,
+          transition: homeBgTransition,
+          // The timeline's reserved bottom, consumed by EntityBody (home + every
+          // fixed window) so content sits below the overlay timeline.
+          "--region1-reserve": `${region1Reserve}px`,
+        } as React.CSSProperties
+      }
     >
-      {/* HUG REGIONS above region 0 — for entity 0 this is region 1, the master
-          timeline. A hug region sizes to its content and pushes region 0 down. The
-          timeline rises toward (and slightly into) the header bar with depth via the
-          Region's `lift` transform (NOT a margin): that keeps region 0's box — the
-          rect that anchors every fixed window — perfectly still through the morph.
-          The resting top margin stays constant. Not clipped by the card, so it never
-          crops. z-30 keeps it above the window region / opened children. */}
-      {hugRegions.map((r) => (
-        <Region
-          key={r.id}
-          grow={r.grow}
-          lift={TIMELINE_LIFT_Y[stage]}
-          className="z-30 px-6"
-          style={{ marginTop: TIMELINE_TOP_PAD }}
+      {/* REGION 1 — the master timeline, an ABSOLUTE OVERLAY (not in flow), so
+          region 0 below can fill the whole card and the timeline can float at the
+          active entity's header bottom. `top` ANIMATES between the home resting pad
+          and HEADER_BAND_H (header bottom) when a window opens, so the timeline
+          glides into the window just below its header. z-30 floats it over region 0
+          / opened windows; not clipped by the card, so it never crops. The active
+          window's content reserves space below it via `--region1-reserve`. */}
+      {hasTimeline ? (
+        <motion.div
+          ref={timelineElRef}
+          className="absolute inset-x-0 z-30 px-6"
+          initial={false}
+          animate={{ top: timelineTop }}
+          transition={layerTransition}
         >
-          {r.component === "timeline" ? <TimelineStrip contextId={contextId} accent={accent} /> : null}
-        </Region>
-      ))}
+          <TimelineStrip contextId={contextId} accent={accent} />
+        </motion.div>
+      ) : null}
 
       {/* REGION 0 (fill) — the focus-window region, where the SINGLE recursive
-          entity tree lives. This is entity 0's region 0: it fills the space left
-          below the hug regions (timeline) above, so home's centered do-list sits in
-          the visual middle of the leftover area, and the timeline pushes it down.
-          The root entity's body (home view) is always mounted; its dock cards and
-          DO-list rows are themselves `EntityNode`s that morph IN PLACE into
-          fixed focus windows when opened, and shrink back into their own row on
-          close (same DOM node — no duplicate, no captured-rect drift). This
-          wrapper owns the clipping + establishes the positioning context the
-          opened windows are measured against (they use region-relative `fixed`).
+          entity tree lives. It now fills the ENTIRE card (the timeline is an overlay,
+          not a band above it), so an opened window fills from the card top: its
+          header sits just under the app bar and the timeline drops below it. The
+          root entity's body (home view) is always mounted; its dock cards and DO-list
+          rows are themselves `EntityNode`s that morph IN PLACE into fixed focus
+          windows when opened, and shrink back into their own row on close (same DOM
+          node — no duplicate, no captured-rect drift). This wrapper owns the clipping
+          + establishes the positioning context the opened windows are measured
+          against (they use region-relative `fixed`).
 
           `data-window-region` lets the Flip stage resolve this box's rect so a
           window can fill it exactly at depth 1. */}
@@ -140,10 +155,7 @@ export function WorkSurface() {
         ref={setRegionRef}
         data-window-region
         // `flex flex-col` so the always-mounted home EntityBody (flex-1) is
-        // actually constrained to this region's height. Without it the region was
-        // a plain block, EntityBody sized to its content and overflowed — an
-        // expanded Inputs panel then grew the columns row and pushed the opposite
-        // (centered) Outputs rail down.
+        // actually constrained to this region's height.
         //
         // Clipping uses `clip-path` (an inset with a NEGATIVE bottom) instead of
         // `overflow-hidden`. At rest the open windows are `position: fixed`, so
@@ -152,20 +164,11 @@ export function WorkSurface() {
         // clipped the stacked drop-shadows at the very bottom of the screen — they
         // vanished mid-animation and snapped back when it ended. The negative
         // bottom inset (−120px) leaves room for those shadows while still clipping
-        // the top/sides (so peeking parent frames stay contained).
-        // Top inset is NEGATIVE (−48px) so the windows — which grow upward past the
-        // region top as the shell compacts (WINDOW_TOP_LIFT) — are not clipped at
-        // their tops during the morph (when frames are `absolute` inside this box).
-        // The space above is the header's empty area, so nothing else shows there.
+        // the top/sides (so peeking parent frames stay contained). The small
+        // negative top inset keeps morph shadows above the frame top from clipping.
         className="relative flex min-h-0 flex-1 flex-col rounded-md [clip-path:inset(-48px_0px_-120px_0px_round_6px)]"
       >
-        <EntityBody
-          entityId={rootId}
-          active={activeEntity.id === rootId}
-          isRoot
-          centerList
-          railShift={panelShift}
-        />
+        <EntityBody entityId={rootId} active={activeEntity.id === rootId} isRoot centerList />
 
         {/* DETACHED WINDOWS. The recursive in-place tree above only reaches a stack
             entry through its host's do-list/dock. When an entry's host is NOT its
