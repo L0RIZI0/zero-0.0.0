@@ -835,9 +835,10 @@ export function TimelineStrip({
               </div>
             )}
 
-            {/* ribbon backgrounds + left labels — one horizontal band per space
-                (the time.graphics "folder" model). Behind the bars; only shown when
-                more than one space is in view. */}
+            {/* ribbon background BANDS — one tinted horizontal band per space (the
+                time.graphics "folder" model). Rendered BEHIND the bars (z-0). The
+                left labels are a separate pass AFTER the bars so they paint on top of
+                any event chip that reaches the gutter. Only shown when >1 space. */}
             {showRibbons &&
               lanes.ribbons.map((r) => {
                 const top = laneTop(r.baseLane) - 3
@@ -855,21 +856,7 @@ export function TimelineStrip({
                       backgroundColor: `${r.color}0d`,
                       borderLeft: `2px solid ${r.color}66`,
                     }}
-                  >
-                    {/* sticky left label — pinned, does not pan with the lifeline.
-                        Solid opaque chip (no backdrop-blur): the blur is imperceptible
-                        over the near-black timeline and is the costly GPU effect, so a
-                        crisp opaque tag is both cheaper and far more legible. */}
-                    <button
-                      type="button"
-                      onClick={() => r.spaceId !== "s_root" && open(r.spaceId)}
-                      title={r.title}
-                      className="pointer-events-auto absolute left-1 top-1/2 flex max-w-[42%] -translate-y-1/2 items-center gap-1 rounded border border-border/70 bg-card px-1.5 py-0.5 text-[9.5px] font-medium leading-none tracking-tight text-foreground/80 shadow-sm transition-colors hover:text-foreground"
-                    >
-                      <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: r.color }} aria-hidden />
-                      <span className="truncate">{r.title}</span>
-                    </button>
-                  </div>
+                  />
                 )
               })}
 
@@ -1020,6 +1007,31 @@ export function TimelineStrip({
                 </div>
               )
             })}
+
+            {/* ribbon left LABELS — pinned to the gutter, painted AFTER the bars so a
+                chip that reaches the left edge passes BEHIND the label, not over it.
+                Solid opaque chip (no backdrop-blur): blur is imperceptible over the
+                near-black timeline and is the costly GPU effect, so a crisp opaque tag
+                is both cheaper and far more legible. */}
+            {showRibbons &&
+              lanes.ribbons.map((r) => {
+                const bandTop = laneTop(r.baseLane) - 3
+                const bandH = r.laneCount * LANE_H + (r.laneCount - 1) * LANE_GAP + 6
+                const related = atRootFocus || r.spaceId === contextId || isInSubtree(contextId, r.spaceId)
+                return (
+                  <button
+                    key={`ribbon-label:${r.spaceId}`}
+                    type="button"
+                    onClick={() => r.spaceId !== "s_root" && open(r.spaceId)}
+                    title={r.title}
+                    className="absolute z-20 flex max-w-[42%] items-center gap-1 rounded border border-border/70 bg-card px-1.5 py-0.5 text-[9.5px] font-medium leading-none tracking-tight text-foreground/80 shadow-sm transition-[opacity,colors,top] duration-300 ease-out hover:text-foreground"
+                    style={{ left: 4, top: bandTop + bandH / 2, transform: "translateY(-50%)", opacity: related ? 1 : UNRELATED_OPACITY }}
+                  >
+                    <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: r.color }} aria-hidden />
+                    <span className="truncate">{r.title}</span>
+                  </button>
+                )
+              })}
           </div>
 
           <button

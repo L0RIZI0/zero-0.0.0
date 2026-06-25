@@ -243,7 +243,13 @@ interface GrainTickConfig {
 const fmtHour = timeFormat("%-I%p") // 8AM
 const fmtHourMin = timeFormat("%-I:%M") // 8:30
 const fmtHourLower = (d: Date) => fmtHour(d).toLowerCase() // 8am (sub-hour context)
-const fmtMinPast = timeFormat(":%M") // :15 (minutes past the hour)
+  // Minutes past the hour, written with the prime mark (15′, 30′, 45′) instead of a
+  // colon prefix (":15") — cleaner and unambiguous since the bold hour tier sits
+  // alongside. At minute 0 we show the hour itself rather than "0′".
+  const fmtMinPast = (d: Date) => {
+    const m = d.getMinutes()
+    return m === 0 ? fmtHourLower(d) : `${m}′`
+  }
 const fmtWeekday = timeFormat("%a %-d") // Mon 5
 const fmtDayNum = timeFormat("%-d") // 5
 const fmtMonthShort = timeFormat("%b") // Jun
