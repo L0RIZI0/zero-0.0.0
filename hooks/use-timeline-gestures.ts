@@ -68,10 +68,11 @@ const ZOOM_K = 0.0018
 // This reads markedly silkier than exponential decay (which starts at full speed),
 // for the price of one velocity float per dimension and a couple of multiplies/frame.
   // OMEGA is the angular frequency (rad/s): higher = snappier, lower = more languid.
-  // Settle time ≈ 6/(ζ·OMEGA). Lowered to 10 so the post-notch overshoot lingers long
-  // enough to actually READ as a bounce (at 13 it settled too fast to perceive,
-  // especially with discrete mouse-wheel notches that nearly catch up between ticks).
-  const OMEGA = 10
+  // Settle time ≈ 6/(ζ·OMEGA). Lowered to 7 for more INERTIA — the zoom carries
+  // momentum and keeps gliding well after each notch instead of arriving quickly, so
+  // mouse-wheel notches accumulate into one continuous, elastic glide (paired with the
+  // ζ=0.5 overshoot below). This is the heavier, more "weighted" feel that worked.
+  const OMEGA = 7
 // ZETA is the damping ratio. 1 = critically damped (no overshoot). We run it UNDER 1
 // so the zoom carries real spring elasticity — it overshoots the target span by a few
 // percent and eases back for a lively, bouncy settle. This is safe now that start is

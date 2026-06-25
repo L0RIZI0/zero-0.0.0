@@ -512,11 +512,11 @@ export function TimelineStrip({
     const fT = anchored ? (anchorMs - targetStart) / spT : 0
     animRef.current = animate(0, 1, {
       duration: 0.55,
-      // Gentle overshoot (easeOutBack) so preset/now transitions land with the same
-      // elastic spring character as the wheel zoom. Safe with anchored callers: the
-      // span overshoots and eases back while the anchor instant stays pinned. y2=1.12
-      // keeps the overshoot subtle (1.4 read as too big).
-      ease: [0.34, 1.12, 0.64, 1],
+      // Soft landing, NO overshoot: preset/now transitions decelerate smoothly into
+      // place. (The wheel zoom keeps its elastic spring bounce; selectors are
+      // deliberately calmer — a clean easeOut quint so the view eases to rest without
+      // any bounce-back.)
+      ease: [0.22, 1, 0.36, 1],
       onUpdate: (t) => {
         const span = sp0 * Math.pow(spT / sp0, t)
         const start = anchored ? anchorMs - (f0 + (fT - f0) * t) * span : s0 + (targetStart - s0) * t
