@@ -65,7 +65,11 @@ const LANE_GAP = 4
 // (≈3 chars + dot + padding), so it COLLAPSES into a compact "marker": a smooth
 // horizontal line the length of the span, a vertical color edge on its left, and
 // the title floated above-left (free to overflow past the tiny span, like a pin).
-const CHIP_COLLAPSE_PX = 46
+ const CHIP_COLLAPSE_PX = 46
+// Master switch for the "minimal chip" collapse. Disabled for now: since chip titles
+// bleed past their frame, narrow chips stay fully labeled rather than collapsing to a
+// line+title marker. Flip back to `true` to re-enable the marker behavior below.
+const CHIP_COLLAPSE_ENABLED = false
 // Vertical breathing room above+below the stacked lanes when the track grows.
 const TRACK_PAD_Y = 6
 // Hard ceiling on how many lanes can grow the track, so a dense pile-up (or many
@@ -933,7 +937,7 @@ export function TimelineStrip({
               // becomes a smooth horizontal line the width of the span, a vertical
               // color edge rising at its left, and the title set to the RIGHT of that
               // vertical connector (free to overflow past the tiny span).
-              if (widthPx < CHIP_COLLAPSE_PX) {
+              if (CHIP_COLLAPSE_ENABLED && widthPx < CHIP_COLLAPSE_PX) {
                 return (
                   <motion.button
                     key={b.key}

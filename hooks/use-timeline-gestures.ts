@@ -70,10 +70,11 @@ const ZOOM_K = 0.0009
 // Settle time ≈ 6/(ζ·OMEGA), so 13 ≈ ~0.5 s glide at the damping below.
 const OMEGA = 13
 // ZETA is the damping ratio. 1 = critically damped (no overshoot). We run it a touch
-// UNDER 1 so the zoom carries a little spring "bounce" — it overshoots the target by
-// a few percent and eases back, giving the motion more lively, elastic character
-// (the requested intensity bump) without becoming visibly wobbly. 0.68 ≈ ~6% overshoot.
-const ZETA = 0.68
+// UNDER 1 so the zoom settles with a subtle spring life rather than a flat stop, but
+// kept gentle (0.85 ≈ ~1% overshoot) so it never feels like it over-corrects. The
+// cursor-anchored start (see anchorRef) keeps even this tiny span overshoot pinned
+// under the pointer — no horizontal slide.
+const ZETA = 0.85
 // Clamp dt so a tab regaining focus (huge dt) can't teleport the view in one step.
 const MAX_DT = 1 / 30
 // Settle thresholds: stop the loop once position AND velocity are negligible.
@@ -156,6 +157,12 @@ export function useTimelineGestures({
   // fresh or the loop ends.
   const velLogRef = useRef(0)
   const velStartRef = useRef(0)
+  // Active zoom anchor: the time under the cursor (`t`) and its fractional x across
+  // the viewport (`frac`). While set, the tick loop DERIVES start from the LIVE span
+  // each frame (start = t − frac·span) instead of running a separate pan spring — so
+  // the cursor time stays pinned the entire glide with zero horizontal drift / no
+  // slide-back. Cleared by a pan, a drag, or when the loop settles.
+  const anchorRef = useRef<{ t: number; frac: number } | null>(null)
 
   const clampSpan = (s: number) => Math.min(maxSpan, Math.max(minSpan, s))
 
@@ -179,15 +186,24 @@ export function useTimelineGestures({
       // First frame of a loop has no prior timestamp — use a nominal 60 Hz step.
       const dt = last == null ? 1 / 60 : Math.min(MAX_DT, (ts - last) / 1000)
 
-      // Advance each dimension's spring by the real elapsed time. ZOOM (log-span)
-      // runs slightly underdamped for that lively bounce; PAN (start) stays critically
-      // damped (ζ=1) so the position never slides past and snaps back.
+      // Advance the ZOOM (log-span) spring — slightly underdamped for a lively settle.
       const logStep = springStep(Math.log(cur.spanMs), velLogRef.current, Math.log(tgt.spanMs), OMEGA, ZETA, dt)
-      const startStep = springStep(cur.startMs, velStartRef.current, tgt.startMs, OMEGA, 1, dt)
       velLogRef.current = logStep.vel
-      velStartRef.current = startStep.vel
       let nextSpan = Math.exp(logStep.pos)
-      let nextStart = startStep.pos
+
+      // PAN: if a zoom anchor is active, DERIVE start from the live span so the cursor
+      // time stays pinned every frame (no separate start spring → no horizontal drift
+      // or slide-back). Otherwise run start as its own critically-damped spring (ζ=1).
+      let nextStart: number
+      const anchor = anchorRef.current
+      if (anchor) {
+        nextStart = anchor.t - anchor.frac * nextSpan
+        velStartRef.current = 0
+      } else {
+        const startStep = springStep(cur.startMs, velStartRef.current, tgt.startMs, OMEGA, 1, dt)
+        velStartRef.current = startStep.vel
+        nextStart = startStep.pos
+      }
 
       // Settle once BOTH position and velocity are negligible in each dimension —
       // velocity matters too, else the spring could coast past its eps and idle.
@@ -209,6 +225,7 @@ export function useTimelineGestures({
         lastTRef.current = null
         velLogRef.current = 0
         velStartRef.current = 0
+        anchorRef.current = null
         endCbRef.current?.()
         return
       }
@@ -243,6 +260,7 @@ export function useTimelineGestures({
       // Horizontal intent (trackpad swipe or shift-wheel) → pan.
       const horizontal = Math.abs(dx) > Math.abs(dy) || e.shiftKey
       if (horizontal) {
+        anchorRef.current = null // a pan releases the zoom anchor
         const delta = e.shiftKey ? dy : dx
         const nextStart = base.startMs + (delta / width) * base.spanMs
         targetRef.current = { startMs: nextStart, spanMs: base.spanMs }
@@ -250,11 +268,13 @@ export function useTimelineGestures({
         return
       }
 
-      // Vertical → cursor-anchored zoom. Pointer time stays pinned (anchored on
-      // the TARGET so repeated notches keep the same pivot under the cursor).
+      // Vertical → cursor-anchored zoom. The cursor time is pinned for the WHOLE glide:
+      // we record it as the anchor so the tick loop keeps start = t − frac·span every
+      // frame from the live span (target start below is the same relation at target).
       const cursorX = e.clientX - rect.left
       const frac = cursorX / width
       const tCursor = base.startMs + frac * base.spanMs
+      anchorRef.current = { t: tCursor, frac }
       const nextSpan = clampSpan(base.spanMs * Math.exp(dy * ZOOM_K))
       const nextStart = tCursor - frac * nextSpan
       targetRef.current = { startMs: nextStart, spanMs: nextSpan }
@@ -269,6 +289,7 @@ export function useTimelineGestures({
       lastTRef.current = null
       velLogRef.current = 0
       velStartRef.current = 0
+      anchorRef.current = null
       currentRef.current = null
       targetRef.current = null
     }
@@ -291,6 +312,7 @@ export function useTimelineGestures({
       velLogRef.current = 0
       velStartRef.current = 0
     }
+    anchorRef.current = null // a drag releases any zoom anchor
     targetRef.current = null
     const startX = e.clientX
     const base = currentRef.current ?? viewRef.current
