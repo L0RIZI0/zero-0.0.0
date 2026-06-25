@@ -144,9 +144,10 @@ const GLYPH_MORPH_EASE = "power3.inOut"
 // back onto the bottom edge, so un-sending is the exact reverse.
 const REQUEST_PIVOT: Pt = [19.5, 19.5] // square bottom-right corner (the hinge)
 const REQUEST_FREE_END: Pt = [4.5, 19.5] // bottom-left corner — the swinging tip at rest
-// Downward tilt (CW about the pivot, hence negative in SVG's rotation sense). ~12°
-// drops the tip ~3 units below the square — clearly tilted yet inside the 24-box.
-const REQUEST_TILT_DEG = -12
+// Downward tilt (CW about the pivot, hence negative in SVG's rotation sense). ~45°
+// swings the tip well below-left of the square for a pronounced accent; the glyph
+// SVG is overflow-visible so the lowered tip isn't clipped by the 24-box.
+const REQUEST_TILT_DEG = -45
 
 /**
  * A crisp geometric silhouette for a node kind, drawn as a single SVG `<polygon>`
