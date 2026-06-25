@@ -136,18 +136,34 @@ const GLYPH_MORPH_EASE = "power3.inOut"
 //
 // A task sent to someone ("Can you do this?") keeps its square but sprouts an
 // extra edge of the SAME length as a square side, hinged at the square's
-// bottom-right corner. It is modelled as a standalone <line> that, at rest,
-// overlaps the square's bottom edge (pivot = bottom-right corner, free end at the
-// bottom-left corner) and, when sent, ROTATES down about that corner into a
-// slight tilt — reading like an acute accent ´ tucked under the square and
-// touching its bottom-right corner. Rotating the other way (back to 0°) folds it
-// back onto the bottom edge, so un-sending is the exact reverse.
+// bottom-right corner. At rest it overlaps the square's bottom edge; when sent it
+// swings DOWN about the corner into a tilt — reading like an acute accent ´
+// touching the corner. Un-sending is the exact reverse.
+//
+// CRUCIALLY it is NOT a standalone line: two separately-stroked edges meeting at a
+// point can't fill the angular wedge between their caps, which left a notch/nub at
+// the corner. Instead the accent is a single <path> that starts with a short STUB
+// overlapping the square's RIGHT edge, turns AT the corner, then runs out to the
+// swinging tip. That turn is a real stroke-linejoin (so the corner fills cleanly),
+// and routing the stub along the right edge keeps the join angle gentle (45–90°),
+// so the miter stays tiny instead of spiking. The stub sits exactly on the square's
+// own right-edge stroke, so it is invisible.
 const REQUEST_PIVOT: Pt = [19.5, 19.5] // square bottom-right corner (the hinge)
-const REQUEST_FREE_END: Pt = [4.5, 19.5] // bottom-left corner — the swinging tip at rest
-// Downward tilt (CW about the pivot, hence negative in SVG's rotation sense). ~45°
-// swings the tip well below-left of the square for a pronounced accent; the glyph
-// SVG is overflow-visible so the lowered tip isn't clipped by the 24-box.
-const REQUEST_TILT_DEG = -45
+const REQUEST_STUB: Pt = [19.5, 13.5] // start of the incoming stub, on the right edge
+const REQUEST_LEN = 15 // accent length = one square side
+// Downward swing from the bottom edge when sent; the glyph SVG is overflow-visible
+// so the lowered tip isn't clipped by the 24-box.
+const REQUEST_ANGLE_DEG = 45
+
+/** Path for the request accent at a given downward swing angle (deg, 0 = folded
+ *  onto the bottom edge). Right-edge stub → corner → tip, so the corner is a clean
+ *  linejoin. At angle 0 the whole path overlaps the square and is invisible. */
+function requestAccentPath(angleDeg: number): string {
+  const rad = (angleDeg * Math.PI) / 180
+  const tipX = REQUEST_PIVOT[0] - REQUEST_LEN * Math.cos(rad)
+  const tipY = REQUEST_PIVOT[1] + REQUEST_LEN * Math.sin(rad)
+  return `M ${REQUEST_STUB[0]} ${REQUEST_STUB[1]} L ${REQUEST_PIVOT[0]} ${REQUEST_PIVOT[1]} L ${tipX.toFixed(3)} ${tipY.toFixed(3)}`
+}
 
 /**
  * A crisp geometric silhouette for a node kind, drawn as a single SVG `<polygon>`
@@ -173,8 +189,11 @@ export function NodeGlyph({
   request?: boolean
 }) {
   const polyRef = useRef<SVGPolygonElement | null>(null)
-  const reqRef = useRef<SVGLineElement | null>(null)
+  const reqRef = useRef<SVGPathElement | null>(null)
   const prevReqRef = useRef<boolean>(request)
+  // Current swing angle actually painted (so an interrupted swing resumes smoothly).
+  const reqAngleRef = useRef<number>(request ? REQUEST_ANGLE_DEG : 0)
+  const reqTweenRef = useRef<gsap.core.Tween | null>(null)
   // The points currently PAINTED (kept in sync each tween frame). Starting value
   // is the mount kind's shape, so the first render is correct with no animation.
   const dispRef = useRef<Pt[]>(KIND_POLYGON[kind])
@@ -209,31 +228,39 @@ export function NodeGlyph({
     }
   }, [kind])
 
-  // Swing the "sent" edge in/out when `request` flips. The hinge is the square's
-  // bottom-right corner (`svgOrigin`): from 0° it lies on the bottom edge, and it
-  // rotates down to REQUEST_TILT_DEG when sent (and back when un-sent), fading so
-  // it doesn't flash as a doubled stroke over the square's own edge. On the first
-  // render (no change) the resting state is set instantly — useLayoutEffect runs
-  // before paint, so there is no untilted flash.
+  // Swing the "sent" edge in/out when `request` flips by tweening its angle and
+  // rewriting the path `d` each frame (same pattern as the kind morph above). At
+  // angle 0 the path folds onto the square and is invisible; the target is the full
+  // downward swing. On the first render (no change) the resting state is set
+  // instantly — useLayoutEffect runs before paint, so there is no flash.
   useLayoutEffect(() => {
-    const line = reqRef.current
-    if (!line) return
-    const origin = `${REQUEST_PIVOT[0]} ${REQUEST_PIVOT[1]}`
+    const path = reqRef.current
+    if (!path) return
+    const target = request ? REQUEST_ANGLE_DEG : 0
     const changed = prevReqRef.current !== request
     prevReqRef.current = request
     if (!changed) {
-      gsap.set(line, { rotation: request ? REQUEST_TILT_DEG : 0, svgOrigin: origin, opacity: request ? 1 : 0 })
+      reqAngleRef.current = target
+      path.setAttribute("d", requestAccentPath(target))
       return
     }
-    const tween = gsap.to(line, {
-      rotation: request ? REQUEST_TILT_DEG : 0,
-      opacity: request ? 1 : 0,
-      svgOrigin: origin,
+    reqTweenRef.current?.kill()
+    const proxy = { a: reqAngleRef.current }
+    reqTweenRef.current = gsap.to(proxy, {
+      a: target,
       duration: GLYPH_MORPH_SECONDS,
       ease: GLYPH_MORPH_EASE,
+      onUpdate: () => {
+        reqAngleRef.current = proxy.a
+        path.setAttribute("d", requestAccentPath(proxy.a))
+      },
+      onComplete: () => {
+        reqAngleRef.current = target
+        path.setAttribute("d", requestAccentPath(target))
+      },
     })
     return () => {
-      tween.kill()
+      reqTweenRef.current?.kill()
     }
   }, [request])
 
@@ -255,23 +282,19 @@ export function NodeGlyph({
         strokeLinejoin="miter"
         vectorEffect="non-scaling-stroke"
       />
-      {/* "Sent as request" edge — hinged at the square's bottom-right corner. Its
-          resting/animated transform is driven entirely by the effect above; it
-          starts hidden (opacity 0) so a non-requested glyph shows nothing. */}
-      <line
+      {/* "Sent as request" accent — a single path (right-edge stub → corner → tip)
+          so the corner is a clean linejoin, not two clashing caps. `d` is driven by
+          the effect above; at rest it folds onto the square and is invisible.
+          fill="none" because open SVG paths default to a black fill. */}
+      <path
         ref={reqRef}
-        x1={REQUEST_FREE_END[0]}
-        y1={REQUEST_FREE_END[1]}
-        x2={REQUEST_PIVOT[0]}
-        y2={REQUEST_PIVOT[1]}
+        d={requestAccentPath(request ? REQUEST_ANGLE_DEG : 0)}
+        fill="none"
         stroke="currentColor"
         strokeWidth={strokeWidth}
-        // butt cap (not round): the line ends exactly at the square's bottom-right
-        // corner, so a round cap would bulge half a stroke-width past it as a little
-        // nub. butt terminates flush and matches the square's sharp miter joins.
+        strokeLinejoin="miter"
         strokeLinecap="butt"
         vectorEffect="non-scaling-stroke"
-        opacity={0}
       />
     </svg>
   )
