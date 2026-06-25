@@ -1,5 +1,6 @@
 "use client"
 
+import { useCallback, useEffect, useRef, useState } from "react"
 import { motion } from "motion/react"
 import { useTheme } from "next-themes"
 import { useZeroNav } from "@/lib/zero/nav-store"
@@ -59,6 +60,30 @@ export function WorkSurface() {
   const regions = entityRegions(true)
   const hugRegions = regions.filter((r) => r.grow === "hug")
 
+  // Home's IN/OUT side panels must center on the FULL entity (region 1 + region 0),
+  // not on region 0 alone — otherwise they drift down as the timeline grows. The
+  // panels live inside region 0's EntityBody and anchor to its center (top-1/2), so
+  // we shift them UP by half the timeline's occupied height. region 0's `offsetTop`
+  // within the card == exactly that height (the hug regions stacked above it incl.
+  // their top margin), so the correction is `-offsetTop / 2`. We remeasure whenever
+  // region 0 resizes (it shrinks as the timeline grows). registerStage is preserved
+  // via a combined ref so the Flip stage still resolves this box.
+  const regionElRef = useRef<HTMLDivElement | null>(null)
+  const [panelShift, setPanelShift] = useState(0)
+  const setRegionRef = useCallback((el: HTMLDivElement | null) => {
+    regionElRef.current = el
+    registerStage(el)
+  }, [])
+  useEffect(() => {
+    const el = regionElRef.current
+    if (!el) return
+    const measure = () => setPanelShift(-el.offsetTop / 2)
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+
   // Home is window 0 in the telescopic surface model. In DARK mode it stays on
   // pure --background (level 0) at every depth — a no-op. In LIGHT mode it is the
   // deepest ancestor, so it darkens (capped) as the stack grows, completing the
@@ -112,7 +137,7 @@ export function WorkSurface() {
           `data-window-region` lets the Flip stage resolve this box's rect so a
           window can fill it exactly at depth 1. */}
       <div
-        ref={registerStage}
+        ref={setRegionRef}
         data-window-region
         // `flex flex-col` so the always-mounted home EntityBody (flex-1) is
         // actually constrained to this region's height. Without it the region was
@@ -134,7 +159,13 @@ export function WorkSurface() {
         // The space above is the header's empty area, so nothing else shows there.
         className="relative flex min-h-0 flex-1 flex-col rounded-md [clip-path:inset(-48px_0px_-120px_0px_round_6px)]"
       >
-        <EntityBody entityId={rootId} active={activeEntity.id === rootId} isRoot centerList />
+        <EntityBody
+          entityId={rootId}
+          active={activeEntity.id === rootId}
+          isRoot
+          centerList
+          railShift={panelShift}
+        />
 
         {/* DETACHED WINDOWS. The recursive in-place tree above only reaches a stack
             entry through its host's do-list/dock. When an entry's host is NOT its
