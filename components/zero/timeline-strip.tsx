@@ -2,32 +2,50 @@
 
 import { useEffect, useMemo, useRef, useState } from "react"
 import { AnimatePresence, motion, animate } from "motion/react"
-import { ChevronLeft, ChevronRight, ArrowLeft, ArrowRight, Trash2, Ban, RotateCcw } from "lucide-react"
+import { ChevronLeft, ChevronRight, Crosshair, Trash2, Ban, RotateCcw, Repeat } from "lucide-react"
 import {
   getInheritedAccent,
-  getTimelineOccurrences,
   type TimelineOccurrence,
-  isInSubtree,
   deleteEntity,
   setEventCancelled,
 } from "@/lib/zero/data"
+import {
+  queryTimeline,
+  clusterInstants,
+  applySemanticRollup,
+  entityInterval,
+  type StreamSeries,
+  type RollupBand,
+} from "@/lib/zero/timeline-index"
+import {
+  makeScale,
+  timelineTicks,
+  lodGrain,
+  scrubLabel,
+  spanToView,
+  clampSpan,
+  VIEWS,
+  VIEW_SPAN_MS,
+  MIN_SPAN_MS,
+  MAX_SPAN_MS,
+  type ViewKey,
+} from "@/lib/zero/timeline-scale"
 import type { Entity } from "@/lib/zero/types"
 import { panelTransition, layerTransition } from "@/lib/zero/motion"
 import { useZeroNav } from "@/lib/zero/nav-store"
 import { placementKey, resolveOriginRect } from "@/lib/zero/placement"
+import { useTimelineGestures } from "@/hooks/use-timeline-gestures"
 import { NodeGlyph } from "./node-glyph"
 import { ContextMenu, type ContextMenuState } from "./context-menu"
 import { cn } from "@/lib/utils"
 
 const HOUR_MS = 3_600_000
 const DAY_MS = 86_400_000
-const DEFAULT_START_H = 8 // 08:00 — left edge of a day's default framing
-const DEFAULT_END_H = 22 // 22:00 — right edge of a day's default framing
-// The visible window is always this wide (14h). The continuous "lifeline" is
-// now expressed in ABSOLUTE epoch milliseconds (Date.now()-style), so events
-// position by their real timestamps and naturally scroll across days. `viewStart`
-// is the epoch ms pinned to the left edge of the viewport.
-const WINDOW_SPAN = (DEFAULT_END_H - DEFAULT_START_H) * HOUR_MS // 14h in ms
+
+// Fallback color for items whose space chain has no accent (created directly
+// under the root "Space 0"). A neutral light grey so they still read as real
+// markers without claiming a brand color.
+const NEUTRAL_MARKER = "oklch(0.72 0.004 75)"
 
 /** Local midnight of `epoch`'s day, epoch ms. */
 function startOfDay(epoch: number): number {
@@ -36,118 +54,64 @@ function startOfDay(epoch: number): number {
   return d.getTime()
 }
 
-/**
- * Hour-aligned ruler ticks across the visible window. Walks LOCAL hour
- * boundaries (robust across timezones / DST, unlike fixed-ms stepping) from the
- * first `stepH`-aligned hour at/after `viewStart` to the right edge. Epoch ms.
- */
-function hourTicks(stepH: number, viewStart: number): number[] {
-  const d = new Date(viewStart)
-  d.setMinutes(0, 0, 0)
-  while (d.getHours() % stepH !== 0 || d.getTime() < viewStart) d.setHours(d.getHours() + 1)
-  const out: number[] = []
-  for (; d.getTime() <= viewStart + WINDOW_SPAN; d.setHours(d.getHours() + stepH)) out.push(d.getTime())
-  return out
-}
-
-// Timeline zoom spans, ordered top→bottom for the vertical selector: Life,
-// Year, Quarter, Month, Week, Day. Only "D" (the default 8am–10pm day view) is
-// wired up for now; the rest are a skeleton — selecting them just moves the
-// highlight. "D" rests at the bottom and is the default selection.
-const VIEWS = [
-  ["L", "Life"],
-  ["Y", "Year"],
-  ["Q", "Quarter"],
-  ["M", "Month"],
-  ["W", "Week"],
-  ["D", "Day"],
-] as const
-type ViewKey = (typeof VIEWS)[number][0]
-
-// Fallback color for items whose space chain has no accent (i.e. created
-// directly under the root "Space 0"). A neutral light grey so they still read
-// as real markers without claiming a brand color.
-const NEUTRAL_MARKER = "oklch(0.72 0.004 75)"
-
-/** A timed entity's [start, end] epoch interval. Instants are a zero-width
- *  point [at, at]; events are their [startAt, endAt] span. */
-function entitySpan(e: Entity): [number, number] {
-  const s = e.schedule
-  if (e.kind === "instant") {
-    const a = s?.at ?? 0
-    return [a, a]
-  }
-  const st = s?.startAt ?? 0
-  return [st, s?.endAt ?? st]
-}
-
-/**
- * Greedy interval lane-packing (proper gantt behaviour, replacing the old
- * arbitrary `index % 2`). Items are sorted by start, then each is placed in the
- * first lane whose previous item has already ended; otherwise a new lane opens.
- * Non-overlapping schedules collapse to a single lane; only genuine time
- * conflicts stack. Returns occKey→lane plus the total lane count. Keyed by
- * `occKey` (not `id`) so distinct occurrences of the same recurring series are
- * packed independently.
- */
-function packLanes(evts: TimelineOccurrence[]): { lane: Map<string, number>; count: number } {
-  const sorted = [...evts].sort((a, b) => entitySpan(a)[0] - entitySpan(b)[0])
-  const laneEnds: number[] = []
-  const lane = new Map<string, number>()
-  for (const e of sorted) {
-    const [s, en] = entitySpan(e)
-    let idx = laneEnds.findIndex((end) => end <= s)
-    if (idx === -1) {
-      idx = laneEnds.length
-      laneEnds.push(en)
-    } else {
-      laneEnds[idx] = en
-    }
-    lane.set(e.occKey, idx)
-  }
-  return { lane, count: Math.max(1, laneEnds.length) }
-}
-
-// Track layout: the strip is 56px tall (h-14). Lanes are 24px with a 4px gap,
-// and the used lanes are vertically CENTERED so a single-lane day sits in the
-// middle rather than pinned to the top.
+// --- Track layout -----------------------------------------------------------
 const TRACK_H = 56
 const LANE_H = 24
 const LANE_GAP = 4
 
 // Horizontal chrome flanking the scrolling viewport, in px. The viewport is the
-// shared coordinate space for gridlines, the now-marker and every event/instant.
-// Any OVERLAY that must line up with it (the hour ruler above the track, the
-// vertical instant labels) has to use these exact insets — hand-tuned guesses
-// drift out of alignment. The zoom selector is pinned to a fixed width precisely
-// so these insets stay deterministic.
-const ARROW_W = 40 // prev / next day chevron buttons (Tailwind w-10)
-const SELECTOR_W = 24 // zoom-selector letter column (Tailwind w-6)
-const VIEWPORT_INSET_LEFT = SELECTOR_W + ARROW_W // selector + prev arrow
-const VIEWPORT_INSET_RIGHT = ARROW_W // next arrow only
+// shared coordinate space for gridlines, the now-marker and every marker. Any
+// OVERLAY that must line up with it has to use these exact insets.
+const ARROW_W = 40
+const SELECTOR_W = 24
+const VIEWPORT_INSET_LEFT = SELECTOR_W + ARROW_W
+const VIEWPORT_INSET_RIGHT = ARROW_W
 
-// Instant-pin geometry (px), all measured from the TRACK's top edge with
-// negative = ABOVE the track. A pin is: a down-triangle HEAD with its title
-// horizontally to the LEFT, and a thin vertical STEM dropping from just under
-// the triangle to the track bottom. Heads sit ABOVE the hour ruler so they never
-// cover the timestamps; colliding pins stack UPWARD by INSTANT_ROW_STEP.
-const INSTANT_TRI = 10 // triangle glyph box (px)
-const INSTANT_HEAD_CLEARANCE = 22 // gap above track top for the LOWEST triangle bottom (clears the timestamps)
-const INSTANT_ROW_STEP = 16 // vertical rise per stacked level
-const INSTANT_STEM_GAP = 1 // gap between triangle bottom and stem top
-// Rough per-character width (px) of the 10px label, used only to estimate
-// horizontal footprints for collision stacking — not for actual layout.
+// Instant-pin geometry (px), measured from the TRACK's top edge (negative =
+// ABOVE the track). A pin is a down-triangle HEAD with its title to the LEFT and
+// a thin vertical STEM to the track bottom. Heads sit above the ruler.
+const INSTANT_TRI = 10
+const INSTANT_HEAD_CLEARANCE = 22
+const INSTANT_ROW_STEP = 16
+const INSTANT_STEM_GAP = 1
 const INSTANT_CHAR_W = 5.6
-const INSTANT_LABEL_PAD = 26 // label padding + triangle + gap, added to text width estimate
+const INSTANT_LABEL_PAD = 26
 
-// Time-of-day label for an absolute epoch ms (local time).
-function fmt(epoch: number) {
-  const d = new Date(epoch)
-  const h = d.getHours()
-  const m = d.getMinutes()
-  const ampm = h >= 12 ? "pm" : "am"
-  const hr = h % 12 === 0 ? 12 : h % 12
-  return m === 0 ? `${hr}${ampm}` : `${hr}:${String(m).padStart(2, "0")}${ampm}`
+// Pixel proximity under which instants merge into one density bubble (coarse zoom).
+const CLUSTER_GAP_PX = 22
+
+// A unified horizontal "bar" on the track — events, scheduled spaces, rolled-up
+// context bands, and recurring streams all lane-pack together as bars.
+interface Bar {
+  key: string
+  from: number
+  to: number
+  color: string
+  title: string
+  kind: "event" | "space" | "band" | "stream"
+  entity?: Entity
+  count?: number
+  cancelled?: boolean
+  childId?: string
+}
+
+/** Greedy interval lane-packing — items sorted by start, each placed in the
+ *  first lane whose previous item has ended; else a new lane opens. */
+function packLanes(bars: Bar[]): { lane: Map<string, number>; count: number } {
+  const sorted = [...bars].sort((a, b) => a.from - b.from)
+  const laneEnds: number[] = []
+  const lane = new Map<string, number>()
+  for (const b of sorted) {
+    let idx = laneEnds.findIndex((end) => end <= b.from)
+    if (idx === -1) {
+      idx = laneEnds.length
+      laneEnds.push(b.to)
+    } else {
+      laneEnds[idx] = b.to
+    }
+    lane.set(b.key, idx)
+  }
+  return { lane, count: Math.max(1, laneEnds.length) }
 }
 
 export function TimelineStrip({
@@ -160,26 +124,14 @@ export function TimelineStrip({
   const { stack, dataVersion, notifyDataChanged, open } = useZeroNav()
   const [menu, setMenu] = useState<ContextMenuState | null>(null)
 
-  // Open an entity FROM its timeline chip. The chip is tagged with a placement
-  // key (data-placement), so the origin resolver returns this chip's live rect —
-  // the window grows out from behind it (and shrinks back to it on close). When
-  // the entity isn't a member of the open context, the nav layer renders it as a
-  // standalone (detached) window; when it IS a member it morphs in place. Either
-  // way the call is the same — one uniform open law.
   const openFromChip = (id: string) => {
     const key = placementKey("timeline", contextId, id)
     open(id, resolveOriginRect(id, { placement: key, preferSource: "timeline" }) ?? undefined)
   }
 
-  // Shell compaction stage (0 home, 1 first child, 2+ deeper), mirroring
-  // shellStageFor. Used ONLY for non-reflowing treatments here — the off-today
-  // label's vertical position and the "TODAY" word collapse. The timeline's
-  // actual lift is handled externally via a transform in work-surface, and the
-  // label band height is held constant below, so reading the real stage no longer
-  // reflows the window region.
   const stage: number = Math.min(stack.length - 1, 2)
 
-  // Right-click any marker: cancel/restore (events & instants) or delete it.
+  // Right-click any marker: cancel/restore or delete.
   const openMenu = (e: React.MouseEvent, entity: Entity) => {
     e.preventDefault()
     e.stopPropagation()
@@ -190,11 +142,7 @@ export function TimelineStrip({
       items: [
         {
           label: isCancelled ? "Restore" : "Cancel",
-          icon: isCancelled ? (
-            <RotateCcw className="h-3.5 w-3.5" />
-          ) : (
-            <Ban className="h-3.5 w-3.5" />
-          ),
+          icon: isCancelled ? <RotateCcw className="h-3.5 w-3.5" /> : <Ban className="h-3.5 w-3.5" />,
           onSelect: () => {
             setEventCancelled(entity.id, !isCancelled)
             notifyDataChanged()
@@ -212,111 +160,162 @@ export function TimelineStrip({
     })
   }
 
-  // --- Continuous lifeline state -------------------------------------------
-  // `viewStart` is the absolute epoch ms at the left edge of the viewport. It can
-  // be any real value — dragging scrubs it freely (a continuous lifeline of
-  // time), while the arrows snap to a day's default 8am–10pm framing. Initialised
-  // to today's 8am so the default view frames the working day.
-  const [viewStart, setViewStart] = useState(() => startOfDay(Date.now()) + DEFAULT_START_H * HOUR_MS)
+  // --- Continuous lifeline viewport ----------------------------------------
+  // The viewport is fully described by `{ startMs, spanMs }`: epoch ms at the left
+  // edge, and how much time is visible. Zoom = change spanMs; pan = change startMs.
+  // Default: a Day-preset window framing this morning.
+  const [vp, setVp] = useState(() => ({
+    startMs: startOfDay(Date.now()) + 6 * HOUR_MS,
+    spanMs: VIEW_SPAN_MS.D,
+  }))
   const viewportRef = useRef<HTMLDivElement | null>(null)
   const animRef = useRef<ReturnType<typeof animate> | null>(null)
 
-  // Live "now" — a real timestamp, refreshed each minute so the now-marker
-  // creeps along the lifeline. (A timer, not data fetching.)
-  const [now, setNow] = useState(() => Date.now())
+  // Viewport pixel width, tracked so the d3 scale, ticks and clustering reason in
+  // real pixels. Defaults to a sane guess until first measure (one frame).
+  const [width, setWidth] = useState(800)
   useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), 30_000)
-    return () => clearInterval(id)
-  }, [])
-
-  // Which instant pin is hovered. Drives the shared thicken/darken effect across
-  // the pin's triangle + label + stem. Done in React state (not `group-hover:`
-  // utilities) because the triangle is a framer-motion node whose inline styles
-  // would override class-based transforms, and so the effect is fully reliable.
-  const [hoveredInstant, setHoveredInstant] = useState<string | null>(null)
-
-  // Pixel width of the instant-pin layer, tracked so collision stacking can
-  // reason about real horizontal footprints (label widths are in px, positions
-  // in %). Updated via ResizeObserver; 0 until first measure (one frame).
-  const pinLayerRef = useRef<HTMLDivElement | null>(null)
-  const [pinLayerW, setPinLayerW] = useState(0)
-  useEffect(() => {
-    const el = pinLayerRef.current
+    const el = viewportRef.current
     if (!el) return
-    const update = () => setPinLayerW(el.clientWidth)
+    const update = () => setWidth(el.clientWidth || 800)
     update()
     const ro = new ResizeObserver(update)
     ro.observe(el)
     return () => ro.disconnect()
   }, [])
 
-  // Selected zoom span (skeleton — only "D" actually drives the view for now).
-  const [view, setView] = useState<ViewKey>("D")
+  // Live "now", refreshed each ~30s so the now-marker creeps along the lifeline.
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 30_000)
+    return () => clearInterval(id)
+  }, [])
 
-  // True while the view is in motion (dragging or arrow/Back-to-Today tween).
-  // The morph overlays carry a shared layoutId, and framer-motion re-measures
-  // every layoutId element on each render commit. Since the lifeline repositions
-  // every element via React state ~60×/sec during a programmatic scroll, that
-  // per-frame layout thrash drops frames and reads as a laggy "jump" (drag felt
-  // smooth only because the browser coalesces pointer events). View motion and
-  // window morphs never overlap, so while the view moves we drop the layoutId
-  // entirely (see the overlays below) — no measurement, no thrash — and restore
-  // it once settled so opening/closing a window still morphs smoothly. The
-  // instant transition is a belt-and-suspenders guard for the boundary frames.
-  const [viewMoving, setViewMoving] = useState(false)
+  const [hoveredInstant, setHoveredInstant] = useState<string | null>(null)
 
-  // Epoch ms → percentage across the viewport.
-  const pct = (epoch: number) => ((epoch - viewStart) / WINDOW_SPAN) * 100
+  const { startMs, spanMs } = vp
+  const center = startMs + spanMs / 2
+  const grain = useMemo(() => lodGrain(spanMs, width), [spanMs, width])
+  const activeView: ViewKey = useMemo(() => spanToView(spanMs), [spanMs])
 
-  // Local midnight of today, recomputed from `now` so it stays correct across a
-  // day boundary while the strip is mounted.
-  const startOfToday = useMemo(() => startOfDay(now), [now])
+  // Epoch ms → percentage across the viewport (linear; equivalent to the d3
+  // scale but width-independent, so markers reflow without a width read).
+  const pct = (epoch: number) => ((epoch - startMs) / spanMs) * 100
+  // d3 time scale (px) — used for tick generation and pixel clustering.
+  const scale = useMemo(() => makeScale(startMs, spanMs, width), [startMs, spanMs, width])
 
-  // Which day the CENTER of the window lands in, relative to today (day 0).
-  const dayOffset = Math.floor((viewStart + WINDOW_SPAN / 2 - startOfToday) / DAY_MS)
-  const isToday = dayOffset === 0
+  // --- Gestures: cursor-anchored wheel zoom + drag/scroll pan --------------
+  const { onPointerDown } = useTimelineGestures({
+    viewportRef,
+    view: vp,
+    onChange: (next) => {
+      animRef.current?.stop()
+      setVp(next)
+    },
+    minSpan: MIN_SPAN_MS,
+    maxSpan: MAX_SPAN_MS,
+    onGestureStart: () => {
+      animRef.current?.stop()
+      setViewMoving(true)
+    },
+    onGestureEnd: () => setViewMoving(false),
+  })
 
-  // Timed entities EXPANDED into concrete per-day occurrences. Recurring items
-  // (e.g. the daily Workout space) yield one occurrence per matching day so they
-  // repeat across the lifeline as the user scrolls. The range is the visible day
-  // ±1 day of padding (rounded to midnights), so it only recomputes when the
-  // view crosses a day boundary, not on every drag frame.
-  const occRangeStart = startOfDay(viewStart) - DAY_MS
-  const occRangeEnd = startOfDay(viewStart) + 2 * DAY_MS
-  const evts = useMemo(
-    () => getTimelineOccurrences("s_root", occRangeStart, occRangeEnd),
-    [dataVersion, occRangeStart, occRangeEnd],
+  // --- Data query (bounded, LOD-aware) -------------------------------------
+  // Range = viewport ± 25% padding, rounded to a fraction of the span so we only
+  // re-query when the rounded window (or grain / data / focus) changes — not on
+  // every pan frame. queryTimeline never walks huge ranges (recurrences become
+  // streams at coarse zoom), so this stays cheap from a day to a whole life.
+  const pad = spanMs * 0.25
+  const bucket = Math.max(60_000, spanMs / 6)
+  const qStart = Math.floor((startMs - pad) / bucket) * bucket
+  const qEnd = Math.ceil((startMs + spanMs + pad) / bucket) * bucket
+  const query = useMemo(
+    () => queryTimeline(contextId, qStart, qEnd, grain),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [contextId, grain, qStart, qEnd, dataVersion],
   )
 
-  // Overlap-based lane assignment for span chips (events AND scheduled spaces;
-  // instants render as full-height pins, independent of lanes). Non-overlapping
-  // spans share one centered lane; real time conflicts stack onto more lanes.
-  const lanes = useMemo(
-    () => packLanes(evts.filter((e) => e.kind === "event" || e.kind === "space")),
-    [evts],
+  // Adaptive semantic rollup: crowded child subtrees collapse into context bands.
+  const rolled = useMemo(
+    () => applySemanticRollup(query.items, contextId, width),
+    [query, contextId, width],
   )
+
+  const instants = useMemo(() => rolled.items.filter((e) => e.kind === "instant"), [rolled])
+  const spans = useMemo(
+    () => rolled.items.filter((e) => e.kind === "event" || e.kind === "space"),
+    [rolled],
+  )
+
+  // Instants merged into density bubbles by pixel proximity. Singleton clusters
+  // render as normal pins; multi-clusters as count bubbles that expand on zoom-in.
+  const clusters = useMemo(
+    () => clusterInstants(instants, scale, CLUSTER_GAP_PX),
+    [instants, scale],
+  )
+
+  // All horizontal bars (spans + rollup bands + recurring streams) in one set.
+  const bars = useMemo<Bar[]>(() => {
+    const out: Bar[] = []
+    for (const e of spans) {
+      const [from, to] = entityInterval(e)
+      out.push({
+        key: e.occKey,
+        from,
+        to,
+        color: getInheritedAccent(e.parentId ?? "s_root") ?? NEUTRAL_MARKER,
+        title: e.title,
+        kind: e.kind === "space" ? "space" : "event",
+        entity: e,
+        cancelled: e.cancelled,
+      })
+    }
+    for (const b of rolled.bands as RollupBand[]) {
+      out.push({
+        key: `band:${b.childId}`,
+        from: b.from,
+        to: b.to,
+        color: b.color,
+        title: b.title,
+        kind: "band",
+        count: b.count,
+        childId: b.childId,
+      })
+    }
+    for (const s of query.streams as StreamSeries[]) {
+      out.push({
+        key: `stream:${s.entity.id}`,
+        from: s.from,
+        to: s.to,
+        color: s.color,
+        title: s.entity.title,
+        kind: "stream",
+        entity: s.entity,
+        count: Math.round(s.approxCount),
+      })
+    }
+    return out
+  }, [spans, rolled, query])
+
+  const lanes = useMemo(() => packLanes(bars), [bars])
   const contentH = lanes.count * LANE_H + (lanes.count - 1) * LANE_GAP
-  // Top edge (px) of a given lane within the 56px track, used lanes centered.
   const laneTop = (lane: number) => Math.max(2, (TRACK_H - contentH) / 2) + lane * (LANE_H + LANE_GAP)
 
-  // Vertical stacking level per instant so their LEFT-side labels don't collide.
-  // Each pin's footprint is [triangle.x - estLabelWidth, triangle.x] in px (the
-  // label hangs to the left). Greedy interval packing (sorted by left edge):
-  // a pin reuses the lowest level whose last footprint has ended, else opens a
-  // new (higher) level. Recomputed as the data, scroll, or layer width changes.
-  const instantLevel = useMemo(() => {
-    const items = evts
-      .filter((e) => e.kind === "instant")
-      .map((e) => {
-        const x = (pct(e.schedule?.at ?? 0) / 100) * pinLayerW
-        const estW = e.title.length * INSTANT_CHAR_W + INSTANT_LABEL_PAD
-        return { key: e.occKey, left: x - estW, right: x }
+  // Vertical stacking so cluster/pin LEFT-side labels don't collide. Footprint is
+  // [x - estLabelWidth, x] in px; greedy interval packing by left edge.
+  const clusterLevel = useMemo(() => {
+    const items = clusters
+      .map((c) => {
+        const x = (pct(c.ms) / 100) * width
+        const label = c.items.length > 1 ? `${c.items.length}` : c.items[0].title
+        const estW = label.length * INSTANT_CHAR_W + INSTANT_LABEL_PAD
+        return { key: c.key, left: x - estW, right: x }
       })
       .sort((a, b) => a.left - b.left)
     const levelEnds: number[] = []
     const level = new Map<string, number>()
     for (const it of items) {
-      // 6px breathing room between adjacent footprints on the same level.
       let lvl = levelEnds.findIndex((end) => end + 6 <= it.left)
       if (lvl === -1) {
         lvl = levelEnds.length
@@ -327,242 +326,178 @@ export function TimelineStrip({
       level.set(it.key, lvl)
     }
     return level
-    // pct depends on viewStart; including it directly keeps the deps explicit.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [evts, viewStart, pinLayerW])
+  }, [clusters, startMs, spanMs, width])
 
-  // Smoothly animate the view to an absolute target (used by the arrows and the
-  // "Back to Today" link). A fixed ~0.5s eased tween reads as a crisp scroll
-  // that accelerates then settles — a spring here was slightly overdamped and
-  // crawled to the target, which felt laggy. A drag interrupts any running
-  // animation.
-  const animateView = (target: number) => {
+  // --- Animated view transitions (selector presets, "Now" jump) ------------
+  // Animate a 0→1 driver and interpolate startMs LINEARLY and spanMs
+  // GEOMETRICALLY (so zoom reads evenly across orders of magnitude).
+  const animateTo = (targetStart: number, targetSpan: number) => {
     animRef.current?.stop()
+    const s0 = startMs
+    const sp0 = spanMs
+    const spT = clampSpan(targetSpan)
     setViewMoving(true)
-    animRef.current = animate(viewStart, target, {
+    animRef.current = animate(0, 1, {
       duration: 0.5,
       ease: [0.32, 0.72, 0, 1],
-      onUpdate: (v) => setViewStart(v),
+      onUpdate: (t) => {
+        setVp({
+          startMs: s0 + (targetStart - s0) * t,
+          spanMs: sp0 * Math.pow(spT / sp0, t),
+        })
+      },
       onComplete: () => setViewMoving(false),
     })
   }
 
-  const dayDefaultStart = (offset: number) => startOfToday + offset * DAY_MS + DEFAULT_START_H * HOUR_MS
-  const goPrev = () => animateView(dayDefaultStart(dayOffset - 1))
-  const goNext = () => animateView(dayDefaultStart(dayOffset + 1))
-  const goToday = () => animateView(dayDefaultStart(0))
-
-  // Free-scroll drag: dragging right reveals earlier time (viewStart shrinks).
-  // We use window listeners (not pointer capture) so marker clicks are never
-  // hijacked — the drag layer sits BEHIND the markers in paint order, so a
-  // pointerdown on a marker hits the marker, and one on empty track starts a
-  // drag. On release the view simply stays put.
-  const startDrag = (e: React.PointerEvent) => {
-    if (e.button !== 0) return
-    animRef.current?.stop()
-    setViewMoving(true)
-    const width = viewportRef.current?.getBoundingClientRect().width ?? 1
-    const startX = e.clientX
-    const startView = viewStart
-    const move = (ev: PointerEvent) => {
-      const deltaMs = ((ev.clientX - startX) / width) * WINDOW_SPAN
-      setViewStart(startView - deltaMs)
-    }
-    const up = () => {
-      setViewMoving(false)
-      window.removeEventListener("pointermove", move)
-      window.removeEventListener("pointerup", up)
-    }
-    window.addEventListener("pointermove", move)
-    window.addEventListener("pointerup", up)
+  // Selector click: keep the current center, snap span to the preset.
+  const selectView = (key: ViewKey) => {
+    const targetSpan = VIEW_SPAN_MS[key]
+    animateTo(center - targetSpan / 2, targetSpan)
   }
 
-  const viewedDate = useMemo(() => {
-    const d = new Date()
-    d.setDate(d.getDate() + dayOffset)
-    return d
-  }, [dayOffset])
+  // Step one viewport-width earlier / later (chevit arrows).
+  const panBy = (dir: -1 | 1) => animateTo(startMs + dir * spanMs * 0.9, spanMs)
 
-  // Day label only shows when scrubbed OFF today. Every off-today day reads the
-  // same way (no special "Yesterday/Tomorrow" wording): a compact "MON JUN 15"
-  // (weekday + month + day, all 3-letter caps), with the year appended only
-  // when it differs from the current one ("MON JUN 15 2027").
-  const dayLabel = useMemo(() => {
-    const weekday = new Intl.DateTimeFormat("en-US", { weekday: "short" }).format(viewedDate).toUpperCase()
-    const month = new Intl.DateTimeFormat("en-US", { month: "short" }).format(viewedDate).toUpperCase()
-    const day = viewedDate.getDate()
-    const sameYear = viewedDate.getFullYear() === new Date().getFullYear()
-    return `${weekday} ${month} ${day}${sameYear ? "" : ` ${viewedDate.getFullYear()}`}`
-  }, [viewedDate])
+  // "Now": frame today at Day zoom, centered on the current moment.
+  const goNow = () => animateTo(now - VIEW_SPAN_MS.D / 2, VIEW_SPAN_MS.D)
 
-  // Dynamic hour ruler: timestamps every 2h across the visible window,
-  // including the night hours that scroll into view as the user drags.
-  const ticks = useMemo(() => hourTicks(2, viewStart), [viewStart])
+  const nowVisible = pct(now) >= 0 && pct(now) <= 100
+  const centerLabel = useMemo(() => scrubLabel(center, grain), [center, grain])
 
-  // Gridlines every 1h (denser than the 2h timestamps). Lines on an even hour
-  // (where a timestamp sits) read as "major"; the in-between odd-hour lines are
-  // fainter so the 2h rhythm stays legible.
-  const gridTicks = useMemo(() => hourTicks(1, viewStart), [viewStart])
+  // --- Ruler ticks (two-tier, adaptive grain) ------------------------------
+  const ticks = useMemo(() => timelineTicks(startMs, spanMs, width), [startMs, spanMs, width])
 
   return (
     <section aria-label="Timeline" className="px-1">
-      {/* Label band sits in the gap above the hour ruler. The hour ruler is
-          anchored to the BOTTOM (the "timestamp level"). When scrubbed off
-          today the day label and the "Today" jump link sit on a single centered
-          row in the gap (the link flanks the label on the side its arrow points)
-          — keeping the band short so it stays clear of the date/time header. The
-          zoom selector no longer lives here — it is a vertical list on the far
-          left, beside the arrows. */}
-      <div
-        className={cn(
-          // Full-bleed to match the track below, so the ruler shares the track's
-          // coordinate origin and its ticks can line up with the gridlines.
-          "relative mb-1 -mx-6",
-          // Height held CONSTANT across depth. The band sits above the focus-window
-          // region (which is flex-1 below it), so changing its height would push
-          // the region up/down and reflow every fixed window mid-morph. The timeline
-          // already rides higher with depth via the external transform lift.
-          "h-10",
-        )}
-      >
-        {/* hour ruler — anchored to the bottom, inset to exactly match the
-            scrolling viewport (selector + arrows) so timestamps sit on top of
-            their gridlines rather than drifting left. */}
+      {/* Label band above the ruler. Shows the granularity-aware center label and,
+          when "now" is scrolled off-screen, a jump-to-now control. */}
+      <div className={cn("relative mb-1 -mx-6", "h-10")}>
+        {/* ruler labels — anchored to the bottom, inset to match the viewport. */}
         <div
           className="absolute inset-x-0 bottom-0 h-3.5"
           style={{ marginLeft: VIEWPORT_INSET_LEFT, marginRight: VIEWPORT_INSET_RIGHT }}
         >
-          {ticks.map((m) => {
-            const left = pct(m)
+          {ticks.map((t) => {
+            const left = pct(t.ms)
             if (left < 0 || left > 100) return null
             return (
               <span
-                key={m}
-                className="absolute bottom-0 -translate-x-1/2 text-[9.5px] font-medium tabular-nums tracking-tight text-muted-foreground/45"
+                key={`${t.ms}-${t.major ? "M" : "m"}`}
+                className={cn(
+                  "absolute bottom-0 -translate-x-1/2 whitespace-nowrap text-[9.5px] tabular-nums tracking-tight",
+                  t.major ? "font-semibold text-muted-foreground/70" : "font-medium text-muted-foreground/40",
+                )}
                 style={{ left: `${left}%` }}
               >
-                {fmt(m)}
+                {t.label}
               </span>
             )
           })}
         </div>
 
-        {/* Off-today controls — only shown when scrubbed off today, since the
-            timeline already implies "now". The day label stays PERFECTLY
-            centered in the gap; the "Today" jump link is hung absolutely off the
-            label's edge so appending it never shifts the label. The link's arrow
-            points back toward "today" — a future view (today in the past) gets a
-            left arrow + link on the LEFT; a past view gets a right arrow + link
-            on the RIGHT. At stage 2 (most compact) the link is just the arrow. */}
+        {/* Center label + jump-to-now. The label stays centered; the Now control
+            is hung off its edge so appending it never shifts the label. */}
         <AnimatePresence initial={false}>
-          {!isToday && (
+          {(!nowVisible || activeView !== "D") && (
             <motion.div
-              key="off-today-controls"
+              key="center-controls"
               initial={{ opacity: 0, y: -4 }}
-              // Resting y nudges the centered label to sit optically balanced
-              // between the top date and the timestamps at each depth: a touch
-              // higher at the root, then progressively lower as the depth grows. At
-              // stage 2 the whole timeline has ridden far up via the transform lift,
-              // so the label is pushed well down toward the timestamps to clear the
-              // date/time in the top header it was otherwise overlapping.
               animate={{ opacity: 1, y: stage === 0 ? -5 : stage === 1 ? 1.5 : 18 }}
               exit={{ opacity: 0, y: -4 }}
               transition={panelTransition}
-              // No background on this full-width box: at stage 2 it slides down (y)
-              // toward the timestamps, and an opaque band here would mask the whole
-              // hour ruler. Only the centered label itself carries a local
-              // background (below), so it hides just the timestamps directly behind
-              // it — the rest stay visible and reappear as the user scrubs the day.
               className="pointer-events-none absolute inset-x-0 top-0 bottom-3.5 flex items-center justify-center"
             >
-              {(() => {
-                const todayIsLeft = dayOffset > 0
-                const Arrow = todayIsLeft ? ArrowLeft : ArrowRight
-                return (
-                  // Label + back-to-today control share ONE opaque rounded block so
-                  // they mask the timestamps behind them as a single continuous
-                  // unit (the arrow no longer floats outside the label's background).
-                  // The arrow sits on whichever side "today" lies — reversed row
-                  // when today is to the left.
-                  <div
-                    className={cn(
-                      "pointer-events-auto inline-flex items-center gap-1 rounded bg-background px-2 py-0.5",
-                      todayIsLeft ? "flex-row-reverse" : "flex-row",
-                    )}
+              <div className="pointer-events-auto inline-flex items-center gap-1 rounded bg-background px-2 py-0.5">
+                <span className="whitespace-nowrap text-[11px] font-medium tracking-tight text-foreground">
+                  {centerLabel}
+                </span>
+                {!nowVisible && (
+                  <button
+                    type="button"
+                    onClick={goNow}
+                    aria-label="Jump to now"
+                    title="Jump to now"
+                    className="flex items-center gap-0.5 whitespace-nowrap rounded-md px-1 py-0.5 text-[10px] font-medium leading-none text-muted-foreground/70 transition-colors [&:hover]:text-foreground"
                   >
-                    <span className="whitespace-nowrap text-[11px] font-medium tracking-tight text-foreground">
-                      {dayLabel}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={goToday}
-                      aria-label="Back to today"
-                      title="Back to today"
-                      className={cn(
-                        "flex items-center gap-0.5 whitespace-nowrap rounded-md px-1 py-0.5 text-[10px] font-medium leading-none text-muted-foreground/70 transition-colors [&:hover]:text-foreground",
-                        todayIsLeft ? "flex-row" : "flex-row-reverse",
-                      )}
+                    <Crosshair className="h-3 w-3 shrink-0" strokeWidth={2.5} />
+                    <motion.span
+                      className="overflow-hidden"
+                      initial={false}
+                      animate={{ width: stage <= 1 ? "auto" : 0, opacity: stage <= 1 ? 1 : 0 }}
+                      transition={layerTransition}
                     >
-                      <Arrow className="h-3 w-3 shrink-0" strokeWidth={2.75} />
-                      {/* The word smoothly collapses to zero width (and reopens)
-                          instead of popping in/out. Visible at stages 0 and 1;
-                          only the arrow remains at stage 2 (most compact). */}
-                      <motion.span
-                        className="overflow-hidden"
-                        initial={false}
-                        animate={{ width: stage <= 1 ? "auto" : 0, opacity: stage <= 1 ? 1 : 0 }}
-                        transition={layerTransition}
-                      >
-                        TODAY
-                      </motion.span>
-                    </button>
-                  </div>
-                )
-              })()}
+                      NOW
+                    </motion.span>
+                  </button>
+                )}
+              </div>
             </motion.div>
           )}
         </AnimatePresence>
       </div>
 
-      {/* Full-bleed timeline: top/bottom borders run to the frame edges to
-          suggest continuity with yesterday/tomorrow. Arrows flank the track. */}
+      {/* Full-bleed timeline. Arrows flank the track; the zoom selector pins left. */}
       <div className="relative -mx-6 h-14">
-        {/* Instant pins — one marker per instant: a down-triangle HEAD with its
-            title HORIZONTALLY to the LEFT, and a thin vertical STEM dropping from
-            just under the triangle down to the track bottom. Heads sit ABOVE the
-            hour ruler so they never cover the timestamps; pins whose left-side
-            labels would collide stack UPWARD (instantLevel). Hovering any part —
-            triangle, label or stem — amplifies the instant's accent across all
-            three (a saturate/brightness filter on the wrapper). Inset to match
-            the viewport so a pin lands exactly on its time. */}
+        {/* Instant layer — pins (singletons) and density bubbles (clusters). */}
         <div
-          ref={pinLayerRef}
           className="pointer-events-none absolute inset-y-0 z-30"
           style={{ left: VIEWPORT_INSET_LEFT, right: VIEWPORT_INSET_RIGHT }}
         >
-          {evts.map((e) => {
-            if (e.kind !== "instant") return null
-            const at = e.schedule?.at ?? 0
-            const left = pct(at)
+          {clusters.map((c) => {
+            const left = pct(c.ms)
             if (left < 0 || left > 100) return null
-            const color = getInheritedAccent(e.parentId ?? "s_root") ?? NEUTRAL_MARKER
+            const level = clusterLevel.get(c.key) ?? 0
+            const triBottom = -(INSTANT_HEAD_CLEARANCE + level * INSTANT_ROW_STEP)
+            const triTop = triBottom - INSTANT_TRI
+            const triMid = triBottom - INSTANT_TRI / 2
+            const multi = c.items.length > 1
+            const color = c.color
+
+            if (multi) {
+              // Density bubble — clicking zooms in to that span (×0.25) to expand it.
+              const zoomIn = () =>
+                animateTo(c.ms - (spanMs * 0.25) / 2, spanMs * 0.25)
+              return (
+                <div
+                  key={c.key}
+                  className="pointer-events-none absolute bottom-0 top-0 w-0"
+                  style={{ left: `${left}%` }}
+                >
+                  <button
+                    type="button"
+                    onClick={zoomIn}
+                    title={`${c.items.length} items · zoom in`}
+                    className="pointer-events-auto absolute left-0 z-10 flex -translate-x-1/2 items-center justify-center rounded-full text-[9px] font-semibold tabular-nums text-background shadow-sm transition-transform [&:hover]:scale-110"
+                    style={{
+                      top: triTop - 4,
+                      height: 18,
+                      width: 18,
+                      backgroundColor: color,
+                    }}
+                  >
+                    {c.items.length}
+                  </button>
+                  <span
+                    aria-hidden
+                    className="pointer-events-none absolute bottom-0 left-0 z-0 w-px -translate-x-1/2"
+                    style={{ top: triBottom + INSTANT_STEM_GAP, backgroundColor: color, opacity: 0.5 }}
+                  />
+                </div>
+              )
+            }
+
+            // Singleton — the familiar instant pin (triangle + left label + stem).
+            const e = c.items[0]
+            const at = e.schedule?.at ?? c.ms
             const isOpen = stack.includes(e.id)
             const hovered = hoveredInstant === e.id
             const onEnter = () => setHoveredInstant(e.id)
             const onLeave = () => setHoveredInstant((cur) => (cur === e.id ? null : cur))
-            // Stacking level → vertical position. Level 0 is the lowest (just
-            // above the timestamps); each higher level rises by INSTANT_ROW_STEP.
-            // All offsets are negative (above the track top).
-            const level = instantLevel.get(e.occKey) ?? 0
-            const triBottom = -(INSTANT_HEAD_CLEARANCE + level * INSTANT_ROW_STEP)
-            const triTop = triBottom - INSTANT_TRI
-            const triMid = triBottom - INSTANT_TRI / 2
             return (
               <div
-                key={e.occKey}
-                // Zero-width wrapper pinned at the instant's time; its three
-                // pieces hang off this center. pointer-events-none so only the
-                // pieces are interactive; the filter intensifies the accent.
+                key={c.key}
                 className="pointer-events-none absolute bottom-0 top-0 w-0 transition-[filter] duration-300 ease-out"
                 style={{
                   left: `${left}%`,
@@ -570,8 +505,6 @@ export function TimelineStrip({
                   filter: hovered ? "saturate(2) brightness(1.15)" : "none",
                 }}
               >
-                {/* STEM — from 2px under the triangle down to the track bottom,
-                    centered on the time. A wide invisible hit area eases hover. */}
                 <span
                   aria-hidden
                   onMouseEnter={onEnter}
@@ -583,9 +516,6 @@ export function TimelineStrip({
                   )}
                   style={{ top: triBottom + INSTANT_STEM_GAP, width: hovered ? 2 : 1, backgroundColor: color }}
                 />
-                {/* LABEL — horizontal, hanging to the LEFT of the triangle and
-                    vertically centered on it. Opaque bg so the stem can't show
-                    through where they cross. */}
                 <span
                   onMouseEnter={onEnter}
                   onMouseLeave={onLeave}
@@ -605,15 +535,11 @@ export function TimelineStrip({
                 >
                   {e.title}
                 </span>
-                {/* TRIANGLE head — clicking opens the instant's window, grown from
-                    behind this chip (the placement key resolves to this rect).
-                    Right-click still offers the menu. */}
                 <motion.button
                   type="button"
                   initial={false}
                   data-placement={placementKey("timeline", contextId, e.id)}
                   data-morph-kind="generic"
-                  // Spring on scale, tween on color — a smooth, lively emphasis.
                   animate={{ scale: hovered ? 1.25 : 1, color }}
                   transition={{
                     scale: { type: "spring", stiffness: 400, damping: 25 },
@@ -624,7 +550,7 @@ export function TimelineStrip({
                   onClick={() => openFromChip(e.id)}
                   onContextMenu={(ev) => openMenu(ev, e)}
                   aria-current={isOpen ? "true" : undefined}
-                  title={`${e.title} · ${fmt(at)}`}
+                  title={e.title}
                   className="pointer-events-auto absolute left-0 z-10 flex -translate-x-1/2 items-center justify-center"
                   style={{ top: triTop, height: INSTANT_TRI, width: INSTANT_TRI }}
                 >
@@ -636,22 +562,12 @@ export function TimelineStrip({
         </div>
 
         <div className="flex h-full items-stretch">
-          {/* Zoom selector — a vertical list of single capital letters pinned to
-              the far-left screen edge, left of the back arrow: Life, Year,
-              Quarter, Month, Week, Day (top→bottom). The active span reads in
-              full strength; the rest are discrete grey and brighten on hover.
-              Skeleton for now — only "D" actually drives the view. */}
+          {/* Zoom selector — vertical Life→Day letters; the active span (nearest
+              preset) reads full-strength, the rest grey and brighten on hover. */}
           <div
-            // Fixed width (SELECTOR_W) so the viewport's left inset is
-            // deterministic and the ruler / instant-label overlays can align to
-            // it. The column is `flex-col`, so width is independent of the
-            // animated vertical gap.
             style={{ width: SELECTOR_W }}
             className={cn(
               "relative z-10 flex shrink-0 flex-col items-center justify-center bg-background",
-              // The spread tightens at stage 2 where the chrome is most compact.
-              // A CSS transition on `gap` glides the shrink/expand smoothly —
-              // more reliable than animating shorthand `gap` through motion.
               "transition-[gap] duration-300 ease-out",
               stage === 2 ? "gap-[0px]" : stage === 1 ? "gap-[2px]" : "gap-[4px]",
             )}
@@ -660,20 +576,13 @@ export function TimelineStrip({
               <button
                 key={key}
                 type="button"
-                onClick={() => setView(key)}
-                aria-pressed={view === key}
+                onClick={() => selectView(key)}
+                aria-pressed={activeView === key}
                 aria-label={`${label} view`}
                 title={`${label} view`}
                 className={cn(
-                  // Evenly-gapped letters with comfortable breathing room. Hover
-                  // feedback is a font highlight only (no square background): an
-                  // inactive letter brightens toward full strength on hover.
-                  // NB: uses the arbitrary `[&:hover]` variant rather than Tailwind's
-                  // `hover:` — the latter is gated behind `@media (hover: hover)`,
-                  // which doesn't match in the preview (and some hybrid devices), so
-                  // the highlight silently never fired. `[&:hover]` is ungated.
                   "rounded-[3px] px-1 py-0.5 text-[9px] font-semibold leading-none tracking-wide transition-colors",
-                  view === key
+                  activeView === key
                     ? "text-foreground"
                     : "text-muted-foreground/40 [&:hover]:text-foreground/80",
                 )}
@@ -685,161 +594,144 @@ export function TimelineStrip({
 
           <button
             type="button"
-            onClick={goPrev}
-            aria-label="Previous day"
+            onClick={() => panBy(-1)}
+            aria-label="Pan earlier"
             className="flex w-10 shrink-0 items-center justify-center border-y border-border text-muted-foreground/70 transition-colors hover:bg-secondary/40 hover:text-foreground"
           >
             <ChevronLeft className="h-4 w-4" />
           </button>
 
-          {/* Viewport — the continuous lifeline. Drag the empty track to scrub
-              time freely; markers sit above the drag layer so their clicks are
-              never intercepted. */}
-          <div
-            ref={viewportRef}
-            className="relative h-full flex-1 overflow-hidden border-x border-border"
-          >
-            {/* centered lifeline — a single horizontal rule through the track's
-                vertical middle. Rendered first so every later sibling (gridlines,
-                now-marker, event chips, instants) paints ON TOP of it — the line
-                visibly runs behind the chips. */}
+          {/* Viewport — the continuous lifeline. Wheel zooms (cursor-anchored),
+              drag/h-scroll pans. Markers sit above the drag layer. */}
+          <div ref={viewportRef} className="relative h-full flex-1 overflow-hidden border-x border-border">
+            {/* centered lifeline rule */}
             <div className="pointer-events-none absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-border" />
 
-            {/* hour gridlines — every 1h, with even-hour lines stronger than
-                the in-between odd-hour lines to preserve the 2h timestamp rhythm */}
-            {gridTicks.map((m) => {
-              const left = pct(m)
+            {/* gridlines — major (context) lines stronger than minor. */}
+            {ticks.map((t) => {
+              const left = pct(t.ms)
               if (left < 0 || left > 100) return null
-              const isMajor = new Date(m).getHours() % 2 === 0
               return (
                 <div
-                  key={m}
+                  key={`g-${t.ms}-${t.major ? "M" : "m"}`}
                   className={cn(
                     "pointer-events-none absolute bottom-0 top-0 w-px",
-                    isMajor ? "bg-border/40" : "bg-border/15",
+                    t.major ? "bg-border/40" : "bg-border/15",
                   )}
                   style={{ left: `${left}%` }}
                 />
               )
             })}
 
-            {/* drag surface — behind the markers (earlier in paint order) so it
-                only catches pointerdowns on empty track. */}
+            {/* drag surface — behind markers so it only catches empty-track drags. */}
             <div
-              onPointerDown={startDrag}
+              onPointerDown={onPointerDown}
               className="absolute inset-0 cursor-grab touch-none active:cursor-grabbing"
               aria-hidden
             />
 
-            {/* now marker — the live current time (`now`, refreshed each ~30s);
-                scrolls out of view as the user drags away from today. A crisp
-                accent rule capped by a small filled dot at top and bottom reads
-                as a precise "this instant" pointer on the lifeline. */}
-            <div
-              className="pointer-events-none absolute -bottom-px -top-px z-20 w-px"
-              style={{ left: `${pct(now)}%`, backgroundColor: accent ?? "var(--accent)" }}
-            >
-              <span
-                className="absolute -left-[2.5px] -top-[3px] h-[6px] w-[6px] rounded-full ring-2 ring-card"
-                style={{ backgroundColor: accent ?? "var(--accent)" }}
-              />
-              <span
-                className="absolute -bottom-[3px] -left-[2.5px] h-[6px] w-[6px] rounded-full ring-2 ring-card"
-                style={{ backgroundColor: accent ?? "var(--accent)" }}
-              />
-            </div>
+            {/* now marker */}
+            {nowVisible && (
+              <div
+                className="pointer-events-none absolute -bottom-px -top-px z-20 w-px"
+                style={{ left: `${pct(now)}%`, backgroundColor: accent ?? "var(--accent)" }}
+              >
+                <span
+                  className="absolute -left-[2.5px] -top-[3px] h-[6px] w-[6px] rounded-full ring-2 ring-card"
+                  style={{ backgroundColor: accent ?? "var(--accent)" }}
+                />
+                <span
+                  className="absolute -bottom-[3px] -left-[2.5px] h-[6px] w-[6px] rounded-full ring-2 ring-card"
+                  style={{ backgroundColor: accent ?? "var(--accent)" }}
+                />
+              </div>
+            )}
 
-            {/* events + instants. Each carries the accent of the space it
-                belongs to and opens its own window. Positioned in absolute time
-                so they scroll in/out with the lifeline. */}
-            {evts.map((e) => {
-              const eventSpaceId = e.parentId ?? "s_root"
-              // A child inherits the nearest ancestor accent (e.g. an item in
-              // Zero → magenta). Items under the root ("Space 0"), which has no
-              // accent, resolve to undefined and fall back to a neutral grey
-              // marker. `color` therefore drives the marker; `labelColor`
-              // matches it (grey items keep a readable label).
-              const color = getInheritedAccent(eventSpaceId)
-              const markerColor = color ?? NEUTRAL_MARKER
-              // Reserved for the upcoming "highlight a child's related events"
-              // step — we no longer dim by relevance, but will soon emphasize
-              // related markers instead.
-              // eslint-disable-next-line @typescript-eslint/no-unused-vars
-              const related = isInSubtree(contextId, eventSpaceId)
-              const isOpen = stack.includes(e.id)
-              // Instants render as full-height pins in their own overlay (above),
-              // not as in-track markers — skip them here.
-              if (e.kind === "instant") return null
-              // Overlap-packed lane (see packLanes); 0 when nothing conflicts.
-              const lane = lanes.lane.get(e.occKey) ?? 0
-
-              // --- Event: a span chip ---------------------------------------
-              const start = e.schedule?.startAt ?? 0
-              const end = e.schedule?.endAt ?? start
-              const left = pct(start)
-              const width = ((end - start) / WINDOW_SPAN) * 100
+            {/* bars — events, scheduled spaces, rollup bands, recurring streams. */}
+            {bars.map((b) => {
+              const lane = lanes.lane.get(b.key) ?? 0
+              const left = pct(b.from)
+              const width = ((b.to - b.from) / spanMs) * 100
+              if (left > 100 || left + width < 0) return null
               const boxStyle = {
                 left: `calc(${left}% + 2px)`,
-                width: `calc(${Math.max(width, 6)}% - 4px)`,
-                // Top of the bar's packed lane within the centered lane stack.
+                width: `calc(${Math.max(width, 0.8)}% - 4px)`,
                 top: laneTop(lane),
               } as const
-              // Linear-style "elevated bar": the whole bar carries a soft accent
-              // TINT with a 1px accent border (no heavy left rule), and a small
-              // rounded colour swatch leads the title — the project-colour cue
-              // Linear places beside each bar. Subtle shadow lifts it off the track.
-              const chipVisual = {
-                borderColor: color ? `${color}59` : "var(--border)",
-                backgroundColor: color ? `${color}26` : "var(--secondary)",
-              } as const
 
+              // Rollup context band — click to enter the child space (expands it).
+              if (b.kind === "band") {
+                return (
+                  <button
+                    key={b.key}
+                    type="button"
+                    onClick={() => b.childId && open(b.childId)}
+                    title={`${b.title} · ${b.count} items`}
+                    className="absolute flex h-6 items-center gap-1.5 overflow-hidden rounded-md border border-dashed px-2 text-[10.5px] tracking-tight text-foreground/80 transition-[filter] hover:brightness-110"
+                    style={{
+                      ...boxStyle,
+                      borderColor: `${b.color}73`,
+                      backgroundColor: `${b.color}1f`,
+                    }}
+                  >
+                    <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: b.color }} aria-hidden />
+                    <span className="truncate font-medium">{b.title}</span>
+                    <span className="ml-auto shrink-0 rounded-full bg-background/60 px-1 text-[9px] font-semibold tabular-nums">
+                      {b.count}
+                    </span>
+                  </button>
+                )
+              }
+
+              // Recurring stream band — faint, with a repeat glyph; opens the series.
+              if (b.kind === "stream") {
+                return (
+                  <button
+                    key={b.key}
+                    type="button"
+                    onClick={() => b.entity && openFromChip(b.entity.id)}
+                    onContextMenu={(ev) => b.entity && openMenu(ev, b.entity)}
+                    title={`${b.title} · recurring (~${b.count})`}
+                    className="absolute flex h-6 items-center gap-1.5 overflow-hidden rounded-md border px-2 text-[10.5px] tracking-tight text-foreground/70 transition-[filter] hover:brightness-110"
+                    style={{
+                      ...boxStyle,
+                      borderColor: `${b.color}40`,
+                      backgroundColor: `${b.color}14`,
+                      backgroundImage: `repeating-linear-gradient(135deg, ${b.color}1f 0 6px, transparent 6px 12px)`,
+                    }}
+                  >
+                    <Repeat className="h-2.5 w-2.5 shrink-0" style={{ color: b.color }} aria-hidden />
+                    <span className="truncate">{b.title}</span>
+                  </button>
+                )
+              }
+
+              // Event / scheduled-space span chip.
+              const isOpen = b.entity ? stack.includes(b.entity.id) : false
               return (
-                <div key={e.occKey} className="absolute h-6" style={boxStyle}>
-                  {/* Persistent chip — the timeline morph SOURCE. Tagged with a
-                      placement key so opening from here grows the window out of
-                      this chip's box (and shrinks back to it on close). */}
+                <div key={b.key} className="absolute h-6" style={boxStyle}>
                   <motion.button
                     type="button"
                     initial={false}
-                    data-placement={placementKey("timeline", contextId, e.id)}
+                    data-placement={b.entity ? placementKey("timeline", contextId, b.entity.id) : undefined}
                     data-morph-kind="generic"
-                    // Chips are never dimmed by relevance anymore — the user's
-                    // whole schedule stays clear regardless of which child is
-                    // open. Only a cancelled event reads faded.
-                    animate={{ opacity: e.cancelled ? 0.45 : 1 }}
+                    animate={{ opacity: b.cancelled ? 0.45 : 1 }}
                     transition={panelTransition}
-                    // Opens the event's full window, grown from behind this chip.
-                    // Whether the entity is a member of the open context (in-place
-                    // morph) or not (standalone/detached window), the call is the
-                    // same. Right-click still offers the menu.
-                    onClick={() => openFromChip(e.id)}
-                    onContextMenu={(ev) => openMenu(ev, e)}
+                    onClick={() => b.entity && openFromChip(b.entity.id)}
+                    onContextMenu={(ev) => b.entity && openMenu(ev, b.entity)}
                     aria-current={isOpen ? "true" : undefined}
-                    title={`${e.title} · ${fmt(start)}–${fmt(end)}`}
+                    title={b.title}
                     className={cn(
                       "flex h-6 w-full items-center gap-1.5 overflow-hidden rounded-md border px-2 text-[10.5px] tracking-tight",
-                      // NOTE: deliberately NO backdrop-blur here. The chip repositions
-                      // every frame (its parent's `left` is recomputed from viewStart)
-                      // during a day-scroll tween. A moving backdrop-filter element
-                      // leaves a residual composited "ghost" smear pinned at its old
-                      // spot in Chrome — the chip then appears to slide over to meet a
-                      // stationary copy of itself. The tinted background + border read
-                      // identically without the blur, so we drop it to kill the ghost.
                       "text-foreground/85 shadow-sm transition-[filter] hover:brightness-110",
                     )}
-                    style={chipVisual}
+                    style={{
+                      borderColor: b.color ? `${b.color}59` : "var(--border)",
+                      backgroundColor: b.color ? `${b.color}26` : "var(--secondary)",
+                    }}
                   >
-                    {/* Leading colour swatch — the bar's owner-space cue. Title
-                        keeps showing INSIDE the bar (truncating when the span is
-                        too narrow), matching the current behaviour. */}
-                    <span
-                      className="h-1.5 w-1.5 shrink-0 rounded-[2px]"
-                      style={{ backgroundColor: markerColor }}
-                      aria-hidden
-                    />
-                    <span className={cn("truncate", e.cancelled && "line-through")}>
-                      {e.title}
-                    </span>
+                    <span className="h-1.5 w-1.5 shrink-0 rounded-[2px]" style={{ backgroundColor: b.color }} aria-hidden />
+                    <span className={cn("truncate", b.cancelled && "line-through")}>{b.title}</span>
                   </motion.button>
                 </div>
               )
@@ -848,8 +740,8 @@ export function TimelineStrip({
 
           <button
             type="button"
-            onClick={goNext}
-            aria-label="Next day"
+            onClick={() => panBy(1)}
+            aria-label="Pan later"
             className="flex w-10 shrink-0 items-center justify-center border-y border-border text-muted-foreground/70 transition-colors hover:bg-secondary/40 hover:text-foreground"
           >
             <ChevronRight className="h-4 w-4" />

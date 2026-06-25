@@ -751,6 +751,39 @@ export function isInSubtree(nodeId: string, spaceId: string): boolean {
   return collectDescendants(nodeId).has(spaceId)
 }
 
+/**
+ * Walk up from `spaceId` and return the DIRECT child space of `focusId` whose
+ * subtree contains it — i.e. the band an item would roll up INTO under the
+ * adaptive semantic-LOD. Returns:
+ *   - `null` if `spaceId` is the focus itself or a direct member of it (no
+ *     intervening child space — these items always render individually), or
+ *   - `undefined` if `spaceId` isn't under `focusId` at all.
+ * Drives timeline semantic rollup (e.g. a meeting deep under "Day Job" resolves
+ * to the "Day Job" child space when focus is Home).
+ */
+export function directChildOfFocus(spaceId: string | null, focusId: string): string | null | undefined {
+  if (!spaceId) return undefined
+  // Build the parent chain of `spaceId` up to the root.
+  const chain: string[] = []
+  let cur: Entity | undefined = byId.get(spaceId)
+  while (cur) {
+    chain.push(cur.id)
+    cur = cur.parentId ? byId.get(cur.parentId) : undefined
+  }
+  const focusIdx = chain.indexOf(focusId)
+  // s_root focus: the "direct child of root" is the chain element just below root.
+  if (focusId === "s_root") {
+    // chain ends at the true root (s_root or a top-level node). Find s_root's index.
+    const rootIdx = chain.indexOf("s_root")
+    const idx = rootIdx === -1 ? chain.length - 1 : rootIdx
+    if (idx <= 0) return null // item lives directly at root
+    return chain[idx - 1]
+  }
+  if (focusIdx === -1) return undefined // not under focus
+  if (focusIdx === 0) return null // item lives directly in focus
+  return chain[focusIdx - 1] // the direct child of focus on the path down
+}
+
 // ----------------------------------------------------------------------------
 // Compatibility selectors — kept so existing components keep working. They are
 // now thin wrappers over the unified entity model.
