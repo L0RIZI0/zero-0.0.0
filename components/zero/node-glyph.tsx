@@ -245,6 +245,12 @@ export function NodeGlyph({
       return
     }
     reqTweenRef.current?.kill()
+    // Pin `d` to the CURRENT angle synchronously before the tween. React just
+    // re-rendered the path's `d` at the DESTINATION angle, and gsap.to() doesn't
+    // fire its first onUpdate until the next tick — so without this the destination
+    // shape would paint for one frame (accent flashing already-swung on send, or the
+    // bare square flashing on unsend). useLayoutEffect runs pre-paint, so this wins.
+    path.setAttribute("d", requestAccentPath(reqAngleRef.current))
     const proxy = { a: reqAngleRef.current }
     reqTweenRef.current = gsap.to(proxy, {
       a: target,
