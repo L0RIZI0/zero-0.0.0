@@ -511,8 +511,11 @@ export function TimelineStrip({
     const f0 = anchored ? (anchorMs - s0) / sp0 : 0
     const fT = anchored ? (anchorMs - targetStart) / spT : 0
     animRef.current = animate(0, 1, {
-      duration: 0.5,
-      ease: [0.32, 0.72, 0, 1],
+      duration: 0.55,
+      // Gentle overshoot (easeOutBack) so preset/now transitions land with the same
+      // elastic spring character as the wheel zoom. Safe with anchored callers: the
+      // span overshoots and eases back while the anchor instant stays pinned.
+      ease: [0.34, 1.4, 0.64, 1],
       onUpdate: (t) => {
         const span = sp0 * Math.pow(spT / sp0, t)
         const start = anchored ? anchorMs - (f0 + (fT - f0) * t) * span : s0 + (targetStart - s0) * t
@@ -521,10 +524,12 @@ export function TimelineStrip({
     })
   }
 
-  // Selector click: keep the current center, snap span to the preset.
+  // Selector click: keep the current center, snap span to the preset. Anchored on the
+  // visible center so the on-screen content scales in place instead of sliding in from
+  // an edge (linear start + geometric span otherwise desyncs the center mid-flight).
   const selectView = (key: ViewKey) => {
     const targetSpan = VIEW_SPAN_MS[key]
-    animateTo(center - targetSpan / 2, targetSpan)
+    animateTo(center - targetSpan / 2, targetSpan, center)
   }
 
   // Step one viewport-width earlier / later (chevit arrows).
@@ -669,9 +674,10 @@ export function TimelineStrip({
             const color = c.color
 
             if (multi) {
-              // Density bubble — clicking zooms in to that span (×0.25) to expand it.
+              // Density bubble — clicking zooms in to that span (×0.25) to expand it,
+              // anchored on the cluster so it expands in place rather than sliding in.
               const zoomIn = () =>
-                animateTo(c.ms - (spanMs * 0.25) / 2, spanMs * 0.25)
+                animateTo(c.ms - (spanMs * 0.25) / 2, spanMs * 0.25, c.ms)
               // Related if ANY clustered item is in the focus subtree.
               const dim = Math.max(...c.items.map((it) => relatedFactor(it.parentId, it.id)))
               return (

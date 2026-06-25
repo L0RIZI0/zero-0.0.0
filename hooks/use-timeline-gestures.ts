@@ -57,9 +57,10 @@ interface Options {
   onGestureEnd?: () => void
 }
 
-// Wheel sensitivity (per normalized pixel of deltaY). Lower than before because
-// the ease loop now glides between notches, so each notch can be gentler.
-const ZOOM_K = 0.0009
+// Wheel sensitivity (per normalized pixel of deltaY). The ease loop glides between
+// notches, so each notch can be gentle — but trackpads emit small deltas, so this is
+// turned up to keep pinch/scroll zooming from feeling laborious.
+const ZOOM_K = 0.0018
 // The committed view chases the target with a CRITICALLY-DAMPED SPRING rather than
 // plain exponential smoothing. A spring has inertia: it eases *in* (velocity ramps
 // from zero) as well as out, and — because velocity carries across wheel notches —
@@ -74,8 +75,8 @@ const OMEGA = 13
 // percent and eases back for a lively, bouncy settle. This is safe now that start is
 // cursor-anchored (see anchorRef): even though the SPAN overshoots, the cursor time
 // stays pinned every frame, so the elasticity reads as a tasteful scale bounce with
-// zero horizontal slide. 0.7 ≈ ~5% overshoot.
-const ZETA = 0.7
+// zero horizontal slide. 0.6 ≈ ~9% overshoot — springy but not wobbly.
+const ZETA = 0.6
 // Clamp dt so a tab regaining focus (huge dt) can't teleport the view in one step.
 const MAX_DT = 1 / 30
 // Settle thresholds: stop the loop once position AND velocity are negligible.
