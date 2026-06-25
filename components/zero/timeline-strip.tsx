@@ -59,6 +59,11 @@ function startOfDay(epoch: number): number {
 const TRACK_H = 56 // base (resting) track height — one centered lane
 const LANE_H = 24
 const LANE_GAP = 4
+// Below this on-screen width (px) a span chip can no longer show a useful label
+// (≈3 chars + dot + padding), so it COLLAPSES into a compact "marker": a smooth
+// horizontal line the length of the span, a vertical color edge on its left, and
+// the title floated above-left (free to overflow past the tiny span, like a pin).
+const CHIP_COLLAPSE_PX = 46
 // Vertical breathing room above+below the stacked lanes when the track grows.
 const TRACK_PAD_Y = 6
 // Hard ceiling on how many overlapping lanes can grow the track, so a dense pile-up
@@ -102,9 +107,13 @@ interface Bar {
   childId?: string
 }
 
-/** Greedy interval lane-packing — items sorted by start, each placed in the
- *  first lane whose previous item has ended; else a new lane opens. */
-function packLanes(bars: Bar[]): { lane: Map<string, number>; count: number } {
+/** Greedy interval lane-packing — items sorted by start, each placed in the first
+ *  lane whose previous item's VISUAL footprint has ended; else a new lane opens.
+ *  `rightEdge(b)` returns the bar's effective right edge in ms: for a labeled chip
+ *  that's its real `to`, but for a COLLAPSED marker it extends past `to` to cover
+ *  the title floated above the line (which overflows the tiny span) — so two
+ *  time-adjacent markers whose labels would overlap get separate lanes. */
+function packLanes(bars: Bar[], rightEdge: (b: Bar) => number): { lane: Map<string, number>; count: number } {
   const sorted = [...bars].sort((a, b) => a.from - b.from)
   const laneEnds: number[] = []
   const lane = new Map<string, number>()
@@ -112,9 +121,9 @@ function packLanes(bars: Bar[]): { lane: Map<string, number>; count: number } {
     let idx = laneEnds.findIndex((end) => end <= b.from)
     if (idx === -1) {
       idx = laneEnds.length
-      laneEnds.push(b.to)
+      laneEnds.push(rightEdge(b))
     } else {
-      laneEnds[idx] = b.to
+      laneEnds[idx] = rightEdge(b)
     }
     lane.set(b.key, idx)
   }
@@ -332,7 +341,22 @@ export function TimelineStrip({
     return out
   }, [spans, rolled, query])
 
-  const lanes = useMemo(() => packLanes(bars), [bars])
+  // Footprint right-edge (ms) for lane-packing: a labeled chip ends at `to`, but a
+  // COLLAPSED marker (narrower than CHIP_COLLAPSE_PX) reserves extra room for its
+  // overflowing title so adjacent markers don't pile their labels on top of each
+  // other — they stack into separate lanes instead. `msPerPx` converts the px
+  // estimates (label chars, min chip) into the ms axis the packer reasons in.
+  const msPerPx = spanMs / Math.max(1, width)
+  const barRightEdge = useMemo(() => {
+    return (b: Bar) => {
+      const spanPx = ((b.to - b.from) / spanMs) * width
+      if (spanPx >= CHIP_COLLAPSE_PX) return b.to
+      const labelPx = b.title.length * 5.6 + 8
+      return b.from + Math.max(b.to - b.from, labelPx * msPerPx)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [spanMs, width, msPerPx])
+  const lanes = useMemo(() => packLanes(bars, barRightEdge), [bars, barRightEdge])
   const contentH = lanes.count * LANE_H + (lanes.count - 1) * LANE_GAP
   // The track GROWS VERTICALLY to fit however many lanes the overlapping bars need
   // (capped so a pathological pile-up can't swallow the screen). When it's taller
@@ -717,11 +741,15 @@ export function TimelineStrip({
             {bars.map((b) => {
               const lane = lanes.lane.get(b.key) ?? 0
               const left = pct(b.from)
-              const width = ((b.to - b.from) / spanMs) * 100
-              if (left > 100 || left + width < 0) return null
+              const widthPct = ((b.to - b.from) / spanMs) * 100
+              if (left > 100 || left + widthPct < 0) return null
+              // Real on-screen width of this bar in px (viewport `width` is the px
+              // measure; `widthPct` is its share of the span). Drives the adaptive
+              // chip → marker collapse below.
+              const widthPx = (Math.max(widthPct, 0) / 100) * width
               const boxStyle = {
                 left: `calc(${left}% + 2px)`,
-                width: `calc(${Math.max(width, 0.8)}% - 4px)`,
+                width: `calc(${Math.max(widthPct, 0.8)}% - 4px)`,
                 top: laneTop(lane),
               } as const
 
@@ -775,6 +803,55 @@ export function TimelineStrip({
 
               // Event / scheduled-space span chip.
               const isOpen = b.entity ? stack.includes(b.entity.id) : false
+              const dim = (b.cancelled ? 0.45 : 1) * relatedFactor(b.entity?.parentId, b.entity?.id)
+              const markerColor = b.color || "var(--muted-foreground)"
+
+              // COLLAPSED MARKER — when the span is too narrow for a labeled chip, it
+              // becomes a smooth horizontal line the width of the span, a vertical
+              // color edge on its left, and the title floated above-left (allowed to
+              // overflow past the tiny span, the way an instant pin's label does).
+              if (widthPx < CHIP_COLLAPSE_PX) {
+                return (
+                  <motion.button
+                    key={b.key}
+                    type="button"
+                    initial={false}
+                    data-placement={b.entity ? placementKey("timeline", contextId, b.entity.id) : undefined}
+                    data-morph-kind="generic"
+                    animate={{ opacity: dim }}
+                    transition={panelTransition}
+                    onClick={() => b.entity && openFromChip(b.entity.id)}
+                    onContextMenu={(ev) => b.entity && openMenu(ev, b.entity)}
+                    aria-current={isOpen ? "true" : undefined}
+                    title={b.title}
+                    className="absolute flex h-6 items-end overflow-visible transition-[filter] hover:brightness-110"
+                    style={boxStyle}
+                  >
+                    {/* title floated above the line, left-aligned, free to overflow */}
+                    <span
+                      className={cn(
+                        "pointer-events-none absolute bottom-3 left-0 whitespace-nowrap text-[10px] leading-none tracking-tight text-foreground/80",
+                        b.cancelled && "line-through",
+                      )}
+                    >
+                      {b.title}
+                    </span>
+                    {/* vertical color edge anchoring the left of the span */}
+                    <span
+                      className="absolute bottom-0 left-0 h-3 w-[2px] rounded-full"
+                      style={{ backgroundColor: markerColor }}
+                      aria-hidden
+                    />
+                    {/* smooth horizontal line spanning the (short) duration */}
+                    <span
+                      className="absolute bottom-0 left-0 right-0 h-[2px] rounded-full"
+                      style={{ backgroundColor: markerColor, opacity: 0.6 }}
+                      aria-hidden
+                    />
+                  </motion.button>
+                )
+              }
+
               return (
                 <div key={b.key} className="absolute h-6" style={boxStyle}>
                   <motion.button
@@ -782,7 +859,7 @@ export function TimelineStrip({
                     initial={false}
                     data-placement={b.entity ? placementKey("timeline", contextId, b.entity.id) : undefined}
                     data-morph-kind="generic"
-                    animate={{ opacity: (b.cancelled ? 0.45 : 1) * relatedFactor(b.entity?.parentId, b.entity?.id) }}
+                    animate={{ opacity: dim }}
                     transition={panelTransition}
                     onClick={() => b.entity && openFromChip(b.entity.id)}
                     onContextMenu={(ev) => b.entity && openMenu(ev, b.entity)}
