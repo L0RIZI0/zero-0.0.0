@@ -1332,6 +1332,23 @@ export function changeEntityKind(id: string, kind: EntityKind): void {
 }
 
 /**
+ * Mark a task as SENT-as-request (or clear it). For now this only toggles the
+ * `requested` flag — there is no recipient or delivery; the visible effect is the
+ * glyph sprouting its tilted "sent" edge. Kept separate from `changeEntityKind`
+ * because a request is an overlay on an existing kind, not a different kind.
+ */
+export function setEntityRequested(id: string, requested: boolean): void {
+  const entity = byId.get(id)
+  if (!entity) return
+  entity.requested = requested
+  if (!userEntityIds.has(id)) {
+    // Seeded entity — track as an override patch so the sent state survives refreshes.
+    seededOverrides.set(id, { ...seededOverrides.get(id), requested })
+  }
+  persist()
+}
+
+/**
  * Low-level removal of a single entity from the in-memory store + indexes, plus
  * any pin references to it. Does NOT recurse or persist — callers handle that.
  * Returns true if the entity existed.

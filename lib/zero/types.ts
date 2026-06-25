@@ -126,6 +126,13 @@ export interface Entity {
    * reference. Cancelled items render dimmed with a struck-through title.
    */
   cancelled?: boolean
+  /**
+   * A task that has been SENT to someone as a request ("Can you do this?").
+   * Purely a state flag for now (no recipient/transport modelled yet); its only
+   * effect is on the glyph, which sprouts a tilted "sent" edge off the square's
+   * bottom-right corner. Mainly tasks.
+   */
+  requested?: boolean
   /** Mainly spaces. */
   description?: string
   /** Contextual tint, mainly spaces. */

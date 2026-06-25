@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { AnimatePresence, motion, type Transition } from "motion/react"
-import { Check, Pin, Trash2, Ban, RotateCcw, ChevronDown, Globe, Shapes } from "lucide-react"
+import { Check, Pin, Trash2, Ban, RotateCcw, ChevronDown, Globe, Shapes, Send } from "lucide-react"
 import {
   getContextItems,
   isPinned,
@@ -11,6 +11,7 @@ import {
   deleteEntity,
   setEventCancelled,
   changeEntityKind,
+  setEntityRequested,
   addTask,
   addWebTask,
   parseInstantTime,
@@ -724,6 +725,21 @@ export function DoList({
                 icon: isCancelled ? <RotateCcw className="h-3.5 w-3.5" /> : <Ban className="h-3.5 w-3.5" />,
                 onSelect: () => {
                   setEventCancelled(item.id, !isCancelled)
+                  notifyDataChanged()
+                },
+              },
+            ]
+          : []),
+        // "Send" — mock sending the task to someone as a request. Tasks only; no
+        // transport yet, it just toggles the `requested` flag, which makes the
+        // row's glyph swing out its tilted "sent" edge (and fold it back on undo).
+        ...(item.kind === "task"
+          ? [
+              {
+                label: item.entity.requested ? "Unsend request" : "Send as request",
+                icon: <Send className="h-3.5 w-3.5" />,
+                onSelect: () => {
+                  setEntityRequested(item.id, !item.entity.requested)
                   notifyDataChanged()
                 },
               },

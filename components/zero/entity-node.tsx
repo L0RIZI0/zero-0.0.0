@@ -886,7 +886,12 @@ export function EntityNode({
               <ResourceGlyph resourceId={entity.webResourceId} url={entity.webUrl} />
             ) : (
               <>
-                <NodeGlyph kind={kind} filled={isTask && done} strokeWidth={asWindow ? 1.75 : isTask ? 2 : 1.75} />
+                <NodeGlyph
+                  kind={kind}
+                  filled={isTask && done}
+                  strokeWidth={asWindow ? 1.75 : isTask ? 2 : 1.75}
+                  request={isTask && !!entity.requested}
+                />
                 {!asWindow && isTask && done && (
                   <Check className="absolute h-2.5 w-2.5 text-background" strokeWidth={3.5} />
                 )}

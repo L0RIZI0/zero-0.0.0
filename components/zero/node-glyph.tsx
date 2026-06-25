@@ -132,6 +132,22 @@ function lerpPolygons(a: Pt[], b: Pt[], t: number): Pt[] {
 const GLYPH_MORPH_SECONDS = 0.5
 const GLYPH_MORPH_EASE = "power3.inOut"
 
+// --- "Sent as request" edge ------------------------------------------------
+//
+// A task sent to someone ("Can you do this?") keeps its square but sprouts an
+// extra edge of the SAME length as a square side, hinged at the square's
+// bottom-right corner. It is modelled as a standalone <line> that, at rest,
+// overlaps the square's bottom edge (pivot = bottom-right corner, free end at the
+// bottom-left corner) and, when sent, ROTATES down about that corner into a
+// slight tilt — reading like an acute accent ´ tucked under the square and
+// touching its bottom-right corner. Rotating the other way (back to 0°) folds it
+// back onto the bottom edge, so un-sending is the exact reverse.
+const REQUEST_PIVOT: Pt = [19.5, 19.5] // square bottom-right corner (the hinge)
+const REQUEST_FREE_END: Pt = [4.5, 19.5] // bottom-left corner — the swinging tip at rest
+// Downward tilt (CW about the pivot, hence negative in SVG's rotation sense). ~12°
+// drops the tip ~3 units below the square — clearly tilted yet inside the 24-box.
+const REQUEST_TILT_DEG = -12
+
 /**
  * A crisp geometric silhouette for a node kind, drawn as a single SVG `<polygon>`
  * whose vertices are the kind's canonical equal-count sampling. When `kind`
@@ -145,13 +161,19 @@ export function NodeGlyph({
   className,
   filled = false,
   strokeWidth = 1.75,
+  request = false,
 }: {
   kind: NodeKind
   className?: string
   filled?: boolean
   strokeWidth?: number
+  /** When true, draw the tilted "sent as request" edge off the square's
+   *  bottom-right corner; animates in/out when this flips. */
+  request?: boolean
 }) {
   const polyRef = useRef<SVGPolygonElement | null>(null)
+  const reqRef = useRef<SVGLineElement | null>(null)
+  const prevReqRef = useRef<boolean>(request)
   // The points currently PAINTED (kept in sync each tween frame). Starting value
   // is the mount kind's shape, so the first render is correct with no animation.
   const dispRef = useRef<Pt[]>(KIND_POLYGON[kind])
@@ -186,6 +208,34 @@ export function NodeGlyph({
     }
   }, [kind])
 
+  // Swing the "sent" edge in/out when `request` flips. The hinge is the square's
+  // bottom-right corner (`svgOrigin`): from 0° it lies on the bottom edge, and it
+  // rotates down to REQUEST_TILT_DEG when sent (and back when un-sent), fading so
+  // it doesn't flash as a doubled stroke over the square's own edge. On the first
+  // render (no change) the resting state is set instantly — useLayoutEffect runs
+  // before paint, so there is no untilted flash.
+  useLayoutEffect(() => {
+    const line = reqRef.current
+    if (!line) return
+    const origin = `${REQUEST_PIVOT[0]} ${REQUEST_PIVOT[1]}`
+    const changed = prevReqRef.current !== request
+    prevReqRef.current = request
+    if (!changed) {
+      gsap.set(line, { rotation: request ? REQUEST_TILT_DEG : 0, svgOrigin: origin, opacity: request ? 1 : 0 })
+      return
+    }
+    const tween = gsap.to(line, {
+      rotation: request ? REQUEST_TILT_DEG : 0,
+      opacity: request ? 1 : 0,
+      svgOrigin: origin,
+      duration: GLYPH_MORPH_SECONDS,
+      ease: GLYPH_MORPH_EASE,
+    })
+    return () => {
+      tween.kill()
+    }
+  }, [request])
+
   return (
     <svg viewBox="0 0 24 24" className={cn("h-full w-full", className)} aria-hidden="true">
       <polygon
@@ -196,6 +246,21 @@ export function NodeGlyph({
         strokeWidth={strokeWidth}
         strokeLinejoin="miter"
         vectorEffect="non-scaling-stroke"
+      />
+      {/* "Sent as request" edge — hinged at the square's bottom-right corner. Its
+          resting/animated transform is driven entirely by the effect above; it
+          starts hidden (opacity 0) so a non-requested glyph shows nothing. */}
+      <line
+        ref={reqRef}
+        x1={REQUEST_FREE_END[0]}
+        y1={REQUEST_FREE_END[1]}
+        x2={REQUEST_PIVOT[0]}
+        y2={REQUEST_PIVOT[1]}
+        stroke="currentColor"
+        strokeWidth={strokeWidth}
+        strokeLinecap="round"
+        vectorEffect="non-scaling-stroke"
+        opacity={0}
       />
     </svg>
   )
