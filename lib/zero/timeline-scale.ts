@@ -131,11 +131,30 @@ export function lodGrain(spanMs: number, width: number): Grain {
 const MIN_TICK_PX = 32
 const MIN_LABEL_PX = 52
 
-/** Finest grain whose unit is at least ~32px — the graduation density of the ruler. */
-export function tickGrain(spanMs: number, width: number): Grain {
+// The ruler can subdivide FINER than the data LOD ever does. The data layer's
+// finest `Grain` is "hour" (sub-hour buckets would be pointless for aggregation),
+// but when the user zooms deep into a single day we still want the lifeline to
+// keep sprouting graduations — halves, quarters, then 5-minute marks. `RulerGrain`
+// is therefore a RULER-ONLY superset of `Grain`; it never touches `queryTimeline`,
+// `lodGrain`, or the scrubber, so the data path is completely unaffected.
+export type RulerGrain = "min5" | "min15" | "min30" | Grain
+
+const RULER_GRAIN_ORDER: RulerGrain[] = ["min5", "min15", "min30", ...GRAIN_ORDER]
+
+/** Nominal ms of one unit of each ruler grain (extends GRAIN_MS with sub-hour). */
+const RULER_GRAIN_MS: Record<RulerGrain, number> = {
+  min5: 5 * MINUTE_MS,
+  min15: 15 * MINUTE_MS,
+  min30: 30 * MINUTE_MS,
+  ...GRAIN_MS,
+}
+
+/** Finest ruler grain whose unit is at least ~32px — the graduation density of
+ *  the ruler. Can descend to 5-minute marks at deep zoom. */
+export function tickGrain(spanMs: number, width: number): RulerGrain {
   const pxPerMs = Math.max(1, width) / spanMs
-  for (const g of GRAIN_ORDER) {
-    if (GRAIN_MS[g] * pxPerMs >= MIN_TICK_PX) return g
+  for (const g of RULER_GRAIN_ORDER) {
+    if (RULER_GRAIN_MS[g] * pxPerMs >= MIN_TICK_PX) return g
   }
   return "decade"
 }
@@ -159,7 +178,10 @@ export interface Tick {
 // "Nice" label steps per grain, in counts of that grain's own unit. The thinner
 // picks the SMALLEST step whose pixel spacing clears MIN_LABEL_PX, so labels land
 // on round values (every 2h, 3h, 6h… / every 5 days / every 5 years…).
-const LABEL_STEPS: Record<Grain, number[]> = {
+const LABEL_STEPS: Record<RulerGrain, number[]> = {
+  min5: [1, 3, 6, 12], // label every 5 / 15 / 30 / 60 min
+  min15: [1, 2, 4], // every 15 / 30 / 60 min
+  min30: [1, 2], // every 30 / 60 min
   hour: [1, 2, 3, 4, 6, 12],
   day: [1, 2, 5, 10],
   week: [1, 2, 4],
@@ -172,8 +194,14 @@ const LABEL_STEPS: Record<Grain, number[]> = {
 /** Stable integer index of a date in units of `grain`, used for label divisibility.
  *  Resets at the next-coarser boundary where that boundary is itself a major tick
  *  (e.g. hours reset each day, days each month) so labels re-anchor to round values. */
-function unitIndex(grain: Grain, d: Date): number {
+function unitIndex(grain: RulerGrain, d: Date): number {
   switch (grain) {
+    case "min5":
+      return Math.floor(d.getMinutes() / 5) // resets each hour
+    case "min15":
+      return Math.floor(d.getMinutes() / 15)
+    case "min30":
+      return Math.floor(d.getMinutes() / 30)
     case "hour":
       return d.getHours()
     case "day":
@@ -192,8 +220,8 @@ function unitIndex(grain: Grain, d: Date): number {
 }
 
 /** Pick the smallest nice label step (in grain units) that clears MIN_LABEL_PX. */
-function pickLabelStep(grain: Grain, pxPerMs: number): number {
-  const minorPx = GRAIN_MS[grain] * pxPerMs
+function pickLabelStep(grain: RulerGrain, pxPerMs: number): number {
+  const minorPx = RULER_GRAIN_MS[grain] * pxPerMs
   const steps = LABEL_STEPS[grain]
   for (const s of steps) {
     if (s * minorPx >= MIN_LABEL_PX) return s
@@ -214,6 +242,8 @@ interface GrainTickConfig {
 
 const fmtHour = timeFormat("%-I%p") // 8AM
 const fmtHourMin = timeFormat("%-I:%M") // 8:30
+const fmtHourLower = (d: Date) => fmtHour(d).toLowerCase() // 8am (sub-hour context)
+const fmtMinPast = timeFormat(":%M") // :15 (minutes past the hour)
 const fmtWeekday = timeFormat("%a %-d") // Mon 5
 const fmtDayNum = timeFormat("%-d") // 5
 const fmtMonthShort = timeFormat("%b") // Jun
@@ -230,7 +260,28 @@ function fmtDecade(d: Date): string {
   return `${Math.floor(d.getFullYear() / 10) * 10}s`
 }
 
-const TICK_CONFIG: Record<Grain, GrainTickConfig> = {
+const TICK_CONFIG: Record<RulerGrain, GrainTickConfig> = {
+  // Sub-hour ruler grains: minors are minute marks (":15"), the bold context tier
+  // is the hour ("8am"). The day context drops away this deep, but the scrubber's
+  // center label still carries the full date.
+  min5: {
+    minor: timeMinute.every(5)!,
+    major: timeHour.every(1)!,
+    fmtMinor: fmtMinPast,
+    fmtMajor: fmtHourLower,
+  },
+  min15: {
+    minor: timeMinute.every(15)!,
+    major: timeHour.every(1)!,
+    fmtMinor: fmtMinPast,
+    fmtMajor: fmtHourLower,
+  },
+  min30: {
+    minor: timeMinute.every(30)!,
+    major: timeHour.every(1)!,
+    fmtMinor: fmtMinPast,
+    fmtMajor: fmtHourLower,
+  },
   hour: {
     minor: timeHour.every(1)!,
     major: timeDay.every(1)!,

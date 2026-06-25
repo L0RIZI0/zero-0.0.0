@@ -39,6 +39,11 @@ if (typeof window !== "undefined") {
   // identical to MORPH_EASE in motion.ts so the GSAP Flip and the Framer-driven
   // chrome share one curve.
   CustomEase.create("zeroLand", "M0,0 C0.62,0.02 0.07,0.99 1,1")
+  // "zeroSend": cubic-bezier(.66, -0.27, .17, 1.18). An anticipate-then-overshoot
+  // curve — it dips BACK slightly before launching (the negative y1) and overshoots
+  // PAST the target before settling (y2 > 1), giving the send-as-request glyph/title
+  // slide a snappy, springy character. Used by EntityNode's request reflow Flip.
+  CustomEase.create("zeroSend", "M0,0 C0.66,-0.27 0.17,1.18 1,1")
 }
 // (CSS equivalent of the curve above lives in MORPH_CSS_EASE below.)
 
@@ -51,6 +56,9 @@ export { gsap }
  *  one beat. */
 export const MORPH_DURATION = MORPH_SECONDS
 export const MORPH_EASE = "zeroLand"
+/** Anticipate+overshoot curve for the "send as request" glyph/title reflow slide.
+ *  cubic-bezier(.66, -0.27, .17, 1.18). Registered as `zeroSend` above. */
+export const SEND_EASE = "zeroSend"
 /** Same duration as a CSS string, for the fade/transition chrome (spine bg,
  *  divider, close-button reposition) that rides along with the Flip morph. */
 export const DURATION_S = `${MORPH_DURATION}s`

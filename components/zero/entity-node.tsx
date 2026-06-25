@@ -26,7 +26,7 @@ import {
 } from "@/lib/zero/motion"
 import gsap from "gsap"
 import { Flip } from "gsap/Flip"
-import { DURATION_S, MORPH_CSS_EASE } from "@/lib/zero/flip-stage"
+import { DURATION_S, MORPH_CSS_EASE, SEND_EASE } from "@/lib/zero/flip-stage"
 import { NodeGlyph } from "./node-glyph"
 import { ResourceGlyph } from "./resource-glyph"
 import { EntityBody } from "./entity-body"
@@ -253,11 +253,11 @@ export function EntityNode({
     setReqLayout(glyph, title, meta, sent)
     setReqAnimating(true)
     Flip.from(state, {
-      // sine.inOut is the gentlest symmetric ease-in-out — it ramps the slide up and
-      // back down smoothly rather than the snappier acceleration of power3, so the
-      // glyph glides to the edge instead of darting.
+      // zeroSend = cubic-bezier(.66,-0.27,.17,1.18): a slight anticipation dip then an
+      // overshoot past the target before settling, giving the glyph/title slide a
+      // springy snap rather than a flat glide.
       duration: 0.55,
-      ease: "sine.inOut",
+      ease: SEND_EASE,
       absolute: true,
       onComplete: () => setReqAnimating(false),
     })
@@ -700,7 +700,7 @@ export function EntityNode({
   // Close-button affordance: instead of showing the window's title next to the X,
   // hovering an ANCESTOR's close button outlines that whole window so it's obvious
   // which one the button belongs to. Restricted to ancestors (`!isTop`), which are
-  // always rectangles here — the frontmost LEAF needs no hint (it's the obvious
+  // always rectangles here �� the frontmost LEAF needs no hint (it's the obvious
   // target) and skipping it avoids bordering the clipped hexagon. Gated on
   // `!animating` so the morph never flashes it.
   const showCloseBorder = asWindow && !isTop && closeHover && !animating
@@ -1136,7 +1136,7 @@ export function EntityNode({
             </span>
           </h3>
 
-          {/* Collapsed trailing meta — counts / time / due / priority. Hidden in
+          {/* Collapsed trailing meta ��� counts / time / due / priority. Hidden in
               every window/spine/closing state so the header reads cleanly. Wrapped in
               a single flex box (`data-req-flip="meta"`) so it moves as ONE Flip target
               during the sent-as-request reflow — where it hops to the row's far LEFT

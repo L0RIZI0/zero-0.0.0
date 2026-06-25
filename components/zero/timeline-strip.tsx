@@ -5,6 +5,7 @@ import { motion, animate } from "motion/react"
 import { ChevronLeft, ChevronRight, Crosshair, Trash2, Ban, RotateCcw, Repeat } from "lucide-react"
 import {
   getInheritedAccent,
+  isInSubtree,
   type TimelineOccurrence,
   deleteEntity,
   setEventCancelled,
@@ -55,9 +56,15 @@ function startOfDay(epoch: number): number {
 }
 
 // --- Track layout -----------------------------------------------------------
-const TRACK_H = 56
+const TRACK_H = 56 // base (resting) track height — one centered lane
 const LANE_H = 24
 const LANE_GAP = 4
+// Vertical breathing room above+below the stacked lanes when the track grows.
+const TRACK_PAD_Y = 6
+// Hard ceiling on how many overlapping lanes can grow the track, so a dense pile-up
+// can't push the entire focus region off-screen. Beyond this, extra lanes overflow
+// (clipped) rather than growing further — a deliberate "get the gist" compromise.
+const MAX_STACK_LANES = 6
 
 // Horizontal chrome flanking the scrolling viewport, in px. The viewport is the
 // shared coordinate space for gridlines, the now-marker and every marker. Any
@@ -239,11 +246,29 @@ export function TimelineStrip({
   const bucket = Math.max(60_000, spanMs / 6)
   const qStart = Math.floor((startMs - pad) / bucket) * bucket
   const qEnd = Math.ceil((startMs + spanMs + pad) / bucket) * bucket
+  // We always query the WHOLE tree (the root context), not just the focused
+  // entity's subtree, so opening an entity never makes the rest of the lifeline
+  // disappear — unrelated markers stay on the timeline, just dimmed (see
+  // `relatedFactor`). `contextId` remains the FOCUS used for semantic rollup and
+  // for deciding what counts as "related".
+  const rootId = stack[0]
   const query = useMemo(
-    () => queryTimeline(contextId, qStart, qEnd, grain),
+    () => queryTimeline(rootId, qStart, qEnd, grain),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [contextId, grain, qStart, qEnd, dataVersion],
+    [rootId, grain, qStart, qEnd, dataVersion],
   )
+
+  // Relatedness → opacity. When the focus IS the root (home view) everything is
+  // related, so nothing dims. Once inside an entity, anything whose container
+  // space falls outside the focus subtree fades back to a faint ambient layer.
+  const atRootFocus = contextId === rootId
+  const UNRELATED_OPACITY = 0.3
+  const relatedFactor = (parentId?: string | null, id?: string | null): number => {
+    if (atRootFocus) return 1
+    const container = parentId ?? "s_root"
+    const related = isInSubtree(contextId, container) || (id != null && isInSubtree(contextId, id))
+    return related ? 1 : UNRELATED_OPACITY
+  }
 
   // Adaptive semantic rollup: crowded child subtrees collapse into context bands.
   const rolled = useMemo(
@@ -309,7 +334,15 @@ export function TimelineStrip({
 
   const lanes = useMemo(() => packLanes(bars), [bars])
   const contentH = lanes.count * LANE_H + (lanes.count - 1) * LANE_GAP
-  const laneTop = (lane: number) => Math.max(2, (TRACK_H - contentH) / 2) + lane * (LANE_H + LANE_GAP)
+  // The track GROWS VERTICALLY to fit however many lanes the overlapping bars need
+  // (capped so a pathological pile-up can't swallow the screen). When it's taller
+  // than the base height, the surrounding `shrink-0` wrapper grows and the focus
+  // region below is pushed down — smoothly, via the CSS height transition on the
+  // track container. Lanes stay vertically centered within whatever height we end
+  // up at, so a single-lane day still sits on the centered lifeline.
+  const stackedH = Math.min(contentH, MAX_STACK_LANES * LANE_H + (MAX_STACK_LANES - 1) * LANE_GAP)
+  const trackH = Math.max(TRACK_H, stackedH + 2 * TRACK_PAD_Y)
+  const laneTop = (lane: number) => Math.max(TRACK_PAD_Y, (trackH - contentH) / 2) + lane * (LANE_H + LANE_GAP)
 
   // Vertical stacking so cluster/pin LEFT-side labels don't collide. Footprint is
   // [x - estLabelWidth, x] in px; greedy interval packing by left edge.
@@ -484,11 +517,13 @@ export function TimelineStrip({
               // Density bubble — clicking zooms in to that span (×0.25) to expand it.
               const zoomIn = () =>
                 animateTo(c.ms - (spanMs * 0.25) / 2, spanMs * 0.25)
+              // Related if ANY clustered item is in the focus subtree.
+              const dim = Math.max(...c.items.map((it) => relatedFactor(it.parentId, it.id)))
               return (
                 <div
                   key={c.key}
-                  className="pointer-events-none absolute bottom-0 top-0 w-0"
-                  style={{ left: `${left}%` }}
+                  className="pointer-events-none absolute bottom-0 top-0 w-0 transition-opacity duration-300 ease-out"
+                  style={{ left: `${left}%`, opacity: dim }}
                 >
                   <button
                     type="button"
@@ -523,10 +558,10 @@ export function TimelineStrip({
             return (
               <div
                 key={c.key}
-                className="pointer-events-none absolute bottom-0 top-0 w-0 transition-[filter] duration-300 ease-out"
+                className="pointer-events-none absolute bottom-0 top-0 w-0 transition-[filter,opacity] duration-300 ease-out"
                 style={{
                   left: `${left}%`,
-                  opacity: e.cancelled ? 0.45 : 1,
+                  opacity: (e.cancelled ? 0.45 : 1) * relatedFactor(e.parentId, e.id),
                   filter: hovered ? "saturate(2) brightness(1.15)" : "none",
                 }}
               >
@@ -718,12 +753,13 @@ export function TimelineStrip({
                     onClick={() => b.entity && openFromChip(b.entity.id)}
                     onContextMenu={(ev) => b.entity && openMenu(ev, b.entity)}
                     title={`${b.title} · recurring (~${b.count})`}
-                    className="absolute flex h-6 items-center gap-1.5 overflow-hidden rounded-md border px-2 text-[10.5px] tracking-tight text-foreground/70 transition-[filter] hover:brightness-110"
+                    className="absolute flex h-6 items-center gap-1.5 overflow-hidden rounded-md border px-2 text-[10.5px] tracking-tight text-foreground/70 transition-[filter,opacity] hover:brightness-110"
                     style={{
                       ...boxStyle,
                       borderColor: `${b.color}40`,
                       backgroundColor: `${b.color}14`,
                       backgroundImage: `repeating-linear-gradient(135deg, ${b.color}1f 0 6px, transparent 6px 12px)`,
+                      opacity: relatedFactor(b.entity?.parentId, b.entity?.id),
                     }}
                   >
                     <Repeat className="h-2.5 w-2.5 shrink-0" style={{ color: b.color }} aria-hidden />
@@ -741,7 +777,7 @@ export function TimelineStrip({
                     initial={false}
                     data-placement={b.entity ? placementKey("timeline", contextId, b.entity.id) : undefined}
                     data-morph-kind="generic"
-                    animate={{ opacity: b.cancelled ? 0.45 : 1 }}
+                    animate={{ opacity: (b.cancelled ? 0.45 : 1) * relatedFactor(b.entity?.parentId, b.entity?.id) }}
                     transition={panelTransition}
                     onClick={() => b.entity && openFromChip(b.entity.id)}
                     onContextMenu={(ev) => b.entity && openMenu(ev, b.entity)}
