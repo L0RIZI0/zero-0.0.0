@@ -171,6 +171,14 @@ export function TimelineStrip({
   const viewportRef = useRef<HTMLDivElement | null>(null)
   const animRef = useRef<ReturnType<typeof animate> | null>(null)
 
+  // The entire strip is positioned from wall-clock time (`startMs`, `now`), which the
+  // server can't know, so SSR markup can never match the first client paint. Rather
+  // than fight per-element hydration mismatches, we render a same-height placeholder
+  // until mounted, then reveal the real (time-accurate) timeline. This is a one-frame
+  // deferral, invisible in practice, and keeps hydration clean.
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => setMounted(true), [])
+
   // Viewport pixel width, tracked so the d3 scale, ticks and clustering reason in
   // real pixels. Defaults to a sane guess until first measure (one frame).
   const [width, setWidth] = useState(800)
@@ -182,7 +190,10 @@ export function TimelineStrip({
     const ro = new ResizeObserver(update)
     ro.observe(el)
     return () => ro.disconnect()
-  }, [])
+    // Re-run after `mounted` flips so the observer attaches to the REAL viewport
+    // element (the pre-hydration placeholder also carries `viewportRef`).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mounted])
 
   // Live "now", refreshed each ~30s so the now-marker creeps along the lifeline.
   const [now, setNow] = useState(() => Date.now())
@@ -216,9 +227,7 @@ export function TimelineStrip({
     maxSpan: MAX_SPAN_MS,
     onGestureStart: () => {
       animRef.current?.stop()
-      setViewMoving(true)
     },
-    onGestureEnd: () => setViewMoving(false),
   })
 
   // --- Data query (bounded, LOD-aware) -------------------------------------
@@ -337,7 +346,6 @@ export function TimelineStrip({
     const s0 = startMs
     const sp0 = spanMs
     const spT = clampSpan(targetSpan)
-    setViewMoving(true)
     animRef.current = animate(0, 1, {
       duration: 0.5,
       ease: [0.32, 0.72, 0, 1],
@@ -347,7 +355,6 @@ export function TimelineStrip({
           spanMs: sp0 * Math.pow(spT / sp0, t),
         })
       },
-      onComplete: () => setViewMoving(false),
     })
   }
 
@@ -368,6 +375,17 @@ export function TimelineStrip({
 
   // --- Ruler ticks (two-tier, adaptive grain) ------------------------------
   const ticks = useMemo(() => timelineTicks(startMs, spanMs, width), [startMs, spanMs, width])
+
+  // Pre-hydration placeholder: reserve the exact layout footprint (label band + track)
+  // so revealing the real timeline doesn't shift anything. See `mounted` above.
+  if (!mounted) {
+    return (
+      <section aria-label="Timeline" className="px-1">
+        <div className="relative mb-1 -mx-6 h-10" />
+        <div className="relative -mx-6 h-14" ref={viewportRef} />
+      </section>
+    )
+  }
 
   return (
     <section aria-label="Timeline" className="px-1">
