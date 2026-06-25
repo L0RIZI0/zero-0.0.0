@@ -115,19 +115,23 @@ function centerOriginRect(): OriginRect {
 }
 
 /**
- * Grow (opening) or shrink (closing) a DETACHED window's frame between its
- * committed window rect and a visual `origin` rect (or the region center when
- * null). Unlike the in-place morph, a detached window has no persistent row to
- * morph out of / back into — it is rendered standalone (see work-surface), so we
- * drive its frame with a plain transform tween.
+ * Grow (opening) or shrink (closing) a DETACHED window between its committed
+ * window rect and a visual `origin` rect (or the region center when null). A
+ * detached window has no persistent row to Flip out of / back into, so we drive
+ * it standalone (see work-surface) — but we deliberately MIRROR the feel of the
+ * in-place open instead of doing a flat zoom of the whole window:
  *
- * Because `transform` scales the painted result — including the Space leaf's
- * clip-path hexagon — a single scale+translate naturally carries BOTH the generic
- * rectangle and the hexagon shape from the origin, with no separate clip driver.
- * The window's body + chrome live inside the frame, so they ride along for free.
- *
- * `transformOrigin: 0 0` keeps the math simple: we map the frame's top-left to the
- * origin's top-left and scale by the size ratio.
+ *  - The FRAME (the coloured shape — incl. the Space leaf's clip-path octagon)
+ *    scales + translates between the origin and the full window via transform.
+ *    `transformOrigin: 0 0` maps the frame's top-left onto the origin's top-left
+ *    and scales by the size ratio. It stays opaque the whole trip so it reads as
+ *    a solid shape growing out of / retracting into the launch point.
+ *  - The BODY (do-list / surface content) is animated SEPARATELY so it does not
+ *    just zoom with the frame: on open it stays hidden while the empty shape
+ *    grows, then fades in over the BACK half (≈ the midpoint) once the frame is
+ *    near full size; on close it fades out FIRST so the shape finishes its trip
+ *    empty. This is the same "shape grows, then content materialises" rhythm as
+ *    the in-place open (see the opening/closing body tweens elsewhere here).
  */
 export function morphDetached(
   key: { id: string; depth: number },
@@ -139,6 +143,9 @@ export function morphDetached(
     `[data-window="${key.id}"][data-depth="${key.depth}"][data-flip-role="frame"]`,
   )
   if (!frame) return
+  const body = stageEl.querySelector<HTMLElement>(
+    `[data-window="${key.id}"][data-depth="${key.depth}"] [data-body]`,
+  )
   const target = frame.getBoundingClientRect()
   if (target.width <= 0 || target.height <= 0) return
   const src = origin ?? centerOriginRect()
@@ -164,6 +171,24 @@ export function morphDetached(
     })
     // Snap to opaque almost immediately — only the first sliver hides the pop-in.
     gsap.fromTo(frame, { opacity: 0 }, { opacity: 1, duration: MORPH_DURATION * 0.15, ease: "power1.out" })
+    if (body) {
+      // Content materialises over the BACK half: hidden while the empty shape grows
+      // out of the chip, then fades + lifts in once the frame is ~full size (so it
+      // isn't distorted by the frame's earlier non-uniform scale). Mirrors the
+      // in-place open's body reveal, just gated to the second half of the morph.
+      gsap.fromTo(
+        body,
+        { opacity: 0, y: 6 },
+        {
+          opacity: 1,
+          y: 0,
+          duration: MORPH_DURATION * 0.55,
+          delay: MORPH_DURATION * 0.45,
+          ease: MORPH_EASE,
+          onComplete: () => gsap.set(body, { clearProps: "opacity,transform" }),
+        },
+      )
+    }
   } else {
     gsap.fromTo(frame, toGeom, { ...fromGeom, duration: MORPH_DURATION, ease: MORPH_EASE })
     // Stay fully opaque while it retracts; fade out only in the final sliver, by which
@@ -174,6 +199,11 @@ export function morphDetached(
       delay: MORPH_DURATION * 0.8,
       ease: "power1.in",
     })
+    if (body) {
+      // Content fades out FIRST (front third) so the shape completes its retraction
+      // into the chip empty — the exact mirror of the open's late content reveal.
+      gsap.to(body, { opacity: 0, duration: MORPH_DURATION * 0.35, ease: MORPH_EASE })
+    }
   }
 }
 

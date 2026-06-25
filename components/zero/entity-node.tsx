@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useLayoutEffect } from "react"
+import { useState, useLayoutEffect, useRef } from "react"
 import { useTheme } from "next-themes"
 import { Check, X } from "lucide-react"
 import { getEntity, getOpenTaskCount } from "@/lib/zero/data"
@@ -156,16 +156,28 @@ export function EntityNode({
   // `hover:` class) so the background can be the dynamic per-depth `surfaceAt`
   // color — the same value the node's window adopts when opened.
   const [hovered, setHovered] = useState(false)
+  // Mirror of `asWindow` (computed below, after the early return) so the settle
+  // effect — which must run before that return to satisfy the rules of hooks —
+  // can read the latest value without re-deriving it.
+  const asWindowRef = useRef(false)
 
-  // Clear close-hover whenever a morph is running. When a window expands, its X
-  // mounts/moves under a stationary cursor and fires `onPointerEnter`, leaving
-  // `closeHover` stale-true once the morph ends — which flashed the close title
-  // even though the user never actually hovered. Resetting here means the title
-  // only reappears on a genuine pointer-enter (i.e. the cursor actually moving
-  // onto the X), not as a side effect of the window growing under the pointer.
+  // Keep hover state honest across morphs. `hovered`/`closeHover` are driven by
+  // pointer enter/leave on the frame, but a morph moves the frame UNDER a
+  // stationary cursor, so those events don't fire for the geometry change:
+  //  - While animating: clear `closeHover` (the X mounts under the cursor on open,
+  //    which would otherwise leave it stale-true and flash the close title).
+  //  - When the morph SETTLES into a collapsed row/card: a window that shrank shut
+  //    out from under the pointer never fired `onPointerEnter`, so `hovered` would
+  //    be stale-false (highlight dead until the user wiggles the mouse). Re-derive
+  //    it from the element's real `:hover` so it lights up (or clears) immediately.
   useLayoutEffect(() => {
-    if (nav.animating) setCloseHover(false)
-  }, [nav.animating])
+    if (nav.animating) {
+      setCloseHover(false)
+      return
+    }
+    const el = ref.current
+    setHovered(!asWindowRef.current && !!el && el.matches(":hover"))
+  }, [nav.animating, ref])
 
   if (!entity) return null
 
@@ -197,6 +209,9 @@ export function EntityNode({
   // telescoping out during a multi-level close (so it keeps covering its
   // parent's do-list as it retracts).
   const asWindow = ownsOpen || fadingWindow
+  // Expose the latest value to the settle effect above (declared before the early
+  // return, so it can't read `asWindow` directly).
+  asWindowRef.current = asWindow
   // A DETACHED window that has been popped and is now shrinking closed. It has no
   // row/ancestor to recede into, so it must keep its own LEAF identity for the
   // whole shrink (see `detached` prop). Only the fading phase needs this: while
