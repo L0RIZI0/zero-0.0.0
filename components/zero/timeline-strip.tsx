@@ -371,6 +371,14 @@ export function TimelineStrip({
   const goNow = () => animateTo(now - VIEW_SPAN_MS.D / 2, VIEW_SPAN_MS.D)
 
   const nowVisible = pct(now) >= 0 && pct(now) <= 100
+  // The jump-to-now control is shown UNLESS we're already on the canonical home view:
+  // the default Day-scale window with "now" still on screen. We deliberately do NOT
+  // hide it merely because "now" falls inside a wide span — at week/month/…/life zoom
+  // now is almost always within view, yet the user still wants a one-click way back to
+  // today. So the hide condition is narrow: span ≈ the Day preset AND now visible.
+  // (Any coarser zoom, or panning today off-screen at Day zoom, reveals the control.)
+  const atDayScale = Math.abs(spanMs - VIEW_SPAN_MS.D) / VIEW_SPAN_MS.D < 0.02
+  const atHome = atDayScale && nowVisible
   const centerLabel = useMemo(() => scrubLabel(center, grain), [center, grain])
 
   // --- Ruler ticks (two-tier, adaptive grain) ------------------------------
@@ -432,7 +440,7 @@ export function TimelineStrip({
                 <span className="whitespace-nowrap text-[11px] font-medium tracking-tight text-foreground">
                   {centerLabel}
                 </span>
-                {!nowVisible && (
+                {!atHome && (
                   <button
                     type="button"
                     onClick={goNow}
