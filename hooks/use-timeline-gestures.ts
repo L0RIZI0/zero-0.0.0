@@ -11,12 +11,22 @@
 //   - WHEEL (horizontal) / SHIFT+wheel → pan through time.
 //   - DRAG on empty track → pan (scrub) through time.
 //
+// SMOOTHNESS MODEL (why this isn't a 1:1 wheel handler):
+//   Physical mice — especially on Windows — fire wheel events as large discrete
+//   "notches" (deltaY ≈ 100–150, sometimes in LINE units). Applying each notch
+//   directly makes zoom/pan lurch in hard steps. So we separate a TARGET view
+//   (where the accumulated input wants to go) from the COMMITTED view, and run a
+//   single rAF loop that eases the committed view toward the target every frame
+//   (geometric ease on span, linear on start). Notches stack onto the target and
+//   the view glides there — buttery on a notched mouse, still immediate-feeling
+//   on a trackpad (which just keeps nudging the target). deltaMode is normalized
+//   to pixels so line/page-based devices don't over- or under-shoot.
+//
+// Drag-to-pan stays 1:1 (no easing) — pointer panning must track the cursor
+// exactly; lag there feels broken rather than smooth.
+//
 // Finger pinch is intentionally NOT handled yet (deferred), but the math is
 // isolated here so a pointer-based pinch can be added without touching the strip.
-//
-// All updates are rAF-BATCHED: rapid wheel/drag events accumulate into a ref and
-// commit once per frame, so we never thrash React with 100+ setStates/sec. Tuned
-// to stay fluid on a mid-range laptop.
 // ============================================================================
 
 import { useEffect, useRef, type RefObject } from "react"
@@ -30,7 +40,7 @@ interface Options {
   viewportRef: RefObject<HTMLElement | null>
   /** Latest view — read fresh each gesture (passed every render). */
   view: View
-  /** Commit a new view (rAF-batched by the hook). */
+  /** Commit a new view (already rAF-paced by the hook's ease loop). */
   onChange: (next: View) => void
   /** Clamp bounds for the span. */
   minSpan: number
@@ -41,9 +51,29 @@ interface Options {
   onGestureEnd?: () => void
 }
 
-// Wheel sensitivity. Per "notch" deltaY (~100) this yields ~a 12% span change —
-// brisk but controllable; trackpads send many small deltas that integrate smoothly.
-const ZOOM_K = 0.0012
+// Wheel sensitivity (per normalized pixel of deltaY). Lower than before because
+// the ease loop now glides between notches, so each notch can be gentler.
+const ZOOM_K = 0.0009
+// Per-frame approach fraction toward the target. ~0.18 at 60fps ≈ a ~150ms glide
+// to settle — smooth but responsive, no sense of drag.
+const SMOOTH = 0.18
+// Settle thresholds: stop the loop once we're within these of the target.
+const SPAN_EPS = 1e-3 // in log-ratio
+const START_EPS = 1e-4 // as a fraction of span
+
+/** Normalize a wheel delta to pixels regardless of the device's deltaMode
+ *  (0 = pixel, 1 = line, 2 = page). Windows mice often report lines. */
+function normalizeDelta(e: WheelEvent, viewportH: number): { dx: number; dy: number } {
+  let { deltaX: dx, deltaY: dy } = e
+  if (e.deltaMode === 1) {
+    dx *= 16
+    dy *= 16
+  } else if (e.deltaMode === 2) {
+    dx *= viewportH || 800
+    dy *= viewportH || 800
+  }
+  return { dx, dy }
+}
 
 export function useTimelineGestures({
   viewportRef,
@@ -66,91 +96,126 @@ export function useTimelineGestures({
   const endCbRef = useRef(onGestureEnd)
   endCbRef.current = onGestureEnd
 
-  // Pending view + rAF handle for batched commits.
-  const pendingRef = useRef<View | null>(null)
+  // Eased-gesture state. `current` is the last view we committed; `target` is
+  // where accumulated wheel input wants it to go. Both are null while idle, so a
+  // fresh gesture always re-seeds from the authoritative prop `view` (which also
+  // reflects external changes like preset buttons / jump-to-now).
+  const currentRef = useRef<View | null>(null)
+  const targetRef = useRef<View | null>(null)
   const rafRef = useRef<number | null>(null)
 
   const clampSpan = (s: number) => Math.min(maxSpan, Math.max(minSpan, s))
-
-  const flush = () => {
-    rafRef.current = null
-    const next = pendingRef.current
-    if (next) {
-      pendingRef.current = null
-      onChangeRef.current(next)
-    }
-  }
-  const schedule = (next: View) => {
-    pendingRef.current = next
-    if (rafRef.current == null) rafRef.current = requestAnimationFrame(flush)
-  }
 
   useEffect(() => {
     const el = viewportRef.current
     if (!el) return
 
-    // --- Wheel: zoom (vertical) + pan (horizontal) -------------------------
-    let gestureTimer: ReturnType<typeof setTimeout> | null = null
-    const endSoon = () => {
-      if (gestureTimer) clearTimeout(gestureTimer)
-      // Wheel has no "end" event; treat a short idle as the gesture ending.
-      gestureTimer = setTimeout(() => endCbRef.current?.(), 140)
+    // Ease the committed view one step toward the target each frame.
+    const tick = () => {
+      const cur = currentRef.current
+      const tgt = targetRef.current
+      if (!cur || !tgt) {
+        rafRef.current = null
+        return
+      }
+      let nextSpan = cur.spanMs * Math.pow(tgt.spanMs / cur.spanMs, SMOOTH)
+      let nextStart = cur.startMs + (tgt.startMs - cur.startMs) * SMOOTH
+
+      const spanSettled = Math.abs(Math.log(tgt.spanMs / nextSpan)) < SPAN_EPS
+      const startSettled = Math.abs(tgt.startMs - nextStart) < tgt.spanMs * START_EPS
+      if (spanSettled && startSettled) {
+        // Snap exactly onto target and end the gesture.
+        nextSpan = tgt.spanMs
+        nextStart = tgt.startMs
+        const settled = { startMs: nextStart, spanMs: nextSpan }
+        currentRef.current = settled
+        onChangeRef.current(settled)
+        currentRef.current = null
+        targetRef.current = null
+        rafRef.current = null
+        endCbRef.current?.()
+        return
+      }
+      const next = { startMs: nextStart, spanMs: nextSpan }
+      currentRef.current = next
+      onChangeRef.current(next)
+      rafRef.current = requestAnimationFrame(tick)
+    }
+    const ensureLoop = () => {
+      if (rafRef.current == null) rafRef.current = requestAnimationFrame(tick)
     }
 
+    // --- Wheel: zoom (vertical) + pan (horizontal) -------------------------
     const onWheel = (e: WheelEvent) => {
       e.preventDefault() // stop the page/region from scrolling
-      const { startMs, spanMs } = pendingRef.current ?? viewRef.current
       const rect = el.getBoundingClientRect()
       const width = rect.width || 1
+      // Seed gesture state from the live prop the first time, so we glide from
+      // exactly where the view currently is.
+      if (!currentRef.current) currentRef.current = viewRef.current
+      const base = targetRef.current ?? currentRef.current
       startCbRef.current?.()
 
+      const { dx, dy } = normalizeDelta(e, rect.height)
       // Horizontal intent (trackpad swipe or shift-wheel) → pan.
-      const horizontal = Math.abs(e.deltaX) > Math.abs(e.deltaY) || e.shiftKey
+      const horizontal = Math.abs(dx) > Math.abs(dy) || e.shiftKey
       if (horizontal) {
-        const delta = e.shiftKey ? e.deltaY : e.deltaX
-        const nextStart = startMs + (delta / width) * spanMs
-        schedule({ startMs: nextStart, spanMs })
-        endSoon()
+        const delta = e.shiftKey ? dy : dx
+        const nextStart = base.startMs + (delta / width) * base.spanMs
+        targetRef.current = { startMs: nextStart, spanMs: base.spanMs }
+        ensureLoop()
         return
       }
 
-      // Vertical → cursor-anchored zoom. Pointer time stays pinned.
+      // Vertical → cursor-anchored zoom. Pointer time stays pinned (anchored on
+      // the TARGET so repeated notches keep the same pivot under the cursor).
       const cursorX = e.clientX - rect.left
       const frac = cursorX / width
-      const tCursor = startMs + frac * spanMs
-      const nextSpan = clampSpan(spanMs * Math.exp(e.deltaY * ZOOM_K))
+      const tCursor = base.startMs + frac * base.spanMs
+      const nextSpan = clampSpan(base.spanMs * Math.exp(dy * ZOOM_K))
       const nextStart = tCursor - frac * nextSpan
-      schedule({ startMs: nextStart, spanMs: nextSpan })
-      endSoon()
+      targetRef.current = { startMs: nextStart, spanMs: nextSpan }
+      ensureLoop()
     }
 
     el.addEventListener("wheel", onWheel, { passive: false })
     return () => {
       el.removeEventListener("wheel", onWheel)
-      if (gestureTimer) clearTimeout(gestureTimer)
       if (rafRef.current != null) cancelAnimationFrame(rafRef.current)
+      rafRef.current = null
+      currentRef.current = null
+      targetRef.current = null
     }
     // viewportRef is stable; bounds rarely change. Re-bind only if they do.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewportRef, minSpan, maxSpan])
 
   // --- Drag-to-pan: returned handler for the empty-track surface -----------
+  // Stays 1:1 with the pointer (no easing) — interrupts any running ease loop.
   const onPointerDown = (e: React.PointerEvent) => {
     if (e.button !== 0) return
     const el = viewportRef.current
     const width = el?.getBoundingClientRect().width ?? 1
+    if (rafRef.current != null) {
+      cancelAnimationFrame(rafRef.current)
+      rafRef.current = null
+    }
+    targetRef.current = null
     const startX = e.clientX
-    const base = pendingRef.current ?? viewRef.current
+    const base = currentRef.current ?? viewRef.current
     const startView = base.startMs
     const span = base.spanMs
     startCbRef.current?.()
     const move = (ev: PointerEvent) => {
       const deltaMs = ((ev.clientX - startX) / width) * span
-      schedule({ startMs: startView - deltaMs, spanMs: span })
+      const next = { startMs: startView - deltaMs, spanMs: span }
+      currentRef.current = next
+      onChangeRef.current(next)
     }
     const up = () => {
       window.removeEventListener("pointermove", move)
       window.removeEventListener("pointerup", up)
+      currentRef.current = null
       endCbRef.current?.()
     }
     window.addEventListener("pointermove", move)
