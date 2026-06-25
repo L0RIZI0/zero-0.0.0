@@ -63,9 +63,11 @@ export function WorkSurface() {
   // an absolute overlay below; region 0 is the window region rendered explicitly.
   const hasTimeline = entityRegions(true).some((r) => r.component === "timeline")
 
-  // Is a focus window open? When so, the timeline drops to sit just under the active
-  // window's header (HEADER_BAND_H) instead of at its home resting pad.
-  const windowOpen = stack.length > 0
+  // Is a focus window open? `stack` ALWAYS holds the root entity (home backdrop) at
+  // index 0, so "a window is open" means depth ≥ 1 — i.e. stack.length > 1. When so,
+  // the timeline drops to sit just under the active window's header (HEADER_BAND_H)
+  // instead of at its home resting pad.
+  const windowOpen = stack.length > 1
   const timelineTop = windowOpen ? HEADER_BAND_H : TIMELINE_TOP_PAD
 
   // Measure the live timeline height so content below it (home do-list, the active
@@ -89,7 +91,15 @@ export function WorkSurface() {
     ro.observe(el)
     return () => ro.disconnect()
   }, [])
-  const region1Reserve = timelineTop + timelineH
+  // Reserve = the timeline's BOTTOM measured FROM THE CONSUMING BODY'S TOP (the
+  // do-list region pads by this). `timelineTop` is in CARD coords, but the consuming
+  // body's top is also offset within the card: 0 for home (body == region 0 == card),
+  // HEADER_BAND_H for an open window (body sits below its header). Those offsets are
+  // exactly `windowOpen ? HEADER_BAND_H : 0`, and since `timelineTop` equals that same
+  // offset (+ TIMELINE_TOP_PAD only at home), the body-relative reserve collapses to
+  // `(home ? TIMELINE_TOP_PAD : 0) + timelineH`. This keeps content flush under the
+  // timeline in BOTH home and windows from a single shared var.
+  const region1Reserve = (windowOpen ? 0 : TIMELINE_TOP_PAD) + timelineH
 
   // Home is window 0 in the telescopic surface model. In DARK mode it stays on
   // pure --background (level 0) at every depth — a no-op. In LIGHT mode it is the
