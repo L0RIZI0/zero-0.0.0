@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { AnimatePresence, motion, type Transition } from "motion/react"
-import { Check, Pin, Trash2, Ban, RotateCcw, ChevronDown, Globe } from "lucide-react"
+import { Check, Pin, Trash2, Ban, RotateCcw, ChevronDown, Globe, Shapes } from "lucide-react"
 import {
   getContextItems,
   isPinned,
@@ -729,6 +729,22 @@ export function DoList({
               },
             ]
           : []),
+        {
+          // "Change into…" — switch the entity's kind in place. The row's glyph
+          // (a single morphing <polygon>) tweens from the old silhouette to the
+          // new one, e.g. a task's square unfolds into a space's hexagon, because
+          // the same EntityNode (keyed by id) stays mounted across the change.
+          label: "Change into…",
+          icon: <Shapes className="h-3.5 w-3.5" />,
+          submenu: KIND_ORDER.filter((k) => k !== item.kind).map((k) => ({
+            label: NODE_KIND_META[k].label,
+            icon: <NodeGlyph kind={k} className="text-foreground" />,
+            onSelect: () => {
+              changeEntityKind(item.id, k)
+              notifyDataChanged()
+            },
+          })),
+        },
         {
           label: "Delete",
           icon: <Trash2 className="h-3.5 w-3.5" />,
