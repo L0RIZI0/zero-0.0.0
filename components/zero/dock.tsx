@@ -38,8 +38,23 @@ export function Dock({ contextId, active = true }: { contextId: string; active?:
 
   // Pinned cards inside a NON-space entity's dock (a task/event/instant context)
   // are spaced a little wider than inside a Space, where they pack tighter.
+  // The gap is DYNAMIC: roomy when few cards are pinned, tightening toward a floor
+  // as the dock fills, so a crowded dock stays on one comfortable row while a
+  // sparse one breathes. `WIDE` is the max gap (few cards), `TIGHT` the min gap
+  // (many cards); we interpolate linearly between FROM→FULL card counts and clamp
+  // to [TIGHT, WIDE] at both ends.
   const parentIsSpace = getEntity(contextId)?.kind === "space"
-  const dockGap = parentIsSpace ? "gap-3" : "gap-5"
+  const dockGapPx = useMemo(() => {
+    const WIDE = parentIsSpace ? 28 : 36 // max gap, sparse dock
+    const TIGHT = parentIsSpace ? 12 : 16 // min gap, crowded dock
+    const FROM = 3 // at/below this many cards → full WIDE gap
+    const FULL = 9 // at/above this many cards → full TIGHT gap
+    const n = pinned.length
+    if (n <= FROM) return WIDE
+    if (n >= FULL) return TIGHT
+    const t = (n - FROM) / (FULL - FROM) // 0→1 across the range
+    return Math.round(WIDE + (TIGHT - WIDE) * t)
+  }, [parentIsSpace, pinned.length])
 
   const openItem = (item: ContextItem) => {
     // Every kind — including events/instants — opens its own window now.
@@ -166,7 +181,11 @@ export function Dock({ contextId, active = true }: { contextId: string; active?:
           `flex-wrap`, so while a window was still mid-expansion (container narrow)
           the cards momentarily wrapped onto several lines before snapping back to
           one once the frame reached full width. One line avoids that reflow. */}
-      <div key={contextId} className={"flex w-full flex-nowrap items-stretch justify-center " + dockGap}>
+      <div
+        key={contextId}
+        className="flex w-full flex-nowrap items-stretch justify-center transition-[gap] duration-300 ease-out"
+        style={{ gap: dockGapPx }}
+      >
         <AnimatePresence initial={false} mode="popLayout">
           {pinned.map((item) => (
             <EntityNode
