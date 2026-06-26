@@ -349,12 +349,14 @@ export function EntityNode({
   const restSurface = telescopicSurface(contextDepth, leafDepth, isDark)
   const highlightColor = surfaceAt(telescopicLevel(contextDepth, leafDepth, isDark) + 1)
 
-  // Dock cards carry a faint-but-noticeable resting fill — a slight lift toward
-  // the hover colour — so they read as tappable chips even before hover. Do-list
-  // rows stay fully invisible at rest. BOTH share the identical hover highlight
-  // (`highlightColor`), so a card and a same-parent row light up the same way.
+  // Dock cards carry a clearly-visible resting fill — a deliberate lift toward
+  // the hover colour — so the hexagon reads as a real, tappable chip even before
+  // hover (the previous 45% mix was too faint to look intentional in either
+  // theme). Do-list rows stay fully invisible at rest. BOTH still share the
+  // identical hover highlight (`highlightColor`), so a card and a same-parent row
+  // light up the same way; the card just starts most of the way there.
   const collapsedRest =
-    variant === "dock" ? `color-mix(in oklab, ${restSurface}, ${highlightColor} 45%)` : restSurface
+    variant === "dock" ? `color-mix(in oklab, ${restSurface}, ${highlightColor} 70%)` : restSurface
 
   // The frame's intended background as a THEME-REACTIVE expression (var()/color-mix
   // over --background/--foreground), matching whichever style branch is active below.

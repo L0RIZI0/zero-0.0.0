@@ -1235,6 +1235,13 @@ export function TimelineStrip({
                 const blk = blockOfLane(r.baseLane)
                 if (blk?.collapsed) return null // folded — its mother rail-label is drawn below
                 const mId = blk?.m.motherId ?? null
+                // The mother's LEAD lane (the mother space itself appearing as a lane)
+                // would repeat the name already shown in the vertical mother column to
+                // its left — visually redundant (e.g. "Day Job" lane label right next
+                // to the vertical "Day Job"). Hide it at rest and reveal it only when
+                // the pointer approaches: the button keeps its box and pointer-events
+                // while transparent, so `hover:opacity-100` brings it back on approach.
+                const isLeadDup = mId != null && r.spaceId === mId
                 const bandTop = laneTop(r.baseLane) - 3
                 const bandH = r.laneCount * LANE_H + (r.laneCount - 1) * LANE_GAP + 6
                 const related = atRootFocus || r.spaceId === contextId || isInSubtree(contextId, r.spaceId)
@@ -1248,8 +1255,18 @@ export function TimelineStrip({
                     type="button"
                     onClick={() => r.spaceId !== "s_root" && open(r.spaceId)}
                     title={r.title}
-                    className="absolute z-20 flex max-w-[42%] items-center gap-1 rounded border border-border/70 bg-card px-1.5 py-0.5 text-[9.5px] font-medium leading-none tracking-tight text-foreground/80 shadow-sm transition-[opacity,colors,top,left] duration-300 ease-out hover:text-foreground"
-                    style={{ left: mId ? 4 + MOTHER_COL_W : 4, top, transform: "translateY(-50%)", opacity: related ? 1 : UNRELATED_OPACITY }}
+                    className={cn(
+                      "absolute z-20 flex max-w-[42%] items-center gap-1 rounded border border-border/70 bg-card px-1.5 py-0.5 text-[9.5px] font-medium leading-none tracking-tight text-foreground/80 shadow-sm transition-[opacity,colors,top,left] duration-300 ease-out hover:text-foreground",
+                      isLeadDup && "opacity-0 hover:opacity-100",
+                    )}
+                    style={{
+                      left: mId ? 4 + MOTHER_COL_W : 4,
+                      top,
+                      transform: "translateY(-50%)",
+                      // Lead duplicates are driven purely by the hover class above; everyone
+                      // else uses the related/unrelated dimming.
+                      ...(isLeadDup ? {} : { opacity: related ? 1 : UNRELATED_OPACITY }),
+                    }}
                   >
                     <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: r.color }} aria-hidden />
                     <span className="truncate">{r.title}</span>
