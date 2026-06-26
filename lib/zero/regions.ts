@@ -21,6 +21,17 @@
  * region 1, sitting above region 0. The add/remove-component interaction that
  * will let any entity gain or drop regions (e.g. via right-click on blank window
  * space) is NOT built yet; this is the structural foundation it will plug into.
+ *
+ * ──────────────────────────────────────────────────────────────────────────────
+ * CURRENT STATUS (interim — this is the INTENDED model, not yet the live one):
+ * The hug/fill push-down model above is the TARGET we mean to return to. Right
+ * now WorkSurface renders the timeline as an ABSOLUTE OVERLAY (z-30) whose `top`
+ * animates, and EntityBody reserves its slot via a measured `--region1-reserve`
+ * CSS var — a visual shortcut that AVOIDS the real region stack. The overlay is
+ * considered too unstructured to keep long-term. This file's RegionSpec shape is
+ * still the source of truth for "does entity 0 have a timeline region" (consumed
+ * by WorkSurface as a boolean) and is kept whole as the scaffold to migrate back
+ * onto: replace the overlay with an actual hug Region that pushes region 0 down.
  */
 
 /** How a region sizes vertically within the entity's content area. */

@@ -20,6 +20,14 @@ import type { RegionGrow } from "@/lib/zero/regions"
  * toward the header bar as the shell compacts with depth. It is a transform, so it
  * never reflows the regions below: their boxes stay put through the morph (this is
  * what keeps the fixed child windows, anchored to region 0's rect, from jumping).
+ *
+ * ──────────────────────────────────────────────────────────────────────────────
+ * CURRENT STATUS: this component is NOT rendered anywhere yet. EntityBody currently
+ * hand-rolls plain `data-region` divs and WorkSurface paints the timeline as an
+ * absolute overlay (see lib/zero/regions header). `<Region>` is kept INTACT as the
+ * scaffold for the planned migration BACK to a structured region stack — where a
+ * hug timeline region genuinely pushes the fill do-list region down instead of the
+ * interim overlay. Do not delete; wire it in when that model returns.
  */
 export function Region({
   grow,
