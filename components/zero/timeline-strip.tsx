@@ -310,12 +310,12 @@ export function TimelineStrip({
   // --- Mother-ribbon folding state -----------------------------------------
   // `override` pins a mother's collapsed state to the user's explicit choice; it
   // is CLEARED whenever the focus context changes so each navigation re-derives
-  // the auto-collapse (entering a space folds the others). `chipsHidden` tracks
-  // mothers whose fallen minimal chips the user has hidden via the eye toggle
-  // (chips are SHOWN by default). `hoveredMother` highlights a collapsed mother's
-  // fallen chips while its rail is hovered.
+  // the auto-collapse (entering a space folds the others). `ticksHidden` tracks
+  // mothers whose rail highlight ticks the user has hidden via the eye toggle
+  // (ticks are SHOWN by default). `hoveredMother` brightens a collapsed mother's
+  // rail ticks while its rail is hovered.
   const [override, setOverride] = useState<Record<string, boolean>>({})
-  const [chipsHidden, setChipsHidden] = useState<Record<string, boolean>>({})
+  const [ticksHidden, setTicksHidden] = useState<Record<string, boolean>>({})
   const [hoveredMother, setHoveredMother] = useState<string | null>(null)
   useEffect(() => {
     setOverride({})
@@ -529,7 +529,7 @@ export function TimelineStrip({
   // Collapse-aware vertical layout. Walk the mother blocks top→bottom, giving each
   // a y-offset: a collapsed mother occupies just RAIL_H; an expanded one lays out
   // its lanes at LANE_H each. `laneToY` maps every VISIBLE global lane to its y;
-  // collapsed lanes are absent (their bars render as fallen minimal chips instead).
+  // collapsed lanes are absent (their bars render as ticks on the rail instead).
   const layout = useMemo(() => {
     const blocks: { m: MotherBlock; top: number; height: number; collapsed: boolean }[] = []
     const laneToY = new Map<number, number>()
@@ -1037,7 +1037,7 @@ export function TimelineStrip({
             {bars.map((b) => {
               const lane = lanes.lane.get(b.key) ?? 0
               // Bars whose mother ribbon is collapsed don't render on a lane — they
-              // "fall" onto the visible lanes as minimal chips in a later pass.
+              // render as highlight ticks on that mother's rail in a later pass.
               if (blockOfLane(lane)?.collapsed) return null
               const left = pct(b.from)
               const widthPct = ((b.to - b.from) / spanMs) * 100
@@ -1188,13 +1188,13 @@ export function TimelineStrip({
                 falling onto the visible lanes, each event is painted AS a bright tick
                 directly ON that mother's thin rail, at its own time position. The rail
                 becomes a compressed one-line preview of the folded mother. Shown by
-                default; hidden per-mother via the eye toggle (`chipsHidden`) and
+                default; hidden per-mother via the eye toggle (`ticksHidden`) and
                 brightened while the mother's rail is hovered (`hoveredMother`).
                 pointer-events-none so a click anywhere on the rail still expands it. */}
             {showRibbons &&
               layout.blocks.flatMap((blk) => {
                 const mId = blk.m.motherId
-                if (!blk.collapsed || !mId || chipsHidden[mId]) return []
+                if (!blk.collapsed || !mId || ticksHidden[mId]) return []
                 const hi = hoveredMother === mId
                 const railY = offsetY + blk.top
                 const motherBars = bars.filter((b) => blockOfLane(lanes.lane.get(b.key) ?? 0)?.m.motherId === mId)
@@ -1306,7 +1306,7 @@ export function TimelineStrip({
               layout.blocks.map((blk) => {
                 const mId = blk.m.motherId
                 if (!blk.collapsed || !mId) return null
-                const chipsOn = !chipsHidden[mId]
+                const ticksOn = !ticksHidden[mId]
                 return (
                   <div
                     key={`mlabel:${mId}`}
@@ -1327,12 +1327,12 @@ export function TimelineStrip({
                     </button>
                     <button
                       type="button"
-                      onClick={() => setChipsHidden((s) => ({ ...s, [mId]: chipsOn }))}
-                      title={chipsOn ? "Hide events" : "Show events"}
-                      aria-pressed={!chipsOn}
+                      onClick={() => setTicksHidden((s) => ({ ...s, [mId]: ticksOn }))}
+                      title={ticksOn ? "Hide events" : "Show events"}
+                      aria-pressed={!ticksOn}
                       className="flex items-center justify-center rounded border border-border/70 bg-card p-0.5 text-foreground/60 shadow-sm transition-colors hover:text-foreground"
                     >
-                      {chipsOn ? <Eye className="h-2.5 w-2.5" aria-hidden /> : <EyeOff className="h-2.5 w-2.5" aria-hidden />}
+                      {ticksOn ? <Eye className="h-2.5 w-2.5" aria-hidden /> : <EyeOff className="h-2.5 w-2.5" aria-hidden />}
                     </button>
                   </div>
                 )
