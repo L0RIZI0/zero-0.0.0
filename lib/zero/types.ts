@@ -43,13 +43,32 @@ export interface User {
  *   - `resource`  — a referenced asset/tool/material the work draws on.
  *   - `community` — a place gathering people and discussions (subreddit-like).
  *
+ * The IDENTITY TRIAD describes who a Zero user *is* — a nested stack of three
+ * structural entities rather than ordinary content:
+ *
+ *   - `organization` — the outermost container a user occupies (glyph: a circle).
+ *       This is `entity0` / the root "All Life" home in its opened-state form.
+ *   - `individual`   — the person inhabiting the organization (glyph: a "Z"
+ *       rotated 45° anticlockwise). System-only; one per user.
+ *   - `soul`         — the innermost core inside the individual (glyph: a dot).
+ *       System-only; exactly one, the irreducible self.
+ *
  * Containment is recursive: any entity can contain any other entity. The shared
  * attributes below are present on every kind; only some are *relevant* per kind
  * (an event cares about start/end, an instant about `at`, a task about
  * priority/dueDate, a space about description), so renderers show fields
  * conditionally rather than the model splitting into separate shapes.
  */
-export type EntityKind = "space" | "task" | "event" | "instant" | "resource" | "community"
+export type EntityKind =
+  | "space"
+  | "task"
+  | "event"
+  | "instant"
+  | "resource"
+  | "community"
+  | "organization"
+  | "individual"
+  | "soul"
 
 /** Absolute time, in epoch milliseconds (the `Date.now()` value). Replaces the
  *  old "minutes from midnight" representation so spans can cross days/weeks/years

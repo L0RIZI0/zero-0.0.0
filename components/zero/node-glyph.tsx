@@ -5,7 +5,16 @@ import gsap from "gsap"
 import { cn } from "@/lib/utils"
 
 /** The node kinds Zero can create, each with its own silhouette. */
-export type NodeKind = "task" | "space" | "event" | "instant" | "resource" | "community"
+export type NodeKind =
+  | "task"
+  | "space"
+  | "event"
+  | "instant"
+  | "resource"
+  | "community"
+  | "organization"
+  | "individual"
+  | "soul"
 
 export const NODE_KIND_META: Record<
   NodeKind,
@@ -17,19 +26,41 @@ export const NODE_KIND_META: Record<
   event: { label: "Event", description: "Something over a span of time" },
   instant: { label: "Instant", description: "Something at a precise moment" },
   community: { label: "Community", description: "A place to gather people and discussions" },
+  organization: { label: "Organization", description: "The outermost container a user occupies — entity0, the home itself" },
+  individual: { label: "Individual", description: "The person inhabiting an organization" },
+  soul: { label: "Soul", description: "The irreducible core self inside an individual" },
 }
 
 type Pt = [number, number]
 
+/** A regular N-gon centered in the 24-box. High N approximates a circle; a small
+ *  radius makes a dot. Phase −90° puts the first vertex at top (cosmetic only,
+ *  since the morph engine radially resamples every shape anyway). */
+function regularPolygon(n: number, r: number, cx = 12, cy = 12, phase = -Math.PI / 2): Pt[] {
+  const pts: Pt[] = []
+  for (let i = 0; i < n; i++) {
+    const a = phase + (i / n) * Math.PI * 2
+    pts.push([cx + r * Math.cos(a), cy + r * Math.sin(a)])
+  }
+  return pts
+}
+
 /**
  * The CORNER vertices of each kind's silhouette, in a 24×24 box (matching the
  * crisp shapes the glyph used to draw as separate SVG primitives):
- *  - task      → square
- *  - space     → hexagon (scaled up ~8%, reads optically equal to the others)
- *  - resource  → diamond (the task square rotated 45°)
- *  - event     → triangle pointing up (a span)
- *  - instant   → triangle pointing down (a single point in time)
- *  - community → regular pentagon (a gathering)
+ *  - task         → square
+ *  - space        → hexagon (scaled up ~8%, reads optically equal to the others)
+ *  - resource     → diamond (the task square rotated 45°)
+ *  - event        → triangle pointing up (a span)
+ *  - instant      → triangle pointing down (a single point in time)
+ *  - community    → regular pentagon (a gathering)
+ *  - organization → circle (a 48-gon — the outermost identity container, entity0)
+ *  - individual   → a "Z" rotated 45° anticlockwise. The Z is a non-convex stroke
+ *      letterform the radial morph engine can't represent, so it is drawn as a
+ *      separate <path> (see INDIVIDUAL_Z_PATH) and CROSSFADED over the polygon.
+ *      Its polygon slot here is a circle so morphs into/out of `individual` are
+ *      graceful (the disc fades out as the Z fades in, and vice-versa).
+ *  - soul         → a dot (a small filled disc — the irreducible core self)
  */
 const KIND_CORNERS: Record<NodeKind, Pt[]> = {
   task: [
@@ -69,6 +100,14 @@ const KIND_CORNERS: Record<NodeKind, Pt[]> = {
     [6.1, 20.1],
     [2.5, 8.9],
   ],
+  // Circle — outermost identity container.
+  organization: regularPolygon(48, 9.7),
+  // Morph fallback for the Z (the visible Z is a stroke path, see below). Same
+  // disc as organization so individual↔other morphs read as a circle crossfading
+  // under the Z.
+  individual: regularPolygon(48, 9.7),
+  // Small disc → reads as a filled dot.
+  soul: regularPolygon(32, 3.4),
 }
 
 // --- Equal-vertex resampling (the morph engine) ----------------------------
@@ -165,6 +204,18 @@ function requestAccentPath(angleDeg: number): string {
   return `M ${REQUEST_STUB[0]} ${REQUEST_STUB[1]} L ${REQUEST_PIVOT[0]} ${REQUEST_PIVOT[1]} L ${tipX.toFixed(3)} ${tipY.toFixed(3)}`
 }
 
+// --- Individual "Z" glyph ---------------------------------------------------
+//
+// The Individual's mark is a capital Z rotated 45° ANTICLOCKWISE. A Z is a
+// non-convex stroke letterform, so — unlike the convex silhouettes — it cannot be
+// radially resampled into the polygon morph engine. Instead it is a fixed <path>
+// that CROSSFADES (opacity) against the polygon disc whenever the kind is, or is
+// becoming, `individual`. Authored upright in the 24-box (top bar → diagonal →
+// bottom bar) and rotated −45° about the center at render time; in SVG's y-down
+// space a negative rotation reads as anticlockwise.
+const INDIVIDUAL_Z_PATH = "M 6 6.5 L 18 6.5 L 6 17.5 L 18 17.5"
+const INDIVIDUAL_Z_ROTATE = "rotate(-45 12 12)"
+
 /**
  * A crisp geometric silhouette for a node kind, drawn as a single SVG `<polygon>`
  * whose vertices are the kind's canonical equal-count sampling. When `kind`
@@ -199,6 +250,13 @@ export function NodeGlyph({
   const dispRef = useRef<Pt[]>(KIND_POLYGON[kind])
   const prevKindRef = useRef<NodeKind>(kind)
   const tweenRef = useRef<gsap.core.Tween | null>(null)
+  // The Individual's "Z" stroke and the disc crossfade against each other: the Z
+  // is opaque only when the kind is `individual`, the polygon disc only when it
+  // isn't. These refs hold the CURRENTLY painted opacity so an interrupted morph
+  // resumes smoothly (same pattern as dispRef for points).
+  const zRef = useRef<SVGPathElement | null>(null)
+  const polyOpacityRef = useRef<number>(kind === "individual" ? 0 : 1)
+  const zOpacityRef = useRef<number>(kind === "individual" ? 1 : 0)
 
   useLayoutEffect(() => {
     if (prevKindRef.current === kind) return
@@ -208,6 +266,11 @@ export function NodeGlyph({
     const to = KIND_POLYGON[kind]
     prevKindRef.current = kind
     tweenRef.current?.kill()
+    // Crossfade endpoints: the Z owns the frame only for `individual`.
+    const fromPolyOp = polyOpacityRef.current
+    const toPolyOp = kind === "individual" ? 0 : 1
+    const fromZOp = zOpacityRef.current
+    const toZOp = kind === "individual" ? 1 : 0
     const proxy = { t: 0 }
     tweenRef.current = gsap.to(proxy, {
       t: 1,
@@ -217,10 +280,20 @@ export function NodeGlyph({
         const cur = lerpPolygons(from, to, proxy.t)
         dispRef.current = cur
         polyRef.current?.setAttribute("points", ptsToString(cur))
+        const po = fromPolyOp + (toPolyOp - fromPolyOp) * proxy.t
+        polyOpacityRef.current = po
+        polyRef.current?.setAttribute("opacity", String(po))
+        const zo = fromZOp + (toZOp - fromZOp) * proxy.t
+        zOpacityRef.current = zo
+        zRef.current?.setAttribute("opacity", String(zo))
       },
       onComplete: () => {
         dispRef.current = to
         polyRef.current?.setAttribute("points", ptsToString(to))
+        polyOpacityRef.current = toPolyOp
+        polyRef.current?.setAttribute("opacity", String(toPolyOp))
+        zOpacityRef.current = toZOp
+        zRef.current?.setAttribute("opacity", String(toZOp))
       },
     })
     return () => {
@@ -282,11 +355,30 @@ export function NodeGlyph({
       <polygon
         ref={polyRef}
         points={ptsToString(dispRef.current)}
-        fill={filled ? "currentColor" : "none"}
+        // Soul always renders as a solid dot; everything else honors `filled`.
+        fill={filled || kind === "soul" ? "currentColor" : "none"}
         stroke="currentColor"
         strokeWidth={strokeWidth}
         strokeLinejoin="miter"
         vectorEffect="non-scaling-stroke"
+        // Initial crossfade state (mount): the disc is hidden only for `individual`.
+        opacity={kind === "individual" ? 0 : 1}
+      />
+      {/* Individual "Z" — a non-morphing stroke letterform rotated 45° anticlockwise,
+          crossfaded against the disc above (opacity driven by the morph effect). It
+          is always present in the DOM so a morph into/out of `individual` can fade it;
+          at rest on other kinds its opacity is 0. */}
+      <path
+        ref={zRef}
+        d={INDIVIDUAL_Z_PATH}
+        transform={INDIVIDUAL_Z_ROTATE}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={strokeWidth}
+        strokeLinejoin="round"
+        strokeLinecap="round"
+        vectorEffect="non-scaling-stroke"
+        opacity={kind === "individual" ? 1 : 0}
       />
       {/* "Sent as request" accent — a single path (right-edge stub → corner → tip)
           so the corner is a clean linejoin, not two clashing caps. `d` is driven by

@@ -214,11 +214,14 @@ const ACCENT = {
 } as const
 
 export const entities: Entity[] = [
-  // --- Spaces ---------------------------------------------------------------
-  // s_root is "Space 0" / All Life.
+  // --- Identity triad -------------------------------------------------------
+  // entity0 is the ORGANIZATION (glyph: circle) — the outermost container the user
+  // occupies, and what renders as the "All Life" home in its opened-state form. It
+  // keeps id `s_root` and all its space children for backward compatibility; only
+  // its `kind` changed from "space" to "organization".
   {
     id: "s_root",
-    kind: "space",
+    kind: "organization",
     title: "All Life",
     parentId: null,
     taggedSpaceIds: [],
@@ -234,6 +237,28 @@ export const entities: Entity[] = [
       "r_ai",
     ],
   },
+  // The INDIVIDUAL (glyph: a Z rotated 45° anticlockwise) — the person inhabiting
+  // the organization. System-only and hidden from listings (see getChildren); it is
+  // a structural identity node, not a space you browse into.
+  {
+    id: "i_self",
+    kind: "individual",
+    title: currentUser.name,
+    parentId: "s_root",
+    taggedSpaceIds: [],
+    description: "The person inhabiting this organization.",
+  },
+  // The SOUL (glyph: a dot) — the irreducible core self, innermost of the triad,
+  // nested inside the Individual. System-only and hidden from listings.
+  {
+    id: "soul_self",
+    kind: "soul",
+    title: currentUser.name,
+    parentId: "i_self",
+    taggedSpaceIds: [],
+    description: "The irreducible core self.",
+  },
+  // --- Spaces ---------------------------------------------------------------
   // Day Job
   {
     id: "s_dayjob",
@@ -691,6 +716,11 @@ export function getChildren(contextId: string): Entity[] {
   return entities.filter(
     (e) =>
       e.id !== contextId &&
+      // The identity triad's inner two kinds are structural, not browsable content,
+      // so they never appear in any do-list / child listing (e.g. the Individual is
+      // a direct child of the root organization but must stay invisible at home).
+      e.kind !== "individual" &&
+      e.kind !== "soul" &&
       (e.parentId === contextId || e.taggedSpaceIds.includes(contextId)),
   )
 }
@@ -1361,8 +1391,10 @@ export function changeEntityKind(id: string, kind: EntityKind): void {
     entity.schedule = { startAt: t(12), endAt: t(13), ...entity.schedule }
   } else if (kind === "instant") {
     entity.schedule = { at: t(12), ...entity.schedule }
-  } else if (kind === "resource" || kind === "community") {
-    // Both are containers like a space: they hold things and carry a blurb.
+  } else if (kind === "resource" || kind === "community" || kind === "organization") {
+    // All container-like: they hold things and carry a blurb. (Organization is the
+    // only identity-triad kind that's user-creatable; individual/soul are seeded
+    // system entities and never produced through this path.)
     entity.description = entity.description ?? ""
     entity.assignedResourceIds = entity.assignedResourceIds ?? []
   }
