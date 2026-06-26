@@ -578,10 +578,6 @@ export function TimelineStrip({
     return out
   }, [lanes.ribbons])
 
-  // The mother that should stay OPEN under the current focus (the focused context's
-  // own top-level ancestor). At root focus nothing is auto-collapsed.
-  const focusMotherId = atRootFocus ? null : (directChildOfFocus(contextId, "s_root") ?? contextId)
-
   // Collapse-aware vertical layout. Walk the mother blocks top→bottom, giving each
   // a y-offset: a collapsed mother occupies just RAIL_H; an expanded one lays out
   // its lanes at LANE_H each. `laneToY` maps every VISIBLE global lane to its y;
@@ -591,7 +587,10 @@ export function TimelineStrip({
     const laneToY = new Map<number, number>()
     let y = 0
     for (const m of mothers) {
-      const collapsed = m.motherId != null && (m.motherId in override ? override[m.motherId] : !atRootFocus && m.motherId !== focusMotherId)
+      // Mothers ONLY collapse when the user explicitly folds them (an entry in
+      // `override`). Entering a subspace no longer auto-collapses the other mothers —
+      // unrelated lanes simply DIM (see relatedFactor) and stay fully laid out.
+      const collapsed = m.motherId != null && (m.motherId in override ? override[m.motherId] : false)
       if (collapsed) {
         blocks.push({ m, top: y, height: RAIL_H, collapsed: true })
         y += RAIL_H + MOTHER_GAP
@@ -604,7 +603,7 @@ export function TimelineStrip({
     }
     return { blocks, laneToY, contentH: Math.max(0, y - MOTHER_GAP) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mothers, override, atRootFocus, focusMotherId])
+  }, [mothers, override])
 
   const contentH = layout.contentH
   // The track GROWS VERTICALLY to fit the visible lanes (capped so a pathological

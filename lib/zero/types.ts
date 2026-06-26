@@ -47,7 +47,10 @@ export interface User {
  * structural entities rather than ordinary content:
  *
  *   - `organization` — the outermost container a user occupies (glyph: a circle).
- *       This is `entity0` / the root "All Life" home in its opened-state form.
+ *       More than a container, an organization is a WAY OF SEEING THE WORLD: a
+ *       point of view that expresses a reading of what matters and what doesn't
+ *       in its environment. A company is one such reading. This is `entity0` /
+ *       the root "All Life" home in its opened-state form.
  *   - `individual`   — the person inhabiting the organization (glyph: a "Z"
  *       rotated 45° anticlockwise). System-only; one per user.
  *   - `soul`         — the innermost core inside the individual (glyph: a dot).

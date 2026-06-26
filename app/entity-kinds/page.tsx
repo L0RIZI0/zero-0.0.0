@@ -94,7 +94,9 @@ export default function EntityKindsPage() {
             A Zero user is a nested stack: a <strong className="font-medium text-foreground">Soul</strong> inhabiting
             an <strong className="font-medium text-foreground">Individual</strong>, occupying an{" "}
             <strong className="font-medium text-foreground">Organization</strong>. The Organization is{" "}
-            <em>entity0</em> itself — the home you open into.
+            <em>entity0</em> itself — the home you open into. It is more than a container: an Organization is a{" "}
+            <strong className="font-medium text-foreground">way of seeing the world</strong> — a point of view that
+            expresses a reading of what matters and what doesn&apos;t in its environment. A company is one such reading.
           </p>
 
           <NestedTriad index={0} />

@@ -20,13 +20,13 @@ export const NODE_KIND_META: Record<
   NodeKind,
   { label: string; description: string }
 > = {
-  task: { label: "Task", description: "A single thing to do" },
+  task: { label: "Task", description: "A thing to do" },
   space: { label: "Space", description: "A context that holds things" },
-  resource: { label: "Resource", description: "A reference, tool, or material to draw on" },
-  event: { label: "Event", description: "Something over a span of time" },
-  instant: { label: "Instant", description: "Something at a precise moment" },
+  resource: { label: "Resource", description: "An asset, reference, or tool" },
+  event: { label: "Event", description: "Something that lives in time" },
+  instant: { label: "Instant", description: "A precise moment" },
   community: { label: "Community", description: "A place to gather people and discussions" },
-  organization: { label: "Organization", description: "The outermost container a user occupies — entity0, the home itself" },
+  organization: { label: "Organization", description: "A company, a point of view" },
   individual: { label: "Individual", description: "The person inhabiting an organization" },
   soul: { label: "Soul", description: "The irreducible core self inside an individual" },
 }
