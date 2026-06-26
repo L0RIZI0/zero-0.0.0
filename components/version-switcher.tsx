@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
 
 // Tiny monospace pill that lets you hop between the live build at `/` and the
-// frozen pre-ribbon snapshot at `/000`. It reads the current route, highlights
+// frozen pre-ribbon snapshot at `/1`. It reads the current route, highlights
 // the active version, and links to the other — a discrete way to A/B the two
 // builds inside one app instead of separate Electron builds or retyping URLs.
 //
@@ -13,14 +13,14 @@ import { cn } from "@/lib/utils"
 // navigation chrome, not part of either frozen/live app's logic, so a single
 // copy can sit in both headers.
 const VERSIONS = [
-  { href: "/", label: "/" },
-  { href: "/000", label: "000" },
+  { href: "/", label: "0" },
+  { href: "/1", label: "/1" },
 ] as const
 
 export function VersionSwitcher() {
   const pathname = usePathname()
-  // `/000` (and anything nested under it) is the snapshot; everything else is live.
-  const active = pathname?.startsWith("/000") ? "/000" : "/"
+  // `/1` (and anything nested under it) is the snapshot; everything else is live.
+  const active = pathname?.startsWith("/1") ? "/1" : "/"
 
   return (
     <div
