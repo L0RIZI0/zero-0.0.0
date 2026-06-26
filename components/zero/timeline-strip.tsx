@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react"
 import { motion, animate } from "motion/react"
-import { ChevronLeft, ChevronRight, Crosshair, Trash2, Ban, RotateCcw, Repeat, Eye, EyeOff, Rows3, AlignHorizontalJustifyStart } from "lucide-react"
+import { ChevronLeft, ChevronRight, Crosshair, Trash2, Ban, RotateCcw, Repeat, Eye, EyeOff, LayoutGrid, List } from "lucide-react"
 import {
   getInheritedAccent,
   isInSubtree,
@@ -983,9 +983,9 @@ export function TimelineStrip({
               )}
             >
               {serpentine ? (
-                <AlignHorizontalJustifyStart className="h-3 w-3" />
+                <List className="h-3 w-3" />
               ) : (
-                <Rows3 className="h-3 w-3" />
+                <LayoutGrid className="h-3 w-3" />
               )}
             </button>
           </div>
