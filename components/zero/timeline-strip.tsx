@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react"
 import { motion, animate } from "motion/react"
-import { ChevronLeft, ChevronRight, Crosshair, Trash2, Ban, RotateCcw, Repeat, Eye, EyeOff } from "lucide-react"
+import { ChevronLeft, ChevronRight, Crosshair, Trash2, Ban, RotateCcw, Repeat, Eye, EyeOff, Rows3, AlignHorizontalJustifyStart } from "lucide-react"
 import {
   getInheritedAccent,
   isInSubtree,
@@ -40,11 +40,17 @@ import { useZeroNav } from "@/lib/zero/nav-store"
 import { placementKey, resolveOriginRect } from "@/lib/zero/placement"
 import { useTimelineGestures } from "@/hooks/use-timeline-gestures"
 import { NodeGlyph } from "./node-glyph"
+import { TimelineSerpentine, type SerpItem } from "./timeline-serpentine"
 import { ContextMenu, type ContextMenuState } from "./context-menu"
 import { cn } from "@/lib/utils"
 
 const HOUR_MS = 3_600_000
 const DAY_MS = 86_400_000
+const WEEK_MS = 7 * DAY_MS
+// Fixed height of the serpentine (week-columns) layout. Tall enough for seven
+// readable day-rows; the focus region below reflows to it via the same
+// `--region1-reserve` observer that handles the linear track's dynamic height.
+const SERP_H = 340
 
 // Fallback color for items whose space chain has no accent (created directly
 // under the root "Space 0"). A neutral light grey so they still read as real
@@ -307,6 +313,12 @@ export function TimelineStrip({
 
   const [hoveredInstant, setHoveredInstant] = useState<string | null>(null)
 
+  // Serpentine layout: when ON, the central viewport renders the week-columns grid
+  // (time wraps vertically per week) instead of the linear lifeline. The zoom
+  // selector, pan arrows and NOW control keep operating on `vp`; coarser zoom →
+  // more week columns. Linear is the default.
+  const [serpentine, setSerpentine] = useState(false)
+
   // --- Mother-ribbon folding state -----------------------------------------
   // `override` pins a mother's collapsed state to the user's explicit choice; it
   // is CLEARED whenever the focus context changes so each navigation re-derives
@@ -444,6 +456,50 @@ export function TimelineStrip({
     return out
   }, [spans, rolled, query])
 
+  // --- Serpentine model ----------------------------------------------------
+  // How many week columns to show: derived from the current span (coarser zoom →
+  // more weeks), clamped to a comfortable 3–14 so a column never gets too thin.
+  const weekCount = useMemo(
+    () => Math.min(14, Math.max(3, Math.round(spanMs / WEEK_MS))),
+    [spanMs],
+  )
+  // Flatten every bar (spans/bands/streams) plus the raw instants into one item
+  // set for the grid, pre-computing each item's relatedness opacity. Instants use
+  // their own interval (from === to) so the grid renders them as day-row dots.
+  const serpItems = useMemo<SerpItem[]>(() => {
+    const out: SerpItem[] = []
+    for (const b of bars) {
+      out.push({
+        key: b.key,
+        from: b.from,
+        to: b.to,
+        color: b.color,
+        title: b.title,
+        kind: b.kind,
+        dim: (b.cancelled ? 0.45 : 1) * relatedFactor(b.entity?.parentId, b.entity?.id),
+        entity: b.entity,
+        cancelled: b.cancelled,
+        count: b.count,
+      })
+    }
+    for (const e of instants) {
+      const [from] = entityInterval(e)
+      out.push({
+        key: e.occKey,
+        from,
+        to: from,
+        color: getInheritedAccent(e.parentId ?? "s_root") ?? NEUTRAL_MARKER,
+        title: e.title,
+        kind: "instant",
+        dim: (e.cancelled ? 0.45 : 1) * relatedFactor(e.parentId, e.id),
+        entity: e,
+        cancelled: e.cancelled,
+      })
+    }
+    return out
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bars, instants, contextId, atRootFocus])
+
   // Footprint right-edge (ms) for lane-packing. Whenever a bar's TITLE is wider than
   // its span on screen, the label bleeds past the span's right edge (item 3 / the
   // collapsed marker) — so we reserve that label width in the packer. Adjacent items
@@ -556,7 +612,8 @@ export function TimelineStrip({
   // track — and via the live `--region1-reserve` measurement, the focus region
   // below — reflow up automatically. Lanes stay vertically centered.
   const stackedH = Math.min(contentH, MAX_STACK_LANES * LANE_H + (MAX_STACK_LANES - 1) * LANE_GAP)
-  const trackH = Math.max(TRACK_H, stackedH + 2 * TRACK_PAD_Y)
+  // Serpentine uses a fixed tall grid; the linear track grows to fit its lanes.
+  const trackH = serpentine ? SERP_H : Math.max(TRACK_H, stackedH + 2 * TRACK_PAD_Y)
   const offsetY = Math.max(TRACK_PAD_Y, (trackH - contentH) / 2)
   // Y of a VISIBLE global lane (collapsed lanes return the block's rail y so any
   // stray positioning lands sanely; their bars are handled separately as chips).
@@ -686,7 +743,7 @@ export function TimelineStrip({
             WebkitMaskImage: edgeFade,
           }}
         >
-          {ticks.map((t) => {
+          {!serpentine && ticks.map((t) => {
             if (!t.labeled) return null // unlabeled minors still draw a gridline below
             const left = pct(t.ms)
             if (left < 0 || left > 100) return null
@@ -764,7 +821,7 @@ export function TimelineStrip({
           className="pointer-events-none absolute inset-y-0 z-30"
           style={{ left: VIEWPORT_INSET_LEFT, right: VIEWPORT_INSET_RIGHT }}
         >
-          {clusters.map((c) => {
+          {!serpentine && clusters.map((c) => {
             const left = pct(c.ms)
             if (left < 0 || left > 100) return null
             const level = clusterLevel.get(c.key) ?? 0
@@ -912,6 +969,25 @@ export function TimelineStrip({
                 {key}
               </button>
             ))}
+            {/* Layout toggle — flip between the linear lifeline and the serpentine
+                week-columns grid. Sits under the zoom letters; both share `vp`. */}
+            <button
+              type="button"
+              onClick={() => setSerpentine((s) => !s)}
+              aria-pressed={serpentine}
+              aria-label={serpentine ? "Linear timeline" : "Serpentine timeline"}
+              title={serpentine ? "Linear timeline" : "Serpentine (week columns)"}
+              className={cn(
+                "mt-1 flex items-center justify-center rounded-[3px] p-0.5 transition-colors",
+                serpentine ? "text-foreground" : "text-muted-foreground/40 [&:hover]:text-foreground/80",
+              )}
+            >
+              {serpentine ? (
+                <AlignHorizontalJustifyStart className="h-3 w-3" />
+              ) : (
+                <Rows3 className="h-3 w-3" />
+              )}
+            </button>
           </div>
 
           <button
@@ -1354,6 +1430,23 @@ export function TimelineStrip({
                   </div>
                 )
               })}
+
+            {/* SERPENTINE OVERLAY — when on, the week-columns grid covers the linear
+                lifeline (opaque, z-40 so it sits above ribbons/bars). The linear DOM
+                stays mounted but hidden; toggling back is instant. */}
+            {serpentine && (
+              <div className="absolute inset-0 z-40">
+                <TimelineSerpentine
+                  items={serpItems}
+                  centerMs={center}
+                  weekCount={weekCount}
+                  now={now}
+                  height={SERP_H}
+                  onOpen={openFromChip}
+                  onMenu={openMenu}
+                />
+              </div>
+            )}
           </div>
 
           <button
