@@ -341,10 +341,10 @@ export function TimelineStrip({
     return out
   }, [spans, rolled, query])
 
-  // Footprint right-edge (ms) for lane-packing: a labeled chip ends at `to`, but a
-  // COLLAPSED marker (narrower than CHIP_COLLAPSE_PX) reserves extra room for its
-  // overflowing title so adjacent markers don't pile their labels on top of each
-  // other — they stack into separate lanes instead. `msPerPx` converts the px
+  // Footprint right-edge (ms) for lane-packing: a chip wider than CHIP_COLLAPSE_PX
+  // ends at `to`, but a SHORT span (narrower than that) reserves extra room for its
+  // BLEEDING title so adjacent chips don't pile their overflowing labels on top of
+  // each other — they stack into separate lanes instead. `msPerPx` converts the px
   // estimates (label chars, min chip) into the ms axis the packer reasons in.
   const msPerPx = spanMs / Math.max(1, width)
   const barRightEdge = useMemo(() => {
@@ -743,10 +743,6 @@ export function TimelineStrip({
               const left = pct(b.from)
               const widthPct = ((b.to - b.from) / spanMs) * 100
               if (left > 100 || left + widthPct < 0) return null
-              // Real on-screen width of this bar in px (viewport `width` is the px
-              // measure; `widthPct` is its share of the span). Drives the adaptive
-              // chip → marker collapse below.
-              const widthPx = (Math.max(widthPct, 0) / 100) * width
               const boxStyle = {
                 left: `calc(${left}% + 2px)`,
                 width: `calc(${Math.max(widthPct, 0.8)}% - 4px)`,
@@ -804,56 +800,15 @@ export function TimelineStrip({
               // Event / scheduled-space span chip.
               const isOpen = b.entity ? stack.includes(b.entity.id) : false
               const dim = (b.cancelled ? 0.45 : 1) * relatedFactor(b.entity?.parentId, b.entity?.id)
-              const markerColor = b.color || "var(--muted-foreground)"
 
-              // COLLAPSED MARKER — when the span is too narrow for a labeled chip, it
-              // becomes a smooth horizontal line the width of the span, a vertical
-              // color edge on its left, and the title floated above-left (allowed to
-              // overflow past the tiny span, the way an instant pin's label does).
-              if (widthPx < CHIP_COLLAPSE_PX) {
-                return (
-                  <motion.button
-                    key={b.key}
-                    type="button"
-                    initial={false}
-                    data-placement={b.entity ? placementKey("timeline", contextId, b.entity.id) : undefined}
-                    data-morph-kind="generic"
-                    animate={{ opacity: dim }}
-                    transition={panelTransition}
-                    onClick={() => b.entity && openFromChip(b.entity.id)}
-                    onContextMenu={(ev) => b.entity && openMenu(ev, b.entity)}
-                    aria-current={isOpen ? "true" : undefined}
-                    title={b.title}
-                    className="absolute flex h-6 items-end overflow-visible transition-[filter] hover:brightness-110"
-                    style={boxStyle}
-                  >
-                    {/* title floated above the line, left-aligned, free to overflow */}
-                    <span
-                      className={cn(
-                        "pointer-events-none absolute bottom-3 left-0 whitespace-nowrap text-[10px] leading-none tracking-tight text-foreground/80",
-                        b.cancelled && "line-through",
-                      )}
-                    >
-                      {b.title}
-                    </span>
-                    {/* vertical color edge anchoring the left of the span */}
-                    <span
-                      className="absolute bottom-0 left-0 h-3 w-[2px] rounded-full"
-                      style={{ backgroundColor: markerColor }}
-                      aria-hidden
-                    />
-                    {/* smooth horizontal line spanning the (short) duration */}
-                    <span
-                      className="absolute bottom-0 left-0 right-0 h-[2px] rounded-full"
-                      style={{ backgroundColor: markerColor, opacity: 0.6 }}
-                      aria-hidden
-                    />
-                  </motion.button>
-                )
-              }
-
+              // /000: ALWAYS a labeled chip rectangle — no minimal-marker collapse for
+              // short spans. The title is free to BLEED past the chip's right edge
+              // (no truncate / overflow-visible) rather than being clipped; the
+              // lane-packer already reserves label-width room for short spans (see
+              // barRightEdge) so neighbours stack into separate lanes instead of
+              // colliding with the overflowing text.
               return (
-                <div key={b.key} className="absolute h-6" style={boxStyle}>
+                <div key={b.key} className="absolute h-6 overflow-visible" style={boxStyle}>
                   <motion.button
                     type="button"
                     initial={false}
@@ -866,7 +821,7 @@ export function TimelineStrip({
                     aria-current={isOpen ? "true" : undefined}
                     title={b.title}
                     className={cn(
-                      "flex h-6 w-full items-center gap-1.5 overflow-hidden rounded-md border px-2 text-[10.5px] tracking-tight",
+                      "flex h-6 w-full items-center gap-1.5 overflow-visible rounded-md border px-2 text-[10.5px] tracking-tight",
                       "text-foreground/85 shadow-sm transition-[filter] hover:brightness-110",
                     )}
                     style={{
@@ -875,7 +830,7 @@ export function TimelineStrip({
                     }}
                   >
                     <span className="h-1.5 w-1.5 shrink-0 rounded-[2px]" style={{ backgroundColor: b.color }} aria-hidden />
-                    <span className={cn("truncate", b.cancelled && "line-through")}>{b.title}</span>
+                    <span className={cn("whitespace-nowrap", b.cancelled && "line-through")}>{b.title}</span>
                   </motion.button>
                 </div>
               )
