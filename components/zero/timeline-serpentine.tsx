@@ -6,6 +6,12 @@ import type { Entity } from "@/lib/zero/types"
 
 const DAY_MS = 86_400_000
 const WEEK_MS = 7 * DAY_MS
+// A span at/above this duration is treated as "multi-day" and rendered as a tall
+// vertical block spanning its day-rows; anything shorter is a single-day item
+// that gets stacked inside its day's band as a readable mini-list line.
+const MULTI_DAY_MIN_MS = 1.5 * DAY_MS
+const MULTI_COL_PX = 16 // width of each multi-day sub-column (left side of a week)
+const MAX_DAY_ROWS = 4 // max stacked lines shown per day band before "+N more"
 
 /** One placeable item in the serpentine grid — spans/bands/streams arrive with a
  *  real [from,to] interval; instants arrive with from === to. `dim` is the
@@ -35,17 +41,33 @@ function startOfWeek(epoch: number): number {
 const DAY_LABELS = ["M", "T", "W", "T", "F", "S", "S"]
 const DAY_AXIS_W = 16
 
+type MultiBlock = { it: SerpItem; topF: number; botF: number; lane: number }
+type DayItem = { it: SerpItem; isInstant: boolean }
+type Column = {
+  ws: number
+  we: number
+  multi: MultiBlock[]
+  multiLanes: number
+  days: DayItem[][] // length 7, Mon→Sun
+}
+
 /**
  * SERPENTINE TIMELINE (MVP) — time wrapped into a row of WEEK COLUMNS flowing
  * left→right (past→future). Within each column time runs VERTICALLY through seven
  * day-rows (Mon top → Sun bottom), so an entity takes a vertical span rather than a
- * horizontal one. Multi-day spans become tall blocks; a span crossing a week
- * boundary simply re-appears (clipped) in the next column. Instants are dots in
- * their day-row. Overlapping items in a column pack into side-by-side sub-columns.
+ * horizontal one.
  *
- * This is a SELF-CONTAINED render path: the linear lifeline is untouched and the
- * parent swaps to this when the serpentine toggle is on. Mother ribbons, semantic
- * rollup tuning, clustering and stream fidelity are intentionally deferred.
+ * Two classes of item coexist so neither gets crushed:
+ *  • MULTI-DAY spans (≥ ~1.5 days) → tall vertical blocks on the LEFT of the column,
+ *    spanning their day-rows, greedily packed into side-by-side sub-columns. A span
+ *    crossing a week boundary re-appears (clipped) in the next column.
+ *  • SINGLE-DAY items (intraday events + instants) → bucketed by day and stacked as
+ *    thin readable lines INSIDE that day's band (a mini agenda), overflowing to a
+ *    "+N" chip. This is what fixes intraday events collapsing into a sliver.
+ *
+ * Self-contained render path: the linear lifeline is untouched and the parent swaps
+ * to this when the toggle is on. Mother ribbons, rollup tuning, clustering and
+ * stream fidelity are intentionally deferred.
  */
 export function TimelineSerpentine({
   items,
@@ -71,47 +93,52 @@ export function TimelineSerpentine({
     [centerMs, weekCount],
   )
 
-  const columns = useMemo(() => {
-    const cols: {
-      ws: number
-      we: number
-      placed: { it: SerpItem; isInstant: boolean; topF: number; botF: number; lane: number }[]
-      laneCount: number
-    }[] = []
+  const columns = useMemo<Column[]>(() => {
+    const cols: Column[] = []
     for (let c = 0; c < weekCount; c++) {
       const ws = firstWeekStart + c * WEEK_MS
       const we = ws + WEEK_MS
-      // Items overlapping this week. Instants only when their moment falls inside.
-      const inWeek = items.filter((it) => {
-        if (it.kind === "instant" || it.from === it.to) return it.from >= ws && it.from < we
-        return it.to > ws && it.from < we
-      })
-      // Vertical fractions within the week (0 = Mon 00:00, 1 = next Mon 00:00).
-      const placed = inWeek.map((it) => {
+      const days: DayItem[][] = Array.from({ length: 7 }, () => [])
+      const multiRaw: MultiBlock[] = []
+
+      for (const it of items) {
         const isInstant = it.kind === "instant" || it.from === it.to
+        if (isInstant) {
+          if (it.from < ws || it.from >= we) continue
+          const d = Math.min(6, Math.max(0, Math.floor((it.from - ws) / DAY_MS)))
+          days[d].push({ it, isInstant: true })
+          continue
+        }
+        // Span/band/stream — must overlap this week.
+        if (it.to <= ws || it.from >= we) continue
         const cf = Math.max(it.from, ws)
         const ct = Math.min(it.to, we)
-        const topF = (cf - ws) / WEEK_MS
-        const botF = isInstant ? topF : (ct - ws) / WEEK_MS
-        return { it, isInstant, topF, botF, lane: 0 }
-      })
-      // Greedy sub-lane packing by vertical-interval overlap (a thin min footprint
-      // so two items at nearly the same time still split into separate sub-columns).
-      const sorted = [...placed].sort((a, b) => a.topF - b.topF)
+        if (it.to - it.from >= MULTI_DAY_MIN_MS) {
+          multiRaw.push({ it, topF: (cf - ws) / WEEK_MS, botF: (ct - ws) / WEEK_MS, lane: 0 })
+        } else {
+          // Short span living inside a single day band → treat like a day item.
+          const d = Math.min(6, Math.max(0, Math.floor((cf - ws) / DAY_MS)))
+          days[d].push({ it, isInstant: false })
+        }
+      }
+
+      // Greedy sub-lane packing for multi-day blocks by vertical-interval overlap.
+      const sorted = multiRaw.sort((a, b) => a.topF - b.topF)
       const laneEnds: number[] = []
       for (const p of sorted) {
-        const startF = p.topF
-        const endF = Math.max(p.botF, p.topF + 0.014)
-        let idx = laneEnds.findIndex((e) => e <= startF)
+        let idx = laneEnds.findIndex((e) => e <= p.topF + 0.0001)
         if (idx === -1) {
           idx = laneEnds.length
-          laneEnds.push(endF)
+          laneEnds.push(p.botF)
         } else {
-          laneEnds[idx] = endF
+          laneEnds[idx] = p.botF
         }
         p.lane = idx
       }
-      cols.push({ ws, we, placed, laneCount: Math.max(1, laneEnds.length) })
+      // Sort each day bucket chronologically for a stable agenda order.
+      for (const bucket of days) bucket.sort((a, b) => a.it.from - b.it.from)
+
+      cols.push({ ws, we, multi: sorted, multiLanes: Math.max(0, laneEnds.length), days })
     }
     return cols
   }, [items, firstWeekStart, weekCount])
@@ -157,7 +184,7 @@ export function TimelineSerpentine({
         {columns.map((col) => {
           const isThisWeek = now >= col.ws && now < col.we
           const nowF = isThisWeek ? (now - col.ws) / WEEK_MS : null
-          const laneW = 100 / col.laneCount
+          const multiOffset = col.multiLanes * MULTI_COL_PX
           return (
             <div key={`c-${col.ws}`} className="relative flex-1 border-l border-border/40">
               {/* Day-row gridlines (6 internal dividers). */}
@@ -183,30 +210,9 @@ export function TimelineSerpentine({
                 </div>
               )}
 
-              {/* Placed items. */}
-              {col.placed.map(({ it, isInstant, topF, botF, lane }) => {
-                const left = lane * laneW
-                if (isInstant) {
-                  return (
-                    <button
-                      key={it.key}
-                      type="button"
-                      onClick={() => it.entity && onOpen(it.entity.id)}
-                      onContextMenu={(ev) => it.entity && onMenu(ev, it.entity)}
-                      title={it.title}
-                      className="absolute z-10 flex -translate-y-1/2 items-center gap-1 rounded px-1 text-[8.5px] leading-none tracking-tight text-foreground/80 transition-[filter] hover:brightness-110"
-                      style={{ top: `${topF * 100}%`, left: `${left}%`, width: `${laneW}%`, opacity: it.dim }}
-                    >
-                      <span
-                        className="h-1.5 w-1.5 shrink-0 rounded-full"
-                        style={{ backgroundColor: it.color }}
-                        aria-hidden
-                      />
-                      <span className={cn("truncate", it.cancelled && "line-through")}>{it.title}</span>
-                    </button>
-                  )
-                }
-                const heightPct = Math.max((botF - topF) * 100, 2.2)
+              {/* MULTI-DAY blocks — tall vertical bars in left sub-columns. */}
+              {col.multi.map(({ it, topF, botF, lane }) => {
+                const heightPct = Math.max((botF - topF) * 100, 3)
                 return (
                   <button
                     key={it.key}
@@ -215,30 +221,95 @@ export function TimelineSerpentine({
                     onContextMenu={(ev) => it.entity && onMenu(ev, it.entity)}
                     title={it.count ? `${it.title} · ${it.count}` : it.title}
                     className={cn(
-                      "absolute z-10 flex flex-col overflow-hidden rounded-[3px] border px-1 py-0.5 text-left text-[8.5px] leading-tight tracking-tight",
-                      "text-foreground/85 shadow-sm transition-[filter] hover:brightness-110",
+                      "absolute z-10 flex flex-col overflow-hidden rounded-[3px] border text-left",
+                      "shadow-sm transition-[filter] hover:brightness-110",
                       it.kind === "band" && "border-dashed",
                     )}
                     style={{
                       top: `${topF * 100}%`,
                       height: `${heightPct}%`,
-                      minHeight: 12,
-                      left: `calc(${left}% + 1px)`,
-                      width: `calc(${laneW}% - 2px)`,
-                      borderColor: `${it.color}59`,
-                      backgroundColor: `${it.color}26`,
+                      minHeight: 14,
+                      left: lane * MULTI_COL_PX + 1,
+                      width: MULTI_COL_PX - 2,
+                      borderColor: `${it.color}66`,
+                      backgroundColor: `${it.color}2e`,
                       opacity: it.dim,
                     }}
                   >
-                    <span className="flex items-center gap-1">
-                      <span
-                        className="h-1.5 w-1.5 shrink-0 rounded-[2px]"
-                        style={{ backgroundColor: it.color }}
-                        aria-hidden
-                      />
-                      <span className={cn("truncate", it.cancelled && "line-through")}>{it.title}</span>
+                    {/* Rotated title so a thin multi-day column stays legible. */}
+                    <span
+                      className={cn(
+                        "absolute left-1/2 top-1 -translate-x-1/2 whitespace-nowrap text-[8px] leading-none tracking-tight text-foreground/85",
+                        it.cancelled && "line-through",
+                      )}
+                      style={{ writingMode: "vertical-rl" }}
+                    >
+                      {it.title}
                     </span>
                   </button>
+                )
+              })}
+
+              {/* SINGLE-DAY items — stacked agenda lines inside each day band. */}
+              {col.days.map((bucket, d) => {
+                if (bucket.length === 0) return null
+                const n = bucket.length
+                const overflow = n > MAX_DAY_ROWS
+                const slots = overflow ? MAX_DAY_ROWS : n
+                const shown = overflow ? bucket.slice(0, MAX_DAY_ROWS - 1) : bucket
+                const bandTopF = d / 7
+                // Constant thin line height (band split into MAX_DAY_ROWS), so a lone
+                // item reads as one thin line at the band top rather than ballooning to
+                // fill the whole day. Lines stack downward from the band top.
+                const slotHF = 1 / 7 / MAX_DAY_ROWS
+                return (
+                  <div key={`d-${d}`}>
+                    {shown.map(({ it, isInstant }, j) => (
+                      <button
+                        key={it.key}
+                        type="button"
+                        onClick={() => it.entity && onOpen(it.entity.id)}
+                        onContextMenu={(ev) => it.entity && onMenu(ev, it.entity)}
+                        title={it.title}
+                        className={cn(
+                          "absolute z-10 flex items-center gap-1 overflow-hidden rounded-[2px] px-1 text-left text-[8.5px] leading-none tracking-tight",
+                          "text-foreground/85 transition-[filter] hover:brightness-110",
+                          !isInstant && "border",
+                        )}
+                        style={{
+                          top: `${(bandTopF + j * slotHF) * 100}%`,
+                          height: `${slotHF * 100}%`,
+                          minHeight: 11,
+                          left: multiOffset + 1,
+                          right: 1,
+                          borderColor: isInstant ? undefined : `${it.color}55`,
+                          backgroundColor: isInstant ? undefined : `${it.color}22`,
+                          opacity: it.dim,
+                        }}
+                      >
+                        <span
+                          className={cn("h-1.5 w-1.5 shrink-0", isInstant ? "rounded-full" : "rounded-[2px]")}
+                          style={{ backgroundColor: it.color }}
+                          aria-hidden
+                        />
+                        <span className={cn("truncate", it.cancelled && "line-through")}>{it.title}</span>
+                      </button>
+                    ))}
+                    {overflow && (
+                      <div
+                        className="absolute z-10 flex items-center px-1 text-[8px] font-medium leading-none text-muted-foreground/70"
+                        style={{
+                          top: `${(bandTopF + (slots - 1) * slotHF) * 100}%`,
+                          height: `${slotHF * 100}%`,
+                          minHeight: 11,
+                          left: multiOffset + 1,
+                          right: 1,
+                        }}
+                      >
+                        {`+${n - (MAX_DAY_ROWS - 1)} more`}
+                      </div>
+                    )}
+                  </div>
                 )
               })}
             </div>
