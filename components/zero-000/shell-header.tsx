@@ -6,9 +6,9 @@ import { Search } from "lucide-react"
 import { UserIdentity } from "./user-identity"
 import { WindowControls } from "./window-controls"
 import { VersionSwitcher } from "@/components/version-switcher"
-import { useZeroNav } from "@/lib/zero/nav-store"
-import { shellStageFor, HEADER_PAD_Y } from "@/lib/zero/layout"
-import { layerTransition } from "@/lib/zero/motion"
+import { useZeroNav } from "@/lib/zero-000/nav-store"
+import { shellStageFor, HEADER_PAD_Y } from "@/lib/zero-000/layout"
+import { layerTransition } from "@/lib/zero-000/motion"
 import { cn } from "@/lib/utils"
 
 function useClock() {
