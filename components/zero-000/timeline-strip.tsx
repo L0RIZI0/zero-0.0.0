@@ -59,11 +59,6 @@ function startOfDay(epoch: number): number {
 const TRACK_H = 56 // base (resting) track height — one centered lane
 const LANE_H = 24
 const LANE_GAP = 4
-// Below this on-screen width (px) a span chip can no longer show a useful label
-// (≈3 chars + dot + padding), so it COLLAPSES into a compact "marker": a smooth
-// horizontal line the length of the span, a vertical color edge on its left, and
-// the title floated above-left (free to overflow past the tiny span, like a pin).
-const CHIP_COLLAPSE_PX = 46
 // Vertical breathing room above+below the stacked lanes when the track grows.
 const TRACK_PAD_Y = 6
 // Hard ceiling on how many overlapping lanes can grow the track, so a dense pile-up
@@ -341,17 +336,21 @@ export function TimelineStrip({
     return out
   }, [spans, rolled, query])
 
-  // Footprint right-edge (ms) for lane-packing: a chip wider than CHIP_COLLAPSE_PX
-  // ends at `to`, but a SHORT span (narrower than that) reserves extra room for its
-  // BLEEDING title so adjacent chips don't pile their overflowing labels on top of
-  // each other — they stack into separate lanes instead. `msPerPx` converts the px
-  // estimates (label chars, min chip) into the ms axis the packer reasons in.
+  // Footprint right-edge (ms) for lane-packing. Titles ALWAYS bleed past their chip
+  // (whitespace-nowrap / overflow-visible), so EVERY chip reserves room for its full
+  // visible width — not just short spans — otherwise a wide chip with a long label
+  // (e.g. "Deep work block") gets no protection and collides with its neighbour.
+  // The footprint runs from `b.from` to whichever is larger: the chip's own duration
+  // (`b.to`) or the rendered label box. That box = leading offset (px-2 padding +
+  // 6px dot + 6px gap ≈ 22px) + title glyphs (~6.4px each at text-[10.5px]) + a
+  // trailing breathing gap. `msPerPx` converts those px estimates into the ms axis.
   const msPerPx = spanMs / Math.max(1, width)
   const barRightEdge = useMemo(() => {
+    const CHIP_LEAD_PX = 22 // px-2 + color dot + gap before the title starts
+    const CHAR_PX = 6.4 // measured glyph advance at text-[10.5px] tracking-tight
+    const TRAIL_PX = 10 // breathing room so bled labels never kiss the next chip
     return (b: Bar) => {
-      const spanPx = ((b.to - b.from) / spanMs) * width
-      if (spanPx >= CHIP_COLLAPSE_PX) return b.to
-      const labelPx = b.title.length * 5.6 + 8
+      const labelPx = CHIP_LEAD_PX + b.title.length * CHAR_PX + TRAIL_PX
       return b.from + Math.max(b.to - b.from, labelPx * msPerPx)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
