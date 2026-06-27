@@ -83,3 +83,34 @@ export const TIMELINE_TOP_PAD = 2
  *  inside a fixed-height bar, so its box never changes and the WorkSurface card
  *  below it (and thus the window region) never moves. */
 export const HEADER_PAD_Y = 14
+
+/* --- Timeline morph sizing (Lifelane ⇄ Atlas) -------------------------------
+ * The Timeline is ONE growing box anchored at the card top. As a fraction of the
+ * card's height it: rests over the top ~1/3 as a Lifelane, grows continuously to
+ * ~1/2 as you zoom out, then — at the snap to the Atlas day-grid — jumps to fill
+ * most of the card. WorkSurface multiplies the chosen fraction by the live card
+ * height to get pixels (for the band height + the `--region1-reserve`). */
+export const TIMELINE_LIFELANE_MIN_FRAC = 0.33
+export const TIMELINE_LIFELANE_MAX_FRAC = 0.5
+export const TIMELINE_ATLAS_FRAC = 0.88
+
+/** In Atlas the grid fills most of the card, but the do-list does NOT reserve all
+ *  of that — it floats OVER the grid's lower edge as a compact block just above the
+ *  (shrunken) dock. So the do-list region's top is reserved only to this fraction,
+ *  giving the bottom-anchored create-row + ~3-row scroller room to sit over the grid. */
+export const TIMELINE_ATLAS_DOLIST_TOP_FRAC = 0.5
+
+/** Map the current zoom span (ms) + atlas flag to the Timeline's height fraction.
+ *  In Atlas it's a constant (the grid fills most of the view). In Lifelane it lerps
+ *  MIN→MAX as the span widens from `spanMinMs` (fully zoomed in) up to `spanSnapMs`
+ *  (the Atlas threshold), so the band visibly grows as you zoom out toward the snap. */
+export function timelineHeightFrac(
+  spanMs: number,
+  atlas: boolean,
+  spanMinMs: number,
+  spanSnapMs: number,
+): number {
+  if (atlas) return TIMELINE_ATLAS_FRAC
+  const t = Math.min(1, Math.max(0, (spanMs - spanMinMs) / (spanSnapMs - spanMinMs)))
+  return TIMELINE_LIFELANE_MIN_FRAC + t * (TIMELINE_LIFELANE_MAX_FRAC - TIMELINE_LIFELANE_MIN_FRAC)
+}

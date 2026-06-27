@@ -34,6 +34,8 @@ import {
 } from "@/lib/zero/timeline-scale"
 import type { Entity } from "@/lib/zero/types"
 import { panelTransition, layerTransition } from "@/lib/zero/motion"
+import { timelineHeightFrac } from "@/lib/zero/layout"
+import { setTimelineView } from "@/lib/zero/timeline-view-store"
 import { useZeroNav } from "@/lib/zero/nav-store"
 import { placementKey, resolveOriginRect } from "@/lib/zero/placement"
 import { useTimelineGestures } from "@/hooks/use-timeline-gestures"
@@ -88,6 +90,10 @@ function startOfDay(epoch: number): number {
 
 // --- Track layout -----------------------------------------------------------
 const TRACK_H = 56 // base (resting) track height — one centered lane
+// The label/ruler band rendered ABOVE the track (h-10 = 40px + mb-1 = 4px). The
+// linear track grows to `viewHeightPx − this` so the whole Timeline band (label +
+// track) fills the zoom-driven target height.
+const LIFELANE_LABEL_BAND_H = 44
 const LANE_H = 24
 const LANE_GAP = 4
 // Below this on-screen width (px) a span chip can no longer show a useful label
@@ -249,6 +255,7 @@ export function TimelineStrip({
   contextId,
   accent,
   atlasLayer,
+  viewHeightPx,
 }: {
   contextId: string
   accent?: string
@@ -256,6 +263,10 @@ export function TimelineStrip({
   // do-list/dock (later in the card's DOM) and below the app header (a sibling outside
   // the card), so the Atlas reads as a full-bleed backdrop, not a takeover overlay.
   atlasLayer?: HTMLElement | null
+  // The Timeline's current target height in px (card height × the zoom-driven height
+  // fraction), computed by WorkSurface which knows the live card size. The linear band
+  // grows to this as you zoom out; the Atlas grid fills it. Falls back to content size.
+  viewHeightPx?: number
 }) {
   const { stack, dataVersion, notifyDataChanged, open } = useZeroNav()
   const [menu, setMenu] = useState<ContextMenuState | null>(null)
@@ -386,6 +397,17 @@ export function TimelineStrip({
       return next
     })
   }, [spanMs])
+
+  // Publish the Timeline's morph state (atlas + zoom-driven height fraction) to the
+  // shared store so WorkSurface can size the band + reserve, and the Dock/DoList can
+  // reflow. heightFrac grows continuously from `VIEW_SPAN_MS.D` (zoomed in) up to the
+  // Atlas threshold, then snaps to the Atlas fraction.
+  useEffect(() => {
+    setTimelineView({
+      atlas,
+      heightFrac: timelineHeightFrac(spanMs, atlas, VIEW_SPAN_MS.D, ATLAS_OPEN_MS),
+    })
+  }, [spanMs, atlas])
 
   // ZOOM ANYWHERE ON THE ATLAS. While the Atlas is open the Lifelane strip is faded +
   // click-through (pointer-events-none), so the gesture viewport no longer catches the
@@ -883,15 +905,15 @@ export function TimelineStrip({
       </div>
 
       {/* Full-bleed timeline. Arrows flank the track; the zoom selector pins left.
-          The track height is dynamic: it grows to fit stacked overlapping lanes. The
-          height eases with a short, soft ease-out (NO overshoot/ripple) so the focus
-          region below lands quickly and gently. Only fires on discrete lane-count
-          changes — never during the zoom glide — so it can't affect zoom smoothness. */}
-      <motion.div
+          The track height GROWS WITH ZOOM: as the Timeline morphs from Lifelane toward
+          the Atlas snap, WorkSurface feeds a target `viewHeightPx` (card height × the
+          zoom-driven fraction). The band fills that (minus the ~44px label band above),
+          never below its content-driven `trackH`. Height is applied INSTANTLY (no
+          tween): the zoom itself is already eased via the span spring, so the band
+          glides; a per-frame height tween would instead lag behind the zoom. */}
+      <div
         className="relative -mx-6"
-        initial={false}
-        animate={{ height: trackH }}
-        transition={{ duration: 0.26, ease: [0.22, 1, 0.36, 1] }}
+        style={{ height: Math.max(trackH, (viewHeightPx ?? 0) - LIFELANE_LABEL_BAND_H) }}
       >
         {/* Instant layer — pins (singletons) and density bubbles (clusters). */}
         <div
@@ -1504,13 +1526,14 @@ export function TimelineStrip({
             <ChevronRight className="h-4 w-4" />
           </button>
         </div>
-      </motion.div>
+      </div>
 
       {/* ATLAS — the Lifeline's full-bleed view. No longer a fullscreen takeover: it is
           PORTALED into a card-level layer (`atlasLayer`) that sits BEHIND the do-list /
           dock and BELOW the app header, so the Atlas reads as a backdrop the persistent
-          chrome floats over (not a panel that covers everything). `absolute inset-0`
-          fills that layer (= the work-surface card, i.e. everything under the header).
+          chrome floats over (not a panel that covers everything). It is anchored at the
+          card top and fills the zoom-driven `viewHeightPx` (the Atlas height fraction ×
+          card height ≈ most of the card), so the do-list/dock float over its lower edge.
           Opacity-only fade (NO scale): a parent transform would skew the absolute rects
           motion uses for the per-entity layoutId morph, so the entities carry the motion
           while the plane just fades in. The week view has its own date-column header and
@@ -1521,7 +1544,8 @@ export function TimelineStrip({
             {atlas && (
               <motion.div
                 ref={atlasWheelRef}
-                className="absolute inset-0"
+                className="absolute inset-x-0 top-0"
+                style={{ height: viewHeightPx ? `${viewHeightPx}px` : "100%" }}
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}

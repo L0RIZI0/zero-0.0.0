@@ -6,6 +6,7 @@ import { useTheme } from "next-themes"
 import { useZeroNav } from "@/lib/zero/nav-store"
 import { getSpace, getEntity, isDetachedChild } from "@/lib/zero/data"
 import { shellStageFor, HEADER_BAND_H, TIMELINE_TOP_PAD } from "@/lib/zero/layout"
+import { useTimelineView } from "@/lib/zero/timeline-view-store"
 import { entityRegions } from "@/lib/zero/regions"
 import { layerTransition, telescopicSurface } from "@/lib/zero/motion"
 import { DURATION_S, MORPH_CSS_EASE } from "@/lib/zero/flip-stage"
@@ -81,8 +82,15 @@ export function WorkSurface() {
   // fixed window — consumes one value without prop drilling. registerStage is
   // preserved via a combined ref so the Flip stage still resolves region 0's box.
   const regionElRef = useRef<HTMLDivElement | null>(null)
-  const timelineElRef = useRef<HTMLDivElement | null>(null)
-  const [timelineH, setTimelineH] = useState(0)
+  // The Timeline is ONE morphing box sized as a fraction of the card. We read that
+  // fraction + atlas flag from the shared store (written by TimelineStrip as you zoom)
+  // and multiply by the LIVE card height to get the band's pixel height. This is the
+  // single value that (a) the strip grows its band to, and (b) the do-list reserves
+  // below — so growth and compression stay locked together as you zoom.
+  const { heightFrac } = useTimelineView()
+  const cardElRef = useRef<HTMLDivElement | null>(null)
+  const [cardH, setCardH] = useState(0)
+  const viewHeightPx = Math.round(heightFrac * cardH)
   // The Atlas backdrop layer. The Lifelane (in TimelineStrip) portals the Atlas into
   // this card-level element, which sits BEHIND the do-list/dock (rendered later in the
   // card) and BELOW the app header (a sibling outside the card) — so the Atlas reads as
@@ -94,9 +102,9 @@ export function WorkSurface() {
     registerStage(el)
   }, [])
   useEffect(() => {
-    const el = timelineElRef.current
+    const el = cardElRef.current
     if (!el) return
-    const measure = () => setTimelineH(el.offsetHeight)
+    const measure = () => setCardH(el.clientHeight)
     measure()
     const ro = new ResizeObserver(measure)
     ro.observe(el)
@@ -110,7 +118,10 @@ export function WorkSurface() {
   // offset (+ TIMELINE_TOP_PAD only at home), the body-relative reserve collapses to
   // `(home ? TIMELINE_TOP_PAD : 0) + timelineH`. This keeps content flush under the
   // timeline in BOTH home and windows from a single shared var.
-  const region1Reserve = (windowOpen ? 0 : TIMELINE_TOP_PAD) + timelineH
+  // The band's bottom = its top offset + its zoom-driven pixel height. The do-list
+  // reserves exactly this, so it compresses continuously as the band grows and is
+  // pushed under the Atlas grid's lower edge when zoomed all the way out.
+  const region1Reserve = (windowOpen ? 0 : TIMELINE_TOP_PAD) + viewHeightPx
 
   // Home is window 0 in the telescopic surface model. In DARK mode it stays on
   // pure --background (level 0) at every depth — a no-op. In LIGHT mode it is the
@@ -129,6 +140,7 @@ export function WorkSurface() {
     // still rounds the card's own background; only the window region needs to
     // clip its scaled-up parent frames.
     <div
+      ref={cardElRef}
       className="relative flex h-full w-full flex-col rounded-md"
       style={
         {
@@ -158,13 +170,17 @@ export function WorkSurface() {
           `--region1-reserve`. */}
       {hasTimeline ? (
         <motion.div
-          ref={timelineElRef}
           className="absolute inset-x-0 z-30 px-6"
           initial={false}
           animate={{ top: timelineTop }}
           transition={layerTransition}
         >
-          <TimelineStrip contextId={contextId} accent={accent} atlasLayer={atlasLayer} />
+          <TimelineStrip
+            contextId={contextId}
+            accent={accent}
+            atlasLayer={atlasLayer}
+            viewHeightPx={viewHeightPx}
+          />
         </motion.div>
       ) : null}
 
