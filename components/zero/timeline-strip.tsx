@@ -1135,7 +1135,7 @@ export function TimelineStrip({
                     type="button"
                     onClick={() => b.childId && open(b.childId)}
                     title={`${b.title} · ${b.count} items`}
-                    className="absolute flex h-6 items-center gap-1.5 overflow-hidden rounded-md border border-dashed px-2 text-[10.5px] tracking-tight text-foreground/80 transition-[filter] hover:brightness-110"
+                    className="absolute flex h-6 items-center gap-1.5 overflow-hidden rounded-md border border-dashed px-2 text-[10.5px] tracking-tight text-foreground/80 transition-[filter,top] duration-300 ease-out hover:brightness-110"
                     style={{
                       ...boxStyle,
                       borderColor: `${b.color}73`,
@@ -1160,7 +1160,7 @@ export function TimelineStrip({
                     onClick={() => b.entity && openFromChip(b.entity.id)}
                     onContextMenu={(ev) => b.entity && openMenu(ev, b.entity)}
                     title={`${b.title} · recurring (~${b.count})`}
-                    className="absolute flex h-6 items-center gap-1.5 overflow-hidden rounded-md border px-2 text-[10.5px] tracking-tight text-foreground/70 transition-[filter,opacity] hover:brightness-110"
+                    className="absolute flex h-6 items-center gap-1.5 overflow-hidden rounded-md border px-2 text-[10.5px] tracking-tight text-foreground/70 transition-[filter,opacity,top] duration-300 ease-out hover:brightness-110"
                     style={{
                       ...boxStyle,
                       borderColor: `${b.color}40`,
@@ -1198,7 +1198,7 @@ export function TimelineStrip({
                     onContextMenu={(ev) => b.entity && openMenu(ev, b.entity)}
                     aria-current={isOpen ? "true" : undefined}
                     title={b.title}
-                    className="absolute flex h-6 items-end overflow-visible transition-[filter] hover:brightness-110"
+                    className="absolute flex h-6 items-end overflow-visible transition-[filter,top] duration-300 ease-out hover:brightness-110"
                     style={boxStyle}
                   >
                     {/* vertical color connector rising from the duration line */}
@@ -1227,7 +1227,11 @@ export function TimelineStrip({
               }
 
               return (
-                <div key={b.key} className="absolute h-6" style={boxStyle}>
+                // `transition-[top]` (NOT left/width) so a bar GLIDES vertically when
+                // a zoom repacks it into a different lane, instead of snapping — and
+                // lands on the same 300ms/ease-out beat as its ribbon band. Horizontal
+                // (left/width) stays instant so it tracks the zoom/pan under the cursor.
+                <div key={b.key} className="absolute h-6 transition-[top] duration-300 ease-out" style={boxStyle}>
                   <motion.button
                     type="button"
                     initial={false}
