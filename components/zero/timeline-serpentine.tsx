@@ -145,7 +145,7 @@ export function TimelineSerpentine({
     new Date(ws).toLocaleDateString(undefined, { month: "short", day: "numeric" })
 
   return (
-    <div className="absolute inset-0 flex flex-col bg-background" style={{ height }}>
+    <div className="absolute inset-0 flex flex-col bg-background">
       {/* Week header row — each column's starting date; the current week is bold. */}
       <div className="flex h-5 shrink-0 items-stretch" style={{ paddingLeft: DAY_AXIS_W }}>
         {columns.map((col) => {

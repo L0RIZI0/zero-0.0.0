@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useRef, useState } from "react"
+import { createPortal } from "react-dom"
 import { motion, animate, AnimatePresence } from "motion/react"
 import { ChevronLeft, ChevronRight, Crosshair, Trash2, Ban, RotateCcw, Repeat, Eye, EyeOff } from "lucide-react"
 import {
@@ -1444,16 +1445,20 @@ export function TimelineStrip({
           the Lifelane: the backdrop fades in while the period plane expands up from
           the strip (transform-origin top), so it reads as the Lifelane unfolding into
           a full-screen map. Today it renders the serpentine week grid; future zoom
-          levels (days→weeks→months→…→decades) will fill the same plane. */}
-      <AnimatePresence>
-        {atlas && (
-          <motion.div
-            className="fixed inset-0 z-[60] flex flex-col bg-background"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={layerTransition}
-          >
+          levels (days→weeks→months→…→decades) will fill the same plane. PORTALED to
+          document.body so it escapes the timeline's transformed ancestors (motion
+          regions create stacking contexts) and truly covers the app header (z-40). */}
+      {typeof document !== "undefined" &&
+        createPortal(
+          <AnimatePresence>
+            {atlas && (
+              <motion.div
+                className="fixed inset-0 z-[150] flex flex-col bg-background"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={layerTransition}
+              >
             <div className="flex shrink-0 items-center justify-between border-b border-border px-4 py-2.5">
               <div className="flex items-baseline gap-2">
                 <AtlasGlyph className="h-4 w-4 translate-y-0.5 text-foreground" />
@@ -1489,8 +1494,10 @@ export function TimelineStrip({
               />
             </motion.div>
           </motion.div>
+            )}
+          </AnimatePresence>,
+          document.body,
         )}
-      </AnimatePresence>
 
       <ContextMenu state={menu} onClose={() => setMenu(null)} />
     </section>
