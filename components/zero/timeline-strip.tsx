@@ -439,9 +439,10 @@ export function TimelineStrip({
   const collapseAnimating = displayCollapsed !== zoomCollapsed
   useEffect(() => {
     if (displayCollapsed === zoomCollapsed) return
-    // Hold the window open for the FULL morph: expanding (zoomCollapsed false) runs the
-    // longer EXPAND_MS so the soft ease-in-out finishes before the hidden layer unmounts.
-    const id = setTimeout(() => setDisplayCollapsed(zoomCollapsed), zoomCollapsed ? COLLAPSE_MS : EXPAND_MS)
+    // Hold the window open for the FULL morph so the hidden layer doesn't unmount early.
+    // Expanding runs the longest expand animation — the band/do-list REFLOW (REFLOW_MS) —
+    // which matches the manual-fold window, keeping auto and manual folds identical.
+    const id = setTimeout(() => setDisplayCollapsed(zoomCollapsed), zoomCollapsed ? COLLAPSE_MS : REFLOW_MS)
     return () => clearTimeout(id)
   }, [zoomCollapsed, displayCollapsed])
 
@@ -837,25 +838,29 @@ export function TimelineStrip({
     if (!bandAnimating) prevBandH.current = lifelaneBandH
   }, [lifelaneBandH, bandAnimating])
   const manualFolding = !collapseAnimating && Object.keys(animatingMothers).length > 0
+  // FOLDING = a collapse/uncollapse is in progress, REGARDLESS of trigger: a ZOOM/auto fold
+  // (`collapseAnimating`, all ribbons) OR a manual click (`animatingMothers`, one ribbon).
+  // The user wants the EXACT SAME effect for both, so the whole reflow keys off this — not
+  // off `manualFolding`. (`bandAnimating` is the same predicate; aliased for readability.)
+  const folding = bandAnimating
   const bandExpanding = lifelaneBandH > prevBandH.current
-  // FLUID REFLOW. A manual fold flips ONE mother, but the whole stack below it shifts to
-  // its new layout. The folding ribbon + band + do-list all morph over EXPAND_MS/COLLAPSE_MS,
-  // but every OTHER repositioning element (sibling band backgrounds, ribbon labels, sibling
-  // chips/markers/columns) defaults to its snappy 300ms rest transition — so the lower stack
-  // SETTLED in 300ms while the band kept growing to 720ms, making the do-list look like it
-  // "moved after the timeline finished" (the lag the user felt). So during a manual fold we
-  // override EVERY repositioning transition with the SAME fold duration+curve as the band:
-  // the entire timeline reflows as one unit, locked to the do-list push. `bandExpanding`
-  // (stable for the whole window — `prevBandH` is the pre-fold height) sets the direction;
-  // expand uses the slow soft curve, collapse the snappy one. `reflowMs`/`reflowEase` are the
-  // shared values; `reflowTransition(props)` builds the CSS string (undefined at rest → the
-  // element keeps its Tailwind `duration-300`). NOT applied during a ZOOM fold (the band is
-  // instant there and chips already share `collapseAnimating` timing).
+  // FLUID REFLOW. A fold (auto or manual) shifts the whole stack to a new layout. The folding
+  // ribbon(s) + band + do-list morph over the fold window, but every OTHER repositioning
+  // element (band backgrounds, ribbon labels, sibling chips/markers/columns) would default to
+  // its snappy 300ms rest transition — so the lower stack SETTLED in 300ms while the band kept
+  // growing, making the do-list look like it "moved after the timeline finished". So while
+  // FOLDING we override EVERY repositioning transition with the SAME duration+curve as the
+  // band: the entire timeline reflows as one unit, locked to the do-list push. This used to be
+  // gated on `manualFolding`, which left a ZOOM/auto fold snapping the band/do-list while the
+  // ribbons animated — the inconsistency the user flagged. `bandExpanding` (stable for the
+  // whole window — `prevBandH` is the pre-fold height) sets direction; `reflowMs`/`reflowEase`
+  // are the shared values; `reflowTransition(props)` builds the CSS string (undefined at rest →
+  // the element keeps its Tailwind `duration-300`).
   const reflowMs = bandExpanding ? REFLOW_MS : COLLAPSE_MS
   // Prompt ease-OUT in both directions so the band (and the do-list tracking it) starts
   // moving immediately rather than crawling for the first ~150ms of a soft ease-in.
   const reflowEase = bandExpanding ? REFLOW_EASE_CSS : "ease-out"
-  const reflowTransition = (props: string) => (manualFolding ? `${props.split(",").map((p) => `${p.trim()} ${reflowMs}ms ${reflowEase}`).join(", ")}` : undefined)
+  const reflowTransition = (props: string) => (folding ? `${props.split(",").map((p) => `${p.trim()} ${reflowMs}ms ${reflowEase}`).join(", ")}` : undefined)
   const bandTransition = reflowTransition("height")
   const bandH = lifelaneBandH
   // Y of a VISIBLE global lane (collapsed lanes return the block's rail y so any
@@ -1948,15 +1953,15 @@ export function TimelineStrip({
             {showRibbons &&
               layout.blocks.map((blk) => {
                 const mId = blk.m.motherId
-                // Suppress the grouped rail label only during a ZOOM morph (its title fade +
-                // label appearing at settle is the zoom look). For a MANUAL fold we DO render
-                // it through the morph so it CROSSFADES with the column's vertical title: it
-                // fades IN via `animate-in fade-in` on collapse and fades OUT via the reflow
-                // opacity on expand, exactly as the vertical title fades the opposite way.
-                const morphingColumn = collapseAnimating && mId != null
-                if (!showCollapsed(blk) || morphingColumn) return null
+                // Render the rail label THROUGH every fold — auto (zoom) and manual alike —
+                // so it CROSSFADES with the column's vertical title identically in both cases:
+                // it fades IN via `animate-in fade-in` on collapse (fresh mount) and OUT via the
+                // reflow opacity on expand, mirroring the vertical title fading the opposite way.
+                // (Previously suppressed during a zoom morph, which made auto-collapse look
+                // different from manual — the title vanished with no label crossfade.)
+                if (!showCollapsed(blk)) return null
                 const rk = mId ?? `root:${blk.m.baseLane}`
-                const labelOp = manualFolding ? collapsedOpacity(blk) : blkAnimating(blk) ? 1 : collapsedOpacity(blk)
+                const labelOp = collapsedOpacity(blk)
                 const hoverProps = {
                   onMouseEnter: () => setHoveredMother(rk),
                   onMouseLeave: () => setHoveredMother((h) => (h === rk ? null : h)),
