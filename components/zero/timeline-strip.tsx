@@ -108,8 +108,8 @@ const REFLOW_EASE_CSS = "cubic-bezier(0, 0.7, 0.2, 1)"
 // velocity (p1y=0.85) and a long, gentle decel tail so it settles slowly and softly. It
 // reaches ~95% well before EXPAND_MS, so a just-expanded bottom ribbon isn't left poking
 // under the do-list while the band finishes its lazy tail.
-const DOLIST_MS = Math.round(COLLAPSE_MS * 2.1)
-const DOLIST_EASE_CSS = "cubic-bezier(0, 0.85, 0.2, 1)"
+const DOLIST_MS = Math.round(COLLAPSE_MS * 3.1)
+const DOLIST_EASE_CSS = "cubic-bezier(0, 0.92, 0.1, 1)"
 // Framer transition for a morphing element. `animating` = mid (un)collapse; `expanding` =
 // the un-collapse direction. `soft` picks the slow-start fall curve (folding ribbon) vs the
 // prompt reflow curve (pushed siblings). Outside a morph it's the 300ms repack glide.
