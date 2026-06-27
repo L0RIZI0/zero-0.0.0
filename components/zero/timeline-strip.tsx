@@ -416,6 +416,15 @@ export function TimelineStrip({
   const [override, setOverride] = useState<Record<string, boolean>>({})
   const [ticksHidden, setTicksHidden] = useState<Record<string, boolean>>({})
   const [hoveredMother, setHoveredMother] = useState<string | null>(null)
+  // MANUAL-FOLD animation window. A click toggle flips a mother's `override`
+  // instantly, so (unlike a zoom collapse, which is driven by `displayCollapsed`
+  // lagging `zoomCollapsed`) there's no global window to ride. We open a PER-MOTHER
+  // window here: the mother's id stays in `animatingMothers` for COLLAPSE_MS, during
+  // which its block is treated as animating (expanded + collapsed layers both mounted,
+  // bars morph into ticks, column rotates) — making a manual collapse animate exactly
+  // like a zoom one.
+  const [animatingMothers, setAnimatingMothers] = useState<Record<string, number>>({})
+  const animTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
   // The collapsed rail tick currently hovered → drives a small floating tooltip that
   // shows the entity's KIND GLYPH + title (the native `title` can't render the glyph).
   // One shared tooltip (keyed by bar) instead of a NodeGlyph per tick, so a rail with
@@ -776,19 +785,34 @@ export function TimelineStrip({
   // Which mother block a global lane belongs to (for routing bars to chips/lanes).
   const blockOfLane = (lane: number) =>
     layout.blocks.find((b) => lane >= b.m.baseLane && lane < b.m.baseLane + b.m.laneCount)
-  const toggleMother = (id: string, collapsed: boolean) => setOverride((o) => ({ ...o, [id]: !collapsed }))
+  const toggleMother = (id: string, collapsed: boolean) => {
+    setOverride((o) => ({ ...o, [id]: !collapsed }))
+    // Open this mother's manual-fold animation window (see `animatingMothers`).
+    setAnimatingMothers((m) => ({ ...m, [id]: (m[id] ?? 0) + 1 }))
+    if (animTimers.current[id]) clearTimeout(animTimers.current[id])
+    animTimers.current[id] = setTimeout(() => {
+      setAnimatingMothers((m) => {
+        const next = { ...m }
+        delete next[id]
+        return next
+      })
+      delete animTimers.current[id]
+    }, COLLAPSE_MS)
+  }
 
-  // (Un)collapse CROSSFADE gates + opacity targets, per mother block.
+  // (Un)collapse MORPH gates + opacity targets, per mother block.
   //  • Expanded layer (lanes, bars, ribbon labels, mother column) shows while the block
-  //    is open, OR while a ZOOM collapse is animating (manual folds `byUser` skip the
-  //    crossfade — they snap, and their rail is independent of the zoom transition).
+  //    is open, OR while it is ANIMATING — either a global ZOOM collapse or this mother's
+  //    own manual-fold window (`blkAnimating`), so both kinds of toggle morph identically.
   //  • Collapsed layer (rails, ticks, rail labels) shows while the block is a rail, OR
-  //    while ANY collapse is animating (so the outgoing rails can fade out on un-fold).
+  //    while it is animating (so the outgoing rails can fade out on un-fold).
   // Opacity targets crossfade the two layers; the side that PERSISTS across the toggle
   // eases via its `transition-opacity`, the side that MOUNTS fades via `animate-in`.
   type Blk = (typeof layout.blocks)[number]
-  const showExpanded = (blk: Blk) => !blk.collapsed || (collapseAnimating && !blk.byUser)
-  const showCollapsed = (blk: Blk) => blk.collapsed || collapseAnimating
+  const blkAnimating = (blk: Blk) =>
+    collapseAnimating || (blk.m.motherId != null && blk.m.motherId in animatingMothers)
+  const showExpanded = (blk: Blk) => !blk.collapsed || blkAnimating(blk)
+  const showCollapsed = (blk: Blk) => blk.collapsed || blkAnimating(blk)
   const expandedOpacity = (blk: Blk) => (blk.collapsed ? 0 : 1)
   const collapsedOpacity = (blk: Blk) => (blk.collapsed ? 1 : 0)
   // Where a bar sits while its block is collapsed: exactly on the thin rail tick
@@ -1370,6 +1394,10 @@ export function TimelineStrip({
               // animation settles.
               if (blk && !showExpanded(blk)) return null
               const expOpacity = blk ? expandedOpacity(blk) : 1
+              // Is THIS bar's block mid-morph (zoom window or its mother's manual-fold
+              // window)? Drives the width tween + enter opacity so a manually-folded
+              // ribbon's bars morph into ticks exactly like a zoom-folded one.
+              const barAnimating = blk ? blkAnimating(blk) : collapseAnimating
               // True once the view has crossed the threshold toward collapsed (the morph
               // TARGET). Event chips stay opaque and morph into their rail span on this
               // flag; their inner text fades out FAST (before the bar finishes sliding).
@@ -1450,7 +1478,7 @@ export function TimelineStrip({
                   <motion.button
                     key={b.key}
                     type="button"
-                    initial={collapseAnimating ? { opacity: 0 } : false}
+                    initial={barAnimating ? { opacity: 0 } : false}
                     data-placement={b.entity ? placementKey("timeline", contextId, b.entity.id) : undefined}
                     data-morph-kind="generic"
                     // Opaque morph (no expOpacity fade) — glides onto the rail via barTop.
@@ -1523,18 +1551,19 @@ export function TimelineStrip({
                       ? `calc(${Math.max(widthPct, 0.6)}% - 2px)`
                       : boxStyle.width,
                     minWidth: collapsedTarget ? 3 : undefined,
-                    // WIDTH is only animated during the (un)collapse morph. At rest / while
-                    // ZOOMING `widthPct` changes every frame, so a standing width transition
-                    // made spans LAG the zoom (the regression). Outside the morph we drop
-                    // width from the transition entirely → spans track the zoom instantly.
-                    transition: collapseAnimating
+                    // WIDTH is only animated during the (un)collapse morph (zoom OR this
+                    // block's manual-fold window). At rest / while ZOOMING `widthPct`
+                    // changes every frame, so a standing width transition made spans LAG
+                    // the zoom (the regression). Outside the morph we drop width from the
+                    // transition entirely → spans track the zoom instantly.
+                    transition: barAnimating
                       ? `top ${COLLAPSE_MS}ms ease-out, height ${COLLAPSE_MS}ms ease-out, width ${COLLAPSE_MS}ms ease-out`
                       : "top 300ms ease-out, height 300ms ease-out",
                   }}
                 >
                   <motion.button
                     type="button"
-                    initial={collapseAnimating ? { opacity: 0 } : false}
+                    initial={barAnimating ? { opacity: 0 } : false}
                     data-placement={b.entity ? placementKey("timeline", contextId, b.entity.id) : undefined}
                     data-morph-kind="generic"
                     // Stays OPAQUE through the morph (no expOpacity fade): it doesn't fade
@@ -1799,13 +1828,14 @@ export function TimelineStrip({
             {showRibbons &&
               layout.blocks.map((blk) => {
                 const mId = blk.m.motherId
-                // While a grouped mother is morphing (rotating column handles the visual),
-                // skip its rail label so they don't overlap; it appears at settle. Root
-                // (no column) and manual `byUser` folds keep their label through the anim.
-                const morphingColumn = collapseAnimating && mId != null && !blk.byUser
+                // While a grouped mother is morphing (its rotating column handles the
+                // visual) — whether a zoom or a manual fold (`blkAnimating`) — skip its
+                // rail label so they don't overlap; it appears at settle. The ungrouped
+                // root (no column) keeps its label through the anim.
+                const morphingColumn = blkAnimating(blk) && mId != null
                 if (!showCollapsed(blk) || morphingColumn) return null
                 const rk = mId ?? `root:${blk.m.baseLane}`
-                const labelOp = collapseAnimating ? 1 : collapsedOpacity(blk)
+                const labelOp = blkAnimating(blk) ? 1 : collapsedOpacity(blk)
                 const hoverProps = {
                   onMouseEnter: () => setHoveredMother(rk),
                   onMouseLeave: () => setHoveredMother((h) => (h === rk ? null : h)),
