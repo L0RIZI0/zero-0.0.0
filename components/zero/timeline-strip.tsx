@@ -1402,6 +1402,11 @@ export function TimelineStrip({
               // TARGET). Event chips stay opaque and morph into their rail span on this
               // flag; their inner text fades out FAST (before the bar finishes sliding).
               const collapsedTarget = !!blk?.collapsed
+              // The chip's RAIL geometry (y of its highlight tick). A chip that MOUNTS
+              // mid-morph (un-collapse — it was unmounted while the ribbon was a rail)
+              // uses this as its framer `initial`, so it FALLS out of the highlight into
+              // its lane instead of just fading in place at full size.
+              const railTopPx = blk ? offsetY + blk.top + 1 : barTop(lane)
               const left = pct(b.from)
               const widthPct = ((b.to - b.from) / spanMs) * 100
               if (left > 100 || left + widthPct < 0) return null
@@ -1478,18 +1483,24 @@ export function TimelineStrip({
                   <motion.button
                     key={b.key}
                     type="button"
-                    initial={barAnimating ? { opacity: 0 } : false}
+                    // Same FALL as the titled chip: a marker mounting mid-un-collapse seeds
+                    // at its rail highlight (railTopPx) and drops into its lane; on collapse
+                    // it's already mounted so framer tweens its live top up to the rail.
+                    initial={barAnimating ? { opacity: 0, top: railTopPx } : false}
                     data-placement={b.entity ? placementKey("timeline", contextId, b.entity.id) : undefined}
                     data-morph-kind="generic"
-                    // Opaque morph (no expOpacity fade) — glides onto the rail via barTop.
-                    animate={{ opacity: dim }}
-                    transition={panelTransition}
+                    animate={{ opacity: dim, top: barTop(lane) }}
+                    transition={
+                      barAnimating
+                        ? { top: { duration: COLLAPSE_MS / 1000, ease: "easeOut" }, opacity: { duration: 0.2, ease: "easeOut" } }
+                        : { top: { duration: 0.3, ease: "easeOut" }, opacity: panelTransition }
+                    }
                     onClick={() => b.entity && openFromChip(b.entity.id)}
                     onContextMenu={(ev) => b.entity && openMenu(ev, b.entity)}
                     aria-current={isOpen ? "true" : undefined}
                     title={b.title}
-                    className="absolute flex h-6 items-end overflow-visible transition-[filter,top] duration-300 ease-out hover:brightness-110"
-                    style={boxStyle}
+                    className="absolute flex h-6 items-end overflow-visible transition-[filter] duration-300 ease-out hover:brightness-110"
+                    style={{ left: boxStyle.left, width: boxStyle.width }}
                   >
                     {/* vertical color connector rising from the duration line ��� shrinks
                         away on collapse so the marker flattens into its rail tick. */}
@@ -1534,31 +1545,33 @@ export function TimelineStrip({
                 // INSTANTLY while `morphing` (opacity-0 on the parent), so chips need NO
                 // self-fade — keeping them at `dim` means that when the section pops back
                 // in at morph-end they're already in place (no end-of-morph fade-in flash).
-                // MORPH wrapper: height tweens 24px → tick height (and `barTop` glides it
-                // onto the rail) so the chip physically COMPRESSES into its highlighted
-                // span. Its WIDTH/minWidth also tween to the rail-tick's EXACT geometry
-                // (`max(widthPct,0.6)% - 2px`, `minWidth:3`) — without this the chip held
-                // its wider expanded box (`-4px`, `min 0.8%`) the whole slide and then
-                // SNAPPED to the narrower tick at the end (the size jump the user saw).
-                // `transition-[top,height,width]` rides the same 300ms ease as the rail.
+                // MORPH wrapper, driven by FRAMER (`initial`/`animate`) for top + height so
+                // the morph plays in BOTH directions:
+                //  • COLLAPSE — the chip is already mounted, so framer ignores `initial` and
+                //    tweens its live box DOWN to the rail (height→tick, top→rail): it
+                //    COMPRESSES into its highlight.
+                //  • UN-COLLAPSE — the chip mounts fresh (it was unmounted while the ribbon
+                //    was a rail). `initial` seeds it AT the rail highlight (railTopPx, tick
+                //    height) and framer animates it UP to its lane box: it FALLS out of the
+                //    highlight during the expand, instead of fading in place at full size
+                //    after it (the old behaviour — `initial` only carried opacity).
+                // `initial={false}` at rest so chips entering on a normal pan/zoom just
+                // appear. WIDTH stays on a CSS transition (calc% — framer can't reliably
+                // keyframe calc) and only transitions DURING the morph, so at rest spans
+                // track the zoom instantly (avoids the earlier width-lag regression).
                 <motion.div
                   key={b.key}
-                  className="absolute ease-out"
+                  className="absolute"
+                  initial={barAnimating ? { top: railTopPx, height: RAIL_H - 2 } : false}
+                  animate={{ top: barTop(lane), height: collapsedTarget ? RAIL_H - 2 : 24 }}
+                  transition={
+                    barAnimating ? { duration: COLLAPSE_MS / 1000, ease: "easeOut" } : { duration: 0.3, ease: "easeOut" }
+                  }
                   style={{
-                    ...boxStyle,
-                    height: collapsedTarget ? RAIL_H - 2 : 24,
-                    width: collapsedTarget
-                      ? `calc(${Math.max(widthPct, 0.6)}% - 2px)`
-                      : boxStyle.width,
+                    left: boxStyle.left,
+                    width: collapsedTarget ? `calc(${Math.max(widthPct, 0.6)}% - 2px)` : boxStyle.width,
                     minWidth: collapsedTarget ? 3 : undefined,
-                    // WIDTH is only animated during the (un)collapse morph (zoom OR this
-                    // block's manual-fold window). At rest / while ZOOMING `widthPct`
-                    // changes every frame, so a standing width transition made spans LAG
-                    // the zoom (the regression). Outside the morph we drop width from the
-                    // transition entirely → spans track the zoom instantly.
-                    transition: barAnimating
-                      ? `top ${COLLAPSE_MS}ms ease-out, height ${COLLAPSE_MS}ms ease-out, width ${COLLAPSE_MS}ms ease-out`
-                      : "top 300ms ease-out, height 300ms ease-out",
+                    transition: barAnimating ? `width ${COLLAPSE_MS}ms ease-out` : undefined,
                   }}
                 >
                   <motion.button
@@ -1568,9 +1581,12 @@ export function TimelineStrip({
                     data-morph-kind="generic"
                     // Stays OPAQUE through the morph (no expOpacity fade): it doesn't fade
                     // out, it BECOMES the span. The fill/border darken from faint → solid
-                    // so the shrinking chip matches the solid rail tick it lands on.
+                    // so the shrinking chip matches the solid rail tick it lands on. During
+                    // the morph the opacity fade is QUICK (a chip falling out of its
+                    // highlight should be visible as it drops, not crawl in over the 2s
+                    // panelTransition) and rides early so the geometry fall carries the eye.
                     animate={{ opacity: dim }}
-                    transition={panelTransition}
+                    transition={barAnimating ? { opacity: { duration: 0.2, ease: "easeOut" } } : panelTransition}
                     onClick={() => b.entity && openFromChip(b.entity.id)}
                     onContextMenu={(ev) => b.entity && openMenu(ev, b.entity)}
                     aria-current={isOpen ? "true" : undefined}
