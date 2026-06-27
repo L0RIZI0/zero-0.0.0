@@ -30,6 +30,7 @@ import {
   clampSpan,
   VIEW_SPAN_MS,
   MIN_SPAN_MS,
+  MAX_SPAN_MS,
 } from "@/lib/zero/timeline-scale"
 import type { Entity } from "@/lib/zero/types"
 import { panelTransition, layerTransition } from "@/lib/zero/motion"
@@ -38,7 +39,7 @@ import { setTimelineView } from "@/lib/zero/timeline-view-store"
 import { useZeroNav } from "@/lib/zero/nav-store"
 import { placementKey, resolveOriginRect } from "@/lib/zero/placement"
 import { useTimelineGestures } from "@/hooks/use-timeline-gestures"
-import { NodeGlyph } from "./node-glyph"
+import { NodeGlyph, type NodeKind } from "./node-glyph"
 import { type SerpItem } from "./timeline-serpentine"
 import { TimelineWeek } from "./timeline-week"
 import { buildMorphPairs } from "@/lib/zero/timeline-morph"
@@ -391,6 +392,14 @@ export function TimelineStrip({
   const [override, setOverride] = useState<Record<string, boolean>>({})
   const [ticksHidden, setTicksHidden] = useState<Record<string, boolean>>({})
   const [hoveredMother, setHoveredMother] = useState<string | null>(null)
+  // The collapsed rail tick currently hovered → drives a small floating tooltip that
+  // shows the entity's KIND GLYPH + title (the native `title` can't render the glyph).
+  // One shared tooltip (keyed by bar) instead of a NodeGlyph per tick, so a rail with
+  // many events stays cheap. Cleared on leave only if it's still this bar (so sliding
+  // from one tick to the next doesn't blank between them).
+  const [hoveredTick, setHoveredTick] = useState<
+    { key: string; leftPct: number; top: number; title: string; kind: NodeKind; color: string } | null
+  >(null)
   useEffect(() => {
     setOverride({})
   }, [contextId])
@@ -461,14 +470,12 @@ export function TimelineStrip({
       setVp(next)
     },
     minSpan: MIN_SPAN_MS,
-    // Cap the zoom-OUT at the Atlas-open span. The Atlas IS the most zoomed-out view
-    // (the week grid), so the Lifelane viewport never needs to exceed it. Without this
-    // cap the span could keep gliding far past the threshold (the spring carries
-    // momentum, and the old max was 120y), so returning meant zooming all the way back
-    // from wherever the momentum parked it — the "scroll forever / random ticks back to
-    // the Lifelane" bug. Capped here, the span parks AT the threshold, so a single
-    // zoom-in notch crosses straight back: entry and exit are symmetric and continuous.
-    maxSpan: atlasOpenMs,
+    // Full zoom-OUT range again (up to MAX_SPAN_MS, ~a lifetime). The old cap at the
+    // Atlas-open span existed because the Atlas WAS the most-zoomed-out view; now that
+    // the Atlas is dormant, zooming out past the collapse threshold must keep going —
+    // it just collapses every ribbon to a rail (see `zoomCollapsed`) and keeps widening
+    // the time window. Capping here was what blocked zoom-out after the ribbons folded.
+    maxSpan: MAX_SPAN_MS,
     // Re-bind the wheel listener once the real viewport replaces the placeholder.
     enabled: mounted,
     onGestureStart: () => {
@@ -724,13 +731,14 @@ export function TimelineStrip({
   // so it never reshapes this region); the track grows to fit its visible lanes.
   const trackH = Math.max(TRACK_H, stackedH + 2 * TRACK_PAD_Y)
   const offsetY = Math.max(TRACK_PAD_Y, (trackH - contentH) / 2)
-  // LIFELANE BAND HEIGHT — now simply HUGS its MAX height at every zoom: the band always
-  // reserves the full target (`viewHeightPx − label`, where viewHeightPx is the constant
-  // max fraction × card height), never less. No zoom-driven growth ramp and no Atlas
-  // jump — the do-list rests at one stable position below. `trackH` is the floor so a
-  // tall lane pile-up can still push the band taller than the target if it ever needs to.
-  const bandTarget = Math.max(0, (viewHeightPx ?? 0) - LIFELANE_LABEL_BAND_H)
-  const lifelaneBandH = Math.max(trackH, bandTarget)
+  // LIFELANE BAND HEIGHT — hugs the CONTENT (`trackH`), nothing more. `trackH` is the
+  // height of the visible lanes/rails (`stackedH + pad`, floored at TRACK_H), and the
+  // content is vertically centered within it via `offsetY` — so the band wraps tightly
+  // around the ribbons and the do-list (which reserves the MEASURED band height in
+  // work-surface, not a fixed fraction) sits right beneath. When zoomed out collapses
+  // every ribbon to a thin rail, `trackH` shrinks and the band shrinks with it; zooming
+  // back in re-expands it. No max-height reservation, no empty space below the ribbons.
+  const lifelaneBandH = trackH
   // Y of a VISIBLE global lane (collapsed lanes return the block's rail y so any
   // stray positioning lands sanely; their bars are handled separately as chips).
   const laneTop = (lane: number) => offsetY + (layout.laneToY.get(lane) ?? 0)
@@ -1487,7 +1495,21 @@ export function TimelineStrip({
                       <div
                         key={`railtick:${b.key}`}
                         className="absolute z-10 rounded-full transition-[opacity] duration-150 animate-in fade-in"
-                        title={b.title}
+                        onMouseEnter={() => {
+                          setHoveredMother(rk)
+                          setHoveredTick({
+                            key: b.key,
+                            leftPct: left,
+                            top: railY,
+                            title: b.title,
+                            kind: (b.entity?.kind as NodeKind) ?? "event",
+                            color,
+                          })
+                        }}
+                        onMouseLeave={() => {
+                          setHoveredMother((h) => (h === rk ? null : h))
+                          setHoveredTick((t) => (t?.key === b.key ? null : t))
+                        }}
                         style={{
                           left: `calc(${left}% + 2px)`,
                           width: `calc(${Math.max(widthPct, 0.6)}% - 2px)`,
@@ -1503,6 +1525,21 @@ export function TimelineStrip({
                   })
                   .filter(Boolean)
               })}
+
+            {/* COLLAPSED-RAIL TICK TOOLTIP — one shared floating tag showing the hovered
+                entity's kind GLYPH + title, prefixed (glyph) as requested. Floats just
+                above the rail; pointer-events-none so it never interrupts the hover. */}
+            {hoveredTick && (
+              <div
+                className="pointer-events-none absolute z-40 flex max-w-[30vw] -translate-x-1/2 items-center gap-1 rounded border border-border/70 bg-card px-1.5 py-0.5 text-[9.5px] font-medium leading-none tracking-tight text-foreground/80 shadow-sm animate-in fade-in duration-150"
+                style={{ left: `${hoveredTick.leftPct}%`, top: hoveredTick.top - 16 }}
+              >
+                <span className="h-2.5 w-2.5 shrink-0" style={{ color: hoveredTick.color }}>
+                  <NodeGlyph kind={hoveredTick.kind} filled strokeWidth={2} />
+                </span>
+                <span className="truncate">{hoveredTick.title}</span>
+              </div>
+            )}
 
             {/* ribbon left LABELS — pinned to the gutter, painted AFTER the bars so a
                 chip that reaches the left edge passes BEHIND the label, not over it.
