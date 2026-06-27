@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom"
-import { motion, animate, AnimatePresence } from "motion/react"
+import { motion, animate } from "motion/react"
 import { ChevronLeft, ChevronRight, Crosshair, Trash2, Ban, RotateCcw, Repeat, Eye, EyeOff } from "lucide-react"
 import {
   getInheritedAccent,
@@ -42,7 +42,6 @@ import { useTimelineGestures } from "@/hooks/use-timeline-gestures"
 import { NodeGlyph } from "./node-glyph"
 import { type SerpItem } from "./timeline-serpentine"
 import { TimelineWeek } from "./timeline-week"
-import { TimelineMorphLayer } from "./timeline-morph-layer"
 import { buildMorphPairs } from "@/lib/zero/timeline-morph"
 import { ContextMenu, type ContextMenuState } from "./context-menu"
 import { cn } from "@/lib/utils"
@@ -840,10 +839,11 @@ export function TimelineStrip({
   // Card-y of the Lifelane's first lane row: top pad + the label band that sits
   // above the track. Day-bands span the full (zoom-grown) band height.
   const laneBandTopY = TIMELINE_TOP_PAD + LIFELANE_LABEL_BAND_H
-  // Geometry for the Lifelane<->Atlas flight. Only built during the brief `morphing`
-  // window (the only time the overlay renders), so steady-state zoom never pays for it.
+  // Geometry for the Lifelane<->Atlas flight. Built whenever the Atlas is mounted
+  // (`atlas || morphing`) — TimelineWeek IS the morph now (no separate overlay), so it
+  // needs both rects to animate between and to sit at the Atlas rect when settled.
   const morphPairs = useMemo(() => {
-    if (!morphing || !width || !viewHeightPx) return []
+    if ((!atlas && !morphing) || !width || !viewHeightPx) return []
     const chipLaneY = (key: string): number | null => {
       const lane = lanes.lane.get(key)
       if (lane == null) return null
@@ -862,7 +862,7 @@ export function TimelineStrip({
       weekCenter,
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [morphing, serpItems, startMs, spanMs, width, viewHeightPx, lifelaneBandH, weekCenter, lanes, layout])
+  }, [atlas, morphing, serpItems, startMs, spanMs, width, viewHeightPx, lifelaneBandH, weekCenter, lanes, layout])
 
   // Soft horizontal fade applied to the ruler graduations + labels, so ticks melt
   // in/out at the left and right edges while panning instead of popping abruptly.
@@ -886,9 +886,10 @@ export function TimelineStrip({
         className={cn(
           // While the Atlas backdrop is open the strip is click-through and hidden, so the
           // Atlas underneath takes all interaction and there's no duplicate timeline over
-          // the grid. During the brief `morphing` window the dedicated <TimelineMorphLayer>
-          // owns ALL visuals (ruler, day-spans, chips fly as one opaque plane), so the real
-          // Lifelane is hidden INSTANTLY (no cross-fade) to avoid a ghost ruler under it.
+          // the grid. During the brief `morphing` window the Atlas (TimelineWeek) plays the
+          // flight with its OWN elements (day-spans, graduations, titles, chips fly as one
+          // opaque plane), so the real Lifelane is hidden INSTANTLY (no cross-fade) to avoid
+          // a ghost ruler under it.
           "px-1 transition-opacity duration-300",
           morphing ? "pointer-events-none opacity-0 !duration-0" : atlas ? "pointer-events-none opacity-0" : "opacity-100",
         )}
@@ -1166,9 +1167,9 @@ export function TimelineStrip({
 
             {/* DAY CELLS — faint horizontal day-slabs marking each day boundary near the
                 snap. These are the Lifelane ORIGIN of the day-span morph; the actual
-                Lifelane->Atlas flight (slab rotating into a vertical column) is drawn by
-                <TimelineMorphLayer>, so while `morphing` these are HIDDEN and the overlay
-                shows instead. */}
+                Lifelane->Atlas flight (slab rotating into a vertical column) is played by
+                the Atlas (TimelineWeek) with its own elements, so while `morphing` these
+                are HIDDEN and the Atlas's flying cells show instead. */}
             {showDayCells &&
               !morphing &&
               dayCells.map((ds) => {
@@ -1384,9 +1385,9 @@ export function TimelineStrip({
                 // (left/width) stays instant so it tracks the zoom/pan under the cursor.
                 //
                 // No cross-tree FLIP here anymore: the Lifelane<->Atlas flight is played
-                // by the dedicated <TimelineMorphLayer> overlay, which renders an opaque
-                // copy of every entity and interpolates its rect. So while `morphing`
-                // these real chips are HIDDEN (opacity 0) and the overlay shows instead.
+                // by the Atlas (TimelineWeek) itself, which animates each entity between
+                // its Lifelane and Atlas rect. So while `morphing` these real chips are
+                // HIDDEN (opacity 0) and the Atlas's flying chips show instead.
                 <motion.div
                   key={b.key}
                   className="absolute h-6 transition-[top] duration-300 ease-out"
@@ -1606,57 +1607,39 @@ export function TimelineStrip({
         </div>
       </div>
 
-      {/* ATLAS — the Lifeline's full-bleed view. No longer a fullscreen takeover: it is
-          PORTALED into a card-level layer (`atlasLayer`) that sits BEHIND the do-list /
-          dock and BELOW the app header, so the Atlas reads as a backdrop the persistent
-          chrome floats over (not a panel that covers everything). It is anchored at the
-          card top and fills the zoom-driven `viewHeightPx` (the Atlas height fraction ×
-          card height ≈ most of the card), so the do-list/dock float over its lower edge.
-          Opacity-only fade (NO scale): a parent transform would skew the absolute rects
-          motion uses for the per-entity layoutId morph, so the entities carry the motion
-          while the plane just fades in. The week view has its own date-column header and
-          the view is zoom-driven, so there's no internal title/back bar anymore. */}
-      {atlasLayer &&
-        createPortal(
-          <>
-            <AnimatePresence>
-              {atlas && (
-                <motion.div
-                  ref={atlasWheelRef}
-                  className="absolute inset-x-0 top-0"
-                  style={{ height: viewHeightPx ? `${viewHeightPx}px` : "100%" }}
-                  initial={{ opacity: 0 }}
-                  // The real grid stays INVISIBLE while the plane morph plays (only the
-                  // morph overlay shows), then fades to full once the entities have landed
-                  // on their final rects — so there's no static grid sitting under the flight.
-                  animate={{ opacity: morphing ? 0 : 1 }}
-                  exit={{ opacity: 0 }}
-                  transition={layerTransition}
-                >
-                  <TimelineWeek
-                    items={serpItems}
-                    now={now}
-                    centerMs={weekCenter}
-                    onPanDays={(d) => setWeekPanDays((p) => p + d)}
-                    onOpen={openFromChip}
-                    onMenu={openMenu}
-                  />
-                </motion.div>
-              )}
-            </AnimatePresence>
+      {/* ATLAS — the Lifeline's full-bleed view AND the morph into it, rendered as ONE
+          layer (no separate overlay). PORTALED into a card-level layer (`atlasLayer`)
+          that sits BEHIND the do-list / dock and BELOW the app header, so it reads as a
+          backdrop the persistent chrome floats over. Anchored at the card top, filling
+          the zoom-driven `viewHeightPx`.
 
-            {/* PLANE MORPH overlay — the single opaque layer that physically flies the
-                day-spans, graduations, titles and chips between the Lifelane and the
-                Atlas. Mounted only during the brief morph window, on top of both planes. */}
-            {morphing && (
-              <div
-                className="pointer-events-none absolute inset-x-0 top-0"
-                style={{ height: viewHeightPx ? `${viewHeightPx}px` : "100%" }}
-              >
-                <TimelineMorphLayer pairs={morphPairs} atlas={atlas} />
-              </div>
-            )}
-          </>,
+          Mounted whenever `atlas || morphing`: it stays through the REVERSE morph (atlas
+          already false, morphing still true) so its elements can fly back to their
+          Lifelane rects before it unmounts. `TimelineWeek` itself animates every element
+          from its Lifelane rect to its Atlas rect (and back), so there's no duplicate
+          tree and no opacity hand-off — the same elements that morph are the ones that
+          stay. The wheel-forward ref lives on the wrapper for zoom while in the Atlas. */}
+      {atlasLayer &&
+        (atlas || morphing) &&
+        createPortal(
+          <div
+            ref={atlasWheelRef}
+            className="absolute inset-x-0 top-0"
+            style={{ height: viewHeightPx ? `${viewHeightPx}px` : "100%" }}
+          >
+            <TimelineWeek
+              pairs={morphPairs}
+              atlas={atlas}
+              morphing={morphing}
+              now={now}
+              centerMs={weekCenter}
+              width={width}
+              viewHeightPx={viewHeightPx ?? 0}
+              onPanDays={(d) => setWeekPanDays((p) => p + d)}
+              onOpen={openFromChip}
+              onMenu={openMenu}
+            />
+          </div>,
           atlasLayer,
         )}
 

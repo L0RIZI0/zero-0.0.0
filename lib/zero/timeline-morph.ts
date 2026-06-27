@@ -22,6 +22,7 @@
 // ============================================================================
 
 import { packDay } from "./day-pack"
+import type { Entity } from "./types"
 
 const DAY_MS = 86_400_000
 const HOUR_MS = 3_600_000
@@ -56,6 +57,10 @@ export type MorphPair = {
   color?: string
   title?: string
   cancelled?: boolean
+  /** Chip-only: data needed to render the interactive event chip in the grid. */
+  isInstant?: boolean
+  dim?: number
+  entity?: Entity
 }
 
 /** Local midnight (00:00) of `epoch`'s day, as epoch ms. */
@@ -107,6 +112,8 @@ export interface BuildMorphInput {
     title: string
     kind?: string
     cancelled?: boolean
+    dim?: number
+    entity?: Entity
   }[]
   startMs: number
   spanMs: number
@@ -192,6 +199,9 @@ export function buildMorphPairs(input: BuildMorphInput): MorphPair[] {
         color: p.it.color,
         title: p.it.title,
         cancelled: p.it.cancelled,
+        isInstant: p.isInstant,
+        dim: p.it.dim,
+        entity: p.it.entity,
         lane: { x: pct(p.it.from), y: laneY, w: fromW, h: 24 },
         atlas: {
           x: colX(i) + p.col * cw + 1,
