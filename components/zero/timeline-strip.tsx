@@ -90,11 +90,14 @@ const REFLOW_MS = Math.round(COLLAPSE_MS * 1.75)
 //    eases slowly to rest. Collapse already used "ease-out" everywhere (also prompt).
 const EXPAND_EASE: [number, number, number, number] = [0.45, 0, 0.25, 1]
 const EXPAND_EASE_CSS = "cubic-bezier(0.45, 0, 0.25, 1)"
-// Standard ease-OUT-cubic: a moderate initial velocity (so motion is visible from frame 1,
-// unlike the soft ease-in) but NOT the violent front-load of ease-out-expo (which finished
-// in ~270ms and read as fast). It spreads the glide across the duration so it feels slow.
-const REFLOW_EASE: [number, number, number, number] = [0.215, 0.61, 0.355, 1]
-const REFLOW_EASE_CSS = "cubic-bezier(0.215, 0.61, 0.355, 1)"
+// PURE LONG EASE-OUT, NO EASE-IN (user: do-list "should have no ease-in just a long
+// ease-out"). The previous ease-out-cubic had p1x=0.215 — a slight ease-IN lip that delayed
+// the very start, so the do-list still read as moving "too late". This curve has p1x=0 (no
+// horizontal hold → it moves on frame 1) with a high initial velocity (p1y=0.7) that decays
+// smoothly to rest over the long REFLOW_MS — i.e. fastest at the start, gently slowing,
+// never accelerating. Used for the band height + pushed stack + (via the band) the do-list.
+const REFLOW_EASE: [number, number, number, number] = [0, 0.7, 0.2, 1]
+const REFLOW_EASE_CSS = "cubic-bezier(0, 0.7, 0.2, 1)"
 // Framer transition for a morphing element. `animating` = mid (un)collapse; `expanding` =
 // the un-collapse direction. `soft` picks the slow-start fall curve (folding ribbon) vs the
 // prompt reflow curve (pushed siblings). Outside a morph it's the 300ms repack glide.
@@ -1613,7 +1616,12 @@ export function TimelineStrip({
                       )}
                       style={{
                         opacity: collapsedTarget ? 0 : 1,
-                        transition: collapsedTarget ? "opacity 110ms ease-out" : "opacity 150ms ease-out 150ms",
+                        // Match the titled chip: fade the bleeding marker title over a big
+                        // slice of the collapse so the apparent width retracts smoothly into
+                        // the rail tick instead of snapping away in 110ms.
+                        transition: collapsedTarget
+                          ? `opacity ${Math.round(COLLAPSE_MS * 0.7)}ms ease-out`
+                          : "opacity 150ms ease-out 150ms",
                       }}
                     >
                       {b.title}
@@ -1718,8 +1726,15 @@ export function TimelineStrip({
                       className="flex items-center gap-1.5 overflow-visible"
                       style={{
                         opacity: collapsedTarget ? 0 : 1,
+                        // A narrow chip's title BLEEDS right (overflow-visible), so the chip
+                        // LOOKS far wider than its colored box (which already equals the rail
+                        // tick). Fading that label in 110ms made the apparent width SNAP to the
+                        // tick almost instantly (the "width jump" the user saw). Fade it over a
+                        // big slice of the collapse instead, so the apparent width RETRACTS
+                        // smoothly down to the tick across the whole flight. Expand stays a
+                        // delayed quick fade-in so the box grows first, then the label appears.
                         transition: collapsedTarget
-                          ? "opacity 110ms ease-out"
+                          ? `opacity ${Math.round(COLLAPSE_MS * 0.7)}ms ease-out`
                           : "opacity 150ms ease-out 150ms",
                       }}
                     >
