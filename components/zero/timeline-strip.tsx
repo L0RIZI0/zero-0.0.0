@@ -397,8 +397,6 @@ export function TimelineStrip({
 
   const { startMs, spanMs } = vp
 
-  // Cross the Lifelane↔Atlas threshold with hysteresis: once in the Atlas, stay until
-  // the span drops below the (lower) close threshold, and vice-versa. Flipping `atlas`
   // Cross the "collapse everything" threshold with hysteresis: once collapsed, stay
   // collapsed until the span shrinks back below the (slightly lower) close threshold,
   // and vice-versa — so a gesture parked on the boundary can't flicker the whole stack.
@@ -1279,14 +1277,14 @@ export function TimelineStrip({
                     onClick={() => toggleMother(blk.m.motherId!, true)}
                     {...hoverProps}
                     title={`Expand ${blk.m.title}`}
-                    className="absolute inset-x-0 z-0 rounded-r-md transition-[top,filter,opacity] duration-300 ease-out hover:brightness-150"
+                    className="absolute inset-x-0 z-0 rounded-r-md transition-[top,filter,opacity] duration-300 ease-out animate-in fade-in hover:brightness-150"
                     style={railStyle}
                   />
                 ) : (
                   <div
                     key={`rail:${rk}`}
                     {...hoverProps}
-                    className="absolute inset-x-0 z-0 rounded-r-md transition-[top,filter,opacity] duration-300 ease-out"
+                    className="absolute inset-x-0 z-0 rounded-r-md transition-[top,filter,opacity] duration-300 ease-out animate-in fade-in"
                     style={railStyle}
                   />
                 )
@@ -1488,7 +1486,7 @@ export function TimelineStrip({
                     return (
                       <div
                         key={`railtick:${b.key}`}
-                        className="pointer-events-none absolute z-10 rounded-full transition-[opacity] duration-150"
+                        className="absolute z-10 rounded-full transition-[opacity] duration-150 animate-in fade-in"
                         title={b.title}
                         style={{
                           left: `calc(${left}% + 2px)`,
@@ -1618,7 +1616,7 @@ export function TimelineStrip({
                   return (
                     <div
                       key={`mlabel:${rk}`}
-                      className="pointer-events-none absolute z-20 flex max-w-[36vw] items-center gap-1 rounded border border-border/70 bg-card px-1.5 py-0.5 text-[9.5px] font-medium leading-none tracking-tight text-foreground/70 shadow-sm"
+                      className="pointer-events-none absolute z-20 flex max-w-[36vw] items-center gap-1 rounded border border-border/70 bg-card px-1.5 py-0.5 text-[9.5px] font-medium leading-none tracking-tight text-foreground/70 shadow-sm animate-in fade-in duration-300"
                       style={wrapStyle}
                     >
                       <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: blk.m.color }} aria-hidden />
@@ -1628,7 +1626,7 @@ export function TimelineStrip({
                 }
                 const ticksOn = !ticksHidden[rk]
                 return (
-                  <div key={`mlabel:${rk}`} className="absolute z-20 flex items-center gap-1" style={wrapStyle} {...hoverProps}>
+                  <div key={`mlabel:${rk}`} className="absolute z-20 flex items-center gap-1 animate-in fade-in duration-300" style={wrapStyle} {...hoverProps}>
                     <button
                       type="button"
                       onClick={() => toggleMother(mId, true)}
