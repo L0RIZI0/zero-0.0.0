@@ -719,7 +719,7 @@ export function TimelineStrip({
   // so revealing the real timeline doesn't shift anything. See `mounted` above.
   if (!mounted) {
     return (
-      <section aria-label="Timeline" className="px-1">
+      <section aria-label="Lifeline" className="px-1">
         <div className="relative mb-1 -mx-6 h-10" />
         <div className="relative -mx-6" style={{ height: TRACK_H }} ref={viewportRef} />
       </section>
@@ -727,7 +727,7 @@ export function TimelineStrip({
   }
 
   return (
-    <section aria-label="Timeline" className="px-1">
+    <section aria-label="Lifeline" className="px-1">
       {/* Label band above the ruler. Shows the granularity-aware center label and,
           when "now" is scrolled off-screen, a jump-to-now control. */}
       <div className={cn("relative mb-1 -mx-6", "h-10")}>
