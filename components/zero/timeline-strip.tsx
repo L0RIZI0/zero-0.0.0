@@ -731,6 +731,10 @@ export function TimelineStrip({
       const collapsed = zoomCollapsed || byUser
       if (collapsed) {
         blocks.push({ m, top: y, height: RAIL_H, collapsed: true, byUser })
+        // Map every lane of a collapsed block to its RAIL y, so any expanded element
+        // kept mounted for the crossfade (ribbon bands/labels) GLIDES down into the
+        // rail while it fades, instead of snapping to the top of the track.
+        for (let i = 0; i < m.laneCount; i++) laneToY.set(m.baseLane + i, y)
         y += RAIL_H + MOTHER_GAP
       } else {
         const h = m.laneCount * LANE_H + (m.laneCount - 1) * LANE_GAP
@@ -1280,16 +1284,18 @@ export function TimelineStrip({
                 any event chip that reaches the gutter. Only shown when >1 space. */}
             {showRibbons &&
               lanes.ribbons.map((r) => {
-                // Hidden while its mother is folded (a rail is drawn for it instead).
-                if (blockOfLane(r.baseLane)?.collapsed) return null
+                const blk = blockOfLane(r.baseLane)
+                // Kept mounted (faded) through a zoom (un)collapse so it crossfades with
+                // the rail; fully gone once the animation settles into the rail state.
+                if (blk && !showExpanded(blk)) return null
                 const top = laneTop(r.baseLane) - 3
                 const h = r.laneCount * LANE_H + (r.laneCount - 1) * LANE_GAP + 6
                 const related = atRootFocus || r.spaceId === contextId || isInSubtree(contextId, r.spaceId)
-                const op = related ? 1 : UNRELATED_OPACITY
+                const op = (related ? 1 : UNRELATED_OPACITY) * (blk ? expandedOpacity(blk) : 1)
                 return (
                   <div
                     key={`ribbon:${r.spaceId}`}
-                    className="pointer-events-none absolute inset-x-0 z-0 rounded-r-md transition-[opacity,top,height] duration-300 ease-out"
+                    className="pointer-events-none absolute inset-x-0 z-0 rounded-r-md transition-[opacity,top,height] duration-300 ease-out animate-in fade-in"
                     style={{
                       top,
                       height: h,
@@ -1308,11 +1314,12 @@ export function TimelineStrip({
                 a plain (non-interactive) div — clicking it must not fight the zoom. */}
             {showRibbons &&
               layout.blocks.map((blk) => {
-                if (!blk.collapsed) return null
+                if (!showCollapsed(blk)) return null
                 const rk = blk.m.motherId ?? `root:${blk.m.baseLane}`
                 const railStyle = {
                   top: offsetY + blk.top,
                   height: RAIL_H,
+                  opacity: collapsedOpacity(blk),
                   backgroundColor: `${blk.m.color}1f`,
                   borderLeft: `2px solid ${blk.m.color}`,
                 } as const
@@ -1343,9 +1350,13 @@ export function TimelineStrip({
             {/* bars — events, scheduled spaces, rollup bands, recurring streams. */}
             {bars.map((b) => {
               const lane = lanes.lane.get(b.key) ?? 0
-              // Bars whose mother ribbon is collapsed don't render on a lane — they
-              // render as highlight ticks on that mother's rail in a later pass.
-              if (blockOfLane(lane)?.collapsed) return null
+              const blk = blockOfLane(lane)
+              // Bars on a collapsed ribbon become rail ticks (later pass). During a zoom
+              // (un)collapse we KEEP them mounted so they crossfade: they GLIDE toward
+              // the rail (`barTop`) and fade out (`expOpacity`), then unmount when the
+              // animation settles.
+              if (blk && !showExpanded(blk)) return null
+              const expOpacity = blk ? expandedOpacity(blk) : 1
               const left = pct(b.from)
               const widthPct = ((b.to - b.from) / spanMs) * 100
               if (left > 100 || left + widthPct < 0) return null
@@ -1356,7 +1367,7 @@ export function TimelineStrip({
               const boxStyle = {
                 left: `calc(${left}% + 2px)`,
                 width: `calc(${Math.max(widthPct, 0.8)}% - 4px)`,
-                top: laneTop(lane),
+                top: barTop(lane),
               } as const
 
               // Rollup context band — click to enter the child space (expands it).
@@ -1367,9 +1378,10 @@ export function TimelineStrip({
                     type="button"
                     onClick={() => b.childId && open(b.childId)}
                     title={`${b.title} · ${b.count} items`}
-                    className="absolute flex h-6 items-center gap-1.5 overflow-hidden rounded-md border border-dashed px-2 text-[10.5px] tracking-tight text-foreground/80 transition-[filter,top] duration-300 ease-out hover:brightness-110"
+                    className="absolute flex h-6 items-center gap-1.5 overflow-hidden rounded-md border border-dashed px-2 text-[10.5px] tracking-tight text-foreground/80 transition-[filter,opacity,top] duration-300 ease-out animate-in fade-in hover:brightness-110"
                     style={{
                       ...boxStyle,
+                      opacity: expOpacity,
                       borderColor: `${b.color}73`,
                       backgroundColor: `${b.color}1f`,
                     }}
@@ -1392,13 +1404,13 @@ export function TimelineStrip({
                     onClick={() => b.entity && openFromChip(b.entity.id)}
                     onContextMenu={(ev) => b.entity && openMenu(ev, b.entity)}
                     title={`${b.title} · recurring (~${b.count})`}
-                    className="absolute flex h-6 items-center gap-1.5 overflow-hidden rounded-md border px-2 text-[10.5px] tracking-tight text-foreground/70 transition-[filter,opacity,top] duration-300 ease-out hover:brightness-110"
+                    className="absolute flex h-6 items-center gap-1.5 overflow-hidden rounded-md border px-2 text-[10.5px] tracking-tight text-foreground/70 transition-[filter,opacity,top] duration-300 ease-out animate-in fade-in hover:brightness-110"
                     style={{
                       ...boxStyle,
                       borderColor: `${b.color}40`,
                       backgroundColor: `${b.color}14`,
                       backgroundImage: `repeating-linear-gradient(135deg, ${b.color}1f 0 6px, transparent 6px 12px)`,
-                      opacity: relatedFactor(b.entity?.parentId, b.entity?.id),
+                      opacity: relatedFactor(b.entity?.parentId, b.entity?.id) * expOpacity,
                     }}
                   >
                     <Repeat className="h-2.5 w-2.5 shrink-0" style={{ color: b.color }} aria-hidden />
@@ -1421,10 +1433,10 @@ export function TimelineStrip({
                   <motion.button
                     key={b.key}
                     type="button"
-                    initial={false}
+                    initial={collapseAnimating ? { opacity: 0 } : false}
                     data-placement={b.entity ? placementKey("timeline", contextId, b.entity.id) : undefined}
                     data-morph-kind="generic"
-                    animate={{ opacity: dim }}
+                    animate={{ opacity: dim * expOpacity }}
                     transition={panelTransition}
                     onClick={() => b.entity && openFromChip(b.entity.id)}
                     onContextMenu={(ev) => b.entity && openMenu(ev, b.entity)}
@@ -1477,10 +1489,10 @@ export function TimelineStrip({
                 >
                   <motion.button
                     type="button"
-                    initial={false}
+                    initial={collapseAnimating ? { opacity: 0 } : false}
                     data-placement={b.entity ? placementKey("timeline", contextId, b.entity.id) : undefined}
                     data-morph-kind="generic"
-                    animate={{ opacity: dim }}
+                    animate={{ opacity: dim * expOpacity }}
                     transition={panelTransition}
                     onClick={() => b.entity && openFromChip(b.entity.id)}
                     onContextMenu={(ev) => b.entity && openMenu(ev, b.entity)}
@@ -1499,7 +1511,11 @@ export function TimelineStrip({
                       backgroundColor: b.color ? `${b.color}26` : "var(--secondary)",
                     }}
                   >
-                    <span className="h-1.5 w-1.5 shrink-0 rounded-[2px]" style={{ backgroundColor: b.color }} aria-hidden />
+                    {/* kind GLYPH prefix (replaces the old color square) — colored via
+                        the wrapper's `currentColor`. */}
+                    <span className="h-2.5 w-2.5 shrink-0" style={{ color: b.color || "var(--muted-foreground)" }}>
+                      <NodeGlyph kind={(b.entity?.kind as NodeKind) ?? "event"} filled strokeWidth={2} />
+                    </span>
                     <span className={cn("whitespace-nowrap", b.cancelled && "line-through")}>{b.title}</span>
                   </motion.button>
                 </motion.div>
@@ -1516,9 +1532,10 @@ export function TimelineStrip({
             {showRibbons &&
               layout.blocks.flatMap((blk) => {
                 const rk = blk.m.motherId ?? `root:${blk.m.baseLane}`
-                if (!blk.collapsed || ticksHidden[rk]) return []
+                if (!showCollapsed(blk) || ticksHidden[rk]) return []
                 const hi = hoveredMother === rk
                 const railY = offsetY + blk.top
+                const railOp = collapsedOpacity(blk)
                 // Bars whose lane falls inside THIS block's lane range (works for the
                 // ungrouped root too, where there's no motherId to match on).
                 const loLane = blk.m.baseLane
@@ -1559,7 +1576,7 @@ export function TimelineStrip({
                           top: railY + 1,
                           height: RAIL_H - 2,
                           backgroundColor: color,
-                          opacity: hi ? 1 : 0.85,
+                          opacity: (hi ? 1 : 0.85) * railOp,
                           boxShadow: hi ? `0 0 6px ${color}` : undefined,
                         }}
                       />
@@ -1591,7 +1608,8 @@ export function TimelineStrip({
             {showRibbons &&
               lanes.ribbons.map((r) => {
                 const blk = blockOfLane(r.baseLane)
-                if (blk?.collapsed) return null // folded — its mother rail-label is drawn below
+                if (blk && !showExpanded(blk)) return null // folded — its mother rail-label is drawn below
+                const fadeOp = blk ? expandedOpacity(blk) : 1
                 const mId = blk?.m.motherId ?? null
                 // The mother's LEAD lane (the mother space itself appearing as a lane)
                 // would repeat the name already shown in the vertical mother column to
@@ -1614,7 +1632,7 @@ export function TimelineStrip({
                     onClick={() => r.spaceId !== "s_root" && open(r.spaceId)}
                     title={r.title}
                     className={cn(
-                      "absolute z-20 flex max-w-[42%] items-center gap-1 rounded border border-border/70 bg-card px-1.5 py-0.5 text-[9.5px] font-medium leading-none tracking-tight text-foreground/80 shadow-sm transition-[opacity,colors,top,left] duration-300 ease-out hover:text-foreground",
+                      "absolute z-20 flex max-w-[42%] items-center gap-1 rounded border border-border/70 bg-card px-1.5 py-0.5 text-[9.5px] font-medium leading-none tracking-tight text-foreground/80 shadow-sm transition-[opacity,colors,top,left] duration-300 ease-out animate-in fade-in hover:text-foreground",
                       isLeadDup && "opacity-0 hover:opacity-100",
                     )}
                     style={{
@@ -1622,11 +1640,13 @@ export function TimelineStrip({
                       top,
                       transform: "translateY(-50%)",
                       // Lead duplicates are driven purely by the hover class above; everyone
-                      // else uses the related/unrelated dimming.
-                      ...(isLeadDup ? {} : { opacity: related ? 1 : UNRELATED_OPACITY }),
+                      // else uses the related/unrelated dimming (× the collapse crossfade).
+                      ...(isLeadDup ? {} : { opacity: (related ? 1 : UNRELATED_OPACITY) * fadeOp }),
                     }}
                   >
-                    <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: r.color }} aria-hidden />
+                    <span className="h-2.5 w-2.5 shrink-0" style={{ color: r.color }}>
+                      <NodeGlyph kind="space" filled strokeWidth={2} />
+                    </span>
                     <span className="truncate">{r.title}</span>
                   </button>
                 )
@@ -1641,7 +1661,7 @@ export function TimelineStrip({
             {showRibbons &&
               layout.blocks.map((blk) => {
                 const mId = blk.m.motherId
-                if (blk.collapsed || !mId) return null
+                if (!mId || !showExpanded(blk)) return null
                 const related = atRootFocus || mId === contextId || isInSubtree(contextId, mId)
                 return (
                   <button
@@ -1649,15 +1669,15 @@ export function TimelineStrip({
                     type="button"
                     onClick={() => toggleMother(mId, false)}
                     title={`Collapse ${blk.m.title}`}
-                    className="absolute z-20 flex flex-col items-center justify-center rounded border border-border/70 bg-card py-0.5 text-[9.5px] font-semibold leading-none tracking-tight shadow-sm transition-[opacity,top,height] duration-300 ease-out hover:brightness-125"
+                    className="absolute z-20 flex flex-col items-center justify-center rounded border border-border/70 bg-card py-0.5 text-[9.5px] font-semibold leading-none tracking-tight shadow-sm transition-[opacity,top,height] duration-300 ease-out animate-in fade-in hover:brightness-125"
                     style={{
                       left: 4,
                       top: offsetY + blk.top,
-                      height: blk.height,
+                      height: blk.collapsed ? RAIL_H : blk.height,
                       width: MOTHER_COL_W - 4,
                       color: blk.m.color,
                       borderColor: `${blk.m.color}40`,
-                      opacity: related ? 1 : UNRELATED_OPACITY,
+                      opacity: (related ? 1 : UNRELATED_OPACITY) * expandedOpacity(blk),
                     }}
                   >
                     <span
@@ -1682,23 +1702,28 @@ export function TimelineStrip({
                 that rail's ticks. */}
             {showRibbons &&
               layout.blocks.map((blk) => {
-                if (!blk.collapsed) return null
+                if (!showCollapsed(blk)) return null
                 const mId = blk.m.motherId
                 const rk = mId ?? `root:${blk.m.baseLane}`
+                const labelOp = collapsedOpacity(blk)
                 const hoverProps = {
                   onMouseEnter: () => setHoveredMother(rk),
                   onMouseLeave: () => setHoveredMother((h) => (h === rk ? null : h)),
                 }
-                const wrapStyle = { left: 4, top: offsetY + blk.top + RAIL_H / 2, transform: "translateY(-50%)" } as const
-                // ZOOM-forced collapse (or the ungrouped root) → plain name tag.
-                if (zoomCollapsed || !mId) {
+                const wrapStyle = { left: 4, top: offsetY + blk.top + RAIL_H / 2, transform: "translateY(-50%)", opacity: labelOp } as const
+                // ZOOM-forced collapse (or the ungrouped root) → plain name tag. Keyed on
+                // `!byUser` (not live `zoomCollapsed`) so the branch stays stable through
+                // the un-collapse crossfade. Glyph prefixes the title on hover via the tag.
+                if (!blk.byUser || !mId) {
                   return (
                     <div
                       key={`mlabel:${rk}`}
                       className="pointer-events-none absolute z-20 flex max-w-[36vw] items-center gap-1 rounded border border-border/70 bg-card px-1.5 py-0.5 text-[9.5px] font-medium leading-none tracking-tight text-foreground/70 shadow-sm animate-in fade-in duration-300"
                       style={wrapStyle}
                     >
-                      <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: blk.m.color }} aria-hidden />
+                      <span className="h-2.5 w-2.5 shrink-0" style={{ color: blk.m.color }}>
+                        <NodeGlyph kind="space" filled strokeWidth={2} />
+                      </span>
                       <span className="truncate">{blk.m.title}</span>
                     </div>
                   )
