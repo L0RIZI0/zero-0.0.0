@@ -1,6 +1,7 @@
 "use client"
 
 import { useMemo } from "react"
+import { motion } from "motion/react"
 import { cn } from "@/lib/utils"
 import { packDay } from "@/lib/zero/day-pack"
 import type { SerpItem } from "./timeline-serpentine"
@@ -8,6 +9,8 @@ import type { Entity } from "@/lib/zero/types"
 
 const DAY_MS = 86_400_000
 const HOUR_AXIS_W = 40
+// Seconds for the shared-element morph (mirrors MORPH_MS in timeline-strip).
+const MORPH_S = 0.52
 // The 7 day columns are anchored on TODAY: two days back through four days forward,
 // so "today" sits in the third column and the near future gets the most room.
 const DAYS_BEFORE = 2
@@ -51,11 +54,13 @@ function fmtHour(h: number): string {
 export function TimelineWeek({
   items,
   now,
+  morphing,
   onOpen,
   onMenu,
 }: {
   items: SerpItem[]
   now: number
+  morphing: boolean
   onOpen: (id: string) => void
   onMenu: (e: React.MouseEvent, entity: Entity) => void
 }) {
@@ -75,6 +80,15 @@ export function TimelineWeek({
       return { ds, de, placed: packDay(bucket, ds) }
     })
   }, [items, firstDay])
+
+  // A multi-day item appears in several columns; its shared-element `layoutId` must be
+  // unique, so only the LEFTMOST column it occupies bears the morph id (others render
+  // plain). Maps item key → first column index it shows in.
+  const morphCol = useMemo(() => {
+    const m = new Map<string, number>()
+    columns.forEach((col, ci) => col.placed.forEach((p) => !m.has(p.it.key) && m.set(p.it.key, ci)))
+    return m
+  }, [columns])
 
   return (
     <div className="absolute inset-0 flex flex-col bg-background">
@@ -118,7 +132,7 @@ export function TimelineWeek({
           ))}
         </div>
 
-        {columns.map((col) => {
+        {columns.map((col, ci) => {
           const isToday = col.ds === today0
           const nowF = now >= col.ds && now < col.de ? (now - col.ds) / DAY_MS : null
           return (

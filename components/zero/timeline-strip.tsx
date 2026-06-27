@@ -46,6 +46,14 @@ import { cn } from "@/lib/utils"
 const HOUR_MS = 3_600_000
 const DAY_MS = 86_400_000
 
+// ZOOM-DRIVEN VIEW SWITCH. The Lifelane (linear) morphs into the Atlas (this-week
+// grid) when zoomed OUT so the visible span reaches ~2.5 days. A hysteresis gap
+// (open at 2.5d, fall back to the Lifelane only below 2.2d) stops it flickering when
+// scrubbing right at the boundary. MORPH_MS is how long the shared-element morph runs.
+const ATLAS_OPEN_MS = 2.5 * DAY_MS
+const ATLAS_CLOSE_MS = 2.2 * DAY_MS
+const MORPH_MS = 520
+
 // View-switch glyphs. ATLAS = a SPHERE (a filled orb with a soft sheen — the whole
 // life-plane gathered into one body). LINE = a thick translucent rounded SEGMENT
 // (the linear Lifelane). Both draw with `currentColor` so they inherit the active
@@ -327,13 +335,18 @@ export function TimelineStrip({
 
   const [hoveredInstant, setHoveredInstant] = useState<string | null>(null)
 
-  // VIEW SWITCH — the Lifeline has two views, toggled by the selector switch:
-  //   • LIFELANE (atlas=false, default): the linear horizontal track rendered here.
-  //   • ATLAS (atlas=true): a FULLSCREEN morph of the Lifeline rendering a period
-  //     grid (today the serpentine week grid). It's a fixed overlay, so the linear
-  //     Lifelane strip stays mounted and untouched underneath. Pan/zoom/NOW keep
-  //     operating on `vp`; coarser zoom → more week columns in the Atlas.
+  // VIEW SWITCH — the Lifeline has two views, now driven entirely by ZOOM:
+  //   • LIFELANE (atlas=false): the linear horizontal track rendered here. Shown when
+  //     zoomed IN (visible span under ~2.5 days).
+  //   • ATLAS (atlas=true): a FULLSCREEN morph rendering the This-week grid. Shown when
+  //     zoomed OUT to a span of ~2.5 days or more. It's a fixed overlay, so the linear
+  //     Lifelane strip stays mounted underneath.
+  // `morphing` is the brief window after a switch during which entities run their
+  // shared-element morph between the two layouts (see layoutId usage below).
   const [atlas, setAtlas] = useState(false)
+  const [morphing, setMorphing] = useState(false)
+  const morphTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => () => void (morphTimer.current && clearTimeout(morphTimer.current)), [])
 
   // --- Mother-ribbon folding state -----------------------------------------
   // `override` pins a mother's collapsed state to the user's explicit choice; it
@@ -350,6 +363,21 @@ export function TimelineStrip({
   }, [contextId])
 
   const { startMs, spanMs } = vp
+
+  // Cross the Lifelane↔Atlas threshold with hysteresis: once in the Atlas, stay until
+  // the span drops below the (lower) close threshold, and vice-versa. Flipping `atlas`
+  // also opens the brief `morphing` window that drives the per-entity morph.
+  useEffect(() => {
+    setAtlas((prev) => {
+      const next = prev ? spanMs > ATLAS_CLOSE_MS : spanMs >= ATLAS_OPEN_MS
+      if (next !== prev) {
+        setMorphing(true)
+        if (morphTimer.current) clearTimeout(morphTimer.current)
+        morphTimer.current = setTimeout(() => setMorphing(false), MORPH_MS)
+      }
+      return next
+    })
+  }, [spanMs])
   const center = startMs + spanMs / 2
   const grain = useMemo(() => lodGrain(spanMs, width), [spanMs, width])
 
@@ -942,40 +970,22 @@ export function TimelineStrip({
         </div>
 
         <div className="flex h-full items-stretch">
-          {/* VIEW SWITCH — the Lifeline's two views. LINE selects the linear
-              Lifelane (this strip); ATLAS opens the fullscreen period-grid morph.
-              Zoom is now driven purely by scrolling, so the old Life→Day presets
-              are gone — this slot holds only the two-state switch. */}
+          {/* VIEW INDICATOR — the Lifelane↔Atlas view is now driven entirely by ZOOM
+              (out to ~2.5 days opens the Atlas), so there is no switch here anymore.
+              This passive readout just shows where you are: the LINE glyph (linear
+              Lifelane) sits above the SPHERE glyph (Atlas), and the one matching the
+              current view lights up — a quiet hint that zooming moves between them. */}
           <div
             style={{ width: SELECTOR_W }}
             className="relative z-10 flex shrink-0 flex-col items-center justify-center gap-1.5 bg-background"
+            aria-hidden
           >
-            <button
-              type="button"
-              onClick={() => setAtlas(false)}
-              aria-pressed={!atlas}
-              aria-label="Lifelane — linear timeline"
-              title="Lifelane — linear timeline"
-              className={cn(
-                "flex h-5 w-5 items-center justify-center rounded-[4px] transition-colors",
-                !atlas ? "bg-secondary text-foreground" : "text-muted-foreground/40 hover:text-foreground/80",
-              )}
-            >
-              <LineGlyph className="h-3.5 w-3.5" />
-            </button>
-            <button
-              type="button"
-              onClick={() => setAtlas(true)}
-              aria-pressed={atlas}
-              aria-label="Atlas — period grid"
-              title="Atlas — period grid"
-              className={cn(
-                "flex h-5 w-5 items-center justify-center rounded-[4px] transition-colors",
-                atlas ? "bg-secondary text-foreground" : "text-muted-foreground/40 hover:text-foreground/80",
-              )}
-            >
-              <AtlasGlyph className="h-3.5 w-3.5" />
-            </button>
+            <LineGlyph
+              className={cn("h-3.5 w-3.5 transition-opacity", atlas ? "opacity-25" : "text-foreground opacity-100")}
+            />
+            <AtlasGlyph
+              className={cn("h-3.5 w-3.5 transition-opacity", atlas ? "text-foreground opacity-100" : "opacity-25")}
+            />
           </div>
 
           <button
@@ -1220,7 +1230,20 @@ export function TimelineStrip({
                 // a zoom repacks it into a different lane, instead of snapping — and
                 // lands on the same 300ms/ease-out beat as its ribbon band. Horizontal
                 // (left/width) stays instant so it tracks the zoom/pan under the cursor.
-                <div key={b.key} className="absolute h-6 transition-[top] duration-300 ease-out" style={boxStyle}>
+                //
+                // `layoutId` ties this chip to its twin in the Atlas (same `b.key`), so
+                // when zoom crosses the threshold the entity flies between layouts. It's
+                // present ONLY in the Lifelane (`!atlas`) so each id has a single bearer
+                // that swaps at the switch. The layout transition runs ONLY during the
+                // brief `morphing` window (duration 0 otherwise) so steady-state zoom —
+                // which moves left/width every frame — is never layout-animated/laggy.
+                <motion.div
+                  key={b.key}
+                  layoutId={!atlas ? `m-${b.key}` : undefined}
+                  transition={{ layout: { duration: morphing ? MORPH_MS / 1000 : 0, ease: [0.22, 1, 0.36, 1] } }}
+                  className="absolute h-6 transition-[top] duration-300 ease-out"
+                  style={boxStyle}
+                >
                   <motion.button
                     type="button"
                     initial={false}
@@ -1248,7 +1271,7 @@ export function TimelineStrip({
                     <span className="h-1.5 w-1.5 shrink-0 rounded-[2px]" style={{ backgroundColor: b.color }} aria-hidden />
                     <span className={cn("whitespace-nowrap", b.cancelled && "line-through")}>{b.title}</span>
                   </motion.button>
-                </div>
+                </motion.div>
               )
             })}
 
@@ -1461,24 +1484,26 @@ export function TimelineStrip({
               </div>
               <button
                 type="button"
-                onClick={() => setAtlas(false)}
-                aria-label="Back to Lifelane"
-                title="Back to Lifelane (linear)"
+                onClick={goNow}
+                aria-label="Zoom in to the Lifelane"
+                title="Zoom in to the Lifelane (linear)"
                 className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-secondary/50 hover:text-foreground"
               >
                 <LineGlyph className="h-3.5 w-3.5" />
                 Lifelane
               </button>
             </div>
+            {/* Opacity-only fade (NO scale): a parent transform would skew the absolute
+                rects motion uses for the per-entity layoutId morph, so the entities
+                themselves carry the motion while the plane just fades in. */}
             <motion.div
               className="relative flex-1 overflow-hidden"
-              style={{ transformOrigin: "top center" }}
-              initial={{ scale: 0.97, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.98, opacity: 0 }}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
               transition={panelTransition}
             >
-              <TimelineWeek items={serpItems} now={now} onOpen={openFromChip} onMenu={openMenu} />
+              <TimelineWeek items={serpItems} now={now} morphing={morphing} onOpen={openFromChip} onMenu={openMenu} />
             </motion.div>
           </motion.div>
             )}
