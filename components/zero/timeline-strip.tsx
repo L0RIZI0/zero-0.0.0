@@ -49,13 +49,17 @@ const HOUR_MS = 3_600_000
 const DAY_MS = 86_400_000
 
 // ZOOM-DRIVEN VIEW SWITCH. The Lifelane (linear) morphs into the Atlas (this-week
-// grid) when zoomed OUT so the visible span reaches ~2.5 days. Open and close use the
-// SAME threshold so the switch is symmetric (zooming back in flips to the Lifelane at
-// the same span it became the Atlas) — only a tiny epsilon gap remains, purely to stop
-// per-frame flicker when a gesture hovers exactly on the boundary. MORPH_MS is how long
-// the morph runs.
-const ATLAS_OPEN_MS = 2.5 * DAY_MS
-const ATLAS_CLOSE_MS = 2.46 * DAY_MS
+// grid) when zoomed OUT past a threshold span. That threshold is DYNAMIC — it scales
+// with the viewport WIDTH so a wide screen (which has room to show more days
+// comfortably as a linear strip) only flips to the grid once the days get genuinely
+// cramped. We express "comfortable" as a target px-per-day: thresholdDays = clamp(
+// width / ATLAS_PX_PER_DAY, MIN, MAX). e.g. ~1280px → 2.5d, ~2560px (ultrawide) → 4.5d.
+// Open and close share the threshold (minus a tiny epsilon for anti-flicker) so the
+// switch is symmetric. See `atlasOpenMs`/`atlasCloseMs` (computed from width below).
+const ATLAS_PX_PER_DAY = 560
+const ATLAS_MIN_DAYS = 2.5
+const ATLAS_MAX_DAYS = 6
+const ATLAS_CLOSE_EPSILON_MS = 0.04 * DAY_MS
 const MORPH_MS = 520
 
 // View-switch glyphs. ATLAS = a SPHERE (a filled orb with a soft sheen — the whole
@@ -347,6 +351,14 @@ export function TimelineStrip({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mounted])
 
+  // WIDTH-DRIVEN Atlas threshold (see tuning constants above). Wider viewport ⇒ more
+  // days fit comfortably as a linear strip ⇒ higher span before it flips to the grid.
+  const { atlasOpenMs, atlasCloseMs } = useMemo(() => {
+    const days = Math.max(ATLAS_MIN_DAYS, Math.min(ATLAS_MAX_DAYS, width / ATLAS_PX_PER_DAY))
+    const open = days * DAY_MS
+    return { atlasOpenMs: open, atlasCloseMs: open - ATLAS_CLOSE_EPSILON_MS }
+  }, [width])
+
   // Live "now", refreshed each ~30s so the now-marker creeps along the lifeline.
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
@@ -396,13 +408,13 @@ export function TimelineStrip({
   // it already matches (so re-running after we set it is a no-op — no loop), and only
   // then flip both flags.
   useEffect(() => {
-    const next = atlas ? spanMs > ATLAS_CLOSE_MS : spanMs >= ATLAS_OPEN_MS
+    const next = atlas ? spanMs > atlasCloseMs : spanMs >= atlasOpenMs
     if (next === atlas) return
     setAtlas(next)
     setMorphing(true)
     if (morphTimer.current) clearTimeout(morphTimer.current)
     morphTimer.current = setTimeout(() => setMorphing(false), MORPH_MS)
-  }, [spanMs, atlas])
+  }, [spanMs, atlas, atlasOpenMs, atlasCloseMs])
 
   // Publish the Timeline's morph state (atlas + zoom-driven height fraction) to the
   // shared store so WorkSurface can size the band + reserve, and the Dock/DoList can
@@ -411,9 +423,9 @@ export function TimelineStrip({
   useEffect(() => {
     setTimelineView({
       atlas,
-      heightFrac: timelineHeightFrac(spanMs, atlas, VIEW_SPAN_MS.D, ATLAS_OPEN_MS),
+      heightFrac: timelineHeightFrac(spanMs, atlas, VIEW_SPAN_MS.D, atlasOpenMs),
     })
-  }, [spanMs, atlas])
+  }, [spanMs, atlas, atlasOpenMs])
 
   // ZOOM ANYWHERE ON THE ATLAS. While the Atlas is open the Lifelane strip is faded +
   // click-through (pointer-events-none), so the gesture viewport no longer catches the
@@ -468,7 +480,7 @@ export function TimelineStrip({
     // from wherever the momentum parked it — the "scroll forever / random ticks back to
     // the Lifelane" bug. Capped here, the span parks AT the threshold, so a single
     // zoom-in notch crosses straight back: entry and exit are symmetric and continuous.
-    maxSpan: ATLAS_OPEN_MS,
+    maxSpan: atlasOpenMs,
     // Re-bind the wheel listener once the real viewport replaces the placeholder.
     enabled: mounted,
     onGestureStart: () => {
@@ -730,7 +742,7 @@ export function TimelineStrip({
   // does NOT pre-claim a third of the card), and it expands vertically only as the span
   // widens — which is exactly when the do-list should start being nudged down. The band
   // is rendered BEHIND the do-list/dock, so a one-frame measurement lag is invisible.
-  const growT = Math.min(1, Math.max(0, (spanMs - VIEW_SPAN_MS.D) / (ATLAS_OPEN_MS - VIEW_SPAN_MS.D)))
+    const growT = Math.min(1, Math.max(0, (spanMs - VIEW_SPAN_MS.D) / (atlasOpenMs - VIEW_SPAN_MS.D)))
   const bandTarget = Math.max(0, (viewHeightPx ?? 0) - LIFELANE_LABEL_BAND_H)
   const lifelaneBandH = Math.max(trackH, trackH + growT * Math.max(0, bandTarget - trackH))
   // Y of a VISIBLE global lane (collapsed lanes return the block's rail y so any
@@ -836,7 +848,7 @@ export function TimelineStrip({
     for (let k = kStart; k < kEnd; k++) out.push(base + k * DAY_MS)
     return out
   }, [startMs, spanMs, now])
-  const showDayCells = spanMs <= ATLAS_OPEN_MS * 2
+  const showDayCells = spanMs <= atlasOpenMs * 2
 
   // --- Plane morph pairs ----------------------------------------------------
   // The Atlas centers on the SAME time the Lifelane viewport is looking at (its
@@ -898,9 +910,16 @@ export function TimelineStrip({
           // the grid. During the brief `morphing` window the Atlas (TimelineWeek) plays the
           // flight with its OWN elements (day-spans, graduations, titles, chips fly as one
           // opaque plane), so the real Lifelane is hidden INSTANTLY (no cross-fade) to avoid
-          // a ghost ruler under it.
+          // a ghost ruler under it. The RETURN is instant too (`opacity-100 !duration-0`):
+          // the section pops back in at the exact frame the morph completes (chips already
+          // landed, Atlas unmounting), so there's no empty-ruler-then-chips-fade-in flash
+          // at the end of the reverse morph.
           "px-1 transition-opacity duration-300",
-          morphing ? "pointer-events-none opacity-0 !duration-0" : atlas ? "pointer-events-none opacity-0" : "opacity-100",
+          morphing
+            ? "pointer-events-none opacity-0 !duration-0"
+            : atlas
+              ? "pointer-events-none opacity-0"
+              : "opacity-100 !duration-0",
         )}
       >
         {/* Label band above the ruler. Shows the granularity-aware center label and,
@@ -1395,8 +1414,10 @@ export function TimelineStrip({
                 //
                 // No cross-tree FLIP here anymore: the Lifelane<->Atlas flight is played
                 // by the Atlas (TimelineWeek) itself, which animates each entity between
-                // its Lifelane and Atlas rect. So while `morphing` these real chips are
-                // HIDDEN (opacity 0) and the Atlas's flying chips show instead.
+                // its Lifelane and Atlas rect. The whole Lifelane <section> is hidden
+                // INSTANTLY while `morphing` (opacity-0 on the parent), so chips need NO
+                // self-fade — keeping them at `dim` means that when the section pops back
+                // in at morph-end they're already in place (no end-of-morph fade-in flash).
                 <motion.div
                   key={b.key}
                   className="absolute h-6 transition-[top] duration-300 ease-out"
@@ -1407,8 +1428,8 @@ export function TimelineStrip({
                     initial={false}
                     data-placement={b.entity ? placementKey("timeline", contextId, b.entity.id) : undefined}
                     data-morph-kind="generic"
-                    animate={{ opacity: morphing ? 0 : dim }}
-                    transition={morphing ? { duration: 0 } : panelTransition}
+                    animate={{ opacity: dim }}
+                    transition={panelTransition}
                     onClick={() => b.entity && openFromChip(b.entity.id)}
                     onContextMenu={(ev) => b.entity && openMenu(ev, b.entity)}
                     aria-current={isOpen ? "true" : undefined}
