@@ -28,6 +28,7 @@ import {
   type WebResource,
 } from "@/lib/zero/web-resources"
 import { useZeroNav, ADD_KEY } from "@/lib/zero/nav-store"
+import { useTimelineView } from "@/lib/zero/timeline-view-store"
 import { MORPH_EASE } from "@/lib/zero/motion"
 import { NodeGlyph, NODE_KIND_META, type NodeKind } from "./node-glyph"
 import { ResourceGlyph } from "./resource-glyph"
@@ -49,6 +50,11 @@ const KIND_ORDER: NodeKind[] = ["task", "space", "resource", "event", "instant",
  * Used as the `layout` transition on every list cell so they all move in lockstep.
  */
 const ROW_REFLOW: Transition = { duration: 0.4, ease: MORPH_EASE }
+
+/** Atlas-mode scroller cap: the compact create-row (~34px) + up to ~3 entity rows
+ *  (h-11 = 44px each, gap-1.5 = 6px), so the do-list floats as a small panel and
+ *  scrolls for anything beyond three tasks. */
+const ATLAS_LIST_MAX_H = 34 + 6 + 3 * 44 + 2 * 6
 
 /** Shared leading glyph box, matching EntityRow so the edit row aligns. */
 const GLYPH_BOX = "flex h-4 w-4 shrink-0 items-center justify-center"
@@ -252,12 +258,16 @@ function CreateRow({
   active,
   animating,
   closing,
+  atlas,
   flipId,
   onCreate,
   onCreateWeb,
   onNavigateUp,
   onNavigateDown,
 }: {
+  /** ATLAS mode: render compact (≈half height) and pin to the TOP of the do-list as
+   *  an opaque draft bar that floats above the day-grid, just over the dock. */
+  atlas: boolean
   /** Only the active (top, interactive) window's row auto-focuses its input, so
    *  ancestor windows that stay mounted don't fight over keyboard focus. */
   active: boolean
@@ -434,13 +444,20 @@ function CreateRow({
       // by losing this cell); a quick fade also hides any drift while the body shrinks.
       animate={{ opacity: closing ? 0 : 1 }}
       transition={closing ? { duration: 0.12, ease: "easeOut" } : ROW_REFLOW}
+      // ATLAS: jump to the TOP (order-first) and stick there as the rows scroll under,
+      // staying opaque so it always reads over the grid.
+      className={cn(atlas && "sticky top-0 z-10 order-[-1] overflow-hidden rounded-md")}
     >
       <div
         onPointerEnter={() => select("list", ADD_KEY, "mouse")}
         style={{ borderRadius: 4 }}
         // py-3 (12px) matches the taller h-11 entity rows so the draft input row is the
-        // same height; px-4 matches the row's horizontal padding.
-        className="flex w-full items-center gap-3 bg-card-solid px-4 py-3 text-left"
+        // same height; px-4 matches the row's horizontal padding. ATLAS shrinks it to
+        // roughly half height (py-1.5) for a compact floating draft bar.
+        className={cn(
+          "flex w-full items-center gap-3 bg-card-solid px-4 text-left",
+          atlas ? "py-1.5" : "py-3",
+        )}
       >
         <button
           ref={triggerRef}
@@ -552,6 +569,10 @@ export function DoList({
 }) {
   const { dataVersion, notifyDataChanged, morphCommit, setMenuKey, open, selection, select, moveSelection, publishNavOrder, animating } =
     useZeroNav()
+  // In ATLAS the do-list reflows into a compact panel that floats over the grid's
+  // lower edge: the create-row jumps to the TOP, the list becomes a top-aligned ~3-row
+  // scroller, and rows get an opaque surface so they read over the day-grid behind them.
+  const { atlas } = useTimelineView()
   // Re-read whenever data mutates or context changes. Pinned items are promoted
   // to the dock, so they're excluded here.
   const items = useMemo(
@@ -780,7 +801,13 @@ export function DoList({
     // `flex-1` so the section fills the column height — the scrolling <ul> below is
     // then a proper height-constrained scroller (and can center its content when
     // asked) rather than a content-height block pinned to the top.
-    <section aria-label="Do list" className="flex min-h-0 flex-1 flex-col">
+    <section
+      aria-label="Do list"
+      // ATLAS: push the compact list cluster to the BOTTOM of its region so it floats
+      // right on top of the (shrunken) dock — `pb` clears the dock's height so the
+      // create-row sits just ABOVE it rather than overlapping the cards.
+      className={cn("flex min-h-0 flex-1 flex-col", atlas && "justify-end pb-24")}
+    >
       {/* The DO label and the Open/All filters are hidden. The list still defaults
           to the "open" filter internally (see `filter` state); only its toggle UI
           is removed. */}
@@ -803,12 +830,15 @@ export function DoList({
         // stayed. Visible overflow lets the rows show and shrink with the body's scale
         // tween. (The ADD row that used to jump here is now gated out by `active`
         // below, so it no longer matters that the list is unclipped during close.)
-        style={animating ? { overflow: "visible" } : undefined}
+        style={animating ? { overflow: "visible" } : atlas ? { maxHeight: ATLAS_LIST_MAX_H } : undefined}
         className={cn(
           "-mx-2 flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto px-2 no-scrollbar",
-          // Center the rows + ADD vertically when short; `-safe` falls back to
-          // top-aligned the moment the list overflows, so the top is never clipped.
-          centered && "justify-center-safe",
+          // ATLAS: top-aligned, capped scroller (create-row pinned at top, ~3 entity
+          // rows visible, scroll for the rest) so the do-list is a compact floating
+          // panel. Otherwise center the rows + ADD vertically when short; `-safe` falls
+          // back to top-aligned the moment the list overflows so the top is never clipped.
+          !atlas && centered && "justify-center-safe",
+          atlas && "flex-none justify-start",
         )}
       >
         <AnimatePresence initial={false} mode="popLayout">
@@ -835,6 +865,9 @@ export function DoList({
               animate={{ opacity: 1, y: 0 }}
               exit={animating ? undefined : { opacity: 0, scale: 0.96, transition: { duration: 0.18 } }}
               transition={ROW_REFLOW}
+              // ATLAS: rows sit AFTER the create-row (order-1) and get an opaque rounded
+              // surface so they read cleanly over the day-grid showing through behind.
+              className={cn(atlas && "order-1 overflow-hidden rounded-md bg-card-solid")}
             >
               <EntityNode
                 entityId={it.id}
@@ -855,6 +888,7 @@ export function DoList({
             active={active}
             animating={animating}
             closing={closing}
+            atlas={atlas}
             flipId={`${contextId}:__create__`}
             onCreate={createEntity}
             onCreateWeb={createWebEntity}

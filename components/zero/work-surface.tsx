@@ -5,7 +5,7 @@ import { motion } from "motion/react"
 import { useTheme } from "next-themes"
 import { useZeroNav } from "@/lib/zero/nav-store"
 import { getSpace, getEntity, isDetachedChild } from "@/lib/zero/data"
-import { shellStageFor, HEADER_BAND_H, TIMELINE_TOP_PAD } from "@/lib/zero/layout"
+import { shellStageFor, HEADER_BAND_H, TIMELINE_TOP_PAD, TIMELINE_ATLAS_DOLIST_TOP_FRAC } from "@/lib/zero/layout"
 import { useTimelineView } from "@/lib/zero/timeline-view-store"
 import { entityRegions } from "@/lib/zero/regions"
 import { layerTransition, telescopicSurface } from "@/lib/zero/motion"
@@ -87,7 +87,7 @@ export function WorkSurface() {
   // and multiply by the LIVE card height to get the band's pixel height. This is the
   // single value that (a) the strip grows its band to, and (b) the do-list reserves
   // below — so growth and compression stay locked together as you zoom.
-  const { heightFrac } = useTimelineView()
+  const { atlas, heightFrac } = useTimelineView()
   const cardElRef = useRef<HTMLDivElement | null>(null)
   const [cardH, setCardH] = useState(0)
   const viewHeightPx = Math.round(heightFrac * cardH)
@@ -118,10 +118,13 @@ export function WorkSurface() {
   // offset (+ TIMELINE_TOP_PAD only at home), the body-relative reserve collapses to
   // `(home ? TIMELINE_TOP_PAD : 0) + timelineH`. This keeps content flush under the
   // timeline in BOTH home and windows from a single shared var.
-  // The band's bottom = its top offset + its zoom-driven pixel height. The do-list
-  // reserves exactly this, so it compresses continuously as the band grows and is
-  // pushed under the Atlas grid's lower edge when zoomed all the way out.
-  const region1Reserve = (windowOpen ? 0 : TIMELINE_TOP_PAD) + viewHeightPx
+  // The band's bottom = its top offset + its zoom-driven pixel height. In LIFELANE the
+  // do-list reserves exactly this, so it compresses continuously as the band grows. In
+  // ATLAS the grid fills ~88% but the do-list should FLOAT OVER its lower edge (compact
+  // create-row + 3-row scroller above the dock), so we reserve only to the smaller
+  // `TIMELINE_ATLAS_DOLIST_TOP_FRAC` of the card instead of the full grid height.
+  const reservePx = atlas ? Math.round(TIMELINE_ATLAS_DOLIST_TOP_FRAC * cardH) : viewHeightPx
+  const region1Reserve = (windowOpen ? 0 : TIMELINE_TOP_PAD) + reservePx
 
   // Home is window 0 in the telescopic surface model. In DARK mode it stays on
   // pure --background (level 0) at every depth — a no-op. In LIGHT mode it is the

@@ -140,6 +140,17 @@ export function TimelineWeek({
               key={`c-${col.ds}`}
               className={cn("relative flex-1 border-l border-border/40", isToday && "bg-foreground/[0.03]")}
             >
+              {/* DAY-CELL morph carrier — the twin of the Lifelane's horizontal day-slab
+                  (same `day-<ds>` layoutId). On the snap the slab flies from a horizontal
+                  band into this vertical column; the layout tween runs only while
+                  `morphing`. Behind the items (z-0), a faint fill + left edge. */}
+              <motion.div
+                layoutId={`day-${col.ds}`}
+                transition={{ layout: { duration: morphing ? MORPH_S : 0, ease: [0.22, 1, 0.36, 1] } }}
+                className="pointer-events-none absolute inset-0 z-0 border-l border-border/30 bg-foreground/[0.015]"
+                aria-hidden
+              />
+
               {/* Hour gridlines — subtle every hour, a touch stronger at the marks. */}
               {Array.from({ length: 23 }, (_, i) => i + 1).map((h) => (
                 <div

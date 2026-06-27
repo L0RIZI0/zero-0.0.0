@@ -799,6 +799,23 @@ export function TimelineStrip({
   // --- Ruler ticks (two-tier, adaptive grain) ------------------------------
   const ticks = useMemo(() => timelineTicks(startMs, spanMs, width), [startMs, spanMs, width])
 
+  // --- Day cells (shared-element morph carriers) ---------------------------
+  // The visible day boundaries, computed with the SAME arithmetic the Atlas week uses
+  // (`startOfDay(now) + k·DAY_MS`) so the ids line up exactly. Each renders a faint
+  // horizontal day-slab here whose `layoutId` (`day-<ds>`) matches a vertical day-COLUMN
+  // in the Atlas — so on the snap the day spans visibly FLY from horizontal bands into
+  // the week's columns. Only drawn near the snap (where the morph reads); at wide zoom
+  // the days are too thin to be anything but clutter.
+  const dayCells = useMemo(() => {
+    const base = startOfDay(now)
+    const kStart = Math.floor((startMs - base) / DAY_MS)
+    const kEnd = Math.ceil((startMs + spanMs - base) / DAY_MS)
+    const out: number[] = []
+    for (let k = kStart; k < kEnd; k++) out.push(base + k * DAY_MS)
+    return out
+  }, [startMs, spanMs, now])
+  const showDayCells = spanMs <= ATLAS_OPEN_MS * 2
+
   // Soft horizontal fade applied to the ruler graduations + labels, so ticks melt
   // in/out at the left and right edges while panning instead of popping abruptly.
   const edgeFade =
@@ -1102,6 +1119,28 @@ export function TimelineStrip({
                 )
               })}
             </div>
+
+            {/* DAY CELLS — faint horizontal day-slabs that carry the `day-<ds>` shared
+                layoutId. Present only in the Lifelane (`!atlas`) and only near the snap,
+                so on the threshold cross they FLY into the Atlas's vertical day columns.
+                A left border marks each day boundary (a vertical line here, the column's
+                left edge there). The layout tween runs only during `morphing`. */}
+            {showDayCells &&
+              dayCells.map((ds) => {
+                const left = pct(ds)
+                const widthPct = (DAY_MS / spanMs) * 100
+                if (left > 100 || left + widthPct < 0) return null
+                return (
+                  <motion.div
+                    key={`day-${ds}`}
+                    layoutId={!atlas ? `day-${ds}` : undefined}
+                    transition={{ layout: { duration: morphing ? MORPH_MS / 1000 : 0, ease: [0.22, 1, 0.36, 1] } }}
+                    className="pointer-events-none absolute bottom-0 top-0 z-0 border-l border-border/30 bg-foreground/[0.015]"
+                    style={{ left: `${left}%`, width: `${widthPct}%` }}
+                    aria-hidden
+                  />
+                )
+              })}
 
             {/* drag surface — behind markers so it only catches empty-track drags. */}
             <div
