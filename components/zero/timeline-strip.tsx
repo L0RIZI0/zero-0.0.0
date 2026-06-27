@@ -305,6 +305,9 @@ export function TimelineStrip({
     spanMs: VIEW_SPAN_MS.D,
   }))
   const viewportRef = useRef<HTMLDivElement | null>(null)
+  // The Atlas surface, so wheel anywhere on it can drive the same cursor-anchored
+  // zoom (zooming in collapses back to the Lifelane). See the forwarding effect below.
+  const atlasWheelRef = useRef<HTMLDivElement | null>(null)
   const animRef = useRef<ReturnType<typeof animate> | null>(null)
 
   // The entire strip is positioned from wall-clock time (`startMs`, `now`), which the
@@ -383,6 +386,35 @@ export function TimelineStrip({
       return next
     })
   }, [spanMs])
+
+  // ZOOM ANYWHERE ON THE ATLAS. While the Atlas is open the Lifelane strip is faded +
+  // click-through (pointer-events-none), so the gesture viewport no longer catches the
+  // wheel directly. Re-dispatch wheel from the Atlas surface onto the viewport so the
+  // existing cursor-anchored zoom runs — zooming back in trips the threshold and the
+  // entities morph home. preventDefault stops the page from scrolling underneath.
+  useEffect(() => {
+    const surface = atlasWheelRef.current
+    const vp = viewportRef.current
+    if (!atlas || !surface || !vp) return
+    const forward = (e: WheelEvent) => {
+      e.preventDefault()
+      vp.dispatchEvent(
+        new WheelEvent("wheel", {
+          deltaX: e.deltaX,
+          deltaY: e.deltaY,
+          deltaMode: e.deltaMode,
+          clientX: e.clientX,
+          clientY: e.clientY,
+          shiftKey: e.shiftKey,
+          bubbles: false,
+          cancelable: true,
+        }),
+      )
+    }
+    surface.addEventListener("wheel", forward, { passive: false })
+    return () => surface.removeEventListener("wheel", forward)
+  }, [atlas])
+
   const center = startMs + spanMs / 2
   const grain = useMemo(() => lodGrain(spanMs, width), [spanMs, width])
 
@@ -762,9 +794,20 @@ export function TimelineStrip({
   }
 
   return (
-    <section aria-label="Lifelane" className="px-1">
-      {/* Label band above the ruler. Shows the granularity-aware center label and,
-          when "now" is scrolled off-screen, a jump-to-now control. */}
+      <section
+        aria-label="Lifelane"
+        className={cn(
+          // While the Atlas backdrop is open the strip MORPHS AWAY: its chrome fades and
+          // it becomes click-through, so the Atlas underneath takes all interaction and
+          // there's no duplicate timeline floating over the grid. The entities still
+          // travel via their shared-element layoutId (source rect is captured before the
+          // fade, so the morph is unaffected). Zoom is re-routed onto the Atlas surface.
+          "px-1 transition-opacity duration-300",
+          atlas ? "pointer-events-none opacity-0" : "opacity-100",
+        )}
+      >
+        {/* Label band above the ruler. Shows the granularity-aware center label and,
+            when "now" is scrolled off-screen, a jump-to-now control. */}
       <div className={cn("relative mb-1 -mx-6", "h-10")}>
         {/* ruler labels — anchored to the bottom, inset to match the viewport.
             Edge-faded so labels melt in/out at the sides rather than popping. */}
@@ -1477,6 +1520,7 @@ export function TimelineStrip({
           <AnimatePresence>
             {atlas && (
               <motion.div
+                ref={atlasWheelRef}
                 className="absolute inset-0"
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
