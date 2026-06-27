@@ -102,7 +102,13 @@ export function EntityBody({
       <div
         data-region
         data-region-grow="fill"
-        className="flex min-h-[180px] min-w-0 flex-1 flex-col items-center px-6 pb-5"
+        // `pointer-events-none` so the EMPTY reserve zone at the top (the timeline's
+        // reserved slot, created by the paddingTop below) lets clicks / wheel fall
+        // THROUGH to the Lifelane timeline behind it (region 1 is z-0, this region is
+        // z-10). The actual do-list content re-enables pointer events, same pattern as
+        // the Dock + side panels overlays. Without this the region box swallowed all
+        // events over the timeline, making it un-scrollable / un-clickable.
+        className="pointer-events-none flex min-h-[180px] min-w-0 flex-1 flex-col items-center px-6 pb-5"
         // RESERVE the overlay timeline's slot: the timeline (region 1) floats over
         // this region, so the do-list must start below its bottom. `--region1-reserve`
         // (set on the work-surface card) == that bottom in card coords; both the home
@@ -111,8 +117,10 @@ export function EntityBody({
         style={{ paddingTop: "calc(var(--region1-reserve, 0px) + 1rem)" }}
       >
         <div className={cn("flex min-h-0 w-full flex-1 flex-col", isRoot ? "max-w-[70vw]" : "max-w-[720px]")}>
-          {/* Do-list narrowed to 2/3 of the measure and centered for a tighter list. */}
-          <div className="flex min-h-0 w-2/3 flex-1 flex-col self-center">
+          {/* Do-list narrowed to 2/3 of the measure and centered for a tighter list.
+              `pointer-events-auto` re-enables interaction on the list itself (its parent
+              region is pointer-transparent so the timeline behind stays reachable). */}
+          <div className="pointer-events-auto flex min-h-0 w-2/3 flex-1 flex-col self-center">
             <DoList contextId={entityId} active={active} closing={closing} centered={centerList} />
           </div>
         </div>
