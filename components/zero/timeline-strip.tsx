@@ -98,6 +98,18 @@ const EXPAND_EASE_CSS = "cubic-bezier(0.45, 0, 0.25, 1)"
 // never accelerating. Used for the band height + pushed stack + (via the band) the do-list.
 const REFLOW_EASE: [number, number, number, number] = [0, 0.7, 0.2, 1]
 const REFLOW_EASE_CSS = "cubic-bezier(0, 0.7, 0.2, 1)"
+// DO-LIST GLIDE (band height only). The do-list rides the BAND's height transition (it
+// reserves the band's measured bottom), so the band height alone governs how the do-list
+// slides. The user wanted that slide to "last longer with a generous ease-out" WITHOUT
+// changing the loved ribbon collapse/uncollapse — so the band gets its OWN longer duration
+// + deeper ease-out, decoupled from the sibling REFLOW and the folding ribbon's fall.
+// Used in BOTH directions (collapse + expand). The curve keeps p1x=0 (no ease-in lip → the
+// do-list still starts on frame 1, per the earlier fix) but with a very high initial
+// velocity (p1y=0.85) and a long, gentle decel tail so it settles slowly and softly. It
+// reaches ~95% well before EXPAND_MS, so a just-expanded bottom ribbon isn't left poking
+// under the do-list while the band finishes its lazy tail.
+const DOLIST_MS = Math.round(COLLAPSE_MS * 2.1)
+const DOLIST_EASE_CSS = "cubic-bezier(0, 0.85, 0.2, 1)"
 // Framer transition for a morphing element. `animating` = mid (un)collapse; `expanding` =
 // the un-collapse direction. `soft` picks the slow-start fall curve (folding ribbon) vs the
 // prompt reflow curve (pushed siblings). Outside a morph it's the 300ms repack glide.
@@ -443,9 +455,10 @@ export function TimelineStrip({
   useEffect(() => {
     if (displayCollapsed === zoomCollapsed) return
     // Hold the window open for the FULL morph so the hidden layer doesn't unmount early.
-    // Expanding runs the longest expand animation — the band/do-list REFLOW (REFLOW_MS) —
-    // which matches the manual-fold window, keeping auto and manual folds identical.
-    const id = setTimeout(() => setDisplayCollapsed(zoomCollapsed), zoomCollapsed ? COLLAPSE_MS : REFLOW_MS)
+    // The longest animation in BOTH directions is now the band/do-list glide (DOLIST_MS >
+    // REFLOW_MS > the ribbon morphs), so hold for it; matches the manual-fold window, keeping
+    // auto and manual folds identical.
+    const id = setTimeout(() => setDisplayCollapsed(zoomCollapsed), DOLIST_MS)
     return () => clearTimeout(id)
   }, [zoomCollapsed, displayCollapsed])
 
@@ -864,7 +877,10 @@ export function TimelineStrip({
   // moving immediately rather than crawling for the first ~150ms of a soft ease-in.
   const reflowEase = bandExpanding ? REFLOW_EASE_CSS : "ease-out"
   const reflowTransition = (props: string) => (folding ? `${props.split(",").map((p) => `${p.trim()} ${reflowMs}ms ${reflowEase}`).join(", ")}` : undefined)
-  const bandTransition = reflowTransition("height")
+  // The BAND height (and thus the do-list) gets its OWN longer + more generous ease-out,
+  // decoupled from the sibling REFLOW above so the ribbons keep their loved timing while the
+  // do-list lingers into a soft settle.
+  const bandTransition = folding ? `height ${DOLIST_MS}ms ${DOLIST_EASE_CSS}` : undefined
   const bandH = lifelaneBandH
   // Y of a VISIBLE global lane (collapsed lanes return the block's rail y so any
   // stray positioning lands sanely; their bars are handled separately as chips).
@@ -877,10 +893,9 @@ export function TimelineStrip({
     // Open this mother's manual-fold animation window (see `animatingMothers`).
     setAnimatingMothers((m) => ({ ...m, [id]: (m[id] ?? 0) + 1 }))
     if (animTimers.current[id]) clearTimeout(animTimers.current[id])
-    // `collapsed` is the CURRENT state, so we're expanding when it was collapsed → hold the
-    // window for the LONGEST expand animation (the reflow, REFLOW_MS > the ribbon's own
-    // EXPAND_MS fall) so nothing's transition is cut off before it finishes.
-    const windowMs = collapsed ? REFLOW_MS : COLLAPSE_MS
+    // Hold for the LONGEST animation in either direction — the band/do-list glide (DOLIST_MS)
+    // — so its transition isn't cut off (which would snap the do-list to its final spot).
+    const windowMs = DOLIST_MS
     animTimers.current[id] = setTimeout(() => {
       setAnimatingMothers((m) => {
         const next = { ...m }
