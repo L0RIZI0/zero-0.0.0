@@ -1648,10 +1648,13 @@ export function TimelineStrip({
                 if (!showCollapsed(blk) || ticksHidden[rk]) return []
                 const hi = hoveredMother === rk
                 const railY = offsetY + blk.top
-                // Ticks stay SOLID through the (un)collapse window (no opacity fade): the
-                // event chip MORPHS into/out of this span, so a stable target underneath
-                // makes the end-of-animation handoff seamless (chip unmounts onto an
-                // identical tick). `animate-in fade-in` still eases a freshly-mounted tick.
+                // Tick opacity is DIRECTION-AWARE:
+                //  • COLLAPSE (blk.collapsed true) — stay SOLID so the chip morphing DOWN
+                //    lands on a stable span (seamless handoff as the chip unmounts).
+                //  • UN-COLLAPSE (blkAnimating && !collapsed) — fade OUT in the first frames
+                //    (fast `duration-150` vs the 480ms morph) so the highlight clears early
+                //    as the chips fall out of it, instead of lingering until the last frame.
+                const uncollapsing = blkAnimating(blk) && !blk.collapsed
                 // Bars whose lane falls inside THIS block's lane range (works for the
                 // ungrouped root too, where there's no motherId to match on).
                 const loLane = blk.m.baseLane
@@ -1692,7 +1695,7 @@ export function TimelineStrip({
                           top: railY + 1,
                           height: RAIL_H - 2,
                           backgroundColor: color,
-                          opacity: hi ? 1 : 0.85,
+                          opacity: uncollapsing ? 0 : hi ? 1 : 0.85,
                           boxShadow: hi ? `0 0 6px ${color}` : undefined,
                         }}
                       />
@@ -1796,11 +1799,14 @@ export function TimelineStrip({
                 // zoom lag. We use an animatable `rotate` transform (not `writing-mode`,
                 // which can't transition) — that's what lets the title spin smoothly.
                 // The rail label is suppressed mid-morph so the two don't double up.
-                const expandedH = blk.m.laneCount * LANE_H + (blk.m.laneCount - 1) * LANE_GAP
-                // Clamp the title to the column's height (floor ~46px so single-lane mothers
-                // like Health still show their name); rotated about CENTER it reads as a
-                // centered, ellipsis-truncated vertical label.
-                const titleMax = Math.max(expandedH - 8, 46)
+                // Title width = the column's ACTUAL rendered height (`blk.height`, the value
+                // the column animates to) — NOT a lane-count estimate, which under-counted
+                // the real height and truncated titles that easily fit ("Day Job" → "D…").
+                // Generous floor (62px) so even a long name on a SINGLE-lane mother ("Home &
+                // Family") lays out and bleeds gently into the inter-lane gaps (the column is
+                // `overflow-visible`) rather than ellipsis-clipping. Rotated about CENTER it
+                // reads as a centered vertical label.
+                const titleMax = Math.max(blk.height - 8, 62)
                 return (
                   <motion.button
                     key={`mcol:${mId}`}
@@ -1814,16 +1820,21 @@ export function TimelineStrip({
                       opacity: related ? 1 : UNRELATED_OPACITY,
                     }}
                     transition={{ duration: COLLAPSE_MS / 1000, ease: "easeOut" }}
-                    className="absolute z-20 overflow-hidden rounded border border-border/70 bg-card text-[9.5px] font-semibold leading-none tracking-tight shadow-sm hover:brightness-125"
+                    className="absolute z-20 overflow-visible rounded border border-border/70 bg-card text-[9.5px] font-semibold leading-none tracking-tight shadow-sm hover:brightness-125"
                     style={{ left: 4, width: MOTHER_COL_W - 4, color: blk.m.color, borderColor: `${blk.m.color}40` }}
                   >
                     {/* Title centered both axes; rotates about its OWN CENTER so the vertical
                         (−90°) label stays centered + truncated in the column, then spins to
-                        horizontal (0°) as the column flattens toward the rail. */}
+                        horizontal (0°) as the column flattens toward the rail. The span has a
+                        FIXED `width: titleMax` and `shrink-0`: rotation is post-layout, so if
+                        we let it be a normal flex child it shrank to the ~14px column width
+                        and ellipsis-truncated BEFORE rotating ("Day Job" → "D…"). A fixed
+                        width = the vertical room it occupies after rotation, so the full title
+                        lays out (and only ellipsises when the column is genuinely too short). */}
                     <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
                       <motion.span
-                        className="block overflow-hidden text-ellipsis whitespace-nowrap"
-                        style={{ maxWidth: titleMax }}
+                        className="block shrink-0 whitespace-nowrap text-center"
+                        style={{ width: titleMax }}
                         initial={false}
                         animate={{ rotate: blk.collapsed ? 0 : -90 }}
                         transition={{ duration: COLLAPSE_MS / 1000, ease: "easeOut" }}
