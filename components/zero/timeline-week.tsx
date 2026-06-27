@@ -166,12 +166,18 @@ export function TimelineWeek({
                 </div>
               )}
 
-              {/* Items — time-positioned, overlaps fanned into side-by-side columns. */}
+              {/* Items — time-positioned, overlaps fanned into side-by-side columns.
+                  The leftmost column an entity occupies bears the shared-element
+                  `layoutId` (matches the Lifelane chip's `m-<key>`) so it flies into
+                  place when zoom crosses the threshold; the layout tween only runs
+                  during the `morphing` window so it never fights the entry fade. */}
               {col.placed.map(({ it, isInstant, sf, ef, col: cIdx, cols }) => {
                 const wPct = 100 / cols
                 return (
-                  <button
+                  <motion.button
                     key={it.key}
+                    layoutId={morphCol.get(it.key) === ci ? `m-${it.key}` : undefined}
+                    transition={{ layout: { duration: morphing ? MORPH_S : 0, ease: [0.22, 1, 0.36, 1] } }}
                     type="button"
                     onClick={() => it.entity && onOpen(it.entity.id)}
                     onContextMenu={(ev) => it.entity && onMenu(ev, it.entity)}
@@ -202,7 +208,7 @@ export function TimelineWeek({
                       )}
                       <span className={cn("truncate font-medium", it.cancelled && "line-through")}>{it.title}</span>
                     </span>
-                  </button>
+                  </motion.button>
                 )
               })}
             </div>
