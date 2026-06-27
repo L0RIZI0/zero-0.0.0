@@ -34,7 +34,7 @@ import {
 } from "@/lib/zero/timeline-scale"
 import type { Entity } from "@/lib/zero/types"
 import { panelTransition, layerTransition } from "@/lib/zero/motion"
-import { timelineHeightFrac } from "@/lib/zero/layout"
+import { timelineHeightFrac, TIMELINE_TOP_PAD } from "@/lib/zero/layout"
 import { setTimelineView } from "@/lib/zero/timeline-view-store"
 import { useZeroNav } from "@/lib/zero/nav-store"
 import { placementKey, resolveOriginRect } from "@/lib/zero/placement"
@@ -42,6 +42,8 @@ import { useTimelineGestures } from "@/hooks/use-timeline-gestures"
 import { NodeGlyph } from "./node-glyph"
 import { type SerpItem } from "./timeline-serpentine"
 import { TimelineWeek } from "./timeline-week"
+import { TimelineMorphLayer } from "./timeline-morph-layer"
+import { buildMorphPairs } from "@/lib/zero/timeline-morph"
 import { ContextMenu, type ContextMenuState } from "./context-menu"
 import { cn } from "@/lib/utils"
 
@@ -366,6 +368,13 @@ export function TimelineStrip({
   const [morphing, setMorphing] = useState(false)
   const morphTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   useEffect(() => () => void (morphTimer.current && clearTimeout(morphTimer.current)), [])
+  // ATLAS horizontal pan, in whole days from "today" (drag the week left/right to
+  // reach earlier/later days). Reset whenever the Atlas closes so reopening re-centers
+  // on today rather than wherever it was last left.
+  const [weekPanDays, setWeekPanDays] = useState(0)
+  useEffect(() => {
+    if (!atlas) setWeekPanDays(0)
+  }, [atlas])
 
   // --- Mother-ribbon folding state -----------------------------------------
   // `override` pins a mother's collapsed state to the user's explicit choice; it
@@ -824,6 +833,36 @@ export function TimelineStrip({
     return out
   }, [startMs, spanMs, now])
   const showDayCells = spanMs <= ATLAS_OPEN_MS * 2
+
+  // --- Plane morph pairs ----------------------------------------------------
+  // The panned center of the Atlas week (today shifted by whole-day drags).
+  const weekCenter = startOfDay(now) + weekPanDays * DAY_MS
+  // Card-y of the Lifelane's first lane row: top pad + the label band that sits
+  // above the track. Day-bands span the full (zoom-grown) band height.
+  const laneBandTopY = TIMELINE_TOP_PAD + LIFELANE_LABEL_BAND_H
+  // Geometry for the Lifelane<->Atlas flight. Only built during the brief `morphing`
+  // window (the only time the overlay renders), so steady-state zoom never pays for it.
+  const morphPairs = useMemo(() => {
+    if (!morphing || !width || !viewHeightPx) return []
+    const chipLaneY = (key: string): number | null => {
+      const lane = lanes.lane.get(key)
+      if (lane == null) return null
+      if (blockOfLane(lane)?.collapsed) return null
+      return laneBandTopY + laneTop(lane)
+    }
+    return buildMorphPairs({
+      items: serpItems,
+      startMs,
+      spanMs,
+      width,
+      viewHeightPx,
+      laneBandTopY,
+      bandH: lifelaneBandH,
+      chipLaneY,
+      weekCenter,
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [morphing, serpItems, startMs, spanMs, width, viewHeightPx, lifelaneBandH, weekCenter, lanes, layout])
 
   // Soft horizontal fade applied to the ruler graduations + labels, so ticks melt
   // in/out at the left and right edges while panning instead of popping abruptly.
@@ -1584,21 +1623,45 @@ export function TimelineStrip({
           the view is zoom-driven, so there's no internal title/back bar anymore. */}
       {atlasLayer &&
         createPortal(
-          <AnimatePresence>
-            {atlas && (
-              <motion.div
-                ref={atlasWheelRef}
-                className="absolute inset-x-0 top-0"
+          <>
+            <AnimatePresence>
+              {atlas && (
+                <motion.div
+                  ref={atlasWheelRef}
+                  className="absolute inset-x-0 top-0"
+                  style={{ height: viewHeightPx ? `${viewHeightPx}px` : "100%" }}
+                  initial={{ opacity: 0 }}
+                  // The real grid stays INVISIBLE while the plane morph plays (only the
+                  // morph overlay shows), then fades to full once the entities have landed
+                  // on their final rects — so there's no static grid sitting under the flight.
+                  animate={{ opacity: morphing ? 0 : 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={layerTransition}
+                >
+                  <TimelineWeek
+                    items={serpItems}
+                    now={now}
+                    centerMs={weekCenter}
+                    onPanDays={(d) => setWeekPanDays((p) => p + d)}
+                    onOpen={openFromChip}
+                    onMenu={openMenu}
+                  />
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* PLANE MORPH overlay — the single opaque layer that physically flies the
+                day-spans, graduations, titles and chips between the Lifelane and the
+                Atlas. Mounted only during the brief morph window, on top of both planes. */}
+            {morphing && (
+              <div
+                className="pointer-events-none absolute inset-x-0 top-0"
                 style={{ height: viewHeightPx ? `${viewHeightPx}px` : "100%" }}
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                transition={layerTransition}
               >
-                <TimelineWeek items={serpItems} now={now} morphing={morphing} onOpen={openFromChip} onMenu={openMenu} />
-              </motion.div>
+                <TimelineMorphLayer pairs={morphPairs} atlas={atlas} />
+              </div>
             )}
-          </AnimatePresence>,
+          </>,
           atlasLayer,
         )}
 
