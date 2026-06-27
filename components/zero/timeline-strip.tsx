@@ -61,10 +61,12 @@ const ATLAS_PX_PER_DAY = 560
 const ATLAS_MIN_DAYS = 2.5
 const ATLAS_MAX_DAYS = 6
 const ATLAS_CLOSE_EPSILON_MS = 0.04 * DAY_MS
-// Duration of the ribbon (un)collapse crossfade. Matches the 300ms `transition-[…]`
-// beats on the lanes/rails/bars so the opacity fade, the position glide, and the band
-// resize all land together.
-const COLLAPSE_MS = 300
+// Duration of the ribbon (un)collapse morph. Longer (was 300) so the vertical-height
+// transform + the mother-title rotation read as a deliberate, smooth unfold rather than
+// a quick snap. The morphing elements (chip wrapper, mother column, band height) drive
+// their transitions off this exact value so they all land together; `displayCollapsed`
+// flips after it, unmounting the hidden layer.
+const COLLAPSE_MS = 480
 // Approx height (px) of the collapsed-rail tick tooltip — used to decide whether it
 // fits above the rail or must flip below to avoid the ruler cropping it.
 const TOOLTIP_H = 16
@@ -1055,7 +1057,7 @@ export function TimelineStrip({
           widens toward the Atlas snap. Height is applied INSTANTLY (no tween): the zoom
           itself is already eased via the span spring, so the band glides; a per-frame
           height tween would instead lag behind the zoom. */}
-      <div className="relative -mx-6 transition-[height] duration-300 ease-out" style={{ height: lifelaneBandH }}>
+      <div className="relative -mx-6 ease-out" style={{ height: lifelaneBandH, transition: `height ${COLLAPSE_MS}ms ease-out` }}>
         {/* Instant layer — pins (singletons) and density bubbles (clusters). */}
         <div
           className="pointer-events-none absolute inset-y-0 z-30"
@@ -1461,7 +1463,7 @@ export function TimelineStrip({
                     className="absolute flex h-6 items-end overflow-visible transition-[filter,top] duration-300 ease-out hover:brightness-110"
                     style={boxStyle}
                   >
-                    {/* vertical color connector rising from the duration line — shrinks
+                    {/* vertical color connector rising from the duration line ��� shrinks
                         away on collapse so the marker flattens into its rail tick. */}
                     <span
                       className="absolute bottom-0 left-0 w-[2px] rounded-full transition-[height] duration-300 ease-out"
@@ -1513,7 +1515,7 @@ export function TimelineStrip({
                 // `transition-[top,height,width]` rides the same 300ms ease as the rail.
                 <motion.div
                   key={b.key}
-                  className="absolute transition-[top,height,width] duration-300 ease-out"
+                  className="absolute ease-out"
                   style={{
                     ...boxStyle,
                     height: collapsedTarget ? RAIL_H - 2 : 24,
@@ -1521,6 +1523,13 @@ export function TimelineStrip({
                       ? `calc(${Math.max(widthPct, 0.6)}% - 2px)`
                       : boxStyle.width,
                     minWidth: collapsedTarget ? 3 : undefined,
+                    // WIDTH is only animated during the (un)collapse morph. At rest / while
+                    // ZOOMING `widthPct` changes every frame, so a standing width transition
+                    // made spans LAG the zoom (the regression). Outside the morph we drop
+                    // width from the transition entirely → spans track the zoom instantly.
+                    transition: collapseAnimating
+                      ? `top ${COLLAPSE_MS}ms ease-out, height ${COLLAPSE_MS}ms ease-out, width ${COLLAPSE_MS}ms ease-out`
+                      : "top 300ms ease-out, height 300ms ease-out",
                   }}
                 >
                   <motion.button
@@ -1732,34 +1741,52 @@ export function TimelineStrip({
                 const mId = blk.m.motherId
                 if (!mId || !showExpanded(blk)) return null
                 const related = atRootFocus || mId === contextId || isInSubtree(contextId, mId)
+                // MORPH (not fade): this column is the SAME element through the collapse —
+                // it stays opaque and its HEIGHT tweens blk.height ↔ RAIL_H while its TITLE
+                // ROTATES between vertical (−90°, reading bottom→top) when expanded and
+                // horizontal (0°) when it lands on the rail. Driven by framer so both the
+                // height and the rotate share the COLLAPSE_MS ease and land together; at
+                // settle the column unmounts and the horizontal rail label takes over (the
+                // rail label is suppressed mid-animation so they don't double up). We use
+                // an animatable `rotate` transform here instead of `writing-mode` (which
+                // can't be transitioned) — that swap is what makes the title spin smoothly.
                 return (
-                  <button
+                  <motion.button
                     key={`mcol:${mId}`}
                     type="button"
                     onClick={() => toggleMother(mId, false)}
                     title={`Collapse ${blk.m.title}`}
-                    className="absolute z-20 flex flex-col items-center justify-center rounded border border-border/70 bg-card py-0.5 text-[9.5px] font-semibold leading-none tracking-tight shadow-sm transition-[opacity,top,height] duration-300 ease-out animate-in fade-in hover:brightness-125"
+                    initial={false}
+                    animate={{ height: blk.collapsed ? RAIL_H : blk.height, opacity: related ? 1 : UNRELATED_OPACITY }}
+                    transition={{ duration: COLLAPSE_MS / 1000, ease: "easeOut" }}
+                    className="absolute z-20 rounded border border-border/70 bg-card text-[9.5px] font-semibold leading-none tracking-tight shadow-sm hover:brightness-125"
                     style={{
                       left: 4,
                       top: offsetY + blk.top,
-                      height: blk.collapsed ? RAIL_H : blk.height,
                       width: MOTHER_COL_W - 4,
                       color: blk.m.color,
                       borderColor: `${blk.m.color}40`,
-                      opacity: (related ? 1 : UNRELATED_OPACITY) * expandedOpacity(blk),
                     }}
                   >
-                    <span
-                      className="overflow-hidden text-ellipsis whitespace-nowrap"
-                      // Give a readable floor (~46px) so single-lane mothers (e.g. Health,
-                      // whose block is only one LANE_H tall) still show their name, letting
-                      // it overflow gently into the surrounding gaps rather than clipping to
-                      // one letter. Multi-lane blocks clamp to their own height.
-                      style={{ writingMode: "vertical-rl", transform: "rotate(180deg)", maxHeight: Math.max(blk.height - 6, 46) }}
-                    >
-                      {blk.m.title}
+                    {/* Static anchor pinned at the column's LEFT edge, vertically centered.
+                        The title rotates about THIS point (transform-origin left center), so:
+                        −90° = vertical (reads bottom→top), 0° = horizontal flush-left. Anchoring
+                        left means the horizontal end-state never overflows/clips off the viewport
+                        edge and lands exactly where the horizontal rail label takes over. The
+                        translateY(-50%) lives on the static wrapper so it doesn't fight framer's
+                        rotate transform on the inner span. */}
+                    <span className="pointer-events-none absolute left-1.5 top-1/2 -translate-y-1/2">
+                      <motion.span
+                        className="block whitespace-nowrap"
+                        style={{ transformOrigin: "left center" }}
+                        initial={false}
+                        animate={{ rotate: blk.collapsed ? 0 : -90 }}
+                        transition={{ duration: COLLAPSE_MS / 1000, ease: "easeOut" }}
+                      >
+                        {blk.m.title}
+                      </motion.span>
                     </span>
-                  </button>
+                  </motion.button>
                 )
               })}
 
@@ -1771,10 +1798,14 @@ export function TimelineStrip({
                 that rail's ticks. */}
             {showRibbons &&
               layout.blocks.map((blk) => {
-                if (!showCollapsed(blk)) return null
                 const mId = blk.m.motherId
+                // While a grouped mother is morphing (rotating column handles the visual),
+                // skip its rail label so they don't overlap; it appears at settle. Root
+                // (no column) and manual `byUser` folds keep their label through the anim.
+                const morphingColumn = collapseAnimating && mId != null && !blk.byUser
+                if (!showCollapsed(blk) || morphingColumn) return null
                 const rk = mId ?? `root:${blk.m.baseLane}`
-                const labelOp = collapsedOpacity(blk)
+                const labelOp = collapseAnimating ? 1 : collapsedOpacity(blk)
                 const hoverProps = {
                   onMouseEnter: () => setHoveredMother(rk),
                   onMouseLeave: () => setHoveredMother((h) => (h === rk ? null : h)),
