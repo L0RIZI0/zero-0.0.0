@@ -800,21 +800,30 @@ export function TimelineStrip({
   // every ribbon to a thin rail, `trackH` shrinks and the band shrinks with it; zooming
   // back in re-expands it. No max-height reservation, no empty space below the ribbons.
   const lifelaneBandH = trackH
-  // BAND HEIGHT DURING A (UN)COLLAPSE. Block positions jump to their FINAL layout the
-  // instant a fold toggles (layout memo keys on the target), but the ribbons themselves
-  // animate over COLLAPSE_MS. If the band painted at the live target height it would,
-  // on UN-collapse, be momentarily SHORT while the bottom ribbon already sits at its
-  // lower expanded `top` → that ribbon (e.g. Health/Workout) got CLIPPED until the band
-  // caught up (the bug). So while a fold is animating we hold the band at the MAX of the
-  // old and new heights (= the expanded extent): on un-collapse it's full-height from
-  // frame 0 (nothing clipped); on collapse it stays tall while the ribbons slide down
-  // into their rails, then settles. `prevBandH` remembers the last settled height.
+  // BAND HEIGHT — drives the do-list below it (pure DOM flow: the section's height is the
+  // label band + this band, so whatever this height does, the do-list does too).
+  //   • ZOOM fold: `trackH` already ramps frame-by-frame as the zoom span animates, so the
+  //     height is applied INSTANTLY — it tracks the zoom perfectly (a tween would LAG it).
+  //   • MANUAL fold (click): `trackH` JUMPS to the target in one step (override flips), so
+  //     to make the do-list move TOGETHER with the ribbon — pushed fluidly as the ribbon
+  //     expands, instead of snapping after it finished — the band TWEENS its height with
+  //     the SAME direction-aware curve/duration as the ribbon morph (`morphTween`). Equal
+  //     timing means the band tracks the ribbons' growing extent so the bottom ribbon
+  //     (e.g. Health) is never left poking under the do-list (the old clip), AND the
+  //     do-list rides the expansion in lockstep.
+  // Direction comes from target vs the last SETTLED height (`prevBandH`, updated only when
+  // not animating); expanding uses the slower soft EXPAND curve, collapsing the snappier one.
   const bandAnimating = collapseAnimating || Object.keys(animatingMothers).length > 0
   const prevBandH = useRef(lifelaneBandH)
   useEffect(() => {
     if (!bandAnimating) prevBandH.current = lifelaneBandH
   }, [lifelaneBandH, bandAnimating])
-  const bandH = bandAnimating ? Math.max(lifelaneBandH, prevBandH.current) : lifelaneBandH
+  const manualFolding = !collapseAnimating && Object.keys(animatingMothers).length > 0
+  const bandExpanding = lifelaneBandH > prevBandH.current
+  const bandTransition = manualFolding
+    ? `height ${bandExpanding ? EXPAND_MS : COLLAPSE_MS}ms ${bandExpanding ? EXPAND_EASE_CSS : "ease-out"}`
+    : undefined
+  const bandH = lifelaneBandH
   // Y of a VISIBLE global lane (collapsed lanes return the block's rail y so any
   // stray positioning lands sanely; their bars are handled separately as chips).
   const laneTop = (lane: number) => offsetY + (layout.laneToY.get(lane) ?? 0)
@@ -1117,10 +1126,11 @@ export function TimelineStrip({
       {/* Full-bleed timeline. Arrows flank the track; the zoom selector pins left.
           The track height GROWS WITH ZOOM (`lifelaneBandH`): it rests at the content
           height `trackH` and expands toward the zoom-driven target only as the span
-          widens toward the Atlas snap. Height is applied INSTANTLY (no tween): the zoom
-          itself is already eased via the span spring, so the band glides; a per-frame
-          height tween would instead lag behind the zoom. */}
-      <div className="relative -mx-6" style={{ height: bandH }}>
+          widens toward the Atlas snap. For a ZOOM the height is applied INSTANTLY (the
+          zoom span spring already eases it; a tween would lag behind). For a MANUAL fold
+          `bandTransition` tweens the height so the do-list below is pushed FLUIDLY in
+          lockstep with the ribbon morph (see `bandH`/`manualFolding`). */}
+      <div className="relative -mx-6" style={{ height: bandH, transition: bandTransition }}>
         {/* Instant layer — pins (singletons) and density bubbles (clusters). */}
         <div
           className="pointer-events-none absolute inset-y-0 z-30"
