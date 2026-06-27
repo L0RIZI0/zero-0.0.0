@@ -779,6 +779,21 @@ export function TimelineStrip({
   // every ribbon to a thin rail, `trackH` shrinks and the band shrinks with it; zooming
   // back in re-expands it. No max-height reservation, no empty space below the ribbons.
   const lifelaneBandH = trackH
+  // BAND HEIGHT DURING A (UN)COLLAPSE. Block positions jump to their FINAL layout the
+  // instant a fold toggles (layout memo keys on the target), but the ribbons themselves
+  // animate over COLLAPSE_MS. If the band painted at the live target height it would,
+  // on UN-collapse, be momentarily SHORT while the bottom ribbon already sits at its
+  // lower expanded `top` → that ribbon (e.g. Health/Workout) got CLIPPED until the band
+  // caught up (the bug). So while a fold is animating we hold the band at the MAX of the
+  // old and new heights (= the expanded extent): on un-collapse it's full-height from
+  // frame 0 (nothing clipped); on collapse it stays tall while the ribbons slide down
+  // into their rails, then settles. `prevBandH` remembers the last settled height.
+  const bandAnimating = collapseAnimating || Object.keys(animatingMothers).length > 0
+  const prevBandH = useRef(lifelaneBandH)
+  useEffect(() => {
+    if (!bandAnimating) prevBandH.current = lifelaneBandH
+  }, [lifelaneBandH, bandAnimating])
+  const bandH = bandAnimating ? Math.max(lifelaneBandH, prevBandH.current) : lifelaneBandH
   // Y of a VISIBLE global lane (collapsed lanes return the block's rail y so any
   // stray positioning lands sanely; their bars are handled separately as chips).
   const laneTop = (lane: number) => offsetY + (layout.laneToY.get(lane) ?? 0)
@@ -1081,7 +1096,7 @@ export function TimelineStrip({
           widens toward the Atlas snap. Height is applied INSTANTLY (no tween): the zoom
           itself is already eased via the span spring, so the band glides; a per-frame
           height tween would instead lag behind the zoom. */}
-      <div className="relative -mx-6 ease-out" style={{ height: lifelaneBandH, transition: `height ${COLLAPSE_MS}ms ease-out` }}>
+      <div className="relative -mx-6" style={{ height: bandH }}>
         {/* Instant layer — pins (singletons) and density bubbles (clusters). */}
         <div
           className="pointer-events-none absolute inset-y-0 z-30"
@@ -1802,11 +1817,10 @@ export function TimelineStrip({
                 // Title width = the column's ACTUAL rendered height (`blk.height`, the value
                 // the column animates to) — NOT a lane-count estimate, which under-counted
                 // the real height and truncated titles that easily fit ("Day Job" → "D…").
-                // Generous floor (62px) so even a long name on a SINGLE-lane mother ("Home &
-                // Family") lays out and bleeds gently into the inter-lane gaps (the column is
-                // `overflow-visible`) rather than ellipsis-clipping. Rotated about CENTER it
-                // reads as a centered vertical label.
-                const titleMax = Math.max(blk.height - 8, 62)
+                // Modest floor (34px) so a short single-lane column shows a few letters but
+                // long names DON'T bleed far past the column; genuinely-too-long titles get
+                // an ellipsis. Rotated about CENTER it reads as a centered vertical label.
+                const titleMax = Math.max(blk.height - 8, 34)
                 return (
                   <motion.button
                     key={`mcol:${mId}`}
@@ -1833,7 +1847,7 @@ export function TimelineStrip({
                         lays out (and only ellipsises when the column is genuinely too short). */}
                     <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
                       <motion.span
-                        className="block shrink-0 whitespace-nowrap text-center"
+                        className="block shrink-0 overflow-hidden text-ellipsis whitespace-nowrap text-center"
                         style={{ width: titleMax }}
                         initial={false}
                         animate={{ rotate: blk.collapsed ? 0 : -90 }}
