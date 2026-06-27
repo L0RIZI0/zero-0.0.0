@@ -67,6 +67,25 @@ const ATLAS_CLOSE_EPSILON_MS = 0.04 * DAY_MS
 // their transitions off this exact value so they all land together; `displayCollapsed`
 // flips after it, unmounting the hidden layer.
 const COLLAPSE_MS = 480
+// UN-COLLAPSE (expand) is intentionally treated DIFFERENTLY from collapse. Collapse uses
+// the snappy `easeOut` above (fast start, gentle settle) which reads well shrinking into
+// a rail. Expansion with that same curve felt "too hard early" — easeOut front-loads the
+// motion so the ribbon LURCHED open. So expand is 50% longer and uses a soft ease-IN-out
+// curve (low initial velocity → it builds up gently, then eases to rest). Direction is
+// known per element (`!collapsedTarget` / `!blk.collapsed`), so each morph picks its
+// duration/ease via `morphTween`. CSS twins (`EXPAND_EASE_CSS`) mirror the same curve.
+const EXPAND_MS = Math.round(COLLAPSE_MS * 1.5)
+const EXPAND_EASE: [number, number, number, number] = [0.45, 0, 0.25, 1]
+const EXPAND_EASE_CSS = "cubic-bezier(0.45, 0, 0.25, 1)"
+// Framer transition for a morphing element. `animating` = mid (un)collapse; `expanding`
+// = the un-collapse direction (slower + soft ease-in-out). Outside a morph it's the
+// 300ms repack glide. CSS-transition spots build the equivalent string inline.
+function morphTween(animating: boolean, expanding: boolean) {
+  if (!animating) return { duration: 0.3, ease: "easeOut" as const }
+  return expanding
+    ? { duration: EXPAND_MS / 1000, ease: EXPAND_EASE }
+    : { duration: COLLAPSE_MS / 1000, ease: "easeOut" as const }
+}
 // Approx height (px) of the collapsed-rail tick tooltip — used to decide whether it
 // fits above the rail or must flip below to avoid the ruler cropping it.
 const TOOLTIP_H = 16
@@ -402,7 +421,9 @@ export function TimelineStrip({
   const collapseAnimating = displayCollapsed !== zoomCollapsed
   useEffect(() => {
     if (displayCollapsed === zoomCollapsed) return
-    const id = setTimeout(() => setDisplayCollapsed(zoomCollapsed), COLLAPSE_MS)
+    // Hold the window open for the FULL morph: expanding (zoomCollapsed false) runs the
+    // longer EXPAND_MS so the soft ease-in-out finishes before the hidden layer unmounts.
+    const id = setTimeout(() => setDisplayCollapsed(zoomCollapsed), zoomCollapsed ? COLLAPSE_MS : EXPAND_MS)
     return () => clearTimeout(id)
   }, [zoomCollapsed, displayCollapsed])
 
@@ -805,6 +826,9 @@ export function TimelineStrip({
     // Open this mother's manual-fold animation window (see `animatingMothers`).
     setAnimatingMothers((m) => ({ ...m, [id]: (m[id] ?? 0) + 1 }))
     if (animTimers.current[id]) clearTimeout(animTimers.current[id])
+    // `collapsed` is the CURRENT state, so we're expanding when it was collapsed → hold
+    // the window for the longer EXPAND_MS to cover the slower soft-start un-collapse.
+    const windowMs = collapsed ? EXPAND_MS : COLLAPSE_MS
     animTimers.current[id] = setTimeout(() => {
       setAnimatingMothers((m) => {
         const next = { ...m }
@@ -812,7 +836,7 @@ export function TimelineStrip({
         return next
       })
       delete animTimers.current[id]
-    }, COLLAPSE_MS)
+    }, windowMs)
   }
 
   // (Un)collapse MORPH gates + opacity targets, per mother block.
@@ -1507,7 +1531,7 @@ export function TimelineStrip({
                     animate={{ opacity: dim, top: barTop(lane) }}
                     transition={
                       barAnimating
-                        ? { top: { duration: COLLAPSE_MS / 1000, ease: "easeOut" }, opacity: { duration: 0.2, ease: "easeOut" } }
+                        ? { top: morphTween(true, !collapsedTarget), opacity: { duration: 0.2, ease: "easeOut" } }
                         : { top: { duration: 0.3, ease: "easeOut" }, opacity: panelTransition }
                     }
                     onClick={() => b.entity && openFromChip(b.entity.id)}
@@ -1579,14 +1603,14 @@ export function TimelineStrip({
                   className="absolute"
                   initial={barAnimating ? { top: railTopPx, height: RAIL_H - 2 } : false}
                   animate={{ top: barTop(lane), height: collapsedTarget ? RAIL_H - 2 : 24 }}
-                  transition={
-                    barAnimating ? { duration: COLLAPSE_MS / 1000, ease: "easeOut" } : { duration: 0.3, ease: "easeOut" }
-                  }
+                  transition={morphTween(barAnimating, !collapsedTarget)}
                   style={{
                     left: boxStyle.left,
                     width: collapsedTarget ? `calc(${Math.max(widthPct, 0.6)}% - 2px)` : boxStyle.width,
                     minWidth: collapsedTarget ? 3 : undefined,
-                    transition: barAnimating ? `width ${COLLAPSE_MS}ms ease-out` : undefined,
+                    transition: barAnimating
+                      ? `width ${collapsedTarget ? COLLAPSE_MS : EXPAND_MS}ms ${collapsedTarget ? "ease-out" : EXPAND_EASE_CSS}`
+                      : undefined,
                   }}
                 >
                   <motion.button
@@ -1833,7 +1857,7 @@ export function TimelineStrip({
                       height: blk.collapsed ? RAIL_H : blk.height,
                       opacity: related ? 1 : UNRELATED_OPACITY,
                     }}
-                    transition={{ duration: COLLAPSE_MS / 1000, ease: "easeOut" }}
+                    transition={morphTween(blkAnimating(blk), !blk.collapsed)}
                     className="absolute z-20 overflow-visible rounded border border-border/70 bg-card text-[9.5px] font-semibold leading-none tracking-tight shadow-sm hover:brightness-125"
                     style={{ left: 4, width: MOTHER_COL_W - 4, color: blk.m.color, borderColor: `${blk.m.color}40` }}
                   >
@@ -1851,7 +1875,7 @@ export function TimelineStrip({
                         style={{ width: titleMax }}
                         initial={false}
                         animate={{ rotate: blk.collapsed ? 0 : -90 }}
-                        transition={{ duration: COLLAPSE_MS / 1000, ease: "easeOut" }}
+                        transition={morphTween(blkAnimating(blk), !blk.collapsed)}
                       >
                         {blk.m.title}
                       </motion.span>
