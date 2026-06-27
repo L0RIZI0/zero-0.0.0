@@ -236,7 +236,13 @@ export function WorkSurface() {
         // bottom inset (−120px) leaves room for those shadows while still clipping
         // the top/sides (so peeking parent frames stay contained). The small
         // negative top inset keeps morph shadows above the frame top from clipping.
-        className="relative z-10 flex min-h-0 flex-1 flex-col rounded-md [clip-path:inset(-48px_0px_-120px_0px_round_6px)]"
+        // `pointer-events-none`: this region sits at z-10 ON TOP of the Lifelane/Atlas
+        // timeline (z-0), so as `auto` it intercepts every wheel/click meant for the
+        // timeline in the empty area above the do-list. Made transparent so events fall
+        // THROUGH to the timeline where nothing interactive is painted; the do-list,
+        // Dock, side panels (explicit `pointer-events-auto`) and window chrome (default
+        // `auto`, which re-enables under a `none` ancestor) all stay fully interactive.
+        className="pointer-events-none relative z-10 flex min-h-0 flex-1 flex-col rounded-md [clip-path:inset(-48px_0px_-120px_0px_round_6px)]"
       >
         <EntityBody entityId={rootId} active={activeEntity.id === rootId} isRoot centerList />
 

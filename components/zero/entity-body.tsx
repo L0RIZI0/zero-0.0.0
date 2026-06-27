@@ -81,13 +81,19 @@ export function EntityBody({
     // panel overlays, so a panel's `top: 50%` resolves to the body's true vertical
     // center. The reading padding lives on the inner center column instead, so it
     // never skews where the rails sit.
-    <div className="relative flex min-h-0 flex-1 flex-col">
+    // `pointer-events-none`: this root fills the whole card (z-10) ON TOP of the
+    // Lifelane/Atlas timeline (z-0), so left as `auto` it swallows every wheel/click
+    // meant for the timeline. We make the whole body transparent to events and
+    // re-enable `pointer-events-auto` only on the interactive LEAVES (do-list content,
+    // resource canvas, Dock, side panels) — so the empty area over the timeline is
+    // click/scroll-through while the chrome stays fully interactive.
+    <div className="pointer-events-none relative flex min-h-0 flex-1 flex-col">
       {/* RESOURCE TASK: the center surface is the bound web resource, filling the
           rectangular Task window almost edge-to-edge (a slim inset keeps it clear of
           the Inputs/Outputs rails). The do-list/Dock are skipped entirely — this is
           Zero acting as a contextual browser. */}
       {resource ? (
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col px-3 pb-3 pt-2">
+        <div className="pointer-events-auto flex min-h-0 min-w-0 flex-1 flex-col px-3 pb-3 pt-2">
           <ResourceCanvas id={entityId} url={resource.url} resourceId={resource.resourceId} active={active} />
         </div>
       ) : (
