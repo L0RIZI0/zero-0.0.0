@@ -66,7 +66,7 @@ const ATLAS_CLOSE_EPSILON_MS = 0.04 * DAY_MS
 // a quick snap. The morphing elements (chip wrapper, mother column, band height) drive
 // their transitions off this exact value so they all land together; `displayCollapsed`
 // flips after it, unmounting the hidden layer.
-const COLLAPSE_MS = 480
+const COLLAPSE_MS = 620
 // UN-COLLAPSE (expand) is intentionally treated DIFFERENTLY from collapse. Collapse uses
 // the snappy `easeOut` above (fast start, gentle settle) which reads well shrinking into
 // a rail. Expansion with that same curve felt "too hard early" — easeOut front-loads the
@@ -108,8 +108,14 @@ const REFLOW_EASE_CSS = "cubic-bezier(0, 0.7, 0.2, 1)"
 // velocity (p1y=0.85) and a long, gentle decel tail so it settles slowly and softly. It
 // reaches ~95% well before EXPAND_MS, so a just-expanded bottom ribbon isn't left poking
 // under the do-list while the band finishes its lazy tail.
-const DOLIST_MS = Math.round(COLLAPSE_MS * 3.1)
-const DOLIST_EASE_CSS = "cubic-bezier(0, 0.92, 0.1, 1)"
+const DOLIST_MS = Math.round(COLLAPSE_MS * 3.6)
+// EVEN glide with a soft landing — NOT a front-loaded ease-out. A steep ease-out (p1y high)
+// dumps almost all the motion in the first ~90ms then crawls invisibly for the rest, so the
+// glide felt fast/"hard to notice" despite the long duration. This curve starts at roughly
+// constant velocity (p1x≈p1y → initial slope ~1, so it moves on frame 1 with no slow ease-in
+// lip the user dislikes) and keeps moving steadily, only easing gently into rest near the
+// end — so the eye tracks the do-list across the WHOLE duration and it feels deliberate.
+const DOLIST_EASE_CSS = "cubic-bezier(0.4, 0.4, 0.2, 1)"
 // Framer transition for a morphing element. `animating` = mid (un)collapse; `expanding` =
 // the un-collapse direction. `soft` picks the slow-start fall curve (folding ribbon) vs the
 // prompt reflow curve (pushed siblings). Outside a morph it's the 300ms repack glide.
@@ -1741,22 +1747,24 @@ export function TimelineStrip({
                       className="flex items-center gap-1.5 overflow-visible"
                       style={{
                         opacity: collapsedTarget ? 0 : 1,
-                        // A chip's colored BOX width is just its time-span % (boxStyle.width),
-                        // but its glyph + title BLEED right via overflow-visible — so the chip
-                        // LOOKS as wide as its label regardless of the box. On AUTO-collapse you
-                        // zoom out, the box shrinks toward a near-dot tick, yet the bleeding
-                        // label stayed at full width and only faded OPACITY — so it masked the
-                        // shrinking box, then blinked out, revealing the dot abruptly (the
-                        // "width jumps to the highlight's tiny span" the user saw). Fix: RETRACT
-                        // the label horizontally (scaleX → 0 from its LEFT origin, where the
-                        // glyph/tick anchors) in sync with the fade, so the visible width slides
-                        // down into the dot instead of vanishing in place. Expand reverses it
-                        // (delayed, so the box grows first, then the label unfurls).
-                        transform: collapsedTarget ? "scaleX(0)" : "scaleX(1)",
-                        transformOrigin: "left center",
+                        // A chip's colored BOX width is just its time-span % (boxStyle.width ≈
+                        // the rail tick width), but its glyph + title BLEED right past the box —
+                        // so the chip LOOKS as wide as its LABEL, not its box. When collapsing
+                        // (worst on AUTO-collapse, where zoom-out has already shrunk the box to a
+                        // near-dot) the label must retract to nothing so the perceived width
+                        // narrows to the tick. Earlier tries failed: scaleX(0) SQUISHED the text
+                        // (distorted), and max-width→0 had a dead zone (a huge cap takes most of
+                        // the duration to reach the real content width before any clip shows =
+                        // "lingers then snaps"). CLIP-PATH is geometry-independent: inset from the
+                        // RIGHT by a PERCENTAGE of the label's own width, so it narrows evenly from
+                        // frame 1 with NO dead zone and no distortion — the title slides under the
+                        // clip edge toward the glyph/tick at the left. inset(0) at rest clips
+                        // nothing, so titles still bleed normally. Expand reverses it, delayed so
+                        // the box grows first then the label unfurls.
+                        clipPath: collapsedTarget ? "inset(0 100% 0 0)" : "inset(0 0 0 0)",
                         transition: collapsedTarget
-                          ? `opacity ${Math.round(COLLAPSE_MS * 0.7)}ms ease-out, transform ${COLLAPSE_MS}ms ease-out`
-                          : "opacity 150ms ease-out 150ms, transform 220ms ease-out 120ms",
+                          ? `opacity ${Math.round(COLLAPSE_MS * 0.85)}ms ease-out, clip-path ${COLLAPSE_MS}ms ease-out`
+                          : "opacity 200ms ease-out 160ms, clip-path 340ms ease-out 140ms",
                       }}
                     >
                       <span className="h-2.5 w-2.5 shrink-0" style={{ color: b.color || "var(--muted-foreground)" }}>
