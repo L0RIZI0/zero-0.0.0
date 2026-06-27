@@ -91,6 +91,12 @@ export function WorkSurface() {
   const cardElRef = useRef<HTMLDivElement | null>(null)
   const [cardH, setCardH] = useState(0)
   const viewHeightPx = Math.round(heightFrac * cardH)
+  // The timeline overlay's ACTUAL rendered height. The band grows to `viewHeightPx`
+  // with zoom, but can exceed it when stacked entity lanes push the content-driven
+  // `trackH` taller. We measure it so the do-list reserve covers the real band and the
+  // timeline never overlaps the create-row / task rows.
+  const timelineElRef = useRef<HTMLDivElement | null>(null)
+  const [timelineH, setTimelineH] = useState(0)
   // The Atlas backdrop layer. The Lifelane (in TimelineStrip) portals the Atlas into
   // this card-level element, which sits BEHIND the do-list/dock (rendered later in the
   // card) and BELOW the app header (a sibling outside the card) — so the Atlas reads as
@@ -110,6 +116,15 @@ export function WorkSurface() {
     ro.observe(el)
     return () => ro.disconnect()
   }, [])
+  useEffect(() => {
+    const el = timelineElRef.current
+    if (!el) return
+    const measure = () => setTimelineH(el.offsetHeight)
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [hasTimeline])
   // Reserve = the timeline's BOTTOM measured FROM THE CONSUMING BODY'S TOP (the
   // do-list region pads by this). `timelineTop` is in CARD coords, but the consuming
   // body's top is also offset within the card: 0 for home (body == region 0 == card),
@@ -118,12 +133,14 @@ export function WorkSurface() {
   // offset (+ TIMELINE_TOP_PAD only at home), the body-relative reserve collapses to
   // `(home ? TIMELINE_TOP_PAD : 0) + timelineH`. This keeps content flush under the
   // timeline in BOTH home and windows from a single shared var.
-  // The band's bottom = its top offset + its zoom-driven pixel height. In LIFELANE the
-  // do-list reserves exactly this, so it compresses continuously as the band grows. In
-  // ATLAS the grid fills ~88% but the do-list should FLOAT OVER its lower edge (compact
-  // create-row + 3-row scroller above the dock), so we reserve only to the smaller
+  // The band's bottom = its top offset + its height. In LIFELANE that's the MAX of the
+  // zoom-driven `viewHeightPx` and the band's measured height (`timelineH`, which is
+  // taller when stacked entity lanes grow `trackH`) — so the do-list always clears the
+  // real band and the timeline never overlaps the create-row. In ATLAS the grid fills
+  // ~88% but the do-list should FLOAT OVER its lower edge (compact create-row + 3-row
+  // scroller above the dock), so we reserve only to the smaller
   // `TIMELINE_ATLAS_DOLIST_TOP_FRAC` of the card instead of the full grid height.
-  const reservePx = atlas ? Math.round(TIMELINE_ATLAS_DOLIST_TOP_FRAC * cardH) : viewHeightPx
+  const reservePx = atlas ? Math.round(TIMELINE_ATLAS_DOLIST_TOP_FRAC * cardH) : Math.max(viewHeightPx, timelineH)
   const region1Reserve = (windowOpen ? 0 : TIMELINE_TOP_PAD) + reservePx
 
   // Home is window 0 in the telescopic surface model. In DARK mode it stays on
@@ -173,6 +190,7 @@ export function WorkSurface() {
           `--region1-reserve`. */}
       {hasTimeline ? (
         <motion.div
+          ref={timelineElRef}
           className="absolute inset-x-0 z-30 px-6"
           initial={false}
           animate={{ top: timelineTop }}
