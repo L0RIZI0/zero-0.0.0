@@ -820,9 +820,23 @@ export function TimelineStrip({
   }, [lifelaneBandH, bandAnimating])
   const manualFolding = !collapseAnimating && Object.keys(animatingMothers).length > 0
   const bandExpanding = lifelaneBandH > prevBandH.current
-  const bandTransition = manualFolding
-    ? `height ${bandExpanding ? EXPAND_MS : COLLAPSE_MS}ms ${bandExpanding ? EXPAND_EASE_CSS : "ease-out"}`
-    : undefined
+  // FLUID REFLOW. A manual fold flips ONE mother, but the whole stack below it shifts to
+  // its new layout. The folding ribbon + band + do-list all morph over EXPAND_MS/COLLAPSE_MS,
+  // but every OTHER repositioning element (sibling band backgrounds, ribbon labels, sibling
+  // chips/markers/columns) defaults to its snappy 300ms rest transition — so the lower stack
+  // SETTLED in 300ms while the band kept growing to 720ms, making the do-list look like it
+  // "moved after the timeline finished" (the lag the user felt). So during a manual fold we
+  // override EVERY repositioning transition with the SAME fold duration+curve as the band:
+  // the entire timeline reflows as one unit, locked to the do-list push. `bandExpanding`
+  // (stable for the whole window — `prevBandH` is the pre-fold height) sets the direction;
+  // expand uses the slow soft curve, collapse the snappy one. `reflowMs`/`reflowEase` are the
+  // shared values; `reflowTransition(props)` builds the CSS string (undefined at rest → the
+  // element keeps its Tailwind `duration-300`). NOT applied during a ZOOM fold (the band is
+  // instant there and chips already share `collapseAnimating` timing).
+  const reflowMs = bandExpanding ? EXPAND_MS : COLLAPSE_MS
+  const reflowEase = bandExpanding ? EXPAND_EASE_CSS : "ease-out"
+  const reflowTransition = (props: string) => (manualFolding ? `${props.split(",").map((p) => `${p.trim()} ${reflowMs}ms ${reflowEase}`).join(", ")}` : undefined)
+  const bandTransition = reflowTransition("height")
   const bandH = lifelaneBandH
   // Y of a VISIBLE global lane (collapsed lanes return the block's rail y so any
   // stray positioning lands sanely; their bars are handled separately as chips).
@@ -1388,6 +1402,8 @@ export function TimelineStrip({
                       opacity: op,
                       backgroundColor: `${r.color}0d`,
                       borderLeft: `2px solid ${r.color}66`,
+                      // During a manual fold, reposition in lockstep with the band/do-list.
+                      transition: reflowTransition("opacity, top, height"),
                     }}
                   />
                 )
@@ -1408,6 +1424,8 @@ export function TimelineStrip({
                   opacity: collapsedOpacity(blk),
                   backgroundColor: `${blk.m.color}1f`,
                   borderLeft: `2px solid ${blk.m.color}`,
+                  // A collapsed sibling rail (e.g. Health) must slide with the reflow too.
+                  transition: reflowTransition("top, filter, opacity"),
                 } as const
                 const hoverProps = {
                   onMouseEnter: () => setHoveredMother(rk),
@@ -1542,7 +1560,9 @@ export function TimelineStrip({
                     transition={
                       barAnimating
                         ? { top: morphTween(true, !collapsedTarget), opacity: { duration: 0.2, ease: "easeOut" } }
-                        : { top: { duration: 0.3, ease: "easeOut" }, opacity: panelTransition }
+                        : manualFolding
+                          ? { top: morphTween(true, bandExpanding), opacity: panelTransition }
+                          : { top: { duration: 0.3, ease: "easeOut" }, opacity: panelTransition }
                     }
                     onClick={() => b.entity && openFromChip(b.entity.id)}
                     onContextMenu={(ev) => b.entity && openMenu(ev, b.entity)}
@@ -1613,7 +1633,10 @@ export function TimelineStrip({
                   className="absolute"
                   initial={barAnimating ? { top: railTopPx, height: RAIL_H - 2 } : false}
                   animate={{ top: barTop(lane), height: collapsedTarget ? RAIL_H - 2 : 24 }}
-                  transition={morphTween(barAnimating, !collapsedTarget)}
+                  // `barAnimating` = THIS ribbon is folding (falls from/into the rail).
+                  // `manualFolding` (sibling) = just reposition `top`, but on the SAME fold
+                  // timing so the pushed ribbons glide in lockstep with the band/do-list.
+                  transition={morphTween(barAnimating || manualFolding, barAnimating ? !collapsedTarget : bandExpanding)}
                   style={{
                     left: boxStyle.left,
                     width: collapsedTarget ? `calc(${Math.max(widthPct, 0.6)}% - 2px)` : boxStyle.width,
@@ -1867,7 +1890,7 @@ export function TimelineStrip({
                       height: blk.collapsed ? RAIL_H : blk.height,
                       opacity: related ? 1 : UNRELATED_OPACITY,
                     }}
-                    transition={morphTween(blkAnimating(blk), !blk.collapsed)}
+                    transition={morphTween(blkAnimating(blk) || manualFolding, bandExpanding)}
                     className="absolute z-20 overflow-visible rounded border border-border/70 bg-card text-[9.5px] font-semibold leading-none tracking-tight shadow-sm hover:brightness-125"
                     style={{ left: 4, width: MOTHER_COL_W - 4, color: blk.m.color, borderColor: `${blk.m.color}40` }}
                   >
@@ -1915,7 +1938,15 @@ export function TimelineStrip({
                   onMouseEnter: () => setHoveredMother(rk),
                   onMouseLeave: () => setHoveredMother((h) => (h === rk ? null : h)),
                 }
-                const wrapStyle = { left: 4, top: offsetY + blk.top + RAIL_H / 2, transform: "translateY(-50%)", opacity: labelOp } as const
+                const wrapStyle = {
+                  left: 4,
+                  top: offsetY + blk.top + RAIL_H / 2,
+                  transform: "translateY(-50%)",
+                  opacity: labelOp,
+                  // Slide the label with the reflow (a sibling rail label, e.g. Health,
+                  // would otherwise JUMP to its new y while everything else glided).
+                  transition: reflowTransition("top, opacity"),
+                } as const
                 // ZOOM-forced collapse (or the ungrouped root) → plain name tag. Keyed on
                 // `!byUser` (not live `zoomCollapsed`) so the branch stays stable through
                 // the un-collapse crossfade. Glyph prefixes the title on hover via the tag.
