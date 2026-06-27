@@ -789,11 +789,12 @@ export function TimelineStrip({
   const showCollapsed = (blk: Blk) => blk.collapsed || collapseAnimating
   const expandedOpacity = (blk: Blk) => (blk.collapsed ? 0 : 1)
   const collapsedOpacity = (blk: Blk) => (blk.collapsed ? 1 : 0)
-  // Where a bar sits while its block is collapsed: centered on the thin rail, so on
-  // fold it GLIDES down into the rail (then fades) instead of staying at its old lane.
+  // Where a bar sits while its block is collapsed: exactly on the thin rail tick
+  // (`railY + 1`, matching the highlight tick below), so on fold an event chip GLIDES
+  // down and MORPHS into its rail span instead of just fading at its old lane.
   const barTop = (lane: number) => {
     const blk = blockOfLane(lane)
-    return blk?.collapsed ? offsetY + blk.top : laneTop(lane)
+    return blk?.collapsed ? offsetY + blk.top + 1 : laneTop(lane)
   }
 
   // Vertical stacking so cluster/pin LEFT-side labels don't collide. Footprint is
@@ -938,7 +939,7 @@ export function TimelineStrip({
   if (!mounted) {
     return (
       <section aria-label="Lifelane" className="px-1">
-        <div className="relative mb-1 -mx-6 h-10" />
+        <div className="relative mb-1 -mx-6 h-12" />
         <div className="relative -mx-6" style={{ height: TRACK_H }} ref={viewportRef} />
       </section>
     )
@@ -966,8 +967,10 @@ export function TimelineStrip({
         )}
       >
         {/* Label band above the ruler. Shows the granularity-aware center label and,
-            when "now" is scrolled off-screen, a jump-to-now control. */}
-      <div className={cn("relative mb-1 -mx-6", "h-10")}>
+            when "now" is scrolled off-screen, a jump-to-now control. Taller than the
+            ruler needs so the center label has clear air between the header's date+time
+            and the timestamps (which pin to the band's bottom). */}
+      <div className={cn("relative mb-1 -mx-6", "h-12")}>
         {/* ruler labels — anchored to the bottom, inset to match the viewport.
             Edge-faded so labels melt in/out at the sides rather than popping. */}
         <div
@@ -1010,9 +1013,14 @@ export function TimelineStrip({
         <motion.div
           key="center-controls"
           initial={{ opacity: 0, y: -4 }}
-          animate={{ opacity: 1, y: stage === 0 ? -5 : stage === 1 ? 1.5 : 18 }}
+          // Sit in the upper part of the band — between the header's date+time and the
+          // ruler timestamps pinned to the band's bottom. Kept ABOVE the ruler at every
+          // nav `stage` (the old `+18` push at stage 2 dropped it onto the timestamps,
+          // causing the overlap); all offsets are now small & negative so it never
+          // collides with the ruler, regardless of breadcrumb depth.
+          animate={{ opacity: 1, y: stage === 0 ? -7 : stage === 1 ? -5 : -3 }}
           transition={panelTransition}
-          className="pointer-events-none absolute inset-x-0 top-0 bottom-3.5 flex items-center justify-center"
+          className="pointer-events-none absolute inset-x-0 top-0 bottom-3.5 flex items-start justify-center"
         >
               <div className="pointer-events-auto inline-flex items-center gap-1 rounded bg-background px-2 py-0.5">
                 <span className="whitespace-nowrap text-[11px] font-medium tracking-tight text-foreground">
@@ -1360,6 +1368,10 @@ export function TimelineStrip({
               // animation settles.
               if (blk && !showExpanded(blk)) return null
               const expOpacity = blk ? expandedOpacity(blk) : 1
+              // True once the view has crossed the threshold toward collapsed (the morph
+              // TARGET). Event chips stay opaque and morph into their rail span on this
+              // flag; their inner text fades out FAST (before the bar finishes sliding).
+              const collapsedTarget = !!blk?.collapsed
               const left = pct(b.from)
               const widthPct = ((b.to - b.from) / spanMs) * 100
               if (left > 100 || left + widthPct < 0) return null
@@ -1439,7 +1451,8 @@ export function TimelineStrip({
                     initial={collapseAnimating ? { opacity: 0 } : false}
                     data-placement={b.entity ? placementKey("timeline", contextId, b.entity.id) : undefined}
                     data-morph-kind="generic"
-                    animate={{ opacity: dim * expOpacity }}
+                    // Opaque morph (no expOpacity fade) — glides onto the rail via barTop.
+                    animate={{ opacity: dim }}
                     transition={panelTransition}
                     onClick={() => b.entity && openFromChip(b.entity.id)}
                     onContextMenu={(ev) => b.entity && openMenu(ev, b.entity)}
@@ -1448,18 +1461,24 @@ export function TimelineStrip({
                     className="absolute flex h-6 items-end overflow-visible transition-[filter,top] duration-300 ease-out hover:brightness-110"
                     style={boxStyle}
                   >
-                    {/* vertical color connector rising from the duration line */}
+                    {/* vertical color connector rising from the duration line — shrinks
+                        away on collapse so the marker flattens into its rail tick. */}
                     <span
-                      className="absolute bottom-0 left-0 h-4 w-[2px] rounded-full"
-                      style={{ backgroundColor: markerColor }}
+                      className="absolute bottom-0 left-0 w-[2px] rounded-full transition-[height] duration-300 ease-out"
+                      style={{ height: collapsedTarget ? RAIL_H - 2 : 16, backgroundColor: markerColor }}
                       aria-hidden
                     />
-                    {/* title to the RIGHT of the vertical connector, near its top */}
+                    {/* title to the RIGHT of the vertical connector — fades out FAST/EARLY
+                        on collapse (before the slide), back in LATE on expand. */}
                     <span
                       className={cn(
                         "pointer-events-none absolute bottom-1.5 left-1.5 whitespace-nowrap text-[10px] leading-none tracking-tight text-foreground/80",
                         b.cancelled && "line-through",
                       )}
+                      style={{
+                        opacity: collapsedTarget ? 0 : 1,
+                        transition: collapsedTarget ? "opacity 110ms ease-out" : "opacity 150ms ease-out 150ms",
+                      }}
                     >
                       {b.title}
                     </span>
@@ -1485,17 +1504,23 @@ export function TimelineStrip({
                 // INSTANTLY while `morphing` (opacity-0 on the parent), so chips need NO
                 // self-fade — keeping them at `dim` means that when the section pops back
                 // in at morph-end they're already in place (no end-of-morph fade-in flash).
+                // MORPH wrapper: height tweens 24px → tick height (and `barTop` glides it
+                // onto the rail) so the chip physically COMPRESSES into its highlighted
+                // span. `transition-[top,height]` rides the same 300ms ease as the rail.
                 <motion.div
                   key={b.key}
-                  className="absolute h-6 transition-[top] duration-300 ease-out"
-                  style={boxStyle}
+                  className="absolute transition-[top,height] duration-300 ease-out"
+                  style={{ ...boxStyle, height: collapsedTarget ? RAIL_H - 2 : 24 }}
                 >
                   <motion.button
                     type="button"
                     initial={collapseAnimating ? { opacity: 0 } : false}
                     data-placement={b.entity ? placementKey("timeline", contextId, b.entity.id) : undefined}
                     data-morph-kind="generic"
-                    animate={{ opacity: dim * expOpacity }}
+                    // Stays OPAQUE through the morph (no expOpacity fade): it doesn't fade
+                    // out, it BECOMES the span. The fill/border darken from faint → solid
+                    // so the shrinking chip matches the solid rail tick it lands on.
+                    animate={{ opacity: dim }}
                     transition={panelTransition}
                     onClick={() => b.entity && openFromChip(b.entity.id)}
                     onContextMenu={(ev) => b.entity && openMenu(ev, b.entity)}
@@ -1506,20 +1531,40 @@ export function TimelineStrip({
                       // BLEEDS out past the colored frame to the right rather than
                       // truncating — the packer reserves that label width so it never
                       // collides with a neighbour (item 3).
-                      "flex h-6 w-full items-center gap-1.5 overflow-visible rounded-md border px-2 text-[10.5px] tracking-tight",
-                      "text-foreground/85 shadow-sm transition-[filter] hover:brightness-110",
+                      "flex h-full w-full items-center gap-1.5 overflow-visible rounded-md border px-2 text-[10.5px] tracking-tight",
+                      "text-foreground/85 shadow-sm transition-[filter,background-color,border-color] duration-300 ease-out hover:brightness-110",
                     )}
                     style={{
-                      borderColor: b.color ? `${b.color}59` : "var(--border)",
-                      backgroundColor: b.color ? `${b.color}26` : "var(--secondary)",
+                      borderColor: collapsedTarget
+                        ? b.color || "var(--border)"
+                        : b.color
+                          ? `${b.color}59`
+                          : "var(--border)",
+                      backgroundColor: collapsedTarget
+                        ? b.color || "var(--secondary)"
+                        : b.color
+                          ? `${b.color}26`
+                          : "var(--secondary)",
                     }}
                   >
-                    {/* kind GLYPH prefix (replaces the old color square) — colored via
-                        the wrapper's `currentColor`. */}
-                    <span className="h-2.5 w-2.5 shrink-0" style={{ color: b.color || "var(--muted-foreground)" }}>
-                      <NodeGlyph kind={(b.entity?.kind as NodeKind) ?? "event"} filled strokeWidth={2} />
+                    {/* kind GLYPH + title. Wrapped so they fade as ONE unit and, crucially,
+                        FAST + EARLY on collapse (110ms, no delay) — the text is gone before
+                        the bar finishes sliding into the rail. On expand they fade back in
+                        LATE (delayed) so the bar grows first, then the label appears. */}
+                    <span
+                      className="flex items-center gap-1.5 overflow-visible"
+                      style={{
+                        opacity: collapsedTarget ? 0 : 1,
+                        transition: collapsedTarget
+                          ? "opacity 110ms ease-out"
+                          : "opacity 150ms ease-out 150ms",
+                      }}
+                    >
+                      <span className="h-2.5 w-2.5 shrink-0" style={{ color: b.color || "var(--muted-foreground)" }}>
+                        <NodeGlyph kind={(b.entity?.kind as NodeKind) ?? "event"} filled strokeWidth={2} />
+                      </span>
+                      <span className={cn("whitespace-nowrap", b.cancelled && "line-through")}>{b.title}</span>
                     </span>
-                    <span className={cn("whitespace-nowrap", b.cancelled && "line-through")}>{b.title}</span>
                   </motion.button>
                 </motion.div>
               )
@@ -1538,7 +1583,10 @@ export function TimelineStrip({
                 if (!showCollapsed(blk) || ticksHidden[rk]) return []
                 const hi = hoveredMother === rk
                 const railY = offsetY + blk.top
-                const railOp = collapsedOpacity(blk)
+                // Ticks stay SOLID through the (un)collapse window (no opacity fade): the
+                // event chip MORPHS into/out of this span, so a stable target underneath
+                // makes the end-of-animation handoff seamless (chip unmounts onto an
+                // identical tick). `animate-in fade-in` still eases a freshly-mounted tick.
                 // Bars whose lane falls inside THIS block's lane range (works for the
                 // ungrouped root too, where there's no motherId to match on).
                 const loLane = blk.m.baseLane
@@ -1579,7 +1627,7 @@ export function TimelineStrip({
                           top: railY + 1,
                           height: RAIL_H - 2,
                           backgroundColor: color,
-                          opacity: (hi ? 1 : 0.85) * railOp,
+                          opacity: hi ? 1 : 0.85,
                           boxShadow: hi ? `0 0 6px ${color}` : undefined,
                         }}
                       />
