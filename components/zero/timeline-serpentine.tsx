@@ -2,6 +2,7 @@
 
 import { useMemo } from "react"
 import { cn } from "@/lib/utils"
+import { packDay, type DayPlaced } from "@/lib/zero/day-pack"
 import type { Entity } from "@/lib/zero/types"
 
 const DAY_MS = 86_400_000
@@ -11,10 +12,6 @@ const WEEK_MS = 7 * DAY_MS
 // that gets stacked inside its day's band as a readable mini-list line.
 const MULTI_DAY_MIN_MS = 1.5 * DAY_MS
 const MULTI_COL_PX = 16 // width of each multi-day sub-column (left side of a week)
-// Minimum effective duration (as a fraction of a day) an item reserves when packing
-// overlap columns, so zero-length instants and very short items still claim a slot
-// and push concurrent neighbours sideways instead of overlapping invisibly.
-const MIN_EVENT_FRAC = (20 * 60 * 1000) / DAY_MS
 
 /** One placeable item in the serpentine grid — spans/bands/streams arrive with a
  *  real [from,to] interval; instants arrive with from === to. `dim` is the
@@ -46,64 +43,12 @@ const DAY_AXIS_W = 16
 
 type MultiBlock = { it: SerpItem; topF: number; botF: number; lane: number }
 type DayItem = { it: SerpItem; isInstant: boolean }
-// A single-day item laid out inside its day band: `sf`/`ef` are time-of-day
-// fractions [0,1] (top/bottom within the band); `col`/`cols` are its column index
-// and the column count of its overlap cluster (so width = 1/cols, left = col/cols).
-type DayPlaced = { it: SerpItem; isInstant: boolean; sf: number; ef: number; col: number; cols: number }
 type Column = {
   ws: number
   we: number
   multi: MultiBlock[]
   multiLanes: number
-  days: DayPlaced[][] // length 7, Mon→Sun
-}
-
-/**
- * Lay out one day's single-day items like a mini day-calendar: each item is placed
- * vertically by its real start/end time, and a run of mutually-overlapping items is
- * split into side-by-side COLUMNS (the classic calendar algorithm) so concurrent
- * items sit next to each other instead of stacking down the whole day.
- */
-function packDay(bucket: DayItem[], dayStartMs: number): DayPlaced[] {
-  if (bucket.length === 0) return []
-  const evs = bucket.map(({ it, isInstant }) => {
-    const sf = Math.min(1, Math.max(0, (it.from - dayStartMs) / DAY_MS))
-    const ef = Math.min(1, Math.max(sf, (it.to - dayStartMs) / DAY_MS))
-    return { it, isInstant, sf, ef }
-  })
-  // Earliest first; longer first on ties for stable, left-anchored column packing.
-  evs.sort((a, b) => a.sf - b.sf || b.ef - a.ef)
-  const effEnd = (e: (typeof evs)[number]) => Math.max(e.ef, e.sf + MIN_EVENT_FRAC)
-
-  const out: DayPlaced[] = []
-  let cluster: typeof evs = []
-  let clusterEnd = -1
-  const flush = () => {
-    const colEnds: number[] = [] // effective end fraction currently occupying each column
-    const tmp: { e: (typeof evs)[number]; col: number }[] = []
-    for (const e of cluster) {
-      let c = colEnds.findIndex((end) => end <= e.sf + 1e-6) // first free column
-      if (c === -1) {
-        c = colEnds.length
-        colEnds.push(effEnd(e))
-      } else {
-        colEnds[c] = effEnd(e)
-      }
-      tmp.push({ e, col: c })
-    }
-    const cols = Math.max(1, colEnds.length)
-    for (const { e, col } of tmp) out.push({ ...e, col, cols })
-    cluster = []
-    clusterEnd = -1
-  }
-  for (const e of evs) {
-    // A gap (this item starts at/after everything seen so far) closes the cluster.
-    if (cluster.length && e.sf >= clusterEnd - 1e-6) flush()
-    cluster.push(e)
-    clusterEnd = Math.max(clusterEnd, effEnd(e))
-  }
-  flush()
-  return out
+  days: DayPlaced<SerpItem>[][] // length 7, Mon→Sun
 }
 
 /**

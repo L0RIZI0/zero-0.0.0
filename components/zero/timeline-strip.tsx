@@ -38,13 +38,13 @@ import { useZeroNav } from "@/lib/zero/nav-store"
 import { placementKey, resolveOriginRect } from "@/lib/zero/placement"
 import { useTimelineGestures } from "@/hooks/use-timeline-gestures"
 import { NodeGlyph } from "./node-glyph"
-import { TimelineSerpentine, type SerpItem } from "./timeline-serpentine"
+import { type SerpItem } from "./timeline-serpentine"
+import { TimelineWeek } from "./timeline-week"
 import { ContextMenu, type ContextMenuState } from "./context-menu"
 import { cn } from "@/lib/utils"
 
 const HOUR_MS = 3_600_000
 const DAY_MS = 86_400_000
-const WEEK_MS = 7 * DAY_MS
 
 // View-switch glyphs. ATLAS = a SPHERE (a filled orb with a soft sheen — the whole
 // life-plane gathered into one body). LINE = a thick translucent rounded SEGMENT
@@ -471,13 +471,7 @@ export function TimelineStrip({
     return out
   }, [spans, rolled, query])
 
-  // --- Serpentine model ----------------------------------------------------
-  // How many week columns to show: derived from the current span (coarser zoom →
-  // more weeks), clamped to a comfortable 3–14 so a column never gets too thin.
-  const weekCount = useMemo(
-    () => Math.min(14, Math.max(3, Math.round(spanMs / WEEK_MS))),
-    [spanMs],
-  )
+  // --- Atlas model ---------------------------------------------------------
   // Flatten every bar (spans/bands/streams) plus the raw instants into one item
   // set for the grid, pre-computing each item's relatedness opacity. Instants use
   // their own interval (from === to) so the grid renders them as day-row dots.
@@ -1463,7 +1457,7 @@ export function TimelineStrip({
               <div className="flex items-baseline gap-2">
                 <AtlasGlyph className="h-4 w-4 translate-y-0.5 text-foreground" />
                 <span className="text-sm font-semibold tracking-tight text-foreground">Atlas</span>
-                <span className="text-[11px] text-muted-foreground">Week grid</span>
+                <span className="text-[11px] text-muted-foreground">This week</span>
               </div>
               <button
                 type="button"
@@ -1484,14 +1478,7 @@ export function TimelineStrip({
               exit={{ scale: 0.98, opacity: 0 }}
               transition={panelTransition}
             >
-              <TimelineSerpentine
-                items={serpItems}
-                centerMs={center}
-                weekCount={weekCount}
-                now={now}
-                onOpen={openFromChip}
-                onMenu={openMenu}
-              />
+              <TimelineWeek items={serpItems} now={now} onOpen={openFromChip} onMenu={openMenu} />
             </motion.div>
           </motion.div>
             )}
