@@ -133,14 +133,16 @@ export function WorkSurface() {
   // offset (+ TIMELINE_TOP_PAD only at home), the body-relative reserve collapses to
   // `(home ? TIMELINE_TOP_PAD : 0) + timelineH`. This keeps content flush under the
   // timeline in BOTH home and windows from a single shared var.
-  // The band's bottom = its top offset + its height. In LIFELANE that's the MAX of the
-  // zoom-driven `viewHeightPx` and the band's measured height (`timelineH`, which is
-  // taller when stacked entity lanes grow `trackH`) — so the do-list always clears the
-  // real band and the timeline never overlaps the create-row. In ATLAS the grid fills
-  // ~88% but the do-list should FLOAT OVER its lower edge (compact create-row + 3-row
-  // scroller above the dock), so we reserve only to the smaller
+  // The do-list reserve = the band's bottom. In LIFELANE we use the band's MEASURED
+  // height (`timelineH`), which now rests at the timeline's content height and grows
+  // only as you zoom out — so the do-list rests just under the small resting band and
+  // is nudged DOWN only as the band actually expands toward it (not pre-pushed by a
+  // fixed third of the card). The timeline paints BEHIND the do-list/dock, so the
+  // one-frame lag between the band growing and this measure updating is invisible. In
+  // ATLAS the grid fills ~88% but the do-list FLOATS OVER its lower edge (compact
+  // create-row + 3-row scroller above the dock), so we reserve only to the smaller
   // `TIMELINE_ATLAS_DOLIST_TOP_FRAC` of the card instead of the full grid height.
-  const reservePx = atlas ? Math.round(TIMELINE_ATLAS_DOLIST_TOP_FRAC * cardH) : Math.max(viewHeightPx, timelineH)
+  const reservePx = atlas ? Math.round(TIMELINE_ATLAS_DOLIST_TOP_FRAC * cardH) : timelineH
   const region1Reserve = (windowOpen ? 0 : TIMELINE_TOP_PAD) + reservePx
 
   // Home is window 0 in the telescopic surface model. In DARK mode it stays on
@@ -184,14 +186,15 @@ export function WorkSurface() {
           fill the whole card and the Lifelane can float at the active entity's header
           bottom. `top` ANIMATES between the home resting pad and HEADER_BAND_H (header
           bottom) when a window opens, so the Lifelane glides into the window just
-          below its header. z-30
-          floats it over region 0 / opened windows; not clipped by the card, so it
-          never crops. The active window's content reserves space below it via
-          `--region1-reserve`. */}
+          below its header. z-0 (BEHIND region 0): the Lifelane — like the Atlas
+          backdrop — sits BEHIND the do-list/dock (region 0, z-10) so its chips never
+          paint over the create-row / task rows; it's a backdrop the chrome floats over.
+          Not clipped by the card, so it never crops. The do-list reserves space under
+          its resting band via `--region1-reserve`. */}
       {hasTimeline ? (
         <motion.div
           ref={timelineElRef}
-          className="absolute inset-x-0 z-30 px-6"
+          className="absolute inset-x-0 z-0 px-6"
           initial={false}
           animate={{ top: timelineTop }}
           transition={layerTransition}
@@ -233,7 +236,7 @@ export function WorkSurface() {
         // bottom inset (−120px) leaves room for those shadows while still clipping
         // the top/sides (so peeking parent frames stay contained). The small
         // negative top inset keeps morph shadows above the frame top from clipping.
-        className="relative flex min-h-0 flex-1 flex-col rounded-md [clip-path:inset(-48px_0px_-120px_0px_round_6px)]"
+        className="relative z-10 flex min-h-0 flex-1 flex-col rounded-md [clip-path:inset(-48px_0px_-120px_0px_round_6px)]"
       >
         <EntityBody entityId={rootId} active={activeEntity.id === rootId} isRoot centerList />
 

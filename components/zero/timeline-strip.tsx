@@ -711,6 +711,15 @@ export function TimelineStrip({
   // so it never reshapes this region); the track grows to fit its visible lanes.
   const trackH = Math.max(TRACK_H, stackedH + 2 * TRACK_PAD_Y)
   const offsetY = Math.max(TRACK_PAD_Y, (trackH - contentH) / 2)
+  // LIFELANE BAND HEIGHT — rests at the CONTENT height (`trackH`) and only GROWS toward
+  // the zoom-driven target (`viewHeightPx − label`) as you zoom out from the day view
+  // toward the Atlas snap. So at rest the Lifelane floats small in the top region (it
+  // does NOT pre-claim a third of the card), and it expands vertically only as the span
+  // widens — which is exactly when the do-list should start being nudged down. The band
+  // is rendered BEHIND the do-list/dock, so a one-frame measurement lag is invisible.
+  const growT = Math.min(1, Math.max(0, (spanMs - VIEW_SPAN_MS.D) / (ATLAS_OPEN_MS - VIEW_SPAN_MS.D)))
+  const bandTarget = Math.max(0, (viewHeightPx ?? 0) - LIFELANE_LABEL_BAND_H)
+  const lifelaneBandH = Math.max(trackH, trackH + growT * Math.max(0, bandTarget - trackH))
   // Y of a VISIBLE global lane (collapsed lanes return the block's rail y so any
   // stray positioning lands sanely; their bars are handled separately as chips).
   const laneTop = (lane: number) => offsetY + (layout.laneToY.get(lane) ?? 0)
@@ -922,16 +931,12 @@ export function TimelineStrip({
       </div>
 
       {/* Full-bleed timeline. Arrows flank the track; the zoom selector pins left.
-          The track height GROWS WITH ZOOM: as the Timeline morphs from Lifelane toward
-          the Atlas snap, WorkSurface feeds a target `viewHeightPx` (card height × the
-          zoom-driven fraction). The band fills that (minus the ~44px label band above),
-          never below its content-driven `trackH`. Height is applied INSTANTLY (no
-          tween): the zoom itself is already eased via the span spring, so the band
-          glides; a per-frame height tween would instead lag behind the zoom. */}
-      <div
-        className="relative -mx-6"
-        style={{ height: Math.max(trackH, (viewHeightPx ?? 0) - LIFELANE_LABEL_BAND_H) }}
-      >
+          The track height GROWS WITH ZOOM (`lifelaneBandH`): it rests at the content
+          height `trackH` and expands toward the zoom-driven target only as the span
+          widens toward the Atlas snap. Height is applied INSTANTLY (no tween): the zoom
+          itself is already eased via the span spring, so the band glides; a per-frame
+          height tween would instead lag behind the zoom. */}
+      <div className="relative -mx-6" style={{ height: lifelaneBandH }}>
         {/* Instant layer — pins (singletons) and density bubbles (clusters). */}
         <div
           className="pointer-events-none absolute inset-y-0 z-30"
