@@ -12,7 +12,7 @@ export type NodeKind =
   | "instant"
   | "resource"
   | "community"
-  | "organization"
+  | "organism"
   | "individual"
   | "soul"
 
@@ -26,9 +26,9 @@ export const NODE_KIND_META: Record<
   event: { label: "Event", description: "Something that lives in time" },
   instant: { label: "Instant", description: "A precise moment" },
   community: { label: "Community", description: "A place to gather people and discussions" },
-  organization: { label: "Organization", description: "A company, a point of view" },
-  individual: { label: "Individual", description: "The person inhabiting an organization" },
-  soul: { label: "Soul", description: "The irreducible core self inside an individual" },
+  organism: { label: "Organism", description: "A company, a point of view" },
+  individual: { label: "Individual", description: "A person, animated by a Soul" },
+  soul: { label: "Soul", description: "The animating self behind a person" },
 }
 
 type Pt = [number, number]
@@ -54,7 +54,7 @@ function regularPolygon(n: number, r: number, cx = 12, cy = 12, phase = -Math.PI
  *  - event        → triangle pointing up (a span)
  *  - instant      → triangle pointing down (a single point in time)
  *  - community    → regular pentagon (a gathering)
- *  - organization → circle (a 48-gon — the outermost identity container, entity0)
+ *  - organism     → circle (a 48-gon — a living entity in Society; entity0 is one)
  *  - individual   → a "Z" rotated 45° anticlockwise. The Z is a non-convex stroke
  *      letterform the radial morph engine can't represent, so it is drawn as a
  *      separate <path> (see INDIVIDUAL_Z_PATH) and CROSSFADED over the polygon.
@@ -100,10 +100,10 @@ const KIND_CORNERS: Record<NodeKind, Pt[]> = {
     [6.1, 20.1],
     [2.5, 8.9],
   ],
-  // Circle — outermost identity container.
-  organization: regularPolygon(48, 9.7),
+  // Circle — a living entity in Society (a body, a company, …).
+  organism: regularPolygon(48, 9.7),
   // Morph fallback for the Z (the visible Z is a stroke path, see below). Same
-  // disc as organization so individual↔other morphs read as a circle crossfading
+  // disc as organism so individual↔other morphs read as a circle crossfading
   // under the Z.
   individual: regularPolygon(48, 9.7),
   // Small disc → reads as a filled dot.

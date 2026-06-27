@@ -8,11 +8,22 @@ import { NodeGlyph, NODE_KIND_META, type NodeKind } from "@/components/zero/node
 const CONTENT_KINDS: NodeKind[] = ["task", "space", "event", "instant", "resource", "community"]
 
 // The identity triad, OUTERMOST → innermost. Each is a structural entity describing
-// who a Zero user is, rather than content. Only the Organization is user-creatable.
+// who a Zero user is, rather than content. Only the Organism is user-creatable.
 const TRIAD: { kind: NodeKind; creatable: boolean }[] = [
-  { kind: "organization", creatable: true },
+  { kind: "organism", creatable: true },
   { kind: "individual", creatable: false },
   { kind: "soul", creatable: false },
+]
+
+// Aggregate lenses — views over entities, not kinds. Each layer adds to the last.
+const LENSES: { name: string; formula: string; blurb: string }[] = [
+  { name: "Population", formula: "All Individuals", blurb: "Every person, considered alone." },
+  { name: "Society", formula: "Individuals + Organisms", blurb: "People together with the living entities they form." },
+  {
+    name: "Culture",
+    formula: "Individuals + Organisms + Law + Art",
+    blurb: "Society plus the rules it lives by and the artifacts it makes — artworks, urbanism, and the rest.",
+  },
 ]
 
 /** A small glyph rendered in the current text color, sized to a square box. */
@@ -91,15 +102,48 @@ export default function EntityKindsPage() {
         <section className="mt-10">
           <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Identity</h2>
           <p className="mt-3 max-w-prose text-pretty text-sm leading-relaxed text-muted-foreground">
-            A Zero user is a nested stack: a <strong className="font-medium text-foreground">Soul</strong> inhabiting
-            an <strong className="font-medium text-foreground">Individual</strong>, occupying an{" "}
-            <strong className="font-medium text-foreground">Organization</strong>. The Organization is{" "}
-            <em>entity0</em> itself — the home you open into. It is more than a container: an Organization is a{" "}
+            A Zero user is a nested stack: a <strong className="font-medium text-foreground">Soul</strong> animates
+            an <strong className="font-medium text-foreground">Individual</strong>, which occupies an{" "}
+            <strong className="font-medium text-foreground">Organism</strong>. The active-account path is{" "}
+            <em>Soul → Individual → Organism</em>, and the root Organism — <em>entity0</em> — is the home you open
+            into. An Organism is more than a container: it is a{" "}
             <strong className="font-medium text-foreground">way of seeing the world</strong> — a point of view that
             expresses a reading of what matters and what doesn&apos;t in its environment. A company is one such reading.
           </p>
 
           <NestedTriad index={0} />
+
+          <p className="mt-4 max-w-prose text-pretty text-sm leading-relaxed text-muted-foreground">
+            Every Individual has a hidden body-Organism bound to its birth and death; an Individual can also create
+            separate, longer-lived Organisms (companies, institutions). Both Individuals and Organisms own a{" "}
+            <strong className="font-medium text-foreground">Lifeline</strong> — the canonical master timeline onto
+            which all their Events, Instants, and scheduled Tasks project.
+          </p>
+        </section>
+
+        {/* Aggregate lenses — views over the shared pool of entities, not kinds. */}
+        <section className="mt-10">
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Lenses</h2>
+          <p className="mt-3 max-w-prose text-pretty text-sm leading-relaxed text-muted-foreground">
+            These are not entities but <em>views</em> over them — three widening layers: humans, then
+            humans and their institutions, then everything they live by and make.
+          </p>
+          <ul className="mt-4 grid grid-cols-1 gap-3">
+            {LENSES.map((lens) => (
+              <li
+                key={lens.name}
+                className="rounded-xl border border-border bg-card p-4 text-card-foreground"
+              >
+                <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                  <h3 className="text-sm font-medium">{lens.name}</h3>
+                  <code className="rounded bg-secondary px-1.5 py-0.5 text-[11px] text-secondary-foreground">
+                    {lens.formula}
+                  </code>
+                </div>
+                <p className="mt-1.5 text-pretty text-xs leading-relaxed text-muted-foreground">{lens.blurb}</p>
+              </li>
+            ))}
+          </ul>
         </section>
       </div>
     </main>
@@ -108,7 +152,7 @@ export default function EntityKindsPage() {
 
 /**
  * Recursively renders the triad as concentric bordered cards, so the markup
- * mirrors the containment: the Organization wraps the Individual, which wraps the
+ * mirrors the containment: the Organism wraps the Individual, which wraps the
  * Soul. Each level shows its glyph, label, creatable/system tag and description.
  */
 function NestedTriad({ index }: { index: number }) {

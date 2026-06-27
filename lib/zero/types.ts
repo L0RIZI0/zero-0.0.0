@@ -43,18 +43,33 @@ export interface User {
  *   - `resource`  — a referenced asset/tool/material the work draws on.
  *   - `community` — a place gathering people and discussions (subreddit-like).
  *
- * The IDENTITY TRIAD describes who a Zero user *is* — a nested stack of three
- * structural entities rather than ordinary content:
+ * The IDENTITY TRIAD describes who a Zero user *is* — Souls animate Individuals,
+ * and Individuals occupy/own Organisms (their body, and any they create):
  *
- *   - `organization` — the outermost container a user occupies (glyph: a circle).
- *       More than a container, an organization is a WAY OF SEEING THE WORLD: a
- *       point of view that expresses a reading of what matters and what doesn't
- *       in its environment. A company is one such reading. This is `entity0` /
- *       the root "All Life" home in its opened-state form.
- *   - `individual`   — the person inhabiting the organization (glyph: a "Z"
- *       rotated 45° anticlockwise). System-only; one per user.
- *   - `soul`         — the innermost core inside the individual (glyph: a dot).
- *       System-only; exactly one, the irreducible self.
+ *   - `soul`       — the primary animating "it" behind a conscious person; one
+ *       Soul per person (glyph: a dot). Mostly implicit in the UI; it is the root
+ *       of an active user account. System-only; the irreducible self.
+ *   - `individual` — a person as an entity (glyph: a "Z" rotated 45° anticlockwise;
+ *       a future "conscious" variant adds a dot above). Animated by exactly one
+ *       Soul. Birth/death dates live here. An Individual ALWAYS lives in a
+ *       geographic place (its body is somewhere), can "birth" new Individuals, and
+ *       can create separate Organisms. System-only.
+ *   - `organism`   — a living entity at the level of Society (glyph: a circle): the
+ *       hidden body of a person, OR a separate organism such as a company,
+ *       institution, etc. Tracks its Creator(s); has a lifespan (a body-Organism
+ *       matches its Individual's birth–death, a separate one is open-ended until
+ *       "killed"). Lives as its own node in Society, even when created by an
+ *       Individual. `entity0` (the root "All Life" home in its opened-state form)
+ *       is an Organism, and a way of seeing the world — a point of view expressing
+ *       a reading of what matters in its environment. A company is one such reading.
+ *
+ * The active-account path is: Soul (dot) → Individual (z) → Organism (body).
+ *
+ * LIFELINE: every Individual and Organism owns one Lifeline — the canonical master
+ * timeline onto which all its Events, Instants, scheduled Tasks, etc. project.
+ *
+ * AGGREGATE LENSES (views over entities, not kinds): Population = all Individuals;
+ * Society = Individuals + Organisms; Culture = Individuals + Organisms + Law + Art.
  *
  * Containment is recursive: any entity can contain any other entity. The shared
  * attributes below are present on every kind; only some are *relevant* per kind
@@ -69,7 +84,7 @@ export type EntityKind =
   | "instant"
   | "resource"
   | "community"
-  | "organization"
+  | "organism"
   | "individual"
   | "soul"
 

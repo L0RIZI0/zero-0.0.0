@@ -38,8 +38,8 @@ import { cn } from "@/lib/utils"
 
 // Order of kinds offered in the inline create/glyph picker. The identity triad's
 // `individual` and `soul` are deliberately absent — they are system-only — but
-// `organization` is user-creatable (you can spin up a new outermost container).
-const KIND_ORDER: NodeKind[] = ["task", "space", "resource", "event", "instant", "community", "organization"]
+// `organism` is user-creatable (you can spin up a new living entity / company).
+const KIND_ORDER: NodeKind[] = ["task", "space", "resource", "event", "instant", "community", "organism"]
 
 /**
  * Reflow timing for DO-list edits (add / delete): rows glide to make room or
