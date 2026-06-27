@@ -50,11 +50,13 @@ const HOUR_MS = 3_600_000
 const DAY_MS = 86_400_000
 
 // ZOOM-DRIVEN VIEW SWITCH. The Lifelane (linear) morphs into the Atlas (this-week
-// grid) when zoomed OUT so the visible span reaches ~2.5 days. A hysteresis gap
-// (open at 2.5d, fall back to the Lifelane only below 2.2d) stops it flickering when
-// scrubbing right at the boundary. MORPH_MS is how long the shared-element morph runs.
+// grid) when zoomed OUT so the visible span reaches ~2.5 days. Open and close use the
+// SAME threshold so the switch is symmetric (zooming back in flips to the Lifelane at
+// the same span it became the Atlas) — only a tiny epsilon gap remains, purely to stop
+// per-frame flicker when a gesture hovers exactly on the boundary. MORPH_MS is how long
+// the morph runs.
 const ATLAS_OPEN_MS = 2.5 * DAY_MS
-const ATLAS_CLOSE_MS = 2.2 * DAY_MS
+const ATLAS_CLOSE_MS = 2.46 * DAY_MS
 const MORPH_MS = 520
 
 // View-switch glyphs. ATLAS = a SPHERE (a filled orb with a soft sheen — the whole
