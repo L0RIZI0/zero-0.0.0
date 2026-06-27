@@ -388,17 +388,21 @@ export function TimelineStrip({
   // Cross the Lifelane↔Atlas threshold with hysteresis: once in the Atlas, stay until
   // the span drops below the (lower) close threshold, and vice-versa. Flipping `atlas`
   // also opens the brief `morphing` window that drives the per-entity morph.
+  //
+  // All setState happens at the TOP LEVEL of the effect (never inside a `setAtlas`
+  // updater): updater functions must be pure, and React invokes them during render
+  // (twice in dev/concurrent), so calling `setMorphing`/scheduling timers from inside
+  // one triggers "Maximum update depth exceeded". We read `atlas` from state, bail when
+  // it already matches (so re-running after we set it is a no-op — no loop), and only
+  // then flip both flags.
   useEffect(() => {
-    setAtlas((prev) => {
-      const next = prev ? spanMs > ATLAS_CLOSE_MS : spanMs >= ATLAS_OPEN_MS
-      if (next !== prev) {
-        setMorphing(true)
-        if (morphTimer.current) clearTimeout(morphTimer.current)
-        morphTimer.current = setTimeout(() => setMorphing(false), MORPH_MS)
-      }
-      return next
-    })
-  }, [spanMs])
+    const next = atlas ? spanMs > ATLAS_CLOSE_MS : spanMs >= ATLAS_OPEN_MS
+    if (next === atlas) return
+    setAtlas(next)
+    setMorphing(true)
+    if (morphTimer.current) clearTimeout(morphTimer.current)
+    morphTimer.current = setTimeout(() => setMorphing(false), MORPH_MS)
+  }, [spanMs, atlas])
 
   // Publish the Timeline's morph state (atlas + zoom-driven height fraction) to the
   // shared store so WorkSurface can size the band + reserve, and the Dock/DoList can
