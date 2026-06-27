@@ -65,6 +65,9 @@ const ATLAS_CLOSE_EPSILON_MS = 0.04 * DAY_MS
 // beats on the lanes/rails/bars so the opacity fade, the position glide, and the band
 // resize all land together.
 const COLLAPSE_MS = 300
+// Approx height (px) of the collapsed-rail tick tooltip — used to decide whether it
+// fits above the rail or must flip below to avoid the ruler cropping it.
+const TOOLTIP_H = 16
 
 // View-switch glyphs. ATLAS = a SPHERE (a filled orb with a soft sheen — the whole
 // life-plane gathered into one body). LINE = a thick translucent rounded SEGMENT
@@ -1587,18 +1590,25 @@ export function TimelineStrip({
 
             {/* COLLAPSED-RAIL TICK TOOLTIP — one shared floating tag showing the hovered
                 entity's kind GLYPH + title, prefixed (glyph) as requested. Floats just
-                above the rail; pointer-events-none so it never interrupts the hover. */}
-            {hoveredTick && (
-              <div
-                className="pointer-events-none absolute z-40 flex max-w-[30vw] -translate-x-1/2 items-center gap-1 rounded border border-border/70 bg-card px-1.5 py-0.5 text-[9.5px] font-medium leading-none tracking-tight text-foreground/80 shadow-sm animate-in fade-in duration-150"
-                style={{ left: `${hoveredTick.leftPct}%`, top: hoveredTick.top - 16 }}
-              >
-                <span className="h-2.5 w-2.5 shrink-0" style={{ color: hoveredTick.color }}>
-                  <NodeGlyph kind={hoveredTick.kind} filled strokeWidth={2} />
-                </span>
-                <span className="truncate">{hoveredTick.title}</span>
-              </div>
-            )}
+                above the rail, but FLIPS below it when the rail sits too close to the
+                band's top edge (e.g. the first ribbon) so the ruler above doesn't crop
+                it. pointer-events-none so it never interrupts the hover. */}
+            {hoveredTick &&
+              (() => {
+                const flipBelow = hoveredTick.top < TOOLTIP_H + 2
+                const tipTop = flipBelow ? hoveredTick.top + RAIL_H + 2 : hoveredTick.top - TOOLTIP_H
+                return (
+                  <div
+                    className="pointer-events-none absolute z-40 flex max-w-[30vw] -translate-x-1/2 items-center gap-1 rounded border border-border/70 bg-card px-1.5 py-0.5 text-[9.5px] font-medium leading-none tracking-tight text-foreground/80 shadow-sm animate-in fade-in duration-150"
+                    style={{ left: `${hoveredTick.leftPct}%`, top: tipTop }}
+                  >
+                    <span className="h-2.5 w-2.5 shrink-0" style={{ color: hoveredTick.color }}>
+                      <NodeGlyph kind={hoveredTick.kind} filled strokeWidth={2} />
+                    </span>
+                    <span className="truncate">{hoveredTick.title}</span>
+                  </div>
+                )
+              })()}
 
             {/* ribbon left LABELS — pinned to the gutter, painted AFTER the bars so a
                 chip that reaches the left edge passes BEHIND the label, not over it.
