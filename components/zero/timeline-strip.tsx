@@ -1741,16 +1741,22 @@ export function TimelineStrip({
                       className="flex items-center gap-1.5 overflow-visible"
                       style={{
                         opacity: collapsedTarget ? 0 : 1,
-                        // A narrow chip's title BLEEDS right (overflow-visible), so the chip
-                        // LOOKS far wider than its colored box (which already equals the rail
-                        // tick). Fading that label in 110ms made the apparent width SNAP to the
-                        // tick almost instantly (the "width jump" the user saw). Fade it over a
-                        // big slice of the collapse instead, so the apparent width RETRACTS
-                        // smoothly down to the tick across the whole flight. Expand stays a
-                        // delayed quick fade-in so the box grows first, then the label appears.
+                        // A chip's colored BOX width is just its time-span % (boxStyle.width),
+                        // but its glyph + title BLEED right via overflow-visible — so the chip
+                        // LOOKS as wide as its label regardless of the box. On AUTO-collapse you
+                        // zoom out, the box shrinks toward a near-dot tick, yet the bleeding
+                        // label stayed at full width and only faded OPACITY — so it masked the
+                        // shrinking box, then blinked out, revealing the dot abruptly (the
+                        // "width jumps to the highlight's tiny span" the user saw). Fix: RETRACT
+                        // the label horizontally (scaleX → 0 from its LEFT origin, where the
+                        // glyph/tick anchors) in sync with the fade, so the visible width slides
+                        // down into the dot instead of vanishing in place. Expand reverses it
+                        // (delayed, so the box grows first, then the label unfurls).
+                        transform: collapsedTarget ? "scaleX(0)" : "scaleX(1)",
+                        transformOrigin: "left center",
                         transition: collapsedTarget
-                          ? `opacity ${Math.round(COLLAPSE_MS * 0.7)}ms ease-out`
-                          : "opacity 150ms ease-out 150ms",
+                          ? `opacity ${Math.round(COLLAPSE_MS * 0.7)}ms ease-out, transform ${COLLAPSE_MS}ms ease-out`
+                          : "opacity 150ms ease-out 150ms, transform 220ms ease-out 120ms",
                       }}
                     >
                       <span className="h-2.5 w-2.5 shrink-0" style={{ color: b.color || "var(--muted-foreground)" }}>
