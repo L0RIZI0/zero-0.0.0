@@ -248,9 +248,14 @@ function packRibbons(
 export function TimelineStrip({
   contextId,
   accent,
+  atlasLayer,
 }: {
   contextId: string
   accent?: string
+  // The card-level layer the Atlas renders INTO (portal target). It sits behind the
+  // do-list/dock (later in the card's DOM) and below the app header (a sibling outside
+  // the card), so the Atlas reads as a full-bleed backdrop, not a takeover overlay.
+  atlasLayer?: HTMLElement | null
 }) {
   const { stack, dataVersion, notifyDataChanged, open } = useZeroNav()
   const [menu, setMenu] = useState<ContextMenuState | null>(null)
@@ -1458,57 +1463,31 @@ export function TimelineStrip({
         </div>
       </motion.div>
 
-      {/* ATLAS — the Lifeline's fullscreen view. A fixed, viewport-covering morph of
-          the Lifelane: the backdrop fades in while the period plane expands up from
-          the strip (transform-origin top), so it reads as the Lifelane unfolding into
-          a full-screen map. Today it renders the serpentine week grid; future zoom
-          levels (days→weeks→months→…→decades) will fill the same plane. PORTALED to
-          document.body so it escapes the timeline's transformed ancestors (motion
-          regions create stacking contexts) and truly covers the app header (z-40). */}
-      {typeof document !== "undefined" &&
+      {/* ATLAS — the Lifeline's full-bleed view. No longer a fullscreen takeover: it is
+          PORTALED into a card-level layer (`atlasLayer`) that sits BEHIND the do-list /
+          dock and BELOW the app header, so the Atlas reads as a backdrop the persistent
+          chrome floats over (not a panel that covers everything). `absolute inset-0`
+          fills that layer (= the work-surface card, i.e. everything under the header).
+          Opacity-only fade (NO scale): a parent transform would skew the absolute rects
+          motion uses for the per-entity layoutId morph, so the entities carry the motion
+          while the plane just fades in. The week view has its own date-column header and
+          the view is zoom-driven, so there's no internal title/back bar anymore. */}
+      {atlasLayer &&
         createPortal(
           <AnimatePresence>
             {atlas && (
               <motion.div
-                className="fixed inset-0 z-[150] flex flex-col bg-background"
+                className="absolute inset-0"
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
                 transition={layerTransition}
               >
-            <div className="flex shrink-0 items-center justify-between border-b border-border px-4 py-2.5">
-              <div className="flex items-baseline gap-2">
-                <AtlasGlyph className="h-4 w-4 translate-y-0.5 text-foreground" />
-                <span className="text-sm font-semibold tracking-tight text-foreground">Atlas</span>
-                <span className="text-[11px] text-muted-foreground">This week</span>
-              </div>
-              <button
-                type="button"
-                onClick={goNow}
-                aria-label="Zoom in to the Lifelane"
-                title="Zoom in to the Lifelane (linear)"
-                className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-secondary/50 hover:text-foreground"
-              >
-                <LineGlyph className="h-3.5 w-3.5" />
-                Lifelane
-              </button>
-            </div>
-            {/* Opacity-only fade (NO scale): a parent transform would skew the absolute
-                rects motion uses for the per-entity layoutId morph, so the entities
-                themselves carry the motion while the plane just fades in. */}
-            <motion.div
-              className="relative flex-1 overflow-hidden"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={panelTransition}
-            >
-              <TimelineWeek items={serpItems} now={now} morphing={morphing} onOpen={openFromChip} onMenu={openMenu} />
-            </motion.div>
-          </motion.div>
+                <TimelineWeek items={serpItems} now={now} morphing={morphing} onOpen={openFromChip} onMenu={openMenu} />
+              </motion.div>
             )}
           </AnimatePresence>,
-          document.body,
+          atlasLayer,
         )}
 
       <ContextMenu state={menu} onClose={() => setMenu(null)} />

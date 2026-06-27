@@ -83,6 +83,12 @@ export function WorkSurface() {
   const regionElRef = useRef<HTMLDivElement | null>(null)
   const timelineElRef = useRef<HTMLDivElement | null>(null)
   const [timelineH, setTimelineH] = useState(0)
+  // The Atlas backdrop layer. The Lifelane (in TimelineStrip) portals the Atlas into
+  // this card-level element, which sits BEHIND the do-list/dock (rendered later in the
+  // card) and BELOW the app header (a sibling outside the card) — so the Atlas reads as
+  // a full-bleed backdrop the chrome floats over, not a fullscreen takeover. Tracked in
+  // state (callback ref) so TimelineStrip re-renders once the target node exists.
+  const [atlasLayer, setAtlasLayer] = useState<HTMLDivElement | null>(null)
   const setRegionRef = useCallback((el: HTMLDivElement | null) => {
     regionElRef.current = el
     registerStage(el)
@@ -134,6 +140,13 @@ export function WorkSurface() {
         } as React.CSSProperties
       }
     >
+      {/* ATLAS BACKDROP LAYER — the bottom layer of the card. The Atlas (this-week
+          grid) is portaled in here by the Lifelane, so it fills the card (everything
+          under the header) yet paints BEHIND the do-list/dock (later siblings) and the
+          app header (outside the card). `rounded-md` + `overflow-hidden` clip it to the
+          card; no z-index so DOM order keeps it beneath the later region content. */}
+      <div ref={setAtlasLayer} className="absolute inset-0 overflow-hidden rounded-md" aria-hidden />
+
       {/* REGION 1 — the LIFELANE (the Lifeline's linear view; the root Organism's
           master timeline), an ABSOLUTE OVERLAY (not in flow), so region 0 below can
           fill the whole card and the Lifelane can float at the active entity's header
@@ -151,7 +164,7 @@ export function WorkSurface() {
           animate={{ top: timelineTop }}
           transition={layerTransition}
         >
-          <TimelineStrip contextId={contextId} accent={accent} />
+          <TimelineStrip contextId={contextId} accent={accent} atlasLayer={atlasLayer} />
         </motion.div>
       ) : null}
 
