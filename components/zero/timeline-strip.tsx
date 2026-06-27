@@ -75,15 +75,33 @@ const COLLAPSE_MS = 480
 // known per element (`!collapsedTarget` / `!blk.collapsed`), so each morph picks its
 // duration/ease via `morphTween`. CSS twins (`EXPAND_EASE_CSS`) mirror the same curve.
 const EXPAND_MS = Math.round(COLLAPSE_MS * 1.5)
+// The pushed stack + band + do-list reflow runs a touch longer than the ribbon morph so
+// the glide reads slow/smooth after its prompt start.
+const REFLOW_MS = Math.round(COLLAPSE_MS * 1.75)
+// Two expand curves, by ROLE:
+//  • EXPAND_EASE — soft ease-IN-out (low initial velocity). Used ONLY for the FOLDING
+//    ribbon's own "fall" (its chips/column), where a gentle build-up reads well: the
+//    ribbon shouldn't lurch open.
+//  • REFLOW_EASE — prompt ease-OUT (high initial velocity, long gentle tail). Used for the
+//    BAND height + the whole pushed stack + (via the band → ResizeObserver) the do-list.
+//    A slow-start curve here made the do-list look like it only began moving AFTER the
+//    timeline (the lag the user flagged): the band barely moved for the first ~150ms. An
+//    ease-out moves immediately, so the do-list starts a hair after the timeline and still
+//    eases slowly to rest. Collapse already used "ease-out" everywhere (also prompt).
 const EXPAND_EASE: [number, number, number, number] = [0.45, 0, 0.25, 1]
 const EXPAND_EASE_CSS = "cubic-bezier(0.45, 0, 0.25, 1)"
-// Framer transition for a morphing element. `animating` = mid (un)collapse; `expanding`
-// = the un-collapse direction (slower + soft ease-in-out). Outside a morph it's the
-// 300ms repack glide. CSS-transition spots build the equivalent string inline.
-function morphTween(animating: boolean, expanding: boolean) {
+// Standard ease-OUT-cubic: a moderate initial velocity (so motion is visible from frame 1,
+// unlike the soft ease-in) but NOT the violent front-load of ease-out-expo (which finished
+// in ~270ms and read as fast). It spreads the glide across the duration so it feels slow.
+const REFLOW_EASE: [number, number, number, number] = [0.215, 0.61, 0.355, 1]
+const REFLOW_EASE_CSS = "cubic-bezier(0.215, 0.61, 0.355, 1)"
+// Framer transition for a morphing element. `animating` = mid (un)collapse; `expanding` =
+// the un-collapse direction. `soft` picks the slow-start fall curve (folding ribbon) vs the
+// prompt reflow curve (pushed siblings). Outside a morph it's the 300ms repack glide.
+function morphTween(animating: boolean, expanding: boolean, soft = true) {
   if (!animating) return { duration: 0.3, ease: "easeOut" as const }
   return expanding
-    ? { duration: EXPAND_MS / 1000, ease: EXPAND_EASE }
+    ? { duration: (soft ? EXPAND_MS : REFLOW_MS) / 1000, ease: soft ? EXPAND_EASE : REFLOW_EASE }
     : { duration: COLLAPSE_MS / 1000, ease: "easeOut" as const }
 }
 // Approx height (px) of the collapsed-rail tick tooltip — used to decide whether it
@@ -833,8 +851,10 @@ export function TimelineStrip({
   // shared values; `reflowTransition(props)` builds the CSS string (undefined at rest → the
   // element keeps its Tailwind `duration-300`). NOT applied during a ZOOM fold (the band is
   // instant there and chips already share `collapseAnimating` timing).
-  const reflowMs = bandExpanding ? EXPAND_MS : COLLAPSE_MS
-  const reflowEase = bandExpanding ? EXPAND_EASE_CSS : "ease-out"
+  const reflowMs = bandExpanding ? REFLOW_MS : COLLAPSE_MS
+  // Prompt ease-OUT in both directions so the band (and the do-list tracking it) starts
+  // moving immediately rather than crawling for the first ~150ms of a soft ease-in.
+  const reflowEase = bandExpanding ? REFLOW_EASE_CSS : "ease-out"
   const reflowTransition = (props: string) => (manualFolding ? `${props.split(",").map((p) => `${p.trim()} ${reflowMs}ms ${reflowEase}`).join(", ")}` : undefined)
   const bandTransition = reflowTransition("height")
   const bandH = lifelaneBandH
@@ -849,9 +869,10 @@ export function TimelineStrip({
     // Open this mother's manual-fold animation window (see `animatingMothers`).
     setAnimatingMothers((m) => ({ ...m, [id]: (m[id] ?? 0) + 1 }))
     if (animTimers.current[id]) clearTimeout(animTimers.current[id])
-    // `collapsed` is the CURRENT state, so we're expanding when it was collapsed → hold
-    // the window for the longer EXPAND_MS to cover the slower soft-start un-collapse.
-    const windowMs = collapsed ? EXPAND_MS : COLLAPSE_MS
+    // `collapsed` is the CURRENT state, so we're expanding when it was collapsed → hold the
+    // window for the LONGEST expand animation (the reflow, REFLOW_MS > the ribbon's own
+    // EXPAND_MS fall) so nothing's transition is cut off before it finishes.
+    const windowMs = collapsed ? REFLOW_MS : COLLAPSE_MS
     animTimers.current[id] = setTimeout(() => {
       setAnimatingMothers((m) => {
         const next = { ...m }
@@ -1561,7 +1582,7 @@ export function TimelineStrip({
                       barAnimating
                         ? { top: morphTween(true, !collapsedTarget), opacity: { duration: 0.2, ease: "easeOut" } }
                         : manualFolding
-                          ? { top: morphTween(true, bandExpanding), opacity: panelTransition }
+                          ? { top: morphTween(true, bandExpanding, false), opacity: panelTransition }
                           : { top: { duration: 0.3, ease: "easeOut" }, opacity: panelTransition }
                     }
                     onClick={() => b.entity && openFromChip(b.entity.id)}
@@ -1633,10 +1654,10 @@ export function TimelineStrip({
                   className="absolute"
                   initial={barAnimating ? { top: railTopPx, height: RAIL_H - 2 } : false}
                   animate={{ top: barTop(lane), height: collapsedTarget ? RAIL_H - 2 : 24 }}
-                  // `barAnimating` = THIS ribbon is folding (falls from/into the rail).
-                  // `manualFolding` (sibling) = just reposition `top`, but on the SAME fold
-                  // timing so the pushed ribbons glide in lockstep with the band/do-list.
-                  transition={morphTween(barAnimating || manualFolding, barAnimating ? !collapsedTarget : bandExpanding)}
+                  // `barAnimating` = THIS ribbon is folding (falls from/into the rail) → soft
+                  // fall curve. `manualFolding` (sibling) = just reposition `top`, on the
+                  // prompt reflow curve so the pushed ribbons glide in lockstep with the band.
+                  transition={morphTween(barAnimating || manualFolding, barAnimating ? !collapsedTarget : bandExpanding, barAnimating)}
                   style={{
                     left: boxStyle.left,
                     width: collapsedTarget ? `calc(${Math.max(widthPct, 0.6)}% - 2px)` : boxStyle.width,
@@ -1890,25 +1911,26 @@ export function TimelineStrip({
                       height: blk.collapsed ? RAIL_H : blk.height,
                       opacity: related ? 1 : UNRELATED_OPACITY,
                     }}
-                    transition={morphTween(blkAnimating(blk) || manualFolding, bandExpanding)}
+                    transition={morphTween(blkAnimating(blk) || manualFolding, bandExpanding, blkAnimating(blk))}
                     className="absolute z-20 overflow-visible rounded border border-border/70 bg-card text-[9.5px] font-semibold leading-none tracking-tight shadow-sm hover:brightness-125"
                     style={{ left: 4, width: MOTHER_COL_W - 4, color: blk.m.color, borderColor: `${blk.m.color}40` }}
                   >
-                    {/* Title centered both axes; rotates about its OWN CENTER so the vertical
-                        (−90°) label stays centered + truncated in the column, then spins to
-                        horizontal (0°) as the column flattens toward the rail. The span has a
-                        FIXED `width: titleMax` and `shrink-0`: rotation is post-layout, so if
-                        we let it be a normal flex child it shrank to the ~14px column width
-                        and ellipsis-truncated BEFORE rotating ("Day Job" → "D…"). A fixed
-                        width = the vertical room it occupies after rotation, so the full title
-                        lays out (and only ellipsises when the column is genuinely too short). */}
+                    {/* Title centered both axes, ALWAYS vertical (−90°). It no longer ROTATES
+                        to horizontal on collapse — the user wanted the vertical title simply
+                        FADED OUT as the column shrinks (the horizontal rail label crossfades in
+                        at the rail instead). So `rotate` is constant and only `opacity` animates
+                        (1 expanded → 0 collapsed), with a quick fade so it clears early as the
+                        column flattens. The span keeps its FIXED `width: titleMax` + `shrink-0`:
+                        rotation is post-layout, so as a normal flex child it shrank to the ~14px
+                        column width and ellipsis-truncated ("Day Job" → "D…"); the fixed width =
+                        the vertical room it occupies, so the full title lays out. */}
                     <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
                       <motion.span
                         className="block shrink-0 overflow-hidden text-ellipsis whitespace-nowrap text-center"
-                        style={{ width: titleMax }}
+                        style={{ width: titleMax, rotate: "-90deg" }}
                         initial={false}
-                        animate={{ rotate: blk.collapsed ? 0 : -90 }}
-                        transition={morphTween(blkAnimating(blk), !blk.collapsed)}
+                        animate={{ opacity: blk.collapsed ? 0 : 1 }}
+                        transition={{ duration: blk.collapsed ? 0.18 : 0.28, ease: "easeOut" }}
                       >
                         {blk.m.title}
                       </motion.span>
@@ -1926,14 +1948,15 @@ export function TimelineStrip({
             {showRibbons &&
               layout.blocks.map((blk) => {
                 const mId = blk.m.motherId
-                // While a grouped mother is morphing (its rotating column handles the
-                // visual) — whether a zoom or a manual fold (`blkAnimating`) — skip its
-                // rail label so they don't overlap; it appears at settle. The ungrouped
-                // root (no column) keeps its label through the anim.
-                const morphingColumn = blkAnimating(blk) && mId != null
+                // Suppress the grouped rail label only during a ZOOM morph (its title fade +
+                // label appearing at settle is the zoom look). For a MANUAL fold we DO render
+                // it through the morph so it CROSSFADES with the column's vertical title: it
+                // fades IN via `animate-in fade-in` on collapse and fades OUT via the reflow
+                // opacity on expand, exactly as the vertical title fades the opposite way.
+                const morphingColumn = collapseAnimating && mId != null
                 if (!showCollapsed(blk) || morphingColumn) return null
                 const rk = mId ?? `root:${blk.m.baseLane}`
-                const labelOp = blkAnimating(blk) ? 1 : collapsedOpacity(blk)
+                const labelOp = manualFolding ? collapsedOpacity(blk) : blkAnimating(blk) ? 1 : collapsedOpacity(blk)
                 const hoverProps = {
                   onMouseEnter: () => setHoveredMother(rk),
                   onMouseLeave: () => setHoveredMother((h) => (h === rk ? null : h)),
