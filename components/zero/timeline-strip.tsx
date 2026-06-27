@@ -1506,11 +1506,22 @@ export function TimelineStrip({
                 // in at morph-end they're already in place (no end-of-morph fade-in flash).
                 // MORPH wrapper: height tweens 24px → tick height (and `barTop` glides it
                 // onto the rail) so the chip physically COMPRESSES into its highlighted
-                // span. `transition-[top,height]` rides the same 300ms ease as the rail.
+                // span. Its WIDTH/minWidth also tween to the rail-tick's EXACT geometry
+                // (`max(widthPct,0.6)% - 2px`, `minWidth:3`) — without this the chip held
+                // its wider expanded box (`-4px`, `min 0.8%`) the whole slide and then
+                // SNAPPED to the narrower tick at the end (the size jump the user saw).
+                // `transition-[top,height,width]` rides the same 300ms ease as the rail.
                 <motion.div
                   key={b.key}
-                  className="absolute transition-[top,height] duration-300 ease-out"
-                  style={{ ...boxStyle, height: collapsedTarget ? RAIL_H - 2 : 24 }}
+                  className="absolute transition-[top,height,width] duration-300 ease-out"
+                  style={{
+                    ...boxStyle,
+                    height: collapsedTarget ? RAIL_H - 2 : 24,
+                    width: collapsedTarget
+                      ? `calc(${Math.max(widthPct, 0.6)}% - 2px)`
+                      : boxStyle.width,
+                    minWidth: collapsedTarget ? 3 : undefined,
+                  }}
                 >
                   <motion.button
                     type="button"
