@@ -30,7 +30,6 @@ import {
   clampSpan,
   VIEW_SPAN_MS,
   MIN_SPAN_MS,
-  MAX_SPAN_MS,
 } from "@/lib/zero/timeline-scale"
 import type { Entity } from "@/lib/zero/types"
 import { panelTransition, layerTransition } from "@/lib/zero/motion"
@@ -369,13 +368,6 @@ export function TimelineStrip({
   const [morphing, setMorphing] = useState(false)
   const morphTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   useEffect(() => () => void (morphTimer.current && clearTimeout(morphTimer.current)), [])
-  // ATLAS horizontal pan, in whole days from "today" (drag the week left/right to
-  // reach earlier/later days). Reset whenever the Atlas closes so reopening re-centers
-  // on today rather than wherever it was last left.
-  const [weekPanDays, setWeekPanDays] = useState(0)
-  useEffect(() => {
-    if (!atlas) setWeekPanDays(0)
-  }, [atlas])
 
   // --- Mother-ribbon folding state -----------------------------------------
   // `override` pins a mother's collapsed state to the user's explicit choice; it
@@ -465,7 +457,14 @@ export function TimelineStrip({
       setVp(next)
     },
     minSpan: MIN_SPAN_MS,
-    maxSpan: MAX_SPAN_MS,
+    // Cap the zoom-OUT at the Atlas-open span. The Atlas IS the most zoomed-out view
+    // (the week grid), so the Lifelane viewport never needs to exceed it. Without this
+    // cap the span could keep gliding far past the threshold (the spring carries
+    // momentum, and the old max was 120y), so returning meant zooming all the way back
+    // from wherever the momentum parked it — the "scroll forever / random ticks back to
+    // the Lifelane" bug. Capped here, the span parks AT the threshold, so a single
+    // zoom-in notch crosses straight back: entry and exit are symmetric and continuous.
+    maxSpan: ATLAS_OPEN_MS,
     // Re-bind the wheel listener once the real viewport replaces the placeholder.
     enabled: mounted,
     onGestureStart: () => {
@@ -836,8 +835,12 @@ export function TimelineStrip({
   const showDayCells = spanMs <= ATLAS_OPEN_MS * 2
 
   // --- Plane morph pairs ----------------------------------------------------
-  // The panned center of the Atlas week (today shifted by whole-day drags).
-  const weekCenter = startOfDay(now) + weekPanDays * DAY_MS
+  // The Atlas centers on the SAME time the Lifelane viewport is looking at (its
+  // center day), NOT a separate `now`-anchored value. This keeps the two views one
+  // continuous model: zooming out frames the Atlas on the day you were viewing, and
+  // zooming back in returns the Lifelane to exactly that spot (no "jump to today /
+  // default view"). Atlas drag-pan shifts this same viewport (see onPanDays below).
+  const weekCenter = startOfDay(startMs + spanMs / 2)
   // Card-y of the Lifelane's first lane row: top pad + the label band that sits
   // above the track. Day-bands span the full (zoom-grown) band height.
   const laneBandTopY = TIMELINE_TOP_PAD + LIFELANE_LABEL_BAND_H
@@ -1637,7 +1640,7 @@ export function TimelineStrip({
               centerMs={weekCenter}
               width={width}
               viewHeightPx={viewHeightPx ?? 0}
-              onPanDays={(d) => setWeekPanDays((p) => p + d)}
+              onPanDays={(d) => setVp((v) => ({ ...v, startMs: v.startMs + d * DAY_MS }))}
               onOpen={openFromChip}
               onMenu={openMenu}
             />
