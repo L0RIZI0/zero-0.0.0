@@ -61,6 +61,10 @@ const ATLAS_PX_PER_DAY = 560
 const ATLAS_MIN_DAYS = 2.5
 const ATLAS_MAX_DAYS = 6
 const ATLAS_CLOSE_EPSILON_MS = 0.04 * DAY_MS
+// Duration of the ribbon (un)collapse crossfade. Matches the 300ms `transition-[…]`
+// beats on the lanes/rails/bars so the opacity fade, the position glide, and the band
+// resize all land together.
+const COLLAPSE_MS = 300
 
 // View-switch glyphs. ATLAS = a SPHERE (a filled orb with a soft sheen — the whole
 // life-plane gathered into one body). LINE = a thick translucent rounded SEGMENT
@@ -381,6 +385,21 @@ export function TimelineStrip({
   // from flickering when a gesture parks right on the boundary; CSS transitions on the
   // rails/lanes/bars below do the actual (un)collapse easing.
   const [zoomCollapsed, setZoomCollapsed] = useState(false)
+  // SMOOTH (UN)COLLAPSE. `zoomCollapsed` is the TARGET; `displayCollapsed` LAGS it by
+  // one MORPH window. While they differ we are `collapseAnimating`: BOTH the expanded
+  // layer (lanes/bars/labels) and the collapsed layer (rails/ticks) are kept mounted
+  // and CROSSFADE via opacity (CSS transition for the side that persists, `animate-in
+  // fade-in` for the side that mounts). After the window `displayCollapsed` catches up
+  // and the hidden layer unmounts — so steady state stays cheap (no doubled DOM, and at
+  // extreme zoom-out the lane bars are gone). The band height also tweens between the
+  // two layouts so the do-list reflows smoothly instead of jumping.
+  const [displayCollapsed, setDisplayCollapsed] = useState(false)
+  const collapseAnimating = displayCollapsed !== zoomCollapsed
+  useEffect(() => {
+    if (displayCollapsed === zoomCollapsed) return
+    const id = setTimeout(() => setDisplayCollapsed(zoomCollapsed), COLLAPSE_MS)
+    return () => clearTimeout(id)
+  }, [zoomCollapsed, displayCollapsed])
 
   // --- Mother-ribbon folding state -----------------------------------------
   // `override` pins a mother's collapsed state to the user's explicit choice; it
@@ -699,20 +718,23 @@ export function TimelineStrip({
   // its lanes at LANE_H each. `laneToY` maps every VISIBLE global lane to its y;
   // collapsed lanes are absent (their bars render as ticks on the rail instead).
   const layout = useMemo(() => {
-    const blocks: { m: MotherBlock; top: number; height: number; collapsed: boolean }[] = []
+    const blocks: { m: MotherBlock; top: number; height: number; collapsed: boolean; byUser: boolean }[] = []
     const laneToY = new Map<number, number>()
     let y = 0
     for (const m of mothers) {
       // A mother collapses to its rail when EITHER the view is zoomed out past the
       // width-driven threshold (`zoomCollapsed` — folds EVERY ribbon, grouped or not),
       // OR the user has explicitly folded just this one (an entry in `override`).
-      const collapsed = zoomCollapsed || (m.motherId != null && (m.motherId in override ? override[m.motherId] : false))
+      // `byUser` records the manual case: it collapses INSTANTLY (no zoom crossfade)
+      // and its rail stays put even while a zoom (un)collapse animates around it.
+      const byUser = m.motherId != null && (m.motherId in override ? override[m.motherId] : false)
+      const collapsed = zoomCollapsed || byUser
       if (collapsed) {
-        blocks.push({ m, top: y, height: RAIL_H, collapsed: true })
+        blocks.push({ m, top: y, height: RAIL_H, collapsed: true, byUser })
         y += RAIL_H + MOTHER_GAP
       } else {
         const h = m.laneCount * LANE_H + (m.laneCount - 1) * LANE_GAP
-        blocks.push({ m, top: y, height: h, collapsed: false })
+        blocks.push({ m, top: y, height: h, collapsed: false, byUser: false })
         for (let i = 0; i < m.laneCount; i++) laneToY.set(m.baseLane + i, y + i * (LANE_H + LANE_GAP))
         y += h + MOTHER_GAP
       }
@@ -746,6 +768,26 @@ export function TimelineStrip({
   const blockOfLane = (lane: number) =>
     layout.blocks.find((b) => lane >= b.m.baseLane && lane < b.m.baseLane + b.m.laneCount)
   const toggleMother = (id: string, collapsed: boolean) => setOverride((o) => ({ ...o, [id]: !collapsed }))
+
+  // (Un)collapse CROSSFADE gates + opacity targets, per mother block.
+  //  • Expanded layer (lanes, bars, ribbon labels, mother column) shows while the block
+  //    is open, OR while a ZOOM collapse is animating (manual folds `byUser` skip the
+  //    crossfade — they snap, and their rail is independent of the zoom transition).
+  //  • Collapsed layer (rails, ticks, rail labels) shows while the block is a rail, OR
+  //    while ANY collapse is animating (so the outgoing rails can fade out on un-fold).
+  // Opacity targets crossfade the two layers; the side that PERSISTS across the toggle
+  // eases via its `transition-opacity`, the side that MOUNTS fades via `animate-in`.
+  type Blk = (typeof layout.blocks)[number]
+  const showExpanded = (blk: Blk) => !blk.collapsed || (collapseAnimating && !blk.byUser)
+  const showCollapsed = (blk: Blk) => blk.collapsed || collapseAnimating
+  const expandedOpacity = (blk: Blk) => (blk.collapsed ? 0 : 1)
+  const collapsedOpacity = (blk: Blk) => (blk.collapsed ? 1 : 0)
+  // Where a bar sits while its block is collapsed: centered on the thin rail, so on
+  // fold it GLIDES down into the rail (then fades) instead of staying at its old lane.
+  const barTop = (lane: number) => {
+    const blk = blockOfLane(lane)
+    return blk?.collapsed ? offsetY + blk.top : laneTop(lane)
+  }
 
   // Vertical stacking so cluster/pin LEFT-side labels don't collide. Footprint is
   // [x - estLabelWidth, x] in px; greedy interval packing by left edge.
@@ -998,7 +1040,7 @@ export function TimelineStrip({
           widens toward the Atlas snap. Height is applied INSTANTLY (no tween): the zoom
           itself is already eased via the span spring, so the band glides; a per-frame
           height tween would instead lag behind the zoom. */}
-      <div className="relative -mx-6" style={{ height: lifelaneBandH }}>
+      <div className="relative -mx-6 transition-[height] duration-300 ease-out" style={{ height: lifelaneBandH }}>
         {/* Instant layer — pins (singletons) and density bubbles (clusters). */}
         <div
           className="pointer-events-none absolute inset-y-0 z-30"
