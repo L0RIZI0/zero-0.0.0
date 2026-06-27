@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react"
 import { motion } from "motion/react"
 import { useTheme } from "next-themes"
 import { useZeroNav } from "@/lib/zero/nav-store"
@@ -96,7 +96,6 @@ export function WorkSurface() {
   // `trackH` taller. We measure it so the do-list reserve covers the real band and the
   // timeline never overlaps the create-row / task rows.
   const timelineElRef = useRef<HTMLDivElement | null>(null)
-  const [timelineH, setTimelineH] = useState(0)
   // The Atlas backdrop layer. The Lifelane (in TimelineStrip) portals the Atlas into
   // this card-level element, which sits BEHIND the do-list/dock (rendered later in the
   // card) and BELOW the app header (a sibling outside the card) — so the Atlas reads as
@@ -116,34 +115,56 @@ export function WorkSurface() {
     ro.observe(el)
     return () => ro.disconnect()
   }, [])
-  useEffect(() => {
+  // The do-list (region 0) starts below the overlay timeline by reserving its bottom via
+  // the `--region1-reserve` CSS var. The var is written DIRECTLY to the card's style from
+  // the ResizeObserver — NOT through React state — on purpose: the band's height animates
+  // via a CSS transition (every frame, on the compositor), and a `setState(timelineH)` per
+  // frame would re-render the whole WorkSurface→EntityBody→DoList tree and only update the
+  // var on the NEXT commit, so the do-list trailed the band by a frame-plus and stuttered
+  // ("moves too late"). Writing the var imperatively means the ResizeObserver fires after
+  // layout and before paint IN THE SAME FRAME the band resizes, the dependent do-list
+  // `paddingTop` (a `calc()` on this var) recomputes in that same pass — so region 0 moves
+  // up the instant region 1 shrinks, with zero React in the loop. Refs feed the non-band
+  // inputs (atlas reserve / window offset / card height) so the writer always reads current
+  // values without re-subscribing.
+  const atlasRef = useRef(atlas)
+  atlasRef.current = atlas
+  const windowOpenRef = useRef(windowOpen)
+  windowOpenRef.current = windowOpen
+  const cardHRef = useRef(cardH)
+  cardHRef.current = cardH
+  const writeReserve = useCallback(() => {
+    const card = cardElRef.current
+    const el = timelineElRef.current
+    if (!card || !el) return
+    const reservePx = atlasRef.current
+      ? Math.round(TIMELINE_ATLAS_DOLIST_TOP_FRAC * cardHRef.current)
+      : el.offsetHeight
+    const reserve = (windowOpenRef.current ? 0 : TIMELINE_TOP_PAD) + reservePx
+    card.style.setProperty("--region1-reserve", `${reserve}px`)
+  }, [])
+  // useLayoutEffect so the var is written before the first paint (no flash) and the RO is
+  // attached synchronously; the band's per-frame size changes then drive it directly.
+  useLayoutEffect(() => {
+    if (!hasTimeline) return
     const el = timelineElRef.current
     if (!el) return
-    const measure = () => setTimelineH(el.offsetHeight)
-    measure()
-    const ro = new ResizeObserver(measure)
+    writeReserve()
+    const ro = new ResizeObserver(writeReserve)
     ro.observe(el)
     return () => ro.disconnect()
-  }, [hasTimeline])
-  // Reserve = the timeline's BOTTOM measured FROM THE CONSUMING BODY'S TOP (the
-  // do-list region pads by this). `timelineTop` is in CARD coords, but the consuming
-  // body's top is also offset within the card: 0 for home (body == region 0 == card),
-  // HEADER_BAND_H for an open window (body sits below its header). Those offsets are
-  // exactly `windowOpen ? HEADER_BAND_H : 0`, and since `timelineTop` equals that same
-  // offset (+ TIMELINE_TOP_PAD only at home), the body-relative reserve collapses to
-  // `(home ? TIMELINE_TOP_PAD : 0) + timelineH`. This keeps content flush under the
-  // timeline in BOTH home and windows from a single shared var.
-  // The do-list reserve = the band's bottom. In LIFELANE we use the band's MEASURED
-  // height (`timelineH`), which now rests at the timeline's content height and grows
-  // only as you zoom out — so the do-list rests just under the small resting band and
-  // is nudged DOWN only as the band actually expands toward it (not pre-pushed by a
-  // fixed third of the card). The timeline paints BEHIND the do-list/dock, so the
-  // one-frame lag between the band growing and this measure updating is invisible. In
-  // ATLAS the grid fills ~88% but the do-list FLOATS OVER its lower edge (compact
-  // create-row + 3-row scroller above the dock), so we reserve only to the smaller
-  // `TIMELINE_ATLAS_DOLIST_TOP_FRAC` of the card instead of the full grid height.
-  const reservePx = atlas ? Math.round(TIMELINE_ATLAS_DOLIST_TOP_FRAC * cardH) : timelineH
-  const region1Reserve = (windowOpen ? 0 : TIMELINE_TOP_PAD) + reservePx
+  }, [hasTimeline, writeReserve])
+  // Re-write when the NON-band inputs change (atlas toggle, window open/close, card resize).
+  useLayoutEffect(() => {
+    writeReserve()
+  }, [atlas, windowOpen, cardH, timelineTop, writeReserve])
+  // (Reserve math lives in `writeReserve` above. Body-relative offset note: `timelineTop`
+  // is in CARD coords, but the consuming body's top is also offset within the card — 0 for
+  // home, HEADER_BAND_H for an open window — and `timelineTop` equals that same offset (+
+  // TIMELINE_TOP_PAD only at home), so the body-relative reserve collapses to
+  // `(home ? TIMELINE_TOP_PAD : 0) + bandBottom`. In ATLAS the grid fills ~88% but the
+  // do-list floats over its lower edge, so we reserve only `TIMELINE_ATLAS_DOLIST_TOP_FRAC`
+  // of the card instead of the measured height.)
 
   // Home is window 0 in the telescopic surface model. In DARK mode it stays on
   // pure --background (level 0) at every depth — a no-op. In LIGHT mode it is the
@@ -168,9 +189,10 @@ export function WorkSurface() {
         {
           backgroundColor: homeSurface,
           transition: homeBgTransition,
-          // The timeline's reserved bottom, consumed by EntityBody (home + every
-          // fixed window) so content sits below the overlay timeline.
-          "--region1-reserve": `${region1Reserve}px`,
+          // NOTE: `--region1-reserve` (the timeline's reserved bottom, consumed by
+          // EntityBody) is written IMPERATIVELY in `writeReserve` (see above), not here,
+          // so the do-list tracks the band's CSS height transition every frame without a
+          // React re-render in the loop.
         } as React.CSSProperties
       }
     >
