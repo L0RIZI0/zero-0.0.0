@@ -1747,23 +1747,24 @@ export function TimelineStrip({
                       className="flex items-center gap-1.5 overflow-visible"
                       style={{
                         opacity: collapsedTarget ? 0 : 1,
-                        // A chip's colored BOX width is just its time-span % (boxStyle.width ≈
-                        // the rail tick width), but its glyph + title BLEED right past the box —
-                        // so the chip LOOKS as wide as its LABEL, not its box. When collapsing
-                        // (worst on AUTO-collapse, where zoom-out has already shrunk the box to a
-                        // near-dot) the label must retract to nothing so the perceived width
-                        // narrows to the tick. Earlier tries failed: scaleX(0) SQUISHED the text
-                        // (distorted), and max-width→0 had a dead zone (a huge cap takes most of
-                        // the duration to reach the real content width before any clip shows =
-                        // "lingers then snaps"). CLIP-PATH is geometry-independent: inset from the
-                        // RIGHT by a PERCENTAGE of the label's own width, so it narrows evenly from
-                        // frame 1 with NO dead zone and no distortion — the title slides under the
-                        // clip edge toward the glyph/tick at the left. inset(0) at rest clips
-                        // nothing, so titles still bleed normally. Expand reverses it, delayed so
-                        // the box grows first then the label unfurls.
+                        // A chip's colored BOX width is just its time-span % (≈ the rail tick),
+                        // but its glyph + title BLEED right past the box — so a NARROW event
+                        // (e.g. box 37px, label bleeds to 78px) LOOKS ~2× as wide as its tick.
+                        // On collapse the perceived width must retract from the full label down to
+                        // the box/tick. We do that by CLIPPING the label from the RIGHT (clip-path
+                        // inset %, geometry-independent, no distortion): as the inset grows the
+                        // bleeding title slides left under the clip edge until only the box (tick)
+                        // remains. CRITICAL: timing is LINEAR, not ease-out. An ease-out clip
+                        // decelerates, so the final sliver of the title CRAWLS for the last ~200ms
+                        // then vanishes — exactly the "lingers then snaps" the user kept seeing.
+                        // Linear retracts at a constant rate so the width slides smoothly into the
+                        // tick with no tail. The clip finishes a touch before the fall lands
+                        // (0.9×) so there's no leftover label on the last frame. inset(0) at rest
+                        // clips nothing (titles bleed normally). Expand reverses it, delayed so the
+                        // box grows first then the label unfurls.
                         clipPath: collapsedTarget ? "inset(0 100% 0 0)" : "inset(0 0 0 0)",
                         transition: collapsedTarget
-                          ? `opacity ${Math.round(COLLAPSE_MS * 0.85)}ms ease-out, clip-path ${COLLAPSE_MS}ms ease-out`
+                          ? `opacity ${Math.round(COLLAPSE_MS * 0.55)}ms linear, clip-path ${Math.round(COLLAPSE_MS * 0.9)}ms linear`
                           : "opacity 200ms ease-out 160ms, clip-path 340ms ease-out 140ms",
                       }}
                     >
