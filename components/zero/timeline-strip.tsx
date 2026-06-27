@@ -33,7 +33,7 @@ import {
 } from "@/lib/zero/timeline-scale"
 import type { Entity } from "@/lib/zero/types"
 import { panelTransition, layerTransition } from "@/lib/zero/motion"
-import { timelineHeightFrac, TIMELINE_TOP_PAD } from "@/lib/zero/layout"
+import { TIMELINE_LIFELANE_MAX_FRAC, TIMELINE_TOP_PAD } from "@/lib/zero/layout"
 import { setTimelineView } from "@/lib/zero/timeline-view-store"
 import { useZeroNav } from "@/lib/zero/nav-store"
 import { placementKey, resolveOriginRect } from "@/lib/zero/placement"
@@ -60,7 +60,6 @@ const ATLAS_PX_PER_DAY = 560
 const ATLAS_MIN_DAYS = 2.5
 const ATLAS_MAX_DAYS = 6
 const ATLAS_CLOSE_EPSILON_MS = 0.04 * DAY_MS
-const MORPH_MS = 520
 
 // View-switch glyphs. ATLAS = a SPHERE (a filled orb with a soft sheen — the whole
 // life-plane gathered into one body). LINE = a thick translucent rounded SEGMENT
@@ -368,18 +367,19 @@ export function TimelineStrip({
 
   const [hoveredInstant, setHoveredInstant] = useState<string | null>(null)
 
-  // VIEW SWITCH — the Lifeline has two views, now driven entirely by ZOOM:
-  //   • LIFELANE (atlas=false): the linear horizontal track rendered here. Shown when
-  //     zoomed IN (visible span under ~2.5 days).
-  //   • ATLAS (atlas=true): a FULLSCREEN morph rendering the This-week grid. Shown when
-  //     zoomed OUT to a span of ~2.5 days or more. It's a fixed overlay, so the linear
-  //     Lifelane strip stays mounted underneath.
-  // `morphing` is the brief window after a switch during which entities run their
-  // shared-element morph between the two layouts (see layoutId usage below).
-  const [atlas, setAtlas] = useState(false)
-  const [morphing, setMorphing] = useState(false)
-  const morphTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  useEffect(() => () => void (morphTimer.current && clearTimeout(morphTimer.current)), [])
+  // ATLAS DISABLED — kept DORMANT, not deleted. The Lifelane (this linear horizontal
+  // track) is now the ONLY view at every zoom level. `atlas`/`morphing` stay `false`
+  // forever: the threshold effect below no longer flips them, so the Atlas portal and
+  // the morph geometry (`morphPairs`, `<TimelineWeek>`) never activate and cost nothing
+  // to render — but the code is left in place so the Atlas can be re-enabled later
+  // without re-plumbing. Instead of switching views, zooming OUT past the width-driven
+  // threshold now COLLAPSES every ribbon down to its thin rail (`zoomCollapsed`).
+  const [atlas] = useState(false)
+  const [morphing] = useState(false)
+  // Zoom-driven "collapse all ribbons" flag. Hysteresis (open/close epsilon) keeps it
+  // from flickering when a gesture parks right on the boundary; CSS transitions on the
+  // rails/lanes/bars below do the actual (un)collapse easing.
+  const [zoomCollapsed, setZoomCollapsed] = useState(false)
 
   // --- Mother-ribbon folding state -----------------------------------------
   // `override` pins a mother's collapsed state to the user's explicit choice; it
@@ -399,33 +399,23 @@ export function TimelineStrip({
 
   // Cross the Lifelane↔Atlas threshold with hysteresis: once in the Atlas, stay until
   // the span drops below the (lower) close threshold, and vice-versa. Flipping `atlas`
-  // also opens the brief `morphing` window that drives the per-entity morph.
-  //
-  // All setState happens at the TOP LEVEL of the effect (never inside a `setAtlas`
-  // updater): updater functions must be pure, and React invokes them during render
-  // (twice in dev/concurrent), so calling `setMorphing`/scheduling timers from inside
-  // one triggers "Maximum update depth exceeded". We read `atlas` from state, bail when
-  // it already matches (so re-running after we set it is a no-op — no loop), and only
-  // then flip both flags.
+  // Cross the "collapse everything" threshold with hysteresis: once collapsed, stay
+  // collapsed until the span shrinks back below the (slightly lower) close threshold,
+  // and vice-versa — so a gesture parked on the boundary can't flicker the whole stack.
+  // setState happens at the TOP LEVEL with an early bail when the value already matches
+  // (so re-running after we set it is a no-op — no render loop).
   useEffect(() => {
-    const next = atlas ? spanMs > atlasCloseMs : spanMs >= atlasOpenMs
-    if (next === atlas) return
-    setAtlas(next)
-    setMorphing(true)
-    if (morphTimer.current) clearTimeout(morphTimer.current)
-    morphTimer.current = setTimeout(() => setMorphing(false), MORPH_MS)
-  }, [spanMs, atlas, atlasOpenMs, atlasCloseMs])
+    const next = zoomCollapsed ? spanMs > atlasCloseMs : spanMs >= atlasOpenMs
+    if (next === zoomCollapsed) return
+    setZoomCollapsed(next)
+  }, [spanMs, zoomCollapsed, atlasOpenMs, atlasCloseMs])
 
-  // Publish the Timeline's morph state (atlas + zoom-driven height fraction) to the
-  // shared store so WorkSurface can size the band + reserve, and the Dock/DoList can
-  // reflow. heightFrac grows continuously from `VIEW_SPAN_MS.D` (zoomed in) up to the
-  // Atlas threshold, then snaps to the Atlas fraction.
+  // Publish the Timeline's height fraction to the shared store so WorkSurface can size
+  // the band + reserve and the Dock/DoList can reflow. The Lifelane now simply HUGS its
+  // MAX height at every zoom (no growth ramp, no Atlas jump) — one constant fraction.
   useEffect(() => {
-    setTimelineView({
-      atlas,
-      heightFrac: timelineHeightFrac(spanMs, atlas, VIEW_SPAN_MS.D, atlasOpenMs),
-    })
-  }, [spanMs, atlas, atlasOpenMs])
+    setTimelineView({ atlas: false, heightFrac: TIMELINE_LIFELANE_MAX_FRAC })
+  }, [])
 
   // ZOOM ANYWHERE ON THE ATLAS. While the Atlas is open the Lifelane strip is faded +
   // click-through (pointer-events-none), so the gesture viewport no longer catches the
@@ -708,10 +698,10 @@ export function TimelineStrip({
     const laneToY = new Map<number, number>()
     let y = 0
     for (const m of mothers) {
-      // Mothers ONLY collapse when the user explicitly folds them (an entry in
-      // `override`). Entering a subspace no longer auto-collapses the other mothers —
-      // unrelated lanes simply DIM (see relatedFactor) and stay fully laid out.
-      const collapsed = m.motherId != null && (m.motherId in override ? override[m.motherId] : false)
+      // A mother collapses to its rail when EITHER the view is zoomed out past the
+      // width-driven threshold (`zoomCollapsed` — folds EVERY ribbon, grouped or not),
+      // OR the user has explicitly folded just this one (an entry in `override`).
+      const collapsed = zoomCollapsed || (m.motherId != null && (m.motherId in override ? override[m.motherId] : false))
       if (collapsed) {
         blocks.push({ m, top: y, height: RAIL_H, collapsed: true })
         y += RAIL_H + MOTHER_GAP
@@ -724,7 +714,7 @@ export function TimelineStrip({
     }
     return { blocks, laneToY, contentH: Math.max(0, y - MOTHER_GAP) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mothers, override])
+  }, [mothers, override, zoomCollapsed])
 
   const contentH = layout.contentH
   // The track GROWS VERTICALLY to fit the visible lanes (capped so a pathological
@@ -736,15 +726,13 @@ export function TimelineStrip({
   // so it never reshapes this region); the track grows to fit its visible lanes.
   const trackH = Math.max(TRACK_H, stackedH + 2 * TRACK_PAD_Y)
   const offsetY = Math.max(TRACK_PAD_Y, (trackH - contentH) / 2)
-  // LIFELANE BAND HEIGHT — rests at the CONTENT height (`trackH`) and only GROWS toward
-  // the zoom-driven target (`viewHeightPx − label`) as you zoom out from the day view
-  // toward the Atlas snap. So at rest the Lifelane floats small in the top region (it
-  // does NOT pre-claim a third of the card), and it expands vertically only as the span
-  // widens — which is exactly when the do-list should start being nudged down. The band
-  // is rendered BEHIND the do-list/dock, so a one-frame measurement lag is invisible.
-    const growT = Math.min(1, Math.max(0, (spanMs - VIEW_SPAN_MS.D) / (atlasOpenMs - VIEW_SPAN_MS.D)))
+  // LIFELANE BAND HEIGHT — now simply HUGS its MAX height at every zoom: the band always
+  // reserves the full target (`viewHeightPx − label`, where viewHeightPx is the constant
+  // max fraction × card height), never less. No zoom-driven growth ramp and no Atlas
+  // jump — the do-list rests at one stable position below. `trackH` is the floor so a
+  // tall lane pile-up can still push the band taller than the target if it ever needs to.
   const bandTarget = Math.max(0, (viewHeightPx ?? 0) - LIFELANE_LABEL_BAND_H)
-  const lifelaneBandH = Math.max(trackH, trackH + growT * Math.max(0, bandTarget - trackH))
+  const lifelaneBandH = Math.max(trackH, bandTarget)
   // Y of a VISIBLE global lane (collapsed lanes return the block's rail y so any
   // stray positioning lands sanely; their bars are handled separately as chips).
   const laneTop = (lane: number) => offsetY + (layout.laneToY.get(lane) ?? 0)
@@ -1265,28 +1253,44 @@ export function TimelineStrip({
                 )
               })}
 
-            {/* COLLAPSED MOTHER RAILS — a thin clickable bar where a folded mother's
-                lanes used to be. Click anywhere on it (or its label) to reopen. */}
+            {/* COLLAPSED RAILS — a thin bar where a folded ribbon's lanes used to be.
+                Works for EVERY collapsed block (grouped mothers AND the ungrouped root).
+                When the user folded it by hand it's a button that reopens on click; when
+                the ZOOM forced the collapse, expansion is zoom-controlled so the rail is
+                a plain (non-interactive) div — clicking it must not fight the zoom. */}
             {showRibbons &&
-              layout.blocks.map((blk) =>
-                blk.collapsed && blk.m.motherId ? (
+              layout.blocks.map((blk) => {
+                if (!blk.collapsed) return null
+                const rk = blk.m.motherId ?? `root:${blk.m.baseLane}`
+                const railStyle = {
+                  top: offsetY + blk.top,
+                  height: RAIL_H,
+                  backgroundColor: `${blk.m.color}1f`,
+                  borderLeft: `2px solid ${blk.m.color}`,
+                } as const
+                const hoverProps = {
+                  onMouseEnter: () => setHoveredMother(rk),
+                  onMouseLeave: () => setHoveredMother((h) => (h === rk ? null : h)),
+                }
+                return blk.m.motherId && !zoomCollapsed ? (
                   <button
-                    key={`rail:${blk.m.motherId}`}
+                    key={`rail:${rk}`}
                     type="button"
                     onClick={() => toggleMother(blk.m.motherId!, true)}
-                    onMouseEnter={() => setHoveredMother(blk.m.motherId)}
-                    onMouseLeave={() => setHoveredMother((h) => (h === blk.m.motherId ? null : h))}
+                    {...hoverProps}
                     title={`Expand ${blk.m.title}`}
-                    className="absolute inset-x-0 z-0 rounded-r-md transition-[top,filter] duration-300 ease-out hover:brightness-150"
-                    style={{
-                      top: offsetY + blk.top,
-                      height: RAIL_H,
-                      backgroundColor: `${blk.m.color}1f`,
-                      borderLeft: `2px solid ${blk.m.color}`,
-                    }}
+                    className="absolute inset-x-0 z-0 rounded-r-md transition-[top,filter,opacity] duration-300 ease-out hover:brightness-150"
+                    style={railStyle}
                   />
-                ) : null,
-              )}
+                ) : (
+                  <div
+                    key={`rail:${rk}`}
+                    {...hoverProps}
+                    className="absolute inset-x-0 z-0 rounded-r-md transition-[top,filter,opacity] duration-300 ease-out"
+                    style={railStyle}
+                  />
+                )
+              })}
 
             {/* bars — events, scheduled spaces, rollup bands, recurring streams. */}
             {bars.map((b) => {
@@ -1463,11 +1467,18 @@ export function TimelineStrip({
                 pointer-events-none so a click anywhere on the rail still expands it. */}
             {showRibbons &&
               layout.blocks.flatMap((blk) => {
-                const mId = blk.m.motherId
-                if (!blk.collapsed || !mId || ticksHidden[mId]) return []
-                const hi = hoveredMother === mId
+                const rk = blk.m.motherId ?? `root:${blk.m.baseLane}`
+                if (!blk.collapsed || ticksHidden[rk]) return []
+                const hi = hoveredMother === rk
                 const railY = offsetY + blk.top
-                const motherBars = bars.filter((b) => blockOfLane(lanes.lane.get(b.key) ?? 0)?.m.motherId === mId)
+                // Bars whose lane falls inside THIS block's lane range (works for the
+                // ungrouped root too, where there's no motherId to match on).
+                const loLane = blk.m.baseLane
+                const hiLane = blk.m.baseLane + blk.m.laneCount
+                const motherBars = bars.filter((b) => {
+                  const ln = lanes.lane.get(b.key) ?? -1
+                  return ln >= loLane && ln < hiLane
+                })
                 return motherBars
                   .map((b) => {
                     const left = pct(b.from)
@@ -1586,22 +1597,38 @@ export function TimelineStrip({
                 )
               })}
 
-            {/* COLLAPSED MOTHER LABELS — sit on the rail: a fold/expand title (click to
-                reopen) plus an eye toggle to hide/show the rail highlight ticks. Hovering
-                here brightens those ticks on the rail. */}
+            {/* COLLAPSED RAIL LABELS — sit on the rail. When the user folded a single
+                mother by hand it's the full control: a click-to-reopen title + an eye
+                toggle for its rail ticks. When the ZOOM collapsed everything, expansion is
+                zoom-controlled, so we show a lighter, non-interactive name tag (dot +
+                title) — for grouped mothers AND the ungrouped root. Hover still brightens
+                that rail's ticks. */}
             {showRibbons &&
               layout.blocks.map((blk) => {
+                if (!blk.collapsed) return null
                 const mId = blk.m.motherId
-                if (!blk.collapsed || !mId) return null
-                const ticksOn = !ticksHidden[mId]
+                const rk = mId ?? `root:${blk.m.baseLane}`
+                const hoverProps = {
+                  onMouseEnter: () => setHoveredMother(rk),
+                  onMouseLeave: () => setHoveredMother((h) => (h === rk ? null : h)),
+                }
+                const wrapStyle = { left: 4, top: offsetY + blk.top + RAIL_H / 2, transform: "translateY(-50%)" } as const
+                // ZOOM-forced collapse (or the ungrouped root) → plain name tag.
+                if (zoomCollapsed || !mId) {
+                  return (
+                    <div
+                      key={`mlabel:${rk}`}
+                      className="pointer-events-none absolute z-20 flex max-w-[36vw] items-center gap-1 rounded border border-border/70 bg-card px-1.5 py-0.5 text-[9.5px] font-medium leading-none tracking-tight text-foreground/70 shadow-sm"
+                      style={wrapStyle}
+                    >
+                      <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: blk.m.color }} aria-hidden />
+                      <span className="truncate">{blk.m.title}</span>
+                    </div>
+                  )
+                }
+                const ticksOn = !ticksHidden[rk]
                 return (
-                  <div
-                    key={`mlabel:${mId}`}
-                    className="absolute z-20 flex items-center gap-1"
-                    style={{ left: 4, top: offsetY + blk.top + RAIL_H / 2, transform: "translateY(-50%)" }}
-                    onMouseEnter={() => setHoveredMother(mId)}
-                    onMouseLeave={() => setHoveredMother((h) => (h === mId ? null : h))}
-                  >
+                  <div key={`mlabel:${rk}`} className="absolute z-20 flex items-center gap-1" style={wrapStyle} {...hoverProps}>
                     <button
                       type="button"
                       onClick={() => toggleMother(mId, true)}
@@ -1614,7 +1641,7 @@ export function TimelineStrip({
                     </button>
                     <button
                       type="button"
-                      onClick={() => setTicksHidden((s) => ({ ...s, [mId]: ticksOn }))}
+                      onClick={() => setTicksHidden((s) => ({ ...s, [rk]: ticksOn }))}
                       title={ticksOn ? "Hide events" : "Show events"}
                       aria-pressed={!ticksOn}
                       className="flex items-center justify-center rounded border border-border/70 bg-card p-0.5 text-foreground/60 shadow-sm transition-colors hover:text-foreground"
