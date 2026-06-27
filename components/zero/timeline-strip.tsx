@@ -1742,14 +1742,20 @@ export function TimelineStrip({
                 if (!mId || !showExpanded(blk)) return null
                 const related = atRootFocus || mId === contextId || isInSubtree(contextId, mId)
                 // MORPH (not fade): this column is the SAME element through the collapse —
-                // it stays opaque and its HEIGHT tweens blk.height ↔ RAIL_H while its TITLE
-                // ROTATES between vertical (−90°, reading bottom→top) when expanded and
-                // horizontal (0°) when it lands on the rail. Driven by framer so both the
-                // height and the rotate share the COLLAPSE_MS ease and land together; at
-                // settle the column unmounts and the horizontal rail label takes over (the
-                // rail label is suppressed mid-animation so they don't double up). We use
-                // an animatable `rotate` transform here instead of `writing-mode` (which
-                // can't be transitioned) — that swap is what makes the title spin smoothly.
+                // it stays opaque and framer tweens TOP + HEIGHT (blk.top/blk.height ↔ the
+                // rail's y/RAIL_H) while its TITLE ROTATES between vertical (−90°, reading
+                // bottom→top) and horizontal (0°). TOP must be animated (not just height):
+                // collapsing reflows the whole stack so every block's top/offsetY jumps —
+                // leaving top in plain style teleported the column and masked the morph.
+                // top/height are CONSTANT during a normal zoom, so animating them adds no
+                // zoom lag. We use an animatable `rotate` transform (not `writing-mode`,
+                // which can't transition) — that's what lets the title spin smoothly.
+                // The rail label is suppressed mid-morph so the two don't double up.
+                const expandedH = blk.m.laneCount * LANE_H + (blk.m.laneCount - 1) * LANE_GAP
+                // Clamp the title to the column's height (floor ~46px so single-lane mothers
+                // like Health still show their name); rotated about CENTER it reads as a
+                // centered, ellipsis-truncated vertical label.
+                const titleMax = Math.max(expandedH - 8, 46)
                 return (
                   <motion.button
                     key={`mcol:${mId}`}
@@ -1757,28 +1763,22 @@ export function TimelineStrip({
                     onClick={() => toggleMother(mId, false)}
                     title={`Collapse ${blk.m.title}`}
                     initial={false}
-                    animate={{ height: blk.collapsed ? RAIL_H : blk.height, opacity: related ? 1 : UNRELATED_OPACITY }}
-                    transition={{ duration: COLLAPSE_MS / 1000, ease: "easeOut" }}
-                    className="absolute z-20 rounded border border-border/70 bg-card text-[9.5px] font-semibold leading-none tracking-tight shadow-sm hover:brightness-125"
-                    style={{
-                      left: 4,
+                    animate={{
                       top: offsetY + blk.top,
-                      width: MOTHER_COL_W - 4,
-                      color: blk.m.color,
-                      borderColor: `${blk.m.color}40`,
+                      height: blk.collapsed ? RAIL_H : blk.height,
+                      opacity: related ? 1 : UNRELATED_OPACITY,
                     }}
+                    transition={{ duration: COLLAPSE_MS / 1000, ease: "easeOut" }}
+                    className="absolute z-20 overflow-hidden rounded border border-border/70 bg-card text-[9.5px] font-semibold leading-none tracking-tight shadow-sm hover:brightness-125"
+                    style={{ left: 4, width: MOTHER_COL_W - 4, color: blk.m.color, borderColor: `${blk.m.color}40` }}
                   >
-                    {/* Static anchor pinned at the column's LEFT edge, vertically centered.
-                        The title rotates about THIS point (transform-origin left center), so:
-                        −90° = vertical (reads bottom→top), 0° = horizontal flush-left. Anchoring
-                        left means the horizontal end-state never overflows/clips off the viewport
-                        edge and lands exactly where the horizontal rail label takes over. The
-                        translateY(-50%) lives on the static wrapper so it doesn't fight framer's
-                        rotate transform on the inner span. */}
-                    <span className="pointer-events-none absolute left-1.5 top-1/2 -translate-y-1/2">
+                    {/* Title centered both axes; rotates about its OWN CENTER so the vertical
+                        (−90°) label stays centered + truncated in the column, then spins to
+                        horizontal (0°) as the column flattens toward the rail. */}
+                    <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
                       <motion.span
-                        className="block whitespace-nowrap"
-                        style={{ transformOrigin: "left center" }}
+                        className="block overflow-hidden text-ellipsis whitespace-nowrap"
+                        style={{ maxWidth: titleMax }}
                         initial={false}
                         animate={{ rotate: blk.collapsed ? 0 : -90 }}
                         transition={{ duration: COLLAPSE_MS / 1000, ease: "easeOut" }}
