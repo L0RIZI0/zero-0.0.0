@@ -884,13 +884,13 @@ export function TimelineStrip({
       <section
         aria-label="Lifelane"
         className={cn(
-          // While the Atlas backdrop is open the strip MORPHS AWAY: its chrome fades and
-          // it becomes click-through, so the Atlas underneath takes all interaction and
-          // there's no duplicate timeline floating over the grid. The entities still
-          // travel via their shared-element layoutId (source rect is captured before the
-          // fade, so the morph is unaffected). Zoom is re-routed onto the Atlas surface.
+          // While the Atlas backdrop is open the strip is click-through and hidden, so the
+          // Atlas underneath takes all interaction and there's no duplicate timeline over
+          // the grid. During the brief `morphing` window the dedicated <TimelineMorphLayer>
+          // owns ALL visuals (ruler, day-spans, chips fly as one opaque plane), so the real
+          // Lifelane is hidden INSTANTLY (no cross-fade) to avoid a ghost ruler under it.
           "px-1 transition-opacity duration-300",
-          atlas ? "pointer-events-none opacity-0" : "opacity-100",
+          morphing ? "pointer-events-none opacity-0 !duration-0" : atlas ? "pointer-events-none opacity-0" : "opacity-100",
         )}
       >
         {/* Label band above the ruler. Shows the granularity-aware center label and,
@@ -1164,21 +1164,20 @@ export function TimelineStrip({
               })}
             </div>
 
-            {/* DAY CELLS — faint horizontal day-slabs that carry the `day-<ds>` shared
-                layoutId. Present only in the Lifelane (`!atlas`) and only near the snap,
-                so on the threshold cross they FLY into the Atlas's vertical day columns.
-                A left border marks each day boundary (a vertical line here, the column's
-                left edge there). The layout tween runs only during `morphing`. */}
+            {/* DAY CELLS — faint horizontal day-slabs marking each day boundary near the
+                snap. These are the Lifelane ORIGIN of the day-span morph; the actual
+                Lifelane->Atlas flight (slab rotating into a vertical column) is drawn by
+                <TimelineMorphLayer>, so while `morphing` these are HIDDEN and the overlay
+                shows instead. */}
             {showDayCells &&
+              !morphing &&
               dayCells.map((ds) => {
                 const left = pct(ds)
                 const widthPct = (DAY_MS / spanMs) * 100
                 if (left > 100 || left + widthPct < 0) return null
                 return (
-                  <motion.div
+                  <div
                     key={`day-${ds}`}
-                    layoutId={!atlas ? `day-${ds}` : undefined}
-                    transition={{ layout: { duration: morphing ? MORPH_MS / 1000 : 0, ease: [0.22, 1, 0.36, 1] } }}
                     className="pointer-events-none absolute bottom-0 top-0 z-0 border-l border-border/30 bg-foreground/[0.015]"
                     style={{ left: `${left}%`, width: `${widthPct}%` }}
                     aria-hidden
@@ -1384,16 +1383,12 @@ export function TimelineStrip({
                 // lands on the same 300ms/ease-out beat as its ribbon band. Horizontal
                 // (left/width) stays instant so it tracks the zoom/pan under the cursor.
                 //
-                // `layoutId` ties this chip to its twin in the Atlas (same `b.key`), so
-                // when zoom crosses the threshold the entity flies between layouts. It's
-                // present ONLY in the Lifelane (`!atlas`) so each id has a single bearer
-                // that swaps at the switch. The layout transition runs ONLY during the
-                // brief `morphing` window (duration 0 otherwise) so steady-state zoom —
-                // which moves left/width every frame — is never layout-animated/laggy.
+                // No cross-tree FLIP here anymore: the Lifelane<->Atlas flight is played
+                // by the dedicated <TimelineMorphLayer> overlay, which renders an opaque
+                // copy of every entity and interpolates its rect. So while `morphing`
+                // these real chips are HIDDEN (opacity 0) and the overlay shows instead.
                 <motion.div
                   key={b.key}
-                  layoutId={!atlas ? `m-${b.key}` : undefined}
-                  transition={{ layout: { duration: morphing ? MORPH_MS / 1000 : 0, ease: [0.22, 1, 0.36, 1] } }}
                   className="absolute h-6 transition-[top] duration-300 ease-out"
                   style={boxStyle}
                 >
@@ -1402,8 +1397,8 @@ export function TimelineStrip({
                     initial={false}
                     data-placement={b.entity ? placementKey("timeline", contextId, b.entity.id) : undefined}
                     data-morph-kind="generic"
-                    animate={{ opacity: dim }}
-                    transition={panelTransition}
+                    animate={{ opacity: morphing ? 0 : dim }}
+                    transition={morphing ? { duration: 0 } : panelTransition}
                     onClick={() => b.entity && openFromChip(b.entity.id)}
                     onContextMenu={(ev) => b.entity && openMenu(ev, b.entity)}
                     aria-current={isOpen ? "true" : undefined}
