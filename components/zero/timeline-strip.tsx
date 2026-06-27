@@ -1,8 +1,8 @@
 "use client"
 
 import { useEffect, useMemo, useRef, useState } from "react"
-import { motion, animate } from "motion/react"
-import { ChevronLeft, ChevronRight, Crosshair, Trash2, Ban, RotateCcw, Repeat, Eye, EyeOff, LayoutGrid, List } from "lucide-react"
+import { motion, animate, AnimatePresence } from "motion/react"
+import { ChevronLeft, ChevronRight, Crosshair, Trash2, Ban, RotateCcw, Repeat, Eye, EyeOff } from "lucide-react"
 import {
   getInheritedAccent,
   isInSubtree,
@@ -26,13 +26,10 @@ import {
   timelineTicks,
   lodGrain,
   scrubLabel,
-  spanToView,
   clampSpan,
-  VIEWS,
   VIEW_SPAN_MS,
   MIN_SPAN_MS,
   MAX_SPAN_MS,
-  type ViewKey,
 } from "@/lib/zero/timeline-scale"
 import type { Entity } from "@/lib/zero/types"
 import { panelTransition, layerTransition } from "@/lib/zero/motion"
@@ -47,10 +44,26 @@ import { cn } from "@/lib/utils"
 const HOUR_MS = 3_600_000
 const DAY_MS = 86_400_000
 const WEEK_MS = 7 * DAY_MS
-// Fixed height of the serpentine (week-columns) layout. Tall enough for seven
-// readable day-rows; the focus region below reflows to it via the same
-// `--region1-reserve` observer that handles the linear track's dynamic height.
-const SERP_H = 340
+
+// View-switch glyphs. ATLAS = a SPHERE (a filled orb with a soft sheen — the whole
+// life-plane gathered into one body). LINE = a thick translucent rounded SEGMENT
+// (the linear Lifelane). Both draw with `currentColor` so they inherit the active
+// vs. muted button color.
+function AtlasGlyph({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 16 16" className={className} fill="none" aria-hidden>
+      <circle cx="8" cy="8" r="5.75" fill="currentColor" />
+      <circle cx="6" cy="6" r="1.5" fill="var(--background)" opacity="0.5" />
+    </svg>
+  )
+}
+function LineGlyph({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 16 16" className={className} fill="none" aria-hidden>
+      <rect x="1.5" y="6" width="13" height="4" rx="2" fill="currentColor" opacity="0.55" />
+    </svg>
+  )
+}
 
 // Fallback color for items whose space chain has no accent (created directly
 // under the root "Space 0"). A neutral light grey so they still read as real
@@ -313,11 +326,13 @@ export function TimelineStrip({
 
   const [hoveredInstant, setHoveredInstant] = useState<string | null>(null)
 
-  // Serpentine layout: when ON, the central viewport renders the week-columns grid
-  // (time wraps vertically per week) instead of the linear lifeline. The zoom
-  // selector, pan arrows and NOW control keep operating on `vp`; coarser zoom →
-  // more week columns. Linear is the default.
-  const [serpentine, setSerpentine] = useState(false)
+  // VIEW SWITCH — the Lifeline has two views, toggled by the selector switch:
+  //   • LIFELANE (atlas=false, default): the linear horizontal track rendered here.
+  //   • ATLAS (atlas=true): a FULLSCREEN morph of the Lifeline rendering a period
+  //     grid (today the serpentine week grid). It's a fixed overlay, so the linear
+  //     Lifelane strip stays mounted and untouched underneath. Pan/zoom/NOW keep
+  //     operating on `vp`; coarser zoom → more week columns in the Atlas.
+  const [atlas, setAtlas] = useState(false)
 
   // --- Mother-ribbon folding state -----------------------------------------
   // `override` pins a mother's collapsed state to the user's explicit choice; it
@@ -336,7 +351,6 @@ export function TimelineStrip({
   const { startMs, spanMs } = vp
   const center = startMs + spanMs / 2
   const grain = useMemo(() => lodGrain(spanMs, width), [spanMs, width])
-  const activeView: ViewKey = useMemo(() => spanToView(spanMs), [spanMs])
 
   // Epoch ms → percentage across the viewport (linear; equivalent to the d3
   // scale but width-independent, so markers reflow without a width read).
@@ -611,8 +625,9 @@ export function TimelineStrip({
   // track — and via the live `--region1-reserve` measurement, the focus region
   // below — reflow up automatically. Lanes stay vertically centered.
   const stackedH = Math.min(contentH, MAX_STACK_LANES * LANE_H + (MAX_STACK_LANES - 1) * LANE_GAP)
-  // Serpentine uses a fixed tall grid; the linear track grows to fit its lanes.
-  const trackH = serpentine ? SERP_H : Math.max(TRACK_H, stackedH + 2 * TRACK_PAD_Y)
+  // The Lifelane strip is ALWAYS linear (the Atlas is a separate fullscreen overlay,
+  // so it never reshapes this region); the track grows to fit its visible lanes.
+  const trackH = Math.max(TRACK_H, stackedH + 2 * TRACK_PAD_Y)
   const offsetY = Math.max(TRACK_PAD_Y, (trackH - contentH) / 2)
   // Y of a VISIBLE global lane (collapsed lanes return the block's rail y so any
   // stray positioning lands sanely; their bars are handled separately as chips).
@@ -681,14 +696,6 @@ export function TimelineStrip({
     })
   }
 
-  // Selector click: keep the current center, snap span to the preset. Anchored on the
-  // visible center so the on-screen content scales in place instead of sliding in from
-  // an edge (linear start + geometric span otherwise desyncs the center mid-flight).
-  const selectView = (key: ViewKey) => {
-    const targetSpan = VIEW_SPAN_MS[key]
-    animateTo(center - targetSpan / 2, targetSpan, center)
-  }
-
   // Step one viewport-width earlier / later (chevit arrows).
   const panBy = (dir: -1 | 1) => animateTo(startMs + dir * spanMs * 0.9, spanMs)
 
@@ -719,7 +726,7 @@ export function TimelineStrip({
   // so revealing the real timeline doesn't shift anything. See `mounted` above.
   if (!mounted) {
     return (
-      <section aria-label="Lifeline" className="px-1">
+      <section aria-label="Lifelane" className="px-1">
         <div className="relative mb-1 -mx-6 h-10" />
         <div className="relative -mx-6" style={{ height: TRACK_H }} ref={viewportRef} />
       </section>
@@ -727,7 +734,7 @@ export function TimelineStrip({
   }
 
   return (
-    <section aria-label="Lifeline" className="px-1">
+    <section aria-label="Lifelane" className="px-1">
       {/* Label band above the ruler. Shows the granularity-aware center label and,
           when "now" is scrolled off-screen, a jump-to-now control. */}
       <div className={cn("relative mb-1 -mx-6", "h-10")}>
@@ -742,7 +749,7 @@ export function TimelineStrip({
             WebkitMaskImage: edgeFade,
           }}
         >
-          {!serpentine && ticks.map((t) => {
+          {ticks.map((t) => {
             if (!t.labeled) return null // unlabeled minors still draw a gridline below
             const left = pct(t.ms)
             if (left < 0 || left > 100) return null
@@ -820,7 +827,7 @@ export function TimelineStrip({
           className="pointer-events-none absolute inset-y-0 z-30"
           style={{ left: VIEWPORT_INSET_LEFT, right: VIEWPORT_INSET_RIGHT }}
         >
-          {!serpentine && clusters.map((c) => {
+          {clusters.map((c) => {
             const left = pct(c.ms)
             if (left < 0 || left > 100) return null
             const level = clusterLevel.get(c.key) ?? 0
@@ -940,52 +947,39 @@ export function TimelineStrip({
         </div>
 
         <div className="flex h-full items-stretch">
-          {/* Zoom selector — vertical Life→Day letters; the active span (nearest
-              preset) reads full-strength, the rest grey and brighten on hover. */}
+          {/* VIEW SWITCH — the Lifeline's two views. LINE selects the linear
+              Lifelane (this strip); ATLAS opens the fullscreen period-grid morph.
+              Zoom is now driven purely by scrolling, so the old Life→Day presets
+              are gone — this slot holds only the two-state switch. */}
           <div
             style={{ width: SELECTOR_W }}
-            className={cn(
-              "relative z-10 flex shrink-0 flex-col items-center justify-center bg-background",
-              "transition-[gap] duration-300 ease-out",
-              stage === 2 ? "gap-[0px]" : stage === 1 ? "gap-[2px]" : "gap-[4px]",
-            )}
+            className="relative z-10 flex shrink-0 flex-col items-center justify-center gap-1.5 bg-background"
           >
-            {VIEWS.map(([key, label]) => (
-              <button
-                key={key}
-                type="button"
-                onClick={() => selectView(key)}
-                aria-pressed={activeView === key}
-                aria-label={`${label} view`}
-                title={`${label} view`}
-                className={cn(
-                  "rounded-[3px] px-1 py-0.5 text-[9px] font-semibold leading-none tracking-wide transition-colors",
-                  activeView === key
-                    ? "text-foreground"
-                    : "text-muted-foreground/40 [&:hover]:text-foreground/80",
-                )}
-              >
-                {key}
-              </button>
-            ))}
-            {/* Layout toggle — flip between the linear lifeline and the serpentine
-                week-columns grid. Sits under the zoom letters; both share `vp`. */}
             <button
               type="button"
-              onClick={() => setSerpentine((s) => !s)}
-              aria-pressed={serpentine}
-              aria-label={serpentine ? "Linear timeline" : "Serpentine timeline"}
-              title={serpentine ? "Linear timeline" : "Serpentine (week columns)"}
+              onClick={() => setAtlas(false)}
+              aria-pressed={!atlas}
+              aria-label="Lifelane — linear timeline"
+              title="Lifelane — linear timeline"
               className={cn(
-                "mt-1 flex items-center justify-center rounded-[3px] p-0.5 transition-colors",
-                serpentine ? "text-foreground" : "text-muted-foreground/40 [&:hover]:text-foreground/80",
+                "flex h-5 w-5 items-center justify-center rounded-[4px] transition-colors",
+                !atlas ? "bg-secondary text-foreground" : "text-muted-foreground/40 hover:text-foreground/80",
               )}
             >
-              {serpentine ? (
-                <List className="h-3 w-3" />
-              ) : (
-                <LayoutGrid className="h-3 w-3" />
+              <LineGlyph className="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setAtlas(true)}
+              aria-pressed={atlas}
+              aria-label="Atlas — period grid"
+              title="Atlas — period grid"
+              className={cn(
+                "flex h-5 w-5 items-center justify-center rounded-[4px] transition-colors",
+                atlas ? "bg-secondary text-foreground" : "text-muted-foreground/40 hover:text-foreground/80",
               )}
+            >
+              <AtlasGlyph className="h-3.5 w-3.5" />
             </button>
           </div>
 
@@ -1433,23 +1427,6 @@ export function TimelineStrip({
                   </div>
                 )
               })}
-
-            {/* SERPENTINE OVERLAY — when on, the week-columns grid covers the linear
-                lifeline (opaque, z-40 so it sits above ribbons/bars). The linear DOM
-                stays mounted but hidden; toggling back is instant. */}
-            {serpentine && (
-              <div className="absolute inset-0 z-40">
-                <TimelineSerpentine
-                  items={serpItems}
-                  centerMs={center}
-                  weekCount={weekCount}
-                  now={now}
-                  height={SERP_H}
-                  onOpen={openFromChip}
-                  onMenu={openMenu}
-                />
-              </div>
-            )}
           </div>
 
           <button
@@ -1462,6 +1439,58 @@ export function TimelineStrip({
           </button>
         </div>
       </motion.div>
+
+      {/* ATLAS — the Lifeline's fullscreen view. A fixed, viewport-covering morph of
+          the Lifelane: the backdrop fades in while the period plane expands up from
+          the strip (transform-origin top), so it reads as the Lifelane unfolding into
+          a full-screen map. Today it renders the serpentine week grid; future zoom
+          levels (days→weeks→months→…→decades) will fill the same plane. */}
+      <AnimatePresence>
+        {atlas && (
+          <motion.div
+            className="fixed inset-0 z-[60] flex flex-col bg-background"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={layerTransition}
+          >
+            <div className="flex shrink-0 items-center justify-between border-b border-border px-4 py-2.5">
+              <div className="flex items-baseline gap-2">
+                <AtlasGlyph className="h-4 w-4 translate-y-0.5 text-foreground" />
+                <span className="text-sm font-semibold tracking-tight text-foreground">Atlas</span>
+                <span className="text-[11px] text-muted-foreground">Week grid</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setAtlas(false)}
+                aria-label="Back to Lifelane"
+                title="Back to Lifelane (linear)"
+                className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-secondary/50 hover:text-foreground"
+              >
+                <LineGlyph className="h-3.5 w-3.5" />
+                Lifelane
+              </button>
+            </div>
+            <motion.div
+              className="relative flex-1 overflow-hidden"
+              style={{ transformOrigin: "top center" }}
+              initial={{ scale: 0.97, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.98, opacity: 0 }}
+              transition={panelTransition}
+            >
+              <TimelineSerpentine
+                items={serpItems}
+                centerMs={center}
+                weekCount={weekCount}
+                now={now}
+                onOpen={openFromChip}
+                onMenu={openMenu}
+              />
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <ContextMenu state={menu} onClose={() => setMenu(null)} />
     </section>

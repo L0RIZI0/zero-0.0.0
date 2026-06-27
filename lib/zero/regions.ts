@@ -17,16 +17,21 @@
  * BOTTOM of the entity window, overlaying the regions beneath it (z-order), and
  * shown only when the entity has pinned items.
  *
- * For now only ENTITY 0 (home) carries a second region — the LIFELINE, region 1,
- * sitting above region 0. Entity 0 is the opened window of the root ORGANISM (the
- * Individual "Loris", animated by a Soul), so its region 1 is that Organism's
- * Lifeline: the canonical master timeline — primarily the horizontal/linear track
- * (the serpentine view is just an alternate rendering of the same Lifeline) — onto
- * which the Organism's Events, Instants and scheduled work project. The
- * add/remove-component interaction that will let any entity gain or drop regions
- * (e.g. via right-click on blank window space) is NOT built yet; this is the
- * structural foundation it will plug into. (Every Individual and Organism will own
- * a Lifeline; today only entity 0's is rendered.)
+ * For now only ENTITY 0 (home) carries a second region — region 1, sitting above
+ * region 0. Entity 0 is the opened window of the root ORGANISM (the Individual
+ * "Loris", animated by a Soul), so its region 1 hosts that Organism's LIFELINE:
+ * the canonical master timeline onto which its Events, Instants and scheduled work
+ * project. The Lifeline has two interchangeable VIEWS, toggled by a switch in the
+ * timeline selector:
+ *   • LIFELANE — the default horizontal/linear track (the region-1 strip).
+ *   • ATLAS — a fullscreen morph of the Lifeline rendering an endless plane of
+ *     period grids (days→weeks→months→seasons→years→decades), the zoom level set by
+ *     scrolling. Today the Atlas shows the serpentine week grid.
+ * The region component is the LIFELANE strip (the in-flow view); the Atlas is a
+ * fullscreen overlay morph of it. The add/remove-component interaction that will
+ * let any entity gain or drop regions (e.g. via right-click on blank window space)
+ * is NOT built yet; this is the structural foundation it will plug into. (Every
+ * Individual and Organism will own a Lifeline; today only entity 0's is rendered.)
  *
  * ──────────────────────────────────────────────────────────────────────────────
  * CURRENT STATUS (interim — this is the INTENDED model, not yet the live one):
@@ -44,8 +49,9 @@
 export type RegionGrow = "fill" | "hug"
 
 /** Which component a region hosts. Extend as more component types are added.
- *  `lifeline` is the master timeline component — the Organism's life artifact. */
-export type RegionComponent = "do-list" | "lifeline"
+ *  `lifelane` is the Lifeline's linear view — the horizontal master-timeline strip
+ *  (its alternate view, the fullscreen Atlas grid, is an overlay morph of it). */
+export type RegionComponent = "do-list" | "lifelane"
 
 export interface RegionSpec {
   /** Stable id (also used as the React key when rendering the stack). */
@@ -60,12 +66,12 @@ export const REGION_0: RegionSpec = { id: "region-0", grow: "fill", component: "
 /**
  * The ordered region stack for an entity, TOP → BOTTOM. Region 0 is always the
  * LAST entry (bottom, fill); any hug regions precede it. Entity 0 gets its
- * Organism's LIFELINE as region 1 above region 0; every other entity has only
- * region 0 for now.
+ * Organism's LIFELINE (linear LIFELANE view) as region 1 above region 0; every
+ * other entity has only region 0 for now.
  */
 export function entityRegions(isRoot: boolean): RegionSpec[] {
   if (isRoot) {
-    return [{ id: "region-1-lifeline", grow: "hug", component: "lifeline" }, REGION_0]
+    return [{ id: "region-1-lifelane", grow: "hug", component: "lifelane" }, REGION_0]
   }
   return [REGION_0]
 }

@@ -20,21 +20,22 @@ import { TimelineStrip } from "./timeline-strip"
  * ORGANISM — the Individual "Loris", animated by a Soul — and is special: its
  * region 0 is the recursive focus-window region that hosts the ENTIRE entity tree.
  *
- * REGION MODEL (overlay Lifeline):
+ * REGION MODEL (overlay Lifelane):
  *
  *   ┌─────────────────────────────────────┐  ← card (below the app header bar)
- *   │ ░ REGION 1 — Lifeline  (overlay) ░░░ │  ← entity 0's region 1. Absolutely
+ *   │ ░ REGION 1 — Lifelane  (overlay) ░░░ │  ← entity 0's region 1. Absolutely
  *   │ ┌─────────────────────────────────┐  │     positioned at `timelineTop`; NOT in
  *   │ │ REGION 0 — window region (fill) │  │     flow. z-30, so it floats over region
- *   │ │  • home do-list (below Lifeline) │  │     0. Its bottom defines a RESERVE that
+ *   │ │  • home do-list (below Lifelane) │  │     0. Its bottom defines a RESERVE that
  *   │ │  • child focus windows open here │  │     content below it pads for.
  *   │ └─────────────────────────────────┘  │  ← region 0 fills the WHOLE card now.
  *   └─────────────────────────────────────┘     Every fixed window fills this rect.
  *
- * The Lifeline is the root Organism's ONE master "region 1" (a timeless life
- * artefact that follows the user everywhere) — primarily the horizontal/linear
- * track, with the serpentine view an alternate rendering of the same Lifeline. A
- * space child does not get its own region 1 — it REFERENCES entity 0's:
+ * Region 1 is the root Organism's ONE master Lifeline (a timeless life artefact that
+ * follows the user everywhere) shown in its linear LIFELANE view. Its alternate view,
+ * the ATLAS (a fullscreen period-grid morph), is toggled from the Lifelane's own
+ * switch and rendered as a fixed fullscreen overlay, so it does not affect this region
+ * layout. A space child does not get its own region 1 — it REFERENCES entity 0's:
  * structurally there is a single TimelineStrip here, and we just move it vertically.
  *   • HOME (no window open): timeline rests at `TIMELINE_TOP_PAD` from the card top,
  *     with the home do-list reserved below it → identical to before.
@@ -61,10 +62,11 @@ export function WorkSurface() {
 
   const stage = shellStageFor(activeEntity)
 
-  // Region 1 = entity 0's Lifeline (the root Organism's master timeline, asserted by
-  // the region model). It's rendered as an absolute overlay below; region 0 is the
-  // window region rendered explicitly.
-  const hasTimeline = entityRegions(true).some((r) => r.component === "lifeline")
+  // Region 1 = entity 0's Lifeline, in its linear LIFELANE view (the root Organism's
+  // master timeline, asserted by the region model). It's rendered as an absolute
+  // overlay below; region 0 is the window region rendered explicitly. (The Atlas view
+  // is a separate fullscreen morph the Lifelane strip toggles into.)
+  const hasTimeline = entityRegions(true).some((r) => r.component === "lifelane")
 
   // Is a focus window open? `stack` ALWAYS holds the root entity (home backdrop) at
   // index 0, so "a window is open" means depth ≥ 1 — i.e. stack.length > 1. When so,
@@ -132,11 +134,12 @@ export function WorkSurface() {
         } as React.CSSProperties
       }
     >
-      {/* REGION 1 — the LIFELINE (the root Organism's master timeline), an ABSOLUTE
-          OVERLAY (not in flow), so region 0 below can fill the whole card and the
-          Lifeline can float at the active entity's header bottom. `top` ANIMATES
-          between the home resting pad and HEADER_BAND_H (header bottom) when a window
-          opens, so the Lifeline glides into the window just below its header. z-30
+      {/* REGION 1 — the LIFELANE (the Lifeline's linear view; the root Organism's
+          master timeline), an ABSOLUTE OVERLAY (not in flow), so region 0 below can
+          fill the whole card and the Lifelane can float at the active entity's header
+          bottom. `top` ANIMATES between the home resting pad and HEADER_BAND_H (header
+          bottom) when a window opens, so the Lifelane glides into the window just
+          below its header. z-30
           floats it over region 0 / opened windows; not clipped by the card, so it
           never crops. The active window's content reserves space below it via
           `--region1-reserve`. */}

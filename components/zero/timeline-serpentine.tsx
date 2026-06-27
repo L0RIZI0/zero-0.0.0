@@ -74,7 +74,6 @@ export function TimelineSerpentine({
   centerMs,
   weekCount,
   now,
-  height,
   onOpen,
   onMenu,
 }: {
@@ -82,7 +81,6 @@ export function TimelineSerpentine({
   centerMs: number
   weekCount: number
   now: number
-  height: number
   onOpen: (id: string) => void
   onMenu: (e: React.MouseEvent, entity: Entity) => void
 }) {
