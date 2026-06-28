@@ -1328,9 +1328,8 @@ export function TimelineStrip({
     animRef.current = animate(0, 1, {
       duration: 0.55,
       // Soft landing, NO overshoot: preset/now transitions decelerate smoothly into
-      // place. (The wheel zoom keeps its elastic spring bounce; selectors are
-      // deliberately calmer — a clean easeOut quint so the view eases to rest without
-      // any bounce-back.)
+      // place — a clean easeOut quint so the view eases to rest without any bounce-back.
+      // (The wheel zoom is likewise bounce-free now — critically damped, see ZETA.)
       ease: [0.22, 1, 0.36, 1],
       onUpdate: (t) => {
         const span = sp0 * Math.pow(spT / sp0, t)

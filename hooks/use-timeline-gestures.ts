@@ -73,16 +73,12 @@ const ZOOM_K = 0.0022
   // mouse-wheel notches accumulate into one long, continuous, elastic glide. This is
   // the playful, weighted feel to show off.
   const OMEGA = 6
-// ZETA is the damping ratio. 1 = critically damped (no overshoot). We run it UNDER 1
-// so the zoom carries real spring elasticity — it overshoots the target span by a few
-// percent and eases back for a lively, bouncy settle. This is safe now that start is
-// cursor-anchored (see anchorRef): even though the SPAN overshoots, the cursor time
-// stays pinned every frame, so the elasticity reads as a lively scale bounce with zero
-// horizontal slide. 0.7 ≈ ~5% overshoot — ONE clean visible bounce then rest (the
-// second oscillation is <0.3%, imperceptible), so there's no train of bounces. The low
-// OMEGA still gives it weighty inertia, which is where most of the "elastic" feel comes
-// from; damping just controls how many times it crosses the target.
-const ZETA = 0.7
+// ZETA is the damping ratio. 1 = CRITICALLY DAMPED → the spring eases into its target
+// and settles with NO overshoot / no bounce-back. We keep it at exactly 1 so zooming is
+// a smooth ease-out slide rather than an elastic bounce (the inertia/weight still comes
+// from the low OMEGA — momentum carries across wheel notches — but the view never
+// crosses past its target and springs back).
+const ZETA = 1
 // Clamp dt so a tab regaining focus (huge dt) can't teleport the view in one step.
 const MAX_DT = 1 / 30
 // Settle thresholds: stop the loop once position AND velocity are negligible.
