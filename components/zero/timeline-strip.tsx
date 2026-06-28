@@ -54,13 +54,20 @@ const DAY_MS = 86_400_000
 // grid) when zoomed OUT past a threshold span. That threshold is DYNAMIC — it scales
 // with the viewport WIDTH so a wide screen (which has room to show more days
 // comfortably as a linear strip) only flips to the grid once the days get genuinely
-// cramped. We express "comfortable" as a target px-per-day: thresholdDays = clamp(
-// width / ATLAS_PX_PER_DAY, MIN, MAX). e.g. ~1280px → 2.5d, ~2560px (ultrawide) → 4.5d.
+// cramped. We express "comfortable" as a MINIMUM legible day width in px: keep the
+// linear strip until a single day would shrink below ATLAS_PX_PER_DAY, i.e.
+// thresholdDays = clamp(width / ATLAS_PX_PER_DAY, MIN, MAX). Below ~28px/day, daily
+// occurrences visually merge and a chip can't host even a tiny label — that's the
+// point where the linear lane stops carrying meaning, so that's when we fold.
+// This is deliberately tuned to stay expanded as LONG as possible and to scale with
+// the viewport: e.g. ~1280px → ~46d, ~1700px → ~61d, ~2560px (ultrawide) → capped 90d,
+// narrow ~800px → ~29d. (Previously 560px/day + a 6-day cap folded everything after
+// only ~3 days regardless of how wide the screen was — far too eager.)
 // Open and close share the threshold (minus a tiny epsilon for anti-flicker) so the
 // switch is symmetric. See `atlasOpenMs`/`atlasCloseMs` (computed from width below).
-const ATLAS_PX_PER_DAY = 560
-const ATLAS_MIN_DAYS = 2.5
-const ATLAS_MAX_DAYS = 6
+const ATLAS_PX_PER_DAY = 28
+const ATLAS_MIN_DAYS = 10
+const ATLAS_MAX_DAYS = 90
 const ATLAS_CLOSE_EPSILON_MS = 0.04 * DAY_MS
 // Duration of the ribbon (un)collapse morph. Longer (was 300) so the vertical-height
 // transform + the mother-title rotation read as a deliberate, smooth unfold rather than
