@@ -84,19 +84,15 @@ const CONDENSE_MIN_SCALE = 0.48
 // HEADER GROUP geometry. The [date label + NOW backlink] and the timestamp graduation float
 // just ABOVE the lane stack (anchored to the band-div top, i.e. the top of the lanes — NOT
 // pinned to the band FRAME, which can grow past them). As the band grows and the group is
-// pushed up, the label CLAMPS so it never rises above the header bar (HEADER_CLEAR_Y, in card
-// coords); the label↔graduation gap then compresses to MIN_LABEL_GRAD_GAP. The lanes are NOT
-// clamped — they bleed up past the graduation and the label (and behind the header).
+// pushed up, BOTH rows CLAMP so neither rises above the header bar (HEADER_CLEAR_Y, in card
+// coords): the graduation can now rise all the way to the header bar too (overlapping the date
+// row, which has a bg chip and stays readable on top). The lanes are NOT clamped — they bleed up
+// past the graduation and the label (and behind the header).
 const GRAD_ROW_H = 14 // timestamp row height (matches the old h-3.5 ruler)
 const GRAD_LANE_GAP = 6 // graduation floats this far above the top lane
 const LABEL_ROW_H = 22 // the date+NOW pill row (comfortable)
 const LABEL_GRAD_GAP = 15 // natural gap between the label row and the graduation (band short)
-// Gap held between label and graduation once the label is CLAMPED at the header (tall band —
-// the usual multi-ribbon "All Life" case). Kept close to LABEL_GRAD_GAP so the spacing stays
-// comfortable and roughly constant whether or not the clamp is engaged; the lanes bleed up
-// behind both rows, so a generous gap here costs nothing.
-const MIN_LABEL_GRAD_GAP = 13
-const HEADER_CLEAR_Y = 4 // smallest card-Y the label may reach (rests just under the header bar)
+const HEADER_CLEAR_Y = 4 // smallest card-Y either row may reach (rests just under the header bar)
 // PERF: a recurring series carries up to MAX_RECUR_OCCURRENCES (366) timestamps. When the whole
 // series packs into view (fully zoomed out / collapsed) that's hundreds of absolutely-positioned
 // 1px divs re-positioned every frame — the dominant cost of the zoomed-out render (~21fps). Since
@@ -1309,18 +1305,25 @@ export function TimelineStrip({
   const stripTopY = centerZoneH > 0 ? overlayTopPx + (centerZoneH - sectionH) / 2 : TIMELINE_TOP_PAD
   const laneBandTopY = stripTopY + LIFELANE_LABEL_BAND_H
   // HEADER-GROUP vertical positions, in BAND-DIV coords (band-div top = lane-stack top = 0;
-  // both rows sit at NEGATIVE tops, i.e. ABOVE the lanes). The graduation tracks the lane-stack
-  // top exactly. The label floats above it, but is CLAMPED so its card-Y never rises above
-  // HEADER_CLEAR_Y (only at home, where the strip is centered and can be pushed up under the
-  // header; `laneBandTopY` is the band-div top in card coords). Once the label is clamped, the
-  // graduation is in turn kept at least MIN_LABEL_GRAD_GAP below it — so as the stack keeps
-  // rising the label↔graduation gap compresses, then both rest near the header while the lanes
-  // bleed up past them.
+  // both rows sit at NEGATIVE tops, i.e. ABOVE the lanes). Both float above the lane stack but
+  // are independently CLAMPED so neither's card-Y rises above HEADER_CLEAR_Y (only at home, where
+  // the strip is centered and can be pushed up under the header; `laneBandTopY` is the band-div
+  // top in card coords). As the stack rises, the label rests just under the header bar and the
+  // graduation rises to the same ceiling (overlapping the label, which stays readable via its bg
+  // chip + later paint order); the lanes are unclamped and bleed up past both rows.
   const gradNaturalTop = -(GRAD_LANE_GAP + GRAD_ROW_H)
   const labelNaturalTop = gradNaturalTop - LABEL_GRAD_GAP - LABEL_ROW_H
   const labelGroupTop =
     centerZoneH > 0 ? Math.max(labelNaturalTop, HEADER_CLEAR_Y - laneBandTopY) : labelNaturalTop
-  const gradGroupTop = Math.max(gradNaturalTop, labelGroupTop + LABEL_ROW_H + MIN_LABEL_GRAD_GAP)
+  // Graduation clamp. Previously it was kept MIN_LABEL_GRAD_GAP BELOW the (clamped) date label, so
+  // it could never rise higher than just under the date+NOW row. New rule (per request): let the
+  // graduation rise as high as the bottom of the header top bar — the SAME `HEADER_CLEAR_Y` ceiling
+  // the label uses — independent of the label. At full compression the two rows now overlap, which
+  // is fine: the date+NOW pill has a `bg-background` chip and paints later in the DOM (equal z-40),
+  // so it stays readable on top of the graduation ticks behind it. The date label itself is
+  // unchanged — it still only rises to `HEADER_CLEAR_Y`.
+  const gradGroupTop =
+    centerZoneH > 0 ? Math.max(gradNaturalTop, HEADER_CLEAR_Y - laneBandTopY) : gradNaturalTop
   // Geometry for the Lifelane<->Atlas flight. Built whenever the Atlas is mounted
   // (`atlas || morphing`) — TimelineWeek IS the morph now (no separate overlay), so it
   // needs both rects to animate between and to sit at the Atlas rect when settled.
