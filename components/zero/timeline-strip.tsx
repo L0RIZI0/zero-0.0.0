@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom"
-import { motion, animate } from "motion/react"
+import { motion, animate, AnimatePresence } from "motion/react"
 import { ChevronLeft, ChevronRight, Crosshair, Trash2, Ban, RotateCcw, Eye, EyeOff } from "lucide-react"
 import {
   getInheritedAccent,
@@ -379,6 +379,8 @@ export function TimelineStrip({
   accent,
   atlasLayer,
   viewHeightPx,
+  centerZoneH = 0,
+  overlayTopPx = 0,
 }: {
   contextId: string
   accent?: string
@@ -390,6 +392,15 @@ export function TimelineStrip({
   // fraction), computed by WorkSurface which knows the live card size. The linear band
   // grows to this as you zoom out; the Atlas grid fills it. Falls back to content size.
   viewHeightPx?: number
+  // Region-1 ZONE height in px (the fixed "first third" the strip is vertically centered
+  // within). When > 0, WorkSurface flex-centers this strip inside a `centerZoneH`-tall
+  // overlay; we use the same value to compute the band's true card-Y for the Atlas morph
+  // (the only consumer of `laneBandTopY`) so chip flight origins stay aligned with the
+  // centered band. 0 = legacy top-anchored behaviour (e.g. when a focus window is open).
+  centerZoneH?: number
+  // Card-Y of the overlay's top edge (0 at home, the window header bottom otherwise) —
+  // the reference point the centered band's card-Y is measured from.
+  overlayTopPx?: number
 }) {
   const { stack, dataVersion, notifyDataChanged, open } = useZeroNav()
   const [menu, setMenu] = useState<ContextMenuState | null>(null)
@@ -1141,9 +1152,17 @@ export function TimelineStrip({
   // zooming back in returns the Lifelane to exactly that spot (no "jump to today /
   // default view"). Atlas drag-pan shifts this same viewport (see onPanDays below).
   const weekCenter = startOfDay(startMs + spanMs / 2)
-  // Card-y of the Lifelane's first lane row: top pad + the label band that sits
-  // above the track. Day-bands span the full (zoom-grown) band height.
-  const laneBandTopY = TIMELINE_TOP_PAD + LIFELANE_LABEL_BAND_H
+  // Card-y of the Lifelane's first lane row = the strip's top edge + the label band
+  // that sits above the track. When the strip is vertically CENTERED inside the
+  // first-third zone (centerZoneH > 0, the home case), its top edge is no longer a
+  // fixed pad: WorkSurface flex-centers a (LIFELANE_LABEL_BAND_H + bandH) tall strip
+  // inside a `centerZoneH` overlay, so the top edge sits at `(zone − sectionH) / 2`
+  // below the overlay top. We mirror that exact arithmetic here so the Atlas morph —
+  // the only consumer of `laneBandTopY` — flies chips from where the band ACTUALLY is.
+  // 0 → legacy top-anchored pad (focus-window mode). Day-bands span the full band height.
+  const sectionH = LIFELANE_LABEL_BAND_H + lifelaneBandH
+  const stripTopY = centerZoneH > 0 ? overlayTopPx + (centerZoneH - sectionH) / 2 : TIMELINE_TOP_PAD
+  const laneBandTopY = stripTopY + LIFELANE_LABEL_BAND_H
   // Geometry for the Lifelane<->Atlas flight. Built whenever the Atlas is mounted
   // (`atlas || morphing`) — TimelineWeek IS the morph now (no separate overlay), so it
   // needs both rects to animate between and to sit at the Atlas rect when settled.
@@ -1222,27 +1241,35 @@ export function TimelineStrip({
             WebkitMaskImage: edgeFade,
           }}
         >
-          {ticks.map((t) => {
-            if (!t.labeled) return null // unlabeled minors still draw a gridline below
-            const left = pct(t.ms)
-            if (left < 0 || left > 100) return null
-            return (
-              <span
-                key={`${t.ms}-${t.major ? "M" : t.sub ? "s" : "m"}`}
-                className={cn(
-                  "absolute bottom-0 -translate-x-1/2 whitespace-nowrap text-[9.5px] tabular-nums tracking-tight",
-                  t.major
-                    ? "font-semibold text-muted-foreground/70"
-                    : t.sub
-                      ? "font-normal text-muted-foreground/50" // coarse-hour sub labels (lighter than minors)
-                      : "font-medium text-muted-foreground/40",
-                )}
-                style={{ left: `${left}%` }}
-              >
-                {t.label}
-              </span>
-            )
-          })}
+          {/* Keyed by `ms` ONLY (not ms+role): as you zoom, the tick GRAIN changes and
+              the set of labeled timestamps swaps in batches. Keying by ms keeps ticks
+              that survive a grain change MOUNTED (they just slide via `left`), so only
+              the genuinely added/removed labels animate — AnimatePresence fades those
+              in/out instead of letting the whole ruler pop, smoothing the graduation. */}
+          <AnimatePresence initial={false}>
+            {ticks
+              .filter((t) => t.labeled && pct(t.ms) >= 0 && pct(t.ms) <= 100)
+              .map((t) => (
+                <motion.span
+                  key={t.ms}
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.22, ease: "easeOut" }}
+                  className={cn(
+                    "absolute bottom-0 -translate-x-1/2 whitespace-nowrap text-[9.5px] tabular-nums tracking-tight",
+                    t.major
+                      ? "font-semibold text-muted-foreground/70"
+                      : t.sub
+                        ? "font-normal text-muted-foreground/50" // coarse-hour sub labels (lighter than minors)
+                        : "font-medium text-muted-foreground/40",
+                  )}
+                  style={{ left: `${pct(t.ms)}%` }}
+                >
+                  {t.label}
+                </motion.span>
+              ))}
+          </AnimatePresence>
         </div>
 
         {/* Center label + jump-to-now. The date label is ALWAYS shown (so it never
@@ -1462,27 +1489,34 @@ export function TimelineStrip({
               className="pointer-events-none absolute inset-0"
               style={{ maskImage: edgeFade, WebkitMaskImage: edgeFade }}
             >
-              {ticks.map((t) => {
-                const left = pct(t.ms)
-                if (left < 0 || left > 100) return null
-                return (
-                  <div
-                    key={`g-${t.ms}-${t.major ? "M" : t.sub ? "s" : "m"}`}
-                    className={cn(
-                      "absolute bottom-0 top-0 w-px",
-                      // four tiers: context > labeled minor > bare minor > faint sub
-                      t.major
-                        ? "bg-border/40"
-                        : t.sub
-                          ? "bg-border/[0.09]"
-                          : t.labeled
-                            ? "bg-border/20"
-                            : "bg-border/[0.08]",
-                    )}
-                    style={{ left: `${left}%` }}
-                  />
-                )
-              })}
+              {/* Keyed by `ms` only (see ruler labels above): surviving graduations stay
+                  mounted and just slide, so only added/removed lines fade — the grid melts
+                  between grains instead of snapping. */}
+              <AnimatePresence initial={false}>
+                {ticks
+                  .filter((t) => pct(t.ms) >= 0 && pct(t.ms) <= 100)
+                  .map((t) => (
+                    <motion.div
+                      key={t.ms}
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      transition={{ duration: 0.22, ease: "easeOut" }}
+                      className={cn(
+                        "absolute bottom-0 top-0 w-px",
+                        // four tiers: context > labeled minor > bare minor > faint sub
+                        t.major
+                          ? "bg-border/40"
+                          : t.sub
+                            ? "bg-border/[0.09]"
+                            : t.labeled
+                              ? "bg-border/20"
+                              : "bg-border/[0.08]",
+                      )}
+                      style={{ left: `${pct(t.ms)}%` }}
+                    />
+                  ))}
+              </AnimatePresence>
             </div>
 
             {/* DAY CELLS — faint horizontal day-slabs marking each day boundary near the

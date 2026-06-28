@@ -5,7 +5,13 @@ import { motion } from "motion/react"
 import { useTheme } from "next-themes"
 import { useZeroNav } from "@/lib/zero/nav-store"
 import { getSpace, getEntity, isDetachedChild } from "@/lib/zero/data"
-import { shellStageFor, HEADER_BAND_H, TIMELINE_TOP_PAD, TIMELINE_ATLAS_DOLIST_TOP_FRAC } from "@/lib/zero/layout"
+import {
+  shellStageFor,
+  HEADER_BAND_H,
+  TIMELINE_ATLAS_DOLIST_TOP_FRAC,
+  TIMELINE_LIFELANE_MIN_FRAC,
+} from "@/lib/zero/layout"
+import { cn } from "@/lib/utils"
 import { useTimelineView } from "@/lib/zero/timeline-view-store"
 import { entityRegions } from "@/lib/zero/regions"
 import { layerTransition, telescopicSurface } from "@/lib/zero/motion"
