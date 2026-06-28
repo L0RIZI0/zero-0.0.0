@@ -1853,8 +1853,11 @@ export function TimelineStrip({
                   }
                   style={{
                     left: boxStyle.left,
-                    width: collapsedTarget ? `calc(${Math.max(widthPct, 0.6)}% - 2px)` : boxStyle.width,
-                    minWidth: collapsedTarget ? 3 : undefined,
+                    // Collapse target must EXACTLY match the rail tick it hands off to (line ~2065:
+                    // `max(3px, widthPct%)`), with a PIXEL floor — a `0.6%`-of-track floor made the
+                    // chip morph to ~16px on an ultrawide before the thin tick took over, so it
+                    // flashed fat for ~1s. Pixel floor is identical on every screen → seamless.
+                    width: collapsedTarget ? `max(3px, ${widthPct}%)` : boxStyle.width,
                     transition: barAnimating
                       ? `width ${collapsedTarget ? COLLAPSE_MS : EXPAND_MS}ms ${collapsedTarget ? "ease-out" : EXPAND_EASE_CSS}`
                       : undefined,
