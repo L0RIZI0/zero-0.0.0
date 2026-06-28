@@ -1700,7 +1700,8 @@ export function TimelineStrip({
                 the band frame is also `× condenseScale` (bandHVisual) the scaled plane fills
                 it exactly. Horizontal is untouched → chips keep real time positions/widths. */}
             <div
-              className="absolute inset-x-0 top-1/2"
+              onPointerDown={onPointerDown}
+              className="absolute inset-x-0 top-1/2 cursor-grab touch-none active:cursor-grabbing"
               style={{
                 height: trackH,
                 transform: `translateY(-50%) scaleY(${condenseScale})`,
