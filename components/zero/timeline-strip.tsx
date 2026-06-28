@@ -1253,6 +1253,11 @@ export function TimelineStrip({
   const atDayScale = Math.abs(spanMs - VIEW_SPAN_MS.D) / VIEW_SPAN_MS.D < 0.02
   const atHome = atDayScale && nowVisible
   const centerLabel = useMemo(() => scrubLabel(center, grain), [center, grain])
+  // Which side the jump-to-NOW control hangs off the (truly centered) date label. The timeline
+  // runs past→left, future→right, so if the viewport center is in the FUTURE relative to `now`,
+  // "now" lies to the LEFT (off-screen ⇐), and the control sits on the date's LEFT; if the center
+  // is in the PAST, now is to the RIGHT, so the control sits on the date's RIGHT.
+  const nowOnLeft = center > now
 
   // --- Ruler ticks (two-tier, adaptive grain) ------------------------------
   const ticks = useMemo(() => timelineTicks(startMs, spanMs, width), [startMs, spanMs, width])
@@ -1448,7 +1453,13 @@ export function TimelineStrip({
           className="pointer-events-none absolute inset-x-0 z-40 flex items-center justify-center"
           style={{ top: labelGroupTop, height: LABEL_ROW_H, transition: headerRowTransition }}
         >
-          <div className="pointer-events-auto inline-flex items-center gap-1 rounded bg-background px-2 py-0.5">
+          {/* The date pill is `relative` and is the ONLY thing the parent centers, so the date
+              text sits exactly on the viewport center. The jump-to-NOW control is hung off the
+              pill's edge as an ABSOLUTE element (so it never shifts the date): on the LEFT when
+              viewing the future / RIGHT when viewing the past, pointing back toward where "now"
+              actually is. On the left we reverse the icon/label order so the crosshair stays
+              adjacent to the date. */}
+          <div className="pointer-events-auto relative inline-flex items-center rounded bg-background px-2 py-0.5">
             <span className="whitespace-nowrap text-[11px] font-medium tracking-tight text-foreground">
               {centerLabel}
             </span>
@@ -1458,7 +1469,10 @@ export function TimelineStrip({
                 onClick={goNow}
                 aria-label="Jump to now"
                 title="Jump to now"
-                className="flex items-center gap-0.5 whitespace-nowrap rounded-md px-1 py-0.5 text-[10px] font-medium leading-none text-muted-foreground/70 transition-colors [&:hover]:text-foreground"
+                className={cn(
+                  "absolute top-1/2 flex -translate-y-1/2 items-center gap-0.5 whitespace-nowrap rounded-md px-1 py-0.5 text-[10px] font-medium leading-none text-muted-foreground/70 transition-colors [&:hover]:text-foreground",
+                  nowOnLeft ? "right-full mr-0.5 flex-row-reverse" : "left-full ml-0.5",
+                )}
               >
                 <Crosshair className="h-3 w-3 shrink-0" strokeWidth={2.5} />
                 <motion.span
