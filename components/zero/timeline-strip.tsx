@@ -81,9 +81,6 @@ const ATLAS_CLOSE_EPSILON_MS = 0.04 * DAY_MS
 // but not so small that chips become unreadable too early.
 const CONDENSE_ONSET_FRAC = 0.42
 const CONDENSE_MIN_SCALE = 0.48
-// How many discrete shrink levels the condense ramp snaps to (perf — see usage). ~12 steps over
-// the runway is ≈4% lane-height per step: smooth to the eye, far fewer layout passes.
-const CONDENSE_STEPS = 12
 // PERF: a recurring series carries up to MAX_RECUR_OCCURRENCES (366) timestamps. When the whole
 // series packs into view (fully zoomed out / collapsed) that's hundreds of absolutely-positioned
 // 1px divs re-positioned every frame — the dominant cost of the zoomed-out render (~21fps). Since
@@ -573,25 +570,29 @@ export function TimelineStrip({
     setZoomCollapsed(next)
   }, [spanMs, zoomCollapsed, atlasOpenMs, atlasCloseMs])
 
-  // CONTINUOUS PRE-FOLD CONDENSE (see CONDENSE_* constants). As the span approaches the
-  // fold threshold the lanes/labels shrink so the collapse is the tail end of a smooth
-  // compression rather than a snap. `condense` 0→1; `laneScale` 1→CONDENSE_MIN_SCALE;
-  // `laneH`/`laneGap` are the LIVE lane geometry every downstream measurement uses, so the
-  // whole stack (lane positions, band height, do-list reflow, labels) condenses as one.
+  // CONTINUOUS PRE-FOLD CONDENSE (see CONDENSE_* constants). As the span approaches the fold
+  // threshold the whole stack shrinks so the collapse is the tail end of a smooth compression
+  // rather than a snap. `condense` 0→1; the visual compression is applied as a single GPU
+  // `scaleY` (see `condenseScale` below + the render), NOT by mutating the lane geometry.
   const condenseOnsetMs = atlasOpenMs * CONDENSE_ONSET_FRAC
   const condenseRaw = Math.min(1, Math.max(0, (spanMs - condenseOnsetMs) / Math.max(1, atlasOpenMs - condenseOnsetMs)))
   const condenseSmooth = condenseRaw * condenseRaw * (3 - 2 * condenseRaw) // smoothstep — gentle onset
-  // PERF: QUANTISE the factor to CONDENSE_STEPS levels. `laneH`/`laneGap` feed the `layout`
-  // useMemo (and thus every chip/label's top/height); if they drifted a sub-pixel every wheel
-  // frame the memo recomputed and all ~50+ elements re-laid-out on each tick. Snapping to a
-  // dozen steps means laneH/laneGap hold the SAME value across runs of frames, so the memo
-  // returns a stable reference and the relayout is skipped — still visually smooth (~4% per
-  // step) but a handful of relayouts across the runway instead of one per frame.
-  const condense = Math.round(condenseSmooth * CONDENSE_STEPS) / CONDENSE_STEPS
-  const condensing = condense > 0
-  const laneScale = 1 - (1 - CONDENSE_MIN_SCALE) * condense
-  const laneH = LANE_H * laneScale
-  const laneGap = LANE_GAP * laneScale
+  // SMOOTH SCALE PHASE. Previously laneH/laneGap = LANE_* × laneScale, so the condense ramp
+  // shrank the LIVE lane geometry → the `layout` memo (and every chip's top/height) recomputed
+  // each step and the whole stack re-laid-out frame-by-frame (the "steppy" feel). Now the
+  // layout is computed at RESTING geometry (laneH/laneGap are the un-condensed constants) so
+  // positions are STABLE — zero relayout during the zoom — and the visual compression toward
+  // the fold is a single GPU `scaleY(condenseScale)` on the lane layer + a matching shrink of
+  // the band height (see render). Continuous (un-quantised): a transform is cheap every frame,
+  // unlike a relayout, so we no longer need the CONDENSE_STEPS quantisation.
+  const condense = condenseSmooth
+  const condensing = condense > 0.001
+  // Vertical compression factor: 1 at rest → CONDENSE_MIN_SCALE near the fold. Forced to 1
+  // once FOLDED (rails are already tiny; scaling them again would double-shrink) — the rail
+  // crossfade masks the boundary jump.
+  const condenseScale = zoomCollapsed ? 1 : 1 - (1 - CONDENSE_MIN_SCALE) * condense
+  const laneH = LANE_H
+  const laneGap = LANE_GAP
   // While condensing, lane geometry changes EVERY zoom frame, so the per-element top/height
   // tweens (which give a pleasant glide on a discrete lane-repack at normal zoom) must go
   // INSTANT or they'd lag behind the live compression. `restTopDur` is the resting top-tween
@@ -1001,6 +1002,16 @@ export function TimelineStrip({
       ? `height ${COLLAPSE_MS}ms ease-out` // zoom out → quick glide up, no 2.2s linger
       : undefined // zoomExpanding / rest → instant, so the band always fits its content
   const bandH = lifelaneBandH
+  // VISUAL band height during the condense scale phase. `bandH` is the resting (full) content
+  // height; multiplying by `condenseScale` shrinks the FRAME (border, gridlines, NOW marker,
+  // day cells — all full-frame `inset-y-0` layers) in lockstep with the lane layer's `scaleY`,
+  // so the whole timeline scales toward its center as one unit. =bandH at rest (scale 1) and
+  // when folded (scale forced to 1). The fold-out glide is carried by `bandTransition`; during
+  // a live zoom the span spring drives `condenseScale` so the height tracks instantly.
+  const bandHVisual = bandH * condenseScale
+  // The lane layer's scaleY tracks the zoom instantly EXCEPT on a zoom fold-out, where it glides
+  // 1← over COLLAPSE_MS together with the band height so frame and content compress in step.
+  const laneScaleTransition = zoomCollapsing ? `transform ${COLLAPSE_MS}ms ease-out` : undefined
   // Y of a VISIBLE global lane (collapsed lanes return the block's rail y so any
   // stray positioning lands sanely; their bars are handled separately as chips).
   const laneTop = (lane: number) => offsetY + (layout.laneToY.get(lane) ?? 0)
@@ -1323,7 +1334,7 @@ export function TimelineStrip({
           zoom span spring already eases it; a tween would lag behind). For a MANUAL fold
           `bandTransition` tweens the height so the do-list below is pushed FLUIDLY in
           lockstep with the ribbon morph (see `bandH`/`manualFolding`). */}
-      <div className="relative -mx-6" style={{ height: bandH, transition: bandTransition }}>
+      <div className="relative -mx-6" style={{ height: bandHVisual, transition: bandTransition }}>
         {/* Instant layer — pins (singletons) and density bubbles (clusters). */}
         <div
           className="pointer-events-none absolute inset-y-0 z-30"
@@ -1607,8 +1618,22 @@ export function TimelineStrip({
                 net offset is `(bandH − trackH) / 2` — exactly 0 at rest (motion/morph math
                 untouched) and symmetric bleed (top AND bottom) while the frame grows/shrinks.
                 Full-frame elements (rule, gridlines, day cells, NOW marker) stay OUTSIDE
-                this layer so they keep spanning the whole frame. */}
-            <div className="absolute inset-x-0 top-1/2 -translate-y-1/2" style={{ height: trackH }}>
+                this layer so they keep spanning the whole frame.
+                SCALE PHASE (Part 1): the `scaleY(condenseScale)` is folded into this same
+                transform so the lane plane compresses vertically as ONE GPU unit (no
+                per-element relayout). `translateY(-50%)` uses the element's own (unscaled)
+                height so centering is unaffected by the scale; scaling about the default
+                center origin keeps the plane's center pinned to the band center, and since
+                the band frame is also `× condenseScale` (bandHVisual) the scaled plane fills
+                it exactly. Horizontal is untouched → chips keep real time positions/widths. */}
+            <div
+              className="absolute inset-x-0 top-1/2"
+              style={{
+                height: trackH,
+                transform: `translateY(-50%) scaleY(${condenseScale})`,
+                transition: laneScaleTransition,
+              }}
+            >
             {/* ribbon background BANDS — one tinted horizontal band per space (the
                 time.graphics "folder" model). Rendered BEHIND the bars (z-0). The
                 left labels are a separate pass AFTER the bars so they paint on top of
@@ -1852,7 +1877,7 @@ export function TimelineStrip({
                         away on collapse so the marker flattens into its rail tick. */}
                     <span
                       className="absolute bottom-0 left-0 w-[2px] rounded-full transition-[height] duration-300 ease-out"
-                      style={{ height: collapsedTarget ? RAIL_H - 2 : 16 * laneScale, backgroundColor: markerColor }}
+                      style={{ height: collapsedTarget ? RAIL_H - 2 : 16, backgroundColor: markerColor }}
                       aria-hidden
                     />
                     {/* title to the RIGHT of the vertical connector — fades out FAST/EARLY
@@ -1864,7 +1889,7 @@ export function TimelineStrip({
                       )}
                       style={{
                         opacity: collapsedTarget ? 0 : 1,
-                        fontSize: 10 * laneScale,
+                        fontSize: 10,
                         // Match the titled chip: fade the bleeding marker title over a big
                         // slice of the collapse so the apparent width retracts smoothly into
                         // the rail tick instead of snapping away in 110ms.
@@ -1976,9 +2001,9 @@ export function TimelineStrip({
                       "text-foreground/85 shadow-sm transition-[filter,background-color,border-color] duration-300 ease-out hover:brightness-110",
                     )}
                     style={{
-                      // Shrink the chip type in step with the lane as we condense toward the
-                      // fold (inline fontSize overrides the Tailwind text-[10.5px]).
-                      fontSize: 10.5 * laneScale,
+                      // Chip type is a constant size; the lane-layer scaleY squishes it
+                      // vertically as we condense toward the fold (see render).
+                      fontSize: 10.5,
                       borderColor: collapsedTarget
                         ? b.color || "var(--border)"
                         : b.color
@@ -2218,7 +2243,7 @@ export function TimelineStrip({
                       left: mId ? 4 + MOTHER_COL_W : 4,
                       top,
                       transform: "translateY(-50%)",
-                      fontSize: 9.5 * laneScale,
+                      fontSize: 9.5,
                       // While condensing, `top` shifts every zoom frame — drop the class'
                       // 300ms transition so the label tracks the compressing lane live.
                       ...(condensing ? { transition: "none" } : {}),
