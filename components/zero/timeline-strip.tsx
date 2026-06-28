@@ -1981,21 +1981,20 @@ export function TimelineStrip({
             {showRibbons &&
               layout.blocks.map((blk) => {
                 if (!showCollapsed(blk)) return null
-                // A fully HIDDEN mother has NO rail (its lane is a 1px sliver). During the
-                // hide animation the expanded layer crossfades into the sliver via the band
-                // reflow, so we don't need a transitional rail here either.
-                if (blk.hidden && !blkAnimating(blk)) return null
                 const rk = blk.m.motherId ?? `root:${blk.m.baseLane}`
+                // A fully HIDDEN mother has no thin rail — instead its lane is a SOLID 1px
+                // sliver in the mother's own color (white when it has none). The SAME element
+                // morphs between the two looks: the rail (translucent fill + 2px left border,
+                // 7px tall) animates height/color into the 1px solid sliver, so hiding/showing
+                // glides instead of snapping.
                 const railStyle = {
                   top: offsetY + blk.top,
-                  // While hiding, collapse the rail toward the 1px sliver so it shrinks into it.
                   height: blk.hidden ? HIDDEN_H : RAIL_H,
-                  // Hidden settles fully transparent; otherwise the normal collapsed crossfade.
-                  opacity: blk.hidden ? 0 : collapsedOpacity(blk),
-                  backgroundColor: `${blk.m.color}1f`,
-                  borderLeft: `2px solid ${blk.m.color}`,
+                  opacity: collapsedOpacity(blk),
+                  backgroundColor: blk.hidden ? blk.m.color || "#ffffff" : `${blk.m.color}1f`,
+                  borderLeft: blk.hidden ? "none" : `2px solid ${blk.m.color}`,
                   // A collapsed sibling rail (e.g. Health) must slide with the reflow too.
-                  transition: reflowTransition("top, filter, opacity, height"),
+                  transition: reflowTransition("top, filter, opacity, height, background-color"),
                 } as const
                 const hoverProps = {
                   onMouseEnter: () => setHoveredMother(rk),
@@ -2391,7 +2390,13 @@ export function TimelineStrip({
             {showRibbons &&
               layout.blocks.flatMap((blk) => {
                 const rk = blk.m.motherId ?? `root:${blk.m.baseLane}`
-                if (!showCollapsed(blk) || blk.hidden) return []
+                if (!showCollapsed(blk)) return []
+                // A fully HIDDEN mother has no ticks at rest, but while it's still ANIMATING
+                // into hidden we keep them mounted and drive their opacity to 0 so they fade
+                // out together with the rail (the 150ms tick transition), instead of snapping
+                // off the instant the eye is clicked.
+                const hidingNow = blk.hidden && blkAnimating(blk)
+                if (blk.hidden && !hidingNow) return []
                 const hi = hoveredMother === rk
                 const railY = offsetY + blk.top
                 // Tick opacity is DIRECTION-AWARE:
@@ -2451,7 +2456,7 @@ export function TimelineStrip({
                                   height: RAIL_H - 2,
                                   transform: "translateY(-50%)",
                                   backgroundColor: color,
-                                  opacity: (uncollapsing ? 0 : hi ? 1 : 0.85) * fade,
+                                  opacity: (uncollapsing || hidingNow ? 0 : hi ? 1 : 0.85) * fade,
                                   boxShadow: hi ? `0 0 6px ${color}` : undefined,
                                 }}
                               />
@@ -2499,7 +2504,7 @@ export function TimelineStrip({
                           top: railY + 1,
                           height: RAIL_H - 2,
                           backgroundColor: color,
-                          opacity: uncollapsing ? 0 : hi ? 1 : 0.85,
+                          opacity: uncollapsing || hidingNow ? 0 : hi ? 1 : 0.85,
                           boxShadow: hi ? `0 0 6px ${color}` : undefined,
                         }}
                       />
