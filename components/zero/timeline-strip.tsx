@@ -1098,6 +1098,15 @@ export function TimelineStrip({
       : reflowing && !condensing
         ? `height ${RELAYOUT_MS}ms ease-out` // lane split/merge → glide the frame with its chips
         : undefined // zoomExpanding / rest → instant, so the band always fits its content
+  // HEADER ROWS (graduation + [date label/NOW]) transition. They float at NEGATIVE `top` above
+  // the lanes and their `top` is recomputed from the INSTANT target geometry (`lifelaneBandH`) on
+  // a fold, while the band frame's HEIGHT (and the container-centered band's top edge) glides on
+  // `bandTransition`. `bandTransition` only lists the `height` property, so the rows' `top` change
+  // was applied INSTANTLY → they jumped in frame 1 and the band's recenter then dragged them back
+  // (the date/NOW + graduation "jump" the user saw). Mirror the band's exact schedule onto the
+  // `top` property so the rows glide in lockstep with the recenter instead of snapping. `undefined`
+  // at rest / during live zoom (top tracks the zoom every frame, no transition wanted).
+  const headerRowTransition = bandTransition ? bandTransition.replace("height", "top") : undefined
   const bandH = lifelaneBandH
   // VISUAL band height during the condense scale phase. `bandH` is the resting (full) content
   // height; multiplying by `condenseScale` shrinks the FRAME (border, gridlines, NOW marker,
@@ -1407,7 +1416,7 @@ export function TimelineStrip({
             marginRight: VIEWPORT_INSET_RIGHT,
             maskImage: edgeFade,
             WebkitMaskImage: edgeFade,
-            transition: bandTransition,
+            transition: headerRowTransition,
           }}
         >
           {/* Keyed by `ms` ONLY (not ms+role): as you zoom, the tick GRAIN changes and the set
@@ -1446,7 +1455,7 @@ export function TimelineStrip({
             appending it never shifts the label. Clamped to rest just below the header bar. */}
         <div
           className="pointer-events-none absolute inset-x-0 z-40 flex items-center justify-center"
-          style={{ top: labelGroupTop, height: LABEL_ROW_H, transition: bandTransition }}
+          style={{ top: labelGroupTop, height: LABEL_ROW_H, transition: headerRowTransition }}
         >
           <div className="pointer-events-auto inline-flex items-center gap-1 rounded bg-background px-2 py-0.5">
             <span className="whitespace-nowrap text-[11px] font-medium tracking-tight text-foreground">
