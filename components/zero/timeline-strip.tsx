@@ -1986,10 +1986,11 @@ export function TimelineStrip({
                 const railStyle = {
                   top: offsetY + blk.top,
                   height: blk.hidden ? HIDDEN_H : RAIL_H,
-                  // A hidden sliver dims to 40% at rest and lifts to 100% while its lane is
+                  // A hidden sliver rests at the same faded level the timeline uses for a
+                  // backgrounded ribbon (`UNRELATED_OPACITY`) and lifts to 100% while its lane is
                   // hovered — a responsive cue that the (otherwise near-invisible) 1px line is
                   // clickable to reopen. Thin rails keep the crossfade opacity.
-                  opacity: blk.hidden ? (hoveredMother === rk ? 1 : 0.4) : collapsedOpacity(blk),
+                  opacity: blk.hidden ? (hoveredMother === rk ? 1 : UNRELATED_OPACITY) : collapsedOpacity(blk),
                   backgroundColor: blk.hidden ? blk.m.color || "#ffffff" : `${blk.m.color}1f`,
                   borderLeft: blk.hidden ? "none" : `2px solid ${blk.m.color}`,
                   // A collapsed sibling rail (e.g. Health) must slide with the reflow too.
@@ -1999,10 +2000,12 @@ export function TimelineStrip({
                   onMouseEnter: () => setHoveredMother(rk),
                   onMouseLeave: () => setHoveredMother((h) => (h === rk ? null : h)),
                 }
-                // Clicking the thin rail BODY (between ticks) expands the mother. A hidden block's
-                // 1px sliver is non-interactive here — its reopen click is handled by the
-                // hover-catcher in the label pass; zoom-forced rails are non-interactive too.
-                return blk.m.motherId && !zoomCollapsed && !blk.hidden ? (
+                // Clicking the rail/1px-sliver BODY expands the mother fully (between ticks on a
+                // thin rail; anywhere on a hidden sliver). Only a ZOOM-forced collapse stays a
+                // plain non-interactive div (expansion is zoom-controlled then, so a click must
+                // not fight the zoom). The hidden sliver is just 1px tall, so it ALSO gets the
+                // taller hover-catcher in the label pass as an easier target.
+                return blk.m.motherId && !zoomCollapsed ? (
                   <button
                     key={`rail:${rk}`}
                     type="button"
@@ -2040,6 +2043,11 @@ export function TimelineStrip({
               // TARGET). Event chips stay opaque and morph into their rail span on this
               // flag; their inner text fades out FAST (before the bar finishes sliding).
               const collapsedTarget = !!blk?.collapsed
+              // HIDING target: the ribbon is being fully hidden (→ 1px sliver, no rail). Unlike a
+              // plain collapse — where the chip stays OPAQUE and morphs into its rail tick — a hide
+              // must make the chip FADE OUT (fast) so it doesn't linger at full opacity on the rail
+              // for the whole fold window and then suddenly pop off when it unmounts.
+              const hidingTarget = !!blk?.hidden
               // The chip's RAIL geometry (y of its highlight tick). A chip that MOUNTS
               // mid-morph (un-collapse — it was unmounted while the ribbon was a rail)
               // uses this as its framer `initial`, so it FALLS out of the highlight into
@@ -2172,7 +2180,7 @@ export function TimelineStrip({
                     initial={barAnimating ? { opacity: 0, top: railTopPx } : false}
                     data-placement={b.entity ? placementKey("timeline", contextId, b.entity.id) : undefined}
                     data-morph-kind="generic"
-                    animate={{ opacity: dim, top: barTop(lane) }}
+                    animate={{ opacity: hidingTarget ? 0 : dim, top: barTop(lane) }}
                     transition={
                       zoomExpanding
                         ? { top: { duration: 0 }, opacity: { duration: 0.2, ease: "easeOut" }, scaleX: { duration: 0 } }
@@ -2301,7 +2309,9 @@ export function TimelineStrip({
                     // the morph the opacity fade is QUICK (a chip falling out of its
                     // highlight should be visible as it drops, not crawl in over the 2s
                     // panelTransition) and rides early so the geometry fall carries the eye.
-                    animate={{ opacity: dim }}
+                    // When the ribbon is being HIDDEN (not just collapsed), fade to 0 instead so
+                    // the chip doesn't linger opaque on the rail then pop off at unmount.
+                    animate={{ opacity: hidingTarget ? 0 : dim }}
                     transition={barAnimating ? { opacity: { duration: 0.2, ease: "easeOut" } } : panelTransition}
                     onClick={() => b.entity && openFromChip(b.entity.id)}
                     onContextMenu={(ev) => b.entity && openMenu(ev, b.entity)}
