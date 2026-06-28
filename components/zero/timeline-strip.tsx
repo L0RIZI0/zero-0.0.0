@@ -607,6 +607,23 @@ export function TimelineStrip({
   // once FOLDED (rails are already tiny; scaling them again would double-shrink) — the rail
   // crossfade masks the boundary jump.
   const condenseScale = zoomCollapsed ? 1 : 1 - (1 - CONDENSE_MIN_SCALE) * condense
+  // EXPERIMENT — UNIFORM x+y SCALE. When true the condense phase scales the plane uniformly in
+  // BOTH axes (the timeline shrinks toward its center like zooming a photo out — no vertical
+  // aspect distortion of chips/text) instead of vertical-only. Trade-off: the horizontal axis
+  // is TIME and the viewport is the time-window, so a horizontal shrink pulls the gridlines +
+  // chips IN from the left/right edges (empty track at the sides) and the fixed graduation
+  // labels above no longer sit over their gridlines. Flip to false to revert to vertical-only
+  // (chips stay time-accurate edge-to-edge but are vertically squished). Same single GPU
+  // transform either way, so perf is unchanged.
+  //
+  // VERDICT (measured): tried `true`, screenshotted mid-ramp (scaleX≈0.70) — the ribbons/chips
+  // pinch into the center leaving empty track at the right edge, and the fixed graduation labels
+  // up top no longer sit over their (now pinched) gridlines. The horizontal shrink fights the
+  // time-window semantics, so it reads as broken, not as a clean zoom-out. Kept OFF (vertical-
+  // only). Leaving the wiring here as a documented one-line toggle in case we revisit with a
+  // different model (e.g. also scaling the graduation + accepting/styling the side margins).
+  const UNIFORM_SCALE = false
+  const condenseScaleX = UNIFORM_SCALE ? condenseScale : 1
   const laneH = LANE_H
   const laneGap = LANE_GAP
   // While condensing, lane geometry changes EVERY zoom frame, so the per-element top/height
@@ -1071,6 +1088,12 @@ export function TimelineStrip({
   // and layer halves desync mid-tween and the content drifts. Mutually exclusive with
   // `laneScaleTransition` (that only fires during a zoom fold, when `reflowing` is false).
   const centerLayerTransition = reflowing && !condensing ? `height ${RELAYOUT_MS}ms ease-out` : laneScaleTransition
+  // Shared horizontal compression for the full-frame time-pinned layers (gridlines, day cells,
+  // NOW marker) so they pinch toward center in lockstep with the lanes when UNIFORM_SCALE is on.
+  // Each target is a full-width box (origin center 50% → a tick at pct% maps to 50+(pct−50)·s,
+  // identical for every layer, so they stay mutually aligned). `undefined` at rest so no needless
+  // compositor layer. Glides with the lanes on a zoom fold-out via `laneScaleTransition`.
+  const condenseXTransform = condenseScaleX === 1 ? undefined : `scaleX(${condenseScaleX})`
   // Y of a VISIBLE global lane (collapsed lanes return the block's rail y so any
   // stray positioning lands sanely; their bars are handled separately as chips).
   const laneTop = (lane: number) => offsetY + (layout.laneToY.get(lane) ?? 0)
@@ -1579,7 +1602,13 @@ export function TimelineStrip({
                 rather than popping in/out at the hard viewport border. */}
             <div
               className="pointer-events-none absolute inset-0"
-              style={{ maskImage: edgeFade, WebkitMaskImage: edgeFade }}
+              style={{
+                maskImage: edgeFade,
+                WebkitMaskImage: edgeFade,
+                transform: condenseXTransform,
+                transformOrigin: "center",
+                transition: laneScaleTransition,
+              }}
             >
               {/* Keyed by `ms` only (see ruler labels above): surviving graduations stay
                   mounted and just slide, so only added/removed lines fade — the grid melts
@@ -1616,21 +1645,27 @@ export function TimelineStrip({
                 Lifelane->Atlas flight (slab rotating into a vertical column) is played by
                 the Atlas (TimelineWeek) with its own elements, so while `morphing` these
                 are HIDDEN and the Atlas's flying cells show instead. */}
-            {showDayCells &&
-              !morphing &&
-              dayCells.map((ds) => {
-                const left = pct(ds)
-                const widthPct = (DAY_MS / spanMs) * 100
-                if (left > 100 || left + widthPct < 0) return null
-                return (
-                  <div
-                    key={`day-${ds}`}
-                    className="pointer-events-none absolute bottom-0 top-0 z-0 border-l border-border/30 bg-foreground/[0.015]"
-                    style={{ left: `${left}%`, width: `${widthPct}%` }}
-                    aria-hidden
-                  />
-                )
-              })}
+            {showDayCells && !morphing && (
+              <div
+                className="pointer-events-none absolute inset-0 z-0"
+                style={{ transform: condenseXTransform, transformOrigin: "center", transition: laneScaleTransition }}
+                aria-hidden
+              >
+                {dayCells.map((ds) => {
+                  const left = pct(ds)
+                  const widthPct = (DAY_MS / spanMs) * 100
+                  if (left > 100 || left + widthPct < 0) return null
+                  return (
+                    <div
+                      key={`day-${ds}`}
+                      className="pointer-events-none absolute bottom-0 top-0 border-l border-border/30 bg-foreground/[0.015]"
+                      style={{ left: `${left}%`, width: `${widthPct}%` }}
+                      aria-hidden
+                    />
+                  )
+                })}
+              </div>
+            )}
 
             {/* drag surface — behind markers so it only catches empty-track drags. */}
             <div
@@ -1639,10 +1674,16 @@ export function TimelineStrip({
               aria-hidden
             />
 
-            {/* now marker */}
+            {/* now marker — wrapped in a full-width layer so UNIFORM_SCALE's `scaleX` pinches it
+                toward center IN STEP with the gridlines/lanes (scaling the thin marker itself
+                about its own center wouldn't move it). At rest the wrapper has no transform. */}
             {nowVisible && (
               <div
-                className="pointer-events-none absolute -bottom-px -top-px z-20 w-px"
+                className="pointer-events-none absolute inset-0 z-20"
+                style={{ transform: condenseXTransform, transformOrigin: "center", transition: laneScaleTransition }}
+              >
+              <div
+                className="pointer-events-none absolute -bottom-px -top-px w-px"
                 style={{ left: `${pct(now)}%`, backgroundColor: accent ?? "var(--accent)" }}
               >
                 {/* Endpoint caps: equilateral triangles (8px base, ~7px tall) centered on
@@ -1678,6 +1719,7 @@ export function TimelineStrip({
                   }}
                 />
               </div>
+              </div>
             )}
 
             {/* CENTERING LAYER. The frame `height` (bandH) CSS-tweens on a fold while the
@@ -1704,7 +1746,7 @@ export function TimelineStrip({
               className="absolute inset-x-0 top-1/2 cursor-grab touch-none active:cursor-grabbing"
               style={{
                 height: trackH,
-                transform: `translateY(-50%) scaleY(${condenseScale})`,
+                transform: `translateY(-50%) scaleX(${condenseScaleX}) scaleY(${condenseScale})`,
                 transition: centerLayerTransition,
               }}
             >
