@@ -81,6 +81,27 @@ const ATLAS_CLOSE_EPSILON_MS = 0.04 * DAY_MS
 // but not so small that chips become unreadable too early.
 const CONDENSE_ONSET_FRAC = 0.42
 const CONDENSE_MIN_SCALE = 0.48
+// PERF: a recurring series carries up to MAX_RECUR_OCCURRENCES (366) timestamps. When the whole
+// series packs into view (fully zoomed out / collapsed) that's hundreds of absolutely-positioned
+// 1px divs re-positioned every frame — the dominant cost of the zoomed-out render (~21fps). Since
+// 1px segments packed tighter than a couple px are visually indistinguishable from a denser set,
+// we paint at most this many and uniformly downsample beyond it (always keeping the fade tail).
+const RECUR_RENDER_MAX = 130
+// Uniformly thin an already-visible list of occurrence indices down to at most `max`, while
+// ALWAYS keeping the final RECUR_FADE_TAIL entries so the fade-out tail still lands on the true
+// last points. Visible-culling happens BEFORE this, so a zoomed-IN window (few occurrences on
+// screen) renders every one; only a zoomed-OUT window dense enough to exceed the cap is thinned.
+function downsampleKeepingTail(indices: number[], max: number): number[] {
+  if (indices.length <= max) return indices
+  const tail = Math.min(RECUR_FADE_TAIL, indices.length)
+  const body = max - tail
+  const bodyEnd = indices.length - tail
+  const step = bodyEnd / body
+  const out: number[] = []
+  for (let j = 0; j < body; j++) out.push(indices[Math.floor(j * step)])
+  for (let k = tail; k >= 1; k--) out.push(indices[indices.length - k])
+  return out
+}
 // Duration of the ribbon (un)collapse morph. Longer (was 300) so the vertical-height
 // transform + the mother-title rotation read as a deliberate, smooth unfold rather than
 // a quick snap. The morphing elements (chip wrapper, mother column, band height) drive
@@ -2015,9 +2036,13 @@ export function TimelineStrip({
                           setHoveredTick((t) => (t?.key === b.key ? null : t))
                         }}
                         style={{
-                          left: `calc(${left}% + 2px)`,
-                          width: isRecurring ? `max(1px, ${widthPct}%)` : `calc(${Math.max(widthPct, 0.6)}% - 2px)`,
-                          minWidth: isRecurring ? undefined : 3,
+                          left: `${left}%`,
+                          // PIXEL floor, never a % of the track: a `0.6%` floor scaled with the
+                          // viewport, so on an ultrawide monitor a 1hr event ballooned into a
+                          // ~15px bar. `max(<px>, widthPct%)` keeps the tick proportional to its
+                          // true duration but guarantees a fixed minimum on every screen (3px for
+                          // a one-off so it stays clickable, 1px for a dense recurrence).
+                          width: `max(${isRecurring ? "1px" : "3px"}, ${widthPct}%)`,
                           top: railY + 1,
                           height: RAIL_H - 2,
                           backgroundColor: color,
