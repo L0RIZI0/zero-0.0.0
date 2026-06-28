@@ -92,7 +92,13 @@ const GRAD_ROW_H = 14 // timestamp row height (matches the old h-3.5 ruler)
 const GRAD_LANE_GAP = 6 // graduation floats this far above the top lane
 const LABEL_ROW_H = 22 // the date+NOW pill row (comfortable)
 const LABEL_GRAD_GAP = 15 // natural gap between the label row and the graduation (band short)
-const HEADER_CLEAR_Y = 2 // smallest card-Y either row may reach (rests just under the header bar)
+// Smallest card-Y either header row may reach when the strip is pushed up under the header.
+// This is what actually BINDS the date+NOW row in the centered home view (its natural top would
+// be even higher, so the clamp holds it here). The card's own top edge sits ~19px below the
+// header bar, so a small NEGATIVE value lets the date rise INTO that gap and sit closer to the
+// header (it still clears the bar — verified ~7px gap remains). The date pill's bg chip keeps it
+// readable where it overlaps the graduation in the fully-clamped (short viewport) case.
+const HEADER_CLEAR_Y = -12
 // PERF: a recurring series carries up to MAX_RECUR_OCCURRENCES (366) timestamps. When the whole
 // series packs into view (fully zoomed out / collapsed) that's hundreds of absolutely-positioned
 // 1px divs re-positioned every frame — the dominant cost of the zoomed-out render (~21fps). Since
