@@ -1470,7 +1470,9 @@ export function TimelineStrip({
                 aria-label="Jump to now"
                 title="Jump to now"
                 className={cn(
-                  "absolute top-1/2 flex -translate-y-1/2 items-center gap-0.5 whitespace-nowrap rounded-md px-1 py-0.5 text-[10px] font-medium leading-none text-muted-foreground/70 transition-colors [&:hover]:text-foreground",
+                  // Same chip treatment as the date pill (rounded `bg-background`), so NOW reads
+                  // as a matching control rather than floating bare text over the lanes.
+                  "absolute top-1/2 flex -translate-y-1/2 items-center gap-0.5 whitespace-nowrap rounded bg-background px-1.5 py-0.5 text-[10px] font-medium leading-none text-muted-foreground transition-colors [&:hover]:text-foreground",
                   nowOnLeft ? "right-full mr-0.5 flex-row-reverse" : "left-full ml-0.5",
                 )}
               >
