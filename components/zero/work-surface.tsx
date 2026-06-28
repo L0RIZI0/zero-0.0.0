@@ -11,7 +11,6 @@ import {
   TIMELINE_ATLAS_DOLIST_TOP_FRAC,
   TIMELINE_LIFELANE_MIN_FRAC,
 } from "@/lib/zero/layout"
-import { cn } from "@/lib/utils"
 import { useTimelineView } from "@/lib/zero/timeline-view-store"
 import { entityRegions } from "@/lib/zero/regions"
 import { layerTransition, telescopicSurface } from "@/lib/zero/motion"
@@ -80,7 +79,6 @@ export function WorkSurface() {
   // the timeline drops to sit just under the active window's header (HEADER_BAND_H)
   // instead of at its home resting pad.
   const windowOpen = stack.length > 1
-  const timelineTop = windowOpen ? HEADER_BAND_H : TIMELINE_TOP_PAD
 
   // Measure the live timeline height so content below it (home do-list, the active
   // window's content) can reserve `timelineTop + timelineH`. Exposed as the
@@ -97,6 +95,15 @@ export function WorkSurface() {
   const cardElRef = useRef<HTMLDivElement | null>(null)
   const [cardH, setCardH] = useState(0)
   const viewHeightPx = Math.round(heightFrac * cardH)
+  // HOME LAYOUT: the Lifelane lives in a FIXED "first third" zone (TIMELINE_LIFELANE_MIN_FRAC
+  // of the card) and is vertically CENTERED within it. The do-list reserves the WHOLE zone, so
+  // it stays put no matter how the band grows/shrinks with zoom — the band just grows
+  // symmetrically about the zone center and bleeds behind the do-list (z-10) when it gets
+  // taller than the zone. `centered` is off when a focus window is open (legacy top-anchored
+  // strip under the window header), so windows are untouched.
+  const centered = !windowOpen
+  const overlayTop = windowOpen ? HEADER_BAND_H : 0
+  const zoneH = Math.round(TIMELINE_LIFELANE_MIN_FRAC * cardH)
   // The timeline overlay's ACTUAL rendered height. The band grows to `viewHeightPx`
   // with zoom, but can exceed it when stacked entity lanes push the content-driven
   // `trackH` taller. We measure it so the do-list reserve covers the real band and the
@@ -141,12 +148,25 @@ export function WorkSurface() {
   cardHRef.current = cardH
   const writeReserve = useCallback(() => {
     const card = cardElRef.current
-    const el = timelineElRef.current
-    if (!card || !el) return
-    const reservePx = atlasRef.current
-      ? Math.round(TIMELINE_ATLAS_DOLIST_TOP_FRAC * cardHRef.current)
-      : el.offsetHeight
-    const reserve = (windowOpenRef.current ? 0 : TIMELINE_TOP_PAD) + reservePx
+    if (!card) return
+    let reserve: number
+    if (atlasRef.current) {
+      // ATLAS: the grid fills the card and the do-list floats over its lower edge, so we
+      // reserve a fixed fraction rather than a measured height.
+      reserve = Math.round(TIMELINE_ATLAS_DOLIST_TOP_FRAC * cardHRef.current)
+    } else if (!windowOpenRef.current) {
+      // HOME: region 1 is a FIXED first-third zone. The do-list always starts at its bottom,
+      // INDEPENDENT of the band's live height — so it never jitters as you zoom. This is the
+      // de-coupling the user asked for: we no longer measure the band and push the do-list by
+      // it; the band grows symmetrically about the zone center and bleeds behind the do-list.
+      reserve = Math.round(TIMELINE_LIFELANE_MIN_FRAC * cardHRef.current)
+    } else {
+      // WINDOW OPEN (legacy, untouched): the strip pins just under the window header and its
+      // measured band height reserves the content slot below it. The consuming body already
+      // starts at HEADER_BAND_H, so no extra offset is added (matches the prior `windowOpen ? 0`).
+      const el = timelineElRef.current
+      reserve = el ? el.offsetHeight : 0
+    }
     card.style.setProperty("--region1-reserve", `${reserve}px`)
   }, [])
   // useLayoutEffect so the var is written before the first paint (no flash) and the RO is
@@ -161,9 +181,10 @@ export function WorkSurface() {
     return () => ro.disconnect()
   }, [hasTimeline, writeReserve])
   // Re-write when the NON-band inputs change (atlas toggle, window open/close, card resize).
+  // No longer depends on the band's height — the home reserve is the fixed first-third zone.
   useLayoutEffect(() => {
     writeReserve()
-  }, [atlas, windowOpen, cardH, timelineTop, writeReserve])
+  }, [atlas, windowOpen, cardH, writeReserve])
   // (Reserve math lives in `writeReserve` above. Body-relative offset note: `timelineTop`
   // is in CARD coords, but the consuming body's top is also offset within the card — 0 for
   // home, HEADER_BAND_H for an open window — and `timelineTop` equals that same offset (+
@@ -222,9 +243,14 @@ export function WorkSurface() {
       {hasTimeline ? (
         <motion.div
           ref={timelineElRef}
-          className="absolute inset-x-0 z-0 px-6"
+          // HOME: a fixed-height (`zoneH`) flex column that vertically CENTERS the strip in the
+          // first-third zone, so the band grows symmetrically about the center and overflows
+          // (bleeds) equally above/below when taller than the zone. WINDOW OPEN: legacy
+          // auto-height strip. `top` animates between the two resting offsets on open/close.
+          className={`absolute inset-x-0 z-0 px-6${centered ? " flex flex-col justify-center" : ""}`}
           initial={false}
-          animate={{ top: timelineTop }}
+          animate={{ top: overlayTop }}
+          style={centered ? { height: zoneH } : undefined}
           transition={layerTransition}
         >
           <TimelineStrip
@@ -232,6 +258,8 @@ export function WorkSurface() {
             accent={accent}
             atlasLayer={atlasLayer}
             viewHeightPx={viewHeightPx}
+            centerZoneH={centered ? zoneH : 0}
+            overlayTopPx={overlayTop}
           />
         </motion.div>
       ) : null}
