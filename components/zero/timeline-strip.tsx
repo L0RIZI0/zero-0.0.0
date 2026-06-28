@@ -92,7 +92,7 @@ const GRAD_ROW_H = 14 // timestamp row height (matches the old h-3.5 ruler)
 const GRAD_LANE_GAP = 6 // graduation floats this far above the top lane
 const LABEL_ROW_H = 22 // the date+NOW pill row (comfortable)
 const LABEL_GRAD_GAP = 15 // natural gap between the label row and the graduation (band short)
-const HEADER_CLEAR_Y = 4 // smallest card-Y either row may reach (rests just under the header bar)
+const HEADER_CLEAR_Y = 2 // smallest card-Y either row may reach (rests just under the header bar)
 // PERF: a recurring series carries up to MAX_RECUR_OCCURRENCES (366) timestamps. When the whole
 // series packs into view (fully zoomed out / collapsed) that's hundreds of absolutely-positioned
 // 1px divs re-positioned every frame — the dominant cost of the zoomed-out render (~21fps). Since
@@ -188,26 +188,6 @@ function morphTween(animating: boolean, expanding: boolean, soft = true) {
 // fits above the rail or must flip below to avoid the ruler cropping it.
 const TOOLTIP_H = 16
 
-// View-switch glyphs. ATLAS = a SPHERE (a filled orb with a soft sheen — the whole
-// life-plane gathered into one body). LINE = a thick translucent rounded SEGMENT
-// (the linear Lifelane). Both draw with `currentColor` so they inherit the active
-// vs. muted button color.
-function AtlasGlyph({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 16 16" className={className} fill="none" aria-hidden>
-      <circle cx="8" cy="8" r="5.75" fill="currentColor" />
-      <circle cx="6" cy="6" r="1.5" fill="var(--background)" opacity="0.5" />
-    </svg>
-  )
-}
-function LineGlyph({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 16 16" className={className} fill="none" aria-hidden>
-      <rect x="1.5" y="6" width="13" height="4" rx="2" fill="currentColor" opacity="0.55" />
-    </svg>
-  )
-}
-
 // Fallback color for items whose space chain has no accent (created directly
 // under the root "Space 0"). A neutral light grey so they still read as real
 // markers without claiming a brand color.
@@ -272,7 +252,9 @@ interface MotherBlock {
 // shared coordinate space for gridlines, the now-marker and every marker. Any
 // OVERLAY that must line up with it has to use these exact insets.
 const ARROW_W = 40
-const SELECTOR_W = 24
+// The left view-indicator column was removed (unused), so the selector inset is now 0;
+// the viewport's left edge is flush against the pan arrow and all overlay insets follow.
+const SELECTOR_W = 0
 const VIEWPORT_INSET_LEFT = SELECTOR_W + ARROW_W
 const VIEWPORT_INSET_RIGHT = ARROW_W
 
@@ -1611,24 +1593,9 @@ export function TimelineStrip({
         </div>
 
         <div className="flex h-full items-stretch">
-          {/* VIEW INDICATOR — the Lifelane↔Atlas view is now driven entirely by ZOOM
-              (out to ~2.5 days opens the Atlas), so there is no switch here anymore.
-              This passive readout just shows where you are: the LINE glyph (linear
-              Lifelane) sits above the SPHERE glyph (Atlas), and the one matching the
-              current view lights up — a quiet hint that zooming moves between them. */}
-          <div
-            style={{ width: SELECTOR_W }}
-            className="relative z-10 flex shrink-0 flex-col items-center justify-center gap-1.5 bg-background"
-            aria-hidden
-          >
-            <LineGlyph
-              className={cn("h-3.5 w-3.5 transition-opacity", atlas ? "opacity-25" : "text-foreground opacity-100")}
-            />
-            <AtlasGlyph
-              className={cn("h-3.5 w-3.5 transition-opacity", atlas ? "text-foreground opacity-100" : "opacity-25")}
-            />
-          </div>
-
+          {/* The left VIEW INDICATOR column (Line/Atlas glyphs) was removed — the
+              Lifelane↔Atlas view is driven entirely by zoom, so it carried no function.
+              `SELECTOR_W` is now 0 so the viewport insets collapse and stay aligned. */}
           <button
             type="button"
             onClick={() => panBy(-1)}
@@ -1649,8 +1616,12 @@ export function TimelineStrip({
               still-growing frame instead of being clipped. `clip` (not `hidden`) is what
               allows the y-axis to stay `visible` — `hidden` would force it back to auto. */}
           <div ref={viewportRef} className="relative h-full flex-1 overflow-x-clip overflow-y-visible border-x border-border">
-            {/* centered lifeline rule */}
-            <div className="pointer-events-none absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-border" />
+            {/* centered lifeline rule — only shown for a SINGLE lane (the clean lone
+                lifeline). With 2+ lanes the stacked ribbons carry the structure, so the
+                centered rule is hidden to avoid a stray line cutting across the stack. */}
+            {lanes.count < 2 && (
+              <div className="pointer-events-none absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-border" />
+            )}
 
             {/* gridlines — major (context) lines stronger than minor. Wrapped in an
                 edge-faded layer so graduations melt in/out at the sides while panning
