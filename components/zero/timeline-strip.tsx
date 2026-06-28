@@ -81,6 +81,9 @@ const ATLAS_CLOSE_EPSILON_MS = 0.04 * DAY_MS
 // but not so small that chips become unreadable too early.
 const CONDENSE_ONSET_FRAC = 0.42
 const CONDENSE_MIN_SCALE = 0.48
+// How many discrete shrink levels the condense ramp snaps to (perf — see usage). ~12 steps over
+// the runway is ≈4% lane-height per step: smooth to the eye, far fewer layout passes.
+const CONDENSE_STEPS = 12
 // PERF: a recurring series carries up to MAX_RECUR_OCCURRENCES (366) timestamps. When the whole
 // series packs into view (fully zoomed out / collapsed) that's hundreds of absolutely-positioned
 // 1px divs re-positioned every frame — the dominant cost of the zoomed-out render (~21fps). Since
@@ -566,7 +569,14 @@ export function TimelineStrip({
   // whole stack (lane positions, band height, do-list reflow, labels) condenses as one.
   const condenseOnsetMs = atlasOpenMs * CONDENSE_ONSET_FRAC
   const condenseRaw = Math.min(1, Math.max(0, (spanMs - condenseOnsetMs) / Math.max(1, atlasOpenMs - condenseOnsetMs)))
-  const condense = condenseRaw * condenseRaw * (3 - 2 * condenseRaw) // smoothstep — gentle onset
+  const condenseSmooth = condenseRaw * condenseRaw * (3 - 2 * condenseRaw) // smoothstep — gentle onset
+  // PERF: QUANTISE the factor to CONDENSE_STEPS levels. `laneH`/`laneGap` feed the `layout`
+  // useMemo (and thus every chip/label's top/height); if they drifted a sub-pixel every wheel
+  // frame the memo recomputed and all ~50+ elements re-laid-out on each tick. Snapping to a
+  // dozen steps means laneH/laneGap hold the SAME value across runs of frames, so the memo
+  // returns a stable reference and the relayout is skipped — still visually smooth (~4% per
+  // step) but a handful of relayouts across the runway instead of one per frame.
+  const condense = Math.round(condenseSmooth * CONDENSE_STEPS) / CONDENSE_STEPS
   const condensing = condense > 0
   const laneScale = 1 - (1 - CONDENSE_MIN_SCALE) * condense
   const laneH = LANE_H * laneScale
@@ -1684,15 +1694,20 @@ export function TimelineStrip({
                 // event stays a visible sliver instead of vanishing.
                 const occDurMs = b.entity ? (() => { const [s, e2] = entityInterval(b.entity); return Math.max(0, e2 - s) })() : 0
                 const occWidthPct = (occDurMs / spanMs) * 100
+                // Cull to on-screen indices FIRST, then downsample so a fully-packed series
+                // paints at most RECUR_RENDER_MAX divs instead of all 366 every frame.
+                const visIdx: number[] = []
+                for (let i = 0; i < times.length; i++) { const d = pct(times[i]); if (d >= 0 && d <= 100) visIdx.push(i) }
+                const renderIdx = downsampleKeepingTail(visIdx, RECUR_RENDER_MAX)
                 return (
                   <div
                     key={b.key}
                     className="pointer-events-none absolute inset-x-0 transition-[top,opacity] duration-300 ease-out animate-in fade-in"
                     style={{ top: barTop(lane), height: laneH, opacity: baseOpacity }}
                   >
-                    {times.map((t, i) => {
+                    {renderIdx.map((i) => {
+                      const t = times[i]
                       const dl = pct(t)
-                      if (dl < 0 || dl > 100) return null
                       // Linear ramp over the trailing points: …0.75, 0.5, 0.25.
                       const fade = i >= tailStart ? (times.length - i) / (RECUR_FADE_TAIL + 1) : 1
                       return (
@@ -1978,15 +1993,20 @@ export function TimelineStrip({
                       // — so a folded recurring lane reads identically to an open one.
                       const occDurMs = b.entity ? (() => { const [s, e2] = entityInterval(b.entity); return Math.max(0, e2 - s) })() : 0
                       const occWidthPct = (occDurMs / spanMs) * 100
+                      // Cull to on-screen indices, then downsample (this collapsed rail with a
+                      // fully-packed series was the ~21fps hot path — hundreds of divs/frame).
+                      const visIdx: number[] = []
+                      for (let i = 0; i < times.length; i++) { const d = pct(times[i]); if (d >= 0 && d <= 100) visIdx.push(i) }
+                      const renderIdx = downsampleKeepingTail(visIdx, RECUR_RENDER_MAX)
                       return (
                         <div
                           key={`railtick:${b.key}`}
                           className="absolute z-10 animate-in fade-in"
                           style={{ left: 0, right: 0, top: railY + 1, height: RAIL_H - 2 }}
                         >
-                          {times.map((t, i) => {
+                          {renderIdx.map((i) => {
+                            const t = times[i]
                             const dl = pct(t)
-                            if (dl < 0 || dl > 100) return null
                             const fade = i >= tailStart ? (times.length - i) / (RECUR_FADE_TAIL + 1) : 1
                             return (
                               <div
