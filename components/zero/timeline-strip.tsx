@@ -1734,7 +1734,15 @@ export function TimelineStrip({
                       // BLEEDS out past the colored frame to the right rather than
                       // truncating — the packer reserves that label width so it never
                       // collides with a neighbour (item 3).
-                      "flex h-full w-full items-center gap-1.5 overflow-visible rounded-md border px-2 text-[10.5px] tracking-tight",
+                      // NO horizontal padding here, and min-w-0: with box-sizing:border-box
+                      // an element CANNOT shrink below its own padding+border, so `px-2`
+                      // (16px) + border was flooring the colored box at ~18px no matter how
+                      // short the event — exactly the phantom "min-width" that made brief
+                      // events render as fat squares when zoomed out. With padding removed the
+                      // box width tracks the true duration down to the border. The glyph's
+                      // breathing room moves to the INNER content span (which is overflow-
+                      // visible, so it bleeds past the box instead of widening it).
+                      "flex h-full w-full min-w-0 items-center overflow-visible rounded-md border text-[10.5px] tracking-tight",
                       "text-foreground/85 shadow-sm transition-[filter,background-color,border-color] duration-300 ease-out hover:brightness-110",
                     )}
                     style={{
@@ -1755,7 +1763,7 @@ export function TimelineStrip({
                         the bar finishes sliding into the rail. On expand they fade back in
                         LATE (delayed) so the bar grows first, then the label appears. */}
                     <span
-                      className="flex items-center gap-1.5 overflow-visible"
+                      className="flex items-center gap-1.5 overflow-visible pl-1.5 pr-2"
                       style={{
                         opacity: collapsedTarget ? 0 : 1,
                         // A chip's colored BOX width is just its time-span % (≈ the rail tick),
