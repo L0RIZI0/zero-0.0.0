@@ -25,6 +25,7 @@ import {
   getInheritedAccent,
   directChildOfFocus,
   getEntity,
+  dayMatchesRecurrence,
   type TimelineOccurrence,
 } from "./data"
 import type { Entity, Recurrence } from "./types"
@@ -34,9 +35,24 @@ const DAY_MS = 86_400_000
 const WEEK_MS = 7 * DAY_MS
 const NEUTRAL = "oklch(0.72 0.004 75)"
 
-// Grains at which we expand recurrences into individual occurrences. Coarser than
-// "week" and a recurring series becomes a stream band instead (see below).
+// Grains at which we reuse the tested per-day expander wholesale (range is small).
+// Coarser than "week" we use a BOUNDED expander instead — see queryTimeline.
 const FINE_GRAINS: Grain[] = ["hour", "day", "week"]
+
+// Per-series cap on how many recurring occurrences we ever materialise at coarse
+// zoom. A recurring lane is NEVER collapsed into a single band anymore (the user
+// found that jarring + opaque); instead we keep drawing individual occurrence
+// points for as long as it stays cheap, and once a series would exceed this many
+// points in view we simply STOP emitting further ones and fade the last few to
+// imply "…and it keeps going". ~a year of a daily series — well beyond what's
+// legible, but the point is to degrade by truncation, not by collapsing. Easily
+// tunable: lower it if very dense lanes ever cost zoom smoothness.
+const MAX_RECUR_OCCURRENCES = 366
+// How many trailing points fade out to signal continuation past the cap.
+export const RECUR_FADE_TAIL = 3
+// Absolute walk guard so a SPARSE recurrence (e.g. yearly) over a century-wide
+// view can't spin the day-cursor unboundedly. 200k days ≈ 547 years.
+const MAX_SCAN_DAYS = 200_000
 
 /** [start, end] epoch interval of a timed entity. Instants are zero-width. */
 export function entityInterval(e: Entity): [number, number] {
@@ -65,14 +81,62 @@ function approxPeriodMs(r: Recurrence): number {
   }
 }
 
-/** A recurring series too dense to expand at the current zoom — drawn as one
- *  faint band across its active window with a "repeats" affordance. */
+/** A recurring series at coarse zoom. Rather than collapse it into one band, we
+ *  carry the actual (capped) occurrence timestamps so the renderer can paint
+ *  individual points. `from`/`to` are the active window (used for lane/ribbon
+ *  reservation); `times` is the materialised occurrences within it, oldest→newest,
+ *  capped at MAX_RECUR_OCCURRENCES; `truncated` is true when more occurrences
+ *  exist past the last point (the renderer fades the final RECUR_FADE_TAIL points). */
 export interface StreamSeries {
   entity: Entity
   from: number
   to: number
   approxCount: number
   color: string
+  times: number[]
+  truncated: boolean
+}
+
+/**
+ * Materialise a recurring series' occurrence timestamps within [from, to], in
+ * chronological order, stopping after `cap` points (then `truncated = true`).
+ * Mirrors getTimelineOccurrences' DST-safe Date stepper, but bounded so a daily
+ * series over a huge range costs O(cap), not O(days). Sparse series (yearly) walk
+ * more days to find each hit but are guarded by MAX_SCAN_DAYS.
+ */
+function expandRecurrenceBounded(
+  anchor: number,
+  repeat: Recurrence,
+  from: number,
+  to: number,
+  cap: number,
+): { times: number[]; truncated: boolean } {
+  const times: number[] = []
+  const anchorDate = new Date(anchor)
+  const hh = anchorDate.getHours()
+  const mm = anchorDate.getMinutes()
+  const cursor = new Date(from)
+  cursor.setHours(0, 0, 0, 0)
+  let scanned = 0
+  let truncated = false
+  while (cursor.getTime() <= to) {
+    if (scanned++ > MAX_SCAN_DAYS) break
+    const dayStart = cursor.getTime()
+    if (dayMatchesRecurrence(dayStart, anchor, repeat)) {
+      const occDate = new Date(dayStart)
+      occDate.setHours(hh, mm, 0, 0)
+      const occ = occDate.getTime()
+      if (occ >= from && occ <= to) {
+        if (times.length >= cap) {
+          truncated = true
+          break
+        }
+        times.push(occ)
+      }
+    }
+    cursor.setDate(cursor.getDate() + 1)
+  }
+  return { times, truncated }
 }
 
 export interface TimelineQuery {
@@ -114,11 +178,23 @@ export function queryTimeline(
       if (en >= rangeStart && st <= rangeEnd) items.push({ ...e, occKey: e.id })
       continue
     }
-    // Recurring: represent as a stream over its active window — no per-day walk.
+    // Recurring: keep it as a series of INDIVIDUAL points (never a collapsed
+    // band). Materialise occurrences within the active window, capped — past the
+    // cap we stop and let the renderer fade the tail to imply continuation.
     const from = Math.max(anchor, rangeStart)
     const to = Math.min(s.repeat.until ?? rangeEnd, rangeEnd)
     if (from > to) continue
-    streams.push({ entity: e, from, to, approxCount: (to - from) / approxPeriodMs(s.repeat), color })
+    const { times, truncated } = expandRecurrenceBounded(anchor, s.repeat, from, to, MAX_RECUR_OCCURRENCES)
+    if (times.length === 0) continue
+    streams.push({
+      entity: e,
+      from,
+      to,
+      approxCount: (to - from) / approxPeriodMs(s.repeat),
+      color,
+      times,
+      truncated,
+    })
   }
   return { items, streams }
 }

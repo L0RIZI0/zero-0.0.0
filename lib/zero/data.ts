@@ -934,7 +934,7 @@ function dayStartOf(epoch: number): number {
  * `Recurrence`: daily / weekly(+byWeekday) / monthly / yearly, each with an
  * optional `interval` and `until`.
  */
-function dayMatchesRecurrence(dayStart: number, anchor: number, repeat: Recurrence): boolean {
+export function dayMatchesRecurrence(dayStart: number, anchor: number, repeat: Recurrence): boolean {
   const anchorDay = dayStartOf(anchor)
   if (dayStart < anchorDay) return false
   if (repeat.until != null && dayStart > repeat.until) return false

@@ -19,6 +19,7 @@ import {
   clusterInstants,
   applySemanticRollup,
   entityInterval,
+  RECUR_FADE_TAIL,
   type StreamSeries,
   type RollupBand,
 } from "@/lib/zero/timeline-index"
@@ -231,18 +232,24 @@ const INSTANT_LABEL_PAD = 26
 const CLUSTER_GAP_PX = 22
 
 // A unified horizontal "bar" on the track — events, scheduled spaces, rolled-up
-// context bands, and recurring streams all lane-pack together as bars.
+// context bands, and recurring series all lane-pack together as bars. A "recur"
+// bar reserves its ribbon row like any other, but paints as a row of individual
+// occurrence DOTS (see `times`) rather than a chip/band.
 interface Bar {
   key: string
   from: number
   to: number
   color: string
   title: string
-  kind: "event" | "space" | "band" | "stream"
+  kind: "event" | "space" | "band" | "recur"
   entity?: Entity
   count?: number
   cancelled?: boolean
   childId?: string
+  /** recur only: materialised occurrence timestamps (capped), oldest→newest. */
+  times?: number[]
+  /** recur only: more occurrences exist past the last point → fade the tail. */
+  truncated?: boolean
 }
 
 /** Greedy interval lane-packing within ONE group — items sorted by start, each
@@ -660,14 +667,16 @@ export function TimelineStrip({
     }
     for (const s of query.streams as StreamSeries[]) {
       out.push({
-        key: `stream:${s.entity.id}`,
+        key: `recur:${s.entity.id}`,
         from: s.from,
         to: s.to,
         color: s.color,
         title: s.entity.title,
-        kind: "stream",
+        kind: "recur",
         entity: s.entity,
         count: Math.round(s.approxCount),
+        times: s.times,
+        truncated: s.truncated,
       })
     }
     return out
@@ -1573,27 +1582,41 @@ export function TimelineStrip({
                 )
               }
 
-              // Recurring stream band — faint, with a repeat glyph; opens the series.
-              if (b.kind === "stream") {
+              // Recurring series — drawn as a row of INDIVIDUAL occurrence dots on
+              // its ribbon lane (never a collapsed band). The bar itself only
+              // reserved the lane; here we paint a transparent full-track container
+              // and drop a dot at each occurrence's time (`pct(t)`), culling those
+              // off-screen. When the series was truncated at the cap, the final
+              // RECUR_FADE_TAIL dots fade out to imply "…and it keeps going".
+              if (b.kind === "recur") {
+                const times = b.times ?? []
+                const baseOpacity = relatedFactor(b.entity?.parentId, b.entity?.id) * expOpacity
+                const tailStart = b.truncated ? times.length - RECUR_FADE_TAIL : times.length
                 return (
-                  <button
+                  <div
                     key={b.key}
-                    type="button"
-                    onClick={() => b.entity && openFromChip(b.entity.id)}
-                    onContextMenu={(ev) => b.entity && openMenu(ev, b.entity)}
-                    title={`${b.title} · recurring (~${b.count})`}
-                    className="absolute flex h-6 items-center gap-1.5 overflow-hidden rounded-md border px-2 text-[10.5px] tracking-tight text-foreground/70 transition-[filter,opacity,top] duration-300 ease-out animate-in fade-in hover:brightness-110"
-                    style={{
-                      ...boxStyle,
-                      borderColor: `${b.color}40`,
-                      backgroundColor: `${b.color}14`,
-                      backgroundImage: `repeating-linear-gradient(135deg, ${b.color}1f 0 6px, transparent 6px 12px)`,
-                      opacity: relatedFactor(b.entity?.parentId, b.entity?.id) * expOpacity,
-                    }}
+                    className="pointer-events-none absolute inset-x-0 transition-[top,opacity] duration-300 ease-out animate-in fade-in"
+                    style={{ top: barTop(lane), height: LANE_H, opacity: baseOpacity }}
                   >
-                    <Repeat className="h-2.5 w-2.5 shrink-0" style={{ color: b.color }} aria-hidden />
-                    <span className="truncate">{b.title}</span>
-                  </button>
+                    {times.map((t, i) => {
+                      const dl = pct(t)
+                      if (dl < 0 || dl > 100) return null
+                      // Linear ramp over the trailing points: …0.75, 0.5, 0.25.
+                      const fade = i >= tailStart ? (times.length - i) / (RECUR_FADE_TAIL + 1) : 1
+                      return (
+                        <button
+                          key={`${b.key}@${t}`}
+                          type="button"
+                          onClick={() => b.entity && openFromChip(b.entity.id)}
+                          onContextMenu={(ev) => b.entity && openMenu(ev, b.entity)}
+                          title={`${b.title} · recurring (~${b.count})`}
+                          aria-label={b.title}
+                          className="pointer-events-auto absolute top-1/2 h-1.5 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full transition-transform hover:scale-150"
+                          style={{ left: `${dl}%`, backgroundColor: b.color, opacity: fade }}
+                        />
+                      )
+                    })}
+                  </div>
                 )
               }
 
