@@ -130,8 +130,9 @@ function downsampleKeepingTail(indices: number[], max: number): number[] {
 // Duration of the ribbon (un)collapse morph. Longer (was 300) so the vertical-height
 // transform + the mother-title rotation read as a deliberate, smooth unfold rather than
 // a quick snap. The morphing elements (chip wrapper, mother column, band height) drive
-// their transitions off this exact value so they all land together; `displayCollapsed`
-// flips after it, unmounting the hidden layer.
+// their transitions off this exact value so they all land together; the fold-animation
+// window (per-mother `animatingMothers`, or `autoFoldDir` for a zoom fold) then clears,
+// unmounting the hidden layer.
 const COLLAPSE_MS = 620
 // UN-COLLAPSE (expand) is intentionally treated DIFFERENTLY from collapse. Collapse uses
 // the snappy `easeOut` above (fast start, gentle settle) which reads well shrinking into
@@ -517,28 +518,25 @@ export function TimelineStrip({
   const [atlas] = useState(false)
   const [morphing] = useState(false)
   // Zoom-driven "collapse all ribbons" flag. Hysteresis (open/close epsilon) keeps it
-  // from flickering when a gesture parks right on the boundary; CSS transitions on the
-  // rails/lanes/bars below do the actual (un)collapse easing.
+  // from flickering when a gesture parks right on the boundary. When it flips, the
+  // auto-fold effect below folds EVERY ribbon through the SAME per-block mechanism a
+  // manual click uses (it batch-flips `override`), instead of a separate global crossfade.
   const [zoomCollapsed, setZoomCollapsed] = useState(false)
-  // SMOOTH (UN)COLLAPSE. `zoomCollapsed` is the TARGET; `displayCollapsed` LAGS it by
-  // one MORPH window. While they differ we are `collapseAnimating`: BOTH the expanded
-  // layer (lanes/bars/labels) and the collapsed layer (rails/ticks) are kept mounted
-  // and CROSSFADE via opacity (CSS transition for the side that persists, `animate-in
-  // fade-in` for the side that mounts). After the window `displayCollapsed` catches up
-  // and the hidden layer unmounts — so steady state stays cheap (no doubled DOM, and at
-  // extreme zoom-out the lane bars are gone). The band height also tweens between the
-  // two layouts so the do-list reflows smoothly instead of jumping.
-  const [displayCollapsed, setDisplayCollapsed] = useState(false)
-  const collapseAnimating = displayCollapsed !== zoomCollapsed
-  useEffect(() => {
-    if (displayCollapsed === zoomCollapsed) return
-    // Hold the window open for the FULL morph so the hidden layer doesn't unmount early.
-    // The longest animation in BOTH directions is now the band/do-list glide (DOLIST_MS >
-    // REFLOW_MS > the ribbon morphs), so hold for it; matches the manual-fold window, keeping
-    // auto and manual folds identical.
-    const id = setTimeout(() => setDisplayCollapsed(zoomCollapsed), DOLIST_MS)
-    return () => clearTimeout(id)
-  }, [zoomCollapsed, displayCollapsed])
+  // Identity used in `override`/animation maps for the ungrouped ROOT lane, which has no
+  // motherId but must fold along with the real ribbons on a zoom auto-fold.
+  const ROOT_KEY = "__root__"
+  // AUTO (zoom) FOLD now reuses the manual mechanism: crossing the threshold flips every
+  // block's `override` at once (see the effect below). `autoFoldDir` marks an auto-fold as
+  // in progress and which way it's going — it IS the "a zoom fold is animating" window
+  // (this replaces the old `displayCollapsed`-lag). It's set when the threshold flips and
+  // cleared after the morph window (DOLIST_MS); it also preserves the band's direction-aware
+  // timing (instant expand so lower ribbons never clip; short glide on collapse).
+  const [autoFoldDir, setAutoFoldDir] = useState<"collapse" | "expand" | null>(null)
+  const autoFoldTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // True while an auto (zoom) fold is mid-morph: BOTH layers stay mounted and crossfade,
+  // exactly as during a manual per-mother window. (Kept under this name since many call
+  // sites read it; now derived from `autoFoldDir` rather than a lagging display flag.)
+  const collapseAnimating = autoFoldDir !== null
 
   // --- Mother-ribbon folding state -----------------------------------------
   // `override` pins a mother's collapsed state to the user's explicit choice; it
@@ -573,7 +571,16 @@ export function TimelineStrip({
     { key: string; leftPct: number; top: number; title: string; kind: NodeKind; color: string } | null
   >(null)
   useEffect(() => {
-    setOverride({})
+    // Switching context re-derives folds. If we're zoomed out past the fold threshold,
+    // re-assert the auto-fold for the NEW context's ribbons (and root) so they don't pop
+    // open for a frame; otherwise clear to all-expanded.
+    setOverride(() => {
+      if (!zoomCollapsed) return {}
+      const next: Record<string, boolean> = { [ROOT_KEY]: true }
+      for (const m of mothers) if (m.motherId) next[m.motherId] = true
+      return next
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [contextId])
 
   const { startMs, spanMs } = vp
@@ -965,11 +972,17 @@ export function TimelineStrip({
       // OR the user has explicitly folded just this one (an entry in `override`).
       // `byUser` records the manual case: it collapses INSTANTLY (no zoom crossfade)
       // and its rail stays put even while a zoom (un)collapse animates around it.
-      const byUser = m.motherId != null && (m.motherId in override ? override[m.motherId] : false)
+      // `byUser` is the (un)fold state from `override`, keyed by motherId OR the ROOT
+      // sentinel. A ZOOM auto-fold batch-sets `override` for every key (see the auto-fold
+      // effect), so it now collapses through the SAME path as a manual click — and an
+      // auto-collapsed mother therefore renders the same interactive title chip as a
+      // hand-collapsed one (the label pass keys on `byUser`, not on live `zoomCollapsed`).
+      const oKey = m.motherId ?? ROOT_KEY
+      const byUser = oKey in override ? override[oKey] : false
       // HIDDEN (eye): the whole lane shrinks to a 1px sliver — no rail, no highlights —
       // sitting between its neighbours, but the title chip stays (rendered separately).
       const hidden = m.motherId != null && !!hiddenMothers[m.motherId]
-      const collapsed = zoomCollapsed || byUser || hidden
+      const collapsed = byUser || hidden
       if (hidden) {
         // 1px sliver between neighbours; lanes map to it so any crossfading element glides in.
         blocks.push({ m, top: y, height: HIDDEN_H, collapsed: true, byUser: true, hidden: true })
@@ -991,7 +1004,7 @@ export function TimelineStrip({
     }
     return { blocks, laneToY, contentH: Math.max(0, y - MOTHER_GAP) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mothers, override, hiddenMothers, zoomCollapsed, laneH, laneGap])
+  }, [mothers, override, hiddenMothers, laneH, laneGap])
 
   const contentH = layout.contentH
   // The track GROWS VERTICALLY to fit the visible lanes (capped so a pathological
@@ -1257,6 +1270,30 @@ export function TimelineStrip({
     setHiddenMothers((h) => ({ ...h, [id]: true }))
     animateMother(id)
   }
+
+  // AUTO FOLD = MANUAL FOLD, applied to every ribbon at once. When the zoom threshold flips
+  // `zoomCollapsed`, batch-flip every mother's (and the root's) `override` to match — the
+  // exact per-block crossfade/morph a single manual click triggers, just fired for all blocks
+  // simultaneously — and open the shared `autoFoldDir` window so the band keeps its anti-clip
+  // timing (instant expand, short collapse glide). A ref-guard makes it fire only on a real
+  // threshold change (not on every render where `zoomCollapsed` happens to be read).
+  const prevZoomCollapsed = useRef(zoomCollapsed)
+  useEffect(() => {
+    if (prevZoomCollapsed.current === zoomCollapsed) return
+    prevZoomCollapsed.current = zoomCollapsed
+    setOverride((o) => {
+      const next: Record<string, boolean> = { ...o, [ROOT_KEY]: zoomCollapsed }
+      for (const m of mothers) if (m.motherId) next[m.motherId] = zoomCollapsed
+      return next
+    })
+    setAutoFoldDir(zoomCollapsed ? "collapse" : "expand")
+    if (autoFoldTimer.current) clearTimeout(autoFoldTimer.current)
+    autoFoldTimer.current = setTimeout(() => {
+      setAutoFoldDir(null)
+      autoFoldTimer.current = null
+    }, DOLIST_MS)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [zoomCollapsed])
 
   // (Un)collapse MORPH gates + opacity targets, per mother block.
   //  • Expanded layer (lanes, bars, ribbon labels, mother column) shows while the block
@@ -1959,10 +1996,11 @@ export function TimelineStrip({
             {/* EXPANDED RIBBON BODY click targets — one transparent layer per expanded mother
                 spanning its lanes, at z-0 BENEATH the bars/chips (which are separate, higher-z
                 absolute siblings, so a chip click never reaches this). Clicking the empty lane
-                area collapses the mother to its thin rail. Skipped while zoom-collapsed (folding
-                is zoom-controlled then) and for the root (no motherId). */}
+                area collapses the mother to its thin rail. Only renders for EXPANDED grouped
+                mothers (a collapsed block has no body; the root has no motherId), so it works
+                the same whether the ribbon is open by default or was manually re-opened while
+                zoomed out. */}
             {showRibbons &&
-              !zoomCollapsed &&
               layout.blocks.map((blk) => {
                 const mId = blk.m.motherId
                 if (!mId || !showExpanded(blk) || blk.collapsed) return null
@@ -2017,11 +2055,12 @@ export function TimelineStrip({
                   onMouseLeave: () => setHoveredMother((h) => (h === rk ? null : h)),
                 }
                 // Clicking the rail/1px-sliver BODY expands the mother fully (between ticks on a
-                // thin rail; anywhere on a hidden sliver). Only a ZOOM-forced collapse stays a
-                // plain non-interactive div (expansion is zoom-controlled then, so a click must
-                // not fight the zoom). The hidden sliver is just 1px tall, so it ALSO gets the
+                // thin rail; anywhere on a hidden sliver) — true whether the fold was manual or a
+                // zoom auto-fold (both now share the per-mother `override` path, so a click cleanly
+                // re-opens just this ribbon). Only the ungrouped ROOT (no motherId) stays a plain
+                // non-interactive div. The hidden sliver is just 1px tall, so it ALSO gets the
                 // taller hover-catcher in the label pass as an easier target.
-                return blk.m.motherId && !zoomCollapsed ? (
+                return blk.m.motherId ? (
                   <button
                     key={`rail:${rk}`}
                     type="button"
