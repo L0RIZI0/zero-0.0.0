@@ -616,11 +616,21 @@ export function TimelineStrip({
   const condenseScaleX = UNIFORM_SCALE ? condenseScale : 1
   const laneH = LANE_H
   const laneGap = LANE_GAP
-  // While condensing, lane geometry changes EVERY zoom frame, so the per-element top/height
-  // tweens (which give a pleasant glide on a discrete lane-repack at normal zoom) must go
-  // INSTANT or they'd lag behind the live compression. `restTopDur` is the resting top-tween
-  // duration: 0 while condensing (track the zoom), 0.3s otherwise (keep the repack glide).
+  // `restTopDur` drives the live scaleX compression tween (see `entityScaleTween`): that genuinely
+  // changes every wheel frame while condensing, so it must go INSTANT (0) to track the zoom and
+  // only glide (0.3s) at rest.
   const restTopDur = condensing ? 0 : 0.3
+  // LANE-REPACK top glide. The lane LAYOUT is computed at RESTING geometry (laneH/laneGap are the
+  // un-condensed constants; the condense ramp toward the fold is a single GPU `scaleY` on the lane
+  // layer, NOT a per-frame mutation of each chip's `top`). So a chip's `top` only ever changes on a
+  // DISCRETE lane repack — which should ALWAYS glide, including while zoomed out near the fold.
+  // Previously the chip `top` reused `restTopDur`, which is 0 while condensing; that made any repack
+  // happening in the condense zone SNAP. Sparse entities (e.g. Product Review / Design sync) crowd
+  // at NORMAL zoom (restTopDur=0.3 → glide), but a dense daily recurrence like Workout only splits
+  // to a 2nd lane once zoomed far enough to be condensing — so its split lost the animation. A fixed
+  // 0.3s here gives every lane repack the same glide regardless of zoom level or whether the entity
+  // repeats. (The condense compression still rides its own separate scaleY, so there's no lag.)
+  const topRepackDur = 0.3
 
   // EXPERIMENT 2 — per-ENTITY uniform scale (requested follow-up to the y-only squish).
   // UNIFORM_SCALE above scaled the whole PLANE in X and fought the time axis. Instead, keep the
@@ -2031,7 +2041,7 @@ export function TimelineStrip({
                           ? { top: morphTween(true, !collapsedTarget), opacity: { duration: 0.2, ease: "easeOut" }, scaleX: morphTween(true, !collapsedTarget) }
                           : manualFolding
                             ? { top: morphTween(true, bandExpanding, false), opacity: panelTransition, scaleX: morphTween(true, bandExpanding, false) }
-                            : { top: { duration: restTopDur, ease: "easeOut" }, opacity: panelTransition, scaleX: entityScaleTween }
+                            : { top: { duration: topRepackDur, ease: "easeOut" }, opacity: panelTransition, scaleX: entityScaleTween }
                     }
                     onClick={() => b.entity && openFromChip(b.entity.id)}
                     onContextMenu={(ev) => b.entity && openMenu(ev, b.entity)}
@@ -2122,7 +2132,7 @@ export function TimelineStrip({
                       ? { duration: 0 } // instant: chip mounts at full size and crossfades in, never clipped
                       : barAnimating || manualFolding
                         ? morphTween(barAnimating || manualFolding, barAnimating ? !collapsedTarget : bandExpanding, barAnimating)
-                        : { top: { duration: restTopDur, ease: "easeOut" }, height: { duration: 0 }, scaleX: entityScaleTween }
+                        : { top: { duration: topRepackDur, ease: "easeOut" }, height: { duration: 0 }, scaleX: entityScaleTween }
                   }
                   style={{
                     // EXPERIMENT 2: uniform entity scale. Parent layer already does scaleY; this
