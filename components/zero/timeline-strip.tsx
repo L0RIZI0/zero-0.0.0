@@ -2487,6 +2487,17 @@ export function TimelineStrip({
                 const someTickOnRail = hoveredTickKey != null && motherBars.some((b) => b.key === hoveredTickKey)
                 // Lit/glow for a tick given whether it is the specifically-hovered one.
                 const tickLit = (isThis: boolean) => (someTickOnRail ? isThis : hi)
+                // TICK REFLOW: a tick sits at the rail's `top` (railY). When ANOTHER ribbon folds,
+                // the lanes reflow and railY changes — the rail itself glides via `reflowTransition`,
+                // but the ticks declared only an opacity transition, so their `top` SNAPPED to the
+                // new position while the rail eased (the "ticks jump suddenly" the user saw). Mirror
+                // the rail's exact `top` schedule here (reflow tween while folding, instant on a
+                // zoom-expand, 300ms ease-out otherwise) so ticks glide in lockstep with their rail.
+                const railTopReflow = reflowTransition("top")
+                const tickTopCss = railTopReflow === "none" ? "top 0ms" : (railTopReflow ?? "top 300ms ease-out")
+                // Single ticks also keep their own 150ms opacity fade; recur dots transition opacity
+                // on the inner elements, so their container only needs the `top` glide.
+                const tickTransition = `${tickTopCss}, opacity 150ms`
                 return motherBars
                   .map((b) => {
                     const color = b.color || NEUTRAL_MARKER
@@ -2513,7 +2524,7 @@ export function TimelineStrip({
                         <div
                           key={`railtick:${b.key}`}
                           className="absolute z-10 animate-in fade-in"
-                          style={{ left: 0, right: 0, top: railY + 1, height: RAIL_H - 2 }}
+                          style={{ left: 0, right: 0, top: railY + 1, height: RAIL_H - 2, transition: tickTopCss }}
                         >
                           {renderIdx.map((i) => {
                             const t = times[i]
@@ -2550,7 +2561,7 @@ export function TimelineStrip({
                     return (
                       <div
                         key={`railtick:${b.key}`}
-                        className="absolute z-10 cursor-pointer rounded-full transition-[opacity] duration-150 animate-in fade-in"
+                        className="absolute z-10 cursor-pointer rounded-full duration-150 animate-in fade-in"
                         onMouseEnter={() => {
                           setHoveredMother(rk)
                           setHoveredTick({
@@ -2579,6 +2590,7 @@ export function TimelineStrip({
                           backgroundColor: color,
                           opacity: uncollapsing || hidingNow ? 0 : tickLit(hoveredTickKey === b.key) ? 1 : 0.85,
                           boxShadow: tickLit(hoveredTickKey === b.key) ? `0 0 6px ${color}` : undefined,
+                          transition: tickTransition,
                         }}
                       />
                     )
