@@ -2756,13 +2756,22 @@ export function TimelineStrip({
                     </div>
                   )
                 }
-                // Manual-collapsed (thin rail) OR fully hidden. The title chip stays in both,
-                // carrying THREE controls: the TITLE opens the space; the CHEVRON uncollapses to
-                // full lanes; the EYE toggles fully-hidden. When hidden, the eye restores the thin
-                // rail (with highlights); when on the thin rail, the eye hides the whole lane.
+                // Manual-collapsed (thin rail) OR fully hidden. The title chip carries THREE
+                // controls: the TITLE opens the space; the CHEVRON uncollapses to full lanes; the
+                // EYE toggles fully-hidden. When hidden, the eye restores the thin rail (with
+                // highlights); when on the thin rail, the eye hides the whole lane.
                 const hidden = blk.hidden
-                return (
-                  <div key={`mlabel:${rk}`} className="absolute z-20 flex items-center gap-1 animate-in fade-in duration-300" style={wrapStyle} {...hoverProps}>
+                // HIDDEN ribbons HOVER-REVEAL their chip: at rest only the 1px colored sliver
+                // shows, so adjacent hidden slivers never overlap their chips. The chip fades in
+                // when the mother is hovered (or while still animating, so it fades cleanly).
+                const revealed = !hidden || hoveredMother === rk || blkAnimating(blk)
+                const chip = (
+                  <div
+                    className={cn(
+                      "flex items-center gap-1 transition-opacity duration-200",
+                      revealed ? "opacity-100" : "pointer-events-none opacity-0",
+                    )}
+                  >
                     <button
                       type="button"
                       onClick={() => openFromChip(mId)}
@@ -2790,6 +2799,33 @@ export function TimelineStrip({
                     >
                       {hidden ? <EyeOff className="h-2.5 w-2.5" aria-hidden /> : <Eye className="h-2.5 w-2.5" aria-hidden />}
                     </button>
+                  </div>
+                )
+                // HIDDEN: a transparent hover-catcher sized to the block+gap (~7px) so adjacent
+                // catchers TILE without overlapping a neighbour's. The chip is a DOM descendant of
+                // the catcher, so moving the pointer onto the (taller) revealed chip keeps the
+                // catcher hovered — `mouseleave` ignores descendants — preventing flicker.
+                if (hidden) {
+                  return (
+                    <div
+                      key={`mlabel:${rk}`}
+                      className="absolute z-20 flex items-center"
+                      style={{
+                        left: 4,
+                        top: offsetY + blk.top + blk.height / 2,
+                        height: blk.height + MOTHER_GAP,
+                        transform: "translateY(-50%)",
+                        transition: reflowTransition("top"),
+                      }}
+                      {...hoverProps}
+                    >
+                      {chip}
+                    </div>
+                  )
+                }
+                return (
+                  <div key={`mlabel:${rk}`} className="absolute z-20 flex items-center gap-1 animate-in fade-in duration-300" style={wrapStyle} {...hoverProps}>
+                    {chip}
                   </div>
                 )
               })}
