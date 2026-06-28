@@ -1477,8 +1477,16 @@ export function TimelineStrip({
           </button>
 
           {/* Viewport — the continuous lifeline. Wheel zooms (cursor-anchored),
-              drag/h-scroll pans. Markers sit above the drag layer. */}
-          <div ref={viewportRef} className="relative h-full flex-1 overflow-hidden border-x border-border">
+              drag/h-scroll pans. Markers sit above the drag layer.
+              CLIP X, BLEED Y: lane `top`s jump to their FINAL (expanded) positions the
+              instant a fold toggles, while the frame `height` (bandH) only TWEENS toward
+              that size — so with `overflow-hidden` the lowest lanes (e.g. the Health
+              mother ribbon) were cropped until the frame caught up. `overflow-x-clip`
+              keeps the hard left/right clip that windows the track (chips at the edges
+              still cut off), and `overflow-y-visible` lets lanes/ribbons BLEED past the
+              still-growing frame instead of being clipped. `clip` (not `hidden`) is what
+              allows the y-axis to stay `visible` — `hidden` would force it back to auto. */}
+          <div ref={viewportRef} className="relative h-full flex-1 overflow-x-clip overflow-y-visible border-x border-border">
             {/* centered lifeline rule */}
             <div className="pointer-events-none absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-border" />
 
