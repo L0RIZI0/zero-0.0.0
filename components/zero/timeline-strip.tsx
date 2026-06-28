@@ -3,7 +3,18 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { motion, animate, AnimatePresence } from "motion/react"
-import { ChevronLeft, ChevronRight, Crosshair, Trash2, Ban, RotateCcw, Eye, EyeOff } from "lucide-react"
+import {
+  ChevronLeft,
+  ChevronRight,
+  ChevronsDownUp,
+  ChevronsUpDown,
+  Crosshair,
+  Trash2,
+  Ban,
+  RotateCcw,
+  Eye,
+  EyeOff,
+} from "lucide-react"
 import {
   getInheritedAccent,
   isInSubtree,
@@ -239,7 +250,8 @@ const MAX_STACK_LANES = 18
 // Deck / Research. Collapsing a mother hides its lanes, leaving a thin RAIL the
 // user can click to reopen; the lanes' chips "fall" onto the still-visible lanes
 // as faint minimal markers. Entering a space auto-collapses the OTHER mothers.
-const RAIL_H = 7 // height of a collapsed mother's reopen rail
+  const RAIL_H = 7 // height of a collapsed mother's reopen rail
+  const HIDDEN_H = 1 // height of a fully-hidden mother's lane (a 1px sliver between neighbours)
 const MOTHER_GAP = 6 // vertical gap between mother blocks (rails or lane stacks)
 const MOTHER_COL_W = 20 // width of the left column holding an EXPANDED mother's vertical title
 
@@ -535,12 +547,13 @@ export function TimelineStrip({
   // --- Mother-ribbon folding state -----------------------------------------
   // `override` pins a mother's collapsed state to the user's explicit choice; it
   // is CLEARED whenever the focus context changes so each navigation re-derives
-  // the auto-collapse (entering a space folds the others). `ticksHidden` tracks
-  // mothers whose rail highlight ticks the user has hidden via the eye toggle
-  // (ticks are SHOWN by default). `hoveredMother` brightens a collapsed mother's
-  // rail ticks while its rail is hovered.
+  // the auto-collapse (entering a space folds the others). `hiddenMothers` tracks
+  // mothers the user has fully HIDDEN via the eye toggle: their lane disappears to a
+  // 1px sliver (not even the thin rail with highlights), keeping only the title chip
+  // with its reopen controls. A hidden mother is also implicitly collapsed.
+  // `hoveredMother` brightens a collapsed mother's rail ticks while its rail is hovered.
   const [override, setOverride] = useState<Record<string, boolean>>({})
-  const [ticksHidden, setTicksHidden] = useState<Record<string, boolean>>({})
+  const [hiddenMothers, setHiddenMothers] = useState<Record<string, boolean>>({})
   const [hoveredMother, setHoveredMother] = useState<string | null>(null)
   // MANUAL-FOLD animation window. A click toggle flips a mother's `override`
   // instantly, so (unlike a zoom collapse, which is driven by `displayCollapsed`
@@ -936,7 +949,14 @@ export function TimelineStrip({
   // its lanes at LANE_H each. `laneToY` maps every VISIBLE global lane to its y;
   // collapsed lanes are absent (their bars render as ticks on the rail instead).
   const layout = useMemo(() => {
-    const blocks: { m: MotherBlock; top: number; height: number; collapsed: boolean; byUser: boolean }[] = []
+    const blocks: {
+      m: MotherBlock
+      top: number
+      height: number
+      collapsed: boolean
+      byUser: boolean
+      hidden: boolean
+    }[] = []
     const laneToY = new Map<number, number>()
     let y = 0
     for (const m of mothers) {
@@ -946,9 +966,17 @@ export function TimelineStrip({
       // `byUser` records the manual case: it collapses INSTANTLY (no zoom crossfade)
       // and its rail stays put even while a zoom (un)collapse animates around it.
       const byUser = m.motherId != null && (m.motherId in override ? override[m.motherId] : false)
-      const collapsed = zoomCollapsed || byUser
-      if (collapsed) {
-        blocks.push({ m, top: y, height: RAIL_H, collapsed: true, byUser })
+      // HIDDEN (eye): the whole lane shrinks to a 1px sliver — no rail, no highlights —
+      // sitting between its neighbours, but the title chip stays (rendered separately).
+      const hidden = m.motherId != null && !!hiddenMothers[m.motherId]
+      const collapsed = zoomCollapsed || byUser || hidden
+      if (hidden) {
+        // 1px sliver between neighbours; lanes map to it so any crossfading element glides in.
+        blocks.push({ m, top: y, height: HIDDEN_H, collapsed: true, byUser: true, hidden: true })
+        for (let i = 0; i < m.laneCount; i++) laneToY.set(m.baseLane + i, y)
+        y += HIDDEN_H + MOTHER_GAP
+      } else if (collapsed) {
+        blocks.push({ m, top: y, height: RAIL_H, collapsed: true, byUser, hidden: false })
         // Map every lane of a collapsed block to its RAIL y, so any expanded element
         // kept mounted for the crossfade (ribbon bands/labels) GLIDES down into the
         // rail while it fades, instead of snapping to the top of the track.
@@ -956,14 +984,14 @@ export function TimelineStrip({
         y += RAIL_H + MOTHER_GAP
       } else {
         const h = m.laneCount * laneH + (m.laneCount - 1) * laneGap
-        blocks.push({ m, top: y, height: h, collapsed: false, byUser: false })
+        blocks.push({ m, top: y, height: h, collapsed: false, byUser: false, hidden: false })
         for (let i = 0; i < m.laneCount; i++) laneToY.set(m.baseLane + i, y + i * (laneH + laneGap))
         y += h + MOTHER_GAP
       }
     }
     return { blocks, laneToY, contentH: Math.max(0, y - MOTHER_GAP) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mothers, override, zoomCollapsed, laneH, laneGap])
+  }, [mothers, override, hiddenMothers, zoomCollapsed, laneH, laneGap])
 
   const contentH = layout.contentH
   // The track GROWS VERTICALLY to fit the visible lanes (capped so a pathological
@@ -1191,14 +1219,11 @@ export function TimelineStrip({
   // Which mother block a global lane belongs to (for routing bars to chips/lanes).
   const blockOfLane = (lane: number) =>
     layout.blocks.find((b) => lane >= b.m.baseLane && lane < b.m.baseLane + b.m.laneCount)
-  const toggleMother = (id: string, collapsed: boolean) => {
-    setOverride((o) => ({ ...o, [id]: !collapsed }))
-    // Open this mother's manual-fold animation window (see `animatingMothers`).
+  // Open a mother's manual-fold animation window (see `animatingMothers`): its block is
+  // treated as animating for the LONGEST glide (DOLIST_MS) so transitions aren't cut off.
+  const animateMother = (id: string) => {
     setAnimatingMothers((m) => ({ ...m, [id]: (m[id] ?? 0) + 1 }))
     if (animTimers.current[id]) clearTimeout(animTimers.current[id])
-    // Hold for the LONGEST animation in either direction — the band/do-list glide (DOLIST_MS)
-    // — so its transition isn't cut off (which would snap the do-list to its final spot).
-    const windowMs = DOLIST_MS
     animTimers.current[id] = setTimeout(() => {
       setAnimatingMothers((m) => {
         const next = { ...m }
@@ -1206,7 +1231,33 @@ export function TimelineStrip({
         return next
       })
       delete animTimers.current[id]
-    }, windowMs)
+    }, DOLIST_MS)
+  }
+  // The three explicit mother states are reached via these actions. EXPANDED: full lanes.
+  // COLLAPSED: thin rail with highlight ticks (`override`). HIDDEN: 1px sliver, no rail
+  // (`hiddenMothers`, which also implies collapsed). Each opens the fold-animation window so
+  // the band/lanes/do-list glide identically to a zoom fold.
+  const collapseMother = (id: string) => {
+    setOverride((o) => ({ ...o, [id]: true }))
+    setHiddenMothers((h) => (h[id] ? { ...h, [id]: false } : h))
+    animateMother(id)
+  }
+  const expandMother = (id: string) => {
+    setOverride((o) => ({ ...o, [id]: false }))
+    setHiddenMothers((h) => (h[id] ? { ...h, [id]: false } : h))
+    animateMother(id)
+  }
+  // Eye → fully hide the lane (collapsed + no rail). Keeps the title chip + its controls.
+  const hideMother = (id: string) => {
+    setOverride((o) => ({ ...o, [id]: true }))
+    setHiddenMothers((h) => ({ ...h, [id]: true }))
+    animateMother(id)
+  }
+  // Eye on a hidden chip → restore the THIN rail (collapsed) with highlights, still folded.
+  const showThinMother = (id: string) => {
+    setOverride((o) => ({ ...o, [id]: true }))
+    setHiddenMothers((h) => ({ ...h, [id]: false }))
+    animateMother(id)
   }
 
   // (Un)collapse MORPH gates + opacity targets, per mother block.
@@ -1308,6 +1359,10 @@ export function TimelineStrip({
   const atDayScale = Math.abs(spanMs - VIEW_SPAN_MS.D) / VIEW_SPAN_MS.D < 0.02
   const atHome = atDayScale && nowVisible
   const centerLabel = useMemo(() => scrubLabel(center, grain), [center, grain])
+  // Hide the displayed date when it equals the current date (same bucket at the active grain) —
+  // there's no value in announcing "today" while you're parked on it. Compared via the same
+  // `scrubLabel` the pill renders, so it stays correct across grains (day/week/month/…).
+  const centeredOnNow = centerLabel === scrubLabel(now, grain)
 
   // --- Ruler ticks (two-tier, adaptive grain) ------------------------------
   const ticks = useMemo(() => timelineTicks(startMs, spanMs, width), [startMs, spanMs, width])
@@ -1507,10 +1562,15 @@ export function TimelineStrip({
               text sits exactly on the viewport center. The jump-to-NOW control is hung BELOW the
               pill as an ABSOLUTE element (so it never shifts the date and we don't have to care
               whether "now" is to the left or right of the viewed date). */}
+          {/* Render the pill only when it has content: the date (unless centered on today) and/or
+              the jump-to-NOW control. Otherwise an empty `bg-background` chip would show. */}
+          {(!centeredOnNow || !atHome) && (
           <div className="pointer-events-auto relative inline-flex items-center rounded bg-background px-2 py-0.5">
-            <span className="whitespace-nowrap text-[11px] font-medium tracking-tight text-foreground">
-              {centerLabel}
-            </span>
+            {!centeredOnNow && (
+              <span className="whitespace-nowrap text-[11px] font-medium tracking-tight text-foreground">
+                {centerLabel}
+              </span>
+            )}
             {!atHome && (
               <button
                 type="button"
@@ -1536,6 +1596,7 @@ export function TimelineStrip({
               </button>
             )}
           </div>
+          )}
         </div>
 
         {/* Instant layer — pins (singletons) and density bubbles (clusters). */}
@@ -1891,28 +1952,37 @@ export function TimelineStrip({
             {showRibbons &&
               layout.blocks.map((blk) => {
                 if (!showCollapsed(blk)) return null
+                // A fully HIDDEN mother has NO rail (its lane is a 1px sliver). During the
+                // hide animation the expanded layer crossfades into the sliver via the band
+                // reflow, so we don't need a transitional rail here either.
+                if (blk.hidden && !blkAnimating(blk)) return null
                 const rk = blk.m.motherId ?? `root:${blk.m.baseLane}`
                 const railStyle = {
                   top: offsetY + blk.top,
-                  height: RAIL_H,
-                  opacity: collapsedOpacity(blk),
+                  // While hiding, collapse the rail toward the 1px sliver so it shrinks into it.
+                  height: blk.hidden ? HIDDEN_H : RAIL_H,
+                  // Hidden settles fully transparent; otherwise the normal collapsed crossfade.
+                  opacity: blk.hidden ? 0 : collapsedOpacity(blk),
                   backgroundColor: `${blk.m.color}1f`,
                   borderLeft: `2px solid ${blk.m.color}`,
                   // A collapsed sibling rail (e.g. Health) must slide with the reflow too.
-                  transition: reflowTransition("top, filter, opacity"),
+                  transition: reflowTransition("top, filter, opacity, height"),
                 } as const
                 const hoverProps = {
                   onMouseEnter: () => setHoveredMother(rk),
                   onMouseLeave: () => setHoveredMother((h) => (h === rk ? null : h)),
                 }
-                return blk.m.motherId && !zoomCollapsed ? (
+                // Clicking the thin rail BODY expands the mother (the highlight ticks above are
+                // pointer-events-none so they don't intercept). A hidden block's transitional
+                // rail and zoom-forced rails are non-interactive.
+                return blk.m.motherId && !zoomCollapsed && !blk.hidden ? (
                   <button
                     key={`rail:${rk}`}
                     type="button"
-                    onClick={() => toggleMother(blk.m.motherId!, true)}
+                    onClick={() => expandMother(blk.m.motherId!)}
                     {...hoverProps}
                     title={`Expand ${blk.m.title}`}
-                    className="absolute inset-x-0 z-0 rounded-r-md transition-[top,filter,opacity] duration-300 ease-out animate-in fade-in hover:brightness-150"
+                    className="absolute inset-x-0 z-0 cursor-pointer rounded-r-md transition-[top,filter,opacity] duration-300 ease-out animate-in fade-in hover:brightness-150"
                     style={railStyle}
                   />
                 ) : (
@@ -2284,14 +2354,15 @@ export function TimelineStrip({
             {/* RAIL HIGHLIGHTS — a collapsed mother's events don't vanish; instead of
                 falling onto the visible lanes, each event is painted AS a bright tick
                 directly ON that mother's thin rail, at its own time position. The rail
-                becomes a compressed one-line preview of the folded mother. Shown by
-                default; hidden per-mother via the eye toggle (`ticksHidden`) and
-                brightened while the mother's rail is hovered (`hoveredMother`).
-                pointer-events-none so a click anywhere on the rail still expands it. */}
+                becomes a compressed one-line preview of the folded mother. Shown on a thin
+                rail; a fully HIDDEN mother (eye) has no rail and no ticks (its lane is a 1px
+                sliver), so its highlights are suppressed. Brightened while the mother's rail
+                is hovered (`hoveredMother`). pointer-events-none so a click anywhere on the
+                rail still expands it. */}
             {showRibbons &&
               layout.blocks.flatMap((blk) => {
                 const rk = blk.m.motherId ?? `root:${blk.m.baseLane}`
-                if (!showCollapsed(blk) || ticksHidden[rk]) return []
+                if (!showCollapsed(blk) || blk.hidden) return []
                 const hi = hoveredMother === rk
                 const railY = offsetY + blk.top
                 // Tick opacity is DIRECTION-AWARE:
@@ -2496,14 +2567,15 @@ export function TimelineStrip({
 
             {/* EXPANDED MOTHER COLUMN — the mother's title rotated 90° anticlockwise in a
                 slim column at the FAR LEFT, vertically centered across all its lanes
-                (e.g. a vertical "Day Job" sitting left of the Admin/Day Job lanes). This
-                IS the fold control: clicking it collapses the mother, dropping it back to
-                the horizontal rail label below. `vertical-rl` + rotate(180deg) makes the
-                text read bottom→top (a true 90° CCW). */}
+                (e.g. a vertical "Day Job" sitting left of the Admin/Day Job lanes).
+                Clicking the TITLE opens the space; a hover-revealed cluster at the top of
+                the column holds the dedicated COLLAPSE (chevron) + HIDE (eye) controls.
+                `rotate(-90deg)` makes the text read bottom→top (a true 90° CCW). */}
             {showRibbons &&
               layout.blocks.map((blk) => {
                 const mId = blk.m.motherId
                 if (!mId || !showExpanded(blk)) return null
+                const rkExp = mId
                 const related = atRootFocus || mId === contextId || isInSubtree(contextId, mId)
                 // MORPH (not fade): this column is the SAME element through the collapse —
                 // it stays opaque and framer tweens TOP + HEIGHT (blk.top/blk.height ↔ the
