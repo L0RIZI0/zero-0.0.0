@@ -88,11 +88,11 @@ const CONDENSE_MIN_SCALE = 0.48
 // coords); the label↔graduation gap then compresses to MIN_LABEL_GRAD_GAP. The lanes are NOT
 // clamped — they bleed up past the graduation and the label (and behind the header).
 const GRAD_ROW_H = 14 // timestamp row height (matches the old h-3.5 ruler)
-const GRAD_LANE_GAP = 7 // graduation floats this far above the top lane
-const LABEL_ROW_H = 26 // the date+NOW pill row (comfortable)
-const LABEL_GRAD_GAP = 9 // natural gap between the label row and the graduation
-const MIN_LABEL_GRAD_GAP = 3 // gap floor once the group is fully compressed at the header
-const HEADER_CLEAR_Y = 6 // smallest card-Y the label may reach (rests just under the header bar)
+const GRAD_LANE_GAP = 6 // graduation floats this far above the top lane
+const LABEL_ROW_H = 22 // the date+NOW pill row (comfortable)
+const LABEL_GRAD_GAP = 7 // natural gap between the label row and the graduation
+const MIN_LABEL_GRAD_GAP = 2 // gap floor once the group is fully compressed at the header
+const HEADER_CLEAR_Y = 4 // smallest card-Y the label may reach (rests just under the header bar)
 // PERF: a recurring series carries up to MAX_RECUR_OCCURRENCES (366) timestamps. When the whole
 // series packs into view (fully zoomed out / collapsed) that's hundreds of absolutely-positioned
 // 1px divs re-positioned every frame — the dominant cost of the zoomed-out render (~21fps). Since
@@ -1275,7 +1275,100 @@ export function TimelineStrip({
           zoom span spring already eases it; a tween would lag behind). For a MANUAL fold
           `bandTransition` tweens the height so the do-list below is pushed FLUIDLY in
           lockstep with the ribbon morph (see `bandH`/`manualFolding`). */}
-      <div className="relative -mx-6" style={{ height: bandHVisual, transition: bandTransition }}>
+      <div
+        className="relative -mx-6"
+        style={{ height: bandHVisual, transition: bandTransition }}
+        data-dbg-lbt={Math.round(laneBandTopY)}
+        data-dbg-czh={Math.round(centerZoneH)}
+        data-dbg-otp={Math.round(overlayTopPx)}
+        data-dbg-lgt={Math.round(labelGroupTop)}
+        data-dbg-ggt={Math.round(gradGroupTop)}
+      >
+        {/* HEADER GROUP — graduation row + [date label + NOW]. Direct children of the band div
+            (NOT inside the centering/scale layer), so they DON'T scale with the lanes and their
+            `top` is measured from the band-div top (= lane-stack top in card coords). Both use
+            NEGATIVE tops → they float ABOVE the lanes. As the band grows and is pushed up under
+            the header, `labelGroupTop`/`gradGroupTop` clamp (see their derivation) so the label
+            never rises above the header bar and the label↔graduation gap compresses; the lanes
+            themselves are NOT clamped and bleed up past both rows. z-40 so they sit above lanes
+            and the NOW marker. */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-x-0 z-40"
+          style={{
+            top: gradGroupTop,
+            height: GRAD_ROW_H,
+            marginLeft: VIEWPORT_INSET_LEFT,
+            marginRight: VIEWPORT_INSET_RIGHT,
+            maskImage: edgeFade,
+            WebkitMaskImage: edgeFade,
+            transition: bandTransition,
+          }}
+        >
+          {/* Keyed by `ms` ONLY (not ms+role): as you zoom, the tick GRAIN changes and the set
+              of labeled timestamps swaps in batches. Keying by ms keeps surviving ticks MOUNTED
+              (they slide via `left`); only genuinely added/removed labels fade — smoothing the
+              graduation instead of letting the whole ruler pop. */}
+          <AnimatePresence initial={false}>
+            {ticks
+              .filter((t) => t.labeled && pct(t.ms) >= 0 && pct(t.ms) <= 100)
+              .map((t) => (
+                <motion.span
+                  key={t.ms}
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.22, ease: "easeOut" }}
+                  className={cn(
+                    "absolute bottom-0 -translate-x-1/2 whitespace-nowrap text-[9.5px] tabular-nums tracking-tight",
+                    t.major
+                      ? "font-semibold text-muted-foreground/70"
+                      : t.sub
+                        ? "font-normal text-muted-foreground/50"
+                        : "font-medium text-muted-foreground/40",
+                  )}
+                  style={{ left: `${pct(t.ms)}%` }}
+                >
+                  {t.label}
+                </motion.span>
+              ))}
+          </AnimatePresence>
+        </div>
+
+        {/* Date label + jump-to-now. The date label is ALWAYS shown (so it never jarringly
+            vanishes when you land on today at Day zoom); only the jump control toggles —
+            visible whenever "now" is off-screen, at any zoom. Hung off the label's edge so
+            appending it never shifts the label. Clamped to rest just below the header bar. */}
+        <div
+          className="pointer-events-none absolute inset-x-0 z-40 flex items-center justify-center"
+          style={{ top: labelGroupTop, height: LABEL_ROW_H, transition: bandTransition }}
+        >
+          <div className="pointer-events-auto inline-flex items-center gap-1 rounded bg-background px-2 py-0.5">
+            <span className="whitespace-nowrap text-[11px] font-medium tracking-tight text-foreground">
+              {centerLabel}
+            </span>
+            {!atHome && (
+              <button
+                type="button"
+                onClick={goNow}
+                aria-label="Jump to now"
+                title="Jump to now"
+                className="flex items-center gap-0.5 whitespace-nowrap rounded-md px-1 py-0.5 text-[10px] font-medium leading-none text-muted-foreground/70 transition-colors [&:hover]:text-foreground"
+              >
+                <Crosshair className="h-3 w-3 shrink-0" strokeWidth={2.5} />
+                <motion.span
+                  className="overflow-hidden"
+                  initial={false}
+                  animate={{ width: stage <= 1 ? "auto" : 0, opacity: stage <= 1 ? 1 : 0 }}
+                  transition={layerTransition}
+                >
+                  NOW
+                </motion.span>
+              </button>
+            )}
+          </div>
+        </div>
+
         {/* Instant layer — pins (singletons) and density bubbles (clusters). */}
         <div
           className="pointer-events-none absolute inset-y-0 z-30"
