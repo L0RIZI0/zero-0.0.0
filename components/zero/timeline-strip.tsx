@@ -165,14 +165,20 @@ const REFLOW_EASE_CSS = "cubic-bezier(0, 0.7, 0.2, 1)"
 // velocity (p1y=0.85) and a long, gentle decel tail so it settles slowly and softly. It
 // reaches ~95% well before EXPAND_MS, so a just-expanded bottom ribbon isn't left poking
 // under the do-list while the band finishes its lazy tail.
-const DOLIST_MS = Math.round(COLLAPSE_MS * 3.6)
-// EVEN glide with a soft landing — NOT a front-loaded ease-out. A steep ease-out (p1y high)
-// dumps almost all the motion in the first ~90ms then crawls invisibly for the rest, so the
-// glide felt fast/"hard to notice" despite the long duration. This curve starts at roughly
-// constant velocity (p1x≈p1y → initial slope ~1, so it moves on frame 1 with no slow ease-in
-// lip the user dislikes) and keeps moving steadily, only easing gently into rest near the
-// end — so the eye tracks the do-list across the WHOLE duration and it feels deliberate.
-const DOLIST_EASE_CSS = "cubic-bezier(0.4, 0.4, 0.2, 1)"
+  // MAIN TIMELINE FRAME glide (band height → strip height → nav-arrow height, and the do-list
+  // rides its measured bottom). Was ×3.6 (≈2.2s) — an elegant soft settle originally tuned for
+  // the do-list, but it left the FRAME trailing the ribbons (which settle in `reflowMs`, ~0.6–
+  // 1.1s) by >1s, reading as laggy/unreactive. Shortened to ×2.4 (≈1.5s): still clearly the
+  // longest, lingering glide in the stack (keeps the elegant tail) but reaches the user's eye
+  // much sooner after the ribbons land.
+  const DOLIST_MS = Math.round(COLLAPSE_MS * 2.4)
+  // Now MODERATELY front-loaded (was even-velocity p1≈(0.4,0.4), slope ~1). Initial slope here
+  // is 0.72/0.22 ≈ 3.3, so the frame covers most of its travel in the first ~40% of the duration
+  // — a reactive "responds to your click" feel — then decays into a long, gentle soft landing
+  // (the elegant part). p1x>0 stays small so there's still no perceptible ease-in lip. This is
+  // the sweet spot between the old constant crawl and a hard front-loaded dump (which, at the
+  // OLD 2.2s length, felt like it "finished instantly then crawled"); at 1.5s it reads lively.
+  const DOLIST_EASE_CSS = "cubic-bezier(0.22, 0.72, 0.25, 1)"
 // Framer transition for a morphing element. `animating` = mid (un)collapse; `expanding` =
 // the un-collapse direction. `soft` picks the slow-start fall curve (folding ribbon) vs the
 // prompt reflow curve (pushed siblings). Outside a morph it's the 300ms repack glide.
