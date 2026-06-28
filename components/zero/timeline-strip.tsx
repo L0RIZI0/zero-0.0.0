@@ -1047,7 +1047,13 @@ export function TimelineStrip({
   const [, bumpReflow] = useState(0)
   if (prevContentH.current !== contentH) {
     prevContentH.current = contentH
-    if (!folding && !condensing) reflowUntil.current = nowMs + RELAYOUT_MS
+    // Arm on ANY non-fold lane change, INCLUDING while condensing. `contentH` is computed at
+    // RESTING geometry (laneH/laneGap constants), so it only changes on a DISCRETE lane split/
+    // merge — never per zoom frame — so this never spuriously fires mid-zoom. Non-condense
+    // reflows glide via the CSS band/center transitions below; condense reflows glide via the
+    // JS-smoothed base height (`bandHRender`), since the band frame bakes `condenseScale` into
+    // its layout height and a CSS height tween there would lag the per-frame zoom scale.
+    if (!folding) reflowUntil.current = nowMs + RELAYOUT_MS
   }
   const reflowing = nowMs < reflowUntil.current
   useEffect(() => {
@@ -1108,7 +1114,46 @@ export function TimelineStrip({
   // so the whole timeline scales toward its center as one unit. =bandH at rest (scale 1) and
   // when folded (scale forced to 1). The fold-out glide is carried by `bandTransition`; during
   // a live zoom the span spring drives `condenseScale` so the height tracks instantly.
-  const bandHVisual = bandH * condenseScale
+  // JS-SMOOTHED BASE HEIGHT — only used while a lane reflow happens DURING condense. At normal
+  // zoom a lane split glides via the CSS band/center transitions. But once condensing, the band
+  // FRAME bakes `condenseScale` into its layout height (`bandHVisual = base × scale`, a real
+  // height that pulls the do-list up), so a CSS height tween there would lag the per-frame zoom
+  // scale — that's why the original code skipped the reflow glide while condensing and the split
+  // SNAPPED (the artefact the user flagged on dense daily recurrences like Health → Workout).
+  // Instead we ease the BASE toward `bandH` over RELAYOUT_MS and keep `condenseScale` an instant
+  // multiplier on top — the exact model the chips use (resting top glides, condense scale
+  // instant). The centering layer reads the SAME `bandHRender`, so frame + mother ribbons grow in
+  // lockstep. `bandH === trackH === lifelaneBandH`, so this is a smoothed track height.
+  const [bandHRender, setBandHRender] = useState(bandH)
+  const bandHRenderRef = useRef(bandH)
+  const bandHFrom = useRef(bandH)
+  const bandHAnimRef = useRef<ReturnType<typeof animate> | null>(null)
+  useEffect(() => {
+    if (bandHFrom.current === bandH) return
+    bandHFrom.current = bandH
+    bandHAnimRef.current?.stop()
+    // Only a reflow that lands while CONDENSING needs JS smoothing; every other case (normal-zoom
+    // reflow → CSS, fold → its own CSS tween, rest/zoom → instant) keeps `bandHRender` pinned to
+    // `bandH` so it's a ready start point for the next condense glide.
+    if (!(reflowing && condensing)) {
+      bandHRenderRef.current = bandH
+      setBandHRender(bandH)
+      return
+    }
+    bandHAnimRef.current = animate(bandHRenderRef.current, bandH, {
+      duration: RELAYOUT_MS / 1000,
+      ease: "easeOut",
+      onUpdate: (v) => {
+        bandHRenderRef.current = v
+        setBandHRender(v)
+      },
+    })
+    return () => bandHAnimRef.current?.stop()
+  }, [bandH, reflowing, condensing])
+  // Base used for the frame/centering-layer heights: the smoothed value only during a condense
+  // reflow, the live `bandH`/`trackH` everywhere else (so CSS owns the non-condense + fold glides).
+  const reflowCondensing = reflowing && condensing
+  const bandHVisual = (reflowCondensing ? bandHRender : bandH) * condenseScale
   // The lane layer's scaleY tracks the zoom instantly EXCEPT on a zoom fold-out, where it glides
   // 1← over COLLAPSE_MS together with the band height so frame and content compress in step.
   const laneScaleTransition = zoomCollapsing ? `transform ${COLLAPSE_MS}ms ease-out` : undefined
@@ -1803,9 +1848,13 @@ export function TimelineStrip({
               onPointerDown={onPointerDown}
               className="absolute inset-x-0 top-1/2 cursor-grab touch-none active:cursor-grabbing"
               style={{
-                height: trackH,
-                transform: `translateY(-50%) scaleX(${condenseScaleX}) scaleY(${condenseScale})`,
-                transition: centerLayerTransition,
+              // During a condense reflow, read the SAME JS-smoothed base as the band frame so the
+              // centering layer (and the mother ribbons it holds) grows/shrinks in lockstep; the
+              // `scaleY(condenseScale)` transform still tracks the zoom instantly on top. Non-
+              // condense reflows + folds keep using `trackH` with their CSS `centerLayerTransition`.
+              height: reflowCondensing ? bandHRender : trackH,
+              transform: `translateY(-50%) scaleX(${condenseScaleX}) scaleY(${condenseScale})`,
+              transition: centerLayerTransition,
               }}
             >
             {/* ribbon background BANDS — one tinted horizontal band per space (the
