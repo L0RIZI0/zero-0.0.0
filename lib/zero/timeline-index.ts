@@ -95,10 +95,6 @@ export interface StreamSeries {
   color: string
   times: number[]
   truncated: boolean
-  /** Duration of a single occurrence in ms (every occurrence shares the anchor's
-   *  span). Lets the renderer draw each occurrence as a proportional segment
-   *  rather than a fixed dot — clamped to ≥1px so a brief event stays visible. */
-  durationMs: number
 }
 
 /**
@@ -190,7 +186,6 @@ export function queryTimeline(
     if (from > to) continue
     const { times, truncated } = expandRecurrenceBounded(anchor, s.repeat, from, to, MAX_RECUR_OCCURRENCES)
     if (times.length === 0) continue
-    const [ist, ien] = entityInterval(e)
     streams.push({
       entity: e,
       from,
@@ -199,7 +194,6 @@ export function queryTimeline(
       color,
       times,
       truncated,
-      durationMs: Math.max(0, ien - ist),
     })
   }
   return { items, streams }

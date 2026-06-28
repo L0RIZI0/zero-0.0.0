@@ -1592,6 +1592,13 @@ export function TimelineStrip({
                 const times = b.times ?? []
                 const baseOpacity = relatedFactor(b.entity?.parentId, b.entity?.id) * expOpacity
                 const tailStart = b.truncated ? times.length - RECUR_FADE_TAIL : times.length
+                // Every occurrence shares the series' own span, so we measure it
+                // ONCE with the same entityInterval the regular chips use, and draw
+                // each occurrence with the SAME proportional width formula
+                // (duration / spanMs) — never a fixed dot. Floored at 1px so a brief
+                // event stays a visible sliver instead of vanishing.
+                const occDurMs = b.entity ? (() => { const [s, e2] = entityInterval(b.entity); return Math.max(0, e2 - s) })() : 0
+                const occWidthPct = (occDurMs / spanMs) * 100
                 return (
                   <div
                     key={b.key}
@@ -1611,8 +1618,13 @@ export function TimelineStrip({
                           onContextMenu={(ev) => b.entity && openMenu(ev, b.entity)}
                           title={`${b.title} · recurring (~${b.count})`}
                           aria-label={b.title}
-                          className="pointer-events-auto absolute top-1/2 h-1.5 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full transition-transform hover:scale-150"
-                          style={{ left: `${dl}%`, backgroundColor: b.color, opacity: fade }}
+                          className="pointer-events-auto absolute top-1/2 h-1.5 -translate-y-1/2 rounded-full transition-[filter] hover:brightness-125"
+                          style={{
+                            left: `${dl}%`,
+                            width: `max(1px, ${occWidthPct}%)`,
+                            backgroundColor: b.color,
+                            opacity: fade,
+                          }}
                         />
                       )
                     })}
@@ -1860,6 +1872,11 @@ export function TimelineStrip({
                     if (b.kind === "recur") {
                       const times = b.times ?? []
                       const tailStart = b.truncated ? times.length - RECUR_FADE_TAIL : times.length
+                      // Same proportional segment as the open-ribbon branch (each
+                      // occurrence's duration / spanMs, floored at 1px) — never dots
+                      // — so a folded recurring lane reads identically to an open one.
+                      const occDurMs = b.entity ? (() => { const [s, e2] = entityInterval(b.entity); return Math.max(0, e2 - s) })() : 0
+                      const occWidthPct = (occDurMs / spanMs) * 100
                       return (
                         <div
                           key={`railtick:${b.key}`}
@@ -1876,9 +1893,9 @@ export function TimelineStrip({
                                 className="absolute top-1/2 rounded-full transition-[opacity] duration-150"
                                 style={{
                                   left: `${dl}%`,
-                                  width: RAIL_H - 2,
+                                  width: `max(1px, ${occWidthPct}%)`,
                                   height: RAIL_H - 2,
-                                  transform: "translate(-50%, -50%)",
+                                  transform: "translateY(-50%)",
                                   backgroundColor: color,
                                   opacity: (uncollapsing ? 0 : hi ? 1 : 0.85) * fade,
                                   boxShadow: hi ? `0 0 6px ${color}` : undefined,
@@ -1892,6 +1909,12 @@ export function TimelineStrip({
                     const left = pct(b.from)
                     const widthPct = ((b.to - b.from) / spanMs) * 100
                     if (left > 100 || left + widthPct < 0) return null
+                    // A single fine-grain occurrence of a RECURRING series (e.g. each
+                    // Workout) stays a thin PROPORTIONAL segment (floored at 1px) using
+                    // the same widthPct as everything else — no 0.6%/3px floor that
+                    // would inflate a brief event into a round blob. One-off events keep
+                    // the visible floor so a lone meeting doesn't shrink to nothing.
+                    const isRecurring = !!b.entity?.schedule?.repeat
                     return (
                       <div
                         key={`railtick:${b.key}`}
@@ -1913,8 +1936,8 @@ export function TimelineStrip({
                         }}
                         style={{
                           left: `calc(${left}% + 2px)`,
-                          width: `calc(${Math.max(widthPct, 0.6)}% - 2px)`,
-                          minWidth: 3,
+                          width: isRecurring ? `max(1px, ${widthPct}%)` : `calc(${Math.max(widthPct, 0.6)}% - 2px)`,
+                          minWidth: isRecurring ? undefined : 3,
                           top: railY + 1,
                           height: RAIL_H - 2,
                           backgroundColor: color,
