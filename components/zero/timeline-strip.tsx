@@ -1561,17 +1561,54 @@ export function TimelineStrip({
                 className="pointer-events-none absolute -bottom-px -top-px z-20 w-px"
                 style={{ left: `${pct(now)}%`, backgroundColor: accent ?? "var(--accent)" }}
               >
+                {/* Endpoint caps: equilateral triangles (8px base, ~7px tall) centered on
+                    the 1px line (left −3.5px = −(8−1)/2). Top cap points DOWN into the line,
+                    bottom cap points UP. `drop-shadow` gives the same card-colored separation
+                    the old `ring-2 ring-card` discs had. */}
                 <span
-                  className="absolute -left-[2.5px] -top-[3px] h-[6px] w-[6px] rounded-full ring-2 ring-card"
-                  style={{ backgroundColor: accent ?? "var(--accent)" }}
+                  aria-hidden
+                  className="absolute"
+                  style={{
+                    top: -7,
+                    left: -3.5,
+                    width: 0,
+                    height: 0,
+                    borderLeft: "4px solid transparent",
+                    borderRight: "4px solid transparent",
+                    borderTop: `7px solid ${accent ?? "var(--accent)"}`,
+                    filter: "drop-shadow(0 0 1px var(--card))",
+                  }}
                 />
                 <span
-                  className="absolute -bottom-[3px] -left-[2.5px] h-[6px] w-[6px] rounded-full ring-2 ring-card"
-                  style={{ backgroundColor: accent ?? "var(--accent)" }}
+                  aria-hidden
+                  className="absolute"
+                  style={{
+                    bottom: -7,
+                    left: -3.5,
+                    width: 0,
+                    height: 0,
+                    borderLeft: "4px solid transparent",
+                    borderRight: "4px solid transparent",
+                    borderBottom: `7px solid ${accent ?? "var(--accent)"}`,
+                    filter: "drop-shadow(0 0 1px var(--card))",
+                  }}
                 />
               </div>
             )}
 
+            {/* CENTERING LAYER. The frame `height` (bandH) CSS-tweens on a fold while the
+                lane layout below is computed against the FINAL `trackH` (it jumps in one
+                step). Without this, content is pinned to the frame TOP and the growth all
+                bleeds out the BOTTOM — so during a height change only the lower extremity
+                of the NOW marker appears to move while the top stays put above the first
+                lane. This layer keeps the lanes/ribbons/mother-column CENTERED in the live
+                frame: `top-1/2` resolves against the animating frame height each frame and
+                `-translate-y-1/2` backs off by half the (static) content height, so the
+                net offset is `(bandH − trackH) / 2` — exactly 0 at rest (motion/morph math
+                untouched) and symmetric bleed (top AND bottom) while the frame grows/shrinks.
+                Full-frame elements (rule, gridlines, day cells, NOW marker) stay OUTSIDE
+                this layer so they keep spanning the whole frame. */}
+            <div className="absolute inset-x-0 top-1/2 -translate-y-1/2" style={{ height: trackH }}>
             {/* ribbon background BANDS — one tinted horizontal band per space (the
                 time.graphics "folder" model). Rendered BEHIND the bars (z-0). The
                 left labels are a separate pass AFTER the bars so they paint on top of
@@ -2345,6 +2382,8 @@ export function TimelineStrip({
                   </div>
                 )
               })}
+            </div>
+            {/* end centering layer */}
           </div>
 
           <button

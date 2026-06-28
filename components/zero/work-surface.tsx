@@ -300,7 +300,11 @@ export function WorkSurface() {
         // `auto`, which re-enables under a `none` ancestor) all stay fully interactive.
         className="pointer-events-none relative z-10 flex min-h-0 flex-1 flex-col rounded-md [clip-path:inset(-48px_0px_-120px_0px_round_6px)]"
       >
-        <EntityBody entityId={rootId} active={activeEntity.id === rootId} isRoot centerList />
+        {/* centerList={false}: the home do-list sits at the TOP of region 0 (just under the
+            timeline's reserved slot), horizontally centered but NOT vertically centered.
+            Horizontal centering is independent (items-center / self-center / w-2/3 in
+            EntityBody); `centerList` only toggles the vertical `justify-center-safe`. */}
+        <EntityBody entityId={rootId} active={activeEntity.id === rootId} isRoot centerList={false} />
 
         {/* DETACHED WINDOWS. The recursive in-place tree above only reaches a stack
             entry through its host's do-list/dock. When an entry's host is NOT its
