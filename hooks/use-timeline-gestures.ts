@@ -307,6 +307,16 @@ export function useTimelineGestures({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewportRef, minSpan, maxSpan, enabled])
 
+  // Did the most recent pointer interaction travel far enough to count as a DRAG
+  // (rather than a click)? Children of the viewport (ribbons) have their own onClick;
+  // a drag-pan that starts over a ribbon would otherwise also fire that click on
+  // pointerup. The strip reads this ref in its collapse/expand handlers to ignore a
+  // click that was really the tail of a drag. Reset on every fresh pointerdown.
+  const draggedRef = useRef(false)
+  // Px the pointer must move before we treat the gesture as a drag (small, so a
+  // genuine click with tiny jitter still registers as a click).
+  const DRAG_THRESHOLD = 4
+
   // --- Drag-to-pan: returned handler for the empty-track surface -----------
   // Stays 1:1 with the pointer (no easing) — interrupts any running ease loop.
   const onPointerDown = (e: React.PointerEvent) => {
@@ -322,12 +332,19 @@ export function useTimelineGestures({
     }
     anchorRef.current = null // a drag releases any zoom anchor
     targetRef.current = null
+    draggedRef.current = false // fresh press — not a drag until it moves past threshold
     const startX = e.clientX
+    const startY = e.clientY
     const base = currentRef.current ?? viewRef.current
     const startView = base.startMs
     const span = base.spanMs
     startCbRef.current?.()
     const move = (ev: PointerEvent) => {
+      // Once the pointer travels past the threshold, latch this gesture as a drag so
+      // the click it produces on release is suppressed by the strip.
+      if (!draggedRef.current && Math.hypot(ev.clientX - startX, ev.clientY - startY) > DRAG_THRESHOLD) {
+        draggedRef.current = true
+      }
       const deltaMs = ((ev.clientX - startX) / width) * span
       const next = { startMs: startView - deltaMs, spanMs: span }
       currentRef.current = next
@@ -343,5 +360,5 @@ export function useTimelineGestures({
     window.addEventListener("pointerup", up)
   }
 
-  return { onPointerDown }
+  return { onPointerDown, draggedRef }
 }

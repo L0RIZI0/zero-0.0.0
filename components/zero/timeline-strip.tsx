@@ -710,7 +710,7 @@ export function TimelineStrip({
   const scale = useMemo(() => makeScale(startMs, spanMs, width), [startMs, spanMs, width])
 
   // --- Gestures: cursor-anchored wheel zoom + drag/scroll pan --------------
-  const { onPointerDown } = useTimelineGestures({
+  const { onPointerDown, draggedRef } = useTimelineGestures({
     viewportRef,
     view: vp,
     onChange: (next) => {
@@ -1238,11 +1238,14 @@ export function TimelineStrip({
   // (`hiddenMothers`, which also implies collapsed). Each opens the fold-animation window so
   // the band/lanes/do-list glide identically to a zoom fold.
   const collapseMother = (id: string) => {
+    // Ignore the click that ends a drag-pan (panning often starts over a ribbon).
+    if (draggedRef.current) return
     setOverride((o) => ({ ...o, [id]: true }))
     setHiddenMothers((h) => (h[id] ? { ...h, [id]: false } : h))
     animateMother(id)
   }
   const expandMother = (id: string) => {
+    if (draggedRef.current) return
     setOverride((o) => ({ ...o, [id]: false }))
     setHiddenMothers((h) => (h[id] ? { ...h, [id]: false } : h))
     animateMother(id)
@@ -1563,7 +1566,15 @@ export function TimelineStrip({
           {/* Render the pill only when it has content: the date (unless centered on today) and/or
               the jump-to-NOW control. Otherwise an empty `bg-background` chip would show. */}
           {(!centeredOnNow || !atHome) && (
-          <div className="pointer-events-auto relative inline-flex items-center rounded bg-white px-2 py-0.5">
+          <div
+            className={cn(
+              "pointer-events-auto relative inline-flex items-center rounded",
+              // Only paint the white pill when the DATE label is present. When centered on today
+              // the label is hidden and only the absolutely-positioned NOW chip (below) shows —
+              // keeping the bg/padding here would leave an empty white "hat" above NOW.
+              !centeredOnNow && "bg-white px-2 py-0.5",
+            )}
+          >
             {!centeredOnNow && (
               <span className="whitespace-nowrap text-[11px] font-medium tracking-tight text-black">
                 {centerLabel}
@@ -2664,7 +2675,7 @@ export function TimelineStrip({
                     }}
                     transition={
                       zoomExpanding
-                        ? { duration: 0 } // instant so the column matches titleMax → no title bleed
+                        ? { duration: 0 } // instant so the column matches titleMax ��� no title bleed
                         : blkAnimating(blk) || manualFolding
                           ? morphTween(blkAnimating(blk) || manualFolding, bandExpanding, blkAnimating(blk))
                           : { duration: restTopDur, ease: "easeOut" }
