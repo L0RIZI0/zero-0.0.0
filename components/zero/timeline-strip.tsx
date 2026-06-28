@@ -90,7 +90,7 @@ const CONDENSE_MIN_SCALE = 0.48
 const GRAD_ROW_H = 14 // timestamp row height (matches the old h-3.5 ruler)
 const GRAD_LANE_GAP = 6 // graduation floats this far above the top lane
 const LABEL_ROW_H = 22 // the date+NOW pill row (comfortable)
-const LABEL_GRAD_GAP = 7 // natural gap between the label row and the graduation
+const LABEL_GRAD_GAP = 15 // natural gap between the label row and the graduation
 const MIN_LABEL_GRAD_GAP = 2 // gap floor once the group is fully compressed at the header
 const HEADER_CLEAR_Y = 4 // smallest card-Y the label may reach (rests just under the header bar)
 // PERF: a recurring series carries up to MAX_RECUR_OCCURRENCES (366) timestamps. When the whole
@@ -981,6 +981,30 @@ export function TimelineStrip({
   //     step with the rail crossfade instead of creeping for 2.2s after it finished.
   const zoomExpanding = collapseAnimating && bandExpanding
   const zoomCollapsing = collapseAnimating && !bandExpanding
+  // LANE-COUNT REFLOW (NOT a fold). When a ribbon gains/loses a sub-lane — e.g. two items that
+  // overlapped split into two lanes as you zoom — `contentH` jumps by ~one lane height in a
+  // single frame. The chips, ribbon backgrounds and mother columns ALREADY glide their top/
+  // height to the new layout (300ms), but the BAND FRAME height was applied instantly: because
+  // the strip is flex-centered in its zone, an instant height change shunts the whole frame
+  // (and the do-list beneath it) by HALF the delta in one frame — so the chip glided while
+  // "the rest" jumped (the artefact the user flagged). We detect a discrete `contentH` change
+  // that is NOT a fold and, for a brief window, transition the band height (and the centering
+  // layer height, so it stays glued to the frame) on the SAME 300ms ease-out the chips use, so
+  // the frame grows in lockstep with its gliding contents. SKIPPED while condensing (the live
+  // zoom scale must own the frame height every frame — a tween would lag it) and while folding
+  // (the fold already owns a longer height tween).
+  const RELAYOUT_MS = 300
+  const [reflowing, setReflowing] = useState(false)
+  const prevContentH = useRef(contentH)
+  const reflowTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => {
+    if (contentH === prevContentH.current) return
+    prevContentH.current = contentH
+    if (folding || condensing) return
+    setReflowing(true)
+    if (reflowTimer.current) clearTimeout(reflowTimer.current)
+    reflowTimer.current = setTimeout(() => setReflowing(false), RELAYOUT_MS)
+  }, [contentH, folding, condensing])
   // FLUID REFLOW. A fold (auto or manual) shifts the whole stack to a new layout. The folding
   // ribbon(s) + band + do-list morph over the fold window, but every OTHER repositioning
   // element (band backgrounds, ribbon labels, sibling chips/markers/columns) would default to
@@ -1012,7 +1036,9 @@ export function TimelineStrip({
     ? `height ${DOLIST_MS}ms ${DOLIST_EASE_CSS}` // manual click → long soft settle
     : zoomCollapsing
       ? `height ${COLLAPSE_MS}ms ease-out` // zoom out → quick glide up, no 2.2s linger
-      : undefined // zoomExpanding / rest → instant, so the band always fits its content
+      : reflowing && !condensing
+        ? `height ${RELAYOUT_MS}ms ease-out` // lane split/merge → glide the frame with its chips
+        : undefined // zoomExpanding / rest → instant, so the band always fits its content
   const bandH = lifelaneBandH
   // VISUAL band height during the condense scale phase. `bandH` is the resting (full) content
   // height; multiplying by `condenseScale` shrinks the FRAME (border, gridlines, NOW marker,
@@ -1024,6 +1050,11 @@ export function TimelineStrip({
   // The lane layer's scaleY tracks the zoom instantly EXCEPT on a zoom fold-out, where it glides
   // 1← over COLLAPSE_MS together with the band height so frame and content compress in step.
   const laneScaleTransition = zoomCollapsing ? `transform ${COLLAPSE_MS}ms ease-out` : undefined
+  // The centering layer's HEIGHT is `trackH`; it must glide on a lane reflow in lockstep with
+  // the band frame (above), or — since the layer is `translateY(-50%)`-centered — the frame
+  // and layer halves desync mid-tween and the content drifts. Mutually exclusive with
+  // `laneScaleTransition` (that only fires during a zoom fold, when `reflowing` is false).
+  const layerTransition = reflowing && !condensing ? `height ${RELAYOUT_MS}ms ease-out` : laneScaleTransition
   // Y of a VISIBLE global lane (collapsed lanes return the block's rail y so any
   // stray positioning lands sanely; their bars are handled separately as chips).
   const laneTop = (lane: number) => offsetY + (layout.laneToY.get(lane) ?? 0)
@@ -1275,7 +1306,7 @@ export function TimelineStrip({
           zoom span spring already eases it; a tween would lag behind). For a MANUAL fold
           `bandTransition` tweens the height so the do-list below is pushed FLUIDLY in
           lockstep with the ribbon morph (see `bandH`/`manualFolding`). */}
-      <div className="relative -mx-6" style={{ height: bandHVisual, transition: bandTransition }}>
+      <div className="relative -mx-6" style={{ height: bandHVisual, transition: bandTransition }} data-dbg-ch={Math.round(contentH)} data-dbg-lc={mothers.map((m) => m.laneCount).join("-")} data-dbg-cond={condensing ? "1" : "0"} data-dbg-fold={folding ? "1" : "0"}>
         {/* HEADER GROUP — graduation row + [date label + NOW]. Direct children of the band div
             (NOT inside the centering/scale layer), so they DON'T scale with the lanes and their
             `top` is measured from the band-div top (= lane-stack top in card coords). Both use
@@ -1657,7 +1688,7 @@ export function TimelineStrip({
               style={{
                 height: trackH,
                 transform: `translateY(-50%) scaleY(${condenseScale})`,
-                transition: laneScaleTransition,
+                transition: layerTransition,
               }}
             >
             {/* ribbon background BANDS — one tinted horizontal band per space (the
