@@ -285,6 +285,14 @@ export function applySemanticRollup(
   const groups = new Map<string, TimelineOccurrence[]>()
   const passThrough: TimelineOccurrence[] = []
   for (const it of items) {
+    // A recurring series is NEVER collapsed — not into a stream band (coarse
+    // grain, handled in queryTimeline) and not into a semantic rollup band
+    // (fine grain, here). Its occurrences always pass through as individual
+    // points so a repetitive lane keeps showing tiny dots at every zoom.
+    if (it.schedule?.repeat) {
+      passThrough.push(it)
+      continue
+    }
     const child = directChildOfFocus(it.parentId ?? "s_root", focusId)
     if (child == null) {
       passThrough.push(it) // direct member of focus, or not under it — always shown

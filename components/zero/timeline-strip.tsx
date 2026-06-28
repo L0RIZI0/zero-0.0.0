@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { motion, animate } from "motion/react"
-import { ChevronLeft, ChevronRight, Crosshair, Trash2, Ban, RotateCcw, Repeat, Eye, EyeOff } from "lucide-react"
+import { ChevronLeft, ChevronRight, Crosshair, Trash2, Ban, RotateCcw, Eye, EyeOff } from "lucide-react"
 import {
   getInheritedAccent,
   isInSubtree,
@@ -1850,10 +1850,48 @@ export function TimelineStrip({
                 })
                 return motherBars
                   .map((b) => {
+                    const color = b.color || NEUTRAL_MARKER
+                    // A recurring lane is NEVER collapsed into a continuous tick —
+                    // even on a collapsed/auto-folded ribbon it stays a row of its
+                    // individual occurrence dots (with the same faded continuation
+                    // tail), so it reads identically whether the ribbon is open or
+                    // folded. Without this it rendered as one solid bar spanning the
+                    // whole recurrence window.
+                    if (b.kind === "recur") {
+                      const times = b.times ?? []
+                      const tailStart = b.truncated ? times.length - RECUR_FADE_TAIL : times.length
+                      return (
+                        <div
+                          key={`railtick:${b.key}`}
+                          className="absolute z-10 animate-in fade-in"
+                          style={{ left: 0, right: 0, top: railY + 1, height: RAIL_H - 2 }}
+                        >
+                          {times.map((t, i) => {
+                            const dl = pct(t)
+                            if (dl < 0 || dl > 100) return null
+                            const fade = i >= tailStart ? (times.length - i) / (RECUR_FADE_TAIL + 1) : 1
+                            return (
+                              <div
+                                key={`${b.key}@${t}`}
+                                className="absolute top-1/2 rounded-full transition-[opacity] duration-150"
+                                style={{
+                                  left: `${dl}%`,
+                                  width: RAIL_H - 2,
+                                  height: RAIL_H - 2,
+                                  transform: "translate(-50%, -50%)",
+                                  backgroundColor: color,
+                                  opacity: (uncollapsing ? 0 : hi ? 1 : 0.85) * fade,
+                                  boxShadow: hi ? `0 0 6px ${color}` : undefined,
+                                }}
+                              />
+                            )
+                          })}
+                        </div>
+                      )
+                    }
                     const left = pct(b.from)
                     const widthPct = ((b.to - b.from) / spanMs) * 100
                     if (left > 100 || left + widthPct < 0) return null
-                    const color = b.color || NEUTRAL_MARKER
                     return (
                       <div
                         key={`railtick:${b.key}`}

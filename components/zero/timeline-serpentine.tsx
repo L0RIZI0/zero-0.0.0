@@ -22,7 +22,7 @@ export interface SerpItem {
   to: number
   color: string
   title: string
-  kind: "event" | "space" | "band" | "stream" | "instant"
+  kind: "event" | "space" | "band" | "stream" | "recur" | "instant"
   dim: number
   entity?: Entity
   cancelled?: boolean
