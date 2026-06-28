@@ -25,10 +25,9 @@ function useClock() {
   const time = now
     ? now.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
     : ""
-  // Three-letter caps, e.g. "SAT" and "JUN 13" (month first, then day), to keep
-  // the bar compact.
+  // Full weekday in caps (e.g. "SATURDAY") with "JUN 13" (month first, then day).
   const weekday = now
-    ? new Intl.DateTimeFormat("en-US", { weekday: "short" }).format(now).toUpperCase()
+    ? new Intl.DateTimeFormat("en-US", { weekday: "long" }).format(now).toUpperCase()
     : ""
   const monthDay = now
     ? new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" }).format(now).toUpperCase()
