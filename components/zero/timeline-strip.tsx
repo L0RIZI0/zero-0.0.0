@@ -2388,7 +2388,15 @@ export function TimelineStrip({
                     style={{
                       left: mId ? 4 + MOTHER_COL_W : 4,
                       top,
-                      transform: "translateY(-50%)",
+                      // EXPERIMENT 2: regular ribbon titles get the uniform entity scale too.
+                      // The parent centering layer already applies `scaleY(condenseScale)` (the
+                      // vertical squish); adding `scaleX(entityScaleX)` about the LEFT edge makes
+                      // the label shrink UNIFORMLY (no vertical text squish) while staying pinned
+                      // to the gutter (`transformOrigin: left` keeps `left` fixed instead of the
+                      // label creeping inward as it scales). The rotated MOTHER column below gets
+                      // none of this — it keeps its existing rules, as requested.
+                      transform: `translateY(-50%) scaleX(${entityScaleX})`,
+                      transformOrigin: "left center",
                       fontSize: 9.5,
                       // While condensing, `top` shifts every zoom frame — drop the class'
                       // 300ms transition so the label tracks the compressing lane live.
