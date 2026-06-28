@@ -69,6 +69,18 @@ const ATLAS_PX_PER_DAY = 28
 const ATLAS_MIN_DAYS = 10
 const ATLAS_MAX_DAYS = 90
 const ATLAS_CLOSE_EPSILON_MS = 0.04 * DAY_MS
+// SMOOTH PRE-FOLD CONDENSE. Instead of lanes snapping from full size straight to thin
+// rails at the fold threshold, they CONDENSE continuously over the last stretch of
+// zoom-out before the fold: lane heights, gaps and label type all scale down with the
+// span, so the eventual collapse is just the final sliver of a motion already underway —
+// the fold reads as the LIMIT of a smooth shrink, not a separate jump. This is what makes
+// the today→life zoom feel continuous. `condense` is 0 until the span passes
+// CONDENSE_ONSET_FRAC of the fold span, then ramps (smoothstep) to 1 AT the fold.
+// CONDENSE_MIN_SCALE is how small a lane gets right before folding — close to the rail's
+// share of a lane (RAIL_H/LANE_H ≈ 0.29) so the chip→tick morph has little left to travel,
+// but not so small that chips become unreadable too early.
+const CONDENSE_ONSET_FRAC = 0.42
+const CONDENSE_MIN_SCALE = 0.48
 // Duration of the ribbon (un)collapse morph. Longer (was 300) so the vertical-height
 // transform + the mother-title rotation read as a deliberate, smooth unfold rather than
 // a quick snap. The morphing elements (chip wrapper, mother column, band height) drive
@@ -526,6 +538,24 @@ export function TimelineStrip({
     setZoomCollapsed(next)
   }, [spanMs, zoomCollapsed, atlasOpenMs, atlasCloseMs])
 
+  // CONTINUOUS PRE-FOLD CONDENSE (see CONDENSE_* constants). As the span approaches the
+  // fold threshold the lanes/labels shrink so the collapse is the tail end of a smooth
+  // compression rather than a snap. `condense` 0→1; `laneScale` 1→CONDENSE_MIN_SCALE;
+  // `laneH`/`laneGap` are the LIVE lane geometry every downstream measurement uses, so the
+  // whole stack (lane positions, band height, do-list reflow, labels) condenses as one.
+  const condenseOnsetMs = atlasOpenMs * CONDENSE_ONSET_FRAC
+  const condenseRaw = Math.min(1, Math.max(0, (spanMs - condenseOnsetMs) / Math.max(1, atlasOpenMs - condenseOnsetMs)))
+  const condense = condenseRaw * condenseRaw * (3 - 2 * condenseRaw) // smoothstep — gentle onset
+  const condensing = condense > 0
+  const laneScale = 1 - (1 - CONDENSE_MIN_SCALE) * condense
+  const laneH = LANE_H * laneScale
+  const laneGap = LANE_GAP * laneScale
+  // While condensing, lane geometry changes EVERY zoom frame, so the per-element top/height
+  // tweens (which give a pleasant glide on a discrete lane-repack at normal zoom) must go
+  // INSTANT or they'd lag behind the live compression. `restTopDur` is the resting top-tween
+  // duration: 0 while condensing (track the zoom), 0.3s otherwise (keep the repack glide).
+  const restTopDur = condensing ? 0 : 0.3
+
   // Publish the Timeline's height fraction to the shared store so WorkSurface can size
   // the band + reserve and the Dock/DoList can reflow. The Lifelane now simply HUGS its
   // MAX height at every zoom (no growth ramp, no Atlas jump) — one constant fraction.
@@ -829,15 +859,15 @@ export function TimelineStrip({
         for (let i = 0; i < m.laneCount; i++) laneToY.set(m.baseLane + i, y)
         y += RAIL_H + MOTHER_GAP
       } else {
-        const h = m.laneCount * LANE_H + (m.laneCount - 1) * LANE_GAP
+        const h = m.laneCount * laneH + (m.laneCount - 1) * laneGap
         blocks.push({ m, top: y, height: h, collapsed: false, byUser: false })
-        for (let i = 0; i < m.laneCount; i++) laneToY.set(m.baseLane + i, y + i * (LANE_H + LANE_GAP))
+        for (let i = 0; i < m.laneCount; i++) laneToY.set(m.baseLane + i, y + i * (laneH + laneGap))
         y += h + MOTHER_GAP
       }
     }
     return { blocks, laneToY, contentH: Math.max(0, y - MOTHER_GAP) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mothers, override, zoomCollapsed])
+  }, [mothers, override, zoomCollapsed, laneH, laneGap])
 
   const contentH = layout.contentH
   // The track GROWS VERTICALLY to fit the visible lanes (capped so a pathological
@@ -1455,7 +1485,7 @@ export function TimelineStrip({
                 // the rail; fully gone once the animation settles into the rail state.
                 if (blk && !showExpanded(blk)) return null
                 const top = laneTop(r.baseLane) - 3
-                const h = r.laneCount * LANE_H + (r.laneCount - 1) * LANE_GAP + 6
+                const h = r.laneCount * laneH + (r.laneCount - 1) * laneGap + 6
                 const related = atRootFocus || r.spaceId === contextId || isInSubtree(contextId, r.spaceId)
                 const op = (related ? 1 : UNRELATED_OPACITY) * (blk ? expandedOpacity(blk) : 1)
                 return (
@@ -1469,7 +1499,9 @@ export function TimelineStrip({
                       backgroundColor: `${r.color}0d`,
                       borderLeft: `2px solid ${r.color}66`,
                       // During a manual fold, reposition in lockstep with the band/do-list.
-                      transition: reflowTransition("opacity, top, height"),
+                      // While condensing (not folding) the top/height change every zoom frame,
+                      // so kill the class' 300ms transition to track the compression live.
+                      transition: condensing && !folding ? "none" : reflowTransition("opacity, top, height"),
                     }}
                   />
                 )
@@ -1610,7 +1642,7 @@ export function TimelineStrip({
                   <div
                     key={b.key}
                     className="pointer-events-none absolute inset-x-0 transition-[top,opacity] duration-300 ease-out animate-in fade-in"
-                    style={{ top: barTop(lane), height: LANE_H, opacity: baseOpacity }}
+                    style={{ top: barTop(lane), height: laneH, opacity: baseOpacity }}
                   >
                     {times.map((t, i) => {
                       const dl = pct(t)
@@ -1665,20 +1697,20 @@ export function TimelineStrip({
                         ? { top: morphTween(true, !collapsedTarget), opacity: { duration: 0.2, ease: "easeOut" } }
                         : manualFolding
                           ? { top: morphTween(true, bandExpanding, false), opacity: panelTransition }
-                          : { top: { duration: 0.3, ease: "easeOut" }, opacity: panelTransition }
+                          : { top: { duration: restTopDur, ease: "easeOut" }, opacity: panelTransition }
                     }
                     onClick={() => b.entity && openFromChip(b.entity.id)}
                     onContextMenu={(ev) => b.entity && openMenu(ev, b.entity)}
                     aria-current={isOpen ? "true" : undefined}
                     title={b.title}
-                    className="absolute flex h-6 items-end overflow-visible transition-[filter] duration-300 ease-out hover:brightness-110"
-                    style={{ left: boxStyle.left, width: boxStyle.width }}
+                    className="absolute flex items-end overflow-visible transition-[filter] duration-300 ease-out hover:brightness-110"
+                    style={{ left: boxStyle.left, width: boxStyle.width, height: laneH }}
                   >
                     {/* vertical color connector rising from the duration line ��� shrinks
                         away on collapse so the marker flattens into its rail tick. */}
                     <span
                       className="absolute bottom-0 left-0 w-[2px] rounded-full transition-[height] duration-300 ease-out"
-                      style={{ height: collapsedTarget ? RAIL_H - 2 : 16, backgroundColor: markerColor }}
+                      style={{ height: collapsedTarget ? RAIL_H - 2 : 16 * laneScale, backgroundColor: markerColor }}
                       aria-hidden
                     />
                     {/* title to the RIGHT of the vertical connector — fades out FAST/EARLY
@@ -1690,6 +1722,7 @@ export function TimelineStrip({
                       )}
                       style={{
                         opacity: collapsedTarget ? 0 : 1,
+                        fontSize: 10 * laneScale,
                         // Match the titled chip: fade the bleeding marker title over a big
                         // slice of the collapse so the apparent width retracts smoothly into
                         // the rail tick instead of snapping away in 110ms.
@@ -1740,11 +1773,19 @@ export function TimelineStrip({
                   key={b.key}
                   className="absolute"
                   initial={barAnimating ? { top: railTopPx, height: RAIL_H - 2 } : false}
-                  animate={{ top: barTop(lane), height: collapsedTarget ? RAIL_H - 2 : 24 }}
+                  animate={{ top: barTop(lane), height: collapsedTarget ? RAIL_H - 2 : laneH }}
                   // `barAnimating` = THIS ribbon is folding (falls from/into the rail) → soft
                   // fall curve. `manualFolding` (sibling) = just reposition `top`, on the
                   // prompt reflow curve so the pushed ribbons glide in lockstep with the band.
-                  transition={morphTween(barAnimating || manualFolding, barAnimating ? !collapsedTarget : bandExpanding, barAnimating)}
+                  // At rest the top keeps its 0.3s repack glide, but while CONDENSING both top
+                  // and height change every zoom frame, so they go instant to track the zoom
+                  // (height is always instant at rest — the chip never tweened its own height
+                  // outside a fold). `laneH` shrinks the chip continuously toward the rail.
+                  transition={
+                    barAnimating || manualFolding
+                      ? morphTween(barAnimating || manualFolding, barAnimating ? !collapsedTarget : bandExpanding, barAnimating)
+                      : { top: { duration: restTopDur, ease: "easeOut" }, height: { duration: 0 } }
+                  }
                   style={{
                     left: boxStyle.left,
                     width: collapsedTarget ? `calc(${Math.max(widthPct, 0.6)}% - 2px)` : boxStyle.width,
@@ -1788,6 +1829,9 @@ export function TimelineStrip({
                       "text-foreground/85 shadow-sm transition-[filter,background-color,border-color] duration-300 ease-out hover:brightness-110",
                     )}
                     style={{
+                      // Shrink the chip type in step with the lane as we condense toward the
+                      // fold (inline fontSize overrides the Tailwind text-[10.5px]).
+                      fontSize: 10.5 * laneScale,
                       borderColor: collapsedTarget
                         ? b.color || "var(--border)"
                         : b.color
@@ -1998,7 +2042,7 @@ export function TimelineStrip({
                 // while transparent, so `hover:opacity-100` brings it back on approach.
                 const isLeadDup = mId != null && r.spaceId === mId
                 const bandTop = laneTop(r.baseLane) - 3
-                const bandH = r.laneCount * LANE_H + (r.laneCount - 1) * LANE_GAP + 6
+                const bandH = r.laneCount * laneH + (r.laneCount - 1) * laneGap + 6
                 const related = atRootFocus || r.spaceId === contextId || isInSubtree(contextId, r.spaceId)
                 const top = bandTop + bandH / 2
                 // Lanes always just OPEN their space now — the fold control lives in the
@@ -2018,6 +2062,10 @@ export function TimelineStrip({
                       left: mId ? 4 + MOTHER_COL_W : 4,
                       top,
                       transform: "translateY(-50%)",
+                      fontSize: 9.5 * laneScale,
+                      // While condensing, `top` shifts every zoom frame — drop the class'
+                      // 300ms transition so the label tracks the compressing lane live.
+                      ...(condensing ? { transition: "none" } : {}),
                       // Lead duplicates are driven purely by the hover class above; everyone
                       // else uses the related/unrelated dimming (× the collapse crossfade).
                       ...(isLeadDup ? {} : { opacity: (related ? 1 : UNRELATED_OPACITY) * fadeOp }),
@@ -2071,7 +2119,11 @@ export function TimelineStrip({
                       height: blk.collapsed ? RAIL_H : blk.height,
                       opacity: related ? 1 : UNRELATED_OPACITY,
                     }}
-                    transition={morphTween(blkAnimating(blk) || manualFolding, bandExpanding, blkAnimating(blk))}
+                    transition={
+                      blkAnimating(blk) || manualFolding
+                        ? morphTween(blkAnimating(blk) || manualFolding, bandExpanding, blkAnimating(blk))
+                        : { duration: restTopDur, ease: "easeOut" }
+                    }
                     className="absolute z-20 overflow-visible rounded border border-border/70 bg-card text-[9.5px] font-semibold leading-none tracking-tight shadow-sm hover:brightness-125"
                     style={{ left: 4, width: MOTHER_COL_W - 4, color: blk.m.color, borderColor: `${blk.m.color}40` }}
                   >
