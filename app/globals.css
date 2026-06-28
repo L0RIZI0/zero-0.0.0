@@ -119,6 +119,19 @@
   }
   body {
     @apply bg-background text-foreground;
+    /* Zero is a direct-manipulation prototype: dragging to pan/scroll should never
+       accidentally select timestamps, labels, or chip text. Disable text selection
+       globally and re-enable it only for genuine text-entry surfaces below. */
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  /* Keep real text fields selectable/editable (CaretTextInput, notes, etc.). */
+  input,
+  textarea,
+  [contenteditable="true"],
+  [contenteditable=""] {
+    -webkit-user-select: text;
+    user-select: text;
   }
   html {
     @apply font-sans;

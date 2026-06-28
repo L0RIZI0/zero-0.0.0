@@ -1835,10 +1835,12 @@ export function TimelineStrip({
               </div>
             )}
 
-            {/* drag surface — behind markers so it only catches empty-track drags. */}
+            {/* drag surface — behind markers so it only catches empty-track drags.
+                Keeps the CLASSIC arrow cursor (no grab/grabbing hand) — the timeline reads
+                as a normal surface; only entity chips and ticks show the pointer hand. */}
             <div
               onPointerDown={onPointerDown}
-              className="absolute inset-0 cursor-grab touch-none active:cursor-grabbing"
+              className="absolute inset-0 cursor-default touch-none"
               aria-hidden
             />
 
@@ -1911,7 +1913,7 @@ export function TimelineStrip({
                 it exactly. Horizontal is untouched → chips keep real time positions/widths. */}
             <div
               onPointerDown={onPointerDown}
-              className="absolute inset-x-0 top-1/2 cursor-grab touch-none active:cursor-grabbing"
+              className="absolute inset-x-0 top-1/2 cursor-default touch-none"
               style={{
               // During a condense reflow, read the SAME JS-smoothed base as the band frame so the
               // centering layer (and the mother ribbons it holds) grows/shrinks in lockstep; the
@@ -1972,7 +1974,7 @@ export function TimelineStrip({
                     aria-label={`Collapse ${blk.m.title}`}
                     title={`Collapse ${blk.m.title}`}
                     onClick={() => collapseMother(mId)}
-                    className="absolute z-0 cursor-pointer"
+                    className="absolute z-0 cursor-default"
                     style={{
                       top: offsetY + blk.top - 3,
                       height: blk.height + 6,
@@ -2027,7 +2029,7 @@ export function TimelineStrip({
                     onClick={() => expandMother(blk.m.motherId!)}
                     {...hoverProps}
                     title={`Expand ${blk.m.title}`}
-                    className="absolute inset-x-0 z-0 cursor-pointer rounded-r-md transition-[top,filter,opacity] duration-300 ease-out animate-in fade-in hover:brightness-150"
+                    className="absolute inset-x-0 z-0 cursor-default rounded-r-md transition-[top,filter,opacity] duration-300 ease-out animate-in fade-in hover:brightness-150"
                     style={railStyle}
                   />
                 ) : (
@@ -2100,7 +2102,7 @@ export function TimelineStrip({
                     type="button"
                     onClick={() => b.childId && open(b.childId)}
                     title={`${b.title} · ${b.count} items`}
-                    className="absolute flex h-6 items-center gap-1.5 overflow-hidden rounded-md border border-dashed px-2 text-[10.5px] tracking-tight text-foreground/80 transition-[filter,opacity,top] duration-300 ease-out animate-in fade-in hover:brightness-110"
+                    className="absolute flex h-6 cursor-pointer items-center gap-1.5 overflow-hidden rounded-md border border-dashed px-2 text-[10.5px] tracking-tight text-foreground/80 transition-[filter,opacity,top] duration-300 ease-out animate-in fade-in hover:brightness-110"
                     style={{
                       ...boxStyle,
                       // EXPERIMENT 2: uniform entity scale (CSS scaleX, origin center → pairs with
@@ -2209,7 +2211,7 @@ export function TimelineStrip({
                     onContextMenu={(ev) => b.entity && openMenu(ev, b.entity)}
                     aria-current={isOpen ? "true" : undefined}
                     title={b.title}
-                    className="absolute flex items-end overflow-visible transition-[filter] duration-300 ease-out hover:brightness-110"
+                    className="absolute flex cursor-pointer items-end overflow-visible transition-[filter] duration-300 ease-out hover:brightness-110"
                     // EXPERIMENT 2: uniform entity scale (scaleX pairs with the parent scaleY so the
                     // marker line + vertical connector + bleeding title shrink uniformly, not squished).
                     style={{ scaleX: entityScaleX, left: boxStyle.left, width: boxStyle.width, height: laneH }}
@@ -2346,7 +2348,7 @@ export function TimelineStrip({
                       // breathing room moves to the INNER content span (which is overflow-
                       // visible, so it bleeds past the box instead of widening it).
                       "flex h-full w-full min-w-0 items-center overflow-visible rounded-md border text-[10.5px] tracking-tight",
-                      "text-foreground/85 shadow-sm transition-[filter,background-color,border-color] duration-300 ease-out hover:brightness-110",
+                      "cursor-pointer text-foreground/85 shadow-sm transition-[filter,background-color,border-color] duration-300 ease-out hover:brightness-110",
                     )}
                     style={{
                       // Chip type is a constant size; the lane-layer scaleY squishes it
@@ -2482,7 +2484,7 @@ export function TimelineStrip({
                             return (
                               <div
                                 key={`${b.key}@${t}`}
-                                className="absolute top-1/2 rounded-full transition-[opacity] duration-150"
+                                className="absolute top-1/2 cursor-pointer rounded-full transition-[opacity] duration-150"
                                 style={{
                                   left: `${dl}%`,
                                   width: `max(1px, ${occWidthPct}%)`,
@@ -2510,7 +2512,7 @@ export function TimelineStrip({
                     return (
                       <div
                         key={`railtick:${b.key}`}
-                        className="absolute z-10 rounded-full transition-[opacity] duration-150 animate-in fade-in"
+                        className="absolute z-10 cursor-pointer rounded-full transition-[opacity] duration-150 animate-in fade-in"
                         onMouseEnter={() => {
                           setHoveredMother(rk)
                           setHoveredTick({
@@ -2692,7 +2694,7 @@ export function TimelineStrip({
                       type="button"
                       onClick={() => openFromChip(mId)}
                       title={`Open ${blk.m.title}`}
-                      className="absolute inset-0 cursor-pointer rounded hover:brightness-125"
+                      className="absolute inset-0 cursor-default rounded hover:brightness-125"
                     >
                       <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
                         <motion.span
@@ -2810,7 +2812,7 @@ export function TimelineStrip({
                   return (
                     <div
                       key={`mlabel:${rk}`}
-                      className="absolute z-20 flex cursor-pointer items-center"
+                      className="absolute z-20 flex cursor-default items-center"
                       style={{
                         left: 4,
                         top: offsetY + blk.top + blk.height / 2,
