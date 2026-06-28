@@ -6,7 +6,6 @@ import { motion, animate, AnimatePresence } from "motion/react"
 import {
   ChevronLeft,
   ChevronRight,
-  Crosshair,
   Trash2,
   Ban,
   RotateCcw,
@@ -1359,6 +1358,9 @@ export function TimelineStrip({
   // there's no value in announcing "today" while you're parked on it. Compared via the same
   // `scrubLabel` the pill renders, so it stays correct across grains (day/week/month/…).
   const centeredOnNow = centerLabel === scrubLabel(now, grain)
+  // Which way does NOW live relative to the current view center? When `now` is before the view
+  // center the view is ahead of now, so jumping back points LEFT; otherwise it points RIGHT.
+  const nowIsEarlier = now < center
 
   // --- Ruler ticks (two-tier, adaptive grain) ------------------------------
   const ticks = useMemo(() => timelineTicks(startMs, spanMs, width), [startMs, spanMs, width])
@@ -1561,9 +1563,9 @@ export function TimelineStrip({
           {/* Render the pill only when it has content: the date (unless centered on today) and/or
               the jump-to-NOW control. Otherwise an empty `bg-background` chip would show. */}
           {(!centeredOnNow || !atHome) && (
-          <div className="pointer-events-auto relative inline-flex items-center rounded bg-background px-2 py-0.5">
+          <div className="pointer-events-auto relative inline-flex items-center rounded bg-white px-2 py-0.5">
             {!centeredOnNow && (
-              <span className="whitespace-nowrap text-[11px] font-medium tracking-tight text-foreground">
+              <span className="whitespace-nowrap text-[11px] font-medium tracking-tight text-black">
                 {centerLabel}
               </span>
             )}
@@ -1574,13 +1576,14 @@ export function TimelineStrip({
                 aria-label="Jump to now"
                 title="Jump to now"
                 className={cn(
-                  // Same chip treatment as the date pill (rounded `bg-background`), so NOW reads
-                  // as a matching control rather than floating bare text over the lanes. Centered
-                  // directly beneath the date.
-                  "absolute left-1/2 top-full mt-0.5 flex -translate-x-1/2 items-center gap-0.5 whitespace-nowrap rounded bg-background px-1.5 py-0.5 text-[10px] font-medium leading-none text-muted-foreground transition-colors [&:hover]:text-foreground",
+                  // Black-on-white chip matching the date pill, so NOW reads as a paired control
+                  // rather than floating bare text over the lanes. Centered beneath the date. A
+                  // direction chevron points the way NOW lives relative to the current view: LEFT
+                  // (before the chevron+word) when now is earlier, RIGHT (after) when now is later.
+                  "absolute left-1/2 top-full mt-0.5 flex -translate-x-1/2 items-center gap-0.5 whitespace-nowrap rounded bg-white px-1.5 py-0.5 text-[10px] font-medium leading-none text-black",
                 )}
               >
-                <Crosshair className="h-3 w-3 shrink-0" strokeWidth={2.5} />
+                {nowIsEarlier && <ChevronLeft className="h-3 w-3 shrink-0" strokeWidth={2.5} />}
                 <motion.span
                   className="overflow-hidden"
                   initial={false}
@@ -1589,6 +1592,7 @@ export function TimelineStrip({
                 >
                   NOW
                 </motion.span>
+                {!nowIsEarlier && <ChevronRight className="h-3 w-3 shrink-0" strokeWidth={2.5} />}
               </button>
             )}
           </div>
