@@ -1533,7 +1533,18 @@ export function TimelineStrip({
               const widthPx = (Math.max(widthPct, 0) / 100) * width
               const boxStyle = {
                 left: `calc(${left}% + 2px)`,
-                width: `calc(${Math.max(widthPct, 0.8)}% - 4px)`,
+                // ACCURATE width = the event's true share of the span, NO minimum. We used to
+                // clamp to `max(widthPct, 0.8)%`, which forced short events WIDER than their
+                // real duration so the translucent rounded span could "contain" its glyph/
+                // label. That min was the gymnastics the user called out: a 30-min event on a
+                // multi-day view rendered as a fat pill instead of a hairline, and on collapse
+                // that inflated box had to shrink down to the true-width rail tick — reading as
+                // the highlight "jumping" to a different (narrower→then accurate) width. The
+                // glyph + label already BLEED past the box (overflow-visible) and clip on
+                // collapse, so the box itself never needs a min to hold them. `max(widthPct,0)`
+                // only guards against a negative %, and the `- 4px` inter-chip gap is floored
+                // at 0 so a hairline event never produces a negative width.
+                width: `max(0px, calc(${Math.max(widthPct, 0)}% - 4px))`,
                 top: barTop(lane),
               } as const
 
