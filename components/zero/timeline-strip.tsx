@@ -6,14 +6,11 @@ import { motion, animate, AnimatePresence } from "motion/react"
 import {
   ChevronLeft,
   ChevronRight,
-  ChevronsDownUp,
-  ChevronsUpDown,
   Crosshair,
   Trash2,
   Ban,
   RotateCcw,
   Eye,
-  EyeOff,
 } from "lucide-react"
 import {
   getInheritedAccent,
@@ -555,6 +552,10 @@ export function TimelineStrip({
   const [override, setOverride] = useState<Record<string, boolean>>({})
   const [hiddenMothers, setHiddenMothers] = useState<Record<string, boolean>>({})
   const [hoveredMother, setHoveredMother] = useState<string | null>(null)
+  // The mother whose TITLE chip is currently hovered. The eye (hide) control only ever shows
+  // on title hover — NOT on plain rail hover (which still brightens the rail ticks via
+  // `hoveredMother`). Tracked separately so hovering the rail body doesn't reveal the eye.
+  const [hoveredTitleId, setHoveredTitleId] = useState<string | null>(null)
   // MANUAL-FOLD animation window. A click toggle flips a mother's `override`
   // instantly, so (unlike a zoom collapse, which is driven by `displayCollapsed`
   // lagging `zoomCollapsed`) there's no global window to ride. We open a PER-MOTHER
@@ -1247,16 +1248,11 @@ export function TimelineStrip({
     setHiddenMothers((h) => (h[id] ? { ...h, [id]: false } : h))
     animateMother(id)
   }
-  // Eye → fully hide the lane (collapsed + no rail). Keeps the title chip + its controls.
+  // Eye → fully hide the lane (collapsed + no rail). Keeps only the (hover-revealed) title chip.
+  // From hidden there's no "show thin" path: clicking the 1px lane uncollapses fully (expandMother).
   const hideMother = (id: string) => {
     setOverride((o) => ({ ...o, [id]: true }))
     setHiddenMothers((h) => ({ ...h, [id]: true }))
-    animateMother(id)
-  }
-  // Eye on a hidden chip → restore the THIN rail (collapsed) with highlights, still folded.
-  const showThinMother = (id: string) => {
-    setOverride((o) => ({ ...o, [id]: true }))
-    setHiddenMothers((h) => ({ ...h, [id]: false }))
     animateMother(id)
   }
 
@@ -1990,7 +1986,10 @@ export function TimelineStrip({
                 const railStyle = {
                   top: offsetY + blk.top,
                   height: blk.hidden ? HIDDEN_H : RAIL_H,
-                  opacity: collapsedOpacity(blk),
+                  // A hidden sliver dims to 40% at rest and lifts to 100% while its lane is
+                  // hovered — a responsive cue that the (otherwise near-invisible) 1px line is
+                  // clickable to reopen. Thin rails keep the crossfade opacity.
+                  opacity: blk.hidden ? (hoveredMother === rk ? 1 : 0.4) : collapsedOpacity(blk),
                   backgroundColor: blk.hidden ? blk.m.color || "#ffffff" : `${blk.m.color}1f`,
                   borderLeft: blk.hidden ? "none" : `2px solid ${blk.m.color}`,
                   // A collapsed sibling rail (e.g. Health) must slide with the reflow too.
@@ -2000,9 +1999,9 @@ export function TimelineStrip({
                   onMouseEnter: () => setHoveredMother(rk),
                   onMouseLeave: () => setHoveredMother((h) => (h === rk ? null : h)),
                 }
-                // Clicking the thin rail BODY expands the mother (the highlight ticks above are
-                // pointer-events-none so they don't intercept). A hidden block's transitional
-                // rail and zoom-forced rails are non-interactive.
+                // Clicking the thin rail BODY (between ticks) expands the mother. A hidden block's
+                // 1px sliver is non-interactive here — its reopen click is handled by the
+                // hover-catcher in the label pass; zoom-forced rails are non-interactive too.
                 return blk.m.motherId && !zoomCollapsed && !blk.hidden ? (
                   <button
                     key={`rail:${rk}`}
@@ -2384,9 +2383,10 @@ export function TimelineStrip({
                 directly ON that mother's thin rail, at its own time position. The rail
                 becomes a compressed one-line preview of the folded mother. Shown on a thin
                 rail; a fully HIDDEN mother (eye) has no rail and no ticks (its lane is a 1px
-                sliver), so its highlights are suppressed. Brightened while the mother's rail
-                is hovered (`hoveredMother`). pointer-events-none so a click anywhere on the
-                rail still expands it. */}
+                sliver), so its highlights are suppressed. ALL ticks brighten while the rail is
+                hovered (`hoveredMother`); hovering ONE specific tick lights only that tick
+                (`hoveredTick`). Single ticks are interactive (for the tooltip), so reopening the
+                lane is done by clicking the rail BETWEEN ticks. */}
             {showRibbons &&
               layout.blocks.flatMap((blk) => {
                 const rk = blk.m.motherId ?? `root:${blk.m.baseLane}`
@@ -2414,6 +2414,14 @@ export function TimelineStrip({
                   const ln = lanes.lane.get(b.key) ?? -1
                   return ln >= loLane && ln < hiLane
                 })
+                // PER-TICK hover: when the pointer is over ONE specific tick on this rail
+                // (`hoveredTick` is set by the tick's own onMouseEnter), only THAT tick lights
+                // up and the rest stay dim — instead of the whole-rail `hi` highlight. Hovering
+                // the rail anywhere ELSE (no specific tick) keeps the all-ticks `hi` behaviour.
+                const hoveredTickKey = hoveredTick?.key ?? null
+                const someTickOnRail = hoveredTickKey != null && motherBars.some((b) => b.key === hoveredTickKey)
+                // Lit/glow for a tick given whether it is the specifically-hovered one.
+                const tickLit = (isThis: boolean) => (someTickOnRail ? isThis : hi)
                 return motherBars
                   .map((b) => {
                     const color = b.color || NEUTRAL_MARKER
@@ -2456,8 +2464,8 @@ export function TimelineStrip({
                                   height: RAIL_H - 2,
                                   transform: "translateY(-50%)",
                                   backgroundColor: color,
-                                  opacity: (uncollapsing || hidingNow ? 0 : hi ? 1 : 0.85) * fade,
-                                  boxShadow: hi ? `0 0 6px ${color}` : undefined,
+                                  opacity: (uncollapsing || hidingNow ? 0 : tickLit(false) ? 1 : 0.85) * fade,
+                                  boxShadow: tickLit(false) ? `0 0 6px ${color}` : undefined,
                                 }}
                               />
                             )
@@ -2504,8 +2512,8 @@ export function TimelineStrip({
                           top: railY + 1,
                           height: RAIL_H - 2,
                           backgroundColor: color,
-                          opacity: uncollapsing || hidingNow ? 0 : hi ? 1 : 0.85,
-                          boxShadow: hi ? `0 0 6px ${color}` : undefined,
+                          opacity: uncollapsing || hidingNow ? 0 : tickLit(hoveredTickKey === b.key) ? 1 : 0.85,
+                          boxShadow: tickLit(hoveredTickKey === b.key) ? `0 0 6px ${color}` : undefined,
                         }}
                       />
                     )
@@ -2673,25 +2681,16 @@ export function TimelineStrip({
                         </motion.span>
                       </span>
                     </button>
-                    {/* Hover-revealed control cluster at the TOP of the column: COLLAPSE (chevron
-                        → thin rail) + HIDE (eye → 1px sliver). Shown only while the column (or its
-                        title) is hovered, so the resting ribbon stays clean. Stacked vertically to
-                        fit the slim column; sits above the title button. */}
+                    {/* Hover-revealed HIDE control (eye → 1px sliver) at the TOP of the column.
+                        There's no collapse chevron anymore — clicking the ribbon body collapses
+                        it to the thin rail. Shown only while the column (its title) is hovered so
+                        the resting ribbon stays clean. */}
                     <div
                       className={cn(
-                        "absolute inset-x-0 top-0 z-10 flex flex-col items-center gap-0.5 rounded-t bg-card/95 py-0.5 transition-opacity",
+                        "absolute inset-x-0 top-0 z-10 flex flex-col items-center rounded-t bg-card/95 py-0.5 transition-opacity",
                         colHovered ? "opacity-100" : "pointer-events-none opacity-0",
                       )}
                     >
-                      <button
-                        type="button"
-                        onClick={() => collapseMother(mId)}
-                        aria-label={`Collapse ${blk.m.title}`}
-                        title={`Collapse ${blk.m.title}`}
-                        className="flex items-center justify-center rounded p-0.5 text-muted-foreground transition-colors hover:text-foreground"
-                      >
-                        <ChevronsDownUp className="h-3 w-3" strokeWidth={2.5} />
-                      </button>
                       <button
                         type="button"
                         onClick={() => hideMother(mId)}
@@ -2756,60 +2755,37 @@ export function TimelineStrip({
                     </div>
                   )
                 }
-                // Manual-collapsed (thin rail) OR fully hidden. The title chip carries THREE
-                // controls: the TITLE opens the space; the CHEVRON uncollapses to full lanes; the
-                // EYE toggles fully-hidden. When hidden, the eye restores the thin rail (with
-                // highlights); when on the thin rail, the eye hides the whole lane.
+                // Manual-collapsed (thin rail) OR fully hidden.
                 const hidden = blk.hidden
-                // HIDDEN ribbons HOVER-REVEAL their chip: at rest only the 1px colored sliver
-                // shows, so adjacent hidden slivers never overlap their chips. The chip fades in
-                // when the mother is hovered (or while still animating, so it fades cleanly).
-                const revealed = !hidden || hoveredMother === rk || blkAnimating(blk)
-                const chip = (
-                  <div
-                    className={cn(
-                      "flex items-center gap-1 transition-opacity duration-200",
-                      revealed ? "opacity-100" : "pointer-events-none opacity-0",
-                    )}
+                // The TITLE chip (dot + name) opens the space. The HIDE eye shows ONLY while the
+                // title is hovered (`hoveredTitleId`) — never on plain rail hover. There's no
+                // collapse/expand chevron anymore: clicking the thin rail or the 1px lane reopens.
+                const titleBtn = (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      openFromChip(mId)
+                    }}
+                    title={`Open ${blk.m.title}`}
+                    className="flex max-w-[36vw] items-center gap-1 rounded border border-border/70 bg-card px-1.5 py-0.5 text-[9.5px] font-medium leading-none tracking-tight text-foreground/70 shadow-sm transition-colors hover:text-foreground"
                   >
-                    <button
-                      type="button"
-                      onClick={() => openFromChip(mId)}
-                      title={`Open ${blk.m.title}`}
-                      className="flex max-w-[36vw] items-center gap-1 rounded border border-border/70 bg-card px-1.5 py-0.5 text-[9.5px] font-medium leading-none tracking-tight text-foreground/70 shadow-sm transition-colors hover:text-foreground"
-                    >
-                      <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: blk.m.color }} aria-hidden />
-                      <span className="truncate">{blk.m.title}</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => expandMother(mId)}
-                      aria-label={`Expand ${blk.m.title}`}
-                      title={`Expand ${blk.m.title}`}
-                      className="flex items-center justify-center rounded border border-border/70 bg-card p-0.5 text-foreground/60 shadow-sm transition-colors hover:text-foreground"
-                    >
-                      <ChevronsUpDown className="h-2.5 w-2.5" aria-hidden />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => (hidden ? showThinMother(mId) : hideMother(mId))}
-                      title={hidden ? "Show lane" : "Hide lane"}
-                      aria-pressed={hidden}
-                      className="flex items-center justify-center rounded border border-border/70 bg-card p-0.5 text-foreground/60 shadow-sm transition-colors hover:text-foreground"
-                    >
-                      {hidden ? <EyeOff className="h-2.5 w-2.5" aria-hidden /> : <Eye className="h-2.5 w-2.5" aria-hidden />}
-                    </button>
-                  </div>
+                    <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: blk.m.color }} aria-hidden />
+                    <span className="truncate">{blk.m.title}</span>
+                  </button>
                 )
-                // HIDDEN: a transparent hover-catcher sized to the block+gap (~7px) so adjacent
-                // catchers TILE without overlapping a neighbour's. The chip is a DOM descendant of
-                // the catcher, so moving the pointer onto the (taller) revealed chip keeps the
-                // catcher hovered — `mouseleave` ignores descendants — preventing flicker.
+                // HIDDEN: at rest only the 1px colored sliver shows; hovering the lane reveals the
+                // title (no eye, no chevron). The wrapper is a transparent hover-catcher sized to
+                // the block+gap (~7px) so adjacent catchers TILE without overlap; CLICKING it
+                // reopens the whole ribbon (the inner title button stops propagation so it opens
+                // the space instead). The chip is a DOM descendant so moving onto the (taller)
+                // revealed chip keeps the catcher hovered.
                 if (hidden) {
+                  const revealed = hoveredMother === rk || blkAnimating(blk)
                   return (
                     <div
                       key={`mlabel:${rk}`}
-                      className="absolute z-20 flex items-center"
+                      className="absolute z-20 flex cursor-pointer items-center"
                       style={{
                         left: 4,
                         top: offsetY + blk.top + blk.height / 2,
@@ -2817,15 +2793,38 @@ export function TimelineStrip({
                         transform: "translateY(-50%)",
                         transition: reflowTransition("top"),
                       }}
+                      onClick={() => expandMother(mId)}
+                      title={`Expand ${blk.m.title}`}
                       {...hoverProps}
                     >
-                      {chip}
+                      <div className={cn("flex items-center transition-opacity duration-200", revealed ? "opacity-100" : "pointer-events-none opacity-0")}>
+                        {titleBtn}
+                      </div>
                     </div>
                   )
                 }
+                // COLLAPSED-THIN: title always visible; the eye fades in on title hover.
+                const titleHovered = hoveredTitleId === mId
                 return (
                   <div key={`mlabel:${rk}`} className="absolute z-20 flex items-center gap-1 animate-in fade-in duration-300" style={wrapStyle} {...hoverProps}>
-                    {chip}
+                    <div
+                      className="flex items-center gap-1"
+                      onMouseEnter={() => setHoveredTitleId(mId)}
+                      onMouseLeave={() => setHoveredTitleId((h) => (h === mId ? null : h))}
+                    >
+                      {titleBtn}
+                      <span className={cn("transition-opacity duration-200", titleHovered ? "opacity-100" : "pointer-events-none opacity-0")}>
+                        <button
+                          type="button"
+                          onClick={() => hideMother(mId)}
+                          title="Hide lane"
+                          aria-label={`Hide ${blk.m.title} lane`}
+                          className="flex items-center justify-center rounded border border-border/70 bg-card p-0.5 text-foreground/60 shadow-sm transition-colors hover:text-foreground"
+                        >
+                          <Eye className="h-2.5 w-2.5" aria-hidden />
+                        </button>
+                      </span>
+                    </div>
                   </div>
                 )
               })}
