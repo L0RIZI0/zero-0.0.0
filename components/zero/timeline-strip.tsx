@@ -912,6 +912,20 @@ export function TimelineStrip({
   // off `manualFolding`. (`bandAnimating` is the same predicate; aliased for readability.)
   const folding = bandAnimating
   const bandExpanding = lifelaneBandH > prevBandH.current
+  // ZOOM vs MANUAL fold split. A MANUAL click gets the long, lingering do-list settle
+  // (DOLIST_MS ≈ 2.2s) — the user clicked once and watches it ease. A ZOOM fold must
+  // instead TRACK THE GESTURE: the expanded layout mounts at full size the instant the
+  // threshold flips, so the height/positions have to follow immediately or the container
+  // spends the whole 2.2s shorter than its own content — clipping the lower ribbons and
+  // letting the mother titles (sized to the FINAL height) bleed past the still-short
+  // column. So:
+  //   • zoomExpanding (uncollapse): apply layout INSTANTLY — the condense ramp already
+  //     makes the surrounding zoom continuous, and instant means the band always exactly
+  //     contains its content (no clip, no title bleed, no "slow to respond" lag).
+  //   • zoomCollapsing (fold out): a short glide (COLLAPSE_MS) so the do-list rises in
+  //     step with the rail crossfade instead of creeping for 2.2s after it finished.
+  const zoomExpanding = collapseAnimating && bandExpanding
+  const zoomCollapsing = collapseAnimating && !bandExpanding
   // FLUID REFLOW. A fold (auto or manual) shifts the whole stack to a new layout. The folding
   // ribbon(s) + band + do-list morph over the fold window, but every OTHER repositioning
   // element (band backgrounds, ribbon labels, sibling chips/markers/columns) would default to
@@ -928,11 +942,22 @@ export function TimelineStrip({
   // Prompt ease-OUT in both directions so the band (and the do-list tracking it) starts
   // moving immediately rather than crawling for the first ~150ms of a soft ease-in.
   const reflowEase = bandExpanding ? REFLOW_EASE_CSS : "ease-out"
-  const reflowTransition = (props: string) => (folding ? `${props.split(",").map((p) => `${p.trim()} ${reflowMs}ms ${reflowEase}`).join(", ")}` : undefined)
+  // zoomExpanding → "none" (instant): the whole stack reaches full layout in one frame so
+  // nothing is ever larger than its container. Manual/zoom-collapse → the shared reflow tween.
+  const reflowTransition = (props: string) =>
+    zoomExpanding
+      ? "none"
+      : folding
+        ? `${props.split(",").map((p) => `${p.trim()} ${reflowMs}ms ${reflowEase}`).join(", ")}`
+        : undefined
   // The BAND height (and thus the do-list) gets its OWN longer + more generous ease-out,
   // decoupled from the sibling REFLOW above so the ribbons keep their loved timing while the
   // do-list lingers into a soft settle.
-  const bandTransition = folding ? `height ${DOLIST_MS}ms ${DOLIST_EASE_CSS}` : undefined
+  const bandTransition = manualFolding
+    ? `height ${DOLIST_MS}ms ${DOLIST_EASE_CSS}` // manual click → long soft settle
+    : zoomCollapsing
+      ? `height ${COLLAPSE_MS}ms ease-out` // zoom out → quick glide up, no 2.2s linger
+      : undefined // zoomExpanding / rest → instant, so the band always fits its content
   const bandH = lifelaneBandH
   // Y of a VISIBLE global lane (collapsed lanes return the block's rail y so any
   // stray positioning lands sanely; their bars are handled separately as chips).
@@ -1693,11 +1718,13 @@ export function TimelineStrip({
                     data-morph-kind="generic"
                     animate={{ opacity: dim, top: barTop(lane) }}
                     transition={
-                      barAnimating
-                        ? { top: morphTween(true, !collapsedTarget), opacity: { duration: 0.2, ease: "easeOut" } }
-                        : manualFolding
-                          ? { top: morphTween(true, bandExpanding, false), opacity: panelTransition }
-                          : { top: { duration: restTopDur, ease: "easeOut" }, opacity: panelTransition }
+                      zoomExpanding
+                        ? { top: { duration: 0 }, opacity: { duration: 0.2, ease: "easeOut" } }
+                        : barAnimating
+                          ? { top: morphTween(true, !collapsedTarget), opacity: { duration: 0.2, ease: "easeOut" } }
+                          : manualFolding
+                            ? { top: morphTween(true, bandExpanding, false), opacity: panelTransition }
+                            : { top: { duration: restTopDur, ease: "easeOut" }, opacity: panelTransition }
                     }
                     onClick={() => b.entity && openFromChip(b.entity.id)}
                     onContextMenu={(ev) => b.entity && openMenu(ev, b.entity)}
@@ -1782,9 +1809,11 @@ export function TimelineStrip({
                   // (height is always instant at rest — the chip never tweened its own height
                   // outside a fold). `laneH` shrinks the chip continuously toward the rail.
                   transition={
-                    barAnimating || manualFolding
-                      ? morphTween(barAnimating || manualFolding, barAnimating ? !collapsedTarget : bandExpanding, barAnimating)
-                      : { top: { duration: restTopDur, ease: "easeOut" }, height: { duration: 0 } }
+                    zoomExpanding
+                      ? { duration: 0 } // instant: chip mounts at full size and crossfades in, never clipped
+                      : barAnimating || manualFolding
+                        ? morphTween(barAnimating || manualFolding, barAnimating ? !collapsedTarget : bandExpanding, barAnimating)
+                        : { top: { duration: restTopDur, ease: "easeOut" }, height: { duration: 0 } }
                   }
                   style={{
                     left: boxStyle.left,
@@ -2045,7 +2074,7 @@ export function TimelineStrip({
                 const bandH = r.laneCount * laneH + (r.laneCount - 1) * laneGap + 6
                 const related = atRootFocus || r.spaceId === contextId || isInSubtree(contextId, r.spaceId)
                 const top = bandTop + bandH / 2
-                // Lanes always just OPEN their space now — the fold control lives in the
+                // Lanes always just OPEN their space now ��� the fold control lives in the
                 // rotated mother column to the left (rendered in the pass below). Lanes
                 // inside a mother group shift right by MOTHER_COL_W to clear that column.
                 return (
@@ -2120,9 +2149,11 @@ export function TimelineStrip({
                       opacity: related ? 1 : UNRELATED_OPACITY,
                     }}
                     transition={
-                      blkAnimating(blk) || manualFolding
-                        ? morphTween(blkAnimating(blk) || manualFolding, bandExpanding, blkAnimating(blk))
-                        : { duration: restTopDur, ease: "easeOut" }
+                      zoomExpanding
+                        ? { duration: 0 } // instant so the column matches titleMax → no title bleed
+                        : blkAnimating(blk) || manualFolding
+                          ? morphTween(blkAnimating(blk) || manualFolding, bandExpanding, blkAnimating(blk))
+                          : { duration: restTopDur, ease: "easeOut" }
                     }
                     className="absolute z-20 overflow-visible rounded border border-border/70 bg-card text-[9.5px] font-semibold leading-none tracking-tight shadow-sm hover:brightness-125"
                     style={{ left: 4, width: MOTHER_COL_W - 4, color: blk.m.color, borderColor: `${blk.m.color}40` }}
