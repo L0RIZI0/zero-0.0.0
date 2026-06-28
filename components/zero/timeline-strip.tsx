@@ -81,6 +81,18 @@ const ATLAS_CLOSE_EPSILON_MS = 0.04 * DAY_MS
 // but not so small that chips become unreadable too early.
 const CONDENSE_ONSET_FRAC = 0.42
 const CONDENSE_MIN_SCALE = 0.48
+// HEADER GROUP geometry. The [date label + NOW backlink] and the timestamp graduation float
+// just ABOVE the lane stack (anchored to the band-div top, i.e. the top of the lanes — NOT
+// pinned to the band FRAME, which can grow past them). As the band grows and the group is
+// pushed up, the label CLAMPS so it never rises above the header bar (HEADER_CLEAR_Y, in card
+// coords); the label↔graduation gap then compresses to MIN_LABEL_GRAD_GAP. The lanes are NOT
+// clamped — they bleed up past the graduation and the label (and behind the header).
+const GRAD_ROW_H = 14 // timestamp row height (matches the old h-3.5 ruler)
+const GRAD_LANE_GAP = 7 // graduation floats this far above the top lane
+const LABEL_ROW_H = 26 // the date+NOW pill row (comfortable)
+const LABEL_GRAD_GAP = 9 // natural gap between the label row and the graduation
+const MIN_LABEL_GRAD_GAP = 3 // gap floor once the group is fully compressed at the header
+const HEADER_CLEAR_Y = 6 // smallest card-Y the label may reach (rests just under the header bar)
 // PERF: a recurring series carries up to MAX_RECUR_OCCURRENCES (366) timestamps. When the whole
 // series packs into view (fully zoomed out / collapsed) that's hundreds of absolutely-positioned
 // 1px divs re-positioned every frame — the dominant cost of the zoomed-out render (~21fps). Since
@@ -1174,6 +1186,19 @@ export function TimelineStrip({
   const sectionH = LIFELANE_LABEL_BAND_H + lifelaneBandH
   const stripTopY = centerZoneH > 0 ? overlayTopPx + (centerZoneH - sectionH) / 2 : TIMELINE_TOP_PAD
   const laneBandTopY = stripTopY + LIFELANE_LABEL_BAND_H
+  // HEADER-GROUP vertical positions, in BAND-DIV coords (band-div top = lane-stack top = 0;
+  // both rows sit at NEGATIVE tops, i.e. ABOVE the lanes). The graduation tracks the lane-stack
+  // top exactly. The label floats above it, but is CLAMPED so its card-Y never rises above
+  // HEADER_CLEAR_Y (only at home, where the strip is centered and can be pushed up under the
+  // header; `laneBandTopY` is the band-div top in card coords). Once the label is clamped, the
+  // graduation is in turn kept at least MIN_LABEL_GRAD_GAP below it — so as the stack keeps
+  // rising the label↔graduation gap compresses, then both rest near the header while the lanes
+  // bleed up past them.
+  const gradNaturalTop = -(GRAD_LANE_GAP + GRAD_ROW_H)
+  const labelNaturalTop = gradNaturalTop - LABEL_GRAD_GAP - LABEL_ROW_H
+  const labelGroupTop =
+    centerZoneH > 0 ? Math.max(labelNaturalTop, HEADER_CLEAR_Y - laneBandTopY) : labelNaturalTop
+  const gradGroupTop = Math.max(gradNaturalTop, labelGroupTop + LABEL_ROW_H + MIN_LABEL_GRAD_GAP)
   // Geometry for the Lifelane<->Atlas flight. Built whenever the Atlas is mounted
   // (`atlas || morphing`) — TimelineWeek IS the morph now (no separate overlay), so it
   // needs both rects to animate between and to sit at the Atlas rect when settled.
@@ -1236,96 +1261,12 @@ export function TimelineStrip({
               : "opacity-100 !duration-0",
         )}
       >
-        {/* Label band above the ruler. Shows the granularity-aware center label and,
-            when "now" is scrolled off-screen, a jump-to-now control. Taller than the
-            ruler needs so the center label has clear air between the header's date+time
-            and the timestamps (which pin to the band's bottom). */}
-      <div className={cn("relative mb-1 -mx-6", "h-12")}>
-        {/* ruler labels — anchored to the bottom, inset to match the viewport.
-            Edge-faded so labels melt in/out at the sides rather than popping. */}
-        <div
-          className="absolute inset-x-0 bottom-0 h-3.5"
-          style={{
-            marginLeft: VIEWPORT_INSET_LEFT,
-            marginRight: VIEWPORT_INSET_RIGHT,
-            maskImage: edgeFade,
-            WebkitMaskImage: edgeFade,
-          }}
-        >
-          {/* Keyed by `ms` ONLY (not ms+role): as you zoom, the tick GRAIN changes and
-              the set of labeled timestamps swaps in batches. Keying by ms keeps ticks
-              that survive a grain change MOUNTED (they just slide via `left`), so only
-              the genuinely added/removed labels animate — AnimatePresence fades those
-              in/out instead of letting the whole ruler pop, smoothing the graduation. */}
-          <AnimatePresence initial={false}>
-            {ticks
-              .filter((t) => t.labeled && pct(t.ms) >= 0 && pct(t.ms) <= 100)
-              .map((t) => (
-                <motion.span
-                  key={t.ms}
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  transition={{ duration: 0.22, ease: "easeOut" }}
-                  className={cn(
-                    "absolute bottom-0 -translate-x-1/2 whitespace-nowrap text-[9.5px] tabular-nums tracking-tight",
-                    t.major
-                      ? "font-semibold text-muted-foreground/70"
-                      : t.sub
-                        ? "font-normal text-muted-foreground/50" // coarse-hour sub labels (lighter than minors)
-                        : "font-medium text-muted-foreground/40",
-                  )}
-                  style={{ left: `${pct(t.ms)}%` }}
-                >
-                  {t.label}
-                </motion.span>
-              ))}
-          </AnimatePresence>
-        </div>
-
-        {/* Center label + jump-to-now. The date label is ALWAYS shown (so it never
-            jarringly vanishes when you land on today at Day zoom); only the jump
-            control toggles, and it does so consistently on a single rule: visible
-            whenever "now" is off-screen, at any zoom. The Now control is hung off
-            the label's edge so appending it never shifts the label. */}
-        <motion.div
-          key="center-controls"
-          initial={{ opacity: 0, y: -4 }}
-          // Sit in the upper part of the band — between the header's date+time and the
-          // ruler timestamps pinned to the band's bottom. Kept ABOVE the ruler at every
-          // nav `stage` (the old `+18` push at stage 2 dropped it onto the timestamps,
-          // causing the overlap); all offsets are now small & negative so it never
-          // collides with the ruler, regardless of breadcrumb depth.
-          animate={{ opacity: 1, y: stage === 0 ? -7 : stage === 1 ? -5 : -3 }}
-          transition={panelTransition}
-          className="pointer-events-none absolute inset-x-0 top-0 bottom-3.5 flex items-start justify-center"
-        >
-              <div className="pointer-events-auto inline-flex items-center gap-1 rounded bg-background px-2 py-0.5">
-                <span className="whitespace-nowrap text-[11px] font-medium tracking-tight text-foreground">
-                  {centerLabel}
-                </span>
-                {!atHome && (
-                  <button
-                    type="button"
-                    onClick={goNow}
-                    aria-label="Jump to now"
-                    title="Jump to now"
-                    className="flex items-center gap-0.5 whitespace-nowrap rounded-md px-1 py-0.5 text-[10px] font-medium leading-none text-muted-foreground/70 transition-colors [&:hover]:text-foreground"
-                  >
-                    <Crosshair className="h-3 w-3 shrink-0" strokeWidth={2.5} />
-                    <motion.span
-                      className="overflow-hidden"
-                      initial={false}
-                      animate={{ width: stage <= 1 ? "auto" : 0, opacity: stage <= 1 ? 1 : 0 }}
-                      transition={layerTransition}
-                    >
-                      NOW
-                    </motion.span>
-                  </button>
-                )}
-              </div>
-        </motion.div>
-      </div>
+        {/* Flow SPACER only. The graduation + [date label + NOW] used to live here, pinned
+            above the band frame. They now float just above the LANE STACK as overlays inside
+            the band div (so they track the lanes, not the frame, and the label can clamp to
+            the header). This empty box preserves the flow height the band div sits below —
+            keeping `laneBandTopY`, the Atlas morph and the do-list reserve unchanged. */}
+      <div className="relative mb-1 -mx-6 h-12" aria-hidden />
 
       {/* Full-bleed timeline. Arrows flank the track; the zoom selector pins left.
           The track height GROWS WITH ZOOM (`lifelaneBandH`): it rests at the content
