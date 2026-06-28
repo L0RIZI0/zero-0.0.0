@@ -1944,6 +1944,35 @@ export function TimelineStrip({
                 )
               })}
 
+            {/* EXPANDED RIBBON BODY click targets — one transparent layer per expanded mother
+                spanning its lanes, at z-0 BENEATH the bars/chips (which are separate, higher-z
+                absolute siblings, so a chip click never reaches this). Clicking the empty lane
+                area collapses the mother to its thin rail. Skipped while zoom-collapsed (folding
+                is zoom-controlled then) and for the root (no motherId). */}
+            {showRibbons &&
+              !zoomCollapsed &&
+              layout.blocks.map((blk) => {
+                const mId = blk.m.motherId
+                if (!mId || !showExpanded(blk) || blk.collapsed) return null
+                return (
+                  <button
+                    key={`mbody:${mId}`}
+                    type="button"
+                    aria-label={`Collapse ${blk.m.title}`}
+                    title={`Collapse ${blk.m.title}`}
+                    onClick={() => collapseMother(mId)}
+                    className="absolute z-0 cursor-pointer"
+                    style={{
+                      top: offsetY + blk.top - 3,
+                      height: blk.height + 6,
+                      left: MOTHER_COL_W,
+                      right: 0,
+                      transition: condensing && !folding ? "none" : reflowTransition("top, height"),
+                    }}
+                  />
+                )
+              })}
+
             {/* COLLAPSED RAILS — a thin bar where a folded ribbon's lanes used to be.
                 Works for EVERY collapsed block (grouped mothers AND the ungrouped root).
                 When the user folded it by hand it's a button that reopens on click; when
@@ -2594,12 +2623,12 @@ export function TimelineStrip({
                 // long names DON'T bleed far past the column; genuinely-too-long titles get
                 // an ellipsis. Rotated about CENTER it reads as a centered vertical label.
                 const titleMax = Math.max(blk.height - 8, 34)
+                const colHovered = hoveredMother === rkExp
                 return (
-                  <motion.button
+                  <motion.div
                     key={`mcol:${mId}`}
-                    type="button"
-                    onClick={() => toggleMother(mId, false)}
-                    title={`Collapse ${blk.m.title}`}
+                    onMouseEnter={() => setHoveredMother(rkExp)}
+                    onMouseLeave={() => setHoveredMother((h) => (h === rkExp ? null : h))}
                     initial={false}
                     animate={{
                       top: offsetY + blk.top,
@@ -2613,30 +2642,62 @@ export function TimelineStrip({
                           ? morphTween(blkAnimating(blk) || manualFolding, bandExpanding, blkAnimating(blk))
                           : { duration: restTopDur, ease: "easeOut" }
                     }
-                    className="absolute z-20 overflow-visible rounded border border-border/70 bg-card text-[9.5px] font-semibold leading-none tracking-tight shadow-sm hover:brightness-125"
+                    className="absolute z-20 overflow-visible rounded border border-border/70 bg-card text-[9.5px] font-semibold leading-none tracking-tight shadow-sm"
                     style={{ left: 4, width: MOTHER_COL_W - 4, color: blk.m.color, borderColor: `${blk.m.color}40` }}
                   >
-                    {/* Title centered both axes, ALWAYS vertical (−90°). It no longer ROTATES
-                        to horizontal on collapse — the user wanted the vertical title simply
-                        FADED OUT as the column shrinks (the horizontal rail label crossfades in
-                        at the rail instead). So `rotate` is constant and only `opacity` animates
-                        (1 expanded → 0 collapsed), with a quick fade so it clears early as the
-                        column flattens. The span keeps its FIXED `width: titleMax` + `shrink-0`:
-                        rotation is post-layout, so as a normal flex child it shrank to the ~14px
-                        column width and ellipsis-truncated ("Day Job" → "D…"); the fixed width =
-                        the vertical room it occupies, so the full title lays out. */}
-                    <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
-                      <motion.span
-                        className="block shrink-0 overflow-hidden text-ellipsis whitespace-nowrap text-center"
-                        style={{ width: titleMax, rotate: "-90deg" }}
-                        initial={false}
-                        animate={{ opacity: blk.collapsed ? 0 : 1 }}
-                        transition={{ duration: blk.collapsed ? 0.18 : 0.28, ease: "easeOut" }}
+                    {/* Clicking the TITLE opens the space (e.g. Day Job). It fills the column and
+                        carries the vertical (−90°) label, faded out as the column shrinks (the
+                        horizontal rail label crossfades in at the rail instead). The fixed
+                        `width: titleMax` + `shrink-0` reserves the vertical room the rotated text
+                        needs, so the full title lays out instead of truncating to the ~14px col. */}
+                    <button
+                      type="button"
+                      onClick={() => openFromChip(mId)}
+                      title={`Open ${blk.m.title}`}
+                      className="absolute inset-0 cursor-pointer rounded hover:brightness-125"
+                    >
+                      <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                        <motion.span
+                          className="block shrink-0 overflow-hidden text-ellipsis whitespace-nowrap text-center"
+                          style={{ width: titleMax, rotate: "-90deg" }}
+                          initial={false}
+                          animate={{ opacity: blk.collapsed ? 0 : 1 }}
+                          transition={{ duration: blk.collapsed ? 0.18 : 0.28, ease: "easeOut" }}
+                        >
+                          {blk.m.title}
+                        </motion.span>
+                      </span>
+                    </button>
+                    {/* Hover-revealed control cluster at the TOP of the column: COLLAPSE (chevron
+                        → thin rail) + HIDE (eye → 1px sliver). Shown only while the column (or its
+                        title) is hovered, so the resting ribbon stays clean. Stacked vertically to
+                        fit the slim column; sits above the title button. */}
+                    <div
+                      className={cn(
+                        "absolute inset-x-0 top-0 z-10 flex flex-col items-center gap-0.5 rounded-t bg-card/95 py-0.5 transition-opacity",
+                        colHovered ? "opacity-100" : "pointer-events-none opacity-0",
+                      )}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => collapseMother(mId)}
+                        aria-label={`Collapse ${blk.m.title}`}
+                        title={`Collapse ${blk.m.title}`}
+                        className="flex items-center justify-center rounded p-0.5 text-muted-foreground transition-colors hover:text-foreground"
                       >
-                        {blk.m.title}
-                      </motion.span>
-                    </span>
-                  </motion.button>
+                        <ChevronsDownUp className="h-3 w-3" strokeWidth={2.5} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => hideMother(mId)}
+                        aria-label={`Hide ${blk.m.title} lane`}
+                        title={`Hide ${blk.m.title} lane`}
+                        className="flex items-center justify-center rounded p-0.5 text-muted-foreground transition-colors hover:text-foreground"
+                      >
+                        <Eye className="h-3 w-3" strokeWidth={2.5} />
+                      </button>
+                    </div>
+                  </motion.div>
                 )
               })}
 
@@ -2664,7 +2725,9 @@ export function TimelineStrip({
                 }
                 const wrapStyle = {
                   left: 4,
-                  top: offsetY + blk.top + RAIL_H / 2,
+                  // Center on the block's own height: RAIL_H for a thin rail, the 1px sliver for
+                  // a fully-hidden mother (so the title chip sits between its neighbours).
+                  top: offsetY + blk.top + blk.height / 2,
                   transform: "translateY(-50%)",
                   opacity: labelOp,
                   // Slide the label with the reflow (a sibling rail label, e.g. Health,
@@ -2688,27 +2751,39 @@ export function TimelineStrip({
                     </div>
                   )
                 }
-                const ticksOn = !ticksHidden[rk]
+                // Manual-collapsed (thin rail) OR fully hidden. The title chip stays in both,
+                // carrying THREE controls: the TITLE opens the space; the CHEVRON uncollapses to
+                // full lanes; the EYE toggles fully-hidden. When hidden, the eye restores the thin
+                // rail (with highlights); when on the thin rail, the eye hides the whole lane.
+                const hidden = blk.hidden
                 return (
                   <div key={`mlabel:${rk}`} className="absolute z-20 flex items-center gap-1 animate-in fade-in duration-300" style={wrapStyle} {...hoverProps}>
                     <button
                       type="button"
-                      onClick={() => toggleMother(mId, true)}
-                      title={`Expand ${blk.m.title}`}
+                      onClick={() => openFromChip(mId)}
+                      title={`Open ${blk.m.title}`}
                       className="flex max-w-[36vw] items-center gap-1 rounded border border-border/70 bg-card px-1.5 py-0.5 text-[9.5px] font-medium leading-none tracking-tight text-foreground/70 shadow-sm transition-colors hover:text-foreground"
                     >
-                      <ChevronRight className="h-2.5 w-2.5 shrink-0 opacity-60" aria-hidden />
                       <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: blk.m.color }} aria-hidden />
                       <span className="truncate">{blk.m.title}</span>
                     </button>
                     <button
                       type="button"
-                      onClick={() => setTicksHidden((s) => ({ ...s, [rk]: ticksOn }))}
-                      title={ticksOn ? "Hide events" : "Show events"}
-                      aria-pressed={!ticksOn}
+                      onClick={() => expandMother(mId)}
+                      aria-label={`Expand ${blk.m.title}`}
+                      title={`Expand ${blk.m.title}`}
                       className="flex items-center justify-center rounded border border-border/70 bg-card p-0.5 text-foreground/60 shadow-sm transition-colors hover:text-foreground"
                     >
-                      {ticksOn ? <Eye className="h-2.5 w-2.5" aria-hidden /> : <EyeOff className="h-2.5 w-2.5" aria-hidden />}
+                      <ChevronsUpDown className="h-2.5 w-2.5" aria-hidden />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => (hidden ? showThinMother(mId) : hideMother(mId))}
+                      title={hidden ? "Show lane" : "Hide lane"}
+                      aria-pressed={hidden}
+                      className="flex items-center justify-center rounded border border-border/70 bg-card p-0.5 text-foreground/60 shadow-sm transition-colors hover:text-foreground"
+                    >
+                      {hidden ? <EyeOff className="h-2.5 w-2.5" aria-hidden /> : <Eye className="h-2.5 w-2.5" aria-hidden />}
                     </button>
                   </div>
                 )
