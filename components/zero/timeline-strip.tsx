@@ -632,6 +632,26 @@ export function TimelineStrip({
   // duration: 0 while condensing (track the zoom), 0.3s otherwise (keep the repack glide).
   const restTopDur = condensing ? 0 : 0.3
 
+  // EXPERIMENT 2 — per-ENTITY uniform scale (requested follow-up to the y-only squish).
+  // UNIFORM_SCALE above scaled the whole PLANE in X and fought the time axis. Instead, keep the
+  // lane plane VERTICAL-ONLY (the centering layer's `scaleY` compresses lane positions + ribbon
+  // backgrounds), and give each ENTITY (event/space chips, span bars, rollup bands, collapsed
+  // markers + their titles/glyphs) its OWN `scaleX` about its center. The parent `scaleY` already
+  // shrinks each entity box's HEIGHT ×condenseScale; adding `scaleX(condenseScale)` (default
+  // origin = center) makes the box shrink UNIFORMLY in both axes — so chip text/glyphs keep their
+  // aspect (no vertical squish) while staying pinned to their time-center. Lanes / ribbon
+  // backgrounds and the mother titles get NO entity scaleX (they keep the y-only transform / their
+  // existing rules), exactly as requested. Flip the flag to false to revert to the pure y-squish.
+  const ENTITY_UNIFORM_SCALE = true
+  const entityScaleX = ENTITY_UNIFORM_SCALE ? condenseScale : 1
+  // CSS form for non-motion entities (rollup band button). Default transform-origin (center) is
+  // what we want, so a bare scaleX suffices. `undefined` at rest → no needless compositor layer.
+  const entityTransformCss = entityScaleX === 1 ? undefined : `scaleX(${entityScaleX})`
+  // Framer transition for the `scaleX` motion value on motion entities: instant while condensing
+  // (restTopDur=0, tracks every wheel frame like the lane scaleY) and a 0.3s glide on a normal
+  // lane-repack — the SAME cadence the chips' `top` already uses.
+  const entityScaleTween = { duration: restTopDur, ease: "easeOut" as const }
+
   // Publish the Timeline's height fraction to the shared store so WorkSurface can size
   // the band + reserve and the Dock/DoList can reflow. The Lifelane now simply HUGS its
   // MAX height at every zoom (no growth ramp, no Atlas jump) — one constant fraction.
@@ -1883,6 +1903,9 @@ export function TimelineStrip({
                     className="absolute flex h-6 items-center gap-1.5 overflow-hidden rounded-md border border-dashed px-2 text-[10.5px] tracking-tight text-foreground/80 transition-[filter,opacity,top] duration-300 ease-out animate-in fade-in hover:brightness-110"
                     style={{
                       ...boxStyle,
+                      // EXPERIMENT 2: uniform entity scale (CSS scaleX, origin center → pairs with
+                      // the parent scaleY so the rollup band shrinks uniformly with its label/count).
+                      transform: entityTransformCss,
                       opacity: expOpacity,
                       borderColor: `${b.color}73`,
                       backgroundColor: `${b.color}1f`,
@@ -1975,19 +1998,21 @@ export function TimelineStrip({
                     animate={{ opacity: dim, top: barTop(lane) }}
                     transition={
                       zoomExpanding
-                        ? { top: { duration: 0 }, opacity: { duration: 0.2, ease: "easeOut" } }
+                        ? { top: { duration: 0 }, opacity: { duration: 0.2, ease: "easeOut" }, scaleX: { duration: 0 } }
                         : barAnimating
-                          ? { top: morphTween(true, !collapsedTarget), opacity: { duration: 0.2, ease: "easeOut" } }
+                          ? { top: morphTween(true, !collapsedTarget), opacity: { duration: 0.2, ease: "easeOut" }, scaleX: morphTween(true, !collapsedTarget) }
                           : manualFolding
-                            ? { top: morphTween(true, bandExpanding, false), opacity: panelTransition }
-                            : { top: { duration: restTopDur, ease: "easeOut" }, opacity: panelTransition }
+                            ? { top: morphTween(true, bandExpanding, false), opacity: panelTransition, scaleX: morphTween(true, bandExpanding, false) }
+                            : { top: { duration: restTopDur, ease: "easeOut" }, opacity: panelTransition, scaleX: entityScaleTween }
                     }
                     onClick={() => b.entity && openFromChip(b.entity.id)}
                     onContextMenu={(ev) => b.entity && openMenu(ev, b.entity)}
                     aria-current={isOpen ? "true" : undefined}
                     title={b.title}
                     className="absolute flex items-end overflow-visible transition-[filter] duration-300 ease-out hover:brightness-110"
-                    style={{ left: boxStyle.left, width: boxStyle.width, height: laneH }}
+                    // EXPERIMENT 2: uniform entity scale (scaleX pairs with the parent scaleY so the
+                    // marker line + vertical connector + bleeding title shrink uniformly, not squished).
+                    style={{ scaleX: entityScaleX, left: boxStyle.left, width: boxStyle.width, height: laneH }}
                   >
                     {/* vertical color connector rising from the duration line ��� shrinks
                         away on collapse so the marker flattens into its rail tick. */}
@@ -2069,9 +2094,14 @@ export function TimelineStrip({
                       ? { duration: 0 } // instant: chip mounts at full size and crossfades in, never clipped
                       : barAnimating || manualFolding
                         ? morphTween(barAnimating || manualFolding, barAnimating ? !collapsedTarget : bandExpanding, barAnimating)
-                        : { top: { duration: restTopDur, ease: "easeOut" }, height: { duration: 0 } }
+                        : { top: { duration: restTopDur, ease: "easeOut" }, height: { duration: 0 }, scaleX: entityScaleTween }
                   }
                   style={{
+                    // EXPERIMENT 2: uniform entity scale. Parent layer already does scaleY; this
+                    // scaleX (origin center) makes the whole chip — colored span box + glyph +
+                    // bleeding title — shrink uniformly toward its time-center instead of being
+                    // vertically squished. =1 (no-op) when the flag is off.
+                    scaleX: entityScaleX,
                     left: boxStyle.left,
                     // Collapse target must EXACTLY match the rail tick it hands off to (line ~2065:
                     // `max(3px, widthPct%)`), with a PIXEL floor — a `0.6%`-of-track floor made the
