@@ -1275,15 +1275,7 @@ export function TimelineStrip({
           zoom span spring already eases it; a tween would lag behind). For a MANUAL fold
           `bandTransition` tweens the height so the do-list below is pushed FLUIDLY in
           lockstep with the ribbon morph (see `bandH`/`manualFolding`). */}
-      <div
-        className="relative -mx-6"
-        style={{ height: bandHVisual, transition: bandTransition }}
-        data-dbg-lbt={Math.round(laneBandTopY)}
-        data-dbg-czh={Math.round(centerZoneH)}
-        data-dbg-otp={Math.round(overlayTopPx)}
-        data-dbg-lgt={Math.round(labelGroupTop)}
-        data-dbg-ggt={Math.round(gradGroupTop)}
-      >
+      <div className="relative -mx-6" style={{ height: bandHVisual, transition: bandTransition }}>
         {/* HEADER GROUP — graduation row + [date label + NOW]. Direct children of the band div
             (NOT inside the centering/scale layer), so they DON'T scale with the lanes and their
             `top` is measured from the band-div top (= lane-stack top in card coords). Both use
