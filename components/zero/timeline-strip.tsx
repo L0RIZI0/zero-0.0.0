@@ -1107,7 +1107,24 @@ export function TimelineStrip({
   // the band frame (above), or — since the layer is `translateY(-50%)`-centered — the frame
   // and layer halves desync mid-tween and the content drifts. Mutually exclusive with
   // `laneScaleTransition` (that only fires during a zoom fold, when `reflowing` is false).
-  const centerLayerTransition = reflowing && !condensing ? `height ${RELAYOUT_MS}ms ease-out` : laneScaleTransition
+  //
+  // MANUAL FOLD — SYMMETRIC EXPAND. When a mother is (un)folded by hand, `trackH` JUMPS to its
+  // new value in one step. The layer is `translateY(-50%)`-centered, so its top edge is
+  // `frameH/2 − trackH/2`: an INSTANT `trackH` change instantly shifts the whole stack's origin.
+  // Blocks BELOW the expanding ribbon also animate their own `top` (big delta) via the sibling
+  // `reflowTransition`, so they glided fine — but blocks ABOVE barely change their `top`, so their
+  // ONLY motion was this origin shift, which snapped (they jumped to final in frame 1 while the
+  // ones below eased down). Giving the layer height the SAME reflow curve/duration the below-
+  // blocks use makes the recenter GLIDE, so the stack expands symmetrically about its center —
+  // ribbons above rise and ribbons below descend together, exactly as if the vertical title grew
+  // from its middle. Skipped while condensing (live zoom owns height every frame) and on
+  // zoomExpanding (reflowTransition is "none" there — the expanded layout mounts at full size).
+  const centerLayerTransition =
+    reflowing && !condensing
+      ? `height ${RELAYOUT_MS}ms ease-out`
+      : manualFolding
+        ? `height ${reflowMs}ms ${reflowEase}`
+        : laneScaleTransition
   // Shared horizontal compression for the full-frame time-pinned layers (gridlines, day cells,
   // NOW marker) so they pinch toward center in lockstep with the lanes when UNIFORM_SCALE is on.
   // Each target is a full-width box (origin center 50% → a tick at pct% maps to 50+(pct−50)·s,
