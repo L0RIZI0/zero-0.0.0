@@ -122,6 +122,20 @@ const LABEL_GRAD_GAP = 30
 // header (it still clears the bar — verified ~7px gap remains). The date pill's bg chip keeps it
 // readable where it overlaps the graduation in the fully-clamped (short viewport) case.
 const HEADER_CLEAR_Y = -12
+// --- Float layer tuning (vertical drag + lean-toward-cursor) ---------------
+// How far the strip may be dragged from its home position: a little UP (header is close above)
+// and more DOWN (open space below). Clamped so it can never be lost off-screen.
+const DRAG_Y_MIN = -80
+const DRAG_Y_MAX = 340
+// Max lean displacement (px) toward the cursor — subtle "alive/eager" drift, per the brief.
+const MAX_LEAN = 7
+// How far beyond the strip the cursor still pulls the lean (px). Outside this the strip eases home.
+const LEAN_MARGIN_X = 220
+const LEAN_MARGIN_Y = 120
+// Per-frame ease factors (0..1) for the float loop. Y is snappy (drag feels direct); lean is soft
+// and floaty. Critically damped feel without a full spring lib.
+const Y_EASE = 0.4
+const LEAN_EASE = 0.12
 // PERF: a recurring series carries up to MAX_RECUR_OCCURRENCES (366) timestamps. When the whole
 // series packs into view (fully zoomed out / collapsed) that's hundreds of absolutely-positioned
 // 1px divs re-positioned every frame — the dominant cost of the zoomed-out render (~21fps). Since
@@ -488,6 +502,23 @@ export function TimelineStrip({
   const atlasWheelRef = useRef<HTMLDivElement | null>(null)
   const animRef = useRef<ReturnType<typeof animate> | null>(null)
 
+  // --- Float layer (vertical drag-to-reposition + lean-toward-cursor) -------
+  // Both effects are expressed as ONE imperative `transform: translate3d(leanX, yOffset+leanY, 0)`
+  // written to `floatRef` (the strip <section>) by a single self-stopping rAF loop. This lives
+  // entirely in refs — NO React state — so it never re-renders the component and never touches the
+  // tuned morph animations (keeps the "identical, just smoother" guarantee). A compositor transform
+  // on one layer is GPU-cheap.
+  const floatRef = useRef<HTMLElement | null>(null)
+  const yTargetRef = useRef(0) // committed vertical offset (persists after release, "stay where dropped")
+  const yRenderRef = useRef(0)
+  const leanXTargetRef = useRef(0)
+  const leanYTargetRef = useRef(0)
+  const leanXRenderRef = useRef(0)
+  const leanYRenderRef = useRef(0)
+  const floatRafRef = useRef<number | null>(null)
+  const ensureFloatRef = useRef<() => void>(() => {})
+  const draggingRef = useRef(false) // any active gesture — suppresses lean so a drag/zoom stays clean
+
   // The entire strip is positioned from wall-clock time (`startMs`, `now`), which the
   // server can't know, so SSR markup can never match the first client paint. Rather
   // than fight per-element hydration mismatches, we render a same-height placeholder
@@ -749,8 +780,99 @@ export function TimelineStrip({
     active: !atlas,
     onGestureStart: () => {
       animRef.current?.stop()
+      // A gesture is starting — suppress the cursor lean so the drag/zoom reads as deliberate,
+      // and ease any existing lean back to zero.
+      draggingRef.current = true
+      leanXTargetRef.current = 0
+      leanYTargetRef.current = 0
+      ensureFloatRef.current()
+    },
+    onGestureEnd: () => {
+      draggingRef.current = false
+    },
+    // Vertical drag-to-reposition (soft-axis attenuated in the hook). Accumulate the effective
+    // delta into the persistent offset, clamp to bounds, and pump the float loop.
+    verticalDrag: !atlas,
+    onVerticalDrag: (dy) => {
+      yTargetRef.current = Math.max(DRAG_Y_MIN, Math.min(DRAG_Y_MAX, yTargetRef.current + dy))
+      ensureFloatRef.current()
     },
   })
+
+  // --- Float loop: drives the strip's transform from yOffset + lean ---------
+  // One self-stopping rAF eases the rendered transform toward its targets and writes a single
+  // compositor `translate3d` to the section. It idles (cancels) once settled and no gesture is
+  // active, and re-arms on the next drag/pointer-move — so it costs nothing at rest.
+  useEffect(() => {
+    if (!mounted) return
+    const reduceMotion =
+      typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
+
+    const frame = () => {
+      const yT = yTargetRef.current
+      // Lean is disabled under reduced-motion and while a gesture is active (targets already 0 then).
+      const lxT = reduceMotion ? 0 : leanXTargetRef.current
+      const lyT = reduceMotion ? 0 : leanYTargetRef.current
+      const y = yRenderRef.current + (yT - yRenderRef.current) * Y_EASE
+      const lx = leanXRenderRef.current + (lxT - leanXRenderRef.current) * LEAN_EASE
+      const ly = leanYRenderRef.current + (lyT - leanYRenderRef.current) * LEAN_EASE
+      yRenderRef.current = y
+      leanXRenderRef.current = lx
+      leanYRenderRef.current = ly
+      const el = floatRef.current
+      const settled =
+        Math.abs(yT - y) < 0.08 && Math.abs(lxT - lx) < 0.08 && Math.abs(lyT - ly) < 0.08
+      if (settled && !draggingRef.current) {
+        // Snap exactly to target and stop the loop (no perpetual rAF).
+        yRenderRef.current = yT
+        leanXRenderRef.current = lxT
+        leanYRenderRef.current = lyT
+        if (el) el.style.transform = `translate3d(${lxT.toFixed(2)}px, ${(yT + lyT).toFixed(2)}px, 0)`
+        floatRafRef.current = null
+        return
+      }
+      if (el) el.style.transform = `translate3d(${lx.toFixed(2)}px, ${(y + ly).toFixed(2)}px, 0)`
+      floatRafRef.current = requestAnimationFrame(frame)
+    }
+    const ensure = () => {
+      if (floatRafRef.current == null) floatRafRef.current = requestAnimationFrame(frame)
+    }
+    ensureFloatRef.current = ensure
+
+    // LEAN: map the cursor's position relative to the strip to a small pull toward it. Active only
+    // when the pointer is within the strip + a margin (else the strip eases home); suppressed while
+    // dragging/zooming. Updates refs only (no React state) and pumps the loop.
+    const onPointerMove = (e: PointerEvent) => {
+      if (reduceMotion) return
+      if (draggingRef.current) return // gesture owns motion; lean targets are held at 0
+      const vp = viewportRef.current
+      if (!vp) return
+      const r = vp.getBoundingClientRect()
+      if (r.width === 0 && r.height === 0) return
+      const inX = e.clientX >= r.left - LEAN_MARGIN_X && e.clientX <= r.right + LEAN_MARGIN_X
+      const inY = e.clientY >= r.top - LEAN_MARGIN_Y && e.clientY <= r.bottom + LEAN_MARGIN_Y
+      if (inX && inY) {
+        const cx = r.left + r.width / 2
+        const cy = r.top + r.height / 2
+        const nx = (e.clientX - cx) / (r.width / 2 || 1)
+        const ny = (e.clientY - cy) / (r.height / 2 || 1)
+        leanXTargetRef.current = Math.max(-MAX_LEAN, Math.min(MAX_LEAN, nx * MAX_LEAN))
+        leanYTargetRef.current = Math.max(-MAX_LEAN, Math.min(MAX_LEAN, ny * MAX_LEAN))
+      } else {
+        leanXTargetRef.current = 0
+        leanYTargetRef.current = 0
+      }
+      ensure()
+    }
+    window.addEventListener("pointermove", onPointerMove, { passive: true })
+    return () => {
+      window.removeEventListener("pointermove", onPointerMove)
+      if (floatRafRef.current != null) {
+        cancelAnimationFrame(floatRafRef.current)
+        floatRafRef.current = null
+      }
+    }
+  }, [mounted])
 
   // --- Data query (bounded, LOD-aware) -------------------------------------
   // Range = viewport ± 25% padding, rounded to a fraction of the span so we only
@@ -1660,7 +1782,12 @@ export function TimelineStrip({
 
   return (
       <section
+        ref={floatRef}
         aria-label="Lifelane"
+        // `transform` is driven imperatively by the float loop (vertical drag + lean). `will-change`
+        // keeps it on its own GPU layer so the transform never repaints the subtree. Only `opacity`
+        // is CSS-transitioned (see className), so the imperative transform updates are instant.
+        style={{ willChange: "transform" }}
         className={cn(
           // While the Atlas backdrop is open the strip is click-through and hidden, so the
           // Atlas underneath takes all interaction and there's no duplicate timeline over

@@ -66,6 +66,21 @@ interface Options {
    *  lets it stop any running tween). */
   onGestureStart?: () => void
   onGestureEnd?: () => void
+  /** Enables VERTICAL drag-to-reposition alongside the horizontal time-pan. */
+  verticalDrag?: boolean
+  /** Per-move callback with the *effective* vertical delta (px) for this frame — already
+   *  soft-axis attenuated (see below). The strip accumulates it into a persistent yOffset and
+   *  drives the float transform; the hook stays agnostic about bounds/rendering.
+   *  SOFT AXIS: horizontal time-pan is always 1:1 and never attenuated; vertical is multiplied
+   *  by a gain derived from the drag's direction so an obviously-horizontal drag only nudges
+   *  vertically (resisted, not locked), while a diagonal/vertical drag opens up to full 2D. */
+  onVerticalDrag?: (effectiveDeltaY: number) => void
+}
+
+/** smoothstep(edge0, edge1, x) → eased 0..1 ramp. */
+function smoothstep(edge0: number, edge1: number, x: number) {
+  const t = Math.min(1, Math.max(0, (x - edge0) / (edge1 - edge0)))
+  return t * t * (3 - 2 * t)
 }
 
 // Wheel sensitivity (per normalized pixel of deltaY). The ease loop glides between
@@ -153,6 +168,8 @@ export function useTimelineGestures({
   hotMarginY = 44,
   onGestureStart,
   onGestureEnd,
+  verticalDrag = false,
+  onVerticalDrag,
 }: Options) {
   // Mirror latest values into refs so the once-bound listeners always see fresh
   // state without re-binding (re-binding a passive:false wheel listener each
@@ -165,6 +182,10 @@ export function useTimelineGestures({
   startCbRef.current = onGestureStart
   const endCbRef = useRef(onGestureEnd)
   endCbRef.current = onGestureEnd
+  const vDragRef = useRef(onVerticalDrag)
+  vDragRef.current = onVerticalDrag
+  const verticalDragRef = useRef(verticalDrag)
+  verticalDragRef.current = verticalDrag
   // Mirror `active` so the once-bound window listener reads it fresh (Atlas toggling
   // shouldn't force a wheel-listener rebind).
   const activeRef = useRef(active)
@@ -400,6 +421,7 @@ export function useTimelineGestures({
     draggedRef.current = false // fresh press — not a drag until it moves past threshold
     const startX = e.clientX
     const startY = e.clientY
+    let lastY = e.clientY // previous pointer Y, for per-frame vertical deltas
     const base = currentRef.current ?? viewRef.current
     const startView = base.startMs
     const span = base.spanMs
@@ -410,10 +432,23 @@ export function useTimelineGestures({
       if (!draggedRef.current && Math.hypot(ev.clientX - startX, ev.clientY - startY) > DRAG_THRESHOLD) {
         draggedRef.current = true
       }
+      // Horizontal time-pan — always 1:1, never attenuated.
       const deltaMs = ((ev.clientX - startX) / width) * span
       const next = { startMs: startView - deltaMs, spanMs: span }
       currentRef.current = next
       onChangeRef.current(next)
+      // Vertical reposition — SOFT AXIS. Gain rises with how vertical the *overall* drag is:
+      // ratio = |dy| / (|dx|+|dy|) is 0 for a pure-horizontal drag, ~0.5 at 45°, 1 for vertical.
+      // smoothstep(0.18,0.55) gives a deadzone near horizontal then opens to full 2D by ~diagonal;
+      // a 0.06 floor keeps a faint "shown but resisted" nudge even on an obviously-horizontal drag.
+      if (verticalDragRef.current && vDragRef.current) {
+        const totalDx = ev.clientX - startX
+        const totalDy = ev.clientY - startY
+        const ratio = Math.abs(totalDy) / (Math.abs(totalDx) + Math.abs(totalDy) + 1e-3)
+        const gain = 0.06 + 0.94 * smoothstep(0.18, 0.55, ratio)
+        vDragRef.current((ev.clientY - lastY) * gain)
+      }
+      lastY = ev.clientY
     }
     const up = () => {
       window.removeEventListener("pointermove", move)
