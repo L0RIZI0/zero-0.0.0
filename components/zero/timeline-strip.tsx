@@ -2594,8 +2594,8 @@ export function TimelineStrip({
                 rail; a fully HIDDEN mother (eye) has no rail and no ticks (its lane is a 1px
                 sliver), so its highlights are suppressed. ALL ticks brighten while the rail is
                 hovered (`hoveredMother`); hovering ONE specific tick lights only that tick
-                (`hoveredTick`). Single ticks are interactive (for the tooltip), so reopening the
-                lane is done by clicking the rail BETWEEN ticks. */}
+                (`hoveredTick`). Clicking a tick OPENS that entity (like clicking its chip on an
+                open lane); reopening the whole lane is done by clicking the rail BETWEEN ticks. */}
             {showRibbons &&
               layout.blocks.flatMap((blk) => {
                 const rk = blk.m.motherId ?? `root:${blk.m.baseLane}`
@@ -2687,6 +2687,11 @@ export function TimelineStrip({
                               <div
                                 key={`${b.key}@${t}`}
                                 className="absolute top-1/2 cursor-pointer rounded-full transition-[opacity] duration-150"
+                                // Each occurrence dot of a folded recurring series opens that series'
+                                // entity on click (and its context menu on right-click), matching the
+                                // single-tick behaviour.
+                                onClick={() => b.entity && openFromChip(b.entity.id)}
+                                onContextMenu={(e) => b.entity && openMenu(e, b.entity)}
                                 style={{
                                   left: `${dl}%`,
                                   width: `max(1px, ${occWidthPct}%)`,
@@ -2715,6 +2720,12 @@ export function TimelineStrip({
                       <div
                         key={`railtick:${b.key}`}
                         className="absolute z-10 cursor-pointer rounded-full duration-150 animate-in fade-in"
+                        // Click a tick on a collapsed-thin rail to OPEN its entity (same as clicking the
+                        // event's chip on an open lane). The tick sits above the rail button (z-10 vs z-0,
+                        // sibling) so this never triggers the rail's "expand lane" click. The rail body
+                        // between ticks still expands the lane.
+                        onClick={() => b.entity && openFromChip(b.entity.id)}
+                        onContextMenu={(e) => b.entity && openMenu(e, b.entity)}
                         onMouseEnter={() => {
                           setHoveredMother(rk)
                           setHoveredTick({
