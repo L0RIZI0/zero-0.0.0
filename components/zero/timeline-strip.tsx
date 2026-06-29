@@ -2860,7 +2860,17 @@ export function TimelineStrip({
                       title={`Open ${blk.m.title}`}
                       className="absolute inset-0 cursor-default rounded hover:brightness-125"
                     >
-                      <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                      {/* The column lives inside the centering layer, which applies
+                          `scaleY(condenseScaleVisual)` to compress lanes while zooming out. That
+                          vertical squish distorts the rotated title (letters look horizontally
+                          stretched/fat). Counter it on this wrapper — `scaleY(1/condenseScaleVisual)`
+                          — so the parent squish and this exactly cancel (both axis-aligned, adjacent,
+                          no rotation between them), leaving the title with ONLY its -90° rotation and
+                          no distortion. At rest (scale 1) this is a no-op; clamp guards a tiny scale. */}
+                      <span
+                        className="pointer-events-none absolute inset-0 flex items-center justify-center"
+                        style={{ transform: `scaleY(${1 / Math.max(condenseScaleVisual, 0.05)})` }}
+                      >
                         <motion.span
                           className="block shrink-0 overflow-hidden text-ellipsis whitespace-nowrap text-center"
                           style={{ width: titleMax, rotate: "-90deg" }}
