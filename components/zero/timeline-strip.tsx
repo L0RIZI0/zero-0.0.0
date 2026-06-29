@@ -1283,6 +1283,17 @@ export function TimelineStrip({
   // Multiply by the SMOOTHED scale so the frame height compresses in lockstep with the lane plane
   // during a fold-out (no frame-vs-content desync that would read as a jump).
   const bandHVisual = (reflowCondensing ? bandHRender : bandH) * condenseScaleVisual
+  // COLLAPSED-RIBBON SHAPE IMMUNITY. The whole lane plane is squished by `scaleY(condenseScaleVisual)`
+  // while zooming out (one cheap GPU transform). That squish distorts everything inside it — including
+  // the collapsed-thin rails, their ticks and titles — until the scale settles back to 1. We don't
+  // want a collapsed ribbon to look pressed/squished at any stage: it should already be in its final
+  // thin shape. So every collapsed-ribbon element gets this center-origin INVERSE scaleY appended to
+  // its transform; combined with the plane's scaleY they cancel, leaving the element at TRUE
+  // proportions (shape-only immunity — its vertical CENTER still rides the plane, which keeps the
+  // animation pure-GPU/no-reflow and therefore smooth). No-op at rest (scale ~1). Expanded ribbons get
+  // NO counter, so they keep visibly compressing under the press until they pop into a rail.
+  const collapsedDescaleY =
+    condenseScaleVisual >= 0.999 ? "" : ` scaleY(${1 / Math.max(condenseScaleVisual, 0.05)})`
   // The lane scaleY is now driven in JS (see `condenseScaleVisual`); a CSS `transform` transition
   // would re-tween every JS step and lag, so the centering layer no longer transitions transform.
   const laneScaleTransition = undefined
@@ -2161,6 +2172,11 @@ export function TimelineStrip({
                   opacity: blk.hidden ? (hoveredMother === rk ? 1 : UNRELATED_OPACITY) : collapsedOpacity(blk),
                   backgroundColor: blk.hidden ? blk.m.color || "#ffffff" : `${blk.m.color}1f`,
                   borderLeft: blk.hidden ? "none" : `2px solid ${blk.m.color}`,
+                  // SHAPE IMMUNITY: cancel the plane's vertical squish about the rail's own center so
+                  // the thin bar keeps its true RAIL_H/HIDDEN_H through the zoom press (its center
+                  // still rides the plane → no reflow, stays smooth). No-op at rest. See
+                  // `collapsedDescaleY`.
+                  transform: collapsedDescaleY.trim() || undefined,
                   // A collapsed sibling rail (e.g. Health) must slide with the reflow too.
                   transition: reflowTransition("top, filter, opacity, height, background-color"),
                 } as const
@@ -2638,7 +2654,16 @@ export function TimelineStrip({
                         <div
                           key={`railtick:${b.key}`}
                           className="absolute z-10 animate-in fade-in"
-                          style={{ left: 0, right: 0, top: railY + 1, height: RAIL_H - 2, transition: tickTopCss }}
+                          style={{
+                            left: 0,
+                            right: 0,
+                            top: railY + 1,
+                            height: RAIL_H - 2,
+                            // Same shape immunity as the rail: this dot-row shares the rail's vertical
+                            // center, so the inverse scaleY un-squishes the dots in lockstep with the bar.
+                            transform: collapsedDescaleY.trim() || undefined,
+                            transition: tickTopCss,
+                          }}
                         >
                           {renderIdx.map((i) => {
                             const t = times[i]
@@ -2702,6 +2727,9 @@ export function TimelineStrip({
                           top: railY + 1,
                           height: RAIL_H - 2,
                           backgroundColor: color,
+                          // Shape immunity (shares the rail's vertical center) — keeps the tick its
+                          // true height through the zoom press instead of being squished with the plane.
+                          transform: collapsedDescaleY.trim() || undefined,
                           opacity: uncollapsing || hidingNow ? 0 : tickLit(hoveredTickKey === b.key) ? 1 : 0.85,
                           boxShadow: tickLit(hoveredTickKey === b.key) ? `0 0 6px ${color}` : undefined,
                           transition: tickTransition,
@@ -2928,15 +2956,10 @@ export function TimelineStrip({
                   onMouseEnter: () => setHoveredMother(rk),
                   onMouseLeave: () => setHoveredMother((h) => (h === rk ? null : h)),
                 }
-                // These rail labels live INSIDE the centering plane, which applies
-                // `scaleY(condenseScaleVisual)` while zooming out. With no counter, the plane
-                // vertically SQUISHED each pill mid-condense → letters looked short & fat (read as
-                // "horizontally stretched"); at settle (scale 1) they snapped back to normal. Cancel
-                // the plane's vertical scale on the label itself with `scaleY(1/condenseScaleVisual)`
-                // about its own center: position still follows the plane (stays on its rail), but the
-                // pill renders at true proportions throughout the morph. No-op at rest (scale 1).
-                const labelDescaleY =
-                  condenseScaleVisual >= 0.999 ? "" : ` scaleY(${1 / Math.max(condenseScaleVisual, 0.05)})`
+                // These rail labels live INSIDE the centering plane (scaleY squish). Use the shared
+                // collapsed-ribbon inverse so the pill keeps true proportions through the morph (see
+                // `collapsedDescaleY`); the rail bar + ticks for this same ribbon use it too.
+                const labelDescaleY = collapsedDescaleY
                 const wrapStyle = {
                   left: 4,
                   // Center on the block's own height: RAIL_H for a thin rail, the 1px sliver for
