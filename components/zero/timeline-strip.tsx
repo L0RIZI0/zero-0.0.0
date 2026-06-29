@@ -778,17 +778,22 @@ export function TimelineStrip({
     // (see the forwarder effect), so the window-level proximity handler must stand down to
     // avoid double-zoom; the viewport listener still receives the forwarded events.
     active: !atlas,
-    onGestureStart: () => {
+    onGestureStart: (kind) => {
       animRef.current?.stop()
-      // A gesture is starting — suppress the cursor lean so the drag/zoom reads as deliberate,
-      // and ease any existing lean back to zero.
-      draggingRef.current = true
-      leanXTargetRef.current = 0
-      leanYTargetRef.current = 0
-      ensureFloatRef.current()
+      // Only a DRAG suppresses the cursor-lean: its pointer motion already drives the vertical
+      // offset, so an active lean would double-count and fight the drag. A WHEEL ZOOM leaves the
+      // lean alive — the pointer barely moves during a zoom, and suppressing it caused the lean to
+      // freeze through the whole ease tail and then snap back abruptly when the spring finally
+      // settled (the seam the user noticed).
+      if (kind === "drag") {
+        draggingRef.current = true
+        leanXTargetRef.current = 0
+        leanYTargetRef.current = 0
+        ensureFloatRef.current()
+      }
     },
-    onGestureEnd: () => {
-      draggingRef.current = false
+    onGestureEnd: (kind) => {
+      if (kind === "drag") draggingRef.current = false
     },
     // Vertical drag-to-reposition (soft-axis attenuated in the hook). Accumulate the effective
     // delta into the persistent offset, clamp to bounds, and pump the float loop.

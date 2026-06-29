@@ -63,9 +63,11 @@ interface Options {
   hotMarginX?: number
   hotMarginY?: number
   /** Called when a gesture starts / ends (drives the strip's "moving" flag, and
-   *  lets it stop any running tween). */
-  onGestureStart?: () => void
-  onGestureEnd?: () => void
+   *  lets it stop any running tween). `kind` distinguishes a wheel zoom/pan from a pointer
+   *  drag so the strip can keep the cursor-lean alive during a zoom (which doesn't move the
+   *  pointer) but suppress it during a drag (whose pointer motion already drives the offset). */
+  onGestureStart?: (kind: "wheel" | "drag") => void
+  onGestureEnd?: (kind: "wheel" | "drag") => void
   /** Enables VERTICAL drag-to-reposition alongside the horizontal time-pan. */
   verticalDrag?: boolean
   /** Per-move callback with the *effective* vertical delta (px) for this frame — already
@@ -278,7 +280,7 @@ export function useTimelineGestures({
         velLogRef.current = 0
         velStartRef.current = 0
         anchorRef.current = null
-        endCbRef.current?.()
+        endCbRef.current?.("wheel")
         return
       }
       const next = { startMs: nextStart, spanMs: nextSpan }
@@ -308,7 +310,7 @@ export function useTimelineGestures({
         velStartRef.current = 0
       }
       const base = targetRef.current ?? currentRef.current
-      startCbRef.current?.()
+      startCbRef.current?.("wheel")
 
       const { dx, dy } = normalizeDelta(e, rect.height)
       // Horizontal intent (trackpad swipe or shift-wheel) → pan.
@@ -425,7 +427,7 @@ export function useTimelineGestures({
     const base = currentRef.current ?? viewRef.current
     const startView = base.startMs
     const span = base.spanMs
-    startCbRef.current?.()
+    startCbRef.current?.("drag")
     const move = (ev: PointerEvent) => {
       // Once the pointer travels past the threshold, latch this gesture as a drag so
       // the click it produces on release is suppressed by the strip.
@@ -454,7 +456,7 @@ export function useTimelineGestures({
       window.removeEventListener("pointermove", move)
       window.removeEventListener("pointerup", up)
       currentRef.current = null
-      endCbRef.current?.()
+      endCbRef.current?.("drag")
     }
     window.addEventListener("pointermove", move)
     window.addEventListener("pointerup", up)
