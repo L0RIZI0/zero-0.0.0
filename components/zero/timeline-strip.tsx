@@ -20,6 +20,7 @@ import {
   type TimelineOccurrence,
   deleteEntity,
   setEventCancelled,
+  materializeOccurrence,
 } from "@/lib/zero/data"
 import {
   queryTimeline,
@@ -458,6 +459,31 @@ export function TimelineStrip({
   const openFromChip = (id: string) => {
     const key = placementKey("timeline", contextId, id)
     open(id, resolveOriginRect(id, { placement: key, preferSource: "timeline" }) ?? undefined)
+  }
+
+  // Open a timeline bar, MATERIALIZING the occurrence first if it's an untouched day
+  // of a recurring series (D1). A bar's `key` is its occKey: `${seriesId}@${dayStart}`
+  // for a recurrence, or just the entity id for a one-off. An UNTOUCHED occurrence still
+  // points `entity` at the mother (whose schedule carries `repeat`); touching it creates
+  // a real override and we open THAT (its own id) so edits/completion affect this day
+  // alone. An already-materialized day has `entity` = the override (no `repeat`), so it
+  // falls through to the plain open. One-offs (key === entity.id) are unchanged.
+  const openOccurrence = (b: { key: string; entity?: Entity }) => {
+    const e = b.entity
+    if (!e) return
+    const isUntouchedOccurrence = b.key !== e.id && !!e.schedule?.repeat
+    if (isUntouchedOccurrence) {
+      const dayStart = Number(b.key.slice(b.key.lastIndexOf("@") + 1))
+      if (Number.isFinite(dayStart)) {
+        const override = materializeOccurrence(e.id, dayStart)
+        if (override) {
+          notifyDataChanged()
+          openFromChip(override.id)
+          return
+        }
+      }
+    }
+    openFromChip(e.id)
   }
 
   const stage: number = Math.min(stack.length - 1, 2)
@@ -2037,7 +2063,7 @@ export function TimelineStrip({
                   }}
                   onMouseEnter={onEnter}
                   onMouseLeave={onLeave}
-                  onClick={() => openFromChip(e.id)}
+                  onClick={() => openOccurrence({ key: e.occKey, entity: e })}
                   onContextMenu={(ev) => openMenu(ev, e)}
                   aria-current={isOpen ? "true" : undefined}
                   title={e.title}
@@ -2491,7 +2517,7 @@ export function TimelineStrip({
                         <button
                           key={`${b.key}@${t}`}
                           type="button"
-                          onClick={() => b.entity && openFromChip(b.entity.id)}
+                          onClick={() => openOccurrence(b)}
                           onContextMenu={(ev) => b.entity && openMenu(ev, b.entity)}
                           title={`${b.title} · recurring (~${b.count})`}
                           aria-label={b.title}
@@ -2564,7 +2590,7 @@ export function TimelineStrip({
                             ? { top: morphTween(true, bandExpanding, false), opacity: panelTransition, scaleX: morphTween(true, bandExpanding, false) }
                             : { top: { duration: topRepackDur, ease: "easeOut" }, opacity: panelTransition, scaleX: entityScaleTween }
                     }
-                    onClick={() => b.entity && openFromChip(b.entity.id)}
+                    onClick={() => openOccurrence(b)}
                     onContextMenu={(ev) => b.entity && openMenu(ev, b.entity)}
                     onMouseEnter={onCollapsedTickEnter}
                     onMouseLeave={onCollapsedTickLeave}
@@ -2707,7 +2733,7 @@ export function TimelineStrip({
                     // the chip doesn't linger opaque on the rail then pop off at unmount.
                     animate={{ opacity: hidingTarget ? 0 : dim }}
                     transition={barAnimating ? { opacity: { duration: 0.2, ease: "easeOut" } } : panelTransition}
-                    onClick={() => b.entity && openFromChip(b.entity.id)}
+                    onClick={() => openOccurrence(b)}
                     onContextMenu={(ev) => b.entity && openMenu(ev, b.entity)}
                     onMouseEnter={onCollapsedTickEnter}
                     onMouseLeave={onCollapsedTickLeave}
@@ -2899,7 +2925,7 @@ export function TimelineStrip({
                                 // Each occurrence dot of a folded recurring series opens that series'
                                 // entity on click (and its context menu on right-click), matching the
                                 // single-tick behaviour.
-                                onClick={() => b.entity && openFromChip(b.entity.id)}
+                                onClick={() => openOccurrence(b)}
                                 onContextMenu={(e) => b.entity && openMenu(e, b.entity)}
                                 style={{
                                   left: `${dl}%`,
