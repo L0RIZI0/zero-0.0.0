@@ -2367,16 +2367,21 @@ export function TimelineStrip({
             {bars.map((b) => {
               const lane = lanes.lane.get(b.key) ?? 0
               const blk = blockOfLane(lane)
-              // PERSIST single-event chips as their OWN rail tick instead of unmounting them when
-              // the ribbon is collapsed at rest. A non-recurring event chip already morphs to the
-              // EXACT collapsed tick geometry (same width/height/top/colour), so keeping it mounted
-              // lets it simply BE the tick. Collapse → rest → uncollapse is then ONE continuous
-              // single-element morph whether or not you wait, and the old chip→tick hand-off (with its
-              // ~2s swap jump and the less-smooth late-uncollapse remount) is gone entirely. Recurring
-              // series (drawn as dot rows in the rail pass), rollup bands, and hidden ribbons keep
-              // unmounting exactly as before.
-              const isRecurringBar = b.kind === "recur" || !!b.entity?.schedule?.repeat
-              const persistAsTick = !!blk && blk.collapsed && !blk.hidden && b.kind !== "band" && !isRecurringBar
+              // PERSIST event chips as their OWN rail tick instead of unmounting them when the ribbon
+              // is collapsed at rest. An event chip already morphs to the EXACT collapsed tick geometry
+              // (same width/height/top/colour), so keeping it mounted lets it simply BE the tick.
+              // Collapse → rest → uncollapse is then ONE continuous single-element morph whether or not
+              // you wait, and the old chip→tick hand-off (with its ~2s swap jump) is gone entirely.
+              //
+              // This covers BOTH one-off events AND the individual occurrences of a recurring series at
+              // fine zoom (each occurrence is its own `kind:"event"` bar whose entity carries
+              // `schedule.repeat`). The ONLY thing excluded here is the `kind:"recur"` AGGREGATE bar
+              // (emitted at coarse zoom) — that one is drawn as a downsampled dot-row in the rail pass,
+              // which owns it. Excluding occurrences by `schedule.repeat` (the old check) is what made
+              // recurring ticks vanish ~2s after collapse: they returned null at rest yet had no rail
+              // tick anymore. Rollup bands and hidden ribbons keep unmounting as before.
+              const persistAsTick =
+                !!blk && blk.collapsed && !blk.hidden && b.kind !== "band" && b.kind !== "recur"
               if (blk && !showExpanded(blk) && !persistAsTick) return null
               const expOpacity = blk ? expandedOpacity(blk) : 1
               // Is THIS bar's block mid-morph (zoom window or its mother's manual-fold
