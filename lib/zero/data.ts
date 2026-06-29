@@ -1,4 +1,4 @@
-import type { Asset, Entity, EntityKind, Recurrence, Resource, User } from "./types"
+import type { Asset, Entity, EntityKind, Recurrence, Schedule, Resource, User } from "./types"
 import { readUserItems, writeUserItems } from "./persistence"
 import type { ScheduleParse } from "./schedule-parse"
 
@@ -693,6 +693,26 @@ export const assets: Asset[] = [
 const byId = new Map<string, Entity>(entities.map((e) => [e.id, e]))
 const resourceById = new Map(resources.map((r) => [r.id, r]))
 
+// Recurrence OVERRIDE index (materialize-on-touch, D1). Maps `${seriesId}@${dayStart}`
+// → the materialized occurrence entity that stands in for that day. Lets the expander
+// swap a virtual occurrence for its real override in O(1) instead of scanning. Kept in
+// sync wherever overrides are created (materializeOccurrence) or loaded (hydrate).
+const overrideIndex = new Map<string, Entity>()
+function overrideKey(seriesId: string, dayStart: number): string {
+  return `${seriesId}@${dayStart}`
+}
+function indexOverride(e: Entity): void {
+  if (e.seriesId != null && e.recurrenceId != null) {
+    overrideIndex.set(overrideKey(e.seriesId, e.recurrenceId), e)
+  }
+}
+/** The materialized override for one occurrence day, if the user has touched it. */
+export function occurrenceOverride(seriesId: string, dayStart: number): Entity | undefined {
+  return overrideIndex.get(overrideKey(seriesId, dayStart))
+}
+// Seed data has no overrides, but stay correct if that ever changes.
+for (const e of entities) indexOverride(e)
+
 // ----------------------------------------------------------------------------
 // Core entity accessors
 // ----------------------------------------------------------------------------
@@ -722,6 +742,9 @@ export function getChildren(contextId: string): Entity[] {
       // a direct child of the root Organism but must stay invisible at home).
       e.kind !== "individual" &&
       e.kind !== "soul" &&
+      // Materialized recurrence occurrences (overrides) are timeline instances, not
+      // do-list children — they must never leak into any listing (the round-27 trap).
+      e.seriesId == null &&
       (e.parentId === contextId || e.taggedSpaceIds.includes(contextId)),
   )
 }
@@ -771,7 +794,7 @@ function collectDescendants(spaceId: string): Set<string> {
   while (grew) {
     grew = false
     for (const e of entities) {
-      if (e.kind !== "space" || e.parentId === null) continue
+      if (e.kind !== "space" || e.parentId === null || e.seriesId != null) continue
       if (set.has(e.parentId) && !set.has(e.id)) {
         set.add(e.id)
         grew = true
@@ -885,11 +908,12 @@ export function getSpaceResources(spaceId: string): Resource[] {
  * callers; the task list itself uses getChildren for direct children.
  */
 export function getSpaceTasks(spaceId: string): Entity[] {
-  if (spaceId === "s_root") return entities.filter((e) => e.kind === "task")
+  if (spaceId === "s_root") return entities.filter((e) => e.kind === "task" && e.seriesId == null)
   const descendants = collectDescendants(spaceId)
   return entities.filter(
     (e) =>
       e.kind === "task" &&
+      e.seriesId == null &&
       ((e.parentId !== null && descendants.has(e.parentId)) ||
         e.taggedSpaceIds.some((sid) => descendants.has(sid))),
   )
@@ -903,7 +927,8 @@ export function getSpaceTasks(spaceId: string): Entity[] {
  *  getTimelineOccurrences; this selector returns the underlying entities. */
 export function getSpaceEvents(spaceId: string): Entity[] {
   const isTimed = (e: Entity) =>
-    e.kind === "event" || e.kind === "instant" || (e.kind === "space" && !!e.schedule)
+    e.seriesId == null &&
+    (e.kind === "event" || e.kind === "instant" || (e.kind === "space" && !!e.schedule))
   if (spaceId === "s_root") return entities.filter(isTimed)
   const descendants = collectDescendants(spaceId)
   return entities.filter(
@@ -1002,14 +1027,22 @@ export function getTimelineOccurrences(
     while (cursor.getTime() <= rangeEnd) {
       const dayStart = cursor.getTime()
       if (dayMatchesRecurrence(dayStart, anchor, s.repeat)) {
-        const occDate = new Date(dayStart)
-        occDate.setHours(anchorDate.getHours(), anchorDate.getMinutes(), anchorDate.getSeconds(), 0)
-        const occStart = occDate.getTime()
-        const schedule =
-          s.at != null
-            ? { ...s, at: occStart }
-            : { ...s, startAt: occStart, endAt: occStart + duration }
-        out.push({ ...e, schedule, occKey: `${e.id}@${dayStart}` })
+        // MATERIALIZE-ON-TOUCH: if the user has touched this day, emit the real
+        // override entity (its own id, its own schedule/completion/subtasks) instead
+        // of the virtual occurrence — and emit NOTHING if they cancelled the day.
+        const override = occurrenceOverride(e.id, dayStart)
+        if (override) {
+          if (!override.cancelled) out.push({ ...override, occKey: `${e.id}@${dayStart}` })
+        } else {
+          const occDate = new Date(dayStart)
+          occDate.setHours(anchorDate.getHours(), anchorDate.getMinutes(), anchorDate.getSeconds(), 0)
+          const occStart = occDate.getTime()
+          const schedule =
+            s.at != null
+              ? { ...s, at: occStart }
+              : { ...s, startAt: occStart, endAt: occStart + duration }
+          out.push({ ...e, schedule, occKey: `${e.id}@${dayStart}` })
+        }
       }
       cursor.setDate(cursor.getDate() + 1)
     }
@@ -1189,6 +1222,8 @@ export function hydrateFromStorage(): boolean {
     entities.push(entity)
     byId.set(entity.id, entity)
     userEntityIds.add(entity.id)
+    // Re-register any persisted recurrence overrides into the occurrence index.
+    indexOverride(entity)
     added = true
   }
 
@@ -1236,6 +1271,95 @@ export function addTask(input: { title: string; spaceId: string }): Entity {
   userEntityIds.add(entity.id)
   persist()
   return entity
+}
+
+/**
+ * Resolve a recurring mother's `schedule` to the CONCRETE single-day schedule for
+ * the occurrence on `dayStart`: shift the anchor's wall-clock time-of-day onto that
+ * day (DST-safe via setHours) and DROP `repeat` (an override is one fixed day, not a
+ * series). Mirrors the per-day math in getTimelineOccurrences. `blocks` (D4) are
+ * handled in Phase 3; for now they pass through untouched.
+ */
+function resolveOccurrenceSchedule(s: Schedule | undefined, dayStart: number): Schedule | undefined {
+  if (!s) return undefined
+  const anchor = s.at ?? s.startAt
+  const resolved: Schedule = { ...s }
+  delete resolved.repeat
+  if (anchor == null) return resolved
+  const a = new Date(anchor)
+  const occ = new Date(dayStart)
+  occ.setHours(a.getHours(), a.getMinutes(), a.getSeconds(), 0)
+  const occStart = occ.getTime()
+  const duration = s.startAt != null && s.endAt != null ? s.endAt - s.startAt : 0
+  if (s.at != null) {
+    resolved.at = occStart
+  } else {
+    resolved.startAt = occStart
+    resolved.endAt = occStart + duration
+  }
+  return resolved
+}
+
+/**
+ * MATERIALIZE-ON-TOUCH (D1). Turn one virtual occurrence of a recurring `seriesId`
+ * on `dayStart` into a REAL "override" entity the first time the user touches that
+ * day. Idempotent: returns the existing override if there already is one. The
+ * override:
+ *   - carries its own id (so opening/checking it acts on that day ALONE),
+ *   - links back via `seriesId` + `recurrenceId` (NOT `parentId`, so it never leaks
+ *     into the mother's do-list — see getChildren),
+ *   - pins its own resolved single-day `schedule` (no `repeat`), and
+ *   - CLONES the mother's content subtasks (D2) so each day is independently
+ *     checkable/personalizable ("Tuesday = leg day").
+ * The mother keeps its `repeat` rule as the source of truth; untouched days stay
+ * virtual. Returns undefined only if the mother id is unknown.
+ */
+export function materializeOccurrence(seriesId: string, dayStart: number): Entity | undefined {
+  const existing = occurrenceOverride(seriesId, dayStart)
+  if (existing) return existing
+  const mother = byId.get(seriesId)
+  if (!mother) return undefined
+
+  const override: Entity = {
+    id: uid("occ"),
+    kind: mother.kind,
+    title: mother.title,
+    parentId: mother.parentId,
+    taggedSpaceIds: [...mother.taggedSpaceIds],
+    seriesId,
+    recurrenceId: dayStart,
+    schedule: resolveOccurrenceSchedule(mother.schedule, dayStart),
+    completed: false,
+    ...(mother.priority ? { priority: mother.priority } : {}),
+    ...(mother.accent ? { accent: mother.accent } : {}),
+    ...(mother.description ? { description: mother.description } : {}),
+    ...(mother.tags ? { tags: [...mother.tags] } : {}),
+    ...(mother.webUrl ? { webUrl: mother.webUrl } : {}),
+    ...(mother.webResourceId ? { webResourceId: mother.webResourceId } : {}),
+  }
+  entities.push(override)
+  byId.set(override.id, override)
+  userEntityIds.add(override.id)
+  indexOverride(override)
+
+  // Clone the mother's CONTENT subtasks (its real children, never other overrides)
+  // under this override so they can be checked/edited for this day independently.
+  const subtasks = entities.filter((c) => c.parentId === seriesId && c.seriesId == null)
+  for (const child of subtasks) {
+    const clone: Entity = {
+      ...child,
+      id: uid("t"),
+      parentId: override.id,
+      taggedSpaceIds: [...child.taggedSpaceIds],
+      completed: false,
+    }
+    entities.push(clone)
+    byId.set(clone.id, clone)
+    userEntityIds.add(clone.id)
+  }
+
+  persist()
+  return override
 }
 
 /**

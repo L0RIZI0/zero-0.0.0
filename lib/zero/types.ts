@@ -136,6 +136,15 @@ export interface Schedule {
   duration?: number
   /** Effort budget in MINUTES, independent of when it happens (may span sessions). */
   timebox?: number
+  /**
+   * MULTI-BLOCK days (D4): more than one within-day span, e.g. Day Job 8:00–11:30
+   * AND 13:30–18:00. Stored as absolute times on the ANCHOR day; for a recurring
+   * schedule the expander shifts each block's time-of-day onto every matching day.
+   * Absent = single span (the `startAt`/`endAt` path, unchanged). When present,
+   * `startAt`/`endAt` mirror the FIRST/LAST block so existing single-span readers
+   * (duration, sorting, bounds) keep working without knowing about blocks.
+   */
+  blocks?: { startAt: Epoch; endAt: Epoch }[]
   /** Recurrence; absent = one-off. */
   repeat?: Recurrence
 }
@@ -154,6 +163,25 @@ export interface Entity {
    * Health) in addition to its origin parent.
    */
   taggedSpaceIds: string[]
+  /**
+   * RECURRENCE OVERRIDE link (materialize-on-touch, D1). When set, this entity is
+   * NOT a normal do-list item — it is a single materialized OCCURRENCE of a
+   * recurring "mother" series, created the moment the user touched that day
+   * (completed / personalized / cancelled / rescheduled it). `seriesId` points at
+   * the mother. Deliberately SEPARATE from `parentId`: overrides must never appear
+   * in the mother's `getChildren`/open-task counts/descendants — they live on the
+   * timeline, not in the tree. The mother keeps its `schedule.repeat` rule as the
+   * source of truth; untouched days stay virtual.
+   */
+  seriesId?: string
+  /**
+   * The original occurrence `dayStart` (local-midnight epoch) this override stands
+   * in for. `(seriesId, recurrenceId)` uniquely identifies one occurrence, so the
+   * expander can swap the virtual occurrence for this real one on that exact day.
+   * An override may carry `cancelled` (skip the day) and/or its own `schedule`
+   * (reschedule just this day) and/or cloned subtasks (per-day personalization).
+   */
+  recurrenceId?: Epoch
 
   // --- Shared attributes (relevance varies by kind) -------------------------
   /** Any entity may be marked complete. */
