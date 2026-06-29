@@ -128,16 +128,17 @@ const HEADER_CLEAR_Y = -12
 const DRAG_Y_MIN = -80
 const DRAG_Y_MAX = 340
 // Max lean displacement (px) toward the cursor — a very subtle "alive/eager" drift. Kept small so
-// the effect reads as elegant ambient motion rather than an obvious follow.
+// the effect reads as elegant ambient motion rather than an obvious follow. HORIZONTAL ONLY.
 const MAX_LEAN = 5
-// How far beyond the strip the cursor still pulls the lean (px). Outside this the strip eases home.
-const LEAN_MARGIN_X = 220
-const LEAN_MARGIN_Y = 120
-// Per-frame ease factors (0..1) for the float loop. Y is snappy (drag feels direct). The lean uses a
-// low factor so it glides slowly and softly — a long, gentle ease-out toward rest and an unhurried
-// ease-in toward the cursor. Lower = softer/longer; raise toward ~0.12 for a more immediate follow.
+// The lean now reacts to the cursor ANYWHERE on screen (no proximity gating), so the pull is
+// normalized over half the viewport width: the strip leans gently toward whichever side the cursor
+// is on, reaching full MAX_LEAN only near the screen edges.
+// Per-frame ease factors (0..1) for the float loop. Y is snappy (drag feels direct). The lean is
+// asymmetric: a soft ease-IN toward the cursor and an even softer, longer ease-OUT back to rest, so
+// settling feels especially gentle. Lower = softer/longer.
 const Y_EASE = 0.4
-const LEAN_EASE = 0.05
+const LEAN_EASE_IN = 0.05
+const LEAN_EASE_OUT = 0.022
 // PERF: a recurring series carries up to MAX_RECUR_OCCURRENCES (366) timestamps. When the whole
 // series packs into view (fully zoomed out / collapsed) that's hundreds of absolutely-positioned
 // 1px divs re-positioned every frame — the dominant cost of the zoomed-out render (~21fps). Since
@@ -513,10 +514,8 @@ export function TimelineStrip({
   const floatRef = useRef<HTMLElement | null>(null)
   const yTargetRef = useRef(0) // committed vertical offset (persists after release, "stay where dropped")
   const yRenderRef = useRef(0)
-  const leanXTargetRef = useRef(0)
-  const leanYTargetRef = useRef(0)
+  const leanXTargetRef = useRef(0) // horizontal-only lean toward the cursor
   const leanXRenderRef = useRef(0)
-  const leanYRenderRef = useRef(0)
   const floatRafRef = useRef<number | null>(null)
   const ensureFloatRef = useRef<() => void>(() => {})
   const draggingRef = useRef(false) // any active gesture — suppresses lean so a drag/zoom stays clean
@@ -790,7 +789,6 @@ export function TimelineStrip({
       if (kind === "drag") {
         draggingRef.current = true
         leanXTargetRef.current = 0
-        leanYTargetRef.current = 0
         ensureFloatRef.current()
       }
     },
@@ -817,28 +815,26 @@ export function TimelineStrip({
 
     const frame = () => {
       const yT = yTargetRef.current
-      // Lean is disabled under reduced-motion and while a gesture is active (targets already 0 then).
+      // Lean is HORIZONTAL ONLY (no vertical lean) and disabled under reduced-motion. Ease IN when
+      // moving away from rest (target magnitude growing) and ease OUT — slower — when returning home,
+      // so the settle is especially soft.
       const lxT = reduceMotion ? 0 : leanXTargetRef.current
-      const lyT = reduceMotion ? 0 : leanYTargetRef.current
+      const leanEase = Math.abs(lxT) >= Math.abs(leanXRenderRef.current) ? LEAN_EASE_IN : LEAN_EASE_OUT
       const y = yRenderRef.current + (yT - yRenderRef.current) * Y_EASE
-      const lx = leanXRenderRef.current + (lxT - leanXRenderRef.current) * LEAN_EASE
-      const ly = leanYRenderRef.current + (lyT - leanYRenderRef.current) * LEAN_EASE
+      const lx = leanXRenderRef.current + (lxT - leanXRenderRef.current) * leanEase
       yRenderRef.current = y
       leanXRenderRef.current = lx
-      leanYRenderRef.current = ly
       const el = floatRef.current
-      const settled =
-        Math.abs(yT - y) < 0.08 && Math.abs(lxT - lx) < 0.08 && Math.abs(lyT - ly) < 0.08
+      const settled = Math.abs(yT - y) < 0.08 && Math.abs(lxT - lx) < 0.08
       if (settled && !draggingRef.current) {
         // Snap exactly to target and stop the loop (no perpetual rAF).
         yRenderRef.current = yT
         leanXRenderRef.current = lxT
-        leanYRenderRef.current = lyT
-        if (el) el.style.transform = `translate3d(${lxT.toFixed(2)}px, ${(yT + lyT).toFixed(2)}px, 0)`
+        if (el) el.style.transform = `translate3d(${lxT.toFixed(2)}px, ${yT.toFixed(2)}px, 0)`
         floatRafRef.current = null
         return
       }
-      if (el) el.style.transform = `translate3d(${lx.toFixed(2)}px, ${(y + ly).toFixed(2)}px, 0)`
+      if (el) el.style.transform = `translate3d(${lx.toFixed(2)}px, ${y.toFixed(2)}px, 0)`
       floatRafRef.current = requestAnimationFrame(frame)
     }
     const ensure = () => {
@@ -846,9 +842,11 @@ export function TimelineStrip({
     }
     ensureFloatRef.current = ensure
 
-    // LEAN: map the cursor's position relative to the strip to a small pull toward it. Active only
-    // when the pointer is within the strip + a margin (else the strip eases home); suppressed while
-    // dragging/zooming. Updates refs only (no React state) and pumps the loop.
+    // LEAN: the strip leans HORIZONTALLY toward the cursor's X position, reacting to the pointer
+    // ANYWHERE on screen (no proximity gating). Normalized over half the viewport width and measured
+    // from the strip's own horizontal center, so it pulls left/right by how far the cursor sits to
+    // that side, hitting full MAX_LEAN near the screen edges. Suppressed while dragging/zooming.
+    // Updates refs only (no React state) and pumps the loop.
     const onPointerMove = (e: PointerEvent) => {
       if (reduceMotion) return
       if (draggingRef.current) return // gesture owns motion; lean targets are held at 0
@@ -856,19 +854,10 @@ export function TimelineStrip({
       if (!vp) return
       const r = vp.getBoundingClientRect()
       if (r.width === 0 && r.height === 0) return
-      const inX = e.clientX >= r.left - LEAN_MARGIN_X && e.clientX <= r.right + LEAN_MARGIN_X
-      const inY = e.clientY >= r.top - LEAN_MARGIN_Y && e.clientY <= r.bottom + LEAN_MARGIN_Y
-      if (inX && inY) {
-        const cx = r.left + r.width / 2
-        const cy = r.top + r.height / 2
-        const nx = (e.clientX - cx) / (r.width / 2 || 1)
-        const ny = (e.clientY - cy) / (r.height / 2 || 1)
-        leanXTargetRef.current = Math.max(-MAX_LEAN, Math.min(MAX_LEAN, nx * MAX_LEAN))
-        leanYTargetRef.current = Math.max(-MAX_LEAN, Math.min(MAX_LEAN, ny * MAX_LEAN))
-      } else {
-        leanXTargetRef.current = 0
-        leanYTargetRef.current = 0
-      }
+      const cx = r.left + r.width / 2
+      const half = (window.innerWidth || r.width) / 2 || 1
+      const nx = (e.clientX - cx) / half
+      leanXTargetRef.current = Math.max(-MAX_LEAN, Math.min(MAX_LEAN, nx * MAX_LEAN))
       ensure()
     }
     window.addEventListener("pointermove", onPointerMove, { passive: true })
