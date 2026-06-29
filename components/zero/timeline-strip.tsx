@@ -652,25 +652,9 @@ export function TimelineStrip({
   // repeats. (The condense compression still rides its own separate scaleY, so there's no lag.)
   const topRepackDur = 0.3
 
-  // EXPERIMENT 2 — per-ENTITY uniform scale (requested follow-up to the y-only squish).
-  // UNIFORM_SCALE above scaled the whole PLANE in X and fought the time axis. Instead, keep the
-  // lane plane VERTICAL-ONLY (the centering layer's `scaleY` compresses lane positions + ribbon
-  // backgrounds), and give each ENTITY (event/space chips, span bars, rollup bands, collapsed
-  // markers + their titles/glyphs) its OWN `scaleX` about its center. The parent `scaleY` already
-  // shrinks each entity box's HEIGHT ×condenseScale; adding `scaleX(condenseScale)` (default
-  // origin = center) makes the box shrink UNIFORMLY in both axes — so chip text/glyphs keep their
-  // aspect (no vertical squish) while staying pinned to their time-center. Lanes / ribbon
-  // backgrounds and the mother titles get NO entity scaleX (they keep the y-only transform / their
-  // existing rules), exactly as requested. Flip the flag to false to revert to the pure y-squish.
-  const ENTITY_UNIFORM_SCALE = true
-  const entityScaleX = ENTITY_UNIFORM_SCALE ? condenseScale : 1
-  // CSS form for non-motion entities (rollup band button). Default transform-origin (center) is
-  // what we want, so a bare scaleX suffices. `undefined` at rest → no needless compositor layer.
-  const entityTransformCss = entityScaleX === 1 ? undefined : `scaleX(${entityScaleX})`
-  // Framer transition for the `scaleX` motion value on motion entities: instant while condensing
-  // (restTopDur=0, tracks every wheel frame like the lane scaleY) and a 0.3s glide on a normal
-  // lane-repack — the SAME cadence the chips' `top` already uses.
-  const entityScaleTween = { duration: restTopDur, ease: "easeOut" as const }
+  // NOTE: the per-ENTITY uniform-scale derivations (`entityScaleX` etc.) live further down, just
+  // after `condenseScaleVisual` is defined — they read the JS-SMOOTHED fold-out scale so chips
+  // don't snap horizontally when a zoom auto-fold triggers (see that block for the full rationale).
 
   // Publish the Timeline's height fraction to the shared store so WorkSurface can size
   // the band + reserve and the Dock/DoList can reflow. The Lifelane now simply HUGS its
@@ -1143,7 +1127,7 @@ export function TimelineStrip({
   // the lanes and their `top` is recomputed from the INSTANT target geometry (`lifelaneBandH`) on
   // a fold, while the band frame's HEIGHT (and the container-centered band's top edge) glides on
   // `bandTransition`. `bandTransition` only lists the `height` property, so the rows' `top` change
-  // was applied INSTANTLY → they jumped in frame 1 and the band's recenter then dragged them back
+  // was applied INSTANTLY ��� they jumped in frame 1 and the band's recenter then dragged them back
   // (the date/NOW + graduation "jump" the user saw). Mirror the band's exact schedule onto the
   // `top` property so the rows glide in lockstep with the recenter instead of snapping. `undefined`
   // at rest / during live zoom (top tracks the zoom every frame, no transition wanted).
@@ -1191,13 +1175,81 @@ export function TimelineStrip({
     })
     return () => bandHAnimRef.current?.stop()
   }, [bandH, reflowing, condensing])
+
+  // JS-SMOOTHED FOLD-OUT SCALE. `condenseScale` tracks the wheel live while condensing, then is
+  // forced to 1 the instant `zoomCollapsed` flips (the folded rail layout assumes scale 1). That
+  // made the lane plane SNAP from its condensed value (~0.48) back to full size in one frame — the
+  // "flash to a completely unscaled timeline, then fold from a big ghost" the user reported. The
+  // intended glide (`scaleY` eases ~0.48→1 over COLLAPSE_MS in step with the band height) was meant
+  // to ride a CSS `transform` transition, but it never fired: during the condense ramp the transform
+  // is rewritten every frame with `transition: undefined`, so adding a transition in the SAME commit
+  // as the value jump doesn't start a CSS transition. So we drive the glide in JS — like `bandHRender`.
+  //
+  // The trigger MUST key off `zoomCollapsed` (true in the very render that snaps `condenseScale` to 1),
+  // NOT `zoomCollapsing` — the latter is derived from `autoFoldDir`, which a separate effect sets one
+  // render LATER, so by then the smoothed value has already been synced to 1 and there's nothing left
+  // to glide. So: while EXPANDED/condensing we keep the render value pinned to the live `condenseScale`
+  // (its last value ~0.48 is the ready glide start); the frame `zoomCollapsed` flips true we animate
+  // that start up to 1; fold-IN snaps back to live (condense is ~0 there anyway).
+  const [condenseScaleRender, setCondenseScaleRender] = useState(condenseScale)
+  const condenseScaleRenderRef = useRef(condenseScale)
+  const condenseFoldedPrev = useRef(zoomCollapsed)
+  const condenseScaleAnimRef = useRef<ReturnType<typeof animate> | null>(null)
+  useEffect(() => {
+    const wasFolded = condenseFoldedPrev.current
+    condenseFoldedPrev.current = zoomCollapsed
+    if (!zoomCollapsed) {
+      // Expanded / live condense zoom: track the wheel instantly and keep the ref synced so its last
+      // value is the start point when we next cross into the fold.
+      condenseScaleAnimRef.current?.stop()
+      condenseScaleRenderRef.current = condenseScale
+      setCondenseScaleRender(condenseScale)
+      return
+    }
+    if (!wasFolded) {
+      // Just crossed into the fold: GLIDE from the last condensed value up to full scale.
+      condenseScaleAnimRef.current?.stop()
+      condenseScaleAnimRef.current = animate(condenseScaleRenderRef.current, 1, {
+        duration: COLLAPSE_MS / 1000,
+        ease: "easeOut",
+        onUpdate: (v) => {
+          condenseScaleRenderRef.current = v
+          setCondenseScaleRender(v)
+        },
+      })
+    }
+    return () => condenseScaleAnimRef.current?.stop()
+  }, [zoomCollapsed, condenseScale])
+  // The value the render actually uses: the JS-smoothed glide whenever FOLDED (so the snap render
+  // already reads the ~0.48 start, not 1), the live (instant) `condenseScale` while expanded.
+  const condenseScaleVisual = zoomCollapsed ? condenseScaleRender : condenseScale
+
+  // Per-ENTITY uniform scale (relocated here so it can read `condenseScaleVisual`). Keep the lane
+  // plane VERTICAL-ONLY (the centering layer's `scaleY` compresses lane positions + ribbon
+  // backgrounds) and give each ENTITY (event/space chips, span bars, rollup bands, collapsed markers
+  // + their titles/glyphs) its OWN `scaleX` about its center. The parent `scaleY` already shrinks the
+  // box HEIGHT; adding `scaleX` of the same factor makes it shrink UNIFORMLY (chip text/glyphs keep
+  // their aspect, no vertical squish) while staying pinned to their time-center. Using the SMOOTHED
+  // `condenseScaleVisual` means chips glide their width back in step with the plane on a fold-out
+  // instead of snapping horizontally. Lanes / ribbon backgrounds / mother titles get NO entity scaleX.
+  const ENTITY_UNIFORM_SCALE = true
+  const entityScaleX = ENTITY_UNIFORM_SCALE ? condenseScaleVisual : 1
+  // CSS form for non-motion entities (rollup band button). Default transform-origin (center) is what
+  // we want, so a bare scaleX suffices. `undefined` at rest → no needless compositor layer.
+  const entityTransformCss = entityScaleX === 1 ? undefined : `scaleX(${entityScaleX})`
+  // Framer transition for the `scaleX` motion value on motion entities: instant while condensing /
+  // folding (the JS glide above supplies the smoothness) and a 0.3s glide on a normal lane-repack.
+  const entityScaleTween = { duration: restTopDur, ease: "easeOut" as const }
+
   // Base used for the frame/centering-layer heights: the smoothed value only during a condense
   // reflow, the live `bandH`/`trackH` everywhere else (so CSS owns the non-condense + fold glides).
   const reflowCondensing = reflowing && condensing
-  const bandHVisual = (reflowCondensing ? bandHRender : bandH) * condenseScale
-  // The lane layer's scaleY tracks the zoom instantly EXCEPT on a zoom fold-out, where it glides
-  // 1← over COLLAPSE_MS together with the band height so frame and content compress in step.
-  const laneScaleTransition = zoomCollapsing ? `transform ${COLLAPSE_MS}ms ease-out` : undefined
+  // Multiply by the SMOOTHED scale so the frame height compresses in lockstep with the lane plane
+  // during a fold-out (no frame-vs-content desync that would read as a jump).
+  const bandHVisual = (reflowCondensing ? bandHRender : bandH) * condenseScaleVisual
+  // The lane scaleY is now driven in JS (see `condenseScaleVisual`); a CSS `transform` transition
+  // would re-tween every JS step and lag, so the centering layer no longer transitions transform.
+  const laneScaleTransition = undefined
   // The centering layer's HEIGHT is `trackH`; it must glide on a lane reflow in lockstep with
   // the band frame (above), or — since the layer is `translateY(-50%)`-centered — the frame
   // and layer halves desync mid-tween and the content drifts. Mutually exclusive with
@@ -1956,7 +2008,7 @@ export function TimelineStrip({
               // `scaleY(condenseScale)` transform still tracks the zoom instantly on top. Non-
               // condense reflows + folds keep using `trackH` with their CSS `centerLayerTransition`.
               height: reflowCondensing ? bandHRender : trackH,
-              transform: `translateY(-50%) scaleX(${condenseScaleX}) scaleY(${condenseScale})`,
+              transform: `translateY(-50%) scaleX(${condenseScaleX}) scaleY(${condenseScaleVisual})`,
               transition: centerLayerTransition,
               }}
             >
