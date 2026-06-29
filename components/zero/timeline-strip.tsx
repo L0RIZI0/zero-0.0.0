@@ -2928,12 +2928,21 @@ export function TimelineStrip({
                   onMouseEnter: () => setHoveredMother(rk),
                   onMouseLeave: () => setHoveredMother((h) => (h === rk ? null : h)),
                 }
+                // These rail labels live INSIDE the centering plane, which applies
+                // `scaleY(condenseScaleVisual)` while zooming out. With no counter, the plane
+                // vertically SQUISHED each pill mid-condense → letters looked short & fat (read as
+                // "horizontally stretched"); at settle (scale 1) they snapped back to normal. Cancel
+                // the plane's vertical scale on the label itself with `scaleY(1/condenseScaleVisual)`
+                // about its own center: position still follows the plane (stays on its rail), but the
+                // pill renders at true proportions throughout the morph. No-op at rest (scale 1).
+                const labelDescaleY =
+                  condenseScaleVisual >= 0.999 ? "" : ` scaleY(${1 / Math.max(condenseScaleVisual, 0.05)})`
                 const wrapStyle = {
                   left: 4,
                   // Center on the block's own height: RAIL_H for a thin rail, the 1px sliver for
                   // a fully-hidden mother (so the title chip sits between its neighbours).
                   top: offsetY + blk.top + blk.height / 2,
-                  transform: "translateY(-50%)",
+                  transform: `translateY(-50%)${labelDescaleY}`,
                   opacity: labelOp,
                   // Slide the label with the reflow (a sibling rail label, e.g. Health,
                   // would otherwise JUMP to its new y while everything else glided).
@@ -2991,7 +3000,7 @@ export function TimelineStrip({
                         left: 4,
                         top: offsetY + blk.top + blk.height / 2,
                         height: blk.height + MOTHER_GAP,
-                        transform: "translateY(-50%)",
+                        transform: `translateY(-50%)${labelDescaleY}`,
                         transition: reflowTransition("top"),
                       }}
                       onClick={() => expandMother(mId)}
