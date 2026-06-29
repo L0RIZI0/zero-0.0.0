@@ -107,7 +107,14 @@ const ATLAS_CLOSE_EPSILON_MS = 0.04 * DAY_MS
 const GRAD_ROW_H = 14 // timestamp row height (matches the old h-3.5 ruler)
 const GRAD_LANE_GAP = 6 // graduation floats this far above the top lane
 const LABEL_ROW_H = 22 // the date+NOW pill row (comfortable)
-const LABEL_GRAD_GAP = 15 // natural gap between the label row and the graduation (band short)
+// Natural gap between the label row and the graduation (in the roomy, unclamped home view).
+// NOTE the jump-to-NOW chip hangs BELOW the date pill (absolute top-full), so it eats into this
+// gap — at the old 15 the NOW chip ended only ~2px above the graduation, reading cramped. Raised
+// so the white [date + NOW] labels float clearly higher, leaving ~13px of air below NOW before the
+// graduations. Only affects the natural regime; the compressed/clamped regime still overlaps the
+// rows on purpose (the pill's bg chip keeps it readable), and this is a static layout constant so
+// it adds no per-frame cost — safe for the upcoming vertical-drag / floating-lean work.
+const LABEL_GRAD_GAP = 30
 // Smallest card-Y either header row may reach when the strip is pushed up under the header.
 // This is what actually BINDS the date+NOW row in the centered home view (its natural top would
 // be even higher, so the clamp holds it here). The card's own top edge sits ~19px below the
