@@ -127,15 +127,17 @@ const HEADER_CLEAR_Y = -12
 // and more DOWN (open space below). Clamped so it can never be lost off-screen.
 const DRAG_Y_MIN = -80
 const DRAG_Y_MAX = 340
-// Max lean displacement (px) toward the cursor — subtle "alive/eager" drift, per the brief.
-const MAX_LEAN = 7
+// Max lean displacement (px) toward the cursor — a very subtle "alive/eager" drift. Kept small so
+// the effect reads as elegant ambient motion rather than an obvious follow.
+const MAX_LEAN = 5
 // How far beyond the strip the cursor still pulls the lean (px). Outside this the strip eases home.
 const LEAN_MARGIN_X = 220
 const LEAN_MARGIN_Y = 120
-// Per-frame ease factors (0..1) for the float loop. Y is snappy (drag feels direct); lean is soft
-// and floaty. Critically damped feel without a full spring lib.
+// Per-frame ease factors (0..1) for the float loop. Y is snappy (drag feels direct). The lean uses a
+// low factor so it glides slowly and softly — a long, gentle ease-out toward rest and an unhurried
+// ease-in toward the cursor. Lower = softer/longer; raise toward ~0.12 for a more immediate follow.
 const Y_EASE = 0.4
-const LEAN_EASE = 0.12
+const LEAN_EASE = 0.05
 // PERF: a recurring series carries up to MAX_RECUR_OCCURRENCES (366) timestamps. When the whole
 // series packs into view (fully zoomed out / collapsed) that's hundreds of absolutely-positioned
 // 1px divs re-positioned every frame — the dominant cost of the zoomed-out render (~21fps). Since
@@ -1191,7 +1193,7 @@ export function TimelineStrip({
   // label band + this band, so whatever this height does, the do-list does too).
   //   • ZOOM fold: `trackH` already ramps frame-by-frame as the zoom span animates, so the
   //     height is applied INSTANTLY — it tracks the zoom perfectly (a tween would LAG it).
-  //   • MANUAL fold (click): `trackH` JUMPS to the target in one step (override flips), so
+  //   �� MANUAL fold (click): `trackH` JUMPS to the target in one step (override flips), so
   //     to make the do-list move TOGETHER with the ribbon — pushed fluidly as the ribbon
   //     expands, instead of snapping after it finished — the band TWEENS its height with
   //     the SAME direction-aware curve/duration as the ribbon morph (`morphTween`). Equal
