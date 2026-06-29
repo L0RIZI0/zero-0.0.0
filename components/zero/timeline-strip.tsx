@@ -473,7 +473,9 @@ export function TimelineStrip({
     if (!e) return
     const isUntouchedOccurrence = b.key !== e.id && !!e.schedule?.repeat
     if (isUntouchedOccurrence) {
-      const dayStart = Number(b.key.slice(b.key.lastIndexOf("@") + 1))
+      // Key is `${seriesId}@${dayStart}` or, for a multi-block span, `…@${dayStart}#${i}`.
+      // Take the segment after '@' and strip any '#blockIndex' suffix.
+      const dayStart = Number(b.key.slice(b.key.lastIndexOf("@") + 1).split("#")[0])
       if (Number.isFinite(dayStart)) {
         const override = materializeOccurrence(e.id, dayStart)
         if (override) {
@@ -952,14 +954,36 @@ export function TimelineStrip({
   const bars = useMemo<Bar[]>(() => {
     const out: Bar[] = []
     for (const e of spans) {
+      const color = getInheritedAccent(e.parentId ?? "s_root") ?? NEUTRAL_MARKER
+      const kind = e.kind === "space" ? "space" : "event"
+      const blocks = e.schedule?.blocks
+      if (blocks && blocks.length > 1) {
+        // MULTI-BLOCK DAY (D4): one occurrence with N within-day spans (e.g. Day Job
+        // 8–11:30 AND 13:30–18:00) emits N bars keyed `${occKey}#${i}`. They all share
+        // the SAME `entity`/occKey, so hover, relatedness, open and complete still act
+        // on the single occurrence — only the drawn geometry differs per span.
+        blocks.forEach((blk, i) => {
+          out.push({
+            key: `${e.occKey}#${i}`,
+            from: blk.startAt,
+            to: blk.endAt,
+            color,
+            title: e.title,
+            kind,
+            entity: e,
+            cancelled: e.cancelled,
+          })
+        })
+        continue
+      }
       const [from, to] = entityInterval(e)
       out.push({
         key: e.occKey,
         from,
         to,
-        color: getInheritedAccent(e.parentId ?? "s_root") ?? NEUTRAL_MARKER,
+        color,
         title: e.title,
-        kind: e.kind === "space" ? "space" : "event",
+        kind,
         entity: e,
         cancelled: e.cancelled,
       })

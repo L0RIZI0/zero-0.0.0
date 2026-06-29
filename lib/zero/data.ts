@@ -995,6 +995,28 @@ export function dayMatchesRecurrence(dayStart: number, anchor: number, repeat: R
 }
 
 /**
+ * Project a schedule's `blocks` (D4 multi-block days, stored as absolute times on
+ * the anchor day) onto `dayStart`, preserving each block's wall-clock start-of-day
+ * (DST-safe via setHours) and its duration. Returns blocks sorted by start. Used by
+ * both the expander (virtual occurrences) and materializeOccurrence (overrides) so a
+ * "Day Job 8–11:30 AND 13:30–18:00" rule lands those two spans on every matching day.
+ */
+function shiftBlocksToDay(
+  blocks: { startAt: number; endAt: number }[],
+  dayStart: number,
+): { startAt: number; endAt: number }[] {
+  return blocks
+    .map((b) => {
+      const bs = new Date(b.startAt)
+      const start = new Date(dayStart)
+      start.setHours(bs.getHours(), bs.getMinutes(), bs.getSeconds(), 0)
+      const startAt = start.getTime()
+      return { startAt, endAt: startAt + (b.endAt - b.startAt) }
+    })
+    .sort((a, b) => a.startAt - b.startAt)
+}
+
+/**
  * Timed entities for a space's subtree, EXPANDED into concrete occurrences
  * within [rangeStart, rangeEnd]. One-offs pass through unchanged; recurring
  * schedules emit one occurrence per matching local day, preserving the anchor's
@@ -1037,10 +1059,18 @@ export function getTimelineOccurrences(
           const occDate = new Date(dayStart)
           occDate.setHours(anchorDate.getHours(), anchorDate.getMinutes(), anchorDate.getSeconds(), 0)
           const occStart = occDate.getTime()
-          const schedule =
-            s.at != null
-              ? { ...s, at: occStart }
-              : { ...s, startAt: occStart, endAt: occStart + duration }
+          let schedule: Schedule
+          if (s.blocks && s.blocks.length > 0) {
+            // Multi-block day (D4): project every span onto this day; mirror
+            // startAt/endAt to the first start / last end so single-span readers
+            // (bounds, sorting) keep working without knowing about blocks.
+            const blocks = shiftBlocksToDay(s.blocks, dayStart)
+            schedule = { ...s, blocks, startAt: blocks[0].startAt, endAt: blocks[blocks.length - 1].endAt }
+          } else if (s.at != null) {
+            schedule = { ...s, at: occStart }
+          } else {
+            schedule = { ...s, startAt: occStart, endAt: occStart + duration }
+          }
           out.push({ ...e, schedule, occKey: `${e.id}@${dayStart}` })
         }
       }
@@ -1277,8 +1307,9 @@ export function addTask(input: { title: string; spaceId: string }): Entity {
  * Resolve a recurring mother's `schedule` to the CONCRETE single-day schedule for
  * the occurrence on `dayStart`: shift the anchor's wall-clock time-of-day onto that
  * day (DST-safe via setHours) and DROP `repeat` (an override is one fixed day, not a
- * series). Mirrors the per-day math in getTimelineOccurrences. `blocks` (D4) are
- * handled in Phase 3; for now they pass through untouched.
+ * series). Mirrors the per-day math in getTimelineOccurrences, including multi-block
+ * days (D4): each block is projected onto `dayStart` and startAt/endAt mirror the
+ * first/last span.
  */
 function resolveOccurrenceSchedule(s: Schedule | undefined, dayStart: number): Schedule | undefined {
   if (!s) return undefined
@@ -1286,6 +1317,13 @@ function resolveOccurrenceSchedule(s: Schedule | undefined, dayStart: number): S
   const resolved: Schedule = { ...s }
   delete resolved.repeat
   if (anchor == null) return resolved
+  if (s.blocks && s.blocks.length > 0) {
+    const blocks = shiftBlocksToDay(s.blocks, dayStart)
+    resolved.blocks = blocks
+    resolved.startAt = blocks[0].startAt
+    resolved.endAt = blocks[blocks.length - 1].endAt
+    return resolved
+  }
   const a = new Date(anchor)
   const occ = new Date(dayStart)
   occ.setHours(a.getHours(), a.getMinutes(), a.getSeconds(), 0)
@@ -1597,11 +1635,37 @@ export function applyParsedSchedule(id: string, plan: ScheduleParse): boolean {
   }
   const startAt = anchorDay + timeOfDayMs
 
+  // MULTI-BLOCK days (D4): build the within-day spans on the anchor day. Stored as
+  // absolute times there; the expander/materialize project them onto each matching
+  // day. Only meaningful with 2+ blocks (a single block is just the normal span).
+  const blocks =
+    plan.blocks && plan.blocks.length >= 2
+      ? plan.blocks
+          .map((b) => ({
+            startAt: anchorDay + b.startHour * 3_600_000 + b.startMinute * 60_000,
+            endAt: anchorDay + b.endHour * 3_600_000 + b.endMinute * 60_000,
+          }))
+          .sort((a, b) => a.startAt - b.startAt)
+      : undefined
+
   if (plan.kind === "instant") {
     entity.schedule = { at: startAt, ...(repeat ? { repeat } : {}) }
-  } else if (plan.kind === "event") {
-    const durMin = plan.durationMinutes ?? 60
-    entity.schedule = { startAt, endAt: startAt + durMin * 60_000, ...(repeat ? { repeat } : {}) }
+  } else if (plan.kind === "event" || plan.kind === "space") {
+    if (plan.kind === "space") {
+      entity.description = entity.description ?? ""
+      entity.assignedResourceIds = entity.assignedResourceIds ?? []
+    }
+    if (blocks) {
+      entity.schedule = {
+        startAt: blocks[0].startAt,
+        endAt: blocks[blocks.length - 1].endAt,
+        blocks,
+        ...(repeat ? { repeat } : {}),
+      }
+    } else {
+      const durMin = plan.durationMinutes ?? 60
+      entity.schedule = { startAt, endAt: startAt + durMin * 60_000, ...(repeat ? { repeat } : {}) }
+    }
   } else {
     // task: keep it a task, but attach timing. A recurring task carries the repeat rule;
     // a one-off task with a deadline gets dueAt.
