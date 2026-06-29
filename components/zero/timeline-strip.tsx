@@ -525,14 +525,17 @@ export function TimelineStrip({
   // Identity used in `override`/animation maps for the ungrouped ROOT lane, which has no
   // motherId but must fold along with the real ribbons on a zoom auto-fold.
   const ROOT_KEY = "__root__"
-  // AUTO (zoom) FOLD now reuses the manual mechanism: crossing the threshold flips every
-  // block's `override` at once (see the effect below). `autoFoldDir` marks an auto-fold as
-  // in progress and which way it's going — it IS the "a zoom fold is animating" window
-  // (this replaces the old `displayCollapsed`-lag). It's set when the threshold flips and
-  // cleared after the morph window (DOLIST_MS); it also preserves the band's direction-aware
-  // timing (instant expand so lower ribbons never clip; short glide on collapse).
+  // AUTO (zoom) FOLD reuses the manual mechanism per ribbon. On COLLAPSE the ribbons fold one
+  // at a time on randomized delays (see the effect below) so the timeline visibly thins out as
+  // you scroll away from it, rather than snapping shut all at once; EXPAND still happens together
+  // (instant, so lower ribbons never clip). `autoFoldDir` marks an auto-fold as in progress and
+  // which way it's going — it IS the "a zoom fold is animating" window. It's set when the threshold
+  // flips and held open long enough to cover the LAST staggered ribbon's morph.
   const [autoFoldDir, setAutoFoldDir] = useState<"collapse" | "expand" | null>(null)
   const autoFoldTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Pending per-ribbon collapse timers for the staggered fold, so we can cancel them if the user
+  // reverses (zooms back in) before every ribbon has folded.
+  const staggerTimers = useRef<ReturnType<typeof setTimeout>[]>([])
   // True while an auto (zoom) fold is mid-morph: BOTH layers stay mounted and crossfade,
   // exactly as during a manual per-mother window. (Kept under this name since many call
   // sites read it; now derived from `autoFoldDir` rather than a lagging display flag.)
@@ -1323,29 +1326,70 @@ export function TimelineStrip({
     animateMother(id)
   }
 
-  // AUTO FOLD = MANUAL FOLD, applied to every ribbon at once. When the zoom threshold flips
-  // `zoomCollapsed`, batch-flip every mother's (and the root's) `override` to match — the
-  // exact per-block crossfade/morph a single manual click triggers, just fired for all blocks
-  // simultaneously — and open the shared `autoFoldDir` window so the band keeps its anti-clip
-  // timing (instant expand, short collapse glide). A ref-guard makes it fire only on a real
-  // threshold change (not on every render where `zoomCollapsed` happens to be read).
+  // AUTO FOLD = MANUAL FOLD, per ribbon. Crossing the zoom threshold folds each mother (and the
+  // root) through the SAME per-block `override` flip + animation window a manual click triggers —
+  // but on COLLAPSE they're scheduled one at a time on randomized delays, so the timeline appears
+  // to thin out organically (some ribbons start folding sooner, some later) as you keep scrolling
+  // away. EXPAND fires them all together and instantly (the band's anti-clip rule: lower ribbons
+  // must never clip while a higher one grows). The shared `autoFoldDir` window stays open long
+  // enough to cover the LAST staggered ribbon's morph.
   const prevZoomCollapsed = useRef(zoomCollapsed)
   useEffect(() => {
     if (prevZoomCollapsed.current === zoomCollapsed) return
     prevZoomCollapsed.current = zoomCollapsed
-    setOverride((o) => {
-      const next: Record<string, boolean> = { ...o, [ROOT_KEY]: zoomCollapsed }
-      for (const m of mothers) if (m.motherId) next[m.motherId] = zoomCollapsed
-      return next
-    })
-    setAutoFoldDir(zoomCollapsed ? "collapse" : "expand")
+
+    // Cancel any in-flight staggered collapses (e.g. user reversed direction mid-fold).
+    staggerTimers.current.forEach(clearTimeout)
+    staggerTimers.current = []
     if (autoFoldTimer.current) clearTimeout(autoFoldTimer.current)
+
+    const keys = [ROOT_KEY, ...mothers.flatMap((m) => (m.motherId ? [m.motherId] : []))]
+
+    if (!zoomCollapsed) {
+      // EXPAND — all together, instantly.
+      setOverride((o) => {
+        const next: Record<string, boolean> = { ...o }
+        for (const k of keys) next[k] = false
+        return next
+      })
+      setAutoFoldDir("expand")
+      autoFoldTimer.current = setTimeout(() => {
+        setAutoFoldDir(null)
+        autoFoldTimer.current = null
+      }, DOLIST_MS)
+      return
+    }
+
+    // COLLAPSE — stagger each ribbon on its own random delay for a "thinning out" cascade.
+    // STAGGER_MAX is the widest a ribbon's start can be pushed; keep it short so the whole
+    // cascade still reads as one quick gesture, not a slow sequence.
+    const STAGGER_MAX = 380
+    const delays = keys.map(() => Math.random() * STAGGER_MAX)
+    const lastStart = Math.max(0, ...delays)
+    keys.forEach((key, i) => {
+      const fold = () => {
+        setOverride((o) => ({ ...o, [key]: true }))
+        if (key !== ROOT_KEY) animateMother(key) // its own crossfade/morph window
+      }
+      if (delays[i] <= 0) fold()
+      else staggerTimers.current.push(setTimeout(fold, delays[i]))
+    })
+    setAutoFoldDir("collapse")
+    // Hold the umbrella window until the last ribbon to fire has finished its morph.
     autoFoldTimer.current = setTimeout(() => {
       setAutoFoldDir(null)
       autoFoldTimer.current = null
-    }, DOLIST_MS)
+    }, lastStart + DOLIST_MS)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [zoomCollapsed])
+
+  // Cancel pending staggered folds on unmount.
+  useEffect(() => {
+    return () => {
+      staggerTimers.current.forEach(clearTimeout)
+      staggerTimers.current = []
+    }
+  }, [])
 
   // (Un)collapse MORPH gates + opacity targets, per mother block.
   //  • Expanded layer (lanes, bars, ribbon labels, mother column) shows while the block
