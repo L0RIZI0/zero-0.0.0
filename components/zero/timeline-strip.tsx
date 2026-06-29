@@ -166,6 +166,11 @@ const REFLOW_MS = Math.round(COLLAPSE_MS * 1.75)
 //    eases slowly to rest. Collapse already used "ease-out" everywhere (also prompt).
 const EXPAND_EASE: [number, number, number, number] = [0.45, 0, 0.25, 1]
 const EXPAND_EASE_CSS = "cubic-bezier(0.45, 0, 0.25, 1)"
+// Strongly BACK-LOADED ease-in (easeInExpo-ish): the value barely moves for the first ~60% then
+// shoots up at the very end. Used for the collapse FADE of chip fills + rail ticks so they stay
+// faint/translucent through most of the fold and only "ink in" right as the chip lands on its tick
+// (user: opacity should "increase mostly at the end", not linearly). NOT used for geometry.
+const FILL_IN_EASE_CSS = "cubic-bezier(0.7, 0, 0.84, 0)"
 // PURE LONG EASE-OUT, NO EASE-IN (user: do-list "should have no ease-in just a long
 // ease-out"). The previous ease-out-cubic had p1x=0.215 — a slight ease-IN lip that delayed
 // the very start, so the do-list still read as moving "too late". This curve has p1x=0 (no
@@ -2442,7 +2447,9 @@ export function TimelineStrip({
               // duration + curve as the geometry so it darkens gradually and lands solid exactly as
               // the chip lands on its rail tick. At rest (not folding) keep the snappy 300ms default.
               const fillDur = barAnimating ? (collapsedTarget ? COLLAPSE_MS : EXPAND_MS) : 300
-              const fillEase = barAnimating && !collapsedTarget ? EXPAND_EASE_CSS : "ease-out"
+              // Collapsing: back-loaded ease-in so the fill inks in mostly at the END of the fold.
+              // Expanding: keep the geometry's soft curve. At rest: snappy ease-out.
+              const fillEase = !barAnimating ? "ease-out" : collapsedTarget ? FILL_IN_EASE_CSS : EXPAND_EASE_CSS
               const fillTransition = `background-color ${fillDur}ms ${fillEase}, border-color ${fillDur}ms ${fillEase}`
 
               return (
@@ -2655,6 +2662,17 @@ export function TimelineStrip({
                 // Single ticks also keep their own 150ms opacity fade; recur dots transition opacity
                 // on the inner elements, so their container only needs the `top` glide.
                 const tickTransition = `${tickTopCss}, opacity 150ms`
+                // BACK-LOADED TICK ENTRANCE. The tick `animate-in fade-in` normally inks in over a
+                // quick front-loaded 150ms. While a ribbon is actively FOLDING, stretch that entrance
+                // across the whole fold with the same back-loaded ease-in as the chip fill, so the
+                // tick stays faint through most of the collapse and only inks to solid right at the end
+                // — chip and tick reach full opacity together, preserving the seamless hand-off as the
+                // chip unmounts onto the tick. Only while collapsing (not when panning new ticks into
+                // view, nor on expand/hide) so scrolling stays snappy.
+                const collapsingNow = blkAnimating(blk) && blk.collapsed && !blk.hidden
+                const tickEnter = collapsingNow
+                  ? { animationDuration: `${COLLAPSE_MS}ms`, animationTimingFunction: FILL_IN_EASE_CSS }
+                  : undefined
                 return motherBars
                   .map((b) => {
                     const color = b.color || NEUTRAL_MARKER
@@ -2690,6 +2708,7 @@ export function TimelineStrip({
                             // vertical center, so it un-squishes AND un-bunches in lockstep with the bar.
                             transform: collapsedXform(railY + RAIL_H / 2),
                             transition: tickTopCss,
+                            ...tickEnter,
                           }}
                         >
                           {renderIdx.map((i) => {
@@ -2771,6 +2790,7 @@ export function TimelineStrip({
                           opacity: uncollapsing || hidingNow ? 0 : tickLit(hoveredTickKey === b.key) ? 1 : 0.85,
                           boxShadow: tickLit(hoveredTickKey === b.key) ? `0 0 6px ${color}` : undefined,
                           transition: tickTransition,
+                          ...tickEnter,
                         }}
                       />
                     )
