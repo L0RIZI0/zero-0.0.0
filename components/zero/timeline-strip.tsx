@@ -86,8 +86,17 @@ const ATLAS_CLOSE_EPSILON_MS = 0.04 * DAY_MS
 // CONDENSE_MIN_SCALE is how small a lane gets right before folding — close to the rail's
 // share of a lane (RAIL_H/LANE_H ≈ 0.29) so the chip→tick morph has little left to travel,
 // but not so small that chips become unreadable too early.
-const CONDENSE_ONSET_FRAC = 0.42
-const CONDENSE_MIN_SCALE = 0.48
+  const CONDENSE_ONSET_FRAC = 0.42
+  const CONDENSE_MIN_SCALE = 0.48
+  // STAGGERED, SCROLL-DRIVEN AUTO-FOLD. Instead of every ribbon folding at one threshold, each
+  // ribbon gets its OWN span threshold and folds as you keep scrolling out — starting with the
+  // ribbon in the CENTER of the stack and working outward, so the timeline visibly thins from the
+  // middle. The OUTERMOST ribbon folds at the full threshold (`atlasOpenMs`, == `zoomCollapsed`),
+  // and each more-central ribbon folds `FOLD_STEP_RATIO`× sooner (a smaller span). The ratio is set
+  // to ~two wheel notches (one notch ≈ e^(100·ZOOM_K) ≈ 1.25× span; see use-timeline-gestures), so
+  // a couple of scroll ticks separate each ribbon's fold. Raising it spreads the cascade wider and
+  // starts the first fold sooner; lowering it tightens the cascade toward the single threshold.
+  const FOLD_STEP_RATIO = 1.5
 // HEADER GROUP geometry. The [date label + NOW backlink] and the timestamp graduation float
 // just ABOVE the lane stack (anchored to the band-div top, i.e. the top of the lanes — NOT
 // pinned to the band FRAME, which can grow past them). As the band grows and the group is
@@ -525,17 +534,18 @@ export function TimelineStrip({
   // Identity used in `override`/animation maps for the ungrouped ROOT lane, which has no
   // motherId but must fold along with the real ribbons on a zoom auto-fold.
   const ROOT_KEY = "__root__"
-  // AUTO (zoom) FOLD reuses the manual mechanism per ribbon. On COLLAPSE the ribbons fold one
-  // at a time on randomized delays (see the effect below) so the timeline visibly thins out as
-  // you scroll away from it, rather than snapping shut all at once; EXPAND still happens together
-  // (instant, so lower ribbons never clip). `autoFoldDir` marks an auto-fold as in progress and
-  // which way it's going — it IS the "a zoom fold is animating" window. It's set when the threshold
-  // flips and held open long enough to cover the LAST staggered ribbon's morph.
+  // AUTO (zoom) FOLD reuses the manual mechanism per ribbon, but is now SCROLL-DRIVEN: each ribbon
+  // folds/unfolds as the span crosses its own threshold (see `foldOrder` + the crossing effect),
+  // center-of-stack first, so the timeline thins out progressively as you scroll. `autoFoldDir`
+  // marks that SOME ribbon (un)folded this gesture and which way — it IS the "a zoom fold is
+  // animating" window (covers the rootlane crossfade, which has no per-mother window). It's pulsed
+  // open for one morph (DOLIST_MS) whenever a threshold is crossed.
   const [autoFoldDir, setAutoFoldDir] = useState<"collapse" | "expand" | null>(null)
   const autoFoldTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  // Pending per-ribbon collapse timers for the staggered fold, so we can cancel them if the user
-  // reverses (zooms back in) before every ribbon has folded.
-  const staggerTimers = useRef<ReturnType<typeof setTimeout>[]>([])
+  // Last span the scroll-driven fold effect reconciled against, so it only acts on ribbons whose
+  // threshold was actually CROSSED this gesture (leaving manual per-ribbon (un)folds untouched in
+  // between crossings).
+  const prevSpanFold = useRef(0)
   // True while an auto (zoom) fold is mid-morph: BOTH layers stay mounted and crossfade,
   // exactly as during a manual per-mother window. (Kept under this name since many call
   // sites read it; now derived from `autoFoldDir` rather than a lagging display flag.)
@@ -574,15 +584,16 @@ export function TimelineStrip({
     { key: string; leftPct: number; top: number; title: string; kind: NodeKind; color: string } | null
   >(null)
   useEffect(() => {
-    // Switching context re-derives folds. If we're zoomed out past the fold threshold,
-    // re-assert the auto-fold for the NEW context's ribbons (and root) so they don't pop
-    // open for a frame; otherwise clear to all-expanded.
+    // Switching context re-derives folds for the NEW context's ribbons. Seed each ribbon's
+    // collapsed state from its OWN scroll threshold at the current span (so already-folded
+    // ribbons don't pop open for a frame, and not-yet-folded ones stay expanded), and resync
+    // the crossing tracker so the next wheel move compares against this baseline.
     setOverride(() => {
-      if (!zoomCollapsed) return {}
-      const next: Record<string, boolean> = { [ROOT_KEY]: true }
-      for (const m of mothers) if (m.motherId) next[m.motherId] = true
+      const next: Record<string, boolean> = {}
+      for (const f of foldOrder) next[f.key] = spanMs >= f.thresholdMs
       return next
     })
+    prevSpanFold.current = spanMs
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [contextId])
 
@@ -937,6 +948,28 @@ export function TimelineStrip({
     }
     return out
   }, [lanes.ribbons])
+
+  // SCROLL-DRIVEN FOLD SCHEDULE. Give each ribbon (and the ungrouped root lane) its own span
+  // threshold so they auto-fold one at a time as the view zooms out — CENTER of the stack first,
+  // then outward. `mothers` is the stable top→bottom stack order (the root lane is the entry with
+  // `motherId == null`), and it does NOT depend on fold state, so these thresholds stay fixed while
+  // ribbons collapse (using the live `layout` would make the centers shift mid-cascade). k=0 is the
+  // most-central ribbon (folds first/soonest); the outermost folds exactly at `atlasOpenMs` (the
+  // `zoomCollapsed` point), each inner ribbon `FOLD_STEP_RATIO`× sooner.
+  const foldOrder = useMemo(() => {
+    const keys = mothers.map((m) => m.motherId ?? ROOT_KEY)
+    const n = keys.length
+    if (n === 0) return [] as { key: string; thresholdMs: number }[]
+    const mid = (n - 1) / 2
+    // Order indices by distance from the stack center (ties keep top-first via index tiebreak).
+    const byCenter = keys
+      .map((key, i) => ({ key, dist: Math.abs(i - mid), i }))
+      .sort((a, b) => a.dist - b.dist || a.i - b.i)
+    return byCenter.map((o, k) => ({
+      key: o.key,
+      thresholdMs: atlasOpenMs / Math.pow(FOLD_STEP_RATIO, n - 1 - k),
+    }))
+  }, [mothers, atlasOpenMs])
 
   // Collapse-aware vertical layout. Walk the mother blocks top→bottom, giving each
   // a y-offset: a collapsed mother occupies just RAIL_H; an expanded one lays out
@@ -1326,70 +1359,39 @@ export function TimelineStrip({
     animateMother(id)
   }
 
-  // AUTO FOLD = MANUAL FOLD, per ribbon. Crossing the zoom threshold folds each mother (and the
-  // root) through the SAME per-block `override` flip + animation window a manual click triggers —
-  // but on COLLAPSE they're scheduled one at a time on randomized delays, so the timeline appears
-  // to thin out organically (some ribbons start folding sooner, some later) as you keep scrolling
-  // away. EXPAND fires them all together and instantly (the band's anti-clip rule: lower ribbons
-  // must never clip while a higher one grows). The shared `autoFoldDir` window stays open long
-  // enough to cover the LAST staggered ribbon's morph.
-  const prevZoomCollapsed = useRef(zoomCollapsed)
+  // SCROLL-DRIVEN STAGGERED AUTO-FOLD. As the span changes, fold/unfold each ribbon whose OWN
+  // threshold (`foldOrder`) was crossed since the last reconcile — center-of-stack first on the way
+  // out, outermost first on the way back in. Each crossing flips that ribbon's `override` and opens
+  // its per-mother morph window (`animateMother`), exactly like a manual click; the root lane (no
+  // per-mother window) rides the shared `autoFoldDir` pulse. Acting only on CROSSINGS (not the raw
+  // span) means manual per-ribbon (un)folds the user makes between thresholds are left untouched.
   useEffect(() => {
-    if (prevZoomCollapsed.current === zoomCollapsed) return
-    prevZoomCollapsed.current = zoomCollapsed
-
-    // Cancel any in-flight staggered collapses (e.g. user reversed direction mid-fold).
-    staggerTimers.current.forEach(clearTimeout)
-    staggerTimers.current = []
-    if (autoFoldTimer.current) clearTimeout(autoFoldTimer.current)
-
-    const keys = [ROOT_KEY, ...mothers.flatMap((m) => (m.motherId ? [m.motherId] : []))]
-
-    if (!zoomCollapsed) {
-      // EXPAND — all together, instantly.
-      setOverride((o) => {
-        const next: Record<string, boolean> = { ...o }
-        for (const k of keys) next[k] = false
-        return next
-      })
-      setAutoFoldDir("expand")
-      autoFoldTimer.current = setTimeout(() => {
-        setAutoFoldDir(null)
-        autoFoldTimer.current = null
-      }, DOLIST_MS)
-      return
+    const prev = prevSpanFold.current
+    if (prev === spanMs) return
+    prevSpanFold.current = spanMs
+    const crossed: { key: string; folded: boolean }[] = []
+    for (const f of foldOrder) {
+      const was = prev >= f.thresholdMs
+      const now = spanMs >= f.thresholdMs
+      if (was !== now) crossed.push({ key: f.key, folded: now })
     }
-
-    // COLLAPSE — stagger each ribbon on its own random delay for a "thinning out" cascade.
-    // STAGGER_MAX is the widest a ribbon's start can be pushed; keep it short so the whole
-    // cascade still reads as one quick gesture, not a slow sequence.
-    const STAGGER_MAX = 380
-    const delays = keys.map(() => Math.random() * STAGGER_MAX)
-    const lastStart = Math.max(0, ...delays)
-    keys.forEach((key, i) => {
-      const fold = () => {
-        setOverride((o) => ({ ...o, [key]: true }))
-        if (key !== ROOT_KEY) animateMother(key) // its own crossfade/morph window
-      }
-      if (delays[i] <= 0) fold()
-      else staggerTimers.current.push(setTimeout(fold, delays[i]))
+    if (crossed.length === 0) return
+    setOverride((o) => {
+      const next: Record<string, boolean> = { ...o }
+      for (const c of crossed) next[c.key] = c.folded
+      return next
     })
-    setAutoFoldDir("collapse")
-    // Hold the umbrella window until the last ribbon to fire has finished its morph.
+    for (const c of crossed) if (c.key !== ROOT_KEY) animateMother(c.key)
+    // Pulse the umbrella window open for one morph so the root lane crossfades (and any block
+    // without its own live window stays double-mounted long enough to glide).
+    setAutoFoldDir(crossed.some((c) => c.folded) ? "collapse" : "expand")
+    if (autoFoldTimer.current) clearTimeout(autoFoldTimer.current)
     autoFoldTimer.current = setTimeout(() => {
       setAutoFoldDir(null)
       autoFoldTimer.current = null
-    }, lastStart + DOLIST_MS)
+    }, DOLIST_MS)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [zoomCollapsed])
-
-  // Cancel pending staggered folds on unmount.
-  useEffect(() => {
-    return () => {
-      staggerTimers.current.forEach(clearTimeout)
-      staggerTimers.current = []
-    }
-  }, [])
+  }, [spanMs, foldOrder])
 
   // (Un)collapse MORPH gates + opacity targets, per mother block.
   //  • Expanded layer (lanes, bars, ribbon labels, mother column) shows while the block
