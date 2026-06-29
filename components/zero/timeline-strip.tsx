@@ -1361,10 +1361,16 @@ export function TimelineStrip({
 
   // SCROLL-DRIVEN STAGGERED AUTO-FOLD. As the span changes, fold/unfold each ribbon whose OWN
   // threshold (`foldOrder`) was crossed since the last reconcile — center-of-stack first on the way
-  // out, outermost first on the way back in. Each crossing flips that ribbon's `override` and opens
-  // its per-mother morph window (`animateMother`), exactly like a manual click; the root lane (no
-  // per-mother window) rides the shared `autoFoldDir` pulse. Acting only on CROSSINGS (not the raw
-  // span) means manual per-ribbon (un)folds the user makes between thresholds are left untouched.
+  // out, outermost first on the way back in. Acting only on CROSSINGS (not the raw span) means
+  // manual per-ribbon (un)folds the user makes between thresholds are left untouched. A monotonic
+  // span change can only cross thresholds in ONE direction, so every crossing this tick is the same
+  // way; we branch on that:
+  //   • COLLAPSE: pulse the global `autoFoldDir` window (the snappy zoom-out glide that already
+  //     reads well) — it also crossfades the root lane, which has no per-mother window.
+  //   • EXPAND: open each crossed ribbon's OWN per-mother window via `animateMother` (root included,
+  //     via ROOT_KEY) and do NOT pulse `autoFoldDir`. Pulsing it would set `collapseAnimating` →
+  //     `zoomExpanding`, which forces the whole stack to mount instantly (the "ribbon jumps open"
+  //     bug). The per-mother window instead routes through the normal manual-uncollapse morph.
   useEffect(() => {
     const prev = prevSpanFold.current
     if (prev === spanMs) return
@@ -1381,15 +1387,21 @@ export function TimelineStrip({
       for (const c of crossed) next[c.key] = c.folded
       return next
     })
-    for (const c of crossed) if (c.key !== ROOT_KEY) animateMother(c.key)
-    // Pulse the umbrella window open for one morph so the root lane crossfades (and any block
-    // without its own live window stays double-mounted long enough to glide).
-    setAutoFoldDir(crossed.some((c) => c.folded) ? "collapse" : "expand")
-    if (autoFoldTimer.current) clearTimeout(autoFoldTimer.current)
-    autoFoldTimer.current = setTimeout(() => {
-      setAutoFoldDir(null)
-      autoFoldTimer.current = null
-    }, DOLIST_MS)
+    const collapsing = crossed.some((c) => c.folded)
+    if (collapsing) {
+      // Mothers also get their own window (drives the per-ribbon morph); the root rides the pulse.
+      for (const c of crossed) if (c.key !== ROOT_KEY) animateMother(c.key)
+      setAutoFoldDir("collapse")
+      if (autoFoldTimer.current) clearTimeout(autoFoldTimer.current)
+      autoFoldTimer.current = setTimeout(() => {
+        setAutoFoldDir(null)
+        autoFoldTimer.current = null
+      }, DOLIST_MS)
+    } else {
+      // EXPAND: per-ribbon window only (ROOT_KEY included — `blkAnimating` now reads it), so the
+      // usual uncollapse animation plays instead of an instant `zoomExpanding` snap.
+      for (const c of crossed) animateMother(c.key)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [spanMs, foldOrder])
 
@@ -1402,8 +1414,12 @@ export function TimelineStrip({
   // Opacity targets crossfade the two layers; the side that PERSISTS across the toggle
   // eases via its `transition-opacity`, the side that MOUNTS fades via `animate-in`.
   type Blk = (typeof layout.blocks)[number]
+  // A block is animating if a global zoom-COLLAPSE pulse is open (`collapseAnimating`) OR its own
+  // per-ribbon fold window is open. Keyed by motherId, or ROOT_KEY for the ungrouped root lane — so
+  // a scroll-driven EXPAND (which opens a per-ribbon window instead of the global pulse, to avoid
+  // the instant `zoomExpanding` snap) still crossfades the root lane like the manual uncollapse.
   const blkAnimating = (blk: Blk) =>
-    collapseAnimating || (blk.m.motherId != null && blk.m.motherId in animatingMothers)
+    collapseAnimating || (blk.m.motherId ?? ROOT_KEY) in animatingMothers
   const showExpanded = (blk: Blk) => !blk.collapsed || blkAnimating(blk)
   const showCollapsed = (blk: Blk) => blk.collapsed || blkAnimating(blk)
   const expandedOpacity = (blk: Blk) => (blk.collapsed ? 0 : 1)
