@@ -2980,11 +2980,14 @@ export function TimelineStrip({
                     {/* Hover-revealed HIDE control (eye → 1px sliver) at the TOP of the column.
                         There's no collapse chevron anymore — clicking the ribbon body collapses
                         it to the thin rail. Shown only while the column (its title) is hovered so
-                        the resting ribbon stays clean. */}
+                        the resting ribbon stays clean. Suppressed mid-morph: a click that started
+                        the fold leaves `hoveredMother` set, which otherwise kept the eye visible
+                        for the whole collapse/expand even though the column has shrunk/grown away
+                        from the cursor (it then vanished abruptly when the hover finally cleared). */}
                     <div
                       className={cn(
                         "absolute inset-x-0 top-0 z-10 flex flex-col items-center rounded-t bg-card/95 py-0.5 transition-opacity",
-                        colHovered ? "opacity-100" : "pointer-events-none opacity-0",
+                        colHovered && !blkAnimating(blk) ? "opacity-100" : "pointer-events-none opacity-0",
                       )}
                     >
                       <button
@@ -3104,8 +3107,10 @@ export function TimelineStrip({
                     </div>
                   )
                 }
-                // COLLAPSED-THIN: title always visible; the eye fades in on title hover.
-                const titleHovered = hoveredTitleId === mId
+                // COLLAPSED-THIN: title always visible; the eye fades in on title hover. Gated on
+                // `!blkAnimating` so a stale hover from the click that triggered the fold can't keep
+                // the eye flashing through the whole collapse/expand morph.
+                const titleHovered = hoveredTitleId === mId && !blkAnimating(blk)
                 return (
                   <div key={`mlabel:${rk}`} className="absolute z-20 flex items-center gap-1 animate-in fade-in duration-300" style={wrapStyle} {...hoverProps}>
                     <div
