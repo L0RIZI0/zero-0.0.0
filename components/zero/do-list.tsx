@@ -16,8 +16,10 @@ import {
   addWebTask,
   parseInstantTime,
   setInstantAt,
+  applyParsedSchedule,
   type ContextItem,
 } from "@/lib/zero/data"
+import { looksLikeSchedule, type ScheduleParse } from "@/lib/zero/schedule-parse"
 import {
   WEB_RESOURCES,
   getWebResource,
@@ -630,6 +632,31 @@ export function DoList({
       setBornId(entity.id)
       notifyDataChanged()
       select("list", entity.id, "keyboard")
+
+      // NL → schedule (slice): only the plain `task` kind goes through the language
+      // model — picking an explicit kind means the user already declared their intent,
+      // and the instant time-token path above is handled synchronously. A cheap local
+      // heuristic gates the network call so ordinary one-word tasks ("Laundry") never
+      // hit the API; only phrases that smell time-related ("every weekday", "at 7am",
+      // "for 1h daily") are parsed. The row is created INSTANTLY above; this upgrades it
+      // in place when the parse resolves, so the create→open gesture is never blocked.
+      if (kind === "task" && looksLikeSchedule(parsed.title)) {
+        void (async () => {
+          try {
+            const res = await fetch("/api/parse-schedule", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ text: parsed.title }),
+            })
+            if (!res.ok) return
+            const plan = (await res.json()) as ScheduleParse
+            if (!plan?.isSchedule) return
+            if (applyParsedSchedule(entity.id, plan)) notifyDataChanged()
+          } catch {
+            // Network/parse failure is non-fatal: the plain task already exists and stands.
+          }
+        })()
+      }
     },
     [contextId, notifyDataChanged, select],
   )

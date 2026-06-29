@@ -45,7 +45,15 @@ export async function POST(req: Request) {
     })
     return Response.json(object)
   } catch (err) {
-    console.log("[v0] parse-schedule failed:", err instanceof Error ? err.message : err)
-    return Response.json({ error: "Could not parse schedule" }, { status: 502 })
+    const message = err instanceof Error ? err.message : String(err)
+    console.log("[v0] parse-schedule failed:", message)
+    // The AI Gateway gates requests behind account setup (e.g. "requires a valid credit
+    // card on file"). Surface that as a distinct, actionable status so the UI can tell a
+    // setup problem apart from a genuine parse failure (and so it isn't mistaken for a code bug).
+    const isSetup = /credit card|payment|quota|billing|unlock your free credits/i.test(message)
+    return Response.json(
+      { error: isSetup ? "AI Gateway not set up for this project yet." : "Could not parse schedule", detail: message },
+      { status: isSetup ? 402 : 502 },
+    )
   }
 }
