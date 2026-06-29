@@ -2367,11 +2367,17 @@ export function TimelineStrip({
             {bars.map((b) => {
               const lane = lanes.lane.get(b.key) ?? 0
               const blk = blockOfLane(lane)
-              // Bars on a collapsed ribbon become rail ticks (later pass). During a zoom
-              // (un)collapse we KEEP them mounted so they crossfade: they GLIDE toward
-              // the rail (`barTop`) and fade out (`expOpacity`), then unmount when the
-              // animation settles.
-              if (blk && !showExpanded(blk)) return null
+              // PERSIST single-event chips as their OWN rail tick instead of unmounting them when
+              // the ribbon is collapsed at rest. A non-recurring event chip already morphs to the
+              // EXACT collapsed tick geometry (same width/height/top/colour), so keeping it mounted
+              // lets it simply BE the tick. Collapse → rest → uncollapse is then ONE continuous
+              // single-element morph whether or not you wait, and the old chip→tick hand-off (with its
+              // ~2s swap jump and the less-smooth late-uncollapse remount) is gone entirely. Recurring
+              // series (drawn as dot rows in the rail pass), rollup bands, and hidden ribbons keep
+              // unmounting exactly as before.
+              const isRecurringBar = b.kind === "recur" || !!b.entity?.schedule?.repeat
+              const persistAsTick = !!blk && blk.collapsed && !blk.hidden && b.kind !== "band" && !isRecurringBar
+              if (blk && !showExpanded(blk) && !persistAsTick) return null
               const expOpacity = blk ? expandedOpacity(blk) : 1
               // Is THIS bar's block mid-morph (zoom window or its mother's manual-fold
               // window)? Drives the width tween + enter opacity so a manually-folded
@@ -2502,6 +2508,31 @@ export function TimelineStrip({
               const isOpen = b.entity ? stack.includes(b.entity.id) : false
               const dim = (b.cancelled ? 0.45 : 1) * relatedFactor(b.entity?.parentId, b.entity?.id)
               const markerColor = b.color || "var(--muted-foreground)"
+              // When this chip is COLLAPSED (it now persists as its own rail tick), it absorbs the
+              // duties the separate rail tick used to own: it GLOWS while its rail (or itself) is
+              // hovered, and it feeds the shared floating glyph tooltip on hover. `rkForBar` matches
+              // the rail pass's `rk` so whole-rail hover lights every tick in lockstep.
+              const rkForBar = blk ? (blk.m.motherId ?? `root:${blk.m.baseLane}`) : null
+              const railHovered = rkForBar != null && hoveredMother === rkForBar
+              const tickGlow = collapsedTarget && (railHovered || hoveredTick?.key === b.key)
+              const tickGlowColor = b.color || NEUTRAL_MARKER
+              const onCollapsedTickEnter = () => {
+                if (!collapsedTarget || !rkForBar) return
+                setHoveredMother(rkForBar)
+                setHoveredTick({
+                  key: b.key,
+                  leftPct: left,
+                  top: blk ? offsetY + blk.top : barTop(lane),
+                  title: b.title,
+                  kind: (b.entity?.kind as NodeKind) ?? "event",
+                  color: tickGlowColor,
+                })
+              }
+              const onCollapsedTickLeave = () => {
+                if (!rkForBar) return
+                setHoveredMother((h) => (h === rkForBar ? null : h))
+                setHoveredTick((t) => (t?.key === b.key ? null : t))
+              }
 
               // COLLAPSED MARKER — when the span is too narrow for a labeled chip, it
               // becomes a smooth horizontal line the width of the span, a vertical
@@ -2530,12 +2561,16 @@ export function TimelineStrip({
                     }
                     onClick={() => b.entity && openFromChip(b.entity.id)}
                     onContextMenu={(ev) => b.entity && openMenu(ev, b.entity)}
+                    onMouseEnter={onCollapsedTickEnter}
+                    onMouseLeave={onCollapsedTickLeave}
                     aria-current={isOpen ? "true" : undefined}
                     title={b.title}
                     className="absolute flex cursor-pointer items-end overflow-visible transition-[filter] duration-300 ease-out hover:brightness-110"
                     // EXPERIMENT 2: uniform entity scale (scaleX pairs with the parent scaleY so the
                     // marker line + vertical connector + bleeding title shrink uniformly, not squished).
-                    style={{ scaleX: entityScaleX, left: boxStyle.left, width: boxStyle.width, height: laneH }}
+                    // Collapsed: drop the +2px inter-chip gap so the resting tick sits at its TRUE time
+                    // position (pixel-aligned with recurring ticks), exactly where the old rail tick was.
+                    style={{ scaleX: entityScaleX, left: collapsedTarget ? `${left}%` : boxStyle.left, width: boxStyle.width, height: laneH }}
                   >
                     {/* vertical color connector rising from the duration line ��� shrinks
                         away on collapse so the marker flattens into its rail tick. */}
@@ -2637,14 +2672,18 @@ export function TimelineStrip({
                     // bleeding title — shrink uniformly toward its time-center instead of being
                     // vertically squished. =1 (no-op) when the flag is off.
                     scaleX: entityScaleX,
-                    left: boxStyle.left,
-                    // Collapse target must EXACTLY match the rail tick it hands off to (line ~2065:
-                    // `max(3px, widthPct%)`), with a PIXEL floor — a `0.6%`-of-track floor made the
-                    // chip morph to ~16px on an ultrawide before the thin tick took over, so it
-                    // flashed fat for ~1s. Pixel floor is identical on every screen → seamless.
+                    // Collapsed: sit at the TRUE time position (`left%`, no +2px inter-chip gap) so the
+                    // resting chip is pixel-aligned with recurring ticks — exactly where the old rail
+                    // tick lived. The 2px is glided away (not snapped) DURING the fold via the `left`
+                    // transition below, and only while animating, so at rest left/width still track the
+                    // zoom instantly (no pan/zoom lag).
+                    left: collapsedTarget ? `${left}%` : boxStyle.left,
+                    // Collapse target width is the rail-tick width with a PIXEL floor — a `0.6%`-of-track
+                    // floor made the chip morph to ~16px on an ultrawide, flashing fat for ~1s. Pixel
+                    // floor is identical on every screen → seamless.
                     width: collapsedTarget ? `max(3px, ${widthPct}%)` : boxStyle.width,
                     transition: barAnimating
-                      ? `width ${collapsedTarget ? COLLAPSE_MS : EXPAND_MS}ms ${collapsedTarget ? "ease-out" : EXPAND_EASE_CSS}`
+                      ? `width ${collapsedTarget ? COLLAPSE_MS : EXPAND_MS}ms ${collapsedTarget ? "ease-out" : EXPAND_EASE_CSS}, left ${collapsedTarget ? COLLAPSE_MS : EXPAND_MS}ms ${collapsedTarget ? "ease-out" : EXPAND_EASE_CSS}`
                       : undefined,
                   }}
                 >
@@ -2665,6 +2704,8 @@ export function TimelineStrip({
                     transition={barAnimating ? { opacity: { duration: 0.2, ease: "easeOut" } } : panelTransition}
                     onClick={() => b.entity && openFromChip(b.entity.id)}
                     onContextMenu={(ev) => b.entity && openMenu(ev, b.entity)}
+                    onMouseEnter={onCollapsedTickEnter}
+                    onMouseLeave={onCollapsedTickLeave}
                     aria-current={isOpen ? "true" : undefined}
                     title={b.title}
                     className={cn(
@@ -2700,6 +2741,9 @@ export function TimelineStrip({
                       // Gradual fill crossfade matched to the fold's own duration/curve (not a fixed
                       // 300ms) so the chip darkens smoothly across the whole morph — see fillTransition.
                       transition: fillTransition,
+                      // Collapsed-tick glow when its rail (or itself) is hovered — parity with the old
+                      // rail tick's `0 0 6px` halo. Undefined otherwise so the `shadow-sm` class wins.
+                      boxShadow: tickGlow ? `0 0 6px ${tickGlowColor}` : undefined,
                     }}
                   >
                     {/* kind GLYPH + title. Wrapped so they fade as ONE unit and, crucially,
@@ -2867,76 +2911,15 @@ export function TimelineStrip({
                         </div>
                       )
                     }
-                    const left = pct(b.from)
-                    const widthPct = ((b.to - b.from) / spanMs) * 100
-                    if (left > 100 || left + widthPct < 0) return null
-                    // A single fine-grain occurrence of a RECURRING series (e.g. each
-                    // Workout) stays a thin PROPORTIONAL segment (floored at 1px) using
-                    // the same widthPct as everything else — no 0.6%/3px floor that
-                    // would inflate a brief event into a round blob. One-off events keep
-                    // the visible floor so a lone meeting doesn't shrink to nothing.
-                    const isRecurring = !!b.entity?.schedule?.repeat
-                    // SINGLE VISIBLE TICK. A non-recurring event already has a morphing CHIP that stays
-                    // opaque and "becomes the span" as it compresses onto this exact tick (see the bar
-                    // pass). Painting this rail tick simultaneously during the fold doubled them up. So
-                    // while this ribbon is actively collapsing, keep the chip as the SOLE actor and hold
-                    // this tick invisible; the instant the chip unmounts at fold-end (same commit that
-                    // ends `collapsingNow`) the tick appears at full opacity — identical shape/width/
-                    // colour/position, so the hand-off is unseen. Recurring dots have no single chip
-                    // actor, so they keep their normal entrance.
-                    const chipIsActor = collapsingNow && !isRecurring
-                    return (
-                      <div
-                        key={`railtick:${b.key}`}
-                        className={cn(
-                          "absolute z-10 cursor-pointer rounded-full duration-150",
-                          !chipIsActor && "animate-in fade-in",
-                        )}
-                        // Click a tick on a collapsed-thin rail to OPEN its entity (same as clicking the
-                        // event's chip on an open lane). The tick sits above the rail button (z-10 vs z-0,
-                        // sibling) so this never triggers the rail's "expand lane" click. The rail body
-                        // between ticks still expands the lane.
-                        onClick={() => b.entity && openFromChip(b.entity.id)}
-                        onContextMenu={(e) => b.entity && openMenu(e, b.entity)}
-                        onMouseEnter={() => {
-                          setHoveredMother(rk)
-                          setHoveredTick({
-                            key: b.key,
-                            leftPct: left,
-                            top: railY,
-                            title: b.title,
-                            kind: (b.entity?.kind as NodeKind) ?? "event",
-                            color,
-                          })
-                        }}
-                        onMouseLeave={() => {
-                          setHoveredMother((h) => (h === rk ? null : h))
-                          setHoveredTick((t) => (t?.key === b.key ? null : t))
-                        }}
-                        style={{
-                          left: `${left}%`,
-                          // PIXEL floor, never a % of the track: a `0.6%` floor scaled with the
-                          // viewport, so on an ultrawide monitor a 1hr event ballooned into a
-                          // ~15px bar. `max(<px>, widthPct%)` keeps the tick proportional to its
-                          // true duration but guarantees a fixed minimum on every screen (3px for
-                          // a one-off so it stays clickable, 1px for a dense recurrence).
-                          width: `max(${isRecurring ? "1px" : "3px"}, ${widthPct}%)`,
-                          top: railY + 1,
-                          height: RAIL_H - 2,
-                          backgroundColor: color,
-                          // Shape + position immunity (shares the rail's vertical center) — keeps the tick
-                          // its true height AND un-bunched position through the zoom press.
-                          transform: collapsedXform(railY + RAIL_H / 2),
-                          opacity:
-                            chipIsActor || uncollapsing || hidingNow ? 0 : tickLit(hoveredTickKey === b.key) ? 1 : 0.85,
-                          boxShadow: tickLit(hoveredTickKey === b.key) ? `0 0 6px ${color}` : undefined,
-                          // Opacity eases (150ms) only for the expand/hide FADES; the collapse→rest
-                          // hand-off is INSTANT (0ms) so the tick is already solid the frame the chip
-                          // unmounts — no post-unmount re-fade flicker.
-                          transition: `${tickTopCss}, opacity ${uncollapsing || hidingNow ? 150 : 0}ms`,
-                        }}
-                      />
-                    )
+                    // SINGLE-EVENT TICK — REMOVED. A non-recurring event is now drawn SOLELY by its
+                    // morphing chip in the bar pass, which PERSISTS at rest collapsed (see `persistAsTick`)
+                    // and already sits at this exact geometry (same width/height/top/colour/position). So
+                    // there is no separate rail tick to render, hand off to, or swap with — killing the old
+                    // ~2s chip→tick jump and making collapse/uncollapse one continuous morph either way. Its
+                    // duties (open-on-click, glow, the shared glyph tooltip) moved onto the collapsed chip.
+                    // Recurring series are still drawn as their downsampled dot row above; everything else
+                    // (one-offs, scheduled spaces) is owned by the persistent chip, so render nothing here.
+                    return null
                   })
                   .filter(Boolean)
               })}
