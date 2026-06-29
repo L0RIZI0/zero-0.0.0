@@ -166,11 +166,11 @@ const REFLOW_MS = Math.round(COLLAPSE_MS * 1.75)
 //    eases slowly to rest. Collapse already used "ease-out" everywhere (also prompt).
 const EXPAND_EASE: [number, number, number, number] = [0.45, 0, 0.25, 1]
 const EXPAND_EASE_CSS = "cubic-bezier(0.45, 0, 0.25, 1)"
-// Strongly BACK-LOADED ease-in (easeInExpo-ish): the value barely moves for the first ~60% then
-// shoots up at the very end. Used for the collapse FADE of chip fills + rail ticks so they stay
-// faint/translucent through most of the fold and only "ink in" right as the chip lands on its tick
-// (user: opacity should "increase mostly at the end", not linearly). NOT used for geometry.
-const FILL_IN_EASE_CSS = "cubic-bezier(0.7, 0, 0.84, 0)"
+// BACK-LOADED ease-in (easeInQuad-ish): stays low through the first part of the fold then ramps up,
+// but begins inking in around the MIDDLE rather than only at the very end. Used for the collapse fill
+// of the morphing chip (the sole visible actor during a fold) so it reads faint early and solid as it
+// lands on its tick (user: "mostly at the end, but not so late"). NOT used for geometry.
+const FILL_IN_EASE_CSS = "cubic-bezier(0.5, 0, 0.7, 0.35)"
 // PURE LONG EASE-OUT, NO EASE-IN (user: do-list "should have no ease-in just a long
 // ease-out"). The previous ease-out-cubic had p1x=0.215 — a slight ease-IN lip that delayed
 // the very start, so the do-list still read as moving "too late". This curve has p1x=0 (no
@@ -2659,17 +2659,11 @@ export function TimelineStrip({
                 // zoom-expand, 300ms ease-out otherwise) so ticks glide in lockstep with their rail.
                 const railTopReflow = reflowTransition("top")
                 const tickTopCss = railTopReflow === "none" ? "top 0ms" : (railTopReflow ?? "top 300ms ease-out")
-                // Single ticks also keep their own 150ms opacity fade; recur dots transition opacity
-                // on the inner elements, so their container only needs the `top` glide.
-                const tickTransition = `${tickTopCss}, opacity 150ms`
-                // BACK-LOADED TICK ENTRANCE. The tick `animate-in fade-in` normally inks in over a
-                // quick front-loaded 150ms. While a ribbon is actively FOLDING, stretch that entrance
-                // across the whole fold with the same back-loaded ease-in as the chip fill, so the
-                // tick stays faint through most of the collapse and only inks to solid right at the end
-                // — chip and tick reach full opacity together, preserving the seamless hand-off as the
-                // chip unmounts onto the tick. Only while collapsing (not when panning new ticks into
-                // view, nor on expand/hide) so scrolling stays snappy.
                 const collapsingNow = blkAnimating(blk) && blk.collapsed && !blk.hidden
+                // RECUR-DOT ENTRANCE. Recurring occurrence dots have no single morphing chip actor, so
+                // they keep a fade-in entrance; while actively folding, stretch it across the fold with
+                // the back-loaded ease-in so they ink in toward the end like the chip fills. (Single
+                // event ticks instead stay hidden during the fold — the chip is their sole actor.)
                 const tickEnter = collapsingNow
                   ? { animationDuration: `${COLLAPSE_MS}ms`, animationTimingFunction: FILL_IN_EASE_CSS }
                   : undefined
@@ -2748,10 +2742,22 @@ export function TimelineStrip({
                     // would inflate a brief event into a round blob. One-off events keep
                     // the visible floor so a lone meeting doesn't shrink to nothing.
                     const isRecurring = !!b.entity?.schedule?.repeat
+                    // SINGLE VISIBLE TICK. A non-recurring event already has a morphing CHIP that stays
+                    // opaque and "becomes the span" as it compresses onto this exact tick (see the bar
+                    // pass). Painting this rail tick simultaneously during the fold doubled them up. So
+                    // while this ribbon is actively collapsing, keep the chip as the SOLE actor and hold
+                    // this tick invisible; the instant the chip unmounts at fold-end (same commit that
+                    // ends `collapsingNow`) the tick appears at full opacity — identical shape/width/
+                    // colour/position, so the hand-off is unseen. Recurring dots have no single chip
+                    // actor, so they keep their normal entrance.
+                    const chipIsActor = collapsingNow && !isRecurring
                     return (
                       <div
                         key={`railtick:${b.key}`}
-                        className="absolute z-10 cursor-pointer rounded-full duration-150 animate-in fade-in"
+                        className={cn(
+                          "absolute z-10 cursor-pointer rounded-full duration-150",
+                          !chipIsActor && "animate-in fade-in",
+                        )}
                         // Click a tick on a collapsed-thin rail to OPEN its entity (same as clicking the
                         // event's chip on an open lane). The tick sits above the rail button (z-10 vs z-0,
                         // sibling) so this never triggers the rail's "expand lane" click. The rail body
@@ -2787,10 +2793,13 @@ export function TimelineStrip({
                           // Shape + position immunity (shares the rail's vertical center) — keeps the tick
                           // its true height AND un-bunched position through the zoom press.
                           transform: collapsedXform(railY + RAIL_H / 2),
-                          opacity: uncollapsing || hidingNow ? 0 : tickLit(hoveredTickKey === b.key) ? 1 : 0.85,
+                          opacity:
+                            chipIsActor || uncollapsing || hidingNow ? 0 : tickLit(hoveredTickKey === b.key) ? 1 : 0.85,
                           boxShadow: tickLit(hoveredTickKey === b.key) ? `0 0 6px ${color}` : undefined,
-                          transition: tickTransition,
-                          ...tickEnter,
+                          // Opacity eases (150ms) only for the expand/hide FADES; the collapse→rest
+                          // hand-off is INSTANT (0ms) so the tick is already solid the frame the chip
+                          // unmounts — no post-unmount re-fade flicker.
+                          transition: `${tickTopCss}, opacity ${uncollapsing || hidingNow ? 150 : 0}ms`,
                         }}
                       />
                     )
