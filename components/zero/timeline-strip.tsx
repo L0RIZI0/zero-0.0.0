@@ -736,6 +736,10 @@ export function TimelineStrip({
     maxSpan: MAX_SPAN_MS,
     // Re-bind the wheel listener once the real viewport replaces the placeholder.
     enabled: mounted,
+    // While the Atlas is open it owns input and forwards wheel into the viewport itself
+    // (see the forwarder effect), so the window-level proximity handler must stand down to
+    // avoid double-zoom; the viewport listener still receives the forwarded events.
+    active: !atlas,
     onGestureStart: () => {
       animRef.current?.stop()
     },

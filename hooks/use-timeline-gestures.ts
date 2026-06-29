@@ -51,6 +51,17 @@ interface Options {
    *  stable, this flag is what re-runs the bind effect so the listener lands on
    *  the live element instead of the discarded placeholder. */
   enabled?: boolean
+  /** When false the window-level proximity wheel handler bails (e.g. while the Atlas
+   *  backdrop owns input and forwards wheel into the viewport itself). The viewport's
+   *  own listener stays bound so forwarded/synthetic events still zoom. Defaults true. */
+  active?: boolean
+  /** Horizontal / vertical padding (px) added around the viewport to form the
+   *  PROXIMITY HOT-ZONE: the wheel zooms/pans whenever the cursor is within the strip
+   *  PLUS this margin, so you can scroll while merely *near* the timeline and — crucially
+   *  — keep zooming when the strip shrinks (rows collapse on zoom-out) and slips out from
+   *  under the cursor. Sensible defaults; tune from the strip if needed. */
+  hotMarginX?: number
+  hotMarginY?: number
   /** Called when a gesture starts / ends (drives the strip's "moving" flag, and
    *  lets it stop any running tween). */
   onGestureStart?: () => void
@@ -85,6 +96,12 @@ const MAX_DT = 1 / 30
 const SPAN_EPS = 1e-3 // log-ratio position
 const START_EPS = 1e-4 // start position, as a fraction of span
 const VEL_EPS = 1e-3 // velocity, relative (1/s) — keeps the spring from idling
+// How long after the last in-zone wheel notch the gesture stays "latched" to the window.
+// While latched (or while the ease loop is still running) the proximity hot-zone relaxes its
+// VERTICAL bound, so a continuous zoom-out that collapses rows and shrinks the strip away from
+// the cursor keeps zooming instead of dropping the moment the cursor falls past the strip edge.
+// A touch longer than the gap between physical mouse-wheel notches so a steady scroll stays latched.
+const LATCH_MS = 160
 
 /** Analytic one-step solver for a damped harmonic oscillator chasing `target`.
  *  Handles both the underdamped (ζ<1, overshoots) and critically-damped (ζ=1) cases,
@@ -131,6 +148,9 @@ export function useTimelineGestures({
   minSpan,
   maxSpan,
   enabled = true,
+  active = true,
+  hotMarginX = 64,
+  hotMarginY = 44,
   onGestureStart,
   onGestureEnd,
 }: Options) {
@@ -145,6 +165,13 @@ export function useTimelineGestures({
   startCbRef.current = onGestureStart
   const endCbRef = useRef(onGestureEnd)
   endCbRef.current = onGestureEnd
+  // Mirror `active` so the once-bound window listener reads it fresh (Atlas toggling
+  // shouldn't force a wheel-listener rebind).
+  const activeRef = useRef(active)
+  activeRef.current = active
+  // Timestamp (perf clock) of the last wheel notch we accepted inside the hot-zone — the
+  // basis for the LATCH window (see LATCH_MS).
+  const lastInsideRef = useRef(0)
 
   // Eased-gesture state. `current` is the last view we committed; `target` is
   // where accumulated wheel input wants it to go. Both are null while idle, so a
@@ -246,9 +273,11 @@ export function useTimelineGestures({
     }
 
     // --- Wheel: zoom (vertical) + pan (horizontal) -------------------------
-    const onWheel = (e: WheelEvent) => {
+    // The core gesture math, given the viewport `rect` (its width/left define the time
+    // axis; height is only used to normalize line/page deltas). Shared by the two
+    // listeners below so the viewport-direct path and the proximity path behave identically.
+    const applyWheel = (e: WheelEvent, rect: DOMRect) => {
       e.preventDefault() // stop the page/region from scrolling
-      const rect = el.getBoundingClientRect()
       const width = rect.width || 1
       // Seed gesture state from the live prop the first time, so we glide from
       // exactly where the view currently is — and start the spring at rest.
@@ -285,9 +314,48 @@ export function useTimelineGestures({
       ensureLoop()
     }
 
-    el.addEventListener("wheel", onWheel, { passive: false })
+    // Per-event dedupe: a real wheel over the viewport bubbles through BOTH listeners
+    // (viewport fires first, then window). The viewport listener tags the event so the
+    // window listener skips it — no double application. WeakSet auto-evicts as events GC.
+    const handledEvents = new WeakSet<WheelEvent>()
+
+    // (1) VIEWPORT listener — unchanged role: catches wheel directly over the strip AND the
+    // synthetic events the Atlas forwarder dispatches onto the viewport (bubbles:false, so
+    // those never reach the window listener).
+    const onElWheel = (e: WheelEvent) => {
+      handledEvents.add(e)
+      lastInsideRef.current = performance.now()
+      applyWheel(e, el.getBoundingClientRect())
+    }
+
+    // (2) WINDOW listener — the PROXIMITY HOT-ZONE. Catches wheel when the cursor is NEAR
+    // the strip (within the margin) or has slipped off it because the strip shrank mid-zoom.
+    const onWinWheel = (e: WheelEvent) => {
+      if (!activeRef.current) return // Atlas owns input; let the forwarder + viewport listener handle it
+      if (handledEvents.has(e)) return // already applied by the viewport listener
+      const vpEl = viewportRef.current
+      if (!vpEl) return
+      const rect = vpEl.getBoundingClientRect()
+      if (rect.width === 0 && rect.height === 0) return
+      const now = performance.now()
+      // LATCH: while the ease loop is still running, or within LATCH_MS of the last accepted
+      // notch, a gesture is "in progress" — relax the vertical bound so a zoom-out that
+      // collapses rows and shrinks the strip past the cursor keeps zooming.
+      const gestureActive = rafRef.current != null || now - lastInsideRef.current < LATCH_MS
+      const inX = e.clientX >= rect.left - hotMarginX && e.clientX <= rect.right + hotMarginX
+      const inY = e.clientY >= rect.top - hotMarginY && e.clientY <= rect.bottom + hotMarginY
+      // Horizontal is always required (never hijack scrolls in a different column); vertical is
+      // required only when NOT mid-gesture.
+      if (!inX || (!inY && !gestureActive)) return
+      lastInsideRef.current = now
+      applyWheel(e, rect)
+    }
+
+    el.addEventListener("wheel", onElWheel, { passive: false })
+    window.addEventListener("wheel", onWinWheel, { passive: false })
     return () => {
-      el.removeEventListener("wheel", onWheel)
+      el.removeEventListener("wheel", onElWheel)
+      window.removeEventListener("wheel", onWinWheel)
       if (rafRef.current != null) cancelAnimationFrame(rafRef.current)
       rafRef.current = null
       lastTRef.current = null
@@ -299,9 +367,10 @@ export function useTimelineGestures({
     }
     // `enabled` is included so the listener re-binds when the real viewport
     // replaces the pre-hydration placeholder. viewportRef is stable; bounds rarely
-    // change.
+    // change. `active` and the latch timestamp are read via refs so toggling them never
+    // rebinds; the hot-zone margins are stable but included for correctness.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [viewportRef, minSpan, maxSpan, enabled])
+  }, [viewportRef, minSpan, maxSpan, enabled, hotMarginX, hotMarginY])
 
   // Did the most recent pointer interaction travel far enough to count as a DRAG
   // (rather than a click)? Children of the viewport (ribbons) have their own onClick;
