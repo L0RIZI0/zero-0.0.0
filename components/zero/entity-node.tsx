@@ -1136,6 +1136,20 @@ export function EntityNode({
             >
               {entity.title}
             </span>
+            {/* OCCURRENCE DATE (Phase 2): a materialized recurrence occurrence
+                (recurrenceId set) shares the mother's title ("Workout"), so when its
+                window is open we append the specific day it stands for. Gated to the
+                open, non-spine window state so it never interferes with the row/spine
+                title morph (it simply isn't rendered there). */}
+            {asWindow && !isSpine && entity.recurrenceId != null && (
+              <span className="ml-2 shrink-0 whitespace-nowrap text-[11px] font-normal text-muted-foreground/70 tabular-nums">
+                {new Date(entity.recurrenceId).toLocaleDateString(undefined, {
+                  weekday: "short",
+                  month: "short",
+                  day: "numeric",
+                })}
+              </span>
+            )}
           </h3>
 
           {/* Collapsed trailing meta ��� counts / time / due / priority. Hidden in
