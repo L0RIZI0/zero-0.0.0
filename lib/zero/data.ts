@@ -1,5 +1,6 @@
 import type { Asset, Entity, EntityKind, Recurrence, Resource, User } from "./types"
 import { readUserItems, writeUserItems } from "./persistence"
+import type { ScheduleParse } from "./schedule-parse"
 
 export const currentUser: User = {
   id: "u_self",
@@ -1399,6 +1400,101 @@ export function changeEntityKind(id: string, kind: EntityKind): void {
     entity.assignedResourceIds = entity.assignedResourceIds ?? []
   }
   persist()
+}
+
+/**
+ * Apply a parsed natural-language schedule (see {@link ScheduleParse}) to an EXISTING
+ * entity, upgrading it in place. This is the landing point for the NL → recurrence
+ * slice: the do-list creates a plain task synchronously (so the create→select→open
+ * gesture is untouched), then — once the async parse returns — calls this to retitle
+ * the row, switch it to the parsed kind, and attach an absolute `Schedule` (including a
+ * `repeat` rule for recurring phrases).
+ *
+ * All the timezone math happens HERE, on the client, where local "today" is known. The
+ * model only ever emits relative fields (a time-of-day, a duration, "until in N days"),
+ * so it can never hallucinate an epoch. This deliberately writes ONE entity carrying the
+ * rule — occurrences stay virtual (expanded by getTimelineOccurrences) — matching Zero's
+ * rule-as-truth model; we do NOT materialize 365 child rows here.
+ *
+ * Returns true if the entity existed and was updated.
+ */
+export function applyParsedSchedule(id: string, plan: ScheduleParse): boolean {
+  const entity = byId.get(id)
+  if (!entity) return false
+
+  if (plan.title.trim()) entity.title = plan.title.trim()
+
+  // Nothing time-related — just keep the (now retitled) plain task.
+  if (!plan.isSchedule) {
+    persist()
+    return true
+  }
+
+  entity.kind = plan.kind
+
+  // Local midnight today, and the time-of-day for the (first) occurrence.
+  const today0 = (() => {
+    const d = new Date()
+    d.setHours(0, 0, 0, 0)
+    return d.getTime()
+  })()
+  const hour = plan.startHour ?? 9
+  const minute = plan.startMinute ?? 0
+  const timeOfDayMs = hour * 3_600_000 + minute * 60_000
+
+  // Build the repeat rule first; its byWeekday also drives where the ANCHOR day lands so
+  // the weekly week-phase is correct from day one.
+  let repeat: Recurrence | undefined
+  if (plan.repeat) {
+    const r = plan.repeat
+    repeat = { freq: r.freq }
+    if (r.interval && r.interval > 1) repeat.interval = r.interval
+    if (r.freq === "weekly" && r.byWeekday && r.byWeekday.length > 0) {
+      repeat.byWeekday = [...new Set(r.byWeekday)].sort((a, b) => a - b)
+    }
+    if (r.untilInDays != null) {
+      // Inclusive end: end of the day N days from today.
+      repeat.until = today0 + r.untilInDays * DAY_MS + (DAY_MS - 1)
+    }
+  }
+
+  // ANCHOR DAY: the first day on/after today the series actually lands on. For a weekly
+  // rule with explicit weekdays, advance to the first allowed weekday so dayMatchesRecurrence
+  // (which anchors on this start) computes the right phase; otherwise today.
+  let anchorDay = today0
+  if (repeat?.freq === "weekly" && repeat.byWeekday && repeat.byWeekday.length > 0) {
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(today0 + i * DAY_MS)
+      if (repeat.byWeekday.includes(d.getDay())) {
+        anchorDay = today0 + i * DAY_MS
+        break
+      }
+    }
+  }
+  const startAt = anchorDay + timeOfDayMs
+
+  if (plan.kind === "instant") {
+    entity.schedule = { at: startAt, ...(repeat ? { repeat } : {}) }
+  } else if (plan.kind === "event") {
+    const durMin = plan.durationMinutes ?? 60
+    entity.schedule = { startAt, endAt: startAt + durMin * 60_000, ...(repeat ? { repeat } : {}) }
+  } else {
+    // task: keep it a task, but attach timing. A recurring task carries the repeat rule;
+    // a one-off task with a deadline gets dueAt.
+    const sched: NonNullable<Entity["schedule"]> = {}
+    if (repeat) {
+      sched.startAt = startAt
+      sched.repeat = repeat
+    } else if (plan.dueInDays != null) {
+      sched.dueAt = today0 + plan.dueInDays * DAY_MS + timeOfDayMs
+    }
+    entity.schedule = Object.keys(sched).length > 0 ? sched : entity.schedule
+    entity.completed = entity.completed ?? false
+    entity.priority = entity.priority ?? "medium"
+  }
+
+  persist()
+  return true
 }
 
 /**
