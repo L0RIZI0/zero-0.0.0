@@ -1294,6 +1294,23 @@ export function TimelineStrip({
   // NO counter, so they keep visibly compressing under the press until they pop into a rail.
   const collapsedDescaleY =
     condenseScaleVisual >= 0.999 ? "" : ` scaleY(${1 / Math.max(condenseScaleVisual, 0.05)})`
+  // COLLAPSED-RIBBON POSITION IMMUNITY. Shape immunity alone keeps each rail its true thin height, but
+  // their vertical CENTERS still ride the squished plane — so mid-zoom the rails bunch together and
+  // their name-tags overlap (they only regain spacing once `condenseScale` snaps back to 1 at the fold).
+  // Counter that too: under the plane's `scaleY(s)` about its center, an element at local center `cY`
+  // drifts by `(cY − planeCenter)(s − 1)`. A `translateY(d)` on the element is itself scaled by the
+  // parent (screen shift = d·s), so `d = (cY − planeCenter)(1 − s)/s` cancels the drift exactly. The
+  // RELATIVE spacing this restores between two rails is independent of `planeCenter`, so any reasonable
+  // estimate (the plane's own box center) removes the overlap robustly. Still pure GPU transform — no
+  // reflow — so it stays smooth. Returns the full transform string (incl. the shape inverse) for a
+  // collapsed element, given its local center and an optional prefix (e.g. a label's own translateY).
+  const planeH = reflowCondensing ? bandHRender : trackH
+  const collapsedXform = (centerY: number, prefix = "") => {
+    if (condenseScaleVisual >= 0.999) return prefix.trim() || undefined
+    const s = Math.max(condenseScaleVisual, 0.05)
+    const d = ((centerY - planeH / 2) * (1 - s)) / s
+    return `${prefix} translateY(${d.toFixed(2)}px) scaleY(${(1 / s).toFixed(4)})`.trim()
+  }
   // The lane scaleY is now driven in JS (see `condenseScaleVisual`); a CSS `transform` transition
   // would re-tween every JS step and lag, so the centering layer no longer transitions transform.
   const laneScaleTransition = undefined
@@ -2172,11 +2189,9 @@ export function TimelineStrip({
                   opacity: blk.hidden ? (hoveredMother === rk ? 1 : UNRELATED_OPACITY) : collapsedOpacity(blk),
                   backgroundColor: blk.hidden ? blk.m.color || "#ffffff" : `${blk.m.color}1f`,
                   borderLeft: blk.hidden ? "none" : `2px solid ${blk.m.color}`,
-                  // SHAPE IMMUNITY: cancel the plane's vertical squish about the rail's own center so
-                  // the thin bar keeps its true RAIL_H/HIDDEN_H through the zoom press (its center
-                  // still rides the plane → no reflow, stays smooth). No-op at rest. See
-                  // `collapsedDescaleY`.
-                  transform: collapsedDescaleY.trim() || undefined,
+                  // SHAPE + POSITION IMMUNITY: keep the thin bar its true RAIL_H/HIDDEN_H AND restore its
+                  // un-compressed spacing so rails don't bunch/overlap mid-zoom (see `collapsedXform`).
+                  transform: collapsedXform(offsetY + blk.top + (blk.hidden ? HIDDEN_H : RAIL_H) / 2),
                   // A collapsed sibling rail (e.g. Health) must slide with the reflow too.
                   transition: reflowTransition("top, filter, opacity, height, background-color"),
                 } as const
@@ -2659,9 +2674,9 @@ export function TimelineStrip({
                             right: 0,
                             top: railY + 1,
                             height: RAIL_H - 2,
-                            // Same shape immunity as the rail: this dot-row shares the rail's vertical
-                            // center, so the inverse scaleY un-squishes the dots in lockstep with the bar.
-                            transform: collapsedDescaleY.trim() || undefined,
+                            // Same shape + position immunity as the rail: this dot-row shares the rail's
+                            // vertical center, so it un-squishes AND un-bunches in lockstep with the bar.
+                            transform: collapsedXform(railY + RAIL_H / 2),
                             transition: tickTopCss,
                           }}
                         >
@@ -2727,9 +2742,9 @@ export function TimelineStrip({
                           top: railY + 1,
                           height: RAIL_H - 2,
                           backgroundColor: color,
-                          // Shape immunity (shares the rail's vertical center) — keeps the tick its
-                          // true height through the zoom press instead of being squished with the plane.
-                          transform: collapsedDescaleY.trim() || undefined,
+                          // Shape + position immunity (shares the rail's vertical center) — keeps the tick
+                          // its true height AND un-bunched position through the zoom press.
+                          transform: collapsedXform(railY + RAIL_H / 2),
                           opacity: uncollapsing || hidingNow ? 0 : tickLit(hoveredTickKey === b.key) ? 1 : 0.85,
                           boxShadow: tickLit(hoveredTickKey === b.key) ? `0 0 6px ${color}` : undefined,
                           transition: tickTransition,
@@ -2957,15 +2972,16 @@ export function TimelineStrip({
                   onMouseLeave: () => setHoveredMother((h) => (h === rk ? null : h)),
                 }
                 // These rail labels live INSIDE the centering plane (scaleY squish). Use the shared
-                // collapsed-ribbon inverse so the pill keeps true proportions through the morph (see
-                // `collapsedDescaleY`); the rail bar + ticks for this same ribbon use it too.
-                const labelDescaleY = collapsedDescaleY
+                // collapsed-ribbon transform so the pill keeps true proportions AND un-bunched spacing
+                // through the morph (see `collapsedXform`); the rail bar + ticks use it too. The label's
+                // own `translateY(-50%)` (centering it on the rail) is passed as the prefix.
+                const labelCenterY = offsetY + blk.top + blk.height / 2
                 const wrapStyle = {
                   left: 4,
                   // Center on the block's own height: RAIL_H for a thin rail, the 1px sliver for
                   // a fully-hidden mother (so the title chip sits between its neighbours).
-                  top: offsetY + blk.top + blk.height / 2,
-                  transform: `translateY(-50%)${labelDescaleY}`,
+                  top: labelCenterY,
+                  transform: collapsedXform(labelCenterY, "translateY(-50%)"),
                   opacity: labelOp,
                   // Slide the label with the reflow (a sibling rail label, e.g. Health,
                   // would otherwise JUMP to its new y while everything else glided).
@@ -3021,9 +3037,9 @@ export function TimelineStrip({
                       className="absolute z-20 flex cursor-default items-center"
                       style={{
                         left: 4,
-                        top: offsetY + blk.top + blk.height / 2,
+                        top: labelCenterY,
                         height: blk.height + MOTHER_GAP,
-                        transform: `translateY(-50%)${labelDescaleY}`,
+                        transform: collapsedXform(labelCenterY, "translateY(-50%)"),
                         transition: reflowTransition("top"),
                       }}
                       onClick={() => expandMother(mId)}
