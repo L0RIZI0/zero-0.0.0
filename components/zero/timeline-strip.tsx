@@ -2151,7 +2151,6 @@ export function TimelineStrip({
                     key={`mbody:${mId}`}
                     type="button"
                     aria-label={`Collapse ${blk.m.title}`}
-                    title={`Collapse ${blk.m.title}`}
                     onClick={() => collapseMother(mId)}
                     className="absolute z-0 cursor-default"
                     style={{
@@ -2211,7 +2210,7 @@ export function TimelineStrip({
                     type="button"
                     onClick={() => expandMother(blk.m.motherId!)}
                     {...hoverProps}
-                    title={`Expand ${blk.m.title}`}
+                    aria-label={`Expand ${blk.m.title}`}
                     className="absolute inset-x-0 z-0 cursor-default rounded-r-md transition-[top,filter,opacity] duration-300 ease-out animate-in fade-in hover:brightness-150"
                     style={railStyle}
                   />
@@ -2900,7 +2899,7 @@ export function TimelineStrip({
                     <button
                       type="button"
                       onClick={() => openFromChip(mId)}
-                      title={`Open ${blk.m.title}`}
+                      aria-label={`Open ${blk.m.title}`}
                       className="absolute inset-0 cursor-default rounded hover:brightness-125"
                     >
                       {/* The column lives inside the centering layer, which applies
@@ -3016,7 +3015,7 @@ export function TimelineStrip({
                       e.stopPropagation()
                       openFromChip(mId)
                     }}
-                    title={`Open ${blk.m.title}`}
+                    aria-label={`Open ${blk.m.title}`}
                     className="flex max-w-[36vw] items-center gap-1 rounded border border-border/70 bg-card px-1.5 py-0.5 text-[9.5px] font-medium leading-none tracking-tight text-foreground/70 shadow-sm transition-colors hover:text-foreground"
                   >
                     <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: blk.m.color }} aria-hidden />
@@ -3043,7 +3042,7 @@ export function TimelineStrip({
                         transition: reflowTransition("top"),
                       }}
                       onClick={() => expandMother(mId)}
-                      title={`Expand ${blk.m.title}`}
+                      aria-label={`Expand ${blk.m.title}`}
                       {...hoverProps}
                     >
                       <div className={cn("flex items-center transition-opacity duration-200", revealed ? "opacity-100" : "pointer-events-none opacity-0")}>
