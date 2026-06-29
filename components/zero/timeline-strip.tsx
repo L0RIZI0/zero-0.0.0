@@ -2435,6 +2435,16 @@ export function TimelineStrip({
                 )
               }
 
+              // Fill crossfade timing for the chip's faint→solid (collapse) / solid→faint (expand)
+              // background+border. It used to ride a FIXED 300ms CSS class while the geometry morph
+              // takes COLLAPSE_MS (620) / EXPAND_MS — so the chip went fully opaque <50% into the
+              // fold and then sat there ("turns opaque very early"). Drive the color off the SAME
+              // duration + curve as the geometry so it darkens gradually and lands solid exactly as
+              // the chip lands on its rail tick. At rest (not folding) keep the snappy 300ms default.
+              const fillDur = barAnimating ? (collapsedTarget ? COLLAPSE_MS : EXPAND_MS) : 300
+              const fillEase = barAnimating && !collapsedTarget ? EXPAND_EASE_CSS : "ease-out"
+              const fillTransition = `background-color ${fillDur}ms ${fillEase}, border-color ${fillDur}ms ${fillEase}`
+
               return (
                 // `transition-[top]` (NOT left/width) so a bar GLIDES vertically when
                 // a zoom repacks it into a different lane, instead of snapping — and
@@ -2530,7 +2540,7 @@ export function TimelineStrip({
                       // breathing room moves to the INNER content span (which is overflow-
                       // visible, so it bleeds past the box instead of widening it).
                       "flex h-full w-full min-w-0 items-center overflow-visible rounded-md border text-[10.5px] tracking-tight",
-                      "cursor-pointer text-foreground/85 shadow-sm transition-[filter,background-color,border-color] duration-300 ease-out hover:brightness-110",
+                      "cursor-pointer text-foreground/85 shadow-sm transition-[filter] duration-300 ease-out hover:brightness-110",
                     )}
                     style={{
                       // Chip type is a constant size; the lane-layer scaleY squishes it
@@ -2546,6 +2556,9 @@ export function TimelineStrip({
                         : b.color
                           ? `${b.color}26`
                           : "var(--secondary)",
+                      // Gradual fill crossfade matched to the fold's own duration/curve (not a fixed
+                      // 300ms) so the chip darkens smoothly across the whole morph — see fillTransition.
+                      transition: fillTransition,
                     }}
                   >
                     {/* kind GLYPH + title. Wrapped so they fade as ONE unit and, crucially,
