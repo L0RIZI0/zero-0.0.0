@@ -114,6 +114,9 @@ export function Dayline() {
   const winEnd = viewStart + DAY_MS
 
   const [hovered, setHovered] = useState<string | null>(null)
+  // Hover state for the NOW marker's time tooltip (React-driven, like the chips —
+  // the Tailwind `group-hover` variant isn't reliably compiled in this project).
+  const [nowHover, setNowHover] = useState(false)
 
   const items = useMemo<DayItem[]>(() => {
     if (!mounted) return []
@@ -274,9 +277,17 @@ export function Dayline() {
         {mounted && nowInView && (
           <div
             aria-hidden
-            className="pointer-events-none absolute -bottom-px -top-px z-30 w-[2px] -translate-x-1/2 rounded-full"
+            className="pointer-events-auto absolute -bottom-px -top-px z-30 w-[2px] -translate-x-1/2 rounded-full"
             style={{ left: `${nowPct}%`, backgroundColor: NOW_COLOR, boxShadow: `0 0 4px ${NOW_COLOR}` }}
           >
+            {/* Invisible, wider hit zone so the 2px line is hoverable in practice; it
+                toggles the time pill via React state. */}
+            <span
+              className="absolute -bottom-1 -top-1 left-1/2 w-4 -translate-x-1/2 cursor-help"
+              onMouseEnter={() => setNowHover(true)}
+              onMouseLeave={() => setNowHover(false)}
+            />
+            {/* Downward cap at the top edge. */}
             <span
               className="absolute -top-1 left-1/2 -translate-x-1/2"
               style={{
@@ -287,10 +298,25 @@ export function Dayline() {
                 borderTop: `5px solid ${NOW_COLOR}`,
               }}
             />
-            {/* Live time tooltip — always-on, pinned to the marker's center, styled to
-                match the chip hover helper (neutral card). 24h format; tabular-nums keeps
-                the digits from jittering as the minute advances. */}
-            <span className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 whitespace-nowrap rounded border border-border/70 bg-card px-2 py-1 text-[10.5px] font-medium leading-none tracking-tight tabular-nums text-foreground/80 shadow-sm">
+            {/* Matching upward cap at the bottom edge (mirror of the top triangle). */}
+            <span
+              className="absolute -bottom-1 left-1/2 -translate-x-1/2"
+              style={{
+                width: 0,
+                height: 0,
+                borderLeft: "3px solid transparent",
+                borderRight: "3px solid transparent",
+                borderBottom: `5px solid ${NOW_COLOR}`,
+              }}
+            />
+            {/* Live time tooltip — shown ONLY on hover of the marker, pinned to its center.
+                24h format; tabular-nums keeps the digits from jittering as the minute advances. */}
+            <span
+              className={cn(
+                "pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 whitespace-nowrap rounded border border-border/70 bg-card px-2 py-1 text-[10.5px] font-medium leading-none tracking-tight tabular-nums text-foreground/80 shadow-sm transition-opacity duration-150",
+                nowHover ? "opacity-100" : "opacity-0",
+              )}
+            >
               {new Date(now).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false })}
             </span>
           </div>
