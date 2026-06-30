@@ -751,7 +751,21 @@ export function DoList({
   // entity the lone input centers in the window; once items pin and the dock grows,
   // the whole (list + input) group is pushed up and the input rides just above it.
   const viewportRef = useRef<HTMLDivElement | null>(null)
+  const scrollerRef = useRef<HTMLUListElement | null>(null)
   const [dockReserve, setDockReserve] = useState(0)
+  // Whether the scroller has content hidden ABOVE / BELOW the visible band, so the
+  // matching edge fade is only painted when there's actually something to scroll to
+  // (otherwise the first/last rows would always look dimmed even at rest).
+  const [fade, setFade] = useState({ top: false, bottom: false })
+
+  const measureFade = useCallback(() => {
+    const el = scrollerRef.current
+    if (!el) return
+    // 1px tolerance absorbs sub-pixel rounding so the fade doesn't flicker at the ends.
+    const top = el.scrollTop > 1
+    const bottom = el.scrollTop + el.clientHeight < el.scrollHeight - 1
+    setFade((prev) => (prev.top === top && prev.bottom === bottom ? prev : { top, bottom }))
+  }, [])
 
   const measureDock = useCallback(() => {
     const vp = viewportRef.current
@@ -773,29 +787,39 @@ export function DoList({
   useLayoutEffect(() => {
     if (animating) return
     measureDock()
-  }, [animating, measureDock, shown, showSelectors, dataVersion])
+    measureFade()
+  }, [animating, measureDock, measureFade, shown, showSelectors, dataVersion])
 
-  // Keep the reserve correct as the surface resizes or the dock grows/shrinks.
+  // Keep the reserve + edge fades correct as the surface resizes, the dock grows/
+  // shrinks, or the list scrolls.
   useEffect(() => {
     const vp = viewportRef.current
+    const sc = scrollerRef.current
     if (!vp) return
     let raf = 0
     const schedule = () => {
       if (animating) return
       cancelAnimationFrame(raf)
-      raf = requestAnimationFrame(measureDock)
+      raf = requestAnimationFrame(() => {
+        measureDock()
+        measureFade()
+      })
     }
     const ro = new ResizeObserver(schedule)
     ro.observe(vp)
+    if (sc) ro.observe(sc)
     const dock = vp.closest("[data-body]")?.querySelector<HTMLElement>("[data-dock-overlay]")
     if (dock) ro.observe(dock)
     window.addEventListener("resize", schedule)
+    // Scroll only affects the fades, so update those directly (cheap, rAF-free).
+    sc?.addEventListener("scroll", measureFade, { passive: true })
     return () => {
       cancelAnimationFrame(raf)
       ro.disconnect()
       window.removeEventListener("resize", schedule)
+      sc?.removeEventListener("scroll", measureFade)
     }
-  }, [animating, measureDock])
+  }, [animating, measureDock, measureFade])
 
   // Window-level keyboard handler, active only when the DO list owns the
   // selection and no text input is focused.
@@ -978,6 +1002,14 @@ export function DoList({
     />
   )
 
+  // Vertical mask for the scroller's edge fades. Each end fades over `FADE` px only
+  // when that side has hidden content; an inactive side collapses to a 0px stop
+  // (no visible fade). Reused for both `mask-image` and `-webkit-mask-image`.
+  const FADE = 28
+  const edgeFadeMask = `linear-gradient(to bottom, transparent 0, #000 ${
+    fade.top ? FADE : 0
+  }px, #000 calc(100% - ${fade.bottom ? FADE : 0}px), transparent 100%)`
+
   return (
     // `flex-1` so the section fills the column height — the scrolling <ul> below is
     // then a proper height-constrained scroller (and can center its content when
@@ -1035,10 +1067,23 @@ export function DoList({
       >
         <ul
           key={contextId}
+          ref={scrollerRef}
           // `overflow: visible` during a window morph so a row growing into a window
           // (parked at `position: absolute` by GSAP Flip) isn't clipped; it returns
           // to a normal scroller the instant the morph settles.
-          style={animating ? { overflow: "visible" } : undefined}
+          //
+          // EDGE FADES: a vertical mask makes rows dissolve into transparency as they
+          // scroll past the top/bottom edges. Each edge's fade is only added when there's
+          // actually hidden content that way (`fade.top` / `fade.bottom`), so resting
+          // rows stay fully opaque. Disabled mid-morph — a mask would clip the row
+          // growing out of the scroller into a window.
+          style={
+            animating
+              ? { overflow: "visible" }
+              : fade.top || fade.bottom
+                ? { maskImage: edgeFadeMask, WebkitMaskImage: edgeFadeMask }
+                : undefined
+          }
           className="-mx-2 flex min-h-0 flex-initial flex-col gap-1.5 overflow-y-auto px-2 no-scrollbar"
         >
           <AnimatePresence initial={false} mode="popLayout">{rowItems}</AnimatePresence>
