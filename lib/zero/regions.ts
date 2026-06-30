@@ -1,57 +1,42 @@
 /**
  * REGION MODEL — the layout layer that sits between an Entity and its Components.
  *
- * Every entity renders its content (the window MINUS the header) as one or more
- * REGIONS. A region is an INVISIBLE frame: no border, no background, content
- * bleeds freely. Its only job is to organize and size the components stacked
- * inside an entity. Regions stack vertically, TOP to BOTTOM:
+ * Every entity renders its CONTENT (a VIEW — the window MINUS the chrome: title,
+ * glyph, window/close buttons, IO rails, metadata) as a vertical stack of REGIONS.
+ * A region is an INVISIBLE frame: no border, no background, content bleeds freely.
+ * Its only job is to organize and size the COMPONENTS stacked inside it (components
+ * align center-top, in order of addition). Regions stack vertically, TOP → BOTTOM.
  *
- *   • REGION 0 is always present and hosts the entity's default component — the
- *     do-list. It GROWS to fill the leftover vertical space, so its component
- *     centers in the visual middle of whatever room remains.
- *   • ADDITIONAL regions stack ABOVE region 0 and HUG their component's height.
- *     When such a component grows taller, its region grows with it and pushes
- *     region 0 (and anything below) down the screen.
+ * The DEFAULT view of every Space is three regions:
  *
- * The DOCK is deliberately NOT a region: it is a single element pinned to the
- * BOTTOM of the entity window, overlaying the regions beneath it (z-order), and
- * shown only when the entity has pinned items.
+ *   • REGION 0 — HUG — hosts the `lifelane` (timeline). Sizes to the band's height
+ *     at the very TOP of the view. Rendered on HOME only for now (the root
+ *     Organism's Lifeline); other entities omit it, so their stack starts at
+ *     region 1.
+ *   • REGION 1 — FILL — hosts the `do-list` (its rows + the create-input). Takes
+ *     the leftover vertical space BETWEEN region 0 and region 2.
+ *   • REGION 2 — HUG — hosts the `dock`. Sizes to the dock's height at the BOTTOM
+ *     of the view, and is present ONLY when the entity has pinned items. When it
+ *     appears it reserves real flow space and pushes region 1 UP (region 1 shrinks
+ *     to the gap between regions 0 and 2) — it is NOT an overlay.
  *
- * For now only ENTITY 0 (home) carries a second region — region 1, sitting above
- * region 0. Entity 0 is the opened window of the root ORGANISM (the Individual
- * "Loris", animated by a Soul), so its region 1 hosts that Organism's LIFELINE:
- * the canonical master timeline onto which its Events, Instants and scheduled work
- * project. The Lifeline has two interchangeable VIEWS, toggled by a switch in the
- * timeline selector:
- *   • LIFELANE — the default horizontal/linear track (the region-1 strip).
- *   • ATLAS — a fullscreen morph of the Lifeline rendering an endless plane of
- *     period grids (days→weeks→months→seasons→years→decades), the zoom level set by
- *     scrolling. Today the Atlas shows the serpentine week grid.
- * The region component is the LIFELANE strip (the in-flow view); the Atlas is a
- * fullscreen overlay morph of it. The add/remove-component interaction that will
- * let any entity gain or drop regions (e.g. via right-click on blank window space)
- * is NOT built yet; this is the structural foundation it will plug into. (Every
- * Individual and Organism will own a Lifeline; today only entity 0's is rendered.)
- *
- * ──────────────────────────────────────────────────────────────────────────────
- * CURRENT STATUS (interim — this is the INTENDED model, not yet the live one):
- * The hug/fill push-down model above is the TARGET we mean to return to. Right
- * now WorkSurface renders the timeline as an ABSOLUTE OVERLAY (z-30) whose `top`
- * animates, and EntityBody reserves its slot via a measured `--region1-reserve`
- * CSS var — a visual shortcut that AVOIDS the real region stack. The overlay is
- * considered too unstructured to keep long-term. This file's RegionSpec shape is
- * still the source of truth for "does entity 0 have a timeline region" (consumed
- * by WorkSurface as a boolean) and is kept whole as the scaffold to migrate back
- * onto: replace the overlay with an actual hug Region that pushes region 0 down.
+ * Entity 0 (home) is the opened window of the root ORGANISM (the Individual
+ * "Loris", animated by a Soul); its region 0 hosts that Organism's LIFELINE — the
+ * canonical master timeline its Events, Instants and scheduled work project onto.
+ * The add/remove-component interaction that will let any entity gain or drop
+ * regions/components (e.g. via right-click on blank window space) is NOT built yet;
+ * this is the structural foundation it will plug into. (Every Individual and
+ * Organism will own a Lifeline; today only entity 0's is rendered.)
  */
 
 /** How a region sizes vertically within the entity's content area. */
 export type RegionGrow = "fill" | "hug"
 
 /** Which component a region hosts. Extend as more component types are added.
- *  `lifelane` is the Lifeline's linear view — the horizontal master-timeline strip
- *  (its alternate view, the fullscreen Atlas grid, is an overlay morph of it). */
-export type RegionComponent = "do-list" | "lifelane"
+ *  `lifelane` is the Lifeline's linear master-timeline strip (region 0, home only);
+ *  `do-list` is the rows + create-input (region 1); `dock` is the pinned-items bar
+ *  (region 2, only when the entity has pins). */
+export type RegionComponent = "lifelane" | "do-list" | "dock"
 
 export interface RegionSpec {
   /** Stable id (also used as the React key when rendering the stack). */
@@ -60,18 +45,22 @@ export interface RegionSpec {
   component: RegionComponent
 }
 
-/** Region 0 — the always-present do-list region that fills the leftover space. */
-export const REGION_0: RegionSpec = { id: "region-0", grow: "fill", component: "do-list" }
+/** Region 1 — the always-present do-list region that fills the space between the
+ *  (home-only) timeline above and the (conditional) dock below. */
+export const DO_LIST_REGION: RegionSpec = { id: "region-1-do-list", grow: "fill", component: "do-list" }
+/** Region 2 — the dock region at the bottom (hug). EntityBody renders it only when
+ *  the entity has pinned items, but it always occupies this slot in the stack. */
+export const DOCK_REGION: RegionSpec = { id: "region-2-dock", grow: "hug", component: "dock" }
+/** Region 0 — the home-only timeline region at the top (hug). */
+export const LIFELANE_REGION: RegionSpec = { id: "region-0-lifelane", grow: "hug", component: "lifelane" }
 
 /**
- * The ordered region stack for an entity, TOP → BOTTOM. Region 0 is always the
- * LAST entry (bottom, fill); any hug regions precede it. Entity 0 gets its
- * Organism's LIFELINE (linear LIFELANE view) as region 1 above region 0; every
- * other entity has only region 0 for now.
+ * The ordered region stack for an entity, TOP → BOTTOM:
+ *   home → [lifelane (hug), do-list (fill), dock (hug)]
+ *   other → [do-list (fill), dock (hug)]
+ * The dock slot is always listed; EntityBody mounts its content only when the
+ * entity has pinned items (an empty dock region collapses to 0 height).
  */
 export function entityRegions(isRoot: boolean): RegionSpec[] {
-  if (isRoot) {
-    return [{ id: "region-1-lifelane", grow: "hug", component: "lifelane" }, REGION_0]
-  }
-  return [REGION_0]
+  return isRoot ? [LIFELANE_REGION, DO_LIST_REGION, DOCK_REGION] : [DO_LIST_REGION, DOCK_REGION]
 }

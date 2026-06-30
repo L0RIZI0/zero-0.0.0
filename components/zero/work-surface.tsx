@@ -1,13 +1,10 @@
 "use client"
 
-import { useCallback, useEffect, useRef, useState } from "react"
-import { motion } from "motion/react"
+import { useCallback, useRef } from "react"
 import { useTheme } from "next-themes"
 import { useZeroNav } from "@/lib/zero/nav-store"
 import { getSpace, getEntity, isDetachedChild } from "@/lib/zero/data"
-import { shellStageFor, HEADER_BAND_H, TIMELINE_LIFELANE_MIN_FRAC } from "@/lib/zero/layout"
-import { entityRegions } from "@/lib/zero/regions"
-import { layerTransition, telescopicSurface } from "@/lib/zero/motion"
+import { telescopicSurface } from "@/lib/zero/motion"
 import { DURATION_S, MORPH_CSS_EASE } from "@/lib/zero/flip-stage"
 import { registerStage } from "@/lib/zero/flip-stage"
 import { EntityBody } from "./entity-body"
@@ -15,91 +12,51 @@ import { EntityNode } from "./entity-node"
 import { TimelineStrip } from "./timeline-strip"
 
 /**
- * The composed work surface — and the renderer for ENTITY 0's REGION STACK
- * (see lib/zero/regions). Entity 0 (home) is the OPENED WINDOW of the root
- * ORGANISM — the Individual "Loris", animated by a Soul — and is special: its
- * region 0 is the recursive focus-window region that hosts the ENTIRE entity tree.
- *
- * REGION MODEL (overlay Lifelane):
+ * The composed work surface — the host for the FOCUS-WINDOW REGION (the full card)
+ * and the always-mounted home view. Entity 0 (home) is the OPENED WINDOW of the root
+ * ORGANISM — the Individual "Loris", animated by a Soul.
  *
  *   ┌─────────────────────────────────────┐  ← card (below the app header bar)
- *   │ ░ REGION 1 — Lifelane  (overlay) ░░░ │  ← entity 0's region 1. Absolutely
- *   │ ┌─────────────────────────────────┐  │     positioned at `timelineTop`; NOT in
- *   │ │ REGION 0 — window region (fill) │  │     flow. z-30, so it floats over region
- *   │ │  • home do-list (below Lifelane) │  │     0. Its bottom defines a RESERVE that
- *   │ │  • child focus windows open here │  │     content below it pads for.
- *   │ └─────────────────────────────────┘  │  ← region 0 fills the WHOLE card now.
- *   └─────────────────────────────────────┘     Every fixed window fills this rect.
+ *   │  data-window-region  (fills card)   │  ← the Flip stage + morph origin. Every
+ *   │  ┌───────────────────────────────┐  │     fixed child window fills this rect.
+ *   │  │ home EntityBody (region stack)│  │     The home body renders its content as
+ *   │  │   region 0 — timeline  (hug)  │  │     an IN-FLOW region stack now (see
+ *   │  │   region 1 — do-list  (fill)  │  │     lib/zero/regions + entity-body):
+ *   │  │   region 2 — dock      (hug)  │  │     timeline at top, do-list filling
+ *   │  └───────────────────────────────┘  │     below, dock at the bottom when pinned.
+ *   └─────────────────────────────────────┘
  *
- * Region 1 is the root Organism's ONE master Lifeline (a timeless life artefact that
- * follows the user everywhere) shown in its linear LIFELANE view. Its alternate view,
- * the ATLAS (a fullscreen period-grid morph), is toggled from the Lifelane's own
- * switch and rendered as a fixed fullscreen overlay, so it does not affect this region
- * layout. A space child does not get its own region 1 — it REFERENCES entity 0's:
- * structurally there is a single TimelineStrip here, and we just move it vertically.
- *   • HOME (no window open): timeline rests at `TIMELINE_TOP_PAD` from the card top,
- *     with the home do-list reserved below it → identical to before.
- *   • WINDOW OPEN: the active window fills region 0 from the card top, so its header
- *     (glyph + title + close) sits just under the app bar; the timeline drops to
- *     `HEADER_BAND_H` (the header's bottom) and the window's content reserves the
- *     slot below it. Visual order: app bar → entity header → timeline → content.
- *
- * Because region 0 == the full card, the home body and the active window's body both
- * start at the card top, so the timeline's BOTTOM (`timelineTop + timelineH`) is a
- * single RESERVE both consume via the `--region1-reserve` CSS var. And the IN/OUT
- * rails (anchored to region 0's center) now center on the full entity for free.
+ * The timeline is the root Organism's ONE master Lifeline shown in its linear LIFELANE
+ * view. It is built HERE (WorkSurface owns the root context) and handed to the home
+ * EntityBody as region-0 content. It is a HOME-ONLY component: a child focus window
+ * fills the whole window region and simply COVERS home, timeline included (no more
+ * gliding up under the window header). The window region stays the full card, so the
+ * GSAP Flip morph + IN/OUT rail centering (both keyed off this box / `[data-body]`)
+ * are unchanged by the in-flow region restructure.
  */
 export function WorkSurface() {
   const { activeEntity, stack, fading } = useZeroNav()
-  const contextId = activeEntity.contextId
   // The root entity's body is the permanent home backdrop at z-0. It is ALWAYS
   // mounted: the depth-1 window grows over it on open and shrinks back into its
   // dock card / row on close, so that morph source must always be present.
   const rootId = stack[0]
-  // The context may be a task/event (not a space), so fall back to the entity's
-  // own accent when it isn't a space.
-  const accent = getSpace(contextId)?.accent ?? getEntity(contextId)?.accent
-
-  const stage = shellStageFor(activeEntity)
-
-  // Region 1 = entity 0's Lifeline, in its linear LIFELANE view (the root Organism's
-  // master timeline, asserted by the region model). It's rendered as an absolute
-  // overlay below; region 0 is the window region rendered explicitly. (The Atlas view
-  // is a separate fullscreen morph the Lifelane strip toggles into.)
-  const hasTimeline = entityRegions(true).some((r) => r.component === "lifelane")
-
-  // Is a focus window open? `stack` ALWAYS holds the root entity (home backdrop) at
-  // index 0, so "a window is open" means depth ≥ 1 — i.e. stack.length > 1. When so,
-  // the timeline drops to sit just under the active window's header (HEADER_BAND_H)
-  // instead of at its home resting pad.
-  const windowOpen = stack.length > 1
+  // The timeline is the ROOT Organism's Lifeline (home only), so it reads the root
+  // entity's accent — not the active context's.
+  const rootAccent = getSpace(rootId)?.accent ?? getEntity(rootId)?.accent
 
   // registerStage is preserved via a combined ref so the Flip stage still resolves
-  // region 0's box.
+  // the window region's box (the morph origin for every fixed child window).
   const regionElRef = useRef<HTMLDivElement | null>(null)
-  const cardElRef = useRef<HTMLDivElement | null>(null)
-  const [cardH, setCardH] = useState(0)
-  // HOME LAYOUT: the Lifelane lives in a FIXED "first third" zone (TIMELINE_LIFELANE_MIN_FRAC
-  // of the card) and is vertically CENTERED within it. `centered` is off when a focus window
-  // is open (legacy top-anchored strip under the window header), so windows are untouched.
-  // The do-list no longer reserves the timeline's slot — it simply centers in region 0 and the
-  // Lifelane floats over the top.
-  const centered = !windowOpen
-  const overlayTop = windowOpen ? HEADER_BAND_H : 0
-  const zoneH = Math.round(TIMELINE_LIFELANE_MIN_FRAC * cardH)
   const setRegionRef = useCallback((el: HTMLDivElement | null) => {
     regionElRef.current = el
     registerStage(el)
   }, [])
-  useEffect(() => {
-    const el = cardElRef.current
-    if (!el) return
-    const measure = () => setCardH(el.clientHeight)
-    measure()
-    const ro = new ResizeObserver(measure)
-    ro.observe(el)
-    return () => ro.disconnect()
-  }, [])
+
+  // REGION 0 content for the home view: the root Organism's Lifeline timeline. Built
+  // here (WorkSurface owns the root context) and handed to the home EntityBody, which
+  // renders it as the top HUG region. It is purely a home component — a child window
+  // covering home covers it too.
+  const timeline = <TimelineStrip contextId={rootId} accent={rootAccent} />
 
   // Home is window 0 in the telescopic surface model. In DARK mode it stays on
   // pure --background (level 0) at every depth — a no-op. In LIGHT mode it is the
@@ -118,7 +75,6 @@ export function WorkSurface() {
     // still rounds the card's own background; only the window region needs to
     // clip its scaled-up parent frames.
     <div
-      ref={cardElRef}
       className="relative flex h-full w-full flex-col rounded-md"
       style={
         {
@@ -127,46 +83,16 @@ export function WorkSurface() {
         } as React.CSSProperties
       }
     >
-      {/* REGION 1 — the LIFELANE (the Lifeline's linear view; the root Organism's
-          master timeline), an ABSOLUTE OVERLAY (not in flow), so region 0 below can
-          fill the whole card and the Lifelane can float at the active entity's header
-          bottom. `top` ANIMATES between the home resting pad and HEADER_BAND_H (header
-          bottom) when a window opens, so the Lifelane glides into the window just
-          below its header. z-0 (BEHIND region 0): the Lifelane sits BEHIND the
-          do-list/dock (region 0, z-10) so its chips never paint over the create-row /
-          task rows; it's a backdrop the chrome floats over. Not clipped by the card,
-          so it never crops. */}
-      {hasTimeline ? (
-        <motion.div
-          // HOME: a fixed-height (`zoneH`) flex column that vertically CENTERS the strip in the
-          // first-third zone, so the band grows symmetrically about the center and overflows
-          // (bleeds) equally above/below when taller than the zone. WINDOW OPEN: legacy
-          // auto-height strip. `top` animates between the two resting offsets on open/close.
-          className={`absolute inset-x-0 z-0 px-6${centered ? " flex flex-col justify-center" : ""}`}
-          initial={false}
-          animate={{ top: overlayTop }}
-          style={centered ? { height: zoneH } : undefined}
-          transition={layerTransition}
-        >
-          <TimelineStrip
-            contextId={contextId}
-            accent={accent}
-            centerZoneH={centered ? zoneH : 0}
-            overlayTopPx={overlayTop}
-          />
-        </motion.div>
-      ) : null}
-
       {/* REGION 0 (fill) — the focus-window region, where the SINGLE recursive
-          entity tree lives. It now fills the ENTIRE card (the timeline is an overlay,
-          not a band above it), so an opened window fills from the card top: its
-          header sits just under the app bar and the timeline drops below it. The
-          root entity's body (home view) is always mounted; its dock cards and DO-list
-          rows are themselves `EntityNode`s that morph IN PLACE into fixed focus
-          windows when opened, and shrink back into their own row on close (same DOM
-          node — no duplicate, no captured-rect drift). This wrapper owns the clipping
-          + establishes the positioning context the opened windows are measured
-          against (they use region-relative `fixed`).
+          entity tree lives. It fills the ENTIRE card, so an opened window fills from
+          the card top: its header sits just under the app bar. The root entity's body
+          (home view) is always mounted and now renders the timeline IN-FLOW as its own
+          top region (no overlay). Its dock cards and DO-list rows are themselves
+          `EntityNode`s that morph IN PLACE into fixed focus windows when opened, and
+          shrink back into their own row on close (same DOM node — no duplicate, no
+          captured-rect drift). This wrapper owns the clipping + establishes the
+          positioning context the opened windows are measured against (region-relative
+          `fixed`).
 
           `data-window-region` lets the Flip stage resolve this box's rect so a
           window can fill it exactly at depth 1. */}
@@ -185,19 +111,24 @@ export function WorkSurface() {
         // bottom inset (−120px) leaves room for those shadows while still clipping
         // the top/sides (so peeking parent frames stay contained). The small
         // negative top inset keeps morph shadows above the frame top from clipping.
-        // `pointer-events-none`: this region sits at z-10 ON TOP of the Lifelane/Atlas
-        // timeline (z-0), so as `auto` it intercepts every wheel/click meant for the
-        // timeline in the empty area above the do-list. Made transparent so events fall
-        // THROUGH to the timeline where nothing interactive is painted; the do-list,
-        // Dock, side panels (explicit `pointer-events-auto`) and window chrome (default
-        // `auto`, which re-enables under a `none` ancestor) all stay fully interactive.
+        // `pointer-events-none`: the region box is transparent to events so the gaps
+        // between the in-flow regions stay click/scroll-through; each interactive leaf
+        // (region-0 timeline, do-list, Dock, side panels, window chrome) re-enables
+        // `pointer-events-auto` for itself.
         className="pointer-events-none relative z-10 flex min-h-0 flex-1 flex-col rounded-md [clip-path:inset(-48px_0px_-120px_0px_round_6px)]"
       >
-        {/* centerList={false}: the home do-list sits at the TOP of region 0 (just under the
-            timeline's reserved slot), horizontally centered but NOT vertically centered.
+        {/* The home view: region 0 = the timeline (passed in), region 1 = the do-list,
+            region 2 = the dock (when pinned). centerList={false}: the do-list fills its
+            region from the top under the timeline rather than vertically centering.
             Horizontal centering is independent (items-center / self-center / w-2/3 in
             EntityBody); `centerList` only toggles the vertical `justify-center-safe`. */}
-        <EntityBody entityId={rootId} active={activeEntity.id === rootId} isRoot centerList={false} />
+        <EntityBody
+          entityId={rootId}
+          active={activeEntity.id === rootId}
+          isRoot
+          centerList={false}
+          timeline={timeline}
+        />
 
         {/* DETACHED WINDOWS. The recursive in-place tree above only reaches a stack
             entry through its host's do-list/dock. When an entry's host is NOT its

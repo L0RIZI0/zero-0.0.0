@@ -741,18 +741,12 @@ export function DoList({
   // CreateRow blurs its input first so the dock's keyboard handler then owns the keys.
   const navigateDownToDock = useCallback(() => moveSelection("down"), [moveSelection])
 
-  // --- Dock reserve (clamp the create-input above the dock) -----------------
-  // The create input is now a flow element pinned DIRECTLY BELOW the scroller (no
-  // longer a scrolling list item, so the list never scrolls behind it). The list
-  // region fills the whole window and the dock OVERLAYS its bottom (z-order), so to
-  // keep the input from sliding under/over the dock we reserve — as bottom padding
-  // on the centered column — exactly how far the dock intrudes UP into the column.
-  // When the dock is collapsed (no pinned items) the reserve is ~0, so on an empty
-  // entity the lone input centers in the window; once items pin and the dock grows,
-  // the whole (list + input) group is pushed up and the input rides just above it.
-  const viewportRef = useRef<HTMLDivElement | null>(null)
+  // The create-input is a flow element pinned DIRECTLY BELOW the scroller (not a
+  // scrolling list item, so the list never scrolls behind it). The dock no longer
+  // overlays this column — it's the entity's region 2 (a sibling hug region below
+  // region 1), so it reserves its own flow space and the input naturally rests at
+  // the bottom of region 1, just above the dock. No manual clamp needed.
   const scrollerRef = useRef<HTMLUListElement | null>(null)
-  const [dockReserve, setDockReserve] = useState(0)
   // Whether the scroller has content hidden ABOVE / BELOW the visible band, so the
   // matching edge fade is only painted when there's actually something to scroll to
   // (otherwise the first/last rows would always look dimmed even at rest).
@@ -767,59 +761,35 @@ export function DoList({
     setFade((prev) => (prev.top === top && prev.bottom === bottom ? prev : { top, bottom }))
   }, [])
 
-  const measureDock = useCallback(() => {
-    const vp = viewportRef.current
-    if (!vp) return
-    const vpRect = vp.getBoundingClientRect()
-    const dock = vp.closest("[data-body]")?.querySelector<HTMLElement>("[data-dock-overlay]")
-    let reserve = 0
-    if (dock) {
-      // How far the dock's top edge rises ABOVE the column's bottom edge.
-      reserve = Math.max(0, vpRect.bottom - dock.getBoundingClientRect().top)
-    }
-    const GAP = 6 // breathing room so the input never kisses the dock
-    const next = reserve > 0 ? reserve + GAP : 0
-    setDockReserve((prev) => (Math.abs(prev - next) < 0.5 ? prev : next))
-  }, [])
-
-  // Recompute pre-paint on any layout-affecting change. Skipped during a window
-  // morph (`animating`): GSAP Flip owns the frame then; the post-morph run settles it.
+  // Recompute the edge fades pre-paint on any layout-affecting change. Skipped during
+  // a window morph (`animating`): GSAP Flip owns the frame then; the post-morph run
+  // settles it.
   useLayoutEffect(() => {
     if (animating) return
-    measureDock()
     measureFade()
-  }, [animating, measureDock, measureFade, shown, showSelectors, dataVersion])
+  }, [animating, measureFade, shown, showSelectors, dataVersion])
 
-  // Keep the reserve + edge fades correct as the surface resizes, the dock grows/
-  // shrinks, or the list scrolls.
+  // Keep the edge fades correct as the scroller resizes or the list scrolls.
   useEffect(() => {
-    const vp = viewportRef.current
     const sc = scrollerRef.current
-    if (!vp) return
+    if (!sc) return
     let raf = 0
     const schedule = () => {
       if (animating) return
       cancelAnimationFrame(raf)
-      raf = requestAnimationFrame(() => {
-        measureDock()
-        measureFade()
-      })
+      raf = requestAnimationFrame(measureFade)
     }
     const ro = new ResizeObserver(schedule)
-    ro.observe(vp)
-    if (sc) ro.observe(sc)
-    const dock = vp.closest("[data-body]")?.querySelector<HTMLElement>("[data-dock-overlay]")
-    if (dock) ro.observe(dock)
+    ro.observe(sc)
     window.addEventListener("resize", schedule)
-    // Scroll only affects the fades, so update those directly (cheap, rAF-free).
-    sc?.addEventListener("scroll", measureFade, { passive: true })
+    sc.addEventListener("scroll", measureFade, { passive: true })
     return () => {
       cancelAnimationFrame(raf)
       ro.disconnect()
       window.removeEventListener("resize", schedule)
-      sc?.removeEventListener("scroll", measureFade)
+      sc.removeEventListener("scroll", measureFade)
     }
-  }, [animating, measureDock, measureFade])
+  }, [animating, measureFade])
 
   // Window-level keyboard handler, active only when the DO list owns the
   // selection and no text input is focused.
@@ -1058,13 +1028,9 @@ export function DoList({
             • the scroller is `flex-initial` (grow 0 / shrink 1): it HUGS its content
               (0px when empty) but shrinks + scrolls once the list is long, keeping
               the input visible right below it.
-            • `paddingBottom: dockReserve` keeps the whole group — and thus the input —
-              clamped just above the dock (never overlapping it). */}
-      <div
-        ref={viewportRef}
-        className={cn("flex min-h-0 flex-1 flex-col", centered && "justify-center-safe")}
-        style={{ paddingBottom: dockReserve || undefined }}
-      >
+          The dock (the entity's region 2) sits BELOW this region and reserves its own
+          flow space, so the input rests just above it with no manual clamp. */}
+      <div className={cn("flex min-h-0 flex-1 flex-col", centered && "justify-center-safe")}>
         <ul
           key={contextId}
           ref={scrollerRef}

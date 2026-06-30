@@ -1,8 +1,9 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { AnimatePresence } from "motion/react"
+import { AnimatePresence, motion } from "motion/react"
 import { PinOff, Trash2, Ban, RotateCcw } from "lucide-react"
+import { layerTransition } from "@/lib/zero/motion"
 import {
   getEntity,
   getPinnedItems,
@@ -24,8 +25,9 @@ import { cn } from "@/lib/utils"
  *
  * Pins are per-context: an entity shows here only in the context it was pinned
  * from. Entities are promoted here via right-click "Pin to Dock" in the do
- * list, and right-clicking a card here unpins it. When a context has no pins,
- * the whole dock collapses to a small gap.
+ * list, and right-clicking a card here unpins it. The Dock renders as the entity's
+ * region 2 (a bottom HUG region); EntityBody mounts it ONLY when the context has
+ * pins, so an empty context has no dock region at all and its do-list fills the view.
  */
 export function Dock({ contextId, active = true }: { contextId: string; active?: boolean }) {
   const { open, dataVersion, notifyDataChanged, morphCommit, setMenuKey, selection, moveSelection, publishNavOrder } =
@@ -166,13 +168,21 @@ export function Dock({ contextId, active = true }: { contextId: string; active?:
   }
 
   return (
-    <div
+    // Region-2 (hug) content. EntityBody mounts the Dock ONLY when the context has
+    // pins, so this whole element appears/disappears with the dock region. On mount
+    // it SLIDES UP into its reserved flow slot via a transform (y/opacity) — the
+    // region already reserves the height, so region 1 reflows once and the dock rises
+    // into place on the compositor rather than animating layout. Per-card add/remove
+    // is still the GSAP Flip morph + AnimatePresence below; this entrance is only the
+    // region's own appearance.
+    <motion.div
       className={cn(
-        "pointer-events-auto flex shrink-0 flex-col items-center transition-transform duration-300 ease-out",
-        // When empty, keep a breathing gap between the timeline and the lists
-        // below; when populated, add extra top room.
-        hasPins ? "pb-1 pt-6" : "pt-5",
+        "pointer-events-auto flex shrink-0 flex-col items-center",
+        hasPins ? "pb-1 pt-4" : "pt-5",
       )}
+      initial={{ y: 20, opacity: 0 }}
+      animate={{ y: 0, opacity: 1 }}
+      transition={layerTransition}
     >
       {/* CRITICAL: key this container by context so it HARD-remounts when the
           active context changes — exactly like the do list's `<ul key={contextId}>`.
@@ -207,6 +217,6 @@ export function Dock({ contextId, active = true }: { contextId: string; active?:
           setMenuKey(null)
         }}
       />
-    </div>
+    </motion.div>
   )
 }

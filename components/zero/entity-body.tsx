@@ -1,9 +1,12 @@
 "use client"
 
+import type { ReactNode } from "react"
 import { motion } from "motion/react"
-import { getSpaceAssets } from "@/lib/zero/data"
+import { getSpaceAssets, getPinnedItems } from "@/lib/zero/data"
 import { panelTransition } from "@/lib/zero/motion"
 import { usePanelOpen } from "@/lib/zero/panel-store"
+import { useZeroNav } from "@/lib/zero/nav-store"
+import { Region } from "./region"
 import { Dock } from "./dock"
 import { DoList } from "./do-list"
 import { AssetPanel } from "./asset-panel"
@@ -44,9 +47,14 @@ export function EntityBody({
   railBleedLeft = PANEL_RAIL_W,
   railBleedRight = PANEL_RAIL_W,
   resource,
+  timeline,
 }: {
   entityId: string
   active?: boolean
+  /** Region-0 content (the home Lifeline timeline). Provided ONLY for the home view;
+   *  when present, EntityBody renders it as the top HUG region above the do-list.
+   *  Omitted for every child entity, so their stack starts at the do-list region. */
+  timeline?: ReactNode
   /** When set, this is a RESOURCE TASK: the center surface is the bound web
    *  resource (live embed or illustrative stand-in) instead of the do-list/Dock.
    *  The Inputs/Outputs rails still render — a resource is work whose outputs wire
@@ -75,18 +83,23 @@ export function EntityBody({
   const assetCount = getSpaceAssets(entityId).length
   const [inOpen, setInOpen] = usePanelOpen(`${entityId}:in`, false)
   const [outOpen, setOutOpen] = usePanelOpen(`${entityId}:out`, false)
+  // Region 2 (dock) is mounted ONLY when this context has pinned items, so an empty
+  // entity's do-list region fills the whole view. Same source the Dock reads, so they
+  // agree. `dataVersion` makes this reactive to pin add/remove.
+  const { dataVersion } = useZeroNav()
+  void dataVersion
+  const hasPins = getPinnedItems(entityId).length > 0
 
   return (
     // Unpadded root: fills [data-body] EXACTLY and is the offset parent for the
     // panel overlays, so a panel's `top: 50%` resolves to the body's true vertical
     // center. The reading padding lives on the inner center column instead, so it
     // never skews where the rails sit.
-    // `pointer-events-none`: this root fills the whole card (z-10) ON TOP of the
-    // Lifelane/Atlas timeline (z-0), so left as `auto` it swallows every wheel/click
-    // meant for the timeline. We make the whole body transparent to events and
-    // re-enable `pointer-events-auto` only on the interactive LEAVES (do-list content,
-    // resource canvas, Dock, side panels) — so the empty area over the timeline is
-    // click/scroll-through while the chrome stays fully interactive.
+    // `pointer-events-none`: the body root is transparent to events and each
+    // interactive LEAF re-enables `pointer-events-auto` (region 0 timeline, do-list
+    // content, resource canvas, Dock, side panels). This keeps the empty gaps between
+    // regions click/scroll-through while the chrome stays fully interactive, and lets
+    // the overlaid side-panel rails sit over the content without stealing its events.
     <div data-body className="pointer-events-none relative flex min-h-0 flex-1 flex-col">
       {/* RESOURCE TASK: the center surface is the bound web resource, filling the
           rectangular Task window almost edge-to-edge (a slim inset keeps it clear of
@@ -98,64 +111,42 @@ export function EntityBody({
         </div>
       ) : (
         <>
-      {/* REGION 0 (fill) — the do-list's region (see lib/zero/regions). It takes the
-          leftover height below any hug regions and CENTERS the do-list in that
-          available area, regardless of whether the dock has items. Tagged
-          `data-region` so it's identifiable in the region model; kept as this tuned
-          div (not <Region>) to preserve its exact min-height floor + flex centering.
-          The side panels overlay it rather than stealing its space, so it never
-          moves. */}
-      <div
-        data-region
-        data-region-grow="fill"
-        // `pointer-events-none` so clicks / wheel fall THROUGH the empty areas of this
-        // region to the Lifelane timeline behind it (region 1 is z-0, this region is
-        // z-10). The actual do-list content re-enables pointer events, same pattern as
-        // the Dock + side panels overlays. Without this the region box swallowed all
-        // events over the timeline, making it un-scrollable / un-clickable.
-        //
-        // NOTE: this region no longer reserves the timeline's slot via `--region1-reserve`.
-        // That reservation pushed EVERY window's do-list down (including child windows
-        // that have no timeline). The do-list now simply CENTERS in the full region; the
-        // home timeline floats over the top and content centers below it in practice.
-        // Space content rendering is being reworked, so the reserve is dropped entirely.
-        className="pointer-events-none flex min-h-[180px] min-w-0 flex-1 flex-col items-center px-6 pb-5 pt-4"
-      >
+      {/* REGION 0 (hug) — the home Lifeline timeline, at the very TOP of the view.
+          Rendered ONLY when `timeline` is provided (home view); child entities omit
+          it, so their stack starts at region 1. `pointer-events-auto` so wheel-zoom
+          works while hovering the timeline/its region (the body root is pointer-
+          transparent). */}
+      {timeline ? (
+        <Region grow="hug" className="pointer-events-auto px-6 pt-2">
+          <div className={cn("mx-auto w-full", isRoot ? "max-w-[70vw]" : "max-w-[720px]")}>{timeline}</div>
+        </Region>
+      ) : null}
+
+      {/* REGION 1 (fill) — the do-list (rows + create-input). Takes the leftover height
+          BETWEEN region 0 and region 2 and centers the do-list in it. The side panels
+          overlay it rather than stealing its space, so it never moves. Pointer-
+          transparent box (the body root is none); the inner do-list re-enables events. */}
+      <Region grow="fill" className="min-h-[180px] min-w-0 items-center px-6 pb-5 pt-4">
         <div className={cn("flex min-h-0 w-full flex-1 flex-col", isRoot ? "max-w-[70vw]" : "max-w-[720px]")}>
           {/* Do-list narrowed to 2/3 of the measure and centered for a tighter list.
-              `pointer-events-auto` re-enables interaction on the list itself (its parent
-              region is pointer-transparent so the timeline behind stays reachable). */}
+              `pointer-events-auto` re-enables interaction on the list itself. */}
           <div className="pointer-events-auto flex min-h-0 w-2/3 flex-1 flex-col self-center">
             <DoList contextId={entityId} active={active} closing={closing} centered={centerList} />
           </div>
         </div>
-      </div>
+      </Region>
 
-      {/* DOCK — exactly ONE per entity, and NOT part of any region: an overlay pinned
-          to the WINDOW's bottom edge, floating above the regions (z-10). The Dock
-          self-collapses to nothing when the context has no pinned items, so it's
-          "shown only when there are dock items" without a guard here. Universal now —
-          no per-kind branch: the bottom offset reads `--hex-corner-inset-y`, which is
-          set only on space-leaf octagons (→ pushes the dock down through the bottom
-          wedge to the true frame bottom) and is 0 on rectangular windows (→ flush at
-          the body/window bottom). Because it's anchored to `[data-body]` (the offset
-          parent), it pins to the window bottom regardless of how many regions stack
-          above. `pointer-events-none` lets the do-list's bottom rows stay clickable
-          through the dock's empty padding; the Dock re-enables pointer events. No
-          transforms, so GSAP Flip never sees it. */}
-      <div
-        // `data-dock-overlay` lets the do-list measure the dock's top edge so its
-        // decoupled create-input can clamp itself just above the dock (never below or
-        // overlapping it). The wrapper self-collapses to ~0 height at the window bottom
-        // when there are no pinned items, so the clamp line falls to the window bottom.
-        data-dock-overlay
-        className="pointer-events-none absolute inset-x-0 z-10 flex justify-center px-6"
-        style={{ bottom: `calc(var(--hex-corner-inset-y, 0px) * -1)` }}
-      >
-        <div className={cn("w-full", isRoot ? "max-w-[70vw]" : "max-w-[720px]")}>
-          <Dock contextId={entityId} active={active} />
-        </div>
-      </div>
+      {/* REGION 2 (hug) — the Dock at the BOTTOM. Mounted ONLY when the context has
+          pinned items, so it reserves real flow space and pushes region 1 up when it
+          appears (region 1 shrinks to the gap above it). The Dock slides into this
+          reserved slot via its own transform entrance. */}
+      {hasPins ? (
+        <Region grow="hug" className="px-6">
+          <div className={cn("mx-auto w-full", isRoot ? "max-w-[70vw]" : "max-w-[720px]")}>
+            <Dock contextId={entityId} active={active} />
+          </div>
+        </Region>
+      ) : null}
         </>
       )}
 
