@@ -108,19 +108,18 @@ export function EntityBody({
       <div
         data-region
         data-region-grow="fill"
-        // `pointer-events-none` so the EMPTY reserve zone at the top (the timeline's
-        // reserved slot, created by the paddingTop below) lets clicks / wheel fall
-        // THROUGH to the Lifelane timeline behind it (region 1 is z-0, this region is
+        // `pointer-events-none` so clicks / wheel fall THROUGH the empty areas of this
+        // region to the Lifelane timeline behind it (region 1 is z-0, this region is
         // z-10). The actual do-list content re-enables pointer events, same pattern as
         // the Dock + side panels overlays. Without this the region box swallowed all
         // events over the timeline, making it un-scrollable / un-clickable.
-        className="pointer-events-none flex min-h-[180px] min-w-0 flex-1 flex-col items-center px-6 pb-5"
-        // RESERVE the overlay timeline's slot: the timeline (region 1) floats over
-        // this region, so the do-list must start below its bottom. `--region1-reserve`
-        // (set on the work-surface card) == that bottom in card coords; both the home
-        // body and a fixed window's body start at the card top, so one value reserves
-        // correctly in both. `+ 1rem` preserves the breathing room the old `pt-4` gave.
-        style={{ paddingTop: "calc(var(--region1-reserve, 0px) + 1rem)" }}
+        //
+        // NOTE: this region no longer reserves the timeline's slot via `--region1-reserve`.
+        // That reservation pushed EVERY window's do-list down (including child windows
+        // that have no timeline). The do-list now simply CENTERS in the full region; the
+        // home timeline floats over the top and content centers below it in practice.
+        // Space content rendering is being reworked, so the reserve is dropped entirely.
+        className="pointer-events-none flex min-h-[180px] min-w-0 flex-1 flex-col items-center px-6 pb-5 pt-4"
       >
         <div className={cn("flex min-h-0 w-full flex-1 flex-col", isRoot ? "max-w-[70vw]" : "max-w-[720px]")}>
           {/* Do-list narrowed to 2/3 of the measure and centered for a tighter list.

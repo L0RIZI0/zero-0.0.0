@@ -1,17 +1,11 @@
 "use client"
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { motion } from "motion/react"
 import { useTheme } from "next-themes"
 import { useZeroNav } from "@/lib/zero/nav-store"
 import { getSpace, getEntity, isDetachedChild } from "@/lib/zero/data"
-import {
-  shellStageFor,
-  HEADER_BAND_H,
-  TIMELINE_ATLAS_DOLIST_TOP_FRAC,
-  TIMELINE_LIFELANE_MIN_FRAC,
-} from "@/lib/zero/layout"
-import { useTimelineView } from "@/lib/zero/timeline-view-store"
+import { shellStageFor, HEADER_BAND_H, TIMELINE_LIFELANE_MIN_FRAC } from "@/lib/zero/layout"
 import { entityRegions } from "@/lib/zero/regions"
 import { layerTransition, telescopicSurface } from "@/lib/zero/motion"
 import { DURATION_S, MORPH_CSS_EASE } from "@/lib/zero/flip-stage"
@@ -80,41 +74,19 @@ export function WorkSurface() {
   // instead of at its home resting pad.
   const windowOpen = stack.length > 1
 
-  // Measure the live timeline height so content below it (home do-list, the active
-  // window's content) can reserve `timelineTop + timelineH`. Exposed as the
-  // `--region1-reserve` CSS var on the card so EntityBody — at home AND inside every
-  // fixed window — consumes one value without prop drilling. registerStage is
-  // preserved via a combined ref so the Flip stage still resolves region 0's box.
+  // registerStage is preserved via a combined ref so the Flip stage still resolves
+  // region 0's box.
   const regionElRef = useRef<HTMLDivElement | null>(null)
-  // The Timeline is ONE morphing box sized as a fraction of the card. We read that
-  // fraction + atlas flag from the shared store (written by TimelineStrip as you zoom)
-  // and multiply by the LIVE card height to get the band's pixel height. This is the
-  // single value that (a) the strip grows its band to, and (b) the do-list reserves
-  // below — so growth and compression stay locked together as you zoom.
-  const { atlas, heightFrac } = useTimelineView()
   const cardElRef = useRef<HTMLDivElement | null>(null)
   const [cardH, setCardH] = useState(0)
-  const viewHeightPx = Math.round(heightFrac * cardH)
   // HOME LAYOUT: the Lifelane lives in a FIXED "first third" zone (TIMELINE_LIFELANE_MIN_FRAC
-  // of the card) and is vertically CENTERED within it. The do-list reserves the WHOLE zone, so
-  // it stays put no matter how the band grows/shrinks with zoom — the band just grows
-  // symmetrically about the zone center and bleeds behind the do-list (z-10) when it gets
-  // taller than the zone. `centered` is off when a focus window is open (legacy top-anchored
-  // strip under the window header), so windows are untouched.
+  // of the card) and is vertically CENTERED within it. `centered` is off when a focus window
+  // is open (legacy top-anchored strip under the window header), so windows are untouched.
+  // The do-list no longer reserves the timeline's slot — it simply centers in region 0 and the
+  // Lifelane floats over the top.
   const centered = !windowOpen
   const overlayTop = windowOpen ? HEADER_BAND_H : 0
   const zoneH = Math.round(TIMELINE_LIFELANE_MIN_FRAC * cardH)
-  // The timeline overlay's ACTUAL rendered height. The band grows to `viewHeightPx`
-  // with zoom, but can exceed it when stacked entity lanes push the content-driven
-  // `trackH` taller. We measure it so the do-list reserve covers the real band and the
-  // timeline never overlaps the create-row / task rows.
-  const timelineElRef = useRef<HTMLDivElement | null>(null)
-  // The Atlas backdrop layer. The Lifelane (in TimelineStrip) portals the Atlas into
-  // this card-level element, which sits BEHIND the do-list/dock (rendered later in the
-  // card) and BELOW the app header (a sibling outside the card) — so the Atlas reads as
-  // a full-bleed backdrop the chrome floats over, not a fullscreen takeover. Tracked in
-  // state (callback ref) so TimelineStrip re-renders once the target node exists.
-  const [atlasLayer, setAtlasLayer] = useState<HTMLDivElement | null>(null)
   const setRegionRef = useCallback((el: HTMLDivElement | null) => {
     regionElRef.current = el
     registerStage(el)
@@ -128,70 +100,6 @@ export function WorkSurface() {
     ro.observe(el)
     return () => ro.disconnect()
   }, [])
-  // The do-list (region 0) starts below the overlay timeline by reserving its bottom via
-  // the `--region1-reserve` CSS var. The var is written DIRECTLY to the card's style from
-  // the ResizeObserver — NOT through React state — on purpose: the band's height animates
-  // via a CSS transition (every frame, on the compositor), and a `setState(timelineH)` per
-  // frame would re-render the whole WorkSurface→EntityBody→DoList tree and only update the
-  // var on the NEXT commit, so the do-list trailed the band by a frame-plus and stuttered
-  // ("moves too late"). Writing the var imperatively means the ResizeObserver fires after
-  // layout and before paint IN THE SAME FRAME the band resizes, the dependent do-list
-  // `paddingTop` (a `calc()` on this var) recomputes in that same pass — so region 0 moves
-  // up the instant region 1 shrinks, with zero React in the loop. Refs feed the non-band
-  // inputs (atlas reserve / window offset / card height) so the writer always reads current
-  // values without re-subscribing.
-  const atlasRef = useRef(atlas)
-  atlasRef.current = atlas
-  const windowOpenRef = useRef(windowOpen)
-  windowOpenRef.current = windowOpen
-  const cardHRef = useRef(cardH)
-  cardHRef.current = cardH
-  const writeReserve = useCallback(() => {
-    const card = cardElRef.current
-    if (!card) return
-    let reserve: number
-    if (atlasRef.current) {
-      // ATLAS: the grid fills the card and the do-list floats over its lower edge, so we
-      // reserve a fixed fraction rather than a measured height.
-      reserve = Math.round(TIMELINE_ATLAS_DOLIST_TOP_FRAC * cardHRef.current)
-    } else if (!windowOpenRef.current) {
-      // HOME: region 1 is a FIXED first-third zone. The do-list always starts at its bottom,
-      // INDEPENDENT of the band's live height — so it never jitters as you zoom. This is the
-      // de-coupling the user asked for: we no longer measure the band and push the do-list by
-      // it; the band grows symmetrically about the zone center and bleeds behind the do-list.
-      reserve = Math.round(TIMELINE_LIFELANE_MIN_FRAC * cardHRef.current)
-    } else {
-      // WINDOW OPEN (legacy, untouched): the strip pins just under the window header and its
-      // measured band height reserves the content slot below it. The consuming body already
-      // starts at HEADER_BAND_H, so no extra offset is added (matches the prior `windowOpen ? 0`).
-      const el = timelineElRef.current
-      reserve = el ? el.offsetHeight : 0
-    }
-    card.style.setProperty("--region1-reserve", `${reserve}px`)
-  }, [])
-  // useLayoutEffect so the var is written before the first paint (no flash) and the RO is
-  // attached synchronously; the band's per-frame size changes then drive it directly.
-  useLayoutEffect(() => {
-    if (!hasTimeline) return
-    const el = timelineElRef.current
-    if (!el) return
-    writeReserve()
-    const ro = new ResizeObserver(writeReserve)
-    ro.observe(el)
-    return () => ro.disconnect()
-  }, [hasTimeline, writeReserve])
-  // Re-write when the NON-band inputs change (atlas toggle, window open/close, card resize).
-  // No longer depends on the band's height — the home reserve is the fixed first-third zone.
-  useLayoutEffect(() => {
-    writeReserve()
-  }, [atlas, windowOpen, cardH, writeReserve])
-  // (Reserve math lives in `writeReserve` above. Body-relative offset note: `timelineTop`
-  // is in CARD coords, but the consuming body's top is also offset within the card — 0 for
-  // home, HEADER_BAND_H for an open window — and `timelineTop` equals that same offset (+
-  // TIMELINE_TOP_PAD only at home), so the body-relative reserve collapses to
-  // `(home ? TIMELINE_TOP_PAD : 0) + bandBottom`. In ATLAS the grid fills ~88% but the
-  // do-list floats over its lower edge, so we reserve only `TIMELINE_ATLAS_DOLIST_TOP_FRAC`
-  // of the card instead of the measured height.)
 
   // Home is window 0 in the telescopic surface model. In DARK mode it stays on
   // pure --background (level 0) at every depth — a no-op. In LIGHT mode it is the
@@ -216,33 +124,20 @@ export function WorkSurface() {
         {
           backgroundColor: homeSurface,
           transition: homeBgTransition,
-          // NOTE: `--region1-reserve` (the timeline's reserved bottom, consumed by
-          // EntityBody) is written IMPERATIVELY in `writeReserve` (see above), not here,
-          // so the do-list tracks the band's CSS height transition every frame without a
-          // React re-render in the loop.
         } as React.CSSProperties
       }
     >
-      {/* ATLAS BACKDROP LAYER — the bottom layer of the card. The Atlas (this-week
-          grid) is portaled in here by the Lifelane, so it fills the card (everything
-          under the header) yet paints BEHIND the do-list/dock (later siblings) and the
-          app header (outside the card). `rounded-md` + `overflow-hidden` clip it to the
-          card; no z-index so DOM order keeps it beneath the later region content. */}
-      <div ref={setAtlasLayer} className="absolute inset-0 overflow-hidden rounded-md" aria-hidden />
-
       {/* REGION 1 — the LIFELANE (the Lifeline's linear view; the root Organism's
           master timeline), an ABSOLUTE OVERLAY (not in flow), so region 0 below can
           fill the whole card and the Lifelane can float at the active entity's header
           bottom. `top` ANIMATES between the home resting pad and HEADER_BAND_H (header
           bottom) when a window opens, so the Lifelane glides into the window just
-          below its header. z-0 (BEHIND region 0): the Lifelane — like the Atlas
-          backdrop — sits BEHIND the do-list/dock (region 0, z-10) so its chips never
-          paint over the create-row / task rows; it's a backdrop the chrome floats over.
-          Not clipped by the card, so it never crops. The do-list reserves space under
-          its resting band via `--region1-reserve`. */}
+          below its header. z-0 (BEHIND region 0): the Lifelane sits BEHIND the
+          do-list/dock (region 0, z-10) so its chips never paint over the create-row /
+          task rows; it's a backdrop the chrome floats over. Not clipped by the card,
+          so it never crops. */}
       {hasTimeline ? (
         <motion.div
-          ref={timelineElRef}
           // HOME: a fixed-height (`zoneH`) flex column that vertically CENTERS the strip in the
           // first-third zone, so the band grows symmetrically about the center and overflows
           // (bleeds) equally above/below when taller than the zone. WINDOW OPEN: legacy
@@ -256,8 +151,6 @@ export function WorkSurface() {
           <TimelineStrip
             contextId={contextId}
             accent={accent}
-            atlasLayer={atlasLayer}
-            viewHeightPx={viewHeightPx}
             centerZoneH={centered ? zoneH : 0}
             overlayTopPx={overlayTop}
           />

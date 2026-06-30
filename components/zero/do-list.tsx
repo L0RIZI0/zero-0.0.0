@@ -1009,20 +1009,14 @@ export function DoList({
     // `flex-1` so the section fills the column height — the scrolling <ul> below is
     // then a proper height-constrained scroller (and can center its content when
     // asked) rather than a content-height block pinned to the top.
-    <section
-      aria-label="Do list"
-      // ATLAS: push the compact list cluster to the BOTTOM of its region so it floats
-      // right on top of the (shrunken) dock — `pb` clears the dock's height so the
-      // create-row sits just ABOVE it rather than overlapping the cards.
-      className={cn("flex min-h-0 flex-1 flex-col", atlas && "justify-end pb-24")}
-    >
+    <section aria-label="Do list" className="flex min-h-0 flex-1 flex-col">
       {/* Open/All selectors. Hidden while the list is "virgin" (empty, or every item
           still open AND unplanned) ⇒ no chrome. Shown once something has been acted
           upon — resolved (completed/cancelled) or planned (scheduled). "Open" hides
           resolved items (a just-resolved one stays put via the retain set until the
           selector changes); "All" shows everything in place. */}
       {showSelectors && (
-        <div className={cn("mb-2 flex shrink-0 items-center justify-center gap-1", atlas && "order-first")}>
+        <div className="mb-2 flex shrink-0 items-center justify-center gap-1">
           {(["open", "all"] as const).map((f) => (
             <button
               key={f}
@@ -1051,55 +1045,39 @@ export function DoList({
           restores `position: fixed` at the very end (the disappearing-then-
           reappearing task bug). Visible overflow during the morph lets it escape;
           it returns to a normal scroller the instant the morph settles. */}
-      {atlas ? (
-        // ATLAS: a compact, capped, top-aligned scroller with the create-row pinned
-        // at its TOP (order-[-1], sticky). Unchanged from before — the decoupled
-        // overlay path below is gated to the default (non-atlas) layout only.
+      {/* The create-input is DECOUPLED from the scrolling list — it's a flow element
+          pinned DIRECTLY BELOW the rows (the list never scrolls behind it).
+            • `justify-center-safe` centers the (rows + input) group when it's short,
+              so an EMPTY entity shows the lone input dead-center; `-safe` falls back
+              to top-aligned the instant the content overflows.
+            • the scroller is `flex-initial` (grow 0 / shrink 1): it HUGS its content
+              (0px when empty) but shrinks + scrolls once the list is long, keeping
+              the input visible right below it.
+            • `paddingBottom: dockReserve` keeps the whole group — and thus the input —
+              clamped just above the dock (never overlapping it). */}
+      <div
+        ref={viewportRef}
+        className={cn("flex min-h-0 flex-1 flex-col", centered && "justify-center-safe")}
+        style={{ paddingBottom: dockReserve || undefined }}
+      >
         <ul
           key={contextId}
-          style={animating ? { overflow: "visible" } : { maxHeight: ATLAS_LIST_MAX_H }}
-          className="-mx-2 flex min-h-0 flex-none flex-col justify-start gap-1.5 overflow-y-auto px-2 no-scrollbar"
+          // `overflow: visible` during a window morph so a row growing into a window
+          // (parked at `position: absolute` by GSAP Flip) isn't clipped; it returns
+          // to a normal scroller the instant the morph settles.
+          style={animating ? { overflow: "visible" } : undefined}
+          className="-mx-2 flex min-h-0 flex-initial flex-col gap-1.5 overflow-y-auto px-2 no-scrollbar"
         >
-          <AnimatePresence initial={false} mode="popLayout">
-            {rowItems}
-            {createRowEl}
-          </AnimatePresence>
+          <AnimatePresence initial={false} mode="popLayout">{rowItems}</AnimatePresence>
         </ul>
-      ) : (
-        // DEFAULT: the create-input is DECOUPLED from the scrolling list — it's a flow
-        // element pinned DIRECTLY BELOW the rows (the list never scrolls behind it).
-        //   • `justify-center-safe` centers the (rows + input) group when it's short,
-        //     so an EMPTY entity shows the lone input dead-center; `-safe` falls back
-        //     to top-aligned the instant the content overflows.
-        //   • the scroller is `flex-initial` (grow 0 / shrink 1): it HUGS its content
-        //     (0px when empty) but shrinks + scrolls once the list is long, keeping
-        //     the input visible right below it.
-        //   • `paddingBottom: dockReserve` keeps the whole group — and thus the input —
-        //     clamped just above the dock (never overlapping it).
-        <div
-          ref={viewportRef}
-          className={cn("flex min-h-0 flex-1 flex-col", centered && "justify-center-safe")}
-          style={{ paddingBottom: dockReserve || undefined }}
-        >
-          <ul
-            key={contextId}
-            // `overflow: visible` during a window morph so a row growing into a window
-            // (parked at `position: absolute` by GSAP Flip) isn't clipped; it returns
-            // to a normal scroller the instant the morph settles.
-            style={animating ? { overflow: "visible" } : undefined}
-            className="-mx-2 flex min-h-0 flex-initial flex-col gap-1.5 overflow-y-auto px-2 no-scrollbar"
-          >
-            <AnimatePresence initial={false} mode="popLayout">{rowItems}</AnimatePresence>
-          </ul>
-          {/* Create-input — its own one-row list directly below the scroller. The inner
-              `motion.li` carries `layout={!animating}`, so it SLIDES down as rows are
-              added above (and back up on delete). `mt-1.5` only when rows exist mimics
-              the list's row gap so it reads as the next item below them. */}
-          <ul className={cn("-mx-2 list-none px-2", shown.length > 0 && "mt-1.5")}>
-            {createRowEl}
-          </ul>
-        </div>
-      )}
+        {/* Create-input — its own one-row list directly below the scroller. The inner
+            `motion.li` carries `layout={!animating}`, so it SLIDES down as rows are
+            added above (and back up on delete). `mt-1.5` only when rows exist mimics
+            the list's row gap so it reads as the next item below them. */}
+        <ul className={cn("-mx-2 list-none px-2", shown.length > 0 && "mt-1.5")}>
+          {createRowEl}
+        </ul>
+      </div>
 
       {/* Transient NL→schedule outcome notice. Rendered as a floating pill at the
           bottom-center of the viewport (via portal) so the centered do-list layout

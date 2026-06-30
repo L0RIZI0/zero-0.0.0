@@ -12,7 +12,6 @@ import {
   type ContextItem,
 } from "@/lib/zero/data"
 import { useZeroNav } from "@/lib/zero/nav-store"
-import { useTimelineView } from "@/lib/zero/timeline-view-store"
 import { EntityNode } from "./entity-node"
 import { ContextMenu, type ContextMenuState } from "./context-menu"
 import { cn } from "@/lib/utils"
@@ -31,10 +30,6 @@ import { cn } from "@/lib/utils"
 export function Dock({ contextId, active = true }: { contextId: string; active?: boolean }) {
   const { open, dataVersion, notifyDataChanged, morphCommit, setMenuKey, selection, moveSelection, publishNavOrder } =
     useZeroNav()
-  // In ATLAS the dock shrinks so its cards take less room, leaving the lower view for
-  // the compact do-list floating above it (scaled from the bottom so it stays pinned
-  // to the window's bottom edge).
-  const { atlas } = useTimelineView()
   const [menu, setMenu] = useState<ContextMenuState | null>(null)
 
   // Re-read pins whenever data mutates or the context changes.
@@ -177,8 +172,6 @@ export function Dock({ contextId, active = true }: { contextId: string; active?:
         // When empty, keep a breathing gap between the timeline and the lists
         // below; when populated, add extra top room.
         hasPins ? "pb-1 pt-6" : "pt-5",
-        // ATLAS: shrink from the bottom so the cards occupy less of the view.
-        atlas && "origin-bottom scale-[0.7]",
       )}
     >
       {/* CRITICAL: key this container by context so it HARD-remounts when the
