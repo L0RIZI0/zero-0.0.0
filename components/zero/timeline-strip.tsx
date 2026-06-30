@@ -2746,17 +2746,20 @@ export function TimelineStrip({
               const onCollapsedTickEnter = () => {
                 if (draggingRef.current) return // don't highlight along a pan path
                 const range = rangeText(b.from, b.to, b.entity?.schedule?.repeat)
-                const top = blk ? offsetY + blk.top : barTop(lane)
                 const kind = (b.entity?.kind as NodeKind) ?? "event"
                 const filled = glyphFilled(b.entity)
                 if (collapsedTarget && rkForBar) {
-                  // TICK form: light the whole rail + show glyph + title + range.
+                  // TICK form: light the whole rail + show glyph + title + range. Anchored on
+                  // the MOTHER RAIL (`offsetY + blk.top`), where every collapsed tick sits.
                   setHoveredMother(rkForBar)
+                  const top = blk ? offsetY + blk.top : barTop(lane)
                   setHoveredTick({ key: b.key, leftPct: left, top, title: b.title, kind, color: tickGlowColor, filled, range, showTitle: true })
                 } else {
                   // EXPANDED CHIP: the title is already shown inline beside the chip, so the
-                  // helper shows ONLY the time range. Centered on the chip; no rail glow.
-                  setHoveredTick({ key: b.key, leftPct: left + widthPctWarped / 2, top, title: b.title, kind, color: tickGlowColor, filled, range, showTitle: false })
+                  // helper shows ONLY the time range, centered on the chip. Anchor on the chip's
+                  // OWN lane row (`barTop(lane)`, = its `boxStyle.top`) — NOT the ribbon block top,
+                  // which would float the tag at the ribbon's first lane for any lower-lane chip.
+                  setHoveredTick({ key: b.key, leftPct: left + widthPctWarped / 2, top: barTop(lane), title: b.title, kind, color: tickGlowColor, filled, range, showTitle: false })
                 }
               }
               const onCollapsedTickLeave = () => {
