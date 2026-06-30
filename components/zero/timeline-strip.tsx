@@ -42,6 +42,7 @@ import {
 } from "@/lib/zero/timeline-scale"
 import type { Entity } from "@/lib/zero/types"
 import { KIND_META } from "@/lib/zero/kinds"
+import { rangeText, NOW_COLOR } from "@/lib/zero/timeline-format"
 import { panelTransition, layerTransition } from "@/lib/zero/motion"
 import { TIMELINE_TOP_PAD } from "@/lib/zero/layout"
 import { useZeroNav } from "@/lib/zero/nav-store"
@@ -679,7 +680,19 @@ export function TimelineStrip({
   // many events stays cheap. Cleared on leave only if it's still this bar (so sliding
   // from one tick to the next doesn't blank between them).
   const [hoveredTick, setHoveredTick] = useState<
-    { key: string; leftPct: number; top: number; title: string; kind: NodeKind; color: string; filled: boolean } | null
+    {
+      key: string
+      leftPct: number
+      top: number
+      title: string
+      kind: NodeKind
+      color: string
+      filled: boolean
+      /** The span-in-time text (start–end, single instant, or recurrence rule). */
+      range: string
+      /** Ticks show glyph + title + range; chips (title already shown inline) show range only. */
+      showTitle: boolean
+    } | null
   >(null)
   useEffect(() => {
     // Switching context re-derives folds for the NEW context's ribbons. Seed each ribbon's
@@ -2369,7 +2382,7 @@ export function TimelineStrip({
               >
               <div
                 className="pointer-events-none absolute -bottom-px -top-px w-px"
-                style={{ left: `${pct(now)}%`, backgroundColor: accent ?? "var(--accent)" }}
+                style={{ left: `${pct(now)}%`, backgroundColor: NOW_COLOR }}
               >
                 {/* Endpoint caps: equilateral triangles (8px base, ~7px tall) centered on
                     the 1px line (left −3.5px = −(8−1)/2). Top cap points DOWN into the line,
@@ -2385,7 +2398,7 @@ export function TimelineStrip({
                     height: 0,
                     borderLeft: "4px solid transparent",
                     borderRight: "4px solid transparent",
-                    borderTop: `7px solid ${accent ?? "var(--accent)"}`,
+                    borderTop: `7px solid ${NOW_COLOR}`,
                     filter: "drop-shadow(0 0 1px var(--card))",
                   }}
                 />
@@ -2399,7 +2412,7 @@ export function TimelineStrip({
                     height: 0,
                     borderLeft: "4px solid transparent",
                     borderRight: "4px solid transparent",
-                    borderBottom: `7px solid ${accent ?? "var(--accent)"}`,
+                    borderBottom: `7px solid ${NOW_COLOR}`,
                     filter: "drop-shadow(0 0 1px var(--card))",
                   }}
                 />
@@ -2732,21 +2745,22 @@ export function TimelineStrip({
               const tickGlowColor = b.color || NEUTRAL_MARKER
               const onCollapsedTickEnter = () => {
                 if (draggingRef.current) return // don't highlight along a pan path
-                if (!collapsedTarget || !rkForBar) return
-                setHoveredMother(rkForBar)
-                setHoveredTick({
-                  key: b.key,
-                  leftPct: left,
-                  top: blk ? offsetY + blk.top : barTop(lane),
-                  title: b.title,
-                  kind: (b.entity?.kind as NodeKind) ?? "event",
-                  color: tickGlowColor,
-                  filled: glyphFilled(b.entity),
-                })
+                const range = rangeText(b.from, b.to, b.entity?.schedule?.repeat)
+                const top = blk ? offsetY + blk.top : barTop(lane)
+                const kind = (b.entity?.kind as NodeKind) ?? "event"
+                const filled = glyphFilled(b.entity)
+                if (collapsedTarget && rkForBar) {
+                  // TICK form: light the whole rail + show glyph + title + range.
+                  setHoveredMother(rkForBar)
+                  setHoveredTick({ key: b.key, leftPct: left, top, title: b.title, kind, color: tickGlowColor, filled, range, showTitle: true })
+                } else {
+                  // EXPANDED CHIP: the title is already shown inline beside the chip, so the
+                  // helper shows ONLY the time range. Centered on the chip; no rail glow.
+                  setHoveredTick({ key: b.key, leftPct: left + widthPctWarped / 2, top, title: b.title, kind, color: tickGlowColor, filled, range, showTitle: false })
+                }
               }
               const onCollapsedTickLeave = () => {
-                if (!rkForBar) return
-                setHoveredMother((h) => (h === rkForBar ? null : h))
+                if (rkForBar) setHoveredMother((h) => (h === rkForBar ? null : h))
                 setHoveredTick((t) => (t?.key === b.key ? null : t))
               }
 
@@ -2780,7 +2794,7 @@ export function TimelineStrip({
                     onMouseEnter={onCollapsedTickEnter}
                     onMouseLeave={onCollapsedTickLeave}
                     aria-current={isOpen ? "true" : undefined}
-                    title={b.title}
+                    aria-label={b.title}
                     className="absolute flex cursor-pointer items-end overflow-visible transition-[filter] duration-300 ease-out hover:brightness-110"
                     // EXPERIMENT 2: uniform entity scale (scaleX pairs with the parent scaleY so the
                     // marker line + vertical connector + bleeding title shrink uniformly, not squished).
@@ -2923,7 +2937,7 @@ export function TimelineStrip({
                     onMouseEnter={onCollapsedTickEnter}
                     onMouseLeave={onCollapsedTickLeave}
                     aria-current={isOpen ? "true" : undefined}
-                    title={b.title}
+                    aria-label={b.title}
                     className={cn(
                       // overflow-visible (not hidden) so a title wider than the span
                       // BLEEDS out past the colored frame to the right rather than
@@ -3154,10 +3168,17 @@ export function TimelineStrip({
                     className="pointer-events-none absolute z-40 flex max-w-[30vw] -translate-x-1/2 items-center gap-1 rounded border border-border/70 bg-card px-1.5 py-0.5 text-[9.5px] font-medium leading-none tracking-tight text-foreground/80 shadow-sm animate-in fade-in duration-150"
                     style={{ left: `${hoveredTick.leftPct}%`, top: tipTop }}
                   >
-                    <span className="h-2.5 w-2.5 shrink-0" style={{ color: hoveredTick.color }}>
-                      <NodeGlyph kind={hoveredTick.kind} filled={hoveredTick.filled} strokeWidth={2} />
+                    {hoveredTick.showTitle && (
+                      <>
+                        <span className="h-2.5 w-2.5 shrink-0" style={{ color: hoveredTick.color }}>
+                          <NodeGlyph kind={hoveredTick.kind} filled={hoveredTick.filled} strokeWidth={2} />
+                        </span>
+                        <span className="truncate">{hoveredTick.title}</span>
+                      </>
+                    )}
+                    <span className={cn("shrink-0 tabular-nums", hoveredTick.showTitle && "text-muted-foreground")}>
+                      {hoveredTick.range}
                     </span>
-                    <span className="truncate">{hoveredTick.title}</span>
                   </div>
                 )
               })()}

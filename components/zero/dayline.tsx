@@ -5,7 +5,7 @@ import { useZeroNav } from "@/lib/zero/nav-store"
 import { getTimelineOccurrences, getInheritedAccent } from "@/lib/zero/data"
 import { entityInterval } from "@/lib/zero/timeline-index"
 import { KIND_META } from "@/lib/zero/kinds"
-import type { Recurrence } from "@/lib/zero/types"
+import { rangeText, NOW_COLOR } from "@/lib/zero/timeline-format"
 import { NodeGlyph } from "./node-glyph"
 
 // ============================================================================
@@ -28,7 +28,6 @@ const DAY_MS = 86_400_000
 // land inside one window instead of being split at midnight.
 const DAY_START_HOUR = 5
 const NEUTRAL = "oklch(0.72 0.004 75)"
-const WD = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
 
 /** [start,end) of the 5am→5am window containing `now`. */
 function dayWindow(now: number): [number, number] {
@@ -37,32 +36,6 @@ function dayWindow(now: number): [number, number] {
   let start = d.getTime()
   if (now < start) start -= DAY_MS // before 5am → the window opened at yesterday's 5am
   return [start, start + DAY_MS]
-}
-
-const fmtTime = (t: number) => new Date(t).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
-
-/** Human rule for a recurrence ("Every day", "Every Mon, Wed", "Every 2 weeks", …). */
-function ruleText(r: Recurrence): string {
-  const n = Math.max(1, r.interval ?? 1)
-  switch (r.freq) {
-    case "daily":
-      return n === 1 ? "Every day" : `Every ${n} days`
-    case "weekly":
-      if (r.byWeekday?.length) return `Every ${r.byWeekday.map((d) => WD[d]).join(", ")}`
-      return n === 1 ? "Every week" : `Every ${n} weeks`
-    case "monthly":
-      return n === 1 ? "Every month" : `Every ${n} months`
-    case "yearly":
-      return n === 1 ? "Every year" : `Every ${n} years`
-  }
-}
-
-/** The helper's time text: a start–end range, a single instant time, or — for a
- *  recurring item — the rule plus the occurrence time. */
-function rangeText(start: number, end: number, repeat?: Recurrence): string {
-  if (repeat) return `${ruleText(repeat)} · ${fmtTime(start)}`
-  if (end > start) return `${fmtTime(start)} – ${fmtTime(end)}`
-  return fmtTime(start)
 }
 
 interface DayItem {
@@ -126,6 +99,8 @@ export function Dayline() {
   }, [rootId, winStart, winEnd, dataVersion])
 
   const hoveredItem = hovered ? items.find((i) => i.key === hovered) : null
+  // "Now" position within the 5am→5am window (always in-range by construction).
+  const nowPct = ((now - winStart) / DAY_MS) * 100
 
   return (
     <div className="relative z-30 w-full px-2 sm:px-3">
@@ -176,6 +151,26 @@ export function Dayline() {
             />
           )
         })}
+
+        {/* NOW marker — a thin, bright-orange vertical tick (discrete but visible),
+            painted above every item. A small downward cap at the top edge mirrors the
+            timeline's now-marker so the live-time indicator reads identically on both. */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute -bottom-px -top-px z-30 w-[2px] -translate-x-1/2 rounded-full"
+          style={{ left: `${nowPct}%`, backgroundColor: NOW_COLOR, boxShadow: `0 0 4px ${NOW_COLOR}` }}
+        >
+          <span
+            className="absolute -top-1 left-1/2 -translate-x-1/2"
+            style={{
+              width: 0,
+              height: 0,
+              borderLeft: "3px solid transparent",
+              borderRight: "3px solid transparent",
+              borderTop: `5px solid ${NOW_COLOR}`,
+            }}
+          />
+        </div>
       </div>
 
       {/* HOVER HELPER — floats just below the lane (the header sits directly above,
