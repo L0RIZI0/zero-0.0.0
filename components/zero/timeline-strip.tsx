@@ -1248,16 +1248,25 @@ export function TimelineStrip({
       : folding
         ? `${props.split(",").map((p) => `${p.trim()} ${reflowMs}ms ${reflowEase}`).join(", ")}`
         : undefined
-  // The BAND height (and thus the do-list) gets its OWN longer + more generous ease-out,
-  // decoupled from the sibling REFLOW above so the ribbons keep their loved timing while the
-  // do-list lingers into a soft settle.
-  const bandTransition = manualFolding
-    ? `height ${DOLIST_MS}ms ${DOLIST_EASE_CSS}` // manual click → long soft settle
-    : zoomCollapsing
-      ? `height ${COLLAPSE_MS}ms ease-out` // zoom out → quick glide up, no 2.2s linger
-      : reflowing && !condensing
-        ? `height ${RELAYOUT_MS}ms ease-out` // lane split/merge → glide the frame with its chips
-        : undefined // zoomExpanding / rest → instant, so the band always fits its content
+  // BAND HEIGHT — INSTANT (no CSS tween). This used to animate `height` (a long soft
+  // settle on manual fold, a glide on zoom-out / lane reflow) so the do-list below it
+  // glided. But `height` is a LAYOUT property: tweening it relayouts + repaints the band
+  // AND the whole do-list flow every frame. Under Electron's software compositing (its
+  // Chromium GPU blocklist falls back to CPU on many drivers) that is the lag the user
+  // hit — the GPU-composited browser hid it. Discarding the height tween makes the band
+  // snap to its content height in one frame; the ribbon chips/labels still glide via the
+  // transform-based `reflowTransition` (compositor-cheap), so the fold still reads as
+  // animated — only the do-list push is now instant. Tradeoff: the do-list no longer
+  // "lingers" into its settle. Flip this back to a `height …ms` string to restore it.
+  // Built via a typed IIFE returning `string | undefined` so TS keeps the union (a
+  // plain `const … = undefined` folds to the literal `undefined`, breaking dependents
+  // like `headerRowTransition`). To restore an animated height, return a `height …ms …`
+  // string here (e.g. the old manual/zoom/reflow branches) instead of `undefined`.
+  const bandTransition = ((): string | undefined => undefined)()
+  // `DOLIST_EASE_CSS` + `zoomCollapsing` were only read by the (now-removed) height tween.
+  // Kept around (touched here) so reverting to an animated band height is a one-line change.
+  void DOLIST_EASE_CSS
+  void zoomCollapsing
   // HEADER ROWS (graduation + [date label/NOW]) transition. They float at NEGATIVE `top` above
   // the lanes and their `top` is recomputed from the INSTANT target geometry (`lifelaneBandH`) on
   // a fold, while the band frame's HEIGHT (and the container-centered band's top edge) glides on

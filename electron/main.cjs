@@ -25,11 +25,35 @@ const DEV_URL = process.env.ELECTRON_RENDERER_URL || "http://localhost:3000"
 // compositor-bound timeline transforms end up on the CPU here.
 //
 // Forcing these on pushes compositing + raster back onto the GPU. Must be set BEFORE
-// app `ready`. To confirm what actually engaged, open the app's devtools and load
-// `chrome://gpu` — "Compositing" / "Canvas" should read "Hardware accelerated".
+// app `ready`. `chrome://gpu` isn't reachable inside the app window, so instead we
+// print the GPU feature status straight into the RENDERER devtools console after load
+// (see `logGpuStatus` below) — look for the "[v0] GPU feature status" line.
 app.commandLine.appendSwitch("ignore-gpu-blocklist")
 app.commandLine.appendSwitch("enable-gpu-rasterization")
 app.commandLine.appendSwitch("enable-zero-copy")
+
+/**
+ * Print Chromium's GPU feature status into BOTH the main-process terminal and the
+ * renderer's devtools console (the one the user can actually see — `chrome://gpu` is
+ * blocked in-app). The key line is `gpu_compositing`: "enabled" means the compositor
+ * is on the GPU; "software"/"disabled" means Chromium fell back to the CPU (the lag).
+ */
+function logGpuStatus(win) {
+  try {
+    const status = app.getGPUFeatureStatus() // sync, available after `ready`
+    console.log("[v0] GPU feature status:", status)
+    if (win && !win.isDestroyed()) {
+      win.webContents
+        .executeJavaScript(
+          `console.log("%c[v0] GPU feature status","color:#0a0",${JSON.stringify(status)});` +
+            `console.log("[v0] gpu_compositing =", ${JSON.stringify(status.gpu_compositing || "unknown")});`,
+        )
+        .catch(() => {})
+    }
+  } catch (err) {
+    console.log("[v0] getGPUFeatureStatus failed:", err?.message || err)
+  }
+}
 
 // Directory of the Next.js static export (`next build` with output:'export').
 const OUT_DIR = path.join(__dirname, "..", "out")
@@ -82,6 +106,10 @@ function createWindow() {
 
   // Avoid a white flash: reveal only once the first paint is ready.
   mainWindow.once("ready-to-show", () => mainWindow?.show())
+
+  // Once the app's DOM is up, report the GPU status into its devtools console so the
+  // user can confirm whether the acceleration flags above actually engaged.
+  mainWindow.webContents.once("did-finish-load", () => logGpuStatus(mainWindow))
 
   if (isDev) {
     mainWindow.loadURL(DEV_URL)
