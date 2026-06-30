@@ -529,6 +529,12 @@ export function TimelineStrip({
   const floatRafRef = useRef<number | null>(null)
   const ensureFloatRef = useRef<() => void>(() => {})
   const draggingRef = useRef(false) // any active gesture — suppresses lean so a drag/zoom stays clean
+  // True while a band fold/collapse is animating. Like `draggingRef`, it suppresses the
+  // cursor-lean: the band's height + ribbon morph is settling, and a lean re-reading the
+  // cursor and nudging the strip horizontally in those last frames shows up as a shake at
+  // the very end of the collapse. We freeze the lean (homing it to 0) for the duration so
+  // the settle is clean; pointer-moves re-engage it once the fold finishes.
+  const foldingRef = useRef(false)
 
   // The entire strip is positioned from wall-clock time (`startMs`, `now`), which the
   // server can't know, so SSR markup can never match the first client paint. Rather
@@ -814,6 +820,7 @@ export function TimelineStrip({
     const onPointerMove = (e: PointerEvent) => {
       if (reduceMotion) return
       if (draggingRef.current) return // gesture owns motion; lean targets are held at 0
+      if (foldingRef.current) return // a fold is settling; freeze lean so it can't shake the end
       const vp = viewportRef.current
       if (!vp) return
       const r = vp.getBoundingClientRect()
@@ -1150,6 +1157,16 @@ export function TimelineStrip({
   // The user wants the EXACT SAME effect for both, so the whole reflow keys off this — not
   // off `manualFolding`. (`bandAnimating` is the same predicate; aliased for readability.)
   const folding = bandAnimating
+  // Mirror `folding` into the float loop's ref and, on each fold's leading edge, home the
+  // cursor-lean to 0 and pump the loop so it eases back to center DURING the collapse —
+  // leaving no horizontal offset to reconcile (which read as the end-of-settle shake).
+  useEffect(() => {
+    foldingRef.current = folding
+    if (folding) {
+      leanXTargetRef.current = 0
+      ensureFloatRef.current()
+    }
+  }, [folding])
   const bandExpanding = lifelaneBandH > prevBandH.current
   // ZOOM vs MANUAL fold split. A MANUAL click gets the long, lingering do-list settle
   // (DOLIST_MS ≈ 2.2s) — the user clicked once and watches it ease. A ZOOM fold must
