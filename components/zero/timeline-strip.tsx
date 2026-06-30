@@ -2316,7 +2316,13 @@ export function TimelineStrip({
               >
                 {dayCells.map((ds) => {
                   const left = pct(ds)
-                  const widthPct = (DAY_MS / spanMs) * 100
+                  // Width must come from the SAME (possibly warped) projection as `left`, not the raw
+                  // linear `DAY_MS/spanMs`. The right edge of a cell is the next cell's left edge:
+                  // `pct(ds+DAY_MS)`. Using the linear width instead left the band's right edge un-warped
+                  // while its left edge dove with the elastic lens, so on the compression flank the band
+                  // overran its neighbour (double-tinted seam) and on the expansion flank it gapped. This
+                  // keeps every band's right edge exactly flush with the next band's left at all ε.
+                  const widthPct = pct(ds + DAY_MS) - left
                   if (left > 100 || left + widthPct < 0) return null
                   return (
                     <div
@@ -3217,7 +3223,7 @@ export function TimelineStrip({
                 // leaving top in plain style teleported the column and masked the morph.
                 // top/height are CONSTANT during a normal zoom, so animating them adds no
                 // zoom lag. We use an animatable `rotate` transform (not `writing-mode`,
-                // which can't transition) — that's what lets the title spin smoothly.
+                // which can't transition) �� that's what lets the title spin smoothly.
                 // The rail label is suppressed mid-morph so the two don't double up.
                 // Title width = the column's ACTUAL rendered height (`blk.height`, the value
                 // the column animates to) — NOT a lane-count estimate, which under-counted
