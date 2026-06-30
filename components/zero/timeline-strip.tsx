@@ -989,18 +989,21 @@ export function TimelineStrip({
       if (dt > 0.05) dt = 0.05 // clamp big gaps (tab-away) so the spring can't explode
       const target = Math.max(-EMAX, Math.min(EMAX, -zoomVelRef.current * GAIN))
       const x = elasticValRef.current
-      const v = elasticVelRef.current
-      // Critically damped toward `target` (ω=20 → k=400, c=40): tracks the smooth zoom-velocity
-      // envelope without overshoot or its own ringing.
-      const a = -400 * (x - target) - 40 * v
-      const nv = v + a * dt
-      const nx = Math.max(-0.6, Math.min(0.6, x + nv * dt)) // clamp displacement, never fold
+      // FIRST-ORDER low-pass toward `target` — NOT a spring. A spring has momentum, so ε LAGGED the
+      // zoom velocity: when the (critically-damped) zoom decelerated to a stop, ε was still elevated
+      // and relaxed AFTERWARD, pulling the chips back inward — the trailing "overshoot correction"
+      // the user saw. A first-order filter has no momentum: it can never overshoot and it reaches 0
+      // exactly as `target` (∝ zoom velocity) reaches 0, so the lens deflates in lockstep with the
+      // decelerating zoom and ends softly IN PLACE rather than springing back. τ≈45ms keeps it smooth
+      // without perceptible lag. (Zoom velocity is already C¹-smooth, so no extra smoothing needed.)
+      const TAU = 0.045
+      const k = 1 - Math.exp(-dt / TAU)
+      const nx = Math.max(-0.6, Math.min(0.6, x + (target - x) * k)) // clamp displacement, never fold
       elasticValRef.current = nx
-      elasticVelRef.current = nv
+      elasticVelRef.current = 0 // unused now (no momentum) — kept zeroed for the rest-check below
       // Stop only once the lens AND its driver are both at rest — otherwise keep tracking the zoom.
-      if (Math.abs(nx) < 0.0012 && Math.abs(nv) < 0.02 && Math.abs(target) < 0.0012) {
+      if (Math.abs(nx) < 0.0012 && Math.abs(target) < 0.0012) {
         elasticValRef.current = 0
-        elasticVelRef.current = 0
         elasticRafRef.current = null
         setElastic(0) // land exactly at rest → pct() returns to its zero-cost linear path
         return
