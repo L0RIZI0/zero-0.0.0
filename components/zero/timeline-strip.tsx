@@ -530,6 +530,7 @@ export function TimelineStrip({
   // lerp; `yVel` is that spring's velocity. A fresh drag clears the flag and resumes 1:1 follow.
   const yVelRef = useRef(0)
   const yBounceRef = useRef(false)
+  const yBounceTargetRef = useRef(0) // where the release spring settles (a PARTIAL retraction, not home)
   const floatLastTRef = useRef<number | null>(null)
   const leanXTargetRef = useRef(0) // horizontal-only lean toward the cursor
   const leanXRenderRef = useRef(0)
@@ -821,12 +822,17 @@ export function TimelineStrip({
     onGestureEnd: (kind) => {
       if (kind === "drag") draggingRef.current = false
     },
-    // RELEASE BOUNCE — fires at pointerUP (not at glide-settle), so a vertical pull springs home
+    // RELEASE BOUNCE — fires at pointerUP (not at glide-settle), so a vertical pull recoils
     // IMMEDIATELY, in parallel with any horizontal momentum glide, instead of waiting for the
     // horizontal fling to finish. The float loop's spring branch is keyed on `yBounceRef` alone
     // (independent of `draggingRef`), so it runs even while the glide keeps the drag flag set.
     onRelease: () => {
       if (Math.abs(yRenderRef.current) > 0.5) {
+        // PARTIAL recoil, not a full return home: the strip stays roughly where it was dropped and
+        // just springs back a little in the home direction (settles at 75% of the drop = 25% recoil),
+        // with the underdamped k190/c16 spring giving a small overshoot past that point. "Bounce back
+        // a little in that direction", not "snap all the way back to where it started".
+        yBounceTargetRef.current = yRenderRef.current * 0.75
         yBounceRef.current = true
         yVelRef.current = 0
         ensureFloatRef.current()
@@ -867,19 +873,21 @@ export function TimelineStrip({
       // target with the original frame-rate lerp (crisp 1:1-ish follow). k=190 c=16 ⇒ ζ≈0.58.
       let y: number
       if (yBounceRef.current) {
-        // Spring home — keyed on `yBounceRef` ALONE (not `!draggingRef`), so the vertical bounce
-        // runs immediately on release even while a horizontal momentum glide still holds the drag
-        // flag. It self-completes here regardless of that glide, so home becomes the new resting
-        // offset the moment the spring settles, never waiting for the horizontal fling.
-        const a = -190 * yRenderRef.current - 16 * yVelRef.current
+        // Spring toward the PARTIAL-recoil target — keyed on `yBounceRef` ALONE (not `!draggingRef`),
+        // so the vertical recoil runs immediately on release even while a horizontal momentum glide
+        // still holds the drag flag. It self-completes here regardless of that glide, so the recoil
+        // point becomes the new resting offset the moment the spring settles, never waiting for the
+        // horizontal fling.
+        const bt = yBounceTargetRef.current
+        const a = -190 * (yRenderRef.current - bt) - 16 * yVelRef.current
         const nv = yVelRef.current + a * dt
         y = yRenderRef.current + nv * dt
         yVelRef.current = nv
-        if (Math.abs(y) < 0.1 && Math.abs(nv) < 0.6) {
-          y = 0
+        if (Math.abs(y - bt) < 0.1 && Math.abs(nv) < 0.6) {
+          y = bt
           yVelRef.current = 0
           yBounceRef.current = false
-          yTargetRef.current = 0 // don't re-apply the old drop once we've sprung home
+          yTargetRef.current = bt // settle at the partial-recoil offset (not home, not the full drop)
         }
       } else {
         y = yRenderRef.current + (yT - yRenderRef.current) * Y_EASE
@@ -964,7 +972,13 @@ export function TimelineStrip({
       // the neighbours feel as they get shoved out then bounce back. Semi-implicit Euler.
       const x = elasticValRef.current
       const v = elasticVelRef.current
-      const a = -160 * x - 10 * v
+      // CRITICAL damping: c = 2√k = 2√160 ≈ 25.3 (use 26, a hair over). An UNDERdamped spring's
+      // impulse response crosses zero — ε would rise (inflate), return to 0, then swing NEGATIVE
+      // (the lens flips to a pinch) before recovering. That sign flip reverses the chips' direction
+      // early in the animation = the "zig-zag" artifact. Critical damping rises to a single peak then
+      // decays back to 0 monotonically (never crosses), so the chips dive out and ease back without
+      // any reversal.
+      const a = -160 * x - 26 * v
       const nv = v + a * dt
       const nx = Math.max(-0.6, Math.min(0.6, x + nv * dt)) // clamp displacement, never fold
       elasticValRef.current = nx
@@ -993,10 +1007,11 @@ export function TimelineStrip({
       // position and then animated back ("jump left, then drift right, then left again"). Feeding
       // the SPRING'S VELOCITY instead gives an impulse response: ε starts at exactly 0 (no jump at
       // the tick), accelerates up to a peak, then eases back to 0 — a smooth inflate-and-recover.
-      // Gain 8/notch with the k=160,c=10 spring peaks ε≈0.3; clamp velocity so a fast scroll burst
-      // can't run away (the displacement is also clamped to ±0.6 in the step above).
+      // Gain 11/notch with the critically-damped k=160,c=26 spring peaks ε≈0.3 (critical damping
+      // lowers the peak for a given impulse, so the gain is bumped from 8 to compensate). Clamp
+      // velocity so a fast scroll burst can't run away (displacement is also clamped to ±0.6 above).
       const notch = Math.max(-1, Math.min(1, -e.deltaY / 100))
-      elasticVelRef.current = Math.max(-14, Math.min(14, elasticVelRef.current + notch * 8))
+      elasticVelRef.current = Math.max(-18, Math.min(18, elasticVelRef.current + notch * 11))
       if (elasticRafRef.current == null) {
         last = performance.now()
         elasticRafRef.current = requestAnimationFrame(step)
