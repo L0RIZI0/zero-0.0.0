@@ -123,8 +123,12 @@ export function EntityBody({
           works while hovering the timeline/its region (the body root is pointer-
           transparent). */}
       {timeline ? (
-        <Region grow="hug" className="pointer-events-auto px-6 pt-2">
-          <div className={cn("mx-auto w-full", isRoot ? "max-w-[70vw]" : "max-w-[720px]")}>{timeline}</div>
+        <Region grow="hug" className="pointer-events-auto pt-2">
+          {/* Full-bleed: the timeline fills the ENTIRE horizontal space of region 0
+              (no `max-w` cap and no side padding, unlike regions 1/2 which stay capped
+              + centered for a comfortable reading measure). Only the view's `p-3` inset
+              keeps it off the screen edge. */}
+          <div className="w-full">{timeline}</div>
         </Region>
       ) : null}
 
