@@ -145,6 +145,11 @@ export function EntityBody({
           through the dock's empty padding; the Dock re-enables pointer events. No
           transforms, so GSAP Flip never sees it. */}
       <div
+        // `data-dock-overlay` lets the do-list measure the dock's top edge so its
+        // decoupled create-input can clamp itself just above the dock (never below or
+        // overlapping it). The wrapper self-collapses to ~0 height at the window bottom
+        // when there are no pinned items, so the clamp line falls to the window bottom.
+        data-dock-overlay
         className="pointer-events-none absolute inset-x-0 z-10 flex justify-center px-6"
         style={{ bottom: `calc(var(--hex-corner-inset-y, 0px) * -1)` }}
       >
