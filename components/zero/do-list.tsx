@@ -624,21 +624,28 @@ export function DoList({
     }
     if (filter !== "open") return items
     return items.filter((it) => {
-      const open = it.kind !== "task" || !it.entity.completed
+      // "Open" = still actionable: not completed (any completable kind, not just
+      // tasks) and not cancelled. Resolved items are hidden under "Open".
+      const open = !it.entity.completed && !it.entity.cancelled
       if (open) {
-        // Remember every currently-open task so it survives its own later check.
+        // Remember every currently-open item so it survives its own later resolve.
         retainRef.current.add(it.id)
         return true
       }
-      // Completed task: keep it only if it was on-screen when it got checked.
+      // Resolved item: keep it only if it was on-screen when it got resolved.
       return retainRef.current.has(it.id)
     })
   }, [items, filter, contextId])
 
-  // Whether any task in this context is completed (i.e. something is hidden by the
-  // "open" filter, or could be). Drives showing the Open/All selectors.
-  const hasCompleted = useMemo(
-    () => items.some((it) => it.kind === "task" && it.entity.completed),
+  // The do-list is "virgin" when it's empty OR every item is still open (not
+  // completed, not cancelled) AND unplanned (no schedule). Only a NON-virgin list —
+  // something has been acted upon (resolved) or planned — reveals the Open/All
+  // selectors; a fresh list shows no chrome.
+  const showSelectors = useMemo(
+    () =>
+      items.some(
+        (it) => it.entity.completed || it.entity.cancelled || !!it.entity.schedule,
+      ),
     [items],
   )
 
@@ -899,11 +906,12 @@ export function DoList({
       // create-row sits just ABOVE it rather than overlapping the cards.
       className={cn("flex min-h-0 flex-1 flex-col", atlas && "justify-end pb-24")}
     >
-      {/* Open/All selectors. Hidden until at least one task in this context has been
-          completed (nothing to filter ⇒ no chrome). "Open" hides previously-completed
-          tasks (the just-checked one still stays put via the retain set); "All" shows
-          everything in place. */}
-      {hasCompleted && (
+      {/* Open/All selectors. Hidden while the list is "virgin" (empty, or every item
+          still open AND unplanned) ⇒ no chrome. Shown once something has been acted
+          upon — resolved (completed/cancelled) or planned (scheduled). "Open" hides
+          resolved items (a just-resolved one stays put via the retain set until the
+          selector changes); "All" shows everything in place. */}
+      {showSelectors && (
         <div className={cn("mb-2 flex shrink-0 items-center justify-center gap-1", atlas && "order-first")}>
           {(["open", "all"] as const).map((f) => (
             <button

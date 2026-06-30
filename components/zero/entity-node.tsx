@@ -5,6 +5,7 @@ import { useTheme } from "next-themes"
 import { Check, X } from "lucide-react"
   import { getEntity, getOpenTaskCount, setEntityCompleted } from "@/lib/zero/data"
 import type { TaskPriority } from "@/lib/zero/types"
+import { KIND_META, isTerminal } from "@/lib/zero/kinds"
 import { useZeroNav, useRowSelection } from "@/lib/zero/nav-store"
 import {
   HEADER_H,
@@ -280,6 +281,17 @@ export function EntityNode({
   // of the do-list. The glyph+title header, IN/OUT rails and close all stay identical
   // to a normal Task window — only the central working surface differs.
   const isResource = isTask && !!entity.webUrl
+  // GLYPH SEMANTICS (driven by KIND_META, single source of truth):
+  //  - any completable kind FILLS its silhouette when done (event triangle, space
+  //    hexagon, etc.), not just tasks;
+  //  - only a done TASK additionally gets the inner checkmark;
+  //  - terminal kinds (community→retired, organism/individual→dead) never fill as
+  //    "done"; they instead carry a terminal cross (inert today — nothing sets
+  //    retiredOn/diedOn yet — and its exact styling is deferred).
+  const meta = KIND_META[kind]
+  const terminal = isTerminal(entity)
+  const glyphFilled = (meta.fillGlyphWhenDone && done) || terminal
+  const showCheckmark = meta.checkmarkWhenDone && done
 
   // OWNERSHIP. The same entity can be referenced in several contexts, so it can
   // be rendered by several do-lists/docks at once. Exactly ONE of those instances
@@ -1001,12 +1013,17 @@ export function EntityNode({
               <>
                 <NodeGlyph
                   kind={kind}
-                  filled={isTask && done}
+                  filled={glyphFilled}
                   strokeWidth={asWindow ? 1.75 : isTask ? 2 : 1.75}
                   request={isTask && !!entity.requested}
                 />
-                {!asWindow && isTask && done && (
+                {!asWindow && showCheckmark && (
                   <Check className="absolute h-2.5 w-2.5 text-background" strokeWidth={3.5} />
+                )}
+                {!asWindow && terminal && (
+                  // Terminal mark for a retired community / dead organism|individual.
+                  // Placeholder styling — see KIND_META.terminal; refined later.
+                  <X className="absolute h-2.5 w-2.5 text-background" strokeWidth={3.5} />
                 )}
               </>
             )}

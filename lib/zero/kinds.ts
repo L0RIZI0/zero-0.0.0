@@ -1,4 +1,4 @@
-import type { EntityKind } from "./types"
+import type { Entity, EntityKind } from "./types"
 
 /**
  * Per-kind SEMANTICS — the single source of truth for what each particular Space
@@ -128,9 +128,8 @@ export function isCompletable(kind: EntityKind): boolean {
  * nothing sets `retiredOn`/`diedOn` yet — but wires the model so the glyph can
  * render a terminal mark for community/organism/individual.
  */
-export function isTerminal(entity: { kind: EntityKind } & Record<string, unknown>): boolean {
-  const meta = KIND_META[entity.kind]
-  if (!meta.terminal) return false
-  if (meta.terminal === "retire") return entity["retiredOn"] != null
-  return entity["diedOn"] != null
+export function isTerminal(entity: Entity): boolean {
+  if (entity.kind === "community") return entity.retiredOn != null
+  if (entity.kind === "organism" || entity.kind === "individual") return entity.diedOn != null
+  return false
 }
