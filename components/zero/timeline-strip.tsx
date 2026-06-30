@@ -1285,18 +1285,30 @@ export function TimelineStrip({
   // ON and the lag PERSISTED with the tween gone — so the tween was never the cause, and
   // removing it only made manual folds + lane splits JUMP. Restored. The real scroll lag is
   // the per-frame re-render during a wheel-zoom, addressed separately (see the wheel handler).
-  const bandTransition = manualFolding
-    ? `height ${DOLIST_MS}ms ${DOLIST_EASE_CSS}` // manual click → long soft settle
-    : zoomCollapsing
-      ? `height ${COLLAPSE_MS}ms ease-out` // zoom out → quick glide up, no 2.2s linger
-      : reflowing && !condensing
-        ? `height ${RELAYOUT_MS}ms ease-out` // lane split/merge → glide the frame with its chips
-        : undefined // zoomExpanding / rest → instant, so the band always fits its content
+  const bandTransition =
+    condensing && !zoomCollapsed
+      ? // LIVE CONDENSE RAMP (zooming out, not yet folded): `condenseScale` is baked into the
+        // frame height (`bandHVisual = base × condenseScale`) and changes EVERY frame as the span
+        // animates, so the height MUST be instant — a CSS tween here smears each frame's value over
+        // its duration, so the frame perpetually lags the zoom and then catches up in a jump when the
+        // gesture stops or folds (the "frame/graduation doesn't adjust quick enough, then snaps"
+        // artifact). This matches the long-documented intent ("SKIPPED while condensing"); the bug was
+        // that the `zoomCollapsing` branch below fired for the WHOLE ramp (collapseAnimating is true
+        // throughout) and wrongly won. Lane reflows DURING the ramp still glide via `bandHRender`'s JS
+        // smoothing, and the FOLD itself (`zoomCollapsed`) still falls through to the glide branches.
+        undefined
+      : manualFolding
+        ? `height ${DOLIST_MS}ms ${DOLIST_EASE_CSS}` // manual click → long soft settle
+        : zoomCollapsing
+          ? `height ${COLLAPSE_MS}ms ease-out` // fold settle → quick glide up, no 2.2s linger
+          : reflowing && !condensing
+            ? `height ${RELAYOUT_MS}ms ease-out` // lane split/merge → glide the frame with its chips
+            : undefined // zoomExpanding / rest → instant, so the band always fits its content
   // HEADER ROWS (graduation + [date label/NOW]) transition. They float at NEGATIVE `top` above
   // the lanes and their `top` is recomputed from the INSTANT target geometry (`lifelaneBandH`) on
   // a fold, while the band frame's HEIGHT (and the container-centered band's top edge) glides on
   // `bandTransition`. `bandTransition` only lists the `height` property, so the rows' `top` change
-  // was applied INSTANTLY ��� they jumped in frame 1 and the band's recenter then dragged them back
+  // was applied INSTANTLY ����� they jumped in frame 1 and the band's recenter then dragged them back
   // (the date/NOW + graduation "jump" the user saw). Mirror the band's exact schedule onto the
   // `top` property so the rows glide in lockstep with the recenter instead of snapping. `undefined`
   // at rest / during live zoom (top tracks the zoom every frame, no transition wanted).
