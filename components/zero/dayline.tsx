@@ -161,7 +161,6 @@ export function Dayline() {
   // Set true once a drag moves past threshold; suppresses the chip click that would
   // otherwise fire on pointerup, and reset on the next pointerdown.
   const draggedRef = useRef(false)
-  const [panning, setPanning] = useState(false)
 
   const onPointerDown = useCallback(
     (e: React.PointerEvent) => {
@@ -169,7 +168,6 @@ export function Dayline() {
       draggedRef.current = false
       dragRef.current = { startX: e.clientX, startView: viewStart }
       laneRef.current?.setPointerCapture(e.pointerId)
-      setPanning(true)
     },
     [viewStart],
   )
@@ -185,7 +183,6 @@ export function Dayline() {
   }, [])
   const onPointerUp = useCallback((e: React.PointerEvent) => {
     dragRef.current = null
-    setPanning(false)
     if (laneRef.current?.hasPointerCapture(e.pointerId)) laneRef.current.releasePointerCapture(e.pointerId)
   }, [])
   // Double-click snaps back to the live window containing now.
@@ -210,10 +207,7 @@ export function Dayline() {
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
         onDoubleClick={recenter}
-        className={cn(
-          "pointer-events-auto relative h-7 w-full select-none overflow-visible rounded-md border border-border/60 bg-card/40 [touch-action:none]",
-          panning ? "cursor-grabbing" : "cursor-grab",
-        )}
+        className="pointer-events-auto relative h-7 w-full cursor-default select-none overflow-visible rounded-md border border-border/60 bg-card/40 [touch-action:none]"
       >
         {mounted &&
           items.map((it) => {
@@ -230,7 +224,7 @@ export function Dayline() {
                   if (draggedRef.current) return // a pan, not a tap
                   open(it.id)
                 }}
-                className="absolute top-1/2 -translate-y-1/2 rounded-[3px] transition-[filter,height] duration-150"
+                className="absolute top-1/2 -translate-y-1/2 cursor-default rounded-[3px] transition-[filter,height] duration-150"
                 style={{
                   left: `${it.leftPct}%`,
                   width: `max(3px, ${it.widthPct}%)`,
@@ -255,7 +249,7 @@ export function Dayline() {
                 if (draggedRef.current) return // a pan, not a tap
                 open(it.id)
               }}
-              className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full transition-[filter,height,width] duration-150"
+              className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2 cursor-default rounded-full transition-[filter,height,width] duration-150"
               style={{
                 left: `${it.leftPct}%`,
                 width: isHot ? 3 : 2,
@@ -283,7 +277,7 @@ export function Dayline() {
             {/* Invisible, wider hit zone so the 2px line is hoverable in practice; it
                 toggles the time pill via React state. */}
             <span
-              className="absolute -bottom-1 -top-1 left-1/2 w-4 -translate-x-1/2 cursor-help"
+              className="absolute -bottom-1 -top-1 left-1/2 w-4 -translate-x-1/2 cursor-default"
               onMouseEnter={() => setNowHover(true)}
               onMouseLeave={() => setNowHover(false)}
             />
