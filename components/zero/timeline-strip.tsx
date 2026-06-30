@@ -842,14 +842,35 @@ export function TimelineStrip({
   }, [mounted])
 
   // --- Data query (bounded, LOD-aware) -------------------------------------
-  // Range = viewport ± 25% padding, rounded to a fraction of the span so we only
-  // re-query when the rounded window (or grain / data / focus) changes — not on
-  // every pan frame. queryTimeline never walks huge ranges (recurrences become
-  // streams at coarse zoom), so this stays cheap from a day to a whole life.
+  // Range = viewport ± 25% padding, rounded so we only re-run the heavy
+  // query → rollup → bar-build → lane-pack pipeline when the rounded window (or grain /
+  // data / focus) changes — NOT on every gesture frame. queryTimeline never walks huge
+  // ranges (recurrences become streams at coarse zoom), so this stays cheap from a day
+  // to a whole life.
+  //
+  // PERF — quantize against ZOOM, not just pan. The bucket used to be `spanMs/6`, which
+  // ramps continuously WITH the span, so during a wheel-zoom `qStart`/`qEnd` shifted
+  // almost every frame and this whole pipeline recomputed ~60×/s — the scroll lag (it
+  // was only ever quantized for PAN, where the span is fixed). Fix: snap the query SPAN
+  // itself to a geometric ladder, so a continuous zoom only re-queries when it crosses a
+  // ladder step (~a handful of times across a full zoom, vs per-frame). The live pixel
+  // projection (`scale`/`pct`) still updates every frame, so motion stays perfectly smooth
+  // — only the DATA set is recomputed in discrete steps.
   const pad = spanMs * 0.25
-  const bucket = Math.max(60_000, spanMs / 6)
-  const qStart = Math.floor((startMs - pad) / bucket) * bucket
-  const qEnd = Math.ceil((startMs + spanMs + pad) / bucket) * bucket
+  // Ladder ratio ~1.19 (2^¼): the quantized window is at most ~19% larger than the raw
+  // viewport+pad, so the resting set barely differs from the old window, yet a zoom spanning
+  // orders of magnitude crosses only ~4 steps/decade instead of recomputing every frame.
+  const QUERY_LADDER = 1.1892
+  const qNeed = spanMs + 2 * pad // window must always cover the viewport + pad
+  // Round the span UP to the next ladder step → guarantees qSpan ≥ qNeed (no on-screen clip).
+  const qSpan = Math.pow(QUERY_LADDER, Math.ceil(Math.log(qNeed) / Math.log(QUERY_LADDER)))
+  // Snap the window edges to a coarse grid (qSpan/6) centered on the view, so panning within
+  // a step doesn't re-query either. Centering on `center` keeps the quantized window symmetric
+  // around what's on screen.
+  const bucket = Math.max(60_000, qSpan / 6)
+  const qCenter = startMs + spanMs / 2
+  const qStart = Math.floor((qCenter - qSpan / 2) / bucket) * bucket
+  const qEnd = Math.ceil((qCenter + qSpan / 2) / bucket) * bucket
   // We always query the WHOLE tree (the root context), not just the focused
   // entity's subtree, so opening an entity never makes the rest of the lifeline
   // disappear — unrelated markers stay on the timeline, just dimmed (see
@@ -1248,25 +1269,21 @@ export function TimelineStrip({
       : folding
         ? `${props.split(",").map((p) => `${p.trim()} ${reflowMs}ms ${reflowEase}`).join(", ")}`
         : undefined
-  // BAND HEIGHT — INSTANT (no CSS tween). This used to animate `height` (a long soft
-  // settle on manual fold, a glide on zoom-out / lane reflow) so the do-list below it
-  // glided. But `height` is a LAYOUT property: tweening it relayouts + repaints the band
-  // AND the whole do-list flow every frame. Under Electron's software compositing (its
-  // Chromium GPU blocklist falls back to CPU on many drivers) that is the lag the user
-  // hit — the GPU-composited browser hid it. Discarding the height tween makes the band
-  // snap to its content height in one frame; the ribbon chips/labels still glide via the
-  // transform-based `reflowTransition` (compositor-cheap), so the fold still reads as
-  // animated — only the do-list push is now instant. Tradeoff: the do-list no longer
-  // "lingers" into its settle. Flip this back to a `height …ms` string to restore it.
-  // Built via a typed IIFE returning `string | undefined` so TS keeps the union (a
-  // plain `const … = undefined` folds to the literal `undefined`, breaking dependents
-  // like `headerRowTransition`). To restore an animated height, return a `height …ms …`
-  // string here (e.g. the old manual/zoom/reflow branches) instead of `undefined`.
-  const bandTransition = ((): string | undefined => undefined)()
-  // `DOLIST_EASE_CSS` + `zoomCollapsing` were only read by the (now-removed) height tween.
-  // Kept around (touched here) so reverting to an animated band height is a one-line change.
-  void DOLIST_EASE_CSS
-  void zoomCollapsing
+  // The BAND height (and thus the do-list) gets its OWN longer + more generous ease-out,
+  // decoupled from the sibling REFLOW above so the ribbons keep their loved timing while the
+  // do-list lingers into a soft settle.
+  // NB: an earlier pass set this to `undefined` (instant) on the theory that tweening the
+  // layout `height` was the Electron lag. `chrome://gpu` later confirmed GPU compositing is
+  // ON and the lag PERSISTED with the tween gone — so the tween was never the cause, and
+  // removing it only made manual folds + lane splits JUMP. Restored. The real scroll lag is
+  // the per-frame re-render during a wheel-zoom, addressed separately (see the wheel handler).
+  const bandTransition = manualFolding
+    ? `height ${DOLIST_MS}ms ${DOLIST_EASE_CSS}` // manual click → long soft settle
+    : zoomCollapsing
+      ? `height ${COLLAPSE_MS}ms ease-out` // zoom out → quick glide up, no 2.2s linger
+      : reflowing && !condensing
+        ? `height ${RELAYOUT_MS}ms ease-out` // lane split/merge → glide the frame with its chips
+        : undefined // zoomExpanding / rest → instant, so the band always fits its content
   // HEADER ROWS (graduation + [date label/NOW]) transition. They float at NEGATIVE `top` above
   // the lanes and their `top` is recomputed from the INSTANT target geometry (`lifelaneBandH`) on
   // a fold, while the band frame's HEIGHT (and the container-centered band's top edge) glides on
