@@ -65,7 +65,10 @@ export function FpsMeter() {
   useEffect(() => {
     if (process.env.NODE_ENV === "production") return
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "`") setVisible((v) => !v)
+      // Toggle with backtick (`) OR section sign (§) — the latter for keyboards
+      // (e.g. ISO layouts) that have no backtick key. `e.code === "Backquote"`
+      // also covers the physical key regardless of the layout's produced char.
+      if (e.key === "`" || e.key === "§" || e.code === "Backquote") setVisible((v) => !v)
       if (e.key === "r" || e.key === "R") resetRef.current = true
     }
     window.addEventListener("keydown", onKey)
@@ -97,7 +100,7 @@ export function FpsMeter() {
       >
         reset (R)
       </button>
-      <div className="mt-1 text-[10px] text-muted-foreground">{"` to hide"}</div>
+      <div className="mt-1 text-[10px] text-muted-foreground">{"` or § to hide"}</div>
     </div>
   )
 }

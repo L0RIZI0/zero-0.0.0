@@ -31,6 +31,7 @@ import { DURATION_S, MORPH_CSS_EASE, SEND_EASE } from "@/lib/zero/flip-stage"
 import { NodeGlyph, GLYPH_FILL_SECONDS } from "./node-glyph"
 import { ResourceGlyph } from "./resource-glyph"
 import { EntityBody } from "./entity-body"
+import { DebugFrameLabel } from "./debug-frame-label"
 import { cn } from "@/lib/utils"
 
 // Space windows (leaf hexagon AND expanded-ancestor rectangle) are clip-path
@@ -799,6 +800,17 @@ export function EntityNode({
         }
         className={frameClass}
       >
+        {/* [v0] DEBUG: green-frame label for an OPENED entity (window) — e.g. Day Job.
+            The home (entity0) frame is labelled separately in work-surface; this covers
+            every other space/task/event that opens as a window. Shows id + kind, whether
+            it's the top window or a spined ancestor strip. Remove with the debug borders. */}
+        {asWindow && (
+          <DebugFrameLabel
+            name={`${entity.id}·frame`}
+            info={`${kind}${isSpine ? " · spine" : isTop ? " · top" : " · ancestor"} · h:fill v:fill`}
+            className="text-green-500"
+          />
+        )}
         {/* SHAPE / FILL layer — the visible surface. Carries the background colour, the
             Space clip-path and the dark inset ring (all via shapeStyle), and hosts the
             light-mode outline SVG. `inset-0 z-0` so it fills the frame and paints BEHIND
