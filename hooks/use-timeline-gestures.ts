@@ -73,6 +73,11 @@ interface Options {
   // reactions that must start immediately and run alongside the glide — e.g. the vertical
   // rubber-band bounce, which shouldn't wait for the horizontal fling to finish.
   onRelease?: () => void
+  /** Optional sink for the live ZOOM velocity (the log-span spring's velocity, in log-span
+   *  units/s). Written every ease frame and zeroed on settle/reset. The strip drives the
+   *  elastic "dive" lens off this so the bulge tracks how fast you're CURRENTLY zooming —
+   *  a continuous scroll yields one sustained dive instead of a pulse per wheel notch. */
+  zoomVelRef?: RefObject<number>
   /** Enables VERTICAL drag-to-reposition alongside the horizontal time-pan. */
   verticalDrag?: boolean
   /** Per-move callback with the *effective* vertical delta (px) for this frame — already
@@ -188,6 +193,7 @@ export function useTimelineGestures({
     onGestureStart,
     onGestureEnd,
     onRelease,
+  zoomVelRef,
   verticalDrag = false,
   onVerticalDrag,
 }: Options) {
@@ -263,6 +269,7 @@ export function useTimelineGestures({
       if (!cur || !tgt) {
         rafRef.current = null
         lastTRef.current = null
+        if (zoomVelRef) zoomVelRef.current = 0
         return
       }
       const last = lastTRef.current
@@ -273,6 +280,7 @@ export function useTimelineGestures({
       // Advance the ZOOM (log-span) spring — slightly underdamped for a lively settle.
       const logStep = springStep(Math.log(cur.spanMs), velLogRef.current, Math.log(tgt.spanMs), OMEGA, ZETA, dt)
       velLogRef.current = logStep.vel
+      if (zoomVelRef) zoomVelRef.current = velLogRef.current // feed the elastic lens (zoom rate)
       let nextSpan = Math.exp(logStep.pos)
 
       // PAN: if a zoom anchor is active, DERIVE start from the live span so the cursor
@@ -309,6 +317,7 @@ export function useTimelineGestures({
         lastTRef.current = null
         velLogRef.current = 0
         velStartRef.current = 0
+        if (zoomVelRef) zoomVelRef.current = 0
         anchorRef.current = null
         endCbRef.current?.("wheel")
         return

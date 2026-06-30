@@ -558,8 +558,13 @@ export function TimelineStrip({
   // the gesture/anchor math is unaffected because the cursor point is the warp's fixed point).
   const [elastic, setElastic] = useState(0)
   const elasticValRef = useRef(0) // committed ε (displacement), mirrors `elastic`
-  const elasticVelRef = useRef(0) // spring velocity
+  const elasticVelRef = useRef(0) // spring velocity (ε easing toward its zoom-velocity target)
   const elasticAnchorRef = useRef(50) // viewport-% under the cursor = the warp's fixed point
+  // The gesture hook writes the live ZOOM velocity here (log-span units/s). The elastic lens
+  // drives its amplitude off this so the dive tracks how fast you're CURRENTLY zooming — a
+  // continuous scroll sustains one dive instead of one pulse per notch (the "every tick is
+  // noticeable" artifact). Zero while not zooming → lens at rest.
+  const zoomVelRef = useRef(0)
 
   // The entire strip is positioned from wall-clock time (`startMs`, `now`), which the
   // server can't know, so SSR markup can never match the first client paint. Rather
@@ -802,6 +807,8 @@ export function TimelineStrip({
     // Re-bind the wheel listener once the real viewport replaces the placeholder.
     enabled: mounted,
     active: true,
+    zoomVelRef, // live zoom-spring velocity → drives the elastic dive lens
+
     onGestureStart: (kind) => {
       animRef.current?.stop()
       // Only a DRAG suppresses the cursor-lean: its pointer motion already drives the vertical
@@ -967,28 +974,31 @@ export function TimelineStrip({
     const el = viewportRef.current
     if (!el) return
     let last = performance.now()
+    // ε amplitude TRACKS the live zoom velocity instead of receiving a discrete impulse per notch.
+    // εTarget = −zoomVel·GAIN (zoom-in ⇒ zoomVel<0 ⇒ εTarget>0 ⇒ neighbours pushed OUT). Because the
+    // hook's zoom spring velocity ramps up smoothly across notches and decays smoothly to 0 as the
+    // zoom settles, the lens stays inflated for the WHOLE continuous scroll and fades only when the
+    // zoom actually stops — so a scroll burst is one sustained dive, not a pulse per tick. ε itself is
+    // eased toward that target by a critically-damped spring (ω=20, no overshoot), keeping it smooth.
+    const GAIN = 0.55 // zoom-rate → peak lens amplitude
+    const EMAX = 0.45 // clamp so a fast flick can't fold the mapping
     const step = () => {
       const now = performance.now()
       let dt = (now - last) / 1000
       last = now
       if (dt > 0.05) dt = 0.05 // clamp big gaps (tab-away) so the spring can't explode
-      // Underdamped spring toward 0: k≈160, c≈10 ⇒ ζ≈0.40 — settles in ~0.5s with a clearer
-      // overshoot so the lens INFLATES, springs slightly past, then recovers: the "ripple"
-      // the neighbours feel as they get shoved out then bounce back. Semi-implicit Euler.
+      const target = Math.max(-EMAX, Math.min(EMAX, -zoomVelRef.current * GAIN))
       const x = elasticValRef.current
       const v = elasticVelRef.current
-      // CRITICAL damping: c = 2√k = 2√160 ≈ 25.3 (use 26, a hair over). An UNDERdamped spring's
-      // impulse response crosses zero — ε would rise (inflate), return to 0, then swing NEGATIVE
-      // (the lens flips to a pinch) before recovering. That sign flip reverses the chips' direction
-      // early in the animation = the "zig-zag" artifact. Critical damping rises to a single peak then
-      // decays back to 0 monotonically (never crosses), so the chips dive out and ease back without
-      // any reversal.
-      const a = -160 * x - 26 * v
+      // Critically damped toward `target` (ω=20 → k=400, c=40): tracks the smooth zoom-velocity
+      // envelope without overshoot or its own ringing.
+      const a = -400 * (x - target) - 40 * v
       const nv = v + a * dt
       const nx = Math.max(-0.6, Math.min(0.6, x + nv * dt)) // clamp displacement, never fold
       elasticValRef.current = nx
       elasticVelRef.current = nv
-      if (Math.abs(nx) < 0.0012 && Math.abs(nv) < 0.02) {
+      // Stop only once the lens AND its driver are both at rest — otherwise keep tracking the zoom.
+      if (Math.abs(nx) < 0.0012 && Math.abs(nv) < 0.02 && Math.abs(target) < 0.0012) {
         elasticValRef.current = 0
         elasticVelRef.current = 0
         elasticRafRef.current = null
@@ -999,24 +1009,15 @@ export function TimelineStrip({
       elasticRafRef.current = requestAnimationFrame(step)
     }
     const onWheel = (e: WheelEvent) => {
-      // Only ZOOM intent (vertical, no shift) gets elasticity — mirror the gesture hook's
-      // pan/zoom split so a horizontal / shift-wheel PAN stays perfectly linear.
+      // Only ZOOM intent (vertical, no shift) arms the lens — mirror the gesture hook's pan/zoom
+      // split so a horizontal / shift-wheel PAN stays perfectly linear.
       if (Math.abs(e.deltaX) > Math.abs(e.deltaY) || e.shiftKey) return
       const r = el.getBoundingClientRect()
       if (r.width <= 0) return
-      // Anchor the warp's fixed point at the cursor (the point that must NOT move).
+      // Re-anchor the warp's fixed point at the cursor (the point that must NOT move) on each notch.
       elasticAnchorRef.current = Math.max(0, Math.min(100, ((e.clientX - r.left) / r.width) * 100))
-      // Zoom-IN (deltaY<0) → push neighbours OUT (ε>0); zoom-OUT (deltaY>0) → pull IN (ε<0).
-      // VELOCITY impulse, NOT a position step. Kicking the displacement directly made ε jump from 0
-      // to its peak in one frame, so on a single tick the warped points snapped to the bulged
-      // position and then animated back ("jump left, then drift right, then left again"). Feeding
-      // the SPRING'S VELOCITY instead gives an impulse response: ε starts at exactly 0 (no jump at
-      // the tick), accelerates up to a peak, then eases back to 0 — a smooth inflate-and-recover.
-      // Gain 11/notch with the critically-damped k=160,c=26 spring peaks ε≈0.3 (critical damping
-      // lowers the peak for a given impulse, so the gain is bumped from 8 to compensate). Clamp
-      // velocity so a fast scroll burst can't run away (displacement is also clamped to ±0.6 above).
-      const notch = Math.max(-1, Math.min(1, -e.deltaY / 100))
-      elasticVelRef.current = Math.max(-18, Math.min(18, elasticVelRef.current + notch * 11))
+      // No impulse here — the loop reads the zoom velocity itself. Just ensure it's running so it
+      // starts tracking from this notch.
       if (elasticRafRef.current == null) {
         last = performance.now()
         elasticRafRef.current = requestAnimationFrame(step)
