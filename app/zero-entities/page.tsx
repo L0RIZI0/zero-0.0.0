@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { ArrowLeft } from "lucide-react"
+import { ArrowLeft, Check, X } from "lucide-react"
 import { NodeGlyph, type NodeKind } from "@/components/zero/node-glyph"
 import { KIND_META } from "@/lib/zero/kinds"
 
@@ -38,6 +38,37 @@ function Glyph({ kind, className }: { kind: NodeKind; className?: string }) {
     <span className={`inline-flex shrink-0 items-center justify-center text-foreground ${className ?? "h-7 w-7"}`}>
       <NodeGlyph kind={kind} />
     </span>
+  )
+}
+
+/**
+ * A single glyph-state demo chip: the glyph (optionally filled) with an optional
+ * overlay mark (check for a done Task, cross for a terminal kind) and a caption.
+ */
+function GlyphState({
+  kind,
+  filled = false,
+  overlay,
+  label,
+}: {
+  kind: NodeKind
+  filled?: boolean
+  overlay?: "check" | "cross"
+  label: string
+}) {
+  return (
+    <li className="flex flex-col items-center gap-2 rounded-xl border border-border bg-card p-4 text-center text-card-foreground">
+      <span className="relative inline-flex h-8 w-8 items-center justify-center text-foreground">
+        <NodeGlyph kind={kind} filled={filled} />
+        {overlay === "check" && (
+          <Check className="absolute h-3 w-3 text-background" strokeWidth={3.5} aria-hidden />
+        )}
+        {overlay === "cross" && (
+          <X className="absolute h-3 w-3 text-background" strokeWidth={3.5} aria-hidden />
+        )}
+      </span>
+      <span className="text-pretty text-[11px] leading-relaxed text-muted-foreground">{label}</span>
+    </li>
   )
 }
 
@@ -87,6 +118,26 @@ export default function ZeroEntitiesPage() {
             kinds get done, while others retire or die.
           </p>
         </header>
+
+        {/* Glyph states — how a kind's silhouette reads across its lifecycle. */}
+        <section className="mt-10">
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Glyph states</h2>
+          <p className="mt-3 max-w-prose text-pretty text-sm leading-relaxed text-muted-foreground">
+            A glyph is an <em>outline</em> while open. Completing any completable kind{" "}
+            <strong className="font-medium text-foreground">fills</strong> its silhouette (the ink wipes in
+            from the left) — a done Event is a solid up-triangle, a done Space a solid hexagon. Only a done{" "}
+            <strong className="font-medium text-foreground">Task</strong> also gets the inner check. Kinds that
+            can&apos;t be &ldquo;done&rdquo; never fill that way: a retired Community or a dead Organism instead
+            carries a terminal mark.
+          </p>
+          <ul className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+            <GlyphState kind="task" label="Open — outline" />
+            <GlyphState kind="task" filled overlay="check" label="Done Task — fill + check" />
+            <GlyphState kind="event" filled label="Done Event — filled triangle" />
+            <GlyphState kind="space" filled label="Done Space — filled hexagon" />
+            <GlyphState kind="community" overlay="cross" label="Retired Community — terminal mark" />
+          </ul>
+        </section>
 
         {/* Content entities */}
         <section className="mt-10">

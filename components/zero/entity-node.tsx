@@ -290,7 +290,10 @@ export function EntityNode({
   //    retiredOn/diedOn yet — and its exact styling is deferred).
   const meta = KIND_META[kind]
   const terminal = isTerminal(entity)
-  const glyphFilled = (meta.fillGlyphWhenDone && done) || terminal
+  // A terminal glyph is NOT filled — it stays an outline and carries the terminal
+  // cross instead (per the model: a retired Community / dead Organism is never a
+  // "filled" silhouette). Only completable kinds fill, and only when done.
+  const glyphFilled = meta.fillGlyphWhenDone && done
   const showCheckmark = meta.checkmarkWhenDone && done
 
   // OWNERSHIP. The same entity can be referenced in several contexts, so it can
@@ -954,7 +957,11 @@ export function EntityNode({
                 : undefined
           }
         >
-          {/* Glyph — for a collapsed task it doubles as the completion toggle. */}
+          {/* Glyph — for a collapsed COMPLETABLE entity it doubles as the completion
+              toggle (task square, event triangle, instant, space, resource…). Clicking
+              the glyph completes/uncompletes; clicking the rest of the row still opens
+              it. Non-completable kinds (community/organism/individual/soul) keep the
+              glyph inert so the click falls through to open. */}
           <span
             data-flip-id={`${flip}-glyph`}
             data-flip-role="inner"
@@ -968,16 +975,16 @@ export function EntityNode({
                 : undefined
             }
             onClick={
-              interactive && isTask
+              interactive && meta.completable
                 ? (e) => {
                     e.stopPropagation()
                     const next = !done
                     setDone(next)
                     // Persist completion to the store (not just local state) so the
-                    // checkmark survives the row/window unmounting — the bug where a
-                    // checked occurrence subtask reverted on reopen. notifyDataChanged
-                    // lets other views (do-list strikethrough/filter, open-task counts)
-                    // react immediately.
+                    // filled glyph / checkmark survives the row/window unmounting — the
+                    // bug where a checked occurrence subtask reverted on reopen.
+                    // notifyDataChanged lets other views (do-list filter, open-task
+                    // counts) react immediately.
                     setEntityCompleted(entityId, next)
                     nav.notifyDataChanged()
                   }
@@ -985,6 +992,8 @@ export function EntityNode({
             }
             className={cn(
               "relative flex shrink-0 items-center justify-center",
+              // A glyph that acts as a completion toggle gets a pointer cursor.
+              interactive && meta.completable && "cursor-pointer",
               // Glyph ink matches the title: compact ancestors are dimmed to
               // foreground/75 (like their title), everything else stays full ink.
               ancestorHeader ? "text-foreground/75" : "text-foreground",

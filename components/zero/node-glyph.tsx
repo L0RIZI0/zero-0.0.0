@@ -1,6 +1,6 @@
 "use client"
 
-import { useLayoutEffect, useRef } from "react"
+import { useId, useLayoutEffect, useRef } from "react"
 import gsap from "gsap"
 import { cn } from "@/lib/utils"
 import type { EntityKind } from "@/lib/zero/types"
@@ -166,6 +166,13 @@ function lerpPolygons(a: Pt[], b: Pt[], t: number): Pt[] {
 const GLYPH_MORPH_SECONDS = 0.5
 const GLYPH_MORPH_EASE = "power3.inOut"
 
+/** Completion FILL timing — a subtle wipe that slides in from the left. */
+const GLYPH_FILL_SECONDS = 0.4
+const GLYPH_FILL_EASE = "power2.inOut"
+// The 24-box width the reveal rect sweeps across (plus a hair of slack so the
+// right edge's stroke is fully covered at 100%).
+const GLYPH_FILL_W = 24
+
 // --- "Sent as request" edge ------------------------------------------------
 //
 // A task sent to someone ("Can you do this?") keeps its square but sprouts an
@@ -253,6 +260,18 @@ export function NodeGlyph({
   const polyOpacityRef = useRef<number>(kind === "individual" ? 0 : 1)
   const zOpacityRef = useRef<number>(kind === "individual" ? 1 : 0)
 
+  // --- Completion fill (left→right wipe) ------------------------------------
+  // The fill is a SECOND polygon (identical points to the outline) painted solid
+  // and revealed through a clip-rect that grows from the left. When `filled` flips
+  // we tween the rect's width 0↔24 so the ink slides in/out horizontally. Soul is
+  // always solid, so its rect stays full. A per-instance clip id avoids collisions.
+  const clipId = useId().replace(/:/g, "")
+  const fillRef = useRef<SVGPolygonElement | null>(null)
+  const clipRectRef = useRef<SVGRectElement | null>(null)
+  const fillWidthRef = useRef<number>(filled || kind === "soul" ? GLYPH_FILL_W : 0)
+  const prevFilledRef = useRef<boolean>(filled)
+  const fillTweenRef = useRef<gsap.core.Tween | null>(null)
+
   useLayoutEffect(() => {
     if (prevKindRef.current === kind) return
     // Morph from whatever is CURRENTLY painted (so interrupting a morph mid-way
@@ -274,19 +293,26 @@ export function NodeGlyph({
       onUpdate: () => {
         const cur = lerpPolygons(from, to, proxy.t)
         dispRef.current = cur
-        polyRef.current?.setAttribute("points", ptsToString(cur))
+        const s = ptsToString(cur)
+        polyRef.current?.setAttribute("points", s)
+        // The fill layer tracks the same morphing silhouette.
+        fillRef.current?.setAttribute("points", s)
         const po = fromPolyOp + (toPolyOp - fromPolyOp) * proxy.t
         polyOpacityRef.current = po
         polyRef.current?.setAttribute("opacity", String(po))
+        fillRef.current?.setAttribute("opacity", String(po))
         const zo = fromZOp + (toZOp - fromZOp) * proxy.t
         zOpacityRef.current = zo
         zRef.current?.setAttribute("opacity", String(zo))
       },
       onComplete: () => {
         dispRef.current = to
-        polyRef.current?.setAttribute("points", ptsToString(to))
+        const s = ptsToString(to)
+        polyRef.current?.setAttribute("points", s)
+        fillRef.current?.setAttribute("points", s)
         polyOpacityRef.current = toPolyOp
         polyRef.current?.setAttribute("opacity", String(toPolyOp))
+        fillRef.current?.setAttribute("opacity", String(toPolyOp))
         zOpacityRef.current = toZOp
         zRef.current?.setAttribute("opacity", String(toZOp))
       },
@@ -338,6 +364,49 @@ export function NodeGlyph({
     }
   }, [request])
 
+  // Slide the completion fill in/out when `filled` flips by tweening the clip-rect
+  // width (0 = empty, 24 = full), so the ink wipes left→right. Same interrupt-safe
+  // pattern as the morph/request effects: pin the current width synchronously
+  // pre-paint, then tween. Soul is always solid (rect pinned full, never animates).
+  useLayoutEffect(() => {
+    const rect = clipRectRef.current
+    if (!rect) return
+    if (kind === "soul") {
+      fillWidthRef.current = GLYPH_FILL_W
+      rect.setAttribute("width", String(GLYPH_FILL_W))
+      return
+    }
+    const target = filled ? GLYPH_FILL_W : 0
+    const changed = prevFilledRef.current !== filled
+    prevFilledRef.current = filled
+    if (!changed) {
+      // No flip (mount, or a re-render for another reason): set instantly, no wipe.
+      fillWidthRef.current = target
+      rect.setAttribute("width", String(target))
+      return
+    }
+    fillTweenRef.current?.kill()
+    // Pin to the CURRENTLY painted width before the tween's first tick.
+    rect.setAttribute("width", String(fillWidthRef.current))
+    const proxy = { w: fillWidthRef.current }
+    fillTweenRef.current = gsap.to(proxy, {
+      w: target,
+      duration: GLYPH_FILL_SECONDS,
+      ease: GLYPH_FILL_EASE,
+      onUpdate: () => {
+        fillWidthRef.current = proxy.w
+        rect.setAttribute("width", String(proxy.w))
+      },
+      onComplete: () => {
+        fillWidthRef.current = target
+        rect.setAttribute("width", String(target))
+      },
+    })
+    return () => {
+      fillTweenRef.current?.kill()
+    }
+  }, [filled, kind])
+
   return (
     // overflow visible so the "sent" edge can sit just below the square's bottom
     // edge without the root SVG's default `overflow:hidden` clipping it. Every kind
@@ -347,11 +416,35 @@ export function NodeGlyph({
       className={cn("h-full w-full overflow-visible", className)}
       aria-hidden="true"
     >
+      {/* Left→right reveal mask for the completion fill. The rect's width is driven
+          by the fill effect above (0 = empty, 24 = full). */}
+      <defs>
+        <clipPath id={clipId}>
+          <rect
+            ref={clipRectRef}
+            x="0"
+            y="0"
+            height="24"
+            width={filled || kind === "soul" ? GLYPH_FILL_W : 0}
+          />
+        </clipPath>
+      </defs>
+      {/* FILL layer — solid silhouette, revealed through the wipe clip. Tracks the
+          outline's points/opacity during a kind morph (synced in the effect). */}
+      <polygon
+        ref={fillRef}
+        points={ptsToString(dispRef.current)}
+        fill="currentColor"
+        stroke="none"
+        clipPath={`url(#${clipId})`}
+        opacity={kind === "individual" ? 0 : 1}
+      />
+      {/* OUTLINE layer — always the bare silhouette stroke (never self-fills, so the
+          wipe above is the only thing that paints the interior). */}
       <polygon
         ref={polyRef}
         points={ptsToString(dispRef.current)}
-        // Soul always renders as a solid dot; everything else honors `filled`.
-        fill={filled || kind === "soul" ? "currentColor" : "none"}
+        fill="none"
         stroke="currentColor"
         strokeWidth={strokeWidth}
         strokeLinejoin="miter"
