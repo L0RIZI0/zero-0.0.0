@@ -96,9 +96,13 @@ function smoothstep(edge0: number, edge1: number, x: number) {
 }
 
 // Wheel sensitivity (per normalized pixel of deltaY). The ease loop glides between
-// notches, so each notch injects a punch of momentum that the spring carries; turned
-// up so a single scroll flick travels a satisfying distance and feeds the bounce.
-const ZOOM_K = 0.0022
+// notches, so each notch nudges the TARGET span by exp(dy·ZOOM_K) and the spring eases
+// the rest. Lowered from 0.0022 → 0.0015 because a single notch (dy≈100) at 0.0022 jumped
+// the target ~25% in one step, which read as a "strong tick" lurch; 0.0015 makes one notch
+// ~16%, a gentler step the spring can ease through smoothly. Notches ACCUMULATE on the
+// target (base = targetRef ?? current), so a fast multi-notch flick still travels just as
+// far — only each individual tick is softer.
+const ZOOM_K = 0.0015
 // The committed view chases the target with a CRITICALLY-DAMPED SPRING rather than
 // plain exponential smoothing. A spring has inertia: it eases *in* (velocity ramps
 // from zero) as well as out, and — because velocity carries across wheel notches —
@@ -106,11 +110,11 @@ const ZOOM_K = 0.0022
 // This reads markedly silkier than exponential decay (which starts at full speed),
 // for the price of one velocity float per dimension and a couple of multiplies/frame.
   // OMEGA is the angular frequency (rad/s): higher = snappier, lower = more languid.
-  // Settle time ≈ 6/(ζ·OMEGA). Kept low (6) for HEAVY inertia — the zoom carries
-  // momentum and keeps gliding well after each notch instead of arriving quickly, so
-  // mouse-wheel notches accumulate into one long, continuous, elastic glide. This is
-  // the playful, weighted feel to show off.
-  const OMEGA = 6
+  // Settle time ≈ 6/(ζ·OMEGA). Lowered 6 → 5 for an even silkier, longer glide (settle
+  // ~1.2s vs ~1.0s) — the zoom carries momentum and keeps gliding well after each notch
+  // instead of arriving quickly, so mouse-wheel notches accumulate into one long,
+  // continuous, elastic glide. This is the playful, weighted feel to show off.
+  const OMEGA = 5
 // ZETA is the damping ratio. 1 = CRITICALLY DAMPED → the spring eases into its target
 // and settles with NO overshoot / no bounce-back. We keep it at exactly 1 so zooming is
 // a smooth ease-out slide rather than an elastic bounce (the inertia/weight still comes
