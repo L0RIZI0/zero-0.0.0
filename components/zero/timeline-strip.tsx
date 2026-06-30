@@ -536,7 +536,6 @@ export function TimelineStrip({
   const leanXRenderRef = useRef(0)
   const floatRafRef = useRef<number | null>(null)
   const ensureFloatRef = useRef<() => void>(() => {})
-  const ensureElasticRef = useRef<() => void>(() => {}) // starts the elastic warp loop on demand
   const draggingRef = useRef(false) // any active gesture — suppresses lean so a drag/zoom stays clean
   // True while a band fold/collapse is animating. Like `draggingRef`, it suppresses the
   // cursor-lean: the band's height + ribbon morph is settling, and a lean re-reading the
@@ -566,21 +565,6 @@ export function TimelineStrip({
   // continuous scroll sustains one dive instead of one pulse per notch (the "every tick is
   // noticeable" artifact). Zero while not zooming → lens at rest.
   const zoomVelRef = useRef(0)
-  // --- Directional drag-lag (pan elastic) ----------------------------------
-  // While CLICK-DRAG panning, content near the cursor LAGS behind the motion and rubber-bands to
-  // catch up — points trail in the drag direction, then settle softly when you stop/release. This
-  // is a different deformation from the zoom dive (which inflates/compresses symmetrically): it's a
-  // localized, gaussian, UNIFORM horizontal offset centered on the grab point — points near the
-  // anchor slide by `panLag` %, edges stay put, so the region by the cursor trails and the flanks
-  // stretch to connect. `panLag` (state, in viewport %) is the live offset, eased toward a target
-  // ∝ the current pan velocity; at 0 the warp is inert (rest fast-path in pct()).
-  const [panLag, setPanLag] = useState(0)
-  const panLagRef = useRef(0) // committed λ, mirrors `panLag`
-  const panAnchorRef = useRef(50) // viewport-% grab point = lag warp center (written by the hook)
-  const panVelRef = useRef(0) // live pan velocity (viewport %/s), derived in onChange during a drag
-  const panVelTsRef = useRef(0) // timestamp of the last panVel sample → staleness = held still / ended
-  const panPrevStartRef = useRef(0) // previous view.startMs, for the per-frame pan-velocity estimate
-  const panPrevTsRef = useRef(0)
 
   // The entire strip is positioned from wall-clock time (`startMs`, `now`), which the
   // server can't know, so SSR markup can never match the first client paint. Rather
@@ -782,20 +766,7 @@ export function TimelineStrip({
   const pct = (epoch: number) => {
     const p = ((epoch - startMs) / spanMs) * 100
     const eps = elastic
-    const lag = panLag
-    // rest fast-path: both warps inert → identical linear mapping (zero cost at rest / reduced-motion)
-    if (eps > -0.0015 && eps < 0.0015 && lag > -0.0015 && lag < 0.0015) return p
-    // DIRECTIONAL DRAG-LAG: a localized UNIFORM horizontal offset centered on the grab point. Points
-    // at the anchor shift by `lag` %, fading to 0 by ~2σ out (gaussian), so the region under the
-    // cursor trails the pan while the flanks stretch to connect — the rubber-band "elastic pan."
-    // Independent of and additive with the zoom lens below.
-    let warped = p
-    if (lag < -0.0015 || lag > 0.0015) {
-      const dl = (p - panAnchorRef.current) / 100
-      const SIGMA_L = 0.4
-      warped += lag * Math.exp(-(dl * dl) / (SIGMA_L * SIGMA_L))
-    }
-    if (eps > -0.0015 && eps < 0.0015) return warped // only the lag is active
+    if (eps > -0.0015 && eps < 0.0015) return p // rest fast-path: identical linear mapping
     // LENS warp. Signed distance from the cursor anchor, in viewport widths. The displacement is
     // a gaussian-derivative bump `d·e^(-(d/σ)²)`; its SLOPE is what you see as graduation spacing:
     //   local scale = 1 + ε·e^(-(d/σ)²)·(1 − 2d²/σ²)
@@ -815,7 +786,7 @@ export function TimelineStrip({
     // linear zoom (the "whole graduation stays linear" failure mode).
     const SIGMA = 0.3
     const bump = d * Math.exp(-(d * d) / (SIGMA * SIGMA))
-    return warped + eps * bump * 100
+    return p + eps * bump * 100
   }
   // d3 time scale (px) — used for tick generation and pixel clustering.
   const scale = useMemo(() => makeScale(startMs, spanMs, width), [startMs, spanMs, width])
@@ -826,25 +797,6 @@ export function TimelineStrip({
     view: vp,
     onChange: (next) => {
       animRef.current?.stop()
-      // DRAG-LAG velocity estimate. onChange fires every drag AND glide frame, so we derive the pan
-      // velocity here as the screen-space rate a fixed time moves: a point at epoch e sits at
-      // (e−start)/span, so d(pos)/dt = −(Δstart/span)/dt (in %/s). Gated to real drags via
-      // `draggingRef` so a wheel ZOOM (which also shifts startMs) doesn't spawn a spurious lag. When
-      // the pointer is held still or the gesture ends, onChange stops firing → the sample goes stale
-      // and the loop treats pan velocity as 0, so the lag rubber-bands back.
-      if (draggingRef.current) {
-        const t = performance.now()
-        const dtp = (t - panPrevTsRef.current) / 1000
-        if (dtp > 0 && dtp < 0.1 && next.spanMs > 0) {
-          const v = -((next.startMs - panPrevStartRef.current) / next.spanMs) * 100 / dtp
-          // Light smoothing so a single jumpy frame doesn't spike the lag.
-          panVelRef.current = panVelRef.current * 0.4 + v * 0.6
-          panVelTsRef.current = t
-          ensureElasticRef.current()
-        }
-        panPrevStartRef.current = next.startMs
-        panPrevTsRef.current = t
-      }
       setVp(next)
     },
     minSpan: MIN_SPAN_MS,
@@ -856,7 +808,6 @@ export function TimelineStrip({
     enabled: mounted,
     active: true,
     zoomVelRef, // live zoom-spring velocity → drives the elastic dive lens
-    panAnchorRef, // grab point → centers the directional drag-lag warp
 
     onGestureStart: (kind) => {
       animRef.current?.stop()
@@ -869,12 +820,7 @@ export function TimelineStrip({
         draggingRef.current = true
         yBounceRef.current = false // a fresh grab cancels any in-flight release bounce
         leanXTargetRef.current = 0
-        // Seed the pan-velocity estimator and arm the elastic loop so the drag-lag is ready.
-        panPrevStartRef.current = vp.startMs
-        panPrevTsRef.current = performance.now()
-        panVelRef.current = 0
         ensureFloatRef.current()
-        ensureElasticRef.current()
         // Clear any tick/lane/instant highlight the cursor happened to be on when the pan
         // began. As the strip translates under a stationary-ish cursor, the browser fires
         // mouseenter on whatever slides beneath it, making ticks/lanes flicker-highlight
@@ -1036,17 +982,12 @@ export function TimelineStrip({
     // eased toward that target by a critically-damped spring (ω=20, no overshoot), keeping it smooth.
     const GAIN = 0.55 // zoom-rate → peak lens amplitude
     const EMAX = 0.45 // clamp so a fast flick can't fold the mapping
-    const PAN_GAIN = 0.028 // pan-rate (%/s) → peak lag (%)
-    const PMAX = 7 // max lag (%) — keeps the warp slope well under 1 (never folds)
     const TAU = 0.045 // zoom-lens low-pass time constant
-    const PAN_TAU = 0.07 // pan-lag low-pass: a touch slower → reads as a softer rubber-band
     const step = () => {
       const now = performance.now()
       let dt = (now - last) / 1000
       last = now
       if (dt > 0.05) dt = 0.05 // clamp big gaps (tab-away) so the spring can't explode
-
-      // --- Zoom lens (ε) ----------------------------------------------------
       const target = Math.max(-EMAX, Math.min(EMAX, -zoomVelRef.current * GAIN))
       const x = elasticValRef.current
       // FIRST-ORDER low-pass toward `target` — NOT a spring. A spring has momentum, so ε LAGGED the
@@ -1060,42 +1001,15 @@ export function TimelineStrip({
       const nx = Math.max(-0.6, Math.min(0.6, x + (target - x) * k)) // clamp displacement, never fold
       elasticValRef.current = nx
       elasticVelRef.current = 0 // unused now (no momentum) — kept zeroed for the rest-check below
-
-      // --- Directional drag-lag (λ) -----------------------------------------
-      // Same momentum-free low-pass philosophy: λ tracks a target ∝ the pan velocity, so it lags
-      // DURING the drag/glide and eases back to 0 (rubber-band catch-up) the moment motion stops —
-      // settling softly in place, never overshooting. Pan velocity goes stale when onChange stops
-      // firing (pointer held still or gesture ended) → target 0 → recover.
-      const panFresh = now - panVelTsRef.current < 90
-      const panTarget = panFresh ? Math.max(-PMAX, Math.min(PMAX, -panVelRef.current * PAN_GAIN)) : 0
-      const kp = 1 - Math.exp(-dt / PAN_TAU)
-      const nl = Math.max(-PMAX, Math.min(PMAX, panLagRef.current + (panTarget - panLagRef.current) * kp))
-      panLagRef.current = nl
-
-      // --- Commit + self-stop ----------------------------------------------
-      // Keep running while EITHER warp (or its driver) is live, or a drag is in progress (so the lag
-      // stays armed even between onChange frames). Stop only when everything is at rest.
-      const zoomRest = Math.abs(nx) < 0.0012 && Math.abs(target) < 0.0012
-      const panRest = Math.abs(nl) < 0.0012 && Math.abs(panTarget) < 0.0012 && !draggingRef.current
-      if (zoomRest && panRest) {
+      // Stop only once the lens AND its driver are both at rest — otherwise keep tracking the zoom.
+      if (Math.abs(nx) < 0.0012 && Math.abs(target) < 0.0012) {
         elasticValRef.current = 0
-        panLagRef.current = 0
         elasticRafRef.current = null
         setElastic(0) // land exactly at rest → pct() returns to its zero-cost linear path
-        setPanLag(0)
         return
       }
       setElastic(nx)
-      setPanLag(nl)
       elasticRafRef.current = requestAnimationFrame(step)
-    }
-    // Expose a generic "start the loop if idle" so a drag (onGestureStart / onChange) can arm the
-    // lag warp, not just the wheel handler.
-    ensureElasticRef.current = () => {
-      if (elasticRafRef.current == null) {
-        last = performance.now()
-        elasticRafRef.current = requestAnimationFrame(step)
-      }
     }
     const onWheel = (e: WheelEvent) => {
       // Only ZOOM intent (vertical, no shift) arms the lens — mirror the gesture hook's pan/zoom
@@ -1121,8 +1035,6 @@ export function TimelineStrip({
       }
       elasticValRef.current = 0
       elasticVelRef.current = 0
-      panLagRef.current = 0
-      ensureElasticRef.current = () => {}
     }
   }, [mounted])
 

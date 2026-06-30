@@ -78,11 +78,6 @@ interface Options {
    *  elastic "dive" lens off this so the bulge tracks how fast you're CURRENTLY zooming —
    *  a continuous scroll yields one sustained dive instead of a pulse per wheel notch. */
   zoomVelRef?: RefObject<number>
-  /** Optional sink for the viewport-% under the pointer during a drag (the drag's fixed-ish
-   *  anchor). Written on pointerdown and every move; left as-is during the release glide (so the
-   *  pan-lag stays anchored where you let go). The strip centers the directional drag-lag warp
-   *  here. */
-  panAnchorRef?: RefObject<number>
   /** Enables VERTICAL drag-to-reposition alongside the horizontal time-pan. */
   verticalDrag?: boolean
   /** Per-move callback with the *effective* vertical delta (px) for this frame — already
@@ -199,7 +194,6 @@ export function useTimelineGestures({
     onGestureEnd,
     onRelease,
   zoomVelRef,
-  panAnchorRef,
   verticalDrag = false,
   onVerticalDrag,
 }: Options) {
@@ -457,13 +451,7 @@ export function useTimelineGestures({
   const onPointerDown = (e: React.PointerEvent) => {
     if (e.button !== 0) return
     const el = viewportRef.current
-    const rect0 = el?.getBoundingClientRect()
-    const width = rect0?.width ?? 1
-    const rectLeft = rect0?.left ?? 0
-    // Anchor the directional drag-lag warp at the grab point (viewport %).
-    if (panAnchorRef) {
-      panAnchorRef.current = Math.max(0, Math.min(100, ((e.clientX - rectLeft) / width) * 100))
-    }
+    const width = el?.getBoundingClientRect().width ?? 1
     if (rafRef.current != null) {
       cancelAnimationFrame(rafRef.current)
       rafRef.current = null
@@ -499,10 +487,6 @@ export function useTimelineGestures({
       velX = velX * (1 - FLING_SMOOTH) + instVX * FLING_SMOOTH
       lastVX = ev.clientX
       lastVT = tNow
-      // Keep the drag-lag warp centered on the live pointer.
-      if (panAnchorRef) {
-        panAnchorRef.current = Math.max(0, Math.min(100, ((ev.clientX - rectLeft) / width) * 100))
-      }
       // Horizontal time-pan — always 1:1, never attenuated.
       const deltaMs = ((ev.clientX - startX) / width) * span
       const next = { startMs: startView - deltaMs, spanMs: span }
