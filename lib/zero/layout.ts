@@ -89,4 +89,3 @@ export const HEADER_PAD_Y = 14
  * band itself simply hugs its content/MAX height. These fractions are multiplied
  * by the live card height in WorkSurface to size the centered zone. */
 export const TIMELINE_LIFELANE_MIN_FRAC = 0.33
-export const TIMELINE_LIFELANE_MAX_FRAC = 0.5

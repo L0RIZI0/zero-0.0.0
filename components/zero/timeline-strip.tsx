@@ -1,7 +1,6 @@
 "use client"
 
 import { useEffect, useMemo, useRef, useState } from "react"
-import { createPortal } from "react-dom"
 import { motion, animate, AnimatePresence } from "motion/react"
 import {
   ChevronLeft,
@@ -43,15 +42,11 @@ import {
 } from "@/lib/zero/timeline-scale"
 import type { Entity } from "@/lib/zero/types"
 import { panelTransition, layerTransition } from "@/lib/zero/motion"
-import { TIMELINE_LIFELANE_MAX_FRAC, TIMELINE_TOP_PAD } from "@/lib/zero/layout"
-import { setTimelineView } from "@/lib/zero/timeline-view-store"
+import { TIMELINE_TOP_PAD } from "@/lib/zero/layout"
 import { useZeroNav } from "@/lib/zero/nav-store"
 import { placementKey, resolveOriginRect } from "@/lib/zero/placement"
 import { useTimelineGestures } from "@/hooks/use-timeline-gestures"
 import { NodeGlyph, type NodeKind } from "./node-glyph"
-import { type SerpItem } from "./timeline-serpentine"
-import { TimelineWeek } from "./timeline-week"
-import { buildMorphPairs } from "@/lib/zero/timeline-morph"
 import { ContextMenu, type ContextMenuState } from "./context-menu"
 import { cn } from "@/lib/utils"
 
@@ -428,21 +423,11 @@ function packRibbons(
 export function TimelineStrip({
   contextId,
   accent,
-  atlasLayer,
-  viewHeightPx,
   centerZoneH = 0,
   overlayTopPx = 0,
 }: {
   contextId: string
   accent?: string
-  // The card-level layer the Atlas renders INTO (portal target). It sits behind the
-  // do-list/dock (later in the card's DOM) and below the app header (a sibling outside
-  // the card), so the Atlas reads as a full-bleed backdrop, not a takeover overlay.
-  atlasLayer?: HTMLElement | null
-  // The Timeline's current target height in px (card height × the zoom-driven height
-  // fraction), computed by WorkSurface which knows the live card size. The linear band
-  // grows to this as you zoom out; the Atlas grid fills it. Falls back to content size.
-  viewHeightPx?: number
   // Region-1 ZONE height in px (the fixed "first third" the strip is vertically centered
   // within). When > 0, WorkSurface flex-centers this strip inside a `centerZoneH`-tall
   // overlay; we use the same value to compute the band's true card-Y for the Atlas morph
@@ -528,9 +513,6 @@ export function TimelineStrip({
     spanMs: VIEW_SPAN_MS.D,
   }))
   const viewportRef = useRef<HTMLDivElement | null>(null)
-  // The Atlas surface, so wheel anywhere on it can drive the same cursor-anchored
-  // zoom (zooming in collapses back to the Lifelane). See the forwarding effect below.
-  const atlasWheelRef = useRef<HTMLDivElement | null>(null)
   const animRef = useRef<ReturnType<typeof animate> | null>(null)
 
   // --- Float layer (vertical drag-to-reposition + lean-toward-cursor) -------
@@ -589,15 +571,9 @@ export function TimelineStrip({
 
   const [hoveredInstant, setHoveredInstant] = useState<string | null>(null)
 
-  // ATLAS DISABLED — kept DORMANT, not deleted. The Lifelane (this linear horizontal
-  // track) is now the ONLY view at every zoom level. `atlas`/`morphing` stay `false`
-  // forever: the threshold effect below no longer flips them, so the Atlas portal and
-  // the morph geometry (`morphPairs`, `<TimelineWeek>`) never activate and cost nothing
-  // to render — but the code is left in place so the Atlas can be re-enabled later
-  // without re-plumbing. Instead of switching views, zooming OUT past the width-driven
-  // threshold now COLLAPSES every ribbon down to its thin rail (`zoomCollapsed`).
-  const [atlas] = useState(false)
-  const [morphing] = useState(false)
+  // The Lifelane (this linear horizontal track) is the ONLY timeline view at every zoom
+  // level. Zooming OUT past the width-driven threshold COLLAPSES every ribbon down to its
+  // thin rail (`zoomCollapsed`) rather than switching to a separate grid view.
   // Zoom-driven "collapse all ribbons" flag. Hysteresis (open/close epsilon) keeps it
   // from flickering when a gesture parks right on the boundary. When it flips, the
   // auto-fold effect below folds EVERY ribbon through the SAME per-block mechanism a
@@ -742,41 +718,6 @@ export function TimelineStrip({
   // after `condenseScaleVisual` is defined — they read the JS-SMOOTHED fold-out scale so chips
   // don't snap horizontally when a zoom auto-fold triggers (see that block for the full rationale).
 
-  // Publish the Timeline's height fraction to the shared store so WorkSurface can size
-  // the band + reserve and the Dock/DoList can reflow. The Lifelane now simply HUGS its
-  // MAX height at every zoom (no growth ramp, no Atlas jump) — one constant fraction.
-  useEffect(() => {
-    setTimelineView({ atlas: false, heightFrac: TIMELINE_LIFELANE_MAX_FRAC })
-  }, [])
-
-  // ZOOM ANYWHERE ON THE ATLAS. While the Atlas is open the Lifelane strip is faded +
-  // click-through (pointer-events-none), so the gesture viewport no longer catches the
-  // wheel directly. Re-dispatch wheel from the Atlas surface onto the viewport so the
-  // existing cursor-anchored zoom runs — zooming back in trips the threshold and the
-  // entities morph home. preventDefault stops the page from scrolling underneath.
-  useEffect(() => {
-    const surface = atlasWheelRef.current
-    const vp = viewportRef.current
-    if (!atlas || !surface || !vp) return
-    const forward = (e: WheelEvent) => {
-      e.preventDefault()
-      vp.dispatchEvent(
-        new WheelEvent("wheel", {
-          deltaX: e.deltaX,
-          deltaY: e.deltaY,
-          deltaMode: e.deltaMode,
-          clientX: e.clientX,
-          clientY: e.clientY,
-          shiftKey: e.shiftKey,
-          bubbles: false,
-          cancelable: true,
-        }),
-      )
-    }
-    surface.addEventListener("wheel", forward, { passive: false })
-    return () => surface.removeEventListener("wheel", forward)
-  }, [atlas])
-
   const center = startMs + spanMs / 2
   const grain = useMemo(() => lodGrain(spanMs, width), [spanMs, width])
 
@@ -795,18 +736,13 @@ export function TimelineStrip({
       setVp(next)
     },
     minSpan: MIN_SPAN_MS,
-    // Full zoom-OUT range again (up to MAX_SPAN_MS, ~a lifetime). The old cap at the
-    // Atlas-open span existed because the Atlas WAS the most-zoomed-out view; now that
-    // the Atlas is dormant, zooming out past the collapse threshold must keep going —
-    // it just collapses every ribbon to a rail (see `zoomCollapsed`) and keeps widening
-    // the time window. Capping here was what blocked zoom-out after the ribbons folded.
+    // Full zoom-OUT range (up to MAX_SPAN_MS, ~a lifetime). Zooming out past the collapse
+    // threshold keeps widening the time window — it just collapses every ribbon to a rail
+    // (see `zoomCollapsed`) instead of switching views.
     maxSpan: MAX_SPAN_MS,
     // Re-bind the wheel listener once the real viewport replaces the placeholder.
     enabled: mounted,
-    // While the Atlas is open it owns input and forwards wheel into the viewport itself
-    // (see the forwarder effect), so the window-level proximity handler must stand down to
-    // avoid double-zoom; the viewport listener still receives the forwarded events.
-    active: !atlas,
+    active: true,
     onGestureStart: (kind) => {
       animRef.current?.stop()
       // Only a DRAG suppresses the cursor-lean: its pointer motion already drives the vertical
@@ -825,7 +761,7 @@ export function TimelineStrip({
     },
     // Vertical drag-to-reposition (soft-axis attenuated in the hook). Accumulate the effective
     // delta into the persistent offset, clamp to bounds, and pump the float loop.
-    verticalDrag: !atlas,
+    verticalDrag: true,
     onVerticalDrag: (dy) => {
       yTargetRef.current = Math.max(DRAG_Y_MIN, Math.min(DRAG_Y_MAX, yTargetRef.current + dy))
       ensureFloatRef.current()
@@ -1016,44 +952,6 @@ export function TimelineStrip({
     }
     return out
   }, [spans, rolled, query])
-
-  // --- Atlas model ---------------------------------------------------------
-  // Flatten every bar (spans/bands/streams) plus the raw instants into one item
-  // set for the grid, pre-computing each item's relatedness opacity. Instants use
-  // their own interval (from === to) so the grid renders them as day-row dots.
-  const serpItems = useMemo<SerpItem[]>(() => {
-    const out: SerpItem[] = []
-    for (const b of bars) {
-      out.push({
-        key: b.key,
-        from: b.from,
-        to: b.to,
-        color: b.color,
-        title: b.title,
-        kind: b.kind,
-        dim: (b.cancelled ? 0.45 : 1) * relatedFactor(b.entity?.parentId, b.entity?.id),
-        entity: b.entity,
-        cancelled: b.cancelled,
-        count: b.count,
-      })
-    }
-    for (const e of instants) {
-      const [from] = entityInterval(e)
-      out.push({
-        key: e.occKey,
-        from,
-        to: from,
-        color: getInheritedAccent(e.parentId ?? "s_root") ?? NEUTRAL_MARKER,
-        title: e.title,
-        kind: "instant",
-        dim: (e.cancelled ? 0.45 : 1) * relatedFactor(e.parentId, e.id),
-        entity: e,
-        cancelled: e.cancelled,
-      })
-    }
-    return out
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bars, instants, contextId, atRootFocus])
 
   // Footprint right-edge (ms) for lane-packing. Whenever a bar's TITLE is wider than
   // its span on screen, the label bleeds past the span's right edge (item 3 / the
@@ -1747,13 +1645,6 @@ export function TimelineStrip({
   }, [startMs, spanMs, now])
   const showDayCells = spanMs <= atlasOpenMs * 2
 
-  // --- Plane morph pairs ----------------------------------------------------
-  // The Atlas centers on the SAME time the Lifelane viewport is looking at (its
-  // center day), NOT a separate `now`-anchored value. This keeps the two views one
-  // continuous model: zooming out frames the Atlas on the day you were viewing, and
-  // zooming back in returns the Lifelane to exactly that spot (no "jump to today /
-  // default view"). Atlas drag-pan shifts this same viewport (see onPanDays below).
-  const weekCenter = startOfDay(startMs + spanMs / 2)
   // Card-y of the Lifelane's first lane row = the strip's top edge + the label band
   // that sits above the track. When the strip is vertically CENTERED inside the
   // first-third zone (centerZoneH > 0, the home case), its top edge is no longer a
@@ -1785,31 +1676,6 @@ export function TimelineStrip({
   // unchanged — it still only rises to `HEADER_CLEAR_Y`.
   const gradGroupTop =
     centerZoneH > 0 ? Math.max(gradNaturalTop, HEADER_CLEAR_Y - laneBandTopY) : gradNaturalTop
-  // Geometry for the Lifelane<->Atlas flight. Built whenever the Atlas is mounted
-  // (`atlas || morphing`) — TimelineWeek IS the morph now (no separate overlay), so it
-  // needs both rects to animate between and to sit at the Atlas rect when settled.
-  const morphPairs = useMemo(() => {
-    if ((!atlas && !morphing) || !width || !viewHeightPx) return []
-    const chipLaneY = (key: string): number | null => {
-      const lane = lanes.lane.get(key)
-      if (lane == null) return null
-      if (blockOfLane(lane)?.collapsed) return null
-      return laneBandTopY + laneTop(lane)
-    }
-    return buildMorphPairs({
-      items: serpItems,
-      startMs,
-      spanMs,
-      width,
-      viewHeightPx,
-      laneBandTopY,
-      bandH: lifelaneBandH,
-      chipLaneY,
-      weekCenter,
-    })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [atlas, morphing, serpItems, startMs, spanMs, width, viewHeightPx, lifelaneBandH, weekCenter, lanes, layout])
-
   // Soft horizontal fade applied to the ruler graduations + labels, so ticks melt
   // in/out at the left and right edges while panning instead of popping abruptly.
   const edgeFade =
@@ -1834,23 +1700,7 @@ export function TimelineStrip({
         // keeps it on its own GPU layer so the transform never repaints the subtree. Only `opacity`
         // is CSS-transitioned (see className), so the imperative transform updates are instant.
         style={{ willChange: "transform" }}
-        className={cn(
-          // While the Atlas backdrop is open the strip is click-through and hidden, so the
-          // Atlas underneath takes all interaction and there's no duplicate timeline over
-          // the grid. During the brief `morphing` window the Atlas (TimelineWeek) plays the
-          // flight with its OWN elements (day-spans, graduations, titles, chips fly as one
-          // opaque plane), so the real Lifelane is hidden INSTANTLY (no cross-fade) to avoid
-          // a ghost ruler under it. The RETURN is instant too (`opacity-100 !duration-0`):
-          // the section pops back in at the exact frame the morph completes (chips already
-          // landed, Atlas unmounting), so there's no empty-ruler-then-chips-fade-in flash
-          // at the end of the reverse morph.
-          "px-1 transition-opacity duration-300",
-          morphing
-            ? "pointer-events-none opacity-0 !duration-0"
-            : atlas
-              ? "pointer-events-none opacity-0"
-              : "opacity-100 !duration-0",
-        )}
+        className="px-1"
       >
         {/* Flow SPACER only. The graduation + [date label + NOW] used to live here, pinned
             above the band frame. They now float just above the LANE STACK as overlays inside
@@ -2176,11 +2026,8 @@ export function TimelineStrip({
             </div>
 
             {/* DAY CELLS — faint horizontal day-slabs marking each day boundary near the
-                snap. These are the Lifelane ORIGIN of the day-span morph; the actual
-                Lifelane->Atlas flight (slab rotating into a vertical column) is played by
-                the Atlas (TimelineWeek) with its own elements, so while `morphing` these
-                are HIDDEN and the Atlas's flying cells show instead. */}
-            {showDayCells && !morphing && (
+                snap, drawn when the span is zoomed in enough for day boundaries to matter. */}
+            {showDayCells && (
               <div
                 className="pointer-events-none absolute inset-0 z-0"
                 style={{ transform: condenseXTransform, transformOrigin: "center", transition: laneScaleTransition }}
@@ -3320,42 +3167,6 @@ export function TimelineStrip({
           </button>
         </div>
       </div>
-
-      {/* ATLAS — the Lifeline's full-bleed view AND the morph into it, rendered as ONE
-          layer (no separate overlay). PORTALED into a card-level layer (`atlasLayer`)
-          that sits BEHIND the do-list / dock and BELOW the app header, so it reads as a
-          backdrop the persistent chrome floats over. Anchored at the card top, filling
-          the zoom-driven `viewHeightPx`.
-
-          Mounted whenever `atlas || morphing`: it stays through the REVERSE morph (atlas
-          already false, morphing still true) so its elements can fly back to their
-          Lifelane rects before it unmounts. `TimelineWeek` itself animates every element
-          from its Lifelane rect to its Atlas rect (and back), so there's no duplicate
-          tree and no opacity hand-off — the same elements that morph are the ones that
-          stay. The wheel-forward ref lives on the wrapper for zoom while in the Atlas. */}
-      {atlasLayer &&
-        (atlas || morphing) &&
-        createPortal(
-          <div
-            ref={atlasWheelRef}
-            className="absolute inset-x-0 top-0"
-            style={{ height: viewHeightPx ? `${viewHeightPx}px` : "100%" }}
-          >
-            <TimelineWeek
-              pairs={morphPairs}
-              atlas={atlas}
-              morphing={morphing}
-              now={now}
-              centerMs={weekCenter}
-              width={width}
-              viewHeightPx={viewHeightPx ?? 0}
-              onPanDays={(d) => setVp((v) => ({ ...v, startMs: v.startMs + d * DAY_MS }))}
-              onOpen={openFromChip}
-              onMenu={openMenu}
-            />
-          </div>,
-          atlasLayer,
-        )}
 
       <ContextMenu state={menu} onClose={() => setMenu(null)} />
     </section>
