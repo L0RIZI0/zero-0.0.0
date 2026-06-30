@@ -762,93 +762,63 @@ export function DoList({
   // CreateRow blurs its input first so the dock's keyboard handler then owns the keys.
   const navigateDownToDock = useCallback(() => moveSelection("down"), [moveSelection])
 
-  // --- Decoupled create-input positioning (non-ATLAS) -----------------------
-  // The create input is no longer a flex child of the scrolling list; it's an
-  // absolutely-positioned overlay whose `top` is measured each layout. A flow
-  // SPACER <li> of the input's exact height reserves its slot inside the scroller,
-  // which makes three behaviors fall out of one measurement:
-  //   • empty/short list ⇒ the (items + spacer) group is centered, so the input
-  //     rides at the group's bottom — and on an empty list it lands dead-center;
-  //   • long list ⇒ the input pins just above the dock and the rows scroll BEHIND
-  //     it (the opaque input overlays them), the last row clearing right above it
-  //     (the spacer is the scroll clearance);
-  //   • the input never drops below/onto the dock (clamped to the dock's top edge,
-  //     or the viewport bottom when the dock is collapsed).
+  // --- Dock reserve (clamp the create-input above the dock) -----------------
+  // The create input is now a flow element pinned DIRECTLY BELOW the scroller (no
+  // longer a scrolling list item, so the list never scrolls behind it). The list
+  // region fills the whole window and the dock OVERLAYS its bottom (z-order), so to
+  // keep the input from sliding under/over the dock we reserve — as bottom padding
+  // on the centered column — exactly how far the dock intrudes UP into the column.
+  // When the dock is collapsed (no pinned items) the reserve is ~0, so on an empty
+  // entity the lone input centers in the window; once items pin and the dock grows,
+  // the whole (list + input) group is pushed up and the input rides just above it.
   const viewportRef = useRef<HTMLDivElement | null>(null)
-  const scrollerRef = useRef<HTMLUListElement | null>(null)
-  const spacerRef = useRef<HTMLLIElement | null>(null)
-  const createWrapRef = useRef<HTMLUListElement | null>(null)
-  const [createTop, setCreateTop] = useState<number | null>(null)
-  const [createH, setCreateH] = useState(0)
+  const [dockReserve, setDockReserve] = useState(0)
 
-  const measureCreate = useCallback(() => {
+  const measureDock = useCallback(() => {
     if (atlas) return
     const vp = viewportRef.current
-    const wrap = createWrapRef.current
-    if (!vp || !wrap) return
+    if (!vp) return
     const vpRect = vp.getBoundingClientRect()
-    const Hv = vpRect.height
-    const Hc = wrap.offsetHeight
-    if (Hc !== createH) setCreateH(Hc)
-    const GAP = 6 // matches the list's gap-1.5 row gap (so the last row clears flush)
-    // Lowest the input's TOP may sit: GAP above the dock's top edge, or above the
-    // viewport bottom when the dock is empty/collapsed — never overlapping the dock.
-    let clampLineLocal = Hv
     const dock = vp.closest("[data-body]")?.querySelector<HTMLElement>("[data-dock-overlay]")
+    let reserve = 0
     if (dock) {
-      const top = dock.getBoundingClientRect().top - vpRect.top
-      if (top > 0) clampLineLocal = Math.min(clampLineLocal, top)
+      // How far the dock's top edge rises ABOVE the column's bottom edge.
+      reserve = Math.max(0, vpRect.bottom - dock.getBoundingClientRect().top)
     }
-    const lowestTop = Math.max(0, Math.min(clampLineLocal, Hv) - Hc - GAP)
-    // Where the input WANTS to be: directly over its reserved slot (the spacer),
-    // which the centered/top-aligned flow has already positioned. Fallback to a
-    // centered (or top) resting line if the spacer isn't mounted yet.
-    const spacer = spacerRef.current
-    const naturalTop = spacer
-      ? spacer.getBoundingClientRect().top - vpRect.top
-      : centered
-        ? (Hv - Hc) / 2
-        : 0
-    const next = Math.max(0, Math.min(naturalTop, lowestTop))
-    setCreateTop((prev) => (prev != null && Math.abs(prev - next) < 0.5 ? prev : next))
-  }, [atlas, centered, createH])
+    const GAP = 6 // breathing room so the input never kisses the dock
+    const next = reserve > 0 ? reserve + GAP : 0
+    setDockReserve((prev) => (Math.abs(prev - next) < 0.5 ? prev : next))
+  }, [atlas])
 
-  // Recompute on every layout-affecting change. FROZEN while a window morph is in
-  // flight (`animating`): GSAP Flip owns the frame then, and re-driving `top` would
-  // fight it — the post-morph run (when `animating` clears) settles the input with
-  // its CSS transition. Pre-paint (useLayoutEffect) so there's no flash.
+  // Recompute pre-paint on any layout-affecting change. Skipped during a window
+  // morph (`animating`): GSAP Flip owns the frame then; the post-morph run settles it.
   useLayoutEffect(() => {
     if (atlas || animating) return
-    measureCreate()
-  }, [atlas, animating, measureCreate, shown, showSelectors, dataVersion, centered])
+    measureDock()
+  }, [atlas, animating, measureDock, shown, showSelectors, dataVersion])
 
-  // Keep it correct as the surface resizes / the list scrolls (rAF-throttled). The
-  // scroll handler keeps the input pinned while a long list scrolls behind it.
+  // Keep the reserve correct as the surface resizes or the dock grows/shrinks.
   useEffect(() => {
     if (atlas) return
     const vp = viewportRef.current
-    const sc = scrollerRef.current
-    const wrap = createWrapRef.current
     if (!vp) return
     let raf = 0
     const schedule = () => {
       if (animating) return
       cancelAnimationFrame(raf)
-      raf = requestAnimationFrame(measureCreate)
+      raf = requestAnimationFrame(measureDock)
     }
     const ro = new ResizeObserver(schedule)
     ro.observe(vp)
-    if (sc) ro.observe(sc)
-    if (wrap) ro.observe(wrap)
+    const dock = vp.closest("[data-body]")?.querySelector<HTMLElement>("[data-dock-overlay]")
+    if (dock) ro.observe(dock)
     window.addEventListener("resize", schedule)
-    sc?.addEventListener("scroll", schedule, { passive: true })
     return () => {
       cancelAnimationFrame(raf)
       ro.disconnect()
       window.removeEventListener("resize", schedule)
-      sc?.removeEventListener("scroll", schedule)
     }
-  }, [atlas, animating, measureCreate])
+  }, [atlas, animating, measureDock])
 
   // Window-level keyboard handler, active only when the DO list owns the
   // selection and no text input is focused.
@@ -1096,47 +1066,36 @@ export function DoList({
           </AnimatePresence>
         </ul>
       ) : (
-        // DEFAULT: the create-input is DECOUPLED from the scroller. `viewportRef` is
-        // the relative positioning context; the scroller holds the rows + a flow
-        // SPACER (the input's reserved slot), and the input itself is an absolute
-        // overlay whose `top` is measured (see `measureCreate`). A short list stays
-        // centered as a group; a long list scrolls behind the opaque input, which
-        // pins just above the dock.
-        <div ref={viewportRef} className="relative flex min-h-0 flex-1 flex-col">
+        // DEFAULT: the create-input is DECOUPLED from the scrolling list — it's a flow
+        // element pinned DIRECTLY BELOW the rows (the list never scrolls behind it).
+        //   • `justify-center-safe` centers the (rows + input) group when it's short,
+        //     so an EMPTY entity shows the lone input dead-center; `-safe` falls back
+        //     to top-aligned the instant the content overflows.
+        //   • the scroller is `flex-initial` (grow 0 / shrink 1): it HUGS its content
+        //     (0px when empty) but shrinks + scrolls once the list is long, keeping
+        //     the input visible right below it.
+        //   • `paddingBottom: dockReserve` keeps the whole group — and thus the input —
+        //     clamped just above the dock (never overlapping it).
+        <div
+          ref={viewportRef}
+          className={cn("flex min-h-0 flex-1 flex-col", centered && "justify-center-safe")}
+          style={{ paddingBottom: dockReserve || undefined }}
+        >
           <ul
             key={contextId}
-            ref={scrollerRef}
-            // `overflow: visible` during ANY morph (`animating`) so a row growing into
-            // a window (parked at `position: absolute` by GSAP Flip) isn't clipped by
-            // the scroller bounds; it returns to a normal scroller once the morph settles.
+            // `overflow: visible` during a window morph so a row growing into a window
+            // (parked at `position: absolute` by GSAP Flip) isn't clipped; it returns
+            // to a normal scroller the instant the morph settles.
             style={animating ? { overflow: "visible" } : undefined}
-            className={cn(
-              "-mx-2 flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto px-2 no-scrollbar",
-              // Center the rows (+ the reserved create slot) vertically when short;
-              // `-safe` falls back to top-aligned the instant the list overflows so the
-              // top is never clipped. `centered={false}` (home) keeps them top-aligned.
-              centered && "justify-center-safe",
-            )}
+            className="-mx-2 flex min-h-0 flex-initial flex-col gap-1.5 overflow-y-auto px-2 no-scrollbar"
           >
             <AnimatePresence initial={false} mode="popLayout">{rowItems}</AnimatePresence>
-            {/* Flow spacer reserving the create-input's slot: it keeps the (rows + input)
-                group centered when short, and gives the bottom scroll clearance so the
-                last row can scroll clear ABOVE the pinned input when the list is long. */}
-            <li ref={spacerRef} aria-hidden className="shrink-0" style={{ height: createH }} />
           </ul>
-          {/* The decoupled create-input overlay. Keyed by context so switching entities
-              remounts it (clearing any in-progress draft), matching the old in-list row.
-              `top` is JS-measured; its CSS transition animates the slide as rows are
-              added/removed, and is disabled during morphs so GSAP Flip owns the frame. */}
-          <ul
-            key={contextId}
-            ref={createWrapRef}
-            className="absolute inset-x-0 z-10 m-0 list-none p-0"
-            style={{
-              top: createTop ?? undefined,
-              transition: animating ? "none" : "top 0.2s cubic-bezier(0.22, 0.61, 0.36, 1)",
-            }}
-          >
+          {/* Create-input — its own one-row list directly below the scroller. The inner
+              `motion.li` carries `layout={!animating}`, so it SLIDES down as rows are
+              added above (and back up on delete). `mt-1.5` only when rows exist mimics
+              the list's row gap so it reads as the next item below them. */}
+          <ul className={cn("-mx-2 list-none px-2", shown.length > 0 && "mt-1.5")}>
             {createRowEl}
           </ul>
         </div>
