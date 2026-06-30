@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { AnimatePresence, motion, type Transition } from "motion/react"
-import { Check, Pin, Trash2, Ban, RotateCcw, ChevronDown, Globe, Shapes, Send } from "lucide-react"
+import { Check, Pin, Trash2, Ban, RotateCcw, ChevronDown, Globe, Shapes, Send, CalendarClock } from "lucide-react"
 import {
   getContextItems,
   isPinned,
@@ -588,6 +588,19 @@ export function DoList({
   const [bornId, setBornId] = useState<string | null>(null)
   const [menu, setMenu] = useState<ContextMenuState | null>(null)
 
+  // Transient inline notice for the async NL→schedule parse (below). Because that
+  // upgrade happens AFTER the row is created, a failure (or a gated AI Gateway) would
+  // otherwise be invisible — the typed phrase would just silently stay a plain task.
+  // This surfaces "couldn't auto-schedule" / "scheduled" so the outcome is never silent.
+  const [notice, setNotice] = useState<{ tone: "ok" | "error"; text: string } | null>(null)
+  const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const flashNotice = useCallback((tone: "ok" | "error", text: string) => {
+    setNotice({ tone, text })
+    if (noticeTimer.current) clearTimeout(noticeTimer.current)
+    noticeTimer.current = setTimeout(() => setNotice(null), 4000)
+  }, [])
+  useEffect(() => () => { if (noticeTimer.current) clearTimeout(noticeTimer.current) }, [])
+
   // Reset filter view when the context changes.
   useEffect(() => setFilter("open"), [contextId])
 
@@ -648,17 +661,32 @@ export function DoList({
               headers: { "content-type": "application/json" },
               body: JSON.stringify({ text: parsed.title }),
             })
-            if (!res.ok) return
+            if (!res.ok) {
+              // 402 = AI Gateway not set up for this project (no card on file); any
+              // other code = a genuine parse failure. Either way, tell the user the
+              // auto-schedule didn't happen instead of leaving the plain task silently.
+              flashNotice(
+                "error",
+                res.status === 402 ? "Couldn't auto-schedule — AI isn't set up yet." : "Couldn't auto-schedule that.",
+              )
+              return
+            }
             const plan = (await res.json()) as ScheduleParse
+            // The model decided it wasn't a schedule after all — staying a plain task
+            // is the correct outcome, so no notice.
             if (!plan?.isSchedule) return
-            if (applyParsedSchedule(entity.id, plan)) notifyDataChanged()
+            if (applyParsedSchedule(entity.id, plan)) {
+              notifyDataChanged()
+              flashNotice("ok", plan.summary ? `Scheduled: ${plan.summary}` : "Scheduled.")
+            }
           } catch {
-            // Network/parse failure is non-fatal: the plain task already exists and stands.
+            // Network error (offline, aborted): the plain task already exists and stands.
+            flashNotice("error", "Couldn't auto-schedule that.")
           }
         })()
       }
     },
-    [contextId, notifyDataChanged, select],
+    [contextId, notifyDataChanged, select, flashNotice],
   )
 
   // Create a RESOURCE TASK from a typed URL or a launcher pick: a task bound to a
@@ -924,6 +952,37 @@ export function DoList({
           />
         </AnimatePresence>
       </ul>
+
+      {/* Transient NL→schedule outcome notice. Rendered as a floating pill at the
+          bottom-center of the viewport (via portal) so the centered do-list layout
+          and the dock never clip it. aria-live announces the async result to screen
+          readers; it auto-dismisses after 4s (see flashNotice). */}
+      {typeof document !== "undefined" &&
+        createPortal(
+          <AnimatePresence>
+            {notice && (
+              <motion.div
+                role="status"
+                aria-live="polite"
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 8, transition: { duration: 0.18 } }}
+                className="pointer-events-none fixed inset-x-0 bottom-6 z-50 flex justify-center px-4"
+              >
+                <div
+                  className={cn(
+                    "flex items-center gap-2 rounded-full border bg-card-solid px-4 py-2 text-xs shadow-lg",
+                    notice.tone === "error" ? "border-destructive/40 text-destructive" : "border-border text-foreground",
+                  )}
+                >
+                  <CalendarClock className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                  <span className="text-pretty">{notice.text}</span>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>,
+          document.body,
+        )}
 
       <ContextMenu
         state={menu}
