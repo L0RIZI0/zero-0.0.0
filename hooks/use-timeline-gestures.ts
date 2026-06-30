@@ -402,6 +402,18 @@ export function useTimelineGestures({
       if (handledEvents.has(e)) return // already applied by the viewport listener
       const vpEl = viewportRef.current
       if (!vpEl) return
+      // YIELD to a different scroll region. If the cursor is over a genuinely scrollable element
+      // that ISN'T the timeline viewport (e.g. the do-list `<ul overflow-y-auto>`), the strip must
+      // NOT hijack the wheel — even mid-glide (the latch below would otherwise keep zooming because
+      // the cursor is still within the strip's x-range). Walk target→body; if we reach the viewport
+      // first the wheel is the strip's, but if we hit a scroll container first, let it scroll.
+      let node: Element | null = e.target instanceof Element ? e.target : null
+      while (node && node !== document.body) {
+        if (node === vpEl) break // reached the strip before any scroller → it's the strip's wheel
+        const oy = getComputedStyle(node).overflowY
+        if ((oy === "auto" || oy === "scroll") && node.scrollHeight > node.clientHeight) return
+        node = node.parentElement
+      }
       const rect = vpEl.getBoundingClientRect()
       if (rect.width === 0 && rect.height === 0) return
       const now = performance.now()
