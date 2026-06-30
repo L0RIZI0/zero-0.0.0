@@ -522,8 +522,15 @@ export function TimelineStrip({
   // tuned morph animations (keeps the "identical, just smoother" guarantee). A compositor transform
   // on one layer is GPU-cheap.
   const floatRef = useRef<HTMLElement | null>(null)
-  const yTargetRef = useRef(0) // committed vertical offset (persists after release, "stay where dropped")
+  const yTargetRef = useRef(0) // committed vertical offset (target the render eases toward while dragging)
   const yRenderRef = useRef(0)
+  // Vertical RELEASE BOUNCE: on drag-release the strip rubber-bands back to home (0) with a small
+  // underdamped overshoot — "pull it down, let go, it springs back up a little". While `yBounce` is
+  // set the float loop integrates `yRender` with a spring (needs real dt) instead of the drag-follow
+  // lerp; `yVel` is that spring's velocity. A fresh drag clears the flag and resumes 1:1 follow.
+  const yVelRef = useRef(0)
+  const yBounceRef = useRef(false)
+  const floatLastTRef = useRef<number | null>(null)
   const leanXTargetRef = useRef(0) // horizontal-only lean toward the cursor
   const leanXRenderRef = useRef(0)
   const floatRafRef = useRef<number | null>(null)
@@ -548,7 +555,7 @@ export function TimelineStrip({
   // `elastic` is the live amplitude ε, spring-driven back to exactly 0; at 0, `pct()` is
   // byte-for-byte the original linear formula (a guarded fast-path → zero cost at rest, and
   // the gesture/anchor math is unaffected because the cursor point is the warp's fixed point).
-  const [elastic, setElastic] = useState(0)
+  const [elastic, setElastic] = useState(0.5) // [v0] TEMP visual check — revert to 0
   const elasticValRef = useRef(0) // committed ε (displacement), mirrors `elastic`
   const elasticVelRef = useRef(0) // spring velocity
   const elasticAnchorRef = useRef(50) // viewport-% under the cursor = the warp's fixed point
@@ -754,11 +761,19 @@ export function TimelineStrip({
     const p = ((epoch - startMs) / spanMs) * 100
     const eps = elastic
     if (eps > -0.0015 && eps < 0.0015) return p // rest fast-path: identical linear mapping
-    // Signed distance from the cursor anchor, in viewport widths. A gaussian bump makes the
-    // displacement peak near the cursor and fade to ~0 by ~1.5 viewports out, so distant and
-    // offscreen markers keep the true mapping (monotonic for our clamped ε → never folds over).
+    // LENS warp. Signed distance from the cursor anchor, in viewport widths. The displacement is
+    // a gaussian-derivative bump `d·e^(-(d/σ)²)`; its SLOPE is what you see as graduation spacing:
+    //   local scale = 1 + ε·e^(-(d/σ)²)·(1 − 2d²/σ²)
+    // → a positive EXPANSION core right at the cursor (scale 1+ε) flanked by COMPRESSION rings
+    //   (the (1−2d²/σ²) term flips negative past |d|=σ/√2), settling to the true mapping further out.
+    // That is the "the window under the cursor inflates and shoves its neighbours, which compress
+    // then recover" feel. σ is deliberately SMALL: with a large σ the gaussian is ~1 across the
+    // whole viewport and the bump degenerates to `ε·(p−anchor)` — a UNIFORM linear zoom around the
+    // cursor (the "whole graduation stays linear" artifact). A tight σ keeps the non-linearity
+    // concentrated near the cursor where the eye reads it as a local bulge. Far + offscreen markers
+    // keep the true mapping (monotonic for our clamped ε → never folds over).
     const d = (p - elasticAnchorRef.current) / 100
-    const SIGMA = 0.5
+    const SIGMA = 0.16
     const bump = d * Math.exp(-(d * d) / (SIGMA * SIGMA))
     return p + eps * bump * 100
   }
@@ -790,6 +805,7 @@ export function TimelineStrip({
       // settled (the seam the user noticed).
       if (kind === "drag") {
         draggingRef.current = true
+        yBounceRef.current = false // a fresh grab cancels any in-flight release bounce
         leanXTargetRef.current = 0
         ensureFloatRef.current()
         // Clear any tick/lane/instant highlight the cursor happened to be on when the pan
@@ -803,12 +819,24 @@ export function TimelineStrip({
       }
     },
     onGestureEnd: (kind) => {
-      if (kind === "drag") draggingRef.current = false
+      if (kind === "drag") {
+        draggingRef.current = false
+        // RELEASE BOUNCE: if the strip was pulled vertically off home, rubber-band it back with a
+        // small overshoot (the float loop's spring branch). Fires when the whole gesture settles
+        // (after any horizontal release-glide), so a flick's vertical offset springs home cleanly.
+        if (Math.abs(yRenderRef.current) > 0.5) {
+          yBounceRef.current = true
+          yVelRef.current = 0
+          ensureFloatRef.current()
+        }
+      }
     },
     // Vertical drag-to-reposition (soft-axis attenuated in the hook). Accumulate the effective
-    // delta into the persistent offset, clamp to bounds, and pump the float loop.
+    // delta into the offset, clamp to bounds, and pump the float loop. Dragging cancels any
+    // in-flight bounce so the strip tracks the pointer 1:1 again.
     verticalDrag: true,
     onVerticalDrag: (dy) => {
+      yBounceRef.current = false
       yTargetRef.current = Math.max(DRAG_Y_MIN, Math.min(DRAG_Y_MAX, yTargetRef.current + dy))
       ensureFloatRef.current()
     },
@@ -823,25 +851,51 @@ export function TimelineStrip({
     const reduceMotion =
       typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
 
-    const frame = () => {
+    const frame = (ts: number) => {
+      const last = floatLastTRef.current
+      floatLastTRef.current = ts
+      const dt = last == null ? 1 / 60 : Math.min(1 / 30, (ts - last) / 1000) // clamp tab-away gaps
       const yT = yTargetRef.current
       // Lean is HORIZONTAL ONLY (no vertical lean) and disabled under reduced-motion. Ease IN when
       // moving away from rest (target magnitude growing) and ease OUT — slower — when returning home,
       // so the settle is especially soft.
       const lxT = reduceMotion ? 0 : leanXTargetRef.current
       const leanEase = Math.abs(lxT) >= Math.abs(leanXRenderRef.current) ? LEAN_EASE_IN : LEAN_EASE_OUT
-      const y = yRenderRef.current + (yT - yRenderRef.current) * Y_EASE
+      // VERTICAL: while bouncing, integrate an underdamped spring toward home (0) so the release
+      // overshoots a touch then settles ("springs back up a little"); otherwise track the drag
+      // target with the original frame-rate lerp (crisp 1:1-ish follow). k=190 c=16 ⇒ ζ≈0.58.
+      let y: number
+      if (yBounceRef.current && !draggingRef.current) {
+        const a = -190 * yRenderRef.current - 16 * yVelRef.current
+        const nv = yVelRef.current + a * dt
+        y = yRenderRef.current + nv * dt
+        yVelRef.current = nv
+      } else {
+        y = yRenderRef.current + (yT - yRenderRef.current) * Y_EASE
+      }
       const lx = leanXRenderRef.current + (lxT - leanXRenderRef.current) * leanEase
       yRenderRef.current = y
       leanXRenderRef.current = lx
       const el = floatRef.current
-      const settled = Math.abs(yT - y) < 0.08 && Math.abs(lxT - lx) < 0.08
+      const yRest = yBounceRef.current
+        ? Math.abs(y) < 0.1 && Math.abs(yVelRef.current) < 0.6
+        : Math.abs(yT - y) < 0.08
+      const settled = yRest && Math.abs(lxT - lx) < 0.08
       if (settled && !draggingRef.current) {
-        // Snap exactly to target and stop the loop (no perpetual rAF).
-        yRenderRef.current = yT
+        // Snap exactly to home/target and stop the loop (no perpetual rAF).
+        if (yBounceRef.current) {
+          yBounceRef.current = false
+          yVelRef.current = 0
+          yRenderRef.current = 0
+          yTargetRef.current = 0 // home is the new resting offset (don't re-apply the old drop)
+        } else {
+          yRenderRef.current = yT
+        }
         leanXRenderRef.current = lxT
-        if (el) el.style.transform = `translate3d(${lxT.toFixed(2)}px, ${yT.toFixed(2)}px, 0)`
+        if (el)
+          el.style.transform = `translate3d(${lxT.toFixed(2)}px, ${yRenderRef.current.toFixed(2)}px, 0)`
         floatRafRef.current = null
+        floatLastTRef.current = null
         return
       }
       if (el) el.style.transform = `translate3d(${lx.toFixed(2)}px, ${y.toFixed(2)}px, 0)`
@@ -904,11 +958,12 @@ export function TimelineStrip({
       let dt = (now - last) / 1000
       last = now
       if (dt > 0.05) dt = 0.05 // clamp big gaps (tab-away) so the spring can't explode
-      // Underdamped spring toward 0: k≈160, c≈14 ⇒ ζ≈0.55 — settles in ~0.45s with one
-      // soft overshoot (the elastic "snap back"). Semi-implicit Euler (stable at 60–240Hz).
+      // Underdamped spring toward 0: k≈160, c≈10 ⇒ ζ≈0.40 — settles in ~0.5s with a clearer
+      // overshoot so the lens INFLATES, springs slightly past, then recovers: the "ripple"
+      // the neighbours feel as they get shoved out then bounce back. Semi-implicit Euler.
       const x = elasticValRef.current
       const v = elasticVelRef.current
-      const a = -160 * x - 14 * v
+      const a = -160 * x - 10 * v
       const nv = v + a * dt
       const nx = x + nv * dt
       elasticValRef.current = nx
@@ -932,8 +987,10 @@ export function TimelineStrip({
       // Anchor the warp's fixed point at the cursor (the point that must NOT move).
       elasticAnchorRef.current = Math.max(0, Math.min(100, ((e.clientX - r.left) / r.width) * 100))
       // Zoom-IN (deltaY<0) → push neighbours OUT (ε>0); zoom-OUT (deltaY>0) → pull IN (ε<0).
-      const kick = Math.max(-1, Math.min(1, -e.deltaY / 100)) * 0.12
-      elasticValRef.current = Math.max(-0.35, Math.min(0.35, elasticValRef.current + kick))
+      // ε is the peak local stretch: 0.22/notch, clamped to ±0.55 (≈55% inflate / ~25% squeeze at
+      // the core) so a single notch is clearly visible and a fast scroll bulges hard without folding.
+      const kick = Math.max(-1, Math.min(1, -e.deltaY / 100)) * 0.22
+      elasticValRef.current = Math.max(-0.55, Math.min(0.55, elasticValRef.current + kick))
       elasticVelRef.current = 0 // displacement-driven; let the spring carry it back to 0
       if (elasticRafRef.current == null) {
         last = performance.now()

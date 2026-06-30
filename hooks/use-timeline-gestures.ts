@@ -120,6 +120,18 @@ const VEL_EPS = 1e-3 // velocity, relative (1/s) — keeps the spring from idlin
 // A touch longer than the gap between physical mouse-wheel notches so a steady scroll stays latched.
 const LATCH_MS = 160
 
+// --- Drag-release momentum (horizontal "continuity drag") -------------------
+// On release of a horizontal pan we don't stop dead — we keep gliding in the flick
+// direction and ease out, so a pan has weight/continuity instead of a hard stop.
+// FLING_MIN_V: minimum release speed (px/s) to bother flinging — below it the pan just stops.
+const FLING_MIN_V = 90
+// FLING_TAU: friction time-constant (s). Velocity decays as e^(−t/τ); larger = longer glide.
+const FLING_TAU = 0.32
+// Stop the glide once the pointer-equivalent speed drops below this (px/s).
+const FLING_STOP_V = 12
+// EMA factor for smoothing per-move pointer velocity (0..1, higher = snappier/noisier).
+const FLING_SMOOTH = 0.35
+
 /** Analytic one-step solver for a damped harmonic oscillator chasing `target`.
  *  Handles both the underdamped (ζ<1, overshoots) and critically-damped (ζ=1) cases,
  *  advancing position+velocity by exactly `dt` seconds. Frame-rate independent. */
@@ -217,8 +229,18 @@ export function useTimelineGestures({
   // the cursor time stays pinned the entire glide with zero horizontal drift / no
   // slide-back. Cleared by a pan, a drag, or when the loop settles.
   const anchorRef = useRef<{ t: number; frac: number } | null>(null)
+  // rAF id for the post-release horizontal momentum glide (separate from the wheel ease loop
+  // so the two never entangle). A fresh pointerdown or any wheel cancels it.
+  const momentumRafRef = useRef<number | null>(null)
 
   const clampSpan = (s: number) => Math.min(maxSpan, Math.max(minSpan, s))
+
+  const cancelMomentum = () => {
+    if (momentumRafRef.current != null) {
+      cancelAnimationFrame(momentumRafRef.current)
+      momentumRafRef.current = null
+    }
+  }
 
   useEffect(() => {
     const el = viewportRef.current
@@ -301,6 +323,7 @@ export function useTimelineGestures({
     // listeners below so the viewport-direct path and the proximity path behave identically.
     const applyWheel = (e: WheelEvent, rect: DOMRect) => {
       e.preventDefault() // stop the page/region from scrolling
+      cancelMomentum() // a wheel gesture supersedes any in-flight release glide
       const width = rect.width || 1
       // Seed gesture state from the live prop the first time, so we glide from
       // exactly where the view currently is — and start the spring at rest.
@@ -380,6 +403,7 @@ export function useTimelineGestures({
       el.removeEventListener("wheel", onElWheel)
       window.removeEventListener("wheel", onWinWheel)
       if (rafRef.current != null) cancelAnimationFrame(rafRef.current)
+      cancelMomentum()
       rafRef.current = null
       lastTRef.current = null
       velLogRef.current = 0
@@ -418,12 +442,17 @@ export function useTimelineGestures({
       velLogRef.current = 0
       velStartRef.current = 0
     }
+    cancelMomentum() // grabbing the strip again kills any in-flight release glide
     anchorRef.current = null // a drag releases any zoom anchor
     targetRef.current = null
     draggedRef.current = false // fresh press — not a drag until it moves past threshold
     const startX = e.clientX
     const startY = e.clientY
     let lastY = e.clientY // previous pointer Y, for per-frame vertical deltas
+    // Pointer X velocity (px/s), EMA-smoothed across moves, for the release fling.
+    let velX = 0
+    let lastVX = e.clientX
+    let lastVT = performance.now()
     const base = currentRef.current ?? viewRef.current
     const startView = base.startMs
     const span = base.spanMs
@@ -434,6 +463,13 @@ export function useTimelineGestures({
       if (!draggedRef.current && Math.hypot(ev.clientX - startX, ev.clientY - startY) > DRAG_THRESHOLD) {
         draggedRef.current = true
       }
+      // Track smoothed horizontal pointer speed for the release momentum.
+      const tNow = performance.now()
+      const dtv = Math.max(1, tNow - lastVT) / 1000
+      const instVX = (ev.clientX - lastVX) / dtv
+      velX = velX * (1 - FLING_SMOOTH) + instVX * FLING_SMOOTH
+      lastVX = ev.clientX
+      lastVT = tNow
       // Horizontal time-pan — always 1:1, never attenuated.
       const deltaMs = ((ev.clientX - startX) / width) * span
       const next = { startMs: startView - deltaMs, spanMs: span }
@@ -455,8 +491,37 @@ export function useTimelineGestures({
     const up = () => {
       window.removeEventListener("pointermove", move)
       window.removeEventListener("pointerup", up)
-      currentRef.current = null
-      endCbRef.current?.("drag")
+      // CONTINUITY DRAG: if the release carried real horizontal speed, keep gliding and ease out
+      // instead of stopping dead. We DON'T fire endCb yet — the strip keeps its "dragging" flag
+      // (lean + hover stay suppressed) until the glide actually settles. If the pointer paused
+      // just before release, velX is stale → don't fling.
+      const idleMs = performance.now() - lastVT
+      const fling = idleMs > 60 ? 0 : velX
+      if (draggedRef.current && Math.abs(fling) > FLING_MIN_V) {
+        let vStart = -(span / width) * fling // px/s → startMs/s (start moves opposite the pointer)
+        let t0 = performance.now()
+        const glide = () => {
+          const t = performance.now()
+          const dt = Math.min(MAX_DT, (t - t0) / 1000)
+          t0 = t
+          vStart *= Math.exp(-dt / FLING_TAU) // exponential friction
+          const cur = currentRef.current ?? viewRef.current
+          const next = { startMs: cur.startMs + vStart * dt, spanMs: cur.spanMs }
+          currentRef.current = next
+          onChangeRef.current(next)
+          if (Math.abs(vStart) * (width / span) < FLING_STOP_V) {
+            momentumRafRef.current = null
+            currentRef.current = null
+            endCbRef.current?.("drag")
+            return
+          }
+          momentumRafRef.current = requestAnimationFrame(glide)
+        }
+        momentumRafRef.current = requestAnimationFrame(glide)
+      } else {
+        currentRef.current = null
+        endCbRef.current?.("drag")
+      }
     }
     window.addEventListener("pointermove", move)
     window.addEventListener("pointerup", up)
