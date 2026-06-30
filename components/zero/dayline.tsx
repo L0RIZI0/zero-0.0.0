@@ -62,8 +62,17 @@ export function Dayline() {
   const rootId = stack[0]
 
   // Recompute the window each minute so it rolls over the 5am boundary on its own.
-  const [now, setNow] = useState(() => Date.now())
+  // `now` is time-dependent, so SSR and the client's first paint would disagree and
+  // trip a hydration mismatch. We therefore keep all time-positioned content (items,
+  // NOW marker, helper) OUT of the server render: `mounted` starts false (server +
+  // first client render → identical empty lane), then flips true in an effect, after
+  // which `now` drives the real content. `now` itself is seeded on mount too so its
+  // value never differs between the two environments.
+  const [now, setNow] = useState(0)
+  const [mounted, setMounted] = useState(false)
   useEffect(() => {
+    setMounted(true)
+    setNow(Date.now())
     const id = setInterval(() => setNow(Date.now()), 60_000)
     return () => clearInterval(id)
   }, [])
@@ -114,9 +123,11 @@ export function Dayline() {
       className="pointer-events-none relative z-30 flex w-full items-center px-5"
       style={{ height: DAYLINE_ROW_H }}
     >
-      {/* The lane. A thin full-width strip forming the Individual's day insight. */}
+      {/* The lane. A thin full-width strip forming the Individual's day insight.
+          Time-dependent content is gated on `mounted` to keep SSR == first client paint. */}
       <div className="pointer-events-auto relative h-7 w-full overflow-visible rounded-md border border-border/60 bg-card/40">
-        {items.map((it) => {
+        {mounted &&
+          items.map((it) => {
           const isHot = hovered === it.key
           if (it.isDuration) {
             return (
@@ -164,23 +175,27 @@ export function Dayline() {
 
         {/* NOW marker — a thin, bright-orange vertical tick (discrete but visible),
             painted above every item. A small downward cap at the top edge mirrors the
-            timeline's now-marker so the live-time indicator reads identically on both. */}
-        <div
-          aria-hidden
-          className="pointer-events-none absolute -bottom-px -top-px z-30 w-[2px] -translate-x-1/2 rounded-full"
-          style={{ left: `${nowPct}%`, backgroundColor: NOW_COLOR, boxShadow: `0 0 4px ${NOW_COLOR}` }}
-        >
-          <span
-            className="absolute -top-1 left-1/2 -translate-x-1/2"
-            style={{
-              width: 0,
-              height: 0,
-              borderLeft: "3px solid transparent",
-              borderRight: "3px solid transparent",
-              borderTop: `5px solid ${NOW_COLOR}`,
-            }}
-          />
-        </div>
+            timeline's now-marker so the live-time indicator reads identically on both.
+            Gated on `mounted`: its position is time-derived, so it must not render on the
+            server (would mismatch the client's clock). */}
+        {mounted && (
+          <div
+            aria-hidden
+            className="pointer-events-none absolute -bottom-px -top-px z-30 w-[2px] -translate-x-1/2 rounded-full"
+            style={{ left: `${nowPct}%`, backgroundColor: NOW_COLOR, boxShadow: `0 0 4px ${NOW_COLOR}` }}
+          >
+            <span
+              className="absolute -top-1 left-1/2 -translate-x-1/2"
+              style={{
+                width: 0,
+                height: 0,
+                borderLeft: "3px solid transparent",
+                borderRight: "3px solid transparent",
+                borderTop: `5px solid ${NOW_COLOR}`,
+              }}
+            />
+          </div>
+        )}
       </div>
 
       {/* HOVER HELPER — floats just below the lane (the header sits directly above,
