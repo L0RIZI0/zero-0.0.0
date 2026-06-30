@@ -97,12 +97,12 @@ function smoothstep(edge0: number, edge1: number, x: number) {
 
 // Wheel sensitivity (per normalized pixel of deltaY). The ease loop glides between
 // notches, so each notch nudges the TARGET span by exp(dy·ZOOM_K) and the spring eases
-// the rest. Lowered from 0.0022 → 0.0015 because a single notch (dy≈100) at 0.0022 jumped
-// the target ~25% in one step, which read as a "strong tick" lurch; 0.0015 makes one notch
-// ~16%, a gentler step the spring can ease through smoothly. Notches ACCUMULATE on the
-// target (base = targetRef ?? current), so a fast multi-notch flick still travels just as
-// far — only each individual tick is softer.
-const ZOOM_K = 0.0015
+// the rest. Tuned DOWN over time (0.0022 → 0.0015 → 0.0012): at 0.0022 a single notch
+// (dy≈100) jumped the target ~25% in one step, a "strong tick" lurch; 0.0012 makes one
+// notch ~13%, a soft step the spring eases through almost imperceptibly. Notches
+// ACCUMULATE on the target (base = targetRef ?? current), so a fast multi-notch flick
+// still travels just as far — only each individual tick is softer.
+const ZOOM_K = 0.0012
 // The committed view chases the target with a CRITICALLY-DAMPED SPRING rather than
 // plain exponential smoothing. A spring has inertia: it eases *in* (velocity ramps
 // from zero) as well as out, and — because velocity carries across wheel notches —
