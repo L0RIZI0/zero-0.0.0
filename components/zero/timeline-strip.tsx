@@ -760,6 +760,14 @@ export function TimelineStrip({
         draggingRef.current = true
         leanXTargetRef.current = 0
         ensureFloatRef.current()
+        // Clear any tick/lane/instant highlight the cursor happened to be on when the pan
+        // began. As the strip translates under a stationary-ish cursor, the browser fires
+        // mouseenter on whatever slides beneath it, making ticks/lanes flicker-highlight
+        // along the drag path. We clear here and the enter-handlers below no-op while
+        // `draggingRef` is set, so the strip stays visually calm through the whole pan.
+        setHoveredMother(null)
+        setHoveredTick(null)
+        setHoveredInstant(null)
       }
     },
     onGestureEnd: (kind) => {
@@ -1926,7 +1934,10 @@ export function TimelineStrip({
             const at = e.schedule?.at ?? c.ms
             const isOpen = stack.includes(e.id)
             const hovered = hoveredInstant === e.id
-            const onEnter = () => setHoveredInstant(e.id)
+            const onEnter = () => {
+              if (draggingRef.current) return // don't highlight along a pan path
+              setHoveredInstant(e.id)
+            }
             const onLeave = () => setHoveredInstant((cur) => (cur === e.id ? null : cur))
             return (
               <div
@@ -2274,7 +2285,10 @@ export function TimelineStrip({
                   transition: reflowTransition("top, filter, opacity, height, background-color"),
                 } as const
                 const hoverProps = {
-                  onMouseEnter: () => setHoveredMother(rk),
+                  onMouseEnter: () => {
+                    if (draggingRef.current) return // don't highlight along a pan path
+                    setHoveredMother(rk)
+                  },
                   onMouseLeave: () => setHoveredMother((h) => (h === rk ? null : h)),
                 }
                 // Clicking the rail/1px-sliver BODY expands the mother fully (between ticks on a
@@ -2462,6 +2476,7 @@ export function TimelineStrip({
               const tickGlow = collapsedTarget && (railHovered || hoveredTick?.key === b.key)
               const tickGlowColor = b.color || NEUTRAL_MARKER
               const onCollapsedTickEnter = () => {
+                if (draggingRef.current) return // don't highlight along a pan path
                 if (!collapsedTarget || !rkForBar) return
                 setHoveredMother(rkForBar)
                 setHoveredTick({
@@ -2988,7 +3003,10 @@ export function TimelineStrip({
                 return (
                   <motion.div
                     key={`mcol:${mId}`}
-                    onMouseEnter={() => setHoveredMother(rkExp)}
+                    onMouseEnter={() => {
+                      if (draggingRef.current) return // don't highlight along a pan path
+                      setHoveredMother(rkExp)
+                    }}
                     onMouseLeave={() => setHoveredMother((h) => (h === rkExp ? null : h))}
                     initial={false}
                     animate={{
@@ -3085,7 +3103,10 @@ export function TimelineStrip({
                 const rk = mId ?? `root:${blk.m.baseLane}`
                 const labelOp = collapsedOpacity(blk)
                 const hoverProps = {
-                  onMouseEnter: () => setHoveredMother(rk),
+                  onMouseEnter: () => {
+                    if (draggingRef.current) return // don't highlight along a pan path
+                    setHoveredMother(rk)
+                  },
                   onMouseLeave: () => setHoveredMother((h) => (h === rk ? null : h)),
                 }
                 // These rail labels live INSIDE the centering plane (scaleY squish). Use the shared
