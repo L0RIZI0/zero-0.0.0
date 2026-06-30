@@ -87,7 +87,7 @@ export function EntityBody({
     // re-enable `pointer-events-auto` only on the interactive LEAVES (do-list content,
     // resource canvas, Dock, side panels) — so the empty area over the timeline is
     // click/scroll-through while the chrome stays fully interactive.
-    <div className="pointer-events-none relative flex min-h-0 flex-1 flex-col">
+    <div data-body className="pointer-events-none relative flex min-h-0 flex-1 flex-col">
       {/* RESOURCE TASK: the center surface is the bound web resource, filling the
           rectangular Task window almost edge-to-edge (a slim inset keeps it clear of
           the Inputs/Outputs rails). The do-list/Dock are skipped entirely — this is
