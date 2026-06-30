@@ -604,10 +604,29 @@ export function DoList({
   // Reset filter view when the context changes.
   useEffect(() => setFilter("open"), [contextId])
 
-  const shown = useMemo(
-    () => (filter === "open" ? items.filter((it) => it.kind !== "task" || !it.entity.completed) : items),
-    [items, filter],
-  )
+  // A task the user checks off in the current view STAYS in its position rather than
+  // being yanked out by the "open" filter (only its glyph fills + gets a check). We
+  // freeze membership against completion flips via a retain set of ids that were
+  // visible while open. It resets when the context or filter changes, so the "open"
+  // default still hides previously-completed tasks on re-entry.
+  const retainRef = useRef<Set<string>>(new Set())
+  useEffect(() => {
+    retainRef.current = new Set()
+  }, [contextId, filter])
+
+  const shown = useMemo(() => {
+    if (filter !== "open") return items
+    return items.filter((it) => {
+      const open = it.kind !== "task" || !it.entity.completed
+      if (open) {
+        // Remember every currently-open task so it survives its own later check.
+        retainRef.current.add(it.id)
+        return true
+      }
+      // Completed task: keep it only if it was on-screen when it got checked.
+      return retainRef.current.has(it.id)
+    })
+  }, [items, filter])
 
   // The navigable keys of the DO list, ALWAYS ending with the ADD birther row.
   const listKeys = useMemo(() => [...shown.map((it) => it.id), ADD_KEY], [shown])

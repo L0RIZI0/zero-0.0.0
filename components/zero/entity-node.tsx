@@ -1108,7 +1108,10 @@ export function EntityNode({
                     // it for normal rows, REQ_SENT drops it and right-aligns when sent.
                     // `max-w-full truncate` preserves ellipsis for long names.
                     "min-w-0 max-w-full truncate font-medium",
-              !asWindow && (isTask && done ? "text-muted-foreground/60 line-through" : cancelled ? "line-through" : ""),
+              // Completing a task changes ONLY its glyph (fills + checkmark, above) —
+              // the title is intentionally left unstyled so the row stays visually put
+              // in the do-list. Cancelled is a distinct state and keeps its strikethrough.
+              !asWindow && (cancelled ? "line-through" : ""),
               // Sent-as-request reflow: right-align the title against the moved glyph
               // (sent) or keep the normal left layout with mr-auto spacer (rest).
               rowReq && (sent ? REQ_SENT.title : REQ_REST.title),
