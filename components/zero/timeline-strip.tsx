@@ -555,7 +555,7 @@ export function TimelineStrip({
   // `elastic` is the live amplitude ε, spring-driven back to exactly 0; at 0, `pct()` is
   // byte-for-byte the original linear formula (a guarded fast-path → zero cost at rest, and
   // the gesture/anchor math is unaffected because the cursor point is the warp's fixed point).
-  const [elastic, setElastic] = useState(0.5) // [v0] TEMP visual check — revert to 0
+  const [elastic, setElastic] = useState(0)
   const elasticValRef = useRef(0) // committed ε (displacement), mirrors `elastic`
   const elasticVelRef = useRef(0) // spring velocity
   const elasticAnchorRef = useRef(50) // viewport-% under the cursor = the warp's fixed point
