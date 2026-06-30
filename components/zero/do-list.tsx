@@ -607,14 +607,19 @@ export function DoList({
   // A task the user checks off in the current view STAYS in its position rather than
   // being yanked out by the "open" filter (only its glyph fills + gets a check). We
   // freeze membership against completion flips via a retain set of ids that were
-  // visible while open. It resets when the context or filter changes, so the "open"
-  // default still hides previously-completed tasks on re-entry.
+  // visible while open. The reset MUST happen synchronously inside the memo (keyed on
+  // context+filter), not in a post-render effect: an effect runs AFTER this memo has
+  // already populated the set on context entry, so it would clobber the set and the
+  // FIRST task you then checked would find an empty set and vanish (the reported bug).
   const retainRef = useRef<Set<string>>(new Set())
-  useEffect(() => {
-    retainRef.current = new Set()
-  }, [contextId, filter])
+  const retainKeyRef = useRef<string>("")
 
   const shown = useMemo(() => {
+    const key = `${contextId}|${filter}`
+    if (retainKeyRef.current !== key) {
+      retainKeyRef.current = key
+      retainRef.current = new Set()
+    }
     if (filter !== "open") return items
     return items.filter((it) => {
       const open = it.kind !== "task" || !it.entity.completed
@@ -626,7 +631,14 @@ export function DoList({
       // Completed task: keep it only if it was on-screen when it got checked.
       return retainRef.current.has(it.id)
     })
-  }, [items, filter])
+  }, [items, filter, contextId])
+
+  // Whether any task in this context is completed (i.e. something is hidden by the
+  // "open" filter, or could be). Drives showing the Open/All selectors.
+  const hasCompleted = useMemo(
+    () => items.some((it) => it.kind === "task" && it.entity.completed),
+    [items],
+  )
 
   // The navigable keys of the DO list, ALWAYS ending with the ADD birther row.
   const listKeys = useMemo(() => [...shown.map((it) => it.id), ADD_KEY], [shown])
@@ -882,9 +894,30 @@ export function DoList({
       // create-row sits just ABOVE it rather than overlapping the cards.
       className={cn("flex min-h-0 flex-1 flex-col", atlas && "justify-end pb-24")}
     >
-      {/* The DO label and the Open/All filters are hidden. The list still defaults
-          to the "open" filter internally (see `filter` state); only its toggle UI
-          is removed. */}
+      {/* Open/All selectors. Hidden until at least one task in this context has been
+          completed (nothing to filter ⇒ no chrome). "Open" hides previously-completed
+          tasks (the just-checked one still stays put via the retain set); "All" shows
+          everything in place. */}
+      {hasCompleted && (
+        <div className={cn("mb-2 flex shrink-0 items-center justify-center gap-1", atlas && "order-first")}>
+          {(["open", "all"] as const).map((f) => (
+            <button
+              key={f}
+              type="button"
+              onClick={() => setFilter(f)}
+              aria-pressed={filter === f}
+              className={cn(
+                "rounded-full px-2.5 py-0.5 text-xs capitalize transition-colors",
+                filter === f
+                  ? "bg-muted text-foreground"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {f}
+            </button>
+          ))}
+        </div>
+      )}
       {/* Keyed by context: switching entities hard-swaps the list (instant, no
           cross-fade) while add/remove within a context still animates. */}
       {/* While a window morph is in flight the overflow MUST be visible: opening a
