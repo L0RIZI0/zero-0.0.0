@@ -1,12 +1,13 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useZeroNav } from "@/lib/zero/nav-store"
 import { getTimelineOccurrences, getInheritedAccent } from "@/lib/zero/data"
 import { entityInterval } from "@/lib/zero/timeline-index"
 import { KIND_META } from "@/lib/zero/kinds"
 import { rangeText, NOW_COLOR } from "@/lib/zero/timeline-format"
 import { DAYLINE_ROW_H } from "@/lib/zero/layout"
+import { cn } from "@/lib/utils"
 import { NodeGlyph } from "./node-glyph"
 
 // ============================================================================
@@ -18,11 +19,21 @@ import { NodeGlyph } from "./node-glyph"
 // constant-height row (DAYLINE_ROW_H) so the focus-window stage region below the
 // header never moves as the user dives (matching the header's fixed-box rule).
 //
-// A single thin lane buckets ~one day (5am → 5am next day) and overlays EVERY
-// planned occurrence from across the Individual's world onto one line. No chrome:
-// no ribbon title, no nav arrows, no date label, no graduation. Not zoomable, not
-// draggable. Ticks/bars highlight on hover and surface a helper (glyph + title +
-// time range / recurrence rule) that opens DOWNWARD into the View below.
+// A single thin lane buckets ~one day (24h) and overlays EVERY planned occurrence
+// from across the Individual's world onto one line. No chrome: no ribbon title, no
+// nav arrows, no date label, no graduation. Ticks/bars highlight on hover and surface
+// a helper (glyph + title + time range / recurrence rule) that opens DOWNWARD.
+//
+// PAN + AUTO-SHIFT (simple, linear, no zoom):
+//   • Drag the lane left/right to pan its 24h window through time. Double-click
+//     recenters on the live "now" window.
+//   • The NOW marker lives its own life: it sits at the true time position within the
+//     shown window and advances minute by minute, sliding off-screen when you pan away.
+//   • AUTO-SHIFT: when the marker reaches the RIGHT edge *on its own* — i.e. time (not a
+//     pan) carries `now` past the window end — the lane jumps forward one natural 24h
+//     window, landing the marker back at the LEFT edge. Un-panned, that boundary is 5am
+//     daily. A pan that pushes the marker past the edge does NOT trigger this; only a
+//     time transition does.
 //
 // The timeline⇄dayline MORPH is intentionally NOT here yet.
 // ============================================================================
@@ -61,26 +72,51 @@ export function Dayline() {
   const { stack, dataVersion, open } = useZeroNav()
   const rootId = stack[0]
 
-  // Recompute the window each minute so it rolls over the 5am boundary on its own.
-  // `now` is time-dependent, so SSR and the client's first paint would disagree and
-  // trip a hydration mismatch. We therefore keep all time-positioned content (items,
-  // NOW marker, helper) OUT of the server render: `mounted` starts false (server +
-  // first client render → identical empty lane), then flips true in an effect, after
-  // which `now` drives the real content. `now` itself is seeded on mount too so its
-  // value never differs between the two environments.
+  // `now` advances minute by minute and drives the NOW marker. It is time-dependent,
+  // so SSR and the client's first paint would disagree and trip a hydration mismatch.
+  // We therefore keep all time-positioned content (items, NOW marker, helper) OUT of
+  // the server render: `mounted` starts false (server + first client render → identical
+  // empty lane), then flips true in an effect, after which `now` drives the real content.
   const [now, setNow] = useState(0)
   const [mounted, setMounted] = useState(false)
+  // `viewStart` is the left edge of the shown 24h window. Panning moves it directly;
+  // the auto-shift advances it on a time boundary. Independent of `now` so a pan never
+  // drags the marker's true position and the marker never drags the window.
+  const [viewStart, setViewStart] = useState(0)
+  const prevNowRef = useRef(0)
   useEffect(() => {
+    const n = Date.now()
     setMounted(true)
-    setNow(Date.now())
+    setNow(n)
+    setViewStart(dayWindow(n)[0])
+    prevNowRef.current = n
     const id = setInterval(() => setNow(Date.now()), 60_000)
     return () => clearInterval(id)
   }, [])
-  const [winStart, winEnd] = useMemo(() => dayWindow(now), [now])
+
+  // AUTO-SHIFT — fires ONLY on a `now` transition (this effect depends on `now`, never
+  // on `viewStart`, so panning can't trigger it). When time carries `now` across the
+  // shown window's right edge on its own, jump to the natural 24h window containing
+  // `now` (un-panned, that boundary is 5am daily) — landing the marker at the left edge.
+  useEffect(() => {
+    if (!mounted) return
+    const prev = prevNowRef.current
+    prevNowRef.current = now
+    setViewStart((vs) => {
+      const viewEnd = vs + DAY_MS
+      // Crossing detected as prev<edge && now>=edge → it's time, not a pan. A pan that
+      // already left `now` outside the window has no transition here, so it's ignored.
+      return prev < viewEnd && now >= viewEnd ? dayWindow(now)[0] : vs
+    })
+  }, [now, mounted])
+
+  const winStart = viewStart
+  const winEnd = viewStart + DAY_MS
 
   const [hovered, setHovered] = useState<string | null>(null)
 
   const items = useMemo<DayItem[]>(() => {
+    if (!mounted) return []
     const occ = getTimelineOccurrences(rootId, winStart, winEnd)
     const out: DayItem[] = []
     for (const e of occ) {
@@ -109,11 +145,48 @@ export function Dayline() {
     // Paint durations first so the thin instant ticks sit visually on top.
     return out.sort((a, b) => Number(b.isDuration) - Number(a.isDuration))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rootId, winStart, winEnd, dataVersion])
+  }, [rootId, winStart, winEnd, dataVersion, mounted])
 
   const hoveredItem = hovered ? items.find((i) => i.key === hovered) : null
-  // "Now" position within the 5am→5am window (always in-range by construction).
+  // NOW marker position within the shown window; off-screen (outside 0–100) when panned away.
   const nowPct = ((now - winStart) / DAY_MS) * 100
+  const nowInView = nowPct >= 0 && nowPct <= 100
+
+  // --- Panning (linear drag, no zoom) ---------------------------------------
+  const laneRef = useRef<HTMLDivElement>(null)
+  const dragRef = useRef<{ startX: number; startView: number } | null>(null)
+  // Set true once a drag moves past threshold; suppresses the chip click that would
+  // otherwise fire on pointerup, and reset on the next pointerdown.
+  const draggedRef = useRef(false)
+  const [panning, setPanning] = useState(false)
+
+  const onPointerDown = useCallback(
+    (e: React.PointerEvent) => {
+      if (e.button !== 0) return
+      draggedRef.current = false
+      dragRef.current = { startX: e.clientX, startView: viewStart }
+      laneRef.current?.setPointerCapture(e.pointerId)
+      setPanning(true)
+    },
+    [viewStart],
+  )
+  const onPointerMove = useCallback((e: React.PointerEvent) => {
+    const d = dragRef.current
+    const lane = laneRef.current
+    if (!d || !lane) return
+    const w = lane.clientWidth || 1
+    const dx = e.clientX - d.startX
+    if (Math.abs(dx) > 3) draggedRef.current = true
+    // Drag right → reveal earlier time (window slides back), and vice-versa.
+    setViewStart(d.startView - (dx / w) * DAY_MS)
+  }, [])
+  const onPointerUp = useCallback((e: React.PointerEvent) => {
+    dragRef.current = null
+    setPanning(false)
+    if (laneRef.current?.hasPointerCapture(e.pointerId)) laneRef.current.releasePointerCapture(e.pointerId)
+  }, [])
+  // Double-click snaps back to the live window containing now.
+  const recenter = useCallback(() => setViewStart(dayWindow(Date.now())[0]), [])
 
   return (
     // Constant-height header row. `pointer-events-none` lets the gaps fall through;
@@ -124,8 +197,21 @@ export function Dayline() {
       style={{ height: DAYLINE_ROW_H }}
     >
       {/* The lane. A thin full-width strip forming the Individual's day insight.
-          Time-dependent content is gated on `mounted` to keep SSR == first client paint. */}
-      <div className="pointer-events-auto relative h-7 w-full overflow-visible rounded-md border border-border/60 bg-card/40">
+          Time-dependent content is gated on `mounted` to keep SSR == first client paint.
+          Drag to pan (linear), double-click to recenter on now. `touch-action: none`
+          and `select-none` keep horizontal drags from scrolling/selecting. */}
+      <div
+        ref={laneRef}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerUp}
+        onDoubleClick={recenter}
+        className={cn(
+          "pointer-events-auto relative h-7 w-full select-none overflow-visible rounded-md border border-border/60 bg-card/40 [touch-action:none]",
+          panning ? "cursor-grabbing" : "cursor-grab",
+        )}
+      >
         {mounted &&
           items.map((it) => {
           const isHot = hovered === it.key
@@ -137,7 +223,10 @@ export function Dayline() {
                 aria-label={`${it.title}, ${it.range}`}
                 onMouseEnter={() => setHovered(it.key)}
                 onMouseLeave={() => setHovered((h) => (h === it.key ? null : h))}
-                onClick={() => open(it.id)}
+                onClick={() => {
+                  if (draggedRef.current) return // a pan, not a tap
+                  open(it.id)
+                }}
                 className="absolute top-1/2 -translate-y-1/2 rounded-[3px] transition-[filter,height] duration-150"
                 style={{
                   left: `${it.leftPct}%`,
@@ -159,7 +248,10 @@ export function Dayline() {
               aria-label={`${it.title}, ${it.range}`}
               onMouseEnter={() => setHovered(it.key)}
               onMouseLeave={() => setHovered((h) => (h === it.key ? null : h))}
-              onClick={() => open(it.id)}
+              onClick={() => {
+                if (draggedRef.current) return // a pan, not a tap
+                open(it.id)
+              }}
               className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full transition-[filter,height,width] duration-150"
               style={{
                 left: `${it.leftPct}%`,
@@ -177,8 +269,9 @@ export function Dayline() {
             painted above every item. A small downward cap at the top edge mirrors the
             timeline's now-marker so the live-time indicator reads identically on both.
             Gated on `mounted`: its position is time-derived, so it must not render on the
-            server (would mismatch the client's clock). */}
-        {mounted && (
+            server (would mismatch the client's clock). Also hidden when panned out of view
+            (`nowInView`) so it doesn't spill past the overflow-visible lane into the header. */}
+        {mounted && nowInView && (
           <div
             aria-hidden
             className="pointer-events-none absolute -bottom-px -top-px z-30 w-[2px] -translate-x-1/2 rounded-full"
