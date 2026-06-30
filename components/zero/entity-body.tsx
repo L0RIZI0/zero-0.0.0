@@ -13,6 +13,7 @@ import { AssetPanel } from "./asset-panel"
 import { OutputPanel } from "./output-panel"
 import { CollapsibleColumn } from "./collapsible-column"
 import { ResourceCanvas } from "./resource-canvas"
+import { DebugFrameLabel } from "./debug-frame-label"
 import { cn } from "@/lib/utils"
 
 /** Width of a side panel when OPEN, and of the thin RAIL when collapsed. */
@@ -90,6 +91,11 @@ export function EntityBody({
   void dataVersion
   const hasPins = getPinnedItems(entityId).length > 0
 
+  // [v0] DEBUG: short identity prefix for the frame labels. entity0 (the always-mounted
+  // home / Individual) reads "ent0"; any other opened entity uses its id. Remove with
+  // the debug borders.
+  const dbg = isRoot ? "ent0" : entityId
+
   return (
     // Unpadded root: fills [data-body] EXACTLY and is the offset parent for the
     // panel overlays, so a panel's `top: 50%` resolves to the body's true vertical
@@ -117,14 +123,22 @@ export function EntityBody({
         // the Flip morph's target box. A single knob (`p-3`) controls the margin on
         // all four sides; bump it to widen the breathing room everywhere at once.
         // [v0] DEBUG: purple border = the View area (the region stack's footprint).
-        <div data-view className="flex min-h-0 flex-1 flex-col border border-purple-500 p-3">
+        <div data-view className="relative flex min-h-0 flex-1 flex-col border border-purple-500 p-3">
+          {/* [v0] DEBUG: View label in the BOTTOM-left corner so it never collides with
+              region 0's top-left label. The View is the full region stack: it fills its
+              parent both ways and carries the uniform p-3 inset. */}
+          <DebugFrameLabel
+            name={`${dbg}·view`}
+            info="stack · h:fill v:fill · pad:3"
+            className="bottom-0.5 left-0.5 top-auto text-purple-500"
+          />
       {/* REGION 0 (hug) — the home Lifeline timeline, at the very TOP of the view.
           Rendered ONLY when `timeline` is provided (home view); child entities omit
           it, so their stack starts at region 1. `pointer-events-auto` so wheel-zoom
           works while hovering the timeline/its region (the body root is pointer-
           transparent). */}
       {timeline ? (
-        <Region grow="hug" className="pointer-events-auto pt-2">
+        <Region grow="hug" className="pointer-events-auto pt-2" debugName={`${dbg}·reg0`} debugRole="lifelane">
           {/* Full-bleed: the timeline fills the ENTIRE horizontal space of region 0
               (no `max-w` cap and no side padding, unlike regions 1/2 which stay capped
               + centered for a comfortable reading measure). Only the view's `p-3` inset
@@ -137,7 +151,12 @@ export function EntityBody({
           BETWEEN region 0 and region 2 and centers the do-list in it. The side panels
           overlay it rather than stealing its space, so it never moves. Pointer-
           transparent box (the body root is none); the inner do-list re-enables events. */}
-      <Region grow="fill" className="min-h-[180px] min-w-0 items-center px-6 pb-5 pt-4">
+      <Region
+        grow="fill"
+        className="min-h-[180px] min-w-0 items-center px-6 pb-5 pt-4"
+        debugName={`${dbg}·reg1`}
+        debugRole="do-list"
+      >
         <div className={cn("flex min-h-0 w-full flex-1 flex-col", isRoot ? "max-w-[70vw]" : "max-w-[720px]")}>
           {/* Do-list narrowed to 2/3 of the measure and centered for a tighter list,
               but capped at `max-w-2xl` (672px) so it never stretches into an
@@ -155,7 +174,7 @@ export function EntityBody({
           appears (region 1 shrinks to the gap above it). The Dock slides into this
           reserved slot via its own transform entrance. */}
       {hasPins ? (
-        <Region grow="hug" className="px-6">
+        <Region grow="hug" className="px-6" debugName={`${dbg}·reg2`} debugRole="dock">
           <div className={cn("mx-auto w-full", isRoot ? "max-w-[70vw]" : "max-w-[720px]")}>
             <Dock contextId={entityId} active={active} />
           </div>

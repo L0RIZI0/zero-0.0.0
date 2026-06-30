@@ -5,6 +5,7 @@ import type { CSSProperties, ReactNode } from "react"
 import { layerTransition } from "@/lib/zero/motion"
 import { cn } from "@/lib/utils"
 import type { RegionGrow } from "@/lib/zero/regions"
+import { DebugFrameLabel } from "./debug-frame-label"
 
 /**
  * An invisible layout frame inside an entity's content area (see lib/zero/regions).
@@ -35,12 +36,19 @@ export function Region({
   className,
   style,
   children,
+  debugName,
+  debugRole,
 }: {
   grow: RegionGrow
   lift?: number
   className?: string
   style?: CSSProperties
   children: ReactNode
+  /** [v0] DEBUG: short name shown in the red region's corner label (e.g. "ent0·reg0").
+   *  When omitted, no label renders. Remove with the debug borders. */
+  debugName?: string
+  /** [v0] DEBUG: the region's role word (e.g. "lifelane", "do-list", "dock"). */
+  debugRole?: string
 }) {
   return (
     <motion.div
@@ -57,6 +65,15 @@ export function Region({
       animate={{ y: lift }}
       transition={layerTransition}
     >
+      {/* [v0] DEBUG: a region is always full-width within the View (h:fill); its
+          vertical sizing is exactly its `grow` (fill = take leftover, hug = wrap). */}
+      {debugName ? (
+        <DebugFrameLabel
+          name={debugName}
+          info={`${debugRole ? `${debugRole} · ` : ""}h:fill v:${grow}`}
+          className="text-red-500"
+        />
+      ) : null}
       {children}
     </motion.div>
   )
