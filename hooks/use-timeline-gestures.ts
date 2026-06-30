@@ -68,6 +68,11 @@ interface Options {
    *  pointer) but suppress it during a drag (whose pointer motion already drives the offset). */
   onGestureStart?: (kind: "wheel" | "drag") => void
   onGestureEnd?: (kind: "wheel" | "drag") => void
+  // Fired SYNCHRONOUSLY at pointerup, before any release-momentum glide. Distinct from
+  // onGestureEnd (which is deferred until the horizontal glide settles): use this for release
+  // reactions that must start immediately and run alongside the glide — e.g. the vertical
+  // rubber-band bounce, which shouldn't wait for the horizontal fling to finish.
+  onRelease?: () => void
   /** Enables VERTICAL drag-to-reposition alongside the horizontal time-pan. */
   verticalDrag?: boolean
   /** Per-move callback with the *effective* vertical delta (px) for this frame — already
@@ -180,8 +185,9 @@ export function useTimelineGestures({
   active = true,
   hotMarginX = 64,
   hotMarginY = 44,
-  onGestureStart,
-  onGestureEnd,
+    onGestureStart,
+    onGestureEnd,
+    onRelease,
   verticalDrag = false,
   onVerticalDrag,
 }: Options) {
@@ -196,6 +202,8 @@ export function useTimelineGestures({
   startCbRef.current = onGestureStart
   const endCbRef = useRef(onGestureEnd)
   endCbRef.current = onGestureEnd
+  const releaseCbRef = useRef(onRelease)
+  releaseCbRef.current = onRelease
   const vDragRef = useRef(onVerticalDrag)
   vDragRef.current = onVerticalDrag
   const verticalDragRef = useRef(verticalDrag)
@@ -491,6 +499,7 @@ export function useTimelineGestures({
     const up = () => {
       window.removeEventListener("pointermove", move)
       window.removeEventListener("pointerup", up)
+      releaseCbRef.current?.() // immediate: lets the vertical bounce start now, not after the glide
       // CONTINUITY DRAG: if the release carried real horizontal speed, keep gliding and ease out
       // instead of stopping dead. We DON'T fire endCb yet — the strip keeps its "dragging" flag
       // (lean + hover stay suppressed) until the glide actually settles. If the pointer paused

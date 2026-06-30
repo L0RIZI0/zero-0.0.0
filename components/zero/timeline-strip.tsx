@@ -819,16 +819,17 @@ export function TimelineStrip({
       }
     },
     onGestureEnd: (kind) => {
-      if (kind === "drag") {
-        draggingRef.current = false
-        // RELEASE BOUNCE: if the strip was pulled vertically off home, rubber-band it back with a
-        // small overshoot (the float loop's spring branch). Fires when the whole gesture settles
-        // (after any horizontal release-glide), so a flick's vertical offset springs home cleanly.
-        if (Math.abs(yRenderRef.current) > 0.5) {
-          yBounceRef.current = true
-          yVelRef.current = 0
-          ensureFloatRef.current()
-        }
+      if (kind === "drag") draggingRef.current = false
+    },
+    // RELEASE BOUNCE — fires at pointerUP (not at glide-settle), so a vertical pull springs home
+    // IMMEDIATELY, in parallel with any horizontal momentum glide, instead of waiting for the
+    // horizontal fling to finish. The float loop's spring branch is keyed on `yBounceRef` alone
+    // (independent of `draggingRef`), so it runs even while the glide keeps the drag flag set.
+    onRelease: () => {
+      if (Math.abs(yRenderRef.current) > 0.5) {
+        yBounceRef.current = true
+        yVelRef.current = 0
+        ensureFloatRef.current()
       }
     },
     // Vertical drag-to-reposition (soft-axis attenuated in the hook). Accumulate the effective
@@ -865,11 +866,21 @@ export function TimelineStrip({
       // overshoots a touch then settles ("springs back up a little"); otherwise track the drag
       // target with the original frame-rate lerp (crisp 1:1-ish follow). k=190 c=16 ⇒ ζ≈0.58.
       let y: number
-      if (yBounceRef.current && !draggingRef.current) {
+      if (yBounceRef.current) {
+        // Spring home — keyed on `yBounceRef` ALONE (not `!draggingRef`), so the vertical bounce
+        // runs immediately on release even while a horizontal momentum glide still holds the drag
+        // flag. It self-completes here regardless of that glide, so home becomes the new resting
+        // offset the moment the spring settles, never waiting for the horizontal fling.
         const a = -190 * yRenderRef.current - 16 * yVelRef.current
         const nv = yVelRef.current + a * dt
         y = yRenderRef.current + nv * dt
         yVelRef.current = nv
+        if (Math.abs(y) < 0.1 && Math.abs(nv) < 0.6) {
+          y = 0
+          yVelRef.current = 0
+          yBounceRef.current = false
+          yTargetRef.current = 0 // don't re-apply the old drop once we've sprung home
+        }
       } else {
         y = yRenderRef.current + (yT - yRenderRef.current) * Y_EASE
       }
@@ -877,20 +888,10 @@ export function TimelineStrip({
       yRenderRef.current = y
       leanXRenderRef.current = lx
       const el = floatRef.current
-      const yRest = yBounceRef.current
-        ? Math.abs(y) < 0.1 && Math.abs(yVelRef.current) < 0.6
-        : Math.abs(yT - y) < 0.08
-      const settled = yRest && Math.abs(lxT - lx) < 0.08
-      if (settled && !draggingRef.current) {
-        // Snap exactly to home/target and stop the loop (no perpetual rAF).
-        if (yBounceRef.current) {
-          yBounceRef.current = false
-          yVelRef.current = 0
-          yRenderRef.current = 0
-          yTargetRef.current = 0 // home is the new resting offset (don't re-apply the old drop)
-        } else {
-          yRenderRef.current = yT
-        }
+      const settled = Math.abs(yTargetRef.current - y) < 0.08 && Math.abs(lxT - lx) < 0.08
+      if (settled && !draggingRef.current && !yBounceRef.current) {
+        // Snap exactly to target and stop the loop (no perpetual rAF).
+        yRenderRef.current = yTargetRef.current
         leanXRenderRef.current = lxT
         if (el)
           el.style.transform = `translate3d(${lxT.toFixed(2)}px, ${yRenderRef.current.toFixed(2)}px, 0)`
@@ -965,7 +966,7 @@ export function TimelineStrip({
       const v = elasticVelRef.current
       const a = -160 * x - 10 * v
       const nv = v + a * dt
-      const nx = x + nv * dt
+      const nx = Math.max(-0.6, Math.min(0.6, x + nv * dt)) // clamp displacement, never fold
       elasticValRef.current = nx
       elasticVelRef.current = nv
       if (Math.abs(nx) < 0.0012 && Math.abs(nv) < 0.02) {
@@ -987,11 +988,15 @@ export function TimelineStrip({
       // Anchor the warp's fixed point at the cursor (the point that must NOT move).
       elasticAnchorRef.current = Math.max(0, Math.min(100, ((e.clientX - r.left) / r.width) * 100))
       // Zoom-IN (deltaY<0) → push neighbours OUT (ε>0); zoom-OUT (deltaY>0) → pull IN (ε<0).
-      // ε is the peak local stretch: 0.22/notch, clamped to ±0.55 (≈55% inflate / ~25% squeeze at
-      // the core) so a single notch is clearly visible and a fast scroll bulges hard without folding.
-      const kick = Math.max(-1, Math.min(1, -e.deltaY / 100)) * 0.22
-      elasticValRef.current = Math.max(-0.55, Math.min(0.55, elasticValRef.current + kick))
-      elasticVelRef.current = 0 // displacement-driven; let the spring carry it back to 0
+      // VELOCITY impulse, NOT a position step. Kicking the displacement directly made ε jump from 0
+      // to its peak in one frame, so on a single tick the warped points snapped to the bulged
+      // position and then animated back ("jump left, then drift right, then left again"). Feeding
+      // the SPRING'S VELOCITY instead gives an impulse response: ε starts at exactly 0 (no jump at
+      // the tick), accelerates up to a peak, then eases back to 0 — a smooth inflate-and-recover.
+      // Gain 8/notch with the k=160,c=10 spring peaks ε≈0.3; clamp velocity so a fast scroll burst
+      // can't run away (the displacement is also clamped to ±0.6 in the step above).
+      const notch = Math.max(-1, Math.min(1, -e.deltaY / 100))
+      elasticVelRef.current = Math.max(-14, Math.min(14, elasticVelRef.current + notch * 8))
       if (elasticRafRef.current == null) {
         last = performance.now()
         elasticRafRef.current = requestAnimationFrame(step)
