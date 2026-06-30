@@ -255,17 +255,30 @@ const ACCENT = {
 
 export const entities: Entity[] = [
   // --- Identity triad -------------------------------------------------------
-  // entity0 is the ORGANISM (glyph: circle) — a living entity at the level of
-  // Society, and what renders as the "All Life" home in its opened-state form. It
-  // keeps id `s_root` and all its space children for backward compatibility; only
-  // its `kind` changed from "space" to "organism".
+  // The SOUL (glyph: a dot) is the ROOT behind every person — the irreducible core
+  // self that animates a body. It has no parent (it is the outermost entity) and is
+  // system-only + hidden from listings (see getChildren). A Soul possesses/contains
+  // an Individual: it is the parent of `s_root` below.
   {
-    id: "s_root",
-    kind: "organism",
-    title: "All Life",
+    id: "soul_self",
+    kind: "soul",
+    title: currentUser.name,
     parentId: null,
     taggedSpaceIds: [],
-    description: "Your whole life, in one calm context.",
+    description: "The irreducible core self.",
+  },
+  // entity0 is the INDIVIDUAL (glyph: a Z rotated 45° anticlockwise) — the person the
+  // Soul animates, whose space IS the homeview (the door to their life). It keeps id
+  // `s_root` and all its space children; only its `kind` flipped organism→individual,
+  // its `title` is the user's name, and it now nests inside the Soul (`soul_self`).
+  // The former separate "i_self" individual node is gone — `s_root` is that person.
+  {
+    id: "s_root",
+    kind: "individual",
+    title: currentUser.name,
+    parentId: "soul_self",
+    taggedSpaceIds: [],
+    description: "A person, animated by a Soul.",
     assignedResourceIds: [
       "r_gmail",
       "r_drive",
@@ -276,27 +289,6 @@ export const entities: Entity[] = [
       "r_files",
       "r_ai",
     ],
-  },
-  // The INDIVIDUAL (glyph: a Z rotated 45° anticlockwise) — the person, animated by
-  // a Soul, occupying this Organism. System-only and hidden from listings (see
-  // getChildren); it is a structural identity node, not a space you browse into.
-  {
-    id: "i_self",
-    kind: "individual",
-    title: currentUser.name,
-    parentId: "s_root",
-    taggedSpaceIds: [],
-    description: "A person, animated by a Soul.",
-  },
-  // The SOUL (glyph: a dot) — the irreducible core self, innermost of the triad,
-  // nested inside the Individual. System-only and hidden from listings.
-  {
-    id: "soul_self",
-    kind: "soul",
-    title: currentUser.name,
-    parentId: "i_self",
-    taggedSpaceIds: [],
-    description: "The irreducible core self.",
   },
   // --- Spaces ---------------------------------------------------------------
   // Day Job
@@ -484,7 +476,7 @@ export const entities: Entity[] = [
   { id: "w1", kind: "task", title: "Warm-up & mobility", parentId: "s_workout", taggedSpaceIds: [], completed: false, priority: "medium", tags: ["workout"] },
   { id: "w2", kind: "task", title: "Squats — 4×8", parentId: "s_workout", taggedSpaceIds: [], completed: false, priority: "high", tags: ["workout", "legs"] },
   { id: "w3", kind: "task", title: "Bench press — 4×8", parentId: "s_workout", taggedSpaceIds: [], completed: false, priority: "high", tags: ["workout", "push"] },
-  { id: "w4", kind: "task", title: "Pull-ups — 3× max", parentId: "s_workout", taggedSpaceIds: [], completed: false, priority: "high", tags: ["workout", "pull"] },
+  { id: "w4", kind: "task", title: "Pull-ups — 3�� max", parentId: "s_workout", taggedSpaceIds: [], completed: false, priority: "high", tags: ["workout", "pull"] },
   { id: "w5", kind: "task", title: "Core circuit", parentId: "s_workout", taggedSpaceIds: [], completed: false, priority: "medium", tags: ["workout", "core"] },
   { id: "w6", kind: "task", title: "Cooldown stretch", parentId: "s_workout", taggedSpaceIds: [], completed: false, priority: "low", tags: ["workout"] },
 

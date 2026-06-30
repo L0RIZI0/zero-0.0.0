@@ -7,6 +7,7 @@ import { getSpace, getEntity, isDetachedChild } from "@/lib/zero/data"
 import { telescopicSurface } from "@/lib/zero/motion"
 import { DURATION_S, MORPH_CSS_EASE } from "@/lib/zero/flip-stage"
 import { registerStage } from "@/lib/zero/flip-stage"
+import { HEADER_OVERLAY_H } from "@/lib/zero/layout"
 import { EntityBody } from "./entity-body"
 import { EntityNode } from "./entity-node"
 import { TimelineStrip } from "./timeline-strip"
@@ -69,13 +70,14 @@ export function WorkSurface() {
   const homeBgTransition = `background-color ${DURATION_S} ${MORPH_CSS_EASE}`
 
   return (
-    // NOTE: the card is NOT `overflow-hidden`. Clipping lives on the focus-window
-    // region below instead, so the timeline can ride UP past the card's top edge
-    // (toward the header) at deeper stages without being cropped. `rounded-md`
-    // still rounds the card's own background; only the window region needs to
-    // clip its scaled-up parent frames.
+    // entity0's FRAME — the Individual's homeview window. It is FULL-BLEED: it fills
+    // the whole work area (which itself spans the full viewport), so it touches all
+    // four screen edges. No `rounded-md` (edge-to-edge) and not `overflow-hidden`:
+    // clipping lives on the inner stage region below, so the timeline can ride UP
+    // toward the header at deeper stages without being cropped.
+    // [v0] DEBUG: bright green border = entity0 (home) frame — the always-open root window.
     <div
-      className="relative flex h-full w-full flex-col rounded-md"
+      className="relative flex h-full w-full flex-col border border-green-500"
       style={
         {
           backgroundColor: homeSurface,
@@ -115,8 +117,16 @@ export function WorkSurface() {
         // between the in-flow regions stay click/scroll-through; each interactive leaf
         // (region-0 timeline, do-list, Dock, side panels, window chrome) re-enables
         // `pointer-events-auto` for itself.
-        // [v0] DEBUG: bright green border = entity0 (home) frame — the always-open root window.
-        className="pointer-events-none relative z-10 flex min-h-0 flex-1 flex-col rounded-md border border-green-500 [clip-path:inset(-48px_0px_-120px_0px_round_6px)]"
+        //
+        // TOP INSET (`marginTop: HEADER_OVERLAY_H`): the header is now an ABSOLUTE
+        // overlay (no longer in flow), so this stage region is pushed down by the full
+        // overlay height. Its bounding rect — which `registerStage` reads and every
+        // fixed child window fills (getRegionRect) — therefore starts BELOW the header,
+        // exactly as it did when the header was in flow. So child-window morph geometry
+        // and the home View both open under the header, unchanged. The negative top in
+        // the clip-path lets morph shadows bleed up behind the header.
+        className="pointer-events-none relative z-10 flex min-h-0 flex-1 flex-col [clip-path:inset(-48px_0px_-120px_0px_round_6px)]"
+        style={{ marginTop: HEADER_OVERLAY_H }}
       >
         {/* The home view: region 0 = the timeline (passed in), region 1 = the do-list,
             region 2 = the dock (when pinned). centerList (true): the do-list + create-

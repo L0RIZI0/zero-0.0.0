@@ -6,21 +6,25 @@ import { getTimelineOccurrences, getInheritedAccent } from "@/lib/zero/data"
 import { entityInterval } from "@/lib/zero/timeline-index"
 import { KIND_META } from "@/lib/zero/kinds"
 import { rangeText, NOW_COLOR } from "@/lib/zero/timeline-format"
+import { DAYLINE_ROW_H } from "@/lib/zero/layout"
 import { NodeGlyph } from "./node-glyph"
 
 // ============================================================================
-// The DAYLINE — a first-draft, standalone collapsed form of the timeline.
+// The DAYLINE — the Individual's at-a-glance insight on their day.
 // ----------------------------------------------------------------------------
-// A single thin lane pinned right under the app header that buckets ~one day
-// (5am → 5am next day) and overlays EVERY planned occurrence from every space
-// onto that one line. No chrome: no ribbon title, no nav arrows, no date/NOW,
-// no graduation. Not zoomable, not draggable, no lean. Ticks/chips highlight on
-// hover and surface a helper with the entity's time range (or recurrence rule)
-// plus title.
+// This is NOT a region component you add to any space. It is an Individual-
+// SPECIFIC piece of title chrome: the SECOND ROW of the header overlay, directly
+// below the top bar (avatar+handle / date+time / version+search+logo). It is a
+// constant-height row (DAYLINE_ROW_H) so the focus-window stage region below the
+// header never moves as the user dives (matching the header's fixed-box rule).
 //
-// This draft renders INDEPENDENTLY of the existing <TimelineStrip/> (which stays
-// mounted below). The eventual timeline→dayline MORPH is intentionally NOT here
-// yet — this is the static destination we'll animate toward next.
+// A single thin lane buckets ~one day (5am → 5am next day) and overlays EVERY
+// planned occurrence from across the Individual's world onto one line. No chrome:
+// no ribbon title, no nav arrows, no date label, no graduation. Not zoomable, not
+// draggable. Ticks/bars highlight on hover and surface a helper (glyph + title +
+// time range / recurrence rule) that opens DOWNWARD into the View below.
+//
+// The timeline⇄dayline MORPH is intentionally NOT here yet.
 // ============================================================================
 
 const DAY_MS = 86_400_000
@@ -103,9 +107,15 @@ export function Dayline() {
   const nowPct = ((now - winStart) / DAY_MS) * 100
 
   return (
-    <div className="relative z-30 w-full px-2 sm:px-3">
-      {/* The lane. A thin full-width strip just under the header. */}
-      <div className="relative h-8 w-full overflow-visible rounded-md border border-border/60 bg-card/40">
+    // Constant-height header row. `pointer-events-none` lets the gaps fall through;
+    // the lane + its ticks re-enable pointer events for themselves. px-5 aligns the
+    // lane edges with the top bar's content (header paddingLeft/Right = 20).
+    <div
+      className="pointer-events-none relative z-30 flex w-full items-center px-5"
+      style={{ height: DAYLINE_ROW_H }}
+    >
+      {/* The lane. A thin full-width strip forming the Individual's day insight. */}
+      <div className="pointer-events-auto relative h-7 w-full overflow-visible rounded-md border border-border/60 bg-card/40">
         {items.map((it) => {
           const isHot = hovered === it.key
           if (it.isDuration) {

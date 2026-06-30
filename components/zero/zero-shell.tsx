@@ -23,19 +23,26 @@ function ZeroShellInner() {
 
   return (
     <main
-      className="flex h-dvh w-full flex-col overflow-hidden"
+      className="relative flex h-dvh w-full flex-col overflow-hidden"
       style={{ backgroundColor: homeSurface, transition: `background-color ${DURATION_S} ${MORPH_CSS_EASE}` }}
     >
-      <ShellHeader />
-      {/* The DAYLINE — a thin, sticky one-day lane pinned right under the header. For
-          now it renders alongside the full timeline below (no morph yet); it is the
-          static destination the timeline will eventually collapse into. */}
-      <Dayline />
-      {/* No bottom padding: the focus-window region reaches the viewport bottom so an
-          open Space's octagon (and the dock pinned inside its lower wedge) extends all
-          the way down — no home backdrop bleeding below the frame. Side padding stays
-          for the IN/OUT rail breathing room. */}
-      <div className="relative min-h-0 flex-1 px-2 pb-0 sm:px-3">
+      {/* HEADER OVERLAY — entity0 (the Individual's homeview) is full-bleed and touches
+          all 4 screen edges; its chrome is a z-overlay floating ON TOP of the frame's
+          top strip. Two stacked CONSTANT-height rows:
+            row 1 — the top bar (avatar+handle = the Individual's title, date+time,
+                    version switcher + search + zero logo, theme/window controls).
+            row 2 — the DAYLINE, the Individual's at-a-glance day insight.
+          `pointer-events-none` so the gaps fall through to the work surface beneath;
+          each interactive cluster re-enables pointer events for itself. The work area
+          below is inset (in WorkSurface) by this overlay's height so windows open under
+          it — the overlay never participates in flow, so the frame can reach the top. */}
+      <div className="pointer-events-none absolute inset-x-0 top-0 z-40 flex flex-col">
+        <ShellHeader />
+        <Dayline />
+      </div>
+      {/* Full-bleed work area: no side/bottom gutter, starts at the screen top (the
+          header floats over it). entity0's frame fills this entirely, edge to edge. */}
+      <div className="relative min-h-0 flex-1">
         <WorkSurface />
       </div>
     </main>

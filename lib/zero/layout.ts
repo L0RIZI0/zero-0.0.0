@@ -84,6 +84,23 @@ export const TIMELINE_TOP_PAD = 2
  *  below it (and thus the window region) never moves. */
 export const HEADER_PAD_Y = 14
 
+/* --- Header overlay sizing --------------------------------------------------
+ * entity0's frame is full-bleed (touches all 4 screen edges); the chrome lives
+ * in an absolute z-overlay ON TOP of it. The overlay is a vertical stack of two
+ * constant-height rows: the top bar (avatar+handle / date+time / version+search+
+ * logo) and the Individual's Dayline insight row beneath it. The focus-window
+ * STAGE region is inset from the screen top by the overlay's total height, so
+ * child windows + the home View open BELOW the header exactly as before — the
+ * morph geometry is unchanged. Both heights are CONSTANT (matching the existing
+ * fixed-box / transform-only compaction philosophy) so the stage rect never moves.
+ */
+/** Top bar row height (Tailwind `h-16`). */
+export const HEADER_H = 64
+/** The Individual's Dayline insight row height (second header row). */
+export const DAYLINE_ROW_H = 34
+/** Total header-overlay height = the stage region's top inset. */
+export const HEADER_OVERLAY_H = HEADER_H + DAYLINE_ROW_H
+
 /* --- Timeline (Lifelane) sizing ---------------------------------------------
  * The Lifelane rests over the top ~1/3 of the card as its centered zone; the
  * band itself simply hugs its content/MAX height. These fractions are multiplied
