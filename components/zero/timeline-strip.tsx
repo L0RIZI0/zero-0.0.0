@@ -774,7 +774,12 @@ export function TimelineStrip({
     // concentrated near the cursor where the eye reads it as a local bulge. Far + offscreen markers
     // keep the true mapping (monotonic for our clamped ε → never folds over).
     const d = (p - elasticAnchorRef.current) / 100
-    const SIGMA = 0.16
+    // σ = "dive radius": how far from the cursor the bulge reaches. The expansion core spans
+    // ±σ/√2 (≈±0.21 viewports here) before the compression rings, and the bump fades to ~0 by
+    // ~2σ out. Wider than the original 0.16 for a larger, more elastic dive — still well short of
+    // the ~0.5+ where the gaussian flattens to ~1 across the viewport and degenerates to a uniform
+    // linear zoom (the "whole graduation stays linear" failure mode).
+    const SIGMA = 0.3
     const bump = d * Math.exp(-(d * d) / (SIGMA * SIGMA))
     return p + eps * bump * 100
   }
