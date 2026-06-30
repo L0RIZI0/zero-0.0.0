@@ -113,7 +113,18 @@ function createWindow() {
 
   if (isDev) {
     mainWindow.loadURL(DEV_URL)
-    mainWindow.webContents.openDevTools({ mode: "detach" })
+    // DevTools is now OPT-IN (set ZERO_DEVTOOLS=1), NOT auto-opened. Having DevTools
+    // attached is a massive perf tax on this app specifically: the timeline mutates the
+    // DOM and emits console output EVERY frame during a drag/zoom, and an attached
+    // inspector must re-serialize the DOM for the Elements panel + ship every console
+    // call over the devtools protocol + keep the profiler live — all on the main thread,
+    // per frame. That throttled continuous animation 3–10× and was the real reason the
+    // Electron window felt laggy while the SAME page in a browser (DevTools closed) was
+    // smooth. Open it deliberately with the env var, or via the menu / Cmd-Opt-I, only
+    // when you actually need it — and expect animation to get heavy while it's open.
+    if (process.env.ZERO_DEVTOOLS === "1") {
+      mainWindow.webContents.openDevTools({ mode: "detach" })
+    }
   } else {
     mainWindow.loadURL("app://local/index.html")
   }
