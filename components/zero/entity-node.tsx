@@ -3,7 +3,7 @@
 import { useState, useLayoutEffect, useRef } from "react"
 import { useTheme } from "next-themes"
 import { Check, X } from "lucide-react"
-import { getEntity, getOpenTaskCount } from "@/lib/zero/data"
+  import { getEntity, getOpenTaskCount, setEntityCompleted } from "@/lib/zero/data"
 import type { TaskPriority } from "@/lib/zero/types"
 import { useZeroNav, useRowSelection } from "@/lib/zero/nav-store"
 import {
@@ -188,6 +188,13 @@ export function EntityNode({
   const region = variant === "dock" ? "dock" : "list"
   const { showHighlight, hoverProps, ref } = useRowSelection(region, entityId)
   const [done, setDone] = useState(!!entity?.completed)
+  // Keep the local completion mirror honest with the store. The toggle sets `done`
+  // optimistically AND persists, but a node that stays mounted (e.g. a do-list row)
+  // must also reflect completion changed elsewhere; reading the persisted value here
+  // makes both paths converge (the optimistic set becomes a no-op once persisted).
+  useLayoutEffect(() => {
+    setDone(!!entity?.completed)
+  }, [entity?.completed])
   const [closeHover, setCloseHover] = useState(false)
   // Mouse-hover state for the collapsed row/card. Driven in JS (not a Tailwind
   // `hover:` class) so the background can be the dynamic per-depth `surfaceAt`
@@ -952,7 +959,15 @@ export function EntityNode({
               interactive && isTask
                 ? (e) => {
                     e.stopPropagation()
-                    setDone((d) => !d)
+                    const next = !done
+                    setDone(next)
+                    // Persist completion to the store (not just local state) so the
+                    // checkmark survives the row/window unmounting — the bug where a
+                    // checked occurrence subtask reverted on reopen. notifyDataChanged
+                    // lets other views (do-list strikethrough/filter, open-task counts)
+                    // react immediately.
+                    setEntityCompleted(entityId, next)
+                    nav.notifyDataChanged()
                   }
                 : undefined
             }

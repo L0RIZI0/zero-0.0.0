@@ -1530,6 +1530,20 @@ export function setEntityTitle(id: string, title: string): void {
 }
 
 /**
+ * Set a task's completion and PERSIST it. Previously the glyph toggle only flipped
+ * local component state, so a checkmark was lost the moment the row/window unmounted
+ * — most visible on a recurrence occurrence (check a subtask, close, reopen → it was
+ * back to unchecked). Writing through to the store fixes that for ALL tasks, and for
+ * materialized occurrences it lands on the override's own cloned subtask, keeping each
+ * day independent. No-op if the id is unknown. */
+export function setEntityCompleted(id: string, completed: boolean): void {
+  const entity = byId.get(id)
+  if (!entity) return
+  entity.completed = completed
+  persist()
+}
+
+/**
  * Change an entity's kind IN PLACE (same id/row), filling in sensible defaults
  * for the target kind's relevant fields. Used by the inline draft's glyph picker
  * so switching kind keeps the exact same list row (no remount/re-animate).
