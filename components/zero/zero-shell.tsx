@@ -2,6 +2,7 @@
 
 import { useTheme } from "next-themes"
 import { ShellHeader } from "./shell-header"
+import { Dayline } from "./dayline"
 import { WorkSurface } from "./work-surface"
 import { ThemeToggle } from "./theme-toggle"
 import { FpsMeter } from "./fps-meter"
@@ -26,6 +27,10 @@ function ZeroShellInner() {
       style={{ backgroundColor: homeSurface, transition: `background-color ${DURATION_S} ${MORPH_CSS_EASE}` }}
     >
       <ShellHeader />
+      {/* The DAYLINE — a thin, sticky one-day lane pinned right under the header. For
+          now it renders alongside the full timeline below (no morph yet); it is the
+          static destination the timeline will eventually collapse into. */}
+      <Dayline />
       {/* No bottom padding: the focus-window region reaches the viewport bottom so an
           open Space's octagon (and the dock pinned inside its lower wedge) extends all
           the way down — no home backdrop bleeding below the frame. Side padding stays
