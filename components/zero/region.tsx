@@ -46,7 +46,12 @@ export function Region({
     <motion.div
       data-region
       data-region-grow={grow}
-      className={cn("relative", grow === "fill" ? "flex min-h-0 flex-1 flex-col" : "shrink-0", className)}
+      className={cn(
+        // [v0] DEBUG: red border = each region's footprint within the View.
+        "relative border border-red-500",
+        grow === "fill" ? "flex min-h-0 flex-1 flex-col" : "shrink-0",
+        className,
+      )}
       style={style}
       initial={false}
       animate={{ y: lift }}

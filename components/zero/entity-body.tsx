@@ -116,7 +116,8 @@ export function EntityBody({
         // stay full-bleed because it's both the side-panel rails' offset parent and
         // the Flip morph's target box. A single knob (`p-3`) controls the margin on
         // all four sides; bump it to widen the breathing room everywhere at once.
-        <div data-view className="flex min-h-0 flex-1 flex-col p-3">
+        // [v0] DEBUG: purple border = the View area (the region stack's footprint).
+        <div data-view className="flex min-h-0 flex-1 flex-col border border-purple-500 p-3">
       {/* REGION 0 (hug) — the home Lifeline timeline, at the very TOP of the view.
           Rendered ONLY when `timeline` is provided (home view); child entities omit
           it, so their stack starts at region 1. `pointer-events-auto` so wheel-zoom
