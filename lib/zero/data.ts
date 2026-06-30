@@ -226,20 +226,31 @@ export const resources: Resource[] = [
 // which is the intended trade-off.)
 export const DAY_MS = 86_400_000
 
-/** Local midnight of today, epoch ms. Computed once at module load. */
+/** Midnight (epoch ms) of the calendar day that the CURRENT 5am→5am "human day"
+ *  window started on — computed once at module load. This is the seed's day origin.
+ *
+ *  Zero's day boundary is 5am, not midnight (the Dayline shows [5am → next 5am]). So
+ *  in the wee hours (00:00–05:00) you are still inside YESTERDAY's human-day. If the
+ *  demo anchored to plain calendar-midnight-today, a `t(9)` (9am) block would land in
+ *  the NEXT window and the live surfaces (Dayline, now-centered timeline) would look
+ *  empty until 5am. Anchoring to the active window's start day instead keeps the demo
+ *  "live" within whatever human-day you're actually in. */
 const START_OF_TODAY = (() => {
-  const d = new Date()
-  d.setHours(0, 0, 0, 0)
-  return d.getTime()
+  const now = Date.now()
+  const midnight = new Date(now)
+  midnight.setHours(0, 0, 0, 0)
+  // Before today's 5am → the active 5am-window opened on yesterday's calendar day.
+  const beforeRollover = now < midnight.getTime() + 5 * 3_600_000
+  return beforeRollover ? midnight.getTime() - DAY_MS : midnight.getTime()
 })()
 
-/** Epoch ms for TODAY at h:m(:s) local. Keeps seed rows readable: `t(9, 30)`. */
+/** Epoch ms for the day-origin at h:m(:s) local. Keeps seed rows readable: `t(9, 30)`. */
 const t = (h: number, m = 0, s = 0) => START_OF_TODAY + h * 3_600_000 + m * 60_000 + s * 1000
 
-/** Epoch ms for a day-offset from today at h:m local. `dayT(1, 9)` = tomorrow 9am. */
+/** Epoch ms for a day-offset from the origin at h:m local. `dayT(1, 9)` = next day 9am. */
 const dayT = (dayOffset: number, h = 0, m = 0) => t(h, m) + dayOffset * DAY_MS
 
-/** Next occurrence (today or future) of weekday `wd` (0=Sun..6=Sat) at `h:00`. */
+/** Next occurrence (origin day or future) of weekday `wd` (0=Sun..6=Sat) at `h:00`. */
 const nextWeekday = (wd: number, h = 17) => {
   const today = new Date(START_OF_TODAY).getDay()
   const delta = (wd - today + 7) % 7
