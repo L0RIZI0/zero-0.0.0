@@ -2592,6 +2592,14 @@ export function TimelineStrip({
               const left = pct(b.from)
               const widthPct = ((b.to - b.from) / spanMs) * 100
               if (left > 100 || left + widthPct < 0) return null
+              // VISUAL width must come from the SAME (possibly warped) projection as `left`, not the
+              // raw linear `widthPct`. During the elastic dive `left = pct(b.from)` warps while a
+              // linear width left the END edge un-warped — so the chip's tail LAGGED behind its
+              // `b.to` graduation tick mid-animation (you'd misread which tick the end aligned to
+              // until it settled). `pct(b.to) - left` pins the end exactly on its tick at all ε.
+              // (The linear `widthPct` is kept below for the collapse THRESHOLD + collapsed rail-tick
+              // width, so the dive never flickers a chip between chip↔marker.)
+              const widthPctWarped = Math.max(0, pct(b.to) - left)
               // Real on-screen width of this bar in px (viewport `width` is the px
               // measure; `widthPct` is its share of the span). Drives the adaptive
               // chip → marker collapse below.
@@ -2609,7 +2617,7 @@ export function TimelineStrip({
                 // collapse, so the box itself never needs a min to hold them. `max(widthPct,0)`
                 // only guards against a negative %, and the `- 4px` inter-chip gap is floored
                 // at 0 so a hairline event never produces a negative width.
-                width: `max(0px, calc(${Math.max(widthPct, 0)}% - 4px))`,
+                width: `max(0px, calc(${widthPctWarped}% - 4px))`,
                 top: barTop(lane),
               } as const
 
