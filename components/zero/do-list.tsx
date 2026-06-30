@@ -581,7 +581,7 @@ export function DoList({
     () => getContextItems(contextId).filter((it) => !isPinned(contextId, it.id)),
     [contextId, dataVersion],
   )
-  const [filter, setFilter] = useState<"open" | "all">("open")
+  const [filter, setFilter] = useState<"open" | "all">("all")
   // The most recently created row. Only THIS row plays an enter animation (a gentle
   // fade/slide as it's "born" from the creation input); all other rows mount with
   // `initial={false}` so context switches and commits never flash the whole list.
@@ -601,8 +601,10 @@ export function DoList({
   }, [])
   useEffect(() => () => { if (noticeTimer.current) clearTimeout(noticeTimer.current) }, [])
 
-  // Reset filter view when the context changes.
-  useEffect(() => setFilter("open"), [contextId])
+  // Opening any entity defaults to "All" (everything shown in place). The user can
+  // switch to "Open" to hide completed tasks; a just-checked task still stays put via
+  // the retain set until the selector changes again.
+  useEffect(() => setFilter("all"), [contextId])
 
   // A task the user checks off in the current view STAYS in its position rather than
   // being yanked out by the "open" filter (only its glyph fills + gets a check). We
