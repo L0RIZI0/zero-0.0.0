@@ -41,6 +41,7 @@ import {
   MAX_SPAN_MS,
 } from "@/lib/zero/timeline-scale"
 import type { Entity } from "@/lib/zero/types"
+import { KIND_META } from "@/lib/zero/kinds"
 import { panelTransition, layerTransition } from "@/lib/zero/motion"
 import { TIMELINE_TOP_PAD } from "@/lib/zero/layout"
 import { useZeroNav } from "@/lib/zero/nav-store"
@@ -372,6 +373,19 @@ export interface Ribbon {
   laneCount: number // how many sub-lanes it spans
 }
 
+/**
+ * Should an entity's kind glyph be drawn FILLED (vs. an outline silhouette)?
+ * Canonical rule, identical to `EntityNode` (entity-node.tsx): only COMPLETABLE
+ * kinds whose `fillGlyphWhenDone` is set fill, and only once actually `completed`.
+ * Terminal kinds (community/organism/individual) and anything not-yet-done stay a
+ * silhouette. Tolerant of partial occurrence/ribbon shapes so every glyph caller
+ * in the strip can share it.
+ */
+function glyphFilled(entity?: { kind?: Entity["kind"]; completed?: boolean } | null): boolean {
+  if (!entity?.kind) return false
+  return KIND_META[entity.kind].fillGlyphWhenDone && !!entity.completed
+}
+
 /** Lexicographic compare of two numeric "tree path" keys (shorter-prefix first). */
 function compareKey(a: number[], b: number[]): number {
   const n = Math.min(a.length, b.length)
@@ -665,7 +679,7 @@ export function TimelineStrip({
   // many events stays cheap. Cleared on leave only if it's still this bar (so sliding
   // from one tick to the next doesn't blank between them).
   const [hoveredTick, setHoveredTick] = useState<
-    { key: string; leftPct: number; top: number; title: string; kind: NodeKind; color: string } | null
+    { key: string; leftPct: number; top: number; title: string; kind: NodeKind; color: string; filled: boolean } | null
   >(null)
   useEffect(() => {
     // Switching context re-derives folds for the NEW context's ribbons. Seed each ribbon's
@@ -2225,7 +2239,7 @@ export function TimelineStrip({
                   className="pointer-events-auto absolute left-0 z-10 flex -translate-x-1/2 items-center justify-center"
                   style={{ top: triTop, height: INSTANT_TRI, width: INSTANT_TRI }}
                 >
-                  <NodeGlyph kind="instant" filled strokeWidth={1.5} />
+                  <NodeGlyph kind="instant" filled={glyphFilled(e)} strokeWidth={1.5} />
                 </motion.button>
               </div>
             )
@@ -2727,6 +2741,7 @@ export function TimelineStrip({
                   title: b.title,
                   kind: (b.entity?.kind as NodeKind) ?? "event",
                   color: tickGlowColor,
+                  filled: glyphFilled(b.entity),
                 })
               }
               const onCollapsedTickLeave = () => {
@@ -2977,7 +2992,7 @@ export function TimelineStrip({
                       }}
                     >
                       <span className="h-2.5 w-2.5 shrink-0" style={{ color: b.color || "var(--muted-foreground)" }}>
-                        <NodeGlyph kind={(b.entity?.kind as NodeKind) ?? "event"} filled strokeWidth={2} />
+                        <NodeGlyph kind={(b.entity?.kind as NodeKind) ?? "event"} filled={glyphFilled(b.entity)} strokeWidth={2} />
                       </span>
                       <span className={cn("whitespace-nowrap", b.cancelled && "line-through")}>{b.title}</span>
                     </span>
@@ -3140,7 +3155,7 @@ export function TimelineStrip({
                     style={{ left: `${hoveredTick.leftPct}%`, top: tipTop }}
                   >
                     <span className="h-2.5 w-2.5 shrink-0" style={{ color: hoveredTick.color }}>
-                      <NodeGlyph kind={hoveredTick.kind} filled strokeWidth={2} />
+                      <NodeGlyph kind={hoveredTick.kind} filled={hoveredTick.filled} strokeWidth={2} />
                     </span>
                     <span className="truncate">{hoveredTick.title}</span>
                   </div>
@@ -3204,7 +3219,7 @@ export function TimelineStrip({
                     }}
                   >
                     <span className="h-2.5 w-2.5 shrink-0" style={{ color: r.color }}>
-                      <NodeGlyph kind="space" filled strokeWidth={2} />
+                      <NodeGlyph kind="space" filled={glyphFilled(getEntity(r.spaceId))} strokeWidth={2} />
                     </span>
                     <span className="truncate">{r.title}</span>
                   </button>
@@ -3377,7 +3392,7 @@ export function TimelineStrip({
                       style={wrapStyle}
                     >
                       <span className="h-2.5 w-2.5 shrink-0" style={{ color: blk.m.color }}>
-                        <NodeGlyph kind="space" filled strokeWidth={2} />
+                        <NodeGlyph kind="space" filled={glyphFilled(blk.m.motherId ? getEntity(blk.m.motherId) : null)} strokeWidth={2} />
                       </span>
                       <span className="truncate">{blk.m.title}</span>
                     </div>

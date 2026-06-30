@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react"
 import { useZeroNav } from "@/lib/zero/nav-store"
 import { getTimelineOccurrences, getInheritedAccent } from "@/lib/zero/data"
 import { entityInterval } from "@/lib/zero/timeline-index"
+import { KIND_META } from "@/lib/zero/kinds"
 import type { Recurrence } from "@/lib/zero/types"
 import { NodeGlyph } from "./node-glyph"
 
@@ -75,6 +76,8 @@ interface DayItem {
   isDuration: boolean
   centerPct: number
   range: string
+  /** Glyph fills only for completable kinds once done; otherwise it's a silhouette. */
+  filled: boolean
 }
 
 export function Dayline() {
@@ -114,6 +117,7 @@ export function Dayline() {
         isDuration,
         centerPct: leftPct + widthPct / 2,
         range: rangeText(st, en, e.schedule?.repeat),
+        filled: KIND_META[e.kind].fillGlyphWhenDone && !!e.completed,
       })
     }
     // Paint durations first so the thin instant ticks sit visually on top.
@@ -182,7 +186,7 @@ export function Dayline() {
           style={{ left: `calc(${Math.min(94, Math.max(6, hoveredItem.centerPct))}% )`, marginTop: 4 }}
         >
           <span className="h-3 w-3 shrink-0" style={{ color: hoveredItem.color }}>
-            <NodeGlyph kind={hoveredItem.kind} filled strokeWidth={2} />
+            <NodeGlyph kind={hoveredItem.kind} filled={hoveredItem.filled} strokeWidth={2} />
           </span>
           <span className="truncate text-foreground">{hoveredItem.title}</span>
           <span className="shrink-0 text-muted-foreground tabular-nums">{hoveredItem.range}</span>

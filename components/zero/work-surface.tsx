@@ -118,17 +118,14 @@ export function WorkSurface() {
         className="pointer-events-none relative z-10 flex min-h-0 flex-1 flex-col rounded-md [clip-path:inset(-48px_0px_-120px_0px_round_6px)]"
       >
         {/* The home view: region 0 = the timeline (passed in), region 1 = the do-list,
-            region 2 = the dock (when pinned). centerList={false}: the do-list fills its
-            region from the top under the timeline rather than vertically centering.
-            Horizontal centering is independent (items-center / self-center / w-2/3 in
-            EntityBody); `centerList` only toggles the vertical `justify-center-safe`. */}
-        <EntityBody
-          entityId={rootId}
-          active={activeEntity.id === rootId}
-          isRoot
-          centerList={false}
-          timeline={timeline}
-        />
+            region 2 = the dock (when pinned). centerList (true): the do-list + create-
+            input are vertically CENTERED within region 1 (center-center) — sitting in
+            the middle of the leftover space between the timeline and the dock rather
+            than hugging the timeline at the top. `justify-center-safe` keeps a long list
+            from clipping, and region 2 (dock) still pushes region 1 up when pinned, so
+            the centered group recenters within the reduced space. Horizontal centering
+            is independent (items-center / self-center / w-2/3 in EntityBody). */}
+        <EntityBody entityId={rootId} active={activeEntity.id === rootId} isRoot centerList timeline={timeline} />
 
         {/* DETACHED WINDOWS. The recursive in-place tree above only reaches a stack
             entry through its host's do-list/dock. When an entry's host is NOT its
