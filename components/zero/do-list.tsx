@@ -975,7 +975,7 @@ export function DoList({
   // Vertical mask for the scroller's edge fades. Each end fades over `FADE` px only
   // when that side has hidden content; an inactive side collapses to a 0px stop
   // (no visible fade). Reused for both `mask-image` and `-webkit-mask-image`.
-  const FADE = 28
+  const FADE = 16
   const edgeFadeMask = `linear-gradient(to bottom, transparent 0, #000 ${
     fade.top ? FADE : 0
   }px, #000 calc(100% - ${fade.bottom ? FADE : 0}px), transparent 100%)`

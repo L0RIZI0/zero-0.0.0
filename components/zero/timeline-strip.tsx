@@ -1839,55 +1839,81 @@ export function TimelineStrip({
           className="pointer-events-none absolute inset-x-0 z-40 flex items-center justify-center"
           style={{ top: labelGroupTop, height: LABEL_ROW_H, transition: headerRowTransition }}
         >
-          {/* The date pill is `relative` and is the ONLY thing the parent centers, so the date
-              text sits exactly on the viewport center. The jump-to-NOW control is hung BELOW the
-              pill as an ABSOLUTE element (so it never shifts the date and we don't have to care
-              whether "now" is to the left or right of the viewed date). */}
-          {/* Render the pill only when it has content: the date (unless centered on today) and/or
-              the jump-to-NOW control. Otherwise an empty `bg-background` chip would show. */}
-          {(!centeredOnNow || !atHome) && (
-          <div
-            className={cn(
-              "pointer-events-auto relative inline-flex items-center rounded",
-              // Only paint the white pill when the DATE label is present. When centered on today
-              // the label is hidden and only the absolutely-positioned NOW chip (below) shows —
-              // keeping the bg/padding here would leave an empty white "hat" above NOW.
-              !centeredOnNow && "bg-white px-2 py-0.5",
-            )}
-          >
-            {!centeredOnNow && (
-              <span className="whitespace-nowrap text-[11px] font-medium tracking-tight text-black">
-                {centerLabel}
-              </span>
-            )}
-            {!atHome && (
-              <button
-                type="button"
-                onClick={goNow}
-                aria-label="Jump to now"
-                title="Jump to now"
-                className={cn(
-                  // Black-on-white chip matching the date pill, so NOW reads as a paired control
-                  // rather than floating bare text over the lanes. Centered beneath the date. A
-                  // direction chevron points the way NOW lives relative to the current view: LEFT
-                  // (before the chevron+word) when now is earlier, RIGHT (after) when now is later.
-                  "absolute left-1/2 top-full mt-0.5 flex -translate-x-1/2 items-center gap-0.5 whitespace-nowrap rounded bg-white px-1.5 py-0.5 text-[10px] font-medium leading-none text-black",
-                )}
-              >
-                {nowIsEarlier && <ChevronLeft className="h-3 w-3 shrink-0" strokeWidth={2.5} />}
-                <motion.span
-                  className="overflow-hidden"
-                  initial={false}
-                  animate={{ width: stage <= 1 ? "auto" : 0, opacity: stage <= 1 ? 1 : 0 }}
-                  transition={layerTransition}
+          {/* STABLE relative anchor — always mounted (zero-size & invisible when empty, since the
+              white pill bg now lives on the date motion.div, not here). It is the ONLY thing the
+              parent centers, so the date text sits exactly on the viewport center, and the
+              jump-to-NOW control hangs BELOW it as an ABSOLUTE element. Keeping the anchor always
+              present lets the inner AnimatePresence play enter/exit for EVERY transition (including
+              arriving/leaving home) instead of the parent yanking children out instantly. */}
+          <div className="pointer-events-auto relative inline-flex items-center justify-center">
+            {/* DATE-IN-VIEW pill — fades + scales in/out instead of snapping when you scrub onto /
+                off of "today". The white bg is on this element so an absent date leaves no chip. */}
+            <AnimatePresence initial={false}>
+              {!centeredOnNow && (
+                <motion.div
+                  key="date-pill"
+                  initial={{ opacity: 0, scale: 0.85 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.85 }}
+                  transition={{ duration: 0.2, ease: "easeOut" }}
+                  className="inline-flex items-center rounded bg-white px-2 py-0.5"
                 >
-                  NOW
-                </motion.span>
-                {!nowIsEarlier && <ChevronRight className="h-3 w-3 shrink-0" strokeWidth={2.5} />}
-              </button>
-            )}
+                  <span className="whitespace-nowrap text-[11px] font-medium tracking-tight text-black">
+                    {centerLabel}
+                  </span>
+                </motion.div>
+              )}
+            </AnimatePresence>
+            {/* JUMP-TO-NOW backlink — also fades + scales in/out. `x:"-50%"` replaces the
+                `-translate-x-1/2` class because Framer owns `transform` once it animates `scale`,
+                so the Tailwind translate would be clobbered. */}
+            <AnimatePresence initial={false}>
+              {!atHome && (
+                <motion.button
+                  key="now-link"
+                  type="button"
+                  onClick={goNow}
+                  aria-label="Jump to now"
+                  title="Jump to now"
+                  initial={{ opacity: 0, scale: 0.85, x: "-50%" }}
+                  animate={{ opacity: 1, scale: 1, x: "-50%" }}
+                  exit={{ opacity: 0, scale: 0.85, x: "-50%" }}
+                  transition={{ duration: 0.2, ease: "easeOut" }}
+                  className="absolute left-1/2 top-full mt-0.5 flex items-center gap-0.5 whitespace-nowrap rounded bg-white px-1.5 py-0.5 text-[10px] font-medium leading-none text-black"
+                >
+                  {/* Direction chevron points the way NOW lives relative to the view: LEFT when now
+                      is earlier, RIGHT when later. Instead of unmounting one and mounting the other
+                      (a snap when the direction flips), BOTH are always present and cross-fade by
+                      collapsing/expanding their width + opacity. They're symmetric (12px each) so
+                      the centered NOW word never shifts. Cheap: only opacity/width, no layout pass. */}
+                  <motion.span
+                    className="flex overflow-hidden"
+                    initial={false}
+                    animate={{ width: nowIsEarlier ? "auto" : 0, opacity: nowIsEarlier ? 1 : 0 }}
+                    transition={{ duration: 0.18, ease: "easeOut" }}
+                  >
+                    <ChevronLeft className="h-3 w-3 shrink-0" strokeWidth={2.5} />
+                  </motion.span>
+                  <motion.span
+                    className="overflow-hidden"
+                    initial={false}
+                    animate={{ width: stage <= 1 ? "auto" : 0, opacity: stage <= 1 ? 1 : 0 }}
+                    transition={layerTransition}
+                  >
+                    NOW
+                  </motion.span>
+                  <motion.span
+                    className="flex overflow-hidden"
+                    initial={false}
+                    animate={{ width: !nowIsEarlier ? "auto" : 0, opacity: !nowIsEarlier ? 1 : 0 }}
+                    transition={{ duration: 0.18, ease: "easeOut" }}
+                  >
+                    <ChevronRight className="h-3 w-3 shrink-0" strokeWidth={2.5} />
+                  </motion.span>
+                </motion.button>
+              )}
+            </AnimatePresence>
           </div>
-          )}
         </div>
 
         {/* Instant layer — pins (singletons) and density bubbles (clusters). */}
