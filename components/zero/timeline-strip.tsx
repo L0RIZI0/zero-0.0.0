@@ -1712,6 +1712,15 @@ export function TimelineStrip({
   // Open a mother's manual-fold animation window (see `animatingMothers`): its block is
   // treated as animating for the LONGEST glide (DOLIST_MS) so transitions aren't cut off.
   const animateMother = (id: string) => {
+    // Drop any sticky hover for this mother as the (un)collapse begins. A fold/expand
+    // swaps the DOM under a STATIONARY cursor, so the hovered element unmounts before its
+    // `onMouseLeave` fires — leaving `hoveredMother`/`hoveredTitleId` stuck. The eye is
+    // only suppressed DURING the morph (`!blkAnimating`), so once it ends the stale flag
+    // makes the eye reappear with no real hover (the "eye shows after uncollapse" bug).
+    // Clearing here means the eye stays hidden until the user genuinely hovers again
+    // (no `onMouseEnter` fires while the cursor is still). Other mothers are untouched.
+    setHoveredMother((h) => (h === id ? null : h))
+    setHoveredTitleId((h) => (h === id ? null : h))
     setAnimatingMothers((m) => ({ ...m, [id]: (m[id] ?? 0) + 1 }))
     if (animTimers.current[id]) clearTimeout(animTimers.current[id])
     animTimers.current[id] = setTimeout(() => {
