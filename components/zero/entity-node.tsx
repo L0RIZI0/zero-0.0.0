@@ -600,6 +600,8 @@ export function EntityNode({
   }
   const frameClass = asWindow
     ? cn(
+        // [v0] DEBUG: bright green border = an OPENED entity's frame (window) footprint.
+        "border border-green-500",
         // overflow-visible (was hidden): the clip now lives on [data-shape], so the
         // frame no longer needs to clip — and must not, or it would re-crop the glyph.
         "flex cursor-default flex-col overflow-visible",

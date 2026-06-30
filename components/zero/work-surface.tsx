@@ -115,7 +115,8 @@ export function WorkSurface() {
         // between the in-flow regions stay click/scroll-through; each interactive leaf
         // (region-0 timeline, do-list, Dock, side panels, window chrome) re-enables
         // `pointer-events-auto` for itself.
-        className="pointer-events-none relative z-10 flex min-h-0 flex-1 flex-col rounded-md [clip-path:inset(-48px_0px_-120px_0px_round_6px)]"
+        // [v0] DEBUG: bright green border = entity0 (home) frame — the always-open root window.
+        className="pointer-events-none relative z-10 flex min-h-0 flex-1 flex-col rounded-md border border-green-500 [clip-path:inset(-48px_0px_-120px_0px_round_6px)]"
       >
         {/* The home view: region 0 = the timeline (passed in), region 1 = the do-list,
             region 2 = the dock (when pinned). centerList (true): the do-list + create-
