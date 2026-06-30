@@ -15,6 +15,22 @@ const { pathToFileURL } = require("node:url")
 const isDev = !app.isPackaged
 const DEV_URL = process.env.ELECTRON_RENDERER_URL || "http://localhost:3000"
 
+// ── Hardware acceleration ────────────────────────────────────────────────────
+// We never call app.disableHardwareAcceleration(), so in theory the GPU is on. BUT
+// Electron's bundled Chromium ships a conservative GPU BLOCKLIST that, on a lot of
+// real-world drivers (especially Windows/Linux, VMs, and some integrated GPUs),
+// silently DISABLES GPU compositing and falls back to SOFTWARE rendering. That's the
+// classic "the native app animates worse than the same page in Chrome" symptom —
+// the user's real browser has that GPU allow-listed while Electron does not, so our
+// compositor-bound timeline transforms end up on the CPU here.
+//
+// Forcing these on pushes compositing + raster back onto the GPU. Must be set BEFORE
+// app `ready`. To confirm what actually engaged, open the app's devtools and load
+// `chrome://gpu` — "Compositing" / "Canvas" should read "Hardware accelerated".
+app.commandLine.appendSwitch("ignore-gpu-blocklist")
+app.commandLine.appendSwitch("enable-gpu-rasterization")
+app.commandLine.appendSwitch("enable-zero-copy")
+
 // Directory of the Next.js static export (`next build` with output:'export').
 const OUT_DIR = path.join(__dirname, "..", "out")
 
