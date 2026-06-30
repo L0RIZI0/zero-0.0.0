@@ -28,7 +28,7 @@ import {
 import gsap from "gsap"
 import { Flip } from "gsap/Flip"
 import { DURATION_S, MORPH_CSS_EASE, SEND_EASE } from "@/lib/zero/flip-stage"
-import { NodeGlyph } from "./node-glyph"
+import { NodeGlyph, GLYPH_FILL_SECONDS } from "./node-glyph"
 import { ResourceGlyph } from "./resource-glyph"
 import { EntityBody } from "./entity-body"
 import { cn } from "@/lib/utils"
@@ -196,6 +196,27 @@ export function EntityNode({
   useLayoutEffect(() => {
     setDone(!!entity?.completed)
   }, [entity?.completed])
+  // Inner-checkmark color phase. The check is painted OVER the glyph; the glyph FILL
+  // wipes its silhouette with ink left→right over GLYPH_FILL_SECONDS when completed.
+  // So at the MOMENT of completing we want the check in INK (foreground) — visible on
+  // the still-empty glyph — then fading to `background` (white) in lockstep with the
+  // fill inking the silhouette behind it. `checkWhite` true = white, false = ink. A
+  // node that is ALREADY done at mount (reopened / re-rendered) starts white, no fade.
+  const [checkWhite, setCheckWhite] = useState(!!entity?.completed)
+  const prevDoneForCheck = useRef(!!entity?.completed)
+  useLayoutEffect(() => {
+    if (done === prevDoneForCheck.current) return
+    prevDoneForCheck.current = done
+    if (done) {
+      // Just completed: paint ink THIS frame (pre-paint), then flip to white next frame
+      // so the CSS color transition runs alongside the glyph's fill wipe.
+      setCheckWhite(false)
+      const id = requestAnimationFrame(() => setCheckWhite(true))
+      return () => cancelAnimationFrame(id)
+    }
+    // Just un-completed: reset so the next completion animates from ink again.
+    setCheckWhite(false)
+  }, [done])
   const [closeHover, setCloseHover] = useState(false)
   // Mouse-hover state for the collapsed row/card. Driven in JS (not a Tailwind
   // `hover:` class) so the background can be the dynamic per-depth `surfaceAt`
@@ -1026,8 +1047,20 @@ export function EntityNode({
                   strokeWidth={asWindow ? 1.75 : isTask ? 2 : 1.75}
                   request={isTask && !!entity.requested}
                 />
-                {!asWindow && showCheckmark && (
-                  <Check className="absolute h-2.5 w-2.5 text-background" strokeWidth={3.5} />
+                {showCheckmark && (
+                  // Always shown for a done Task — in the row, the dock card AND the
+                  // open window (it used to be `!asWindow`, which made it vanish on
+                  // open). Sized as a fraction of the glyph so it scales with every
+                  // state, and centered via inset/auto-margins (it's absolute, so flex
+                  // centering wouldn't apply). Color fades ink→white with the fill.
+                  <Check
+                    className={cn(
+                      "absolute inset-0 m-auto h-[60%] w-[60%] transition-colors",
+                      checkWhite ? "text-background" : "text-foreground",
+                    )}
+                    style={{ transitionDuration: `${GLYPH_FILL_SECONDS}s` }}
+                    strokeWidth={3.5}
+                  />
                 )}
                 {!asWindow && terminal && (
                   // Terminal mark for a retired community / dead organism|individual.

@@ -166,8 +166,10 @@ function lerpPolygons(a: Pt[], b: Pt[], t: number): Pt[] {
 const GLYPH_MORPH_SECONDS = 0.5
 const GLYPH_MORPH_EASE = "power3.inOut"
 
-/** Completion FILL timing — a subtle wipe that slides in from the left. */
-const GLYPH_FILL_SECONDS = 0.4
+/** Completion FILL timing — a subtle wipe that slides in from the left. Exported so
+ *  the inner checkmark (drawn by EntityNode, OVER the glyph) can fade its color from
+ *  ink→background in lockstep with this wipe. */
+export const GLYPH_FILL_SECONDS = 0.4
 const GLYPH_FILL_EASE = "power2.inOut"
 // The 24-box width the reveal rect sweeps across (plus a hair of slack so the
 // right edge's stroke is fully covered at 100%).

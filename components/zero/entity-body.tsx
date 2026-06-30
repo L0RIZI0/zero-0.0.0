@@ -128,9 +128,12 @@ export function EntityBody({
           transparent box (the body root is none); the inner do-list re-enables events. */}
       <Region grow="fill" className="min-h-[180px] min-w-0 items-center px-6 pb-5 pt-4">
         <div className={cn("flex min-h-0 w-full flex-1 flex-col", isRoot ? "max-w-[70vw]" : "max-w-[720px]")}>
-          {/* Do-list narrowed to 2/3 of the measure and centered for a tighter list.
+          {/* Do-list narrowed to 2/3 of the measure and centered for a tighter list,
+              but capped at `max-w-2xl` (672px) so it never stretches into an
+              uncomfortably wide measure on large/ultrawide monitors — on narrower
+              screens the 2/3 width wins, on wide ones the cap does.
               `pointer-events-auto` re-enables interaction on the list itself. */}
-          <div className="pointer-events-auto flex min-h-0 w-2/3 flex-1 flex-col self-center">
+          <div className="pointer-events-auto flex min-h-0 w-2/3 max-w-2xl flex-1 flex-col self-center">
             <DoList contextId={entityId} active={active} closing={closing} centered={centerList} />
           </div>
         </div>
