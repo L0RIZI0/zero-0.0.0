@@ -7,6 +7,7 @@ import { entityInterval } from "@/lib/zero/timeline-index"
 import { KIND_META } from "@/lib/zero/kinds"
 import { rangeText, NOW_COLOR } from "@/lib/zero/timeline-format"
 import { DAYLINE_ROW_H } from "@/lib/zero/layout"
+import { useNow } from "@/lib/zero/use-now"
 import { cn } from "@/lib/utils"
 import { NodeGlyph } from "./node-glyph"
 
@@ -72,12 +73,14 @@ export function Dayline() {
   const { stack, dataVersion, open } = useZeroNav()
   const rootId = stack[0]
 
-  // `now` advances minute by minute and drives the NOW marker. It is time-dependent,
-  // so SSR and the client's first paint would disagree and trip a hydration mismatch.
-  // We therefore keep all time-positioned content (items, NOW marker, helper) OUT of
-  // the server render: `mounted` starts false (server + first client render → identical
-  // empty lane), then flips true in an effect, after which `now` drives the real content.
-  const [now, setNow] = useState(0)
+  // `now` advances minute by minute and drives the NOW marker. It comes from the SHARED
+  // minute clock (`useNow`) — the same source the header time reads — so the marker
+  // tooltip and the header can never drift onto different minutes. It is time-dependent,
+  // so SSR and the client's first paint would disagree and trip a hydration mismatch;
+  // we therefore keep all time-positioned content (items, NOW marker, helper) OUT of the
+  // server render: `mounted` starts false (server + first client render → identical empty
+  // lane), then flips true in an effect, after which `now` drives the real content.
+  const now = useNow()
   const [mounted, setMounted] = useState(false)
   // `viewStart` is the left edge of the shown 24h window. Panning moves it directly;
   // the auto-shift advances it on a time boundary. Independent of `now` so a pan never
@@ -87,11 +90,8 @@ export function Dayline() {
   useEffect(() => {
     const n = Date.now()
     setMounted(true)
-    setNow(n)
     setViewStart(dayWindow(n)[0])
     prevNowRef.current = n
-    const id = setInterval(() => setNow(Date.now()), 60_000)
-    return () => clearInterval(id)
   }, [])
 
   // AUTO-SHIFT — fires ONLY on a `now` transition (this effect depends on `now`, never

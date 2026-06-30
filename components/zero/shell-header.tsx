@@ -1,6 +1,5 @@
 "use client"
 
-import { useEffect, useState } from "react"
 import { motion } from "motion/react"
 import { Search } from "lucide-react"
 import { UserIdentity } from "./user-identity"
@@ -9,18 +8,14 @@ import { VersionSwitcher } from "@/components/version-switcher"
 import { useZeroNav } from "@/lib/zero/nav-store"
 import { shellStageFor, HEADER_PAD_Y } from "@/lib/zero/layout"
 import { layerTransition } from "@/lib/zero/motion"
+import { useNow } from "@/lib/zero/use-now"
 import { cn } from "@/lib/utils"
 
 function useClock() {
-  const [now, setNow] = useState<Date | null>(null)
-  useEffect(() => {
-    const update = () => setNow(new Date())
-    update()
-    // Tick every 30s so both the time and the date (e.g. crossing midnight)
-    // stay current without a refresh.
-    const id = setInterval(update, 1000 * 30)
-    return () => clearInterval(id)
-  }, [])
+  // Shared minute clock — same source as the Dayline NOW marker, so the header
+  // time and the marker tooltip never drift apart. `ms === 0` means not-yet-mounted.
+  const ms = useNow()
+  const now = ms ? new Date(ms) : null
 
   const time = now
     ? now.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
