@@ -536,6 +536,23 @@ export function TimelineStrip({
   // the settle is clean; pointer-moves re-engage it once the fold finishes.
   const foldingRef = useRef(false)
 
+  // --- Elastic zoom warp ----------------------------------------------------
+  // A TRANSIENT, cursor-anchored non-linear bend of the time→x projection, purely for a
+  // "dive" feel on wheel-zoom. It rides entirely on `pct()` — the single positioning
+  // chokepoint every gridline / chip / tick / day-cell / NOW marker flows through — so the
+  // whole frame warps coherently (chips never desync from the grid). The warp adds a
+  // LOCALIZED displacement bump centered on the cursor: points NEAR the cursor are pushed
+  // a little harder away (zoom-in) / pulled toward it (zoom-out) than points further away,
+  // which fall back to the true linear mapping. The bump DECAYS with distance (gaussian),
+  // so far + offscreen markers are untouched — no fold-over, no viewport-cull mismatch.
+  // `elastic` is the live amplitude ε, spring-driven back to exactly 0; at 0, `pct()` is
+  // byte-for-byte the original linear formula (a guarded fast-path → zero cost at rest, and
+  // the gesture/anchor math is unaffected because the cursor point is the warp's fixed point).
+  const [elastic, setElastic] = useState(0)
+  const elasticValRef = useRef(0) // committed ε (displacement), mirrors `elastic`
+  const elasticVelRef = useRef(0) // spring velocity
+  const elasticAnchorRef = useRef(50) // viewport-% under the cursor = the warp's fixed point
+
   // The entire strip is positioned from wall-clock time (`startMs`, `now`), which the
   // server can't know, so SSR markup can never match the first client paint. Rather
   // than fight per-element hydration mismatches, we render a same-height placeholder
@@ -729,7 +746,22 @@ export function TimelineStrip({
 
   // Epoch ms → percentage across the viewport (linear; equivalent to the d3
   // scale but width-independent, so markers reflow without a width read).
-  const pct = (epoch: number) => ((epoch - startMs) / spanMs) * 100
+  // ELASTIC WARP: when the zoom spring is active (`elastic` ≠ 0) we add a localized,
+  // cursor-anchored displacement so the area around the zoom point dives faster than the
+  // rest (see the elastic-zoom block above). At rest the guard returns the exact linear
+  // value, so this is free for the steady state and for reduced-motion users.
+  const pct = (epoch: number) => {
+    const p = ((epoch - startMs) / spanMs) * 100
+    const eps = elastic
+    if (eps > -0.0015 && eps < 0.0015) return p // rest fast-path: identical linear mapping
+    // Signed distance from the cursor anchor, in viewport widths. A gaussian bump makes the
+    // displacement peak near the cursor and fade to ~0 by ~1.5 viewports out, so distant and
+    // offscreen markers keep the true mapping (monotonic for our clamped ε → never folds over).
+    const d = (p - elasticAnchorRef.current) / 100
+    const SIGMA = 0.5
+    const bump = d * Math.exp(-(d * d) / (SIGMA * SIGMA))
+    return p + eps * bump * 100
+  }
   // d3 time scale (px) — used for tick generation and pixel clustering.
   const scale = useMemo(() => makeScale(startMs, spanMs, width), [startMs, spanMs, width])
 
@@ -846,6 +878,77 @@ export function TimelineStrip({
         cancelAnimationFrame(floatRafRef.current)
         floatRafRef.current = null
       }
+    }
+  }, [mounted])
+
+  // --- Elastic zoom: spring + wheel impulse --------------------------------
+  // A passive wheel listener feeds the elastic spring. It only OBSERVES (the gesture hook
+  // owns the actual zoom via its own passive:false listener + preventDefault); here we just
+  // nudge ε on a zoom notch and let a critically-underdamped spring relax it back to 0,
+  // giving one gentle rubber-band overshoot. Bound once; no-op (and unbound) under reduced
+  // motion. The spring's per-frame setState re-renders the strip only while ε ≠ 0 (the active
+  // zoom + ~0.4s tail) — the same per-frame cost as a zoom, and provably zero at rest.
+  const elasticRafRef = useRef<number | null>(null)
+  useEffect(() => {
+    if (!mounted) return
+    // `reduceMotion` is scoped inside the float effect; recompute it here from the same
+    // media query so the elastic warp is fully disabled for reduced-motion users.
+    const reduceMotion =
+      typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
+    if (reduceMotion) return
+    const el = viewportRef.current
+    if (!el) return
+    let last = performance.now()
+    const step = () => {
+      const now = performance.now()
+      let dt = (now - last) / 1000
+      last = now
+      if (dt > 0.05) dt = 0.05 // clamp big gaps (tab-away) so the spring can't explode
+      // Underdamped spring toward 0: k≈160, c≈14 ⇒ ζ≈0.55 — settles in ~0.45s with one
+      // soft overshoot (the elastic "snap back"). Semi-implicit Euler (stable at 60–240Hz).
+      const x = elasticValRef.current
+      const v = elasticVelRef.current
+      const a = -160 * x - 14 * v
+      const nv = v + a * dt
+      const nx = x + nv * dt
+      elasticValRef.current = nx
+      elasticVelRef.current = nv
+      if (Math.abs(nx) < 0.0012 && Math.abs(nv) < 0.02) {
+        elasticValRef.current = 0
+        elasticVelRef.current = 0
+        elasticRafRef.current = null
+        setElastic(0) // land exactly at rest → pct() returns to its zero-cost linear path
+        return
+      }
+      setElastic(nx)
+      elasticRafRef.current = requestAnimationFrame(step)
+    }
+    const onWheel = (e: WheelEvent) => {
+      // Only ZOOM intent (vertical, no shift) gets elasticity — mirror the gesture hook's
+      // pan/zoom split so a horizontal / shift-wheel PAN stays perfectly linear.
+      if (Math.abs(e.deltaX) > Math.abs(e.deltaY) || e.shiftKey) return
+      const r = el.getBoundingClientRect()
+      if (r.width <= 0) return
+      // Anchor the warp's fixed point at the cursor (the point that must NOT move).
+      elasticAnchorRef.current = Math.max(0, Math.min(100, ((e.clientX - r.left) / r.width) * 100))
+      // Zoom-IN (deltaY<0) → push neighbours OUT (ε>0); zoom-OUT (deltaY>0) → pull IN (ε<0).
+      const kick = Math.max(-1, Math.min(1, -e.deltaY / 100)) * 0.12
+      elasticValRef.current = Math.max(-0.35, Math.min(0.35, elasticValRef.current + kick))
+      elasticVelRef.current = 0 // displacement-driven; let the spring carry it back to 0
+      if (elasticRafRef.current == null) {
+        last = performance.now()
+        elasticRafRef.current = requestAnimationFrame(step)
+      }
+    }
+    el.addEventListener("wheel", onWheel, { passive: true })
+    return () => {
+      el.removeEventListener("wheel", onWheel)
+      if (elasticRafRef.current != null) {
+        cancelAnimationFrame(elasticRafRef.current)
+        elasticRafRef.current = null
+      }
+      elasticValRef.current = 0
+      elasticVelRef.current = 0
     }
   }, [mounted])
 
