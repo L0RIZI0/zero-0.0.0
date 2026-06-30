@@ -5,6 +5,7 @@ import type { CSSProperties, ReactNode } from "react"
 import { layerTransition } from "@/lib/zero/motion"
 import { cn } from "@/lib/utils"
 import type { RegionGrow } from "@/lib/zero/regions"
+import { useDebugView } from "@/lib/zero/debug-view"
 import { DebugFrameLabel } from "./debug-frame-label"
 
 /**
@@ -50,13 +51,16 @@ export function Region({
   /** [v0] DEBUG: the region's role word (e.g. "lifelane", "do-list", "dock"). */
   debugRole?: string
 }) {
+  // [v0] DEBUG: red border + ID label are gated on the shared `§ 2` toggle.
+  const { frames: showFrames } = useDebugView()
   return (
     <motion.div
       data-region
       data-region-grow={grow}
       className={cn(
+        "relative",
         // [v0] DEBUG: red border = each region's footprint within the View.
-        "relative border border-red-500",
+        showFrames && "border border-red-500",
         grow === "fill" ? "flex min-h-0 flex-1 flex-col" : "shrink-0",
         className,
       )}
@@ -67,7 +71,7 @@ export function Region({
     >
       {/* [v0] DEBUG: a region is always full-width within the View (h:fill); its
           vertical sizing is exactly its `grow` (fill = take leftover, hug = wrap). */}
-      {debugName ? (
+      {showFrames && debugName ? (
         <DebugFrameLabel
           name={debugName}
           info={`${debugRole ? `${debugRole} · ` : ""}h:fill v:${grow}`}

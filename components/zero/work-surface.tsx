@@ -8,6 +8,8 @@ import { telescopicSurface } from "@/lib/zero/motion"
 import { DURATION_S, MORPH_CSS_EASE } from "@/lib/zero/flip-stage"
 import { registerStage } from "@/lib/zero/flip-stage"
 import { HEADER_OVERLAY_H } from "@/lib/zero/layout"
+import { useDebugView } from "@/lib/zero/debug-view"
+import { cn } from "@/lib/utils"
 import { DebugFrameLabel } from "./debug-frame-label"
 import { EntityBody } from "./entity-body"
 import { EntityNode } from "./entity-node"
@@ -38,6 +40,8 @@ import { TimelineStrip } from "./timeline-strip"
  */
 export function WorkSurface() {
   const { activeEntity, stack, fading } = useZeroNav()
+  // [v0] DEBUG: colored frames + labels are gated on the shared `§ 2` toggle.
+  const { frames: showFrames } = useDebugView()
   // The root entity's body is the permanent home backdrop at z-0. It is ALWAYS
   // mounted: the depth-1 window grows over it on open and shrinks back into its
   // dock card / row on close, so that morph source must always be present.
@@ -78,7 +82,7 @@ export function WorkSurface() {
     // toward the header at deeper stages without being cropped.
     // [v0] DEBUG: bright green border = entity0 (home) frame — the always-open root window.
     <div
-      className="relative flex h-full w-full flex-col border border-green-500"
+      className={cn("relative flex h-full w-full flex-col", showFrames && "border border-green-500")}
       style={
         {
           backgroundColor: homeSurface,
@@ -89,7 +93,9 @@ export function WorkSurface() {
       {/* [v0] DEBUG: green frame label. Pinned to the screen's top-left corner — the
           outermost (full-bleed) frame's own corner. `z-50` floats it above the header
           overlay. Remove with the debug borders. */}
-      <DebugFrameLabel name="ent0·frame" info="h:fill v:fill · full-bleed" className="text-green-500" />
+      {showFrames && (
+        <DebugFrameLabel name="ent0·frame" info="h:fill v:fill · full-bleed" className="text-green-500" />
+      )}
       {/* REGION 0 (fill) — the focus-window region, where the SINGLE recursive
           entity tree lives. It fills the ENTIRE card, so an opened window fills from
           the card top: its header sits just under the app bar. The root entity's body

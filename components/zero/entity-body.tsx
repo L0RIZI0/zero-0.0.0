@@ -14,6 +14,7 @@ import { OutputPanel } from "./output-panel"
 import { CollapsibleColumn } from "./collapsible-column"
 import { ResourceCanvas } from "./resource-canvas"
 import { DebugFrameLabel } from "./debug-frame-label"
+import { useDebugView } from "@/lib/zero/debug-view"
 import { cn } from "@/lib/utils"
 
 /** Width of a side panel when OPEN, and of the thin RAIL when collapsed. */
@@ -95,6 +96,8 @@ export function EntityBody({
   // home / Individual) reads "ent0"; any other opened entity uses its id. Remove with
   // the debug borders.
   const dbg = isRoot ? "ent0" : entityId
+  // [v0] DEBUG: colored frames + labels gated on the shared `§ 2` toggle.
+  const { frames: showFrames } = useDebugView()
 
   return (
     // Unpadded root: fills [data-body] EXACTLY and is the offset parent for the
@@ -123,15 +126,20 @@ export function EntityBody({
         // the Flip morph's target box. A single knob (`p-3`) controls the margin on
         // all four sides; bump it to widen the breathing room everywhere at once.
         // [v0] DEBUG: purple border = the View area (the region stack's footprint).
-        <div data-view className="relative flex min-h-0 flex-1 flex-col border border-purple-500 p-3">
+        <div
+          data-view
+          className={cn("relative flex min-h-0 flex-1 flex-col p-3", showFrames && "border border-purple-500")}
+        >
           {/* [v0] DEBUG: View label in the BOTTOM-left corner so it never collides with
               region 0's top-left label. The View is the full region stack: it fills its
               parent both ways and carries the uniform p-3 inset. */}
-          <DebugFrameLabel
-            name={`${dbg}·view`}
-            info="stack · h:fill v:fill · pad:3"
-            className="bottom-0.5 left-0.5 top-auto text-purple-500"
-          />
+          {showFrames && (
+            <DebugFrameLabel
+              name={`${dbg}·view`}
+              info="stack · h:fill v:fill · pad:3"
+              className="bottom-0.5 left-0.5 top-auto text-purple-500"
+            />
+          )}
       {/* REGION 0 (hug) — the home Lifeline timeline, at the very TOP of the view.
           Rendered ONLY when `timeline` is provided (home view); child entities omit
           it, so their stack starts at region 1. `pointer-events-auto` so wheel-zoom

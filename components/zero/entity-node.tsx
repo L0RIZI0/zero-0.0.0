@@ -32,6 +32,7 @@ import { NodeGlyph, GLYPH_FILL_SECONDS } from "./node-glyph"
 import { ResourceGlyph } from "./resource-glyph"
 import { EntityBody } from "./entity-body"
 import { DebugFrameLabel } from "./debug-frame-label"
+import { useDebugView } from "@/lib/zero/debug-view"
 import { cn } from "@/lib/utils"
 
 // Space windows (leaf hexagon AND expanded-ancestor rectangle) are clip-path
@@ -186,6 +187,9 @@ export function EntityNode({
   // rim fades in after the theme has resolved.
   const [mounted, setMounted] = useState(false)
   useLayoutEffect(() => setMounted(true), [])
+  // [v0] DEBUG: colored frames + labels gated on the shared `§ 2` toggle. Read here
+  // (before the early `return null`) to keep the hook order stable.
+  const { frames: showFrames } = useDebugView()
   const entity = getEntity(entityId)
   const region = variant === "dock" ? "dock" : "list"
   const { showHighlight, hoverProps, ref } = useRowSelection(region, entityId)
@@ -602,7 +606,8 @@ export function EntityNode({
   const frameClass = asWindow
     ? cn(
         // [v0] DEBUG: bright green border = an OPENED entity's frame (window) footprint.
-        "border border-green-500",
+        // Gated on the shared `§ 2` toggle.
+        showFrames && "border border-green-500",
         // overflow-visible (was hidden): the clip now lives on [data-shape], so the
         // frame no longer needs to clip — and must not, or it would re-crop the glyph.
         "flex cursor-default flex-col overflow-visible",
@@ -804,7 +809,7 @@ export function EntityNode({
             The home (entity0) frame is labelled separately in work-surface; this covers
             every other space/task/event that opens as a window. Shows id + kind, whether
             it's the top window or a spined ancestor strip. Remove with the debug borders. */}
-        {asWindow && (
+        {asWindow && showFrames && (
           <DebugFrameLabel
             name={`${entity.id}·frame`}
             info={`${kind}${isSpine ? " · spine" : isTop ? " · top" : " · ancestor"} · h:fill v:fill`}

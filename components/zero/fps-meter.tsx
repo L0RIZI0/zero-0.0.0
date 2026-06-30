@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
+import { useDebugView } from "@/lib/zero/debug-view"
 
 /**
  * Dev-only on-screen FPS meter — a no-DevTools way to answer the 120Hz question.
@@ -13,15 +14,15 @@ import { useEffect, useRef, useState } from "react"
  *   - stays near the max       → smooth, cost is fine.
  *   - drops well below max     → genuine per-frame cost (gesture-decoupling refactor).
  *
- * Renders nothing in production. Toggle with the backtick (`) key. Click "reset" (or
- * press R while hovering) to clear the max — do that right before a drag to capture
- * the drag's own min/max cleanly.
+ * Renders nothing in production. Toggle with the `§ 1` chord (shared debug store). Click
+ * "reset" (or press R while hovering) to clear the max — do that right before a drag to
+ * capture the drag's own min/max cleanly.
  */
 export function FpsMeter() {
   const [fps, setFps] = useState(0)
   const [maxFps, setMaxFps] = useState(0)
   const [minFps, setMinFps] = useState(0)
-  const [visible, setVisible] = useState(true)
+  const { fps: visible } = useDebugView()
   const resetRef = useRef(false)
 
   useEffect(() => {
@@ -65,10 +66,8 @@ export function FpsMeter() {
   useEffect(() => {
     if (process.env.NODE_ENV === "production") return
     const onKey = (e: KeyboardEvent) => {
-      // Toggle with backtick (`) OR section sign (§) — the latter for keyboards
-      // (e.g. ISO layouts) that have no backtick key. `e.code === "Backquote"`
-      // also covers the physical key regardless of the layout's produced char.
-      if (e.key === "`" || e.key === "§" || e.code === "Backquote") setVisible((v) => !v)
+      // Visibility is toggled by the shared `§ 1` chord (see debug-view store).
+      // Here we only handle the local "reset max/min" key.
       if (e.key === "r" || e.key === "R") resetRef.current = true
     }
     window.addEventListener("keydown", onKey)
@@ -100,7 +99,7 @@ export function FpsMeter() {
       >
         reset (R)
       </button>
-      <div className="mt-1 text-[10px] text-muted-foreground">{"` or § to hide"}</div>
+      <div className="mt-1 text-[10px] text-muted-foreground">{"§1 hide · §2 frames"}</div>
     </div>
   )
 }
