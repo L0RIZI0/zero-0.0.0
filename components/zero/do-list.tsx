@@ -813,6 +813,9 @@ export function DoList({
     setMenuKey(`${contextId}:${item.id}`)
     const canCancel = item.kind === "event" || item.kind === "instant"
     const isCancelled = !!item.entity.cancelled
+    // Captured here (not read inside the menu closure) so the TaskSpace narrowing
+    // survives — closures don't retain control-flow narrowing of `item.entity`.
+    const isRequested = item.entity.kind === "task" && !!item.entity.requested
     setMenu({
       x: e.clientX,
       y: e.clientY,
@@ -845,13 +848,13 @@ export function DoList({
         // "Send" — mock sending the task to someone as a request. Tasks only; no
         // transport yet, it just toggles the `requested` flag, which makes the
         // row's glyph swing out its tilted "sent" edge (and fold it back on undo).
-        ...(item.kind === "task"
+        ...(item.entity.kind === "task"
           ? [
               {
-                label: item.entity.requested ? "Unsend request" : "Send as request",
+                label: isRequested ? "Unsend request" : "Send as request",
                 icon: <Send className="h-3.5 w-3.5" />,
                 onSelect: () => {
-                  setEntityRequested(item.id, !item.entity.requested)
+                  setEntityRequested(item.id, !isRequested)
                   notifyDataChanged()
                 },
               },

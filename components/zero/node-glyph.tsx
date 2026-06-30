@@ -3,33 +3,28 @@
 import { useLayoutEffect, useRef } from "react"
 import gsap from "gsap"
 import { cn } from "@/lib/utils"
+import type { EntityKind } from "@/lib/zero/types"
+import { KIND_META } from "@/lib/zero/kinds"
 
-/** The node kinds Zero can create, each with its own silhouette. */
-export type NodeKind =
-  | "task"
-  | "space"
-  | "event"
-  | "instant"
-  | "resource"
-  | "community"
-  | "organism"
-  | "individual"
-  | "soul"
+/**
+ * The node kinds Zero can draw — identical to the domain {@link EntityKind} union
+ * (every entity is a Space, and each kind has its own silhouette). Kept as an
+ * alias so glyph callers don't all need to import from the domain types.
+ */
+export type NodeKind = EntityKind
 
-export const NODE_KIND_META: Record<
-  NodeKind,
-  { label: string; description: string }
-> = {
-  task: { label: "Task", description: "A thing to do" },
-  space: { label: "Space", description: "A context that holds things" },
-  resource: { label: "Resource", description: "An asset, reference, or tool" },
-  event: { label: "Event", description: "Something that lives in time" },
-  instant: { label: "Instant", description: "A precise moment" },
-  community: { label: "Community", description: "A place to gather people and discussions" },
-  organism: { label: "Organism", description: "A company, a point of view" },
-  individual: { label: "Individual", description: "A person, animated by a Soul" },
-  soul: { label: "Soul", description: "The animating self behind a person" },
-}
+/**
+ * Label + description per kind. DERIVED from the single source of truth
+ * {@link KIND_META} (`lib/zero/kinds.ts`) so the glyph, do-list, and Zero Entities
+ * page never drift. Kept as a named export for existing consumers.
+ */
+export const NODE_KIND_META: Record<NodeKind, { label: string; description: string }> =
+  Object.fromEntries(
+    (Object.keys(KIND_META) as NodeKind[]).map((k) => [
+      k,
+      { label: KIND_META[k].label, description: KIND_META[k].description },
+    ]),
+  ) as Record<NodeKind, { label: string; description: string }>
 
 type Pt = [number, number]
 

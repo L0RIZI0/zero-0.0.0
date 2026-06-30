@@ -149,9 +149,22 @@ export interface Schedule {
   repeat?: Recurrence
 }
 
-export interface Entity {
+/**
+ * SPACE BASE — the recursive container that EVERY entity is, before it is any
+ * particular kind. "Every entity is a Space": a Task, an Event, an Organism…
+ * are all Spaces with extra, kind-specific properties layered on top. A space's
+ * own world (its do-list, sub-spaces, resources) is reached by opening it; the
+ * subtree rooted at `id` IS "the world of" that space.
+ *
+ * IDENTITY: a space is identified by its stable `id`, never its `title`. Titles
+ * are mutable display labels and may repeat; all relationships key off `id`
+ * (`parentId`, `taggedSpaceIds`, `seriesId`+`recurrenceId`, the `byId` map).
+ *
+ * Fields here are shared by all kinds; per-kind specifics live on the variant
+ * interfaces below, and `Entity` is their discriminated union (on `kind`).
+ */
+export interface SpaceBase {
   id: string
-  kind: EntityKind
   title: string
 
   // --- Relationships --------------------------------------------------------
@@ -183,56 +196,148 @@ export interface Entity {
    */
   recurrenceId?: Epoch
 
-  // --- Shared attributes (relevance varies by kind) -------------------------
-  /** Any entity may be marked complete. */
+  // --- Lifecycle / provenance META (every space has meta) -------------------
+  /** When this space was created (epoch ms). */
+  createdAt?: Epoch
+  /** Id of the creating Individual/Organism ("created by"). */
+  createdBy?: string
+  /** Place id or label where it was created ("created where"). */
+  createdWhere?: string
+  /** When `completed` last flipped true (mirrors the completion write). */
+  completedOn?: Epoch
+
+  // --- Shared state + display (relevance varies by kind) --------------------
+  /**
+   * A NORMAL "done" flag. Only meaningful for completable kinds (task/event/
+   * instant/space/resource). Community/Organism/Individual/Soul are NOT
+   * "completed" — they reach a TERMINAL state (retire/death) instead; see
+   * `KIND_META` in `lib/zero/kinds.ts`.
+   */
   completed?: boolean
   /**
    * An event (or instant) that was called off but kept on the timeline for
    * reference. Cancelled items render dimmed with a struck-through title.
    */
   cancelled?: boolean
-  /**
-   * A task that has been SENT to someone as a request ("Can you do this?").
-   * Purely a state flag for now (no recipient/transport modelled yet); its only
-   * effect is on the glyph, which sprouts a tilted "sent" edge off the square's
-   * bottom-right corner. Mainly tasks.
-   */
-  requested?: boolean
   /** Mainly spaces. */
   description?: string
   /** Contextual tint, mainly spaces. */
   accent?: string
   /** Resources assigned to this entity (mainly spaces). */
   assignedResourceIds?: string[]
-  /** Mainly tasks. */
-  priority?: TaskPriority
   /**
    * All timing for this entity (start/end span, instant point, due date, effort
-   * budget, recurrence) — grouped in one optional object. Replaces the former
-   * flat `start`/`end`/`at`/`seconds` (minutes-from-midnight) and the free-text
-   * `dueDate`. See {@link Schedule}. Sub-second/`seconds` precision is now free,
-   * since `at` is an absolute timestamp.
+   * budget, recurrence) — grouped in one optional object. See {@link Schedule}.
+   * Presence of `schedule` is the single "is this space planned?" check.
    */
   schedule?: Schedule
   /** Free-text labels. */
   tags?: string[]
+}
 
-  // --- Web resource binding (the "contextual browser") ----------------------
+/**
+ * TASK — a unit of work; still a container (it can hold subtasks). The only kind
+ * that carries the web-resource binding (the "contextual browser") and a sent/
+ * requested flag and a priority.
+ */
+export interface TaskSpace extends SpaceBase {
+  kind: "task"
+  /** Task priority. */
+  priority?: TaskPriority
   /**
-   * When set, this entity is a RESOURCE TASK: opening it shows a live web surface
-   * (or an illustrative stand-in) instead of a do-list. This is how Zero behaves
-   * as a contextual browser — a Figma/Photopea/etc. tab that lives inside a Task
-   * and whose outputs can later wire into the Task's Outputs. Holds the URL the
-   * task opens. Present on `kind: "task"` entities created from a URL or resource.
+   * A task SENT to someone as a request ("Can you do this?"). State flag only
+   * (no recipient/transport modelled yet); it sprouts a tilted "sent" edge off the
+   * square glyph's bottom-right corner.
+   */
+  requested?: boolean
+  /**
+   * When set, this is a RESOURCE TASK: opening it shows a live web surface instead
+   * of a do-list (Zero as a contextual browser). Holds the URL the task opens.
    */
   webUrl?: string
   /**
    * Optional id into the known web-resource catalog (see `web-resources.ts`) for
-   * branding + embed behavior. Absent for an arbitrary typed URL (which falls back
-   * to generic embed + hostname branding).
+   * branding + embed behavior. Absent for an arbitrary typed URL.
    */
   webResourceId?: string
 }
+
+/** EVENT — a scheduled contiguous span (start→end); a container at its core. */
+export interface EventSpace extends SpaceBase {
+  kind: "event"
+}
+
+/** INSTANT — like an event, but a single point in time rather than a span. */
+export interface InstantSpace extends SpaceBase {
+  kind: "instant"
+}
+
+/** SPACE — a plain area / folder / gathering ("Day Job", "Health"). */
+export interface PlainSpace extends SpaceBase {
+  kind: "space"
+}
+
+/** RESOURCE — a referenced asset/tool/material the work draws on. */
+export interface ResourceSpace extends SpaceBase {
+  kind: "resource"
+}
+
+/**
+ * COMMUNITY — a place gathering people and discussions (subreddit-like). NOT
+ * completable; its terminal state is RETIREMENT (`retiredOn`).
+ */
+export interface CommunitySpace extends SpaceBase {
+  kind: "community"
+  /** When the community was retired (terminal state; epoch ms). */
+  retiredOn?: Epoch
+}
+
+/**
+ * ORGANISM — a living entity at the level of Society (a body, or a company /
+ * institution). NOT completable; its terminal state is DEATH (`diedOn`).
+ */
+export interface OrganismSpace extends SpaceBase {
+  kind: "organism"
+  /** Whether still alive (open-ended until killed). */
+  alive?: boolean
+  /** When the organism died (terminal state; epoch ms). */
+  diedOn?: Epoch
+}
+
+/**
+ * INDIVIDUAL — a person as an entity, animated by exactly one Soul. NOT
+ * completable; birth/death meta live here.
+ */
+export interface IndividualSpace extends SpaceBase {
+  kind: "individual"
+  /** Birth time (epoch ms). */
+  bornAt?: Epoch
+  /** When the individual died (terminal state; epoch ms). */
+  diedOn?: Epoch
+}
+
+/**
+ * SOUL — the primary animating "it" behind a conscious person; one Soul per
+ * person. System-only, never completable, no terminal state.
+ */
+export interface SoulSpace extends SpaceBase {
+  kind: "soul"
+}
+
+/**
+ * ENTITY — the discriminated union of every particular Space, keyed on `kind`.
+ * Narrow on `entity.kind === "task"` etc. to reach a variant's own fields.
+ */
+export type Entity =
+  | TaskSpace
+  | EventSpace
+  | InstantSpace
+  | PlainSpace
+  | ResourceSpace
+  | CommunitySpace
+  | OrganismSpace
+  | IndividualSpace
+  | SoulSpace
 
 export interface Resource {
   id: string

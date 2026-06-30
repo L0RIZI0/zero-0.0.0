@@ -1,6 +1,45 @@
-import type { Asset, Entity, EntityKind, Recurrence, Schedule, Resource, User } from "./types"
+import type { Asset, Entity, EntityKind, Recurrence, Schedule, Resource, SpaceBase, TaskPriority, User } from "./types"
+import { isCompletable } from "./kinds"
 import { readUserItems, writeUserItems } from "./persistence"
 import type { ScheduleParse } from "./schedule-parse"
+
+/**
+ * The loose shape accepted by {@link makeEntity}: a SpaceBase plus a (possibly
+ * dynamic) `kind` and any kind-specific optional fields. The discriminated `Entity`
+ * union can't be built from a literal whose `kind` is only known at runtime (TS
+ * can't pick a variant), so this is the SINGLE place we cross that boundary with a
+ * cast. Seed literals with a static `kind` build `Entity` directly and bypass this.
+ */
+type LooseEntity = SpaceBase & {
+  kind: EntityKind
+  // task-only
+  priority?: TaskPriority
+  requested?: boolean
+  webUrl?: string
+  webResourceId?: string
+  // terminal / lifecycle meta (organism/individual/community)
+  alive?: boolean
+  bornAt?: number
+  diedOn?: number
+  retiredOn?: number
+}
+
+/** The one construction boundary for entities whose `kind` is dynamic. */
+function makeEntity(props: LooseEntity): Entity {
+  return props as Entity
+}
+
+/**
+ * A MUTABLE loose view of a stored entity, for the imperative setters that change
+ * `kind` and/or per-kind fields IN PLACE (changeEntityKind, applyParsedSchedule,
+ * setEntityRequested, setEntityCompleted). The returned object is the SAME reference
+ * held by `byId`/`entities`, so writes persist; the cast only lets TS allow assigning
+ * the discriminant and cross-kind fields. Runtime behavior is identical to before the
+ * Space-union refactor (these functions already mutated the object in place).
+ */
+function mutable(e: Entity): LooseEntity {
+  return e as unknown as LooseEntity
+}
 
 export const currentUser: User = {
   id: "u_self",
@@ -942,7 +981,10 @@ export function getSpaceEvents(spaceId: string): Entity[] {
  * within the queried range. Each occurrence carries the entity's identity and
  * resolved `schedule`, plus a unique `occKey` for React/lane bookkeeping.
  */
-export interface TimelineOccurrence extends Entity {
+// Intersection (not `extends`) so it DISTRIBUTES over the `Entity` discriminated
+// union — `TimelineOccurrence` is "any Entity variant, plus an `occKey`", and
+// narrowing on `.kind` still reaches each variant's own fields.
+export type TimelineOccurrence = Entity & {
   /** Unique per rendered occurrence (a recurring series produces several). */
   occKey: string
 }
@@ -1358,7 +1400,19 @@ export function materializeOccurrence(seriesId: string, dayStart: number): Entit
   const mother = byId.get(seriesId)
   if (!mother) return undefined
 
-  const override: Entity = {
+  // Task-only carry-overs are read only when the mother is actually a task, so the
+  // union narrows and `priority`/`webUrl`/`webResourceId` are in scope.
+  const taskExtras =
+    mother.kind === "task"
+      ? {
+          ...(mother.priority ? { priority: mother.priority } : {}),
+          ...(mother.webUrl ? { webUrl: mother.webUrl } : {}),
+          ...(mother.webResourceId ? { webResourceId: mother.webResourceId } : {}),
+        }
+      : {}
+
+  // `kind` is dynamic (mirrors the mother), so build through the makeEntity boundary.
+  const override: Entity = makeEntity({
     id: uid("occ"),
     kind: mother.kind,
     title: mother.title,
@@ -1368,13 +1422,11 @@ export function materializeOccurrence(seriesId: string, dayStart: number): Entit
     recurrenceId: dayStart,
     schedule: resolveOccurrenceSchedule(mother.schedule, dayStart),
     completed: false,
-    ...(mother.priority ? { priority: mother.priority } : {}),
     ...(mother.accent ? { accent: mother.accent } : {}),
     ...(mother.description ? { description: mother.description } : {}),
     ...(mother.tags ? { tags: [...mother.tags] } : {}),
-    ...(mother.webUrl ? { webUrl: mother.webUrl } : {}),
-    ...(mother.webResourceId ? { webResourceId: mother.webResourceId } : {}),
-  }
+    ...taskExtras,
+  })
   entities.push(override)
   byId.set(override.id, override)
   userEntityIds.add(override.id)
@@ -1537,9 +1589,15 @@ export function setEntityTitle(id: string, title: string): void {
  * materialized occurrences it lands on the override's own cloned subtask, keeping each
  * day independent. No-op if the id is unknown. */
 export function setEntityCompleted(id: string, completed: boolean): void {
-  const entity = byId.get(id)
-  if (!entity) return
+  const stored = byId.get(id)
+  if (!stored) return
+  // Only completable kinds hold a normal "done". Community/Organism/Individual/Soul
+  // reach a TERMINAL state (retire/death) instead — ignore completion writes on them.
+  if (completed && !isCompletable(stored.kind)) return
+  const entity = mutable(stored)
   entity.completed = completed
+  // Track WHEN it was completed (cleared when un-checked) — part of every space's meta.
+  entity.completedOn = completed ? Date.now() : undefined
   persist()
 }
 
@@ -1554,8 +1612,9 @@ export function setEntityCompleted(id: string, completed: boolean): void {
  * later from the context menu.
  */
 export function changeEntityKind(id: string, kind: EntityKind): void {
-  const entity = byId.get(id)
-  if (!entity || entity.kind === kind) return
+  const stored = byId.get(id)
+  if (!stored || stored.kind === kind) return
+  const entity = mutable(stored)
   entity.kind = kind
   if (kind === "task") {
     entity.completed = entity.completed ?? false
@@ -1595,8 +1654,10 @@ export function changeEntityKind(id: string, kind: EntityKind): void {
  * Returns true if the entity existed and was updated.
  */
 export function applyParsedSchedule(id: string, plan: ScheduleParse): boolean {
-  const entity = byId.get(id)
-  if (!entity) return false
+  const stored = byId.get(id)
+  if (!stored) return false
+  // Mutated in place: retitle, switch kind, attach schedule (see `mutable`).
+  const entity = mutable(stored)
 
   if (plan.title.trim()) entity.title = plan.title.trim()
 
@@ -1706,8 +1767,9 @@ export function applyParsedSchedule(id: string, plan: ScheduleParse): boolean {
  * because a request is an overlay on an existing kind, not a different kind.
  */
 export function setEntityRequested(id: string, requested: boolean): void {
-  const entity = byId.get(id)
-  if (!entity) return
+  const stored = byId.get(id)
+  if (!stored) return
+  const entity = mutable(stored)
   entity.requested = requested
   if (!userEntityIds.has(id)) {
     // Seeded entity — track as an override patch so the sent state survives refreshes.
