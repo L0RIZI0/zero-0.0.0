@@ -5,7 +5,7 @@ import { useZeroNav } from "@/lib/zero/nav-store"
 import { getTimelineOccurrences, getInheritedAccent } from "@/lib/zero/data"
 import { entityInterval } from "@/lib/zero/timeline-index"
 import { KIND_META } from "@/lib/zero/kinds"
-import { rangeText, fmtTime, NOW_COLOR } from "@/lib/zero/timeline-format"
+import { rangeText, NOW_COLOR } from "@/lib/zero/timeline-format"
 import { DAYLINE_ROW_H } from "@/lib/zero/layout"
 import { cn } from "@/lib/utils"
 import { NodeGlyph } from "./node-glyph"
@@ -287,19 +287,11 @@ export function Dayline() {
                 borderTop: `5px solid ${NOW_COLOR}`,
               }}
             />
-            {/* Live time pill — always-on tooltip pinned to the marker's center. The
-                orange tint + border tie it to the marker; tabular-nums keeps the digits
-                from jittering as the minute advances. */}
-            <span
-              className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 whitespace-nowrap rounded-full border px-1.5 py-0.5 text-[10px] font-semibold leading-none tracking-tight tabular-nums shadow-sm"
-              style={{
-                color: NOW_COLOR,
-                borderColor: NOW_COLOR,
-                backgroundColor: "var(--card)",
-                boxShadow: `0 0 6px ${NOW_COLOR}40`,
-              }}
-            >
-              {fmtTime(now)}
+            {/* Live time tooltip — always-on, pinned to the marker's center, styled to
+                match the chip hover helper (neutral card). 24h format; tabular-nums keeps
+                the digits from jittering as the minute advances. */}
+            <span className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 whitespace-nowrap rounded border border-border/70 bg-card px-2 py-1 text-[10.5px] font-medium leading-none tracking-tight tabular-nums text-foreground/80 shadow-sm">
+              {new Date(now).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false })}
             </span>
           </div>
         )}
