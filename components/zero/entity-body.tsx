@@ -13,7 +13,7 @@ import { AssetPanel } from "./asset-panel"
 import { OutputPanel } from "./output-panel"
 import { CollapsibleColumn } from "./collapsible-column"
 import { ResourceCanvas } from "./resource-canvas"
-import { DebugFrameLabel } from "./debug-frame-label"
+import { DebugFrameLabel, DebugComponentFrame } from "./debug-frame-label"
 import { useDebugView } from "@/lib/zero/debug-view"
 import { cn } from "@/lib/utils"
 
@@ -151,7 +151,9 @@ export function EntityBody({
               (no `max-w` cap and no side padding, unlike regions 1/2 which stay capped
               + centered for a comfortable reading measure). Only the view's `p-3` inset
               keeps it off the screen edge. */}
-          <div className="w-full">{timeline}</div>
+          <DebugComponentFrame name={`${dbg}·lifelane`} info="component · timeline" className="w-full">
+            {timeline}
+          </DebugComponentFrame>
         </Region>
       ) : null}
 
@@ -171,9 +173,13 @@ export function EntityBody({
               uncomfortably wide measure on large/ultrawide monitors — on narrower
               screens the 2/3 width wins, on wide ones the cap does.
               `pointer-events-auto` re-enables interaction on the list itself. */}
-          <div className="pointer-events-auto flex min-h-0 w-2/3 max-w-2xl flex-1 flex-col self-center">
+          <DebugComponentFrame
+            name={`${dbg}·do-list`}
+            info="component · rows + input"
+            className="pointer-events-auto flex min-h-0 w-2/3 max-w-2xl flex-1 flex-col self-center"
+          >
             <DoList contextId={entityId} active={active} closing={closing} centered={centerList} />
-          </div>
+          </DebugComponentFrame>
         </div>
       </Region>
 
@@ -183,9 +189,13 @@ export function EntityBody({
           reserved slot via its own transform entrance. */}
       {hasPins ? (
         <Region grow="hug" className="px-6" debugName={`${dbg}·reg2`} debugRole="dock">
-          <div className={cn("mx-auto w-full", isRoot ? "max-w-[70vw]" : "max-w-[720px]")}>
+          <DebugComponentFrame
+            name={`${dbg}·dock`}
+            info="component · pins"
+            className={cn("mx-auto w-full", isRoot ? "max-w-[70vw]" : "max-w-[720px]")}
+          >
             <Dock contextId={entityId} active={active} />
-          </div>
+          </DebugComponentFrame>
         </Region>
       ) : null}
         </div>
