@@ -28,6 +28,7 @@ export function CollapsibleColumn({
   railWidth,
   panelWidth,
   railScale = 1,
+  railShift = 0,
 }: {
   title: string
   /** Short label shown on the vertical rail. Falls back to `title` when omitted. */
@@ -44,6 +45,9 @@ export function CollapsibleColumn({
   panelWidth: number
   /** Recessed scale for a covered ancestor's rail sliver (1 = full, uncovered). */
   railScale?: number
+  /** Vertical px offset that centers the rail on the FRAME (not the body) center.
+   *  Applied to the rail ONLY — the panel fills the full body height regardless. */
+  railShift?: number
 }) {
   const OpenIcon = side === "left" ? PanelLeftClose : PanelRightClose
   const ClosedIcon = side === "left" ? PanelLeftOpen : PanelRightOpen
@@ -57,10 +61,10 @@ export function CollapsibleColumn({
   const lit = railHover || open
 
   return (
-    <div className="relative" style={{ width: railWidth }}>
-      {/* PANEL — opaque overlay, sitting just INSIDE the rail and extending over the
-          View. Snappy slide in from the edge; centered vertically on the rail (i.e.
-          on the frame edge). */}
+    <div className="relative h-full" style={{ width: railWidth }}>
+      {/* PANEL — opaque overlay that fills the body's FULL height (header bottom →
+          window bottom) and extends over the View from just INSIDE the rail. Snappy
+          slide in from the edge; square top/bottom so it reaches both edges flush. */}
       <AnimatePresence initial={false}>
         {open && (
           <motion.section
@@ -71,7 +75,9 @@ export function CollapsibleColumn({
             exit={{ opacity: 0, x: side === "left" ? -16 : 16 }}
             transition={panelSlideTransition}
             className={cn(
-              "pointer-events-auto absolute top-1/2 flex max-h-[62vh] min-h-0 -translate-y-1/2 flex-col rounded-lg border border-border bg-card shadow-xl",
+              "pointer-events-auto absolute inset-y-0 flex min-h-0 flex-col border-border bg-card shadow-xl",
+              // Flush top & bottom; border + rounding only on the inner (View-facing) edge.
+              side === "left" ? "rounded-r-lg border-y border-r" : "rounded-l-lg border-y border-l",
             )}
             style={{
               width: panelWidth,
@@ -94,9 +100,11 @@ export function CollapsibleColumn({
         )}
       </AnimatePresence>
 
-      {/* SHORTCUT rail — always in place, toggles the panel. `relative z-10` lifts it
-          ABOVE an ancestor's opaque spine cover so a covered ancestor's rail stays
-          reachable. Icon flips (open⇄close) to signal state. */}
+      {/* SHORTCUT rail — always in place, toggles the panel. Absolutely centered on the
+          FRAME (top-1/2 + railShift), lifted `z-20` ABOVE the panel + any ancestor's
+          opaque spine cover so it stays reachable. Icon flips (open⇄close) to signal
+          state; the vertical label is HIDDEN while open (the panel header already names
+          it), leaving just the icon as the close target. */}
       <button
         type="button"
         onClick={(e) => {
@@ -107,8 +115,8 @@ export function CollapsibleColumn({
         onPointerLeave={() => setRailHover(false)}
         aria-label={open ? `Collapse ${title}` : `Expand ${title}`}
         aria-expanded={open}
-        className="pointer-events-auto relative z-10 flex w-full flex-col items-center justify-center gap-2 py-2"
-        style={{ transform: `scale(${railScale})` }}
+        className="pointer-events-auto absolute inset-x-0 top-1/2 z-20 flex flex-col items-center justify-center gap-2"
+        style={{ transform: `translateY(calc(-50% + ${railShift}px)) scale(${railScale})` }}
       >
         <ToggleIcon
           className={cn(
@@ -116,16 +124,18 @@ export function CollapsibleColumn({
             lit ? "text-foreground opacity-100" : "text-muted-foreground opacity-35",
           )}
         />
-        <span
-          className={cn(
-            "text-[10px] font-medium uppercase tracking-[0.14em] transition-opacity duration-200",
-            lit ? "text-foreground opacity-100" : "text-muted-foreground/70 opacity-35",
-          )}
-          style={{ writingMode: "vertical-rl" }}
-        >
-          {label}
-          {typeof count === "number" ? `  ${count}` : ""}
-        </span>
+        {!open && (
+          <span
+            className={cn(
+              "text-[10px] font-medium uppercase tracking-[0.14em] transition-opacity duration-200",
+              lit ? "text-foreground opacity-100" : "text-muted-foreground/70 opacity-35",
+            )}
+            style={{ writingMode: "vertical-rl" }}
+          >
+            {label}
+            {typeof count === "number" ? `  ${count}` : ""}
+          </span>
+        )}
       </button>
     </div>
   )

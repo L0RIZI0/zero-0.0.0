@@ -202,7 +202,7 @@ export function EntityBody({
       {/* ASSETS — stuff that goes IN (resources, constraints, files…). Persistent
           shortcut on the LEFT edge; the opaque panel slides in over the View. */}
       <PanelSlot side="left" open={inOpen} shift={railShift} bleed={railBleedLeft}>
-        {(railWidth, panelWidth, railScale) => (
+        {(railWidth, panelWidth, railScale, shift) => (
           <CollapsibleColumn
             title="Assets"
             collapsedTitle="Assets"
@@ -213,6 +213,7 @@ export function EntityBody({
             railWidth={railWidth}
             panelWidth={panelWidth}
             railScale={railScale}
+            railShift={shift}
           >
             <AssetPanel spaceId={entityId} />
           </CollapsibleColumn>
@@ -222,7 +223,7 @@ export function EntityBody({
       {/* PUBLISHED — stuff that goes OUT (publications, output, results). Mirror of
           Assets on the RIGHT edge. */}
       <PanelSlot side="right" open={outOpen} shift={railShift} bleed={railBleedRight}>
-        {(railWidth, panelWidth, railScale) => (
+        {(railWidth, panelWidth, railScale, shift) => (
           <CollapsibleColumn
             title="Published"
             collapsedTitle="Published"
@@ -233,6 +234,7 @@ export function EntityBody({
             railWidth={railWidth}
             panelWidth={panelWidth}
             railScale={railScale}
+            railShift={shift}
           >
             <OutputPanel spaceId={entityId} />
           </CollapsibleColumn>
@@ -255,10 +257,11 @@ export function EntityBody({
  * rail jump (up when spining, down when un-spining) before easing back — the bug
  * this avoids.
  *
- * The persistent shortcut rail stays at the edge sliver (`bleed` wide) and a covered
- * ancestor's rail gently recesses via `railScale`; the opaque panel is an overlay
- * that slides in BESIDE the rail (handled in CollapsibleColumn) and never changes
- * this slot's box, so the vertical anchor is stable.
+ * The slot spans the body's FULL height (`inset-y-0`), so the opaque panel it hosts
+ * can reach from the header bottom to the window bottom. The persistent shortcut rail
+ * stays at the edge sliver (`bleed` wide) and is vertically centered on the FRAME by
+ * `shift` (a covered ancestor's rail also recesses via `railScale`) — the panel itself
+ * ignores `shift` and just fills the slot. Both are handled in CollapsibleColumn.
  *
  * The wrapper is `pointer-events-none` so the do-list underneath stays interactive
  * wherever the panel is transparent; the rail + panel re-enable pointer events.
@@ -274,7 +277,7 @@ function PanelSlot({
   open: boolean
   shift: number
   bleed: number
-  children: (railWidth: number, panelWidth: number, railScale: number) => React.ReactNode
+  children: (railWidth: number, panelWidth: number, railScale: number, railShift: number) => React.ReactNode
 }) {
   // Shrink only a COLLAPSED rail that's narrower than the full width (a covered
   // ancestor); the open panel and uncovered (leaf/home) rails stay at scale 1.
@@ -282,12 +285,11 @@ function PanelSlot({
   return (
     <div
       className={cn(
-        "pointer-events-none absolute top-1/2 z-10 hidden md:block",
+        "pointer-events-none absolute inset-y-0 z-10 hidden md:block",
         side === "left" ? "left-0" : "right-0",
       )}
-      style={{ transform: `translateY(calc(-50% + ${shift}px))` }}
     >
-      {children(bleed, PANEL_OPEN_W, railScale)}
+      {children(bleed, PANEL_OPEN_W, railScale, shift)}
     </div>
   )
 }
