@@ -125,7 +125,7 @@ export function CollapsibleColumn({
                 style={{ backgroundColor: surface }}
               >
                 {label}
-                {typeof count === "number" ? `  ${count}` : ""}
+                {typeof count === "number" ? ` (${count})` : ""}
               </span>
             </div>
             <div
@@ -179,7 +179,7 @@ export function CollapsibleColumn({
             style={{ writingMode: "vertical-rl" }}
           >
             {label}
-            {typeof count === "number" ? `  ${count}` : ""}
+            {typeof count === "number" ? ` (${count})` : ""}
           </span>
         </span>
       </button>

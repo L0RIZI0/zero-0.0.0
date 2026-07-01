@@ -37,7 +37,7 @@ export const panelTransition: Transition = morphBeat
  * shared-element morph, so it should feel snappy and immediate — the shortcut rail
  * stays put and the panel just pops in from the edge. Short, firm ease-out.
  */
-export const panelSlideTransition: Transition = { duration: 0.18, ease: [0.4, 0, 0.2, 1] }
+export const panelSlideTransition: Transition = { duration: 0.32, ease: [0.4, 0, 0.2, 1] }
 
 /**
  * The single attribute name a morph SOURCE exposes so an opening window can
