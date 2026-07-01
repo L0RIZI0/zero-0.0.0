@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import { motion, AnimatePresence } from "motion/react"
-import { PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from "lucide-react"
+import { ChevronLeft, ChevronRight, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from "lucide-react"
 import { panelSlideTransition } from "@/lib/zero/motion"
 import { cn } from "@/lib/utils"
 
@@ -64,6 +64,9 @@ export function CollapsibleColumn({
   const OpenIcon = side === "left" ? PanelLeftClose : PanelRightClose
   const ClosedIcon = side === "left" ? PanelLeftOpen : PanelRightOpen
   const ToggleIcon = open ? OpenIcon : ClosedIcon
+  // Chevron shown IN PLACE OF the vertical label while open — points toward the window
+  // edge (the collapse direction) to signal the rail still closes the panel.
+  const CollapseChevron = side === "left" ? ChevronLeft : ChevronRight
   const label = collapsedTitle ?? title
 
   // Hover handled via React state (not Tailwind `group-hover:`) — the CSS hover
@@ -171,24 +174,36 @@ export function CollapsibleColumn({
           className="flex flex-col items-center gap-2"
           style={{ transform: `translateY(${railShift}px) scale(${railScale})` }}
         >
-          {/* Hidden when open (the horizontal panel title carries the identity); the
-              full-height rail stays clickable to close. */}
-          <ToggleIcon
-            className={cn(
-              "h-3 w-3 transition-opacity duration-200",
-              open ? "text-foreground opacity-0" : railHover ? "text-foreground opacity-100" : "text-muted-foreground opacity-35",
-            )}
-          />
-          <span
-            className={cn(
-              "text-[10px] font-medium uppercase tracking-[0.14em] text-foreground transition-opacity duration-200",
-              labelOpacity,
-            )}
-            style={{ writingMode: "vertical-rl" }}
-          >
-            {label}
-            {typeof count === "number" ? ` (${count})` : ""}
-          </span>
+          {open ? (
+            /* OPEN: the vertical label + panel-toggle icon are hidden (the horizontal
+               panel title carries the identity); a single collapse chevron pointing at
+               the window edge indicates the rail still closes the panel. */
+            <CollapseChevron
+              className={cn(
+                "h-4 w-4 transition-opacity duration-200",
+                railHover ? "text-foreground opacity-100" : "text-muted-foreground opacity-45",
+              )}
+            />
+          ) : (
+            <>
+              <ToggleIcon
+                className={cn(
+                  "h-3 w-3 transition-opacity duration-200",
+                  railHover ? "text-foreground opacity-100" : "text-muted-foreground opacity-35",
+                )}
+              />
+              <span
+                className={cn(
+                  "text-[10px] font-medium uppercase tracking-[0.14em] text-foreground transition-opacity duration-200",
+                  labelOpacity,
+                )}
+                style={{ writingMode: "vertical-rl" }}
+              >
+                {label}
+                {typeof count === "number" ? ` (${count})` : ""}
+              </span>
+            </>
+          )}
         </span>
       </button>
     </div>
