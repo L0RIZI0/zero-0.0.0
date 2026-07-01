@@ -188,6 +188,26 @@ export function Dayline() {
   // Double-click snaps back to the live window containing now.
   const recenter = useCallback(() => setViewStart(dayWindow(Date.now())[0]), [])
 
+  // Wheel/trackpad pan. Attached natively (not via React's passive onWheel) so we can
+  // preventDefault and stop the page from scrolling while panning the lane. Uses the
+  // dominant scroll axis (deltaX on trackpads, deltaY on a plain mouse wheel), mapped
+  // linearly to time by the lane width — same scale as the drag. Scrolling forward
+  // (down / right) reveals LATER time (window slides forward), mirroring the drag where
+  // dragging left reveals later time.
+  useEffect(() => {
+    const lane = laneRef.current
+    if (!lane) return
+    const onWheel = (e: WheelEvent) => {
+      const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY
+      if (delta === 0) return
+      e.preventDefault()
+      const w = lane.clientWidth || 1
+      setViewStart((vs) => vs + (delta / w) * DAY_MS)
+    }
+    lane.addEventListener("wheel", onWheel, { passive: false })
+    return () => lane.removeEventListener("wheel", onWheel)
+  }, [])
+
   return (
     // Constant-height header row. `pointer-events-none` lets the gaps fall through;
     // the lane + its ticks re-enable pointer events for themselves. px-5 aligns the
