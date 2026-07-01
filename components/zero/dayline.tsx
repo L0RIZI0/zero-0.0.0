@@ -71,9 +71,10 @@ const RIPPLE_DAMPING = 2 * Math.sqrt(RIPPLE_STIFFNESS)
 // Max fraction of a pan step a far column lags behind by (0 = none, 1 = fully held back).
 // Near 1 → far columns almost freeze on each step, then snap-catch-up for a big ripple.
 const RIPPLE_LAG = 0.97
-// Falloff exponent for lag vs normalized cursor distance (>1 keeps a tight lead near
-// the cursor and a longer trailing tail). Higher = more dramatic near-vs-far contrast.
-const RIPPLE_FALLOFF = 1.6
+// Falloff exponent for lag vs normalized cursor distance. <1 = concave: lag ramps up
+// FAST right off the cursor column (a SMALL "lens" — near-cursor content reacts
+// strongly) while far columns still sit near max lag, so the far effect is preserved.
+const RIPPLE_FALLOFF = 0.7
 // Clamp per-column offset so a rapid scroll burst can't fling content far off-lane.
 const RIPPLE_MAX_OFFSET = 130
 // Below this |offset| (px) and |velocity| a column is snapped to rest. Set above the
