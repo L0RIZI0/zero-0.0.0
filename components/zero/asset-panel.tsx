@@ -123,6 +123,11 @@ function ResourceRow({ item, index }: { item: MockItem; index: number }) {
 
 function Section({ title, items, defaultOpen = true }: { title: string; items: MockItem[]; defaultOpen?: boolean }) {
   const [open, setOpen] = useState(defaultOpen)
+  // The height-collapse animation needs `overflow-hidden`, but that also clips the rows'
+  // connector hairlines horizontally so they can't reach the window edge. So we only clip
+  // WHILE animating; once the section is open and idle we switch overflow to visible,
+  // letting each hairline paint out past the panel's content inset to the screen edge.
+  const [settled, setSettled] = useState(defaultOpen)
   return (
     <div>
       <button
@@ -145,7 +150,11 @@ function Section({ title, items, defaultOpen = true }: { title: string; items: M
             animate={{ height: "auto", opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
             transition={panelSlideTransition}
-            className="overflow-hidden"
+            onAnimationStart={() => setSettled(false)}
+            onAnimationComplete={() => setSettled(true)}
+            // Clip while animating (height collapse); go visible when open + idle so the
+            // connector hairlines can extend past the content inset to the window edge.
+            style={{ overflow: settled ? "visible" : "hidden" }}
           >
             <div className="flex flex-col pb-1">
               {items.map((item, i) => (
