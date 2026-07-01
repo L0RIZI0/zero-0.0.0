@@ -90,32 +90,47 @@ export function CollapsibleColumn({
 
   return (
     <div ref={rootRef} className="relative h-full" style={{ width: railWidth }}>
-      {/* PANEL — opaque overlay, window-surface coloured, spanning the full window
-          height and reaching from the window EDGE (left:0) to railWidth+panelWidth.
-          No rounding; a single border on the inner (View-facing) edge only. */}
-      <AnimatePresence initial={false}>
-        {open && (
-          <motion.section
-            key="panel"
-            aria-label={title}
-            // Pure SLIDE — no fade. The panel travels its full width so it lives fully
-            // off the window edge when closed and glides in/out from the side.
-            initial={{ x: side === "left" ? -(railWidth + panelWidth) : railWidth + panelWidth }}
-            animate={{ x: 0 }}
-            exit={{ x: side === "left" ? -(railWidth + panelWidth) : railWidth + panelWidth }}
-            transition={panelSlideTransition}
-            className={cn(
-              "pointer-events-auto absolute inset-y-0 flex min-h-0 flex-col shadow-xl",
-              side === "left" ? "left-0" : "right-0",
-            )}
-            style={{
-              width: railWidth + panelWidth,
-              backgroundColor: surface,
-              // Exposed to the asset rows so their connector hairlines can reach the
-              // window edge from inside the content inset.
-              ["--panel-edge-inset" as string]: `${railWidth}px`,
-            }}
-          >
+      {/* CLIP — a non-transformed container anchored at the window EDGE. Its outer edge
+          sits exactly at the edge so the panel, which slides in from fully OUTSIDE the
+          window, is never visible past it (the entity window frame itself allows content
+          to bleed, so without this the sliding panel shows outside the window). It
+          extends `panelWidth + SHADOW_BLEED` inward — enough to hold the open panel and
+          its inner drop-shadow uncut — and is `pointer-events-none`/transparent so it
+          affects nothing else. The rail is a SIBLING (outside this clip) so it stays
+          fully visible. */}
+      <div
+        className={cn(
+          "pointer-events-none absolute inset-y-0 overflow-hidden",
+          side === "left" ? "left-0" : "right-0",
+        )}
+        style={{ width: railWidth + panelWidth + 48 }}
+      >
+        {/* PANEL — opaque overlay, window-surface coloured, spanning the full window
+            height and reaching from the window EDGE (left:0) to railWidth+panelWidth.
+            No rounding; a single border on the inner (View-facing) edge only. */}
+        <AnimatePresence initial={false}>
+          {open && (
+            <motion.section
+              key="panel"
+              aria-label={title}
+              // Pure SLIDE — no fade. The panel travels its full width so it lives fully
+              // off the window edge when closed and glides in/out from the side.
+              initial={{ x: side === "left" ? -(railWidth + panelWidth) : railWidth + panelWidth }}
+              animate={{ x: 0 }}
+              exit={{ x: side === "left" ? -(railWidth + panelWidth) : railWidth + panelWidth }}
+              transition={panelSlideTransition}
+              className={cn(
+                "pointer-events-auto absolute inset-y-0 flex min-h-0 flex-col shadow-xl",
+                side === "left" ? "left-0" : "right-0",
+              )}
+              style={{
+                width: railWidth + panelWidth,
+                backgroundColor: surface,
+                // Exposed to the asset rows so their connector hairlines can reach the
+                // window edge from inside the content inset.
+                ["--panel-edge-inset" as string]: `${railWidth}px`,
+              }}
+            >
             {/* Inner (View-facing) divider — spans the panel's full height, which now
                 runs exactly header-bottom → window-bottom (the slot is offset to the
                 header bottom), so the border never touches the header. */}
@@ -162,7 +177,8 @@ export function CollapsibleColumn({
             </div>
           </motion.section>
         )}
-      </AnimatePresence>
+        </AnimatePresence>
+      </div>
 
       {/* SHORTCUT rail — a FULL-HEIGHT (inset-0) transparent strip. Clicking anywhere
           toggles; hovering anywhere lights the label. `z-20` keeps it above the panel
