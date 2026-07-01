@@ -147,7 +147,16 @@ export function WorkSurface() {
             from clipping, and region 2 (dock) still pushes region 1 up when pinned, so
             the centered group recenters within the reduced space. Horizontal centering
             is independent (items-center / self-center / w-2/3 in EntityBody). */}
-        <EntityBody entityId={rootId} active={activeEntity.id === rootId} isRoot centerList timeline={timeline} />
+        <EntityBody
+          entityId={rootId}
+          active={activeEntity.id === rootId}
+          isRoot
+          centerList
+          timeline={timeline}
+          surface={homeSurface}
+          panelTopInset={HEADER_OVERLAY_H}
+          panelHeaderClamp={HEADER_OVERLAY_H}
+        />
 
         {/* DETACHED WINDOWS. The recursive in-place tree above only reaches a stack
             entry through its host's do-list/dock. When an entry's host is NOT its

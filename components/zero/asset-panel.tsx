@@ -32,16 +32,15 @@ function AssetRow({ asset, index }: { asset: Asset; index: number }) {
       transition={{ ...panelSlideTransition, delay: index * 0.015 }}
       className="group relative flex w-full items-center gap-3 rounded-lg border border-transparent px-2 py-2 text-left transition-colors hover:border-border hover:bg-card"
     >
-      {/* Continuity rail (Inputs-only): a hairline running from the device's
-          left screen edge all the way to this row's icon — giving the
-          impression it originates outside Space 0 and overlaps every child.
-          The Inputs scroll box bleeds 24px past the surface padding (-ml-6
-          pl-6), so -48px clears both that bleed and the surface padding to
-          reach the viewport edge. */}
+      {/* Continuity rail (Assets-only): a hairline running from the window's edge all
+          the way to this row's icon — giving the impression it originates outside the
+          space and overlaps every child. It reaches the edge by clearing the panel's
+          content inset (`--panel-edge-inset`, = railWidth, set on the panel) plus this
+          row's own left padding (px-2 = 8px), then stops at the icon. */}
       <span
         aria-hidden
         className="pointer-events-none absolute top-1/2 h-px bg-border"
-        style={{ left: -48, width: 56 }}
+        style={{ left: "calc(-1 * (var(--panel-edge-inset, 48px) + 8px))", right: "calc(100% - 20px)" }}
       />
       <span
         className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border bg-background text-muted-foreground"

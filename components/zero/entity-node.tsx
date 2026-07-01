@@ -1361,7 +1361,7 @@ export function EntityNode({
             // leaf's content is confined to the central rectangle (between the four side
             // corners) — the do-list lives there, beneath the glyph+title in the top
             // wedge — while its center still coincides with the FRAME CENTER. An ancestor
-            // leaves --hex-corner-inset-y unset (→ 0px), so it also centers on the frame
+            // leaves --hex-corner-inset-y unset (��� 0px), so it also centers on the frame
             // center; that shared center is what keeps the do-list from re-centering when
             // a child opens and the Space flips leaf→ancestor.
             style={{
@@ -1450,6 +1450,9 @@ export function EntityNode({
               railShift={railCenterShift}
               railBleedLeft={railBleedLeft}
               railBleedRight={railBleedRight}
+              surface={frameSurface}
+              panelTopInset={floatingHeader ? 0 : headerH}
+              panelHeaderClamp={headerH}
               resource={isResource ? { url: entity.webUrl!, resourceId: entity.webResourceId } : undefined}
             />
           </div>

@@ -216,7 +216,7 @@ export function EntityBody({
 
       {/* ASSETS — stuff that goes IN (resources, constraints, files…). Persistent
           shortcut on the LEFT edge; the opaque panel slides in over the View. */}
-      <PanelSlot side="left" open={inOpen} shift={railShift} bleed={railBleedLeft}>
+      <PanelSlot side="left" open={inOpen} shift={railShift} bleed={railBleedLeft} topInset={panelTopInset}>
         {(railWidth, panelWidth, railScale, shift) => (
           <CollapsibleColumn
             title="Assets"
@@ -229,6 +229,8 @@ export function EntityBody({
             panelWidth={panelWidth}
             railScale={railScale}
             railShift={shift}
+            headerClamp={panelHeaderClamp}
+            surface={surface}
           >
             <AssetPanel spaceId={entityId} />
           </CollapsibleColumn>
@@ -237,7 +239,7 @@ export function EntityBody({
 
       {/* PUBLISHED — stuff that goes OUT (publications, output, results). Mirror of
           Assets on the RIGHT edge. */}
-      <PanelSlot side="right" open={outOpen} shift={railShift} bleed={railBleedRight}>
+      <PanelSlot side="right" open={outOpen} shift={railShift} bleed={railBleedRight} topInset={panelTopInset}>
         {(railWidth, panelWidth, railScale, shift) => (
           <CollapsibleColumn
             title="Published"
@@ -250,6 +252,8 @@ export function EntityBody({
             panelWidth={panelWidth}
             railScale={railScale}
             railShift={shift}
+            headerClamp={panelHeaderClamp}
+            surface={surface}
           >
             <OutputPanel spaceId={entityId} />
           </CollapsibleColumn>
@@ -286,12 +290,17 @@ function PanelSlot({
   open,
   shift,
   bleed,
+  topInset,
   children,
 }: {
   side: "left" | "right"
   open: boolean
   shift: number
   bleed: number
+  /** Px to extend the slot box UPWARD past the body top so it reaches the WINDOW top
+   *  (behind the header). >0 only for the home view; child windows already fill from
+   *  the top (0). Lets the rail strip + panel span the whole window. */
+  topInset: number
   children: (railWidth: number, panelWidth: number, railScale: number, railShift: number) => React.ReactNode
 }) {
   // Shrink only a COLLAPSED rail that's narrower than the full width (a covered
@@ -300,9 +309,10 @@ function PanelSlot({
   return (
     <div
       className={cn(
-        "pointer-events-none absolute inset-y-0 z-10 hidden md:block",
+        "pointer-events-none absolute bottom-0 z-10 hidden md:block",
         side === "left" ? "left-0" : "right-0",
       )}
+      style={{ top: -topInset }}
     >
       {children(bleed, PANEL_OPEN_W, railScale, shift)}
     </div>

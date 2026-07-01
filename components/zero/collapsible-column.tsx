@@ -7,15 +7,20 @@ import { panelSlideTransition } from "@/lib/zero/motion"
 import { cn } from "@/lib/utils"
 
 /**
- * A side "shortcut" that lives at the window's left/right edge. The shortcut RAIL
- * (icon + vertical label) is ALWAYS visible and stays in place; clicking it toggles
- * an opaque PANEL that slides in over the View from that edge. Clicking the rail
- * again closes it — the shortcut never moves, so open/close is a single target.
+ * A side "shortcut" living at the window's left/right edge. The shortcut RAIL is a
+ * FULL-HEIGHT transparent strip (window top → bottom) so hovering anywhere near the
+ * edge lights its vertical label and clicking anywhere on it toggles the panel — a
+ * big, forgiving target that never moves.
  *
- * The panel is an OVERLAY (absolute, pointer-events re-enabled) that sits beside the
- * rail and covers the View content; it never reflows the center column. Fully
- * CONTROLLED: the parent (EntityBody) owns the open state via the reactive
- * panel-store, so it survives remounts and the nav layer can auto-collapse it.
+ * Opening slides in an OPAQUE panel (window-surface coloured) that spans the full
+ * window height and reaches from the window edge to `railWidth + panelWidth`. Its
+ * content column keeps a `railWidth` inset so the resource icons stay exactly where
+ * they were, while the per-row connector hairlines run out to the very window edge
+ * (behind the transparent rail). The list is vertically centered over the WHOLE
+ * window but clamped so its top never rises above the header bottom (`headerClamp`).
+ *
+ * Fully CONTROLLED: the parent (EntityBody) owns open state via the panel-store, so it
+ * survives remounts and the nav layer can auto-collapse it.
  */
 export function CollapsibleColumn({
   title,
@@ -29,6 +34,8 @@ export function CollapsibleColumn({
   panelWidth,
   railScale = 1,
   railShift = 0,
+  headerClamp = 0,
+  surface,
 }: {
   title: string
   /** Short label shown on the vertical rail. Falls back to `title` when omitted. */
@@ -39,15 +46,20 @@ export function CollapsibleColumn({
   /** Controlled open state. */
   open: boolean
   onOpenChange: (open: boolean) => void
-  /** Width (px) of the persistent shortcut rail — the window's visible edge sliver. */
+  /** Width (px) of the shortcut rail sliver — the window's visible edge strip and the
+   *  inset the panel content keeps so its icons stay put. */
   railWidth: number
-  /** Width (px) of the opaque panel that slides in beside the rail. */
+  /** Width (px) the panel adds BEYOND the rail (icons + labels area). */
   panelWidth: number
-  /** Recessed scale for a covered ancestor's rail sliver (1 = full, uncovered). */
+  /** Recessed scale for a covered ancestor's rail label (1 = full, uncovered). */
   railScale?: number
-  /** Vertical px offset that centers the rail on the FRAME (not the body) center.
-   *  Applied to the rail ONLY — the panel fills the full body height regardless. */
+  /** Vertical px nudge aligning the rail label with the FRAME center (aesthetic). */
   railShift?: number
+  /** Symmetric top/bottom padding on the centered content so a tall list pins at the
+   *  header bottom (and a mirror inset at the bottom), keeping it window-centered. */
+  headerClamp?: number
+  /** Window background colour — the panel uses it so it reads as the window surface. */
+  surface?: string
 }) {
   const OpenIcon = side === "left" ? PanelLeftClose : PanelRightClose
   const ClosedIcon = side === "left" ? PanelLeftOpen : PanelRightOpen
@@ -55,16 +67,18 @@ export function CollapsibleColumn({
   const label = collapsedTitle ?? title
 
   // Hover handled via React state (not Tailwind `group-hover:`) — the CSS hover
-  // variant is gated behind `@media (hover: hover)` in Tailwind v4 and didn't
-  // fire reliably here. State-driven opacity always works, like the close button.
+  // variant is gated behind `@media (hover: hover)` in Tailwind v4 and didn't fire
+  // reliably here. State-driven opacity always works.
   const [railHover, setRailHover] = useState(false)
-  const lit = railHover || open
+  // Rail label opacity: bright on hover, dimmed-but-present when open (we keep the
+  // label when open, just softened), faint when idle/closed.
+  const labelOpacity = railHover ? "opacity-100" : open ? "opacity-60" : "opacity-35"
 
   return (
     <div className="relative h-full" style={{ width: railWidth }}>
-      {/* PANEL — opaque overlay that fills the body's FULL height (header bottom →
-          window bottom) and extends over the View from just INSIDE the rail. Snappy
-          slide in from the edge; square top/bottom so it reaches both edges flush. */}
+      {/* PANEL — opaque overlay, window-surface coloured, spanning the full window
+          height and reaching from the window EDGE (left:0) to railWidth+panelWidth.
+          No rounding; a single border on the inner (View-facing) edge only. */}
       <AnimatePresence initial={false}>
         {open && (
           <motion.section
@@ -75,36 +89,38 @@ export function CollapsibleColumn({
             exit={{ opacity: 0, x: side === "left" ? -16 : 16 }}
             transition={panelSlideTransition}
             className={cn(
-              "pointer-events-auto absolute inset-y-0 flex min-h-0 flex-col border-border bg-card shadow-xl",
-              // Flush top & bottom; border + rounding only on the inner (View-facing) edge.
-              side === "left" ? "rounded-r-lg border-y border-r" : "rounded-l-lg border-y border-l",
+              "pointer-events-auto absolute inset-y-0 flex min-h-0 flex-col shadow-xl",
+              side === "left" ? "left-0 border-r border-border" : "right-0 border-l border-border",
             )}
             style={{
-              width: panelWidth,
-              ...(side === "left" ? { left: railWidth } : { right: railWidth }),
+              width: railWidth + panelWidth,
+              backgroundColor: surface,
+              // Exposed to the asset rows so their connector hairlines can reach the
+              // window edge from inside the content inset.
+              ["--panel-edge-inset" as string]: `${railWidth}px`,
             }}
           >
             <div
               className={cn(
-                "flex shrink-0 items-center gap-1.5 px-3 pb-1 pt-3",
-                side === "left" ? "justify-start" : "justify-end",
+                "min-h-0 flex-1 overflow-y-auto no-scrollbar px-2",
+                side === "left" ? "pl-[var(--panel-edge-inset)]" : "pr-[var(--panel-edge-inset)]",
               )}
+              style={{ paddingTop: headerClamp, paddingBottom: headerClamp }}
             >
-              <h2 className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-                {title}
-                {typeof count === "number" && <span className="text-muted-foreground/60">{count}</span>}
-              </h2>
+              {/* `min-h-full` + `justify-center`: a short list centers on the window;
+                  a tall one grows past the container and scrolls naturally (no
+                  top-clipping, unlike `justify-center` directly on the scroll box). */}
+              <div className="flex min-h-full flex-col justify-center">{children}</div>
             </div>
-            <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3 no-scrollbar">{children}</div>
           </motion.section>
         )}
       </AnimatePresence>
 
-      {/* SHORTCUT rail — always in place, toggles the panel. Absolutely centered on the
-          FRAME (top-1/2 + railShift), lifted `z-20` ABOVE the panel + any ancestor's
-          opaque spine cover so it stays reachable. Icon flips (open⇄close) to signal
-          state; the vertical label is HIDDEN while open (the panel header already names
-          it), leaving just the icon as the close target. */}
+      {/* SHORTCUT rail — a FULL-HEIGHT (inset-0) transparent strip. Clicking anywhere
+          toggles; hovering anywhere lights the label. `z-20` keeps it above the panel
+          (so its edge strip stays clickable) and above an ancestor's opaque spine
+          cover. The label is vertically centered (nudged to frame center by
+          railShift) and kept when open. */}
       <button
         type="button"
         onClick={(e) => {
@@ -115,27 +131,29 @@ export function CollapsibleColumn({
         onPointerLeave={() => setRailHover(false)}
         aria-label={open ? `Collapse ${title}` : `Expand ${title}`}
         aria-expanded={open}
-        className="pointer-events-auto absolute inset-x-0 top-1/2 z-20 flex flex-col items-center justify-center gap-2"
-        style={{ transform: `translateY(calc(-50% + ${railShift}px)) scale(${railScale})` }}
+        className="pointer-events-auto absolute inset-0 z-20 flex flex-col items-center justify-center gap-2"
       >
-        <ToggleIcon
-          className={cn(
-            "h-3 w-3 transition-opacity duration-200",
-            lit ? "text-foreground opacity-100" : "text-muted-foreground opacity-35",
-          )}
-        />
-        {!open && (
+        <span
+          className="flex flex-col items-center gap-2"
+          style={{ transform: `translateY(${railShift}px) scale(${railScale})` }}
+        >
+          <ToggleIcon
+            className={cn(
+              "h-3 w-3 transition-opacity duration-200",
+              railHover || open ? "text-foreground opacity-100" : "text-muted-foreground opacity-35",
+            )}
+          />
           <span
             className={cn(
-              "text-[10px] font-medium uppercase tracking-[0.14em] transition-opacity duration-200",
-              lit ? "text-foreground opacity-100" : "text-muted-foreground/70 opacity-35",
+              "text-[10px] font-medium uppercase tracking-[0.14em] text-foreground transition-opacity duration-200",
+              labelOpacity,
             )}
             style={{ writingMode: "vertical-rl" }}
           >
             {label}
             {typeof count === "number" ? `  ${count}` : ""}
           </span>
-        )}
+        </span>
       </button>
     </div>
   )
