@@ -985,35 +985,6 @@ export function DoList({
     // then a proper height-constrained scroller (and can center its content when
     // asked) rather than a content-height block pinned to the top.
     <section aria-label="Do list" className="flex min-h-0 flex-1 flex-col">
-      {/* Open/All selectors. Hidden while the list is "virgin" (empty, or every item
-          still open AND unplanned) ⇒ no chrome. Shown once something has been acted
-          upon — resolved (completed/cancelled) or planned (scheduled). "Open" hides
-          resolved items (a just-resolved one stays put via the retain set until the
-          selector changes); "All" shows everything in place. */}
-      {showSelectors && (
-        // Anchored above the FIRST item (left-aligned to the row's content) rather than
-        // centered at the top. `pl-1.5` lines the pills' text up with the row glyph
-        // (row px-4 ≈ 16px = pl-1.5 6px + the button's px-2.5 10px), and the tight mb
-        // lets them sit right on top of the first row.
-        <div className="mb-1 flex shrink-0 items-center justify-start gap-1 pl-1.5">
-          {(["open", "all"] as const).map((f) => (
-            <button
-              key={f}
-              type="button"
-              onClick={() => setFilter(f)}
-              aria-pressed={filter === f}
-              className={cn(
-                "rounded-full px-2.5 py-0.5 text-xs capitalize transition-colors",
-                filter === f
-                  ? "bg-muted text-foreground"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              {f}
-            </button>
-          ))}
-        </div>
-      )}
       {/* Keyed by context: switching entities hard-swaps the list (instant, no
           cross-fade) while add/remove within a context still animates. */}
       {/* While a window morph is in flight the overflow MUST be visible: opening a
@@ -1035,6 +1006,35 @@ export function DoList({
           The dock (the entity's region 2) sits BELOW this region and reserves its own
           flow space, so the input rests just above it with no manual clamp. */}
       <div className={cn("flex min-h-0 flex-1 flex-col", centered && "justify-center-safe")}>
+        {/* Open/All selectors. Hidden while the list is "virgin" (empty, or every item
+            still open AND unplanned) ⇒ no chrome. Shown once something has been acted
+            upon — resolved (completed/cancelled) or planned (scheduled). "Open" hides
+            resolved items (a just-resolved one stays put via the retain set until the
+            selector changes); "All" shows everything in place.
+            Placed INSIDE the centering group and directly above the scroller so it rides
+            with the (rows + input) block and sits right on top of the FIRST row rather
+            than pinned to the region top. `px-2` matches the list's inset and `pl-1.5`
+            lines the pills' text up with the row glyph. */}
+        {showSelectors && (
+          <div className="mb-1 flex shrink-0 items-center justify-start gap-1 pr-2 pl-1.5">
+            {(["open", "all"] as const).map((f) => (
+              <button
+                key={f}
+                type="button"
+                onClick={() => setFilter(f)}
+                aria-pressed={filter === f}
+                className={cn(
+                  "rounded-full px-2.5 py-0.5 text-xs capitalize transition-colors",
+                  filter === f
+                    ? "bg-muted text-foreground"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {f}
+              </button>
+            ))}
+          </div>
+        )}
         <ul
           key={contextId}
           ref={scrollerRef}
