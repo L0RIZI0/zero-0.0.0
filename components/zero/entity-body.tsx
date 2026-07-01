@@ -46,8 +46,7 @@ export function EntityBody({
   railShift = 0,
   railBleedLeft = PANEL_RAIL_W,
   railBleedRight = PANEL_RAIL_W,
-  panelTopInset = 0,
-  panelHeaderClamp = 0,
+  panelTopOffset = 0,
   surface,
   resource,
   timeline,
@@ -76,15 +75,11 @@ export function EntityBody({
    *  the frame edge. Defaults to the full rail (leaf / home root, uncovered). */
   railBleedLeft?: number
   railBleedRight?: number
-  /** Px to extend the panel/rail box UPWARD past the body's top so it reaches the
-   *  WINDOW top (behind the header). Non-zero only where the body doesn't already
-   *  fill the window from the top — i.e. the home view (= HEADER_OVERLAY_H). Lets the
-   *  list center on the WHOLE window rather than just the header-bottom→bottom band. */
-  panelTopInset?: number
-  /** The window header's visible height. Used as symmetric top/bottom padding on the
-   *  panel's content so the vertically-centered list never rises above the header
-   *  bottom (tall lists pin there and scroll). */
-  panelHeaderClamp?: number
+  /** Px to push the panel/rail box top DOWN from the body's top so it starts at the
+   *  VISUAL header bottom (spanning header-bottom → window-bottom). 0 wherever the body
+   *  already starts at the header bottom (home view, in-flow-header child); = headerH
+   *  only for a FLOATING-header window whose body fills from the window top. */
+  panelTopOffset?: number
   /** The window's background colour — the opaque panel uses it so it reads as the
    *  window surface sliding over the View. Falls back to the theme background. */
   surface?: string
@@ -216,7 +211,7 @@ export function EntityBody({
 
       {/* ASSETS — stuff that goes IN (resources, constraints, files…). Persistent
           shortcut on the LEFT edge; the opaque panel slides in over the View. */}
-      <PanelSlot side="left" open={inOpen} shift={railShift} bleed={railBleedLeft} topInset={panelTopInset}>
+      <PanelSlot side="left" open={inOpen} shift={railShift} bleed={railBleedLeft} topOffset={panelTopOffset}>
         {(railWidth, panelWidth, railScale, shift) => (
           <CollapsibleColumn
             title="Assets"
@@ -229,7 +224,6 @@ export function EntityBody({
             panelWidth={panelWidth}
             railScale={railScale}
             railShift={shift}
-            headerClamp={panelHeaderClamp}
             surface={surface}
           >
             <AssetPanel spaceId={entityId} />
@@ -239,7 +233,7 @@ export function EntityBody({
 
       {/* PUBLISHED — stuff that goes OUT (publications, output, results). Mirror of
           Assets on the RIGHT edge. */}
-      <PanelSlot side="right" open={outOpen} shift={railShift} bleed={railBleedRight} topInset={panelTopInset}>
+      <PanelSlot side="right" open={outOpen} shift={railShift} bleed={railBleedRight} topOffset={panelTopOffset}>
         {(railWidth, panelWidth, railScale, shift) => (
           <CollapsibleColumn
             title="Published"
@@ -252,7 +246,6 @@ export function EntityBody({
             panelWidth={panelWidth}
             railScale={railScale}
             railShift={shift}
-            headerClamp={panelHeaderClamp}
             surface={surface}
           >
             <OutputPanel spaceId={entityId} />
@@ -276,11 +269,12 @@ export function EntityBody({
  * rail jump (up when spining, down when un-spining) before easing back — the bug
  * this avoids.
  *
- * The slot spans the body's FULL height (`inset-y-0`), so the opaque panel it hosts
- * can reach from the header bottom to the window bottom. The persistent shortcut rail
- * stays at the edge sliver (`bleed` wide) and is vertically centered on the FRAME by
- * `shift` (a covered ancestor's rail also recesses via `railScale`) — the panel itself
- * ignores `shift` and just fills the slot. Both are handled in CollapsibleColumn.
+ * The slot spans from the VISUAL header bottom to the window bottom: it fills the
+ * body (`bottom-0`) and its top is pushed DOWN by `topOffset` (0 when the body already
+ * starts at the header bottom; = headerH for a floating-header window). The persistent
+ * shortcut rail stays at the edge sliver (`bleed` wide) and is vertically centered on
+ * the FRAME by `shift` (a covered ancestor's rail also recesses via `railScale`) — the
+ * panel itself ignores `shift` and just fills the slot. Both handled in CollapsibleColumn.
  *
  * The wrapper is `pointer-events-none` so the do-list underneath stays interactive
  * wherever the panel is transparent; the rail + panel re-enable pointer events.
@@ -290,17 +284,17 @@ function PanelSlot({
   open,
   shift,
   bleed,
-  topInset,
+  topOffset,
   children,
 }: {
   side: "left" | "right"
   open: boolean
   shift: number
   bleed: number
-  /** Px to extend the slot box UPWARD past the body top so it reaches the WINDOW top
-   *  (behind the header). >0 only for the home view; child windows already fill from
-   *  the top (0). Lets the rail strip + panel span the whole window. */
-  topInset: number
+  /** Px to push the slot top DOWN from the body top to the VISUAL header bottom. 0
+   *  where the body already starts at the header bottom; = headerH for a floating-
+   *  header window whose body fills from the window top. */
+  topOffset: number
   children: (railWidth: number, panelWidth: number, railScale: number, railShift: number) => React.ReactNode
 }) {
   // Shrink only a COLLAPSED rail that's narrower than the full width (a covered
@@ -312,7 +306,7 @@ function PanelSlot({
         "pointer-events-none absolute bottom-0 z-10 hidden md:block",
         side === "left" ? "left-0" : "right-0",
       )}
-      style={{ top: -topInset }}
+      style={{ top: topOffset }}
     >
       {children(bleed, PANEL_OPEN_W, railScale, shift)}
     </div>

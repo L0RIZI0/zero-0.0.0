@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { motion, AnimatePresence } from "motion/react"
 import { ChevronLeft, ChevronRight, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from "lucide-react"
 import { panelSlideTransition } from "@/lib/zero/motion"
@@ -8,16 +8,16 @@ import { cn } from "@/lib/utils"
 
 /**
  * A side "shortcut" living at the window's left/right edge. The shortcut RAIL is a
- * FULL-HEIGHT transparent strip (window top → bottom) so hovering anywhere near the
- * edge lights its vertical label and clicking anywhere on it toggles the panel — a
- * big, forgiving target that never moves.
+ * transparent strip spanning the header bottom → window bottom, so hovering anywhere
+ * near the edge lights its vertical label and clicking anywhere on it toggles the
+ * panel — a big, forgiving target that never moves.
  *
- * Opening slides in an OPAQUE panel (window-surface coloured) that spans the full
- * window height and reaches from the window edge to `railWidth + panelWidth`. Its
- * content column keeps a `railWidth` inset so the resource icons stay exactly where
- * they were, while the per-row connector hairlines run out to the very window edge
- * (behind the transparent rail). The list is vertically centered over the WHOLE
- * window but clamped so its top never rises above the header bottom (`headerClamp`).
+ * Opening slides in an OPAQUE panel (window-surface coloured) spanning from the VISUAL
+ * header bottom to the window bottom (the slot is offset to the header bottom), and
+ * reaching from the window edge to `railWidth + panelWidth`. Its content column keeps a
+ * `railWidth` inset so the resource icons stay exactly where they were, while the
+ * per-row connector hairlines run out to the very window edge (behind the transparent
+ * rail). The list is vertically centered within that band.
  *
  * Fully CONTROLLED: the parent (EntityBody) owns open state via the panel-store, so it
  * survives remounts and the nav layer can auto-collapse it.
@@ -34,7 +34,6 @@ export function CollapsibleColumn({
   panelWidth,
   railScale = 1,
   railShift = 0,
-  headerClamp = 0,
   surface,
 }: {
   title: string
@@ -55,9 +54,6 @@ export function CollapsibleColumn({
   railScale?: number
   /** Vertical px nudge aligning the rail label with the FRAME center (aesthetic). */
   railShift?: number
-  /** Symmetric top/bottom padding on the centered content so a tall list pins at the
-   *  header bottom (and a mirror inset at the bottom), keeping it window-centered. */
-  headerClamp?: number
   /** Window background colour — the panel uses it so it reads as the window surface. */
   surface?: string
 }) {
@@ -77,8 +73,23 @@ export function CollapsibleColumn({
   // the rail stays a clickable close-area), bright on hover, faint when idle/closed.
   const labelOpacity = open ? "opacity-0" : railHover ? "opacity-100" : "opacity-35"
 
+  // Click OUTSIDE the panel (or its rail) closes it. Both the panel and the rail are
+  // DOM children of this root, so a `contains` check treats either as "inside" (the
+  // rail keeps its own toggle) while a click anywhere else on the View dismisses it.
+  // `pointerdown` (capture) fires before the target's own handlers, and the effect is
+  // only attached while open, so the opening click itself never triggers a close.
+  const rootRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const onDown = (e: PointerEvent) => {
+      if (!rootRef.current?.contains(e.target as Node)) onOpenChange(false)
+    }
+    document.addEventListener("pointerdown", onDown, true)
+    return () => document.removeEventListener("pointerdown", onDown, true)
+  }, [open, onOpenChange])
+
   return (
-    <div className="relative h-full" style={{ width: railWidth }}>
+    <div ref={rootRef} className="relative h-full" style={{ width: railWidth }}>
       {/* PANEL — opaque overlay, window-surface coloured, spanning the full window
           height and reaching from the window EDGE (left:0) to railWidth+panelWidth.
           No rounding; a single border on the inner (View-facing) edge only. */}
@@ -105,29 +116,28 @@ export function CollapsibleColumn({
               ["--panel-edge-inset" as string]: `${railWidth}px`,
             }}
           >
-            {/* Inner (View-facing) divider — starts at the HEADER BOTTOM (top:headerClamp)
-                so the border never runs through the window header, only down the body. */}
+            {/* Inner (View-facing) divider — spans the panel's full height, which now
+                runs exactly header-bottom → window-bottom (the slot is offset to the
+                header bottom), so the border never touches the header. */}
             <span
               aria-hidden
               className={cn(
                 // Whiter than the standard `border` token so the panel's inner edge
                 // reads clearly against the dark surface.
-                "pointer-events-none absolute bottom-0 w-px bg-foreground/25",
+                "pointer-events-none absolute inset-y-0 w-px bg-foreground/25",
                 side === "left" ? "right-0" : "left-0",
               )}
-              style={{ top: headerClamp }}
             />
-            {/* HORIZONTAL title — pinned at the top of the panel (just below the header
+            {/* HORIZONTAL title — pinned near the top of the panel (just below the header
                 bottom). Its inset (`px-3` outer + `px-2` inner span = ~20px) lines the
                 text up with the window HEADER content (avatar/name at paddingLeft 20),
                 not the list-item icons. Softened; surface-backed so it stays legible
                 over the top of a tall, scrolled list. */}
             <div
               className={cn(
-                "pointer-events-none absolute z-10 flex items-center px-3",
+                "pointer-events-none absolute top-3 z-10 flex items-center px-3",
                 side === "left" ? "left-0" : "right-0",
               )}
-              style={{ top: headerClamp + 12 }}
             >
               <span
                 className="px-2 py-1 text-[10px] font-medium uppercase tracking-[0.14em] text-foreground opacity-60"
@@ -139,12 +149,13 @@ export function CollapsibleColumn({
             </div>
             <div
               className={cn(
-                "min-h-0 flex-1 overflow-y-auto no-scrollbar px-2",
+                // Symmetric `py-8`: keeps the centered list balanced while clearing the
+                // horizontal title at the top so a tall/scrolled list starts below it.
+                "min-h-0 flex-1 overflow-y-auto no-scrollbar px-2 py-8",
                 side === "left" ? "pl-[var(--panel-edge-inset)]" : "pr-[var(--panel-edge-inset)]",
               )}
-              style={{ paddingTop: headerClamp, paddingBottom: headerClamp }}
             >
-              {/* `min-h-full` + `justify-center`: a short list centers on the window;
+              {/* `min-h-full` + `justify-center`: a short list centers in the panel;
                   a tall one grows past the container and scrolls naturally (no
                   top-clipping, unlike `justify-center` directly on the scroll box). */}
               <div className="flex min-h-full flex-col justify-center">{children}</div>

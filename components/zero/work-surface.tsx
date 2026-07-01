@@ -154,8 +154,6 @@ export function WorkSurface() {
           centerList
           timeline={timeline}
           surface={homeSurface}
-          panelTopInset={HEADER_OVERLAY_H}
-          panelHeaderClamp={HEADER_OVERLAY_H}
         />
 
         {/* DETACHED WINDOWS. The recursive in-place tree above only reaches a stack

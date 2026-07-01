@@ -700,6 +700,10 @@ export function EntityNode({
   // left-aligned compact header as every other ancestor. Only the frontmost LEAF
   // Space keeps the tall centered hexagon header.
   const ancestorHeader = asWindow && !isTop && !isClosing
+  // The glyph doubles as a completion toggle. It works on a collapsed node (row/dock
+  // card) AND on the FRONT open window header — so a task can be un/filled (undone)
+  // while it's open. Ancestor/spine headers and closing frames stay inert.
+  const canToggleComplete = meta.completable && !isClosing && (interactive || (asWindow && isTop && !ancestorHeader))
   // Only the LEAF Space hexagon reserves a tall top band so its CENTERED header
   // clears the hexagon's top point; an expanded ancestor Space uses the compact
   // ancestor band like any other stacked window.
@@ -1015,7 +1019,7 @@ export function EntityNode({
                 : undefined
             }
             onClick={
-              interactive && meta.completable
+              canToggleComplete
                 ? (e) => {
                     e.stopPropagation()
                     const next = !done
@@ -1033,7 +1037,7 @@ export function EntityNode({
             className={cn(
               "relative flex shrink-0 items-center justify-center",
               // A glyph that acts as a completion toggle gets a pointer cursor.
-              interactive && meta.completable && "cursor-pointer",
+              canToggleComplete && "cursor-pointer",
               // Glyph ink matches the title: compact ancestors are dimmed to
               // foreground/75 (like their title), everything else stays full ink.
               ancestorHeader ? "text-foreground/75" : "text-foreground",
@@ -1451,8 +1455,7 @@ export function EntityNode({
               railBleedLeft={railBleedLeft}
               railBleedRight={railBleedRight}
               surface={frameSurface}
-              panelTopInset={floatingHeader ? 0 : headerH}
-              panelHeaderClamp={headerH}
+              panelTopOffset={floatingHeader ? headerH : 0}
               resource={isResource ? { url: entity.webUrl!, resourceId: entity.webResourceId } : undefined}
             />
           </div>
