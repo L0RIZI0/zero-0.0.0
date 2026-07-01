@@ -81,6 +81,15 @@ const RIPPLE_MAX_OFFSET = 220
 // sub-pixel range so critical damping's slow asymptotic tail can't leave a lingering
 // (invisible) transform hanging around after the wave has visually landed.
 const RIPPLE_REST = 0.4
+// Items are CULLED on their logical window position, but the ripple `translateX` lags
+// them visually — during a strong pan `viewStart` races ahead while content trails, so
+// an item can be culled (logical edge crossed) while still visually inside the lane,
+// popping out early. We render a margin of time beyond the window on each side so those
+// lagged ticks stay mounted; the lane's overflow-hidden clip then hides them until the
+// ripple pulls them in, so they glide off exactly at the edge. A generous fraction of a
+// day comfortably covers RIPPLE_MAX_OFFSET on any desktop lane width; over-margin items
+// are simply clipped (harmless). The dayline is desktop-only, so lanes are always wide.
+const RENDER_MARGIN_MS = DAY_MS * 0.35
 
 /** [start,end) of the 5am→5am window containing `now`. */
 function dayWindow(now: number): [number, number] {
@@ -157,14 +166,20 @@ export function Dayline() {
 
   const items = useMemo<DayItem[]>(() => {
     if (!mounted) return []
-    const occ = getTimelineOccurrences(rootId, winStart, winEnd)
+    // Query + intersect with a MARGIN beyond the visible window so ripple-lagged ticks
+    // (see RENDER_MARGIN_MS) stay mounted; the lane's overflow-hidden clip hides the
+    // extra until the wave brings them in. leftPct/widthPct stay window-relative, so
+    // margin items get leftPct <0 or >100 and are clipped at the edge.
+    const qStart = winStart - RENDER_MARGIN_MS
+    const qEnd = winEnd + RENDER_MARGIN_MS
+    const occ = getTimelineOccurrences(rootId, qStart, qEnd)
     const out: DayItem[] = []
     for (const e of occ) {
       const [st, en] = entityInterval(e)
-      // One-offs are NOT range-clipped by the query, so intersect the window here.
-      if (en < winStart || st > winEnd) continue
-      const cs = Math.max(st, winStart)
-      const ce = Math.min(en, winEnd)
+      // One-offs are NOT range-clipped by the query, so intersect the margin window here.
+      if (en < qStart || st > qEnd) continue
+      const cs = Math.max(st, qStart)
+      const ce = Math.min(en, qEnd)
       const leftPct = ((cs - winStart) / DAY_MS) * 100
       const widthPct = Math.max(0, ((ce - cs) / DAY_MS) * 100)
       const isDuration = en > st
@@ -413,9 +428,14 @@ export function Dayline() {
         onDoubleClick={recenter}
         className="pointer-events-auto relative h-7 w-full cursor-default select-none overflow-visible rounded-md border border-border/60 bg-card/40 [touch-action:none]"
       >
-        {mounted &&
-          items.map((it) => {
-            const isHot = hovered === it.key
+        {/* Item CLIP layer — fills the lane and clips content to its edges so ripple-
+            lagged / margin ticks vanish exactly at the extremities (never popping early
+            or spilling out). The NOW marker + hover helper live OUTSIDE this clip so
+            their intentional 1px bleed and downward tooltip are unaffected. */}
+        <div className="pointer-events-none absolute inset-0 overflow-hidden rounded-md">
+          {mounted &&
+            items.map((it) => {
+              const isHot = hovered === it.key
             const col = colOfPct(it.centerPct)
             // Each item lives inside a full-lane RIPPLE WRAPPER whose `translateX` the rAF
             // loop drives (imperative, so React never fights it); the inner button keeps
@@ -482,6 +502,7 @@ export function Dayline() {
               </div>
             )
           })}
+        </div>
 
         {/* NOW marker — a thin, bright-orange vertical tick (discrete but visible),
             painted above every item. Small triangular caps sit just INSIDE the lane at
