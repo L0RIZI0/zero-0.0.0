@@ -106,16 +106,22 @@ export function CollapsibleColumn({
                 so the border never runs through the window header, only down the body. */}
             <span
               aria-hidden
-              className={cn("pointer-events-none absolute bottom-0 w-px bg-border", side === "left" ? "right-0" : "left-0")}
+              className={cn(
+                // Whiter than the standard `border` token so the panel's inner edge
+                // reads clearly against the dark surface.
+                "pointer-events-none absolute bottom-0 w-px bg-foreground/25",
+                side === "left" ? "right-0" : "left-0",
+              )}
               style={{ top: headerClamp }}
             />
             {/* HORIZONTAL title — pinned at the top of the panel (just below the header
-                bottom), hugging the WINDOW EDGE (not the content inset) so it sits out
-                near the screen edge. Softened; surface-backed so it stays legible over
-                the top of a tall, scrolled list. */}
+                bottom). Its inset (`px-3` outer + `px-2` inner span = ~20px) lines the
+                text up with the window HEADER content (avatar/name at paddingLeft 20),
+                not the list-item icons. Softened; surface-backed so it stays legible
+                over the top of a tall, scrolled list. */}
             <div
               className={cn(
-                "pointer-events-none absolute z-10 flex items-center px-2",
+                "pointer-events-none absolute z-10 flex items-center px-3",
                 side === "left" ? "left-0" : "right-0",
               )}
               style={{ top: headerClamp }}
