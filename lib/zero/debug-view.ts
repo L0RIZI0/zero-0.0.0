@@ -21,8 +21,8 @@ import { useSyncExternalStore } from "react"
 
 type DebugState = { fps: boolean; frames: boolean }
 
-// Both overlays default ON (matches the pre-existing "borders + fps visible" dev state).
-let state: DebugState = { fps: true, frames: true }
+// Both overlays default OFF; reveal them on demand via the `§ 1` / `§ 2` chords.
+let state: DebugState = { fps: false, frames: false }
 
 const listeners = new Set<() => void>()
 function emit() {
