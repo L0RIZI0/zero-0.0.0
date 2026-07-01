@@ -113,12 +113,15 @@ export function CollapsibleColumn({
             <motion.section
               key="panel"
               aria-label={title}
-              // Pure SLIDE — no fade. The panel travels its full width so it lives fully
-              // off the window edge when closed and glides in/out from the side.
-              initial={{ x: side === "left" ? -(railWidth + panelWidth) : railWidth + panelWidth }}
-              animate={{ x: 0 }}
-              exit={{ x: side === "left" ? -(railWidth + panelWidth) : railWidth + panelWidth }}
-              transition={panelSlideTransition}
+              // SLIDE + FADE. The panel travels its full width (so it lives fully off the
+              // window edge when closed and glides in/out from the side) AND fades, giving
+              // a soft apparition/disappearance rather than a hard edge-pop. The opacity
+              // rides a slightly quicker leading curve so the fade reads clearly within
+              // the short slide.
+              initial={{ x: side === "left" ? -(railWidth + panelWidth) : railWidth + panelWidth, opacity: 0 }}
+              animate={{ x: 0, opacity: 1 }}
+              exit={{ x: side === "left" ? -(railWidth + panelWidth) : railWidth + panelWidth, opacity: 0 }}
+              transition={{ ...panelSlideTransition, opacity: { duration: 0.24, ease: "easeOut" } }}
               className={cn(
                 "pointer-events-auto absolute inset-y-0 flex min-h-0 flex-col shadow-xl",
                 side === "left" ? "left-0" : "right-0",

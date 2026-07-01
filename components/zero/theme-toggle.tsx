@@ -28,9 +28,11 @@ export function ThemeToggle() {
       onClick={() => setTheme(isDark ? "light" : "dark")}
       // `right-14` (56px) keeps the toggle clear of the Published panel's full-height
       // invisible shortcut rail (a 48px strip pinned to the right edge). At the old
-      // `right-5` the toggle's right half sat under that rail, which — during panel/
-      // window animations that spin up a transient stacking context — stole its clicks.
-      className="fixed bottom-5 right-14 z-[200] flex h-5 w-9 items-center rounded-full border border-foreground/15 bg-foreground/10 px-1 shadow-md backdrop-blur transition-colors hover:bg-foreground/15"
+      // `right-5` the toggle's right half sat under that rail. `z-[300]` puts it above
+      // EVERY other layer — the window layer (z-140), its rails (z-20), and the do-list
+      // dropdown backdrops (`fixed inset-0 z-[140]`) — so no transient overlay spun up
+      // during a panel/window animation can ever intercept its clicks.
+      className="fixed bottom-5 right-14 z-[300] flex h-5 w-9 items-center rounded-full border border-foreground/15 bg-foreground/10 px-1 shadow-md backdrop-blur transition-colors hover:bg-foreground/15"
     >
       <span
         className={cn(

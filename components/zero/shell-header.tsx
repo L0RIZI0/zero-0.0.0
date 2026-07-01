@@ -1,5 +1,6 @@
 "use client"
 
+import { useState } from "react"
 import { motion } from "motion/react"
 import { Search } from "lucide-react"
 import { UserIdentity } from "./user-identity"
@@ -34,6 +35,11 @@ function useClock() {
 export function ShellHeader() {
   const { time, weekday, monthDay } = useClock()
   const { activeEntity } = useZeroNav()
+  // Reveal the version switcher only when the right cluster is hovered/focused. Uses
+  // React state rather than Tailwind `group-hover` — the CSS hover variant is gated
+  // behind `@media (hover: hover)` in Tailwind v4 and doesn't fire reliably here (same
+  // reason CollapsibleColumn's rail hover is state-driven).
+  const [rightHover, setRightHover] = useState(false)
   // The header bar reacts to dive depth. The whole bar slides up a touch at
   // stage 1 (first child) without any shrinking; it only compacts — avatar,
   // handle, search, logo — at stage 2 (a second child open).
@@ -92,13 +98,25 @@ export function ShellHeader() {
       </motion.div>
 
       <div
-        className="group/right pointer-events-auto flex flex-1 items-center justify-end gap-3"
+        className="pointer-events-auto flex flex-1 items-center justify-end gap-3"
         style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
+        onPointerEnter={() => setRightHover(true)}
+        onPointerLeave={() => setRightHover(false)}
+        onFocus={() => setRightHover(true)}
+        onBlur={(e) => {
+          // Keep it revealed while focus stays within the cluster (keyboard users).
+          if (!e.currentTarget.contains(e.relatedTarget as Node)) setRightHover(false)
+        }}
       >
         {/* Version switcher stays quiet until the right cluster is hovered (or something
             in it is focused, for keyboard users). Opacity-only so it never shifts the
             row's layout as it reveals. */}
-        <span className="opacity-0 transition-opacity duration-200 focus-within:opacity-100 group-hover/right:opacity-100">
+        <span
+          className={cn(
+            "transition-opacity duration-200",
+            rightHover ? "opacity-100" : "opacity-0",
+          )}
+        >
           <VersionSwitcher />
         </span>
         <button
