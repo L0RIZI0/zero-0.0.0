@@ -178,7 +178,7 @@ export function Dock({ contextId, active = true }: { contextId: string; active?:
     <motion.div
       className={cn(
         "pointer-events-auto flex shrink-0 flex-col items-center",
-        hasPins ? "pb-1 pt-4" : "pt-5",
+        hasPins ? "py-4" : "pt-5",
       )}
       initial={{ y: 20, opacity: 0 }}
       animate={{ y: 0, opacity: 1 }}
