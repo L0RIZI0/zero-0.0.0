@@ -36,10 +36,11 @@ export const panelTransition: Transition = morphBeat
  * Deliberately DECOUPLED from the 2s morph beat: the panel is not part of the window
  * shared-element morph, so it should feel snappy and immediate — the shortcut rail
  * stays put and the panel just pops in from the edge. A pronounced ease-OUT curve
- * (fast entry, long decelerating tail) so it lands SOFTLY at the edge — brief but with
- * a clear, cushioned settle rather than the old symmetric in/out stop.
+ * (fast entry, long decelerating tail) so it lands SOFTLY at the edge — a clearly
+ * visible, cushioned glide rather than a hard pop. Lengthened to 0.55s so the soft
+ * landing actually reads (the shorter versions felt instantaneous).
  */
-export const panelSlideTransition: Transition = { duration: 0.36, ease: [0.16, 1, 0.3, 1] }
+export const panelSlideTransition: Transition = { duration: 0.55, ease: [0.16, 1, 0.3, 1] }
 
 /**
  * The single attribute name a morph SOURCE exposes so an opening window can
