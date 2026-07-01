@@ -2394,14 +2394,15 @@ export function TimelineStrip({
                 style={{ left: `${pct(now)}%`, backgroundColor: NOW_COLOR }}
               >
                 {/* Endpoint caps: equilateral triangles (8px base, ~7px tall) centered on
-                    the 1px line (left −3.5px = −(8−1)/2). Top cap points DOWN into the line,
-                    bottom cap points UP. `drop-shadow` gives the same card-colored separation
-                    the old `ring-2 ring-card` discs had. */}
+                    the 1px line (left −3.5px = −(8−1)/2). Both sit just INSIDE the band at
+                    the top/bottom edges pointing inward (top cap points DOWN, bottom cap
+                    points UP) so they read inside the graduation rather than poking past it.
+                    `drop-shadow` gives the same card-colored separation the old discs had. */}
                 <span
                   aria-hidden
                   className="absolute"
                   style={{
-                    top: -7,
+                    top: 1,
                     left: -3.5,
                     width: 0,
                     height: 0,
@@ -2415,7 +2416,7 @@ export function TimelineStrip({
                   aria-hidden
                   className="absolute"
                   style={{
-                    bottom: -7,
+                    bottom: 1,
                     left: -3.5,
                     width: 0,
                     height: 0,

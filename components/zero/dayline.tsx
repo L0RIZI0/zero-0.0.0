@@ -26,8 +26,8 @@ import { NodeGlyph } from "./node-glyph"
 // a helper (glyph + title + time range / recurrence rule) that opens DOWNWARD.
 //
 // PAN + AUTO-SHIFT (simple, linear, no zoom):
-//   • Drag the lane left/right to pan its 24h window through time. Double-click
-//     recenters on the live "now" window.
+//   • Drag the lane left/right — or scroll/wheel — to pan its 24h window through time.
+//     Double-click recenters on the live "now" window.
 //   • The NOW marker lives its own life: it sits at the true time position within the
 //     shown window and advances minute by minute, sliding off-screen when you pan away.
 //   • AUTO-SHIFT: when the marker reaches the RIGHT edge *on its own* — i.e. time (not a
@@ -35,6 +35,20 @@ import { NodeGlyph } from "./node-glyph"
 //     window, landing the marker back at the LEFT edge. Un-panned, that boundary is 5am
 //     daily. A pan that pushes the marker past the edge does NOT trigger this; only a
 //     time transition does.
+//
+// RIPPLE PAN (the "feel"):
+//   • `viewStart` remains the logical truth — the real time position content lands at.
+//     The ripple is a purely-visual, TRANSIENT per-column `translateX` layered on top
+//     that always decays back to 0, so the effect never corrupts where things actually
+//     are (safe for the marker's minute clock + auto-shift).
+//   • The lane is split into RIPPLE_COLS fixed SCREEN columns, each a critically-damped
+//     spring (no bounce — pure inertial landing). A pan injects lag into every column
+//     scaled by its distance from the cursor: the column under the cursor moves instantly
+//     (lag≈0) while farther columns are held back and then catch up with delayed
+//     acceleration — a travelling wave that settles smoothly.
+//   • Driven imperatively from a single rAF loop writing `style.transform` on registered
+//     nodes via refs (no per-frame React state); the loop self-starts on a pan and
+//     self-stops at rest. `prefers-reduced-motion` disables it (instant pan).
 //
 // The timeline⇄dayline MORPH is intentionally NOT here yet.
 // ============================================================================
@@ -44,6 +58,25 @@ const DAY_MS = 86_400_000
 // land inside one window instead of being split at midnight.
 const DAY_START_HOUR = 5
 const NEUTRAL = "oklch(0.72 0.004 75)"
+
+// --- Ripple tuning ----------------------------------------------------------
+// Screen is divided into this many fixed columns; each is one spring. ~16 over a
+// typical lane width ≈ 1–2h per column, matching the requested "cell" feel.
+const RIPPLE_COLS = 16
+// Critically-damped spring: damping = 2*sqrt(stiffness) → fastest settle w/ NO overshoot.
+const RIPPLE_STIFFNESS = 90
+const RIPPLE_DAMPING = 2 * Math.sqrt(RIPPLE_STIFFNESS)
+// Max fraction of a pan step a far column lags behind by (0 = none, 1 = fully held back).
+const RIPPLE_LAG = 0.85
+// Falloff exponent for lag vs normalized cursor distance (>1 keeps a tight lead near
+// the cursor and a longer trailing tail).
+const RIPPLE_FALLOFF = 1.3
+// Clamp per-column offset so a rapid scroll burst can't fling content far off-lane.
+const RIPPLE_MAX_OFFSET = 64
+// Below this |offset| (px) and |velocity| a column is snapped to rest. Set above the
+// sub-pixel range so critical damping's slow asymptotic tail can't leave a lingering
+// (invisible) transform hanging around after the wave has visually landed.
+const RIPPLE_REST = 0.4
 
 /** [start,end) of the 5am→5am window containing `now`. */
 function dayWindow(now: number): [number, number] {
@@ -155,9 +188,131 @@ export function Dayline() {
   const nowPct = ((now - winStart) / DAY_MS) * 100
   const nowInView = nowPct >= 0 && nowPct <= 100
 
-  // --- Panning (linear drag, no zoom) ---------------------------------------
+  // ==========================================================================
+  // RIPPLE — per-column critically-damped springs, driven imperatively.
+  // ==========================================================================
   const laneRef = useRef<HTMLDivElement>(null)
-  const dragRef = useRef<{ startX: number; startView: number } | null>(null)
+  // Live visual offset (px) + velocity for each screen column. Kept in refs so the rAF
+  // loop mutates them without triggering React renders.
+  const offsetRef = useRef<Float64Array>(new Float64Array(RIPPLE_COLS))
+  const velRef = useRef<Float64Array>(new Float64Array(RIPPLE_COLS))
+  const rafRef = useRef<number | null>(null)
+  const lastTsRef = useRef(0)
+  // Column the cursor is currently over (defaults to lane center). Pan lag radiates from here.
+  const cursorColRef = useRef((RIPPLE_COLS - 1) / 2)
+  const reducedRef = useRef(false)
+  // Registered nodes to displace each frame, keyed so unmounts clean themselves up. Each
+  // node carries a live `data-col` attribute (updated by React every render) that the loop
+  // reads — so a node whose column changes mid-pan always uses its CURRENT screen column.
+  const rippleNodesRef = useRef<Map<string, HTMLElement>>(new Map())
+
+  const registerRipple = useCallback((key: string) => {
+    return (el: HTMLElement | null) => {
+      const map = rippleNodesRef.current
+      if (el) map.set(key, el)
+      else map.delete(key)
+    }
+  }, [])
+
+  // Detect reduced-motion once (and keep it current).
+  useEffect(() => {
+    const mq = window.matchMedia("(prefers-reduced-motion: reduce)")
+    const sync = () => (reducedRef.current = mq.matches)
+    sync()
+    mq.addEventListener("change", sync)
+    return () => mq.removeEventListener("change", sync)
+  }, [])
+
+  const pctToCol = useCallback((clientX: number) => {
+    const lane = laneRef.current
+    if (!lane) return (RIPPLE_COLS - 1) / 2
+    const r = lane.getBoundingClientRect()
+    const pct = r.width > 0 ? (clientX - r.left) / r.width : 0.5
+    return Math.max(0, Math.min(RIPPLE_COLS - 1, Math.round(pct * (RIPPLE_COLS - 1))))
+  }, [])
+
+  // Write the current per-column offsets onto every registered node. Reading `data-col`
+  // live keeps a node in sync with the fixed SCREEN column it currently sits under.
+  const paintRipple = useCallback(() => {
+    const off = offsetRef.current
+    for (const el of rippleNodesRef.current.values()) {
+      const col = +(el.dataset.col ?? "") || 0
+      const x = off[col] || 0
+      el.style.transform = x ? `translateX(${x}px)` : ""
+    }
+  }, [])
+
+  const tick = useCallback(
+    (ts: number) => {
+      const off = offsetRef.current
+      const vel = velRef.current
+      let dt = (ts - lastTsRef.current) / 1000
+      lastTsRef.current = ts
+      if (!(dt > 0)) dt = 1 / 60
+      dt = Math.min(dt, 0.05)
+      // Fixed-size substeps keep the stiff spring stable regardless of frame length.
+      const steps = Math.max(1, Math.ceil(dt / 0.008))
+      const h = dt / steps
+      let active = false
+      for (let c = 0; c < RIPPLE_COLS; c++) {
+        let x = off[c]
+        let v = vel[c]
+        if (x === 0 && v === 0) continue
+        for (let s = 0; s < steps; s++) {
+          const a = -RIPPLE_STIFFNESS * x - RIPPLE_DAMPING * v
+          v += a * h
+          x += v * h
+        }
+        if (Math.abs(x) < RIPPLE_REST && Math.abs(v) < RIPPLE_REST) {
+          x = 0
+          v = 0
+        } else {
+          active = true
+        }
+        off[c] = x
+        vel[c] = v
+      }
+      paintRipple()
+      if (active) {
+        rafRef.current = requestAnimationFrame(tick)
+      } else {
+        rafRef.current = null
+      }
+    },
+    [paintRipple],
+  )
+
+  const startRipple = useCallback(() => {
+    if (rafRef.current != null) return
+    lastTsRef.current = performance.now()
+    rafRef.current = requestAnimationFrame(tick)
+  }, [tick])
+
+  // Inject a pan step (screen px the content just moved by) as distance-scaled lag: the
+  // column under the cursor barely lags (moves with the pan), far columns are held back
+  // by up to RIPPLE_LAG of the step, then spring back to 0 → the catch-up wave.
+  const injectPan = useCallback(
+    (shiftPx: number) => {
+      if (reducedRef.current || shiftPx === 0) return
+      const off = offsetRef.current
+      const cc = cursorColRef.current
+      const maxDist = Math.max(cc, RIPPLE_COLS - 1 - cc, 1)
+      for (let c = 0; c < RIPPLE_COLS; c++) {
+        const dist = Math.abs(c - cc) / maxDist // 0 at cursor → 1 at far edge
+        const lag = RIPPLE_LAG * Math.pow(dist, RIPPLE_FALLOFF)
+        // Hold the column back by −shift*lag; the spring (target 0) then lands it.
+        let x = off[c] - shiftPx * lag
+        if (x > RIPPLE_MAX_OFFSET) x = RIPPLE_MAX_OFFSET
+        else if (x < -RIPPLE_MAX_OFFSET) x = -RIPPLE_MAX_OFFSET
+        off[c] = x
+      }
+      startRipple()
+    },
+    [startRipple],
+  )
+
+  // --- Panning (linear drag, no zoom) ---------------------------------------
+  const dragRef = useRef<{ startX: number; startView: number; lastX: number } | null>(null)
   // Set true once a drag moves past threshold; suppresses the chip click that would
   // otherwise fire on pointerup, and reset on the next pointerdown.
   const draggedRef = useRef(false)
@@ -166,21 +321,32 @@ export function Dayline() {
     (e: React.PointerEvent) => {
       if (e.button !== 0) return
       draggedRef.current = false
-      dragRef.current = { startX: e.clientX, startView: viewStart }
+      dragRef.current = { startX: e.clientX, startView: viewStart, lastX: e.clientX }
+      cursorColRef.current = pctToCol(e.clientX)
       laneRef.current?.setPointerCapture(e.pointerId)
     },
-    [viewStart],
+    [viewStart, pctToCol],
   )
-  const onPointerMove = useCallback((e: React.PointerEvent) => {
-    const d = dragRef.current
-    const lane = laneRef.current
-    if (!d || !lane) return
-    const w = lane.clientWidth || 1
-    const dx = e.clientX - d.startX
-    if (Math.abs(dx) > 3) draggedRef.current = true
-    // Drag right → reveal earlier time (window slides back), and vice-versa.
-    setViewStart(d.startView - (dx / w) * DAY_MS)
-  }, [])
+  const onPointerMove = useCallback(
+    (e: React.PointerEvent) => {
+      const d = dragRef.current
+      const lane = laneRef.current
+      // Track cursor column even when not dragging so a wheel pan radiates from the pointer.
+      cursorColRef.current = pctToCol(e.clientX)
+      if (!d || !lane) return
+      const w = lane.clientWidth || 1
+      const dx = e.clientX - d.startX
+      if (Math.abs(dx) > 3) draggedRef.current = true
+      // Incremental screen shift since the last move drives the ripple (content follows
+      // the finger, so dragging right by `inc` moves content right by `inc`).
+      const inc = e.clientX - d.lastX
+      d.lastX = e.clientX
+      injectPan(inc)
+      // Drag right → reveal earlier time (window slides back), and vice-versa.
+      setViewStart(d.startView - (dx / w) * DAY_MS)
+    },
+    [pctToCol, injectPan],
+  )
   const onPointerUp = useCallback((e: React.PointerEvent) => {
     dragRef.current = null
     if (laneRef.current?.hasPointerCapture(e.pointerId)) laneRef.current.releasePointerCapture(e.pointerId)
@@ -193,7 +359,8 @@ export function Dayline() {
   // dominant scroll axis (deltaX on trackpads, deltaY on a plain mouse wheel), mapped
   // linearly to time by the lane width — same scale as the drag. Scrolling forward
   // (down / right) reveals LATER time (window slides forward), mirroring the drag where
-  // dragging left reveals later time.
+  // dragging left reveals later time. Each notch also feeds the ripple (content moves
+  // LEFT by `delta`, so the injected shift is −delta).
   useEffect(() => {
     const lane = laneRef.current
     if (!lane) return
@@ -202,11 +369,24 @@ export function Dayline() {
       if (delta === 0) return
       e.preventDefault()
       const w = lane.clientWidth || 1
+      cursorColRef.current = pctToCol(e.clientX)
+      injectPan(-delta)
       setViewStart((vs) => vs + (delta / w) * DAY_MS)
     }
     lane.addEventListener("wheel", onWheel, { passive: false })
     return () => lane.removeEventListener("wheel", onWheel)
+  }, [pctToCol, injectPan])
+
+  // Stop the loop on unmount.
+  useEffect(() => {
+    return () => {
+      if (rafRef.current != null) cancelAnimationFrame(rafRef.current)
+    }
   }, [])
+
+  // Column a given lane percentage falls in (for assigning items + marker to a screen column).
+  const colOfPct = (p: number) => Math.max(0, Math.min(RIPPLE_COLS - 1, Math.round((p / 100) * (RIPPLE_COLS - 1))))
+  const nowCol = colOfPct(Math.max(0, Math.min(100, nowPct)))
 
   return (
     // Constant-height header row. `pointer-events-none` lets the gaps fall through;
@@ -231,108 +411,135 @@ export function Dayline() {
       >
         {mounted &&
           items.map((it) => {
-          const isHot = hovered === it.key
-          if (it.isDuration) {
+            const isHot = hovered === it.key
+            const col = colOfPct(it.centerPct)
+            // Each item lives inside a full-lane RIPPLE WRAPPER whose `translateX` the rAF
+            // loop drives (imperative, so React never fights it); the inner button keeps
+            // its own centering transform untouched. The wrapper is pointer-events-none so
+            // empty area still passes drags to the lane; the button re-enables events.
+            if (it.isDuration) {
+              return (
+                <div
+                  key={it.key}
+                  ref={registerRipple(it.key)}
+                  data-col={col}
+                  className="pointer-events-none absolute inset-0 will-change-transform"
+                >
+                  <button
+                    type="button"
+                    aria-label={`${it.title}, ${it.range}`}
+                    onMouseEnter={() => setHovered(it.key)}
+                    onMouseLeave={() => setHovered((h) => (h === it.key ? null : h))}
+                    onClick={() => {
+                      if (draggedRef.current) return // a pan, not a tap
+                      open(it.id)
+                    }}
+                    className="pointer-events-auto absolute top-1/2 -translate-y-1/2 cursor-default rounded-[3px] transition-[filter,height] duration-150"
+                    style={{
+                      left: `${it.leftPct}%`,
+                      width: `max(3px, ${it.widthPct}%)`,
+                      height: isHot ? 18 : 12,
+                      backgroundColor: it.color,
+                      opacity: isHot ? 0.9 : 0.42,
+                      filter: isHot ? "saturate(1.4) brightness(1.1)" : "none",
+                      zIndex: isHot ? 20 : 1,
+                    }}
+                  />
+                </div>
+              )
+            }
+            // Instant → a thin solid vertical tick spanning the lane.
             return (
-              <button
+              <div
                 key={it.key}
-                type="button"
-                aria-label={`${it.title}, ${it.range}`}
-                onMouseEnter={() => setHovered(it.key)}
-                onMouseLeave={() => setHovered((h) => (h === it.key ? null : h))}
-                onClick={() => {
-                  if (draggedRef.current) return // a pan, not a tap
-                  open(it.id)
-                }}
-                className="absolute top-1/2 -translate-y-1/2 cursor-default rounded-[3px] transition-[filter,height] duration-150"
-                style={{
-                  left: `${it.leftPct}%`,
-                  width: `max(3px, ${it.widthPct}%)`,
-                  height: isHot ? 18 : 12,
-                  backgroundColor: it.color,
-                  opacity: isHot ? 0.9 : 0.42,
-                  filter: isHot ? "saturate(1.4) brightness(1.1)" : "none",
-                  zIndex: isHot ? 20 : 1,
-                }}
-              />
+                ref={registerRipple(it.key)}
+                data-col={col}
+                className="pointer-events-none absolute inset-0 will-change-transform"
+              >
+                <button
+                  type="button"
+                  aria-label={`${it.title}, ${it.range}`}
+                  onMouseEnter={() => setHovered(it.key)}
+                  onMouseLeave={() => setHovered((h) => (h === it.key ? null : h))}
+                  onClick={() => {
+                    if (draggedRef.current) return // a pan, not a tap
+                    open(it.id)
+                  }}
+                  className="pointer-events-auto absolute top-1/2 -translate-x-1/2 -translate-y-1/2 cursor-default rounded-full transition-[filter,height,width] duration-150"
+                  style={{
+                    left: `${it.leftPct}%`,
+                    width: isHot ? 3 : 2,
+                    height: isHot ? 22 : 16,
+                    backgroundColor: it.color,
+                    filter: isHot ? "saturate(1.5) brightness(1.15)" : "none",
+                    zIndex: isHot ? 20 : 2,
+                  }}
+                />
+              </div>
             )
-          }
-          // Instant → a thin solid vertical tick spanning the lane.
-          return (
-            <button
-              key={it.key}
-              type="button"
-              aria-label={`${it.title}, ${it.range}`}
-              onMouseEnter={() => setHovered(it.key)}
-              onMouseLeave={() => setHovered((h) => (h === it.key ? null : h))}
-              onClick={() => {
-                if (draggedRef.current) return // a pan, not a tap
-                open(it.id)
-              }}
-              className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2 cursor-default rounded-full transition-[filter,height,width] duration-150"
-              style={{
-                left: `${it.leftPct}%`,
-                width: isHot ? 3 : 2,
-                height: isHot ? 22 : 16,
-                backgroundColor: it.color,
-                filter: isHot ? "saturate(1.5) brightness(1.15)" : "none",
-                zIndex: isHot ? 20 : 2,
-              }}
-            />
-          )
-        })}
+          })}
 
         {/* NOW marker — a thin, bright-orange vertical tick (discrete but visible),
-            painted above every item. A small downward cap at the top edge mirrors the
-            timeline's now-marker so the live-time indicator reads identically on both.
-            Gated on `mounted`: its position is time-derived, so it must not render on the
-            server (would mismatch the client's clock). Also hidden when panned out of view
-            (`nowInView`) so it doesn't spill past the overflow-visible lane into the header. */}
+            painted above every item. Small triangular caps sit just INSIDE the lane at
+            the top and bottom edges, pointing inward, mirroring the timeline's now-marker
+            so the live-time indicator reads identically on both. Gated on `mounted`: its
+            position is time-derived, so it must not render on the server (would mismatch
+            the client's clock). Also hidden when panned out of view (`nowInView`) so it
+            doesn't spill past the overflow-visible lane into the header. Wrapped in a
+            ripple node so it rides the same catch-up wave as the content around it. */}
         {mounted && nowInView && (
           <div
             aria-hidden
-            className="pointer-events-auto absolute -bottom-px -top-px z-30 w-[2px] -translate-x-1/2 rounded-full"
-            style={{ left: `${nowPct}%`, backgroundColor: NOW_COLOR, boxShadow: `0 0 4px ${NOW_COLOR}` }}
+            ref={registerRipple("__now__")}
+            data-col={nowCol}
+            className="pointer-events-none absolute inset-0 z-30 will-change-transform"
           >
-            {/* Invisible, wider hit zone so the 2px line is hoverable in practice; it
-                toggles the time pill via React state. */}
-            <span
-              className="absolute -bottom-1 -top-1 left-1/2 w-4 -translate-x-1/2 cursor-default"
-              onMouseEnter={() => setNowHover(true)}
-              onMouseLeave={() => setNowHover(false)}
-            />
-            {/* Downward cap at the top edge. */}
-            <span
-              className="absolute -top-1 left-1/2 -translate-x-1/2"
-              style={{
-                width: 0,
-                height: 0,
-                borderLeft: "3px solid transparent",
-                borderRight: "3px solid transparent",
-                borderTop: `5px solid ${NOW_COLOR}`,
-              }}
-            />
-            {/* Matching upward cap at the bottom edge (mirror of the top triangle). */}
-            <span
-              className="absolute -bottom-1 left-1/2 -translate-x-1/2"
-              style={{
-                width: 0,
-                height: 0,
-                borderLeft: "3px solid transparent",
-                borderRight: "3px solid transparent",
-                borderBottom: `5px solid ${NOW_COLOR}`,
-              }}
-            />
-            {/* Live time tooltip — shown ONLY on hover of the marker, pinned to its center.
-                24h format; tabular-nums keeps the digits from jittering as the minute advances. */}
-            <span
-              className={cn(
-                "pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 whitespace-nowrap rounded border border-border/70 bg-card px-2 py-1 text-[10.5px] font-medium leading-none tracking-tight tabular-nums text-foreground/80 shadow-sm transition-opacity duration-150",
-                nowHover ? "opacity-100" : "opacity-0",
-              )}
+            <div
+              className="pointer-events-auto absolute -bottom-px -top-px w-[2px] -translate-x-1/2 rounded-full"
+              style={{ left: `${nowPct}%`, backgroundColor: NOW_COLOR, boxShadow: `0 0 4px ${NOW_COLOR}` }}
             >
-              {new Date(now).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false })}
-            </span>
+              {/* Invisible, wider hit zone so the 2px line is hoverable in practice; it
+                  toggles the time pill via React state. */}
+              <span
+                className="absolute -bottom-1 -top-1 left-1/2 w-4 -translate-x-1/2 cursor-default"
+                onMouseEnter={() => setNowHover(true)}
+                onMouseLeave={() => setNowHover(false)}
+              />
+              {/* Downward cap — sits just inside the TOP edge, pointing down into the lane. */}
+              <span
+                className="absolute left-1/2 -translate-x-1/2"
+                style={{
+                  top: 1,
+                  width: 0,
+                  height: 0,
+                  borderLeft: "3px solid transparent",
+                  borderRight: "3px solid transparent",
+                  borderTop: `5px solid ${NOW_COLOR}`,
+                }}
+              />
+              {/* Upward cap — sits just inside the BOTTOM edge, pointing up into the lane. */}
+              <span
+                className="absolute left-1/2 -translate-x-1/2"
+                style={{
+                  bottom: 1,
+                  width: 0,
+                  height: 0,
+                  borderLeft: "3px solid transparent",
+                  borderRight: "3px solid transparent",
+                  borderBottom: `5px solid ${NOW_COLOR}`,
+                }}
+              />
+              {/* Live time tooltip — shown ONLY on hover of the marker, pinned to its center.
+                  24h format; tabular-nums keeps the digits from jittering as the minute advances. */}
+              <span
+                className={cn(
+                  "pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 whitespace-nowrap rounded border border-border/70 bg-card px-2 py-1 text-[10.5px] font-medium leading-none tracking-tight tabular-nums text-foreground/80 shadow-sm transition-opacity duration-150",
+                  nowHover ? "opacity-100" : "opacity-0",
+                )}
+              >
+                {new Date(now).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false })}
+              </span>
+            </div>
           </div>
         )}
       </div>
