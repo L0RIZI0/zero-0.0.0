@@ -81,15 +81,14 @@ const RIPPLE_MAX_OFFSET = 220
 // sub-pixel range so critical damping's slow asymptotic tail can't leave a lingering
 // (invisible) transform hanging around after the wave has visually landed.
 const RIPPLE_REST = 0.4
-// Items are CULLED on their logical window position, but the ripple `translateX` lags
-// them visually — during a strong pan `viewStart` races ahead while content trails, so
-// an item can be culled (logical edge crossed) while still visually inside the lane,
-// popping out early. We render a margin of time beyond the window on each side so those
-// lagged ticks stay mounted; the lane's overflow-hidden clip then hides them until the
-// ripple pulls them in, so they glide off exactly at the edge. A generous fraction of a
-// day comfortably covers RIPPLE_MAX_OFFSET on any desktop lane width; over-margin items
-// are simply clipped (harmless). The dayline is desktop-only, so lanes are always wide.
-const RENDER_MARGIN_MS = DAY_MS * 0.35
+// We mount a BOUNDED buffer of time beyond the visible 24h window on each side, so
+// nearby days (today / tomorrow / the day after, and a bit behind) stay mounted and
+// ripple-lagged ticks never pop out early — the lane's overflow-hidden clip hides the
+// extra until the wave brings them in. Keeping this bounded matters because the buffer
+// also bounds recurrence materialization (an unbounded range = infinite occurrences).
+// The buffer's recurrence expansion is memoized on a quantized day anchor (see below),
+// so a wider buffer costs nothing per pan frame; only the cheap position remap re-runs.
+const RENDER_MARGIN_MS = DAY_MS * 1.5
 
 /** [start,end) of the 5am→5am window containing `now`. */
 function dayWindow(now: number): [number, number] {
@@ -157,31 +156,37 @@ export function Dayline() {
   }, [now, mounted])
 
   const winStart = viewStart
-  const winEnd = viewStart + DAY_MS
 
   const [hovered, setHovered] = useState<string | null>(null)
   // Hover state for the NOW marker's time tooltip (React-driven, like the chips —
   // the Tailwind `group-hover` variant isn't reliably compiled in this project).
   const [nowHover, setNowHover] = useState(false)
 
-  const items = useMemo<DayItem[]>(() => {
+  // Query anchor QUANTIZED to the day: it only changes when panning crosses into a new
+  // day (viewStart drifts at most ±½ day from it), so the EXPENSIVE recurrence expansion
+  // re-runs at most once per day panned — never per frame. The ±RENDER_MARGIN_MS buffer
+  // (≥1 day beyond the visible window even at the quantization extremes) keeps nearby
+  // days mounted and safely bounds recurrence materialization.
+  const queryAnchor = mounted ? Math.round(viewStart / DAY_MS) * DAY_MS : 0
+
+  // EXPENSIVE: expand recurring series into concrete occurrences over the buffered range.
+  // Memoized on the quantized anchor so a pan within a day doesn't re-expand anything.
+  const occurrences = useMemo(() => {
     if (!mounted) return []
-    // Query + intersect with a MARGIN beyond the visible window so ripple-lagged ticks
-    // (see RENDER_MARGIN_MS) stay mounted; the lane's overflow-hidden clip hides the
-    // extra until the wave brings them in. leftPct/widthPct stay window-relative, so
-    // margin items get leftPct <0 or >100 and are clipped at the edge.
-    const qStart = winStart - RENDER_MARGIN_MS
-    const qEnd = winEnd + RENDER_MARGIN_MS
-    const occ = getTimelineOccurrences(rootId, qStart, qEnd)
+    return getTimelineOccurrences(rootId, queryAnchor - RENDER_MARGIN_MS, queryAnchor + DAY_MS + RENDER_MARGIN_MS)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rootId, queryAnchor, dataVersion, mounted])
+
+  // CHEAP: remap the (stable) occurrences to window-relative positions each pan frame —
+  // pure arithmetic, no recurrence work. Positions come from the FULL, UNCLAMPED st/en so
+  // every bar keeps its true width and rigidly translates (no squeeze against the render
+  // boundary); the lane's overflow-hidden clip trims any overhang at the edges.
+  const items = useMemo<DayItem[]>(() => {
     const out: DayItem[] = []
-    for (const e of occ) {
+    for (const e of occurrences) {
       const [st, en] = entityInterval(e)
-      // One-offs are NOT range-clipped by the query, so intersect the margin window here.
-      if (en < qStart || st > qEnd) continue
-      const cs = Math.max(st, qStart)
-      const ce = Math.min(en, qEnd)
-      const leftPct = ((cs - winStart) / DAY_MS) * 100
-      const widthPct = Math.max(0, ((ce - cs) / DAY_MS) * 100)
+      const leftPct = ((st - winStart) / DAY_MS) * 100
+      const widthPct = Math.max(0, ((en - st) / DAY_MS) * 100)
       const isDuration = en > st
       out.push({
         key: e.occKey,
@@ -199,8 +204,7 @@ export function Dayline() {
     }
     // Paint durations first so the thin instant ticks sit visually on top.
     return out.sort((a, b) => Number(b.isDuration) - Number(a.isDuration))
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rootId, winStart, winEnd, dataVersion, mounted])
+  }, [occurrences, winStart])
 
   const hoveredItem = hovered ? items.find((i) => i.key === hovered) : null
   // NOW marker position within the shown window; off-screen (outside 0–100) when panned away.
@@ -252,9 +256,19 @@ export function Dayline() {
 
   // Write the current per-column offsets onto every registered node. Reading `data-col`
   // live keeps a node in sync with the fixed SCREEN column it currently sits under.
+  // OFF-SCREEN SKIP: a node's `data-left` (leftPct, updated by React each render) lets us
+  // cheaply skip ticks far outside the lane — they're clipped anyway, so mounting a wide
+  // buffer of nearby-day ticks costs ~nothing per frame. The ±40 threshold clears the max
+  // ripple displacement (~18% of a day) so a lagged tick can't be skipped while it's still
+  // visually on-screen. A skipped node is cleared once so no stale transform lingers.
   const paintRipple = useCallback(() => {
     const off = offsetRef.current
     for (const el of rippleNodesRef.current.values()) {
+      const left = +(el.dataset.left ?? "") || 0
+      if (left < -40 || left > 140) {
+        if (el.style.transform) el.style.transform = ""
+        continue
+      }
       const col = +(el.dataset.col ?? "") || 0
       const x = off[col] || 0
       el.style.transform = x ? `translateX(${x}px)` : ""
@@ -447,6 +461,7 @@ export function Dayline() {
                   key={it.key}
                   ref={registerRipple(it.key)}
                   data-col={col}
+                  data-left={it.leftPct}
                   className="pointer-events-none absolute inset-0 will-change-transform"
                 >
                   <button
@@ -478,6 +493,7 @@ export function Dayline() {
                 key={it.key}
                 ref={registerRipple(it.key)}
                 data-col={col}
+                data-left={it.leftPct}
                 className="pointer-events-none absolute inset-0 will-change-transform"
               >
                 <button
