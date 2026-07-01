@@ -293,6 +293,10 @@ function CreateRow({
   const [title, setTitle] = useState("")
   const [anchor, setAnchor] = useState<{ left: number; top: number; bottom: number } | null>(null)
   const [resAnchor, setResAnchor] = useState<{ left: number; top: number; bottom: number } | null>(null)
+  // Reveal the resource (globe) launcher only when the row is hovered/focused. React
+  // state, not Tailwind `group-hover` — the CSS hover variant is gated behind
+  // `@media (hover:hover)` in v4 and fires unreliably here (same as the header cluster).
+  const [rowHover, setRowHover] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
   const resTriggerRef = useRef<HTMLButtonElement>(null)
@@ -438,7 +442,11 @@ function CreateRow({
       transition={closing ? { duration: 0.12, ease: "easeOut" } : ROW_REFLOW}
     >
       <div
-        onPointerEnter={() => select("list", ADD_KEY, "mouse")}
+        onPointerEnter={() => {
+          select("list", ADD_KEY, "mouse")
+          setRowHover(true)
+        }}
+        onPointerLeave={() => setRowHover(false)}
         style={{ borderRadius: 4 }}
         // py-3 (12px) matches the taller h-11 entity rows so the draft input row is the
         // same height; px-4 matches the row's horizontal padding.
@@ -491,7 +499,12 @@ function CreateRow({
             aria-label="Open a resource"
             onClick={toggleResMenu}
             className={cn(
-              "flex h-6 w-6 shrink-0 items-center justify-center rounded-[4px] text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground",
+              "flex h-6 w-6 shrink-0 items-center justify-center rounded-[4px] text-muted-foreground transition-[background-color,color,opacity] hover:bg-foreground/10 hover:text-foreground",
+              // Quiet by default; reveal on row hover, while its menu is open, or when the
+              // button itself is keyboard-focused (`focus-visible`) — but NOT merely from
+              // the autofocused text input, so it stays hidden while you type.
+              "opacity-0 focus-visible:opacity-100",
+              (rowHover || resMenuOpen) && "opacity-100",
               resMenuOpen && "bg-foreground/10 text-foreground",
             )}
           >
