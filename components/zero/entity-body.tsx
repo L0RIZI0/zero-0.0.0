@@ -46,6 +46,9 @@ export function EntityBody({
   railShift = 0,
   railBleedLeft = PANEL_RAIL_W,
   railBleedRight = PANEL_RAIL_W,
+  panelTopInset = 0,
+  panelHeaderClamp = 0,
+  surface,
   resource,
   timeline,
 }: {
@@ -73,6 +76,18 @@ export function EntityBody({
    *  the frame edge. Defaults to the full rail (leaf / home root, uncovered). */
   railBleedLeft?: number
   railBleedRight?: number
+  /** Px to extend the panel/rail box UPWARD past the body's top so it reaches the
+   *  WINDOW top (behind the header). Non-zero only where the body doesn't already
+   *  fill the window from the top — i.e. the home view (= HEADER_OVERLAY_H). Lets the
+   *  list center on the WHOLE window rather than just the header-bottom→bottom band. */
+  panelTopInset?: number
+  /** The window header's visible height. Used as symmetric top/bottom padding on the
+   *  panel's content so the vertically-centered list never rises above the header
+   *  bottom (tall lists pin there and scroll). */
+  panelHeaderClamp?: number
+  /** The window's background colour — the opaque panel uses it so it reads as the
+   *  window surface sliding over the View. Falls back to the theme background. */
+  surface?: string
   /** Vertically center the do-list within its column (forwarded to DoList). */
   centerList?: boolean
   /** The always-mounted home view. Its body has no in-flow header, so its rails
