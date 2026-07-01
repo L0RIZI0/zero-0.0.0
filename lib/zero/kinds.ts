@@ -63,8 +63,8 @@ export const KIND_META: Record<EntityKind, KindMeta> = {
     terminal: null,
   },
   event: {
-    label: "Event",
-    description: "Something that lives in time",
+    label: "Moment",
+    description: "A span in time",
     creatable: true,
     completable: true,
     fillGlyphWhenDone: true,
@@ -73,7 +73,7 @@ export const KIND_META: Record<EntityKind, KindMeta> = {
   },
   instant: {
     label: "Instant",
-    description: "A precise moment",
+    description: "A point in time",
     creatable: true,
     completable: true,
     fillGlyphWhenDone: true,
