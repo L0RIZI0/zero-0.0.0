@@ -70,9 +70,9 @@ export function CollapsibleColumn({
   // variant is gated behind `@media (hover: hover)` in Tailwind v4 and didn't fire
   // reliably here. State-driven opacity always works.
   const [railHover, setRailHover] = useState(false)
-  // Rail label opacity: bright on hover, dimmed-but-present when open (we keep the
-  // label when open, just softened), faint when idle/closed.
-  const labelOpacity = railHover ? "opacity-100" : open ? "opacity-60" : "opacity-35"
+  // Rail label opacity: fully HIDDEN when open (the horizontal panel title names it;
+  // the rail stays a clickable close-area), bright on hover, faint when idle/closed.
+  const labelOpacity = open ? "opacity-0" : railHover ? "opacity-100" : "opacity-35"
 
   return (
     <div className="relative h-full" style={{ width: railWidth }}>
@@ -84,9 +84,11 @@ export function CollapsibleColumn({
           <motion.section
             key="panel"
             aria-label={title}
-            initial={{ opacity: 0, x: side === "left" ? -16 : 16 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: side === "left" ? -16 : 16 }}
+            // Pure SLIDE — no fade. The panel travels its full width so it lives fully
+            // off the window edge when closed and glides in/out from the side.
+            initial={{ x: side === "left" ? -(railWidth + panelWidth) : railWidth + panelWidth }}
+            animate={{ x: 0 }}
+            exit={{ x: side === "left" ? -(railWidth + panelWidth) : railWidth + panelWidth }}
             transition={panelSlideTransition}
             className={cn(
               "pointer-events-auto absolute inset-y-0 flex min-h-0 flex-col shadow-xl",
