@@ -64,15 +64,18 @@ const NEUTRAL = "oklch(0.72 0.004 75)"
 // typical lane width ≈ 1–2h per column, matching the requested "cell" feel.
 const RIPPLE_COLS = 16
 // Critically-damped spring: damping = 2*sqrt(stiffness) → fastest settle w/ NO overshoot.
-const RIPPLE_STIFFNESS = 90
+// Softer stiffness = slower, more visible catch-up (a longer, more pronounced trailing
+// wave) while staying critically damped (no bounce).
+const RIPPLE_STIFFNESS = 52
 const RIPPLE_DAMPING = 2 * Math.sqrt(RIPPLE_STIFFNESS)
 // Max fraction of a pan step a far column lags behind by (0 = none, 1 = fully held back).
-const RIPPLE_LAG = 0.85
+// Near 1 → far columns almost freeze on each step, then snap-catch-up for a big ripple.
+const RIPPLE_LAG = 0.97
 // Falloff exponent for lag vs normalized cursor distance (>1 keeps a tight lead near
-// the cursor and a longer trailing tail).
-const RIPPLE_FALLOFF = 1.3
+// the cursor and a longer trailing tail). Higher = more dramatic near-vs-far contrast.
+const RIPPLE_FALLOFF = 1.6
 // Clamp per-column offset so a rapid scroll burst can't fling content far off-lane.
-const RIPPLE_MAX_OFFSET = 64
+const RIPPLE_MAX_OFFSET = 130
 // Below this |offset| (px) and |velocity| a column is snapped to rest. Set above the
 // sub-pixel range so critical damping's slow asymptotic tail can't leave a lingering
 // (invisible) transform hanging around after the wave has visually landed.
