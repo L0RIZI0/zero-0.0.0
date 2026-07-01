@@ -991,7 +991,11 @@ export function DoList({
           resolved items (a just-resolved one stays put via the retain set until the
           selector changes); "All" shows everything in place. */}
       {showSelectors && (
-        <div className="mb-2 flex shrink-0 items-center justify-center gap-1">
+        // Anchored above the FIRST item (left-aligned to the row's content) rather than
+        // centered at the top. `pl-1.5` lines the pills' text up with the row glyph
+        // (row px-4 ≈ 16px = pl-1.5 6px + the button's px-2.5 10px), and the tight mb
+        // lets them sit right on top of the first row.
+        <div className="mb-1 flex shrink-0 items-center justify-start gap-1 pl-1.5">
           {(["open", "all"] as const).map((f) => (
             <button
               key={f}

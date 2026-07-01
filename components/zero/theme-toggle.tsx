@@ -26,7 +26,11 @@ export function ThemeToggle() {
       aria-checked={mounted ? isDark : undefined}
       aria-label="Toggle dark mode"
       onClick={() => setTheme(isDark ? "light" : "dark")}
-      className="fixed bottom-5 right-5 z-[200] flex h-5 w-9 items-center rounded-full border border-foreground/15 bg-foreground/10 px-1 shadow-md backdrop-blur transition-colors hover:bg-foreground/15"
+      // `right-14` (56px) keeps the toggle clear of the Published panel's full-height
+      // invisible shortcut rail (a 48px strip pinned to the right edge). At the old
+      // `right-5` the toggle's right half sat under that rail, which — during panel/
+      // window animations that spin up a transient stacking context — stole its clicks.
+      className="fixed bottom-5 right-14 z-[200] flex h-5 w-9 items-center rounded-full border border-foreground/15 bg-foreground/10 px-1 shadow-md backdrop-blur transition-colors hover:bg-foreground/15"
     >
       <span
         className={cn(

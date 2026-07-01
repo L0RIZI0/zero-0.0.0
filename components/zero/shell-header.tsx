@@ -92,10 +92,15 @@ export function ShellHeader() {
       </motion.div>
 
       <div
-        className="pointer-events-auto flex flex-1 items-center justify-end gap-3"
+        className="group/right pointer-events-auto flex flex-1 items-center justify-end gap-3"
         style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
       >
-        <VersionSwitcher />
+        {/* Version switcher stays quiet until the right cluster is hovered (or something
+            in it is focused, for keyboard users). Opacity-only so it never shifts the
+            row's layout as it reveals. */}
+        <span className="opacity-0 transition-opacity duration-200 focus-within:opacity-100 group-hover/right:opacity-100">
+          <VersionSwitcher />
+        </span>
         <button
           type="button"
           className={cn(
