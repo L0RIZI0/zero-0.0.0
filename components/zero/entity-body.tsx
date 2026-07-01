@@ -209,13 +209,13 @@ export function EntityBody({
         </div>
       )}
 
-      {/* ASSETS — stuff that goes IN (resources, constraints, files…). Persistent
+      {/* RESOURCES — stuff that goes IN (money, assets, apps, files…). Persistent
           shortcut on the LEFT edge; the opaque panel slides in over the View. */}
       <PanelSlot side="left" open={inOpen} shift={railShift} bleed={railBleedLeft} topOffset={panelTopOffset}>
         {(railWidth, panelWidth, railScale, shift) => (
           <CollapsibleColumn
-            title="Assets"
-            collapsedTitle="Assets"
+            title="Resources"
+            collapsedTitle="Resources"
             side="left"
             count={assetCount}
             open={inOpen}
