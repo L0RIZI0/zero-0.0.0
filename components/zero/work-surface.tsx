@@ -13,7 +13,8 @@ import { cn } from "@/lib/utils"
 import { DebugFrameLabel } from "./debug-frame-label"
 import { EntityBody } from "./entity-body"
 import { EntityNode } from "./entity-node"
-import { TimelineStrip } from "./timeline-strip"
+// [v0] EXPERIMENT: region-0 timeline hidden — see note below. Restore with the const.
+// import { TimelineStrip } from "./timeline-strip"
 
 /**
  * The composed work surface — the host for the FOCUS-WINDOW REGION (the full card)
@@ -62,7 +63,11 @@ export function WorkSurface() {
   // here (WorkSurface owns the root context) and handed to the home EntityBody, which
   // renders it as the top HUG region. It is purely a home component — a child window
   // covering home covers it too.
-  const timeline = <TimelineStrip contextId={rootId} accent={rootAccent} />
+  //
+  // [v0] EXPERIMENT: region 0 (the lifelane timeline) is HIDDEN so the home view is just
+  // the Dayline (rendered up in zero-shell) on top of the do-list. To restore, uncomment
+  // this and pass `timeline={timeline}` to <EntityBody> below.
+  // const timeline = <TimelineStrip contextId={rootId} accent={rootAccent} />
 
   // Home is window 0 in the telescopic surface model. In DARK mode it stays on
   // pure --background (level 0) at every depth — a no-op. In LIGHT mode it is the
@@ -152,7 +157,6 @@ export function WorkSurface() {
           active={activeEntity.id === rootId}
           isRoot
           centerList
-          timeline={timeline}
           surface={homeSurface}
         />
 
