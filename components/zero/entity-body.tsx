@@ -1,9 +1,7 @@
 "use client"
 
 import type { ReactNode } from "react"
-import { motion } from "motion/react"
 import { getSpaceAssets, getPinnedItems } from "@/lib/zero/data"
-import { panelTransition } from "@/lib/zero/motion"
 import { usePanelOpen } from "@/lib/zero/panel-store"
 import { useZeroNav } from "@/lib/zero/nav-store"
 import { Region } from "./region"
@@ -201,32 +199,44 @@ export function EntityBody({
         </div>
       )}
 
-      {/* Inputs — overlaid rail/panel hugging the LEFT edge, centered on the frame. */}
+      {/* ASSETS — stuff that goes IN (resources, constraints, files…). Persistent
+          shortcut on the LEFT edge; the opaque panel slides in over the View. */}
       <PanelSlot side="left" open={inOpen} shift={railShift} bleed={railBleedLeft}>
-        <CollapsibleColumn
-          title="Inputs"
-          collapsedTitle="In"
-          side="left"
-          count={assetCount}
-          open={inOpen}
-          onOpenChange={setInOpen}
-        >
-          <AssetPanel spaceId={entityId} />
-        </CollapsibleColumn>
+        {(railWidth, panelWidth, railScale) => (
+          <CollapsibleColumn
+            title="Assets"
+            collapsedTitle="Assets"
+            side="left"
+            count={assetCount}
+            open={inOpen}
+            onOpenChange={setInOpen}
+            railWidth={railWidth}
+            panelWidth={panelWidth}
+            railScale={railScale}
+          >
+            <AssetPanel spaceId={entityId} />
+          </CollapsibleColumn>
+        )}
       </PanelSlot>
 
-      {/* Outputs — mirror of Inputs on the RIGHT edge. */}
+      {/* PUBLISHED — stuff that goes OUT (publications, output, results). Mirror of
+          Assets on the RIGHT edge. */}
       <PanelSlot side="right" open={outOpen} shift={railShift} bleed={railBleedRight}>
-        <CollapsibleColumn
-          title="Outputs"
-          collapsedTitle="Out"
-          side="right"
-          count={0}
-          open={outOpen}
-          onOpenChange={setOutOpen}
-        >
-          <OutputPanel spaceId={entityId} />
-        </CollapsibleColumn>
+        {(railWidth, panelWidth, railScale) => (
+          <CollapsibleColumn
+            title="Published"
+            collapsedTitle="Published"
+            side="right"
+            count={0}
+            open={outOpen}
+            onOpenChange={setOutOpen}
+            railWidth={railWidth}
+            panelWidth={panelWidth}
+            railScale={railScale}
+          >
+            <OutputPanel spaceId={entityId} />
+          </CollapsibleColumn>
+        )}
       </PanelSlot>
     </div>
   )
@@ -245,14 +255,13 @@ export function EntityBody({
  * rail jump (up when spining, down when un-spining) before easing back — the bug
  * this avoids.
  *
- * `width` and `scale` DO animate on the morph beat: the collapsed rail eases
- * between the full width and the window's visible `bleed` sliver (so it stays
- * centered in the strip a covered ancestor exposes, never clipped), and a covered
- * ancestor's rail gently shrinks for a recessed look. These are horizontal/size
- * changes, so they don't affect the vertical anchor.
+ * The persistent shortcut rail stays at the edge sliver (`bleed` wide) and a covered
+ * ancestor's rail gently recesses via `railScale`; the opaque panel is an overlay
+ * that slides in BESIDE the rail (handled in CollapsibleColumn) and never changes
+ * this slot's box, so the vertical anchor is stable.
  *
  * The wrapper is `pointer-events-none` so the do-list underneath stays interactive
- * wherever the panel is transparent; the panel itself re-enables pointer events.
+ * wherever the panel is transparent; the rail + panel re-enable pointer events.
  */
 function PanelSlot({
   side,
@@ -265,25 +274,20 @@ function PanelSlot({
   open: boolean
   shift: number
   bleed: number
-  children: React.ReactNode
+  children: (railWidth: number, panelWidth: number, railScale: number) => React.ReactNode
 }) {
   // Shrink only a COLLAPSED rail that's narrower than the full width (a covered
   // ancestor); the open panel and uncovered (leaf/home) rails stay at scale 1.
-  const collapsedScale = !open && bleed < PANEL_RAIL_W ? 0.85 : 1
+  const railScale = !open && bleed < PANEL_RAIL_W ? 0.85 : 1
   return (
     <div
-      className={cn("pointer-events-none absolute top-1/2 z-10 hidden md:flex", side === "left" ? "left-0" : "right-0")}
+      className={cn(
+        "pointer-events-none absolute top-1/2 z-10 hidden md:block",
+        side === "left" ? "left-0" : "right-0",
+      )}
       style={{ transform: `translateY(calc(-50% + ${shift}px))` }}
     >
-      <motion.div
-        className="pointer-events-auto flex min-h-0 flex-col"
-        initial={false}
-        animate={{ width: open ? PANEL_OPEN_W : bleed, scale: collapsedScale }}
-        transition={panelTransition}
-        style={{ maxHeight: "calc(50vh)" }}
-      >
-        {children}
-      </motion.div>
+      {children(bleed, PANEL_OPEN_W, railScale)}
     </div>
   )
 }

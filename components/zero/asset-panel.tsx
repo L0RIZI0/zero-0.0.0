@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from "motion/react"
 import { FileText, ImageIcon, Link2, NotebookPen, Sheet, Presentation, CreditCard } from "lucide-react"
 import { getResource, getSpaceAssets } from "@/lib/zero/data"
 import type { Asset, AssetType } from "@/lib/zero/types"
-import { contentTransition } from "@/lib/zero/motion"
+import { panelSlideTransition } from "@/lib/zero/motion"
 import { useZeroNav } from "@/lib/zero/nav-store"
 
 const typeIcon: Record<AssetType, typeof FileText> = {
@@ -29,7 +29,7 @@ function AssetRow({ asset, index }: { asset: Asset; index: number }) {
       initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0 }}
-      transition={{ ...contentTransition, delay: index * 0.025 }}
+      transition={{ ...panelSlideTransition, delay: index * 0.015 }}
       className="group relative flex w-full items-center gap-3 rounded-lg border border-transparent px-2 py-2 text-left transition-colors hover:border-border hover:bg-card"
     >
       {/* Continuity rail (Inputs-only): a hairline running from the device's

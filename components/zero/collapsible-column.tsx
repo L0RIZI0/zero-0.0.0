@@ -3,18 +3,19 @@
 import { useState } from "react"
 import { motion, AnimatePresence } from "motion/react"
 import { PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from "lucide-react"
-import { panelTransition } from "@/lib/zero/motion"
+import { panelSlideTransition } from "@/lib/zero/motion"
 import { cn } from "@/lib/utils"
 
 /**
- * A borderless side column that lives inside its slot. Collapsing it swaps the
- * full panel for a thin rail (aligned to the outer screen edge) with a quick
- * crossfade.
+ * A side "shortcut" that lives at the window's left/right edge. The shortcut RAIL
+ * (icon + vertical label) is ALWAYS visible and stays in place; clicking it toggles
+ * an opaque PANEL that slides in over the View from that edge. Clicking the rail
+ * again closes it — the shortcut never moves, so open/close is a single target.
  *
- * Fully CONTROLLED: the parent (EntityBody) owns the open state — via the
- * reactive panel-store — so the open panel OVERLAYS the center column (the
- * do-list never reflows) and the nav layer can auto-collapse the panels when a
- * child window opens.
+ * The panel is an OVERLAY (absolute, pointer-events re-enabled) that sits beside the
+ * rail and covers the View content; it never reflows the center column. Fully
+ * CONTROLLED: the parent (EntityBody) owns the open state via the reactive
+ * panel-store, so it survives remounts and the nav layer can auto-collapse it.
  */
 export function CollapsibleColumn({
   title,
@@ -24,10 +25,12 @@ export function CollapsibleColumn({
   children,
   open,
   onOpenChange,
+  railWidth,
+  panelWidth,
+  railScale = 1,
 }: {
   title: string
-  /** Short label shown on the vertical rail when collapsed (e.g. "In" / "Out").
-   *  Falls back to the full `title` when omitted. The open panel uses `title`. */
+  /** Short label shown on the vertical rail. Falls back to `title` when omitted. */
   collapsedTitle?: string
   side: "left" | "right"
   count?: number
@@ -35,130 +38,95 @@ export function CollapsibleColumn({
   /** Controlled open state. */
   open: boolean
   onOpenChange: (open: boolean) => void
+  /** Width (px) of the persistent shortcut rail — the window's visible edge sliver. */
+  railWidth: number
+  /** Width (px) of the opaque panel that slides in beside the rail. */
+  panelWidth: number
+  /** Recessed scale for a covered ancestor's rail sliver (1 = full, uncovered). */
+  railScale?: number
 }) {
   const OpenIcon = side === "left" ? PanelLeftClose : PanelRightClose
   const ClosedIcon = side === "left" ? PanelLeftOpen : PanelRightOpen
+  const ToggleIcon = open ? OpenIcon : ClosedIcon
+  const label = collapsedTitle ?? title
 
   // Hover handled via React state (not Tailwind `group-hover:`) — the CSS hover
   // variant is gated behind `@media (hover: hover)` in Tailwind v4 and didn't
   // fire reliably here. State-driven opacity always works, like the close button.
   const [railHover, setRailHover] = useState(false)
+  const lit = railHover || open
 
   return (
-    <div className={cn("relative flex min-h-0 w-full flex-col", side === "right" && "order-last")}>
-      <AnimatePresence mode="wait" initial={false}>
-        {open ? (
+    <div className="relative" style={{ width: railWidth }}>
+      {/* PANEL — opaque overlay, sitting just INSIDE the rail and extending over the
+          View. Snappy slide in from the edge; centered vertically on the rail (i.e.
+          on the frame edge). */}
+      <AnimatePresence initial={false}>
+        {open && (
           <motion.section
-            key="open"
+            key="panel"
             aria-label={title}
-            initial={{ opacity: 0, x: side === "left" ? -8 : 8 }}
+            initial={{ opacity: 0, x: side === "left" ? -16 : 16 }}
             animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: side === "left" ? -8 : 8 }}
-            transition={panelTransition}
+            exit={{ opacity: 0, x: side === "left" ? -16 : 16 }}
+            transition={panelSlideTransition}
             className={cn(
-              // `flex-1 min-h-0` makes the panel fill the column's (stable) height
-              // so its inner list SCROLLS instead of growing the row. Small inset
-              // from the frame edge so the panel content clears the border; it
-              // overlays the center column inward (the do-list never reflows).
-              "flex min-h-0 flex-1 flex-col px-2",
+              "pointer-events-auto absolute top-1/2 flex max-h-[62vh] min-h-0 -translate-y-1/2 flex-col rounded-lg border border-border bg-card shadow-xl",
             )}
+            style={{
+              width: panelWidth,
+              ...(side === "left" ? { left: railWidth } : { right: railWidth }),
+            }}
           >
             <div
               className={cn(
-                "mb-1 flex items-center gap-1.5 px-1",
+                "flex shrink-0 items-center gap-1.5 px-3 pb-1 pt-3",
                 side === "left" ? "justify-start" : "justify-end",
               )}
             >
-              {side === "left" && (
-                <button
-                  type="button"
-                  onClick={() => onOpenChange(false)}
-                  aria-label={`Collapse ${title}`}
-                  className="flex h-6 w-6 items-center justify-center rounded-sm text-muted-foreground/70 transition-colors hover:bg-secondary/70 hover:text-foreground"
-                >
-                  <OpenIcon className="h-3.5 w-3.5" />
-                </button>
-              )}
               <h2 className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
                 {title}
                 {typeof count === "number" && <span className="text-muted-foreground/60">{count}</span>}
               </h2>
-              {side === "right" && (
-                <button
-                  type="button"
-                  onClick={() => onOpenChange(false)}
-                  aria-label={`Collapse ${title}`}
-                  className="flex h-6 w-6 items-center justify-center rounded-sm text-muted-foreground/70 transition-colors hover:bg-secondary/70 hover:text-foreground"
-                >
-                  <OpenIcon className="h-3.5 w-3.5" />
-                </button>
-              )}
             </div>
-            <div
-              className={cn(
-                "min-h-0 flex-1 overflow-y-auto pr-1 no-scrollbar",
-                side === "left" && "-ml-6 pl-6",
-              )}
-            >
-              {children}
-            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3 no-scrollbar">{children}</div>
           </motion.section>
-        ) : (
-          <motion.div
-            key="closed"
-            // The rail is centered on the window edge by its PanelSlot overlay
-            // (anchored to the frame center), so it just crossfades here.
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={panelTransition}
-            onPointerEnter={() => setRailHover(true)}
-            onPointerLeave={() => setRailHover(false)}
-            className={cn(
-              // Fills the PanelSlot's 48px rail (which is anchored flush to the
-              // window's left/right edge by the overlay) and centers the icon+label
-              // both ways, so the shortcut sits just inside the frame border at the
-              // edge's true vertical middle. `relative z-10` lifts it ABOVE the
-              // window's opaque spine cover (z-8) so an ancestor spine's real
-              // (clickable) IN/OUT rail stays visible + reachable over the
-              // vertical-header strip / right peek. Dimmed children rest at reduced
-              // opacity and brighten on hover via `railHover` state.
-              "relative z-10 flex w-full flex-1 flex-col items-center justify-center gap-2",
-            )}
-          >
-            {/* Icon + vertical label render as ONE contiguous vertical line and the
-                whole group is centered on the column (which now spans the full
-                window body), so the shortcut sits centered on the window's
-                left/right border. */}
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation()
-                onOpenChange(true)
-              }}
-              aria-label={`Expand ${title}`}
-              // No hover background/box — the icon just brightens (opacity)
-              // exactly like the label below it.
-              className={cn(
-                "flex items-center justify-center text-muted-foreground transition-opacity duration-200",
-                railHover ? "text-foreground opacity-100" : "opacity-35",
-              )}
-            >
-              <ClosedIcon className="h-3 w-3" />
-            </button>
-            <span
-              className={cn(
-                "text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground/70 transition-opacity duration-200",
-                railHover ? "opacity-100" : "opacity-35",
-              )}
-              style={{ writingMode: "vertical-rl" }}
-            >
-              {collapsedTitle ?? title}
-              {typeof count === "number" ? `  ${count}` : ""}
-            </span>
-          </motion.div>
         )}
       </AnimatePresence>
+
+      {/* SHORTCUT rail — always in place, toggles the panel. `relative z-10` lifts it
+          ABOVE an ancestor's opaque spine cover so a covered ancestor's rail stays
+          reachable. Icon flips (open⇄close) to signal state. */}
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation()
+          onOpenChange(!open)
+        }}
+        onPointerEnter={() => setRailHover(true)}
+        onPointerLeave={() => setRailHover(false)}
+        aria-label={open ? `Collapse ${title}` : `Expand ${title}`}
+        aria-expanded={open}
+        className="pointer-events-auto relative z-10 flex w-full flex-col items-center justify-center gap-2 py-2"
+        style={{ transform: `scale(${railScale})` }}
+      >
+        <ToggleIcon
+          className={cn(
+            "h-3 w-3 transition-opacity duration-200",
+            lit ? "text-foreground opacity-100" : "text-muted-foreground opacity-35",
+          )}
+        />
+        <span
+          className={cn(
+            "text-[10px] font-medium uppercase tracking-[0.14em] transition-opacity duration-200",
+            lit ? "text-foreground opacity-100" : "text-muted-foreground/70 opacity-35",
+          )}
+          style={{ writingMode: "vertical-rl" }}
+        >
+          {label}
+          {typeof count === "number" ? `  ${count}` : ""}
+        </span>
+      </button>
     </div>
   )
 }

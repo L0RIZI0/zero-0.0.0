@@ -32,6 +32,14 @@ export const contentTransition: Transition = morphBeat
 export const panelTransition: Transition = morphBeat
 
 /**
+ * ASSETS / PUBLISHED side panels sliding in/out as an opaque overlay over the View.
+ * Deliberately DECOUPLED from the 2s morph beat: the panel is not part of the window
+ * shared-element morph, so it should feel snappy and immediate — the shortcut rail
+ * stays put and the panel just pops in from the edge. Short, firm ease-out.
+ */
+export const panelSlideTransition: Transition = { duration: 0.18, ease: [0.4, 0, 0.2, 1] }
+
+/**
  * The single attribute name a morph SOURCE exposes so an opening window can
  * measure the exact box to grow from (and shrink back to on close). Every
  * DO-list row, dock card, and timeline marker tags itself with this + the entity
