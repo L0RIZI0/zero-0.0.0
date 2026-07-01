@@ -90,7 +90,7 @@ export function CollapsibleColumn({
             transition={panelSlideTransition}
             className={cn(
               "pointer-events-auto absolute inset-y-0 flex min-h-0 flex-col shadow-xl",
-              side === "left" ? "left-0 border-r border-border" : "right-0 border-l border-border",
+              side === "left" ? "left-0" : "right-0",
             )}
             style={{
               width: railWidth + panelWidth,
@@ -100,6 +100,32 @@ export function CollapsibleColumn({
               ["--panel-edge-inset" as string]: `${railWidth}px`,
             }}
           >
+            {/* Inner (View-facing) divider — starts at the HEADER BOTTOM (top:headerClamp)
+                so the border never runs through the window header, only down the body. */}
+            <span
+              aria-hidden
+              className={cn("pointer-events-none absolute bottom-0 w-px bg-border", side === "left" ? "right-0" : "left-0")}
+              style={{ top: headerClamp }}
+            />
+            {/* HORIZONTAL title — pinned at the top of the panel (just below the header
+                bottom), on the content-inset side. Kept ALONGSIDE the vertical rail
+                label; softened to match. Backed by the surface colour so it stays
+                legible over the top of a tall, scrolled list. */}
+            <div
+              className={cn(
+                "pointer-events-none absolute z-10 flex items-center",
+                side === "left" ? "left-[var(--panel-edge-inset)]" : "right-[var(--panel-edge-inset)]",
+              )}
+              style={{ top: headerClamp }}
+            >
+              <span
+                className="px-2 py-1 text-[10px] font-medium uppercase tracking-[0.14em] text-foreground opacity-60"
+                style={{ backgroundColor: surface }}
+              >
+                {label}
+                {typeof count === "number" ? `  ${count}` : ""}
+              </span>
+            </div>
             <div
               className={cn(
                 "min-h-0 flex-1 overflow-y-auto no-scrollbar px-2",
