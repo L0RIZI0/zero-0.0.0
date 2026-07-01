@@ -110,13 +110,13 @@ export function CollapsibleColumn({
               style={{ top: headerClamp }}
             />
             {/* HORIZONTAL title — pinned at the top of the panel (just below the header
-                bottom), on the content-inset side. Kept ALONGSIDE the vertical rail
-                label; softened to match. Backed by the surface colour so it stays
-                legible over the top of a tall, scrolled list. */}
+                bottom), hugging the WINDOW EDGE (not the content inset) so it sits out
+                near the screen edge. Softened; surface-backed so it stays legible over
+                the top of a tall, scrolled list. */}
             <div
               className={cn(
-                "pointer-events-none absolute z-10 flex items-center",
-                side === "left" ? "left-[var(--panel-edge-inset)]" : "right-[var(--panel-edge-inset)]",
+                "pointer-events-none absolute z-10 flex items-center px-2",
+                side === "left" ? "left-0" : "right-0",
               )}
               style={{ top: headerClamp }}
             >
@@ -165,10 +165,12 @@ export function CollapsibleColumn({
           className="flex flex-col items-center gap-2"
           style={{ transform: `translateY(${railShift}px) scale(${railScale})` }}
         >
+          {/* Hidden when open (the horizontal panel title carries the identity); the
+              full-height rail stays clickable to close. */}
           <ToggleIcon
             className={cn(
               "h-3 w-3 transition-opacity duration-200",
-              railHover || open ? "text-foreground opacity-100" : "text-muted-foreground opacity-35",
+              open ? "text-foreground opacity-0" : railHover ? "text-foreground opacity-100" : "text-muted-foreground opacity-35",
             )}
           />
           <span
