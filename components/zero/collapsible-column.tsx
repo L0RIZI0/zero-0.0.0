@@ -124,7 +124,7 @@ export function CollapsibleColumn({
                 "pointer-events-none absolute z-10 flex items-center px-3",
                 side === "left" ? "left-0" : "right-0",
               )}
-              style={{ top: headerClamp }}
+              style={{ top: headerClamp + 12 }}
             >
               <span
                 className="px-2 py-1 text-[10px] font-medium uppercase tracking-[0.14em] text-foreground opacity-60"
