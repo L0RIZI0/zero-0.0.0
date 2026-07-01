@@ -66,17 +66,17 @@ const RIPPLE_COLS = 16
 // Critically-damped spring: damping = 2*sqrt(stiffness) → fastest settle w/ NO overshoot.
 // Softer stiffness = slower, more visible catch-up (a longer, more pronounced trailing
 // wave) while staying critically damped (no bounce).
-const RIPPLE_STIFFNESS = 52
+const RIPPLE_STIFFNESS = 34
 const RIPPLE_DAMPING = 2 * Math.sqrt(RIPPLE_STIFFNESS)
 // Max fraction of a pan step a far column lags behind by (0 = none, 1 = fully held back).
 // Near 1 → far columns almost freeze on each step, then snap-catch-up for a big ripple.
-const RIPPLE_LAG = 0.97
+const RIPPLE_LAG = 0.99
 // Falloff exponent for lag vs normalized cursor distance. <1 = concave: lag ramps up
 // FAST right off the cursor column (a SMALL "lens" — near-cursor content reacts
 // strongly) while far columns still sit near max lag, so the far effect is preserved.
 const RIPPLE_FALLOFF = 0.7
 // Clamp per-column offset so a rapid scroll burst can't fling content far off-lane.
-const RIPPLE_MAX_OFFSET = 130
+const RIPPLE_MAX_OFFSET = 220
 // Below this |offset| (px) and |velocity| a column is snapped to rest. Set above the
 // sub-pixel range so critical damping's slow asymptotic tail can't leave a lingering
 // (invisible) transform hanging around after the wave has visually landed.
