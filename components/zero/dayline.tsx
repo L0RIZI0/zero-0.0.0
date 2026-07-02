@@ -79,6 +79,10 @@ const RIPPLE_FALLOFF = 0.7
 // Clamp per-column offset so a rapid scroll burst can't fling content far off-lane.
 // Raised 220 → 320 so far columns can trail further for a bigger, more fluid wave.
 const RIPPLE_MAX_OFFSET = 320
+
+// Wheel pan sensitivity: fraction of a raw wheel-notch's px distance that the lane pans.
+// A physical mouse notch (~120px) felt like it flung the lane too far, so damp it to ~40%.
+const WHEEL_PAN_SENSITIVITY = 0.4
 // Below this |offset| (px) and |velocity| a column is snapped to rest. Set above the
 // sub-pixel range so critical damping's slow asymptotic tail can't leave a lingering
 // (invisible) transform hanging around after the wave has visually landed.
@@ -455,6 +459,9 @@ export function Dayline() {
       // Normalize non-pixel wheel modes so line/page-based mice map to comparable px.
       if (e.deltaMode === 1) delta *= 16 // lines → px
       else if (e.deltaMode === 2) delta *= lane.clientWidth || 1 // pages → px
+      // Sensitivity: a raw mouse notch (~120px) pans the whole lane far too hard, so scale
+      // each notch down — the pan covers ~40% of the notch's raw distance.
+      delta *= WHEEL_PAN_SENSITIVITY
       cursorColRef.current = pctToCol(e.clientX)
       wheelPendingRef.current += delta
       if (wheelRafRef.current == null) {
