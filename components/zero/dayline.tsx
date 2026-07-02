@@ -119,7 +119,10 @@ const WHEEL_PAN_SENSITIVITY = 0.25
 // ~τ — real inertia, no brake, no bounce. One notch's TOTAL glide distance = Δv·τ, so we
 // derive the per-notch velocity impulse as (sensitivity·rawPx)/τ to preserve calibration.
 // FRICTION_TAU: velocity decay time-constant (s). Larger = longer, floatier coast.
-const WHEEL_FRICTION_TAU = 0.5
+// Dropped 0.5 → 0.28 so the coast bleeds off noticeably faster — the lane settles with a
+// firmer, grippier stop instead of gliding on "ice skates" for the better part of a second.
+// (Per-notch reach is unchanged: total glide = Δv·τ = sensitivity·rawPx, independent of τ.)
+const WHEEL_FRICTION_TAU = 0.28
 // End the glide once the pan speed falls below this (px/s) — the tail is imperceptible.
 const WHEEL_STOP_V = 14
 // While draining, the base pan is applied as an imperative transform (no React render);
@@ -475,7 +478,7 @@ export function Dayline() {
       const inc = e.clientX - d.lastX
       d.lastX = e.clientX
       injectPan(inc)
-      // Drag right → reveal earlier time (window slides back), and vice-versa.
+      // Drag right �� reveal earlier time (window slides back), and vice-versa.
       setViewStart(d.startView - (dx / w) * DAY_MS)
     },
     [pctToCol, injectPan],
