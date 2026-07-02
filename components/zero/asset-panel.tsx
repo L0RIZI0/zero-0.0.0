@@ -176,6 +176,7 @@ function ResourceRow({
           onPointerEnter={peek ? showLabel : undefined}
           onPointerLeave={peek ? () => onHover(null) : undefined}
           onClick={peek ? (e) => e.stopPropagation() : undefined}
+          data-peek-losange={peek ? item.id : undefined}
           className={cn("flex rotate-45 items-center justify-center border", peek && "pointer-events-auto")}
           style={peek ? { position: "relative", zIndex: 30 } : undefined}
         >
@@ -358,6 +359,7 @@ export function AssetPanel({
           focused child window (z-140) yet below the theme toggle (z-300). */}
       {hover && (
         <div
+          data-peek-label
           className="pointer-events-none fixed z-[200] -translate-y-1/2 whitespace-nowrap rounded-md border border-border bg-popover px-2 py-1 leading-none text-popover-foreground shadow-md"
           style={{ top: hover.top, left: hover.left, fontSize: PEEK_LABEL_PX }}
         >
