@@ -356,23 +356,42 @@ export function Dayline() {
     return Math.max(0, Math.min(RIPPLE_COLS - 1, Math.round(pct * (RIPPLE_COLS - 1))))
   }, [])
 
-  // Write the current per-column offsets onto every registered node. Reading `data-col`
-  // live keeps a node in sync with the fixed SCREEN column it currently sits under.
-  // OFF-SCREEN SKIP: a node's `data-left` (leftPct, updated by React each render) lets us
-  // cheaply skip ticks far outside the lane — they're clipped anyway, so mounting a wide
-  // buffer of nearby-day ticks costs ~nothing per frame. The ±40 threshold clears the max
-  // ripple displacement (~18% of a day) so a lagged tick can't be skipped while it's still
-  // visually on-screen. A skipped node is cleared once so no stale transform lingers.
+  // Write the current per-column offsets onto every registered node.
+  //
+  // Each node samples the wave at its LIVE, CONTINUOUS screen column and INTERPOLATES
+  // between the two adjacent column springs — never snaps to a rounded bucket. This kills
+  // two jump sources that surfaced at speed:
+  //   • QUANTIZATION — the old code used `off[round(centerPct→col)]`, so a tick crossing a
+  //     column boundary jumped by `off[c+1]−off[c]` (nonzero whenever the wave is active).
+  //   • STALENESS — `data-col` only refreshes on a React render, but the lane pans
+  //     imperatively between flushes, so a moving tick kept reading its OLD column and then
+  //     snapped when the next render corrected it. We instead derive the column from the
+  //     node's live screen position = its last-rendered `leftPct` PLUS the current imperative
+  //     base pan (`-wheelCommitRef`, the same px `applyPan` wrote to the parent), so it
+  //     tracks the real position every frame and stays continuous across a flush (the flush
+  //     invariant keeps `leftPct + basePan` constant through the base⇄transform handoff).
+  // OFF-SCREEN SKIP uses the same live fraction (±0.4 ≈ the max ripple displacement) so a
+  // lagged tick can't be skipped while still visually on-screen; skipped nodes clear once.
   const paintRipple = useCallback(() => {
     const off = offsetRef.current
+    const maxCol = RIPPLE_COLS - 1
+    const lane = laneRef.current
+    const w = lane ? lane.clientWidth || 1 : 1
+    const baseFrac = -wheelCommitRef.current / w // imperative base pan as a lane fraction
     for (const el of rippleNodesRef.current.values()) {
       const left = +(el.dataset.left ?? "") || 0
-      if (left < -40 || left > 140) {
+      const frac = left / 100 + baseFrac // live screen fraction (0 = left edge, 1 = right)
+      if (frac < -0.4 || frac > 1.4) {
         if (el.style.transform) el.style.transform = ""
         continue
       }
-      const col = +(el.dataset.col ?? "") || 0
-      const x = off[col] || 0
+      // Continuous column coordinate, then linear interpolation between its neighbors.
+      const fcol = Math.max(0, Math.min(maxCol, frac * maxCol))
+      const i = Math.floor(fcol)
+      const t = fcol - i
+      const x0 = off[i] || 0
+      const x1 = off[Math.min(maxCol, i + 1)] || 0
+      const x = x0 + (x1 - x0) * t
       el.style.transform = x ? `translateX(${x}px)` : ""
     }
   }, [])
@@ -650,10 +669,6 @@ export function Dayline() {
     }
   }, [])
 
-  // Column a given lane percentage falls in (for assigning items + marker to a screen column).
-  const colOfPct = (p: number) => Math.max(0, Math.min(RIPPLE_COLS - 1, Math.round((p / 100) * (RIPPLE_COLS - 1))))
-  const nowCol = colOfPct(Math.max(0, Math.min(100, nowPct)))
-
   return (
     // Constant-height header row. `pointer-events-none` lets the gaps fall through;
     // the lane + its ticks re-enable pointer events for themselves. px-5 aligns the
@@ -696,7 +711,6 @@ export function Dayline() {
           {mounted &&
             items.map((it) => {
               const isHot = hovered === it.key
-            const col = colOfPct(it.centerPct)
             // Each item lives inside a full-lane RIPPLE WRAPPER whose `translateX` the rAF
             // loop drives (imperative, so React never fights it); the inner button keeps
             // its own centering transform untouched. The wrapper is pointer-events-none so
@@ -706,7 +720,6 @@ export function Dayline() {
                 <div
                   key={it.key}
                   ref={registerRipple(it.key)}
-                  data-col={col}
                   data-left={it.leftPct}
                   className="pointer-events-none absolute inset-0 will-change-transform"
                 >
@@ -738,7 +751,6 @@ export function Dayline() {
               <div
                 key={it.key}
                 ref={registerRipple(it.key)}
-                data-col={col}
                 data-left={it.leftPct}
                 className="pointer-events-none absolute inset-0 will-change-transform"
               >
@@ -780,7 +792,7 @@ export function Dayline() {
           <div
             aria-hidden
             ref={registerRipple("__now__")}
-            data-col={nowCol}
+            data-left={nowPct}
             className="pointer-events-none absolute inset-0 will-change-transform"
           >
             <div
