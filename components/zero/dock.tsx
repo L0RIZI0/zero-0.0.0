@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import { AnimatePresence, motion } from "motion/react"
 import { PinOff, Trash2, Ban, RotateCcw } from "lucide-react"
 import { layerTransition } from "@/lib/zero/motion"
-import { computeDockLayout } from "@/lib/zero/dock-layout"
+import { computeDockLayout, dockCardBoxes, dockStructureKey } from "@/lib/zero/dock-layout"
 import {
   getEntity,
   getPinnedItems,
@@ -66,17 +66,31 @@ export function Dock({ contextId, active = true }: { contextId: string; active?:
     [availableWidth, pinned.length, parentIsSpace, contextDepth],
   )
 
-  // Slice the pins into honeycomb rows per the layout (single-element array = one row).
-  const rows = useMemo(() => {
-    const out: ContextItem[][] = []
-    let i = 0
-    for (const n of layout.rowCounts) {
-      out.push(pinned.slice(i, i + n))
-      i += n
-    }
-    return out
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [layout.rowCounts, pinned])
+  // Resolve the layout into ABSOLUTE per-card boxes + the container size. Cards are
+  // rendered as ONE flat, stably-keyed list of absolutely-positioned nodes (they never
+  // re-parent between row <div>s, so nothing remounts and there is no jump), and each
+  // card just CSS-transitions its box when the structure flips single↔honeycomb.
+  const { boxes, height: containerH } = useMemo(
+    () => dockCardBoxes(layout, availableWidth),
+    [layout, availableWidth],
+  )
+
+  // ONE-SHOT TWEEN ACROSS A STRUCTURAL FLIP. `dockStructureKey` changes only when the
+  // row breakdown or card SIZE changes (not on every continuous width tick). While the
+  // key is steady we leave positions un-transitioned so cards track a panel squeeze in
+  // real time; the instant it changes (single↔honeycomb, or a size step) we switch the
+  // transition ON for one morph beat, then off again — so the rearrangement glides
+  // instead of snapping onto two lines.
+  const structureKey = dockStructureKey(layout)
+  const prevStructure = useRef(structureKey)
+  const [animateLayout, setAnimateLayout] = useState(false)
+  useEffect(() => {
+    if (prevStructure.current === structureKey) return
+    prevStructure.current = structureKey
+    setAnimateLayout(true)
+    const t = setTimeout(() => setAnimateLayout(false), 420)
+    return () => clearTimeout(t)
+  }, [structureKey])
 
   const dockMetrics = { cardW: layout.cardW, cardH: layout.cardH, contentScale: layout.contentScale }
 
@@ -206,44 +220,33 @@ export function Dock({ contextId, active = true }: { contextId: string; active?:
       transition={layerTransition}
     >
       {/* Measured wrapper: `rowRef` reads the REG2 inner width (auto-captures the panel
-          squeeze). The engine decides single row vs. honeycomb from it.
-          CRITICAL: key the inner stack by context so it HARD-remounts when the active
-          context changes — exactly like the do list's `<ul key={contextId}>` — so card
+          squeeze); the engine turns it into per-card boxes.
+          The inner container is `position: relative` with an explicit height (cards are
+          absolutely positioned inside it). It is keyed by context so it HARD-remounts on
+          navigation — exactly like the do list's `<ul key={contextId}>` — so card
           enter/exit resolves cleanly with no stale exiting instances. */}
       <div ref={rowRef} className="w-full">
-        <div key={contextId} className="flex w-full flex-col items-center">
-          <AnimatePresence initial={false} mode="popLayout">
-            {rows.map((rowItems, rowIdx) => (
-              <div
-                key={`row-${rowIdx}`}
-                className="flex flex-nowrap items-stretch justify-center transition-[gap,margin,transform] duration-300 ease-out"
-                style={{
-                  gap: layout.gapX,
-                  // Honeycomb: rows after the first pull UP so hexagons interlock, and
-                  // adjacent rows shift half a period so cards nest in the valleys of the
-                  // row above. The shift is SPLIT symmetrically — odd rows +½ offset, even
-                  // rows −½ offset — so the relative nesting shift is a full half-period
-                  // while the whole group stays centered (each row is justify-center), which
-                  // keeps it inside the width the engine reserved (cols + 0.5). Applied to
-                  // the ROW wrapper (not per-card) so each card's GSAP Flip rect stays honest.
-                  marginTop: rowIdx > 0 ? -layout.rowOverlap : 0,
-                  transform: layout.multiRow
-                    ? `translateX(${(rowIdx % 2 === 1 ? 1 : -1) * (layout.rowOffset / 2)}px)`
-                    : undefined,
-                }}
-              >
-                {rowItems.map((item) => (
-                  <EntityNode
-                    key={item.id}
-                    entityId={item.entity.id}
-                    contextId={contextId}
-                    variant="dock"
-                    dockMetrics={dockMetrics}
-                    onContextMenu={(e) => openMenu(e, item)}
-                  />
-                ))}
-              </div>
-            ))}
+        <div
+          key={contextId}
+          className="relative mx-auto transition-[height] duration-300 ease-out"
+          style={{ height: containerH }}
+        >
+          <AnimatePresence initial={false}>
+            {pinned.map((item, idx) => {
+              const box = boxes[idx]
+              if (!box) return null
+              return (
+                <EntityNode
+                  key={item.id}
+                  entityId={item.entity.id}
+                  contextId={contextId}
+                  variant="dock"
+                  dockMetrics={dockMetrics}
+                  dockPos={{ left: box.left, top: box.top, animate: animateLayout }}
+                  onContextMenu={(e) => openMenu(e, item)}
+                />
+              )
+            })}
           </AnimatePresence>
         </div>
       </div>

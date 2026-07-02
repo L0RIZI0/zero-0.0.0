@@ -215,3 +215,50 @@ function honeycomb(cardW: number, cardH: number, count: number, rows: number): D
     multiRow: true,
   }
 }
+
+/** Absolute box for one card within the dock container. */
+export type DockCardBox = { left: number; top: number; width: number; height: number }
+
+/**
+ * Resolve a `DockLayout` + measured width into ABSOLUTE per-card boxes (left/top/
+ * width/height, px) plus the container's total size. This is what lets the dock
+ * render one FLAT, stably-keyed list of absolutely-positioned cards (no re-parenting
+ * between row `<div>`s → no remount jump) and simply CSS-transition each card's box
+ * when the structure flips single↔honeycomb.
+ *
+ * Positioning uses left/top ONLY — never transforms — so an open card's
+ * `position: fixed` window still resolves against the viewport (a transformed
+ * ancestor would capture it).
+ *
+ * Honeycomb centering mirrors the verified flex version: each row is centered in the
+ * width, then alternate rows are shifted ±rowOffset/2 so adjacent rows differ by a
+ * full half-period and nest in each other's valleys while the group stays centered.
+ */
+export function dockCardBoxes(
+  layout: DockLayout,
+  availableWidth: number,
+): { boxes: DockCardBox[]; width: number; height: number } {
+  const { cardW, cardH, gapX, rowCounts, rowOverlap, rowOffset, multiRow } = layout
+  const boxes: DockCardBox[] = []
+  const advanceY = cardH - rowOverlap
+  rowCounts.forEach((cols, r) => {
+    const rowWidth = cols * cardW + (cols - 1) * gapX
+    // Center the row, then apply the alternating half-period nest shift.
+    const nudge = multiRow ? (r % 2 === 1 ? rowOffset / 2 : -rowOffset / 2) : 0
+    const startX = (availableWidth - rowWidth) / 2 + nudge
+    const top = r * advanceY
+    for (let i = 0; i < cols; i++) {
+      boxes.push({ left: Math.round(startX + i * (cardW + gapX)), top: Math.round(top), width: cardW, height: cardH })
+    }
+  })
+  const rows = rowCounts.length
+  const height = rows > 0 ? (rows - 1) * advanceY + cardH : 0
+  return { boxes, width: availableWidth, height }
+}
+
+/** A compact string that changes ONLY when the STRUCTURE changes (row breakdown or
+ *  card size), used by the dock to enable a one-shot CSS tween across a structural
+ *  flip while leaving continuous same-structure width tracking un-transitioned. */
+export function dockStructureKey(layout: DockLayout): string {
+  return `${layout.rowCounts.join("-")}|${layout.cardW}x${layout.cardH}`
+}
