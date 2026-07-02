@@ -341,9 +341,14 @@ export function NodeGlyph({
     if (!changed) {
       reqAngleRef.current = target
       path.setAttribute("d", requestAccentPath(target))
+      // Folded onto the edges (angle 0) ⇒ hide, so the double-stroke can't show.
+      path.setAttribute("opacity", request ? "1" : "0")
       return
     }
     reqTweenRef.current?.kill()
+    // Opaque for the whole swing (whether sending or un-sending) so the edge is
+    // visible as it travels; the onComplete below re-hides it if it folded back.
+    path.setAttribute("opacity", "1")
     // Pin `d` to the CURRENT angle synchronously before the tween. React just
     // re-rendered the path's `d` at the DESTINATION angle, and gsap.to() doesn't
     // fire its first onUpdate until the next tick — so without this the destination
@@ -362,6 +367,8 @@ export function NodeGlyph({
       onComplete: () => {
         reqAngleRef.current = target
         path.setAttribute("d", requestAccentPath(target))
+        // Settle: an un-sent accent folds back onto the edges → hide it again.
+        path.setAttribute("opacity", request ? "1" : "0")
       },
     })
     return () => {
@@ -481,7 +488,14 @@ export function NodeGlyph({
           ONLY rendered for the square (task) kind: the accent's resting geometry lies
           on the square's right/bottom edges, so on any other silhouette (hexagon,
           diamond, triangle…) it would show as a stray stroke. Requests are task-only
-          anyway, so gating here is both the bug fix and the correct semantics. */}
+          anyway, so gating here is both the bug fix and the correct semantics.
+
+          OPACITY GATE: at rest-and-unsent the accent folds exactly onto the square's
+          lower-right + bottom edges. Two coincident strokes DON'T cancel — they render
+          darker/thicker, which showed as a stray bold "L" on the square's bottom+right
+          (visible on every task glyph, e.g. the counter square). So the accent is only
+          opaque while it has swung OFF the edges: opacity 0 when folded (request=false
+          at rest), 1 while sent or mid-swing. Driven by the effect below. */}
       {kind === "task" && (
         <path
           ref={reqRef}
@@ -492,6 +506,7 @@ export function NodeGlyph({
           strokeLinejoin="miter"
           strokeLinecap="butt"
           vectorEffect="non-scaling-stroke"
+          opacity={request ? 1 : 0}
         />
       )}
     </svg>
