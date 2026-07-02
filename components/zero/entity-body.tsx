@@ -252,7 +252,12 @@ export function EntityBody({
             railShift={shift}
             surface={surface}
           >
-            <AssetPanel spaceId={entityId} />
+            {/* PEEK: when this panel is OPEN but its entity is no longer the focused
+                front view (a child opened → `!active`), the resources collapse into
+                small filled losanges on the left peek. `railWidth` is the peek strip
+                width they center on. If the panel was closed, AssetPanel isn't mounted,
+                so nothing changes. */}
+            <AssetPanel spaceId={entityId} peek={inOpen && !active} railWidth={railWidth} />
           </CollapsibleColumn>
         )}
       </PanelSlot>
@@ -275,7 +280,14 @@ export function EntityBody({
             railShift={shift}
             surface={surface}
           >
-            <OutputPanel spaceId={entityId} />
+            {/* Mirror of AssetPanel on the right peek. `panelWidth` is needed so a
+                publication losange can be offset onto the RIGHT edge strip. */}
+            <OutputPanel
+              spaceId={entityId}
+              peek={outOpen && !active}
+              railWidth={railWidth}
+              panelWidth={panelWidth}
+            />
           </CollapsibleColumn>
         )}
       </PanelSlot>

@@ -97,6 +97,15 @@ export function CollapsibleColumn({
   // transition fires only on subsequent value changes).
   const widthTransition = `width ${MORPH_SECONDS}s cubic-bezier(${MORPH_EASE.join(",")})`
 
+  // PEEK MODE: the panel is open AND its entity is a covered ancestor (a child is
+  // focused). The child's AssetPanel/OutputPanel collapses its resources into small
+  // losanges on this window's peek strip. Two content-container tweaks support that:
+  //  (1) the content inset (`--panel-edge-inset` = railWidth) eases 48→peek on the SAME
+  //      morph beat, so the resources glide left in step (no jump) as the strip narrows;
+  //  (2) overflow goes VISIBLE so a losange pulled onto the thin peek isn't clipped.
+  const peek = open && !focused
+  const paddingTransition = `padding ${MORPH_SECONDS}s cubic-bezier(${MORPH_EASE.join(",")})`
+
   return (
     <div ref={rootRef} className="relative h-full" style={{ width: railWidth, transition: widthTransition }}>
       {/* CLIP — a non-transformed container anchored at the window EDGE. Its outer edge
@@ -165,6 +174,12 @@ export function CollapsibleColumn({
                 "min-h-0 flex-1 overflow-y-auto no-scrollbar px-2 py-8",
                 side === "left" ? "pl-[var(--panel-edge-inset)]" : "pr-[var(--panel-edge-inset)]",
               )}
+              style={{
+                transition: paddingTransition,
+                // Visible in peek so the collapsed losanges paint onto the narrow peek
+                // strip without horizontal clipping; normal auto-scroll otherwise.
+                overflow: peek ? "visible" : undefined,
+              }}
             >
               {/* `min-h-full` + `justify-center`: a short list centers in the panel;
                   a tall one grows past the container and scrolls naturally (no
