@@ -245,6 +245,7 @@ export function EntityBody({
             count={assetCount}
             open={inOpen}
             onOpenChange={setInOpen}
+            focused={active}
             railWidth={railWidth}
             panelWidth={panelWidth}
             railScale={railScale}
@@ -267,6 +268,7 @@ export function EntityBody({
             count={0}
             open={outOpen}
             onOpenChange={setOutOpen}
+            focused={active}
             railWidth={railWidth}
             panelWidth={panelWidth}
             railScale={railScale}

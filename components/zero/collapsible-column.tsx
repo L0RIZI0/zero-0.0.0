@@ -30,6 +30,7 @@ export function CollapsibleColumn({
   children,
   open,
   onOpenChange,
+  focused = true,
   railWidth,
   panelWidth,
   railScale = 1,
@@ -45,6 +46,10 @@ export function CollapsibleColumn({
   /** Controlled open state. */
   open: boolean
   onOpenChange: (open: boolean) => void
+  /** Whether this panel's entity is the FOCUSED front view. When false (an ancestor
+   *  with one or more children open), the open-state collapse chevron is hidden — the
+   *  rail stays a clickable close-area but shows no glyph until the entity is refocused. */
+  focused?: boolean
   /** Width (px) of the shortcut rail sliver — the window's visible edge strip and the
    *  inset the panel content keeps so its icons stay put. */
   railWidth: number
@@ -133,25 +138,9 @@ export function CollapsibleColumn({
             {/* No inner divider in EITHER theme: the squeeze gives the panel its own
                 dedicated column, so it reads as separate from the View without any
                 border or shadow. (Kept the empty branch removed entirely.) */}
-            {/* HORIZONTAL title — pinned near the top of the panel (just below the header
-                bottom). Its inset (`px-3` outer + `px-2` inner span = ~20px) lines the
-                text up with the window HEADER content (avatar/name at paddingLeft 20),
-                not the list-item icons. Softened; surface-backed so it stays legible
-                over the top of a tall, scrolled list. */}
-            <div
-              className={cn(
-                "pointer-events-none absolute top-3 z-10 flex items-center px-3",
-                side === "left" ? "left-0" : "right-0",
-              )}
-            >
-              <span
-                className="px-2 py-1 text-[10px] font-medium uppercase tracking-[0.14em] text-foreground opacity-60"
-                style={{ backgroundColor: surface }}
-              >
-                {label}
-                {typeof count === "number" ? ` (${count})` : ""}
-              </span>
-            </div>
+            {/* The HORIZONTAL panel title was REMOVED entirely per user — an open panel
+                shows no title label at all; identity is carried by the entity's own
+                header + the vertical rail label when collapsed. */}
             <div
               className={cn(
                 // Symmetric `py-8`: keeps the centered list balanced while clearing the
@@ -192,15 +181,19 @@ export function CollapsibleColumn({
           style={{ transform: `translateY(${railShift}px) scale(${railScale})` }}
         >
           {open ? (
-            /* OPEN: the vertical label + panel-toggle icon are hidden (the horizontal
-               panel title carries the identity); a single collapse chevron pointing at
-               the window edge indicates the rail still closes the panel. */
-            <CollapseChevron
-              className={cn(
-                "h-4 w-4 transition-opacity duration-200",
-                railHover ? "text-foreground opacity-100" : "text-muted-foreground opacity-45",
-              )}
-            />
+            /* OPEN: the vertical label + panel-toggle icon are hidden. A single collapse
+               chevron pointing at the window edge indicates the rail still closes the
+               panel — but ONLY while this entity is the FOCUSED front view. Once one or
+               more children are open (this becomes an ancestor), the chevron is hidden;
+               the rail stays clickable but shows no glyph until the entity is refocused. */
+            focused ? (
+              <CollapseChevron
+                className={cn(
+                  "h-4 w-4 transition-opacity duration-200",
+                  railHover ? "text-foreground opacity-100" : "text-muted-foreground opacity-45",
+                )}
+              />
+            ) : null
           ) : (
             <>
               <ToggleIcon
