@@ -178,10 +178,17 @@ export function WorkSurface() {
             from the home EntityBody (`flex-1`) and lifting the home View + dock up by
             exactly one row. Wrapping in `absolute` removes the slot from the flex main-
             axis entirely (contributes zero flow height); the inner `fixed` window is
-            unaffected and still fills the region via getRegionRect. */}
+            unaffected and still fills the region via getRegionRect.
+
+            `pointer-events-auto`: the region is `pointer-events-none` (see note above) and
+            each interactive leaf re-enables events for itself. A window opened from the
+            do-list inherits auto from that list; a DETACHED window is mounted straight into
+            the region with no such ancestor, so without this the whole window subtree —
+            close button included — inherits `none` and only ESC could close it. The fixed
+            window covers the region, so the wrapper's own 44px slot never intercepts. */}
         {stack.map((id, depth) =>
           depth >= 1 && isDetachedChild(id, stack[depth - 1]) ? (
-            <div key={`detached:${depth}:${id}`} className="absolute left-0 top-0 w-full">
+            <div key={`detached:${depth}:${id}`} className="pointer-events-auto absolute left-0 top-0 w-full">
               <EntityNode entityId={id} contextId={stack[depth - 1]} variant="row" detached />
             </div>
           ) : null,
