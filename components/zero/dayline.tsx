@@ -538,7 +538,13 @@ export function Dayline() {
       draggedRef.current = false
       dragRef.current = { startX: e.clientX, startView: viewStart, lastX: e.clientX }
       cursorColRef.current = pctToCol(e.clientX)
-      laneRef.current?.setPointerCapture(e.pointerId)
+      // NOTE: we deliberately do NOT setPointerCapture here. Capturing on pointerdown
+      // retargets the subsequent `click` to the LANE (the capture target), per the Pointer
+      // Events spec — so a plain TAP on a tick never reaches the tick button's onClick and
+      // "clicking a tick to open its entity" silently does nothing. We instead capture only
+      // once a real drag crosses the move threshold (in onPointerMove), so a tap stays
+      // uncaptured and its click lands on the tick, while a genuine pan still captures to
+      // keep tracking when the cursor leaves the lane.
     },
     [viewStart, pctToCol],
   )
@@ -551,7 +557,13 @@ export function Dayline() {
       if (!d || !lane) return
       const w = lane.clientWidth || 1
       const dx = e.clientX - d.startX
-      if (Math.abs(dx) > 3) draggedRef.current = true
+      // On the FIRST frame the move crosses the drag threshold, promote to a drag AND grab
+      // pointer capture — so panning keeps tracking if the cursor leaves the lane. Capturing
+      // here (not on pointerdown) is what lets a plain tap's click reach the tick button.
+      if (Math.abs(dx) > 3 && !draggedRef.current) {
+        draggedRef.current = true
+        laneRef.current?.setPointerCapture(e.pointerId)
+      }
       // Incremental screen shift since the last move drives the ripple (content follows
       // the finger, so dragging right by `inc` moves content right by `inc`).
       const inc = e.clientX - d.lastX
