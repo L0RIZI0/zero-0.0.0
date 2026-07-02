@@ -65,8 +65,9 @@ const NEUTRAL = "oklch(0.72 0.004 75)"
 const RIPPLE_COLS = 16
 // Critically-damped spring: damping = 2*sqrt(stiffness) → fastest settle w/ NO overshoot.
 // Softer stiffness = slower, more visible catch-up (a longer, more pronounced trailing
-// wave) while staying critically damped (no bounce).
-const RIPPLE_STIFFNESS = 34
+// wave) while staying critically damped (no bounce). Softened 34 → 20 for an extra-fluid,
+// longer-settling liquid trail behind the pan.
+const RIPPLE_STIFFNESS = 20
 const RIPPLE_DAMPING = 2 * Math.sqrt(RIPPLE_STIFFNESS)
 // Max fraction of a pan step a far column lags behind by (0 = none, 1 = fully held back).
 // Near 1 → far columns almost freeze on each step, then snap-catch-up for a big ripple.
@@ -76,7 +77,8 @@ const RIPPLE_LAG = 0.99
 // strongly) while far columns still sit near max lag, so the far effect is preserved.
 const RIPPLE_FALLOFF = 0.7
 // Clamp per-column offset so a rapid scroll burst can't fling content far off-lane.
-const RIPPLE_MAX_OFFSET = 220
+// Raised 220 → 320 so far columns can trail further for a bigger, more fluid wave.
+const RIPPLE_MAX_OFFSET = 320
 // Below this |offset| (px) and |velocity| a column is snapped to rest. Set above the
 // sub-pixel range so critical damping's slow asymptotic tail can't leave a lingering
 // (invisible) transform hanging around after the wave has visually landed.

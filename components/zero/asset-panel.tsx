@@ -97,8 +97,13 @@ function ResourceRow({ item, index }: { item: MockItem; index: number }) {
       {item.rail && (
         <span
           aria-hidden
-          className="pointer-events-none absolute top-1/2 h-px bg-border"
-          style={{ left: "calc(-1 * (var(--panel-edge-inset, 48px) + 8px))", right: "calc(100% - 10px)" }}
+          className="pointer-events-none absolute top-1/2 h-px"
+          style={{
+            left: "calc(-1 * (var(--panel-edge-inset, 48px) + 8px))",
+            right: "calc(100% - 10px)",
+            // Same hue as the diamond it reaches (matches the losange border alpha `55`).
+            backgroundColor: `${item.tint}55`,
+          }}
         />
       )}
       {/* Diamond tile (square rotated 45°) echoing the Resource losange glyph. */}
