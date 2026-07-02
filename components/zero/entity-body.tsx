@@ -324,9 +324,12 @@ function PanelSlot({
   topOffset: number
   children: (railWidth: number, panelWidth: number, railScale: number, railShift: number) => React.ReactNode
 }) {
-  // Shrink only a COLLAPSED rail that's narrower than the full width (a covered
-  // ancestor); the open panel and uncovered (leaf/home) rails stay at scale 1.
-  const railScale = !open && bleed < PANEL_RAIL_W ? 0.85 : 1
+  // Rail label/shortcut is ALWAYS full scale (per user): a covered ancestor's rail
+  // used to shrink to 0.85 when its peek (`bleed`) was narrower than the full width,
+  // but that made a middle ancestor's vertical label look inconsistently smaller than
+  // the leaf/home rails. The peek WIDTH (`bleed`) is unchanged — only the artificial
+  // label shrink is dropped — so every rail label now reads identically.
+  const railScale = 1
   return (
     <div
       className={cn(
