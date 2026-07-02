@@ -183,17 +183,22 @@ export function CollapsibleColumn({
           {open ? (
             /* OPEN: the vertical label + panel-toggle icon are hidden. A single collapse
                chevron pointing at the window edge indicates the rail still closes the
-               panel — but ONLY while this entity is the FOCUSED front view. Once one or
-               more children are open (this becomes an ancestor), the chevron is hidden;
-               the rail stays clickable but shows no glyph until the entity is refocused. */
-            focused ? (
-              <CollapseChevron
-                className={cn(
-                  "h-4 w-4 transition-opacity duration-200",
-                  railHover ? "text-foreground opacity-100" : "text-muted-foreground opacity-45",
-                )}
-              />
-            ) : null
+               panel — but only while this entity is the FOCUSED front view. Once one or
+               more children are open (this becomes an ancestor), the chevron FADES OUT
+               (it stays mounted so the opacity can transition, rather than unmounting and
+               vanishing instantly); the rail stays clickable but glyph-less until the
+               entity is refocused. A longer 500ms fade makes the appearance/disappearance
+               gentle rather than a snap. */
+            <CollapseChevron
+              className={cn(
+                "h-4 w-4 transition-opacity duration-500",
+                !focused
+                  ? "text-muted-foreground opacity-0"
+                  : railHover
+                    ? "text-foreground opacity-100"
+                    : "text-muted-foreground opacity-45",
+              )}
+            />
           ) : (
             <>
               <ToggleIcon

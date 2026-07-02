@@ -1049,7 +1049,7 @@ export function DoList({
             lines the pills' text up with the row glyph. */}
         {showSelectors && (
           <div className="mb-1 flex shrink-0 items-center justify-start gap-1 pr-2 pl-1.5">
-            {(["open", "all"] as const).map((f) => (
+            {(["all", "open"] as const).map((f) => (
               <button
                 key={f}
                 type="button"

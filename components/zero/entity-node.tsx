@@ -1124,19 +1124,22 @@ export function EntityNode({
             data-req-flip="title"
             style={{
               fontSize: titleSize,
-              // FIXED line-box height (px), constant across every title state.
-              // The header is `items-center`, so the title is vertically centred
-              // against the glyph. GSAP Flip tweens this title's `fontSize` between
-              // the row/dock size (13px) and the leaf-window size (18px); with the
-              // default (font-relative) line-height the title's BOX height tweened
-              // too (~20px → ~26px → ~20px), and `items-center` turned half of that
-              // delta into a vertical shift that SNAPPED ~4px the instant Flip's
-              // clearProps fired at completion — the "title jumps down 3-4px at the
-              // end of every open" glitch. Pinning the line-box to a constant 20px
-              // (comfortably fits the 18px max font) keeps the box height identical
-              // in Flip's captured AND final states, so the font tween no longer
-              // moves the centre line and there is nothing left to snap.
-              lineHeight: "20px",
+              // Line-box height (px). For WINDOWS this is a constant 20px across every
+              // title state: the header is `items-center`, so the title is vertically
+              // centred against the glyph, and GSAP Flip tweens this title's `fontSize`
+              // between the row/dock size (13px) and the leaf-window size (18px). With a
+              // default (font-relative) line-height the title's BOX height tweened too
+              // (~20px → ~26px → ~20px), and `items-center` turned half of that delta into
+              // a vertical shift that SNAPPED ~4px when Flip's clearProps fired — the
+              // "title jumps down 3-4px at the end of every open" glitch. Pinning the box
+              // to a constant 20px keeps it identical in Flip's captured AND final states.
+              //
+              // For a CROWDED DOCK CARD (not a window) the line-box instead scales WITH the
+              // shrunk content (`dockScale`), so the title's vertical rhythm tracks the
+              // smaller font + card frame instead of keeping a fixed 20px box that leaves
+              // the shrunk text floating in too-tall a line. At rest (dockScale 1) this is
+              // still exactly 20px, so uncrowded cards + the open morph are unchanged.
+              lineHeight: variant === "dock" && !asWindow && dockScale !== 1 ? `${20 * dockScale}px` : "20px",
               // Color-only CSS transition (ancestor dimming). GSAP Flip owns this
               // element's position + fontSize (it SLIDES the title between the
               // horizontal header slot and the spine strip), so we must not also
