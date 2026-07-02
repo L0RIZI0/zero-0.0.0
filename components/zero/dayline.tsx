@@ -250,7 +250,18 @@ export function Dayline() {
   // `viewStart`. Invariant: (viewStart's wheel delta, in px) + wheelCommitRef == total pan
   // consumed, so base + ripple always agree with no jump when we flush.
   const wheelCommitRef = useRef(0)
-  const panWrapRef = useRef<HTMLDivElement>(null)
+  // The in-progress wheel pan is applied as a `translateX` to TWO layers that share the
+  // same offset: the ticks CONTENT (inside the fixed overflow-hidden clip) and the NOW
+  // marker (which lives OUTSIDE the clip for its edge bleed). Crucially the transform is
+  // NOT on the clip itself — translating the clip would drag its window off the lane and
+  // keep incoming ticks hidden. Only the content slides within a fixed clip window.
+  const ticksPanRef = useRef<HTMLDivElement>(null)
+  const markerPanRef = useRef<HTMLDivElement>(null)
+  const applyPan = useCallback((px: number) => {
+    const t = px ? `translateX(${px}px)` : ""
+    if (ticksPanRef.current) ticksPanRef.current.style.transform = t
+    if (markerPanRef.current) markerPanRef.current.style.transform = t
+  }, [])
   // Bridge so the ripple loop (defined above) can trigger the deferred wheel-pan flush
   // once the ripple settles — assigned below where `maybeFlushAtRest` is defined.
   const flushAtRestRef = useRef<() => void>(() => {})
@@ -484,9 +495,7 @@ export function Dayline() {
       wheelCommitRef.current += slice
       // Imperative base pan (composited transform, no React render) kept in lockstep with
       // the ripple. Negative because scrolling forward moves content LEFT.
-      if (panWrapRef.current) {
-        panWrapRef.current.style.transform = `translateX(${-wheelCommitRef.current}px)`
-      }
+      applyPan(-wheelCommitRef.current)
       injectPan(-slice)
 
       // Flush to React truth once the imperative offset grows large, so `items`/marker
@@ -532,7 +541,7 @@ export function Dayline() {
       wheelCommitRef.current = 0
       wheelTsRef.current = 0
     }
-  }, [pctToCol, injectPan, flushWheelPan, maybeFlushAtRest])
+  }, [pctToCol, injectPan, flushWheelPan, maybeFlushAtRest, applyPan])
 
   // Keep the imperative pan-wrap transform consistent with `viewStart`. Runs synchronously
   // after every commit (before paint), so when a wheel flush moves `viewStart` and zeroes
@@ -540,10 +549,8 @@ export function Dayline() {
   // updated) and the transform swap seamlessly with no one-frame jump. For drag / any other
   // viewStart change `wheelCommitRef` is 0, so this just clears any stale transform.
   useLayoutEffect(() => {
-    if (!panWrapRef.current) return
-    const c = wheelCommitRef.current
-    panWrapRef.current.style.transform = c ? `translateX(${-c}px)` : ""
-  }, [viewStart])
+    applyPan(-wheelCommitRef.current)
+  }, [viewStart, applyPan])
 
   // Stop the loop on unmount.
   useEffect(() => {
@@ -577,16 +584,16 @@ export function Dayline() {
         onDoubleClick={recenter}
         className="pointer-events-auto relative h-7 w-full cursor-default select-none overflow-visible rounded-md border border-border/60 bg-card/40 [touch-action:none]"
       >
-        {/* PAN WRAP — the in-progress wheel pan is applied here as an imperative
-            `translateX` (see the drain loop) so it moves the ticks AND the NOW marker as
-            one composited layer, in lockstep with the ripple and without a React render.
-            Identity transform except mid-wheel-gesture; flushed into `viewStart` on settle. */}
-        <div ref={panWrapRef} className="pointer-events-none absolute inset-0 will-change-transform">
-        {/* Item CLIP layer — fills the lane and clips content to its edges so ripple-
-            lagged / margin ticks vanish exactly at the extremities (never popping early
-            or spilling out). The NOW marker + hover helper live OUTSIDE this clip so
-            their intentional 1px bleed and downward tooltip are unaffected. */}
+        {/* Item CLIP layer — FIXED to the lane (never transformed) so it always clips to
+            the true lane bounds. Fills the lane and trims ripple-lagged / margin ticks
+            exactly at the extremities. The NOW marker + hover helper live OUTSIDE this clip
+            so their intentional 1px bleed and downward tooltip are unaffected. */}
         <div className="pointer-events-none absolute inset-0 overflow-hidden rounded-md">
+          {/* TICKS PAN — the in-progress wheel pan is applied here as an imperative
+              `translateX` (see the drain loop): the CONTENT slides within the fixed clip
+              window, so ticks entering from either edge reveal correctly during the gesture.
+              Identity except mid-wheel-gesture; flushed into `viewStart` on settle. */}
+          <div ref={ticksPanRef} className="pointer-events-none absolute inset-0 will-change-transform">
           {mounted &&
             items.map((it) => {
               const isHot = hovered === it.key
@@ -658,6 +665,7 @@ export function Dayline() {
               </div>
             )
           })}
+          </div>
         </div>
 
         {/* NOW marker — a thin, bright-orange vertical tick (discrete but visible),
@@ -669,11 +677,12 @@ export function Dayline() {
             doesn't spill past the overflow-visible lane into the header. Wrapped in a
             ripple node so it rides the same catch-up wave as the content around it. */}
         {mounted && nowInView && (
+          <div ref={markerPanRef} className="pointer-events-none absolute inset-0 z-30 will-change-transform">
           <div
             aria-hidden
             ref={registerRipple("__now__")}
             data-col={nowCol}
-            className="pointer-events-none absolute inset-0 z-30 will-change-transform"
+            className="pointer-events-none absolute inset-0 will-change-transform"
           >
             <div
               className="pointer-events-auto absolute -bottom-px -top-px w-[2px] -translate-x-1/2 rounded-full"
@@ -722,8 +731,8 @@ export function Dayline() {
               </span>
             </div>
           </div>
+          </div>
         )}
-        </div>
       </div>
 
       {/* HOVER HELPER — floats just below the lane (the header sits directly above,
