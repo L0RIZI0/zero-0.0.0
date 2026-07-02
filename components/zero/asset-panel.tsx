@@ -93,20 +93,22 @@ export const RESOURCE_COUNT = ASSET_ITEMS.length + APP_ITEMS.length
 
 const faviconUrl = (domain: string) => `https://www.google.com/s2/favicons?domain=${domain}&sz=64`
 
-/** A hovered peek losange's floating label: its title + the viewport point to anchor to. */
-type PeekHover = { title: string; top: number; left: number; side: "left" | "right" } | null
+/** A hovered peek losange's floating label: the item (for title + icon) + the viewport
+ *  point to anchor to. */
+type PeekHover = { item: MockItem; top: number; left: number; side: "left" | "right" } | null
 
 /** The upright mark inside a diamond tile: a lucide icon or a real favicon (with a
- *  monogram fallback while it loads / if it errors). Counter-rotated by the caller. */
-function ItemMark({ item }: { item: MockItem }) {
+ *  monogram fallback while it loads / if it errors). Counter-rotated by the caller.
+ *  `size` (px) lets the tooltip render a smaller mark than the 15px tile default. */
+function ItemMark({ item, size = 15 }: { item: MockItem; size?: number }) {
   const [ok, setOk] = useState(false)
   if (item.icon) {
     const Icon = item.icon
-    return <Icon className="h-[15px] w-[15px]" style={{ color: item.tint }} strokeWidth={1.75} />
+    return <Icon style={{ width: size, height: size, color: item.tint }} strokeWidth={1.75} />
   }
   return (
-    <span className="relative flex h-[15px] w-[15px] items-center justify-center">
-      <span className="absolute text-[9px] font-semibold leading-none" style={{ color: item.tint }}>
+    <span className="relative flex items-center justify-center" style={{ width: size, height: size }}>
+      <span className="absolute font-semibold leading-none" style={{ fontSize: size * 0.6, color: item.tint }}>
         {item.title[0]}
       </span>
       <img
@@ -141,7 +143,7 @@ function ResourceRow({
     const el = tileRef.current
     if (!el) return
     const r = el.getBoundingClientRect()
-    onHover({ title: item.title, top: r.top + r.height / 2, left: r.right + 10, side: "left" })
+    onHover({ item, top: r.top + r.height / 2, left: r.right + 10, side: "left" })
   }
 
   return (
@@ -385,19 +387,30 @@ export function AssetPanel({
       {/* Floating hover label for a peek losange — PORTALED to <body>. The panel lives
           inside a transformed (framer x) + `overflow-hidden` clip container, which would
           clip/mis-anchor a `position: fixed` child; portaling escapes both so the label
-          paints above the focused child window. z-[200] < theme toggle (z-300). */}
-      {hover &&
-        typeof document !== "undefined" &&
-        createPortal(
-          <div
-            data-peek-label
-            className="pointer-events-none fixed z-[200] -translate-y-1/2 whitespace-nowrap rounded-md border border-border bg-popover px-2 py-1 leading-none text-popover-foreground shadow-md"
-            style={{ top: hover.top, left: hover.left, fontSize: PEEK_LABEL_PX }}
-          >
-            {hover.title}
-          </div>,
-          document.body,
-        )}
+          paints above the focused child window. z-[200] < theme toggle (z-300).
+          It shows the resource's ICON (the same mark that was inside the losange) beside
+          the title, and REVEALS left→right via a clip-path inset wipe so it grows out of
+          the losange rather than popping in. */}
+      <AnimatePresence>
+        {hover &&
+          typeof document !== "undefined" &&
+          createPortal(
+            <motion.div
+              key={hover.item.id}
+              data-peek-label
+              initial={{ clipPath: "inset(0 100% 0 0)", opacity: 0 }}
+              animate={{ clipPath: "inset(0 0% 0 0)", opacity: 1 }}
+              exit={{ clipPath: "inset(0 100% 0 0)", opacity: 0 }}
+              transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+              className="pointer-events-none fixed z-[200] flex -translate-y-1/2 items-center gap-1.5 whitespace-nowrap rounded-md border border-border bg-popover py-1 pl-1.5 pr-2 leading-none text-popover-foreground shadow-md"
+              style={{ top: hover.top, left: hover.left, fontSize: PEEK_LABEL_PX }}
+            >
+              <ItemMark item={hover.item} size={13} />
+              {hover.item.title}
+            </motion.div>,
+            document.body,
+          )}
+      </AnimatePresence>
     </div>
   )
 }
