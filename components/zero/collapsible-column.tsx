@@ -130,20 +130,9 @@ export function CollapsibleColumn({
                 ["--panel-edge-inset" as string]: `${railWidth}px`,
               }}
             >
-            {/* Inner (View-facing) divider — spans the panel's full height, which now
-                runs exactly header-bottom → window-bottom (the slot is offset to the
-                header bottom), so the border never touches the header. */}
-            <span
-              aria-hidden
-              className={cn(
-                // Inner (View-facing) edge line. DARK mode only — whiter than the
-                // standard `border` token so it reads against the dark surface. In
-                // LIGHT mode it's transparent: the squeeze gives the panel its own
-                // column, so no separator (border OR shadow) is needed.
-                "pointer-events-none absolute inset-y-0 w-px bg-transparent dark:bg-foreground/25",
-                side === "left" ? "right-0" : "left-0",
-              )}
-            />
+            {/* No inner divider in EITHER theme: the squeeze gives the panel its own
+                dedicated column, so it reads as separate from the View without any
+                border or shadow. (Kept the empty branch removed entirely.) */}
             {/* HORIZONTAL title — pinned near the top of the panel (just below the header
                 bottom). Its inset (`px-3` outer + `px-2` inner span = ~20px) lines the
                 text up with the window HEADER content (avatar/name at paddingLeft 20),

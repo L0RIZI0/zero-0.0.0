@@ -6,19 +6,20 @@
  * unit-reasoned and tweaked in one place; `dock.tsx` measures the container width
  * and renders whatever this returns.
  *
- * DESIGN (matches the product intent):
- *  1. Cards are pointy-top hexagon footprints: `w = h × HEX_RATIO` (√3/2).
- *  2. TWO-REGIME shrink as width tightens (e.g. an in/out panel squeezes REG2):
- *       • Regime 1 — the FRAME + padding shrink while the content (glyph/title/meta)
- *         stays at scale 1. The card just gets tighter around its content.
- *       • Regime 2 — once the frame is too close to the content, the CONTENT scales
- *         down too, but never below CONTENT_FLOOR (so glyph/title/meta always stay
- *         at comfortable minimum sizes).
- *  3. HONEYCOMB wrap — if even at the minimum comfortable card a single row would
- *     overflow, cards break into multiple offset rows that interlock (alternate rows
- *     shifted half a period, pulled up by ¼ card height) so pinned hexagons tessellate
- *     like a beehive. Wrap is chosen to keep cards as large as possible within a
- *     height budget. Applies uniformly to all cards (hex + rect alike).
+ * DESIGN (matches the product intent) — a PROGRESSIVE cascade as width tightens
+ * (e.g. an in/out panel squeezes REG2). Each regime is exhausted before the next
+ * begins (with minor natural overlap), so the dock degrades gracefully:
+ *  0. GAP SQUEEZE — cards stay at their full base size; only the inter-card GAP
+ *     shrinks, from GAP_WIDE down to GAP_TIGHT. Cards simply slide closer together.
+ *  1. FRAME SHRINK — gap has bottomed out at GAP_TIGHT; now the card FRAME + padding
+ *     shrink (base → min) while the content (glyph/title/meta) stays at scale 1.
+ *  2. CONTENT SHRINK — the frame is now too close to the content, so the CONTENT
+ *     scales down too, but never below CONTENT_FLOOR (comfortable min font sizes).
+ *  3. HONEYCOMB wrap — even the min card in a tight row would overflow, so cards break
+ *     into multiple offset rows that interlock (adjacent rows shifted half a period,
+ *     pulled up by ¼ card height). The honeycomb uses its OWN near-zero gap (GAP_HONEY)
+ *     so pointy-top hexagons actually tessellate like a beehive instead of floating
+ *     apart. Applies uniformly to all cards (hex + rect alike).
  */
 
 /** √3/2 — pointy-top regular-hexagon width:height ratio. */
@@ -76,18 +77,17 @@ function minCard(contextDepth: number) {
   return { cardW, cardH: Math.round(cardW / HEX_RATIO) }
 }
 
-/** Gap for a given card count — roomy when sparse, tightening to a floor as the row
- *  fills (kept from the previous count-based scheme so single-row docks are unchanged). */
-function gapFor(count: number, parentIsSpace: boolean) {
-  const WIDE = parentIsSpace ? 28 : 36
-  const TIGHT = parentIsSpace ? 12 : 16
-  const FROM = 3
-  const FULL = 9
-  if (count <= FROM) return WIDE
-  if (count >= FULL) return TIGHT
-  const t = (count - FROM) / (FULL - FROM)
-  return Math.round(WIDE + (TIGHT - WIDE) * t)
+/** Single-row gap bounds. As width tightens the gap squeezes from `wide` (the resting,
+ *  roomy spacing) down to `tight` (the floor) BEFORE any card-frame shrink begins.
+ *  Cards inside a Space pack a touch tighter than inside a task/event context. */
+function gapBounds(parentIsSpace: boolean) {
+  return { wide: parentIsSpace ? 28 : 36, tight: parentIsSpace ? 12 : 16 }
 }
+
+/** Honeycomb horizontal gap. Near-zero so pointy-top hexagons kiss and tessellate
+ *  (the visual breathing room comes from the hexagon's own footprint inset, not from
+ *  a gap). A tiny positive value avoids sub-pixel edge fighting. */
+const GAP_HONEY = 2
 
 /** Width at which content begins to scale (regime 1 → 2 boundary): the content
  *  stack's intrinsic width plus minimal horizontal padding. Below this the frame
@@ -128,75 +128,90 @@ export function computeDockLayout(input: Input): DockLayout {
   const { availableWidth, count, parentIsSpace, contextDepth } = input
   const base = baseCard(contextDepth)
   const min = minCard(contextDepth)
+  const { wide, tight } = gapBounds(parentIsSpace)
 
   // Before measurement (SSR / first paint), render the resting single row so the dock
   // matches its historical look until the ResizeObserver reports a real width.
   if (!availableWidth || availableWidth <= 0 || count <= 0) {
-    return singleRow(base.cardW, base.cardH, count, parentIsSpace)
+    return singleRow(base.cardW, base.cardH, wide, count)
   }
 
-  // --- Try SINGLE ROW first ------------------------------------------------------
-  // Widest card that fits `count` across one row with the count-based gap, clamped to
-  // [min, base]. If that clamp still fits (≥ min), stay single-row.
-  const gap1 = gapFor(count, parentIsSpace)
-  const perCard1 = (availableWidth - gap1 * (count - 1)) / count
-  if (perCard1 >= min.cardW) {
-    const cardW = Math.round(clamp(perCard1, min.cardW, base.cardW))
-    const cardH = Math.round(cardW / HEX_RATIO)
-    return singleRow(cardW, cardH, count, parentIsSpace)
+  // A lone card: no gap to squeeze — the frame just shrinks toward min if starved.
+  if (count === 1) {
+    const cardW = Math.round(clamp(availableWidth, min.cardW, base.cardW))
+    return singleRow(cardW, Math.round(cardW / HEX_RATIO), wide, 1)
   }
 
-  // --- HONEYCOMB (multi-row) -----------------------------------------------------
-  // Grow rows until the widest row's card (at min-or-larger) fits the width AND the
-  // stack fits the height budget. Pick the FEWEST rows that satisfy both, keeping
-  // cards as large as possible.
+  // --- Regime 0: GAP SQUEEZE (cards at BASE size) --------------------------------
+  // The gap absorbs the width change first. `gapAtBase` is the spacing that would
+  // exactly fill the leftover width with full-size cards; while it's still ≥ tight,
+  // cards stay at base and only the gap moves.
+  const gapAtBase = (availableWidth - count * base.cardW) / (count - 1)
+  if (gapAtBase >= tight) {
+    return singleRow(base.cardW, base.cardH, Math.round(clamp(gapAtBase, tight, wide)), count)
+  }
+
+  // --- Regime 1+2: FRAME then CONTENT shrink (gap pinned at tight) ---------------
+  // Gap has bottomed out; now shrink the card frame down toward min. `contentScaleFor`
+  // (applied in singleRow) keeps content at scale 1 until the frame crowds it, then
+  // scales it down to the floor — so regimes 1 and 2 flow into each other naturally.
+  const perCard = (availableWidth - tight * (count - 1)) / count
+  if (perCard >= min.cardW) {
+    const cardW = Math.round(clamp(perCard, min.cardW, base.cardW))
+    return singleRow(cardW, Math.round(cardW / HEX_RATIO), tight, count)
+  }
+
+  // --- Regime 3: HONEYCOMB (multi-row) -------------------------------------------
+  // Even the min card + tight gap overflows one row. Break into offset rows that
+  // interlock, using the near-zero GAP_HONEY so hexagons tessellate. Grow rows until
+  // the widest row fits the width AND the stack fits the height budget; pick the
+  // FEWEST rows that satisfy both, keeping cards as large as possible.
   for (let rows = 2; rows <= count; rows++) {
     const cols = Math.ceil(count / rows)
-    const gap = gapFor(cols, parentIsSpace)
-    // Offset rows are shifted half a period, so a row effectively needs room for
-    // `cols + 0.5` cards to guarantee the shifted row still fits.
+    // Offset rows are shifted half a period, so a row needs room for `cols + 0.5`
+    // cards to guarantee the shifted row still fits.
     const denom = cols + 0.5
-    const perCard = (availableWidth - gap * (cols - 1)) / denom
-    const cardW = Math.round(clamp(perCard, min.cardW, base.cardW))
+    const perCardH = (availableWidth - GAP_HONEY * (cols - 1)) / denom
+    const cardW = Math.round(clamp(perCardH, min.cardW, base.cardW))
     const cardH = Math.round(cardW / HEX_RATIO)
     // Interlocked rows advance by ¾ of card height; total stack height:
     const overlap = Math.round(cardH * 0.25)
     const stackH = cardH + (rows - 1) * (cardH - overlap)
-    const widthOk = perCard >= min.cardW
-    const heightOk = stackH <= HONEYCOMB_HEIGHT_BUDGET
-    if (widthOk && heightOk) {
-      return honeycomb(cardW, cardH, count, rows, gap)
+    if (perCardH >= min.cardW && stackH <= HONEYCOMB_HEIGHT_BUDGET) {
+      return honeycomb(cardW, cardH, count, rows)
     }
   }
 
   // Fallback: everything is tight — pack at min card into as many rows as needed.
-  const cols = Math.max(1, Math.floor((availableWidth + gapFor(count, parentIsSpace)) / (min.cardW + gapFor(count, parentIsSpace))))
+  const cols = Math.max(1, Math.floor((availableWidth + GAP_HONEY) / (min.cardW + GAP_HONEY)))
   const rows = Math.max(1, Math.ceil(count / Math.max(1, cols)))
-  return honeycomb(min.cardW, min.cardH, count, rows, gapFor(cols, parentIsSpace))
+  return honeycomb(min.cardW, min.cardH, count, rows)
 }
 
-function singleRow(cardW: number, cardH: number, count: number, parentIsSpace: boolean): DockLayout {
+function singleRow(cardW: number, cardH: number, gapX: number, count: number): DockLayout {
   return {
     cardW,
     cardH,
     contentScale: contentScaleFor(cardW),
     rowCounts: count > 0 ? [count] : [],
-    gapX: gapFor(count, parentIsSpace),
+    gapX,
     rowOverlap: 0,
     rowOffset: 0,
     multiRow: false,
   }
 }
 
-function honeycomb(cardW: number, cardH: number, count: number, rows: number, gapX: number): DockLayout {
+function honeycomb(cardW: number, cardH: number, count: number, rows: number): DockLayout {
   return {
     cardW,
     cardH,
     contentScale: contentScaleFor(cardW),
     rowCounts: distribute(count, rows),
-    gapX,
+    gapX: GAP_HONEY,
+    // Pointy-top tessellation: advance ¾·h vertically (overlap ¼·h) and shift the
+    // next row half a period (½ of card+gap) so cards sit in the valleys above.
     rowOverlap: Math.round(cardH * 0.25),
-    rowOffset: Math.round((cardW + gapX) / 2),
+    rowOffset: Math.round((cardW + GAP_HONEY) / 2),
     multiRow: true,
   }
 }
