@@ -304,6 +304,13 @@ export function Dayline() {
   // `viewStart`. Invariant: (viewStart's wheel delta, in px) + wheelCommitRef == total pan
   // consumed, so base + ripple always agree with no jump when we flush.
   const wheelCommitRef = useRef(0)
+  // Chunk of `wheelCommitRef` that a mid-gesture flush has requested to bake into `viewStart`
+  // but React hasn't committed yet. It is NOT subtracted from `wheelCommitRef` until the
+  // layout effect fires on the `viewStart` commit — so the transform keeps including it while
+  // the DOM base is still stale, and the subtraction + base move happen in the SAME paint.
+  // Without this, a glide frame firing between the flush request and its commit would reset
+  // the transform against the old base → the sudden jump seen when scrolling fast.
+  const pendingFlushRef = useRef(0)
   // The in-progress wheel pan is applied as a `translateX` to TWO layers that share the
   // same offset: the ticks CONTENT (inside the fixed overflow-hidden clip) and the NOW
   // marker (which lives OUTSIDE the clip for its edge bleed). Crucially the transform is
@@ -520,14 +527,20 @@ export function Dayline() {
   // a layout effect clears the transform in the same paint as the flush, so there's no jump.
   const flushWheelPan = useCallback(() => {
     const lane = laneRef.current
+    if (!lane) return
+    // Skip if a previous flush hasn't committed yet — its chunk is still baking into
+    // `viewStart`. We wait for the layout effect to reconcile before requesting another,
+    // so `pendingFlushRef` always tracks exactly one in-flight chunk.
+    if (pendingFlushRef.current !== 0) return
     const commit = wheelCommitRef.current
-    if (!lane || !commit) return
+    if (!commit) return
     const w = lane.clientWidth || 1
-    wheelCommitRef.current = 0 // cleared BEFORE the state update so the layout effect zeroes the transform
-    // Atomic swap without a forced synchronous render: the `viewStart` change re-renders
-    // ticks with new `leftPct`, and the `useLayoutEffect` below (keyed on viewStart) clears
-    // the pan-wrap transform in the same pre-paint step — base shift + transform removal
-    // land together. (flushSync was tried here but only added a mid-motion render hitch.)
+    // Bake `commit` px into `viewStart`, but do NOT zero `wheelCommitRef` here: the DOM base
+    // only moves once React commits `viewStart`, so the transform must keep including this
+    // chunk until then (otherwise a glide frame firing before the commit resets the transform
+    // against the stale base → the visible jump at speed). The layout effect subtracts exactly
+    // this chunk atomically with the base move, so the swap is seamless at any scroll speed.
+    pendingFlushRef.current = commit
     setViewStart((vs) => vs + (commit / w) * DAY_MS)
   }, [])
 
@@ -611,16 +624,22 @@ export function Dayline() {
       wheelRafRef.current = null
       wheelVelRef.current = 0
       wheelCommitRef.current = 0
+      pendingFlushRef.current = 0
       wheelTsRef.current = 0
     }
   }, [pctToCol, injectPan, flushWheelPan, maybeFlushAtRest, applyPan])
 
   // Keep the imperative pan-wrap transform consistent with `viewStart`. Runs synchronously
-  // after every commit (before paint), so when a wheel flush moves `viewStart` and zeroes
-  // `wheelCommitRef`, the residual transform is cleared in the SAME paint — the base % (now
-  // updated) and the transform swap seamlessly with no one-frame jump. For drag / any other
-  // viewStart change `wheelCommitRef` is 0, so this just clears any stale transform.
+  // after every commit (before paint). When a wheel flush moves `viewStart`, we subtract the
+  // just-baked chunk (`pendingFlushRef`) from `wheelCommitRef` and re-apply the transform in
+  // the SAME pre-paint step — the base % (now updated) and the reduced transform swap
+  // seamlessly with no one-frame jump, regardless of how many glide frames ran in between.
+  // For drag / any other viewStart change `pendingFlushRef` is 0, so this just re-syncs.
   useLayoutEffect(() => {
+    if (pendingFlushRef.current !== 0) {
+      wheelCommitRef.current -= pendingFlushRef.current
+      pendingFlushRef.current = 0
+    }
     applyPan(-wheelCommitRef.current)
   }, [viewStart, applyPan])
 
