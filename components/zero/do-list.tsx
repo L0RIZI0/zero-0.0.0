@@ -775,28 +775,19 @@ export function DoList({
   const measureFadeSettling = useCallback(() => {
     cancelAnimationFrame(settleRafRef.current)
     measureFade()
-    const el = scrollerRef.current
-    if (!el) return
-    // Stability must track BOTH dims: on a fresh row the scroller's clientHeight grows
-    // (e.g. 44→94) a frame or two AFTER the child mounts, so keying only on scrollHeight
-    // would quit mid-transient (clientHeight still small ⇒ false overflow) and latch the
-    // fade on. Keep re-measuring until the ch×sh signature holds for 2 frames.
-    let lastSig = `${el.clientHeight}x${el.scrollHeight}`
-    let stableFrames = 0
-    const deadline = performance.now() + 500
+    if (!scrollerRef.current) return
+    // Re-measure every frame through the whole row birth/reflow, THEN stop. We can't
+    // early-exit on "size looks stable" because the scroller's clientHeight holds its
+    // small pre-growth value (e.g. 44) for several frames before jumping to its settled
+    // value (e.g. 144) — an early stability check latches onto that flat pre-jump window
+    // (transient overflow ⇒ fade stuck ON). ROW_REFLOW is 0.4s; run a touch past it. This
+    // is a cheap one-shot (a few layout reads/frame for ~0.5s), only after a mutation.
+    const reflowMs = (typeof ROW_REFLOW.duration === "number" ? ROW_REFLOW.duration : 0.4) * 1000
+    const deadline = performance.now() + reflowMs + 120
     const tick = () => {
-      const cur = scrollerRef.current
-      if (!cur) return
+      if (!scrollerRef.current) return
       measureFade()
-      const sig = `${cur.clientHeight}x${cur.scrollHeight}`
-      if (sig === lastSig) stableFrames++
-      else {
-        stableFrames = 0
-        lastSig = sig
-      }
-      if (stableFrames < 2 && performance.now() < deadline) {
-        settleRafRef.current = requestAnimationFrame(tick)
-      }
+      if (performance.now() < deadline) settleRafRef.current = requestAnimationFrame(tick)
     }
     settleRafRef.current = requestAnimationFrame(tick)
   }, [measureFade])
