@@ -3,9 +3,10 @@
 import { useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { motion, AnimatePresence } from "motion/react"
-import { ChevronDown, FileText, ImageIcon, Plus } from "lucide-react"
+import { ChevronDown, Plus } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { panelSlideTransition, MORPH_SECONDS, MORPH_EASE } from "@/lib/zero/motion"
+import { getEntityResources, groupResources, type EntityResource } from "@/lib/zero/resources"
 
 /**
  * RESOURCES panel — a presentational MOCKUP of the "stuff that goes IN" side of a space.
@@ -36,10 +37,10 @@ import { panelSlideTransition, MORPH_SECONDS, MORPH_EASE } from "@/lib/zero/moti
 const MORPH = { duration: MORPH_SECONDS, ease: MORPH_EASE }
 /**
  * Beat to HOLD the full panel before it collapses into peek, once a child opens.
- * Pegged to 85% of the open-window morph (MORPH_SECONDS) so the panel stays whole for
- * almost the entire dive-in, then morphs into losanges just as the child window settles.
+ * Pegged to 60% of the open-window morph (MORPH_SECONDS) so the panel stays whole for
+ * most of the dive-in, then morphs into losanges as the child window settles in.
  */
-const PEEK_IN_DELAY = MORPH_SECONDS * 0.85
+const PEEK_IN_DELAY = MORPH_SECONDS * 0.6
 /**
  * Transition for every peek-driven property. Entering peek (a child just opened → `peek`
  * flips true) is HELD for PEEK_IN_DELAY so the full panel lingers before morphing into the
@@ -71,53 +72,20 @@ const peekCenter = (railWidth: number) => railWidth / 2
  *  center) onto the peek strip center. Negative = leftward. */
 const rowPeekX = (railWidth: number, slotCenter: number) => peekCenter(railWidth) - FULL_INSET - slotCenter
 
-type MockItem = {
-  id: string
-  title: string
-  detail: string
-  tint: string
-  /** Draw the edge→vertex continuity hairline for this item. */
-  rail: boolean
-} & ({ icon: typeof FileText; domain?: never } | { domain: string; icon?: never })
-
-const ASSET_ITEMS: MockItem[] = [
-  {
-    id: "camera-roll",
-    title: "Camera Roll",
-    detail: "1,284 photos · 42 videos",
-    tint: "#E5A663",
-    rail: true,
-    icon: ImageIcon,
-  },
-  { id: "files", title: "Files", detail: "312 documents · 4.2 GB", tint: "#6C8FE5", rail: false, icon: FileText },
-]
-
-const APP_ITEMS: MockItem[] = [
-  { id: "figma", title: "Figma", detail: "Professional · $16/mo", tint: "#A259FF", rail: true, domain: "figma.com" },
-  { id: "linear", title: "Linear", detail: "Standard · $8/mo", tint: "#5E6AD2", rail: true, domain: "linear.app" },
-  // Notion & Vercel are grayscale brands; their near-white brand tints made the diamond
-  // tile (low-alpha bg + border) invisible on the light panel. Use a mid neutral gray so
-  // the losange reads clearly in BOTH themes while staying monochrome-on-brand.
-  { id: "notion", title: "Notion", detail: "Plus · $10/mo", tint: "#8A8A8A", rail: true, domain: "notion.so" },
-  { id: "vercel", title: "Vercel", detail: "Pro · $20/mo", tint: "#8A8A8A", rail: true, domain: "vercel.com" },
-]
-
-const MOCK_BALANCE = "4,426.80"
-
-/** Total resources shown in this mockup (assets + apps) — surfaced so the panel header
- *  counter reflects what's actually rendered rather than a store value. */
-export const RESOURCE_COUNT = ASSET_ITEMS.length + APP_ITEMS.length
-
 const faviconUrl = (domain: string) => `https://www.google.com/s2/favicons?domain=${domain}&sz=64`
 
-/** A hovered peek losange's floating label: the item (for title + icon) + the viewport
+/** Format a money resource's amount as the imposing balance figure (e.g. "4,426.80"). */
+const formatBalance = (amount: number) =>
+  amount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
+/** A hovered peek losange's floating label: the item (for name + icon) + the viewport
  *  point to anchor to. */
-type PeekHover = { item: MockItem; top: number; left: number; side: "left" | "right" } | null
+type PeekHover = { item: EntityResource; top: number; left: number; side: "left" | "right" } | null
 
 /** The upright mark inside a diamond tile: a lucide icon or a real favicon (with a
  *  monogram fallback while it loads / if it errors). Counter-rotated by the caller.
  *  `size` (px) lets the tooltip render a smaller mark than the 15px tile default. */
-function ItemMark({ item, size = 15 }: { item: MockItem; size?: number }) {
+function ItemMark({ item, size = 15 }: { item: EntityResource; size?: number }) {
   const [ok, setOk] = useState(false)
   if (item.icon) {
     const Icon = item.icon
@@ -126,10 +94,10 @@ function ItemMark({ item, size = 15 }: { item: MockItem; size?: number }) {
   return (
     <span className="relative flex items-center justify-center" style={{ width: size, height: size }}>
       <span className="absolute font-semibold leading-none" style={{ fontSize: size * 0.6, color: item.tint }}>
-        {item.title[0]}
+        {item.name[0]}
       </span>
       <img
-        src={faviconUrl(item.domain!) || "/placeholder.svg"}
+        src={item.domain ? faviconUrl(item.domain) : "/placeholder.svg"}
         alt=""
         draggable={false}
         onLoad={() => setOk(true)}
@@ -145,7 +113,7 @@ function ResourceRow({
   railWidth,
   onHover,
 }: {
-  item: MockItem
+  item: EntityResource
   peek: boolean
   railWidth: number
   onHover: (h: PeekHover) => void
@@ -179,7 +147,7 @@ function ResourceRow({
           to counter-translate — it just widens to end exactly at the losange's new center
           (`peekCenter + 8` local, since the local origin sits at FULL_INSET and left starts
           8px past the edge). */}
-      {item.rail && (
+      {item.connector && (
         <motion.span
           aria-hidden
           className="pointer-events-none absolute top-1/2 h-px"
@@ -242,7 +210,7 @@ function ResourceRow({
         {/* Title + detail DON'T fade in peek — nothing fades anymore. They stay put at full
             opacity; only the losange (glyph tile) travels to the strip and the hairline
             widens. The narrowing panel column is what carries the text out of view. */}
-        <span className="truncate text-[12.5px] tracking-tight text-foreground">{item.title}</span>
+        <span className="truncate text-[12.5px] tracking-tight text-foreground">{item.name}</span>
         <span className="truncate text-[11px] text-muted-foreground/70">{item.detail}</span>
       </span>
     </button>
@@ -258,7 +226,7 @@ function Section({
   defaultOpen = true,
 }: {
   title: string
-  items: MockItem[]
+  items: EntityResource[]
   peek: boolean
   railWidth: number
   onHover: (h: PeekHover) => void
@@ -317,13 +285,10 @@ function Section({
 
 export function AssetPanel({
   spaceId,
-  isRoot = false,
   peek = false,
   railWidth = 48,
 }: {
   spaceId: string
-  /** Only entity0 (the home / Individual) has resources; every other space is empty. */
-  isRoot?: boolean
   /** Collapse the resources into peek losanges on the window's left peek strip. */
   peek?: boolean
   /** Width of the peek strip the losanges center on (the window's visible bleed). */
@@ -336,9 +301,14 @@ export function AssetPanel({
   // SAME peek-strip center as the resource losanges above, so they align vertically.
   const peekAddX = rowPeekX(railWidth, ADD_GLYPH_CENTER)
 
-  // Resources are entity0-only. Any other space shows an EMPTY panel — no money, no
-  // assets/apps (⇒ no peek losanges), just the affordance to add the first resource.
-  if (!isRoot) {
+  // Model-driven: an entity renders exactly the resources it HOLDS (entity0's world
+  // inputs; a child's imported/added resources). An entity with no holdings shows an
+  // EMPTY panel — no money, no assets/apps (⇒ no peek losanges), just the affordance to
+  // add/import its first resource.
+  const resources = getEntityResources(spaceId)
+  const { money, assets, apps } = groupResources(resources)
+
+  if (resources.length === 0) {
     return (
       <div key={spaceId} className="flex flex-col">
         <button
@@ -358,19 +328,24 @@ export function AssetPanel({
   return (
     // Keyed by context so switching nodes hard-swaps (instant, no cross-fade).
     <div key={spaceId} className="flex flex-col">
-      {/* Money — the imposing balance figure. No longer fades in peek; it stays put and
-          rides out with the narrowing column, like all the other text content. */}
-      <div className="px-2 pb-4 pt-1">
-        <div className="flex items-baseline gap-1.5">
-          <span className="text-[27px] font-semibold leading-none tracking-tight tabular-nums text-foreground">
-            {MOCK_BALANCE}
-          </span>
-          <span className="text-sm font-medium text-muted-foreground">USD</span>
+      {/* Money — the imposing balance figure (the held money resource's amount: the
+          source balance on entity0, or an allocated budget on a child it was forwarded
+          to). No longer fades in peek; it rides out with the narrowing column. */}
+      {money[0]?.amount != null && (
+        <div className="px-2 pb-4 pt-1">
+          <div className="flex items-baseline gap-1.5">
+            <span className="text-[27px] font-semibold leading-none tracking-tight tabular-nums text-foreground">
+              {formatBalance(money[0].amount)}
+            </span>
+            <span className="text-sm font-medium text-muted-foreground">{money[0].currency ?? "USD"}</span>
+          </div>
         </div>
-      </div>
+      )}
 
-      <Section title="Assets" items={ASSET_ITEMS} peek={peek} railWidth={railWidth} onHover={setHover} />
-      <Section title="Apps" items={APP_ITEMS} peek={peek} railWidth={railWidth} onHover={setHover} />
+      {assets.length > 0 && (
+        <Section title="Assets" items={assets} peek={peek} railWidth={railWidth} onHover={setHover} />
+      )}
+      {apps.length > 0 && <Section title="Apps" items={apps} peek={peek} railWidth={railWidth} onHover={setHover} />}
 
       {/* Full add-resource affordance — no longer fades in peek; just goes inert and rides
           out with the narrowing column like the rest of the content. */}
@@ -438,7 +413,7 @@ export function AssetPanel({
                 style={{ top: hover.top, left: hover.left, fontSize: PEEK_LABEL_PX }}
               >
                 <ItemMark item={hover.item} size={13} />
-                {hover.item.title}
+                {hover.item.name}
               </motion.div>
             )}
           </AnimatePresence>,

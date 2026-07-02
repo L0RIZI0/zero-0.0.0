@@ -9,7 +9,8 @@ import { useZeroNav } from "@/lib/zero/nav-store"
 import { Region } from "./region"
 import { Dock } from "./dock"
 import { DoList } from "./do-list"
-import { AssetPanel, RESOURCE_COUNT } from "./asset-panel"
+import { AssetPanel } from "./asset-panel"
+import { getEntityResourceCount } from "@/lib/zero/resources"
 import { OutputPanel } from "./output-panel"
 import { CollapsibleColumn } from "./collapsible-column"
 import { ResourceCanvas } from "./resource-canvas"
@@ -98,10 +99,10 @@ export function EntityBody({
    *  a flag only to widen the central reading measure on the home view. */
   isRoot?: boolean
 }) {
-  // The Resources panel is a static mockup; its header counter should reflect the items
-  // actually rendered there (assets + apps). Resources are entity0-only, so every other
-  // space reports 0.
-  const assetCount = isRoot ? RESOURCE_COUNT : 0
+  // The rail's "RESOURCES (n)" counter reflects the resources this entity actually HOLDS
+  // (entity0's world inputs; a child's imported/added resources) — model-driven, so a
+  // child with no holdings reads (0).
+  const assetCount = getEntityResourceCount(entityId)
   const [inOpen, setInOpen] = usePanelOpen(`${entityId}:in`, false)
   const [outOpen, setOutOpen] = usePanelOpen(`${entityId}:out`, false)
   // SQUEEZE: an open side panel pushes the View content inward on that side (instead
@@ -258,7 +259,7 @@ export function EntityBody({
                 small filled losanges on the left peek. `railWidth` is the peek strip
                 width they center on. If the panel was closed, AssetPanel isn't mounted,
                 so nothing changes. */}
-            <AssetPanel spaceId={entityId} isRoot={isRoot} peek={inOpen && !active} railWidth={railWidth} />
+            <AssetPanel spaceId={entityId} peek={inOpen && !active} railWidth={railWidth} />
           </CollapsibleColumn>
         )}
       </PanelSlot>
