@@ -99,12 +99,17 @@ export function CollapsibleColumn({
 
   // PEEK MODE: the panel is open AND its entity is a covered ancestor (a child is
   // focused). The child's AssetPanel/OutputPanel collapses its resources into small
-  // losanges on this window's peek strip. Two content-container tweaks support that:
-  //  (1) the content inset (`--panel-edge-inset` = railWidth) eases 48→peek on the SAME
-  //      morph beat, so the resources glide left in step (no jump) as the strip narrows;
-  //  (2) overflow goes VISIBLE so a losange pulled onto the thin peek isn't clipped.
+  // losanges on this window's peek strip.
   const peek = open && !focused
-  const paddingTransition = `padding ${MORPH_SECONDS}s cubic-bezier(${MORPH_EASE.join(",")})`
+  // The content inset (`--panel-edge-inset`, the scroller `pl`/`pr`) is FROZEN at the
+  // open rail width during peek. It's a CSS custom property, which is NOT smoothly
+  // animatable — so letting it follow `railWidth` (which shrinks to the bleed the moment
+  // a child opens) made the whole panel content JUMP left. Freezing it means zero layout
+  // change on peek-in; the losanges instead travel purely via transform (measured against
+  // this constant inset in asset-panel), which is smooth. `RAIL_OPEN_W` matches the
+  // focused-open bleed (EntityBody's PANEL_RAIL_W), so freezing = no change at the flip.
+  const RAIL_OPEN_W = 48
+  const contentInset = peek ? RAIL_OPEN_W : railWidth
 
   return (
     <div ref={rootRef} className="relative h-full" style={{ width: railWidth, transition: widthTransition }}>
@@ -157,8 +162,8 @@ export function CollapsibleColumn({
                 // dedicated empty column (EntityBody animates the View padding), it needs no
                 // fill — the uniform app background shows through and always reads correctly.
                 // Exposed to the asset rows so their connector hairlines can reach the
-                // window edge from inside the content inset.
-                ["--panel-edge-inset" as string]: `${railWidth}px`,
+                // window edge from inside the content inset. FROZEN in peek (see above).
+                ["--panel-edge-inset" as string]: `${contentInset}px`,
               }}
             >
             {/* No inner divider in EITHER theme: the squeeze gives the panel its own
@@ -175,7 +180,6 @@ export function CollapsibleColumn({
                 side === "left" ? "pl-[var(--panel-edge-inset)]" : "pr-[var(--panel-edge-inset)]",
               )}
               style={{
-                transition: paddingTransition,
                 // Visible in peek so the collapsed losanges paint onto the narrow peek
                 // strip without horizontal clipping; normal auto-scroll otherwise.
                 overflow: peek ? "visible" : undefined,

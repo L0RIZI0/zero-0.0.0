@@ -1,6 +1,7 @@
 "use client"
 
 import { useRef, useState } from "react"
+import { createPortal } from "react-dom"
 import { motion, AnimatePresence } from "motion/react"
 import { ChevronDown, FileText, ImageIcon, Plus } from "lucide-react"
 import { cn } from "@/lib/utils"
@@ -38,6 +39,20 @@ const PEEK_LABEL_PX = 11
 /** Horizontal distance from a row's left edge to its glyph-tile CENTER: row px-2 (8) +
  *  half the 40px glyph slot (20). Used to land the losange centered on the peek strip. */
 const ROW_GLYPH_CENTER = 28
+/** The add "+" affordance has NO px-2, so its 40px slot center sits 20px from its left. */
+const ADD_GLYPH_CENTER = 20
+/** The panel content inset (px) when the panel is open — the scroller's `pl`. FROZEN at
+ *  this value during peek (see CollapsibleColumn) so the content never horizontally jumps
+ *  when `railWidth` shrinks to the bleed; the losange travel is measured against it. */
+const FULL_INSET = 48
+/** Pure-losange edge (px) in peek — half the previous 15px, per the tighter peek spec. */
+const PEEK_LOSANGE = 8
+/** Where a peek glyph/losange lands, measured from the WINDOW EDGE: centered on the
+ *  bleed strip. Both resources and the add button converge here so they align. */
+const peekCenter = (railWidth: number) => railWidth / 2
+/** Row transform to bring a glyph tile's center from its resting spot (inset + slot
+ *  center) onto the peek strip center. Negative = leftward. */
+const rowPeekX = (railWidth: number, slotCenter: number) => peekCenter(railWidth) - FULL_INSET - slotCenter
 
 type MockItem = {
   id: string
@@ -117,11 +132,10 @@ function ResourceRow({
   onHover: (h: PeekHover) => void
 }) {
   const tileRef = useRef<HTMLSpanElement>(null)
-  // Slide left so the glyph tile's center lands on the peek strip center (railWidth/2).
-  // At rest the center sits at inset(=railWidth) + ROW_GLYPH_CENTER; the panel's content
-  // inset eases to railWidth over the same beat (in CollapsibleColumn), so this transform
-  // is measured against the FINAL inset and the two compose into one smooth glide.
-  const peekX = -(railWidth / 2 + ROW_GLYPH_CENTER)
+  // Slide left so the glyph tile's center lands on the peek strip center. The content
+  // inset is FROZEN at FULL_INSET during peek (CollapsibleColumn), so this pure transform
+  // (no layout change) carries the losange the whole way — no jump.
+  const peekX = rowPeekX(railWidth, ROW_GLYPH_CENTER)
 
   const showLabel = () => {
     const el = tileRef.current
@@ -134,25 +148,31 @@ function ResourceRow({
     <motion.button
       type="button"
       initial={false}
-      animate={{ x: peek ? peekX : 0, paddingTop: peek ? 3 : 6, paddingBottom: peek ? 3 : 6 }}
+      animate={{ x: peek ? peekX : 0, paddingTop: peek ? 1 : 6, paddingBottom: peek ? 1 : 6 }}
       transition={MORPH}
       className={cn(
         "group relative flex w-full items-center gap-3 rounded-lg border border-transparent px-2 text-left",
         peek ? "pointer-events-none" : "pointer-events-auto transition-colors hover:border-border hover:bg-card",
       )}
     >
-      {/* Continuity hairline: from the window edge to the diamond's LEFT VERTEX. Fades out
-          in peek (it belongs to the full layout; the losange sits on the edge itself). */}
+      {/* Continuity hairline: runs from the window edge to the glyph. It PERSISTS in peek
+          (stays visible, connecting the screen edge to the peek losange). Its left anchor
+          is fixed at the window edge; the row itself translates left by `peekX`, so the
+          hairline COUNTER-translates by `-peekX` to stay pinned at the edge, and its width
+          animates to end exactly at the losange center (`peekCenter + 8` local, since the
+          local origin sits at FULL_INSET and left starts 8px past the edge). */}
       {item.rail && (
         <motion.span
           aria-hidden
           className="pointer-events-none absolute top-1/2 h-px"
           initial={false}
-          animate={{ opacity: peek ? 0 : 1 }}
+          animate={{
+            x: peek ? -peekX : 0,
+            width: peek ? peekCenter(railWidth) + 8 : FULL_INSET + 18,
+          }}
           transition={MORPH}
           style={{
             left: "calc(-1 * (var(--panel-edge-inset, 48px) + 8px))",
-            right: "calc(100% - 10px)",
             backgroundColor: `${item.tint}55`,
           }}
         />
@@ -166,8 +186,8 @@ function ResourceRow({
           ref={tileRef}
           initial={false}
           animate={{
-            width: peek ? 15 : 26,
-            height: peek ? 15 : 26,
+            width: peek ? PEEK_LOSANGE : 26,
+            height: peek ? PEEK_LOSANGE : 26,
             borderRadius: peek ? 0 : 5,
             backgroundColor: peek ? item.tint : `${item.tint}1a`,
             borderColor: peek ? item.tint : `${item.tint}55`,
@@ -299,7 +319,9 @@ export function AssetPanel({
   const [hover, setHover] = useState<PeekHover>(null)
   // The minimal add affordance on the peek strip only shows on hover.
   const [addHover, setAddHover] = useState(false)
-  const peekX = -(railWidth / 2 + ROW_GLYPH_CENTER)
+  // The add button has no px-2, so it uses ADD_GLYPH_CENTER — this lands its "+" on the
+  // SAME peek-strip center as the resource losanges above, so they align vertically.
+  const peekAddX = rowPeekX(railWidth, ADD_GLYPH_CENTER)
 
   return (
     // Keyed by context so switching nodes hard-swaps (instant, no cross-fade).
@@ -340,32 +362,37 @@ export function AssetPanel({
         <motion.button
           type="button"
           initial={false}
-          animate={{ x: peekX, opacity: addHover ? 1 : 0 }}
+          animate={{ x: peekAddX, opacity: addHover ? 1 : 0 }}
           transition={{ opacity: { duration: 0.2, ease: "easeOut" }, x: MORPH }}
           onPointerEnter={() => setAddHover(true)}
           onPointerLeave={() => setAddHover(false)}
           onClick={(e) => e.stopPropagation()}
           aria-label="Add resource"
-          className="pointer-events-auto relative mt-1 flex h-10 w-10 items-center justify-center self-start rounded-md text-muted-foreground transition-colors hover:text-foreground"
+          className="pointer-events-auto relative mt-0.5 flex h-10 w-10 items-center justify-center self-start rounded-md text-muted-foreground transition-colors hover:text-foreground"
           style={{ zIndex: 30 }}
         >
-          <span className="flex h-[15px] w-[15px] items-center justify-center rounded-[3px] border border-dashed border-current">
-            <Plus className="h-2.5 w-2.5" strokeWidth={2.5} />
+          <span className="flex h-3 w-3 items-center justify-center rounded-[2px] border border-dashed border-current">
+            <Plus className="h-2 w-2" strokeWidth={2.5} />
           </span>
         </motion.button>
       )}
 
-      {/* Floating hover label for a peek losange. Fixed + high z so it paints ABOVE the
-          focused child window (z-140) yet below the theme toggle (z-300). */}
-      {hover && (
-        <div
-          data-peek-label
-          className="pointer-events-none fixed z-[200] -translate-y-1/2 whitespace-nowrap rounded-md border border-border bg-popover px-2 py-1 leading-none text-popover-foreground shadow-md"
-          style={{ top: hover.top, left: hover.left, fontSize: PEEK_LABEL_PX }}
-        >
-          {hover.title}
-        </div>
-      )}
+      {/* Floating hover label for a peek losange — PORTALED to <body>. The panel lives
+          inside a transformed (framer x) + `overflow-hidden` clip container, which would
+          clip/mis-anchor a `position: fixed` child; portaling escapes both so the label
+          paints above the focused child window. z-[200] < theme toggle (z-300). */}
+      {hover &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div
+            data-peek-label
+            className="pointer-events-none fixed z-[200] -translate-y-1/2 whitespace-nowrap rounded-md border border-border bg-popover px-2 py-1 leading-none text-popover-foreground shadow-md"
+            style={{ top: hover.top, left: hover.left, fontSize: PEEK_LABEL_PX }}
+          >
+            {hover.title}
+          </div>,
+          document.body,
+        )}
     </div>
   )
 }
