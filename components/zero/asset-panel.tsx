@@ -34,6 +34,19 @@ import { panelSlideTransition, MORPH_SECONDS, MORPH_EASE } from "@/lib/zero/moti
  */
 
 const MORPH = { duration: MORPH_SECONDS, ease: MORPH_EASE }
+/** Beat to HOLD the full panel before it collapses into peek, once a child opens. */
+const PEEK_IN_DELAY = 2
+/**
+ * Transition for every peek-driven property. Entering peek (a child just opened → `peek`
+ * flips true) is HELD for PEEK_IN_DELAY so the full panel lingers before morphing into the
+ * losange strip; the reverse (child closes → `peek` back to false) plays immediately with
+ * no delay so refocusing the panel feels instant. Pass the element's base transition as
+ * `base` (defaults to the slow MORPH) to keep per-element durations (e.g. the fast fades).
+ */
+const peekMorph = (peek: boolean, base: object = MORPH) => ({
+  ...base,
+  delay: peek ? PEEK_IN_DELAY : 0,
+})
 /** Shrunk peek-title size == the floating hover-label size, so the two read continuous. */
 const PEEK_LABEL_PX = 11
 /** Horizontal distance from a row's left edge to its glyph-tile CENTER: row px-2 (8) +
@@ -170,7 +183,7 @@ function ResourceRow({
           animate={{
             width: peek ? peekCenter(railWidth) + 8 : FULL_INSET + 18,
           }}
-          transition={MORPH}
+          transition={peekMorph(peek)}
           style={{
             left: "calc(-1 * (var(--panel-edge-inset, 48px) + 8px))",
             backgroundColor: `${item.tint}55`,
@@ -189,7 +202,7 @@ function ResourceRow({
         className="relative flex h-10 w-10 shrink-0 items-center justify-center"
         initial={false}
         animate={{ x: peek ? peekX : 0 }}
-        transition={MORPH}
+        transition={peekMorph(peek)}
         style={peek ? { position: "relative", zIndex: 30 } : undefined}
       >
         <motion.span
@@ -202,7 +215,7 @@ function ResourceRow({
             backgroundColor: peek ? item.tint : `${item.tint}1a`,
             borderColor: peek ? item.tint : `${item.tint}55`,
           }}
-          transition={MORPH}
+          transition={peekMorph(peek)}
           onPointerEnter={peek ? showLabel : undefined}
           onPointerLeave={peek ? () => onHover(null) : undefined}
           onClick={peek ? (e) => e.stopPropagation() : undefined}
@@ -215,7 +228,7 @@ function ResourceRow({
             className="-rotate-45"
             initial={false}
             animate={{ opacity: peek ? 0 : 1 }}
-            transition={MORPH}
+            transition={peekMorph(peek)}
           >
             <ItemMark item={item} />
           </motion.span>
@@ -228,7 +241,7 @@ function ResourceRow({
         <motion.span
           initial={false}
           animate={{ opacity: peek ? 0 : 1 }}
-          transition={MORPH}
+          transition={peekMorph(peek)}
           className="truncate text-[12.5px] tracking-tight text-foreground"
         >
           {item.title}
@@ -236,7 +249,7 @@ function ResourceRow({
         <motion.span
           initial={false}
           animate={{ opacity: peek ? 0 : 1 }}
-          transition={MORPH}
+          transition={peekMorph(peek)}
           className="truncate text-[11px] text-muted-foreground/70"
         >
           {item.detail}
@@ -280,7 +293,7 @@ function Section({
         aria-expanded={open}
         initial={false}
         animate={{ opacity: peek ? 0 : 1 }}
-        transition={peek ? { duration: 0.3, ease: "easeOut" } : MORPH}
+        transition={peek ? peekMorph(true, { duration: 0.3, ease: "easeOut" }) : MORPH}
         className={cn(
           "flex w-full items-center gap-1.5 px-2 py-2 text-left",
           peek && "pointer-events-none",
@@ -341,7 +354,7 @@ export function AssetPanel({
       <motion.div
         initial={false}
         animate={{ opacity: peek ? 0 : 1 }}
-        transition={MORPH}
+        transition={peekMorph(peek)}
         className="px-2 pb-4 pt-1"
       >
         <div className="flex items-baseline gap-1.5">
@@ -361,7 +374,7 @@ export function AssetPanel({
         type="button"
         initial={false}
         animate={{ opacity: peek ? 0 : 1 }}
-        transition={peek ? { duration: 0.25, ease: "easeOut" } : MORPH}
+        transition={peek ? peekMorph(true, { duration: 0.25, ease: "easeOut" }) : MORPH}
         className={cn(
           "mt-2 flex w-full items-center gap-2 rounded-lg border border-dashed border-border px-2 py-2 text-left text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground transition-colors hover:border-foreground/30 hover:text-foreground",
           peek && "pointer-events-none",
