@@ -25,8 +25,11 @@
  * placements and wires launchers.
  */
 
-/** Where an on-screen appearance of an entity lives. */
-export type PlacementSource = "dolist" | "dock" | "timeline" | "search"
+/** Where an on-screen appearance of an entity lives. `dayline` is the header's
+ *  second-row day lane (its ticks/bars); kept distinct from `timeline` (the
+ *  in-View lifelane strip) so the two can't collide on a shared placement key
+ *  if both are on screen for the same entity. */
+export type PlacementSource = "dolist" | "dock" | "timeline" | "dayline" | "search"
 
 /**
  * How the morph should interpret the origin rect:

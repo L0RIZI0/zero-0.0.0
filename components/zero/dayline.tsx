@@ -6,6 +6,7 @@ import { getTimelineOccurrences, getInheritedAccent } from "@/lib/zero/data"
 import { entityInterval } from "@/lib/zero/timeline-index"
 import { KIND_META } from "@/lib/zero/kinds"
 import { rangeText, NOW_COLOR } from "@/lib/zero/timeline-format"
+import { placementKey } from "@/lib/zero/placement"
 import { DAYLINE_ROW_H, DAYLINE_COMPACT_LIFT, shellStageFor } from "@/lib/zero/layout"
 import { DURATION_S, MORPH_CSS_EASE } from "@/lib/zero/flip-stage"
 import { useNow } from "@/lib/zero/use-now"
@@ -187,6 +188,32 @@ interface DayItem {
 export function Dayline() {
   const { stack, dataVersion, open, activeEntity } = useZeroNav()
   const rootId = stack[0]
+
+  // Open an entity FROM its dayline tick: use the CLICKED tick's own live viewport
+  // rect as the morph origin so the window grows out of exactly that tick (same
+  // "open-from" law the dock/do-list/timeline launchers use). We build the origin
+  // from the clicked element directly rather than resolving by placement key,
+  // because a RECURRING entity paints several ticks that all share one id/key — a
+  // key lookup would return the first match, not the occurrence the user tapped.
+  // The rect is read live (so pan/ripple transforms are already baked in); we still
+  // pass the placement key so the CLOSE morph can re-target this appearance. Falls
+  // back to a plain center open if the rect is somehow unavailable. Guarded against
+  // pan-vs-tap by the caller (`draggedRef`).
+  const openFromTick = useCallback(
+    (entityId: string, el: HTMLElement | null) => {
+      if (!el) {
+        open(entityId)
+        return
+      }
+      const r = el.getBoundingClientRect()
+      open(entityId, {
+        rect: { top: r.top, left: r.left, width: r.width, height: r.height },
+        kind: "generic",
+        placement: placementKey("dayline", rootId, entityId),
+      })
+    },
+    [open, rootId],
+  )
   // At depth ≥ 2 (stage 2) the header shrinks; pull the Dayline a touch closer to it.
   // The View follows via WINDOW_TOP_LIFT[2] (which folds in DAYLINE_COMPACT_LIFT), so it
   // stays flush. Eased on the shared morph curve to match the header's height animation.
@@ -746,11 +773,13 @@ export function Dayline() {
                   <button
                     type="button"
                     aria-label={`${it.title}, ${it.range}`}
+                    data-placement={placementKey("dayline", rootId, it.id)}
+                    data-morph-kind="generic"
                     onMouseEnter={() => setHovered(it.key)}
                     onMouseLeave={() => setHovered((h) => (h === it.key ? null : h))}
-                    onClick={() => {
+                    onClick={(e) => {
                       if (draggedRef.current) return // a pan, not a tap
-                      open(it.id)
+                      openFromTick(it.id, e.currentTarget)
                     }}
                     className="pointer-events-auto absolute top-1/2 -translate-y-1/2 cursor-default rounded-[3px] transition-[filter,height] duration-150"
                     style={{
@@ -777,11 +806,13 @@ export function Dayline() {
                 <button
                   type="button"
                   aria-label={`${it.title}, ${it.range}`}
+                  data-placement={placementKey("dayline", rootId, it.id)}
+                  data-morph-kind="generic"
                   onMouseEnter={() => setHovered(it.key)}
                   onMouseLeave={() => setHovered((h) => (h === it.key ? null : h))}
-                  onClick={() => {
+                  onClick={(e) => {
                     if (draggedRef.current) return // a pan, not a tap
-                    open(it.id)
+                    openFromTick(it.id, e.currentTarget)
                   }}
                   className="pointer-events-auto absolute top-1/2 -translate-x-1/2 -translate-y-1/2 cursor-default rounded-full transition-[filter,height,width] duration-150"
                   style={{
