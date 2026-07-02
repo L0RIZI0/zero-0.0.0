@@ -13,8 +13,8 @@
 // a PRNG seeded by the occurrence key: stable across renders & pans (so it
 // never shimmers), yet unique per night (a recurring "Slept" differs nightly).
 //
-// The idle veil (a dark overlay that lifts on hover) is NOT baked in here — the
-// components paint the veil as a separate layer so the sky itself stays vivid.
+// Idle dimming is NOT baked in here — like every other tick, the components sit
+// the sky at lowered opacity when idle and lift it to full on hover.
 // ============================================================================
 
 /** Deterministic 32-bit hash of a string → PRNG seed. */
@@ -88,7 +88,7 @@ export function sleepSkyBackground(seed: string): string {
     // Most stars small; a minority noticeably larger (rnd()^3 biases small).
     const big = rnd() < 0.16
     const r = (big ? rflt(rnd, 1.8, 2.8) : rflt(rnd, 0.5, 1.4)).toFixed(2)
-    const gold = rnd() < 0.18
+    const gold = rnd() < 0.1
     const a = rflt(rnd, 0.72, 1).toFixed(2)
     const core = gold ? `rgba(255,226,175,${a})` : `rgba(255,255,255,${a})`
     layers.push(`radial-gradient(${r}px ${r}px at ${x}% ${y}%, ${core} 0%, rgba(255,255,255,0) 72%)`)
@@ -115,10 +115,10 @@ export function sleepSkyBackground(seed: string): string {
   //     bluer night keeps the warm cluster fainter. ---
   const warmX = rint(rnd, 40, 80)
   const warmY = rint(rnd, 30, 70)
-  const warmAlpha = (0.34 + (1 - blue) * 0.24).toFixed(2) // fainter on cold-blue nights
+  const warmAlpha = (0.22 + (1 - blue) * 0.2).toFixed(2) // less yellow overall; fainter on cold-blue nights
   layers.push(
     `radial-gradient(${rint(rnd, 55, 90)}% ${rint(rnd, 120, 200)}% at ${warmX}% ${warmY}%, ` +
-      `${hexA(pick(rnd, CLOUD_WARM), Number(warmAlpha))} 0%, ${hexA(pick(rnd, CLOUD_WARM), 0.14)} 35%, rgba(0,0,0,0) 70%)`,
+      `${hexA(pick(rnd, CLOUD_WARM), Number(warmAlpha))} 0%, ${hexA(pick(rnd, CLOUD_WARM), 0.1)} 35%, rgba(0,0,0,0) 70%)`,
   )
   const roseCount = rint(rnd, 1, 2)
   for (let i = 0; i < roseCount; i++) {
@@ -132,12 +132,14 @@ export function sleepSkyBackground(seed: string): string {
   //     picks stops from a cold-blue-heavy set or a warm-plum-rose-heavy set so
   //     some nights read distinctly bluer and others rosier. ---
   const angle = rint(rnd, 80, 130)
-  const coldPool = [...NIGHT_BLUE, ...NIGHT_BLUE, ...NIGHT_PLUM]
-  const warmPool = [...NIGHT_PLUM, ...NIGHT_ROSE, ...NIGHT_ROSE]
-  const pool = blue < 0.5 ? coldPool : warmPool
+  const coldPool = [...NIGHT_BLUE, ...NIGHT_BLUE, ...NIGHT_BLUE, ...NIGHT_PLUM]
+  const warmPool = [...NIGHT_BLUE, ...NIGHT_PLUM, ...NIGHT_ROSE, ...NIGHT_ROSE]
+  // Lean bluer: more nights draw from the cold pool (threshold above 0.5).
+  const cold = blue < 0.62
+  const pool = cold ? coldPool : warmPool
   const a0 = pick(rnd, pool)
   const a1 = pick(rnd, pool)
-  const a2 = pick(rnd, blue < 0.5 ? [...coldPool, ...CLOUD_ROSE] : [...warmPool, ...CLOUD_ROSE])
+  const a2 = pick(rnd, cold ? [...coldPool, ...CLOUD_ROSE] : [...warmPool, ...CLOUD_ROSE])
   const a3 = pick(rnd, pool)
   layers.push(`linear-gradient(${angle}deg, ${a0} 0%, ${a1} 38%, ${a2} 68%, ${a3} 100%)`)
 

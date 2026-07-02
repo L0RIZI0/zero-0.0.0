@@ -799,32 +799,21 @@ export function Dayline() {
                       if (draggedRef.current) return // a pan, not a tap
                       openFromTick(it.id, e.currentTarget)
                     }}
-                    className="pointer-events-auto absolute top-1/2 -translate-y-1/2 cursor-default overflow-hidden rounded-[3px] transition-[filter,height] duration-150"
+                    className="pointer-events-auto absolute top-1/2 -translate-y-1/2 cursor-default overflow-hidden rounded-[3px] transition-[filter,height,opacity] duration-150"
                     style={{
                       left: `${it.leftPct}%`,
                       width: `max(3px, ${it.widthPct}%)`,
                       height: isHot ? 18 : 12,
-                      // Sleep Moments paint a vivid procedural night sky (fully opaque
-                      // so the nebula/stars read); other bars keep the flat, washed
-                      // accent that highlights on hover.
+                      // Sleep Moments paint a vivid procedural night sky; like every
+                      // other tick it sits at lowered opacity when idle and lifts to
+                      // full on hover.
                       ...(it.sky
-                        ? { background: it.sky, opacity: 1 }
+                        ? { background: it.sky, opacity: isHot ? 1 : 0.42 }
                         : { backgroundColor: it.color, opacity: isHot ? 0.9 : 0.42 }),
                       filter: isHot ? "saturate(1.4) brightness(1.1)" : "none",
                       zIndex: isHot ? 20 : 1,
                     }}
-                  >
-                    {/* Sleep sky: a dark night veil rests over the sky when idle and
-                        LIFTS on hover, so the tick reads as a calm dim band in the row
-                        yet blooms into its full starfield when you point at it. */}
-                    {it.sky && (
-                      <span
-                        aria-hidden
-                        className="pointer-events-none absolute inset-0 transition-opacity duration-200 ease-out"
-                        style={{ background: "rgba(6,5,18,0.55)", opacity: isHot ? 0 : 1 }}
-                      />
-                    )}
-                  </button>
+                  />
                 </div>
               )
             }

@@ -2987,9 +2987,9 @@ export function TimelineStrip({
                         : b.color
                           ? `${b.color}59`
                           : "var(--border)",
-                      // Sleep chip paints the night sky; other chips keep the faint accent
-                      // wash. Set backgroundColor undefined for sky so the `background`
-                      // shorthand below isn't fighting it.
+                      // Sleep chip's sky is painted on a child layer (below) so it can
+                      // carry the lowered-idle / full-hover opacity like every other
+                      // tick; the button itself stays transparent for sleep.
                       backgroundColor: sky
                         ? undefined
                         : collapsedTarget
@@ -2997,7 +2997,7 @@ export function TimelineStrip({
                           : b.color
                             ? `${b.color}26`
                             : "var(--secondary)",
-                      ...(sky ? { background: sky, borderColor: "rgba(255,255,255,0.16)" } : {}),
+                      ...(sky ? { borderColor: "rgba(255,255,255,0.16)" } : {}),
                       // Gradual fill crossfade matched to the fold's own duration/curve (not a fixed
                       // 300ms) so the chip darkens smoothly across the whole morph — see fillTransition.
                       transition: fillTransition,
@@ -3006,14 +3006,15 @@ export function TimelineStrip({
                       boxShadow: tickGlow ? `0 0 6px ${tickGlowColor}` : undefined,
                     }}
                   >
-                    {/* Sleep sky idle veil — a dark night film resting over the starfield
-                        that LIFTS on hover (group-hover), so the chip reads calm/dim in the
-                        timeline yet blooms to its full sky when pointed at. Only for sleep. */}
+                    {/* Sleep sky layer — sits at lowered opacity when idle (like every
+                        other tick's washed accent) and lifts to full on hover, so the
+                        chip stays calm in the timeline yet blooms to its full starfield
+                        when pointed at. Only for sleep. */}
                     {sky && (
                       <span
                         aria-hidden
-                        className="pointer-events-none absolute inset-0 rounded-md opacity-100 transition-opacity duration-200 ease-out group-hover:opacity-0"
-                        style={{ background: "rgba(6,5,18,0.5)" }}
+                        className="pointer-events-none absolute inset-0 rounded-md opacity-[0.42] transition-opacity duration-200 ease-out group-hover:opacity-100"
+                        style={{ background: sky }}
                       />
                     )}
                     {/* kind GLYPH + title. Wrapped so they fade as ONE unit and, crucially,
