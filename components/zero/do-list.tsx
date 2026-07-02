@@ -1047,45 +1047,47 @@ export function DoList({
             with the (rows + input) block and sits right on top of the FIRST row rather
             than pinned to the region top. `px-2` matches the list's inset and `pl-1.5`
             lines the pills' text up with the row glyph. */}
-        {/* Wrapped in AnimatePresence so the selectors GROW + FADE in (height 0→auto,
-            opacity 0→1) instead of hard-mounting at full height. The gradual height growth
-            pushes the scroller below down in lockstep — the SAME ROW_REFLOW timing the list
-            rows use for their `layout` glide — so the whole list reflows as one smooth
-            motion rather than the pills snapping in and the rows lurching to catch up.
-            `initial={false}` suppresses the reveal on first mount / context switch (only an
-            in-session appear/disappear animates). `overflow-hidden` clips the pills during
-            the collapse for a clean reveal. */}
-        <AnimatePresence initial={false}>
-          {showSelectors && (
-            <motion.div
-              key="do-selectors"
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: "auto" }}
-              exit={{ opacity: 0, height: 0 }}
-              transition={ROW_REFLOW}
-              className="shrink-0 overflow-hidden"
-            >
-              <div className="mb-1 flex items-center justify-start gap-1 pr-2 pl-1.5">
-                {(["all", "open"] as const).map((f) => (
-                  <button
-                    key={f}
-                    type="button"
-                    onClick={() => setFilter(f)}
-                    aria-pressed={filter === f}
-                    className={cn(
-                      "rounded-full px-2.5 py-0.5 text-xs capitalize transition-colors",
-                      filter === f
-                        ? "bg-muted text-foreground"
-                        : "text-muted-foreground hover:text-foreground",
-                    )}
-                  >
-                    {f}
-                  </button>
-                ))}
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
+        {/* PERMANENTLY RESERVED SLOT (fixed h-6). The selector band ALWAYS occupies its
+            height whether or not the pills are shown, so the scroller + rows below NEVER
+            shift when the selectors appear/disappear — the user can undo a click (e.g.
+            re-check a task) without the list sliding out from under the cursor. The empty
+            reserved band also counterbalances the dock's upward push on the region below.
+            Only the pill frame itself animates, IN PLACE: it fades (opacity) and drifts a
+            few px (y) within the fixed slot — no height change, so no layout reflow. Other
+            list motion (adding/removing/completing rows) still animates the scroller freely;
+            this only pins the selector toggle. `initial={false}` means the correct state is
+            set on mount/context-switch without an animation (only in-session toggles
+            animate); hidden pills are inert (`pointer-events-none` + `aria-hidden`). */}
+        <div className="h-6 shrink-0">
+          <motion.div
+            initial={false}
+            animate={showSelectors ? { opacity: 1, y: 0 } : { opacity: 0, y: -4 }}
+            transition={ROW_REFLOW}
+            aria-hidden={!showSelectors}
+            className={cn(
+              "mb-1 flex items-center justify-start gap-1 pr-2 pl-1.5",
+              !showSelectors && "pointer-events-none",
+            )}
+          >
+            {(["all", "open"] as const).map((f) => (
+              <button
+                key={f}
+                type="button"
+                tabIndex={showSelectors ? 0 : -1}
+                onClick={() => setFilter(f)}
+                aria-pressed={filter === f}
+                className={cn(
+                  "rounded-full px-2.5 py-0.5 text-xs capitalize transition-colors",
+                  filter === f
+                    ? "bg-muted text-foreground"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {f}
+              </button>
+            ))}
+          </motion.div>
+        </div>
         <ul
           key={contextId}
           ref={scrollerRef}
