@@ -341,7 +341,15 @@ export function ZeroNavProvider({
       morphDetached(closingEntity, originRect, false)
       settleTimer.current?.kill()
       settleTimer.current = gsap.delayedCall(MORPH_DURATION, () => {
-        clearFadingProps([closingEntity])
+        // NB: do NOT clearFadingProps here. A detached window has no persistent row
+        // to fall back to — it FULLY unmounts when `fading` empties. morphDetached's
+        // close tween leaves the frame at chip-scale + opacity 0 (no onComplete
+        // reset). clearFadingProps would synchronously strip that transform/opacity,
+        // snapping the frame back to its full-size opaque window state in the DOM for
+        // the one frame before React's async unmount commits — i.e. the closing
+        // animation ends by flashing the fully-open window. Just unmounting keeps it
+        // hidden all the way out. (clearFadingProps is only needed for the in-place
+        // path, whose fading nodes are persistent and get reused as rows/cards.)
         setFading([])
         setAnimating(false)
       })
