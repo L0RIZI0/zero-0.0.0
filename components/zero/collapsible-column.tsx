@@ -3,7 +3,7 @@
 import { useRef, useState } from "react"
 import { motion, AnimatePresence } from "motion/react"
 import { ChevronLeft, ChevronRight, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from "lucide-react"
-import { panelSlideTransition } from "@/lib/zero/motion"
+import { panelSlideTransition, MORPH_SECONDS, MORPH_EASE } from "@/lib/zero/motion"
 import { cn } from "@/lib/utils"
 
 /**
@@ -85,8 +85,20 @@ export function CollapsibleColumn({
   // folds a parent's panels when you dive into a child; see collapseEntityPanels.)
   const rootRef = useRef<HTMLDivElement>(null)
 
+  // Animate the rail WIDTH change. `railWidth` = the window's visible edge bleed, which
+  // flips from the full width (uncovered leaf/home) to a narrow peek the moment a child
+  // opens and this window becomes a covered ancestor. The label is centered within this
+  // width, so a raw width jump snapped the label toward the edge. Tweening the width over
+  // the SAME timing as the window morph (MORPH_SECONDS + MORPH_EASE) makes the label glide
+  // to its ancestor position IN STEP with the incoming child's morph instead of jumping —
+  // and MORPH_EASE's slow lead-in means the rail holds and then slides out roughly as the
+  // covering window arrives, which is the "wait for the window to reach it" feel. Only
+  // `width` transitions (height/others stay instant). No animation on first mount (a CSS
+  // transition fires only on subsequent value changes).
+  const widthTransition = `width ${MORPH_SECONDS}s cubic-bezier(${MORPH_EASE.join(",")})`
+
   return (
-    <div ref={rootRef} className="relative h-full" style={{ width: railWidth }}>
+    <div ref={rootRef} className="relative h-full" style={{ width: railWidth, transition: widthTransition }}>
       {/* CLIP — a non-transformed container anchored at the window EDGE. Its outer edge
           sits exactly at the edge so the panel, which slides in from fully OUTSIDE the
           window, is never visible past it (the entity window frame itself allows content
@@ -100,7 +112,7 @@ export function CollapsibleColumn({
           "pointer-events-none absolute inset-y-0 overflow-hidden",
           side === "left" ? "left-0" : "right-0",
         )}
-        style={{ width: railWidth + panelWidth + 48 }}
+        style={{ width: railWidth + panelWidth + 48, transition: widthTransition }}
       >
         {/* PANEL — opaque overlay, window-surface coloured, spanning the full window
             height and reaching from the window EDGE (left:0) to railWidth+panelWidth.
