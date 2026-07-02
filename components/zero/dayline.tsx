@@ -607,8 +607,12 @@ export function Dayline() {
     // Constant-height header row. `pointer-events-none` lets the gaps fall through;
     // the lane + its ticks re-enable pointer events for themselves. px-5 aligns the
     // lane edges with the top bar's content (header paddingLeft/Right = 20).
+    // `items-end`: the lane hugs the ROW's bottom edge, which coincides with the
+    // window-region top (the region is inset by the full overlay height), so the
+    // Dayline sits FLUSH on the View with no gap — the row's slack lives above the
+    // lane (next to the header) instead of between the lane and the View.
     <div
-      className="pointer-events-none relative z-30 flex w-full items-center px-5"
+      className="pointer-events-none relative z-30 flex w-full items-end px-5"
       style={{ height: DAYLINE_ROW_H }}
     >
       {/* The lane. A thin full-width strip forming the Individual's day insight.
