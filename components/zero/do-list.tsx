@@ -13,6 +13,7 @@ import {
   changeEntityKind,
   setEntityRequested,
   addTask,
+  addParsedEntity,
   addWebTask,
   parseInstantTime,
   setInstantAt,
@@ -20,6 +21,7 @@ import {
   type ContextItem,
 } from "@/lib/zero/data"
 import { looksLikeSchedule, type ScheduleParse } from "@/lib/zero/schedule-parse"
+import { parseCreateField } from "@/lib/zero/create-parse"
 import {
   WEB_RESOURCES,
   getWebResource,
@@ -657,6 +659,30 @@ export function DoList({
   // it so it (and only it) fades in.
   const createEntity = useCallback(
     (title: string, kind: NodeKind) => {
+      // CREATE FIELD as a terminal hybrid: only the DEFAULT `task` kind is inspected
+      // for the past-activity grammar ("Slept --2330-0630", "Worked … --1100-1730",
+      // "Woke --0630"). An explicitly picked kind means the user already declared
+      // their intent, so it skips this. A recognized past-tense verb + a `--time`
+      // param becomes an already-Done Moment / Task / Instant spanning (or pointing
+      // at) that time — Zero as an archive of what you did, not just a planner.
+      if (kind === "task") {
+        const past = parseCreateField(title)
+        if (past) {
+          const entity = addParsedEntity({
+            title: past.title,
+            spaceId: contextId,
+            kind: past.kind,
+            schedule: past.schedule,
+            completed: past.completed,
+          })
+          setBornId(entity.id)
+          notifyDataChanged()
+          select("list", entity.id, "keyboard")
+          flashNotice("ok", past.summary)
+          return
+        }
+      }
+
       // Instants support a rough inline time token ("Ping --4pm"): strip it from
       // the title and apply it as the instant's moment. Other kinds keep the
       // title verbatim.

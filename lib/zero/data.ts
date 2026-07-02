@@ -1349,6 +1349,42 @@ export function addTask(input: { title: string; spaceId: string }): Entity {
 }
 
 /**
+ * Create an entity from a PARSED create-field intent (see `create-parse.ts`) in one
+ * write: a given `kind`, an optional `schedule` (span/point), and an optional already-
+ * `completed` state (logging a PAST activity). Unlike `addTask` + `changeEntityKind`,
+ * this sets the exact schedule instead of the per-kind placeholder span, and stamps
+ * `completedOn` when done — so "Slept --2330-0630" lands as a finished Moment in a
+ * single persist. Mirrors `addTask`'s store bookkeeping (userEntityIds + persist).
+ */
+export function addParsedEntity(input: {
+  title: string
+  spaceId: string
+  kind: EntityKind
+  schedule?: Schedule
+  completed?: boolean
+}): Entity {
+  const now = Date.now()
+  const entity = makeEntity({
+    id: uid("t"),
+    kind: input.kind,
+    title: input.title,
+    parentId: input.spaceId,
+    taggedSpaceIds: [],
+    createdAt: now,
+    completed: input.completed ?? false,
+    ...(input.completed ? { completedOn: now } : {}),
+    ...(input.schedule ? { schedule: input.schedule } : {}),
+    // Tasks carry a priority + tags like `addTask` seeds; other kinds don't need them.
+    ...(input.kind === "task" ? { priority: "medium" as TaskPriority, tags: [] } : {}),
+  })
+  entities.push(entity)
+  byId.set(entity.id, entity)
+  userEntityIds.add(entity.id)
+  persist()
+  return entity
+}
+
+/**
  * Resolve a recurring mother's `schedule` to the CONCRETE single-day schedule for
  * the occurrence on `dayStart`: shift the anchor's wall-clock time-of-day onto that
  * day (DST-safe via setHours) and DROP `repeat` (an override is one fixed day, not a
