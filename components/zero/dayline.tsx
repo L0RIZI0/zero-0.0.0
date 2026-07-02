@@ -226,6 +226,13 @@ export function Dayline() {
   // Column the cursor is currently over (defaults to lane center). Pan lag radiates from here.
   const cursorColRef = useRef((RIPPLE_COLS - 1) / 2)
   const reducedRef = useRef(false)
+  // Wheel-pan smoothing. A physical mouse wheel fires large discrete notches (often
+  // line/page deltaMode, ~100px+ each), so applying a whole notch at once jumps the lane.
+  // Instead each notch ADDS to a pending px buffer that a rAF loop eases out a fraction at
+  // a time — turning stepped mouse ticks into a continuous glide (trackpads already send
+  // tiny continuous deltas, so they just pass through smoothly).
+  const wheelPendingRef = useRef(0)
+  const wheelRafRef = useRef<number | null>(null)
   // Registered nodes to displace each frame, keyed so unmounts clean themselves up. Each
   // node carries a live `data-col` attribute (updated by React every render) that the loop
   // reads — so a node whose column changes mid-pan always uses its CURRENT screen column.
@@ -394,22 +401,54 @@ export function Dayline() {
   // dominant scroll axis (deltaX on trackpads, deltaY on a plain mouse wheel), mapped
   // linearly to time by the lane width — same scale as the drag. Scrolling forward
   // (down / right) reveals LATER time (window slides forward), mirroring the drag where
-  // dragging left reveals later time. Each notch also feeds the ripple (content moves
-  // LEFT by `delta`, so the injected shift is −delta).
+  // dragging left reveals later time.
+  //
+  // SMOOTHING: rather than apply each notch instantly (which makes a physical mouse wheel
+  // jump a big step per tick), we accumulate raw delta px into `wheelPendingRef` and drain
+  // a fraction of it per animation frame — a continuous glide. Each drained slice also
+  // feeds the ripple (content moves LEFT by the slice, so the injected shift is −slice).
   useEffect(() => {
     const lane = laneRef.current
     if (!lane) return
+
+    const drain = () => {
+      const w = lane.clientWidth || 1
+      const pending = wheelPendingRef.current
+      // Ease out ~22% of what's left each frame, with a small floor so the tail finishes
+      // quickly instead of asymptoting forever.
+      let slice = pending * 0.22
+      if (Math.abs(pending) < 0.5) slice = pending
+      else if (Math.abs(slice) < 0.5) slice = Math.sign(pending) * 0.5
+      wheelPendingRef.current = pending - slice
+      injectPan(-slice)
+      setViewStart((vs) => vs + (slice / w) * DAY_MS)
+      if (Math.abs(wheelPendingRef.current) > 0.01) {
+        wheelRafRef.current = requestAnimationFrame(drain)
+      } else {
+        wheelPendingRef.current = 0
+        wheelRafRef.current = null
+      }
+    }
+
     const onWheel = (e: WheelEvent) => {
-      const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY
+      let delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY
       if (delta === 0) return
       e.preventDefault()
-      const w = lane.clientWidth || 1
+      // Normalize non-pixel wheel modes so line/page-based mice map to comparable px.
+      if (e.deltaMode === 1) delta *= 16 // lines → px
+      else if (e.deltaMode === 2) delta *= lane.clientWidth || 1 // pages → px
       cursorColRef.current = pctToCol(e.clientX)
-      injectPan(-delta)
-      setViewStart((vs) => vs + (delta / w) * DAY_MS)
+      wheelPendingRef.current += delta
+      if (wheelRafRef.current == null) wheelRafRef.current = requestAnimationFrame(drain)
     }
+
     lane.addEventListener("wheel", onWheel, { passive: false })
-    return () => lane.removeEventListener("wheel", onWheel)
+    return () => {
+      lane.removeEventListener("wheel", onWheel)
+      if (wheelRafRef.current != null) cancelAnimationFrame(wheelRafRef.current)
+      wheelRafRef.current = null
+      wheelPendingRef.current = 0
+    }
   }, [pctToCol, injectPan])
 
   // Stop the loop on unmount.
