@@ -97,11 +97,13 @@ const RIPPLE_COUPLING = 600
 // Max fraction of a pan step a far column lags behind by (0 = none, 1 = fully held back).
 // Near 1 → far columns almost freeze on each step, then snap-catch-up for a big ripple.
 const RIPPLE_LAG = 0.99
-// Amplitude GAIN on the injected lag offset — how STRONGLY a given pan disturbs the
-// surface. 1 = the held-back distance equals the pan step (old behavior); >1 over-drives
-// the wave so even a gentle pan makes a pronounced ripple. Bumped to 1.7 for a stronger,
-// more sensitive effect (the RIPPLE_MAX_OFFSET clamp still caps runaway extremes).
-const RIPPLE_GAIN = 1.7
+// GAIN on the lag ramp. The hold fraction is CLAMPED to ≤ 1 (see injectPan — anything
+// beyond 1 would reverse a column's motion), so gain no longer sets amplitude; it sets
+// how quickly the ramp reaches the frozen far plateau, i.e. how WIDE that plateau is.
+// 1.0 = asymptotic freeze only at the far edge; higher = a broader frozen region. Kept
+// modestly >1 (1.2) for a fuller wave while leaving most of the lane graduated so the
+// lens stays local and the pan doesn't read as a whole-lane jerk.
+const RIPPLE_GAIN = 1.2
 // Falloff exponent for lag vs normalized cursor distance. <1 = concave: lag ramps up
 // FAST right off the cursor column, so only a TIGHT zone under the pointer stays in sync
 // (a SMALL "lens") while everything around it reacts. Lowered 0.7 → 0.5 to shrink that
@@ -111,11 +113,19 @@ const RIPPLE_FALLOFF = 0.5
 // Raised 220 → 320 so far columns can trail further for a bigger, more fluid wave.
 const RIPPLE_MAX_OFFSET = 320
 
-// Wheel pan sensitivity: total lane-px one raw wheel-notch's distance eventually pans.
-// Raised 0.25 → 0.42 so the lane travels faster per notch. Because each notch stacks
-// VELOCITY on top of whatever coast is still in flight (see momentum model), scrolling
-// harder/faster now BUILDS UP more and more speed rather than plateauing.
-const WHEEL_PAN_SENSITIVITY = 0.42
+// Pan sensitivity = fraction of a raw scroll delta (px) the lane ultimately travels.
+// SPLIT BY INPUT TYPE, because the two devices report very different deltas:
+//   • MOUSE WHEEL fires large, coarse notches (~100px+, or line/page mode). Mapping 1:1
+//     flings the lane, so it stays damped.
+//   • TRACKPAD / precision devices fire small, frequent pixel deltas the user expects to
+//     track their finger ~1:1 — damping those is what felt sluggish / "capped".
+// NOTE: there is NO hard velocity cap anywhere in the momentum model; the "cap reached
+// too early" feel was purely this scalar throttling the trackpad's steady-state speed.
+const WHEEL_PAN_SENSITIVITY = 0.42 // physical mouse-wheel notch
+const TRACKPAD_PAN_SENSITIVITY = 1.0 // fine-grained trackpad / precision scroll (near 1:1)
+// A single raw PIXEL delta at/above this reads as a coarse mouse-wheel notch; smaller
+// pixel deltas read as trackpad. (deltaMode !== 0 is always a wheel regardless.)
+const WHEEL_NOTCH_MIN_PX = 50
 // MOMENTUM MODEL (replaced the old "drain a fraction of a distance buffer" ease-out —
 // that emptied the buffer within a few frames of the last notch, so the lane braked hard
 // the instant you stopped scrolling, and the ripple's held-back columns snapped back with
@@ -468,10 +478,18 @@ export function Dayline() {
       const maxDist = Math.max(cc, RIPPLE_COLS - 1 - cc, 1)
       for (let c = 0; c < RIPPLE_COLS; c++) {
         const dist = Math.abs(c - cc) / maxDist // 0 at cursor → 1 at far edge
-        const lag = RIPPLE_LAG * Math.pow(dist, RIPPLE_FALLOFF)
-        // Hold the column back by −shift*lag*gain; the spring (target 0) then lands it.
-        // The gain over-drives the wave amplitude for a stronger, more sensitive ripple.
-        let x = off[c] - shiftPx * lag * RIPPLE_GAIN
+        // Hold fraction: how much of THIS pan step the column is held back by. CLAMPED to
+        // ≤ 1 — a column can never be held back by MORE than the content actually moved,
+        // otherwise its net motion would REVERSE (move opposite the pan) until the base
+        // catches up: the "left of the cursor first slides right / contracts" glitch. With
+        // the clamp, columns range from moving-with-the-pan (near cursor, hold→0) to
+        // momentarily FROZEN (far, hold→1) and then spring-catch-up — a squeeze at the
+        // lens with everything still travelling in the pan direction, never backwards.
+        // GAIN (>1) only widens the frozen far plateau now; it can no longer over-drive
+        // past 1, so it cannot cause reversal. FALLOFF keeps the in-sync lens tight.
+        const hold = Math.min(1, RIPPLE_LAG * Math.pow(dist, RIPPLE_FALLOFF) * RIPPLE_GAIN)
+        // Hold the column back by −shift*hold; the spring (target 0) then lands it.
+        let x = off[c] - shiftPx * hold
         if (x > RIPPLE_MAX_OFFSET) x = RIPPLE_MAX_OFFSET
         else if (x < -RIPPLE_MAX_OFFSET) x = -RIPPLE_MAX_OFFSET
         off[c] = x
@@ -619,11 +637,13 @@ export function Dayline() {
       let delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY
       if (delta === 0) return
       e.preventDefault()
-      // Normalize non-pixel wheel modes so line/page-based mice map to comparable px.
+      // Classify BEFORE normalizing: a coarse mouse wheel (line/page mode, or a big pixel
+      // notch) vs a fine trackpad (small pixel deltas). Each gets its own sensitivity so
+      // trackpads track ~1:1 (not sluggish) while wheel notches stay damped (not flung).
+      const isMouseWheel = e.deltaMode !== 0 || Math.abs(delta) >= WHEEL_NOTCH_MIN_PX
       if (e.deltaMode === 1) delta *= 16 // lines → px
       else if (e.deltaMode === 2) delta *= lane.clientWidth || 1 // pages → px
-      // Sensitivity scales the raw notch to the lane-px it should ultimately cover.
-      delta *= WHEEL_PAN_SENSITIVITY
+      delta *= isMouseWheel ? WHEEL_PAN_SENSITIVITY : TRACKPAD_PAN_SENSITIVITY
       cursorColRef.current = pctToCol(e.clientX)
       // Inject the notch as a VELOCITY impulse. Since a coasting velocity v decays as
       // v·e^(−t/τ), its integral (total distance) is v��τ — so to make this notch add

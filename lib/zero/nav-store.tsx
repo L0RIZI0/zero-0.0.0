@@ -3,7 +3,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react"
 import { flushSync } from "react-dom"
 import { getEntity, hydrateFromStorage, isDetachedChild } from "./data"
-import { collapseEntityPanels } from "./panel-store"
   import { stackTargetRect, octagonLeafInside, spaceLeafInsets } from "./motion"
 import { shellStageFor, WINDOW_TOP_LIFT } from "./layout"
 import {
@@ -475,9 +474,10 @@ export function ZeroNavProvider({
       // C). Cleared by the morph once read; harmless if unread (legacy in-place
       // morph is used whenever an owning node exists).
       pendingOriginRef.current = origin ?? null
-      // Opening a child folds the parent's IN/OUT panels so the parent reflows
-      // clean behind/around the child (and returns collapsed).
-      collapseEntityPanels(cur[cur.length - 1])
+      // NOTE: we intentionally DO NOT fold the parent's IN/OUT panels when diving into a
+      // child anymore — per user, an open parent's panels should stay open behind the
+      // child instead of auto-collapsing. (collapseEntityPanels still exists for explicit
+      // use, but the dive no longer triggers it.)
       transition([...cur, id])
     },
     [transition],

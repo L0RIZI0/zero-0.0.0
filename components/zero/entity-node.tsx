@@ -1178,19 +1178,12 @@ export function EntityNode({
                   cn(
                     "whitespace-nowrap",
                     isSpace && "text-center",
-                    // Weight ladder: rows, dock cards and ancestor headers are font-medium.
-                    // A LEAF header steps one weight heavier than its collapsed button:
-                    //   • SPACE leaf → font-semibold
-                    //   • non-space (task/event) leaf → font-semibold too (one step above
-                    //     the font-medium it has as a row/card; only the open leaf is
-                    //     heavier, the button itself stays medium).
-                    ancestorHeader
-                      ? "font-medium text-foreground/75"
-                      : isSpace
-                        ? "font-semibold"
-                        : asWindow
-                          ? "font-semibold"
-                          : "font-medium",
+                    // Weight is UNIFORM: rows, dock cards, and every header (leaf or
+                    // ancestor) stay font-medium. Opening/focusing an entity no longer
+                    // bumps the title heavier (the old leaf → font-semibold step was
+                    // removed per user — the header keeps the same weight it had as a
+                    // collapsed row/card). Ancestor headers keep their dimmed tone.
+                    ancestorHeader ? "font-medium text-foreground/75" : "font-medium",
                   )
                 : variant === "dock"
                   ? // Hug content (centered by the dock header's items-center) so the
