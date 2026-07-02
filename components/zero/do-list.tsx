@@ -764,13 +764,51 @@ export function DoList({
     setFade((prev) => (prev.top === top && prev.bottom === bottom ? prev : { top, bottom }))
   }, [])
 
-  // Recompute the edge fades pre-paint on any layout-affecting change. Skipped during
-  // a window morph (`animating`): GSAP Flip owns the frame then; the post-morph run
-  // settles it.
+  // Re-measure repeatedly across a row's birth/reflow animation, then stop once the layout
+  // settles. WHY: the ResizeObserver below watches the scroller's OWN box (a fixed height
+  // when the list is height-constrained), so a row animating its HEIGHT — a child resize —
+  // never fires it. Measuring only at commit would latch onto the transient scrollHeight
+  // overshoot during the birth animation and leave the bottom edge fade stuck ON even
+  // though the settled list doesn't overflow. So we poll each frame until scrollHeight is
+  // stable for 2 frames (or a hard deadline just past ROW_REFLOW's 0.4s), then quit.
+  const settleRafRef = useRef(0)
+  const measureFadeSettling = useCallback(() => {
+    cancelAnimationFrame(settleRafRef.current)
+    measureFade()
+    const el = scrollerRef.current
+    if (!el) return
+    // Stability must track BOTH dims: on a fresh row the scroller's clientHeight grows
+    // (e.g. 44→94) a frame or two AFTER the child mounts, so keying only on scrollHeight
+    // would quit mid-transient (clientHeight still small ⇒ false overflow) and latch the
+    // fade on. Keep re-measuring until the ch×sh signature holds for 2 frames.
+    let lastSig = `${el.clientHeight}x${el.scrollHeight}`
+    let stableFrames = 0
+    const deadline = performance.now() + 500
+    const tick = () => {
+      const cur = scrollerRef.current
+      if (!cur) return
+      measureFade()
+      const sig = `${cur.clientHeight}x${cur.scrollHeight}`
+      if (sig === lastSig) stableFrames++
+      else {
+        stableFrames = 0
+        lastSig = sig
+      }
+      if (stableFrames < 2 && performance.now() < deadline) {
+        settleRafRef.current = requestAnimationFrame(tick)
+      }
+    }
+    settleRafRef.current = requestAnimationFrame(tick)
+  }, [measureFade])
+
+  // Recompute the edge fades on any layout-affecting change, then keep re-measuring until
+  // the reflow settles (see above). Skipped during a window morph (`animating`): GSAP Flip
+  // owns the frame then; the post-morph run settles it.
   useLayoutEffect(() => {
     if (animating) return
-    measureFade()
-  }, [animating, measureFade, shown, showSelectors, dataVersion])
+    measureFadeSettling()
+    return () => cancelAnimationFrame(settleRafRef.current)
+  }, [animating, measureFadeSettling, shown, showSelectors, dataVersion])
 
   // Keep the edge fades correct as the scroller resizes or the list scrolls.
   useEffect(() => {
