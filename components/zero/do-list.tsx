@@ -1057,11 +1057,14 @@ export function DoList({
             list motion (adding/removing/completing rows) still animates the scroller freely;
             this only pins the selector toggle. `initial={false}` means the correct state is
             set on mount/context-switch without an animation (only in-session toggles
-            animate); hidden pills are inert (`pointer-events-none` + `aria-hidden`). */}
+            animate); hidden pills are inert (`pointer-events-none` + `aria-hidden`).
+            DIRECTION: the hidden state sits a few px LOWER (`y: 6`) and rises to `y: 0`, so
+            the pills appear to emerge from BEHIND the rows below them (their own bottom
+            edge) rather than dropping in from the top. */}
         <div className="h-6 shrink-0">
           <motion.div
             initial={false}
-            animate={showSelectors ? { opacity: 1, y: 0 } : { opacity: 0, y: -4 }}
+            animate={showSelectors ? { opacity: 1, y: 0 } : { opacity: 0, y: 6 }}
             transition={ROW_REFLOW}
             aria-hidden={!showSelectors}
             className={cn(

@@ -210,7 +210,7 @@ export function Dock({ contextId, active = true }: { contextId: string; active?:
       <div ref={rowRef} className="w-full">
         <div
           key={contextId}
-          className="relative w-full transition-[height] duration-300 ease-out"
+          className="relative w-full"
           style={{ height: containerH }}
         >
           <AnimatePresence initial={false}>
