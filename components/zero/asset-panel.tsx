@@ -180,7 +180,7 @@ export function AssetPanel({ spaceId }: { spaceId: string }) {
       {/* Money — the imposing balance figure. */}
       <div className="px-2 pb-4 pt-1">
         <div className="flex items-baseline gap-1.5">
-          <span className="text-[34px] font-semibold leading-none tracking-tight tabular-nums text-foreground">
+          <span className="text-[27px] font-semibold leading-none tracking-tight tabular-nums text-foreground">
             {MOCK_BALANCE}
           </span>
           <span className="text-sm font-medium text-muted-foreground">USD</span>
