@@ -69,6 +69,13 @@ const RIPPLE_COLS = 16
 // longer-settling liquid trail behind the pan.
 const RIPPLE_STIFFNESS = 20
 const RIPPLE_DAMPING = 2 * Math.sqrt(RIPPLE_STIFFNESS)
+// Neighbor COUPLING: each column is now linked to its left/right neighbors (a damped wave
+// equation / chain of masses) instead of being an isolated spring. This is what makes it
+// feel like WATER — a disturbance PROPAGATES column→column with a natural delay and sloshes
+// back, rather than every cell pulsing in unison. Coupling >> stiffness so the wave travels
+// visibly (≈sqrt(COUPLING) cols/sec) before the restoring term settles it. The fixed
+// (lower) damping is intentionally UNDER-damped for the high coupling modes → gentle slosh.
+const RIPPLE_COUPLING = 150
 // Max fraction of a pan step a far column lags behind by (0 = none, 1 = fully held back).
 // Near 1 → far columns almost freeze on each step, then snap-catch-up for a big ripple.
 const RIPPLE_LAG = 0.99
@@ -81,8 +88,9 @@ const RIPPLE_FALLOFF = 0.7
 const RIPPLE_MAX_OFFSET = 320
 
 // Wheel pan sensitivity: fraction of a raw wheel-notch's px distance that the lane pans.
-// A physical mouse notch (~120px) felt like it flung the lane too far, so damp it to ~40%.
-const WHEEL_PAN_SENSITIVITY = 0.4
+// A physical mouse notch (~120px) felt like it flung the lane too far. Damped further
+// 0.4 → 0.25 — one notch still felt too "steppy"/wide, so each notch now covers ~25%.
+const WHEEL_PAN_SENSITIVITY = 0.25
 // Wheel drain ease-out rate: fraction of the remaining buffered pan consumed per 60fps
 // frame (dt-normalized). Higher = snappier/less lag; lower = smoother/floatier.
 const WHEEL_DRAIN = 0.3
@@ -233,6 +241,9 @@ export function Dayline() {
   // loop mutates them without triggering React renders.
   const offsetRef = useRef<Float64Array>(new Float64Array(RIPPLE_COLS))
   const velRef = useRef<Float64Array>(new Float64Array(RIPPLE_COLS))
+  // Scratch snapshot of positions per substep so neighbor-coupling forces read the PREVIOUS
+  // state (Jacobi update) — otherwise left/right coupling would use half-updated neighbors.
+  const prevXRef = useRef<Float64Array>(new Float64Array(RIPPLE_COLS))
   const rafRef = useRef<number | null>(null)
   const lastTsRef = useRef(0)
   // Column the cursor is currently over (defaults to lane center). Pan lag radiates from here.
@@ -324,27 +335,39 @@ export function Dayline() {
       lastTsRef.current = ts
       if (!(dt > 0)) dt = 1 / 60
       dt = Math.min(dt, 0.05)
-      // Fixed-size substeps keep the stiff spring stable regardless of frame length.
+      // Fixed-size substeps keep the (now higher-frequency, coupled) springs stable
+      // regardless of frame length.
       const steps = Math.max(1, Math.ceil(dt / 0.008))
       const h = dt / steps
+      const prev = prevXRef.current
+      // Integrate the whole COUPLED chain together per substep. Each column is pulled by
+      // its neighbors (wave propagation) plus a restoring term toward 0 (eventual settle)
+      // and damping. Coupling forces read `prev` (snapshot before this substep) so all
+      // columns update from a consistent state (Jacobi), giving a clean traveling wave.
+      for (let s = 0; s < steps; s++) {
+        for (let c = 0; c < RIPPLE_COLS; c++) prev[c] = off[c]
+        for (let c = 0; c < RIPPLE_COLS; c++) {
+          const x = prev[c]
+          const v = vel[c]
+          // Free (reflecting) boundaries: clamp the neighbor index to self at the edges.
+          const xl = c > 0 ? prev[c - 1] : x
+          const xr = c < RIPPLE_COLS - 1 ? prev[c + 1] : x
+          const a = RIPPLE_COUPLING * (xl + xr - 2 * x) - RIPPLE_STIFFNESS * x - RIPPLE_DAMPING * v
+          const nv = v + a * h
+          vel[c] = nv
+          off[c] = x + nv * h
+        }
+      }
+      // Rest check across the whole chain: only stop once EVERY column has settled (a
+      // still-moving column keeps coupling into its neighbors, so we can't stop per-column).
       let active = false
       for (let c = 0; c < RIPPLE_COLS; c++) {
-        let x = off[c]
-        let v = vel[c]
-        if (x === 0 && v === 0) continue
-        for (let s = 0; s < steps; s++) {
-          const a = -RIPPLE_STIFFNESS * x - RIPPLE_DAMPING * v
-          v += a * h
-          x += v * h
-        }
-        if (Math.abs(x) < RIPPLE_REST && Math.abs(v) < RIPPLE_REST) {
-          x = 0
-          v = 0
+        if (Math.abs(off[c]) < RIPPLE_REST && Math.abs(vel[c]) < RIPPLE_REST) {
+          off[c] = 0
+          vel[c] = 0
         } else {
           active = true
         }
-        off[c] = x
-        vel[c] = v
       }
       paintRipple()
       if (active) {
