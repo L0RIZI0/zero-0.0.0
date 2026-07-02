@@ -220,11 +220,16 @@ export function Dock({ contextId, active = true }: { contextId: string; active?:
                 style={{
                   gap: layout.gapX,
                   // Honeycomb: rows after the first pull UP so hexagons interlock, and
-                  // alternate (odd) rows shift half a period so cards nest in the valleys
-                  // of the row above. Applied to the ROW wrapper (layout/transform on the
-                  // container, NOT per-card) so each card's own GSAP Flip rect stays honest.
+                  // adjacent rows shift half a period so cards nest in the valleys of the
+                  // row above. The shift is SPLIT symmetrically — odd rows +½ offset, even
+                  // rows −½ offset — so the relative nesting shift is a full half-period
+                  // while the whole group stays centered (each row is justify-center), which
+                  // keeps it inside the width the engine reserved (cols + 0.5). Applied to
+                  // the ROW wrapper (not per-card) so each card's GSAP Flip rect stays honest.
                   marginTop: rowIdx > 0 ? -layout.rowOverlap : 0,
-                  transform: layout.multiRow && rowIdx % 2 === 1 ? `translateX(${layout.rowOffset}px)` : undefined,
+                  transform: layout.multiRow
+                    ? `translateX(${(rowIdx % 2 === 1 ? 1 : -1) * (layout.rowOffset / 2)}px)`
+                    : undefined,
                 }}
               >
                 {rowItems.map((item) => (
