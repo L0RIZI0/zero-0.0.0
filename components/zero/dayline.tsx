@@ -11,6 +11,7 @@ import { DAYLINE_ROW_H, DAYLINE_COMPACT_LIFT, shellStageFor } from "@/lib/zero/l
 import { DURATION_S, MORPH_CSS_EASE } from "@/lib/zero/flip-stage"
 import { useNow } from "@/lib/zero/use-now"
 import { cn } from "@/lib/utils"
+import { isSleepTitle, sleepSkyBackground } from "@/lib/zero/sleep-sky"
 import { NodeGlyph } from "./node-glyph"
 
 // ============================================================================
@@ -183,6 +184,8 @@ interface DayItem {
   range: string
   /** Glyph fills only for completable kinds once done; otherwise it's a silhouette. */
   filled: boolean
+  /** A sleep Moment paints a procedural night-sky fill instead of a flat accent bar. */
+  sky: string | null
 }
 
 export function Dayline() {
@@ -301,6 +304,9 @@ export function Dayline() {
         centerPct: leftPct + widthPct / 2,
         range: rangeText(st, en, e.schedule?.repeat),
         filled: KIND_META[e.kind].fillGlyphWhenDone && !!e.completed,
+        // A sleep Moment (span) gets its own procedural night sky, seeded by the
+        // occurrence key so each night differs but stays stable across pans.
+        sky: isDuration && e.kind === "event" && isSleepTitle(e.title) ? sleepSkyBackground(e.occKey) : null,
       })
     }
     // Paint durations first so the thin instant ticks sit visually on top.
@@ -793,13 +799,17 @@ export function Dayline() {
                       if (draggedRef.current) return // a pan, not a tap
                       openFromTick(it.id, e.currentTarget)
                     }}
-                    className="pointer-events-auto absolute top-1/2 -translate-y-1/2 cursor-default rounded-[3px] transition-[filter,height] duration-150"
+                    className="pointer-events-auto absolute top-1/2 -translate-y-1/2 cursor-default overflow-hidden rounded-[3px] transition-[filter,height] duration-150"
                     style={{
                       left: `${it.leftPct}%`,
                       width: `max(3px, ${it.widthPct}%)`,
                       height: isHot ? 18 : 12,
-                      backgroundColor: it.color,
-                      opacity: isHot ? 0.9 : 0.42,
+                      // Sleep Moments paint a vivid procedural night sky (kept near-
+                      // opaque so the nebula/stars read); other bars keep the flat,
+                      // washed accent that highlights on hover.
+                      ...(it.sky
+                        ? { background: it.sky, opacity: isHot ? 1 : 0.92 }
+                        : { backgroundColor: it.color, opacity: isHot ? 0.9 : 0.42 }),
                       filter: isHot ? "saturate(1.4) brightness(1.1)" : "none",
                       zIndex: isHot ? 20 : 1,
                     }}
