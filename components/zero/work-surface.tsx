@@ -169,16 +169,21 @@ export function WorkSurface() {
             all the normal machinery (its own members then recurse in-place inside it).
             Each window is `position: fixed` against the region, so DOM nesting here is
             irrelevant to layout. The morph is driven imperatively (flip-stage's
-            morphDetached) from the launching placement's rect, or the region center. */}
+            morphDetached) from the launching placement's rect, or the region center.
+
+            OUT-OF-FLOW WRAPPER: the EntityNode renders as `variant="row"`, whose outer
+            slot is an in-flow `h-11` (44px) box (the telescoping hole a real do-list row
+            leaves behind). A detached node has no list to telescope into, so that 44px
+            slot would just be a flex sibling in this `flex-col` region — stealing 44px
+            from the home EntityBody (`flex-1`) and lifting the home View + dock up by
+            exactly one row. Wrapping in `absolute` removes the slot from the flex main-
+            axis entirely (contributes zero flow height); the inner `fixed` window is
+            unaffected and still fills the region via getRegionRect. */}
         {stack.map((id, depth) =>
           depth >= 1 && isDetachedChild(id, stack[depth - 1]) ? (
-            <EntityNode
-              key={`detached:${depth}:${id}`}
-              entityId={id}
-              contextId={stack[depth - 1]}
-              variant="row"
-              detached
-            />
+            <div key={`detached:${depth}:${id}`} className="absolute left-0 top-0 w-full">
+              <EntityNode entityId={id} contextId={stack[depth - 1]} variant="row" detached />
+            </div>
           ) : null,
         )}
 
@@ -190,13 +195,10 @@ export function WorkSurface() {
             it unmounts when the fade list clears at the end of the morph. */}
         {fading.map((f) =>
           !stack.includes(f.id) && isDetachedChild(f.id, f.parent) ? (
-            <EntityNode
-              key={`fading:${f.depth}:${f.id}`}
-              entityId={f.id}
-              contextId={f.parent}
-              variant="row"
-              detached
-            />
+            // Same out-of-flow wrapper as the open case above (see note there).
+            <div key={`fading:${f.depth}:${f.id}`} className="absolute left-0 top-0 w-full">
+              <EntityNode entityId={f.id} contextId={f.parent} variant="row" detached />
+            </div>
           ) : null,
         )}
       </div>
