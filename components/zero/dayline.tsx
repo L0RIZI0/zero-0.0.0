@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { useZeroNav } from "@/lib/zero/nav-store"
 import { getTimelineOccurrences, getInheritedAccent } from "@/lib/zero/data"
 import { entityInterval } from "@/lib/zero/timeline-index"
@@ -83,6 +83,14 @@ const RIPPLE_MAX_OFFSET = 320
 // Wheel pan sensitivity: fraction of a raw wheel-notch's px distance that the lane pans.
 // A physical mouse notch (~120px) felt like it flung the lane too far, so damp it to ~40%.
 const WHEEL_PAN_SENSITIVITY = 0.4
+// Wheel drain ease-out rate: fraction of the remaining buffered pan consumed per 60fps
+// frame (dt-normalized). Higher = snappier/less lag; lower = smoother/floatier.
+const WHEEL_DRAIN = 0.3
+// While draining, the base pan is applied as an imperative transform (no React render);
+// we only FLUSH it into `viewStart` (React truth) once it crosses this fraction of the
+// lane width, or when the gesture settles — keeping renders rare so panning stays smooth
+// while items stay fresh enough (the mounted ±day buffer covers the gap).
+const WHEEL_FLUSH_FRAC = 0.35
 // Below this |offset| (px) and |velocity| a column is snapped to rest. Set above the
 // sub-pixel range so critical damping's slow asymptotic tail can't leave a lingering
 // (invisible) transform hanging around after the wave has visually landed.
@@ -237,10 +245,12 @@ export function Dayline() {
   // tiny continuous deltas, so they just pass through smoothly).
   const wheelPendingRef = useRef(0)
   const wheelRafRef = useRef<number | null>(null)
-  // Smoothed drain velocity (px/frame) + last frame timestamp — the slice we apply is
-  // itself eased toward its target so a notch RAMPS IN rather than jolting on frame 1.
-  const wheelVelRef = useRef(0)
   const wheelTsRef = useRef(0)
+  // Base pan applied imperatively (via `panWrapRef` transform) but not yet flushed into
+  // `viewStart`. Invariant: (viewStart's wheel delta, in px) + wheelCommitRef == total pan
+  // consumed, so base + ripple always agree with no jump when we flush.
+  const wheelCommitRef = useRef(0)
+  const panWrapRef = useRef<HTMLDivElement>(null)
   // Registered nodes to displace each frame, keyed so unmounts clean themselves up. Each
   // node carries a live `data-col` attribute (updated by React every render) that the loop
   // reads — so a node whose column changes mid-pan always uses its CURRENT screen column.
@@ -413,11 +423,25 @@ export function Dayline() {
   //
   // SMOOTHING: applying a notch instantly makes a physical mouse wheel jump a big step per
   // tick. Instead each notch adds raw delta px into `wheelPendingRef`, and a rAF loop eases
-  // it out. Two layers of smoothing kill the steppiness: (1) the TARGET slice is a fraction
-  // of what's pending (natural ease-OUT tail), and (2) the ACTUAL slice velocity is lerped
-  // toward that target so a fresh notch RAMPS IN over a few frames instead of jolting on
-  // frame 1. Everything is normalized to elapsed time (dt vs a 60fps baseline) so the feel
-  // is identical regardless of refresh rate. Each applied slice also feeds the ripple.
+  // it out with a single dt-normalized ease-OUT (a fraction of the remaining buffer per
+  // frame) for a smooth, low-lag glide.
+  //
+  // JANK FIX: the base pan is applied as an IMPERATIVE transform on `panWrapRef` (which
+  // wraps both the ticks and the NOW marker) rather than via `setViewStart` every frame.
+  // That (a) avoids a full React re-render + `items` recompute per frame — the source of
+  // the lag — and (b) keeps the base pan on the SAME frame as the ripple (also imperative),
+  // so they can't desync into a visible jump. We only FLUSH the accumulated transform into
+  // `viewStart` when it crosses `WHEEL_FLUSH_FRAC` of the lane or when the gesture settles;
+  // a layout effect clears the transform in the same paint as the flush, so there's no jump.
+  const flushWheelPan = useCallback(() => {
+    const lane = laneRef.current
+    const commit = wheelCommitRef.current
+    if (!lane || !commit) return
+    const w = lane.clientWidth || 1
+    wheelCommitRef.current = 0 // cleared BEFORE the state update so the layout effect zeroes the transform
+    setViewStart((vs) => vs + (commit / w) * DAY_MS)
+  }, [])
+
   useEffect(() => {
     const lane = laneRef.current
     if (!lane) return
@@ -429,26 +453,32 @@ export function Dayline() {
       wheelTsRef.current = ts
 
       const pending = wheelPendingRef.current
-      // Target speed: pull ~13% of the remaining distance per 60fps-frame (long, soft tail).
-      const targetVel = pending * (1 - Math.pow(1 - 0.13, dt))
-      // Ease the actual velocity toward that target so notch onsets ramp in (no frame-1 jolt).
-      wheelVelRef.current += (targetVel - wheelVelRef.current) * Math.min(0.2 * dt, 1)
-      let slice = wheelVelRef.current
-      // Floor so the very end finishes instead of asymptoting forever.
+      // Single ease-out: consume a dt-normalized fraction of the remaining buffer.
+      let slice = pending * (1 - Math.pow(1 - WHEEL_DRAIN, dt))
+      // Floor so the tail finishes instead of asymptoting forever.
       if (Math.abs(pending) <= 0.5) slice = pending
-      else if (Math.abs(slice) < 0.4) slice = Math.sign(pending) * 0.4
+      else if (Math.abs(slice) < 0.5) slice = Math.sign(pending) * 0.5
 
       wheelPendingRef.current = pending - slice
+      wheelCommitRef.current += slice
+      // Imperative base pan (composited transform, no React render) kept in lockstep with
+      // the ripple. Negative because scrolling forward moves content LEFT.
+      if (panWrapRef.current) {
+        panWrapRef.current.style.transform = `translateX(${-wheelCommitRef.current}px)`
+      }
       injectPan(-slice)
-      setViewStart((vs) => vs + (slice / w) * DAY_MS)
+
+      // Flush to React truth once the imperative offset grows large, so `items`/marker
+      // re-anchor and stay fresh (the layout effect re-zeroes the transform seamlessly).
+      if (Math.abs(wheelCommitRef.current) > w * WHEEL_FLUSH_FRAC) flushWheelPan()
 
       if (Math.abs(wheelPendingRef.current) > 0.05) {
         wheelRafRef.current = requestAnimationFrame(drain)
       } else {
         wheelPendingRef.current = 0
-        wheelVelRef.current = 0
         wheelTsRef.current = 0
         wheelRafRef.current = null
+        flushWheelPan() // settle: commit the remainder
       }
     }
 
@@ -476,10 +506,21 @@ export function Dayline() {
       if (wheelRafRef.current != null) cancelAnimationFrame(wheelRafRef.current)
       wheelRafRef.current = null
       wheelPendingRef.current = 0
-      wheelVelRef.current = 0
+      wheelCommitRef.current = 0
       wheelTsRef.current = 0
     }
-  }, [pctToCol, injectPan])
+  }, [pctToCol, injectPan, flushWheelPan])
+
+  // Keep the imperative pan-wrap transform consistent with `viewStart`. Runs synchronously
+  // after every commit (before paint), so when a wheel flush moves `viewStart` and zeroes
+  // `wheelCommitRef`, the residual transform is cleared in the SAME paint — the base % (now
+  // updated) and the transform swap seamlessly with no one-frame jump. For drag / any other
+  // viewStart change `wheelCommitRef` is 0, so this just clears any stale transform.
+  useLayoutEffect(() => {
+    if (!panWrapRef.current) return
+    const c = wheelCommitRef.current
+    panWrapRef.current.style.transform = c ? `translateX(${-c}px)` : ""
+  }, [viewStart])
 
   // Stop the loop on unmount.
   useEffect(() => {
@@ -513,6 +554,11 @@ export function Dayline() {
         onDoubleClick={recenter}
         className="pointer-events-auto relative h-7 w-full cursor-default select-none overflow-visible rounded-md border border-border/60 bg-card/40 [touch-action:none]"
       >
+        {/* PAN WRAP — the in-progress wheel pan is applied here as an imperative
+            `translateX` (see the drain loop) so it moves the ticks AND the NOW marker as
+            one composited layer, in lockstep with the ripple and without a React render.
+            Identity transform except mid-wheel-gesture; flushed into `viewStart` on settle. */}
+        <div ref={panWrapRef} className="pointer-events-none absolute inset-0 will-change-transform">
         {/* Item CLIP layer — fills the lane and clips content to its edges so ripple-
             lagged / margin ticks vanish exactly at the extremities (never popping early
             or spilling out). The NOW marker + hover helper live OUTSIDE this clip so
@@ -654,6 +700,7 @@ export function Dayline() {
             </div>
           </div>
         )}
+        </div>
       </div>
 
       {/* HOVER HELPER — floats just below the lane (the header sits directly above,
