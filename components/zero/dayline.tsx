@@ -112,10 +112,10 @@ const RIPPLE_FALLOFF = 0.5
 const RIPPLE_MAX_OFFSET = 320
 
 // Wheel pan sensitivity: total lane-px one raw wheel-notch's distance eventually pans.
-// A physical mouse notch (~120px) felt like it flung the lane too far. Damped further
-// 0.4 → 0.25 — one notch still felt too "steppy"/wide, so each notch covers ~25% of its
-// raw distance (spread over the momentum glide below, not applied in one step).
-const WHEEL_PAN_SENSITIVITY = 0.25
+// Raised 0.25 → 0.42 so the lane travels faster per notch. Because each notch stacks
+// VELOCITY on top of whatever coast is still in flight (see momentum model), scrolling
+// harder/faster now BUILDS UP more and more speed rather than plateauing.
+const WHEEL_PAN_SENSITIVITY = 0.42
 // MOMENTUM MODEL (replaced the old "drain a fraction of a distance buffer" ease-out —
 // that emptied the buffer within a few frames of the last notch, so the lane braked hard
 // the instant you stopped scrolling, and the ripple's held-back columns snapped back with
@@ -125,10 +125,11 @@ const WHEEL_PAN_SENSITIVITY = 0.25
 // ~τ — real inertia, no brake, no bounce. One notch's TOTAL glide distance = Δv·τ, so we
 // derive the per-notch velocity impulse as (sensitivity·rawPx)/τ to preserve calibration.
 // FRICTION_TAU: velocity decay time-constant (s). Larger = longer, floatier coast.
-// Dropped 0.5 → 0.28 so the coast bleeds off noticeably faster — the lane settles with a
-// firmer, grippier stop instead of gliding on "ice skates" for the better part of a second.
-// (Per-notch reach is unchanged: total glide = Δv·τ = sensitivity·rawPx, independent of τ.)
-const WHEEL_FRICTION_TAU = 0.28
+// Dropped 0.5 → 0.28 → 0.19 to keep tightening the coast so ticks stop sliding on their
+// own so much — the lane grips to a stop soon after input ends instead of drifting.
+// (Total glide = Δv·τ = sensitivity·rawPx, independent of τ, so this trims the tail
+// without changing how far a notch ultimately travels.)
+const WHEEL_FRICTION_TAU = 0.19
 // End the glide once the pan speed falls below this (px/s) — the tail is imperceptible.
 const WHEEL_STOP_V = 14
 // While draining, the base pan is applied as an imperative transform (no React render);
