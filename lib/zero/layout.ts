@@ -66,12 +66,21 @@ export const HEADER_H_COMPACT = 44
 /** Px reclaimed at the top when the bar compacts at stage 2. */
 export const HEADER_SHRINK = HEADER_H - HEADER_H_COMPACT
 
+/** Extra px the Dayline is pulled UP at stage 2, on top of the header shrink, so it
+ *  tucks a touch closer to the top bar. This equals the Dayline row's top slack — the
+ *  row is DAYLINE_ROW_H (34) tall but its lane is only `h-7` (28), and the lane is
+ *  bottom-aligned (`items-end`), so 6px of empty space sits ABOVE the lane. Removing
+ *  it at depth ≥ 2 seats the lane right under the header. Folded into WINDOW_TOP_LIFT
+ *  below so the View follows the lane up and stays flush (no gap reopens). */
+export const DAYLINE_COMPACT_LIFT = 6
+
 /** How much the open windows grow UPWARD as the shell compacts.
  *
  *  At stage 2 (depth ≥ 2) the header bar shrinks vertically (HEADER_H → HEADER_H_COMPACT)
- *  and the Dayline rises with it, freeing HEADER_SHRINK px at the top. We lift the window
- *  region up by that SAME amount so open windows stay flush just below the risen Dayline —
- *  i.e. the home View expands upward into the reclaimed space.
+ *  and the Dayline both rides up with it AND is pulled a further DAYLINE_COMPACT_LIFT px
+ *  toward the bar. We lift the window region up by that TOTAL so open windows stay flush
+ *  just below the risen Dayline — i.e. the home View expands upward into the reclaimed
+ *  space.
  *
  *  WHY THIS IS MORPH-SAFE (unlike the old margin-based timeline lift): the region's own
  *  box never moves — its `marginTop` is the CONSTANT `HEADER_OVERLAY_H`. This lift is
@@ -81,7 +90,7 @@ export const HEADER_SHRINK = HEADER_H - HEADER_H_COMPACT
 export const WINDOW_TOP_LIFT: Record<ShellStage, number> = {
   0: 0,
   1: 0,
-  2: HEADER_SHRINK,
+  2: HEADER_SHRINK + DAYLINE_COMPACT_LIFT,
 }
 
 /** Height of an open window's header band (glyph + title + close). Held constant

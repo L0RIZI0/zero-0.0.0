@@ -140,9 +140,11 @@ export function CollapsibleColumn({
             <span
               aria-hidden
               className={cn(
-                // Whiter than the standard `border` token so the panel's inner edge
-                // reads clearly against the dark surface.
-                "pointer-events-none absolute inset-y-0 w-px bg-foreground/25",
+                // Inner (View-facing) edge line. DARK mode only — whiter than the
+                // standard `border` token so it reads against the dark surface. In
+                // LIGHT mode it's transparent: the panel's `shadow-xl` alone separates
+                // it from the View (no border needed).
+                "pointer-events-none absolute inset-y-0 w-px bg-transparent dark:bg-foreground/25",
                 side === "left" ? "right-0" : "left-0",
               )}
             />
