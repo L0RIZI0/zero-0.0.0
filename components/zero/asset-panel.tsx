@@ -47,11 +47,18 @@ const ASSET_ITEMS: MockItem[] = [
 const APP_ITEMS: MockItem[] = [
   { id: "figma", title: "Figma", detail: "Professional · $16/mo", tint: "#A259FF", rail: true, domain: "figma.com" },
   { id: "linear", title: "Linear", detail: "Standard · $8/mo", tint: "#5E6AD2", rail: true, domain: "linear.app" },
-  { id: "notion", title: "Notion", detail: "Plus · $10/mo", tint: "#C9C9C9", rail: true, domain: "notion.so" },
-  { id: "vercel", title: "Vercel", detail: "Pro · $20/mo", tint: "#EDEDED", rail: true, domain: "vercel.com" },
+  // Notion & Vercel are grayscale brands; their near-white brand tints made the diamond
+  // tile (low-alpha bg + border) invisible on the light panel. Use a mid neutral gray so
+  // the losange reads clearly in BOTH themes while staying monochrome-on-brand.
+  { id: "notion", title: "Notion", detail: "Plus · $10/mo", tint: "#8A8A8A", rail: true, domain: "notion.so" },
+  { id: "vercel", title: "Vercel", detail: "Pro · $20/mo", tint: "#8A8A8A", rail: true, domain: "vercel.com" },
 ]
 
 const MOCK_BALANCE = "4,426.80"
+
+/** Total resources shown in this mockup (assets + apps) — surfaced so the panel header
+ *  counter reflects what's actually rendered rather than a store value. */
+export const RESOURCE_COUNT = ASSET_ITEMS.length + APP_ITEMS.length
 
 const faviconUrl = (domain: string) => `https://www.google.com/s2/favicons?domain=${domain}&sz=64`
 
@@ -135,16 +142,18 @@ function Section({ title, items, defaultOpen = true }: { title: string; items: M
   const [settled, setSettled] = useState(defaultOpen)
   return (
     <div>
+      {/* Header toggles the section. The chevron is shown ONLY when collapsed (as the
+          "expand" affordance); once expanded it's hidden and the title slides left into
+          its place — the whole title row still toggles (collapse by clicking the title). */}
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
         className="flex w-full items-center gap-1.5 px-2 py-2 text-left"
       >
-        <ChevronDown
-          className={cn("h-3.5 w-3.5 text-muted-foreground/70 transition-transform", !open && "-rotate-90")}
-          strokeWidth={2}
-        />
+        {!open && (
+          <ChevronDown className="h-3.5 w-3.5 -rotate-90 text-muted-foreground/70" strokeWidth={2} />
+        )}
         <span className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground/80">{title}</span>
         <span className="text-[11px] text-muted-foreground/40">{items.length}</span>
       </button>

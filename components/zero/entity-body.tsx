@@ -1,13 +1,13 @@
 "use client"
 
 import type { ReactNode } from "react"
-import { getSpaceAssets, getPinnedItems } from "@/lib/zero/data"
+import { getPinnedItems } from "@/lib/zero/data"
 import { usePanelOpen } from "@/lib/zero/panel-store"
 import { useZeroNav } from "@/lib/zero/nav-store"
 import { Region } from "./region"
 import { Dock } from "./dock"
 import { DoList } from "./do-list"
-import { AssetPanel } from "./asset-panel"
+import { AssetPanel, RESOURCE_COUNT } from "./asset-panel"
 import { OutputPanel } from "./output-panel"
 import { CollapsibleColumn } from "./collapsible-column"
 import { ResourceCanvas } from "./resource-canvas"
@@ -90,7 +90,9 @@ export function EntityBody({
    *  a flag only to widen the central reading measure on the home view. */
   isRoot?: boolean
 }) {
-  const assetCount = getSpaceAssets(entityId).length
+  // The Resources panel is a static mockup; its header counter should reflect the items
+  // actually rendered there (assets + apps), not a store value.
+  const assetCount = RESOURCE_COUNT
   const [inOpen, setInOpen] = usePanelOpen(`${entityId}:in`, false)
   const [outOpen, setOutOpen] = usePanelOpen(`${entityId}:out`, false)
   // Region 2 (dock) is mounted ONLY when this context has pinned items, so an empty
