@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useRef, useState } from "react"
 import { motion, AnimatePresence } from "motion/react"
 import { ChevronLeft, ChevronRight, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from "lucide-react"
 import { panelSlideTransition } from "@/lib/zero/motion"
@@ -73,20 +73,12 @@ export function CollapsibleColumn({
   // the rail stays a clickable close-area), bright on hover, faint when idle/closed.
   const labelOpacity = open ? "opacity-0" : railHover ? "opacity-100" : "opacity-35"
 
-  // Click OUTSIDE the panel (or its rail) closes it. Both the panel and the rail are
-  // DOM children of this root, so a `contains` check treats either as "inside" (the
-  // rail keeps its own toggle) while a click anywhere else on the View dismisses it.
-  // `pointerdown` (capture) fires before the target's own handlers, and the effect is
-  // only attached while open, so the opening click itself never triggers a close.
+  // PERSISTENT: an open panel stays open until explicitly closed via its rail (the
+  // chevron toggle below). It is NOT dismissed by clicking elsewhere on the View —
+  // the panel now squeezes the View aside rather than floating over it, so an outside
+  // click should interact with that content, not close the panel. (The nav layer still
+  // folds a parent's panels when you dive into a child; see collapseEntityPanels.)
   const rootRef = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    if (!open) return
-    const onDown = (e: PointerEvent) => {
-      if (!rootRef.current?.contains(e.target as Node)) onOpenChange(false)
-    }
-    document.addEventListener("pointerdown", onDown, true)
-    return () => document.removeEventListener("pointerdown", onDown, true)
-  }, [open, onOpenChange])
 
   return (
     <div ref={rootRef} className="relative h-full" style={{ width: railWidth }}>

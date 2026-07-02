@@ -1,6 +1,8 @@
 "use client"
 
 import type { ReactNode } from "react"
+import { motion } from "motion/react"
+import { panelSlideTransition } from "@/lib/zero/motion"
 import { getPinnedItems } from "@/lib/zero/data"
 import { usePanelOpen } from "@/lib/zero/panel-store"
 import { useZeroNav } from "@/lib/zero/nav-store"
@@ -18,6 +20,12 @@ import { cn } from "@/lib/utils"
 /** Width of a side panel when OPEN, and of the thin RAIL when collapsed. */
 const PANEL_OPEN_W = 230
 const PANEL_RAIL_W = 48
+/** Base horizontal inset of the View (the region stack's normal `p-3` = 12px). */
+const VIEW_PAD_X = 12
+/** How far the View is squeezed IN from a side when that side's panel is open: the
+ *  full panel footprint (rail + panel), so the content sits flush beside the panel's
+ *  inner edge instead of being overlaid by it. Closed → back to VIEW_PAD_X. */
+const PANEL_SQUEEZE_W = PANEL_RAIL_W + PANEL_OPEN_W
 
 
 /**
@@ -95,6 +103,13 @@ export function EntityBody({
   const assetCount = RESOURCE_COUNT
   const [inOpen, setInOpen] = usePanelOpen(`${entityId}:in`, false)
   const [outOpen, setOutOpen] = usePanelOpen(`${entityId}:out`, false)
+  // SQUEEZE: an open side panel pushes the View content inward on that side (instead
+  // of overlaying it), so the do-list/resource narrows and shifts toward center. The
+  // padding is animated on the shared panel-slide curve so content glides aside exactly
+  // as the panel glides in. This is a one-shot layout animation on toggle (not part of
+  // the dive morph), so its reflow cost is minor and localized.
+  const padLeft = inOpen ? PANEL_SQUEEZE_W : VIEW_PAD_X
+  const padRight = outOpen ? PANEL_SQUEEZE_W : VIEW_PAD_X
   // Region 2 (dock) is mounted ONLY when this context has pinned items, so an empty
   // entity's do-list region fills the whole view. Same source the Dock reads, so they
   // agree. `dataVersion` makes this reactive to pin add/remove.
@@ -125,9 +140,14 @@ export function EntityBody({
           the Inputs/Outputs rails). The do-list/Dock are skipped entirely — this is
           Zero acting as a contextual browser. */}
       {resource ? (
-        <div className="pointer-events-auto flex min-h-0 min-w-0 flex-1 flex-col px-3 pb-3 pt-2">
+        <motion.div
+          className="pointer-events-auto flex min-h-0 min-w-0 flex-1 flex-col pb-3 pt-2"
+          initial={false}
+          animate={{ paddingLeft: padLeft, paddingRight: padRight }}
+          transition={panelSlideTransition}
+        >
           <ResourceCanvas id={entityId} url={resource.url} resourceId={resource.resourceId} active={active} />
-        </div>
+        </motion.div>
       ) : (
         // VIEW PADDING — a uniform inset around the whole region stack so no region
         // can touch the window/screen edge (chiefly: the Dock never kisses the bottom
@@ -136,9 +156,12 @@ export function EntityBody({
         // the Flip morph's target box. A single knob (`p-3`) controls the margin on
         // all four sides; bump it to widen the breathing room everywhere at once.
         // [v0] DEBUG: purple border = the View area (the region stack's footprint).
-        <div
+        <motion.div
           data-view
-          className={cn("relative flex min-h-0 flex-1 flex-col p-3", showFrames && "border border-purple-500")}
+          className={cn("relative flex min-h-0 flex-1 flex-col py-3", showFrames && "border border-purple-500")}
+          initial={false}
+          animate={{ paddingLeft: padLeft, paddingRight: padRight }}
+          transition={panelSlideTransition}
         >
           {/* [v0] DEBUG: View label in the BOTTOM-left corner so it never collides with
               region 0's top-left label. The View is the full region stack: it fills its
@@ -208,7 +231,7 @@ export function EntityBody({
           </DebugComponentFrame>
         </Region>
       ) : null}
-        </div>
+        </motion.div>
       )}
 
       {/* RESOURCES — stuff that goes IN (money, assets, apps, files…). Persistent
