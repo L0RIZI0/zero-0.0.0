@@ -97,10 +97,16 @@ const RIPPLE_COUPLING = 600
 // Max fraction of a pan step a far column lags behind by (0 = none, 1 = fully held back).
 // Near 1 → far columns almost freeze on each step, then snap-catch-up for a big ripple.
 const RIPPLE_LAG = 0.99
+// Amplitude GAIN on the injected lag offset — how STRONGLY a given pan disturbs the
+// surface. 1 = the held-back distance equals the pan step (old behavior); >1 over-drives
+// the wave so even a gentle pan makes a pronounced ripple. Bumped to 1.7 for a stronger,
+// more sensitive effect (the RIPPLE_MAX_OFFSET clamp still caps runaway extremes).
+const RIPPLE_GAIN = 1.7
 // Falloff exponent for lag vs normalized cursor distance. <1 = concave: lag ramps up
-// FAST right off the cursor column (a SMALL "lens" — near-cursor content reacts
-// strongly) while far columns still sit near max lag, so the far effect is preserved.
-const RIPPLE_FALLOFF = 0.7
+// FAST right off the cursor column, so only a TIGHT zone under the pointer stays in sync
+// (a SMALL "lens") while everything around it reacts. Lowered 0.7 → 0.5 to shrink that
+// lens further — the ripple now concentrates right at the cursor instead of spreading wide.
+const RIPPLE_FALLOFF = 0.5
 // Clamp per-column offset so a rapid scroll burst can't fling content far off-lane.
 // Raised 220 → 320 so far columns can trail further for a bigger, more fluid wave.
 const RIPPLE_MAX_OFFSET = 320
@@ -436,8 +442,9 @@ export function Dayline() {
       for (let c = 0; c < RIPPLE_COLS; c++) {
         const dist = Math.abs(c - cc) / maxDist // 0 at cursor → 1 at far edge
         const lag = RIPPLE_LAG * Math.pow(dist, RIPPLE_FALLOFF)
-        // Hold the column back by −shift*lag; the spring (target 0) then lands it.
-        let x = off[c] - shiftPx * lag
+        // Hold the column back by −shift*lag*gain; the spring (target 0) then lands it.
+        // The gain over-drives the wave amplitude for a stronger, more sensitive ripple.
+        let x = off[c] - shiftPx * lag * RIPPLE_GAIN
         if (x > RIPPLE_MAX_OFFSET) x = RIPPLE_MAX_OFFSET
         else if (x < -RIPPLE_MAX_OFFSET) x = -RIPPLE_MAX_OFFSET
         off[c] = x
@@ -586,7 +593,7 @@ export function Dayline() {
       delta *= WHEEL_PAN_SENSITIVITY
       cursorColRef.current = pctToCol(e.clientX)
       // Inject the notch as a VELOCITY impulse. Since a coasting velocity v decays as
-      // v·e^(−t/τ), its integral (total distance) is v·τ — so to make this notch add
+      // v·e^(−t/τ), its integral (total distance) is v��τ — so to make this notch add
       // exactly `delta` px of travel we inject Δv = delta/τ. This preserves the old
       // per-notch reach while giving the motion inertia that outlives the input.
       wheelVelRef.current += delta / WHEEL_FRICTION_TAU
