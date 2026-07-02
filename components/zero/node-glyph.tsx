@@ -162,8 +162,11 @@ function lerpPolygons(a: Pt[], b: Pt[], t: number): Pt[] {
   return a.map((p, i) => [p[0] + (b[i][0] - p[0]) * t, p[1] + (b[i][1] - p[1]) * t] as Pt)
 }
 
-/** Glyph kind-morph timing — short and crisp (the window morph is far slower). */
-const GLYPH_MORPH_SECONDS = 0.5
+/** Glyph kind-morph timing — short and crisp (the window morph is far slower).
+ *  Exported so EntityNode can reveal the inner checkmark (drawn OVER the glyph) only
+ *  once the silhouette has finished morphing INTO the task square, rather than
+ *  popping it in the instant `kind` flips. */
+export const GLYPH_MORPH_SECONDS = 0.5
 const GLYPH_MORPH_EASE = "power3.inOut"
 
 /** Completion FILL timing — a subtle wipe that slides in from the left. Exported so

@@ -28,7 +28,7 @@ import {
 import gsap from "gsap"
 import { Flip } from "gsap/Flip"
 import { DURATION_S, MORPH_CSS_EASE, SEND_EASE } from "@/lib/zero/flip-stage"
-import { NodeGlyph, GLYPH_FILL_SECONDS } from "./node-glyph"
+import { NodeGlyph, GLYPH_FILL_SECONDS, GLYPH_MORPH_SECONDS } from "./node-glyph"
 import { ResourceGlyph } from "./resource-glyph"
 import { EntityBody } from "./entity-body"
 import { DebugFrameLabel } from "./debug-frame-label"
@@ -228,6 +228,30 @@ export function EntityNode({
     // Just un-completed: reset so the next completion animates from ink again.
     setCheckWhite(false)
   }, [done])
+  // Inner-checkmark morph gate. The check is a SEPARATE layer painted OVER the glyph
+  // (the glyph draws the task SQUARE; the check is the tick inside it — the two stacked
+  // marks that together read as a "checkbox"). When an entity's KIND changes, `kind`
+  // and `done` flip synchronously, but the glyph silhouette MORPHS into the square over
+  // GLYPH_MORPH_SECONDS — so revealing the check the instant the kind flips pops it onto
+  // a shape that is still mid-morph (the reported "checkbox shows too soon"). This gate
+  // holds the check hidden while morphing INTO task and only reveals it once the square
+  // has settled. A plain done-toggle (kind unchanged) leaves it true, so completing a
+  // task still shows the check promptly alongside the fill wipe.
+  const entityKind = entity?.kind
+  const [glyphSettledTask, setGlyphSettledTask] = useState(entityKind === "task")
+  const prevKindForCheck = useRef(entityKind)
+  useLayoutEffect(() => {
+    if (prevKindForCheck.current === entityKind) return
+    prevKindForCheck.current = entityKind
+    if (entityKind === "task") {
+      // Morphing INTO task: hide the check now, reveal it once the square settles.
+      setGlyphSettledTask(false)
+      const id = setTimeout(() => setGlyphSettledTask(true), GLYPH_MORPH_SECONDS * 1000)
+      return () => clearTimeout(id)
+    }
+    // Morphing OUT of task (or between non-task kinds): the check isn't applicable.
+    setGlyphSettledTask(false)
+  }, [entityKind])
   const [closeHover, setCloseHover] = useState(false)
   // Mouse-hover state for the collapsed row/card. Driven in JS (not a Tailwind
   // `hover:` class) so the background can be the dynamic per-depth `surfaceAt`
@@ -1100,10 +1124,14 @@ export function EntityNode({
                   // open). Sized as a fraction of the glyph so it scales with every
                   // state, and centered via inset/auto-margins (it's absolute, so flex
                   // centering wouldn't apply). Color fades ink→white with the fill.
+                  // `glyphSettledTask` fades it in only once the silhouette has morphed
+                  // into the task square (so it doesn't pop onto a mid-morph shape); a
+                  // plain completion keeps it at opacity-100 with just the color fade.
                   <Check
                     className={cn(
-                      "absolute inset-0 m-auto h-[60%] w-[60%] transition-colors",
+                      "absolute inset-0 m-auto h-[60%] w-[60%] transition-[color,opacity]",
                       checkWhite ? "text-background" : "text-foreground",
+                      glyphSettledTask ? "opacity-100" : "opacity-0",
                     )}
                     style={{ transitionDuration: `${GLYPH_FILL_SECONDS}s` }}
                     strokeWidth={3.5}
