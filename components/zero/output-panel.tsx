@@ -89,27 +89,30 @@ export function OutputPanel({
           to escape the panel's transformed + overflow-hidden clip container (a fixed child
           there gets clipped/mis-anchored). z-[200] paints above the focused child window.
           Shows the publication ICON beside the title and REVEALS right→left (mirror of the
-          left panel) so it grows out of the losange sitting to its right. */}
-      <AnimatePresence>
-        {hover &&
-          typeof document !== "undefined" &&
-          createPortal(
-            <motion.div
-              key={hover.title}
-              data-peek-label
-              initial={{ clipPath: "inset(0 0 0 100%)", opacity: 0 }}
-              animate={{ clipPath: "inset(0 0 0 0%)", opacity: 1 }}
-              exit={{ clipPath: "inset(0 0 0 100%)", opacity: 0 }}
-              transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
-              className="pointer-events-none fixed z-[200] flex -translate-x-full -translate-y-1/2 items-center gap-1.5 whitespace-nowrap rounded-md border border-border bg-popover py-1 pl-2 pr-1.5 leading-none text-popover-foreground shadow-md"
-              style={{ top: hover.top, left: hover.left, fontSize: PEEK_LABEL_PX }}
-            >
-              {hover.title}
-              <FileOutput style={{ width: 13, height: 13 }} className="text-muted-foreground" />
-            </motion.div>,
-            document.body,
-          )}
-      </AnimatePresence>
+          left panel) so it grows out of the losange sitting to its right.
+          AnimatePresence lives INSIDE the portal — see AssetPanel note: wrapping the
+          createPortal call hides the motion.div, leaving it stuck fully clipped/invisible. */}
+      {typeof document !== "undefined" &&
+        createPortal(
+          <AnimatePresence>
+            {hover && (
+              <motion.div
+                key={hover.title}
+                data-peek-label
+                initial={{ clipPath: "inset(0 0 0 100%)", opacity: 0 }}
+                animate={{ clipPath: "inset(0 0 0 0%)", opacity: 1 }}
+                exit={{ clipPath: "inset(0 0 0 100%)", opacity: 0 }}
+                transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+                className="pointer-events-none fixed z-[200] flex -translate-x-full -translate-y-1/2 items-center gap-1.5 whitespace-nowrap rounded-md border border-border bg-popover py-1 pl-2 pr-1.5 leading-none text-popover-foreground shadow-md"
+                style={{ top: hover.top, left: hover.left, fontSize: PEEK_LABEL_PX }}
+              >
+                {hover.title}
+                <FileOutput style={{ width: 13, height: 13 }} className="text-muted-foreground" />
+              </motion.div>
+            )}
+          </AnimatePresence>,
+          document.body,
+        )}
     </div>
   )
 }

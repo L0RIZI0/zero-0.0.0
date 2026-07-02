@@ -390,27 +390,32 @@ export function AssetPanel({
           paints above the focused child window. z-[200] < theme toggle (z-300).
           It shows the resource's ICON (the same mark that was inside the losange) beside
           the title, and REVEALS left→right via a clip-path inset wipe so it grows out of
-          the losange rather than popping in. */}
-      <AnimatePresence>
-        {hover &&
-          typeof document !== "undefined" &&
-          createPortal(
-            <motion.div
-              key={hover.item.id}
-              data-peek-label
-              initial={{ clipPath: "inset(0 100% 0 0)", opacity: 0 }}
-              animate={{ clipPath: "inset(0 0% 0 0)", opacity: 1 }}
-              exit={{ clipPath: "inset(0 100% 0 0)", opacity: 0 }}
-              transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
-              className="pointer-events-none fixed z-[200] flex -translate-y-1/2 items-center gap-1.5 whitespace-nowrap rounded-md border border-border bg-popover py-1 pl-1.5 pr-2 leading-none text-popover-foreground shadow-md"
-              style={{ top: hover.top, left: hover.left, fontSize: PEEK_LABEL_PX }}
-            >
-              <ItemMark item={hover.item} size={13} />
-              {hover.item.title}
-            </motion.div>,
-            document.body,
-          )}
-      </AnimatePresence>
+          the losange rather than popping in.
+          NOTE: AnimatePresence must live INSIDE the portal so its direct child is the
+          motion.div. Wrapping the `createPortal(...)` call instead hides the motion node
+          from AnimatePresence, so the enter animation never runs and the label stays stuck
+          at its initial `clip-path: inset(0 100% 0 0)` = fully clipped = invisible. */}
+      {typeof document !== "undefined" &&
+        createPortal(
+          <AnimatePresence>
+            {hover && (
+              <motion.div
+                key={hover.item.id}
+                data-peek-label
+                initial={{ clipPath: "inset(0 100% 0 0)", opacity: 0 }}
+                animate={{ clipPath: "inset(0 0% 0 0)", opacity: 1 }}
+                exit={{ clipPath: "inset(0 100% 0 0)", opacity: 0 }}
+                transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+                className="pointer-events-none fixed z-[200] flex -translate-y-1/2 items-center gap-1.5 whitespace-nowrap rounded-md border border-border bg-popover py-1 pl-1.5 pr-2 leading-none text-popover-foreground shadow-md"
+                style={{ top: hover.top, left: hover.left, fontSize: PEEK_LABEL_PX }}
+              >
+                <ItemMark item={hover.item} size={13} />
+                {hover.item.title}
+              </motion.div>
+            )}
+          </AnimatePresence>,
+          document.body,
+        )}
     </div>
   )
 }
