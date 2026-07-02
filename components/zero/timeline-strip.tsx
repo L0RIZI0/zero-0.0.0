@@ -50,6 +50,7 @@ import { placementKey, resolveOriginRect } from "@/lib/zero/placement"
 import { useTimelineGestures } from "@/hooks/use-timeline-gestures"
 import { NodeGlyph, type NodeKind } from "./node-glyph"
 import { ContextMenu, type ContextMenuState } from "./context-menu"
+import { isSleepTitle, sleepSkyBackground } from "@/lib/zero/sleep-sky"
 import { cn } from "@/lib/utils"
 
 const HOUR_MS = 3_600_000
@@ -2864,6 +2865,16 @@ export function TimelineStrip({
               const fillEase = !barAnimating ? "ease-out" : collapsedTarget ? FILL_IN_EASE_CSS : EXPAND_EASE_CSS
               const fillTransition = `background-color ${fillDur}ms ${fillEase}, border-color ${fillDur}ms ${fillEase}`
 
+              // A sleep Moment's expanded chip paints the procedural night sky
+              // (seeded by its stable bar key) instead of the faint accent wash. Only
+              // in the EXPANDED form — the collapsed rail tick stays a solid accent
+              // tick so the rail reads cleanly. A dark veil (below) rests over the sky
+              // when idle and lifts on hover.
+              const sky =
+                b.kind === "event" && !collapsedTarget && isSleepTitle(b.entity?.title)
+                  ? sleepSkyBackground(b.key)
+                  : null
+
               return (
                 // `transition-[top]` (NOT left/width) so a bar GLIDES vertically when
                 // a zoom repacks it into a different lane, instead of snapping — and
@@ -2964,7 +2975,7 @@ export function TimelineStrip({
                       // box width tracks the true duration down to the border. The glyph's
                       // breathing room moves to the INNER content span (which is overflow-
                       // visible, so it bleeds past the box instead of widening it).
-                      "flex h-full w-full min-w-0 items-center overflow-visible rounded-md border text-[10.5px] tracking-tight",
+                      "group flex h-full w-full min-w-0 items-center overflow-visible rounded-md border text-[10.5px] tracking-tight",
                       "cursor-pointer text-foreground/85 shadow-sm transition-[filter] duration-300 ease-out hover:brightness-110",
                     )}
                     style={{
@@ -2976,11 +2987,17 @@ export function TimelineStrip({
                         : b.color
                           ? `${b.color}59`
                           : "var(--border)",
-                      backgroundColor: collapsedTarget
-                        ? b.color || "var(--secondary)"
-                        : b.color
-                          ? `${b.color}26`
-                          : "var(--secondary)",
+                      // Sleep chip paints the night sky; other chips keep the faint accent
+                      // wash. Set backgroundColor undefined for sky so the `background`
+                      // shorthand below isn't fighting it.
+                      backgroundColor: sky
+                        ? undefined
+                        : collapsedTarget
+                          ? b.color || "var(--secondary)"
+                          : b.color
+                            ? `${b.color}26`
+                            : "var(--secondary)",
+                      ...(sky ? { background: sky, borderColor: "rgba(255,255,255,0.16)" } : {}),
                       // Gradual fill crossfade matched to the fold's own duration/curve (not a fixed
                       // 300ms) so the chip darkens smoothly across the whole morph — see fillTransition.
                       transition: fillTransition,
@@ -2989,12 +3006,22 @@ export function TimelineStrip({
                       boxShadow: tickGlow ? `0 0 6px ${tickGlowColor}` : undefined,
                     }}
                   >
+                    {/* Sleep sky idle veil — a dark night film resting over the starfield
+                        that LIFTS on hover (group-hover), so the chip reads calm/dim in the
+                        timeline yet blooms to its full sky when pointed at. Only for sleep. */}
+                    {sky && (
+                      <span
+                        aria-hidden
+                        className="pointer-events-none absolute inset-0 rounded-md opacity-100 transition-opacity duration-200 ease-out group-hover:opacity-0"
+                        style={{ background: "rgba(6,5,18,0.5)" }}
+                      />
+                    )}
                     {/* kind GLYPH + title. Wrapped so they fade as ONE unit and, crucially,
                         FAST + EARLY on collapse (110ms, no delay) — the text is gone before
                         the bar finishes sliding into the rail. On expand they fade back in
                         LATE (delayed) so the bar grows first, then the label appears. */}
                     <span
-                      className="flex items-center gap-1.5 overflow-visible pl-1.5 pr-2"
+                      className="relative z-10 flex items-center gap-1.5 overflow-visible pl-1.5 pr-2"
                       style={{
                         opacity: collapsedTarget ? 0 : 1,
                         // A chip's colored BOX width is just its time-span % (≈ the rail tick),
@@ -3018,10 +3045,17 @@ export function TimelineStrip({
                           : "opacity 200ms ease-out 160ms, clip-path 340ms ease-out 140ms",
                       }}
                     >
-                      <span className="h-2.5 w-2.5 shrink-0" style={{ color: b.color || "var(--muted-foreground)" }}>
+                      <span
+                        className="h-2.5 w-2.5 shrink-0"
+                        style={{ color: sky ? "rgba(255,255,255,0.92)" : b.color || "var(--muted-foreground)" }}
+                      >
                         <NodeGlyph kind={(b.entity?.kind as NodeKind) ?? "event"} filled={glyphFilled(b.entity)} strokeWidth={2} />
                       </span>
-                      <span className={cn("whitespace-nowrap", b.cancelled && "line-through")}>{b.title}</span>
+                      <span
+                        className={cn("whitespace-nowrap", b.cancelled && "line-through", sky && "text-white/90")}
+                      >
+                        {b.title}
+                      </span>
                     </span>
                   </motion.button>
                 </motion.div>
