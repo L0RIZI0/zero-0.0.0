@@ -105,13 +105,23 @@ const RIPPLE_FALLOFF = 0.7
 // Raised 220 → 320 so far columns can trail further for a bigger, more fluid wave.
 const RIPPLE_MAX_OFFSET = 320
 
-// Wheel pan sensitivity: fraction of a raw wheel-notch's px distance that the lane pans.
+// Wheel pan sensitivity: total lane-px one raw wheel-notch's distance eventually pans.
 // A physical mouse notch (~120px) felt like it flung the lane too far. Damped further
-// 0.4 → 0.25 — one notch still felt too "steppy"/wide, so each notch now covers ~25%.
+// 0.4 → 0.25 — one notch still felt too "steppy"/wide, so each notch covers ~25% of its
+// raw distance (spread over the momentum glide below, not applied in one step).
 const WHEEL_PAN_SENSITIVITY = 0.25
-// Wheel drain ease-out rate: fraction of the remaining buffered pan consumed per 60fps
-// frame (dt-normalized). Higher = snappier/less lag; lower = smoother/floatier.
-const WHEEL_DRAIN = 0.3
+// MOMENTUM MODEL (replaced the old "drain a fraction of a distance buffer" ease-out —
+// that emptied the buffer within a few frames of the last notch, so the lane braked hard
+// the instant you stopped scrolling, and the ripple's held-back columns snapped back with
+// a little bounce). Now each notch injects VELOCITY (px/s); the loop moves by vel·dt each
+// frame and decays vel with friction e^(−dt/τ). So while scrolling the lane tracks the
+// input speed, and when input stops it KEEPS gliding at that speed and eases to rest over
+// ~τ — real inertia, no brake, no bounce. One notch's TOTAL glide distance = Δv·τ, so we
+// derive the per-notch velocity impulse as (sensitivity·rawPx)/τ to preserve calibration.
+// FRICTION_TAU: velocity decay time-constant (s). Larger = longer, floatier coast.
+const WHEEL_FRICTION_TAU = 0.5
+// End the glide once the pan speed falls below this (px/s) — the tail is imperceptible.
+const WHEEL_STOP_V = 14
 // While draining, the base pan is applied as an imperative transform (no React render);
 // we only FLUSH it into `viewStart` (React truth) once it crosses this fraction of the
 // lane width, or when the gesture settles — keeping renders rare so panning stays smooth
@@ -271,12 +281,13 @@ export function Dayline() {
   // Column the cursor is currently over (defaults to lane center). Pan lag radiates from here.
   const cursorColRef = useRef((RIPPLE_COLS - 1) / 2)
   const reducedRef = useRef(false)
-  // Wheel-pan smoothing. A physical mouse wheel fires large discrete notches (often
-  // line/page deltaMode, ~100px+ each), so applying a whole notch at once jumps the lane.
-  // Instead each notch ADDS to a pending px buffer that a rAF loop eases out a fraction at
-  // a time — turning stepped mouse ticks into a continuous glide (trackpads already send
-  // tiny continuous deltas, so they just pass through smoothly).
-  const wheelPendingRef = useRef(0)
+  // Wheel-pan momentum. A physical mouse wheel fires large discrete notches (often
+  // line/page deltaMode, ~100px+ each); applying a whole notch at once jumps the lane.
+  // Instead each notch injects VELOCITY (px/s) into this ref, and a rAF loop advances the
+  // pan by vel·dt each frame while decaying vel with friction — turning stepped ticks into
+  // a continuous glide that coasts on after input stops (trackpads send tiny continuous
+  // deltas, so they simply keep topping up the velocity and it tracks them smoothly).
+  const wheelVelRef = useRef(0)
   const wheelRafRef = useRef<number | null>(null)
   const wheelTsRef = useRef(0)
   // Base pan applied imperatively (via `panWrapRef` transform) but not yet flushed into
@@ -483,10 +494,11 @@ export function Dayline() {
   // (down / right) reveals LATER time (window slides forward), mirroring the drag where
   // dragging left reveals later time.
   //
-  // SMOOTHING: applying a notch instantly makes a physical mouse wheel jump a big step per
-  // tick. Instead each notch adds raw delta px into `wheelPendingRef`, and a rAF loop eases
-  // it out with a single dt-normalized ease-OUT (a fraction of the remaining buffer per
-  // frame) for a smooth, low-lag glide.
+  // SMOOTHING / MOMENTUM: applying a notch instantly makes a physical mouse wheel jump a big
+  // step per tick. Instead each notch injects a VELOCITY impulse into `wheelVelRef`, and a rAF
+  // loop advances the pan by vel·dt each frame while decaying vel with friction (e^(−dt/τ)) —
+  // so the lane tracks the input while scrolling and then COASTS on and eases to rest after
+  // input stops, instead of braking the instant the buffer empties. See the momentum consts.
   //
   // JANK FIX: the base pan is applied as an IMPERATIVE transform on `panWrapRef` (which
   // wraps both the ticks and the NOW marker) rather than via `setViewStart` every frame.
@@ -523,20 +535,20 @@ export function Dayline() {
     const lane = laneRef.current
     if (!lane) return
 
-    const drain = (ts: number) => {
+    const glide = (ts: number) => {
       const w = lane.clientWidth || 1
-      // Frame-time factor: 1 at 60fps, larger on slower frames — keeps rates consistent.
-      const dt = wheelTsRef.current ? Math.min((ts - wheelTsRef.current) / 16.67, 3) : 1
+      // dt in SECONDS (clamped so a stalled tab can't teleport the pan in one frame).
+      const dt = wheelTsRef.current ? Math.min((ts - wheelTsRef.current) / 1000, 0.05) : 1 / 60
       wheelTsRef.current = ts
 
-      const pending = wheelPendingRef.current
-      // Single ease-out: consume a dt-normalized fraction of the remaining buffer.
-      let slice = pending * (1 - Math.pow(1 - WHEEL_DRAIN, dt))
-      // Floor so the tail finishes instead of asymptoting forever.
-      if (Math.abs(pending) <= 0.5) slice = pending
-      else if (Math.abs(slice) < 0.5) slice = Math.sign(pending) * 0.5
+      const vel = wheelVelRef.current
+      // Distance travelled this frame at the current velocity…
+      const slice = vel * dt
+      // …then friction decays the velocity toward zero (exponential, frame-rate independent).
+      // A fresh notch's impulse rides on top of whatever coast is already in flight, so
+      // successive notches build momentum rather than resetting it.
+      wheelVelRef.current = vel * Math.exp(-dt / WHEEL_FRICTION_TAU)
 
-      wheelPendingRef.current = pending - slice
       wheelCommitRef.current += slice
       // Imperative base pan (composited transform, no React render) kept in lockstep with
       // the ripple. Negative because scrolling forward moves content LEFT.
@@ -547,10 +559,11 @@ export function Dayline() {
       // re-anchor and stay fresh (the layout effect re-zeroes the transform seamlessly).
       if (Math.abs(wheelCommitRef.current) > w * WHEEL_FLUSH_FRAC) flushWheelPan()
 
-      if (Math.abs(wheelPendingRef.current) > 0.05) {
-        wheelRafRef.current = requestAnimationFrame(drain)
+      // Keep coasting until the velocity (px/s) falls below the imperceptible floor.
+      if (Math.abs(wheelVelRef.current) > WHEEL_STOP_V) {
+        wheelRafRef.current = requestAnimationFrame(glide)
       } else {
-        wheelPendingRef.current = 0
+        wheelVelRef.current = 0
         wheelTsRef.current = 0
         wheelRafRef.current = null
         // Don't flush yet if the ripple is still settling — defer to its rest (see
@@ -566,14 +579,17 @@ export function Dayline() {
       // Normalize non-pixel wheel modes so line/page-based mice map to comparable px.
       if (e.deltaMode === 1) delta *= 16 // lines → px
       else if (e.deltaMode === 2) delta *= lane.clientWidth || 1 // pages → px
-      // Sensitivity: a raw mouse notch (~120px) pans the whole lane far too hard, so scale
-      // each notch down — the pan covers ~40% of the notch's raw distance.
+      // Sensitivity scales the raw notch to the lane-px it should ultimately cover.
       delta *= WHEEL_PAN_SENSITIVITY
       cursorColRef.current = pctToCol(e.clientX)
-      wheelPendingRef.current += delta
+      // Inject the notch as a VELOCITY impulse. Since a coasting velocity v decays as
+      // v·e^(−t/τ), its integral (total distance) is v·τ — so to make this notch add
+      // exactly `delta` px of travel we inject Δv = delta/τ. This preserves the old
+      // per-notch reach while giving the motion inertia that outlives the input.
+      wheelVelRef.current += delta / WHEEL_FRICTION_TAU
       if (wheelRafRef.current == null) {
         wheelTsRef.current = 0
-        wheelRafRef.current = requestAnimationFrame(drain)
+        wheelRafRef.current = requestAnimationFrame(glide)
       }
     }
 
@@ -582,7 +598,7 @@ export function Dayline() {
       lane.removeEventListener("wheel", onWheel)
       if (wheelRafRef.current != null) cancelAnimationFrame(wheelRafRef.current)
       wheelRafRef.current = null
-      wheelPendingRef.current = 0
+      wheelVelRef.current = 0
       wheelCommitRef.current = 0
       wheelTsRef.current = 0
     }
