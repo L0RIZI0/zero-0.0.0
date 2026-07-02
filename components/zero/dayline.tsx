@@ -59,23 +59,40 @@ const DAY_MS = 86_400_000
 const DAY_START_HOUR = 5
 const NEUTRAL = "oklch(0.72 0.004 75)"
 
-// --- Ripple tuning ----------------------------------------------------------
-// Screen is divided into this many fixed columns; each is one spring. ~16 over a
-// typical lane width ≈ 1–2h per column, matching the requested "cell" feel.
-const RIPPLE_COLS = 16
+// --- Ripple tuning -----------------------------------------------------------
+// ⚠️ DAYLINE-SPECIFIC. This whole ripple block is tuned for the CURRENT dayline lane and
+// its mounted-tick density. A future "build on dayline" (à la timeline) must NOT blindly
+// copy these numbers — re-tune per that view's width/column density. Kept intentionally
+// LOW-LOAD (see perf note below) so it never competes with heavier future dayline work.
+//
+// PERF: per-frame cost splits in two —
+//   • paintRipple() is O(mounted tick nodes) and is INDEPENDENT of RIPPLE_COLS (it just
+//     looks up off[col]). The node count is the real load lever, not the column count.
+//   • the sim loop is O(substeps × RIPPLE_COLS) of trivial float math (~3×32/frame here) —
+//     negligible. So RIPPLE_COLS is effectively free to raise; we keep it modest anyway.
+//
+// Screen is divided into this many fixed columns; each is one node in the coupled chain.
+// Bumped 16 → 32 for a finer, glassier water surface (≈45min per column over a typical
+// lane). Raising this is cheap (see PERF above); the visual wave SPEED depends on COUPLING
+// (see below), not on resolution, once COUPLING is scaled to match.
+const RIPPLE_COLS = 32
 // Critically-damped spring: damping = 2*sqrt(stiffness) → fastest settle w/ NO overshoot.
 // Softer stiffness = slower, more visible catch-up (a longer, more pronounced trailing
 // wave) while staying critically damped (no bounce). Softened 34 → 20 for an extra-fluid,
 // longer-settling liquid trail behind the pan.
 const RIPPLE_STIFFNESS = 20
 const RIPPLE_DAMPING = 2 * Math.sqrt(RIPPLE_STIFFNESS)
-// Neighbor COUPLING: each column is now linked to its left/right neighbors (a damped wave
+// Neighbor COUPLING: each column is linked to its left/right neighbors (a damped wave
 // equation / chain of masses) instead of being an isolated spring. This is what makes it
 // feel like WATER — a disturbance PROPAGATES column→column with a natural delay and sloshes
-// back, rather than every cell pulsing in unison. Coupling >> stiffness so the wave travels
-// visibly (≈sqrt(COUPLING) cols/sec) before the restoring term settles it. The fixed
-// (lower) damping is intentionally UNDER-damped for the high coupling modes → gentle slosh.
-const RIPPLE_COUPLING = 150
+// back, rather than every cell pulsing in unison.
+// The visual wave speed ≈ √(COUPLING) · laneWidth / RIPPLE_COLS, so COUPLING must scale
+// ∝ RIPPLE_COLS² to keep the same travel speed at higher resolution. Scaled 150 → 600
+// alongside the 16 → 32 column bump (2× cols ⇒ 4× coupling) so the finer surface still
+// slosh-travels at the same pace. Damping stays under-damped for those modes → gentle slosh.
+// (Stability: ω_max = √(4·COUPLING+STIFFNESS) ≈ 49 rad/s; substep h ≈ 0.006s ⇒ hω ≈ 0.3,
+// well inside the semi-implicit Euler limit of 2.)
+const RIPPLE_COUPLING = 600
 // Max fraction of a pan step a far column lags behind by (0 = none, 1 = fully held back).
 // Near 1 → far columns almost freeze on each step, then snap-catch-up for a big ripple.
 const RIPPLE_LAG = 0.99
