@@ -34,8 +34,12 @@ import { panelSlideTransition, MORPH_SECONDS, MORPH_EASE } from "@/lib/zero/moti
  */
 
 const MORPH = { duration: MORPH_SECONDS, ease: MORPH_EASE }
-/** Beat to HOLD the full panel before it collapses into peek, once a child opens. */
-const PEEK_IN_DELAY = 2
+/**
+ * Beat to HOLD the full panel before it collapses into peek, once a child opens.
+ * Pegged to 85% of the open-window morph (MORPH_SECONDS) so the panel stays whole for
+ * almost the entire dive-in, then morphs into losanges just as the child window settles.
+ */
+const PEEK_IN_DELAY = MORPH_SECONDS * 0.85
 /**
  * Transition for every peek-driven property. Entering peek (a child just opened → `peek`
  * flips true) is HELD for PEEK_IN_DELAY so the full panel lingers before morphing into the
@@ -235,25 +239,11 @@ function ResourceRow({
         </motion.span>
       </motion.span>
       <span className="flex min-w-0 flex-1 flex-col leading-tight">
-        {/* Title + detail simply FADE OUT in peek — no shrink, no reposition, no height
-            collapse. They stay exactly where they are and dissolve, leaving only the
-            traveling losange (its title still available on hover) and the hairline. */}
-        <motion.span
-          initial={false}
-          animate={{ opacity: peek ? 0 : 1 }}
-          transition={peekMorph(peek)}
-          className="truncate text-[12.5px] tracking-tight text-foreground"
-        >
-          {item.title}
-        </motion.span>
-        <motion.span
-          initial={false}
-          animate={{ opacity: peek ? 0 : 1 }}
-          transition={peekMorph(peek)}
-          className="truncate text-[11px] text-muted-foreground/70"
-        >
-          {item.detail}
-        </motion.span>
+        {/* Title + detail DON'T fade in peek — nothing fades anymore. They stay put at full
+            opacity; only the losange (glyph tile) travels to the strip and the hairline
+            widens. The narrowing panel column is what carries the text out of view. */}
+        <span className="truncate text-[12.5px] tracking-tight text-foreground">{item.title}</span>
+        <span className="truncate text-[11px] text-muted-foreground/70">{item.detail}</span>
       </span>
     </button>
   )
@@ -285,15 +275,12 @@ function Section({
   const expanded = open || peek
   return (
     <div>
-      {/* Header toggles the section. In peek it fades out but KEEPS its box, so the
-          collapsed losange list keeps the between-section gaps. */}
-      <motion.button
+      {/* Header toggles the section. No longer fades in peek — it just goes inert
+          (pointer-events-none) and rides out with the narrowing column. */}
+      <button
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
-        initial={false}
-        animate={{ opacity: peek ? 0 : 1 }}
-        transition={peek ? peekMorph(true, { duration: 0.3, ease: "easeOut" }) : MORPH}
         className={cn(
           "flex w-full items-center gap-1.5 px-2 py-2 text-left",
           peek && "pointer-events-none",
@@ -302,7 +289,7 @@ function Section({
         {!open && <ChevronDown className="h-3.5 w-3.5 -rotate-90 text-muted-foreground/70" strokeWidth={2} />}
         <span className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground/80">{title}</span>
         <span className="text-[11px] text-muted-foreground/40">{items.length}</span>
-      </motion.button>
+      </button>
       <AnimatePresence initial={false}>
         {expanded && (
           <motion.div
@@ -330,10 +317,13 @@ function Section({
 
 export function AssetPanel({
   spaceId,
+  isRoot = false,
   peek = false,
   railWidth = 48,
 }: {
   spaceId: string
+  /** Only entity0 (the home / Individual) has resources; every other space is empty. */
+  isRoot?: boolean
   /** Collapse the resources into peek losanges on the window's left peek strip. */
   peek?: boolean
   /** Width of the peek strip the losanges center on (the window's visible bleed). */
@@ -346,35 +336,46 @@ export function AssetPanel({
   // SAME peek-strip center as the resource losanges above, so they align vertically.
   const peekAddX = rowPeekX(railWidth, ADD_GLYPH_CENTER)
 
+  // Resources are entity0-only. Any other space shows an EMPTY panel — no money, no
+  // assets/apps (⇒ no peek losanges), just the affordance to add the first resource.
+  if (!isRoot) {
+    return (
+      <div key={spaceId} className="flex flex-col">
+        <button
+          type="button"
+          className={cn(
+            "mt-2 flex w-full items-center gap-2 rounded-lg border border-dashed border-border px-2 py-2 text-left text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground transition-colors hover:border-foreground/30 hover:text-foreground",
+            peek && "pointer-events-none",
+          )}
+        >
+          <Plus className="h-3.5 w-3.5" strokeWidth={2} />
+          Add resource
+        </button>
+      </div>
+    )
+  }
+
   return (
     // Keyed by context so switching nodes hard-swaps (instant, no cross-fade).
     <div key={spaceId} className="flex flex-col">
-      {/* Money — the imposing balance figure. FADES OUT in peek (stays in place, no move),
-          like everything else except the hairlines + losanges. */}
-      <motion.div
-        initial={false}
-        animate={{ opacity: peek ? 0 : 1 }}
-        transition={peekMorph(peek)}
-        className="px-2 pb-4 pt-1"
-      >
+      {/* Money — the imposing balance figure. No longer fades in peek; it stays put and
+          rides out with the narrowing column, like all the other text content. */}
+      <div className="px-2 pb-4 pt-1">
         <div className="flex items-baseline gap-1.5">
           <span className="text-[27px] font-semibold leading-none tracking-tight tabular-nums text-foreground">
             {MOCK_BALANCE}
           </span>
           <span className="text-sm font-medium text-muted-foreground">USD</span>
         </div>
-      </motion.div>
+      </div>
 
       <Section title="Assets" items={ASSET_ITEMS} peek={peek} railWidth={railWidth} onHover={setHover} />
       <Section title="Apps" items={APP_ITEMS} peek={peek} railWidth={railWidth} onHover={setHover} />
 
-      {/* Full add-resource affordance — fades out FAST/early at the start of the peek
-          collapse (an exception to the slow morph beat) and stops taking pointer events. */}
-      <motion.button
+      {/* Full add-resource affordance — no longer fades in peek; just goes inert and rides
+          out with the narrowing column like the rest of the content. */}
+      <button
         type="button"
-        initial={false}
-        animate={{ opacity: peek ? 0 : 1 }}
-        transition={peek ? peekMorph(true, { duration: 0.25, ease: "easeOut" }) : MORPH}
         className={cn(
           "mt-2 flex w-full items-center gap-2 rounded-lg border border-dashed border-border px-2 py-2 text-left text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground transition-colors hover:border-foreground/30 hover:text-foreground",
           peek && "pointer-events-none",
@@ -382,7 +383,7 @@ export function AssetPanel({
       >
         <Plus className="h-3.5 w-3.5" strokeWidth={2} />
         Add resource
-      </motion.button>
+      </button>
 
       {/* PEEK add button — a tiny minimalist "+" at the foot of the losange list, on the
           peek strip. Invisible until hovered (opacity 0 but still hit-testable). It lives

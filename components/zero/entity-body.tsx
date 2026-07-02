@@ -99,8 +99,9 @@ export function EntityBody({
   isRoot?: boolean
 }) {
   // The Resources panel is a static mockup; its header counter should reflect the items
-  // actually rendered there (assets + apps), not a store value.
-  const assetCount = RESOURCE_COUNT
+  // actually rendered there (assets + apps). Resources are entity0-only, so every other
+  // space reports 0.
+  const assetCount = isRoot ? RESOURCE_COUNT : 0
   const [inOpen, setInOpen] = usePanelOpen(`${entityId}:in`, false)
   const [outOpen, setOutOpen] = usePanelOpen(`${entityId}:out`, false)
   // SQUEEZE: an open side panel pushes the View content inward on that side (instead
@@ -257,7 +258,7 @@ export function EntityBody({
                 small filled losanges on the left peek. `railWidth` is the peek strip
                 width they center on. If the panel was closed, AssetPanel isn't mounted,
                 so nothing changes. */}
-            <AssetPanel spaceId={entityId} peek={inOpen && !active} railWidth={railWidth} />
+            <AssetPanel spaceId={entityId} isRoot={isRoot} peek={inOpen && !active} railWidth={railWidth} />
           </CollapsibleColumn>
         )}
       </PanelSlot>
