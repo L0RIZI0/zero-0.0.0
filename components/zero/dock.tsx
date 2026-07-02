@@ -78,19 +78,28 @@ export function Dock({ contextId, active = true }: { contextId: string; active?:
   // ONE-SHOT TWEEN ACROSS A STRUCTURAL FLIP. `dockStructureKey` changes only when the
   // row breakdown or card SIZE changes (not on every continuous width tick). While the
   // key is steady we leave positions un-transitioned so cards track a panel squeeze in
-  // real time; the instant it changes (single↔honeycomb, or a size step) we switch the
-  // transition ON for one morph beat, then off again — so the rearrangement glides
-  // instead of snapping onto two lines.
+  // real time; when it changes (single↔honeycomb, or a size step) we switch the position
+  // transition ON for one morph beat so the rearrangement GLIDES instead of snapping.
+  //
+  // Two parts, both required:
+  //  • `justChanged` (SYNCHRONOUS, this render) — the render that first paints the new
+  //    positions must ALSO carry the transition, or the browser paints the jump before
+  //    any effect can enable it. Comparing to a ref during render gives us that.
+  //  • `windowOpen` (a ~400ms timer) — keeps the transition on through the intermediate
+  //    same-structure width ticks that arrive while a panel is still sliding, so the
+  //    in-flight glide isn't cancelled midway.
   const structureKey = dockStructureKey(layout)
   const prevStructure = useRef(structureKey)
-  const [animateLayout, setAnimateLayout] = useState(false)
+  const justChanged = prevStructure.current !== structureKey
+  const [windowOpen, setWindowOpen] = useState(false)
   useEffect(() => {
     if (prevStructure.current === structureKey) return
     prevStructure.current = structureKey
-    setAnimateLayout(true)
-    const t = setTimeout(() => setAnimateLayout(false), 420)
+    setWindowOpen(true)
+    const t = setTimeout(() => setWindowOpen(false), 400)
     return () => clearTimeout(t)
   }, [structureKey])
+  const animateLayout = justChanged || windowOpen
 
   const dockMetrics = { cardW: layout.cardW, cardH: layout.cardH, contentScale: layout.contentScale }
 
@@ -228,7 +237,7 @@ export function Dock({ contextId, active = true }: { contextId: string; active?:
       <div ref={rowRef} className="w-full">
         <div
           key={contextId}
-          className="relative mx-auto transition-[height] duration-300 ease-out"
+          className="relative w-full transition-[height] duration-300 ease-out"
           style={{ height: containerH }}
         >
           <AnimatePresence initial={false}>
@@ -236,15 +245,28 @@ export function Dock({ contextId, active = true }: { contextId: string; active?:
               const box = boxes[idx]
               if (!box) return null
               return (
-                <EntityNode
+                <div
                   key={item.id}
-                  entityId={item.entity.id}
-                  contextId={contextId}
-                  variant="dock"
-                  dockMetrics={dockMetrics}
-                  dockPos={{ left: box.left, top: box.top, animate: animateLayout }}
-                  onContextMenu={(e) => openMenu(e, item)}
-                />
+                  className="absolute"
+                  style={{
+                    left: box.left,
+                    top: box.top,
+                    // Positions use left/top ONLY (never transforms). Transitioned only
+                    // during a structural flip (see animateLayout) so continuous squeeze
+                    // tracks instantly while the single↔honeycomb rearrange glides.
+                    transition: animateLayout
+                      ? "left 360ms cubic-bezier(0.62,0.02,0.07,0.99), top 360ms cubic-bezier(0.62,0.02,0.07,0.99)"
+                      : undefined,
+                  }}
+                >
+                  <EntityNode
+                    entityId={item.entity.id}
+                    contextId={contextId}
+                    variant="dock"
+                    dockMetrics={dockMetrics}
+                    onContextMenu={(e) => openMenu(e, item)}
+                  />
+                </div>
               )
             })}
           </AnimatePresence>
