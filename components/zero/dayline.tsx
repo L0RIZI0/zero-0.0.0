@@ -251,6 +251,9 @@ export function Dayline() {
   // consumed, so base + ripple always agree with no jump when we flush.
   const wheelCommitRef = useRef(0)
   const panWrapRef = useRef<HTMLDivElement>(null)
+  // Bridge so the ripple loop (defined above) can trigger the deferred wheel-pan flush
+  // once the ripple settles — assigned below where `maybeFlushAtRest` is defined.
+  const flushAtRestRef = useRef<() => void>(() => {})
   // Registered nodes to displace each frame, keyed so unmounts clean themselves up. Each
   // node carries a live `data-col` attribute (updated by React every render) that the loop
   // reads — so a node whose column changes mid-pan always uses its CURRENT screen column.
@@ -337,6 +340,9 @@ export function Dayline() {
         rafRef.current = requestAnimationFrame(tick)
       } else {
         rafRef.current = null
+        // Ripple has come fully to rest — a safe, motionless moment to run the deferred
+        // wheel-pan flush (the one React reconcile), so it can't hitch on live motion.
+        flushAtRestRef.current()
       }
     },
     [paintRipple],
@@ -439,8 +445,23 @@ export function Dayline() {
     if (!lane || !commit) return
     const w = lane.clientWidth || 1
     wheelCommitRef.current = 0 // cleared BEFORE the state update so the layout effect zeroes the transform
+    // Atomic swap without a forced synchronous render: the `viewStart` change re-renders
+    // ticks with new `leftPct`, and the `useLayoutEffect` below (keyed on viewStart) clears
+    // the pan-wrap transform in the same pre-paint step — base shift + transform removal
+    // land together. (flushSync was tried here but only added a mid-motion render hitch.)
     setViewStart((vs) => vs + (commit / w) * DAY_MS)
   }, [])
+
+  // Deferred flush: only commit the imperative pan into `viewStart` (the one React
+  // reconcile of all ticks) once BOTH the wheel drain (`wheelRafRef`) and the ripple
+  // spring (`rafRef`) are fully at rest. Running the reconcile during the ripple's
+  // settle was the source of the visible hitch — at true rest it's motionless and free.
+  const maybeFlushAtRest = useCallback(() => {
+    if (wheelRafRef.current == null && rafRef.current == null && wheelCommitRef.current !== 0) {
+      flushWheelPan()
+    }
+  }, [flushWheelPan])
+  flushAtRestRef.current = maybeFlushAtRest
 
   useEffect(() => {
     const lane = laneRef.current
@@ -478,7 +499,9 @@ export function Dayline() {
         wheelPendingRef.current = 0
         wheelTsRef.current = 0
         wheelRafRef.current = null
-        flushWheelPan() // settle: commit the remainder
+        // Don't flush yet if the ripple is still settling — defer to its rest (see
+        // `maybeFlushAtRest`). If the ripple is already at rest, this flushes now.
+        maybeFlushAtRest()
       }
     }
 
@@ -509,7 +532,7 @@ export function Dayline() {
       wheelCommitRef.current = 0
       wheelTsRef.current = 0
     }
-  }, [pctToCol, injectPan, flushWheelPan])
+  }, [pctToCol, injectPan, flushWheelPan, maybeFlushAtRest])
 
   // Keep the imperative pan-wrap transform consistent with `viewStart`. Runs synchronously
   // after every commit (before paint), so when a wheel flush moves `viewStart` and zeroes
