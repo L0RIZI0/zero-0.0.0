@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import { AnimatePresence, motion } from "motion/react"
 import { PinOff, Trash2, Ban, RotateCcw } from "lucide-react"
 import { layerTransition } from "@/lib/zero/motion"
-import { computeDockLayout, dockCardBoxes, dockStructureKey } from "@/lib/zero/dock-layout"
+import { computeDockLayout, dockCardBoxes } from "@/lib/zero/dock-layout"
 import {
   getEntity,
   getPinnedItems,
@@ -68,38 +68,11 @@ export function Dock({ contextId, active = true }: { contextId: string; active?:
 
   // Resolve the layout into ABSOLUTE per-card boxes + the container size. Cards are
   // rendered as ONE flat, stably-keyed list of absolutely-positioned nodes (they never
-  // re-parent between row <div>s, so nothing remounts and there is no jump), and each
-  // card just CSS-transitions its box when the structure flips single↔honeycomb.
+  // re-parent, so nothing remounts and there is no jump); each just tracks its box.
   const { boxes, height: containerH } = useMemo(
     () => dockCardBoxes(layout, availableWidth),
     [layout, availableWidth],
   )
-
-  // ONE-SHOT TWEEN ACROSS A STRUCTURAL FLIP. `dockStructureKey` changes only when the
-  // row breakdown or card SIZE changes (not on every continuous width tick). While the
-  // key is steady we leave positions un-transitioned so cards track a panel squeeze in
-  // real time; when it changes (single↔honeycomb, or a size step) we switch the position
-  // transition ON for one morph beat so the rearrangement GLIDES instead of snapping.
-  //
-  // Two parts, both required:
-  //  • `justChanged` (SYNCHRONOUS, this render) — the render that first paints the new
-  //    positions must ALSO carry the transition, or the browser paints the jump before
-  //    any effect can enable it. Comparing to a ref during render gives us that.
-  //  • `windowOpen` (a ~400ms timer) — keeps the transition on through the intermediate
-  //    same-structure width ticks that arrive while a panel is still sliding, so the
-  //    in-flight glide isn't cancelled midway.
-  const structureKey = dockStructureKey(layout)
-  const prevStructure = useRef(structureKey)
-  const justChanged = prevStructure.current !== structureKey
-  const [windowOpen, setWindowOpen] = useState(false)
-  useEffect(() => {
-    if (prevStructure.current === structureKey) return
-    prevStructure.current = structureKey
-    setWindowOpen(true)
-    const t = setTimeout(() => setWindowOpen(false), 400)
-    return () => clearTimeout(t)
-  }, [structureKey])
-  const animateLayout = justChanged || windowOpen
 
   const dockMetrics = { cardW: layout.cardW, cardH: layout.cardH, contentScale: layout.contentScale }
 
@@ -248,16 +221,12 @@ export function Dock({ contextId, active = true }: { contextId: string; active?:
                 <div
                   key={item.id}
                   className="absolute"
-                  style={{
-                    left: box.left,
-                    top: box.top,
-                    // Positions use left/top ONLY (never transforms). Transitioned only
-                    // during a structural flip (see animateLayout) so continuous squeeze
-                    // tracks instantly while the single↔honeycomb rearrange glides.
-                    transition: animateLayout
-                      ? "left 360ms cubic-bezier(0.62,0.02,0.07,0.99), top 360ms cubic-bezier(0.62,0.02,0.07,0.99)"
-                      : undefined,
-                  }}
+                  // Positions use left/top ONLY (never transforms) so an open card's
+                  // fixed window still resolves vs. the viewport. NO CSS transition:
+                  // card size + gap now shrink continuously with width (no discrete
+                  // jumps), and the panel-squeeze width itself animates smoothly, so
+                  // cards track it in real time — a transition here would only rubber-band.
+                  style={{ left: box.left, top: box.top }}
                 >
                   <EntityNode
                     entityId={item.entity.id}

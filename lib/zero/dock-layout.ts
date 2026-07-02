@@ -66,12 +66,20 @@ function baseCard(contextDepth: number) {
   return { cardW: Math.round(cardH * HEX_RATIO), cardH }
 }
 
-/** Single-row gap bounds. As width tightens the gap squeezes from `wide` (the resting,
- *  roomy spacing) down to `tight` (the floor) BEFORE any card-frame shrink begins.
- *  Cards inside a Space pack a touch tighter than inside a task/event context. */
+/** Single-row gap bounds. `wide` = resting, roomy spacing; `tight` = the floor the gap
+ *  bottoms out at. The gap and the card frame shrink TOGETHER as width tightens (see
+ *  computeDockLayout), but the gap shrinks FASTER (GAP_AGGRESSION) so it visually keeps
+ *  pace with — rather than lagging behind — the shrinking frames. Cards inside a Space
+ *  pack a touch tighter than inside a task/event context. */
 function gapBounds(parentIsSpace: boolean) {
   return { wide: parentIsSpace ? 28 : 36, tight: parentIsSpace ? 12 : 16 }
 }
+
+/** How much faster the GAP shrinks than the card frame (in fractional terms). At 2, the
+ *  gap reaches its `tight` floor by the time the card has shrunk only halfway from base
+ *  to floor — counterbalancing the fact that a smaller card would otherwise make the gap
+ *  look relatively larger. */
+const GAP_AGGRESSION = 2
 
 /** Width at which content begins to scale (regime 1 → 2 boundary): the content
  *  stack's intrinsic width plus minimal horizontal padding. Below this the frame
@@ -113,25 +121,52 @@ export function computeDockLayout(input: Input): DockLayout {
     return singleRow(cardW, Math.round(cardW / HEX_RATIO), wide, 1)
   }
 
-  // --- Regime 0: GAP SQUEEZE (cards at BASE size) --------------------------------
-  // The gap absorbs the width change first. `gapAtBase` is the spacing that would
-  // exactly fill the leftover width with full-size cards; while it's still ≥ tight,
-  // cards stay at base and only the gap moves.
-  const gapAtBase = (availableWidth - count * base.cardW) / (count - 1)
-  if (gapAtBase >= tight) {
-    return singleRow(base.cardW, base.cardH, Math.round(clamp(gapAtBase, tight, wide)), count)
+  // CO-SHRINK MODEL. The card frame and the inter-card gap shrink TOGETHER and
+  // continuously as the width tightens — no discrete "gap first, then frame" regimes.
+  // They're coupled: as the card shrinks from `base` toward the floor by fraction
+  // `fc`, the gap shrinks from `wide` toward `tight` by fraction `fc × GAP_AGGRESSION`
+  // (so the gap moves faster and bottoms out first). We solve for the `cardW` that makes
+  // `n·cardW + (n−1)·gap(cardW) = availableWidth`, i.e. cards + gaps exactly fill the row.
+  //
+  //   gap(cardW) = wide − G·min(1, AGG·fc),   fc = (base − cardW)/(base − floor)
+  //
+  // This is piecewise-linear in cardW with a knee where the gap hits `tight`:
+  const D = base.cardW - CARD_FLOOR_W // total frame shrink room
+  const G = wide - tight // total gap shrink room
+  const n = count
+
+  // Resting / roomy: at or above the full base row width, stay at base + wide gap
+  // (extra space just leaves the centered row breathing).
+  const restWidth = n * base.cardW + (n - 1) * wide
+  if (availableWidth >= restWidth) {
+    return singleRow(base.cardW, base.cardH, wide, n)
   }
 
-  // --- Regime 1+2: FRAME then CONTENT shrink (gap pinned at tight) ---------------
-  // Gap has bottomed out; now shrink the card frame toward CARD_FLOOR_W. `contentScaleFor`
-  // (applied in singleRow) keeps content at scale 1 until the frame crowds it (< ~84px),
-  // then scales it down to CONTENT_FLOOR — so regimes 1 and 2 flow into each other. The
-  // card bottoms out at CARD_FLOOR_W and STAYS there (single row always; no wrapping —
-  // if the width is narrower than the floored row it simply overflows/clips, rather than
-  // reflowing onto multiple lines).
-  const perCard = (availableWidth - tight * (count - 1)) / count
-  const cardW = Math.round(clamp(perCard, CARD_FLOOR_W, base.cardW))
-  return singleRow(cardW, Math.round(cardW / HEX_RATIO), tight, count)
+  // Segment A — gap still descending (fc < 1/AGG). Solve the linear total for cardW:
+  //   total = n·cardW + (n−1)·[wide − G·AGG·(base − cardW)/D]
+  // Let A = (n−1)·G·AGG/D → total = (n + A)·cardW + (n−1)·wide − A·base.
+  const A = ((n - 1) * G * GAP_AGGRESSION) / D
+  const cardW_A = (availableWidth - (n - 1) * wide + A * base.cardW) / (n + A)
+  const cardW_gapFloor = base.cardW - D / GAP_AGGRESSION // width at which gap reaches tight
+
+  let cardW: number
+  let gap: number
+  if (cardW_A >= cardW_gapFloor) {
+    // Gap has not yet floored: both shrink together, gap faster.
+    cardW = cardW_A
+    const fc = (base.cardW - cardW) / D
+    gap = wide - G * GAP_AGGRESSION * fc
+  } else {
+    // Segment B — gap floored at `tight`; the frame keeps shrinking alone toward the
+    // floor. Content scaling (contentScaleFor, applied in singleRow) takes over once the
+    // frame crosses ~84px. The card bottoms out at CARD_FLOOR_W and STAYS there — single
+    // row always, so an even narrower width just overflows/clips (never wraps).
+    gap = tight
+    cardW = (availableWidth - tight * (n - 1)) / n
+  }
+
+  cardW = Math.round(clamp(cardW, CARD_FLOOR_W, base.cardW))
+  return singleRow(cardW, Math.round(cardW / HEX_RATIO), Math.round(clamp(gap, tight, wide)), n)
 }
 
 function singleRow(cardW: number, cardH: number, gapX: number, count: number): DockLayout {
@@ -185,11 +220,4 @@ export function dockCardBoxes(
   const rows = rowCounts.length
   const height = rows > 0 ? (rows - 1) * advanceY + cardH : 0
   return { boxes, width: availableWidth, height }
-}
-
-/** A compact string that changes ONLY when the STRUCTURE changes (row breakdown or
- *  card size), used by the dock to enable a one-shot CSS tween across a structural
- *  flip while leaving continuous same-structure width tracking un-transitioned. */
-export function dockStructureKey(layout: DockLayout): string {
-  return `${layout.rowCounts.join("-")}|${layout.cardW}x${layout.cardH}`
 }
