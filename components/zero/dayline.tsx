@@ -233,6 +233,10 @@ export function Dayline() {
   // tiny continuous deltas, so they just pass through smoothly).
   const wheelPendingRef = useRef(0)
   const wheelRafRef = useRef<number | null>(null)
+  // Smoothed drain velocity (px/frame) + last frame timestamp — the slice we apply is
+  // itself eased toward its target so a notch RAMPS IN rather than jolting on frame 1.
+  const wheelVelRef = useRef(0)
+  const wheelTsRef = useRef(0)
   // Registered nodes to displace each frame, keyed so unmounts clean themselves up. Each
   // node carries a live `data-col` attribute (updated by React every render) that the loop
   // reads — so a node whose column changes mid-pan always uses its CURRENT screen column.
@@ -403,29 +407,43 @@ export function Dayline() {
   // (down / right) reveals LATER time (window slides forward), mirroring the drag where
   // dragging left reveals later time.
   //
-  // SMOOTHING: rather than apply each notch instantly (which makes a physical mouse wheel
-  // jump a big step per tick), we accumulate raw delta px into `wheelPendingRef` and drain
-  // a fraction of it per animation frame — a continuous glide. Each drained slice also
-  // feeds the ripple (content moves LEFT by the slice, so the injected shift is −slice).
+  // SMOOTHING: applying a notch instantly makes a physical mouse wheel jump a big step per
+  // tick. Instead each notch adds raw delta px into `wheelPendingRef`, and a rAF loop eases
+  // it out. Two layers of smoothing kill the steppiness: (1) the TARGET slice is a fraction
+  // of what's pending (natural ease-OUT tail), and (2) the ACTUAL slice velocity is lerped
+  // toward that target so a fresh notch RAMPS IN over a few frames instead of jolting on
+  // frame 1. Everything is normalized to elapsed time (dt vs a 60fps baseline) so the feel
+  // is identical regardless of refresh rate. Each applied slice also feeds the ripple.
   useEffect(() => {
     const lane = laneRef.current
     if (!lane) return
 
-    const drain = () => {
+    const drain = (ts: number) => {
       const w = lane.clientWidth || 1
+      // Frame-time factor: 1 at 60fps, larger on slower frames — keeps rates consistent.
+      const dt = wheelTsRef.current ? Math.min((ts - wheelTsRef.current) / 16.67, 3) : 1
+      wheelTsRef.current = ts
+
       const pending = wheelPendingRef.current
-      // Ease out ~22% of what's left each frame, with a small floor so the tail finishes
-      // quickly instead of asymptoting forever.
-      let slice = pending * 0.22
-      if (Math.abs(pending) < 0.5) slice = pending
-      else if (Math.abs(slice) < 0.5) slice = Math.sign(pending) * 0.5
+      // Target speed: pull ~13% of the remaining distance per 60fps-frame (long, soft tail).
+      const targetVel = pending * (1 - Math.pow(1 - 0.13, dt))
+      // Ease the actual velocity toward that target so notch onsets ramp in (no frame-1 jolt).
+      wheelVelRef.current += (targetVel - wheelVelRef.current) * Math.min(0.2 * dt, 1)
+      let slice = wheelVelRef.current
+      // Floor so the very end finishes instead of asymptoting forever.
+      if (Math.abs(pending) <= 0.5) slice = pending
+      else if (Math.abs(slice) < 0.4) slice = Math.sign(pending) * 0.4
+
       wheelPendingRef.current = pending - slice
       injectPan(-slice)
       setViewStart((vs) => vs + (slice / w) * DAY_MS)
-      if (Math.abs(wheelPendingRef.current) > 0.01) {
+
+      if (Math.abs(wheelPendingRef.current) > 0.05) {
         wheelRafRef.current = requestAnimationFrame(drain)
       } else {
         wheelPendingRef.current = 0
+        wheelVelRef.current = 0
+        wheelTsRef.current = 0
         wheelRafRef.current = null
       }
     }
@@ -439,7 +457,10 @@ export function Dayline() {
       else if (e.deltaMode === 2) delta *= lane.clientWidth || 1 // pages → px
       cursorColRef.current = pctToCol(e.clientX)
       wheelPendingRef.current += delta
-      if (wheelRafRef.current == null) wheelRafRef.current = requestAnimationFrame(drain)
+      if (wheelRafRef.current == null) {
+        wheelTsRef.current = 0
+        wheelRafRef.current = requestAnimationFrame(drain)
+      }
     }
 
     lane.addEventListener("wheel", onWheel, { passive: false })
@@ -448,6 +469,8 @@ export function Dayline() {
       if (wheelRafRef.current != null) cancelAnimationFrame(wheelRafRef.current)
       wheelRafRef.current = null
       wheelPendingRef.current = 0
+      wheelVelRef.current = 0
+      wheelTsRef.current = 0
     }
   }, [pctToCol, injectPan])
 
