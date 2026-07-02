@@ -162,30 +162,30 @@ export function computeDockLayout(input: Input): DockLayout {
   }
 
   // --- Regime 3: HONEYCOMB (multi-row) -------------------------------------------
-  // Even the min card + tight gap overflows one row. Break into offset rows that
-  // interlock, using the near-zero GAP_HONEY so hexagons tessellate. Grow rows until
-  // the widest row fits the width AND the stack fits the height budget; pick the
-  // FEWEST rows that satisfy both, keeping cards as large as possible.
+  // CONTINUITY: the single row bottomed out at exactly `min` right before wrapping, so
+  // honeycomb cards INHERIT that `min` size and STAY there — they must NOT jump back up
+  // to base just because multi-row frees horizontal room. We only add rows to fit the
+  // min-size cards at the near-zero GAP_HONEY (so hexagons tessellate). Pick the FEWEST
+  // rows whose offset width AND stack height both fit at `min`.
   for (let rows = 2; rows <= count; rows++) {
     const cols = Math.ceil(count / rows)
-    // Offset rows are shifted half a period, so a row needs room for `cols + 0.5`
-    // cards to guarantee the shifted row still fits.
-    const denom = cols + 0.5
-    const perCardH = (availableWidth - GAP_HONEY * (cols - 1)) / denom
-    const cardW = Math.round(clamp(perCardH, min.cardW, base.cardW))
-    const cardH = Math.round(cardW / HEX_RATIO)
-    // Interlocked rows advance by ¾ of card height; total stack height:
-    const overlap = Math.round(cardH * 0.25)
-    const stackH = cardH + (rows - 1) * (cardH - overlap)
-    if (perCardH >= min.cardW && stackH <= HONEYCOMB_HEIGHT_BUDGET) {
-      return honeycomb(cardW, cardH, count, rows)
+    // Offset rows are shifted half a period, so a row needs room for `cols + 0.5` cards.
+    const neededW = (cols + 0.5) * min.cardW + GAP_HONEY * (cols - 1)
+    const overlap = Math.round(min.cardH * 0.25)
+    const stackH = min.cardH + (rows - 1) * (min.cardH - overlap)
+    if (neededW <= availableWidth && stackH <= HONEYCOMB_HEIGHT_BUDGET) {
+      return honeycomb(min.cardW, min.cardH, count, rows)
     }
   }
 
-  // Fallback: everything is tight — pack at min card into as many rows as needed.
-  const cols = Math.max(1, Math.floor((availableWidth + GAP_HONEY) / (min.cardW + GAP_HONEY)))
-  const rows = Math.max(1, Math.ceil(count / Math.max(1, cols)))
-  return honeycomb(min.cardW, min.cardH, count, rows)
+  // Last resort: even stacked, min-size cards overflow. Use the most rows (fewest cols)
+  // and shrink the card BELOW min to fit the width — the only case cards go under `min`,
+  // so content scaling continues smoothly downward (still never an upward jump).
+  const rows = count
+  const cols = Math.ceil(count / rows) // 1 col
+  const perCardH = (availableWidth - GAP_HONEY * (cols - 1)) / (cols + 0.5)
+  const cardW = Math.round(clamp(perCardH, 1, min.cardW))
+  return honeycomb(cardW, Math.round(cardW / HEX_RATIO), count, rows)
 }
 
 function singleRow(cardW: number, cardH: number, gapX: number, count: number): DockLayout {
