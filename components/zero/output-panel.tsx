@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
+import { createPortal } from "react-dom"
 import { motion, AnimatePresence } from "motion/react"
 import { Plus, FileOutput } from "lucide-react"
 import { panelSlideTransition, MORPH_SECONDS, MORPH_EASE } from "@/lib/zero/motion"
@@ -84,16 +85,21 @@ export function OutputPanel({
         Create publication
       </motion.button>
 
-      {/* Floating hover label — to the LEFT of a right-peek losange. Fixed + high z so it
-          paints above the focused child window. */}
-      {hover && (
-        <div
-          className="pointer-events-none fixed z-[200] -translate-x-full -translate-y-1/2 whitespace-nowrap rounded-md border border-border bg-popover px-2 py-1 leading-none text-popover-foreground shadow-md"
-          style={{ top: hover.top, left: hover.left, fontSize: PEEK_LABEL_PX }}
-        >
-          {hover.title}
-        </div>
-      )}
+      {/* Floating hover label — to the LEFT of a right-peek losange. PORTALED to <body>
+          to escape the panel's transformed + overflow-hidden clip container (a fixed child
+          there gets clipped/mis-anchored). z-[200] paints above the focused child window. */}
+      {hover &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div
+            data-peek-label
+            className="pointer-events-none fixed z-[200] -translate-x-full -translate-y-1/2 whitespace-nowrap rounded-md border border-border bg-popover px-2 py-1 leading-none text-popover-foreground shadow-md"
+            style={{ top: hover.top, left: hover.left, fontSize: PEEK_LABEL_PX }}
+          >
+            {hover.title}
+          </div>,
+          document.body,
+        )}
     </div>
   )
 }
@@ -133,8 +139,8 @@ function PublicationRow({
         ref={tileRef}
         initial={false}
         animate={{
-          width: peek ? 15 : 28,
-          height: peek ? 15 : 28,
+          width: peek ? 8 : 28,
+          height: peek ? 8 : 28,
           borderRadius: peek ? 0 : 3,
           rotate: peek ? 45 : 0,
           backgroundColor: peek ? NEUTRAL_TINT : "rgba(0,0,0,0)",

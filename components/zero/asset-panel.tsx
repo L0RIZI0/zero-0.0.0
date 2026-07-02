@@ -356,25 +356,30 @@ export function AssetPanel({
       </motion.button>
 
       {/* PEEK add button — a tiny minimalist "+" at the foot of the losange list, on the
-          peek strip. Invisible until hovered (opacity 0 but still hit-testable). Rendered
-          only while peek to keep the normal layout untouched. */}
+          peek strip. Invisible until hovered (opacity 0 but still hit-testable). It lives
+          in a ZERO-HEIGHT relative wrapper and is ABSOLUTELY positioned: mounting it must
+          NOT add flow height, because the panel content is vertically CENTERED — an
+          in-flow ~40px button would shift the whole centered list up ~20px on peek-in (the
+          jump). Absolute = out of flow = no jump. It hangs just below the last row. */}
       {peek && (
-        <motion.button
-          type="button"
-          initial={false}
-          animate={{ x: peekAddX, opacity: addHover ? 1 : 0 }}
-          transition={{ opacity: { duration: 0.2, ease: "easeOut" }, x: MORPH }}
-          onPointerEnter={() => setAddHover(true)}
-          onPointerLeave={() => setAddHover(false)}
-          onClick={(e) => e.stopPropagation()}
-          aria-label="Add resource"
-          className="pointer-events-auto relative mt-0.5 flex h-10 w-10 items-center justify-center self-start rounded-md text-muted-foreground transition-colors hover:text-foreground"
-          style={{ zIndex: 30 }}
-        >
-          <span className="flex h-3 w-3 items-center justify-center rounded-[2px] border border-dashed border-current">
-            <Plus className="h-2 w-2" strokeWidth={2.5} />
-          </span>
-        </motion.button>
+        <div className="relative h-0">
+          <motion.button
+            type="button"
+            initial={false}
+            animate={{ x: peekAddX, opacity: addHover ? 1 : 0 }}
+            transition={{ opacity: { duration: 0.2, ease: "easeOut" }, x: MORPH }}
+            onPointerEnter={() => setAddHover(true)}
+            onPointerLeave={() => setAddHover(false)}
+            onClick={(e) => e.stopPropagation()}
+            aria-label="Add resource"
+            className="pointer-events-auto absolute left-0 top-0 flex h-8 w-10 items-center justify-center rounded-md text-muted-foreground transition-colors hover:text-foreground"
+            style={{ zIndex: 30 }}
+          >
+            <span className="flex h-3 w-3 items-center justify-center rounded-[2px] border border-dashed border-current">
+              <Plus className="h-2 w-2" strokeWidth={2.5} />
+            </span>
+          </motion.button>
+        </div>
       )}
 
       {/* Floating hover label for a peek losange — PORTALED to <body>. The panel lives

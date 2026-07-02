@@ -210,7 +210,16 @@ export function CollapsibleColumn({
         onPointerLeave={() => setRailHover(false)}
         aria-label={open ? `Collapse ${title}` : `Expand ${title}`}
         aria-expanded={open}
-        className="pointer-events-auto absolute inset-0 z-20 flex flex-col items-center justify-center gap-2"
+        className={cn(
+          "absolute inset-0 z-20 flex flex-col items-center justify-center gap-2",
+          // In PEEK the rail sits ON TOP of the peek losanges (z-20, sibling of the panel
+          // clip) and would intercept their hover — the losange's own z-30 is trapped
+          // inside the panel's local stacking context, below this rail. So drop the rail's
+          // pointer events in peek: hover falls THROUGH to the losanges behind it. The
+          // rail's toggle isn't needed on a covered ancestor anyway (focus is on the
+          // child); it's restored the moment the entity is refocused (peek → false).
+          peek ? "pointer-events-none" : "pointer-events-auto",
+        )}
       >
         <span
           className="flex flex-col items-center gap-2"
