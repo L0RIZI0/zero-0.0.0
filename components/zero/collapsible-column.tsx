@@ -129,7 +129,12 @@ export function CollapsibleColumn({
               )}
               style={{
                 width: railWidth + panelWidth,
-                backgroundColor: surface,
+                // NO backgroundColor: the panel is TRANSPARENT. Previously it was painted
+                // with the window's `surface` colour, but that colour went STALE after a
+                // child closed (the panel kept the child's surface, showing as a wrong-tone
+                // rectangle). Since the panel now SQUEEZES the View aside into its own
+                // dedicated empty column (EntityBody animates the View padding), it needs no
+                // fill — the uniform app background shows through and always reads correctly.
                 // Exposed to the asset rows so their connector hairlines can reach the
                 // window edge from inside the content inset.
                 ["--panel-edge-inset" as string]: `${railWidth}px`,
