@@ -7,7 +7,7 @@ import { UserIdentity } from "./user-identity"
 import { WindowControls } from "./window-controls"
 import { VersionSwitcher } from "@/components/version-switcher"
 import { useZeroNav } from "@/lib/zero/nav-store"
-import { shellStageFor, HEADER_PAD_Y } from "@/lib/zero/layout"
+import { shellStageFor, HEADER_H, HEADER_H_COMPACT, HEADER_PAD_Y, HEADER_PAD_Y_COMPACT } from "@/lib/zero/layout"
 import { layerTransition } from "@/lib/zero/motion"
 import { useNow } from "@/lib/zero/use-now"
 import { cn } from "@/lib/utils"
@@ -56,20 +56,27 @@ export function ShellHeader() {
       // areas to the timeline label / "Today" link underneath; the interactive
       // side clusters re-enable pointer events on themselves.
       //
-      // FIXED height (h-16, with constant vertical padding) is what makes the
-      // stage-2 compaction safe: the avatar/handle/search/logo shrink WITHIN this
-      // unchanging box, so the WorkSurface card below — and therefore the
-      // fixed-window region — never moves during a dive. (h-16 = avatar 36 + 2×14
-      // padding = the natural stage-0 height, so resting layout is unchanged.)
-      className="pointer-events-none relative z-40 flex h-16 items-center justify-between gap-4"
+      // The BOX height is depth-responsive: HEADER_H at rest, HEADER_H_COMPACT at
+      // stage 2. Shrinking the box pulls the Dayline (the next row in the absolute
+      // overlay) up with it. This is SAFE — the header lives out of flow and the
+      // window region's inset is the CONSTANT HEADER_OVERLAY_H, so the box shrink
+      // never moves the region rect; the reclaimed px is handed to the windows via
+      // WINDOW_TOP_LIFT (they lift up in lockstep to stay flush below the Dayline).
+      className="pointer-events-none relative z-40 flex items-center justify-between gap-4"
       // The header doubles as the frameless window's drag handle (desktop). Empty
       // areas drag the window; interactive clusters below opt out with no-drag.
-      style={{ paddingTop: HEADER_PAD_Y, paddingBottom: HEADER_PAD_Y, WebkitAppRegion: "drag" } as React.CSSProperties}
+      style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
       initial={false}
-      // At stage 2 the bar rides UP a touch (transform — no reflow, so the work
-      // surface below stays put) and its side margins tighten, pulling the avatar
-      // and "zero" logo nearer the screen edges. Both ease with the shared morph.
-      animate={{ y: compact ? -16 : 0, paddingLeft: compact ? 10 : 20, paddingRight: compact ? 10 : 20 }}
+      // At stage 2 the whole bar shrinks vertically (height + padding) and its side
+      // margins tighten, pulling the avatar and "zero" logo nearer the screen edges.
+      // Everything eases with the shared morph curve.
+      animate={{
+        height: compact ? HEADER_H_COMPACT : HEADER_H,
+        paddingTop: compact ? HEADER_PAD_Y_COMPACT : HEADER_PAD_Y,
+        paddingBottom: compact ? HEADER_PAD_Y_COMPACT : HEADER_PAD_Y,
+        paddingLeft: compact ? 10 : 20,
+        paddingRight: compact ? 10 : 20,
+      }}
       transition={layerTransition}
     >
       <div

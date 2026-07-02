@@ -52,20 +52,36 @@ export const TIMELINE_LIFT_Y: Record<ShellStage, number> = {
   2: -66,
 }
 
+/* --- Header bar height (depth-responsive) -----------------------------------
+ * The top bar's box height. At rest (stage 0/1) it is HEADER_H; at stage 2
+ * (depth ≥ 2) it shrinks to HEADER_H_COMPACT so the whole chrome tightens: the
+ * avatar/handle/search/logo were already compacting their CONTENTS, and now the
+ * BOX shrinks too, pulling the Dayline (the next row in the out-of-flow overlay)
+ * up with it. This is safe because the header lives in the ABSOLUTE overlay and
+ * the window region's inset is the CONSTANT `HEADER_OVERLAY_H` — so shrinking the
+ * header never moves the region rect. The reclaimed HEADER_SHRINK px is handed to
+ * the windows via WINDOW_TOP_LIFT below. */
+export const HEADER_H = 64
+export const HEADER_H_COMPACT = 44
+/** Px reclaimed at the top when the bar compacts at stage 2. */
+export const HEADER_SHRINK = HEADER_H - HEADER_H_COMPACT
+
 /** How much the open windows grow UPWARD as the shell compacts.
  *
- *  ZERO at every stage now. Under the REGION model (see lib/zero/regions and
- *  WorkSurface) region 0 — the window region — spans the FULL card height (from
- *  just under the app bar to the surface bottom), so an open window already fills
- *  to the top and its header sits directly beneath the app bar. The timeline is no
- *  longer a band ABOVE the window that the window rises to meet; it is an OVERLAY
- *  that drops to sit just below the active window's header (region 1, referenced
- *  from entity 0). So there is nothing to "rise toward" — the lift is 0 and the
- *  window's top is governed purely by region 0's rect. */
+ *  At stage 2 (depth ≥ 2) the header bar shrinks vertically (HEADER_H → HEADER_H_COMPACT)
+ *  and the Dayline rises with it, freeing HEADER_SHRINK px at the top. We lift the window
+ *  region up by that SAME amount so open windows stay flush just below the risen Dayline —
+ *  i.e. the home View expands upward into the reclaimed space.
+ *
+ *  WHY THIS IS MORPH-SAFE (unlike the old margin-based timeline lift): the region's own
+ *  box never moves — its `marginTop` is the CONSTANT `HEADER_OVERLAY_H`. This lift is
+ *  applied purely in `styleFor` (nav-store), which offsets each fixed window's `top` from
+ *  the (stable) region rect. The offset is baked into the committed geometry the Flip
+ *  morph animates toward, so windows glide up as one with the morph — no rect jump. */
 export const WINDOW_TOP_LIFT: Record<ShellStage, number> = {
   0: 0,
   1: 0,
-  2: 0,
+  2: HEADER_SHRINK,
 }
 
 /** Height of an open window's header band (glyph + title + close). Held constant
@@ -78,11 +94,13 @@ export const HEADER_BAND_H = 60
  *  transform above, which doesn't reflow). */
 export const TIMELINE_TOP_PAD = 2
 
-/** Vertical padding of the header bar — held CONSTANT across depth. The header
- *  compacts at stage 2 by shrinking its CONTENTS (avatar, handle, search, logo)
- *  inside a fixed-height bar, so its box never changes and the WorkSurface card
- *  below it (and thus the window region) never moves. */
+/** Vertical padding of the header bar. At stage 2 the bar shrinks its BOX
+ *  (HEADER_H → HEADER_H_COMPACT) and tightens this padding so the compacted
+ *  avatar/logo still sit centered in the shorter bar. Because the header lives in
+ *  the absolute overlay (and the region inset is the constant HEADER_OVERLAY_H),
+ *  the box shrink pulls the Dayline up but never moves the window region rect. */
 export const HEADER_PAD_Y = 14
+export const HEADER_PAD_Y_COMPACT = 10
 
 /* --- Header overlay sizing --------------------------------------------------
  * entity0's frame is full-bleed (touches all 4 screen edges); the chrome lives
@@ -93,9 +111,8 @@ export const HEADER_PAD_Y = 14
  * child windows + the home View open BELOW the header exactly as before — the
  * morph geometry is unchanged. Both heights are CONSTANT (matching the existing
  * fixed-box / transform-only compaction philosophy) so the stage rect never moves.
+ * NOTE: HEADER_H (and its stage-2 shrink) is defined earlier, above WINDOW_TOP_LIFT.
  */
-/** Top bar row height (Tailwind `h-16`). */
-export const HEADER_H = 64
 /** The Individual's Dayline insight row height (second header row). */
 export const DAYLINE_ROW_H = 34
 /** Total header-overlay height = the stage region's top inset. */
