@@ -115,7 +115,11 @@ export function CollapsibleColumn({
               exit={{ x: side === "left" ? -(railWidth + panelWidth) : railWidth + panelWidth, opacity: 0 }}
               transition={{ ...panelSlideTransition, opacity: { duration: 0.4, ease: "easeOut" } }}
               className={cn(
-                "pointer-events-auto absolute inset-y-0 flex min-h-0 flex-col shadow-xl",
+                // No shadow: the panel now SQUEEZES the View aside (EntityBody animates
+                // the View's padding), so it occupies its own dedicated column and needs
+                // no drop-shadow to lift off the content. Dark mode keeps a thin inner
+                // edge line (below); light mode needs no separator at all.
+                "pointer-events-auto absolute inset-y-0 flex min-h-0 flex-col",
                 side === "left" ? "left-0" : "right-0",
               )}
               style={{
@@ -134,8 +138,8 @@ export function CollapsibleColumn({
               className={cn(
                 // Inner (View-facing) edge line. DARK mode only — whiter than the
                 // standard `border` token so it reads against the dark surface. In
-                // LIGHT mode it's transparent: the panel's `shadow-xl` alone separates
-                // it from the View (no border needed).
+                // LIGHT mode it's transparent: the squeeze gives the panel its own
+                // column, so no separator (border OR shadow) is needed.
                 "pointer-events-none absolute inset-y-0 w-px bg-transparent dark:bg-foreground/25",
                 side === "left" ? "right-0" : "left-0",
               )}

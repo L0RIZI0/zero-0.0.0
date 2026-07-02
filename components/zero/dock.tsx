@@ -1,9 +1,10 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { AnimatePresence, motion } from "motion/react"
 import { PinOff, Trash2, Ban, RotateCcw } from "lucide-react"
 import { layerTransition } from "@/lib/zero/motion"
+import { computeDockLayout } from "@/lib/zero/dock-layout"
 import {
   getEntity,
   getPinnedItems,
@@ -30,7 +31,7 @@ import { cn } from "@/lib/utils"
  * pins, so an empty context has no dock region at all and its do-list fills the view.
  */
 export function Dock({ contextId, active = true }: { contextId: string; active?: boolean }) {
-  const { open, dataVersion, notifyDataChanged, morphCommit, setMenuKey, selection, moveSelection, publishNavOrder } =
+  const { open, dataVersion, notifyDataChanged, morphCommit, setMenuKey, selection, moveSelection, publishNavOrder, stack } =
     useZeroNav()
   const [menu, setMenu] = useState<ContextMenuState | null>(null)
 
@@ -39,25 +40,45 @@ export function Dock({ contextId, active = true }: { contextId: string; active?:
   const pinned: ContextItem[] = getPinnedItems(contextId)
   const hasPins = pinned.length > 0
 
-  // Pinned cards inside a NON-space entity's dock (a task/event/instant context)
-  // are spaced a little wider than inside a Space, where they pack tighter.
-  // The gap is DYNAMIC: roomy when few cards are pinned, tightening toward a floor
-  // as the dock fills, so a crowded dock stays on one comfortable row while a
-  // sparse one breathes. `WIDE` is the max gap (few cards), `TIGHT` the min gap
-  // (many cards); we interpolate linearly between FROM→FULL card counts and clamp
-  // to [TIGHT, WIDE] at both ends.
   const parentIsSpace = getEntity(contextId)?.kind === "space"
-  const dockGapPx = useMemo(() => {
-    const WIDE = parentIsSpace ? 28 : 36 // max gap, sparse dock
-    const TIGHT = parentIsSpace ? 12 : 16 // min gap, crowded dock
-    const FROM = 3 // at/below this many cards → full WIDE gap
-    const FULL = 9 // at/above this many cards → full TIGHT gap
-    const n = pinned.length
-    if (n <= FROM) return WIDE
-    if (n >= FULL) return TIGHT
-    const t = (n - FROM) / (FULL - FROM) // 0→1 across the range
-    return Math.round(WIDE + (TIGHT - WIDE) * t)
-  }, [parentIsSpace, pinned.length])
+  const contextDepth = Math.max(0, stack.indexOf(contextId))
+
+  // RESPONSIVE DOCK: measure the region's actual inner width (which already reflects
+  // an open in/out panel squeezing REG2 via the View's padding — no coupling to panel
+  // state). The pure `computeDockLayout` engine turns that width + pin count into card
+  // size, content scale, and either a single row or an interlocking honeycomb of rows.
+  const rowRef = useRef<HTMLDivElement>(null)
+  const [availableWidth, setAvailableWidth] = useState(0)
+  useEffect(() => {
+    const el = rowRef.current
+    if (!el) return
+    const ro = new ResizeObserver((entries) => {
+      const w = entries[0]?.contentRect.width ?? 0
+      setAvailableWidth((prev) => (Math.abs(prev - w) > 0.5 ? w : prev))
+    })
+    ro.observe(el)
+    setAvailableWidth(el.clientWidth)
+    return () => ro.disconnect()
+  }, [])
+
+  const layout = useMemo(
+    () => computeDockLayout({ availableWidth, count: pinned.length, parentIsSpace, contextDepth }),
+    [availableWidth, pinned.length, parentIsSpace, contextDepth],
+  )
+
+  // Slice the pins into honeycomb rows per the layout (single-element array = one row).
+  const rows = useMemo(() => {
+    const out: ContextItem[][] = []
+    let i = 0
+    for (const n of layout.rowCounts) {
+      out.push(pinned.slice(i, i + n))
+      i += n
+    }
+    return out
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [layout.rowCounts, pinned])
+
+  const dockMetrics = { cardW: layout.cardW, cardH: layout.cardH, contentScale: layout.contentScale }
 
   const openItem = (item: ContextItem) => {
     // Every kind — including events/instants — opens its own window now.
@@ -184,30 +205,42 @@ export function Dock({ contextId, active = true }: { contextId: string; active?:
       animate={{ y: 0, opacity: 1 }}
       transition={layerTransition}
     >
-      {/* CRITICAL: key this container by context so it HARD-remounts when the
-          active context changes — exactly like the do list's `<ul key={contextId}>`.
-          A fresh per-context AnimatePresence has no stale "exiting" instances,
-          so card enter/exit resolves cleanly in both directions. */}
-      {/* `flex-nowrap` keeps the dock on a SINGLE row at all times. It used to
-          `flex-wrap`, so while a window was still mid-expansion (container narrow)
-          the cards momentarily wrapped onto several lines before snapping back to
-          one once the frame reached full width. One line avoids that reflow. */}
-      <div
-        key={contextId}
-        className="flex w-full flex-nowrap items-stretch justify-center transition-[gap] duration-300 ease-out"
-        style={{ gap: dockGapPx }}
-      >
-        <AnimatePresence initial={false} mode="popLayout">
-          {pinned.map((item) => (
-            <EntityNode
-              key={item.id}
-              entityId={item.entity.id}
-              contextId={contextId}
-              variant="dock"
-              onContextMenu={(e) => openMenu(e, item)}
-            />
-          ))}
-        </AnimatePresence>
+      {/* Measured wrapper: `rowRef` reads the REG2 inner width (auto-captures the panel
+          squeeze). The engine decides single row vs. honeycomb from it.
+          CRITICAL: key the inner stack by context so it HARD-remounts when the active
+          context changes — exactly like the do list's `<ul key={contextId}>` — so card
+          enter/exit resolves cleanly with no stale exiting instances. */}
+      <div ref={rowRef} className="w-full">
+        <div key={contextId} className="flex w-full flex-col items-center">
+          <AnimatePresence initial={false} mode="popLayout">
+            {rows.map((rowItems, rowIdx) => (
+              <div
+                key={`row-${rowIdx}`}
+                className="flex flex-nowrap items-stretch justify-center transition-[gap,margin,transform] duration-300 ease-out"
+                style={{
+                  gap: layout.gapX,
+                  // Honeycomb: rows after the first pull UP so hexagons interlock, and
+                  // alternate (odd) rows shift half a period so cards nest in the valleys
+                  // of the row above. Applied to the ROW wrapper (layout/transform on the
+                  // container, NOT per-card) so each card's own GSAP Flip rect stays honest.
+                  marginTop: rowIdx > 0 ? -layout.rowOverlap : 0,
+                  transform: layout.multiRow && rowIdx % 2 === 1 ? `translateX(${layout.rowOffset}px)` : undefined,
+                }}
+              >
+                {rowItems.map((item) => (
+                  <EntityNode
+                    key={item.id}
+                    entityId={item.entity.id}
+                    contextId={contextId}
+                    variant="dock"
+                    dockMetrics={dockMetrics}
+                    onContextMenu={(e) => openMenu(e, item)}
+                  />
+                ))}
+              </div>
+            ))}
+          </AnimatePresence>
+        </div>
       </div>
 
       <ContextMenu

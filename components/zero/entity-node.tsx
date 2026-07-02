@@ -157,6 +157,7 @@ export function EntityNode({
   variant,
   onContextMenu,
   detached = false,
+  dockMetrics,
 }: {
   entityId: string
   /** The id of the context (space) whose Dock/DO-list renders this node. This is
@@ -165,6 +166,11 @@ export function EntityNode({
   contextId: string
   variant: "row" | "dock"
   onContextMenu?: (e: React.MouseEvent) => void
+  /** Responsive dock-card sizing from the dock's layout engine (see dock-layout.ts).
+   *  Present only for dock cards; when absent the historical constants are used, so
+   *  do-list rows and any un-metered dock render exactly as before. `contentScale`
+   *  shrinks glyph/title/meta once the frame crowds them (never below the floor). */
+  dockMetrics?: { cardW: number; cardH: number; contentScale: number }
   /** Mounted as a standalone DETACHED window (no in-place row exists for it; see
    *  work-surface). Only affects the CLOSING (fading) frame: a detached window has
    *  no row to telescope back into, so when it is popped from the stack and shrinks
@@ -456,12 +462,22 @@ export function EntityNode({
   // Both honour the √3/2 ratio so the clip stays a regular hexagon, and the glyph +
   // title + open-counter keep their sizes in either case — only the surrounding
   // breathing room changes.
-  const dockSlot = contextDepth === 0 ? "h-[150px] w-[130px]" : "h-[116px] w-[100px]"
+  // Dock card footprint. Prefer the responsive `dockMetrics` (from dock-layout.ts,
+  // which shrinks the card as an open panel squeezes REG2 and picks honeycomb sizes);
+  // fall back to the historical constants (150×130 home / 116×100 else) when unmetered
+  // so nothing regresses. Applied as an INLINE size (not a class) since it's dynamic.
+  const dockSlotClass = contextDepth === 0 ? "h-[150px] w-[130px]" : "h-[116px] w-[100px]"
+  const dockSlotStyle = dockMetrics ? { width: dockMetrics.cardW, height: dockMetrics.cardH } : undefined
   // Row slot height: h-11 (44px) gives the airier, more padded look — its inner
   // content uses `h-full`, so this fixed height is what governs a row's vertical
   // padding. Kept in sync with the CreateRow's vertical padding below so the draft
   // input row is the same height as a real row.
-  const slotDims = variant === "dock" ? `${dockSlot} shrink-0` : "h-11 w-full"
+  const slotDims = variant === "dock" ? cn("shrink-0", !dockMetrics && dockSlotClass) : "h-11 w-full"
+  // Content scale for COLLAPSED dock cards — glyph/title/meta multiply by this (1 until
+  // the frame crowds the content, then down to the floor baked into the layout engine).
+  // Never applied while this card owns the open window (`asWindow`): the window sizes
+  // its own header, and scaling it would fight the Flip morph.
+  const dockScale = variant === "dock" && dockMetrics && !asWindow ? dockMetrics.contentScale : 1
   // The slot is `relative` ONLY in row/dock state. The frame's inner content anchors
   // to the FRAME (which is `relative` as a row, `fixed` as a window), never to this
   // slot, so the slot's `relative` is otherwise unused as a containing block.
@@ -747,7 +763,10 @@ export function EntityNode({
   // Leaf window: only SPACES enlarge to 18px — a non-space (task/event) leaf keeps
   // the 13px it had as a row/dock button, so its title doesn't pop bigger on open.
   // Collapsed row and dock are both 13px.
-  const titleSize = asWindow ? (ancestorHeader ? 13 : isSpace ? 18 : 13) : 13
+  // Collapsed size is 13px; a crowded dock card scales it by `dockScale` (floored by
+  // the layout engine so it never gets illegibly small). `dockScale` is 1 for rows and
+  // for windows, so those are unchanged.
+  const titleSize = asWindow ? (ancestorHeader ? 13 : isSpace ? 18 : 13) : 13 * dockScale
 
   // `winStyle` (the window's resting fixed geometry: top/left/width/height in
   // viewport px) is computed once near the top of the component — it also feeds the
@@ -763,7 +782,7 @@ export function EntityNode({
   const showCloseBorder = asWindow && !isTop && closeHover && !animating
 
   return (
-    <div className={slotClass}>
+    <div className={slotClass} style={dockSlotStyle}>
       <div
         ref={ref as React.Ref<HTMLDivElement>}
         data-window={entityId}
@@ -1016,7 +1035,12 @@ export function EntityNode({
             style={
               asWindow
                 ? { transitionProperty: "color", transitionDuration: DURATION_S, transitionTimingFunction: MORPH_CSS_EASE }
-                : undefined
+                : // Collapsed dock glyph: scale the 18px base by the card's contentScale
+                  // (regime 2) so it shrinks with the crowded card but never below the
+                  // floor baked into the layout engine. Inline size overrides the class.
+                  dockScale !== 1
+                  ? { width: Math.round(18 * dockScale), height: Math.round(18 * dockScale) }
+                  : undefined
             }
             onClick={
               canToggleComplete
@@ -1315,7 +1339,11 @@ export function EntityNode({
               early. `fill-mode-both` pins it at opacity 0 during the delay so it does
               not flash in before the keyframe starts. */}
           {!asWindow && variant === "dock" && (
-            <span className="flex animate-in items-center gap-1 fade-in fill-mode-both text-[10px] text-muted-foreground/70 delay-700 duration-700">
+            <span
+              className="flex animate-in items-center gap-1 fade-in fill-mode-both text-[10px] text-muted-foreground/70 delay-700 duration-700"
+              // Scale the 10px counter with the crowded card (floored by the layout engine).
+              style={dockScale !== 1 ? { fontSize: 10 * dockScale } : undefined}
+            >
               <span className="font-medium tabular-nums">{openCount}</span>
               <span className="flex h-2.5 w-2.5 items-center justify-center">
                 <NodeGlyph kind="task" strokeWidth={1.5} />
