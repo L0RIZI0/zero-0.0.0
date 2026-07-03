@@ -21,8 +21,8 @@ import { cn } from "@/lib/utils"
 /** Width of a side panel when OPEN, and of the thin RAIL when collapsed. */
 const PANEL_OPEN_W = 230
 const PANEL_RAIL_W = 48
-/** Base horizontal inset of the View (left/right breathing room, 20px). */
-const VIEW_PAD_X = 20
+/** Base horizontal inset of the View (left/right breathing room, 42px). */
+const VIEW_PAD_X = 42
 /** How far the View is squeezed IN from a side when that side's panel is open: the
  *  full panel footprint (rail + panel), so the content sits flush beside the panel's
  *  inner edge instead of being overlaid by it. Closed → back to VIEW_PAD_X. */
@@ -155,12 +155,12 @@ export function EntityBody({
         // can touch the window/screen edge (chiefly: the Dock never kisses the bottom
         // edge). Lives on this inner wrapper, NOT on `[data-body]`: the body root must
         // stay full-bleed because it's both the side-panel rails' offset parent and
-        // the Flip morph's target box. Asymmetric inset: 0 top, 20px left/right
-        // (VIEW_PAD_X, animated for panel squeeze), 10px bottom (pb-2.5).
+        // the Flip morph's target box. Asymmetric inset: 0 top, 42px left/right
+        // (VIEW_PAD_X, animated for panel squeeze), 21px bottom (pb-[21px]).
         // [v0] DEBUG: purple border = the View area (the region stack's footprint).
         <motion.div
           data-view
-          className={cn("relative flex min-h-0 flex-1 flex-col pt-0 pb-2.5", showFrames && "border border-purple-500")}
+          className={cn("relative flex min-h-0 flex-1 flex-col pt-0 pb-[21px]", showFrames && "border border-purple-500")}
           initial={false}
           animate={{ paddingLeft: padLeft, paddingRight: padRight }}
           transition={panelSlideTransition}
@@ -171,7 +171,7 @@ export function EntityBody({
           {showFrames && (
             <DebugFrameLabel
               name={`${dbg}·view`}
-              info="stack · h:fill v:fill · pad:0/20/10/20"
+              info="stack · h:fill v:fill · pad:0/42/21/42"
               className="bottom-0.5 left-0.5 top-auto text-purple-500"
             />
           )}
