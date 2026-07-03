@@ -6,7 +6,7 @@ import { panelSlideTransition } from "@/lib/zero/motion"
 import { getPinnedItems } from "@/lib/zero/data"
 import { usePanelOpen } from "@/lib/zero/panel-store"
 import { useZeroNav } from "@/lib/zero/nav-store"
-import { VIEW_PAD_X, VIEW_PAD_TOP, VIEW_PAD_BOTTOM } from "@/lib/zero/layout"
+import { VIEW_PAD_TOP, VIEW_PAD_BOTTOM } from "@/lib/zero/layout"
 import { Region } from "./region"
 import { Dock } from "./dock"
 import { DoList } from "./do-list"
@@ -22,9 +22,9 @@ import { cn } from "@/lib/utils"
 /** Width of a side panel when OPEN, and of the thin RAIL when collapsed. */
 const PANEL_OPEN_W = 230
 const PANEL_RAIL_W = 48
-/** How far the View is squeezed IN from a side when that side's panel is open: the
+/** How far the View is squeezed IN from a side when that side's panel is OPEN: the
  *  full panel footprint (rail + panel), so the content sits flush beside the panel's
- *  inner edge instead of being overlaid by it. Closed → back to VIEW_PAD_X. */
+ *  inner edge instead of being overlaid by it. Collapsed → back to the rail (PANEL_RAIL_W). */
 const PANEL_SQUEEZE_W = PANEL_RAIL_W + PANEL_OPEN_W
 
 
@@ -104,13 +104,15 @@ export function EntityBody({
   const assetCount = getEntityResourceCount(entityId)
   const [inOpen, setInOpen] = usePanelOpen(`${entityId}:in`, false)
   const [outOpen, setOutOpen] = usePanelOpen(`${entityId}:out`, false)
-  // SQUEEZE: an open side panel pushes the View content inward on that side (instead
-  // of overlaying it), so the do-list/resource narrows and shifts toward center. The
-  // padding is animated on the shared panel-slide curve so content glides aside exactly
-  // as the panel glides in. This is a one-shot layout animation on toggle (not part of
-  // the dive morph), so its reflow cost is minor and localized.
-  const padLeft = inOpen ? PANEL_SQUEEZE_W : VIEW_PAD_X
-  const padRight = outOpen ? PANEL_SQUEEZE_W : VIEW_PAD_X
+  // IN/OUT GUTTERS: the View is everything visually INSIDE the entity window — inset on
+  // the left/right by the in/out panels, so it never underlaps them. Each side's gutter
+  // is the panel's current footprint: the thin RAIL (`PANEL_RAIL_W`, 48) when collapsed,
+  // or the full panel (`PANEL_SQUEEZE_W` = rail + open panel) when that side is open. The
+  // inset is animated on the shared panel-slide curve so the do-list/resource glides aside
+  // exactly as the panel glides in — a one-shot, localized layout animation on toggle (not
+  // part of the dive morph). Top (header) and bottom (22 peek) insets are separate.
+  const padLeft = inOpen ? PANEL_SQUEEZE_W : PANEL_RAIL_W
+  const padRight = outOpen ? PANEL_SQUEEZE_W : PANEL_RAIL_W
   // Region 2 (dock) is mounted ONLY when this context has pinned items, so an empty
   // entity's do-list region fills the whole view. Same source the Dock reads, so they
   // agree. `dataVersion` makes this reactive to pin add/remove.
@@ -150,12 +152,15 @@ export function EntityBody({
           <ResourceCanvas id={entityId} url={resource.url} resourceId={resource.resourceId} active={active} />
         </motion.div>
       ) : (
-        // VIEW PADDING — a uniform inset around the whole region stack so no region
-        // can touch the window/screen edge (chiefly: the Dock never kisses the bottom
-        // edge). Lives on this inner wrapper, NOT on `[data-body]`: the body root must
-        // stay full-bleed because it's both the side-panel rails' offset parent and
-        // the Flip morph's target box. Asymmetric inset: 0 top, 44px left/right
-        // (VIEW_PAD_X, animated for panel squeeze), 22px bottom (pb-[22px]).
+        // THE VIEW — everything visually INSIDE the entity window: the region stack,
+        // inset so it never covers the surrounding chrome. Sides = the in/out gutters
+        // (padLeft/padRight: the rail when collapsed → full panel when open, animated);
+        // bottom = a 22px peek (VIEW_PAD_BOTTOM); top = 0 (VIEW_PAD_TOP — the header
+        // already occupies the top for in-flow-header windows, and floating-header
+        // windows intentionally keep their View starting at the window top). Lives on
+        // this inner wrapper, NOT on `[data-body]`: the body root must stay full-bleed
+        // because it's both the side-panel rails' offset parent and the Flip morph's
+        // target box.
         // [v0] DEBUG: purple border = the View area (the region stack's footprint).
         <motion.div
           data-view
@@ -171,7 +176,7 @@ export function EntityBody({
           {showFrames && (
             <DebugFrameLabel
               name={`${dbg}·view`}
-              info="stack · h:fill v:fill · pad:0/44/22/44"
+              info="stack · h:fill v:fill · pad:0/gutter/22/gutter"
               className="bottom-0.5 left-0.5 top-auto text-purple-500"
             />
           )}
