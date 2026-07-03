@@ -4,7 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { flushSync } from "react-dom"
 import { getEntity, hydrateFromStorage, isDetachedChild } from "./data"
   import { stackTargetRect, octagonLeafInside, spaceLeafInsets } from "./motion"
-import { shellStageFor, WINDOW_TOP_LIFT } from "./layout"
+import { shellStageFor, WINDOW_TOP_LIFT, VIEW_PAD_TOP, VIEW_PAD_BOTTOM } from "./layout"
 import {
   captureStage,
   playStage,
@@ -542,12 +542,22 @@ export function ZeroNavProvider({
     // is grown by the same amount — every window (parent + children) then shares
     // the higher top and unchanged bottom. Driven by the leaf depth so all stacked
     // windows lift together in one morph.
+    //
+    // VIEW-PAD INSET: an open window spans its parent View MINUS the View padding, so
+    // it sits inside the parent's View content box (a consistent gutter) rather than
+    // covering the full region edge-to-edge. The SIDES are already inset by exactly
+    // VIEW_PAD_X in stackTargetRect (WINDOW_BASE_SIDE, which is derived from VIEW_PAD_X),
+    // and the TOP is 0 (windows stay flush under the Dayline). So here we only bake in
+    // the vertical inset — mainly the VIEW_PAD_BOTTOM gutter so a window no longer kisses
+    // the region's bottom edge — matching the View's own bottom padding. Home (the
+    // full-bleed depth-0 backdrop) is not measured through here, so it keeps its own
+    // View padding untouched.
     const lift = WINDOW_TOP_LIFT[shellStageFor(activeEntity)]
     const liftedRegion = {
-      top: regionRect.top - lift,
+      top: regionRect.top - lift + VIEW_PAD_TOP,
       left: regionRect.left,
       width: regionRect.width,
-      height: regionRect.height + lift,
+      height: regionRect.height + lift - VIEW_PAD_TOP - VIEW_PAD_BOTTOM,
     }
 
     // Fixed geometry for an open window: walk the in-stack ancestors (above the

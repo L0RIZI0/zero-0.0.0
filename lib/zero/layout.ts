@@ -93,6 +93,19 @@ export const WINDOW_TOP_LIFT: Record<ShellStage, number> = {
   2: HEADER_SHRINK + DAYLINE_COMPACT_LIFT,
 }
 
+/* --- View padding (the gutter around every open window) ----------------------
+ * The View (`[data-view]` in entity-body) insets its region stack by this much so
+ * no region (chiefly the Dock) kisses the window/screen edge. The SAME inset also
+ * defines how an opened child window is framed: a window spans its parent View
+ * MINUS this padding (applied to `liftedRegion` in nav-store `styleFor`), so every
+ * open window sits inside the parent's View content box rather than covering the
+ * full region edge-to-edge. Single source of truth for both places.
+ *   top: 0 (windows stay flush under the Dayline), left/right: VIEW_PAD_X, bottom.
+ */
+export const VIEW_PAD_X = 44
+export const VIEW_PAD_TOP = 0
+export const VIEW_PAD_BOTTOM = 22
+
 /** Height of an open window's header band (glyph + title + close). Held constant
  *  across depth (the header compacts its CONTENTS, not its box — see HEADER_PAD_Y),
  *  so the timeline overlay can be positioned at a stable `headerBottom` offset

@@ -1,5 +1,6 @@
 import type { Transition } from "motion/react"
 import type { EntityKind } from "./types"
+import { VIEW_PAD_X } from "./layout"
 
 /**
  * Zero motion language: calm, precise, deterministic. No bounce.
@@ -202,9 +203,14 @@ export const RIGHT_PEEK = 24
  * the home view, which has no ancestors). It makes each window a touch narrower
  * on both sides so the home view's collapsed Inputs/Outputs rails �� which hug the
  * region's left/right edges — stay visible peeking out beside the open window.
- * Only the sides inset; top/bottom still fill the region.
+ * Only the sides inset; the vertical inset (a top of 0 and the bottom gutter) is
+ * applied to `liftedRegion` in nav-store.
+ *
+ * This IS the View's horizontal padding: an open window spans its parent View minus
+ * the View padding, so the side inset is derived from VIEW_PAD_X (single source) —
+ * change the View gutter and every window's side inset follows.
  */
-export const WINDOW_BASE_SIDE = 44
+export const WINDOW_BASE_SIDE = VIEW_PAD_X
 
 /**
  * Resting box for a window whose frame ANCESTORS (the in-stack windows above the

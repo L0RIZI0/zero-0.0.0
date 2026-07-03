@@ -6,6 +6,7 @@ import { panelSlideTransition } from "@/lib/zero/motion"
 import { getPinnedItems } from "@/lib/zero/data"
 import { usePanelOpen } from "@/lib/zero/panel-store"
 import { useZeroNav } from "@/lib/zero/nav-store"
+import { VIEW_PAD_X, VIEW_PAD_TOP, VIEW_PAD_BOTTOM } from "@/lib/zero/layout"
 import { Region } from "./region"
 import { Dock } from "./dock"
 import { DoList } from "./do-list"
@@ -21,8 +22,6 @@ import { cn } from "@/lib/utils"
 /** Width of a side panel when OPEN, and of the thin RAIL when collapsed. */
 const PANEL_OPEN_W = 230
 const PANEL_RAIL_W = 48
-/** Base horizontal inset of the View (left/right breathing room, 44px). */
-const VIEW_PAD_X = 44
 /** How far the View is squeezed IN from a side when that side's panel is open: the
  *  full panel footprint (rail + panel), so the content sits flush beside the panel's
  *  inner edge instead of being overlaid by it. Closed → back to VIEW_PAD_X. */
@@ -160,7 +159,8 @@ export function EntityBody({
         // [v0] DEBUG: purple border = the View area (the region stack's footprint).
         <motion.div
           data-view
-          className={cn("relative flex min-h-0 flex-1 flex-col pt-0 pb-[22px]", showFrames && "border border-purple-500")}
+          className={cn("relative flex min-h-0 flex-1 flex-col", showFrames && "border border-purple-500")}
+          style={{ paddingTop: VIEW_PAD_TOP, paddingBottom: VIEW_PAD_BOTTOM }}
           initial={false}
           animate={{ paddingLeft: padLeft, paddingRight: padRight }}
           transition={panelSlideTransition}
