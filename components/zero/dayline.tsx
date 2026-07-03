@@ -953,22 +953,25 @@ export function Dayline() {
           </div>
           </div>
         )}
-      </div>
 
-      {/* HOVER HELPER — floats just below the lane (the header sits directly above,
-          so there's no room to place it on top). Shows glyph + title + time range. */}
-      {hoveredItem && (
-        <div
-          className="pointer-events-none absolute top-full z-40 flex max-w-[40vw] -translate-x-1/2 items-center gap-1.5 whitespace-nowrap rounded border border-border/70 bg-card px-2 py-1 text-[10.5px] font-medium leading-none tracking-tight text-foreground/80 shadow-sm animate-in fade-in duration-150"
-          style={{ left: `calc(${Math.min(94, Math.max(6, hoveredItem.centerPct))}% )`, marginTop: 4 }}
-        >
-          <span className="h-3 w-3 shrink-0" style={{ color: hoveredItem.color }}>
-            <NodeGlyph kind={hoveredItem.kind} filled={hoveredItem.filled} strokeWidth={2} />
-          </span>
-          <span className="truncate text-foreground">{hoveredItem.title}</span>
-          <span className="shrink-0 text-muted-foreground tabular-nums">{hoveredItem.range}</span>
-        </div>
-      )}
+        {/* HOVER HELPER — floats just below the lane (the header sits directly above,
+            so there's no room to place it on top). Lives INSIDE the lane so its
+            `left: centerPct%` shares the ticks' own coordinate space: the outer row is
+            px-5 padded, so positioning against that padded box shifted the tip left of
+            its tick by the padding. Shows glyph + title + time range. */}
+        {hoveredItem && (
+          <div
+            className="pointer-events-none absolute top-full z-40 flex max-w-[40vw] -translate-x-1/2 items-center gap-1.5 whitespace-nowrap rounded border border-border/70 bg-card px-2 py-1 text-[10.5px] font-medium leading-none tracking-tight text-foreground/80 shadow-sm animate-in fade-in duration-150"
+            style={{ left: `${Math.min(96, Math.max(4, hoveredItem.centerPct))}%`, marginTop: 4 }}
+          >
+            <span className="h-3 w-3 shrink-0" style={{ color: hoveredItem.color }}>
+              <NodeGlyph kind={hoveredItem.kind} filled={hoveredItem.filled} strokeWidth={2} />
+            </span>
+            <span className="truncate text-foreground">{hoveredItem.title}</span>
+            <span className="shrink-0 text-muted-foreground tabular-nums">{hoveredItem.range}</span>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
