@@ -334,6 +334,12 @@ export function Dayline() {
   // Column the cursor is currently over (defaults to lane center). Pan lag radiates from here.
   const cursorColRef = useRef((RIPPLE_COLS - 1) / 2)
   const reducedRef = useRef(false)
+  // Last known cursor viewport position + whether it's currently over the lane. Panning
+  // (esp. wheel) moves ticks under a STATIONARY cursor via transform, so the browser fires
+  // no mouseenter/leave and the hover tooltip would go stale. We re-hit-test the tick under
+  // the cursor each pan frame from these coords (see `resolveHoverAtCursor`).
+  const lastPointerRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 })
+  const pointerInsideRef = useRef(false)
   // Wheel-pan momentum. A physical mouse wheel fires large discrete notches (often
   // line/page deltaMode, ~100px+ each); applying a whole notch at once jumps the lane.
   // Instead each notch injects VELOCITY (px/s) into this ref, and a rAF loop advances the
@@ -397,6 +403,21 @@ export function Dayline() {
     const r = lane.getBoundingClientRect()
     const pct = r.width > 0 ? (clientX - r.left) / r.width : 0.5
     return Math.max(0, Math.min(RIPPLE_COLS - 1, Math.round(pct * (RIPPLE_COLS - 1))))
+  }, [])
+
+  // Re-resolve which tick sits under the (possibly stationary) cursor and sync `hovered`.
+  // Called each pan frame: since ticks slide by transform, the DOM's own hover tracking
+  // doesn't fire, so we hit-test the real pixel under the cursor. Only acts while the
+  // pointer is over the lane (a true mouseleave already clears hover when it exits). The
+  // functional setState no-ops (no re-render) whenever the tick under the cursor is
+  // unchanged, so calling this every frame is cheap.
+  const resolveHoverAtCursor = useCallback(() => {
+    if (!pointerInsideRef.current) return
+    const { x, y } = lastPointerRef.current
+    const el = document.elementFromPoint(x, y) as HTMLElement | null
+    const tick = el?.closest("[data-tickkey]") as HTMLElement | null
+    const key = tick?.getAttribute("data-tickkey") ?? null
+    setHovered((h) => (h === key ? h : key))
   }, [])
 
   // Write the current per-column offsets onto every registered node.
@@ -544,6 +565,8 @@ export function Dayline() {
       draggedRef.current = false
       dragRef.current = { startX: e.clientX, startView: viewStart, lastX: e.clientX }
       cursorColRef.current = pctToCol(e.clientX)
+      lastPointerRef.current = { x: e.clientX, y: e.clientY }
+      pointerInsideRef.current = true
       // NOTE: we deliberately do NOT setPointerCapture here. Capturing on pointerdown
       // retargets the subsequent `click` to the LANE (the capture target), per the Pointer
       // Events spec — so a plain TAP on a tick never reaches the tick button's onClick and
@@ -560,6 +583,8 @@ export function Dayline() {
       const lane = laneRef.current
       // Track cursor column even when not dragging so a wheel pan radiates from the pointer.
       cursorColRef.current = pctToCol(e.clientX)
+      lastPointerRef.current = { x: e.clientX, y: e.clientY }
+      pointerInsideRef.current = true
       if (!d || !lane) return
       const w = lane.clientWidth || 1
       const dx = e.clientX - d.startX
@@ -575,10 +600,12 @@ export function Dayline() {
       const inc = e.clientX - d.lastX
       d.lastX = e.clientX
       injectPan(inc)
-      // Drag right �� reveal earlier time (window slides back), and vice-versa.
+      // Drag right → reveal earlier time (window slides back), and vice-versa.
       setViewStart(d.startView - (dx / w) * DAY_MS)
+      // Ticks slide under the cursor as we drag — keep the hover/tooltip in sync.
+      resolveHoverAtCursor()
     },
-    [pctToCol, injectPan],
+    [pctToCol, injectPan, resolveHoverAtCursor],
   )
   const onPointerUp = useCallback((e: React.PointerEvent) => {
     dragRef.current = null
@@ -660,6 +687,9 @@ export function Dayline() {
       // the ripple. Negative because scrolling forward moves content LEFT.
       applyPan(-wheelCommitRef.current)
       injectPan(-slice)
+      // Ticks slide under the stationary cursor during a wheel pan — re-hit-test each
+      // frame so the hover highlight + tooltip track whatever tick is now underneath.
+      resolveHoverAtCursor()
 
       // Flush to React truth once the imperative offset grows large, so `items`/marker
       // re-anchor and stay fresh (the layout effect re-zeroes the transform seamlessly).
@@ -690,6 +720,8 @@ export function Dayline() {
       else if (e.deltaMode === 2) delta *= lane.clientWidth || 1 // pages → px
       delta *= isMouseWheel ? WHEEL_PAN_SENSITIVITY : TRACKPAD_PAN_SENSITIVITY
       cursorColRef.current = pctToCol(e.clientX)
+      lastPointerRef.current = { x: e.clientX, y: e.clientY }
+      pointerInsideRef.current = true
       // Inject the notch as a VELOCITY impulse. Since a coasting velocity v decays as
       // v·e^(−t/τ), its integral (total distance) is v��τ — so to make this notch add
       // exactly `delta` px of travel we inject Δv = delta/τ. This preserves the old
@@ -711,7 +743,7 @@ export function Dayline() {
       pendingFlushRef.current = 0
       wheelTsRef.current = 0
     }
-  }, [pctToCol, injectPan, flushWheelPan, maybeFlushAtRest, applyPan])
+  }, [pctToCol, injectPan, flushWheelPan, maybeFlushAtRest, applyPan, resolveHoverAtCursor])
 
   // Keep the imperative pan-wrap transform consistent with `viewStart`. Runs synchronously
   // after every commit (before paint). When a wheel flush moves `viewStart`, we subtract the
@@ -760,6 +792,8 @@ export function Dayline() {
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
+        onMouseEnter={() => (pointerInsideRef.current = true)}
+        onMouseLeave={() => (pointerInsideRef.current = false)}
         onDoubleClick={recenter}
         className="pointer-events-auto relative h-7 w-full cursor-default select-none overflow-visible rounded-md border border-border/60 bg-card/40 [touch-action:none]"
       >
@@ -793,6 +827,7 @@ export function Dayline() {
                     aria-label={`${it.title}, ${it.range}`}
                     data-placement={placementKey("dayline", rootId, it.id)}
                     data-morph-kind="generic"
+                    data-tickkey={it.key}
                     onMouseEnter={() => setHovered(it.key)}
                     onMouseLeave={() => setHovered((h) => (h === it.key ? null : h))}
                     onClick={(e) => {
@@ -830,6 +865,7 @@ export function Dayline() {
                   aria-label={`${it.title}, ${it.range}`}
                   data-placement={placementKey("dayline", rootId, it.id)}
                   data-morph-kind="generic"
+                  data-tickkey={it.key}
                   onMouseEnter={() => setHovered(it.key)}
                   onMouseLeave={() => setHovered((h) => (h === it.key ? null : h))}
                   onClick={(e) => {
