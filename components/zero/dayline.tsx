@@ -367,10 +367,18 @@ export function Dayline() {
   // keep incoming ticks hidden. Only the content slides within a fixed clip window.
   const ticksPanRef = useRef<HTMLDivElement>(null)
   const markerPanRef = useRef<HTMLDivElement>(null)
+  // The hover tooltip is positioned at the hovered tick's `centerPct` — a value derived
+  // from React state (`viewStart`) that stays STALE during a wheel pan (the base pan is an
+  // imperative transform not yet flushed to `viewStart`). So the tooltip must ride the SAME
+  // imperative pan offset as the ticks, else it lags behind the tick sliding under the
+  // cursor. It gets its own layer so its content's own `-translate-x-1/2` centering stays
+  // intact (this wrapper only carries the pan translateX).
+  const tooltipPanRef = useRef<HTMLDivElement>(null)
   const applyPan = useCallback((px: number) => {
     const t = px ? `translateX(${px}px)` : ""
     if (ticksPanRef.current) ticksPanRef.current.style.transform = t
     if (markerPanRef.current) markerPanRef.current.style.transform = t
+    if (tooltipPanRef.current) tooltipPanRef.current.style.transform = t
   }, [])
   // Bridge so the ripple loop (defined above) can trigger the deferred wheel-pan flush
   // once the ripple settles — assigned below where `maybeFlushAtRest` is defined.
@@ -958,17 +966,30 @@ export function Dayline() {
             so there's no room to place it on top). Lives INSIDE the lane so its
             `left: centerPct%` shares the ticks' own coordinate space: the outer row is
             px-5 padded, so positioning against that padded box shifted the tip left of
-            its tick by the padding. Shows glyph + title + time range. */}
+            its tick by the padding. Mirrors the NOW marker's TWO-LAYER transform so it
+            tracks its tick through a wheel pan: the OUTER `tooltipPanRef` carries the
+            imperative base pan (via applyPan) and the INNER ripple node (registered with
+            the hovered tick's own `leftPct`) rides the same catch-up wave — otherwise the
+            tip lagged behind the tick sliding under a stationary cursor. Shows glyph +
+            title + time range. */}
         {hoveredItem && (
-          <div
-            className="pointer-events-none absolute top-full z-40 flex max-w-[40vw] -translate-x-1/2 items-center gap-1.5 whitespace-nowrap rounded border border-border/70 bg-card px-2 py-1 text-[10.5px] font-medium leading-none tracking-tight text-foreground/80 shadow-sm animate-in fade-in duration-150"
-            style={{ left: `${Math.min(96, Math.max(4, hoveredItem.centerPct))}%`, marginTop: 4 }}
-          >
-            <span className="h-3 w-3 shrink-0" style={{ color: hoveredItem.color }}>
-              <NodeGlyph kind={hoveredItem.kind} filled={hoveredItem.filled} strokeWidth={2} />
-            </span>
-            <span className="truncate text-foreground">{hoveredItem.title}</span>
-            <span className="shrink-0 text-muted-foreground tabular-nums">{hoveredItem.range}</span>
+          <div ref={tooltipPanRef} className="pointer-events-none absolute inset-0 z-40 will-change-transform">
+            <div
+              ref={registerRipple("__tooltip__")}
+              data-left={hoveredItem.leftPct}
+              className="pointer-events-none absolute inset-0 will-change-transform"
+            >
+              <div
+                className="pointer-events-none absolute top-full flex max-w-[40vw] -translate-x-1/2 items-center gap-1.5 whitespace-nowrap rounded border border-border/70 bg-card px-2 py-1 text-[10.5px] font-medium leading-none tracking-tight text-foreground/80 shadow-sm animate-in fade-in duration-150"
+                style={{ left: `${Math.min(96, Math.max(4, hoveredItem.centerPct))}%`, marginTop: 4 }}
+              >
+                <span className="h-3 w-3 shrink-0" style={{ color: hoveredItem.color }}>
+                  <NodeGlyph kind={hoveredItem.kind} filled={hoveredItem.filled} strokeWidth={2} />
+                </span>
+                <span className="truncate text-foreground">{hoveredItem.title}</span>
+                <span className="shrink-0 text-muted-foreground tabular-nums">{hoveredItem.range}</span>
+              </div>
+            </div>
           </div>
         )}
       </div>
