@@ -706,13 +706,16 @@ export function EntityNode({
   //   - dock card → centered column (glyph, title, then the open-task counter).
   const headerClass = asWindow
       ? isSpine
-        ? // pt-[9px] (= pt-3's 12px − 3px) lifts the glyph+title column up the strip
-          // by 3px for tighter alignment with the spine's top. Width unified to 48px
-          // (= PANEL_RAIL_W / TASK_SIDE) so an ancestor space's rail is the same width
-          // as a focused rail at every depth. The excerpt counters slot in below the
-          // rotated title via the rail overlay (see collapsible-column), lined up on
+        ? // pt-[14px] drops the glyph to the SAME vertical offset a leaf/child window
+          // gives its header glyph: a child centers its 16px glyph in the HEADER_H(43)
+          // band ⇒ (43−16)/2 ≈ 14px from the top. Since a spine child now shares the
+          // spine's top edge (SPACE_CHILD_TOP_PEEK=0), matching this 14px makes the
+          // spine's hexagon line up horizontally with the child's glyph. Width unified
+          // to 48px (= PANEL_RAIL_W / TASK_SIDE) so an ancestor space's rail is the same
+          // width as a focused rail at every depth. The excerpt counters slot in below
+          // the rotated title via the rail overlay (see collapsible-column), lined up on
           // this same 48px column.
-          "absolute inset-y-0 left-0 z-10 flex w-[48px] flex-col items-center gap-2 pt-[9px]"
+          "absolute inset-y-0 left-0 z-10 flex w-[48px] flex-col items-center gap-2 pt-[14px]"
       : spaceLeafWindow
         ? // TOP-LEFT, like every other window header — glyph + title in a horizontal
           // row near the top-left, dominating the do-list beneath. The leaf is an
@@ -816,10 +819,10 @@ export function EntityNode({
   useLayoutEffect(() => {
     if (titleMeasureRef.current) setTitleLen(titleMeasureRef.current.offsetWidth)
   }, [entity.title, titleSize, asWindow, ancestorHeader])
-  // Column TOP sits a constant y below the strip top: pt-[9px] 9 + glyph 16 + gap-2 8
-  // + h3 half-line 10 = 43; the column then hangs down by `titleLen`; an 8px gap
+  // Column TOP sits a constant y below the strip top: pt-[14px] 14 + glyph 16 + gap-2 8
+  // + h3 half-line 10 = 48; the column then hangs down by `titleLen`; an 8px gap
   // separates it from the excerpt. Non-spine states keep the excerpt at the rail top.
-  const SPINE_EXCERPT_TITLE_TOP = 43
+  const SPINE_EXCERPT_TITLE_TOP = 48
   const SPINE_EXCERPT_GAP = 8
   const excerptOffsetTop = isSpine ? SPINE_EXCERPT_TITLE_TOP + titleLen + SPINE_EXCERPT_GAP : 0
 

@@ -187,11 +187,12 @@ export const ANCESTOR_HEADER_H = 35
 // reserve NO top peek — their child shares their top — so this only governs
 // non-space ancestors.)
 export const TASK_TOP_PEEK = HEADER_H + 1
-// Extra top peek added ONLY when the ancestor is a Space: its child sits this many
-// px lower so a sliver of the Space's top border shows above the child. Because the
-// loop accumulates `top` across ancestors, this shift cascades — grandchildren and
-// deeper descendants move down by the same amount relative to the Space.
-export const SPACE_CHILD_TOP_PEEK = 4
+// Extra top peek for a Space ancestor's child. Now 0: a child's window top reaches
+// the TOP of its ancestor Space's View (flush) rather than sitting a few px lower —
+// a covered ancestor Space is a spine (its header is the LEFT strip, so there's no
+// top header band to peek), so the child shares its top edge. Kept as a named seam
+// (still added in stackTargetRect) in case a deliberate top sliver is wanted later.
+export const SPACE_CHILD_TOP_PEEK = 0
 // Left peek reserved per ancestor: the width of the ancestor's left "rail" (its
 // summary edge — glyph, optional rotated title for spaces, excerpt counters, and
 // its resources in peek form) that stays visible beside the child window. Unified
