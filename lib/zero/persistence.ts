@@ -67,3 +67,20 @@ export function writeUserItems(items: UserItems): void {
     // in memory for the session.
   }
 }
+
+/**
+ * Wipe ALL persisted user items (created entities + pins + tombstones +
+ * overrides) for THIS browser only. localStorage is per-browser/per-origin, so
+ * this never touches another device's store (e.g. the Electron dogfooding app).
+ * Used by the `§ 0` dev "reset preview data" chord to return the web preview to
+ * pure seed data — chiefly to drop accumulated seed-deletion tombstones that
+ * were hiding the seeded spaces/tasks. Does NOT touch other keys (theme, etc.).
+ */
+export function clearUserItems(): void {
+  if (typeof window === "undefined") return
+  try {
+    window.localStorage.removeItem(STORAGE_KEY)
+  } catch {
+    // Ignore — nothing more we can do if storage is unavailable.
+  }
+}

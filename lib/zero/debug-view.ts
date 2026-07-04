@@ -1,6 +1,7 @@
 "use client"
 
 import { useSyncExternalStore } from "react"
+import { clearUserItems } from "./persistence"
 
 // ============================================================================
 // Shared DEBUG-view store ([v0] DEBUG)
@@ -8,6 +9,10 @@ import { useSyncExternalStore } from "react"
 // Two independently-toggleable dev overlays, flipped by a `§`-prefixed chord:
 //   • `§ 1` → the FPS meter window (bottom-left)
 //   • `§ 2` → the colored element frames + their ID/property labels
+//   • `§ 0` → RESET PREVIEW DATA: wipe THIS browser's persisted user items
+//            (created entities + pins + tombstones + overrides) and reload, so
+//            the app returns to pure seed data. localStorage is per-browser, so
+//            this only affects the browser it's pressed in (never Electron).
 //
 // `§` is used as a one-shot PREFIX: press it, then press 1 or 2 within a short
 // window. We use § (not the backtick) because some keyboards (ISO/EU layouts)
@@ -69,10 +74,22 @@ function ensureListener() {
       return
     }
 
-    if (prefixActive && (e.key === "1" || e.key === "2")) {
+    if (prefixActive && (e.key === "0" || e.key === "1" || e.key === "2")) {
       e.preventDefault()
       if (e.key === "1") toggleDebugFps()
-      else toggleDebugFrames()
+      else if (e.key === "2") toggleDebugFrames()
+      else {
+        // `§ 0` — reset THIS browser's preview data back to pure seeds. Confirmed
+        // because it clears created entities too (web-preview store is disposable,
+        // but a stray chord shouldn't silently wipe it).
+        const ok = window.confirm(
+          "Reset preview data?\n\nThis clears this browser's created entities, pins, and deletions (including the tombstones hiding the seeded spaces/tasks) and reloads with fresh seed data.\n\nThis only affects THIS browser — your Electron app is untouched.",
+        )
+        if (ok) {
+          clearUserItems()
+          window.location.reload()
+        }
+      }
       clearPrefix()
     }
   })
