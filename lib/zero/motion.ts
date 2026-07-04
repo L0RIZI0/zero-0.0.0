@@ -177,11 +177,16 @@ export const HEADER_H = 43
 // glyph + title too, see entity-node) without collapsing all the way to a spine.
 export const ANCESTOR_HEADER_H = 35
 
-// Top peek for a task/event/instant ancestor: how much of it shows above its
-// child. Matches ANCESTOR_HEADER_H (+1, mirroring the leaf's 43→44 hairline gap)
-// so the visible band equals the now-shorter ancestor header with no empty strip
-// below the divider. Trimmed from 44 as part of making ancestors more compact.
-export const TASK_TOP_PEEK = 36
+// Top peek for a task/event/instant (non-space, non-spine) ancestor: how much of
+// it shows above its child. A non-space ancestor keeps its LEAF header height
+// (HEADER_H) — becoming an ancestor no longer shrinks its header — so the child's
+// top must clear that FULL header: it aligns to the ancestor's View top (header
+// bottom) rather than overlapping the header. Derived as HEADER_H + 1 so the child
+// sits just past the header divider (the +1 is the leaf's 43→44 hairline gap) and
+// stays in sync if the header height changes. (Space ancestors are spines and
+// reserve NO top peek — their child shares their top — so this only governs
+// non-space ancestors.)
+export const TASK_TOP_PEEK = HEADER_H + 1
 // Extra top peek added ONLY when the ancestor is a Space: its child sits this many
 // px lower so a sliver of the Space's top border shows above the child. Because the
 // loop accumulates `top` across ancestors, this shift cascades — grandchildren and
