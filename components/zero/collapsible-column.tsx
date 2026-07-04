@@ -28,6 +28,7 @@ export function CollapsibleColumn({
   side,
   count,
   children,
+  excerpt,
   open,
   onOpenChange,
   focused = true,
@@ -43,6 +44,10 @@ export function CollapsibleColumn({
   side: "left" | "right"
   count?: number
   children: React.ReactNode
+  /** Optional summary pinned to the TOP of the rail (e.g. the entity excerpt
+   *  counters). Stays visible whether the panel is open or collapsed, and is
+   *  horizontally centered on the rail so it aligns with the vertical label below. */
+  excerpt?: React.ReactNode
   /** Controlled open state. */
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -266,6 +271,20 @@ export function CollapsibleColumn({
           )}
         </span>
       </button>
+
+      {/* EXCERPT — pinned to the TOP of the rail, centered on `railWidth` so it lines up
+          with the vertical label directly below it. Rendered AFTER the rail button so it
+          paints above, but `pointer-events-none` lets clicks fall through to the button
+          (the whole rail stays a forgiving toggle target). Unlike the label, it stays
+          visible whether the panel is open or collapsed — so when the panel expands and
+          squeezes the View aside, the counters remain in place at the top-left of the
+          View. Nudged horizontally by `railShift`-free centering; it uses the rail's own
+          width for centering (matching the label). */}
+      {excerpt && (
+        <div className="pointer-events-none absolute inset-x-0 top-0 z-30 flex justify-center pt-3">
+          {excerpt}
+        </div>
+      )}
     </div>
   )
 }

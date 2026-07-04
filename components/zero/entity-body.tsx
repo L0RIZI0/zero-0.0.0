@@ -14,6 +14,7 @@ import { AssetPanel } from "./asset-panel"
 import { getEntityResourceCount } from "@/lib/zero/resources"
 import { OutputPanel } from "./output-panel"
 import { CollapsibleColumn } from "./collapsible-column"
+import { RailExcerpt } from "./rail-excerpt"
 import { ResourceCanvas } from "./resource-canvas"
 import { DebugFrameLabel, DebugComponentFrame } from "./debug-frame-label"
 import { useDebugView } from "@/lib/zero/debug-view"
@@ -250,6 +251,7 @@ export function EntityBody({
             collapsedTitle="Resources"
             side="left"
             count={assetCount}
+            excerpt={<RailExcerpt entityId={entityId} />}
             open={inOpen}
             onOpenChange={setInOpen}
             focused={active}

@@ -825,6 +825,23 @@ export function getOpenTaskCount(contextId: string): number {
   return getChildren(contextId).filter((e) => e.kind === "task" && !e.completed).length
 }
 
+/**
+ * Count of DIRECT child tasks (origin + tagged) that are COMPLETED. Mirror of
+ * {@link getOpenTaskCount}. Drives the "done tasks" counter in the rail excerpt.
+ */
+export function getDoneTaskCount(contextId: string): number {
+  return getChildren(contextId).filter((e) => e.kind === "task" && !!e.completed).length
+}
+
+/**
+ * Count of DIRECT child SPACES (origin + tagged). Uses the same `getChildren`
+ * listing as the do-list/dock, so it matches what's browsable inside the entity.
+ * Drives the "spaces" counter in the rail excerpt.
+ */
+export function getChildSpaceCount(contextId: string): number {
+  return getChildren(contextId).filter((e) => e.kind === "space").length
+}
+
 // ----------------------------------------------------------------------------
 // Subtree helpers (structural origin tree) — drive timeline focus + dimming
 // ----------------------------------------------------------------------------
