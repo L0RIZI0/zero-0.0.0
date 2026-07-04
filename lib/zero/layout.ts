@@ -101,8 +101,15 @@ export const WINDOW_TOP_LIFT: Record<ShellStage, number> = {
  * open window sits inside the parent's View content box rather than covering the
  * full region edge-to-edge. Single source of truth for both places.
  *   top: 0 (windows stay flush under the Dayline), left/right: VIEW_PAD_X, bottom.
+ *
+ * Set to 48 to MATCH the rail width (PANEL_RAIL_W / TASK_SIDE / RIGHT_PEEK = 48):
+ * because a depth-1 window insets by this (WINDOW_BASE_SIDE), it is ALSO the width
+ * of home's (entity0's) exposed left/right peek. Making it 48 means home's peek is
+ * the SAME width as every deeper ancestor's peek (which reserve TASK_SIDE/RIGHT_PEEK
+ * = 48), so the rule "same peek width at every depth for every ancestor" holds at
+ * depth 0 too — home's rail is no longer 4px narrower than the ancestors'. (Was 44.)
  */
-export const VIEW_PAD_X = 44
+export const VIEW_PAD_X = 48
 export const VIEW_PAD_TOP = 0
 export const VIEW_PAD_BOTTOM = 22
 

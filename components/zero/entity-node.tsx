@@ -971,14 +971,16 @@ export function EntityNode({
                   // OUT rail's 24px-from-edge axis so they align as a right-edge column.
                   { top: "calc(9.2% + 4px)", right: "12px" }
                 : isSpine
-                  ? // SPINE ancestor: mirror the left spine strip's glyph. The right
-                    // BLEED is RIGHT_PEEK (24px) wide; the button is size-6 (24px), so
-                    // `right: 0` makes it fill and center the X exactly on that peek
-                    // (instead of `right-1.5`, which crowded it toward the children).
-                    // `top: 5px` lifts the X so its center (~17px) lines up with the
-                    // spine glyph's center (pt-[9px] + half a 16px glyph), so the X
-                    // reads as the right-side twin of the glyph.
-                    { top: "5px", right: "0px" }
+                  ? // SPINE ancestor: the X is the right-edge twin of the left glyph, so
+                    // it must sit CENTERED on the right peek and vertically aligned with
+                    // the glyph. The right peek is RIGHT_PEEK (48px) wide and the button
+                    // is size-6 (24px): center it with `right = (48 − 24)/2 = 12px` (the
+                    // old `right: 0` predated RIGHT_PEEK growing 24→48 and left the X in
+                    // the OUTER half of the peek — the "too far right" drift, worse per
+                    // deeper ancestor). `top: 10px` puts the 24px button's center at
+                    // 10 + 12 = 22px = the glyph center (pt-[14px] + half a 16px glyph),
+                    // so the X lines up horizontally with the spine glyph row.
+                    { top: "10px", right: "12px" }
                   : null),
             }}
             // z-[35]: must stay BELOW the child window. Frames are position:fixed
