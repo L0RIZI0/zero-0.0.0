@@ -56,6 +56,7 @@ export function EntityBody({
   railBleedLeft = PANEL_RAIL_W,
   railBleedRight = PANEL_RAIL_W,
   panelTopOffset = 0,
+  excerptOffsetTop = 0,
   surface,
   resource,
   timeline,
@@ -89,6 +90,11 @@ export function EntityBody({
    *  already starts at the header bottom (home view, in-flow-header child); = headerH
    *  only for a FLOATING-header window whose body fills from the window top. */
   panelTopOffset?: number
+  /** Px to push the LEFT rail's excerpt counters DOWN from the rail top. 0 in every
+   *  state EXCEPT a spine ancestor (covered Space), where the glyph + rotated title
+   *  occupy the top of the strip and the excerpt must sit below the title. Animated
+   *  (see CollapsibleColumn) so the excerpt slides down as a leaf becomes a spine. */
+  excerptOffsetTop?: number
   /** The window's background colour — the opaque panel uses it so it reads as the
    *  window surface sliding over the View. Falls back to the theme background. */
   surface?: string
@@ -252,6 +258,7 @@ export function EntityBody({
             side="left"
             count={assetCount}
             excerpt={<RailExcerpt entityId={entityId} />}
+            excerptOffsetTop={excerptOffsetTop}
             open={inOpen}
             onOpenChange={setInOpen}
             focused={active}

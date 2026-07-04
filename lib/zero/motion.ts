@@ -187,17 +187,19 @@ export const TASK_TOP_PEEK = 36
 // loop accumulates `top` across ancestors, this shift cascades — grandchildren and
 // deeper descendants move down by the same amount relative to the Space.
 export const SPACE_CHILD_TOP_PEEK = 4
-// A non-space (task/event/instant) ancestor used to peek ONLY from the top (side
-// inset was just 10px), so a child window covered almost its entire body — hiding
-// the parent's collapsed IN/OUT rails. This side peek leaves a strip of the
-// parent on the left so its IN rail stays visible and reachable. Trimmed to sit
-// close to RIGHT_PEEK so the left strip isn't noticeably wider than the right.
-export const TASK_SIDE = 26
+// Left peek reserved per ancestor: the width of the ancestor's left "rail" (its
+// summary edge — glyph, optional rotated title for spaces, excerpt counters, and
+// its resources in peek form) that stays visible beside the child window. Unified
+// to the SAME width as a focused window's rail (PANEL_RAIL_W = 48) so a rail is
+// the SAME width at every depth — focused OR ancestor — instead of shrinking when
+// an entity becomes an ancestor. Kept in sync with entity-body's PANEL_RAIL_W and
+// the ancestor strip width in entity-node (w-[48px]).
+export const TASK_SIDE = 48
 // Right peek reveals an ancestor's collapsed Outs rail beside the child window.
-// EVERY ancestor gets this full peek so the right side mirrors the left: a clean
-// succession of OUT-rail panels, one per ancestor (the home view shows its own
-// rail via WINDOW_BASE_SIDE instead).
-export const RIGHT_PEEK = 24
+// Unified to the same 48px so the right rail mirrors the left at every depth: a
+// clean succession of equal-width OUT-rail panels, one per ancestor (the home view
+// shows its own rail via WINDOW_BASE_SIDE instead).
+export const RIGHT_PEEK = 48
 /**
  * Base horizontal inset applied to EVERY focus window (even the depth-1 child of
  * the home view, which has no ancestors). It makes each window a touch narrower

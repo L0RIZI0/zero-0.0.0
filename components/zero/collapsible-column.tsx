@@ -4,6 +4,7 @@ import { useRef, useState } from "react"
 import { motion, AnimatePresence } from "motion/react"
 import { ChevronLeft, ChevronRight, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from "lucide-react"
 import { panelSlideTransition, MORPH_SECONDS, MORPH_EASE } from "@/lib/zero/motion"
+import { DURATION_S, MORPH_CSS_EASE } from "@/lib/zero/flip-stage"
 import { cn } from "@/lib/utils"
 
 /**
@@ -36,6 +37,7 @@ export function CollapsibleColumn({
   panelWidth,
   railScale = 1,
   railShift = 0,
+  excerptOffsetTop = 0,
   surface,
 }: {
   title: string
@@ -64,6 +66,11 @@ export function CollapsibleColumn({
   railScale?: number
   /** Vertical px nudge aligning the rail label with the FRAME center (aesthetic). */
   railShift?: number
+  /** Px to push the excerpt DOWN from the rail top. 0 in every state except a spine
+   *  ancestor (covered Space), where the glyph + rotated title sit at the top of the
+   *  strip and the excerpt drops below the title. Animated on the window-morph curve so
+   *  the excerpt SLIDES down in step with the title's rotation as a leaf becomes a spine. */
+  excerptOffsetTop?: number
   /** Window background colour — the panel uses it so it reads as the window surface. */
   surface?: string
 }) {
@@ -281,7 +288,18 @@ export function CollapsibleColumn({
           View. Nudged horizontally by `railShift`-free centering; it uses the rail's own
           width for centering (matching the label). */}
       {excerpt && (
-        <div className="pointer-events-none absolute inset-x-0 top-0 z-30 flex justify-center pt-3">
+        <div
+          className="pointer-events-none absolute inset-x-0 top-0 z-30 flex justify-center pt-3"
+          style={{
+            // Drops the excerpt below the rotated title in a spine ancestor (0 otherwise).
+            // Rides the SAME curve/duration as the title's rotate morph so the counters
+            // slide down in step with the title as a leaf becomes a spine. A CSS transition
+            // doesn't fire on first mount, so a freshly-rendered spine shows it already in
+            // place; only a live leaf→spine change animates.
+            transform: `translateY(${excerptOffsetTop}px)`,
+            transition: `transform ${DURATION_S} ${MORPH_CSS_EASE}`,
+          }}
+        >
           {excerpt}
         </div>
       )}

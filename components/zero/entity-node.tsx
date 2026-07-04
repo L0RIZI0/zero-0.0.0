@@ -707,8 +707,12 @@ export function EntityNode({
   const headerClass = asWindow
       ? isSpine
         ? // pt-[9px] (= pt-3's 12px − 3px) lifts the glyph+title column up the strip
-          // by 3px for tighter alignment with the spine's top.
-          "absolute inset-y-0 left-0 z-10 flex w-[26px] flex-col items-center gap-2 pt-[9px]"
+          // by 3px for tighter alignment with the spine's top. Width unified to 48px
+          // (= PANEL_RAIL_W / TASK_SIDE) so an ancestor space's rail is the same width
+          // as a focused rail at every depth. The excerpt counters slot in below the
+          // rotated title via the rail overlay (see collapsible-column), lined up on
+          // this same 48px column.
+          "absolute inset-y-0 left-0 z-10 flex w-[48px] flex-col items-center gap-2 pt-[9px]"
       : spaceLeafWindow
         ? // TOP-LEFT, like every other window header — glyph + title in a horizontal
           // row near the top-left, dominating the do-list beneath. The leaf is an
@@ -791,6 +795,31 @@ export function EntityNode({
   // the layout engine so it never gets illegibly small). `dockScale` is 1 for rows and
   // for windows, so those are unchanged.
   const titleSize = asWindow ? (ancestorHeader ? 13 : isSpace ? 18 : 13) : 13 * dockScale
+
+  // RAIL EXCERPT vertical offset. The excerpt counters live in the left rail overlay
+  // (EntityBody → CollapsibleColumn) and sit at the rail TOP in every state — which
+  // already lands below any header (an in-flow header pushes the body/rail down; a
+  // floating header is cleared by panelTopOffset). The ONE case that needs an offset
+  // is a SPINE ancestor (covered Space): its glyph + rotated title occupy the top of
+  // this same 48px strip, so the excerpt must drop BELOW the title. The rotated title
+  // reads bottom-to-top and hangs straight DOWN from a fixed point below the glyph;
+  // its column length equals the title's horizontal text width — so we MEASURE that
+  // width off the (untransformed) title span and offset the excerpt by
+  // (glyph zone + title length + gap). Measured continuously (offsetWidth ignores the
+  // rotate transform), so it's ready the instant a leaf spines; the offset then
+  // animates on the shared morph curve (see CollapsibleColumn) so the excerpt SLIDES
+  // down into place as the window becomes a spine.
+  const titleMeasureRef = useRef<HTMLSpanElement>(null)
+  const [titleLen, setTitleLen] = useState(0)
+  useLayoutEffect(() => {
+    if (titleMeasureRef.current) setTitleLen(titleMeasureRef.current.offsetWidth)
+  }, [entity.title, titleSize, asWindow, ancestorHeader])
+  // Column TOP sits a constant y below the strip top: pt-[9px] 9 + glyph 16 + gap-2 8
+  // + h3 half-line 10 = 43; the column then hangs down by `titleLen`; an 8px gap
+  // separates it from the excerpt. Non-spine states keep the excerpt at the rail top.
+  const SPINE_EXCERPT_TITLE_TOP = 43
+  const SPINE_EXCERPT_GAP = 8
+  const excerptOffsetTop = isSpine ? SPINE_EXCERPT_TITLE_TOP + titleLen + SPINE_EXCERPT_GAP : 0
 
   // `winStyle` (the window's resting fixed geometry: top/left/width/height in
   // viewport px) is computed once near the top of the component — it also feeds the
@@ -1269,6 +1298,7 @@ export function EntityNode({
                 re-centering the narrow column in the strip for any length. Both
                 transform parts interpolate, so the morph still rotates AND slides. */}
             <span
+              ref={titleMeasureRef}
               className="inline-block whitespace-nowrap"
               style={
                 asWindow
@@ -1506,6 +1536,7 @@ export function EntityNode({
               railShift={railCenterShift}
               railBleedLeft={railBleedLeft}
               railBleedRight={railBleedRight}
+              excerptOffsetTop={excerptOffsetTop}
               surface={frameSurface}
               panelTopOffset={floatingHeader ? headerH : 0}
               resource={isResource ? { url: entity.webUrl!, resourceId: entity.webResourceId } : undefined}
