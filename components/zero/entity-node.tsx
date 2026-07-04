@@ -749,9 +749,11 @@ export function EntityNode({
   // while it's open. Ancestor/spine headers and closing frames stay inert.
   const canToggleComplete = meta.completable && !isClosing && (interactive || (asWindow && isTop && !ancestorHeader))
   // Only the LEAF Space hexagon reserves a tall top band so its CENTERED header
-  // clears the hexagon's top point; an expanded ancestor Space uses the compact
-  // ancestor band like any other stacked window.
-  const headerH = spaceLeafWindow ? 96 : ancestorHeader ? ANCESTOR_HEADER_H : HEADER_H
+  // clears the hexagon's top point; a covered ancestor SPACE (spine) uses the
+  // compact ancestor band. A NON-space ancestor keeps its LEAF header height
+  // (HEADER_H) — becoming an ancestor no longer shrinks its header, so its header
+  // is identical whether it's a leaf or covered.
+  const headerH = spaceLeafWindow ? 96 : ancestorHeader && isSpace ? ANCESTOR_HEADER_H : HEADER_H
 
   // Vertical offset that re-centers the IN/OUT panel rails on the FRAME center.
   // EntityBody anchors the overlay at the body's vertical center and ANIMATES a
