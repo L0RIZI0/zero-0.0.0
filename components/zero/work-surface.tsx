@@ -96,8 +96,10 @@ export function WorkSurface() {
       }
     >
       {/* [v0] DEBUG: green frame label. Pinned to the screen's top-left corner — the
-          outermost (full-bleed) frame's own corner. `z-50` floats it above the header
-          overlay. Remove with the debug borders. */}
+          outermost (full-bleed) frame's own corner. It sits at the shared label z-[15]
+          (see DebugFrameLabel): a sibling of the window-region, so it stays above the
+          home content but is never covered by a child window (which lives inside the
+          window-region). Remove with the debug borders. */}
       {showFrames && (
         <DebugFrameLabel name="ent0·frame" info="h:fill v:fill · full-bleed" className="text-green-500" />
       )}

@@ -10,9 +10,18 @@ import { useDebugView } from "@/lib/zero/debug-view"
  * short name; line 2 (optional) = its layout properties (e.g. "h:fill v:hug").
  *
  * The text color is inherited from a `text-*` class passed via `className` so it
- * matches its border. `pointer-events-none` so it never intercepts clicks/hover, and
- * `z-50` so it floats above the frame's content. Defaults to the top-left corner; pass
- * positioning utilities in `className` to move it to another corner.
+ * matches its border. `pointer-events-none` so it never intercepts clicks/hover.
+ *
+ * Z-INDEX (`z-[15]`): a label must float above its own frame's content (all ≤ z-10)
+ * but stay BELOW any covering child window. A child window is `position: fixed` with
+ * `zIndex = 20 + windowDepth*10` (nav-store styleFor), so the shallowest covering
+ * window is z-30. Critically, an in-place child window morphs from a do-list ROW, so it
+ * lives in the DOM INSIDE region 1 — a z-EQUAL label rendered LATER in the DOM (e.g. the
+ * region-2 DOCK labels) would win the tie and bleed through the window. Sitting at
+ * z-[15] (between content ≤10 and windows ≥20) keeps every label below every window
+ * regardless of DOM order, while a child window's OWN labels still paint above its
+ * content. Defaults to the top-left corner; pass positioning utilities in `className`
+ * to move it to another corner.
  *
  * Remove this component together with the debug borders (all tagged `// [v0] DEBUG`).
  */
@@ -29,7 +38,7 @@ export function DebugFrameLabel({
     <div
       aria-hidden
       className={cn(
-        "pointer-events-none absolute left-0.5 top-0.5 z-50 select-none font-mono text-[9px] uppercase leading-[1.15] tracking-tight",
+        "pointer-events-none absolute left-0.5 top-0.5 z-[15] select-none font-mono text-[9px] uppercase leading-[1.15] tracking-tight",
         className,
       )}
     >
