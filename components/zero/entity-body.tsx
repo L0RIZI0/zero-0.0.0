@@ -288,13 +288,19 @@ export function EntityBody({
                     manually collapsed first (`!active`). Both must show losanges; keying peek
                     off `inOpen` here was the bug that left a manually-collapsed ancestor with
                     the old vertical "RESOURCES (n)" label instead of losanges.
-                `stripMode` (non-losange content FADES + slides, nothing covers it) marks ONLY
-                the focused-leaf collapse; a covered ancestor's content is hidden under the
-                child window, so it isn't stripMode. `spineWidth` = the strip width. */}
+                `stripMode` = the panel is COLLAPSED (`!inOpen`), for a focused leaf OR a covered
+                ancestor. It hides (fades + slides out) the non-losange content — money, titles,
+                meta, headers — so ONLY the losanges show. It must key off `!inOpen`, NOT
+                `active && !inOpen`: the latter went false the instant a collapsed leaf was
+                covered by a child, animating the hidden content BACK to opacity 1 during the
+                dive (the "titles/meta/money reappear while the child opens" bug). A covered
+                ancestor that was OPEN keeps `inOpen` true ⇒ stripMode false ⇒ its content stays
+                visible and rides out under the child window (unchanged). `spineWidth` = strip
+                width. */}
             <AssetPanel
               spaceId={entityId}
               peek={!(active && inOpen)}
-              stripMode={active && !inOpen}
+              stripMode={!inOpen}
               // `snappy` picks the CURVE only: the focused-leaf lifecycle (`active`, both
               // expand AND collapse) uses the quick panel-slide; the covered-ancestor dive
               // (not active) keeps the slow 2s MORPH so the ancestor collapse RIDES ALONG
