@@ -117,9 +117,6 @@ export function ShellHeader() {
           aria-label="Search"
         >
           <Search className="h-3 w-3 shrink-0" />
-          <span className="flex items-center overflow-hidden whitespace-nowrap pl-1.5">
-            <span className="hidden text-[11.5px] md:inline">Search</span>
-          </span>
         </button>
         {/* Logo stays flush at the right edge; the window controls are stacked
             ABOVE it (absolutely positioned) so they add no horizontal spacing,
