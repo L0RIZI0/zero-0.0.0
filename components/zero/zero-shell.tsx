@@ -1,8 +1,6 @@
 "use client"
 
 import { useTheme } from "next-themes"
-import { ShellHeader } from "./shell-header"
-import { Dayline } from "./dayline"
 import { WorkSurface } from "./work-surface"
 import { ThemeToggle } from "./theme-toggle"
 import { FpsMeter } from "./fps-meter"
@@ -26,22 +24,11 @@ function ZeroShellInner() {
       className="relative flex h-dvh w-full flex-col overflow-hidden"
       style={{ backgroundColor: homeSurface, transition: `background-color ${DURATION_S} ${MORPH_CSS_EASE}` }}
     >
-      {/* HEADER OVERLAY — entity0 (the Individual's homeview) is full-bleed and touches
-          all 4 screen edges; its chrome is a z-overlay floating ON TOP of the frame's
-          top strip. Two stacked CONSTANT-height rows:
-            row 1 — the top bar (avatar+handle = the Individual's title, date+time,
-                    version switcher + search + zero logo, theme/window controls).
-            row 2 — the DAYLINE, the Individual's at-a-glance day insight.
-          `pointer-events-none` so the gaps fall through to the work surface beneath;
-          each interactive cluster re-enables pointer events for itself. The work area
-          below is inset (in WorkSurface) by this overlay's height so windows open under
-          it — the overlay never participates in flow, so the frame can reach the top. */}
-      <div className="pointer-events-none absolute inset-x-0 top-0 z-40 flex flex-col">
-        <ShellHeader />
-        <Dayline />
-      </div>
-      {/* Full-bleed work area: no side/bottom gutter, starts at the screen top (the
-          header floats over it). entity0's frame fills this entirely, edge to edge. */}
+      {/* Full-bleed work area — entity0's frame fills it edge to edge. entity0's
+          KIND-SPECIFIC header (avatar/name, time+date, search + zero logo, Dayline) is
+          now rendered IN FLOW as entity0's own first child inside WorkSurface (see
+          IndividualHeader), not as a decoupled overlay here — so the chrome is genuinely
+          the Individual's header, and the window-region starts at its bottom by flow. */}
       <div className="relative min-h-0 flex-1">
         <WorkSurface />
       </div>

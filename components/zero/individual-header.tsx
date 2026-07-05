@@ -1,0 +1,44 @@
+"use client"
+
+import { ShellHeader } from "./shell-header"
+import { Dayline } from "./dayline"
+
+/**
+ * entity0's KIND-SPECIFIC header — the header the recursive model renders for a
+ * `kind: "individual"` entity (the user's homeview, `s_root`). It is the Individual
+ * analogue of the window header every other entity gets, but wearing Individual
+ * chrome instead of the generic glyph/title/close:
+ *
+ *   • glyph            → the user's AVATAR         (top-left, in ShellHeader → UserIdentity)
+ *   • title            → the user's NAME + @handle (beside the avatar)
+ *   • center           → the live TIME + DATE
+ *   • "close" cluster  → SEARCH + the `zero` logo  (an Individual is never closed, so the
+ *                        close-X slot is repurposed; window controls still stack over the logo)
+ *   • lower row        → the DAYLINE — the Individual's at-a-glance day insight
+ *
+ * Unlike the old decoupled absolute overlay, this renders IN FLOW as the first child
+ * of entity0's frame (see WorkSurface), so it is genuinely entity0's header: the
+ * window-region below it starts at this header's bottom by natural flow — no
+ * `marginTop` offset hack. Its height is intrinsic (ShellHeader `HEADER_H` + Dayline
+ * `DAYLINE_ROW_H` = `HEADER_OVERLAY_H`) and CONSTANT across depth, so the region rect
+ * never moves as the user dives (morph safety preserved).
+ *
+ * `pointer-events-none` on the stack so the empty gaps fall through to whatever is
+ * beneath; ShellHeader / Dayline each re-enable pointer events on their interactive
+ * clusters. `relative z-40` keeps the chrome painted above the region (z-10) exactly
+ * as the overlay did.
+ *
+ * NOTE: entity0 itself is still rendered through the always-mounted `EntityBody`
+ * backdrop rather than the full `EntityNode` window machinery. Routing it through
+ * EntityNode (so this becomes a true kind-branch of the shared header renderer) is the
+ * remaining unification step; this component captures the kind-specific header content
+ * so that fold is a localized swap when we get there.
+ */
+export function IndividualHeader() {
+  return (
+    <div className="pointer-events-none relative z-40 flex shrink-0 flex-col">
+      <ShellHeader />
+      <Dayline />
+    </div>
+  )
+}

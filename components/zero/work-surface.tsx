@@ -7,10 +7,10 @@ import { getSpace, getEntity, isDetachedChild } from "@/lib/zero/data"
 import { telescopicSurface } from "@/lib/zero/motion"
 import { DURATION_S, MORPH_CSS_EASE } from "@/lib/zero/flip-stage"
 import { registerStage } from "@/lib/zero/flip-stage"
-import { HEADER_OVERLAY_H } from "@/lib/zero/layout"
 import { useDebugView } from "@/lib/zero/debug-view"
 import { cn } from "@/lib/utils"
 import { DebugFrameLabel } from "./debug-frame-label"
+import { IndividualHeader } from "./individual-header"
 import { EntityBody } from "./entity-body"
 import { EntityNode } from "./entity-node"
 // [v0] EXPERIMENT: region-0 timeline hidden — see note below. Restore with the const.
@@ -103,6 +103,12 @@ export function WorkSurface() {
       {showFrames && (
         <DebugFrameLabel name="ent0·frame" info="h:fill v:fill · full-bleed" className="text-green-500" />
       )}
+      {/* entity0's KIND-SPECIFIC header (kind: individual) — the avatar/name, time+date,
+          search + zero logo, and the Dayline row. It is IN FLOW as entity0's first child
+          (no longer a decoupled absolute overlay), so the window-region below starts at
+          this header's bottom by natural flow — the old `marginTop: HEADER_OVERLAY_H`
+          hack is gone. Its height is constant, so the region rect stays put across depth. */}
+      <IndividualHeader />
       {/* REGION 0 (fill) — the focus-window region, where the SINGLE recursive
           entity tree lives. It fills the ENTIRE card, so an opened window fills from
           the card top: its header sits just under the app bar. The root entity's body
@@ -136,15 +142,15 @@ export function WorkSurface() {
         // (region-0 timeline, do-list, Dock, side panels, window chrome) re-enables
         // `pointer-events-auto` for itself.
         //
-        // TOP INSET (`marginTop: HEADER_OVERLAY_H`): the header is now an ABSOLUTE
-        // overlay (no longer in flow), so this stage region is pushed down by the full
-        // overlay height. Its bounding rect — which `registerStage` reads and every
-        // fixed child window fills (getRegionRect) — therefore starts BELOW the header,
-        // exactly as it did when the header was in flow. So child-window morph geometry
-        // and the home View both open under the header, unchanged. The negative top in
-        // the clip-path lets morph shadows bleed up behind the header.
+        // TOP INSET: the IndividualHeader above is IN FLOW (a `shrink-0` flex sibling),
+        // so this stage region (`flex-1`) simply starts at the header's bottom — no
+        // margin/offset needed. Its bounding rect — which `registerStage` reads and every
+        // fixed child window fills (getRegionRect) — therefore starts BELOW the header, so
+        // child-window morph geometry and the home View both open under it. Since the
+        // header height is CONSTANT, this rect never moves as the user dives (morph
+        // safety). The negative top in the clip-path lets morph shadows bleed up behind
+        // the header (which paints above at z-40).
         className="pointer-events-none relative z-10 flex min-h-0 flex-1 flex-col [clip-path:inset(-48px_0px_-120px_0px_round_6px)]"
-        style={{ marginTop: HEADER_OVERLAY_H }}
       >
         {/* The home view: region 0 = the timeline (passed in), region 1 = the do-list,
             region 2 = the dock (when pinned). centerList (true): the do-list + create-
