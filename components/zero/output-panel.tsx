@@ -36,15 +36,15 @@ type PeekHover = { title: string; top: number; left: number } | null
 export function OutputPanel({
   spaceId,
   peek = false,
-  railWidth = 48,
+  spineWidth = 48,
   panelWidth = 230,
 }: {
   spaceId: string
   /** Collapse publications into peek losanges on the window's right peek strip. */
   peek?: boolean
   /** Width of the peek strip the losanges center on (the window's visible bleed). */
-  railWidth?: number
-  /** Panel body width beyond the rail — needed to offset a losange onto the right edge. */
+  spineWidth?: number
+  /** Panel body width beyond the spine — needed to offset a losange onto the right edge. */
   panelWidth?: number
 }) {
   const [outputs, setOutputs] = useState<Output[]>([])
@@ -57,8 +57,8 @@ export function OutputPanel({
     setOutputs((prev) => [...prev, { id: `o_${Date.now()}`, title: `Untitled publication ${prev.length + 1}` }])
 
   // Slide right so the glyph lands centered on the right peek strip (whose center sits at
-  // panelWidth + railWidth/2 from the panel's left edge).
-  const peekX = panelWidth + railWidth / 2 - GLYPH_CENTER
+  // panelWidth + spineWidth/2 from the panel's left edge).
+  const peekX = panelWidth + spineWidth / 2 - GLYPH_CENTER
 
   return (
     <div className="flex min-h-0 flex-col">

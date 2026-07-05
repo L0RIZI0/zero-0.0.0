@@ -14,10 +14,10 @@ import { cn } from "@/lib/utils"
  *
  * Opening slides in an OPAQUE panel (window-surface coloured) spanning from the VISUAL
  * header bottom to the window bottom (the slot is offset to the header bottom), and
- * reaching from the window edge to `railWidth + panelWidth`. Its content column keeps a
- * `railWidth` inset so the resource icons stay exactly where they were, while the
+ * reaching from the window edge to `spineWidth + panelWidth`. Its content column keeps a
+ * `spineWidth` inset so the resource icons stay exactly where they were, while the
  * per-row connector hairlines run out to the very window edge (behind the transparent
- * rail). The list is vertically centered within that band.
+ * spine). The list is vertically centered within that band.
  *
  * Fully CONTROLLED: the parent (EntityBody) owns open state via the panel-store, so it
  * survives remounts and the nav layer can auto-collapse it.
@@ -32,39 +32,39 @@ export function CollapsibleColumn({
   open,
   onOpenChange,
   focused = true,
-  railWidth,
+  spineWidth,
   panelWidth,
-  railScale = 1,
-  railShift = 0,
+  spineScale = 1,
+  spineShift = 0,
   spineTitle,
   surface,
 }: {
   title: string
-  /** Short label shown on the vertical rail. Falls back to `title` when omitted. */
+  /** Short label shown on the vertical spine. Falls back to `title` when omitted. */
   collapsedTitle?: string
   side: "left" | "right"
   count?: number
   children: React.ReactNode
-  /** Optional summary pinned to the TOP of the rail (e.g. the entity excerpt
+  /** Optional summary pinned to the TOP of the spine (e.g. the entity excerpt
    *  counters). Stays visible whether the panel is open or collapsed, and is
-   *  horizontally centered on the rail so it aligns with the vertical label below. */
+   *  horizontally centered on the spine so it aligns with the vertical label below. */
   excerpt?: React.ReactNode
   /** Controlled open state. */
   open: boolean
   onOpenChange: (open: boolean) => void
   /** Whether this panel's entity is the FOCUSED front view. When false (an ancestor
    *  with one or more children open), the open-state collapse chevron is hidden — the
-   *  rail stays a clickable close-area but shows no glyph until the entity is refocused. */
+   *  spine stays a clickable close-area but shows no glyph until the entity is refocused. */
   focused?: boolean
-  /** Width (px) of the shortcut rail sliver — the window's visible edge strip and the
+  /** Width (px) of the shortcut spine sliver — the window's visible edge strip and the
    *  inset the panel content keeps so its icons stay put. */
-  railWidth: number
-  /** Width (px) the panel adds BEYOND the rail (icons + labels area). */
+  spineWidth: number
+  /** Width (px) the panel adds BEYOND the spine (icons + labels area). */
   panelWidth: number
-  /** Recessed scale for a covered ancestor's rail label (1 = full, uncovered). */
-  railScale?: number
-  /** Vertical px nudge aligning the rail label with the FRAME center (aesthetic). */
-  railShift?: number
+  /** Recessed scale for a covered ancestor's spine label (1 = full, uncovered). */
+  spineScale?: number
+  /** Vertical px nudge aligning the spine label with the FRAME center (aesthetic). */
+  spineShift?: number
   /** When set, this is a covered SPACE ancestor: render its title ROTATED (reading
    *  bottom-to-top) at the top of the spine, directly below the glyph and ABOVE the
    *  excerpt. The title occupies real vertical layout height (writing-mode), so the
@@ -78,32 +78,32 @@ export function CollapsibleColumn({
   const ClosedIcon = side === "left" ? PanelLeftOpen : PanelRightOpen
   const ToggleIcon = open ? OpenIcon : ClosedIcon
   // Chevron shown IN PLACE OF the vertical label while open — points toward the window
-  // edge (the collapse direction) to signal the rail still closes the panel.
+  // edge (the collapse direction) to signal the spine still closes the panel.
   const CollapseChevron = side === "left" ? ChevronLeft : ChevronRight
   const label = collapsedTitle ?? title
 
   // Hover handled via React state (not Tailwind `group-hover:`) — the CSS hover
   // variant is gated behind `@media (hover: hover)` in Tailwind v4 and didn't fire
   // reliably here. State-driven opacity always works.
-  const [railHover, setRailHover] = useState(false)
-  // Rail label opacity: fully HIDDEN when open (the horizontal panel title names it;
-  // the rail stays a clickable close-area), bright on hover, faint when idle/closed.
-  const labelOpacity = open ? "opacity-0" : railHover ? "opacity-100" : "opacity-35"
+  const [spineHover, setRailHover] = useState(false)
+  // Spine label opacity: fully HIDDEN when open (the horizontal panel title names it;
+  // the spine stays a clickable close-area), bright on hover, faint when idle/closed.
+  const labelOpacity = open ? "opacity-0" : spineHover ? "opacity-100" : "opacity-35"
 
-  // PERSISTENT: an open panel stays open until explicitly closed via its rail (the
+  // PERSISTENT: an open panel stays open until explicitly closed via its spine (the
   // chevron toggle below). It is NOT dismissed by clicking elsewhere on the View —
   // the panel now squeezes the View aside rather than floating over it, so an outside
   // click should interact with that content, not close the panel. (The nav layer still
   // folds a parent's panels when you dive into a child; see collapseEntityPanels.)
   const rootRef = useRef<HTMLDivElement>(null)
 
-  // Animate the rail WIDTH change. `railWidth` = the window's visible edge bleed, which
+  // Animate the spine WIDTH change. `spineWidth` = the window's visible edge bleed, which
   // flips from the full width (uncovered leaf/home) to a narrow peek the moment a child
   // opens and this window becomes a covered ancestor. The label is centered within this
   // width, so a raw width jump snapped the label toward the edge. Tweening the width over
   // the SAME timing as the window morph (MORPH_SECONDS + MORPH_EASE) makes the label glide
   // to its ancestor position IN STEP with the incoming child's morph instead of jumping —
-  // and MORPH_EASE's slow lead-in means the rail holds and then slides out roughly as the
+  // and MORPH_EASE's slow lead-in means the spine holds and then slides out roughly as the
   // covering window arrives, which is the "wait for the window to reach it" feel. Only
   // `width` transitions (height/others stay instant). No animation on first mount (a CSS
   // transition fires only on subsequent value changes).
@@ -114,34 +114,34 @@ export function CollapsibleColumn({
   // losanges on this window's peek strip.
   const peek = open && !focused
   // The content inset (`--panel-edge-inset`, the scroller `pl`/`pr`) is FROZEN at the
-  // open rail width during peek. It's a CSS custom property, which is NOT smoothly
-  // animatable — so letting it follow `railWidth` (which shrinks to the bleed the moment
+  // open spine width during peek. It's a CSS custom property, which is NOT smoothly
+  // animatable — so letting it follow `spineWidth` (which shrinks to the bleed the moment
   // a child opens) made the whole panel content JUMP left. Freezing it means zero layout
   // change on peek-in; the losanges instead travel purely via transform (measured against
-  // this constant inset in asset-panel), which is smooth. `RAIL_OPEN_W` matches the
-  // focused-open bleed (EntityBody's PANEL_RAIL_W), so freezing = no change at the flip.
-  const RAIL_OPEN_W = 48
-  const contentInset = peek ? RAIL_OPEN_W : railWidth
+  // this constant inset in asset-panel), which is smooth. `SPINE_OPEN_W` matches the
+  // focused-open bleed (EntityBody's PANEL_SPINE_W), so freezing = no change at the flip.
+  const SPINE_OPEN_W = 48
+  const contentInset = peek ? SPINE_OPEN_W : spineWidth
 
   return (
-    <div ref={rootRef} className="relative h-full" style={{ width: railWidth, transition: widthTransition }}>
+    <div ref={rootRef} className="relative h-full" style={{ width: spineWidth, transition: widthTransition }}>
       {/* CLIP — a non-transformed container anchored at the window EDGE. Its outer edge
           sits exactly at the edge so the panel, which slides in from fully OUTSIDE the
           window, is never visible past it (the entity window frame itself allows content
           to bleed, so without this the sliding panel shows outside the window). It
           extends `panelWidth + SHADOW_BLEED` inward — enough to hold the open panel and
           its inner drop-shadow uncut — and is `pointer-events-none`/transparent so it
-          affects nothing else. The rail is a SIBLING (outside this clip) so it stays
+          affects nothing else. The spine is a SIBLING (outside this clip) so it stays
           fully visible. */}
       <div
         className={cn(
           "pointer-events-none absolute inset-y-0 overflow-hidden",
           side === "left" ? "left-0" : "right-0",
         )}
-        style={{ width: railWidth + panelWidth + 48, transition: widthTransition }}
+        style={{ width: spineWidth + panelWidth + 48, transition: widthTransition }}
       >
         {/* PANEL — opaque overlay, window-surface coloured, spanning the full window
-            height and reaching from the window EDGE (left:0) to railWidth+panelWidth.
+            height and reaching from the window EDGE (left:0) to spineWidth+panelWidth.
             No rounding; a single border on the inner (View-facing) edge only. */}
         <AnimatePresence initial={false}>
           {open && (
@@ -153,9 +153,9 @@ export function CollapsibleColumn({
               // a soft apparition/disappearance rather than a hard edge-pop. The opacity
               // rides a slightly quicker leading curve (0.4s) so the fade reads clearly
               // within the now-longer 0.55s slide.
-              initial={{ x: side === "left" ? -(railWidth + panelWidth) : railWidth + panelWidth, opacity: 0 }}
+              initial={{ x: side === "left" ? -(spineWidth + panelWidth) : spineWidth + panelWidth, opacity: 0 }}
               animate={{ x: 0, opacity: 1 }}
-              exit={{ x: side === "left" ? -(railWidth + panelWidth) : railWidth + panelWidth, opacity: 0 }}
+              exit={{ x: side === "left" ? -(spineWidth + panelWidth) : spineWidth + panelWidth, opacity: 0 }}
               transition={{ ...panelSlideTransition, opacity: { duration: 0.4, ease: "easeOut" } }}
               className={cn(
                 // No shadow: the panel now SQUEEZES the View aside (EntityBody animates
@@ -166,7 +166,7 @@ export function CollapsibleColumn({
                 side === "left" ? "left-0" : "right-0",
               )}
               style={{
-                width: railWidth + panelWidth,
+                width: spineWidth + panelWidth,
                 // NO backgroundColor: the panel is TRANSPARENT. Previously it was painted
                 // with the window's `surface` colour, but that colour went STALE after a
                 // child closed (the panel kept the child's surface, showing as a wrong-tone
@@ -183,7 +183,7 @@ export function CollapsibleColumn({
                 border or shadow. (Kept the empty branch removed entirely.) */}
             {/* The HORIZONTAL panel title was REMOVED entirely per user — an open panel
                 shows no title label at all; identity is carried by the entity's own
-                header + the vertical rail label when collapsed. */}
+                header + the vertical spine label when collapsed. */}
             <div
               className={cn(
                 // Symmetric `py-8`: keeps the centered list balanced while clearing the
@@ -207,11 +207,11 @@ export function CollapsibleColumn({
         </AnimatePresence>
       </div>
 
-      {/* SHORTCUT rail — a FULL-HEIGHT (inset-0) transparent strip. Clicking anywhere
+      {/* SHORTCUT spine — a FULL-HEIGHT (inset-0) transparent strip. Clicking anywhere
           toggles; hovering anywhere lights the label. `z-20` keeps it above the panel
           (so its edge strip stays clickable) and above an ancestor's opaque spine
           cover. The label is vertically centered (nudged to frame center by
-          railShift) and kept when open. */}
+          spineShift) and kept when open. */}
       <button
         type="button"
         onClick={(e) => {
@@ -224,29 +224,29 @@ export function CollapsibleColumn({
         aria-expanded={open}
         className={cn(
           "absolute inset-0 z-20 flex flex-col items-center justify-center gap-2",
-          // In PEEK the rail sits ON TOP of the peek losanges (z-20, sibling of the panel
+          // In PEEK the spine sits ON TOP of the peek losanges (z-20, sibling of the panel
           // clip) and would intercept their hover — the losange's own z-30 is trapped
-          // inside the panel's local stacking context, below this rail. So drop the rail's
+          // inside the panel's local stacking context, below this spine. So drop the spine's
           // pointer events in peek: hover falls THROUGH to the losanges behind it. The
-          // rail's toggle isn't needed on a covered ancestor anyway (focus is on the
+          // spine's toggle isn't needed on a covered ancestor anyway (focus is on the
           // child); it's restored the moment the entity is refocused (peek → false).
           peek ? "pointer-events-none" : "pointer-events-auto",
         )}
       >
         <span
           className="flex flex-col items-center gap-2"
-          // `railShift` re-centers the label on the body center. Applied INSTANTLY: leaf
+          // `spineShift` re-centers the label on the body center. Applied INSTANTLY: leaf
           // and spine now share the same −headerH/2 shift, so it doesn't change on a
           // leaf↔spine flip — nothing to snap, no transition needed.
-          style={{ transform: `translateY(${railShift}px) scale(${railScale})` }}
+          style={{ transform: `translateY(${spineShift}px) scale(${spineScale})` }}
         >
           {open ? (
             /* OPEN: the vertical label + panel-toggle icon are hidden. A single collapse
-               chevron pointing at the window edge indicates the rail still closes the
+               chevron pointing at the window edge indicates the spine still closes the
                panel — but only while this entity is the FOCUSED front view. Once one or
                more children are open (this becomes an ancestor), the chevron FADES OUT
                (it stays mounted so the opacity can transition, rather than unmounting and
-               vanishing instantly); the rail stays clickable but glyph-less until the
+               vanishing instantly); the spine stays clickable but glyph-less until the
                entity is refocused. A longer 500ms fade makes the appearance/disappearance
                gentle rather than a snap. */
             <CollapseChevron
@@ -254,7 +254,7 @@ export function CollapsibleColumn({
                 "h-4 w-4 transition-opacity duration-500",
                 !focused
                   ? "text-muted-foreground opacity-0"
-                  : railHover
+                  : spineHover
                     ? "text-foreground opacity-100"
                     : "text-muted-foreground opacity-45",
               )}
@@ -264,7 +264,7 @@ export function CollapsibleColumn({
               <ToggleIcon
                 className={cn(
                   "h-3 w-3 transition-opacity duration-200",
-                  railHover ? "text-foreground opacity-100" : "text-muted-foreground opacity-35",
+                  spineHover ? "text-foreground opacity-100" : "text-muted-foreground opacity-35",
                 )}
               />
               <span
@@ -282,9 +282,9 @@ export function CollapsibleColumn({
         </span>
       </button>
 
-      {/* SPINE BAND — the entity's content summary, pinned to the TOP of the rail and
-          centered on `railWidth` (aligning with the vertical label below). Rendered AFTER
-          the rail button so it paints above, but `pointer-events-none` lets clicks fall
+      {/* SPINE BAND — the entity's content summary, pinned to the TOP of the spine and
+          centered on `spineWidth` (aligning with the vertical label below). Rendered AFTER
+          the spine button so it paints above, but `pointer-events-none` lets clicks fall
           through to the toggle. Stays visible whether the panel is open or collapsed, so
           the counters remain in the View's top-left as the panel squeezes the View aside.
 

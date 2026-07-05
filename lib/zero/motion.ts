@@ -35,7 +35,7 @@ export const panelTransition: Transition = morphBeat
 /**
  * ASSETS / PUBLISHED side panels sliding in/out as an opaque overlay over the View.
  * Deliberately DECOUPLED from the 2s morph beat: the panel is not part of the window
- * shared-element morph, so it should feel snappy and immediate — the shortcut rail
+ * shared-element morph, so it should feel snappy and immediate — the shortcut spine
  * stays put and the panel just pops in from the edge. A pronounced ease-OUT curve
  * (fast entry, long decelerating tail) so it lands SOFTLY at the edge — a clearly
  * visible, cushioned glide rather than a hard pop. Lengthened to 0.55s so the soft
@@ -193,23 +193,23 @@ export const TASK_TOP_PEEK = HEADER_H + 1
 // top header band to peek), so the child shares its top edge. Kept as a named seam
 // (still added in stackTargetRect) in case a deliberate top sliver is wanted later.
 export const SPACE_CHILD_TOP_PEEK = 0
-// Left peek reserved per ancestor: the width of the ancestor's left "rail" (its
+// Left peek reserved per ancestor: the width of the ancestor's left "spine" (its
 // summary edge — glyph, optional rotated title for spaces, excerpt counters, and
 // its resources in peek form) that stays visible beside the child window. Unified
-// to the SAME width as a focused window's rail (PANEL_RAIL_W = 48) so a rail is
+// to the SAME width as a focused window's spine (PANEL_SPINE_W = 48) so a spine is
 // the SAME width at every depth — focused OR ancestor — instead of shrinking when
-// an entity becomes an ancestor. Kept in sync with entity-body's PANEL_RAIL_W and
+// an entity becomes an ancestor. Kept in sync with entity-body's PANEL_SPINE_W and
 // the ancestor strip width in entity-node (w-[48px]).
 export const TASK_SIDE = 48
-// Right peek reveals an ancestor's collapsed Outs rail beside the child window.
-// Unified to the same 48px so the right rail mirrors the left at every depth: a
-// clean succession of equal-width OUT-rail panels, one per ancestor (the home view
-// shows its own rail via WINDOW_BASE_SIDE instead).
+// Right peek reveals an ancestor's collapsed Outs spine beside the child window.
+// Unified to the same 48px so the right spine mirrors the left at every depth: a
+// clean succession of equal-width OUT-spine panels, one per ancestor (the home view
+// shows its own spine via WINDOW_BASE_SIDE instead).
 export const RIGHT_PEEK = 48
 /**
  * Base horizontal inset applied to EVERY focus window (even the depth-1 child of
  * the home view, which has no ancestors). It makes each window a touch narrower
- * on both sides so the home view's collapsed Inputs/Outputs rails �� which hug the
+ * on both sides so the home view's collapsed Inputs/Outputs spines �� which hug the
  * region's left/right edges — stay visible peeking out beside the open window.
  * Only the sides inset; the vertical inset (a top of 0 and the bottom gutter) is
  * applied to `liftedRegion` in nav-store.
@@ -232,7 +232,7 @@ export function stackTargetRect(
   // Per-ancestor flag (parallel to `ancestorKinds`) marking spine ancestors — those
   // collapsed to a vertical left strip. Only SPACE ancestors spine (see nav-store's
   // `ancestorVertical` / entity-node's `isSpine`). A spine ancestor reserves its
-  // left/right peeks (so its strip + IN/OUT rails stay visible) but NO top peek: its
+  // left/right peeks (so its strip + IN/OUT spines stay visible) but NO top peek: its
   // child aligns to the SAME top, so spines fan out horizontally instead of marching
   // the leaf ever further down the screen.
   ancestorVertical?: boolean[],
@@ -249,12 +249,12 @@ export function stackTargetRect(
   let right = WINDOW_BASE_SIDE
   let bottom = 0
   // EVERY ancestor — space, task, event or instant — uses the same nested-doll
-  // profile. The LEFT strip always accumulates (IN rail / spine stays visible);
+  // profile. The LEFT strip always accumulates (IN spine / spine stays visible);
   // the TOP peek is skipped for spine ancestors so their child shares their top.
   ancestorKinds.forEach((kind, i) => {
     // `i`-th ancestor sits at stack depth `i + 1`. EVERY ancestor reserves a full
-    // RIGHT_PEEK so its OUT rail shows in a clean succession, mirroring the left
-    // side's IN rails. (Home, depth 0, isn't in this list — its rail shows via
+    // RIGHT_PEEK so its OUT spine shows in a clean succession, mirroring the left
+    // side's IN spines. (Home, depth 0, isn't in this list — its spine shows via
     // WINDOW_BASE_SIDE.)
     right += RIGHT_PEEK
     left += TASK_SIDE

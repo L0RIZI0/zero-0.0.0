@@ -333,7 +333,7 @@ export function EntityNode({
   const isSpace = kind === "space"
   // A RESOURCE TASK is a task bound to a web surface (Zero as a contextual browser).
   // When open it renders that surface (live embed or illustrative stand-in) in place
-  // of the do-list. The glyph+title header, IN/OUT rails and close all stay identical
+  // of the do-list. The glyph+title header, IN/OUT spines and close all stay identical
   // to a normal Task window — only the central working surface differs.
   const isResource = isTask && !!entity.webUrl
   // GLYPH SEMANTICS (driven by KIND_META, single source of truth):
@@ -693,7 +693,7 @@ export function EntityNode({
   //   - SPINE ancestor → a narrow full-height strip pinned to the LEFT edge; glyph
   //     at the top, the rotated title reading up beneath it. Width matches the
   //     window's visible left peek so it sits exactly over that exposed sliver, and
-  //     the glyph lines up with the collapsed IN rail in the same strip.
+  //     the glyph lines up with the collapsed IN spine in the same strip.
   //   - LEAF Space window (hexagon) → glyph+title FLOAT (absolute) centered near the
   //     top, below the hexagon's tapering top point (matching the dock card's
   //     centered glyph + title so the morph is a straight scale).
@@ -709,9 +709,9 @@ export function EntityNode({
           // band ⇒ (43−16)/2 ≈ 14px from the top. Since a spine child now shares the
           // spine's top edge (SPACE_CHILD_TOP_PEEK=0), matching this 14px makes the
           // spine's hexagon line up horizontally with the child's glyph. Width unified
-          // to 48px (= PANEL_RAIL_W / TASK_SIDE) so an ancestor space's rail is the same
-          // width as a focused rail at every depth. The excerpt counters slot in below
-          // the rotated title via the rail overlay (see collapsible-column), lined up on
+          // to 48px (= PANEL_SPINE_W / TASK_SIDE) so an ancestor space's spine is the same
+          // width as a focused spine at every depth. The excerpt counters slot in below
+          // the rotated title via the spine overlay (see collapsible-column), lined up on
           // this same 48px column. Top/bottom are pinned to the CENTRAL RECTANGLE (the
           // wedge inset, via style) rather than the grown frame edges, so the glyph +
           // rotated title sit in the visible region, not up in the off-screen top wedge.
@@ -749,35 +749,35 @@ export function EntityNode({
   // while it's open. Ancestor/spine headers and closing frames stay inert.
   const canToggleComplete = meta.completable && !isClosing && (interactive || (asWindow && isTop && !ancestorHeader))
   // Every Space window reserves the SAME HEADER_H top band, leaf AND spine, so opening
-  // a child never re-lays-out the body/rails (the frame no longer morphs on a leaf↔
-  // spine flip — it stays the identical grown hexagon — so any body/rail value that
+  // a child never re-lays-out the body/spines (the frame no longer morphs on a leaf↔
+  // spine flip — it stays the identical grown hexagon — so any body/spine value that
   // differed would snap with nothing to carry it). The leaf shows a task-like top-row
   // header in that band; the spine leaves it empty (its header is the left strip) but
-  // still reserves it, keeping the do-list + rails pinned in place. Non-space windows
+  // still reserves it, keeping the do-list + spines pinned in place. Non-space windows
   // keep HEADER_H too. (ANCESTOR_HEADER_H — the old compact top-header band — is retired
   // now that covered Spaces spine to a left strip instead of a shorter top header.)
   const headerH = HEADER_H
 
-  // Vertical offset that re-centers the IN/OUT panel rails on the body center.
+  // Vertical offset that re-centers the IN/OUT panel spines on the body center.
   // EntityBody anchors the overlay at the body's vertical center and translateY's this
   // value. Every open window now reserves a headerH top band (leaf top-row header, spine
   // empty band, task/event in-flow header), so its body starts headerH below its top and
-  // the shift is uniformly −headerH/2 — identical for leaf and spine, so the rails DON'T
+  // the shift is uniformly −headerH/2 — identical for leaf and spine, so the spines DON'T
   // move when a child opens (there's no frame morph to carry them anymore). Closing a
   // Space re-anchors its body to top:0 (fills the frame) → 0.
-  const railCenterShift = isClosing ? (isSpace ? 0 : -HEADER_H / 2) : -headerH / 2
+  const spineCenterShift = isClosing ? (isSpace ? 0 : -HEADER_H / 2) : -headerH / 2
 
   // Visible BLEED strip beside this window — how much of it shows on each side
-  // once a child covers it (so the collapsed IN/OUT rail can size+center itself to
+  // once a child covers it (so the collapsed IN/OUT spine can size+center itself to
   // sit in the middle of that sliver instead of being clipped at the frame edge).
-  // The frontmost leaf (and home root) isn't covered, so its rail keeps the full
-  // width (undefined → EntityBody's PANEL_RAIL_W default). A covered ancestor only
+  // The frontmost leaf (and home root) isn't covered, so its spine keeps the full
+  // width (undefined → EntityBody's PANEL_SPINE_W default). A covered ancestor only
   // exposes its accumulated side peek: TASK_SIDE on the left, RIGHT_PEEK right
   // (matches stackTargetRect). Animating these widths also smooths the leaf↔
   // ancestor transition.
   const covered = asWindow && !isTop && !isClosing
-  const railBleedLeft = covered ? TASK_SIDE : undefined
-  const railBleedRight = covered ? RIGHT_PEEK : undefined
+  const spineBleedLeft = covered ? TASK_SIDE : undefined
+  const spineBleedRight = covered ? RIGHT_PEEK : undefined
 
   // Compact ancestor: 13px + dimmer (see className) so it recedes behind the leaf.
   // Leaf window: only SPACES enlarge to 18px — a non-space (task/event) leaf keeps
@@ -919,7 +919,7 @@ export function EntityNode({
             data-fade-late
             // For a leaf Space the X sits just inside the octagon's upper-right
             // corner — the TOP of the right VERTICAL edge, which the settled octagon
-            // reaches at ~9.2% of the frame height. It shares the OUT rail's horizontal
+            // reaches at ~9.2% of the frame height. It shares the OUT spine's horizontal
             // center (24px in from the right edge) so the two read as a vertical column
             // hugging the right edge: X at the top corner, OUT below it at mid-height.
             // A few px of down-nudge clears the angled chamfer above the corner.
@@ -935,7 +935,7 @@ export function EntityNode({
               ...(spaceLeafWindow
                 ? // Top of the octagon's right vertical edge (~9.2%), nudged down a few
                   // px to clear the chamfer; right: 12px centers the 24px-wide X on the
-                  // OUT rail's 24px-from-edge axis so they align as a right-edge column.
+                  // OUT spine's 24px-from-edge axis so they align as a right-edge column.
                   { top: "calc(9.2% + 4px)", right: "12px" }
                 : isSpine
                   ? // SPINE ancestor: the X is the right-edge twin of the left glyph, so
@@ -1429,7 +1429,7 @@ export function EntityNode({
                       // bottom = the bottom wedge. The leaf fills that band with its task-
                       // like top-row header and the do-list below it; the spine leaves the
                       // band empty (its header is the left strip) but STILL reserves it, so
-                      // the do-list + rails don't shift when a child opens and this Space
+                      // the do-list + spines don't shift when a child opens and this Space
                       // flips leaf→spine. Identical insets = no jump (the frame no longer
                       // morphs on that flip, so nothing would carry a difference).
                       marginTop: `calc(var(--hex-corner-inset-y, 0px) + ${headerH}px)`,
@@ -1478,17 +1478,17 @@ export function EntityNode({
                 : // `flex flex-col` so EntityBody (a flex-1 child) actually fills a
                   // tall window. Without it the body was a plain block, EntityBody
                   // sized to its content (~min-h), and the vertically-centered
-                  // Inputs/Outputs rails centered on that short content near the top
+                  // Inputs/Outputs spines centered on that short content near the top
                   // — so on tall screens they floated well above the window center.
                   // relative z-10: paint above the [data-shape] fill layer (z-0) so the
                   // window's working surface sits over the clipped background, not under it.
                   "relative z-10 flex min-h-0 flex-1 flex-col",
-              // NOTE: no horizontal padding here, on purpose. The IN/OUT rails are an
+              // NOTE: no horizontal padding here, on purpose. The IN/OUT spines are an
               // absolute overlay anchored to this body's left/right edges, so any padding
               // would push them inward — and worse, a LEAF-only inset (the old `px-[4%]`)
               // was REMOVED the instant the Space spined to an ancestor, snapping both
-              // rails outward by that padding in one frame (the "jump into place" on
-              // peek/bleed). With the body always flush to the frame, the rails sit close
+              // spines outward by that padding in one frame (the "jump into place" on
+              // peek/bleed). With the body always flush to the frame, the spines sit close
               // to the edges like a Task window AND keep a stable anchor across the
               // leaf→spine flip, so only their width tweens (smoothly). The do-list/Dock
               // stay safely inset via their own centered `max-w` + `w-2/3` column.
@@ -1498,9 +1498,9 @@ export function EntityNode({
               entityId={entityId}
               active={isTop && !isClosing}
               closing={isClosing}
-              railShift={railCenterShift}
-              railBleedLeft={railBleedLeft}
-              railBleedRight={railBleedRight}
+              spineShift={spineCenterShift}
+              spineBleedLeft={spineBleedLeft}
+              spineBleedRight={spineBleedRight}
               // A covered Space ancestor folds its title INTO the left spine (rendered
               // rotated below the glyph, above the excerpt). Undefined otherwise, so a
               // leaf / non-space shows only its excerpt. This replaces the old cross-
@@ -1509,7 +1509,7 @@ export function EntityNode({
               surface={frameSurface}
               // 0 for EVERY window. `[data-body]` now clears the header in ALL cases —
               // a non-space window's in-flow header pushes the body down by headerH, and a
-              // space window's body has `marginTop = wedge + headerH` — so the rail box
+              // space window's body has `marginTop = wedge + headerH` — so the spine box
               // always starts exactly at the header bottom with no extra push. (The old
               // `headerH` here dated from when space bodies filled from the window top and
               // the floating header overlapped them; that's no longer the case, and the

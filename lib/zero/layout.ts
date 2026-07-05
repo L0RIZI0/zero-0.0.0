@@ -36,7 +36,7 @@ export const HEADER_H = 64
  * edge-to-edge. Single source of truth for both places.
  *   top: 0 (windows stay flush under the Dayline), left/right: VIEW_PAD_X, bottom.
  *
- * Set to 48 to MATCH the rail width (PANEL_RAIL_W / TASK_SIDE / RIGHT_PEEK = 48):
+ * Set to 48 to MATCH the rail width (PANEL_SPINE_W / TASK_SIDE / RIGHT_PEEK = 48):
  * because a depth-1 window insets by this (WINDOW_BASE_SIDE), it is ALSO the width
  * of home's (entity0's) exposed left/right peek. Making it 48 means home's peek is
  * the SAME width as every deeper ancestor's peek (which reserve TASK_SIDE/RIGHT_PEEK

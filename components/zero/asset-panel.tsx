@@ -61,16 +61,16 @@ const ROW_GLYPH_CENTER = 28
 const ADD_GLYPH_CENTER = 20
 /** The panel content inset (px) when the panel is open — the scroller's `pl`. FROZEN at
  *  this value during peek (see CollapsibleColumn) so the content never horizontally jumps
- *  when `railWidth` shrinks to the bleed; the losange travel is measured against it. */
+ *  when `spineWidth` shrinks to the bleed; the losange travel is measured against it. */
 const FULL_INSET = 48
 /** Pure-losange edge (px) in peek — half the previous 15px, per the tighter peek spec. */
 const PEEK_LOSANGE = 8
 /** Where a peek glyph/losange lands, measured from the WINDOW EDGE: centered on the
  *  bleed strip. Both resources and the add button converge here so they align. */
-const peekCenter = (railWidth: number) => railWidth / 2
+const peekCenter = (spineWidth: number) => spineWidth / 2
 /** Row transform to bring a glyph tile's center from its resting spot (inset + slot
  *  center) onto the peek strip center. Negative = leftward. */
-const rowPeekX = (railWidth: number, slotCenter: number) => peekCenter(railWidth) - FULL_INSET - slotCenter
+const rowPeekX = (spineWidth: number, slotCenter: number) => peekCenter(spineWidth) - FULL_INSET - slotCenter
 
 const faviconUrl = (domain: string) => `https://www.google.com/s2/favicons?domain=${domain}&sz=64`
 
@@ -110,12 +110,12 @@ function ItemMark({ item, size = 15 }: { item: EntityResource; size?: number }) 
 function ResourceRow({
   item,
   peek,
-  railWidth,
+  spineWidth,
   onHover,
 }: {
   item: EntityResource
   peek: boolean
-  railWidth: number
+  spineWidth: number
   onHover: (h: PeekHover) => void
 }) {
   const tileRef = useRef<HTMLSpanElement>(null)
@@ -124,7 +124,7 @@ function ResourceRow({
   // its hairline travel; titles/meta/money simply fade in place. The content inset is
   // FROZEN at FULL_INSET during peek (CollapsibleColumn), so this pure transform (no layout
   // change) carries the losange the whole way — no jump.
-  const peekX = rowPeekX(railWidth, ROW_GLYPH_CENTER)
+  const peekX = rowPeekX(spineWidth, ROW_GLYPH_CENTER)
 
   const showLabel = () => {
     const el = tileRef.current
@@ -153,7 +153,7 @@ function ResourceRow({
           className="pointer-events-none absolute top-1/2 h-px"
           initial={false}
           animate={{
-            width: peek ? peekCenter(railWidth) + 8 : FULL_INSET + 18,
+            width: peek ? peekCenter(spineWidth) + 8 : FULL_INSET + 18,
           }}
           transition={peekMorph(peek)}
           style={{
@@ -164,7 +164,7 @@ function ResourceRow({
       )}
       {/* Diamond tile (square rotated 45°). In peek it shrinks + hardens into the "pure
           glyph": pointy (radius 0), SOLID tint fill + border, inner mark faded out. It's
-          raised above the rail (z-30) and re-enables pointer events so it's hoverable from
+          raised above the spine (z-30) and re-enables pointer events so it's hoverable from
           the focused child; a click is a no-op for now.
           The peek TRAVEL (x) lives on this rotation-free slot wrapper — NOT on the tile
           itself, whose `transform` is already owned by the rotate-45 (+ Framer width/height
@@ -221,14 +221,14 @@ function Section({
   title,
   items,
   peek,
-  railWidth,
+  spineWidth,
   onHover,
   defaultOpen = true,
 }: {
   title: string
   items: EntityResource[]
   peek: boolean
-  railWidth: number
+  spineWidth: number
   onHover: (h: PeekHover) => void
   defaultOpen?: boolean
 }) {
@@ -273,7 +273,7 @@ function Section({
           >
             <div className="flex flex-col pb-1">
               {items.map((item) => (
-                <ResourceRow key={item.id} item={item} peek={peek} railWidth={railWidth} onHover={onHover} />
+                <ResourceRow key={item.id} item={item} peek={peek} spineWidth={spineWidth} onHover={onHover} />
               ))}
             </div>
           </motion.div>
@@ -286,20 +286,20 @@ function Section({
 export function AssetPanel({
   spaceId,
   peek = false,
-  railWidth = 48,
+  spineWidth = 48,
 }: {
   spaceId: string
   /** Collapse the resources into peek losanges on the window's left peek strip. */
   peek?: boolean
   /** Width of the peek strip the losanges center on (the window's visible bleed). */
-  railWidth?: number
+  spineWidth?: number
 }) {
   const [hover, setHover] = useState<PeekHover>(null)
   // The minimal add affordance on the peek strip only shows on hover.
   const [addHover, setAddHover] = useState(false)
   // The add button has no px-2, so it uses ADD_GLYPH_CENTER — this lands its "+" on the
   // SAME peek-strip center as the resource losanges above, so they align vertically.
-  const peekAddX = rowPeekX(railWidth, ADD_GLYPH_CENTER)
+  const peekAddX = rowPeekX(spineWidth, ADD_GLYPH_CENTER)
 
   // Model-driven: an entity renders exactly the resources it HOLDS (entity0's world
   // inputs; a child's imported/added resources). An entity with no holdings shows an
@@ -343,9 +343,9 @@ export function AssetPanel({
       )}
 
       {assets.length > 0 && (
-        <Section title="Assets" items={assets} peek={peek} railWidth={railWidth} onHover={setHover} />
+        <Section title="Assets" items={assets} peek={peek} spineWidth={spineWidth} onHover={setHover} />
       )}
-      {apps.length > 0 && <Section title="Apps" items={apps} peek={peek} railWidth={railWidth} onHover={setHover} />}
+      {apps.length > 0 && <Section title="Apps" items={apps} peek={peek} spineWidth={spineWidth} onHover={setHover} />}
 
       {/* Full add-resource affordance — no longer fades in peek; just goes inert and rides
           out with the narrowing column like the rest of the content. */}

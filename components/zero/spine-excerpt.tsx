@@ -6,8 +6,8 @@ import { useZeroNav } from "@/lib/zero/nav-store"
 import { cn } from "@/lib/utils"
 
 /**
- * The rail EXCERPT — a compact summary of what an entity holds, shown at the TOP of a
- * side rail (currently the left/Resources rail). It surfaces the same tallies used
+ * The spine EXCERPT — a compact summary of what an entity holds, shown at the TOP of a
+ * side spine (currently the left/Resources spine). It surfaces the same tallies used
  * elsewhere (dock cards, space rows) so the counts read consistently across the app:
  *
  *   • open tasks   — outline task glyph + count of incomplete child tasks
@@ -22,7 +22,7 @@ import { cn } from "@/lib/utils"
  *
  * Presentational + read-only: it re-reads on `dataVersion` and never mutates state.
  */
-export function RailExcerpt({ entityId }: { entityId: string }) {
+export function SpineExcerpt({ entityId }: { entityId: string }) {
   // Re-read the tallies whenever data mutates (task toggled, child added, etc.).
   const { dataVersion } = useZeroNav()
   void dataVersion
