@@ -1,6 +1,7 @@
 "use client"
 
 import type { ReactNode } from "react"
+import { useRef, useEffect } from "react"
 import { motion } from "motion/react"
 import { panelSlideTransition } from "@/lib/zero/motion"
 import { getPinnedItems } from "@/lib/zero/data"
@@ -116,6 +117,21 @@ export function EntityBody({
   // the peek-losange strip, so every ancestor shows its resources collapsed.
   const [inOpen, setInOpen] = usePanelOpen(`${entityId}:in`, true)
   const [outOpen, setOutOpen] = usePanelOpen(`${entityId}:out`, false)
+  // A resources-panel peek morph is "snappy" (fast, manual-toggle curve) ONLY when the user
+  // clicked the spine — i.e. `active` stayed true and `inOpen` changed. When the morph is
+  // driven by a child opening/closing (`active` itself flips), it is an AUTO morph that must
+  // ride the slow 2s window dive in BOTH directions (symmetric collapse ⇄ uncollapse). We
+  // can't tell the two apart from the resting state alone (manual-expand and auto-uncollapse
+  // both end at active+open), so we detect whether `active` JUST changed this render: if it
+  // did, the morph is auto → not snappy. Framer captures the transition when the target
+  // (peek) flips, which is the same render `active` flips, so this classification is read at
+  // exactly the right moment.
+  const prevActiveRef = useRef(active)
+  const activeJustChanged = prevActiveRef.current !== active
+  useEffect(() => {
+    prevActiveRef.current = active
+  }, [active])
+  const panelSnappy = active && !activeJustChanged
   // IN/OUT GUTTERS: the View is everything visually INSIDE the entity window — inset on
   // the left/right by the in/out panels, so it never underlaps them. Each side's gutter
   // is the panel's current footprint: the thin RAIL (`PANEL_SPINE_W`, 48) when collapsed,
@@ -290,11 +306,12 @@ export function EntityBody({
             <AssetPanel
               spaceId={entityId}
               peek={!(active && inOpen)}
-              // `snappy` picks the CURVE only: the focused-leaf lifecycle (`active`, both
-              // expand AND collapse) uses the quick panel-slide; the covered-ancestor dive
-              // (not active) keeps the slow 2s MORPH so the ancestor collapse RIDES ALONG
-              // with the child window's dive animation — the coherent ride the user likes.
-              snappy={active}
+              // `snappy` picks the CURVE only: a MANUAL toggle (`panelSnappy` — user clicked
+              // the spine, `active` didn't just flip) uses the quick curves (bloom on expand,
+              // fast bounce on collapse). An AUTO morph (a child opening OR closing, so
+              // `active` flipped) rides the slow 2s MORPH in BOTH directions, symmetric with
+              // the window dive. See `panelSnappy` above for why we key off active-just-changed.
+              snappy={panelSnappy}
               spineWidth={spineWidth}
             />
           </CollapsibleColumn>

@@ -54,11 +54,13 @@ const peekMorph = (peek: boolean, delayed = true, base: object = MORPH) => ({
   delay: peek && delayed ? PEEK_IN_DELAY : 0,
 })
 /**
- * The base transition for a snappy (focused-leaf manual toggle) peek morph, chosen by
- * DIRECTION so collapse is the time-mirror of expand:
- *   • expand (peek=false) → panelSlideTransition (ease-OUT bloom)
- *   • collapse (peek=true) → panelCollapseTransition (ease-IN, the reverse of the bloom)
- * The covered-ancestor DIVE (`!snappy`) keeps the slow 2s MORPH in both directions.
+ * The base transition for a peek morph, chosen by whether it's a MANUAL toggle (`snappy`) and
+ * by DIRECTION:
+ *   • auto morph (`!snappy`, a child opening OR closing) → slow 2s MORPH, both directions, so
+ *     collapse ⇄ uncollapse stay symmetric and ride the window dive.
+ *   • manual expand (snappy, peek=false) → panelSlideTransition (ease-OUT bloom).
+ *   • manual collapse (snappy, peek=true) → panelCollapseTransition (fast spring, slight end
+ *     bounce). Same character as the auto-collapse but quicker and with a bounce.
  */
 const snappyBase = (snappy: boolean, peek: boolean) =>
   !snappy ? MORPH : peek ? panelCollapseTransition : panelSlideTransition
@@ -162,11 +164,10 @@ function ResourceRow({
   // FROZEN at FULL_INSET during peek (CollapsibleColumn), so this pure transform (no layout
   // change) carries the losange the whole way — no jump.
   const peekX = rowPeekX(spineWidth, ROW_GLYPH_CENTER)
-  // Base transition. The FOCUSED-LEAF scenario (`snappy`) uses the panel-slide curve so the
-  // losange travel/scale + text slide/fade land IN LOCKSTEP with the View squeeze — but
-  // DIRECTION-AWARE: ease-OUT bloom on expand, ease-IN mirror on collapse (see snappyBase),
-  // so collapse reads as the expand run backwards. The covered-ancestor DIVE (`!snappy`)
-  // keeps the slow 2s MORPH both ways so it rides the window dive.
+  // Base transition (see snappyBase): a MANUAL toggle uses the quick curves — ease-OUT bloom
+  // on expand, fast spring with a slight end bounce on collapse — so the losange travel/scale
+  // + text slide/fade land together. An AUTO morph (child opening/closing) rides the slow 2s
+  // MORPH both ways so it stays symmetric with the window dive.
   const morphBase = snappyBase(snappy, peek)
 
   const showLabel = () => {
