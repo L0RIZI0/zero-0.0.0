@@ -48,12 +48,20 @@ export const panelSlideTransition: Transition = { duration: 0.55, ease: [0.16, 1
  * design: manual collapse is the SAME animation as the auto-collapse (a child opening, the slow
  * 2s MORPH) EXCEPT it is (a) much FASTER and (b) has a SLIGHT BOUNCE at the end. A spring is the
  * natural primitive for that: it starts promptly (no slow ease-in ramp, so no perceived delay)
- * and overshoots slightly before settling. `bounce` controls the overshoot; `duration` keeps it
- * quick. Only manual collapse uses this; manual expand keeps the panelSlideTransition bloom and
- * BOTH auto directions (child open AND child close) ride the slow 2s MORPH so they stay
- * symmetric with the window dive.
+ * and overshoots slightly before settling. `bounce` is kept LOW (0.22) so the overshoot is a
+ * gentle, ease-out settle rather than a nervous wobble. The nested `opacity` override finishes
+ * the element FADE-OUT slightly earlier (a short easeOut tween) than the losange travel, which
+ * keeps riding the spring — so the content is gone before the losanges finish snapping home.
+ * Only manual collapse uses this; manual expand keeps the panelSlideTransition bloom and BOTH
+ * auto directions (child open AND child close) ride the slow 2s MORPH so they stay symmetric
+ * with the window dive.
  */
-export const panelCollapseTransition: Transition = { type: "spring", duration: 0.4, bounce: 0.4 }
+export const panelCollapseTransition: Transition = {
+  type: "spring",
+  duration: 0.44,
+  bounce: 0.22,
+  opacity: { duration: 0.24, ease: "easeOut" },
+}
 
 /**
  * The single attribute name a morph SOURCE exposes so an opening window can
