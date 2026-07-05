@@ -300,6 +300,13 @@ export function CollapsibleColumn({
                     : "text-muted-foreground opacity-45",
               )}
             />
+          ) : stripCollapse ? (
+            /* STRIP-COLLAPSE: the collapsed affordance is the peek LOSANGES, so the spine
+               shows NEITHER the toggle icon NOR the vertical label — ever. (Rendering them
+               here would let the "RESOURCES (n)" label briefly FLASH during the collapse
+               transition, since `open` flips false one frame before the parent span fades
+               out.) The band stays a clickable expand target with no glyph. */
+            null
           ) : (
             <>
               <ToggleIcon

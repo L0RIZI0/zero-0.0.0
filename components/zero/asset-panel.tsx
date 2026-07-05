@@ -133,6 +133,12 @@ function ResourceRow({
   // FROZEN at FULL_INSET during peek (CollapsibleColumn), so this pure transform (no layout
   // change) carries the losange the whole way — no jump.
   const peekX = rowPeekX(spineWidth, ROW_GLYPH_CENTER)
+  // Base transition. STRIP MODE (manual leaf collapse/expand) uses the SNAPPY panel-slide
+  // curve so the losange travel/scale + fades land IN LOCKSTEP with the View squeeze
+  // (which also uses panelSlideTransition) — everything moves together in one beat, no
+  // delay. The covered-ancestor DIVE peek keeps the slow 2s MORPH so it matches the window
+  // dive it rides along with.
+  const morphBase = stripMode ? panelSlideTransition : MORPH
 
   const showLabel = () => {
     const el = tileRef.current
@@ -163,7 +169,7 @@ function ResourceRow({
           animate={{
             width: peek ? peekCenter(spineWidth) + 8 : FULL_INSET + 18,
           }}
-          transition={peekMorph(peek, peekDelayed)}
+          transition={peekMorph(peek, peekDelayed, morphBase)}
           style={{
             left: "calc(-1 * (var(--panel-edge-inset, 48px) + 8px))",
             backgroundColor: `${item.tint}55`,
@@ -182,7 +188,7 @@ function ResourceRow({
         className="relative flex h-10 w-10 shrink-0 items-center justify-center"
         initial={false}
         animate={{ x: peek ? peekX : 0 }}
-        transition={peekMorph(peek, peekDelayed)}
+        transition={peekMorph(peek, peekDelayed, morphBase)}
         style={peek ? { position: "relative", zIndex: 30 } : undefined}
       >
         <motion.span
@@ -195,7 +201,7 @@ function ResourceRow({
             backgroundColor: peek ? item.tint : `${item.tint}1a`,
             borderColor: peek ? item.tint : `${item.tint}55`,
           }}
-          transition={peekMorph(peek, peekDelayed)}
+          transition={peekMorph(peek, peekDelayed, morphBase)}
           onPointerEnter={peek ? showLabel : undefined}
           onPointerLeave={peek ? () => onHover(null) : undefined}
           onClick={peek ? (e) => e.stopPropagation() : undefined}
@@ -208,7 +214,7 @@ function ResourceRow({
             className="-rotate-45"
             initial={false}
             animate={{ opacity: peek ? 0 : 1 }}
-            transition={peekMorph(peek, peekDelayed)}
+            transition={peekMorph(peek, peekDelayed, morphBase)}
           >
             <ItemMark item={item} />
           </motion.span>
@@ -221,7 +227,7 @@ function ResourceRow({
         className="flex min-w-0 flex-1 flex-col leading-tight"
         initial={false}
         animate={{ opacity: stripMode ? 0 : 1 }}
-        transition={peekMorph(peek, peekDelayed)}
+        transition={peekMorph(peek, peekDelayed, morphBase)}
       >
         <span className="truncate text-[12.5px] tracking-tight text-foreground">{item.name}</span>
         <span className="truncate text-[11px] text-muted-foreground/70">{item.detail}</span>
@@ -269,7 +275,7 @@ function Section({
         aria-expanded={open}
         initial={false}
         animate={{ opacity: stripMode ? 0 : 1 }}
-        transition={peekMorph(peek, peekDelayed)}
+        transition={peekMorph(peek, peekDelayed, stripMode ? panelSlideTransition : MORPH)}
         className={cn(
           "flex w-full items-center gap-1.5 px-2 py-2 text-left",
           peek && "pointer-events-none",
@@ -336,11 +342,13 @@ export function AssetPanel({
   // peek holds the full panel for PEEK_IN_DELAY before morphing. `stripMode` marks the
   // manual-collapse case.
   const peekDelayed = !stripMode
-  // Fade transition for the non-losange content in strip mode (money, add button).
+  // Fade transition for the non-losange content in strip mode (money, add button). Uses
+  // the snappy panel-slide curve in strip mode so it fades IN LOCKSTEP with the View
+  // squeeze + losange travel — one coherent beat, no delay.
   const stripFade = {
     initial: false as const,
     animate: { opacity: stripMode ? 0 : 1 },
-    transition: peekMorph(peek, peekDelayed),
+    transition: peekMorph(peek, peekDelayed, stripMode ? panelSlideTransition : MORPH),
   }
   // The add button has no px-2, so it uses ADD_GLYPH_CENTER — this lands its "+" on the
   // SAME peek-strip center as the resource losanges above, so they align vertically.
