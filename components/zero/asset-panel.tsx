@@ -5,7 +5,7 @@ import { createPortal } from "react-dom"
 import { motion, AnimatePresence } from "motion/react"
 import { ChevronDown, Plus } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { panelSlideTransition, MORPH_SECONDS, MORPH_EASE } from "@/lib/zero/motion"
+import { panelSlideTransition, panelCollapseTransition, MORPH_SECONDS, MORPH_EASE } from "@/lib/zero/motion"
 import { getEntityResources, groupResources, type EntityResource } from "@/lib/zero/resources"
 
 /**
@@ -53,6 +53,15 @@ const peekMorph = (peek: boolean, delayed = true, base: object = MORPH) => ({
   ...base,
   delay: peek && delayed ? PEEK_IN_DELAY : 0,
 })
+/**
+ * The base transition for a snappy (focused-leaf manual toggle) peek morph, chosen by
+ * DIRECTION so collapse is the time-mirror of expand:
+ *   • expand (peek=false) → panelSlideTransition (ease-OUT bloom)
+ *   • collapse (peek=true) → panelCollapseTransition (ease-IN, the reverse of the bloom)
+ * The covered-ancestor DIVE (`!snappy`) keeps the slow 2s MORPH in both directions.
+ */
+const snappyBase = (snappy: boolean, peek: boolean) =>
+  !snappy ? MORPH : peek ? panelCollapseTransition : panelSlideTransition
 /** Shrunk peek-title size == the floating hover-label size, so the two read continuous. */
 const PEEK_LABEL_PX = 11
 /** Horizontal distance from a row's left edge to its glyph-tile CENTER: row px-2 (8) +
@@ -154,13 +163,11 @@ function ResourceRow({
   // change) carries the losange the whole way — no jump.
   const peekX = rowPeekX(spineWidth, ROW_GLYPH_CENTER)
   // Base transition. The FOCUSED-LEAF scenario (`snappy`) uses the panel-slide curve so the
-  // losange travel/scale + text slide/fade land IN LOCKSTEP with the View squeeze (also
-  // panelSlideTransition) — everything moves together in one beat, both directions. Keyed
-  // off the SCENARIO (snappy), NOT the instantaneous open state: `stripMode` flips false the
-  // moment expansion starts, so keying on it made the EXPAND fall back to the slow 2s MORPH
-  // (the lingering delay). The covered-ancestor DIVE peek (`!snappy`) keeps the 2s MORPH so
-  // it rides the window dive.
-  const morphBase = snappy ? panelSlideTransition : MORPH
+  // losange travel/scale + text slide/fade land IN LOCKSTEP with the View squeeze — but
+  // DIRECTION-AWARE: ease-OUT bloom on expand, ease-IN mirror on collapse (see snappyBase),
+  // so collapse reads as the expand run backwards. The covered-ancestor DIVE (`!snappy`)
+  // keeps the slow 2s MORPH both ways so it rides the window dive.
+  const morphBase = snappyBase(snappy, peek)
 
   const showLabel = () => {
     const el = tileRef.current
@@ -312,7 +319,7 @@ function Section({
           x: peek ? rowPeekX(spineWidth, ROW_GLYPH_CENTER) : 0,
           height: peek ? PEEK_HEADER_H : HEADER_H_OPEN,
         }}
-        transition={peekMorph(peek, peekDelayed, snappy ? panelSlideTransition : MORPH)}
+        transition={peekMorph(peek, peekDelayed, snappyBase(snappy, peek))}
         className={cn(
           "flex w-full items-center gap-1.5 overflow-hidden px-2 text-left",
           peek && "pointer-events-none",
@@ -391,7 +398,7 @@ export function AssetPanel({
   const stripFade = {
     initial: false as const,
     animate: { opacity: peek ? 0 : 1, x: peek ? stripSlideX : 0 },
-    transition: peekMorph(peek, peekDelayed, snappy ? panelSlideTransition : MORPH),
+    transition: peekMorph(peek, peekDelayed, snappyBase(snappy, peek)),
   }
   // The add button has no px-2, so it uses ADD_GLYPH_CENTER — this lands its "+" on the
   // SAME peek-strip center as the resource losanges above, so they align vertically.

@@ -44,6 +44,19 @@ export const panelTransition: Transition = morphBeat
 export const panelSlideTransition: Transition = { duration: 0.55, ease: [0.16, 1, 0.3, 1] }
 
 /**
+ * The TIME-MIRROR of panelSlideTransition, used for the MANUAL COLLAPSE of a resources panel
+ * so it reads as the expand run backwards. panelSlideTransition is a pronounced ease-OUT
+ * (fast start, long soft tail) — great for the expand "bloom", but applied forward on collapse
+ * it snaps the content away instantly then trails on already-invisible pixels. The exact
+ * reverse of a cubic-bezier ease-out [x1,y1,x2,y2] is [1-x2, 1-y2, 1-x1, 1-y1]; for
+ * [0.16, 1, 0.3, 1] that is [0.7, 0, 0.84, 0] — an ease-IN (slow start, accelerate away).
+ * So collapse now gently retracts then snaps the losanges home = expand played in reverse.
+ * Same 0.55s duration. Only the manual-collapse (snappy) direction uses this; the expand
+ * keeps panelSlideTransition and the covered-ancestor dive keeps its slow MORPH.
+ */
+export const panelCollapseTransition: Transition = { duration: 0.55, ease: [0.7, 0, 0.84, 0] }
+
+/**
  * The single attribute name a morph SOURCE exposes so an opening window can
  * measure the exact box to grow from (and shrink back to on close). Every
  * DO-list row, dock card, and timeline marker tags itself with this + the entity
