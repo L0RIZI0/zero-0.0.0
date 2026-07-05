@@ -584,16 +584,14 @@ export function ZeroNavProvider({
         ancestorVertical,
         selfIsSpace,
       )
-      // A frontmost LEAF Space fills its WHOLE box (full width minus side peeks,
-      // full height) and the clip carves a wide OCTAGON from it — flat top/bottom
-      // edges with true-120° corner brackets and full-height vertical sides — for
-      // maximum content width with no giant off-screen shape. The moment a child
-      // opens it stops being the leaf and the clip flattens octagon → rectangle in
-      // the same Flip pass (brackets ride to the corners, flat edges spread to full
-      // width). The expanded ancestor is then a plain, cheap rectangle (no inset,
-      // no drop-shadow filter), which is also why opening/closing stays snappy.
+      // EVERY Space WINDOW — leaf OR ancestor — is the SAME grown pointy-top hexagon
+      // (octagon dropped). Opening a child no longer reshapes/resizes the covered
+      // Space: it keeps the identical hexagon geometry and only its HEADER changes
+      // (task-like row → left spine strip). So there is no hexagon→rectangle morph;
+      // the leaf↔ancestor flip is a pure header transition. `isLeaf` is still tracked
+      // (the header/spine choice keys off it in entity-node), but the geometry below
+      // is gated on `selfIsSpace` alone.
       const isLeaf = opts?.forceLeaf || windowDepth === stack.length - 1
-      const isSpaceLeaf = selfIsSpace && isLeaf
       let hexInsetY = 0
       // Distance from the hexagon's TOP POINT down to its upper side corners — i.e.
       // the top of the central horizontal rectangle (the band between the four side
@@ -609,10 +607,10 @@ export function ZeroNavProvider({
       // the frame as `--space-ax`.
       let spaceAx = 0
       let spaceAy = 0
-      if (isSpaceLeaf) {
-        // HEXAGON-COVERS-REGION (octagon dropped). The leaf is a pointy-top hexagon
-        // whose CENTRAL RECTANGLE (between the shoulders at LEAF_HY) exactly covers the
-        // allowed box. To achieve that we GROW the frame beyond the allowed box: the
+      if (selfIsSpace) {
+        // HEXAGON-COVERS-REGION (octagon dropped). Every Space window is a pointy-top
+        // hexagon whose CENTRAL RECTANGLE (between the shoulders at LEAF_HY) exactly
+        // covers the allowed box. To achieve that we GROW the frame beyond the box: the
         // shoulders sit at LEAF_HY% of the (taller) frame, so the box height is the
         // allowed height divided by the central fraction, and the top/bottom wedges
         // (each `wedge` px) extend past the allowed box. Those wedges are hidden — the
@@ -645,9 +643,9 @@ export function ZeroNavProvider({
         // rectangle clip, so with square corners it is visually identical to any
         // other window. No CSS-radius vs clip-path corner matching to reconcile.
         borderRadius: "0",
-        // Only the leaf hexagon overflows the box and pads its content into the
-        // visible band; an expanded ancestor rectangle fills its box normally.
-        ...(isSpaceLeaf
+        // Every Space window is a grown hexagon that overflows the box and pads its
+        // content into the visible central band (leaf and ancestor alike).
+        ...(selfIsSpace
           ? ({
               ["--hex-inset-y"]: `${hexInsetY}px`,
               // Top edge → upper side corners (top of the central rectangle). The leaf

@@ -563,9 +563,10 @@ export function EntityNode({
   const clipPath = !isSpace
     ? undefined
     : asWindow
-      ? isTop
-        ? leafClip
-        : SPACE_CLIP_RECT
+      ? // Leaf AND ancestor windows are the SAME grown hexagon — opening a child no
+        // longer flattens the Space to a rectangle; it keeps this exact clip and only
+        // spines its header. (SPACE_CLIP_RECT is now used only as a row "from" state.)
+        leafClip
       : variant === "dock"
         ? SPACE_CLIP_HEX
         : // A collapsed DO-LIST row Space is clipped to ROW_RECT_CLIP — a full-box
@@ -579,29 +580,27 @@ export function EntityNode({
   // Shape role of this Space, recorded on the frame as `data-space-kind` so the morph
   // driver (flip-stage) knows the source↔target shapes and can hold a true 120° corner
   // per frame, splitting the hexagon late. Undefined for non-Spaces (never clipped).
+  // A leaf and an ancestor Space window are now the IDENTICAL grown hexagon, so both
+  // report "leaf" — the flip-stage clip driver then sees source===target across a
+  // leaf↔ancestor flip and skips it entirely (no hexagon⇄rectangle morph). Only
+  // card/row sources still morph into "leaf". ("ancestor" as a shape role is retired.)
   const spaceKind: SpaceKind | undefined = !isSpace
     ? undefined
     : asWindow
-      ? isTop
-        ? "leaf"
-        : "ancestor"
+      ? "leaf"
       : variant === "dock"
         ? "card"
         : "row"
   // LIGHT-mode Space boundary. A clip-path can't carry a border, so an SVG polygon
-  // traces the SAME live points as the clip — octagon for a leaf, rectangle for an
-  // ancestor — and is kept MOUNTED across states, fading only its opacity. Because
-  // it tracks the live shape, leaf → ancestor now morphs ONE continuous rim
-  // (octagon flattening to rectangle) instead of a hexagon rim fading out while a
-  // separate rectangle ring faded in — the awkward light-mode "swap" we're fixing.
-  // DARK mode renders no SVG (the dark surface reads cleanly; the ancestor's inset
-  // ring in the style branch supplies its boundary there), so dark is unchanged.
+  // traces the SAME live hexagon points as the clip for BOTH leaf and ancestor
+  // windows (they are the same shape now), kept MOUNTED across states and fading
+  // only its opacity. Since leaf and ancestor share the exact rim, the leaf↔ancestor
+  // flip no longer swaps rims at all — the hexagon boundary simply stays put.
+  // DARK mode renders no SVG (the dark surface reads cleanly), so dark is unchanged.
   const spaceOutlinePoints =
     mounted && !isDark && isSpace
       ? asWindow
-        ? spaceLeafWindow
-          ? spaceClipPoints(leafAx, leafAy)
-          : spaceClipPoints(0, 0)
+        ? spaceClipPoints(leafAx, leafAy)
         : variant === "dock"
           ? SPACE_HEX_POINTS
           : ROW_RECT_POINTS
@@ -714,8 +713,10 @@ export function EntityNode({
           // to 48px (= PANEL_RAIL_W / TASK_SIDE) so an ancestor space's rail is the same
           // width as a focused rail at every depth. The excerpt counters slot in below
           // the rotated title via the rail overlay (see collapsible-column), lined up on
-          // this same 48px column.
-          "absolute inset-y-0 left-0 z-10 flex w-[48px] flex-col items-center gap-2 pt-[14px]"
+          // this same 48px column. Top/bottom are pinned to the CENTRAL RECTANGLE (the
+          // wedge inset, via style) rather than the grown frame edges, so the glyph +
+          // rotated title sit in the visible region, not up in the off-screen top wedge.
+          "absolute left-0 z-10 flex w-[48px] flex-col items-center gap-2 pt-[14px]"
       : spaceLeafWindow
         ? // TASK-LIKE header: glyph + title in a horizontal row flush to the top-left,
           // dominating the do-list beneath. The leaf hexagon's central rectangle is
@@ -1472,7 +1473,18 @@ export function EntityNode({
                       marginTop: `calc(var(--hex-corner-inset-y, 0px) + ${headerH}px)`,
                       marginBottom: "var(--hex-corner-inset-y, 0px)",
                     }
-                  : { marginBottom: "var(--hex-inset-y, 0px)" }),
+                  : isSpine
+                    ? {
+                        // A SPINE ancestor is the SAME grown hexagon as the leaf, but its
+                        // header is the LEFT strip (out of flow), so there is no top
+                        // HEADER_H band to reserve — inset the body SYMMETRICALLY by just
+                        // the wedge so it spans the central rectangle (= the visible
+                        // region). This anchors the rails at the region top exactly as
+                        // before the frame was grown.
+                        marginTop: "var(--hex-corner-inset-y, 0px)",
+                        marginBottom: "var(--hex-corner-inset-y, 0px)",
+                      }
+                    : { marginBottom: "var(--hex-inset-y, 0px)" }),
               // Crop the OPEN CHILD WINDOW to this (the parent's) WINDOW box. The child
               // window grew from one of this body's do-list rows / dock cards, so at rest
               // it is a `position: fixed` DOM descendant of THIS [data-body]. A clip-path
@@ -1486,18 +1498,17 @@ export function EntityNode({
               // clipped by the parent frame's overflow-hidden; this makes the RESTING
               // state match.
               //
-              // The crop line must be the parent FRAME top (= the parent WINDOW top),
-              // NOT the parent body top. Those coincide for a Space ancestor (floating
-              // header → body fills the frame), but a Task/Event ancestor has an in-flow
-              // header, so its body starts `headerH` BELOW the frame top — clipping at
-              // body-top there would crop the child below the parent's title header
-              // instead of at the window edge. So pull the top inset up by `headerH` in
-              // that case (0 when the header floats) to land on the frame top either way.
-              // Top-only inset (huge negative on the other three sides) so the child's
-              // sides, bottom point and drop shadow stay exactly as before. Only
-              // ancestors need it (a leaf has no open child) and never while closing.
+              // The crop line must be the parent's VISIBLE TOP EDGE. For a SPINE Space
+              // ancestor the body is inset by the wedge so its border-box top already
+              // sits at the central-rectangle top (= the region top the child shares) —
+              // so crop at inset 0. A Task/Event ancestor has an in-flow header, so its
+              // body starts `headerH` below the frame top — pull the top inset up by
+              // `headerH` to land on the frame top. Top-only inset (huge negative on the
+              // other three sides) so the child's sides, bottom point and drop shadow
+              // stay exactly as before. Only ancestors need it (a leaf has no open
+              // child) and never while closing.
               ...(asWindow && !isTop && !isClosing
-                ? { clipPath: `inset(${floatingHeader ? 0 : -headerH}px -9999px -9999px -9999px)` }
+                ? { clipPath: `inset(${isSpine ? 0 : -headerH}px -9999px -9999px -9999px)` }
                 : null),
             }}
             className={cn(
