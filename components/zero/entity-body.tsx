@@ -266,13 +266,24 @@ export function EntityBody({
             spineScale={spineScale}
             spineShift={shift}
             surface={surface}
+            // The collapsed state of a FOCUSED leaf's Resources spine is the peek-losange
+            // strip (not a vertical label): clicking the band expands to the full list,
+            // clicking the band again collapses back to losanges. Only on a leaf (active).
+            stripCollapse={active}
           >
-            {/* PEEK: when this panel is OPEN but its entity is no longer the focused
-                front view (a child opened → `!active`), the resources collapse into
-                small filled losanges on the left peek. `spineWidth` is the peek strip
-                width they center on. If the panel was closed, AssetPanel isn't mounted,
-                so nothing changes. */}
-            <AssetPanel spaceId={entityId} peek={inOpen && !active} spineWidth={spineWidth} />
+            {/* The AssetPanel is in PEEK (losange strip) whenever it isn't the full
+                expanded list on the focused leaf, i.e.:
+                  • COVERED ANCESTOR — open but a child is focused (`inOpen && !active`).
+                  • LEAF COLLAPSED — focused leaf with the panel closed (`active && !inOpen`):
+                    the losanges are the collapsed affordance. `stripMode` marks this so the
+                    non-losange content FADES (nothing covers it) and the morph is immediate.
+                `spineWidth` is the strip width the losanges center on. */}
+            <AssetPanel
+              spaceId={entityId}
+              peek={(inOpen && !active) || (active && !inOpen)}
+              stripMode={active && !inOpen}
+              spineWidth={spineWidth}
+            />
           </CollapsibleColumn>
         )}
       </PanelSlot>

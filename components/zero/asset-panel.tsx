@@ -374,29 +374,48 @@ export function AssetPanel({
   return (
     // Keyed by context so switching nodes hard-swaps (instant, no cross-fade).
     <div key={spaceId} className="flex flex-col">
-      {/* Money — the imposing balance figure (the held money resource's amount: the
-          source balance on entity0, or an allocated budget on a child it was forwarded
-          to). No longer fades in peek; it rides out with the narrowing column. */}
+      {/* Money — the imposing balance figure. In the DIVE peek it rides out with the
+          narrowing column (covered by the child); in STRIP MODE it FADES to 0 so only the
+          losanges remain on the spine. */}
       {money[0]?.amount != null && (
-        <div className="px-2 pb-4 pt-1">
+        <motion.div className="px-2 pb-4 pt-1" {...stripFade}>
           <div className="flex items-baseline gap-1.5">
             <span className="text-[27px] font-semibold leading-none tracking-tight tabular-nums text-foreground">
               {formatBalance(money[0].amount)}
             </span>
             <span className="text-sm font-medium text-muted-foreground">{money[0].currency ?? "USD"}</span>
           </div>
-        </div>
+        </motion.div>
       )}
 
       {assets.length > 0 && (
-        <Section title="Assets" items={assets} peek={peek} spineWidth={spineWidth} onHover={setHover} />
+        <Section
+          title="Assets"
+          items={assets}
+          peek={peek}
+          peekDelayed={peekDelayed}
+          stripMode={stripMode}
+          spineWidth={spineWidth}
+          onHover={setHover}
+        />
       )}
-      {apps.length > 0 && <Section title="Apps" items={apps} peek={peek} spineWidth={spineWidth} onHover={setHover} />}
+      {apps.length > 0 && (
+        <Section
+          title="Apps"
+          items={apps}
+          peek={peek}
+          peekDelayed={peekDelayed}
+          stripMode={stripMode}
+          spineWidth={spineWidth}
+          onHover={setHover}
+        />
+      )}
 
-      {/* Full add-resource affordance — no longer fades in peek; just goes inert and rides
-          out with the narrowing column like the rest of the content. */}
-      <button
+      {/* Full add-resource affordance — fades in strip mode, rides out under a child in the
+          dive peek. */}
+      <motion.button
         type="button"
+        {...stripFade}
         className={cn(
           "mt-2 flex w-full items-center gap-2 rounded-lg border border-dashed border-border px-2 py-2 text-left text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground transition-colors hover:border-foreground/30 hover:text-foreground",
           peek && "pointer-events-none",
@@ -404,7 +423,7 @@ export function AssetPanel({
       >
         <Plus className="h-3.5 w-3.5" strokeWidth={2} />
         Add resource
-      </button>
+      </motion.button>
 
       {/* PEEK add button — a tiny minimalist "+" at the foot of the losange list, on the
           peek strip. Invisible until hovered (opacity 0 but still hit-testable). It lives

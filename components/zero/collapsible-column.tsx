@@ -38,6 +38,7 @@ export function CollapsibleColumn({
   spineShift = 0,
   spineTitle,
   surface,
+  stripCollapse = false,
 }: {
   title: string
   /** Short label shown on the vertical spine. Falls back to `title` when omitted. */
@@ -73,6 +74,12 @@ export function CollapsibleColumn({
   spineTitle?: string
   /** Window background colour — the panel uses it so it reads as the window surface. */
   surface?: string
+  /** When true, the COLLAPSED state of this (focused) panel is the peek-LOSANGE strip
+   *  rather than the vertical label — i.e. the losanges are the always-present collapsed
+   *  affordance on the spine of a focused leaf. Collapsing morphs the open list INTO the
+   *  losanges (the panel content stays mounted while collapsed and switches to strip mode);
+   *  clicking the empty band re-expands. Only used on the LEFT Resources spine for now. */
+  stripCollapse?: boolean
 }) {
   const OpenIcon = side === "left" ? PanelLeftClose : PanelRightClose
   const ClosedIcon = side === "left" ? PanelLeftOpen : PanelRightOpen
@@ -87,7 +94,8 @@ export function CollapsibleColumn({
   // reliably here. State-driven opacity always works.
   const [spineHover, setRailHover] = useState(false)
   // Spine label opacity: fully HIDDEN when open (the horizontal panel title names it;
-  // the spine stays a clickable close-area), bright on hover, faint when idle/closed.
+  // the spine stays a clickable close-area) OR in leaf-strip mode (the losanges are the
+  // collapsed affordance — no vertical label), bright on hover, faint when idle/closed.
   const labelOpacity = open ? "opacity-0" : spineHover ? "opacity-100" : "opacity-35"
 
   // PERSISTENT: an open panel stays open until explicitly closed via its spine (the
@@ -109,10 +117,17 @@ export function CollapsibleColumn({
   // transition fires only on subsequent value changes).
   const widthTransition = `width ${MORPH_SECONDS}s cubic-bezier(${MORPH_EASE.join(",")})`
 
-  // PEEK MODE: the panel is open AND its entity is a covered ancestor (a child is
-  // focused). The child's AssetPanel/OutputPanel collapses its resources into small
-  // losanges on this window's peek strip.
-  const peek = open && !focused
+  // LEAF STRIP: the collapsed state of a FOCUSED, stripCollapse panel — the losanges are
+  // the always-present collapsed affordance on this leaf's spine (no vertical label). The
+  // panel content stays MOUNTED while collapsed (so the list⇄losanges morph runs); it's in
+  // "strip" mode: only the losanges + hairlines show, the rest fades. Distinct from the
+  // covered-ancestor peek below, but shares the same losange transform machinery.
+  const leafStrip = stripCollapse && focused && !open
+  // PEEK MODE: the losanges sit on the spine strip. Two triggers:
+  //   • COVERED ANCESTOR — panel open, a child focused (`open && !focused`): resources
+  //     collapse to the peek strip as the child covers this window.
+  //   • LEAF STRIP — the focused-leaf collapsed affordance (above).
+  const peek = (open && !focused) || leafStrip
   // The content inset (`--panel-edge-inset`, the scroller `pl`/`pr`) is FROZEN at the
   // open spine width during peek. It's a CSS custom property, which is NOT smoothly
   // animatable — so letting it follow `spineWidth` (which shrinks to the bleed the moment
@@ -137,6 +152,11 @@ export function CollapsibleColumn({
         className={cn(
           "pointer-events-none absolute inset-y-0 overflow-hidden",
           side === "left" ? "left-0" : "right-0",
+          // LEAF STRIP: lift the clip ABOVE the spine button (z-20) + band (z-30) so the
+          // losanges (their tile is pointer-events-auto) sit on top and intercept their own
+          // pointer events. The section itself is pointer-events-none in this mode, so the
+          // EMPTY band area falls through to the spine button below → a band click expands.
+          leafStrip ? "z-40" : "z-0",
         )}
         style={{ width: spineWidth + panelWidth + 48, transition: widthTransition }}
       >
@@ -144,26 +164,40 @@ export function CollapsibleColumn({
             height and reaching from the window EDGE (left:0) to spineWidth+panelWidth.
             No rounding; a single border on the inner (View-facing) edge only. */}
         <AnimatePresence initial={false}>
-          {open && (
+          {(open || leafStrip) && (
             <motion.section
               key="panel"
               aria-label={title}
-              // SLIDE + FADE. The panel travels its full width (so it lives fully off the
-              // window edge when closed and glides in/out from the side) AND fades, giving
-              // a soft apparition/disappearance rather than a hard edge-pop. The opacity
-              // rides a slightly quicker leading curve (0.4s) so the fade reads clearly
-              // within the now-longer 0.55s slide.
-              initial={{ x: side === "left" ? -(spineWidth + panelWidth) : spineWidth + panelWidth, opacity: 0 }}
+              // SLIDE + FADE for a normal open/close. The panel travels its full width (so
+              // it lives fully off the window edge when closed and glides in/out from the
+              // side) AND fades. BUT in `stripCollapse` mode the panel NEVER slides off —
+              // it stays mounted at x:0 in BOTH the open (full list) and collapsed (losange
+              // strip) states; the open⇄collapsed change is carried entirely by the
+              // list⇄losange morph inside AssetPanel (driven by `peek`), not by the panel
+              // sliding. So pin x:0 / opacity:1 whenever stripCollapse.
+              initial={
+                stripCollapse
+                  ? { x: 0, opacity: 1 }
+                  : { x: side === "left" ? -(spineWidth + panelWidth) : spineWidth + panelWidth, opacity: 0 }
+              }
               animate={{ x: 0, opacity: 1 }}
-              exit={{ x: side === "left" ? -(spineWidth + panelWidth) : spineWidth + panelWidth, opacity: 0 }}
+              exit={
+                stripCollapse
+                  ? { x: 0, opacity: 1 }
+                  : { x: side === "left" ? -(spineWidth + panelWidth) : spineWidth + panelWidth, opacity: 0 }
+              }
               transition={{ ...panelSlideTransition, opacity: { duration: 0.4, ease: "easeOut" } }}
               className={cn(
                 // No shadow: the panel now SQUEEZES the View aside (EntityBody animates
                 // the View's padding), so it occupies its own dedicated column and needs
                 // no drop-shadow to lift off the content. Dark mode keeps a thin inner
                 // edge line (below); light mode needs no separator at all.
-                "pointer-events-auto absolute inset-y-0 flex min-h-0 flex-col",
+                "absolute inset-y-0 flex min-h-0 flex-col",
                 side === "left" ? "left-0" : "right-0",
+                // LEAF STRIP: transparent to pointer events so clicks on the empty band
+                // fall through to the spine button (→ expand). The losange tiles re-enable
+                // their own pointer events. Otherwise the open panel is interactive.
+                leafStrip ? "pointer-events-none" : "pointer-events-auto",
               )}
               style={{
                 width: spineWidth + panelWidth,
@@ -224,17 +258,24 @@ export function CollapsibleColumn({
         aria-expanded={open}
         className={cn(
           "absolute inset-0 z-20 flex flex-col items-center justify-center gap-2",
-          // In PEEK the spine sits ON TOP of the peek losanges (z-20, sibling of the panel
-          // clip) and would intercept their hover — the losange's own z-30 is trapped
-          // inside the panel's local stacking context, below this spine. So drop the spine's
-          // pointer events in peek: hover falls THROUGH to the losanges behind it. The
-          // spine's toggle isn't needed on a covered ancestor anyway (focus is on the
-          // child); it's restored the moment the entity is refocused (peek → false).
-          peek ? "pointer-events-none" : "pointer-events-auto",
+          // In the COVERED-ANCESTOR peek the spine sits ON TOP of the peek losanges (z-20,
+          // sibling of the panel clip) and would intercept their hover — the losange's own
+          // z-30 is trapped inside the panel's local stacking context, below this spine. So
+          // drop the spine's pointer events there: hover falls THROUGH to the losanges. The
+          // toggle isn't needed on a covered ancestor anyway (focus is on the child).
+          // In LEAF STRIP the opposite: the spine button IS the expand target for the empty
+          // band, so it MUST stay clickable — the clip is lifted to z-40 above it so the
+          // losanges still win their own hits. So only disable for the covered-ancestor peek.
+          peek && !leafStrip ? "pointer-events-none" : "pointer-events-auto",
         )}
       >
         <span
-          className="flex flex-col items-center gap-2"
+          className={cn(
+            "flex flex-col items-center gap-2 transition-opacity duration-200",
+            // LEAF STRIP: the losanges ARE the collapsed affordance, so hide the toggle
+            // glyph + vertical label entirely (the band stays a clickable expand target).
+            leafStrip && "opacity-0",
+          )}
           // `spineShift` re-centers the label on the body center. Applied INSTANTLY: leaf
           // and spine now share the same −headerH/2 shift, so it doesn't change on a
           // leaf↔spine flip — nothing to snap, no transition needed.
