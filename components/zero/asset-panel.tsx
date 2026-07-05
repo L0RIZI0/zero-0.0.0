@@ -72,7 +72,11 @@ const PEEK_LOSANGE = 8
  *  so the open panel is unchanged. The 40px slot overflows this box but only the tiny centered
  *  losange is opaque, so the overflow is invisible (and overflow stays VISIBLE so the row's
  *  connector hairline can still escape left to the window edge). */
-const PEEK_ROW_H = 20
+const PEEK_ROW_H = 24
+/** Collapsed SECTION-HEADER height (px) in peek. Kept as a small non-zero band (rather than
+ *  fully 0) so a visible GAP separates the Assets losange group from the Apps group — each
+ *  group of peek losanges reads as its own cluster. */
+const PEEK_HEADER_H = 14
 /** Where a peek glyph/losange lands, measured from the WINDOW EDGE: centered on the
  *  bleed strip. Both resources and the add button converge here so they align. */
 const peekCenter = (spineWidth: number) => spineWidth / 2
@@ -297,13 +301,14 @@ function Section({
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
         initial={false}
-        // In peek also COLLAPSE the header to nothing (height AND vertical padding → 0; it's
-        // fading + sliding out anyway), so the two sections' losanges merge into one evenly-
-        // spaced column with no group gap. Expanded uses "auto"/8 → header untouched.
+        // In peek the header text fades/slides out, but we KEEP a small residual height
+        // (PEEK_HEADER_H, padding 0) so a gap remains between the Assets and Apps losange
+        // clusters — each group reads as its own set. Expanded uses "auto"/8 → header
+        // untouched.
         animate={{
           opacity: stripMode ? 0 : 1,
           x: stripMode ? rowPeekX(spineWidth, ROW_GLYPH_CENTER) : 0,
-          height: peek ? 0 : "auto",
+          height: peek ? PEEK_HEADER_H : "auto",
           paddingTop: peek ? 0 : 8,
           paddingBottom: peek ? 0 : 8,
         }}
