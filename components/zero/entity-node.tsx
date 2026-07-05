@@ -1068,9 +1068,14 @@ export function EntityNode({
                   // (and hidden behind the parent header / off the top edge).
                   { top: "var(--hex-corner-inset-y, 0px)", height: headerH }
                 : { height: headerH }
-              : asWindow && !isSpine
-                ? { height: headerH, marginTop: "var(--hex-inset-y, 0px)" }
-                : undefined
+              : isSpine
+                ? // Pin the left strip to the CENTRAL RECTANGLE (top/bottom = the wedge
+                  // inset) instead of the grown frame edges, so the glyph + rotated
+                  // title live in the visible region, not the off-screen top wedge.
+                  { top: "var(--hex-corner-inset-y, 0px)", bottom: "var(--hex-corner-inset-y, 0px)" }
+                : asWindow && !isSpine
+                  ? { height: headerH, marginTop: "var(--hex-inset-y, 0px)" }
+                  : undefined
           }
         >
           {/* Glyph — for a collapsed COMPLETABLE entity it doubles as the completion
