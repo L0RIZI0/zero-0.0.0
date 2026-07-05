@@ -517,12 +517,17 @@ export function spaceMorphPoints(
 }
 
 /**
- * Resting LEAF octagon insets for a frame of `width × height` (bracket =
- * LEAF_BRACKET_PX). Used by nav-store for the static clip vars and the header/body
- * corner inset. True 120°.
+ * Resting LEAF insets. The leaf Space is now a POINTY-TOP HEXAGON (octagon dropped):
+ * a single top/bottom apex (ax=50) with shoulders at LEAF_HY. Its CENTRAL RECTANGLE
+ * (between the shoulders) is what covers the parent's View; the top/bottom wedges
+ * extend BEYOND the box and are hidden (behind the header at depth 1, cropped at the
+ * parent frame top deeper). This is the SAME shape as the morph's `hexWaypoint`
+ * (spaceClipPoints(50, LEAF_HY)), so the row/card→leaf morph no longer has to split
+ * the apex into an octagon — the leaf endpoint IS the hexagon. `width`/`height` are
+ * unused now (kept for call-site compatibility and a possible future stretch knob).
  */
-export function spaceLeafInsets(width: number, height: number): { ax: number; hy: number } {
-  return insetsFromBracketPx(LEAF_BRACKET_PX, width, height)
+export function spaceLeafInsets(_width: number, _height: number): { ax: number; hy: number } {
+  return { ax: 50, hy: LEAF_HY }
 }
 
 /**

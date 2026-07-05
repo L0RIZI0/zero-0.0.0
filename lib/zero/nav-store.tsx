@@ -3,7 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react"
 import { flushSync } from "react-dom"
 import { getEntity, hydrateFromStorage, isDetachedChild } from "./data"
-  import { stackTargetRect, octagonLeafInside, spaceLeafInsets } from "./motion"
+  import { stackTargetRect, spaceLeafInsets, LEAF_HY } from "./motion"
 import { VIEW_PAD_TOP, VIEW_PAD_BOTTOM } from "./layout"
 import {
   captureStage,
@@ -610,18 +610,27 @@ export function ZeroNavProvider({
       let spaceAx = 0
       let spaceAy = 0
       if (isSpaceLeaf) {
-        // The octagon fills the whole box (full width minus side peeks, full height),
-        // so there is NO off-screen bleed → content top inset is 0. Corner brackets are
-        // a FIXED pixel height (LEAF_BRACKET_PX): they hug the top/bottom edges and the
-        // central rectangle the header/body inset to (`--hex-corner-inset-y`) gets all
-        // the remaining height — instead of the corners eating ~25% per side.
-        rect = octagonLeafInside(rect)
-        hexInsetY = 0
+        // HEXAGON-COVERS-REGION (octagon dropped). The leaf is a pointy-top hexagon
+        // whose CENTRAL RECTANGLE (between the shoulders at LEAF_HY) exactly covers the
+        // allowed box. To achieve that we GROW the frame beyond the allowed box: the
+        // shoulders sit at LEAF_HY% of the (taller) frame, so the box height is the
+        // allowed height divided by the central fraction, and the top/bottom wedges
+        // (each `wedge` px) extend past the allowed box. Those wedges are hidden — the
+        // top behind the header (depth 1) or cropped at the parent frame top (deeper),
+        // the bottom past the region's lower edge — so the settled leaf reads as a flat
+        // rectangle covering the View, exactly like a Task window.
         const insets = spaceLeafInsets(rect.width, rect.height)
+        const centralFrac = (100 - 2 * insets.hy) / 100
+        const boxH = rect.height / centralFrac
+        const wedge = (insets.hy / 100) * boxH
+        rect = { top: rect.top - wedge, left: rect.left, width: rect.width, height: boxH }
+        hexInsetY = 0
         spaceAx = insets.ax
         spaceAy = insets.hy
-        // Px height of the top/bottom wedge = bracket height = hy% of the frame.
-        hexCornerInsetY = (insets.hy / 100) * rect.height
+        // Px height of the top/bottom wedge = the inset from the frame edge down to the
+        // top of the central rectangle. The header sits at this offset; the body starts
+        // below the header and fills the rest of the central rectangle.
+        hexCornerInsetY = wedge
       }
       return {
         position: "fixed",

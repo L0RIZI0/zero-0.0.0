@@ -717,16 +717,13 @@ export function EntityNode({
           // this same 48px column.
           "absolute inset-y-0 left-0 z-10 flex w-[48px] flex-col items-center gap-2 pt-[14px]"
       : spaceLeafWindow
-        ? // TOP-LEFT, like every other window header — glyph + title in a horizontal
-          // row near the top-left, dominating the do-list beneath. The leaf is an
-          // OCTAGON, so its top-left corner is cut by a diagonal (from the flat-top
-          // start at --space-ax% across, down to the left edge at --space-ay%). A flush
-          // pl-4 would let the glyph collide with / clip behind that diagonal, so the
-          // row is left-padded by the flat-top inset (--space-ax%, set via style) to
-          // sit just inside the diagonal. It occupies the top wedge band (height set
-          // via style) and is items-center, so it rides the vertical middle of that
-          // band where the octagon is already comfortably wide.
-          "absolute inset-x-0 top-0 z-10 flex items-center gap-3 pr-12"
+        ? // TASK-LIKE header: glyph + title in a horizontal row flush to the top-left,
+          // dominating the do-list beneath. The leaf hexagon's central rectangle is
+          // full-width (vertical sides), so there is NO cut corner to tuck around — a
+          // plain pl-4 like every other window. It is positioned at the TOP OF THE
+          // CENTRAL RECTANGLE via style (top = --hex-corner-inset-y, the top wedge
+          // height) with a fixed HEADER_H band, so nothing renders in the top wedge.
+          "absolute inset-x-0 z-10 flex items-center gap-3 pr-12 pl-4"
         : spaceAncestorWindow
           ? // FLOATING compact top-left band. Absolute; fixed band height via style so
             // the glyph/title stay vertically centered exactly as the old in-flow header.
@@ -751,12 +748,11 @@ export function EntityNode({
   // card) AND on the FRONT open window header — so a task can be un/filled (undone)
   // while it's open. Ancestor/spine headers and closing frames stay inert.
   const canToggleComplete = meta.completable && !isClosing && (interactive || (asWindow && isTop && !ancestorHeader))
-  // Only the LEAF Space hexagon reserves a tall top band so its CENTERED header
-  // clears the hexagon's top point; a covered ancestor SPACE (spine) uses the
-  // compact ancestor band. A NON-space ancestor keeps its LEAF header height
-  // (HEADER_H) — becoming an ancestor no longer shrinks its header, so its header
-  // is identical whether it's a leaf or covered.
-  const headerH = spaceLeafWindow ? 96 : ancestorHeader && isSpace ? ANCESTOR_HEADER_H : HEADER_H
+  // The LEAF Space hexagon now renders TASK-LIKE: a normal HEADER_H band sitting at
+  // the TOP OF THE CENTRAL RECTANGLE (the header floats there, offset down by the top
+  // wedge via --hex-corner-inset-y), with the body below it. A covered ancestor SPACE
+  // (spine) uses the compact ancestor band; a NON-space ancestor keeps HEADER_H.
+  const headerH = ancestorHeader && isSpace ? ANCESTOR_HEADER_H : HEADER_H
 
   // Vertical offset that re-centers the IN/OUT panel rails on the FRAME center.
   // EntityBody anchors the overlay at the body's vertical center and ANIMATES a
@@ -764,14 +760,14 @@ export function EntityNode({
   // edges and SLIDE (never jump) when a window's role changes. The body's center
   // equals the frame center only when its top and bottom insets match; the shift
   // is exactly (bottomInset − topInset) / 2 — no magic constants:
-  //   • body FILLS the frame (header is absolute, reserves no in-flow height) → 0.
-  //     This is every Space window (floating header) AND every SPINE ancestor
-  //     (its header is an absolute left strip) — the previously-missing spine case
-  //     that made the rails jump up ~headerH/2 the moment an ancestor spined.
-  //   • in-flow header (task/event/non-spine ancestor): body starts headerH down
-  //     → −headerH/2.
+  //   • body FILLS the frame (no in-flow OR floating header eating the top) → 0.
+  //     This is a SPINE ancestor (its header is an absolute left strip). A leaf Space
+  //     no longer qualifies: its floating header now sits at the top of the central
+  //     rectangle (like a Task), so its body starts headerH below that → −headerH/2.
+  //   • in-flow / central-rect header (task/event/leaf space/non-spine ancestor):
+  //     body starts headerH down → −headerH/2.
   //   • closing: the body re-anchors (space fills from top:0 → 0; task → −HEADER_H/2).
-  const bodyFillsFrame = floatingHeader || isSpine
+  const bodyFillsFrame = isSpine
   const railCenterShift = isClosing
     ? isSpace
       ? 0
@@ -1065,15 +1061,11 @@ export function EntityNode({
           style={
             floatingHeader
               ? spaceLeafWindow
-                ? // Occupy the octagon's TOP WEDGE: top:0 (from the class) with height
-                  // equal to the corner inset — the distance from the flat top down to
-                  // the upper side corners (top of the central rectangle). The header is
-                  // items-center, so glyph+title ride the vertical middle of that wedge,
-                  // sitting right above the do-list beneath. paddingLeft = the flat-top
-                  // inset (--space-ax %, measured against the full-width header) tucks
-                  // the row just inside the top-left DIAGONAL so the glyph clears the
-                  // octagon's cut corner instead of colliding with / hiding behind it.
-                  { height: "var(--hex-corner-inset-y, 0px)", paddingLeft: "calc(var(--space-ax, 0) * 1%)" }
+                ? // Sit at the TOP OF THE CENTRAL RECTANGLE: top = the top wedge height
+                  // (--hex-corner-inset-y), with a normal HEADER_H band — so the header
+                  // reads exactly like a Task's, and the top wedge above it stays empty
+                  // (and hidden behind the parent header / off the top edge).
+                  { top: "var(--hex-corner-inset-y, 0px)", height: headerH }
                 : { height: headerH }
               : asWindow && !isSpine
                 ? { height: headerH, marginTop: "var(--hex-inset-y, 0px)" }
@@ -1472,7 +1464,12 @@ export function EntityNode({
                   : { top: HEADER_H }
                 : floatingHeader
                   ? {
-                      marginTop: "var(--hex-corner-inset-y, 0px)",
+                      // Body fills the CENTRAL RECTANGLE below the header: top inset =
+                      // the top wedge (--hex-corner-inset-y) PLUS the HEADER_H band, so
+                      // the do-list starts under the header exactly like a Task; bottom
+                      // inset = the bottom wedge so it ends at the central rectangle's
+                      // lower edge (the region bottom).
+                      marginTop: `calc(var(--hex-corner-inset-y, 0px) + ${headerH}px)`,
                       marginBottom: "var(--hex-corner-inset-y, 0px)",
                     }
                   : { marginBottom: "var(--hex-inset-y, 0px)" }),
