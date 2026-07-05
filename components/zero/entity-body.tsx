@@ -2,7 +2,7 @@
 
 import type { ReactNode } from "react"
 import { motion } from "motion/react"
-import { panelSlideTransition, layerTransition } from "@/lib/zero/motion"
+import { panelSlideTransition } from "@/lib/zero/motion"
 import { getPinnedItems } from "@/lib/zero/data"
 import { usePanelOpen } from "@/lib/zero/panel-store"
 import { useZeroNav } from "@/lib/zero/nav-store"
@@ -60,21 +60,9 @@ export function EntityBody({
   surface,
   resource,
   timeline,
-  viewLift = 0,
 }: {
   entityId: string
   active?: boolean
-  /** Px to raise this View's CONTENT (its region stack) UP the frame, matching the
-   *  WINDOW_TOP_LIFT the stacked child windows get at stage 2. Used ONLY for the home
-   *  (isRoot) View so entity0's View top rises into the reclaimed header space in
-   *  lockstep with its children — so a child window's top lands ON entity0's View top
-   *  ("child aligns to top of parent's View") instead of floating above it. Applied as
-   *  `position: relative; top: -viewLift` (NOT a transform): relative offset does NOT
-   *  create a containing block, so the `position: fixed` child windows nested in this
-   *  View stay viewport-anchored (unaffected), and the measured region box (regionRect,
-   *  which anchors every window) never moves — preserving morph safety. Animated on the
-   *  morph beat so it glides with the window lift. 0 at stage 0/1 and for every child. */
-  viewLift?: number
   /** Region-0 content (the home Lifeline timeline). Provided ONLY for the home view;
    *  when present, EntityBody renders it as the top HUG region above the do-list.
    *  Omitted for every child entity, so their stack starts at the do-list region. */
@@ -186,15 +174,8 @@ export function EntityBody({
           className={cn("relative flex min-h-0 flex-1 flex-col", showFrames && "border border-purple-500")}
           style={{ paddingTop: VIEW_PAD_TOP, paddingBottom: VIEW_PAD_BOTTOM }}
           initial={false}
-          // `top: -viewLift` raises the home View's content into the reclaimed header
-          // space at stage 2 so entity0's View top rises to meet its children (see the
-          // viewLift prop doc). It is a RELATIVE offset (this box is `relative`), which —
-          // unlike a transform — creates NO containing block, so the fixed child windows
-          // nested here stay viewport-anchored and the region rect never moves. `top`
-          // rides the morph beat (layerTransition) so it glides with the window lift,
-          // while the side gutters keep their own panel-slide timing.
-          animate={{ paddingLeft: padLeft, paddingRight: padRight, top: -viewLift }}
-          transition={{ default: panelSlideTransition, top: layerTransition }}
+          animate={{ paddingLeft: padLeft, paddingRight: padRight }}
+          transition={panelSlideTransition}
         >
           {/* [v0] DEBUG: View label in the BOTTOM-left corner so it never collides with
               region 0's top-left label. The View is the full region stack: it fills its

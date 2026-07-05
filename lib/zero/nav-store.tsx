@@ -4,7 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { flushSync } from "react-dom"
 import { getEntity, hydrateFromStorage, isDetachedChild } from "./data"
   import { stackTargetRect, octagonLeafInside, spaceLeafInsets } from "./motion"
-import { shellStageFor, WINDOW_TOP_LIFT, VIEW_PAD_TOP, VIEW_PAD_BOTTOM } from "./layout"
+import { VIEW_PAD_TOP, VIEW_PAD_BOTTOM } from "./layout"
 import {
   captureStage,
   playStage,
@@ -536,12 +536,11 @@ export function ZeroNavProvider({
       description,
     }
 
-    // As the shell compacts the open windows grow UPWARD: their top rises by
-    // WINDOW_TOP_LIFT[stage] while their bottom stays put. We realize this by
-    // measuring against an "effective" region whose top is lifted and whose height
-    // is grown by the same amount — every window (parent + children) then shares
-    // the higher top and unchanged bottom. Driven by the leaf depth so all stacked
-    // windows lift together in one morph.
+    // The region top is CONSTANT across depth (== entity0's real View top). Children
+    // therefore stick to their parent's real View top at every depth with ZERO
+    // artificial offset — the old WINDOW_TOP_LIFT/shellStageFor compaction lift is gone
+    // (entity0 is now a plain full-bleed backdrop whose header never shrinks). This is
+    // the "child aligns to the top of its parent's View" rule realized honestly.
     //
     // VIEW-PAD INSET: an open window spans its parent View MINUS the View padding, so
     // it sits inside the parent's View content box (a consistent gutter) rather than
@@ -552,12 +551,11 @@ export function ZeroNavProvider({
     // the region's bottom edge — matching the View's own bottom padding. Home (the
     // full-bleed depth-0 backdrop) is not measured through here, so it keeps its own
     // View padding untouched.
-    const lift = WINDOW_TOP_LIFT[shellStageFor(activeEntity)]
     const liftedRegion = {
-      top: regionRect.top - lift + VIEW_PAD_TOP,
+      top: regionRect.top + VIEW_PAD_TOP,
       left: regionRect.left,
       width: regionRect.width,
-      height: regionRect.height + lift - VIEW_PAD_TOP - VIEW_PAD_BOTTOM,
+      height: regionRect.height - VIEW_PAD_TOP - VIEW_PAD_BOTTOM,
     }
 
     // Fixed geometry for an open window: walk the in-stack ancestors (above the

@@ -1,105 +1,39 @@
-import type { ActiveEntity } from "./nav-store"
-
 /**
  * Shared geometry for the work surface. Each entity renders its own body
  * (title band + dock + inputs/do-list/outputs) inside its window frame, so
- * there is no longer a separate frontmost layer to keep aligned. What remains
- * here is the depth-driven chrome: how the header bar and the persistent
- * timeline compact and lift as the user dives deeper.
+ * there is no longer a separate frontmost layer to keep aligned.
+ *
+ * entity0 (the home / Individual) is now a plain full-bleed depth-0 backdrop in
+ * the recursive ancestor model: its chrome (the header bar + Dayline overlay) is
+ * CONSTANT height and no longer compacts on dive. Children always stick to
+ * entity0's fixed real View top, so there is no depth-driven header shrink or
+ * window lift — the old "shell stage" compaction machinery has been removed.
  */
 
-/**
- * The "shell stage" — how compact the chrome (header bar + timeline lift)
- * becomes as the user dives deeper. The whole interface reacts to depth:
- *
- *   stage 0  root (Space 0)      — everything full size, timeline rests low
- *   stage 1  first child open    — timeline slides up toward the header bar
- *   stage 2  second child (+)     — timeline lifts further AND the header bar
- *                                   compacts (avatar shrinks, handle drops,
- *                                   search collapses to its icon, logo shrinks)
- *
- * Depth 3 and beyond reuse stage 2 — no further push-up, for now.
- */
-export type ShellStage = 0 | 1 | 2
-
-export function shellStageFor(entity: ActiveEntity): ShellStage {
-  // Re-enabled. Depth drives the chrome compaction:
-  //   depth 0 (home)        → stage 0  (everything full size)
-  //   depth 1 (first child) → stage 1  (timeline lifts toward the header)
-  //   depth 2+ (deeper)     → stage 2  (timeline lifts more + header compacts)
-  // This is now safe because BOTH treatments are non-reflowing: the timeline lift
-  // is a `transform` (no layout impact) and the header keeps a constant box height
-  // while only its CONTENTS shrink — so the focus-window region's box never moves
-  // and the fixed-window geometry stays pinned to a stable rect through the morph.
-  return Math.min(entity.depth, 2) as ShellStage
-}
-
-/** Vertical TRANSFORM (translateY) applied to the timeline as the shell compacts,
- *  so it slides up toward (and slightly into) the header bar with each level of
- *  depth: a little at stage 1, more at stage 2.
- *
- *  Crucially this is a `transform`, NOT a margin: it has ZERO layout impact, so
- *  the focus-window region directly below keeps its exact box. That stability is
- *  what makes the lift safe — the earlier margin-based version moved the region
- *  (whose rect anchors every fixed window) mid-morph, so the home backdrop and
- *  freshly-opened windows visibly jumped. The vacated space below the lifted
- *  strip is just more `bg-background` (same color), so no seam shows; and the
- *  WorkSurface card no longer clips its top, so the strip can ride up into the
- *  header's empty area without being cropped. */
-export const TIMELINE_LIFT_Y: Record<ShellStage, number> = {
+/** Vertical TRANSFORM (translateY) that WOULD slide the timeline up toward the
+ *  header as the user dives (a little at depth 1, more at depth 2+). Currently
+ *  DORMANT — the depth-driven timeline lift is disabled — but kept as the restore
+ *  path for that behavior. Indexed by clamped depth (0 | 1 | 2+). Realized as a
+ *  `transform` (zero layout impact) if re-enabled, so the region rect never moves. */
+export const TIMELINE_LIFT_Y: Record<0 | 1 | 2, number> = {
   0: 0,
   1: -32,
   2: -66,
 }
 
-/* --- Header bar height (depth-responsive) -----------------------------------
- * The top bar's box height. At rest (stage 0/1) it is HEADER_H; at stage 2
- * (depth ≥ 2) it shrinks to HEADER_H_COMPACT so the whole chrome tightens: the
- * avatar/handle/search/logo were already compacting their CONTENTS, and now the
- * BOX shrinks too, pulling the Dayline (the next row in the out-of-flow overlay)
- * up with it. This is safe because the header lives in the ABSOLUTE overlay and
- * the window region's inset is the CONSTANT `HEADER_OVERLAY_H` — so shrinking the
- * header never moves the region rect. The reclaimed HEADER_SHRINK px is handed to
- * the windows via WINDOW_TOP_LIFT below. */
+/* --- Header bar height (CONSTANT) --------------------------------------------
+ * The top bar's box height. entity0's header no longer compacts on dive, so this
+ * is a single constant. The header lives in the ABSOLUTE overlay and the window
+ * region's inset is `HEADER_OVERLAY_H`, so the bar sits above the stage region. */
 export const HEADER_H = 64
-export const HEADER_H_COMPACT = 44
-/** Px reclaimed at the top when the bar compacts at stage 2. */
-export const HEADER_SHRINK = HEADER_H - HEADER_H_COMPACT
-
-/** Extra px the Dayline is pulled UP at stage 2, on top of the header shrink, so it
- *  tucks a touch closer to the top bar. This equals the Dayline row's top slack — the
- *  row is DAYLINE_ROW_H (34) tall but its lane is only `h-7` (28), and the lane is
- *  bottom-aligned (`items-end`), so 6px of empty space sits ABOVE the lane. Removing
- *  it at depth ≥ 2 seats the lane right under the header. Folded into WINDOW_TOP_LIFT
- *  below so the View follows the lane up and stays flush (no gap reopens). */
-export const DAYLINE_COMPACT_LIFT = 6
-
-/** How much the open windows grow UPWARD as the shell compacts.
- *
- *  At stage 2 (depth ≥ 2) the header bar shrinks vertically (HEADER_H → HEADER_H_COMPACT)
- *  and the Dayline both rides up with it AND is pulled a further DAYLINE_COMPACT_LIFT px
- *  toward the bar. We lift the window region up by that TOTAL so open windows stay flush
- *  just below the risen Dayline — i.e. the home View expands upward into the reclaimed
- *  space.
- *
- *  WHY THIS IS MORPH-SAFE (unlike the old margin-based timeline lift): the region's own
- *  box never moves — its `marginTop` is the CONSTANT `HEADER_OVERLAY_H`. This lift is
- *  applied purely in `styleFor` (nav-store), which offsets each fixed window's `top` from
- *  the (stable) region rect. The offset is baked into the committed geometry the Flip
- *  morph animates toward, so windows glide up as one with the morph — no rect jump. */
-export const WINDOW_TOP_LIFT: Record<ShellStage, number> = {
-  0: 0,
-  1: 0,
-  2: HEADER_SHRINK + DAYLINE_COMPACT_LIFT,
-}
 
 /* --- View padding (the gutter around every open window) ----------------------
  * The View (`[data-view]` in entity-body) insets its region stack by this much so
  * no region (chiefly the Dock) kisses the window/screen edge. The SAME inset also
  * defines how an opened child window is framed: a window spans its parent View
- * MINUS this padding (applied to `liftedRegion` in nav-store `styleFor`), so every
- * open window sits inside the parent's View content box rather than covering the
- * full region edge-to-edge. Single source of truth for both places.
+ * MINUS this padding (applied in nav-store `styleFor`), so every open window sits
+ * inside the parent's View content box rather than covering the full region
+ * edge-to-edge. Single source of truth for both places.
  *   top: 0 (windows stay flush under the Dayline), left/right: VIEW_PAD_X, bottom.
  *
  * Set to 48 to MATCH the rail width (PANEL_RAIL_W / TASK_SIDE / RIGHT_PEEK = 48):
@@ -107,29 +41,22 @@ export const WINDOW_TOP_LIFT: Record<ShellStage, number> = {
  * of home's (entity0's) exposed left/right peek. Making it 48 means home's peek is
  * the SAME width as every deeper ancestor's peek (which reserve TASK_SIDE/RIGHT_PEEK
  * = 48), so the rule "same peek width at every depth for every ancestor" holds at
- * depth 0 too — home's rail is no longer 4px narrower than the ancestors'. (Was 44.)
+ * depth 0 too — home's rail is no longer narrower than the ancestors'.
  */
 export const VIEW_PAD_X = 48
 export const VIEW_PAD_TOP = 0
 export const VIEW_PAD_BOTTOM = 22
 
 /** Height of an open window's header band (glyph + title + close). Held constant
- *  across depth (the header compacts its CONTENTS, not its box — see HEADER_PAD_Y),
- *  so the timeline overlay can be positioned at a stable `headerBottom` offset
- *  below the app bar when a window is open. Measured from the live layout. */
+ *  across depth, so the timeline overlay can be positioned at a stable
+ *  `headerBottom` offset below the app bar when a window is open. */
 export const HEADER_BAND_H = 60
 
-/** Resting top margin of the timeline (constant — the depth response is the
- *  transform above, which doesn't reflow). */
+/** Resting top margin of the timeline. */
 export const TIMELINE_TOP_PAD = 2
 
-/** Vertical padding of the header bar. At stage 2 the bar shrinks its BOX
- *  (HEADER_H → HEADER_H_COMPACT) and tightens this padding so the compacted
- *  avatar/logo still sit centered in the shorter bar. Because the header lives in
- *  the absolute overlay (and the region inset is the constant HEADER_OVERLAY_H),
- *  the box shrink pulls the Dayline up but never moves the window region rect. */
+/** Vertical padding of the header bar (constant). */
 export const HEADER_PAD_Y = 14
-export const HEADER_PAD_Y_COMPACT = 10
 
 /* --- Header overlay sizing --------------------------------------------------
  * entity0's frame is full-bleed (touches all 4 screen edges); the chrome lives
@@ -137,11 +64,8 @@ export const HEADER_PAD_Y_COMPACT = 10
  * constant-height rows: the top bar (avatar+handle / date+time / version+search+
  * logo) and the Individual's Dayline insight row beneath it. The focus-window
  * STAGE region is inset from the screen top by the overlay's total height, so
- * child windows + the home View open BELOW the header exactly as before — the
- * morph geometry is unchanged. Both heights are CONSTANT (matching the existing
- * fixed-box / transform-only compaction philosophy) so the stage rect never moves.
- * NOTE: HEADER_H (and its stage-2 shrink) is defined earlier, above WINDOW_TOP_LIFT.
- */
+ * child windows + the home View open BELOW the header. Both heights are CONSTANT
+ * so the stage rect never moves as the user dives. */
 /** The Individual's Dayline insight row height (second header row). */
 export const DAYLINE_ROW_H = 34
 /** Total header-overlay height = the stage region's top inset. */

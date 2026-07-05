@@ -7,7 +7,7 @@ import { getSpace, getEntity, isDetachedChild } from "@/lib/zero/data"
 import { telescopicSurface } from "@/lib/zero/motion"
 import { DURATION_S, MORPH_CSS_EASE } from "@/lib/zero/flip-stage"
 import { registerStage } from "@/lib/zero/flip-stage"
-import { HEADER_OVERLAY_H, WINDOW_TOP_LIFT, shellStageFor } from "@/lib/zero/layout"
+import { HEADER_OVERLAY_H } from "@/lib/zero/layout"
 import { useDebugView } from "@/lib/zero/debug-view"
 import { cn } from "@/lib/utils"
 import { DebugFrameLabel } from "./debug-frame-label"
@@ -160,11 +160,6 @@ export function WorkSurface() {
           isRoot
           centerList
           surface={homeSurface}
-          // Raise home's View content by the SAME lift the stacked child windows get at
-          // stage 2, so entity0's View top rises to meet its children instead of them
-          // floating above it. Keyed off the active leaf's depth (same source as the
-          // window lift), so home glides up in lockstep as you dive to depth ≥ 2.
-          viewLift={WINDOW_TOP_LIFT[shellStageFor(activeEntity)]}
         />
 
         {/* DETACHED WINDOWS. The recursive in-place tree above only reaches a stack

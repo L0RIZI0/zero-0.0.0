@@ -7,8 +7,7 @@ import { entityInterval } from "@/lib/zero/timeline-index"
 import { KIND_META } from "@/lib/zero/kinds"
 import { rangeText, NOW_COLOR } from "@/lib/zero/timeline-format"
 import { placementKey } from "@/lib/zero/placement"
-import { DAYLINE_ROW_H, DAYLINE_COMPACT_LIFT, shellStageFor } from "@/lib/zero/layout"
-import { DURATION_S, MORPH_CSS_EASE } from "@/lib/zero/flip-stage"
+import { DAYLINE_ROW_H } from "@/lib/zero/layout"
 import { useNow } from "@/lib/zero/use-now"
 import { cn } from "@/lib/utils"
 import { isSleepTitle, sleepSkyBackground } from "@/lib/zero/sleep-sky"
@@ -189,7 +188,7 @@ interface DayItem {
 }
 
 export function Dayline() {
-  const { stack, dataVersion, open, activeEntity } = useZeroNav()
+  const { stack, dataVersion, open } = useZeroNav()
   const rootId = stack[0]
 
   // Open an entity FROM its dayline tick: use the CLICKED tick's own live viewport
@@ -217,10 +216,6 @@ export function Dayline() {
     },
     [open, rootId],
   )
-  // At depth ≥ 2 (stage 2) the header shrinks; pull the Dayline a touch closer to it.
-  // The View follows via WINDOW_TOP_LIFT[2] (which folds in DAYLINE_COMPACT_LIFT), so it
-  // stays flush. Eased on the shared morph curve to match the header's height animation.
-  const compact = shellStageFor(activeEntity) === 2
 
   // `now` advances minute by minute and drives the NOW marker. It comes from the SHARED
   // minute clock (`useNow`) — the same source the header time reads — so the marker
@@ -784,11 +779,7 @@ export function Dayline() {
     // lane (next to the header) instead of between the lane and the View.
     <div
       className="pointer-events-none relative z-30 flex w-full items-end px-5"
-      style={{
-        height: DAYLINE_ROW_H,
-        marginTop: compact ? -DAYLINE_COMPACT_LIFT : 0,
-        transition: `margin-top ${DURATION_S} ${MORPH_CSS_EASE}`,
-      }}
+      style={{ height: DAYLINE_ROW_H }}
     >
       {/* The lane. A thin full-width strip forming the Individual's day insight.
           Time-dependent content is gated on `mounted` to keep SSR == first client paint.
