@@ -3,6 +3,7 @@
 import type { ReactNode } from "react"
 import { motion } from "motion/react"
 import { panelSlideTransition } from "@/lib/zero/motion"
+import { DURATION_S, MORPH_CSS_EASE } from "@/lib/zero/flip-stage"
 import { getPinnedItems } from "@/lib/zero/data"
 import { usePanelOpen } from "@/lib/zero/panel-store"
 import { useZeroNav } from "@/lib/zero/nav-store"
@@ -364,7 +365,12 @@ function PanelSlot({
         "pointer-events-none absolute bottom-0 z-10 hidden md:block",
         side === "left" ? "left-0" : "right-0",
       )}
-      style={{ top: topOffset }}
+      // `topOffset` changes only on a leaf↔spine flip (floating-header window headerH
+      // → covered spine 0). Ride the SAME morph curve/duration as the window open so
+      // the whole rail (label + excerpt) SLIDES with the shape instead of snapping at
+      // frame 0. A CSS transition doesn't fire on first mount, so a freshly-opened leaf
+      // still lands instantly; only a live leaf→spine change animates.
+      style={{ top: topOffset, transition: `top ${DURATION_S} ${MORPH_CSS_EASE}` }}
     >
       {children(bleed, PANEL_OPEN_W, railScale, shift)}
     </div>
