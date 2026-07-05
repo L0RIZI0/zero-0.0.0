@@ -108,7 +108,13 @@ export function EntityBody({
   // (entity0's world inputs; a child's imported/added resources) — model-driven, so a
   // child with no holdings reads (0).
   const assetCount = getEntityResourceCount(entityId)
-  const [inOpen, setInOpen] = usePanelOpen(`${entityId}:in`, false)
+  // Resources (IN) default OPEN for every entity regardless of kind; Published (OUT) default
+  // CLOSED. State is session-persistent (the in-memory panel store keeps a user's per-entity
+  // expand/collapse choice across navigation, resetting to these defaults on a full reload).
+  // Because Resources defaults open, diving into a child turns every ancestor into a covered
+  // ancestor with an open panel → the existing dive peek (`inOpen && !active`) morphs it into
+  // the peek-losange strip, so every ancestor shows its resources collapsed.
+  const [inOpen, setInOpen] = usePanelOpen(`${entityId}:in`, true)
   const [outOpen, setOutOpen] = usePanelOpen(`${entityId}:out`, false)
   // IN/OUT GUTTERS: the View is everything visually INSIDE the entity window — inset on
   // the left/right by the in/out panels, so it never underlaps them. Each side's gutter
