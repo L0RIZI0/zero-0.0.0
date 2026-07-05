@@ -809,16 +809,24 @@ export function EntityNode({
   useLayoutEffect(() => {
     if (titleMeasureRef.current) setTitleLen(titleMeasureRef.current.offsetWidth)
   }, [entity.title, titleSize, asWindow, ancestorHeader])
-  // Column TOP sits a constant y below the strip top: pt-[14px] 14 + glyph 16 + gap-2 8
-  // + h3 half-line 10 = 48; the column then hangs down by `titleLen`; an 8px gap
-  // separates it from the excerpt. The excerpt is measured from the rail-slot top, which
-  // now sits at the header bottom (panelTopOffset = 0) — i.e. HEADER_H below the strip
-  // top (the strip spans the whole central rectangle from its top). So we add HEADER_H
-  // to bridge from that slot top back up to the strip top before descending the title.
+  // Place the excerpt SPINE_EXCERPT_GAP below the rotated title's bottom. Working in
+  // "px below the STRIP top" (the strip spans the central rectangle from its top):
+  //   • rotated title column TOP = SPINE_TITLE_TOP below the strip top
+  //     (pt-[14px] 14 + glyph 16 + gap-2 8 + h3 half-line 10 = 48); it hangs down by
+  //     `titleLen`, so its BOTTOM = SPINE_TITLE_TOP + titleLen.
+  //   • the excerpt lives in the rail slot, whose top sits HEADER_H below the strip top
+  //     (panelTopOffset = 0), and it already carries pt-3 (EXCERPT_PT) — so at offset 0
+  //     it naturally sits at HEADER_H + EXCERPT_PT below the strip top.
+  // The offset that lands it GAP below the title bottom is the difference of the two:
+  //   (SPINE_TITLE_TOP + titleLen + GAP) − (HEADER_H + EXCERPT_PT).
+  // (The previous value double-counted HEADER_H, dropping it ~a header too low.)
   // Non-spine states keep the excerpt at the rail top.
-  const SPINE_EXCERPT_TITLE_TOP = HEADER_H + 48
+  const SPINE_TITLE_TOP = 48
+  const EXCERPT_PT = 12
   const SPINE_EXCERPT_GAP = 8
-  const excerptOffsetTop = isSpine ? SPINE_EXCERPT_TITLE_TOP + titleLen + SPINE_EXCERPT_GAP : 0
+  const excerptOffsetTop = isSpine
+    ? SPINE_TITLE_TOP + titleLen + SPINE_EXCERPT_GAP - HEADER_H - EXCERPT_PT
+    : 0
 
   // `winStyle` (the window's resting fixed geometry: top/left/width/height in
   // viewport px) is computed once near the top of the component — it also feeds the
