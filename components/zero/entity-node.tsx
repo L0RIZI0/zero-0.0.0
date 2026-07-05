@@ -789,11 +789,14 @@ export function EntityNode({
   const titleSize = asWindow ? (ancestorHeader ? 13 : isSpace ? 18 : 13) : 13 * dockScale
 
   // RAIL EXCERPT vertical offset. The excerpt counters live in the left rail overlay
-  // (EntityBody → CollapsibleColumn) and sit at the rail TOP in every state — which
-  // already lands below any header (an in-flow header pushes the body/rail down; a
-  // floating header is cleared by panelTopOffset). The ONE case that needs an offset
-  // is a SPINE ancestor (covered Space): its glyph + rotated title occupy the top of
-  // this same 48px strip, so the excerpt must drop BELOW the title. The rotated title
+  // (EntityBody → CollapsibleColumn) and sit at the rail TOP in every state — which now
+  // lands exactly at the header bottom in ALL cases: the rail slot's own top is the
+  // header bottom (panelTopOffset = 0; an in-flow header pushes the body/rail down, and
+  // a space window's body clears its floating header via marginTop). So a LEAF Space's
+  // excerpt sits just below its glyph, coherently identical to a non-space leaf. The ONE
+  // case that needs an extra offset is a SPINE ancestor (covered Space): its glyph +
+  // rotated title occupy the top of the left strip, so the excerpt must drop BELOW the
+  // title (see SPINE_EXCERPT_TITLE_TOP below). The rotated title
   // reads bottom-to-top and hangs straight DOWN from a fixed point below the glyph;
   // its column length equals the title's horizontal text width — so we MEASURE that
   // width off the (untransformed) title span and offset the excerpt by
@@ -808,8 +811,12 @@ export function EntityNode({
   }, [entity.title, titleSize, asWindow, ancestorHeader])
   // Column TOP sits a constant y below the strip top: pt-[14px] 14 + glyph 16 + gap-2 8
   // + h3 half-line 10 = 48; the column then hangs down by `titleLen`; an 8px gap
-  // separates it from the excerpt. Non-spine states keep the excerpt at the rail top.
-  const SPINE_EXCERPT_TITLE_TOP = 48
+  // separates it from the excerpt. The excerpt is measured from the rail-slot top, which
+  // now sits at the header bottom (panelTopOffset = 0) — i.e. HEADER_H below the strip
+  // top (the strip spans the whole central rectangle from its top). So we add HEADER_H
+  // to bridge from that slot top back up to the strip top before descending the title.
+  // Non-spine states keep the excerpt at the rail top.
+  const SPINE_EXCERPT_TITLE_TOP = HEADER_H + 48
   const SPINE_EXCERPT_GAP = 8
   const excerptOffsetTop = isSpine ? SPINE_EXCERPT_TITLE_TOP + titleLen + SPINE_EXCERPT_GAP : 0
 
@@ -1539,11 +1546,15 @@ export function EntityNode({
               railBleedRight={railBleedRight}
               excerptOffsetTop={excerptOffsetTop}
               surface={frameSurface}
-              // headerH for EVERY Space window (leaf top-row header AND spine's reserved
-              // empty band) so the rail box starts at the same header-bottom in both and
-              // never jumps on a leaf↔spine flip. Non-space in-flow-header windows already
-              // start their body at the header bottom → 0.
-              panelTopOffset={spaceWindow ? headerH : 0}
+              // 0 for EVERY window. `[data-body]` now clears the header in ALL cases —
+              // a non-space window's in-flow header pushes the body down by headerH, and a
+              // space window's body has `marginTop = wedge + headerH` — so the rail box
+              // always starts exactly at the header bottom with no extra push. (The old
+              // `headerH` here dated from when space bodies filled from the window top and
+              // the floating header overlapped them; that's no longer the case, and the
+              // stale push is what dropped the leaf's excerpt into a gap below its glyph.)
+              // A spine's rotated-title clearance is handled separately by excerptOffsetTop.
+              panelTopOffset={0}
               resource={isResource ? { url: entity.webUrl!, resourceId: entity.webResourceId } : undefined}
             />
           </div>
