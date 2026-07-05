@@ -389,9 +389,11 @@ export function AssetPanel({
   const [hover, setHover] = useState<PeekHover>(null)
   // The minimal add affordance on the peek strip only shows on hover.
   const [addHover, setAddHover] = useState(false)
-  // The dive-into-child peek holds the full panel for PEEK_IN_DELAY before morphing; the
-  // focused-leaf manual collapse/expand (`snappy`) morphs immediately (nothing to wait for).
-  const peekDelayed = !snappy
+  // No PEEK_IN_DELAY in any case: the user wants the collapse to START immediately. The DIVE
+  // case still rides the slow 2s MORPH curve (via `snappy=false` → the coherent window-dive
+  // ride) but with zero lead-in; the focused-leaf case uses the quick panel-slide. So the
+  // curve differs by scenario, but neither waits before morphing.
+  const peekDelayed = false
   // The panel-wide leftward slide for the non-losange content in strip mode — the SAME delta
   // the row losanges travel, so money/headers/titles/add all move together as one unit.
   const stripSlideX = rowPeekX(spineWidth, ROW_GLYPH_CENTER)

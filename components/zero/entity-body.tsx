@@ -288,12 +288,13 @@ export function EntityBody({
               spaceId={entityId}
               peek={(inOpen && !active) || (active && !inOpen)}
               stripMode={active && !inOpen}
-              // Snappy panel-slide curve (no PEEK_IN_DELAY, no 2s beat) for the WHOLE focused-
-              // leaf lifecycle (`active` — both expand AND collapse) AND the covered-ancestor
-              // dive peek (`inOpen && !active`). `active` must be its own term: expanding a
-              // focused leaf flips inOpen true, dropping out of both peek terms, which fell back
-              // to the slow 2s MORPH — the expand delay the user hit.
-              snappy={active || (inOpen && !active)}
+              // `snappy` picks the CURVE only: the focused-leaf lifecycle (`active`, both
+              // expand AND collapse) uses the quick panel-slide; the covered-ancestor dive
+              // (not active) keeps the slow 2s MORPH so the ancestor collapse RIDES ALONG
+              // with the child window's dive animation — the coherent ride the user likes.
+              // The delay is handled separately (peekDelayed is now always false), so the
+              // dive plays its 2s morph IMMEDIATELY with no lag.
+              snappy={active}
               spineWidth={spineWidth}
             />
           </CollapsibleColumn>
