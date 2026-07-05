@@ -272,21 +272,28 @@ export function EntityBody({
             spineScale={spineScale}
             spineShift={shift}
             surface={surface}
-            // The collapsed state of a FOCUSED leaf's Resources spine is the peek-losange
-            // strip (not a vertical label): clicking the band expands to the full list,
-            // clicking the band again collapses back to losanges. Only on a leaf (active).
-            stripCollapse={active}
+            // The Resources spine ALWAYS uses the peek-losange strip as its collapsed state
+            // (never the vertical "RESOURCES (n)" label) — for a focused leaf AND for a
+            // covered ancestor, whether open or manually collapsed. Static true (NOT `active`):
+            // gating on `active` left a manually-collapsed ancestor falling through to the
+            // vertical-label branch, i.e. an unwanted 3rd state. Now only two states exist:
+            // losange strip (collapsed) and full list (expanded on the focused leaf).
+            stripCollapse
           >
-            {/* The AssetPanel is in PEEK (losange strip) whenever it isn't the full
-                expanded list on the focused leaf, i.e.:
-                  • COVERED ANCESTOR — open but a child is focused (`inOpen && !active`).
-                  • LEAF COLLAPSED — focused leaf with the panel closed (`active && !inOpen`):
-                    the losanges are the collapsed affordance. `stripMode` marks this so the
-                    non-losange content FADES (nothing covers it) and the morph is immediate.
-                `spineWidth` is the strip width the losanges center on. */}
+            {/* The AssetPanel is the full expanded LIST only on the focused leaf with the
+                panel open (`active && inOpen`); in EVERY other case it is the PEEK losange
+                strip — so `peek = !(active && inOpen)`. This covers:
+                  • LEAF COLLAPSED — focused leaf, panel closed (`active && !inOpen`).
+                  • COVERED ANCESTOR — a child is focused, whether this panel is open OR was
+                    manually collapsed first (`!active`). Both must show losanges; keying peek
+                    off `inOpen` here was the bug that left a manually-collapsed ancestor with
+                    the old vertical "RESOURCES (n)" label instead of losanges.
+                `stripMode` (non-losange content FADES + slides, nothing covers it) marks ONLY
+                the focused-leaf collapse; a covered ancestor's content is hidden under the
+                child window, so it isn't stripMode. `spineWidth` = the strip width. */}
             <AssetPanel
               spaceId={entityId}
-              peek={(inOpen && !active) || (active && !inOpen)}
+              peek={!(active && inOpen)}
               stripMode={active && !inOpen}
               // `snappy` picks the CURVE only: the focused-leaf lifecycle (`active`, both
               // expand AND collapse) uses the quick panel-slide; the covered-ancestor dive

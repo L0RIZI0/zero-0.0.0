@@ -123,11 +123,15 @@ export function CollapsibleColumn({
   // "strip" mode: only the losanges + hairlines show, the rest fades. Distinct from the
   // covered-ancestor peek below, but shares the same losange transform machinery.
   const leafStrip = stripCollapse && focused && !open
-  // PEEK MODE: the losanges sit on the spine strip. Two triggers:
-  //   • COVERED ANCESTOR — panel open, a child focused (`open && !focused`): resources
-  //     collapse to the peek strip as the child covers this window.
-  //   • LEAF STRIP — the focused-leaf collapsed affordance (above).
-  const peek = (open && !focused) || leafStrip
+  // PEEK MODE: the losanges sit on the spine strip.
+  //   • stripCollapse panel (Resources): the collapsed affordance is ALWAYS the losanges, so
+  //     peek is EVERYTHING that isn't the focused-open full list — the focused-collapsed leaf
+  //     AND any covered ancestor, whether open OR manually collapsed. (Keying off `open` here
+  //     left a manually-collapsed ancestor with no losanges → it fell back to the vertical
+  //     label, the unwanted 3rd state.)
+  //   • non-stripCollapse panel (e.g. right Published): unchanged — peek only for a COVERED
+  //     ANCESTOR whose panel is open (`open && !focused`).
+  const peek = stripCollapse ? !(focused && open) : open && !focused
   // The content inset (`--panel-edge-inset`, the scroller `pl`/`pr`) is FROZEN at the
   // open spine width during peek. It's a CSS custom property, which is NOT smoothly
   // animatable — so letting it follow `spineWidth` (which shrinks to the bleed the moment
@@ -164,7 +168,11 @@ export function CollapsibleColumn({
             height and reaching from the window EDGE (left:0) to spineWidth+panelWidth.
             No rounding; a single border on the inner (View-facing) edge only. */}
         <AnimatePresence initial={false}>
-          {(open || leafStrip) && (
+          {/* Mount whenever open OR in any peek state. `peek` now includes a covered ancestor
+              that was manually collapsed (open=false) — it must still mount to paint its peek
+              losanges. `leafStrip ⊂ peek`, and non-stripCollapse peek implies open, so this is
+              a safe superset of the old `(open || leafStrip)`. */}
+          {(open || peek) && (
             <motion.section
               key="panel"
               aria-label={title}
