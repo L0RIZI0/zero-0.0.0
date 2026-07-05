@@ -42,15 +42,16 @@ const MORPH = { duration: MORPH_SECONDS, ease: MORPH_EASE }
  */
 const PEEK_IN_DELAY = MORPH_SECONDS * 0.6
 /**
- * Transition for every peek-driven property. Entering peek (a child just opened → `peek`
- * flips true) is HELD for PEEK_IN_DELAY so the full panel lingers before morphing into the
- * losange strip; the reverse (child closes → `peek` back to false) plays immediately with
- * no delay so refocusing the panel feels instant. Pass the element's base transition as
- * `base` (defaults to the slow MORPH) to keep per-element durations (e.g. the fast fades).
+ * Transition for every peek-driven property. Entering peek is HELD for PEEK_IN_DELAY only
+ * when `delayed` — the DIVE case (a child opened): the full panel lingers before morphing
+ * into the losange strip so it stays whole for most of the dive-in. For a MANUAL COLLAPSE
+ * on a focused leaf (`delayed` false) there is nothing to wait for, so the morph plays
+ * immediately. The reverse (leaving peek) always plays immediately. Pass the element's
+ * base transition as `base` (defaults to the slow MORPH) to keep per-element durations.
  */
-const peekMorph = (peek: boolean, base: object = MORPH) => ({
+const peekMorph = (peek: boolean, delayed = true, base: object = MORPH) => ({
   ...base,
-  delay: peek ? PEEK_IN_DELAY : 0,
+  delay: peek && delayed ? PEEK_IN_DELAY : 0,
 })
 /** Shrunk peek-title size == the floating hover-label size, so the two read continuous. */
 const PEEK_LABEL_PX = 11
@@ -110,11 +111,18 @@ function ItemMark({ item, size = 15 }: { item: EntityResource; size?: number }) 
 function ResourceRow({
   item,
   peek,
+  peekDelayed = true,
+  stripMode = false,
   spineWidth,
   onHover,
 }: {
   item: EntityResource
   peek: boolean
+  /** Hold the peek morph by PEEK_IN_DELAY (dive) or play it immediately (manual collapse). */
+  peekDelayed?: boolean
+  /** Leaf-collapsed strip: nothing covers the panel, so fade the row's text (title/detail)
+   *  to 0, leaving only the losange + hairline on the narrow strip. */
+  stripMode?: boolean
   spineWidth: number
   onHover: (h: PeekHover) => void
 }) {
@@ -155,7 +163,7 @@ function ResourceRow({
           animate={{
             width: peek ? peekCenter(spineWidth) + 8 : FULL_INSET + 18,
           }}
-          transition={peekMorph(peek)}
+          transition={peekMorph(peek, peekDelayed)}
           style={{
             left: "calc(-1 * (var(--panel-edge-inset, 48px) + 8px))",
             backgroundColor: `${item.tint}55`,
@@ -174,7 +182,7 @@ function ResourceRow({
         className="relative flex h-10 w-10 shrink-0 items-center justify-center"
         initial={false}
         animate={{ x: peek ? peekX : 0 }}
-        transition={peekMorph(peek)}
+        transition={peekMorph(peek, peekDelayed)}
         style={peek ? { position: "relative", zIndex: 30 } : undefined}
       >
         <motion.span
@@ -187,7 +195,7 @@ function ResourceRow({
             backgroundColor: peek ? item.tint : `${item.tint}1a`,
             borderColor: peek ? item.tint : `${item.tint}55`,
           }}
-          transition={peekMorph(peek)}
+          transition={peekMorph(peek, peekDelayed)}
           onPointerEnter={peek ? showLabel : undefined}
           onPointerLeave={peek ? () => onHover(null) : undefined}
           onClick={peek ? (e) => e.stopPropagation() : undefined}
@@ -200,19 +208,24 @@ function ResourceRow({
             className="-rotate-45"
             initial={false}
             animate={{ opacity: peek ? 0 : 1 }}
-            transition={peekMorph(peek)}
+            transition={peekMorph(peek, peekDelayed)}
           >
             <ItemMark item={item} />
           </motion.span>
         </motion.span>
       </motion.span>
-      <span className="flex min-w-0 flex-1 flex-col leading-tight">
-        {/* Title + detail DON'T fade in peek — nothing fades anymore. They stay put at full
-            opacity; only the losange (glyph tile) travels to the strip and the hairline
-            widens. The narrowing panel column is what carries the text out of view. */}
+      {/* Title + detail. In the DIVE peek they stay put (the child window covers them). In
+          STRIP MODE (manual leaf-collapse) nothing covers the panel, so they FADE to 0 —
+          leaving just the losange + hairline on the narrow strip. */}
+      <motion.span
+        className="flex min-w-0 flex-1 flex-col leading-tight"
+        initial={false}
+        animate={{ opacity: stripMode ? 0 : 1 }}
+        transition={peekMorph(peek, peekDelayed)}
+      >
         <span className="truncate text-[12.5px] tracking-tight text-foreground">{item.name}</span>
         <span className="truncate text-[11px] text-muted-foreground/70">{item.detail}</span>
-      </span>
+      </motion.span>
     </button>
   )
 }
@@ -221,6 +234,8 @@ function Section({
   title,
   items,
   peek,
+  peekDelayed = true,
+  stripMode = false,
   spineWidth,
   onHover,
   defaultOpen = true,
@@ -228,6 +243,8 @@ function Section({
   title: string
   items: EntityResource[]
   peek: boolean
+  peekDelayed?: boolean
+  stripMode?: boolean
   spineWidth: number
   onHover: (h: PeekHover) => void
   defaultOpen?: boolean
@@ -243,12 +260,16 @@ function Section({
   const expanded = open || peek
   return (
     <div>
-      {/* Header toggles the section. No longer fades in peek — it just goes inert
-          (pointer-events-none) and rides out with the narrowing column. */}
-      <button
+      {/* Header toggles the section. In the DIVE peek it stays put (covered by the child);
+          in STRIP MODE (manual leaf-collapse) it FADES to 0 so only losanges show on the
+          narrow strip. Inert (pointer-events-none) whenever the losanges are showing. */}
+      <motion.button
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
+        initial={false}
+        animate={{ opacity: stripMode ? 0 : 1 }}
+        transition={peekMorph(peek, peekDelayed)}
         className={cn(
           "flex w-full items-center gap-1.5 px-2 py-2 text-left",
           peek && "pointer-events-none",
@@ -257,7 +278,7 @@ function Section({
         {!open && <ChevronDown className="h-3.5 w-3.5 -rotate-90 text-muted-foreground/70" strokeWidth={2} />}
         <span className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground/80">{title}</span>
         <span className="text-[11px] text-muted-foreground/40">{items.length}</span>
-      </button>
+      </motion.button>
       <AnimatePresence initial={false}>
         {expanded && (
           <motion.div
@@ -273,7 +294,15 @@ function Section({
           >
             <div className="flex flex-col pb-1">
               {items.map((item) => (
-                <ResourceRow key={item.id} item={item} peek={peek} spineWidth={spineWidth} onHover={onHover} />
+                <ResourceRow
+                  key={item.id}
+                  item={item}
+                  peek={peek}
+                  peekDelayed={peekDelayed}
+                  stripMode={stripMode}
+                  spineWidth={spineWidth}
+                  onHover={onHover}
+                />
               ))}
             </div>
           </motion.div>
@@ -286,17 +315,33 @@ function Section({
 export function AssetPanel({
   spaceId,
   peek = false,
+  stripMode = false,
   spineWidth = 48,
 }: {
   spaceId: string
   /** Collapse the resources into peek losanges on the window's left peek strip. */
   peek?: boolean
+  /** Leaf-collapsed STRIP: the peek losanges are shown on the spine of a FOCUSED leaf (a
+   *  manual collapse), not a covered ancestor. Nothing covers the panel, so the non-losange
+   *  content (money, section headers, titles, add) FADES OUT rather than riding out under a
+   *  child window; and the losange morph plays immediately (no dive hold). Implies `peek`. */
+  stripMode?: boolean
   /** Width of the peek strip the losanges center on (the window's visible bleed). */
   spineWidth?: number
 }) {
   const [hover, setHover] = useState<PeekHover>(null)
   // The minimal add affordance on the peek strip only shows on hover.
   const [addHover, setAddHover] = useState(false)
+  // Manual leaf-collapse morphs immediately (nothing to wait for); the dive-into-child
+  // peek holds the full panel for PEEK_IN_DELAY before morphing. `stripMode` marks the
+  // manual-collapse case.
+  const peekDelayed = !stripMode
+  // Fade transition for the non-losange content in strip mode (money, add button).
+  const stripFade = {
+    initial: false as const,
+    animate: { opacity: stripMode ? 0 : 1 },
+    transition: peekMorph(peek, peekDelayed),
+  }
   // The add button has no px-2, so it uses ADD_GLYPH_CENTER — this lands its "+" on the
   // SAME peek-strip center as the resource losanges above, so they align vertically.
   const peekAddX = rowPeekX(spineWidth, ADD_GLYPH_CENTER)
@@ -311,8 +356,9 @@ export function AssetPanel({
   if (resources.length === 0) {
     return (
       <div key={spaceId} className="flex flex-col">
-        <button
+        <motion.button
           type="button"
+          {...stripFade}
           className={cn(
             "mt-2 flex w-full items-center gap-2 rounded-lg border border-dashed border-border px-2 py-2 text-left text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground transition-colors hover:border-foreground/30 hover:text-foreground",
             peek && "pointer-events-none",
@@ -320,7 +366,7 @@ export function AssetPanel({
         >
           <Plus className="h-3.5 w-3.5" strokeWidth={2} />
           Add resource
-        </button>
+        </motion.button>
       </div>
     )
   }
