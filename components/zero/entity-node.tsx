@@ -788,45 +788,10 @@ export function EntityNode({
   // for windows, so those are unchanged.
   const titleSize = asWindow ? (ancestorHeader ? 13 : isSpace ? 18 : 13) : 13 * dockScale
 
-  // RAIL EXCERPT vertical offset. The excerpt counters live in the left rail overlay
-  // (EntityBody → CollapsibleColumn) and sit at the rail TOP in every state — which now
-  // lands exactly at the header bottom in ALL cases: the rail slot's own top is the
-  // header bottom (panelTopOffset = 0; an in-flow header pushes the body/rail down, and
-  // a space window's body clears its floating header via marginTop). So a LEAF Space's
-  // excerpt sits just below its glyph, coherently identical to a non-space leaf. The ONE
-  // case that needs an extra offset is a SPINE ancestor (covered Space): its glyph +
-  // rotated title occupy the top of the left strip, so the excerpt must drop BELOW the
-  // title (see SPINE_EXCERPT_TITLE_TOP below). The rotated title
-  // reads bottom-to-top and hangs straight DOWN from a fixed point below the glyph;
-  // its column length equals the title's horizontal text width — so we MEASURE that
-  // width off the (untransformed) title span and offset the excerpt by
-  // (glyph zone + title length + gap). Measured continuously (offsetWidth ignores the
-  // rotate transform), so it's ready the instant a leaf spines; the offset then
-  // animates on the shared morph curve (see CollapsibleColumn) so the excerpt SLIDES
-  // down into place as the window becomes a spine.
-  const titleMeasureRef = useRef<HTMLSpanElement>(null)
-  const [titleLen, setTitleLen] = useState(0)
-  useLayoutEffect(() => {
-    if (titleMeasureRef.current) setTitleLen(titleMeasureRef.current.offsetWidth)
-  }, [entity.title, titleSize, asWindow, ancestorHeader])
-  // Place the excerpt SPINE_EXCERPT_GAP below the rotated title's bottom. Working in
-  // "px below the STRIP top" (the strip spans the central rectangle from its top):
-  //   • rotated title column TOP = SPINE_TITLE_TOP below the strip top
-  //     (pt-[14px] 14 + glyph 16 + gap-2 8 + h3 half-line 10 = 48); it hangs down by
-  //     `titleLen`, so its BOTTOM = SPINE_TITLE_TOP + titleLen.
-  //   • the excerpt lives in the rail slot, whose top sits HEADER_H below the strip top
-  //     (panelTopOffset = 0), and it already carries pt-3 (EXCERPT_PT) — so at offset 0
-  //     it naturally sits at HEADER_H + EXCERPT_PT below the strip top.
-  // The offset that lands it GAP below the title bottom is the difference of the two:
-  //   (SPINE_TITLE_TOP + titleLen + GAP) − (HEADER_H + EXCERPT_PT).
-  // (The previous value double-counted HEADER_H, dropping it ~a header too low.)
-  // Non-spine states keep the excerpt at the rail top.
-  const SPINE_TITLE_TOP = 48
-  const EXCERPT_PT = 12
-  const SPINE_EXCERPT_GAP = 8
-  const excerptOffsetTop = isSpine
-    ? SPINE_TITLE_TOP + titleLen + SPINE_EXCERPT_GAP - HEADER_H - EXCERPT_PT
-    : 0
+  // NOTE: the covered-Space-ancestor ("spine") title is no longer measured/offset here.
+  // It now lives INSIDE the left spine (EntityBody → CollapsibleColumn): rendered rotated
+  // with real vertical layout height, so the excerpt flows naturally below it. entity-node
+  // just tells the spine WHICH title to show via the `spineTitle` prop on <EntityBody>.
 
   // `winStyle` (the window's resting fixed geometry: top/left/width/height in
   // viewport px) is computed once near the top of the component — it also feeds the
@@ -1286,36 +1251,20 @@ export function EntityNode({
               rowReq && (sent ? REQ_SENT.title : REQ_REST.title),
             )}
           >
-            {/* SPINE rotation lives on this INNER span, NOT the <h3>. The <h3> is a
-                GSAP Flip target (Flip slides it below the glyph and CLEARS its
-                transform on completion, which would wipe any rotation we put there;
-                React also drops the standalone CSS `rotate` property). The span is
-                NOT a Flip target, so its `transform` is untouched by Flip and
-                animates purely via its own CSS transition — the title rotates AND
-                slides at once.
-
-                Geometry (why `translateX(-50%) rotate(-90deg)` about `100% 50%`):
-                the span is centered in the 26px strip, so its box center sits at
-                the strip center. Rotating -90° (CCW, reads bottom-to-top) about the
-                span's RIGHT-center anchors the resulting column's TOP at a CONSTANT
-                offset below the glyph — independent of title length. That kills both
-                bugs: long titles can no longer grow UP into the glyph (they hang
-                straight down), and every title shares the same glyph→title gap
-                (previously a center pivot made the top float with text length, so
-                longer words crept closer to the glyph). The right-center pivot
-                leaves the column offset right by half the title width; the outer
-                `translateX(-50%)` (half the span's OWN width) exactly cancels that,
-                re-centering the narrow column in the strip for any length. Both
-                transform parts interpolate, so the morph still rotates AND slides. */}
+            {/* The title is the HORIZONTAL open-window title. When this Space becomes a
+                covered ancestor (spine), its title is instead shown ROTATED inside the
+                left spine (EntityBody → CollapsibleColumn, via the `spineTitle` prop),
+                where it has real vertical layout height and the excerpt flows below it.
+                So here we simply FADE this horizontal title out as the window spines (it
+                would be covered by the child's window anyway) — no rotation morph. The
+                span is NOT a Flip target (the <h3> is), so this opacity transition is
+                untouched by Flip and eases on the shared morph curve. */}
             <span
-              ref={titleMeasureRef}
-              className="inline-block whitespace-nowrap"
+              className={cn("inline-block whitespace-nowrap", asWindow && isSpine && "opacity-0")}
               style={
                 asWindow
                   ? {
-                      transform: isSpine ? "translateX(-50%) rotate(-90deg)" : "translateX(0) rotate(0deg)",
-                      transformOrigin: "100% 50%",
-                      transitionProperty: "transform",
+                      transitionProperty: "opacity",
                       transitionDuration: DURATION_S,
                       transitionTimingFunction: MORPH_CSS_EASE,
                     }
@@ -1552,7 +1501,11 @@ export function EntityNode({
               railShift={railCenterShift}
               railBleedLeft={railBleedLeft}
               railBleedRight={railBleedRight}
-              excerptOffsetTop={excerptOffsetTop}
+              // A covered Space ancestor folds its title INTO the left spine (rendered
+              // rotated below the glyph, above the excerpt). Undefined otherwise, so a
+              // leaf / non-space shows only its excerpt. This replaces the old cross-
+              // component titleLen-measure + excerptOffsetTop offset coordination.
+              spineTitle={isSpine ? entity.title : undefined}
               surface={frameSurface}
               // 0 for EVERY window. `[data-body]` now clears the header in ALL cases —
               // a non-space window's in-flow header pushes the body down by headerH, and a
@@ -1561,7 +1514,8 @@ export function EntityNode({
               // `headerH` here dated from when space bodies filled from the window top and
               // the floating header overlapped them; that's no longer the case, and the
               // stale push is what dropped the leaf's excerpt into a gap below its glyph.)
-              // A spine's rotated-title clearance is handled separately by excerptOffsetTop.
+              // A spine's rotated title is a flow element ABOVE the excerpt in the left
+              // spine (via spineTitle), so it needs no panel offset either.
               panelTopOffset={0}
               resource={isResource ? { url: entity.webUrl!, resourceId: entity.webResourceId } : undefined}
             />

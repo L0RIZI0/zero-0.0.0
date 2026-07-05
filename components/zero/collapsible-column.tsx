@@ -4,7 +4,6 @@ import { useRef, useState } from "react"
 import { motion, AnimatePresence } from "motion/react"
 import { ChevronLeft, ChevronRight, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from "lucide-react"
 import { panelSlideTransition, MORPH_SECONDS, MORPH_EASE } from "@/lib/zero/motion"
-import { DURATION_S, MORPH_CSS_EASE } from "@/lib/zero/flip-stage"
 import { cn } from "@/lib/utils"
 
 /**
@@ -37,7 +36,7 @@ export function CollapsibleColumn({
   panelWidth,
   railScale = 1,
   railShift = 0,
-  excerptOffsetTop = 0,
+  spineTitle,
   surface,
 }: {
   title: string
@@ -66,11 +65,12 @@ export function CollapsibleColumn({
   railScale?: number
   /** Vertical px nudge aligning the rail label with the FRAME center (aesthetic). */
   railShift?: number
-  /** Px to push the excerpt DOWN from the rail top. 0 in every state except a spine
-   *  ancestor (covered Space), where the glyph + rotated title sit at the top of the
-   *  strip and the excerpt drops below the title. Animated on the window-morph curve so
-   *  the excerpt SLIDES down in step with the title's rotation as a leaf becomes a spine. */
-  excerptOffsetTop?: number
+  /** When set, this is a covered SPACE ancestor: render its title ROTATED (reading
+   *  bottom-to-top) at the top of the spine, directly below the glyph and ABOVE the
+   *  excerpt. The title occupies real vertical layout height (writing-mode), so the
+   *  excerpt flows naturally beneath it — no measurement/offset coordination. It slides
+   *  in from the top + fades as a leaf becomes a spine, and the excerpt reflows down. */
+  spineTitle?: string
   /** Window background colour — the panel uses it so it reads as the window surface. */
   surface?: string
 }) {
@@ -282,28 +282,43 @@ export function CollapsibleColumn({
         </span>
       </button>
 
-      {/* EXCERPT — pinned to the TOP of the rail, centered on `railWidth` so it lines up
-          with the vertical label directly below it. Rendered AFTER the rail button so it
-          paints above, but `pointer-events-none` lets clicks fall through to the button
-          (the whole rail stays a forgiving toggle target). Unlike the label, it stays
-          visible whether the panel is open or collapsed — so when the panel expands and
-          squeezes the View aside, the counters remain in place at the top-left of the
-          View. Nudged horizontally by `railShift`-free centering; it uses the rail's own
-          width for centering (matching the label). */}
-      {excerpt && (
-        <div
-          className="pointer-events-none absolute inset-x-0 top-0 z-30 flex justify-center pt-3"
-          style={{
-            // Drops the excerpt below the rotated title in a spine ancestor (0 otherwise).
-            // Rides the SAME curve/duration as the title's rotate morph so the counters
-            // slide down in step with the title as a leaf becomes a spine. A CSS transition
-            // doesn't fire on first mount, so a freshly-rendered spine shows it already in
-            // place; only a live leaf→spine change animates.
-            transform: `translateY(${excerptOffsetTop}px)`,
-            transition: `transform ${DURATION_S} ${MORPH_CSS_EASE}`,
-          }}
-        >
-          {excerpt}
+      {/* SPINE BAND — the entity's content summary, pinned to the TOP of the rail and
+          centered on `railWidth` (aligning with the vertical label below). Rendered AFTER
+          the rail button so it paints above, but `pointer-events-none` lets clicks fall
+          through to the toggle. Stays visible whether the panel is open or collapsed, so
+          the counters remain in the View's top-left as the panel squeezes the View aside.
+
+          A flex COLUMN: an optional rotated title (covered Space ancestor only) sits on
+          top, the excerpt counters flow directly beneath it. Because the title has REAL
+          vertical layout height (writing-mode), the excerpt needs no offset — it simply
+          sits below whatever is there. On a leaf→spine flip the title MOUNTS with a slide-
+          in-from-top + fade and the excerpt `layout`-animates DOWN to make room; the glyph
+          keeps its own (untouched) Flip morph in the header just above this band. */}
+      {(excerpt || spineTitle) && (
+        <div className="pointer-events-none absolute inset-x-0 top-0 z-30 flex flex-col items-center gap-2 pt-3">
+          <AnimatePresence initial={false}>
+            {spineTitle && (
+              <motion.span
+                layout
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                transition={{ duration: MORPH_SECONDS, ease: MORPH_EASE }}
+                className="whitespace-nowrap text-[15px] font-semibold tracking-tight text-foreground"
+                // sideways-lr = rotated 90° CCW, upright, reading bottom-to-top — matching
+                // the old -90deg spine title, but as REAL vertical layout height (so the
+                // excerpt below flows naturally) instead of a zero-height rotate transform.
+                style={{ writingMode: "sideways-lr" }}
+              >
+                {spineTitle}
+              </motion.span>
+            )}
+          </AnimatePresence>
+          {excerpt && (
+            <motion.div layout transition={{ duration: MORPH_SECONDS, ease: MORPH_EASE }}>
+              {excerpt}
+            </motion.div>
+          )}
         </div>
       )}
     </div>
