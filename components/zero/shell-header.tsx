@@ -112,16 +112,13 @@ export function ShellHeader() {
           type="button"
           className={cn(
             "group flex items-center rounded-full px-2.5 py-1 text-muted-foreground transition-colors",
-            "border border-border bg-card/60 hover:border-foreground/20 hover:text-foreground",
+            "hover:text-foreground",
           )}
           aria-label="Search"
         >
           <Search className="h-3 w-3 shrink-0" />
-          <span className="flex items-center gap-1.5 overflow-hidden whitespace-nowrap pl-1.5">
+          <span className="flex items-center overflow-hidden whitespace-nowrap pl-1.5">
             <span className="hidden text-[11.5px] md:inline">Search</span>
-            <kbd className="hidden rounded border border-border px-1 py-0.5 font-mono text-[9px] text-muted-foreground/80 md:inline">
-              ⌘K
-            </kbd>
           </span>
         </button>
         {/* Logo stays flush at the right edge; the window controls are stacked

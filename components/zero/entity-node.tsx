@@ -480,7 +480,7 @@ export function EntityNode({
   // (√3/2). The size is CONTEXT-DEPENDENT:
   //   • Home view (contextDepth === 0): the original 150 × 130 (150 × 0.866 ≈ 130).
   //   • Everywhere else (Space leaf/ancestor, non-Space windows): the smaller
-  //     116 × 100 (116 × 0.866 ≈ 100), so the dock fits inside the hexagon leaf's
+  //     116 �� 100 (116 × 0.866 ≈ 100), so the dock fits inside the hexagon leaf's
   //     bottom triangle on short viewports without cropping.
   // Both honour the √3/2 ratio so the clip stays a regular hexagon, and the glyph +
   // title + open-counter keep their sizes in either case — only the surrounding
@@ -1268,16 +1268,38 @@ export function EntityNode({
               // Sent-as-request reflow: right-align the title against the moved glyph
               // (sent) or keep the normal left layout with mr-auto spacer (rest).
               rowReq && (sent ? REQ_SENT.title : REQ_REST.title),
-              // Covered Space ancestor: hide the whole horizontal title (its rotated
-              // twin in the spine represents it). display:none, so zero layout slot and
-              // no gap in the glyph header; paired with the dropped flip-id above so it
-              // neither rides the frame nor Flip-tweens.
-              asWindow && isSpine && "hidden",
+              // Covered Space ancestor: the horizontal title is not needed (its rotated
+              // twin in the spine represents it) but instead of vanishing it SLIDES LEFT
+              // out of view (handled on the inner span below) as the vertical spine title
+              // slides down — a matched pair. `overflow-hidden` clips it to the header box
+              // so the departing title disappears cleanly off the left edge rather than
+              // spilling past the window; the flip-id is dropped above so Flip doesn't
+              // also tween it.
+              asWindow && isSpine && "overflow-hidden",
             )}
           >
-            {/* The HORIZONTAL open-window title. Hiding + Flip exclusion is handled on the
-                <h3> above (see notes there); this span just holds the text. */}
-            <span className="inline-block whitespace-nowrap">{entity.title}</span>
+            {/* The HORIZONTAL open-window title. When this Space becomes a covered
+                ancestor (spine) the title SLIDES LEFT and fades — a CSS transform/opacity
+                transition on the span, independent of GSAP Flip (whose title id is dropped
+                for the spine on the <h3>). This is the matched counterpart to the vertical
+                spine title sliding DOWN: as the window narrows to a spine, the horizontal
+                title exits left while the rotated one enters from the top. On reverse it
+                slides back in from the left. Eased on the shared morph curve/duration so
+                both titles move in lockstep. */}
+            <span
+              className={cn(
+                "inline-block whitespace-nowrap",
+                asWindow && "transition-[transform,opacity]",
+                asWindow && isSpine && "-translate-x-6 opacity-0",
+              )}
+              style={
+                asWindow
+                  ? { transitionDuration: DURATION_S, transitionTimingFunction: MORPH_CSS_EASE }
+                  : undefined
+              }
+            >
+              {entity.title}
+            </span>
             {/* OCCURRENCE DATE (Phase 2): a materialized recurrence occurrence
                 (recurrenceId set) shares the mother's title ("Workout"), so when its
                 window is open we append the specific day it stands for. Gated to the

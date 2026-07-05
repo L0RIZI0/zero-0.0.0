@@ -1,7 +1,7 @@
 "use client"
 
 import { NodeGlyph } from "./node-glyph"
-import { getOpenTaskCount, getDoneTaskCount, getChildSpaceCount } from "@/lib/zero/data"
+import { getOpenTaskCount, getDoneTaskCount } from "@/lib/zero/data"
 import { useZeroNav } from "@/lib/zero/nav-store"
 import { cn } from "@/lib/utils"
 
@@ -12,7 +12,6 @@ import { cn } from "@/lib/utils"
  *
  *   • open tasks   — outline task glyph + count of incomplete child tasks
  *   • done tasks   — filled task glyph + count of completed child tasks
- *   • spaces       — space glyph + count of child spaces
  *
  * All three come from the SAME `getChildren` listing as the do-list/dock (origin +
  * tagged), so the excerpt reflects whatever is browsable inside the entity — whether
@@ -29,15 +28,13 @@ export function SpineExcerpt({ entityId }: { entityId: string }) {
 
   const open = getOpenTaskCount(entityId)
   const done = getDoneTaskCount(entityId)
-  const spaces = getChildSpaceCount(entityId)
 
-  if (open === 0 && done === 0 && spaces === 0) return null
+  if (open === 0 && done === 0) return null
 
   return (
     <div className="flex flex-col items-center gap-2">
       {open > 0 && <Counter count={open} kind="task" />}
       {done > 0 && <Counter count={done} kind="task" filled />}
-      {spaces > 0 && <Counter count={spaces} kind="space" />}
     </div>
   )
 }
@@ -49,7 +46,7 @@ function Counter({
   filled = false,
 }: {
   count: number
-  kind: "task" | "space"
+  kind: "task"
   filled?: boolean
 }) {
   return (

@@ -566,6 +566,10 @@ export function DoList({
     [contextId, dataVersion],
   )
   const [filter, setFilter] = useState<"open" | "all">("all")
+  // HOVER-ONLY reveal for the All/Open selector pills: tracked in state (a named
+  // Tailwind `group-hover` variant proved unreliable to generate from the dynamic
+  // className here). Combined with `showSelectors` (non-virgin guard) below.
+  const [listHovered, setListHovered] = useState(false)
   // The most recently created row. Only THIS row plays an enter animation (a gentle
   // fade/slide as it's "born" from the creation input); all other rows mount with
   // `initial={false}` so context switches and commits never flash the whole list.
@@ -1063,7 +1067,11 @@ export function DoList({
               the input visible right below it.
           The dock (the entity's region 2) sits BELOW this region and reserves its own
           flow space, so the input rests just above it with no manual clamp. */}
-      <div className={cn("flex min-h-0 flex-1 flex-col", centered && "justify-center-safe")}>
+      <div
+        onMouseEnter={() => setListHovered(true)}
+        onMouseLeave={() => setListHovered(false)}
+        className={cn("flex min-h-0 flex-1 flex-col", centered && "justify-center-safe")}
+      >
         {/* Open/All selectors. Hidden while the list is "virgin" (empty, or every item
             still open AND unplanned) ⇒ no chrome. Shown once something has been acted
             upon — resolved (completed/cancelled) or planned (scheduled). "Open" hides
@@ -1088,14 +1096,20 @@ export function DoList({
             the pills appear to emerge from BEHIND the rows below them (their own bottom
             edge) rather than dropping in from the top. */}
         <div className="h-6 shrink-0">
-          <motion.div
-            initial={false}
-            animate={showSelectors ? { opacity: 1, y: 0 } : { opacity: 0, y: 6 }}
-            transition={ROW_REFLOW}
+          {/* HOVER-ONLY: the pills stay hidden and inert, revealing (fade + slight rise)
+              only when the do-list is HOVERED (`group-hover/dolist`) or when a PILL itself
+              takes keyboard focus (self `focus-within` on this band — NOT the group, so the
+              do-list's "New task" input, which lives in the same group and is often
+              auto-focused, does NOT reveal them). Still gated by `showSelectors` (non-virgin
+              list) so a fresh list with nothing to filter never shows chrome even on hover.
+              The reserved `h-6` slot keeps the rows below from shifting when they toggle. */}
+          <div
             aria-hidden={!showSelectors}
             className={cn(
-              "mb-1 flex items-center justify-start gap-1 pr-2 pl-1.5",
-              !showSelectors && "pointer-events-none",
+              "mb-1 flex translate-y-1.5 items-center justify-start gap-1 pr-2 pl-1.5 opacity-0",
+              "pointer-events-none transition-[opacity,transform] duration-200 ease-out",
+              showSelectors &&
+                "focus-within:pointer-events-auto focus-within:translate-y-0 focus-within:opacity-100 group-hover/dolist:pointer-events-auto group-hover/dolist:translate-y-0 group-hover/dolist:opacity-100",
             )}
           >
             {(["all", "open"] as const).map((f) => (
@@ -1115,7 +1129,7 @@ export function DoList({
                 {f}
               </button>
             ))}
-          </motion.div>
+          </div>
         </div>
         <ul
           key={contextId}
