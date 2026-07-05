@@ -22,14 +22,14 @@ import { getEntityResources, groupResources, type EntityResource } from "@/lib/z
  * A continuity HAIRLINE runs from the window edge to the diamond's LEFT VERTEX, but
  * only for the camera roll and the app subscriptions (per the mockup spec).
  *
- * PEEK MODE (`peek`): when this panel is open but its entity becomes a covered ancestor
- * (a child opened), the resources morph — over the shared window-morph beat — into small
- * SOLID pointy losanges sitting on the window's left peek strip: metadata + section
- * headers + the add button fade, titles shrink to the hover-label size and fade, glyph
- * tiles shrink/harden into filled diamonds, and the whole list packs tight and slides
- * left. From the focused child, hovering a peek losange shows its title as a floating
- * label. Money is left untouched (it just falls under the child). Reverses symmetrically
- * when the child closes (`peek` flips back to false and Framer animates everything home).
+ * PEEK MODE (`peek`): the collapsed state, shown whenever this isn't the focused-open leaf —
+ * i.e. a focused leaf whose panel was manually collapsed, OR a covered ancestor (a child
+ * opened). The resources morph into small SOLID pointy losanges sitting on the window's left
+ * peek strip: money + metadata + section headers + the add button slide left and fade out,
+ * titles slide left and fade, glyph tiles shrink/harden into filled diamonds, and the list
+ * packs tight — leaving only the losange column. From the focused child, hovering a peek
+ * losange shows its title as a floating label. Reverses symmetrically when the panel expands
+ * (`peek` flips back to false and Framer animates everything home).
  *
  * All content here is static mock data — no store reads, no persistence.
  */
@@ -132,7 +132,6 @@ function ResourceRow({
   item,
   peek,
   peekDelayed = true,
-  stripMode = false,
   snappy = false,
   spineWidth,
   onHover,
@@ -141,9 +140,6 @@ function ResourceRow({
   peek: boolean
   /** Hold the peek morph by PEEK_IN_DELAY (dive) or play it immediately (manual collapse). */
   peekDelayed?: boolean
-  /** Leaf-collapsed strip: nothing covers the panel, so fade the row's text (title/detail)
-   *  to 0 AND slide it left with the losange, leaving only the losange + hairline. */
-  stripMode?: boolean
   /** Focused-leaf scenario (both open + collapsed): use the SNAPPY panel-slide curve for
    *  the whole morph so it can't fall back to the slow 2s dive beat mid-transition. */
   snappy?: boolean
@@ -152,8 +148,8 @@ function ResourceRow({
 }) {
   const tileRef = useRef<HTMLSpanElement>(null)
   // Peek travel for JUST the glyph tile (+ hairline): slide the losange left so its center
-  // lands on the peek strip center. The ROW itself no longer moves — only the losange and
-  // its hairline travel; titles/meta/money simply fade in place. The content inset is
+  // lands on the peek strip center. The ROW box itself no longer moves — only the losange and
+  // its hairline travel; the title/detail slide left + fade separately. The content inset is
   // FROZEN at FULL_INSET during peek (CollapsibleColumn), so this pure transform (no layout
   // change) carries the losange the whole way — no jump.
   const peekX = rowPeekX(spineWidth, ROW_GLYPH_CENTER)
@@ -252,14 +248,13 @@ function ResourceRow({
           </motion.span>
         </motion.span>
       </motion.span>
-      {/* Title + detail. In the DIVE peek they stay put (the child window covers them). In
-          STRIP MODE (manual leaf-collapse) nothing covers the panel, so they SLIDE LEFT with
-          the losange (same `peekX`) AND fade to 0 — so they travel together as one unit and
-          the reverse slides+fades them back in. */}
+      {/* Title + detail. In peek they SLIDE LEFT with the losange (same `peekX`) AND fade to
+          0, so they travel together as one unit and the reverse slides+fades them back in —
+          leaving only the losange + hairline on the strip. */}
       <motion.span
         className="flex min-w-0 flex-1 flex-col leading-tight"
         initial={false}
-        animate={{ opacity: stripMode ? 0 : 1, x: stripMode ? peekX : 0 }}
+        animate={{ opacity: peek ? 0 : 1, x: peek ? peekX : 0 }}
         transition={peekMorph(peek, peekDelayed, morphBase)}
       >
         <span className="truncate text-[12.5px] tracking-tight text-foreground">{item.name}</span>
@@ -274,7 +269,6 @@ function Section({
   items,
   peek,
   peekDelayed = true,
-  stripMode = false,
   snappy = false,
   spineWidth,
   onHover,
@@ -284,7 +278,6 @@ function Section({
   items: EntityResource[]
   peek: boolean
   peekDelayed?: boolean
-  stripMode?: boolean
   snappy?: boolean
   spineWidth: number
   onHover: (h: PeekHover) => void
@@ -301,8 +294,7 @@ function Section({
   const expanded = open || peek
   return (
     <div>
-      {/* Header toggles the section. In the DIVE peek it stays put (covered by the child);
-          in STRIP MODE (manual leaf-collapse) it SLIDES LEFT (same delta as the row losanges)
+      {/* Header toggles the section. In peek it SLIDES LEFT (same delta as the row losanges)
           AND fades to 0 so only losanges remain on the strip. Inert (pointer-events-none)
           whenever the losanges are showing. */}
       <motion.button
@@ -310,14 +302,14 @@ function Section({
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
         initial={false}
-        // In peek the header text fades/slides out, but we KEEP a small residual height
+        // In peek the header text fades + slides out, but we KEEP a small residual height
         // (PEEK_HEADER_H) so a gap remains between the Assets and Apps losange clusters — each
         // group reads as its own set. Expanded is the NUMERIC HEADER_H_OPEN (not "auto" → no
         // end-of-uncollapse snap); `items-center` centers the text so no vertical padding
         // animation is needed.
         animate={{
-          opacity: stripMode ? 0 : 1,
-          x: stripMode ? rowPeekX(spineWidth, ROW_GLYPH_CENTER) : 0,
+          opacity: peek ? 0 : 1,
+          x: peek ? rowPeekX(spineWidth, ROW_GLYPH_CENTER) : 0,
           height: peek ? PEEK_HEADER_H : HEADER_H_OPEN,
         }}
         transition={peekMorph(peek, peekDelayed, snappy ? panelSlideTransition : MORPH)}
@@ -350,7 +342,6 @@ function Section({
                   item={item}
                   peek={peek}
                   peekDelayed={peekDelayed}
-                  stripMode={stripMode}
                   snappy={snappy}
                   spineWidth={spineWidth}
                   onHover={onHover}
@@ -367,21 +358,18 @@ function Section({
 export function AssetPanel({
   spaceId,
   peek = false,
-  stripMode = false,
   snappy = false,
   spineWidth = 48,
 }: {
   spaceId: string
-  /** Collapse the resources into peek losanges on the window's left peek strip. */
+  /** Collapse the resources into peek losanges on the window's left peek strip. In peek, the
+   *  non-losange content (money, section headers, titles, add) SLIDES LEFT + FADES OUT so only
+   *  the losanges remain — whether this is a focused-leaf manual collapse or a covered
+   *  ancestor whose child just opened. */
   peek?: boolean
-  /** Leaf-collapsed STRIP: the peek losanges are shown on the spine of a FOCUSED leaf (a
-   *  manual collapse), not a covered ancestor. Nothing covers the panel, so the non-losange
-   *  content (money, section headers, titles, add) SLIDES LEFT + FADES OUT rather than riding
-   *  out under a child window. Implies `peek`. */
-  stripMode?: boolean
   /** Focused-leaf scenario (open AND collapsed). Drives the SNAPPY panel-slide curve for the
-   *  whole morph so expand can't fall back to the slow 2s dive beat (keying on the
-   *  instantaneous `stripMode` did — the expand delay). False for the covered-ancestor dive. */
+   *  whole morph so expand can't fall back to the slow 2s dive beat. False for the
+   *  covered-ancestor dive, which keeps the slow 2s MORPH to ride the window dive. */
   snappy?: boolean
   /** Width of the peek strip the losanges center on (the window's visible bleed). */
   spineWidth?: number
@@ -394,14 +382,15 @@ export function AssetPanel({
   // ride) but with zero lead-in; the focused-leaf case uses the quick panel-slide. So the
   // curve differs by scenario, but neither waits before morphing.
   const peekDelayed = false
-  // The panel-wide leftward slide for the non-losange content in strip mode — the SAME delta
-  // the row losanges travel, so money/headers/titles/add all move together as one unit.
+  // The panel-wide leftward slide for the non-losange content in peek — the SAME delta the
+  // row losanges travel, so money/headers/titles/add all move together as one unit.
   const stripSlideX = rowPeekX(spineWidth, ROW_GLYPH_CENTER)
-  // Slide + fade for the non-losange content in strip mode (money, add button). Uses the
-  // snappy panel-slide curve so it moves IN LOCKSTEP with the View squeeze + losange travel.
+  // Slide + fade for the non-losange content (money, add button) in peek. Follows the same
+  // curve as the losanges (snappy panel-slide on a focused leaf, slow MORPH on the dive) so
+  // it moves IN LOCKSTEP with the losange travel and the View squeeze.
   const stripFade = {
     initial: false as const,
-    animate: { opacity: stripMode ? 0 : 1, x: stripMode ? stripSlideX : 0 },
+    animate: { opacity: peek ? 0 : 1, x: peek ? stripSlideX : 0 },
     transition: peekMorph(peek, peekDelayed, snappy ? panelSlideTransition : MORPH),
   }
   // The add button has no px-2, so it uses ADD_GLYPH_CENTER — this lands its "+" on the
@@ -436,9 +425,8 @@ export function AssetPanel({
   return (
     // Keyed by context so switching nodes hard-swaps (instant, no cross-fade).
     <div key={spaceId} className="flex flex-col">
-      {/* Money — the imposing balance figure. In the DIVE peek it rides out with the
-          narrowing column (covered by the child); in STRIP MODE it FADES to 0 so only the
-          losanges remain on the spine. */}
+      {/* Money — the imposing balance figure. In peek it slides left + FADES to 0 (via
+          stripFade) so only the losanges remain on the spine. */}
       {money[0]?.amount != null && (
         <motion.div className="px-2 pb-4 pt-1" {...stripFade}>
           <div className="flex items-baseline gap-1.5">
@@ -456,7 +444,6 @@ export function AssetPanel({
           items={assets}
           peek={peek}
           peekDelayed={peekDelayed}
-          stripMode={stripMode}
           snappy={snappy}
           spineWidth={spineWidth}
           onHover={setHover}
@@ -468,15 +455,13 @@ export function AssetPanel({
           items={apps}
           peek={peek}
           peekDelayed={peekDelayed}
-          stripMode={stripMode}
           snappy={snappy}
           spineWidth={spineWidth}
           onHover={setHover}
         />
       )}
 
-      {/* Full add-resource affordance — fades in strip mode, rides out under a child in the
-          dive peek. */}
+      {/* Full add-resource affordance — slides left + fades out in peek (via stripFade). */}
       <motion.button
         type="button"
         {...stripFade}

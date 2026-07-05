@@ -280,33 +280,20 @@ export function EntityBody({
             // losange strip (collapsed) and full list (expanded on the focused leaf).
             stripCollapse
           >
-            {/* The AssetPanel is the full expanded LIST only on the focused leaf with the
-                panel open (`active && inOpen`); in EVERY other case it is the PEEK losange
-                strip — so `peek = !(active && inOpen)`. This covers:
-                  • LEAF COLLAPSED — focused leaf, panel closed (`active && !inOpen`).
-                  • COVERED ANCESTOR — a child is focused, whether this panel is open OR was
-                    manually collapsed first (`!active`). Both must show losanges; keying peek
-                    off `inOpen` here was the bug that left a manually-collapsed ancestor with
-                    the old vertical "RESOURCES (n)" label instead of losanges.
-                `stripMode` = the panel is COLLAPSED (`!inOpen`), for a focused leaf OR a covered
-                ancestor. It hides (fades + slides out) the non-losange content — money, titles,
-                meta, headers — so ONLY the losanges show. It must key off `!inOpen`, NOT
-                `active && !inOpen`: the latter went false the instant a collapsed leaf was
-                covered by a child, animating the hidden content BACK to opacity 1 during the
-                dive (the "titles/meta/money reappear while the child opens" bug). A covered
-                ancestor that was OPEN keeps `inOpen` true ⇒ stripMode false ⇒ its content stays
-                visible and rides out under the child window (unchanged). `spineWidth` = strip
-                width. */}
+            {/* Two states only. FULL LIST when this is the focused leaf with the panel open
+                (`active && inOpen`); PEEK losange strip in EVERY other case — so
+                `peek = !(active && inOpen)`. Peek covers the focused-collapsed leaf AND any
+                covered ancestor (a child is focused, `!active`), open or manually collapsed.
+                In peek the non-losange content (money, titles, meta, headers, add) always
+                fades + slides out, leaving only the losanges — there's no separate "stay
+                visible under the child" case anymore. `spineWidth` = strip width. */}
             <AssetPanel
               spaceId={entityId}
               peek={!(active && inOpen)}
-              stripMode={!inOpen}
               // `snappy` picks the CURVE only: the focused-leaf lifecycle (`active`, both
               // expand AND collapse) uses the quick panel-slide; the covered-ancestor dive
               // (not active) keeps the slow 2s MORPH so the ancestor collapse RIDES ALONG
               // with the child window's dive animation — the coherent ride the user likes.
-              // The delay is handled separately (peekDelayed is now always false), so the
-              // dive plays its 2s morph IMMEDIATELY with no lag.
               snappy={active}
               spineWidth={spineWidth}
             />
