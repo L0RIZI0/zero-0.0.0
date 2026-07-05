@@ -1162,7 +1162,15 @@ export function EntityNode({
           </span>
 
           <h3
-            data-flip-id={`${flip}-title`}
+            // Flip target ONLY when NOT a spine. A covered Space ancestor's horizontal
+            // title is fully hidden (the rotated spine title represents it), so it must
+            // be REMOVED from Flip tracking — otherwise Flip position-tweens it between
+            // the leaf-header slot and the spine slot, which is the residual title
+            // "animation" the user objected to. Dropping the flip-id (+ hiding the whole
+            // h3 below) means: leaf→spine it's simply gone (Flip finds no live match, so
+            // no tween); spine→leaf it re-appears at its final header position. The
+            // row↔window open morph (both non-spine) keeps the id, so that slide is intact.
+            data-flip-id={asWindow && isSpine ? undefined : `${flip}-title`}
             data-flip-role="inner"
             data-req-flip="title"
             style={{
@@ -1260,20 +1268,16 @@ export function EntityNode({
               // Sent-as-request reflow: right-align the title against the moved glyph
               // (sent) or keep the normal left layout with mr-auto spacer (rest).
               rowReq && (sent ? REQ_SENT.title : REQ_REST.title),
+              // Covered Space ancestor: hide the whole horizontal title (its rotated
+              // twin in the spine represents it). display:none, so zero layout slot and
+              // no gap in the glyph header; paired with the dropped flip-id above so it
+              // neither rides the frame nor Flip-tweens.
+              asWindow && isSpine && "hidden",
             )}
           >
-            {/* The HORIZONTAL open-window title. It gets NO animation whatsoever — no
-                move, no fade, no transition (the earlier move+fade is exactly what the
-                user disliked). When this Space becomes a covered ancestor (spine), the
-                header pins to the thin exposed peek strip, so a still-rendered horizontal
-                title would DOUBLE UP beside the rotated spine title. Since the rotated
-                title (via `spineTitle`) is the spine's representation, we simply DROP the
-                horizontal one with `hidden` — an INSTANT switch, not an animation. On the
-                reverse (spine→leaf) it reappears normally as the shrinking child uncovers
-                the header. Not a Flip target. */}
-            <span className={cn("inline-block whitespace-nowrap", asWindow && isSpine && "hidden")}>
-              {entity.title}
-            </span>
+            {/* The HORIZONTAL open-window title. Hiding + Flip exclusion is handled on the
+                <h3> above (see notes there); this span just holds the text. */}
+            <span className="inline-block whitespace-nowrap">{entity.title}</span>
             {/* OCCURRENCE DATE (Phase 2): a materialized recurrence occurrence
                 (recurrenceId set) shares the mother's title ("Workout"), so when its
                 window is open we append the specific day it stands for. Gated to the

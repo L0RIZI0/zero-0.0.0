@@ -288,17 +288,22 @@ export function CollapsibleColumn({
           through to the toggle. Stays visible whether the panel is open or collapsed, so
           the counters remain in the View's top-left as the panel squeezes the View aside.
 
-          A flex COLUMN: an optional rotated title (covered Space ancestor only) sits on
-          top, the excerpt counters flow directly beneath it. As a leaf becomes a spine the
-          title's clip HEIGHT animates 0→auto (overflow-hidden), so it appears to PUSH IN
-          from the top — emerging from just below the header — with NO fade; because it is a
-          normal flex sibling, the excerpt below is reflowed DOWN by plain layout each frame
-          to make room. Reverse (spine→leaf): height animates back to 0, retracting the
-          title up behind the header and pulling the excerpt back up. The glyph keeps its
-          own (untouched) Flip morph in the header just above this band, and the horizontal
-          title is left untouched there too. */}
+          A flex COLUMN pinned at `top-0`, which sits EXACTLY on the View's top edge (the
+          body content top). The band itself has NO top padding, so the rotated title is
+          FLUSH to that edge with no gap.
+
+          As a leaf becomes a spine the rotated title SLIDES DOWN from BEHIND the View's top
+          edge: its crop box (`overflow-hidden`, top pinned on the View edge) animates HEIGHT
+          0→auto — which both reflows the excerpt DOWN by plain layout AND provides the crop —
+          while the inner span animates translateY −100%→0 so the title travels down out of
+          the hidden region above the edge and lands flush, cropped by that top edge the whole
+          way (no fade). Reverse (spine→leaf): it slides back UP behind the edge and the
+          excerpt pulls back up. The excerpt carries its OWN `pt-3`, constant in both states,
+          so the leaf counters keep their spacing and nothing snaps on the flip. The glyph
+          keeps its own (untouched) Flip morph in the header above; the horizontal title is
+          left untouched there too. */}
       {(excerpt || spineTitle) && (
-        <div className="pointer-events-none absolute inset-x-0 top-0 z-30 flex flex-col items-center pt-3">
+        <div className="pointer-events-none absolute inset-x-0 top-0 z-30 flex flex-col items-center">
           <AnimatePresence initial={false}>
             {spineTitle && (
               <motion.div
@@ -307,25 +312,32 @@ export function CollapsibleColumn({
                 animate={{ height: "auto" }}
                 exit={{ height: 0 }}
                 transition={{ duration: MORPH_SECONDS, ease: MORPH_EASE }}
-                // overflow-hidden clips the rotated title to the animating height (so it
-                // reveals top→down / retracts up behind the header). pb-2 lives INSIDE the
-                // clip so the gap to the excerpt collapses WITH the height — no jump on
-                // mount/unmount. items-center keeps the rotated glyph on the spine axis.
-                className="flex justify-center overflow-hidden pb-2"
+                // Crop box: top pinned on the View's top edge. overflow-hidden clips
+                // everything above that edge, so the inner slide reads as the title
+                // emerging from BEHIND the top border. Height 0→auto reflows the excerpt.
+                className="flex justify-center overflow-hidden"
               >
-                <span
-                  // sideways-lr = upright, reading bottom-to-top. REAL vertical layout
-                  // height so the excerpt flows below it. Regular 13px / medium weight to
-                  // match the horizontal title (per user: keep it a regular size).
-                  className="whitespace-nowrap text-[13px] font-medium tracking-tight text-foreground"
+                <motion.span
+                  // Slide the title DOWN from above the crop line: at height 0 it is fully
+                  // translated up (−100% of its own height) and thus entirely clipped; as
+                  // the box grows it eases to 0 and lands flush. Same duration/ease as the
+                  // height so the two stay in lockstep.
+                  initial={{ y: "-100%" }}
+                  animate={{ y: "0%" }}
+                  exit={{ y: "-100%" }}
+                  transition={{ duration: MORPH_SECONDS, ease: MORPH_EASE }}
+                  // sideways-lr = upright, reading bottom-to-top. inline-block so translateY
+                  // % resolves against its own height and the crop box can measure it.
+                  // Regular 13px / medium weight to match the horizontal title.
+                  className="inline-block whitespace-nowrap text-[13px] font-medium tracking-tight text-foreground"
                   style={{ writingMode: "sideways-lr" }}
                 >
                   {spineTitle}
-                </span>
+                </motion.span>
               </motion.div>
             )}
           </AnimatePresence>
-          {excerpt && <div>{excerpt}</div>}
+          {excerpt && <div className="pt-3">{excerpt}</div>}
         </div>
       )}
     </div>
