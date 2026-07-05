@@ -785,8 +785,10 @@ export function EntityNode({
   // Collapsed row and dock are both 13px.
   // Collapsed size is 13px; a crowded dock card scales it by `dockScale` (floored by
   // the layout engine so it never gets illegibly small). `dockScale` is 1 for rows and
-  // for windows, so those are unchanged.
-  const titleSize = asWindow ? (ancestorHeader ? 13 : isSpace ? 18 : 13) : 13 * dockScale
+  // for windows, so those are unchanged. The title stays a UNIFORM regular 13px in every
+  // window state — a focused Space leaf no longer bumps to 18px (per user: keep it a
+  // regular size, matching its rotated spine twin, which is likewise 13px).
+  const titleSize = asWindow ? 13 : 13 * dockScale
 
   // NOTE: the covered-Space-ancestor ("spine") title is no longer measured/offset here.
   // It now lives INSIDE the left spine (EntityBody → CollapsibleColumn): rendered rotated
@@ -933,10 +935,15 @@ export function EntityNode({
               // SLIDES from the normal top-right corner into the centered-on-peek spot.
               transitionProperty: "top, right, left",
               ...(spaceLeafWindow
-                ? // Top of the octagon's right vertical edge (~9.2%), nudged down a few
-                  // px to clear the chamfer; right: 12px centers the 24px-wide X on the
-                  // OUT spine's 24px-from-edge axis so they align as a right-edge column.
-                  { top: "calc(9.2% + 4px)", right: "12px" }
+                ? // The Space leaf is a grown hexagon whose top-right SHOULDER vertex sits
+                  // at (100%, leafAy%) — leafAy is the live corner-bracket inset (from
+                  // `--space-ay`, ~25% of the frame). Anchor the X at that shoulder + a few
+                  // px down to clear the diagonal, so it lands in the visible top-right
+                  // corner. (Was a hardcoded 9.2%, stale since the octagon→grown-hexagon
+                  // simplification — 9.2% of the top-bleeding frame fell ABOVE the viewport,
+                  // which is why the leaf's close button was invisible.) right: 12px centers
+                  // the 24px X on the OUT spine's 24px-from-edge axis (a right-edge column).
+                  { top: `calc(${leafAy}% + 6px)`, right: "12px" }
                 : isSpine
                   ? // SPINE ancestor: the X is the right-edge twin of the left glyph, so
                     // it must sit CENTERED on the right peek and vertically aligned with
@@ -1251,28 +1258,13 @@ export function EntityNode({
               rowReq && (sent ? REQ_SENT.title : REQ_REST.title),
             )}
           >
-            {/* The title is the HORIZONTAL open-window title. When this Space becomes a
-                covered ancestor (spine), its title is instead shown ROTATED inside the
-                left spine (EntityBody → CollapsibleColumn, via the `spineTitle` prop),
-                where it has real vertical layout height and the excerpt flows below it.
-                So here we simply FADE this horizontal title out as the window spines (it
-                would be covered by the child's window anyway) — no rotation morph. The
-                span is NOT a Flip target (the <h3> is), so this opacity transition is
-                untouched by Flip and eases on the shared morph curve. */}
-            <span
-              className={cn("inline-block whitespace-nowrap", asWindow && isSpine && "opacity-0")}
-              style={
-                asWindow
-                  ? {
-                      transitionProperty: "opacity",
-                      transitionDuration: DURATION_S,
-                      transitionTimingFunction: MORPH_CSS_EASE,
-                    }
-                  : undefined
-              }
-            >
-              {entity.title}
-            </span>
+            {/* The HORIZONTAL open-window title. It is left COMPLETELY untouched as the
+                window spines: no fade, no transform, no transition. When this Space is a
+                covered ancestor its title is ALSO shown rotated inside the left spine (via
+                the `spineTitle` prop) — but this horizontal one simply stays put in the
+                header, hidden behind the child's window, and reappears normally the instant
+                the child closes (the shrinking child uncovers it). Not a Flip target. */}
+            <span className="inline-block whitespace-nowrap">{entity.title}</span>
             {/* OCCURRENCE DATE (Phase 2): a materialized recurrence occurrence
                 (recurrenceId set) shares the mother's title ("Workout"), so when its
                 window is open we append the specific day it stands for. Gated to the

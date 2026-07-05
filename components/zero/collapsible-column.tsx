@@ -289,36 +289,43 @@ export function CollapsibleColumn({
           the counters remain in the View's top-left as the panel squeezes the View aside.
 
           A flex COLUMN: an optional rotated title (covered Space ancestor only) sits on
-          top, the excerpt counters flow directly beneath it. Because the title has REAL
-          vertical layout height (writing-mode), the excerpt needs no offset — it simply
-          sits below whatever is there. On a leaf→spine flip the title MOUNTS with a slide-
-          in-from-top + fade and the excerpt `layout`-animates DOWN to make room; the glyph
-          keeps its own (untouched) Flip morph in the header just above this band. */}
+          top, the excerpt counters flow directly beneath it. As a leaf becomes a spine the
+          title's clip HEIGHT animates 0→auto (overflow-hidden), so it appears to PUSH IN
+          from the top — emerging from just below the header — with NO fade; because it is a
+          normal flex sibling, the excerpt below is reflowed DOWN by plain layout each frame
+          to make room. Reverse (spine→leaf): height animates back to 0, retracting the
+          title up behind the header and pulling the excerpt back up. The glyph keeps its
+          own (untouched) Flip morph in the header just above this band, and the horizontal
+          title is left untouched there too. */}
       {(excerpt || spineTitle) && (
-        <div className="pointer-events-none absolute inset-x-0 top-0 z-30 flex flex-col items-center gap-2 pt-3">
+        <div className="pointer-events-none absolute inset-x-0 top-0 z-30 flex flex-col items-center pt-3">
           <AnimatePresence initial={false}>
             {spineTitle && (
-              <motion.span
-                layout
-                initial={{ opacity: 0, y: -10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -10 }}
+              <motion.div
+                key="spine-title"
+                initial={{ height: 0 }}
+                animate={{ height: "auto" }}
+                exit={{ height: 0 }}
                 transition={{ duration: MORPH_SECONDS, ease: MORPH_EASE }}
-                className="whitespace-nowrap text-[15px] font-semibold tracking-tight text-foreground"
-                // sideways-lr = rotated 90° CCW, upright, reading bottom-to-top — matching
-                // the old -90deg spine title, but as REAL vertical layout height (so the
-                // excerpt below flows naturally) instead of a zero-height rotate transform.
-                style={{ writingMode: "sideways-lr" }}
+                // overflow-hidden clips the rotated title to the animating height (so it
+                // reveals top→down / retracts up behind the header). pb-2 lives INSIDE the
+                // clip so the gap to the excerpt collapses WITH the height — no jump on
+                // mount/unmount. items-center keeps the rotated glyph on the spine axis.
+                className="flex justify-center overflow-hidden pb-2"
               >
-                {spineTitle}
-              </motion.span>
+                <span
+                  // sideways-lr = upright, reading bottom-to-top. REAL vertical layout
+                  // height so the excerpt flows below it. Regular 13px / medium weight to
+                  // match the horizontal title (per user: keep it a regular size).
+                  className="whitespace-nowrap text-[13px] font-medium tracking-tight text-foreground"
+                  style={{ writingMode: "sideways-lr" }}
+                >
+                  {spineTitle}
+                </span>
+              </motion.div>
             )}
           </AnimatePresence>
-          {excerpt && (
-            <motion.div layout transition={{ duration: MORPH_SECONDS, ease: MORPH_EASE }}>
-              {excerpt}
-            </motion.div>
-          )}
+          {excerpt && <div>{excerpt}</div>}
         </div>
       )}
     </div>
