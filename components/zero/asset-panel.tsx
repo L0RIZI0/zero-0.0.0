@@ -66,6 +66,13 @@ const ADD_GLYPH_CENTER = 20
 const FULL_INSET = 48
 /** Pure-losange edge (px) in peek — half the previous 15px, per the tighter peek spec. */
 const PEEK_LOSANGE = 8
+/** Row HEIGHT (px) in peek. Rows normally stand ~52px tall (py-1.5 + the 40px glyph slot),
+ *  which spaces the collapsed losanges far apart. In peek we compress each row to this tight
+ *  height so the losanges stack into a close column; expanded rows keep `height:"auto"` (52),
+ *  so the open panel is unchanged. The 40px slot overflows this box but only the tiny centered
+ *  losange is opaque, so the overflow is invisible (and overflow stays VISIBLE so the row's
+ *  connector hairline can still escape left to the window edge). */
+const PEEK_ROW_H = 20
 /** Where a peek glyph/losange lands, measured from the WINDOW EDGE: centered on the
  *  bleed strip. Both resources and the add button converge here so they align. */
 const peekCenter = (spineWidth: number) => spineWidth / 2
@@ -154,8 +161,14 @@ function ResourceRow({
   }
 
   return (
-    <button
+    <motion.button
       type="button"
+      initial={false}
+      // Compress the row to a tight height in peek so the losanges stack close; expanded uses
+      // "auto" (natural ~52px) so the open panel is untouched. Same morph curve as everything
+      // else → the vertical compaction glides in lockstep with the slide/fade.
+      animate={{ height: peek ? PEEK_ROW_H : "auto" }}
+      transition={peekMorph(peek, peekDelayed, morphBase)}
       className={cn(
         "group relative flex w-full items-center gap-3 rounded-lg border border-transparent px-2 py-1.5 text-left",
         peek ? "pointer-events-none" : "pointer-events-auto transition-colors hover:border-border hover:bg-card",
@@ -239,7 +252,7 @@ function ResourceRow({
         <span className="truncate text-[12.5px] tracking-tight text-foreground">{item.name}</span>
         <span className="truncate text-[11px] text-muted-foreground/70">{item.detail}</span>
       </motion.span>
-    </button>
+    </motion.button>
   )
 }
 
@@ -284,10 +297,19 @@ function Section({
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
         initial={false}
-        animate={{ opacity: stripMode ? 0 : 1, x: stripMode ? rowPeekX(spineWidth, ROW_GLYPH_CENTER) : 0 }}
+        // In peek also COLLAPSE the header to nothing (height AND vertical padding → 0; it's
+        // fading + sliding out anyway), so the two sections' losanges merge into one evenly-
+        // spaced column with no group gap. Expanded uses "auto"/8 → header untouched.
+        animate={{
+          opacity: stripMode ? 0 : 1,
+          x: stripMode ? rowPeekX(spineWidth, ROW_GLYPH_CENTER) : 0,
+          height: peek ? 0 : "auto",
+          paddingTop: peek ? 0 : 8,
+          paddingBottom: peek ? 0 : 8,
+        }}
         transition={peekMorph(peek, peekDelayed, snappy ? panelSlideTransition : MORPH)}
         className={cn(
-          "flex w-full items-center gap-1.5 px-2 py-2 text-left",
+          "flex w-full items-center gap-1.5 overflow-hidden px-2 text-left",
           peek && "pointer-events-none",
         )}
       >
