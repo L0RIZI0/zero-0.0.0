@@ -951,10 +951,14 @@ export function EntityNode({
                     // is size-6 (24px): center it with `right = (48 − 24)/2 = 12px` (the
                     // old `right: 0` predated RIGHT_PEEK growing 24→48 and left the X in
                     // the OUTER half of the peek — the "too far right" drift, worse per
-                    // deeper ancestor). `top: 10px` puts the 24px button's center at
-                    // 10 + 12 = 22px = the glyph center (pt-[14px] + half a 16px glyph),
-                    // so the X lines up horizontally with the spine glyph row.
-                    { top: "10px", right: "12px" }
+                    // deeper ancestor). VERTICAL: the header (glyph row) is pushed down to
+                    // the shoulder line at leafAy% of the frame via marginTop, and the
+                    // frame itself top-bleeds off-screen — so a frame-relative `top: 10px`
+                    // landed the X ABOVE the viewport (why the spine's X was invisible).
+                    // Anchor it at leafAy% too: glyph center = leafAy% + 22px (pt-[14px] 14
+                    // + half a 16px glyph 8), so the 24px button's top = leafAy% + 10px
+                    // lands its center on the glyph row.
+                    { top: `calc(${leafAy}% + 10px)`, right: "12px" }
                   : null),
             }}
             // z-[35]: must stay BELOW the child window. Frames are position:fixed
@@ -1258,13 +1262,18 @@ export function EntityNode({
               rowReq && (sent ? REQ_SENT.title : REQ_REST.title),
             )}
           >
-            {/* The HORIZONTAL open-window title. It is left COMPLETELY untouched as the
-                window spines: no fade, no transform, no transition. When this Space is a
-                covered ancestor its title is ALSO shown rotated inside the left spine (via
-                the `spineTitle` prop) — but this horizontal one simply stays put in the
-                header, hidden behind the child's window, and reappears normally the instant
-                the child closes (the shrinking child uncovers it). Not a Flip target. */}
-            <span className="inline-block whitespace-nowrap">{entity.title}</span>
+            {/* The HORIZONTAL open-window title. It gets NO animation whatsoever — no
+                move, no fade, no transition (the earlier move+fade is exactly what the
+                user disliked). When this Space becomes a covered ancestor (spine), the
+                header pins to the thin exposed peek strip, so a still-rendered horizontal
+                title would DOUBLE UP beside the rotated spine title. Since the rotated
+                title (via `spineTitle`) is the spine's representation, we simply DROP the
+                horizontal one with `hidden` — an INSTANT switch, not an animation. On the
+                reverse (spine→leaf) it reappears normally as the shrinking child uncovers
+                the header. Not a Flip target. */}
+            <span className={cn("inline-block whitespace-nowrap", asWindow && isSpine && "hidden")}>
+              {entity.title}
+            </span>
             {/* OCCURRENCE DATE (Phase 2): a materialized recurrence occurrence
                 (recurrenceId set) shares the mother's title ("Workout"), so when its
                 window is open we append the specific day it stands for. Gated to the
