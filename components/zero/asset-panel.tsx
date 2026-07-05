@@ -77,6 +77,15 @@ const PEEK_ROW_H = 24
  *  fully 0) so a visible GAP separates the Assets losange group from the Apps group — each
  *  group of peek losanges reads as its own cluster. */
 const PEEK_HEADER_H = 14
+/** EXPANDED (open) heights, in px. Rows are a deterministic 54 (the 40px glyph slot + py-1.5
+ *  + border dominates every row since titles/detail are single-line `truncate`); headers are
+ *  ~32. We animate the peek⇄open morph between these NUMERIC endpoints instead of to the
+ *  string `"auto"`: Framer measures + snaps to `auto` on complete, and any sub-pixel gap
+ *  between the last interpolated frame and the natural layout height shows as a JUMP at the
+ *  end of the uncollapse. Numeric endpoints never snap. Content is vertically centered
+ *  (`items-center`), so exact-fit isn't required and the open panel looks identical. */
+const ROW_H_OPEN = 54
+const HEADER_H_OPEN = 32
 /** Where a peek glyph/losange lands, measured from the WINDOW EDGE: centered on the
  *  bleed strip. Both resources and the add button converge here so they align. */
 const peekCenter = (spineWidth: number) => spineWidth / 2
@@ -168,10 +177,10 @@ function ResourceRow({
     <motion.button
       type="button"
       initial={false}
-      // Compress the row to a tight height in peek so the losanges stack close; expanded uses
-      // "auto" (natural ~52px) so the open panel is untouched. Same morph curve as everything
-      // else → the vertical compaction glides in lockstep with the slide/fade.
-      animate={{ height: peek ? PEEK_ROW_H : "auto" }}
+      // Compress the row to a tight height in peek so the losanges stack close; expanded is
+      // the deterministic ROW_H_OPEN (NUMERIC, not "auto" → no end-of-uncollapse snap). Same
+      // morph curve as everything else → the vertical compaction glides in lockstep.
+      animate={{ height: peek ? PEEK_ROW_H : ROW_H_OPEN }}
       transition={peekMorph(peek, peekDelayed, morphBase)}
       className={cn(
         "group relative flex w-full items-center gap-3 rounded-lg border border-transparent px-2 py-1.5 text-left",
@@ -302,15 +311,14 @@ function Section({
         aria-expanded={open}
         initial={false}
         // In peek the header text fades/slides out, but we KEEP a small residual height
-        // (PEEK_HEADER_H, padding 0) so a gap remains between the Assets and Apps losange
-        // clusters — each group reads as its own set. Expanded uses "auto"/8 → header
-        // untouched.
+        // (PEEK_HEADER_H) so a gap remains between the Assets and Apps losange clusters — each
+        // group reads as its own set. Expanded is the NUMERIC HEADER_H_OPEN (not "auto" → no
+        // end-of-uncollapse snap); `items-center` centers the text so no vertical padding
+        // animation is needed.
         animate={{
           opacity: stripMode ? 0 : 1,
           x: stripMode ? rowPeekX(spineWidth, ROW_GLYPH_CENTER) : 0,
-          height: peek ? PEEK_HEADER_H : "auto",
-          paddingTop: peek ? 0 : 8,
-          paddingBottom: peek ? 0 : 8,
+          height: peek ? PEEK_HEADER_H : HEADER_H_OPEN,
         }}
         transition={peekMorph(peek, peekDelayed, snappy ? panelSlideTransition : MORPH)}
         className={cn(
