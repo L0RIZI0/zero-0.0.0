@@ -235,14 +235,10 @@ export function CollapsibleColumn({
       >
         <span
           className="flex flex-col items-center gap-2"
-          // `railShift` re-centers the label on the body center; it changes on a leaf↔
-          // spine flip (−headerH/2 ↔ 0). Ride the window-morph curve so the shortcut
-          // SLIDES with the shape instead of snapping. First mount doesn't transition,
-          // so a freshly-opened window lands in place; only live role changes animate.
-          style={{
-            transform: `translateY(${railShift}px) scale(${railScale})`,
-            transition: `transform ${DURATION_S} ${MORPH_CSS_EASE}`,
-          }}
+          // `railShift` re-centers the label on the body center. Applied INSTANTLY: leaf
+          // and spine now share the same −headerH/2 shift, so it doesn't change on a
+          // leaf↔spine flip — nothing to snap, no transition needed.
+          style={{ transform: `translateY(${railShift}px) scale(${railScale})` }}
         >
           {open ? (
             /* OPEN: the vertical label + panel-toggle icon are hidden. A single collapse

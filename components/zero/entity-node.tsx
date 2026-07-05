@@ -9,7 +9,6 @@ import { KIND_META, isTerminal } from "@/lib/zero/kinds"
 import { useZeroNav, useRowSelection } from "@/lib/zero/nav-store"
 import {
   HEADER_H,
-  ANCESTOR_HEADER_H,
   TASK_SIDE,
   RIGHT_PEEK,
   SPACE_CLIP_HEX,
@@ -749,33 +748,24 @@ export function EntityNode({
   // card) AND on the FRONT open window header — so a task can be un/filled (undone)
   // while it's open. Ancestor/spine headers and closing frames stay inert.
   const canToggleComplete = meta.completable && !isClosing && (interactive || (asWindow && isTop && !ancestorHeader))
-  // The LEAF Space hexagon now renders TASK-LIKE: a normal HEADER_H band sitting at
-  // the TOP OF THE CENTRAL RECTANGLE (the header floats there, offset down by the top
-  // wedge via --hex-corner-inset-y), with the body below it. A covered ancestor SPACE
-  // (spine) uses the compact ancestor band; a NON-space ancestor keeps HEADER_H.
-  const headerH = ancestorHeader && isSpace ? ANCESTOR_HEADER_H : HEADER_H
+  // Every Space window reserves the SAME HEADER_H top band, leaf AND spine, so opening
+  // a child never re-lays-out the body/rails (the frame no longer morphs on a leaf↔
+  // spine flip — it stays the identical grown hexagon — so any body/rail value that
+  // differed would snap with nothing to carry it). The leaf shows a task-like top-row
+  // header in that band; the spine leaves it empty (its header is the left strip) but
+  // still reserves it, keeping the do-list + rails pinned in place. Non-space windows
+  // keep HEADER_H too. (ANCESTOR_HEADER_H — the old compact top-header band — is retired
+  // now that covered Spaces spine to a left strip instead of a shorter top header.)
+  const headerH = HEADER_H
 
-  // Vertical offset that re-centers the IN/OUT panel rails on the FRAME center.
-  // EntityBody anchors the overlay at the body's vertical center and ANIMATES a
-  // translateY of this value, so the rails land on the true middle of the window's
-  // edges and SLIDE (never jump) when a window's role changes. The body's center
-  // equals the frame center only when its top and bottom insets match; the shift
-  // is exactly (bottomInset − topInset) / 2 — no magic constants:
-  //   • body FILLS the frame (no in-flow OR floating header eating the top) → 0.
-  //     This is a SPINE ancestor (its header is an absolute left strip). A leaf Space
-  //     no longer qualifies: its floating header now sits at the top of the central
-  //     rectangle (like a Task), so its body starts headerH below that → −headerH/2.
-  //   • in-flow / central-rect header (task/event/leaf space/non-spine ancestor):
-  //     body starts headerH down → −headerH/2.
-  //   • closing: the body re-anchors (space fills from top:0 → 0; task → −HEADER_H/2).
-  const bodyFillsFrame = isSpine
-  const railCenterShift = isClosing
-    ? isSpace
-      ? 0
-      : -HEADER_H / 2
-    : bodyFillsFrame
-      ? 0
-      : -headerH / 2
+  // Vertical offset that re-centers the IN/OUT panel rails on the body center.
+  // EntityBody anchors the overlay at the body's vertical center and translateY's this
+  // value. Every open window now reserves a headerH top band (leaf top-row header, spine
+  // empty band, task/event in-flow header), so its body starts headerH below its top and
+  // the shift is uniformly −headerH/2 — identical for leaf and spine, so the rails DON'T
+  // move when a child opens (there's no frame morph to carry them anymore). Closing a
+  // Space re-anchors its body to top:0 (fills the frame) → 0.
+  const railCenterShift = isClosing ? (isSpace ? 0 : -HEADER_H / 2) : -headerH / 2
 
   // Visible BLEED strip beside this window — how much of it shows on each side
   // once a child covers it (so the collapsed IN/OUT rail can size+center itself to
@@ -1468,28 +1458,20 @@ export function EntityNode({
                   isSpace
                   ? { top: 0 }
                   : { top: HEADER_H }
-                : floatingHeader
+                : floatingHeader || isSpine
                   ? {
-                      // Body fills the CENTRAL RECTANGLE below the header: top inset =
-                      // the top wedge (--hex-corner-inset-y) PLUS the HEADER_H band, so
-                      // the do-list starts under the header exactly like a Task; bottom
-                      // inset = the bottom wedge so it ends at the central rectangle's
-                      // lower edge (the region bottom).
+                      // EVERY Space window (leaf AND spine) insets its body IDENTICALLY:
+                      // top = the top wedge (--hex-corner-inset-y) PLUS the HEADER_H band,
+                      // bottom = the bottom wedge. The leaf fills that band with its task-
+                      // like top-row header and the do-list below it; the spine leaves the
+                      // band empty (its header is the left strip) but STILL reserves it, so
+                      // the do-list + rails don't shift when a child opens and this Space
+                      // flips leaf→spine. Identical insets = no jump (the frame no longer
+                      // morphs on that flip, so nothing would carry a difference).
                       marginTop: `calc(var(--hex-corner-inset-y, 0px) + ${headerH}px)`,
                       marginBottom: "var(--hex-corner-inset-y, 0px)",
                     }
-                  : isSpine
-                    ? {
-                        // A SPINE ancestor is the SAME grown hexagon as the leaf, but its
-                        // header is the LEFT strip (out of flow), so there is no top
-                        // HEADER_H band to reserve — inset the body SYMMETRICALLY by just
-                        // the wedge so it spans the central rectangle (= the visible
-                        // region). This anchors the rails at the region top exactly as
-                        // before the frame was grown.
-                        marginTop: "var(--hex-corner-inset-y, 0px)",
-                        marginBottom: "var(--hex-corner-inset-y, 0px)",
-                      }
-                    : { marginBottom: "var(--hex-inset-y, 0px)" }),
+                  : { marginBottom: "var(--hex-inset-y, 0px)" }),
               // Crop the OPEN CHILD WINDOW to this (the parent's) WINDOW box. The child
               // window grew from one of this body's do-list rows / dock cards, so at rest
               // it is a `position: fixed` DOM descendant of THIS [data-body]. A clip-path
@@ -1503,17 +1485,16 @@ export function EntityNode({
               // clipped by the parent frame's overflow-hidden; this makes the RESTING
               // state match.
               //
-              // The crop line must be the parent's VISIBLE TOP EDGE. For a SPINE Space
-              // ancestor the body is inset by the wedge so its border-box top already
-              // sits at the central-rectangle top (= the region top the child shares) —
-              // so crop at inset 0. A Task/Event ancestor has an in-flow header, so its
-              // body starts `headerH` below the frame top — pull the top inset up by
-              // `headerH` to land on the frame top. Top-only inset (huge negative on the
-              // other three sides) so the child's sides, bottom point and drop shadow
-              // stay exactly as before. Only ancestors need it (a leaf has no open
-              // child) and never while closing.
+              // The crop line must be the parent's VISIBLE TOP EDGE (the region top the
+              // child shares). EVERY ancestor now reserves a `headerH` top band, so its
+              // body border-box starts `headerH` below the region top — pull the crop's
+              // top inset UP by `headerH` to land on the region top (a Space ancestor's
+              // region top is the central-rectangle top; a Task/Event's is the frame top).
+              // Top-only inset (huge negative on the other three sides) so the child's
+              // sides, bottom point and drop shadow stay exactly as before. Only ancestors
+              // need it (a leaf has no open child) and never while closing.
               ...(asWindow && !isTop && !isClosing
-                ? { clipPath: `inset(${isSpine ? 0 : -headerH}px -9999px -9999px -9999px)` }
+                ? { clipPath: `inset(${-headerH}px -9999px -9999px -9999px)` }
                 : null),
             }}
             className={cn(
@@ -1558,7 +1539,11 @@ export function EntityNode({
               railBleedRight={railBleedRight}
               excerptOffsetTop={excerptOffsetTop}
               surface={frameSurface}
-              panelTopOffset={floatingHeader ? headerH : 0}
+              // headerH for EVERY Space window (leaf top-row header AND spine's reserved
+              // empty band) so the rail box starts at the same header-bottom in both and
+              // never jumps on a leaf↔spine flip. Non-space in-flow-header windows already
+              // start their body at the header bottom → 0.
+              panelTopOffset={spaceWindow ? headerH : 0}
               resource={isResource ? { url: entity.webUrl!, resourceId: entity.webResourceId } : undefined}
             />
           </div>
