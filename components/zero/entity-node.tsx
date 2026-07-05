@@ -480,7 +480,7 @@ export function EntityNode({
   // (√3/2). The size is CONTEXT-DEPENDENT:
   //   • Home view (contextDepth === 0): the original 150 × 130 (150 × 0.866 ≈ 130).
   //   • Everywhere else (Space leaf/ancestor, non-Space windows): the smaller
-  //     116 �� 100 (116 × 0.866 ≈ 100), so the dock fits inside the hexagon leaf's
+  //     116 ���� 100 (116 × 0.866 ≈ 100), so the dock fits inside the hexagon leaf's
   //     bottom triangle on short viewports without cropping.
   // Both honour the √3/2 ratio so the clip stays a regular hexagon, and the glyph +
   // title + open-counter keep their sizes in either case — only the surrounding
@@ -1268,29 +1268,30 @@ export function EntityNode({
               // Sent-as-request reflow: right-align the title against the moved glyph
               // (sent) or keep the normal left layout with mr-auto spacer (rest).
               rowReq && (sent ? REQ_SENT.title : REQ_REST.title),
-              // Covered Space ancestor: the horizontal title is not needed (its rotated
-              // twin in the spine represents it) but instead of vanishing it SLIDES LEFT
-              // out of view (handled on the inner span below) as the vertical spine title
-              // slides down — a matched pair. `overflow-hidden` clips it to the header box
-              // so the departing title disappears cleanly off the left edge rather than
-              // spilling past the window; the flip-id is dropped above so Flip doesn't
-              // also tween it.
-              asWindow && isSpine && "overflow-hidden",
+              // Covered Space ancestor: the horizontal title just FADES OUT IN PLACE (its
+              // rotated twin in the spine represents it; the fade lives on the inner span).
+              // The spine header switches to a NARROW VERTICAL COLUMN (`flex-col w-[48px]`),
+              // which would restack this title BELOW the glyph — the "title jumps below the
+              // glyph" glitch. Pull it OUT of that column flow with `absolute` and pin it to
+              // the SAME spot the leaf's horizontal title occupied — left-[48px] (leaf pl-4
+              // 16 + glyph 20 + gap-3 12) and top-3 (≈ leaf title center in the HEADER_H 43
+              // band) — so there is zero position change: it fades exactly where it was.
+              // pointer-events-none since it's inert while fading. flip-id is dropped above
+              // so GSAP Flip doesn't move it either.
+              asWindow && isSpine && "pointer-events-none absolute left-[48px] top-3",
             )}
           >
             {/* The HORIZONTAL open-window title. When this Space becomes a covered
-                ancestor (spine) the title SLIDES LEFT and fades — a CSS transform/opacity
-                transition on the span, independent of GSAP Flip (whose title id is dropped
-                for the spine on the <h3>). This is the matched counterpart to the vertical
-                spine title sliding DOWN: as the window narrows to a spine, the horizontal
-                title exits left while the rotated one enters from the top. On reverse it
-                slides back in from the left. Eased on the shared morph curve/duration so
-                both titles move in lockstep. */}
+                ancestor (spine) it simply FADES OUT IN PLACE — a pure opacity transition,
+                no transform/slide (the <h3> above is absolutely pinned to the leaf spot so
+                the box never moves). Its rotated twin slides in from the top of the spine
+                (collapsible-column). On reverse it fades back in. Independent of GSAP Flip
+                (whose title id is dropped for the spine), eased on the shared morph curve. */}
             <span
               className={cn(
                 "inline-block whitespace-nowrap",
-                asWindow && "transition-[transform,opacity]",
-                asWindow && isSpine && "-translate-x-6 opacity-0",
+                asWindow && "transition-opacity",
+                asWindow && isSpine && "opacity-0",
               )}
               style={
                 asWindow
