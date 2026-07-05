@@ -278,27 +278,7 @@ export function stackTargetRect(
 /** A rectangle in viewport coordinates — the box a window morphs from / to. */
 export type Rect = { top: number; left: number; width: number; height: number }
 
-/**
- * The opened LEAF Space fills its WHOLE allowed box (full width minus the side
- * peeks, full height); the unified 8-point clip then carves a wide OCTAGON out of
- * it — maximizing content width instead of squeezing it into a centered regular
- * hexagon, and avoiding a giant mostly-offscreen shape. Identity for now; kept as a
- * named seam should we ever want a small inset.
- */
-export function octagonLeafInside(rect: Rect): Rect {
-  return rect
-}
-
 export const SQRT3 = Math.sqrt(3)
-
-/**
- * Vertical height (px) of the RESTING leaf octagon's corner brackets. FIXED in pixels
- * (not a fraction of the window) so the slanted corners stay a small, consistent
- * accent while the VERTICAL side edges — and the central rectangle between them —
- * take ALL the remaining height. Sized a touch above the leaf header (HEADER_H = 43)
- * so the top wedge still fits the glyph + title comfortably.
- */
-export const LEAF_BRACKET_PX = 60
 
 /**
  * Morph progress (measured from the LEAF end, 0..1) at which the hexagon apex SPLITS
@@ -322,21 +302,6 @@ export const LEAF_BRACKET_PX = 60
  * octagon's soft landing, not a pre-bloom pause).
  */
 export const SPACE_SPLIT_AT = 0.5
-
-/**
- * The Space's two clip insets (PERCENTS) for a desired corner-bracket height in PIXELS
- * at a LIVE frame size, ALWAYS holding a true 120° interior corner. The angle is
- * `ax_px = √3 · ay_px` (rise:run = √3:1 ⇒ 120°). If that flat-edge inset would exceed
- * half the width, the two points have MERGED into a single 120° apex — a HEXAGON — so
- * ax is clamped to 50%. Computing this from live PIXELS every frame is what stops the
- * angle drifting as the frame changes size mid-morph.
- */
-export function insetsFromBracketPx(ayPx: number, width: number, height: number): { ax: number; hy: number } {
-  if (width <= 0 || height <= 0) return { ax: 0, hy: 0 }
-  const ay = Math.max(0, Math.min(ayPx, height / 2))
-  const axPx = Math.min(SQRT3 * ay, width / 2)
-  return { ax: (axPx / width) * 100, hy: (ay / height) * 100 }
-}
 
 /** A Space frame's shape role, used to choose the morph path between two states. */
 export type SpaceKind = "leaf" | "ancestor" | "row" | "card"
