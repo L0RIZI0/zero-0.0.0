@@ -1097,19 +1097,23 @@ export function DoList({
             edge) rather than dropping in from the top. */}
         <div className="h-6 shrink-0">
           {/* HOVER-ONLY: the pills stay hidden and inert, revealing (fade + slight rise)
-              only when the do-list is HOVERED (`group-hover/dolist`) or when a PILL itself
-              takes keyboard focus (self `focus-within` on this band — NOT the group, so the
-              do-list's "New task" input, which lives in the same group and is often
-              auto-focused, does NOT reveal them). Still gated by `showSelectors` (non-virgin
-              list) so a fresh list with nothing to filter never shows chrome even on hover.
-              The reserved `h-6` slot keeps the rows below from shifting when they toggle. */}
+              only when the do-list is HOVERED (`listHovered` state, set by the container's
+              mouse enter/leave — a named Tailwind `group-hover` variant proved unreliable
+              to generate from this dynamic className) OR when a PILL itself takes keyboard
+              focus (self `focus-within` on this band — NOT the whole list, so the do-list's
+              "New task" input does NOT reveal them). Still gated by `showSelectors`
+              (non-virgin list) so a fresh list with nothing to filter never shows chrome
+              even on hover. The reserved `h-6` slot keeps the rows below from shifting. */}
           <div
             aria-hidden={!showSelectors}
             className={cn(
               "mb-1 flex translate-y-1.5 items-center justify-start gap-1 pr-2 pl-1.5 opacity-0",
               "pointer-events-none transition-[opacity,transform] duration-200 ease-out",
+              // Focused pill (keyboard) reveals regardless of hover.
               showSelectors &&
-                "focus-within:pointer-events-auto focus-within:translate-y-0 focus-within:opacity-100 group-hover/dolist:pointer-events-auto group-hover/dolist:translate-y-0 group-hover/dolist:opacity-100",
+                "focus-within:pointer-events-auto focus-within:translate-y-0 focus-within:opacity-100",
+              // Hover reveal, driven by React state (reliable vs. a dynamic group variant).
+              showSelectors && listHovered && "pointer-events-auto translate-y-0 opacity-100",
             )}
           >
             {(["all", "open"] as const).map((f) => (
