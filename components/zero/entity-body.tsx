@@ -282,6 +282,10 @@ export function EntityBody({
               spaceId={entityId}
               peek={(inOpen && !active) || (active && !inOpen)}
               stripMode={active && !inOpen}
+              // Focused-leaf scenario → snappy panel-slide curve both directions (so expand
+              // can't fall back to the slow 2s dive beat). The covered-ancestor dive keeps
+              // the 2s beat (snappy false there).
+              snappy={active}
               spineWidth={spineWidth}
             />
           </CollapsibleColumn>
