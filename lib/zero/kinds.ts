@@ -148,7 +148,7 @@ function nextLocalMidnight(epoch: number): number {
  * no fill). Sources, in order:
  *   1. the MANUAL `closed` flag (the "Close" menu action), persisted;
  *   2. `cancelled` (the "Cancel" action — also strikes through + fades);
- *   3. DERIVED, not stored:
+ *   3. DERIVED, not stored (unless overridden by an explicit `reopened`):
  *      - a done TASK auto-closes at the first local midnight AFTER `completedOn`;
  *      - an EVENT/INSTANT closes once its end time has passed (instant end == `at`).
  * `now` is injectable for testing; defaults to the current time. Terminal kinds
@@ -157,6 +157,9 @@ function nextLocalMidnight(epoch: number): number {
 export function isClosed(entity: Entity, now: number = Date.now()): boolean {
   if (entity.closed) return true
   if (entity.cancelled) return true
+  // Explicit user reopen overrides the DERIVED closes below (but not the manual
+  // `closed` / `cancelled` cases handled above) — see SpaceBase.reopened.
+  if (entity.reopened) return false
   if (entity.kind === "task") {
     return (
       !!entity.completed &&

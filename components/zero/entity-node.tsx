@@ -197,7 +197,7 @@ export function EntityNode({
   const { frames: showFrames } = useDebugView()
   const entity = getEntity(entityId)
   const region = variant === "dock" ? "dock" : "list"
-  const { showHighlight, hoverProps, ref } = useRowSelection(region, entityId)
+  const { showHighlight, ref } = useRowSelection(region, entityId)
   const [done, setDone] = useState(!!entity?.completed)
   // Keep the local completion mirror honest with the store. The toggle sets `done`
   // optimistically AND persists, but a node that stays mounted (e.g. a do-list row)
@@ -841,9 +841,12 @@ export function EntityNode({
         onClick={onFrameClick}
         onContextMenu={onContextMenu}
         onPointerEnter={() => {
-          // Moves the keyboard selection cursor here (existing behavior) AND sets
-          // the local mouse-hover flag that paints the unified highlight.
-          if (interactive) hoverProps.onPointerEnter()
+          // Highlight is painted PURELY from local `hovered` state so it lights up the
+          // instant the pointer enters — no shared-store write, no app-wide re-render.
+          // (We intentionally do NOT sync mouse hover into the global selection cursor
+          // anymore: that `select(...,"mouse")` fired on every row enter and re-rendered
+          // every EntityNode, which made do-list hover feel laggy. Arrow-key nav still
+          // drives selection independently; see hoverProps in useRowSelection.)
           if (!asWindow) setHovered(true)
         }}
         onPointerLeave={() => {

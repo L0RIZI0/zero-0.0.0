@@ -218,6 +218,16 @@ export interface SpaceBase {
   closed?: boolean
   /** When the manual `closed` flag last flipped true (epoch ms). */
   closedOn?: Epoch
+  /**
+   * Explicit user REOPEN that overrides a DERIVED close. Set by the "Reopen" menu
+   * action so an entity that closed only because time passed (an event past its end,
+   * a done task past its midnight) can be pulled back open and STAY open until it is
+   * closed again. `isClosed` treats this as false for the derived cases only — a
+   * manual `closed` or `cancelled` still wins (use Reopen / Restore to clear those).
+   */
+  reopened?: boolean
+  /** When `reopened` last flipped true (epoch ms). */
+  reopenedOn?: Epoch
 
   // --- Shared state + display (relevance varies by kind) --------------------
   /**

@@ -1905,22 +1905,32 @@ export function setEventCancelled(id: string, cancelled: boolean): void {
 }
 
 /**
- * Manually CLOSE (or reopen) an entity — the "Close" menu action. Sets the
- * persisted `closed` flag so the glyph renders FILLED (distinct from a task's
- * "done"/checkmark). Reopening clears the flag; note this only undoes a MANUAL
- * close — a task that is DERIVED-closed (done past midnight) or an event past its
- * end still reads as closed via {@link isClosed}. Seeded items record a partial
- * override so the state survives refreshes (mirrors setEventCancelled).
+ * CLOSE or REOPEN an entity — the "Close"/"Reopen" menu actions. The glyph fills
+ * when closed (distinct from a task's "done"/checkmark).
+ *  - CLOSE (`closed=true`): sets the manual `closed` flag and clears any prior
+ *    `reopened` override.
+ *  - REOPEN (`closed=false`): clears the manual `closed` flag AND sets `reopened`,
+ *    which overrides a DERIVED close (an event past its end, a done task past its
+ *    midnight) via {@link isClosed} — so ANY closed entity can be pulled back open
+ *    and stays open until closed again. (A `cancelled` entity is reopened via
+ *    Restore / setEventCancelled instead.)
+ * Seeded items record a partial override so the state survives refreshes (mirrors
+ * setEventCancelled).
  */
 export function setEntityClosed(id: string, closed: boolean): void {
   const entity = byId.get(id)
   if (!entity) return
-  const closedOn = closed ? Date.now() : undefined
+  const now = Date.now()
+  const closedOn = closed ? now : undefined
+  const reopened = !closed
+  const reopenedOn = reopened ? now : undefined
   entity.closed = closed
   entity.closedOn = closedOn
+  entity.reopened = reopened
+  entity.reopenedOn = reopenedOn
   if (!userEntityIds.has(id)) {
     // Seeded entity — track as an override patch.
-    seededOverrides.set(id, { ...seededOverrides.get(id), closed, closedOn })
+    seededOverrides.set(id, { ...seededOverrides.get(id), closed, closedOn, reopened, reopenedOn })
   }
   persist()
 }

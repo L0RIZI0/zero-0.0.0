@@ -912,7 +912,6 @@ export function DoList({
     // kind (task/space/event/instant/resource); terminal kinds retire/die instead.
     const canClose = isCompletable(item.kind)
     const closedNow = isClosed(item.entity)
-    const isClosedManually = !!item.entity.closed
     const isCancelled = !!item.entity.cancelled
     // Captured here (not read inside the menu closure) so the TaskSpace narrowing
     // survives — closures don't retain control-flow narrowing of `item.entity`.
@@ -936,24 +935,26 @@ export function DoList({
         },
         ...(canClose
           ? [
-              // "Close" — fill the glyph (archived). Shown ONLY when the entity is not
-              // already closed. "Reopen" (clears the manual flag) shows only for a
-              // MANUALLY closed entity. A DERIVED-closed item (event past its end, done
-              // task past midnight) offers NEITHER — it's already closed and can't be
-              // reopened, so we don't show a stale "Close".
-              ...(!closedNow
-                ? [
-                    {
-                      label: "Close",
-                      icon: <Archive className="h-3.5 w-3.5" />,
-                      onSelect: () => {
-                        setEntityClosed(item.id, true)
-                        notifyDataChanged()
-                      },
-                    },
-                  ]
-                : isClosedManually
+              // "Close" fills the glyph; "Reopen" pulls it back open. They mirror the
+              // entity's closed state: show "Close" only when NOT closed, "Reopen" when
+              // closed. Reopen works for ANY closed entity — manual OR derived (an event
+              // past its end, a done task past its midnight) — via setEntityClosed's
+              // `reopened` override. A CANCELLED entity is the exception: it's reopened
+              // through "Restore" below, so it shows neither Close nor Reopen here.
+              ...(isCancelled
+                ? []
+                : !closedNow
                   ? [
+                      {
+                        label: "Close",
+                        icon: <Archive className="h-3.5 w-3.5" />,
+                        onSelect: () => {
+                          setEntityClosed(item.id, true)
+                          notifyDataChanged()
+                        },
+                      },
+                    ]
+                  : [
                       {
                         label: "Reopen",
                         icon: <ArchiveRestore className="h-3.5 w-3.5" />,
@@ -962,8 +963,7 @@ export function DoList({
                           notifyDataChanged()
                         },
                       },
-                    ]
-                  : []),
+                    ]),
               // "Cancel" — fill the glyph AND strike through the title + fade the row.
               {
                 label: isCancelled ? "Restore" : "Cancel",
