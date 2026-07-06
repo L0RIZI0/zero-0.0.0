@@ -37,6 +37,7 @@ export function CollapsibleColumn({
   spineScale = 1,
   spineShift = 0,
   spineTitle,
+  spineGlyph,
   surface,
   stripCollapse = false,
 }: {
@@ -72,6 +73,12 @@ export function CollapsibleColumn({
    *  excerpt flows naturally beneath it — no measurement/offset coordination. It slides
    *  in from the top + fades as a leaf becomes a spine, and the excerpt reflows down. */
   spineTitle?: string
+  /** Optional GLYPH rendered at the very TOP of the spine, ABOVE the rotated title.
+   *  Slides in with the same height-crop + translateY as the title (so it emerges from
+   *  behind the View's top edge as a leaf becomes a spine). The caller owns its size +
+   *  vertical padding so it lands the SAME size as / aligned with the covering child's
+   *  header glyph (used by entity0/home to show the Individual's glyph). */
+  spineGlyph?: React.ReactNode
   /** Window background colour — the panel uses it so it reads as the window surface. */
   surface?: string
   /** When true, the COLLAPSED state of this (focused) panel is the peek-LOSANGE strip
@@ -358,8 +365,35 @@ export function CollapsibleColumn({
           so the leaf counters keep their spacing and nothing snaps on the flip. The glyph
           keeps its own (untouched) Flip morph in the header above; the horizontal title is
           left untouched there too. */}
-      {(excerpt || spineTitle) && (
+      {(excerpt || spineTitle || spineGlyph) && (
         <div className="pointer-events-none absolute inset-x-0 top-0 z-30 flex flex-col items-center">
+          {/* SPINE GLYPH — pinned ABOVE the rotated title. Same crop+slide mechanic as the
+              title: at height 0 the inner block is translated fully up (−100%) so it's hidden
+              behind the View's top edge; as the box grows to `auto` it eases to 0 and lands.
+              The caller pads it so it centers in the child's HEADER_H band → reads the same
+              size + baseline as the covering child window's header glyph. */}
+          <AnimatePresence initial={false}>
+            {spineGlyph && (
+              <motion.div
+                key="spine-glyph"
+                initial={{ height: 0 }}
+                animate={{ height: "auto" }}
+                exit={{ height: 0 }}
+                transition={{ duration: MORPH_SECONDS, ease: MORPH_EASE }}
+                className="flex justify-center overflow-hidden"
+              >
+                <motion.div
+                  initial={{ y: "-100%" }}
+                  animate={{ y: "0%" }}
+                  exit={{ y: "-100%" }}
+                  transition={{ duration: MORPH_SECONDS, ease: MORPH_EASE }}
+                  className="flex items-center justify-center"
+                >
+                  {spineGlyph}
+                </motion.div>
+              </motion.div>
+            )}
+          </AnimatePresence>
           <AnimatePresence initial={false}>
             {spineTitle && (
               <motion.div

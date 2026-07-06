@@ -4,7 +4,7 @@ import { useCallback, useRef } from "react"
 import { useTheme } from "next-themes"
 import { useZeroNav } from "@/lib/zero/nav-store"
 import { getSpace, getEntity, isDetachedChild } from "@/lib/zero/data"
-import { telescopicSurface } from "@/lib/zero/motion"
+import { telescopicSurface, HEADER_H } from "@/lib/zero/motion"
 import { DURATION_S, MORPH_CSS_EASE } from "@/lib/zero/flip-stage"
 import { registerStage } from "@/lib/zero/flip-stage"
 import { useDebugView } from "@/lib/zero/debug-view"
@@ -13,6 +13,7 @@ import { DebugFrameLabel } from "./debug-frame-label"
 import { IndividualHeader } from "./individual-header"
 import { EntityBody } from "./entity-body"
 import { EntityNode } from "./entity-node"
+import { NodeGlyph } from "./node-glyph"
 // [v0] EXPERIMENT: region-0 timeline hidden — see note below. Restore with the const.
 // import { TimelineStrip } from "./timeline-strip"
 
@@ -172,6 +173,21 @@ export function WorkSurface() {
           // title (CollapsibleColumn handles the identical 13px size + slide-down morph).
           // Undefined while home is the focused leaf, so the title slides back up on close.
           spineTitle={activeEntity.id !== rootId ? getEntity(rootId)?.title : undefined}
+          // ...and ABOVE that rotated name, the Individual's own glyph slides in — the piece
+          // a covered Space ancestor shows in its header (home has an avatar header instead,
+          // so its glyph never appeared). The 20px glyph matches a child window's header glyph
+          // size; the symmetric top/bottom margin centers it in the child's HEADER_H band so it
+          // lands on the same baseline. Dimmed to foreground/75 like any covered-ancestor glyph.
+          spineGlyph={
+            activeEntity.id !== rootId ? (
+              <span
+                className="flex h-5 w-5 items-center justify-center text-foreground/75"
+                style={{ marginTop: (HEADER_H - 20) / 2, marginBottom: (HEADER_H - 20) / 2 }}
+              >
+                <NodeGlyph kind={getEntity(rootId)?.kind ?? "individual"} strokeWidth={1.75} />
+              </span>
+            ) : undefined
+          }
         />
 
         {/* DETACHED WINDOWS. The recursive in-place tree above only reaches a stack

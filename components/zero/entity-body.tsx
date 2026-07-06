@@ -58,6 +58,7 @@ export function EntityBody({
   spineBleedRight = PANEL_SPINE_W,
   panelTopOffset = 0,
   spineTitle,
+  spineGlyph,
   surface,
   resource,
   timeline,
@@ -95,6 +96,10 @@ export function EntityBody({
    *  below the glyph and above the excerpt. The excerpt flows naturally beneath it —
    *  no offset needed (see CollapsibleColumn). Undefined for leaves/non-spaces. */
   spineTitle?: string
+  /** Optional glyph shown at the TOP of the LEFT spine, above the rotated spine title
+   *  (used by entity0/home to show the Individual's glyph when it's a covered ancestor,
+   *  aligned with the covering child's header glyph). Forwarded to the left column. */
+  spineGlyph?: ReactNode
   /** The window's background colour — the opaque panel uses it so it reads as the
    *  window surface sliding over the View. Falls back to the theme background. */
   surface?: string
@@ -280,6 +285,7 @@ export function EntityBody({
             count={assetCount}
             excerpt={<SpineExcerpt entityId={entityId} />}
             spineTitle={spineTitle}
+            spineGlyph={spineGlyph}
             open={inOpen}
             onOpenChange={setInOpen}
             focused={active}
