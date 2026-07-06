@@ -608,16 +608,24 @@ export function HierarchyInspector() {
               const s = byId.get(e.source)
               const t = byId.get(e.target)
               if (!s || !t) return null
+              // Edges attach to a node's glyph point, EXCEPT an Individual, whose
+              // anchor is its true center of gravity (glyph+label midpoint).
+              const anchorX = (n: SimNode) =>
+                n.entity.kind === "individual" ? n.x + (n.rw - GLYPH / 2) / 2 : n.x
+              const sx = anchorX(s)
+              const sy = s.y
+              const tx = anchorX(t)
+              const ty = t.y
               // Soul's children get PURE STRAIGHT edges (the identity spine).
               const fromSoul = s.entity.kind === "soul"
               if (fromSoul) {
                 return (
                   <line
                     key={e.id}
-                    x1={s.x}
-                    y1={s.y}
-                    x2={t.x}
-                    y2={t.y}
+                    x1={sx}
+                    y1={sy}
+                    x2={tx}
+                    y2={ty}
                     strokeWidth={1.25}
                   />
                 )
@@ -626,12 +634,12 @@ export function HierarchyInspector() {
               // each endpoint's x, pulled to the vertical midpoint by `f`).
               if (t.entity.kind === "space") {
                 const f = 0.5
-                const c1y = s.y + (t.y - s.y) * f
-                const c2y = t.y - (t.y - s.y) * f
+                const c1y = sy + (ty - sy) * f
+                const c2y = ty - (ty - sy) * f
                 return (
                   <path
                     key={e.id}
-                    d={`M ${s.x} ${s.y} C ${s.x} ${c1y} ${t.x} ${c2y} ${t.x} ${t.y}`}
+                    d={`M ${sx} ${sy} C ${sx} ${c1y} ${tx} ${c2y} ${tx} ${ty}`}
                     fill="none"
                     strokeWidth={1.25}
                   />
@@ -643,12 +651,12 @@ export function HierarchyInspector() {
               const parentNonTask = s.entity.kind !== "task"
               if (parentNonTask) {
                 const k = 0.6
-                const c1y = s.y + (t.y - s.y) * k // straight down out of the parent
-                const c2x = t.x - (t.x - s.x) * k // straight in from the child's left
+                const c1y = sy + (ty - sy) * k // straight down out of the parent
+                const c2x = tx - (tx - sx) * k // straight in from the child's left
                 return (
                   <path
                     key={e.id}
-                    d={`M ${s.x} ${s.y} C ${s.x} ${c1y} ${c2x} ${t.y} ${t.x} ${t.y}`}
+                    d={`M ${sx} ${sy} C ${sx} ${c1y} ${c2x} ${ty} ${tx} ${ty}`}
                     fill="none"
                     strokeWidth={1.25}
                   />
@@ -658,12 +666,12 @@ export function HierarchyInspector() {
               // tangents — control pts share each endpoint's y, pulled toward the
               // horizontal midpoint by `hf`). Stronger tune for more flow.
               const hf = 0.72
-              const c1x = s.x + (t.x - s.x) * hf
-              const c2x = t.x - (t.x - s.x) * hf
+              const c1x = sx + (tx - sx) * hf
+              const c2x = tx - (tx - sx) * hf
               return (
                 <path
                   key={e.id}
-                  d={`M ${s.x} ${s.y} C ${c1x} ${s.y} ${c2x} ${t.y} ${t.x} ${t.y}`}
+                  d={`M ${sx} ${sy} C ${c1x} ${sy} ${c2x} ${ty} ${tx} ${ty}`}
                   fill="none"
                   strokeWidth={1.25}
                 />
