@@ -27,6 +27,8 @@ import type { Entity } from "@/lib/zero/types"
  *     stack just to the parent's right, so sibling leaves settle into a tidy
  *     columned list "when possible" while the rest of the graph stays organic.
  *
+ * Each node is a bare GLYPH (its center = the node point) with a free-floating
+ * label beside it — no surrounding box — so the cloud reads like Obsidian's graph.
  * The sim runs in a LARGE virtual WORLD (much bigger than the viewport) so nodes
  * have room to breathe and the hierarchy reads clearly — the graph deliberately
  * BLEEDS past the window edges and the whole thing is PANNABLE (drag empty space).
@@ -37,17 +39,26 @@ import type { Entity } from "@/lib/zero/types"
  * production. Mirrors the §3 inspector's chrome/style.
  */
 
-const NODE_W = 150 // node pill width (label truncates within)
+const GLYPH = 16 // glyph box (px); its geometric center IS the node's (x,y)
+const LABEL_GAP = 6 // gap between the glyph and its label text
 // Large virtual world so the graph can spread out and be panned (not squished to fit).
 const WORLD_W = 2800
 const WORLD_H = 2000
-const COL_DX = 210 // horizontal gap a leaf column sits to the right of its parent
-const ROW_DY = 34 // vertical spacing between stacked leaf siblings
+const COL_DX = 150 // horizontal gap a leaf column sits to the right of its parent
+const ROW_DY = 30 // vertical spacing between stacked leaf siblings
+
+// approx label rendering metrics (mono 11px) used for collision + truncation
+const LABEL_MAX = 22 // chars before we ellipsize
+const CHAR_W = 6.6 // px per mono char at 11px
+const LINE_H = 15 // label line box height
 
 type SimNode = {
   id: string
   entity: Entity
   hasChildren: boolean
+  /** right extent from the node center = glyph half + gap + label width. Used so
+   *  collision reserves room for the label so labels stop overlapping. */
+  rw: number
   x: number
   y: number
   vx: number
@@ -83,10 +94,12 @@ function buildGraph(): { nodes: SimNode[]; edges: Edge[] } {
     const leafSiblings = children.filter((c) => (byParent.get(c.id)?.length ?? 0) === 0)
     const leafCount = leafSiblings.length
 
+    const shownLen = Math.min(entity.title.length, LABEL_MAX)
     nodes.push({
       id: entity.id,
       entity,
       hasChildren: children.length > 0,
+      rw: GLYPH / 2 + LABEL_GAP + shownLen * CHAR_W,
       // seed roughly by depth (x) and a spread on y; jitter avoids perfect overlap
       x: cx - WORLD_W / 4 + depth * COL_DX + (Math.random() - 0.5) * 8,
       y: seedY + (Math.random() - 0.5) * 8,
@@ -119,15 +132,18 @@ function buildGraph(): { nodes: SimNode[]; edges: Edge[] } {
 
 /** One physics tick, d3-style. Mutates node positions in place. */
 function tick(nodes: SimNode[], edges: Edge[], byId: Map<string, SimNode>, alpha: number) {
-  const CHARGE = -4200
+  const CHARGE = -1100
   const LINK_DIST = COL_DX
-  const LINK_K = 0.32
+  const LINK_K = 0.22
   const GRAVITY = 0.02
-  const COLUMN_K = 0.2
-  const VELOCITY_DECAY = 0.6
-  // Rectangular collision half-extents (pills are wide, short) + breathing margin.
-  const HALF_W = NODE_W / 2 + 10
-  const HALF_H = 13 + 4
+  const COLUMN_K = 0.12
+  const VELOCITY_DECAY = 0.72
+  // Collision reserves the glyph + LABEL box (labels extend to the right of the
+  // glyph), so labels stop overlapping. The box is asymmetric: a small left/vertical
+  // extent, a wide right extent (n.rw). Tight vertical extent lets leaf siblings
+  // stack into close columns.
+  const LEFT_EXT = GLYPH / 2 + 2
+  const V_EXT = LINE_H / 2 + 1
 
   // charge: pairwise repulsion
   for (let i = 0; i < nodes.length; i++) {
@@ -149,25 +165,30 @@ function tick(nodes: SimNode[], edges: Edge[], byId: Map<string, SimNode>, alpha
     }
   }
 
-  // rectangular collision: resolve overlapping pill boxes along the axis of
-  // least penetration so wide labels stop stacking on top of each other.
-  for (let i = 0; i < nodes.length; i++) {
-    const a = nodes[i]
-    for (let j = i + 1; j < nodes.length; j++) {
-      const b = nodes[j]
-      const dx = b.x - a.x
-      const dy = b.y - a.y
-      const ox = HALF_W * 2 - Math.abs(dx)
-      const oy = HALF_H * 2 - Math.abs(dy)
-      if (ox > 0 && oy > 0) {
-        if (ox < oy) {
-          const push = (ox / 2) * (dx < 0 ? -1 : 1)
-          a.x -= push
-          b.x += push
-        } else {
-          const push = (oy / 2) * (dy < 0 ? -1 : 1)
-          a.y -= push
-          b.y += push
+  // asymmetric AABB collision: resolve overlaps of the glyph+label boxes along the
+  // axis of least penetration (labels extend right, so boxes span [x-LEFT, x+rw]).
+  // Several relaxation passes per tick so dense regions fully un-overlap.
+  for (let pass = 0; pass < 4; pass++) {
+    for (let i = 0; i < nodes.length; i++) {
+      const a = nodes[i]
+      const aL = a.x - LEFT_EXT
+      const aR = a.x + a.rw
+      for (let j = i + 1; j < nodes.length; j++) {
+        const b = nodes[j]
+        const bL = b.x - LEFT_EXT
+        const bR = b.x + b.rw
+        const ox = Math.min(aR, bR) - Math.max(aL, bL)
+        const oy = V_EXT * 2 - Math.abs(a.y - b.y)
+        if (ox > 0 && oy > 0) {
+          if (ox < oy) {
+            const dir = a.x <= b.x ? -1 : 1
+            a.x += (dir * ox) / 2
+            b.x -= (dir * ox) / 2
+          } else {
+            const dir = a.y <= b.y ? -1 : 1
+            a.y += (dir * oy) / 2
+            b.y -= (dir * oy) / 2
+          }
         }
       }
     }
@@ -409,41 +430,55 @@ export function HierarchyInspector() {
             })}
           </g>
 
-          {/* nodes */}
+          {/* nodes — a bare glyph (its center = the node point) + a free-floating
+              label to the right. No box, so the graph breathes like Obsidian's. */}
           <g>
             {nodes.map((n) => {
               const closed = isClosed(n.entity)
               const cancelled = !!n.entity.cancelled
               return (
-                <foreignObject
-                  key={n.id}
-                  x={n.x - NODE_W / 2}
-                  y={n.y - 12}
-                  width={NODE_W}
-                  height={24}
-                  onPointerDown={onNodePointerDown(n.id)}
-                  className="cursor-grab active:cursor-grabbing"
-                >
-                  <div
-                    className="flex h-6 items-center gap-1.5 rounded-md border border-border bg-background/90 px-2 leading-none shadow-sm"
-                    title={`${n.entity.title} · ${NODE_KIND_META[n.entity.kind].label}`}
+                <g key={n.id}>
+                  {/* label: plain SVG text, non-interactive (so it never clips or
+                      blocks panning); truncated to keep the cloud readable. */}
+                  <text
+                    x={n.x + GLYPH / 2 + LABEL_GAP}
+                    y={n.y}
+                    fontSize={11}
+                    fontFamily="var(--font-mono, monospace)"
+                    fontWeight={n.hasChildren ? 600 : 400}
+                    fill={cancelled ? "var(--muted-foreground)" : "var(--foreground)"}
+                    dominantBaseline="middle"
+                    style={{
+                      pointerEvents: "none",
+                      textDecoration: cancelled ? "line-through" : undefined,
+                    }}
                   >
-                    <span className="shrink-0 text-foreground">
+                    {n.entity.title.length > 22 ? `${n.entity.title.slice(0, 21)}…` : n.entity.title}
+                  </text>
+
+                  {/* glyph: tight draggable box centered exactly on (n.x, n.y). */}
+                  <foreignObject
+                    x={n.x - GLYPH / 2}
+                    y={n.y - GLYPH / 2}
+                    width={GLYPH}
+                    height={GLYPH}
+                    onPointerDown={onNodePointerDown(n.id)}
+                    className="cursor-grab active:cursor-grabbing"
+                  >
+                    <div
+                      className="flex h-full w-full items-center justify-center text-foreground"
+                      title={`${n.entity.title} · ${NODE_KIND_META[n.entity.kind].label}`}
+                    >
                       <NodeGlyph
                         kind={n.entity.kind}
                         filled={closed}
                         struck={cancelled}
-                        className="h-3.5 w-3.5"
+                        className="h-4 w-4"
                         strokeWidth={1.75}
                       />
-                    </span>
-                    <span
-                      className={`truncate ${cancelled ? "text-muted-foreground line-through" : n.hasChildren ? "font-semibold text-foreground" : "text-card-foreground"}`}
-                    >
-                      {n.entity.title}
-                    </span>
-                  </div>
-                </foreignObject>
+                    </div>
+                  </foreignObject>
+                </g>
               )
             })}
           </g>
