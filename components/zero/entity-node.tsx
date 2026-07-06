@@ -1161,6 +1161,7 @@ export function EntityNode({
                   filled={glyphFilled}
                   strokeWidth={asWindow ? 1.75 : isTask ? 2 : 1.75}
                   request={isTask && !!entity.requested}
+                  struck={cancelled}
                 />
                 {showCheckmark && (
                   // Always shown for a done Task — in the row, the dock card AND the

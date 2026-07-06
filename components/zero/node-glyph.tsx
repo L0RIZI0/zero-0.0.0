@@ -533,14 +533,17 @@ export function NodeGlyph({
           vectorEffect="non-scaling-stroke"
         />
       )}
-      {/* Static STRIKETHROUGH — a horizontal bar across the glyph's middle, the
-          excerpt's mark for a cancelled tally (mirrors the cancelled-title line-
-          through). Non-animated, like the check above. */}
+      {/* Static STRIKETHROUGH — a horizontal bar across the glyph's middle for a
+          cancelled entity (mirrors the cancelled-title line-through). The tips
+          overshoot the square (which spans x 4.5–19.5) to x 1.5 / 22.5 so they
+          stay visible on either side even when the glyph is FILLED (the bar and
+          fill share currentColor, so the interior stretch would otherwise vanish).
+          Non-animated, like the check above. */}
       {struck && (
         <line
-          x1="5"
+          x1="1.5"
           y1="12"
-          x2="19"
+          x2="22.5"
           y2="12"
           stroke="currentColor"
           strokeWidth={strokeWidth}
