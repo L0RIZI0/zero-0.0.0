@@ -560,6 +560,17 @@ export function HierarchyInspector() {
           className="absolute left-0 top-0"
           style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${scale})`, transformOrigin: "0 0" }}
         >
+          {/* mask: white shows the edges, black circles at each node punch holes so
+              edge tips don't show through the transparent glyph interiors. */}
+          <defs>
+            <mask id="zero-glyph-holes">
+              <rect x={0} y={0} width={WORLD_W} height={WORLD_H} fill="white" />
+              {nodes.map((n) => (
+                <circle key={n.id} cx={n.x} cy={n.y} r={GLYPH / 2} fill="black" />
+              ))}
+            </mask>
+          </defs>
+
           {/* secondary relationships (taggedSpaceIds): dotted, layout-neutral */}
           <g>
             {graph.tagEdges.map((e) => {
@@ -583,8 +594,13 @@ export function HierarchyInspector() {
             })}
           </g>
 
-          {/* parent → child edges (vertical-biased S-curve for an organic flow) */}
-          <g>
+          {/* parent → child edges (vertical-biased S-curve for an organic flow).
+              Masked so the tips are punched out where they'd show through the
+              transparent glyph interiors. */}
+          <g
+            stroke="color-mix(in oklch, var(--muted-foreground) 55%, var(--border))"
+            mask="url(#zero-glyph-holes)"
+          >
             {graph.edges.map((e) => {
               const s = byId.get(e.source)
               const t = byId.get(e.target)
@@ -599,7 +615,6 @@ export function HierarchyInspector() {
                     y1={s.y}
                     x2={t.x}
                     y2={t.y}
-                    stroke="var(--muted-foreground)"
                     strokeWidth={1.25}
                   />
                 )
@@ -615,7 +630,6 @@ export function HierarchyInspector() {
                     key={e.id}
                     d={`M ${s.x} ${s.y} C ${s.x} ${c1y} ${t.x} ${c2y} ${t.x} ${t.y}`}
                     fill="none"
-                    stroke="var(--muted-foreground)"
                     strokeWidth={1.25}
                   />
                 )
@@ -633,7 +647,6 @@ export function HierarchyInspector() {
                     key={e.id}
                     d={`M ${s.x} ${s.y} C ${s.x} ${c1y} ${c2x} ${t.y} ${t.x} ${t.y}`}
                     fill="none"
-                    stroke="var(--muted-foreground)"
                     strokeWidth={1.25}
                   />
                 )
@@ -649,7 +662,6 @@ export function HierarchyInspector() {
                   key={e.id}
                   d={`M ${s.x} ${s.y} C ${c1x} ${s.y} ${c2x} ${t.y} ${t.x} ${t.y}`}
                   fill="none"
-                  stroke="var(--muted-foreground)"
                   strokeWidth={1.25}
                 />
               )
