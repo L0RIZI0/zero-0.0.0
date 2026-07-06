@@ -620,11 +620,11 @@ export function HierarchyInspector() {
                   />
                 )
               }
-              // NON-SPACE targets whose PARENT is non-space AND not a task: the edge
+              // NON-SPACE targets whose PARENT is NOT a task (spaces included): the edge
               // LEAVES the parent from its BOTTOM (vertical start tangent) and REACHES
               // the child on its LEFT side (horizontal end tangent) — a bottom→left elbow.
-              const parentNonSpaceNonTask = s.entity.kind !== "space" && s.entity.kind !== "task"
-              if (parentNonSpaceNonTask) {
+              const parentNonTask = s.entity.kind !== "task"
+              if (parentNonTask) {
                 const k = 0.6
                 const c1y = s.y + (t.y - s.y) * k // straight down out of the parent
                 const c2x = t.x - (t.x - s.x) * k // straight in from the child's left
