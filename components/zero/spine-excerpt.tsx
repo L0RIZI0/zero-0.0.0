@@ -1,5 +1,6 @@
 "use client"
 
+import { AnimatePresence, motion, type Transition } from "motion/react"
 import { NodeGlyph } from "./node-glyph"
 import { getOpenTaskCount, getDoneTaskCount, getClosedTaskCount } from "@/lib/zero/data"
 import { useZeroNav } from "@/lib/zero/nav-store"
@@ -22,6 +23,9 @@ import { cn } from "@/lib/utils"
  *
  * Presentational + read-only: it re-reads on `dataVersion` and never mutates state.
  */
+/** Framer transition for a counter entering/leaving the vertical stack. */
+const COUNTER_TRANSITION: Transition = { duration: 0.26, ease: [0.22, 1, 0.36, 1] }
+
 export function SpineExcerpt({ entityId }: { entityId: string }) {
   // Re-read the tallies whenever data mutates (task toggled, child added, etc.).
   const { dataVersion } = useZeroNav()
@@ -31,13 +35,22 @@ export function SpineExcerpt({ entityId }: { entityId: string }) {
   const done = getDoneTaskCount(entityId)
   const closed = getClosedTaskCount(entityId)
 
-  if (open === 0 && done === 0 && closed === 0) return null
+  // Build the active tallies as a keyed list so AnimatePresence can animate each
+  // counter in/out individually as its count crosses zero. Order is stable
+  // (open → done → closed) so counters slot into a consistent vertical position.
+  const counters = [
+    { id: "open", count: open, filled: false, checked: false },
+    { id: "done", count: done, filled: false, checked: true },
+    { id: "closed", count: closed, filled: true, checked: false },
+  ].filter((c) => c.count > 0)
 
   return (
-    <div className="flex flex-col items-center gap-2">
-      {open > 0 && <Counter count={open} kind="task" />}
-      {done > 0 && <Counter count={done} kind="task" checked />}
-      {closed > 0 && <Counter count={closed} kind="task" filled />}
+    <div className="flex flex-col items-center overflow-hidden">
+      <AnimatePresence initial={false}>
+        {counters.map((c) => (
+          <Counter key={c.id} count={c.count} kind="task" filled={c.filled} checked={c.checked} />
+        ))}
+      </AnimatePresence>
     </div>
   )
 }
@@ -45,6 +58,9 @@ export function SpineExcerpt({ entityId }: { entityId: string }) {
 /**
  * One tally — glyph FIRST, then the number ("[glyph] n"). `filled` fills the glyph
  * (closed tasks); `checked` shows the done checkmark on an outline glyph (done tasks).
+ * Enters/exits VERTICALLY (height + fade + slight y slide) so counters appearing or
+ * disappearing from the stack animate rather than pop. `pb-2` provides the inter-row
+ * spacing AS PART OF the animated height, so the gap collapses cleanly on exit.
  */
 function Counter({
   count,
@@ -58,11 +74,18 @@ function Counter({
   checked?: boolean
 }) {
   return (
-    <span className={cn("flex items-center gap-1 text-[10px] text-muted-foreground/70")}>
+    <motion.span
+      layout
+      initial={{ opacity: 0, height: 0, y: -4 }}
+      animate={{ opacity: 1, height: "auto", y: 0 }}
+      exit={{ opacity: 0, height: 0, y: -4 }}
+      transition={COUNTER_TRANSITION}
+      className={cn("flex items-center gap-1 overflow-hidden pb-2 text-[10px] text-muted-foreground/70")}
+    >
       <span className="flex h-2.5 w-2.5 items-center justify-center">
         <NodeGlyph kind={kind} filled={filled} showCheck={checked} strokeWidth={1.5} />
       </span>
       <span className="font-medium tabular-nums">{count}</span>
-    </span>
+    </motion.span>
   )
 }

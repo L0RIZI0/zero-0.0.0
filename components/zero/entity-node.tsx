@@ -462,9 +462,14 @@ export function EntityNode({
   // flip-id, so the highlight survives the row→card swap and the node lands lit.
   const held = nav.menuKey === flip || (animating && nav.morphKey === flip)
 
+  // Whether the collapsed row/card is in its lit "hover/held" state. Also drives the
+  // asymmetric hover transition below: highlight fades IN fast, but OUT slower so the
+  // hover lingers a beat after the pointer leaves (feels less twitchy).
+  const frameActive = hovered || showHighlight || isClosing || held || reqAnimating
+
   const frameSurface = asWindow
     ? telescopicSurface(depth, leafDepth, isDark)
-    : hovered || showHighlight || isClosing || held || reqAnimating
+    : frameActive
       ? highlightColor
       : collapsedRest
 
@@ -650,9 +655,11 @@ export function EntityNode({
     // Background recede transition (ancestors darkening as the stack deepens). Window
     // uses the morph duration; collapsed rows/cards keep the snappy hover fade. Width
     // is NOT transitioned here — that stays on the frame (Flip owns it during morphs).
+    // ASYMMETRIC hover: fade IN quickly (0.12s) when the frame lights, fade OUT more
+    // slowly (0.32s) so the highlight lingers a moment after the pointer leaves.
     transition: asWindow
       ? `background-color ${DURATION_S} ${MORPH_CSS_EASE}`
-      : "background-color 0.18s ease-out",
+      : `background-color ${frameActive ? "0.12s" : "0.32s"} ease-out`,
   }
   const frameClass = asWindow
     ? cn(
