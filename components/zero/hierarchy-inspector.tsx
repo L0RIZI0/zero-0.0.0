@@ -620,18 +620,16 @@ export function HierarchyInspector() {
                   />
                 )
               }
-              // NON-SPACE targets: no vertical bias — a quadratic bulge pushing the
-              // midpoint perpendicular to the edge (increased tune for more flow).
-              const dx = t.x - s.x
-              const dy = t.y - s.y
-              const len = Math.hypot(dx, dy) || 1
-              const bulge = Math.min(len * 0.28, 40)
-              const mx = (s.x + t.x) / 2 + (-dy / len) * bulge
-              const my = (s.y + t.y) / 2 + (dx / len) * bulge
+              // NON-SPACE targets: HORIZONTAL-biased S-curve (cubic with horizontal
+              // tangents — control pts share each endpoint's y, pulled toward the
+              // horizontal midpoint by `hf`). Stronger tune for more flow.
+              const hf = 0.72
+              const c1x = s.x + (t.x - s.x) * hf
+              const c2x = t.x - (t.x - s.x) * hf
               return (
                 <path
                   key={e.id}
-                  d={`M ${s.x} ${s.y} Q ${mx} ${my} ${t.x} ${t.y}`}
+                  d={`M ${s.x} ${s.y} C ${c1x} ${s.y} ${c2x} ${t.y} ${t.x} ${t.y}`}
                   fill="none"
                   stroke="var(--border)"
                   strokeWidth={1.25}
