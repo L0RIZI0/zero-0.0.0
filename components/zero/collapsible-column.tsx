@@ -373,15 +373,16 @@ export function CollapsibleColumn({
           left untouched there too. */}
       {(excerpt || spineTitle || spineGlyph) && (
         <div className="pointer-events-none absolute inset-x-0 top-0 z-30 flex flex-col items-center">
-          {/* SPINE GLYPH — pinned ABOVE the rotated title. Same crop+slide mechanic as the
-              title: at height 0 the inner block is translated fully up (−100%) so it's hidden
-              behind the View's top edge; as the box grows to `auto` it eases to 0 and lands.
-              The caller pads it so it centers in the child's HEADER_H band → reads the same
-              size + baseline as the covering child window's header glyph. */}
+          {/* SPINE HEAD = glyph + rotated title as ONE block. A SINGLE crop box (top pinned
+              on the View's top edge = header's bottom edge, overflow-hidden) animates HEIGHT
+              0↔auto (which also reflows the excerpt), and a SINGLE inner layer slides+fades
+              as a unit — so the title is never clipped by the glyph's box. Hidden state
+              translates the whole block UP by SPINE_HIDE_Y (~header height → user-avatar
+              level) so it tucks behind the header rather than just behind the dayline. */}
           <AnimatePresence initial={false}>
-            {spineGlyph && (
+            {(spineGlyph || spineTitle) && (
               <motion.div
-                key="spine-glyph"
+                key="spine-head"
                 initial={{ height: 0 }}
                 animate={{ height: "auto" }}
                 exit={{ height: 0 }}
@@ -393,44 +394,20 @@ export function CollapsibleColumn({
                   animate={{ y: 0, opacity: 1 }}
                   exit={{ y: -SPINE_HIDE_Y, opacity: 0 }}
                   transition={{ duration: MORPH_SECONDS, ease: MORPH_EASE }}
-                  className="flex items-center justify-center"
+                  className="flex flex-col items-center"
                 >
                   {spineGlyph}
+                  {spineTitle && (
+                    <span
+                      // sideways-lr = upright, reading bottom-to-top. Regular 13px / medium
+                      // weight to match the horizontal title.
+                      className="inline-block whitespace-nowrap text-[13px] font-medium tracking-tight text-foreground"
+                      style={{ writingMode: "sideways-lr" }}
+                    >
+                      {spineTitle}
+                    </span>
+                  )}
                 </motion.div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-          <AnimatePresence initial={false}>
-            {spineTitle && (
-              <motion.div
-                key="spine-title"
-                initial={{ height: 0 }}
-                animate={{ height: "auto" }}
-                exit={{ height: 0 }}
-                transition={{ duration: MORPH_SECONDS, ease: MORPH_EASE }}
-                // Crop box: top pinned on the View's top edge. overflow-hidden clips
-                // everything above that edge, so the inner slide reads as the title
-                // emerging from BEHIND the top border. Height 0→auto reflows the excerpt.
-                className="flex justify-center overflow-hidden"
-              >
-                <motion.span
-                  // Slide the title DOWN from up in the header: at rest-hidden it is
-                  // translated up by SPINE_HIDE_Y (~a header height, i.e. avatar level) and
-                  // thus clipped by the crop box top (the header's bottom edge); as the box
-                  // grows it eases to 0 and lands flush. Same duration/ease as the height so
-                  // the two stay in lockstep.
-                  initial={{ y: -SPINE_HIDE_Y, opacity: 0 }}
-                  animate={{ y: 0, opacity: 1 }}
-                  exit={{ y: -SPINE_HIDE_Y, opacity: 0 }}
-                  transition={{ duration: MORPH_SECONDS, ease: MORPH_EASE }}
-                  // sideways-lr = upright, reading bottom-to-top. inline-block so translateY
-                  // % resolves against its own height and the crop box can measure it.
-                  // Regular 13px / medium weight to match the horizontal title.
-                  className="inline-block whitespace-nowrap text-[13px] font-medium tracking-tight text-foreground"
-                  style={{ writingMode: "sideways-lr" }}
-                >
-                  {spineTitle}
-                </motion.span>
               </motion.div>
             )}
           </AnimatePresence>
