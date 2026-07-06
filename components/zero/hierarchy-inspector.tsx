@@ -683,7 +683,7 @@ export function HierarchyInspector() {
                     y={n.y}
                     fontSize={11}
                     fontFamily="var(--font-mono, monospace)"
-                    fontWeight={n.hasChildren ? 600 : 400}
+                    fontWeight={n.entity.kind === "individual" ? 700 : n.hasChildren ? 600 : 400}
                     fill={cancelled ? "var(--muted-foreground)" : "var(--foreground)"}
                     dominantBaseline="middle"
                     style={{
