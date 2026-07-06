@@ -599,7 +599,7 @@ export function HierarchyInspector() {
                     y1={s.y}
                     x2={t.x}
                     y2={t.y}
-                    stroke="var(--border)"
+                    stroke="var(--muted-foreground)"
                     strokeWidth={1.25}
                   />
                 )
@@ -615,7 +615,7 @@ export function HierarchyInspector() {
                     key={e.id}
                     d={`M ${s.x} ${s.y} C ${s.x} ${c1y} ${t.x} ${c2y} ${t.x} ${t.y}`}
                     fill="none"
-                    stroke="var(--border)"
+                    stroke="var(--muted-foreground)"
                     strokeWidth={1.25}
                   />
                 )
@@ -633,7 +633,7 @@ export function HierarchyInspector() {
                     key={e.id}
                     d={`M ${s.x} ${s.y} C ${s.x} ${c1y} ${c2x} ${t.y} ${t.x} ${t.y}`}
                     fill="none"
-                    stroke="var(--border)"
+                    stroke="var(--muted-foreground)"
                     strokeWidth={1.25}
                   />
                 )
@@ -649,7 +649,7 @@ export function HierarchyInspector() {
                   key={e.id}
                   d={`M ${s.x} ${s.y} C ${c1x} ${s.y} ${c2x} ${t.y} ${t.x} ${t.y}`}
                   fill="none"
-                  stroke="var(--border)"
+                  stroke="var(--muted-foreground)"
                   strokeWidth={1.25}
                 />
               )
