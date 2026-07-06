@@ -583,24 +583,37 @@ export function HierarchyInspector() {
             })}
           </g>
 
-          {/* parent → child edges (quadratic bulge for an organic look) */}
+          {/* parent → child edges (vertical-biased S-curve for an organic flow) */}
           <g>
             {graph.edges.map((e) => {
               const s = byId.get(e.source)
               const t = byId.get(e.target)
               if (!s || !t) return null
-              // control point = midpoint pushed perpendicular to the edge by a
-              // capped fraction of its length, so the line bows out gently.
-              const dx = t.x - s.x
-              const dy = t.y - s.y
-              const len = Math.hypot(dx, dy) || 1
-              const bulge = Math.min(len * 0.18, 26)
-              const mx = (s.x + t.x) / 2 + (-dy / len) * bulge
-              const my = (s.y + t.y) / 2 + (dx / len) * bulge
+              // Soul's children get PURE STRAIGHT edges (the identity spine).
+              const fromSoul = s.entity.kind === "soul"
+              if (fromSoul) {
+                return (
+                  <line
+                    key={e.id}
+                    x1={s.x}
+                    y1={s.y}
+                    x2={t.x}
+                    y2={t.y}
+                    stroke="var(--border)"
+                    strokeWidth={1.25}
+                  />
+                )
+              }
+              // Cubic with VERTICAL tangents: control points share each endpoint's
+              // x and pull toward the vertical midpoint by `f`. Non-space targets
+              // curve a bit more so their lists flow more organically.
+              const f = t.entity.kind === "space" ? 0.5 : 0.72
+              const c1y = s.y + (t.y - s.y) * f
+              const c2y = t.y - (t.y - s.y) * f
               return (
                 <path
                   key={e.id}
-                  d={`M ${s.x} ${s.y} Q ${mx} ${my} ${t.x} ${t.y}`}
+                  d={`M ${s.x} ${s.y} C ${s.x} ${c1y} ${t.x} ${c2y} ${t.x} ${t.y}`}
                   fill="none"
                   stroke="var(--border)"
                   strokeWidth={1.25}
