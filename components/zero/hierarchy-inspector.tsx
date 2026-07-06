@@ -135,7 +135,7 @@ function tick(nodes: SimNode[], edges: Edge[], byId: Map<string, SimNode>, alpha
   const CHARGE = -1100
   const LINK_DIST = COL_DX
   const LINK_K = 0.22
-  const GRAVITY = 0.02
+  const GRAVITY = 0.005
   const COLUMN_K = 0.12
   const VELOCITY_DECAY = 0.72
   // Collision reserves the glyph + LABEL box (labels extend to the right of the
