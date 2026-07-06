@@ -689,6 +689,8 @@ export function HierarchyInspector() {
                     style={{
                       pointerEvents: "none",
                       textDecoration: cancelled ? "line-through" : undefined,
+                      textTransform: n.entity.kind === "individual" ? "uppercase" : undefined,
+                      letterSpacing: n.entity.kind === "individual" ? "0.08em" : undefined,
                     }}
                   >
                     {n.entity.title.length > 22 ? `${n.entity.title.slice(0, 21)}…` : n.entity.title}
