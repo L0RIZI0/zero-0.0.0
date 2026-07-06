@@ -1,5 +1,6 @@
 "use client"
 
+import { useEffect, useMemo, useRef, useState } from "react"
 import { useZeroNav } from "@/lib/zero/nav-store"
 import { useDebugView } from "@/lib/zero/debug-view"
 import { entities } from "@/lib/zero/data"
@@ -14,159 +15,404 @@ import type { Entity } from "@/lib/zero/types"
  * `parentId: null`) down through the Individual (entity0 = home) and every space to
  * all the leaves (tasks / moments / instants). Unlike the do-list's `getChildren`
  * (which hides the structural soul/individual kinds), this walks the raw ORIGIN
- * tree via `parentId` so the identity triad and every leaf are visible — it is a
- * debug X-ray of the real structure, not a browsable listing.
+ * tree via `parentId` so the identity triad and every leaf are visible — a debug
+ * X-ray of the real structure, not a browsable listing.
  *
- * LAYOUT — a left→right node-edge tree in the spirit of Obsidian's graph: depth maps
- * to an X column, and each parent's children are stacked as a VERTICAL column to its
- * right (so a branch of leaves reads as one tidy columned list), linked by smooth
- * curved connectors. The parent is centered vertically against its child block.
+ * LAYOUT — an Obsidian-style FORCE-DIRECTED graph. A tiny self-contained physics
+ * sim (no d3-force dep) relaxes the node cloud each frame with d3-style alpha decay:
+ *   • charge      — every node repels every other (Coulomb, ~1/dist²)
+ *   • link spring — parent↔child edges pull to a rest length
+ *   • gravity     — a gentle pull toward the canvas center so it can't drift away
+ *   • COLUMN HINT — a parent's LEAF children get a soft spring toward a vertical
+ *     stack just to the parent's right, so sibling leaves settle into a tidy
+ *     columned list "when possible" while the rest of the graph stays organic.
+ * Nodes are draggable (drag reheats the sim); recurrence occurrences (`seriesId`)
+ * are skipped so the graph is the true containment skeleton.
  *
- * Read-only: re-reads on `dataVersion` and never mutates. Recurrence occurrences
- * (`seriesId != null`) are materialized timeline instances, not structural nodes,
- * so they're excluded to keep the tree the true containment skeleton. Renders
- * nothing in production. Mirrors the §3 inspector's chrome/style.
+ * Read-only: re-seeds on `dataVersion`, never mutates. Renders nothing in
+ * production. Mirrors the §3 inspector's chrome/style.
  */
 
-const ROW_H = 30 // vertical slot per leaf (also the min gap between siblings)
-const COL_W = 184 // horizontal distance between depth columns
-const NODE_W = 148 // width of a node pill (label truncates within this)
-const PAD = 16 // inner padding around the whole diagram
+const NODE_W = 150 // node pill width (label truncates within)
+const CANVAS_W = 960
+const CANVAS_H = 640
+const COL_DX = 190 // horizontal gap a leaf column sits to the right of its parent
+const ROW_DY = 34 // vertical spacing between stacked leaf siblings
 
-type PositionedNode = { entity: Entity; x: number; y: number; depth: number; hasChildren: boolean }
-type Edge = { id: string; x1: number; y1: number; x2: number; y2: number }
+type SimNode = {
+  id: string
+  entity: Entity
+  hasChildren: boolean
+  x: number
+  y: number
+  vx: number
+  vy: number
+  // column-hint metadata (only meaningful for leaves): stack offset around parent
+  parentId: string | null
+  isLeaf: boolean
+  leafOffset: number // (index - (count-1)/2) among leaf siblings
+  fx: number | null // pinned position while dragging
+  fy: number | null
+}
 
-type Layout = { nodes: PositionedNode[]; edges: Edge[]; width: number; height: number }
+type Edge = { id: string; source: string; target: string }
 
-function buildLayout(): Layout {
-  // Group every structural entity under its origin parent, preserving insertion
-  // (creation) order — the same order `entities` already holds.
+/** Build the sim nodes + edges from the raw origin tree, seeded with a rough
+ *  left→right tree layout so the physics starts from a sane, near-solved state. */
+function buildGraph(): { nodes: SimNode[]; edges: Edge[] } {
   const byParent = new Map<string | null, Entity[]>()
   for (const e of entities) {
-    if (e.seriesId != null) continue // skip recurrence occurrences
+    if (e.seriesId != null) continue
     const list = byParent.get(e.parentId)
     if (list) list.push(e)
     else byParent.set(e.parentId, [e])
   }
 
-  const nodes: PositionedNode[] = []
+  const nodes: SimNode[] = []
   const edges: Edge[] = []
-  let cursorY = PAD // running vertical position for the next leaf slot
-  let maxDepth = 0
+  const cx = CANVAS_W / 2
+  const cy = CANVAS_H / 2
 
-  // Returns the node's center Y. Leaves consume one ROW_H slot; parents center
-  // on the span of their children.
-  const place = (entity: Entity, depth: number): number => {
-    maxDepth = Math.max(maxDepth, depth)
-    const x = PAD + depth * COL_W
+  const walk = (entity: Entity, depth: number, seedY: number) => {
     const children = byParent.get(entity.id) ?? []
+    const leafSiblings = children.filter((c) => (byParent.get(c.id)?.length ?? 0) === 0)
+    const leafCount = leafSiblings.length
 
-    let y: number
-    if (children.length === 0) {
-      y = cursorY + ROW_H / 2
-      cursorY += ROW_H
-    } else {
-      const childYs = children.map((c) => place(c, depth + 1))
-      y = (childYs[0] + childYs[childYs.length - 1]) / 2
-      // Connectors run from this node's right edge to each child's left edge.
-      const x1 = x + NODE_W
-      const x2 = PAD + (depth + 1) * COL_W
-      for (let i = 0; i < children.length; i++) {
-        edges.push({ id: `${entity.id}->${children[i].id}`, x1, y1: y, x2, y2: childYs[i] })
+    nodes.push({
+      id: entity.id,
+      entity,
+      hasChildren: children.length > 0,
+      // seed roughly by depth (x) and a spread on y; jitter avoids perfect overlap
+      x: cx - CANVAS_W / 3 + depth * COL_DX + (Math.random() - 0.5) * 8,
+      y: seedY + (Math.random() - 0.5) * 8,
+      vx: 0,
+      vy: 0,
+      parentId: entity.parentId,
+      isLeaf: children.length === 0,
+      leafOffset: 0,
+      fx: null,
+      fy: null,
+    })
+
+    let leafIdx = 0
+    children.forEach((child, i) => {
+      edges.push({ id: `${entity.id}->${child.id}`, source: entity.id, target: child.id })
+      const childSeedY = seedY + (i - (children.length - 1) / 2) * ROW_DY * 1.5
+      walk(child, depth + 1, childSeedY)
+      // stamp leaf-column offset on the just-pushed child node if it's a leaf
+      if ((byParent.get(child.id)?.length ?? 0) === 0) {
+        const node = nodes[nodes.length - 1]
+        node.leafOffset = leafIdx - (leafCount - 1) / 2
+        leafIdx++
       }
-    }
-
-    nodes.push({ entity, x, y, depth, hasChildren: children.length > 0 })
-    return y
+    })
   }
 
-  for (const root of byParent.get(null) ?? []) place(root, 0)
-
-  const width = PAD * 2 + maxDepth * COL_W + NODE_W
-  const height = Math.max(cursorY + PAD, ROW_H + PAD * 2)
-  return { nodes, edges, width, height }
+  for (const root of byParent.get(null) ?? []) walk(root, 0, cy)
+  return { nodes, edges }
 }
 
-/** Smooth Obsidian-style S-curve between two points with horizontal tangents. */
-function edgePath(e: Edge): string {
-  const midX = (e.x1 + e.x2) / 2
-  return `M ${e.x1} ${e.y1} C ${midX} ${e.y1}, ${midX} ${e.y2}, ${e.x2} ${e.y2}`
+/** One physics tick, d3-style. Mutates node positions in place. */
+function tick(nodes: SimNode[], edges: Edge[], byId: Map<string, SimNode>, alpha: number) {
+  const CHARGE = -2600
+  const LINK_DIST = COL_DX
+  const LINK_K = 0.3
+  const GRAVITY = 0.028
+  const COLUMN_K = 0.16
+  const VELOCITY_DECAY = 0.6
+  // Rectangular collision half-extents (pills are wide, short) + breathing margin.
+  const HALF_W = NODE_W / 2 + 8
+  const HALF_H = 13 + 3
+
+  // charge: pairwise repulsion
+  for (let i = 0; i < nodes.length; i++) {
+    const a = nodes[i]
+    for (let j = i + 1; j < nodes.length; j++) {
+      const b = nodes[j]
+      let dx = a.x - b.x
+      let dy = a.y - b.y
+      let d2 = dx * dx + dy * dy
+      if (d2 < 1) d2 = 1
+      const dist = Math.sqrt(d2)
+      const f = (CHARGE * alpha) / d2
+      const fx = (dx / dist) * f
+      const fy = (dy / dist) * f
+      a.vx += fx
+      a.vy += fy
+      b.vx -= fx
+      b.vy -= fy
+    }
+  }
+
+  // rectangular collision: resolve overlapping pill boxes along the axis of
+  // least penetration so wide labels stop stacking on top of each other.
+  for (let i = 0; i < nodes.length; i++) {
+    const a = nodes[i]
+    for (let j = i + 1; j < nodes.length; j++) {
+      const b = nodes[j]
+      const dx = b.x - a.x
+      const dy = b.y - a.y
+      const ox = HALF_W * 2 - Math.abs(dx)
+      const oy = HALF_H * 2 - Math.abs(dy)
+      if (ox > 0 && oy > 0) {
+        if (ox < oy) {
+          const push = (ox / 2) * (dx < 0 ? -1 : 1)
+          a.x -= push
+          b.x += push
+        } else {
+          const push = (oy / 2) * (dy < 0 ? -1 : 1)
+          a.y -= push
+          b.y += push
+        }
+      }
+    }
+  }
+
+  // link springs (parent↔child)
+  for (const e of edges) {
+    const s = byId.get(e.source)
+    const t = byId.get(e.target)
+    if (!s || !t) continue
+    const dx = t.x - s.x
+    const dy = t.y - s.y
+    const dist = Math.sqrt(dx * dx + dy * dy) || 1
+    const f = ((dist - LINK_DIST) / dist) * LINK_K * alpha
+    const fx = dx * f
+    const fy = dy * f
+    s.vx += fx
+    s.vy += fy
+    t.vx -= fx
+    t.vy -= fy
+  }
+
+  // gravity toward center + column hint for leaves
+  const cx = CANVAS_W / 2
+  const cy = CANVAS_H / 2
+  for (const n of nodes) {
+    n.vx += (cx - n.x) * GRAVITY * alpha
+    n.vy += (cy - n.y) * GRAVITY * alpha
+
+    if (n.isLeaf && n.parentId) {
+      const p = byId.get(n.parentId)
+      if (p) {
+        const targetX = p.x + COL_DX
+        const targetY = p.y + n.leafOffset * ROW_DY
+        n.vx += (targetX - n.x) * COLUMN_K * alpha
+        n.vy += (targetY - n.y) * COLUMN_K * alpha
+      }
+    }
+  }
+
+  // integrate + friction, honoring pinned (dragged) nodes
+  for (const n of nodes) {
+    if (n.fx != null) {
+      n.x = n.fx
+      n.vx = 0
+    } else {
+      n.vx *= VELOCITY_DECAY
+      n.x += n.vx
+    }
+    if (n.fy != null) {
+      n.y = n.fy
+      n.vy = 0
+    } else {
+      n.vy *= VELOCITY_DECAY
+      n.y += n.vy
+    }
+  }
 }
 
 export function HierarchyInspector() {
   const { hierarchy: visible } = useDebugView()
-  // Re-read the tree whenever entity data mutates (create / delete / re-parent).
   const { dataVersion } = useZeroNav()
-  void dataVersion
 
-  if (process.env.NODE_ENV === "production" || !visible) return null
+  const isDev = process.env.NODE_ENV !== "production"
+  const active = isDev && visible
 
-  const { nodes, edges, width, height } = buildLayout()
+  // Build the graph fresh whenever it's opened or data changes.
+  const graph = useMemo(() => (active ? buildGraph() : null), [active, dataVersion])
+
+  const nodesRef = useRef<SimNode[]>([])
+  const byIdRef = useRef<Map<string, SimNode>>(new Map())
+  const alphaRef = useRef(1)
+  const rafRef = useRef<number | null>(null)
+  const svgRef = useRef<SVGSVGElement | null>(null)
+  const dragRef = useRef<{ id: string; dx: number; dy: number } | null>(null)
+  const [, force] = useState(0)
+
+  useEffect(() => {
+    if (!graph) return
+    nodesRef.current = graph.nodes
+    byIdRef.current = new Map(graph.nodes.map((n) => [n.id, n]))
+    alphaRef.current = 1
+
+    const ALPHA_MIN = 0.002
+    const ALPHA_DECAY = 0.0228
+
+    const loop = () => {
+      const alpha = alphaRef.current
+      // run a couple of substeps per frame so it settles quickly
+      tick(nodesRef.current, graph.edges, byIdRef.current, alpha)
+      alphaRef.current = alpha + (0 - alpha) * ALPHA_DECAY
+      force((n) => n + 1)
+      if (alphaRef.current > ALPHA_MIN || dragRef.current) {
+        rafRef.current = requestAnimationFrame(loop)
+      } else {
+        rafRef.current = null
+      }
+    }
+    rafRef.current = requestAnimationFrame(loop)
+    return () => {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current)
+      rafRef.current = null
+    }
+  }, [graph])
+
+  if (!active || !graph) return null
+
+  const nodes = nodesRef.current
+  const byId = byIdRef.current
+
+  const reheat = () => {
+    alphaRef.current = Math.max(alphaRef.current, 0.3)
+    if (rafRef.current == null) {
+      const ALPHA_MIN = 0.002
+      const ALPHA_DECAY = 0.0228
+      const loop = () => {
+        tick(nodesRef.current, graph.edges, byIdRef.current, alphaRef.current)
+        alphaRef.current += (0 - alphaRef.current) * ALPHA_DECAY
+        force((n) => n + 1)
+        if (alphaRef.current > ALPHA_MIN || dragRef.current) rafRef.current = requestAnimationFrame(loop)
+        else rafRef.current = null
+      }
+      rafRef.current = requestAnimationFrame(loop)
+    }
+  }
+
+  const toLocal = (clientX: number, clientY: number) => {
+    const rect = svgRef.current?.getBoundingClientRect()
+    if (!rect) return { x: clientX, y: clientY }
+    return {
+      x: ((clientX - rect.left) / rect.width) * CANVAS_W,
+      y: ((clientY - rect.top) / rect.height) * CANVAS_H,
+    }
+  }
+
+  const onNodePointerDown = (id: string) => (ev: React.PointerEvent) => {
+    ev.preventDefault()
+    ;(ev.target as Element).setPointerCapture?.(ev.pointerId)
+    const n = byId.get(id)
+    if (!n) return
+    const p = toLocal(ev.clientX, ev.clientY)
+    dragRef.current = { id, dx: n.x - p.x, dy: n.y - p.y }
+    n.fx = n.x
+    n.fy = n.y
+    reheat()
+  }
+  const onPointerMove = (ev: React.PointerEvent) => {
+    const d = dragRef.current
+    if (!d) return
+    const n = byId.get(d.id)
+    if (!n) return
+    const p = toLocal(ev.clientX, ev.clientY)
+    n.fx = p.x + d.dx
+    n.fy = p.y + d.dy
+    alphaRef.current = Math.max(alphaRef.current, 0.15)
+  }
+  const onPointerUp = () => {
+    const d = dragRef.current
+    if (d) {
+      const n = byId.get(d.id)
+      if (n) {
+        n.fx = null
+        n.fy = null
+      }
+    }
+    dragRef.current = null
+  }
 
   return (
     <div
-      className="fixed left-3 top-3 z-[9999] flex max-h-[85vh] max-w-[92vw] select-none flex-col overflow-hidden rounded-md border border-border bg-card/90 font-mono text-xs text-card-foreground shadow-lg backdrop-blur"
+      className="fixed left-3 top-3 z-[9999] flex select-none flex-col overflow-hidden rounded-md border border-border bg-card/90 font-mono text-xs text-card-foreground shadow-lg backdrop-blur"
       role="status"
       aria-label="Hierarchy inspector"
     >
       <div className="flex items-center justify-between gap-6 border-b border-border px-3 py-2">
-        <span className="font-bold">{"Hierarchy · root → leaves"}</span>
+        <span className="font-bold">{"Hierarchy · force graph"}</span>
         <span className="text-[10px] text-muted-foreground tabular-nums">{nodes.length} nodes</span>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-auto">
-        <div className="relative" style={{ width, height }}>
-          {/* Edges behind the nodes. */}
-          <svg
-            className="pointer-events-none absolute inset-0"
-            width={width}
-            height={height}
-            aria-hidden
-          >
-            {edges.map((e) => (
-              <path
-                key={e.id}
-                d={edgePath(e)}
-                fill="none"
-                stroke="var(--border)"
-                strokeWidth={1.5}
-              />
-            ))}
-          </svg>
-
-          {/* Node pills. */}
-          {nodes.map(({ entity, x, y, hasChildren }) => {
-            const closed = isClosed(entity)
-            const cancelled = !!entity.cancelled
+      <svg
+        ref={svgRef}
+        width={CANVAS_W}
+        height={CANVAS_H}
+        className="max-h-[80vh] max-w-[92vw] touch-none"
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerLeave={onPointerUp}
+      >
+        {/* edges */}
+        <g>
+          {graph.edges.map((e) => {
+            const s = byId.get(e.source)
+            const t = byId.get(e.target)
+            if (!s || !t) return null
             return (
-              <div
-                key={entity.id}
-                className="absolute flex items-center gap-1.5 rounded-md border border-border bg-background/85 px-2 py-1 leading-none shadow-sm"
-                style={{ left: x, top: y, width: NODE_W, transform: "translateY(-50%)" }}
-                title={`${entity.title} · ${NODE_KIND_META[entity.kind].label}`}
-              >
-                <span className="shrink-0 text-foreground">
-                  <NodeGlyph
-                    kind={entity.kind}
-                    filled={closed}
-                    struck={cancelled}
-                    className="h-3.5 w-3.5"
-                    strokeWidth={1.75}
-                  />
-                </span>
-                <span
-                  className={`truncate ${cancelled ? "text-muted-foreground line-through" : hasChildren ? "font-semibold text-foreground" : "text-card-foreground"}`}
-                >
-                  {entity.title}
-                </span>
-              </div>
+              <line
+                key={e.id}
+                x1={s.x}
+                y1={s.y}
+                x2={t.x}
+                y2={t.y}
+                stroke="var(--border)"
+                strokeWidth={1.25}
+              />
             )
           })}
-        </div>
-      </div>
+        </g>
+
+        {/* nodes */}
+        <g>
+          {nodes.map((n) => {
+            const closed = isClosed(n.entity)
+            const cancelled = !!n.entity.cancelled
+            return (
+              <foreignObject
+                key={n.id}
+                x={n.x - NODE_W / 2}
+                y={n.y - 12}
+                width={NODE_W}
+                height={24}
+                onPointerDown={onNodePointerDown(n.id)}
+                className="cursor-grab active:cursor-grabbing"
+              >
+                <div
+                  className="flex h-6 items-center gap-1.5 rounded-md border border-border bg-background/90 px-2 leading-none shadow-sm"
+                  title={`${n.entity.title} · ${NODE_KIND_META[n.entity.kind].label}`}
+                >
+                  <span className="shrink-0 text-foreground">
+                    <NodeGlyph
+                      kind={n.entity.kind}
+                      filled={closed}
+                      struck={cancelled}
+                      className="h-3.5 w-3.5"
+                      strokeWidth={1.75}
+                    />
+                  </span>
+                  <span
+                    className={`truncate ${cancelled ? "text-muted-foreground line-through" : n.hasChildren ? "font-semibold text-foreground" : "text-card-foreground"}`}
+                  >
+                    {n.entity.title}
+                  </span>
+                </div>
+              </foreignObject>
+            )
+          })}
+        </g>
+      </svg>
 
       <div className="flex items-center justify-between border-t border-border px-3 py-1.5">
-        <span className="text-[10px] text-muted-foreground">{"§4 hide"}</span>
+        <span className="text-[10px] text-muted-foreground">{"§4 hide · drag nodes"}</span>
         <span className="text-[10px] text-muted-foreground">{"origin tree"}</span>
       </div>
     </div>
