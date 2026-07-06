@@ -1,5 +1,5 @@
 import type { Asset, Entity, EntityKind, Recurrence, Schedule, Resource, SpaceBase, TaskPriority, User } from "./types"
-import { isCompletable } from "./kinds"
+import { isCompletable, isClosed } from "./kinds"
 import { readUserItems, writeUserItems } from "./persistence"
 import type { ScheduleParse } from "./schedule-parse"
 
@@ -817,20 +817,27 @@ export function isDetachedChild(childId: string, hostId: string | undefined): bo
 }
 
 /**
- * Count of DIRECT child tasks (origin + tagged) that are still incomplete.
- * Child spaces and events are intentionally not counted. Drives the "N ■"
- * detail shown on pinned cards and space rows.
+ * The three task tallies (open / done / closed) are MUTUALLY EXCLUSIVE and mirror
+ * the three glyph states (see `isClosed`):
+ *   • OPEN   — outline, empty  : incomplete AND not closed
+ *   • DONE   — outline + check : completed but NOT yet closed
+ *   • CLOSED — filled          : closed (manual/cancelled/derived past midnight)
+ * Only DIRECT child tasks (origin + tagged) count; child spaces/events are excluded.
  */
+
+/** Count of open (incomplete, not closed) direct child tasks. */
 export function getOpenTaskCount(contextId: string): number {
-  return getChildren(contextId).filter((e) => e.kind === "task" && !e.completed).length
+  return getChildren(contextId).filter((e) => e.kind === "task" && !e.completed && !isClosed(e)).length
 }
 
-/**
- * Count of DIRECT child tasks (origin + tagged) that are COMPLETED. Mirror of
- * {@link getOpenTaskCount}. Drives the "done tasks" counter in the rail excerpt.
- */
+/** Count of done-but-not-closed direct child tasks (checkmark, no fill). */
 export function getDoneTaskCount(contextId: string): number {
-  return getChildren(contextId).filter((e) => e.kind === "task" && !!e.completed).length
+  return getChildren(contextId).filter((e) => e.kind === "task" && !!e.completed && !isClosed(e)).length
+}
+
+/** Count of closed (filled-glyph) direct child tasks. */
+export function getClosedTaskCount(contextId: string): number {
+  return getChildren(contextId).filter((e) => e.kind === "task" && isClosed(e)).length
 }
 
 /**

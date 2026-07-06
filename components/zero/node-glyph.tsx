@@ -237,6 +237,7 @@ export function NodeGlyph({
   filled = false,
   strokeWidth = 1.75,
   request = false,
+  showCheck = false,
 }: {
   kind: NodeKind
   className?: string
@@ -245,6 +246,11 @@ export function NodeGlyph({
   /** When true, draw the tilted "sent as request" edge off the square's
    *  bottom-right corner; animates in/out when this flips. */
   request?: boolean
+  /** When true, draw a static done CHECK tick inside the glyph (used by the
+   *  read-only spine excerpt to distinguish done-but-not-closed tasks). This is a
+   *  simple non-animated overlay — the animated checkmark on live rows/windows
+   *  lives in entity-node. */
+  showCheck?: boolean
 }) {
   const polyRef = useRef<SVGPolygonElement | null>(null)
   const reqRef = useRef<SVGPathElement | null>(null)
@@ -507,6 +513,19 @@ export function NodeGlyph({
           strokeLinecap="butt"
           vectorEffect="non-scaling-stroke"
           opacity={request ? 1 : 0}
+        />
+      )}
+      {/* Static done CHECK — a plain tick centered in the 24×24 box. Non-animated;
+          used by the spine excerpt's "done" counter (see showCheck doc above). */}
+      {showCheck && (
+        <polyline
+          points="7,12.5 10.5,16 17,8"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={strokeWidth}
+          strokeLinejoin="round"
+          strokeLinecap="round"
+          vectorEffect="non-scaling-stroke"
         />
       )}
     </svg>

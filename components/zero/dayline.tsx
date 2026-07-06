@@ -4,7 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { useZeroNav } from "@/lib/zero/nav-store"
 import { getTimelineOccurrences, getInheritedAccent } from "@/lib/zero/data"
 import { entityInterval } from "@/lib/zero/timeline-index"
-import { KIND_META } from "@/lib/zero/kinds"
+import { KIND_META, isClosed } from "@/lib/zero/kinds"
 import { rangeText, NOW_COLOR } from "@/lib/zero/timeline-format"
 import { placementKey } from "@/lib/zero/placement"
 import { DAYLINE_ROW_H } from "@/lib/zero/layout"
@@ -298,7 +298,11 @@ export function Dayline() {
         isDuration,
         centerPct: leftPct + widthPct / 2,
         range: rangeText(st, en, e.schedule?.repeat),
-        filled: KIND_META[e.kind].fillGlyphWhenDone && !!e.completed,
+        // FILL = CLOSED. A dayline bar fills once THIS occurrence's end (`en`) is in
+        // the past — occurrence-accurate for recurring series (each instance closes on
+        // its own end) — or when the entity is otherwise closed (manual/cancelled/done
+        // past midnight) via isClosed.
+        filled: KIND_META[e.kind].fillGlyphWhenDone && (en <= Date.now() || isClosed(e)),
         // A sleep Moment (span) gets its own procedural night sky, seeded by the
         // occurrence key so each night differs but stays stable across pans.
         sky: isDuration && e.kind === "event" && isSleepTitle(e.title) ? sleepSkyBackground(e.occKey) : null,

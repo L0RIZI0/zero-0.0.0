@@ -32,7 +32,7 @@ import {
   webDisplayName,
   type WebResource,
 } from "@/lib/zero/web-resources"
-import { isCompletable } from "@/lib/zero/kinds"
+import { isCompletable, isClosed } from "@/lib/zero/kinds"
 import { useZeroNav, ADD_KEY } from "@/lib/zero/nav-store"
 import { MORPH_EASE } from "@/lib/zero/motion"
 import { NodeGlyph, NODE_KIND_META, type NodeKind } from "./node-glyph"
@@ -624,14 +624,15 @@ export function DoList({
   }, [items, filter, contextId])
 
   // The Open/All selectors reveal ONLY when the do-list isn't empty AND its entries
-  // are not ALL open — i.e. at least one item has been RESOLVED (completed or
-  // cancelled). An "open" item is one that is neither completed nor cancelled;
-  // merely scheduling/planning an open item no longer triggers the selectors. A list
-  // that is empty, or whose every item is still open, stays "virgin" ⇒ no chrome.
+  // are not ALL open — i.e. at least one item is RESOLVED: done (completed) OR CLOSED.
+  // "Closed" uses isClosed so a DERIVED close counts too — e.g. an Event whose end
+  // time has passed (like a finished "Daily standup") flips the list non-virgin even
+  // though nothing was manually acted on. A list that is empty, or whose every item is
+  // still open, stays "virgin" ⇒ no chrome.
   const showSelectors = useMemo(
     () =>
       items.length > 0 &&
-      items.some((it) => it.entity.completed || it.entity.cancelled),
+      items.some((it) => it.entity.completed || isClosed(it.entity)),
     [items],
   )
 
@@ -910,6 +911,7 @@ export function DoList({
     // Close (fill glyph) and Cancel (fill + strike + fade) apply to any COMPLETABLE
     // kind (task/space/event/instant/resource); terminal kinds retire/die instead.
     const canClose = isCompletable(item.kind)
+    const closedNow = isClosed(item.entity)
     const isClosedManually = !!item.entity.closed
     const isCancelled = !!item.entity.cancelled
     // Captured here (not read inside the menu closure) so the TaskSpace narrowing
@@ -934,21 +936,34 @@ export function DoList({
         },
         ...(canClose
           ? [
-              // "Close" — fill the glyph (archived / lifecycle-ended). "Reopen" only
-              // clears the MANUAL flag; a derived-closed item (done task past midnight,
-              // event past its end) still reads closed via isClosed.
-              {
-                label: isClosedManually ? "Reopen" : "Close",
-                icon: isClosedManually ? (
-                  <ArchiveRestore className="h-3.5 w-3.5" />
-                ) : (
-                  <Archive className="h-3.5 w-3.5" />
-                ),
-                onSelect: () => {
-                  setEntityClosed(item.id, !isClosedManually)
-                  notifyDataChanged()
-                },
-              },
+              // "Close" — fill the glyph (archived). Shown ONLY when the entity is not
+              // already closed. "Reopen" (clears the manual flag) shows only for a
+              // MANUALLY closed entity. A DERIVED-closed item (event past its end, done
+              // task past midnight) offers NEITHER — it's already closed and can't be
+              // reopened, so we don't show a stale "Close".
+              ...(!closedNow
+                ? [
+                    {
+                      label: "Close",
+                      icon: <Archive className="h-3.5 w-3.5" />,
+                      onSelect: () => {
+                        setEntityClosed(item.id, true)
+                        notifyDataChanged()
+                      },
+                    },
+                  ]
+                : isClosedManually
+                  ? [
+                      {
+                        label: "Reopen",
+                        icon: <ArchiveRestore className="h-3.5 w-3.5" />,
+                        onSelect: () => {
+                          setEntityClosed(item.id, false)
+                          notifyDataChanged()
+                        },
+                      },
+                    ]
+                  : []),
               // "Cancel" — fill the glyph AND strike through the title + fade the row.
               {
                 label: isCancelled ? "Restore" : "Cancel",
