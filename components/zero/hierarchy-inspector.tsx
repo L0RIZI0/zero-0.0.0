@@ -566,7 +566,7 @@ export function HierarchyInspector() {
             <mask id="zero-glyph-holes">
               <rect x={0} y={0} width={WORLD_W} height={WORLD_H} fill="white" />
               {nodes.map((n) => (
-                <circle key={n.id} cx={n.x} cy={n.y} r={GLYPH / 2} fill="black" />
+                <circle key={n.id} cx={n.x} cy={n.y} r={GLYPH / 3} fill="black" />
               ))}
             </mask>
           </defs>
