@@ -1,14 +1,14 @@
 import type { Metadata } from "next"
 import Link from "next/link"
 import { ArrowLeft } from "lucide-react"
-import { Germania_One } from "next/font/google"
+import { UnifrakturCook } from "next/font/google"
 
-// Germania One — a serious, genuinely Germanic blackletter-inspired display face.
-// Heavily stylized medieval character but with far more READABLE uppercase forms than
-// Fraktur/Unifraktur (and less casual than Pirata One). Scoped to this page only via
-// its CSS variable so it never leaks into the rest of the shell's Geist UI.
-const blackletter = Germania_One({
-  weight: "400",
+// UnifrakturCook — a proper, HEAVY German Fraktur blackletter (700). Much bolder and
+// more assertively Germanic than Germania One, with dense medieval texture, while its
+// large-display uppercases stay legible. Scoped to this page only via its CSS variable
+// so it never leaks into the rest of the shell's Geist UI.
+const blackletter = UnifrakturCook({
+  weight: "700",
   subsets: ["latin"],
   variable: "--font-blackletter",
 })
