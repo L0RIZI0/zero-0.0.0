@@ -347,10 +347,19 @@ export function HierarchyInspector() {
   const panRef = useRef({ x: 0, y: 0 })
   const panDragRef = useRef<{ px: number; py: number } | null>(null)
   const centeredRef = useRef(false)
+  // Zoom scale (world → screen). Ctrl/⌘+wheel & trackpad pinch adjust it.
+  const scaleRef = useRef(1)
+  // Ripple bursts emitted at the cursor on each zoom step (world coords).
+  const ripplesRef = useRef<{ id: number; x: number; y: number; born: number }[]>([])
+  const rippleRafRef = useRef<number | null>(null)
+  const rippleIdRef = useRef(0)
   const [, force] = useState(0)
 
   const ALPHA_MIN = 0.002
   const ALPHA_DECAY = 0.0228
+  const MIN_SCALE = 0.2
+  const MAX_SCALE = 3
+  const RIPPLE_MS = 650
 
   const startLoop = () => {
     if (rafRef.current != null || !graph) return
@@ -364,6 +373,20 @@ export function HierarchyInspector() {
     rafRef.current = requestAnimationFrame(loop)
   }
 
+  // Repaint while ripples are alive, pruning expired ones. Independent of the
+  // physics loop so ripples animate even after the graph has settled.
+  const startRipples = () => {
+    if (rippleRafRef.current != null) return
+    const loop = () => {
+      const now = performance.now()
+      ripplesRef.current = ripplesRef.current.filter((r) => now - r.born < RIPPLE_MS)
+      force((n) => n + 1)
+      if (ripplesRef.current.length) rippleRafRef.current = requestAnimationFrame(loop)
+      else rippleRafRef.current = null
+    }
+    rippleRafRef.current = requestAnimationFrame(loop)
+  }
+
   useEffect(() => {
     if (!graph) return
     nodesRef.current = graph.nodes
@@ -374,7 +397,45 @@ export function HierarchyInspector() {
     return () => {
       if (rafRef.current) cancelAnimationFrame(rafRef.current)
       rafRef.current = null
+      if (rippleRafRef.current) cancelAnimationFrame(rippleRafRef.current)
+      rippleRafRef.current = null
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [graph])
+
+  // Wheel: plain wheel/trackpad pans; Ctrl/⌘+wheel (and trackpad pinch, which the
+  // browser reports as a ctrlKey wheel) zooms around the cursor + emits a ripple.
+  // Attached natively with { passive: false } so we can preventDefault the zoom.
+  useEffect(() => {
+    const vp = viewportRef.current
+    if (!vp || !graph) return
+    const onWheel = (ev: WheelEvent) => {
+      const rect = vp.getBoundingClientRect()
+      const cx = ev.clientX - rect.left
+      const cy = ev.clientY - rect.top
+      if (ev.ctrlKey || ev.metaKey) {
+        ev.preventDefault()
+        const old = scaleRef.current
+        const next = Math.min(MAX_SCALE, Math.max(MIN_SCALE, old * Math.exp(-ev.deltaY * 0.0025)))
+        if (next === old) return
+        const p = panRef.current
+        // keep the world point under the cursor fixed on screen
+        const wx = (cx - p.x) / old
+        const wy = (cy - p.y) / old
+        panRef.current = { x: cx - wx * next, y: cy - wy * next }
+        scaleRef.current = next
+        ripplesRef.current.push({ id: rippleIdRef.current++, x: wx, y: wy, born: performance.now() })
+        startRipples()
+        force((n) => n + 1)
+      } else {
+        ev.preventDefault()
+        const p = panRef.current
+        panRef.current = { x: p.x - ev.deltaX, y: p.y - ev.deltaY }
+        force((n) => n + 1)
+      }
+    }
+    vp.addEventListener("wheel", onWheel, { passive: false })
+    return () => vp.removeEventListener("wheel", onWheel)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [graph])
 
@@ -395,18 +456,22 @@ export function HierarchyInspector() {
   const nodes = nodesRef.current
   const byId = byIdRef.current
   const pan = panRef.current
+  const scale = scaleRef.current
+  const nowT = performance.now()
 
   const reheat = () => {
     alphaRef.current = Math.max(alphaRef.current, 0.3)
     startLoop()
   }
 
-  // client → world coordinates (svg is rendered at natural WORLD size, so the
-  // only transform between client and world space is the pan translate).
+  // client → world coordinates. The svg is transformed by `translate(pan) scale`
+  // (origin 0,0), so world = (screen − pan) / scale, measured from the viewport.
   const toWorld = (clientX: number, clientY: number) => {
-    const rect = svgRef.current?.getBoundingClientRect()
+    const rect = viewportRef.current?.getBoundingClientRect()
     if (!rect) return { x: clientX, y: clientY }
-    return { x: clientX - rect.left, y: clientY - rect.top }
+    const s = scaleRef.current
+    const p = panRef.current
+    return { x: (clientX - rect.left - p.x) / s, y: (clientY - rect.top - p.y) / s }
   }
 
   const onNodePointerDown = (id: string) => (ev: React.PointerEvent) => {
@@ -486,7 +551,7 @@ export function HierarchyInspector() {
           width={WORLD_W}
           height={WORLD_H}
           className="absolute left-0 top-0"
-          style={{ transform: `translate(${pan.x}px, ${pan.y}px)` }}
+          style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${scale})`, transformOrigin: "0 0" }}
         >
           {/* edges */}
           <g>
@@ -560,11 +625,34 @@ export function HierarchyInspector() {
               )
             })}
           </g>
+
+          {/* ripple bursts emitted at the cursor on each zoom step */}
+          <g>
+            {ripplesRef.current.map((r) => {
+              const p = Math.min(1, (nowT - r.born) / RIPPLE_MS)
+              const eased = 1 - (1 - p) * (1 - p) // ease-out
+              const radius = 4 + eased * 96
+              return (
+                <circle
+                  key={r.id}
+                  cx={r.x}
+                  cy={r.y}
+                  r={radius}
+                  fill="none"
+                  stroke="var(--foreground)"
+                  strokeWidth={1.5 / scale}
+                  opacity={(1 - p) * 0.5}
+                />
+              )
+            })}
+          </g>
         </svg>
       </div>
 
       <div className="flex items-center justify-between border-t border-border px-3 py-1.5">
-        <span className="text-[10px] text-muted-foreground">{"§4 hide · drag nodes · drag bg to pan"}</span>
+        <span className="text-[10px] text-muted-foreground">
+          {"§4 hide · drag nodes · wheel/drag to pan · ⌘/ctrl+wheel to zoom"}
+        </span>
         <span className="text-[10px] text-muted-foreground">{"origin tree"}</span>
       </div>
     </div>
