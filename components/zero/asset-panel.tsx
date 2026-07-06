@@ -158,6 +158,13 @@ function ResourceRow({
   onHover: (h: PeekHover) => void
 }) {
   const tileRef = useRef<HTMLSpanElement>(null)
+  // Row hover is driven by LOCAL state + inline styles rather than a Tailwind
+  // `hover:` utility: the `hover:bg-card`/`hover:border-border` variants stopped being
+  // emitted by the JIT (only non-hover `.bg-card` survives, from other usages), so the
+  // CSS pseudo-hover silently painted nothing. Local state is self-sufficient and
+  // matches the app's other JS-driven hovers (entity-node/do-list). Fades in quick
+  // (0.15s) and out a touch slower (0.3s) so the highlight lingers like elsewhere.
+  const [hovered, setHovered] = useState(false)
   // Peek travel for JUST the glyph tile (+ hairline): slide the losange left so its center
   // lands on the peek strip center. The ROW box itself no longer moves — only the losange and
   // its hairline travel; the title/detail slide left + fade separately. The content inset is
@@ -186,10 +193,20 @@ function ResourceRow({
       // morph curve as everything else → the vertical compaction glides in lockstep.
       animate={{ height: peek ? PEEK_ROW_H : ROW_H_OPEN }}
       transition={peekMorph(peek, peekDelayed, morphBase)}
+      onPointerEnter={peek ? undefined : () => setHovered(true)}
+      onPointerLeave={peek ? undefined : () => setHovered(false)}
       className={cn(
         "group relative flex w-full items-center gap-3 rounded-lg border border-transparent px-2 py-1.5 text-left",
-        peek ? "pointer-events-none" : "pointer-events-auto transition-colors hover:border-border hover:bg-card",
+        peek ? "pointer-events-none" : "pointer-events-auto",
       )}
+      style={{
+        // Inline hover fill + outline (see the `hovered` note above). Transparent at
+        // rest; card fill + visible border on hover. Duration is asymmetric so the
+        // highlight lingers slightly after the pointer leaves.
+        backgroundColor: !peek && hovered ? "var(--card)" : "transparent",
+        borderColor: !peek && hovered ? "var(--border)" : "transparent",
+        transition: `background-color ${hovered ? "0.15s" : "0.3s"} ease-out, border-color ${hovered ? "0.15s" : "0.3s"} ease-out`,
+      }}
     >
       {/* Continuity hairline: runs from the window edge to the glyph. It PERSISTS in peek
           (stays visible, connecting the screen edge to the peek losange). Its left anchor is
