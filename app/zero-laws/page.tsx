@@ -1,13 +1,14 @@
 import type { Metadata } from "next"
 import Link from "next/link"
 import { ArrowLeft } from "lucide-react"
-import { Grenze_Gotisch } from "next/font/google"
+import { Pirata_One } from "next/font/google"
 
-// Germanic gothic (blackletter-inspired) but far more legible than Fraktur — the
-// ornate Unifraktur letterforms were hard to read. Scoped to this page only via its
-// CSS variable so it never leaks into the rest of the shell's Geist UI.
-const blackletter = Grenze_Gotisch({
-  weight: ["500", "700"],
+// Pirata One — an authentic blackletter/Germanic gothic that keeps the ornamental
+// character while staying legible (unlike the ornate Unifraktur, and a different feel
+// than Grenze Gotisch). Scoped to this page only via its CSS variable so it never
+// leaks into the rest of the shell's Geist UI.
+const blackletter = Pirata_One({
+  weight: "400",
   subsets: ["latin"],
   variable: "--font-blackletter",
 })
