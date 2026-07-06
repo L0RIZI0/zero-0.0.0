@@ -835,9 +835,20 @@ export function getDoneTaskCount(contextId: string): number {
   return getChildren(contextId).filter((e) => e.kind === "task" && !!e.completed && !isClosed(e)).length
 }
 
-/** Count of closed (filled-glyph) direct child tasks. */
+/**
+ * Count of closed direct child tasks that were closed for a reason OTHER than
+ * cancellation (filled glyph). Cancelled tasks are `isClosed` too, but the excerpt
+ * shows them as their own tally (struck-through glyph), so they're excluded here.
+ */
 export function getClosedTaskCount(contextId: string): number {
-  return getChildren(contextId).filter((e) => e.kind === "task" && isClosed(e)).length
+  return getChildren(contextId).filter((e) => e.kind === "task" && isClosed(e) && !e.cancelled).length
+}
+
+/** Count of cancelled direct child tasks (struck-through glyph). Mutually exclusive
+ *  from the open/done/closed tallies: cancelled implies `isClosed`, so those helpers
+ *  (which all gate on `isClosed` / `!e.cancelled`) never also count these. */
+export function getCancelledTaskCount(contextId: string): number {
+  return getChildren(contextId).filter((e) => e.kind === "task" && !!e.cancelled).length
 }
 
 /**

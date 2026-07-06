@@ -3,19 +3,25 @@
 import { useRef } from "react"
 import { AnimatePresence, motion, type Transition } from "motion/react"
 import { NodeGlyph } from "./node-glyph"
-import { getOpenTaskCount, getDoneTaskCount, getClosedTaskCount } from "@/lib/zero/data"
+import {
+  getOpenTaskCount,
+  getDoneTaskCount,
+  getClosedTaskCount,
+  getCancelledTaskCount,
+} from "@/lib/zero/data"
 import { useZeroNav } from "@/lib/zero/nav-store"
 import { cn } from "@/lib/utils"
 
 /**
  * The spine EXCERPT — a compact summary of what an entity holds, shown at the TOP of a
- * side spine (currently the left/Resources spine). It surfaces the three MUTUALLY
+ * side spine (currently the left/Resources spine). It surfaces the four MUTUALLY
  * EXCLUSIVE task tallies (matching the glyph states) so the counts read consistently
  * across the app:
  *
- *   • open tasks   — outline glyph      + count of incomplete, un-closed child tasks
- *   • done tasks   — outline + check    + count of done-but-not-closed child tasks
- *   • closed tasks — filled glyph       + count of closed (archived) child tasks
+ *   • open tasks      — outline glyph      + count of incomplete, un-closed child tasks
+ *   • done tasks      — outline + check    + count of done-but-not-closed child tasks
+ *   • closed tasks    — filled glyph       + count of closed-but-not-cancelled tasks
+ *   • cancelled tasks — struck-through glyph + count of cancelled child tasks
  *
  * All come from the SAME `getChildren` listing as the do-list/dock (origin + tagged),
  * so the excerpt reflects whatever is browsable inside the entity. Shown for EVERY
@@ -35,21 +41,31 @@ export function SpineExcerpt({ entityId }: { entityId: string }) {
   const open = getOpenTaskCount(entityId)
   const done = getDoneTaskCount(entityId)
   const closed = getClosedTaskCount(entityId)
+  const cancelled = getCancelledTaskCount(entityId)
 
   // Build the active tallies as a keyed list so AnimatePresence can animate each
   // counter in/out individually as its count crosses zero. Order is stable
-  // (open → done → closed) so counters slot into a consistent vertical position.
+  // (open → done → closed → cancelled) so counters slot into a consistent
+  // vertical position.
   const counters = [
-    { id: "open", count: open, filled: false, checked: false },
-    { id: "done", count: done, filled: false, checked: true },
-    { id: "closed", count: closed, filled: true, checked: false },
+    { id: "open", count: open, filled: false, checked: false, struck: false },
+    { id: "done", count: done, filled: false, checked: true, struck: false },
+    { id: "closed", count: closed, filled: true, checked: false, struck: false },
+    { id: "cancelled", count: cancelled, filled: false, checked: false, struck: true },
   ].filter((c) => c.count > 0)
 
   return (
     <div className="flex flex-col items-center overflow-hidden">
       <AnimatePresence initial={false}>
         {counters.map((c) => (
-          <Counter key={c.id} count={c.count} kind="task" filled={c.filled} checked={c.checked} />
+          <Counter
+            key={c.id}
+            count={c.count}
+            kind="task"
+            filled={c.filled}
+            checked={c.checked}
+            struck={c.struck}
+          />
         ))}
       </AnimatePresence>
     </div>
@@ -70,11 +86,13 @@ function Counter({
   kind,
   filled = false,
   checked = false,
+  struck = false,
 }: {
   count: number
   kind: "task"
   filled?: boolean
   checked?: boolean
+  struck?: boolean
 }) {
   return (
     <motion.span
@@ -91,7 +109,7 @@ function Counter({
       )}
     >
       <span className="flex h-2.5 w-2.5 items-center justify-center">
-        <NodeGlyph kind={kind} filled={filled} showCheck={checked} strokeWidth={1.5} />
+        <NodeGlyph kind={kind} filled={filled} showCheck={checked} struck={struck} strokeWidth={1.5} />
       </span>
       <DigitRoll value={count} />
     </motion.span>

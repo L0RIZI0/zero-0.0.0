@@ -238,6 +238,7 @@ export function NodeGlyph({
   strokeWidth = 1.75,
   request = false,
   showCheck = false,
+  struck = false,
 }: {
   kind: NodeKind
   className?: string
@@ -251,6 +252,10 @@ export function NodeGlyph({
    *  simple non-animated overlay — the animated checkmark on live rows/windows
    *  lives in entity-node. */
   showCheck?: boolean
+  /** When true, draw a static horizontal STRIKETHROUGH bar across the glyph's
+   *  middle — the excerpt's mark for a CANCELLED tally, echoing the line-through
+   *  used on cancelled titles elsewhere. Non-animated, like showCheck. */
+  struck?: boolean
 }) {
   const polyRef = useRef<SVGPolygonElement | null>(null)
   const reqRef = useRef<SVGPathElement | null>(null)
@@ -524,6 +529,21 @@ export function NodeGlyph({
           stroke="currentColor"
           strokeWidth={strokeWidth}
           strokeLinejoin="round"
+          strokeLinecap="round"
+          vectorEffect="non-scaling-stroke"
+        />
+      )}
+      {/* Static STRIKETHROUGH — a horizontal bar across the glyph's middle, the
+          excerpt's mark for a cancelled tally (mirrors the cancelled-title line-
+          through). Non-animated, like the check above. */}
+      {struck && (
+        <line
+          x1="5"
+          y1="12"
+          x2="19"
+          y2="12"
+          stroke="currentColor"
+          strokeWidth={strokeWidth}
           strokeLinecap="round"
           vectorEffect="non-scaling-stroke"
         />
