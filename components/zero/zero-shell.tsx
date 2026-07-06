@@ -4,6 +4,7 @@ import { useTheme } from "next-themes"
 import { WorkSurface } from "./work-surface"
 import { ThemeToggle } from "./theme-toggle"
 import { FpsMeter } from "./fps-meter"
+import { ActivityInspector } from "./activity-inspector"
 import { ZeroNavProvider, useZeroNav } from "@/lib/zero/nav-store"
 import { telescopicSurface } from "@/lib/zero/motion"
 import { DURATION_S, MORPH_CSS_EASE } from "@/lib/zero/flip-stage"
@@ -42,6 +43,7 @@ export function ZeroShell() {
       <ZeroShellInner />
       <ThemeToggle />
       <FpsMeter />
+      <ActivityInspector />
     </ZeroNavProvider>
   )
 }
