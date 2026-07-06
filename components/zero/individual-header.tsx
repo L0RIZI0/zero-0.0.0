@@ -49,12 +49,15 @@ export function IndividualHeader({
   bgTransition?: string
 }) {
   return (
-    <div
-      className="pointer-events-none relative z-40 flex shrink-0 flex-col"
-      style={{ backgroundColor: surface, transition: bgTransition } as React.CSSProperties}
-    >
+    <div className="pointer-events-none relative z-40 flex shrink-0 flex-col">
+      {/* Top chrome (avatar, time+date, search, zero logo) is TRANSPARENT — the
+          opened window / canvas shows straight through it. */}
       <ShellHeader />
-      <Dayline />
+      {/* Only the DAYLINE band (and its container) is OPAQUE, painting entity0's
+          telescopic backdrop so it stays seamless with the canvas at every depth. */}
+      <div style={{ backgroundColor: surface, transition: bgTransition } as React.CSSProperties}>
+        <Dayline />
+      </div>
     </div>
   )
 }
