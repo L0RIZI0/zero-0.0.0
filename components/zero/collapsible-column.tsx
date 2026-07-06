@@ -3,8 +3,14 @@
 import { useRef, useState } from "react"
 import { motion, AnimatePresence } from "motion/react"
 import { ChevronLeft, ChevronRight, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from "lucide-react"
-import { panelSlideTransition, MORPH_SECONDS, MORPH_EASE } from "@/lib/zero/motion"
+import { panelSlideTransition, MORPH_SECONDS, MORPH_EASE, HEADER_H } from "@/lib/zero/motion"
 import { cn } from "@/lib/utils"
+
+/** How far UP the spine glyph/title slide when hiding. The crop box top sits on the
+ *  View's top edge (= the header's BOTTOM edge), so anything above it is clipped; this
+ *  distance (~a full header height) carries them up to the user AVATAR level inside the
+ *  header before they vanish, instead of tucking just behind the edge. */
+const SPINE_HIDE_Y = HEADER_H + 12
 
 /**
  * A side "shortcut" living at the window's left/right edge. The shortcut RAIL is a
@@ -383,9 +389,9 @@ export function CollapsibleColumn({
                 className="flex justify-center overflow-hidden"
               >
                 <motion.div
-                  initial={{ y: "-100%", opacity: 0 }}
-                  animate={{ y: "0%", opacity: 1 }}
-                  exit={{ y: "-100%", opacity: 0 }}
+                  initial={{ y: -SPINE_HIDE_Y, opacity: 0 }}
+                  animate={{ y: 0, opacity: 1 }}
+                  exit={{ y: -SPINE_HIDE_Y, opacity: 0 }}
                   transition={{ duration: MORPH_SECONDS, ease: MORPH_EASE }}
                   className="flex items-center justify-center"
                 >
@@ -408,13 +414,14 @@ export function CollapsibleColumn({
                 className="flex justify-center overflow-hidden"
               >
                 <motion.span
-                  // Slide the title DOWN from above the crop line: at height 0 it is fully
-                  // translated up (−100% of its own height) and thus entirely clipped; as
-                  // the box grows it eases to 0 and lands flush. Same duration/ease as the
-                  // height so the two stay in lockstep.
-                  initial={{ y: "-100%", opacity: 0 }}
-                  animate={{ y: "0%", opacity: 1 }}
-                  exit={{ y: "-100%", opacity: 0 }}
+                  // Slide the title DOWN from up in the header: at rest-hidden it is
+                  // translated up by SPINE_HIDE_Y (~a header height, i.e. avatar level) and
+                  // thus clipped by the crop box top (the header's bottom edge); as the box
+                  // grows it eases to 0 and lands flush. Same duration/ease as the height so
+                  // the two stay in lockstep.
+                  initial={{ y: -SPINE_HIDE_Y, opacity: 0 }}
+                  animate={{ y: 0, opacity: 1 }}
+                  exit={{ y: -SPINE_HIDE_Y, opacity: 0 }}
                   transition={{ duration: MORPH_SECONDS, ease: MORPH_EASE }}
                   // sideways-lr = upright, reading bottom-to-top. inline-block so translateY
                   // % resolves against its own height and the crop box can measure it.
