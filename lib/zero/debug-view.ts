@@ -2,6 +2,7 @@
 
 import { useSyncExternalStore } from "react"
 import { clearUserItems } from "./persistence"
+import { clearActivityLog } from "./activity-log"
 
 // ============================================================================
 // Shared DEBUG-view store ([v0] DEBUG)
@@ -9,10 +10,12 @@ import { clearUserItems } from "./persistence"
 // Two independently-toggleable dev overlays, flipped by a `§`-prefixed chord:
 //   • `§ 1` → the FPS meter window (bottom-left)
 //   • `§ 2` → the colored element frames + their ID/property labels
+//   • `§ 3` → the ACTIVITY inspector (today's presence segments + per-space totals)
 //   • `§ 0` → RESET PREVIEW DATA: wipe THIS browser's persisted user items
-//            (created entities + pins + tombstones + overrides) and reload, so
-//            the app returns to pure seed data. localStorage is per-browser, so
-//            this only affects the browser it's pressed in (never Electron).
+//            (created entities + pins + tombstones + overrides) AND the activity
+//            log, then reload, so the app returns to pure seed data. localStorage
+//            is per-browser, so this only affects the browser it's pressed in
+//            (never Electron).
 //
 // `§` is used as a one-shot PREFIX: press it, then press 1 or 2 within a short
 // window. We use § (not the backtick) because some keyboards (ISO/EU layouts)
@@ -24,10 +27,10 @@ import { clearUserItems } from "./persistence"
 // there's a single source of truth. Remove this whole file with the debug borders.
 // ============================================================================
 
-type DebugState = { fps: boolean; frames: boolean }
+type DebugState = { fps: boolean; frames: boolean; activity: boolean }
 
-// Both overlays default OFF; reveal them on demand via the `§ 1` / `§ 2` chords.
-let state: DebugState = { fps: false, frames: false }
+// All overlays default OFF; reveal them on demand via the `§ 1` / `§ 2` / `§ 3` chords.
+let state: DebugState = { fps: false, frames: false, activity: false }
 
 const listeners = new Set<() => void>()
 function emit() {
@@ -44,6 +47,9 @@ export function toggleDebugFps() {
 }
 export function toggleDebugFrames() {
   setState({ frames: !state.frames })
+}
+export function toggleDebugActivity() {
+  setState({ activity: !state.activity })
 }
 
 // --- Global `§`-prefix chord listener (installed once, client-only) ----------
@@ -74,19 +80,21 @@ function ensureListener() {
       return
     }
 
-    if (prefixActive && (e.key === "0" || e.key === "1" || e.key === "2")) {
+    if (prefixActive && (e.key === "0" || e.key === "1" || e.key === "2" || e.key === "3")) {
       e.preventDefault()
       if (e.key === "1") toggleDebugFps()
       else if (e.key === "2") toggleDebugFrames()
+      else if (e.key === "3") toggleDebugActivity()
       else {
         // `§ 0` — reset THIS browser's preview data back to pure seeds. Confirmed
         // because it clears created entities too (web-preview store is disposable,
         // but a stray chord shouldn't silently wipe it).
         const ok = window.confirm(
-          "Reset preview data?\n\nThis clears this browser's created entities, pins, and deletions (including the tombstones hiding the seeded spaces/tasks) and reloads with fresh seed data.\n\nThis only affects THIS browser — your Electron app is untouched.",
+          "Reset preview data?\n\nThis clears this browser's created entities, pins, deletions (including the tombstones hiding the seeded spaces/tasks), and the activity log, then reloads with fresh seed data.\n\nThis only affects THIS browser — your Electron app is untouched.",
         )
         if (ok) {
           clearUserItems()
+          clearActivityLog()
           window.location.reload()
         }
       }

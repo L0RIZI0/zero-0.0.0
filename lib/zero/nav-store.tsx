@@ -17,6 +17,7 @@ import {
 import type { EntityKind } from "./types"
 import type { OpenOrigin } from "./placement"
 import { resolveOriginRect } from "./placement"
+import { recordPresence } from "./activity-log"
 
 // `OpenOrigin` (imported from ./placement) carries the viewport rect + kind the
 // window should morph FROM when an entity is opened from a placement that has no
@@ -504,6 +505,15 @@ export function ZeroNavProvider({
   const close = useCallback(() => {
     closeWindow(stackRef.current.length - 1)
   }, [closeWindow])
+
+  // ACTIVITY TRACKER (step 1): log the focused space (top of stack) over time.
+  // Fires on mount (records the initial root presence) and on every stack change.
+  // The activity-log dedupes repeats and owns its own dedicated localStorage key,
+  // so this is a safe, fire-and-forget signal that never touches entity data.
+  const activeId = stack[stack.length - 1]
+  useEffect(() => {
+    recordPresence(activeId)
+  }, [activeId])
 
   // Escape closes the current focus window (unless typing in a field).
   useEffect(() => {
