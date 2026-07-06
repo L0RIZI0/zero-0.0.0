@@ -59,8 +59,8 @@ const WORLD_H = 2600
 
 // Directional offsets (see childDir): the target of a child relative to its parent.
 const IH = 12 // intrinsic half-height of a node's own row (→ leaves ~2·IH apart)
-const SPACE_GAP = 40 // gap after the parent's LABEL before its space column starts
-const SPACE_VGAP = 20 // gap between sibling-space SUBTREES in the right column
+const SPACE_GAP = 40 // vertical gap below the parent before its space row starts
+const SPACE_HGAP = 48 // horizontal gap between sibling-space SUBTREES in the row
 const SPINE_DY = 132 // vertical gap for an `individual` child (identity spine)
 const DR_DX = 16 // action children indent slightly right of the parent
 const DR_TOP = 28 // first action child's subtree top sits this far below the parent
@@ -102,6 +102,9 @@ type SimNode = {
 }
 
 type Edge = { id: string; source: string; target: string }
+
+/** Bounding reach of a subtree relative to its root node (all ≤0 on up/left, ≥0 on down/right). */
+type Ext = { up: number; down: number; left: number; right: number }
 
 /** Build the sim nodes + edges from the raw origin tree, then run an extent-aware
  *  `place()` pass to assign every node a fixed offset (`ox/oy`) from its parent. */
@@ -156,16 +159,18 @@ function buildGraph(): { nodes: SimNode[]; edges: Edge[] } {
   // place(): assign each child an offset from its parent, returning the subtree's
   // vertical extent {up ≤ 0, down ≥ 0} relative to this node. Sibling spacing uses
   // these real extents so tall columns never crash into the next sibling.
-  const place = (node: SimNode): { up: number; down: number } => {
+  const place = (node: SimNode): Ext => {
     const children = kids.get(node.id) ?? []
     const right = children.filter((c) => c.dir === "right")
     const down = children.filter((c) => c.dir === "down")
     const dr = children.filter((c) => c.dir === "downRight")
-    const ext = new Map<string, { up: number; down: number }>()
+    const ext = new Map<string, Ext>()
     for (const c of children) ext.set(c.id, place(c))
 
     let up = -IH
     let down_ = IH
+    let left = -node.rw * 0 - IH // node's own left reach (glyph center → left is ~half glyph)
+    let right_ = node.rw // own right reach = glyph + label
 
     // action children: stack their SUBTREES straight down, indented slightly right
     let cur = DR_TOP
@@ -174,6 +179,8 @@ function buildGraph(): { nodes: SimNode[]; edges: Edge[] } {
       a.ox = DR_DX
       a.oy = cur - e.up // subtree top aligns at `cur` below the node
       down_ = Math.max(down_, a.oy + e.down)
+      left = Math.min(left, a.ox + e.left)
+      right_ = Math.max(right_, a.ox + e.right)
       cur = a.oy + e.down + ROW_GAP
     }
 
@@ -184,26 +191,30 @@ function buildGraph(): { nodes: SimNode[]; edges: Edge[] } {
       d.ox = 0
       d.oy = dc - e.up
       down_ = Math.max(down_, d.oy + e.down)
+      left = Math.min(left, d.ox + e.left)
+      right_ = Math.max(right_, d.ox + e.right)
       dc = d.oy + e.down + SPINE_DY
     }
 
-    // space children: vertical column to the RIGHT, the stack CENTERED on the node
-    const heights = right.map((s) => {
+    // space children: horizontal ROW BELOW the node, the row CENTERED on the node's x
+    const widths = right.map((s) => {
       const e = ext.get(s.id)!
-      return e.down - e.up
+      return e.right - e.left
     })
-    const totalH = heights.reduce((a, b) => a + b, 0) + Math.max(0, right.length - 1) * SPACE_VGAP
-    let rc = -totalH / 2
+    const totalW = widths.reduce((a, b) => a + b, 0) + Math.max(0, right.length - 1) * SPACE_HGAP
+    let rc = -totalW / 2
+    const spaceTop = down_ + SPACE_GAP // clear the node's own down-extent first
     for (const s of right) {
       const e = ext.get(s.id)!
-      s.ox = node.rw + SPACE_GAP
-      s.oy = rc - e.up // subtree top aligns at `rc`
-      up = Math.min(up, s.oy + e.up)
+      s.ox = rc - e.left // subtree left aligns at `rc`
+      s.oy = spaceTop - e.up // subtree top aligns just below the node
+      left = Math.min(left, s.ox + e.left)
+      right_ = Math.max(right_, s.ox + e.right)
       down_ = Math.max(down_, s.oy + e.down)
-      rc = s.oy + e.down + SPACE_VGAP
+      rc = s.ox + e.right + SPACE_HGAP
     }
 
-    return { up, down: down_ }
+    return { up, down: down_, left, right: right_ }
   }
   for (const root of byParent.get(null) ?? []) place(byId.get(root.id)!)
 
