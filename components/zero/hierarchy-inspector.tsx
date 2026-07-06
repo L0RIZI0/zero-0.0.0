@@ -688,16 +688,16 @@ export function HierarchyInspector() {
                   />
                 )
               }
-              // Other NON-SPACE targets: HORIZONTAL-biased S-curve (cubic with horizontal
-              // tangents — control pts share each endpoint's y, pulled toward the
-              // horizontal midpoint by `hf`). Stronger tune for more flow.
-              const hf = 0.72
-              const c1x = sx + (tx - sx) * hf
-              const c2x = tx - (tx - sx) * hf
+              // Other NON-SPACE targets (task parents): same bottom→left elbow — the
+              // edge LEAVES the parent from its BOTTOM (vertical start tangent) and
+              // REACHES the child on its LEFT (horizontal end tangent).
+              const k = 0.6
+              const c1y = sy + (ty - sy) * k // straight down out of the parent
+              const c2x = tx - (tx - sx) * k // straight in from the child's left
               return (
                 <path
                   key={e.id}
-                  d={`M ${sx} ${sy} C ${c1x} ${sy} ${c2x} ${ty} ${tx} ${ty}`}
+                  d={`M ${sx} ${sy} C ${sx} ${c1y} ${c2x} ${ty} ${tx} ${ty}`}
                   fill="none"
                   strokeWidth={1.25}
                 />
