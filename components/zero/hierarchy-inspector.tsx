@@ -61,7 +61,7 @@ const IH = 12 // intrinsic half-height of a node's own row (→ leaves ~2·IH ap
 const SPACE_GAP = 40 // vertical gap below the parent before its space row starts
 const SPACE_HGAP = 48 // horizontal gap between sibling-space SUBTREES in the row
 const SPINE_DY = 132 // vertical gap for an `individual` child (identity spine)
-const DR_DX = 56 // action children indent clearly right of the parent
+const DR_DX = 44 // action children indent clearly right of the parent
 const DR_TOP = 12 // first action child's subtree top sits this far below the parent
 const ROW_GAP = 2 // gap between stacked action-child SUBTREES
 
@@ -353,17 +353,12 @@ export function HierarchyInspector() {
   const centeredRef = useRef(false)
   // Zoom scale (world → screen). Ctrl/⌘+wheel & trackpad pinch adjust it.
   const scaleRef = useRef(1)
-  // Ripple bursts emitted at the cursor on each zoom step (world coords).
-  const ripplesRef = useRef<{ id: number; x: number; y: number; born: number }[]>([])
-  const rippleRafRef = useRef<number | null>(null)
-  const rippleIdRef = useRef(0)
   const [, force] = useState(0)
 
   const ALPHA_MIN = 0.002
   const ALPHA_DECAY = 0.0228
   const MIN_SCALE = 0.2
   const MAX_SCALE = 3
-  const RIPPLE_MS = 650
 
   const startLoop = () => {
     if (rafRef.current != null || !graph) return
@@ -377,20 +372,6 @@ export function HierarchyInspector() {
     rafRef.current = requestAnimationFrame(loop)
   }
 
-  // Repaint while ripples are alive, pruning expired ones. Independent of the
-  // physics loop so ripples animate even after the graph has settled.
-  const startRipples = () => {
-    if (rippleRafRef.current != null) return
-    const loop = () => {
-      const now = performance.now()
-      ripplesRef.current = ripplesRef.current.filter((r) => now - r.born < RIPPLE_MS)
-      force((n) => n + 1)
-      if (ripplesRef.current.length) rippleRafRef.current = requestAnimationFrame(loop)
-      else rippleRafRef.current = null
-    }
-    rippleRafRef.current = requestAnimationFrame(loop)
-  }
-
   useEffect(() => {
     if (!graph) return
     nodesRef.current = graph.nodes
@@ -401,14 +382,12 @@ export function HierarchyInspector() {
     return () => {
       if (rafRef.current) cancelAnimationFrame(rafRef.current)
       rafRef.current = null
-      if (rippleRafRef.current) cancelAnimationFrame(rippleRafRef.current)
-      rippleRafRef.current = null
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [graph])
 
   // Wheel: plain wheel/trackpad pans; Ctrl/⌘+wheel (and trackpad pinch, which the
-  // browser reports as a ctrlKey wheel) zooms around the cursor + emits a ripple.
+  // browser reports as a ctrlKey wheel) zooms around the cursor.
   // Attached natively with { passive: false } so we can preventDefault the zoom.
   useEffect(() => {
     const vp = viewportRef.current
@@ -428,8 +407,6 @@ export function HierarchyInspector() {
         const wy = (cy - p.y) / old
         panRef.current = { x: cx - wx * next, y: cy - wy * next }
         scaleRef.current = next
-        ripplesRef.current.push({ id: rippleIdRef.current++, x: wx, y: wy, born: performance.now() })
-        startRipples()
         force((n) => n + 1)
       } else {
         ev.preventDefault()
@@ -461,7 +438,6 @@ export function HierarchyInspector() {
   const byId = byIdRef.current
   const pan = panRef.current
   const scale = scaleRef.current
-  const nowT = performance.now()
 
   const reheat = () => {
     alphaRef.current = Math.max(alphaRef.current, 0.3)
@@ -626,27 +602,6 @@ export function HierarchyInspector() {
                     </div>
                   </foreignObject>
                 </g>
-              )
-            })}
-          </g>
-
-          {/* ripple bursts emitted at the cursor on each zoom step */}
-          <g>
-            {ripplesRef.current.map((r) => {
-              const p = Math.min(1, (nowT - r.born) / RIPPLE_MS)
-              const eased = 1 - (1 - p) * (1 - p) // ease-out
-              const radius = 4 + eased * 96
-              return (
-                <circle
-                  key={r.id}
-                  cx={r.x}
-                  cy={r.y}
-                  r={radius}
-                  fill="none"
-                  stroke="var(--foreground)"
-                  strokeWidth={1.5 / scale}
-                  opacity={(1 - p) * 0.5}
-                />
               )
             })}
           </g>
