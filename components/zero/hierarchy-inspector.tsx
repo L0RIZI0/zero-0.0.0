@@ -60,6 +60,7 @@ const WORLD_H = 2600
 const IH = 12 // intrinsic half-height of a node's own row (→ leaves ~2·IH apart)
 const SPACE_GAP = 40 // vertical gap below the parent before its space row starts
 const INDIVIDUAL_CHILD_DROP = 56 // extra drop for an Individual's space children (sit lower)
+const INDIVIDUAL_ACTION_DX = 140 // extra rightward push for an Individual's non-space children
 const SPACE_HGAP = 48 // horizontal gap between sibling-space SUBTREES in the row
 const SPINE_DY = 132 // vertical gap for an `individual` child (identity spine)
 const DR_DX = 26 // action children indent clearly right of the parent
@@ -175,11 +176,14 @@ function buildGraph(): { nodes: SimNode[]; edges: Edge[]; tagEdges: Edge[] } {
     let right_ = node.rw // own right reach = glyph + label
 
     // action children: stack their SUBTREES straight down, indented slightly right.
-    // An Individual drops these non-space children lower (3× its space-child drop).
-    let cur = DR_TOP + (node.entity.kind === "individual" ? INDIVIDUAL_CHILD_DROP * 3 : 0)
+    // An Individual keeps its non-space children higher up (small drop) and pushes
+    // them further RIGHT; the non-space↔space vertical gap is preserved regardless,
+    // since everything below shifts with them (gap = SPACE_GAP + INDIVIDUAL_CHILD_DROP).
+    const isIndividualNode = node.entity.kind === "individual"
+    let cur = DR_TOP + (isIndividualNode ? INDIVIDUAL_CHILD_DROP : 0)
     for (const a of dr) {
       const e = ext.get(a.id)!
-      a.ox = DR_DX
+      a.ox = DR_DX + (isIndividualNode ? INDIVIDUAL_ACTION_DX : 0)
       a.oy = cur - e.up // subtree top aligns at `cur` below the node
       down_ = Math.max(down_, a.oy + e.down)
       left = Math.min(left, a.ox + e.left)
