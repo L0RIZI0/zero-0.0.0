@@ -604,16 +604,34 @@ export function HierarchyInspector() {
                   />
                 )
               }
-              // Cubic with VERTICAL tangents: control points share each endpoint's
-              // x and pull toward the vertical midpoint by `f`. Non-space targets
-              // curve a bit more so their lists flow more organically.
-              const f = t.entity.kind === "space" ? 0.5 : 0.72
-              const c1y = s.y + (t.y - s.y) * f
-              const c2y = t.y - (t.y - s.y) * f
+              // SPACE targets: cubic with VERTICAL tangents (control points share
+              // each endpoint's x, pulled to the vertical midpoint by `f`).
+              if (t.entity.kind === "space") {
+                const f = 0.5
+                const c1y = s.y + (t.y - s.y) * f
+                const c2y = t.y - (t.y - s.y) * f
+                return (
+                  <path
+                    key={e.id}
+                    d={`M ${s.x} ${s.y} C ${s.x} ${c1y} ${t.x} ${c2y} ${t.x} ${t.y}`}
+                    fill="none"
+                    stroke="var(--border)"
+                    strokeWidth={1.25}
+                  />
+                )
+              }
+              // NON-SPACE targets: no vertical bias — a quadratic bulge pushing the
+              // midpoint perpendicular to the edge (increased tune for more flow).
+              const dx = t.x - s.x
+              const dy = t.y - s.y
+              const len = Math.hypot(dx, dy) || 1
+              const bulge = Math.min(len * 0.28, 40)
+              const mx = (s.x + t.x) / 2 + (-dy / len) * bulge
+              const my = (s.y + t.y) / 2 + (dx / len) * bulge
               return (
                 <path
                   key={e.id}
-                  d={`M ${s.x} ${s.y} C ${s.x} ${c1y} ${t.x} ${c2y} ${t.x} ${t.y}`}
+                  d={`M ${s.x} ${s.y} Q ${mx} ${my} ${t.x} ${t.y}`}
                   fill="none"
                   stroke="var(--border)"
                   strokeWidth={1.25}
