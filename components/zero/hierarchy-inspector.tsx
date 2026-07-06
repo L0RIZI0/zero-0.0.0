@@ -574,7 +574,8 @@ export function HierarchyInspector() {
                   x2={t.x}
                   y2={t.y}
                   stroke="var(--muted-foreground)"
-                  strokeWidth={1.25}
+                  strokeOpacity={0.3}
+                  strokeWidth={1}
                   strokeDasharray="2 4"
                   strokeLinecap="round"
                 />
