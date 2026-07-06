@@ -491,6 +491,35 @@ export const entities: Entity[] = [
   { id: "w5", kind: "task", title: "Core circuit", parentId: "s_workout", taggedSpaceIds: [], completed: false, priority: "medium", tags: ["workout", "core"] },
   { id: "w6", kind: "task", title: "Cooldown stretch", parentId: "s_workout", taggedSpaceIds: [], completed: false, priority: "low", tags: ["workout"] },
 
+  // --- NOW ------------------------------------------------------------------
+  // A pinned space on home for the present moment. Being a `space` child of
+  // `s_root`, it is auto-pinned into home's dock by the seed loop below. It holds
+  // a RESOURCE TASK (`t_zerolaws`) that opens the in-app /zero-laws page through
+  // Zero's contextual-browser mechanism — an <iframe> to a same-origin URL, which
+  // frames cleanly (no X-Frame-Options block), so it loads "live" in the web build.
+  {
+    id: "s_now",
+    kind: "space",
+    title: "NOW",
+    parentId: "s_root",
+    taggedSpaceIds: [],
+    description: "The present moment.",
+    accent: ACCENT.zero,
+  },
+  {
+    id: "t_zerolaws",
+    kind: "task",
+    title: "Zero Laws",
+    parentId: "s_now",
+    taggedSpaceIds: [],
+    completed: false,
+    // Opening this task swaps its body for the ResourceCanvas web surface (the
+    // contextual browser). Relative URL resolves against the current origin in the
+    // iframe, so it works on any deploy without hardcoding a host.
+    webUrl: "/zero-laws",
+    tags: ["zero", "laws"],
+  },
+
   // --- Tasks ----------------------------------------------------------------
   // Multi-space tasks re-parented to a single origin; the rest become tags.
   {
@@ -1241,6 +1270,10 @@ for (const e of entities) {
   const arr = pinnedByContext[e.parentId] ?? (pinnedByContext[e.parentId] = [])
   arr.push(e.id)
 }
+
+// The NOW space pins its browsable Zero Laws page into its own dock. The loop above
+// only auto-pins SPACES; `t_zerolaws` is a resource TASK, so it's pinned explicitly.
+;(pinnedByContext["s_now"] ??= []).push("t_zerolaws")
 
 export function getPinnedIds(contextId: string): string[] {
   return pinnedByContext[contextId] ?? []

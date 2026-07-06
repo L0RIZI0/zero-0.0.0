@@ -387,7 +387,11 @@ export function CollapsibleColumn({
                 animate={{ height: "auto" }}
                 exit={{ height: 0 }}
                 transition={{ duration: MORPH_SECONDS, ease: MORPH_EASE }}
-                className="flex justify-center overflow-hidden"
+                // BOTTOM-anchored (`justify-end`): as the height animates 0↔auto, the block
+                // sticks to the box's BOTTOM edge and any overflow is clipped at the TOP (the
+                // header edge) only. Top-anchoring instead let the box's GROWING BOTTOM edge
+                // slice through the block, cropping the bottom of the username mid-animation.
+                className="flex flex-col items-center justify-end overflow-hidden"
               >
                 <motion.div
                   initial={{ y: -SPINE_HIDE_Y, opacity: 0 }}
