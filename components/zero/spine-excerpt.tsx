@@ -81,7 +81,9 @@ function Counter({
       animate={{ opacity: 1, height: "auto", y: 0 }}
       exit={{ opacity: 0, height: 0, y: -4 }}
       transition={COUNTER_TRANSITION}
-      className={cn("flex items-center gap-1 overflow-hidden pb-2 text-[10px] text-muted-foreground/70")}
+      className={cn(
+        "flex items-center gap-1 overflow-hidden pb-2 text-[10px] leading-none text-muted-foreground/70",
+      )}
     >
       <span className="flex h-2.5 w-2.5 items-center justify-center">
         <NodeGlyph kind={kind} filled={filled} showCheck={checked} strokeWidth={1.5} />
@@ -111,11 +113,11 @@ function DigitRoll({ value }: { value: number }) {
   const exitTo = dir >= 0 ? -6 : 6
 
   return (
-    <span className="relative inline-grid h-[1.2em] items-center overflow-hidden font-medium tabular-nums">
+    <span className="relative inline-grid h-2.5 items-center overflow-hidden font-medium leading-none tabular-nums">
       <AnimatePresence initial={false} mode="popLayout">
         <motion.span
           key={value}
-          className="col-start-1 row-start-1"
+          className="col-start-1 row-start-1 leading-none"
           initial={{ opacity: 0, y: enterFrom }}
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: exitTo }}
