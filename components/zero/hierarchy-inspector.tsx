@@ -546,6 +546,9 @@ export function HierarchyInspector() {
               const s = byId.get(e.source)
               const t = byId.get(e.target)
               if (!s || !t) return null
+              // A node related to entities OTHER than its parent (non-empty
+              // taggedSpaceIds = multi-parent links) gets a red edge.
+              const multiLinked = (t.entity.taggedSpaceIds?.length ?? 0) > 0
               return (
                 <line
                   key={e.id}
@@ -553,8 +556,8 @@ export function HierarchyInspector() {
                   y1={s.y}
                   x2={t.x}
                   y2={t.y}
-                  stroke="var(--border)"
-                  strokeWidth={1.25}
+                  stroke={multiLinked ? "var(--destructive)" : "var(--border)"}
+                  strokeWidth={multiLinked ? 1.75 : 1.25}
                 />
               )
             })}
