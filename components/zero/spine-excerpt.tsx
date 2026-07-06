@@ -60,8 +60,10 @@ export function SpineExcerpt({ entityId }: { entityId: string }) {
  * One tally — glyph FIRST, then the number ("[glyph] n"). `filled` fills the glyph
  * (closed tasks); `checked` shows the done checkmark on an outline glyph (done tasks).
  * Enters/exits VERTICALLY (height + fade + slight y slide) so counters appearing or
- * disappearing from the stack animate rather than pop. `pb-2` provides the inter-row
- * spacing AS PART OF the animated height, so the gap collapses cleanly on exit.
+ * disappearing from the stack animate rather than pop. The inter-row spacing is an
+ * ANIMATED `marginBottom` (not a static `pb-2`) so it collapses TOGETHER with the
+ * height on exit — otherwise the un-animated padding would linger until unmount and
+ * make the remaining counters jump up by that gap at the end of the animation.
  */
 function Counter({
   count,
@@ -77,12 +79,12 @@ function Counter({
   return (
     <motion.span
       layout
-      initial={{ opacity: 0, height: 0, y: -4 }}
-      animate={{ opacity: 1, height: "auto", y: 0 }}
-      exit={{ opacity: 0, height: 0, y: -4 }}
+      initial={{ opacity: 0, height: 0, marginBottom: 0, y: -4 }}
+      animate={{ opacity: 1, height: "auto", marginBottom: 8, y: 0 }}
+      exit={{ opacity: 0, height: 0, marginBottom: 0, y: -4 }}
       transition={COUNTER_TRANSITION}
       className={cn(
-        "flex items-center gap-1 overflow-hidden pb-2 text-[10px] leading-none text-muted-foreground/70",
+        "flex items-center gap-1 overflow-hidden text-[10px] leading-none text-muted-foreground/70",
       )}
     >
       <span className="flex h-2.5 w-2.5 items-center justify-center">
