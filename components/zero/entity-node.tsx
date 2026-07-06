@@ -870,7 +870,16 @@ export function EntityNode({
             ? {
                 ...(winStyle ?? {}),
                 borderRadius: 0,
-                ...(animating ? null : { transition: `width ${DURATION_S} ${MORPH_CSS_EASE}` }),
+                // Rest-only geometry transition. Both `left` and `width` change at rest ONLY
+                // when a covered ANCESTOR is spine-expanded/collapsed (nav-store adds/removes
+                // PANEL_OPEN_W of left-inset, sliding this window right + narrowing it) or on
+                // a viewport resize. Tuned to the panel-slide beat (0.55s, same curve as
+                // `panelSlideTransition`) so the window slides/narrows IN STEP with the
+                // ancestor panel blooming open. During a dive/close morph GSAP Flip drives
+                // geometry directly, so this is gated off by `!animating` to avoid double-animation.
+                ...(animating
+                  ? null
+                  : { transition: `left 0.55s cubic-bezier(0.16,1,0.3,1), width 0.55s cubic-bezier(0.16,1,0.3,1)` }),
               }
             : {
                 // While shrinking closed it is a row again, but Flip animates it at full

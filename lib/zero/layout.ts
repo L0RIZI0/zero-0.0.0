@@ -47,6 +47,13 @@ export const VIEW_PAD_X = 48
 export const VIEW_PAD_TOP = 0
 export const VIEW_PAD_BOTTOM = 22
 
+/** Width (px) of a side panel's BODY when OPEN — the icons + labels area BEYOND the
+ *  thin spine rail. Shared by EntityBody (the View squeeze when a focused panel opens)
+ *  and nav-store `styleFor` (the extra left-inset each SPINE-EXPANDED covered ancestor
+ *  adds to every window nested below it). Single source of truth so the child-window
+ *  shift always equals the width the ancestor's uncovered panel body occupies. */
+export const PANEL_OPEN_W = 230
+
 /** Height of an open window's header band (glyph + title + close). Held constant
  *  across depth, so the timeline overlay can be positioned at a stable
  *  `headerBottom` offset below the app bar when a window is open. */

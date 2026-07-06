@@ -4,7 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { flushSync } from "react-dom"
 import { getEntity, hydrateFromStorage, isDetachedChild } from "./data"
   import { stackTargetRect, LEAF_WEDGE_RATIO } from "./motion"
-import { VIEW_PAD_TOP, VIEW_PAD_BOTTOM } from "./layout"
+import { VIEW_PAD_TOP, VIEW_PAD_BOTTOM, PANEL_OPEN_W } from "./layout"
 import {
   captureStage,
   playStage,
@@ -97,6 +97,17 @@ interface ZeroNavContextValue {
   styleFor: (depth: number, opts?: { forceLeaf?: boolean; selfKind?: EntityKind }) => React.CSSProperties
   /** Depth-only fixed geometry for a telescoping (fading) window. */
   fadingStyleFor: (depth: number) => React.CSSProperties
+  /** Ids of COVERED ANCESTORS whose left Resources panel the user has manually
+   *  "spine-expanded" — clicked its peek band to bloom the full panel while a child
+   *  window is open. Each expanded ancestor reserves an extra `PANEL_OPEN_W` of
+   *  left-inset in `styleFor` for every window nested below it, sliding those windows
+   *  right + narrowing them to uncover the panel. Ephemeral in-memory nav state (never
+   *  persisted); auto-pruned when an ancestor stops being a covered ancestor. */
+  spineExpandedIds: Set<string>
+  /** Toggle a covered ancestor's spine-expanded state (add ⇄ remove from the set). */
+  toggleSpineExpand: (id: string) => void
+  /** Whether `id` is currently spine-expanded. */
+  isSpineExpanded: (id: string) => boolean
   /** Bumps on any in-memory data mutation so selectors re-read fresh data. */
   dataVersion: number
   /** Signal that the underlying data arrays changed (entity added). */
@@ -176,6 +187,38 @@ export function ZeroNavProvider({
   // share the same key — the landed node stays lit through the whole morph.
   const [menuKey, setMenuKey] = useState<string | null>(null)
   const [morphKey, setMorphKey] = useState<string | null>(null)
+
+  // Covered ancestors whose left Resources panel is manually spine-expanded. Adding an
+  // id here makes `styleFor` reserve an extra PANEL_OPEN_W of left-inset for every window
+  // BELOW that ancestor, so the child (and anything deeper) slides right + narrows to
+  // uncover the ancestor's full panel. Ephemeral (not persisted).
+  const [spineExpandedIds, setSpineExpandedIds] = useState<Set<string>>(new Set())
+  const toggleSpineExpand = useCallback((id: string) => {
+    setSpineExpandedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }, [])
+  const isSpineExpanded = useCallback((id: string) => spineExpandedIds.has(id), [spineExpandedIds])
+  // Prune on stack change: an id may only stay spine-expanded while it is a COVERED
+  // ancestor (present in the stack ABOVE the leaf). When an expanded ancestor becomes the
+  // front leaf (closed back to) or is popped off entirely, drop its flag so its panel
+  // reverts to normal `${id}:in` governance. Runs whenever the stack changes.
+  useEffect(() => {
+    setSpineExpandedIds((prev) => {
+      if (prev.size === 0) return prev
+      const covered = new Set(stack.slice(0, Math.max(0, stack.length - 1)))
+      let changed = false
+      const next = new Set<string>()
+      for (const id of prev) {
+        if (covered.has(id)) next.add(id)
+        else changed = true
+      }
+      return changed ? next : prev
+    })
+  }, [stack])
 
   const [dataVersion, setDataVersion] = useState(0)
   const [pulse, setPulse] = useState<{ id: string; n: number } | null>(null)
@@ -594,6 +637,19 @@ export function ZeroNavProvider({
         ancestorVertical,
         selfIsSpace,
       )
+      // SPINE-EXPANDED ANCESTORS: each strict ancestor (any depth in [0, windowDepth),
+      // including the root) whose Resources panel the user has spine-expanded reserves an
+      // extra PANEL_OPEN_W of left-inset on THIS window. So a window nested below one or
+      // more expanded ancestors slides RIGHT and narrows by that much, uncovering each
+      // ancestor's full panel body — cumulative across multiple expanded ancestors. The
+      // expanded ancestor itself is at `windowDepth` for its own call, so it's excluded
+      // and never shifts. Applied BEFORE the Space wedge below so hexagon geometry uses
+      // the narrowed width.
+      let extraLeft = 0
+      for (let d = 0; d < windowDepth; d++) {
+        if (spineExpandedIds.has(stack[d])) extraLeft += PANEL_OPEN_W
+      }
+      if (extraLeft > 0) rect = { ...rect, left: rect.left + extraLeft, width: rect.width - extraLeft }
       // EVERY Space WINDOW — leaf OR ancestor — is the SAME grown pointy-top hexagon
       // (octagon dropped). Opening a child no longer reshapes/resizes the covered
       // Space: it keeps the identical hexagon geometry and only its HEADER changes
@@ -704,6 +760,9 @@ export function ZeroNavProvider({
     animating,
     styleFor,
       fadingStyleFor,
+      spineExpandedIds,
+      toggleSpineExpand,
+      isSpineExpanded,
       dataVersion,
       notifyDataChanged,
       morphCommit,
@@ -723,6 +782,9 @@ export function ZeroNavProvider({
     }
   }, [
     stack,
+    spineExpandedIds,
+    toggleSpineExpand,
+    isSpineExpanded,
     open,
     close,
     closeWindow,

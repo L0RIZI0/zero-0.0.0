@@ -46,6 +46,8 @@ export function CollapsibleColumn({
   spineGlyph,
   surface,
   stripCollapse = false,
+  forceExpanded = false,
+  onSpineExpandToggle,
 }: {
   title: string
   /** Short label shown on the vertical spine. Falls back to `title` when omitted. */
@@ -93,6 +95,15 @@ export function CollapsibleColumn({
    *  losanges (the panel content stays mounted while collapsed and switches to strip mode);
    *  clicking the empty band re-expands. Only used on the LEFT Resources spine for now. */
   stripCollapse?: boolean
+  /** COVERED-ANCESTOR spine-expand: force the FULL list (not the peek strip) even though
+   *  this ancestor isn't focused. Set by EntityBody when the user has spine-expanded this
+   *  ancestor (its covering child has slid right to uncover the panel). */
+  forceExpanded?: boolean
+  /** Toggle handler for a COVERED ANCESTOR's spine-expand: clicking the empty peek band of
+   *  a covered stripCollapse ancestor calls this instead of `onOpenChange`, so the band
+   *  drives the nav-store spine-expand (which squeezes the child) rather than the local
+   *  panel-store open flag. Undefined on a focused leaf (there the band uses onOpenChange). */
+  onSpineExpandToggle?: () => void
 }) {
   const OpenIcon = side === "left" ? PanelLeftClose : PanelRightClose
   const ClosedIcon = side === "left" ? PanelLeftOpen : PanelRightOpen
@@ -144,7 +155,14 @@ export function CollapsibleColumn({
   //     label, the unwanted 3rd state.)
   //   • non-stripCollapse panel (e.g. right Published): unchanged — peek only for a COVERED
   //     ANCESTOR whose panel is open (`open && !focused`).
-  const peek = stripCollapse ? !(focused && open) : open && !focused
+  // `forceExpanded` (a spine-expanded covered ancestor) forces the FULL list — never the
+  // peek strip — so its panel body shows in the gap the squeezed child opened.
+  const peek = forceExpanded ? false : stripCollapse ? !(focused && open) : open && !focused
+  // COVERED-ANCESTOR PEEK: a stripCollapse ancestor (not focused, so not a leaf strip). Its
+  // spine band is the SPINE-EXPAND toggle target — clicking it expands/collapses this
+  // ancestor's panel (squeezing the child), NOT the local open flag. True in BOTH its
+  // collapsed peek and its `forceExpanded` full state (so the band can collapse it back).
+  const coveredAncestorPeek = stripCollapse && !focused && !leafStrip
   // The content inset (`--panel-edge-inset`, the scroller `pl`/`pr`) is FROZEN at the
   // open spine width during peek. It's a CSS custom property, which is NOT smoothly
   // animatable — so letting it follow `spineWidth` (which shrinks to the bleed the moment
@@ -169,11 +187,12 @@ export function CollapsibleColumn({
         className={cn(
           "pointer-events-none absolute inset-y-0 overflow-hidden",
           side === "left" ? "left-0" : "right-0",
-          // LEAF STRIP: lift the clip ABOVE the spine button (z-20) + band (z-30) so the
-          // losanges (their tile is pointer-events-auto) sit on top and intercept their own
-          // pointer events. The section itself is pointer-events-none in this mode, so the
-          // EMPTY band area falls through to the spine button below → a band click expands.
-          leafStrip ? "z-40" : "z-0",
+          // LEAF STRIP and COVERED-ANCESTOR PEEK: lift the clip ABOVE the spine button
+          // (z-20) so the losanges (their tile is pointer-events-auto) sit on top and
+          // intercept their own pointer events. The section itself is pointer-events-none in
+          // these modes, so the EMPTY band area falls through to the spine button below → a
+          // band click expands (leaf) or spine-expands the ancestor (covered ancestor).
+          leafStrip || coveredAncestorPeek ? "z-40" : "z-0",
         )}
         style={{ width: spineWidth + panelWidth + 48, transition: widthTransition }}
       >
@@ -215,10 +234,11 @@ export function CollapsibleColumn({
                 // edge line (below); light mode needs no separator at all.
                 "absolute inset-y-0 flex min-h-0 flex-col",
                 side === "left" ? "left-0" : "right-0",
-                // LEAF STRIP: transparent to pointer events so clicks on the empty band
-                // fall through to the spine button (→ expand). The losange tiles re-enable
-                // their own pointer events. Otherwise the open panel is interactive.
-                leafStrip ? "pointer-events-none" : "pointer-events-auto",
+                // LEAF STRIP and COVERED-ANCESTOR PEEK: transparent to pointer events so
+                // clicks on the empty band fall through to the spine button (→ expand /
+                // spine-expand). The losange tiles re-enable their own pointer events.
+                // Otherwise (focused open panel) it is fully interactive.
+                leafStrip || coveredAncestorPeek ? "pointer-events-none" : "pointer-events-auto",
               )}
               style={{
                 width: spineWidth + panelWidth,
@@ -271,7 +291,11 @@ export function CollapsibleColumn({
         type="button"
         onClick={(e) => {
           e.stopPropagation()
-          onOpenChange(!open)
+          // COVERED-ANCESTOR PEEK: the band drives the nav-store SPINE-EXPAND (bloom the
+          // full panel + squeeze the covering child), toggling on each click. Everywhere
+          // else (focused leaf) it toggles the local panel-store open flag as before.
+          if (coveredAncestorPeek) onSpineExpandToggle?.()
+          else onOpenChange(!open)
         }}
         onPointerEnter={() => setRailHover(true)}
         onPointerLeave={() => setRailHover(false)}
@@ -286,8 +310,11 @@ export function CollapsibleColumn({
           // toggle isn't needed on a covered ancestor anyway (focus is on the child).
           // In LEAF STRIP the opposite: the spine button IS the expand target for the empty
           // band, so it MUST stay clickable — the clip is lifted to z-40 above it so the
-          // losanges still win their own hits. So only disable for the covered-ancestor peek.
-          peek && !leafStrip ? "pointer-events-none" : "pointer-events-auto",
+          // losanges still win their own hits. So only disable for a NON-stripCollapse
+          // covered-ancestor peek (e.g. right Published). A stripCollapse covered ancestor
+          // (`coveredAncestorPeek`) NOW keeps the band clickable — it is the spine-expand
+          // toggle — with its clip lifted to z-40 so the losanges still win their own hits.
+          peek && !leafStrip && !coveredAncestorPeek ? "pointer-events-none" : "pointer-events-auto",
         )}
       >
         <span

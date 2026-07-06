@@ -7,7 +7,7 @@ import { panelSlideTransition } from "@/lib/zero/motion"
 import { getPinnedItems } from "@/lib/zero/data"
 import { usePanelOpen } from "@/lib/zero/panel-store"
 import { useZeroNav } from "@/lib/zero/nav-store"
-import { VIEW_PAD_TOP, VIEW_PAD_BOTTOM } from "@/lib/zero/layout"
+import { VIEW_PAD_TOP, VIEW_PAD_BOTTOM, PANEL_OPEN_W } from "@/lib/zero/layout"
 import { Region } from "./region"
 import { Dock } from "./dock"
 import { DoList } from "./do-list"
@@ -21,8 +21,8 @@ import { DebugFrameLabel, DebugComponentFrame } from "./debug-frame-label"
 import { useDebugView } from "@/lib/zero/debug-view"
 import { cn } from "@/lib/utils"
 
-/** Width of a side panel when OPEN, and of the thin RAIL when collapsed. */
-const PANEL_OPEN_W = 230
+/** Width of the thin RAIL when collapsed. (Open panel BODY width = shared `PANEL_OPEN_W`
+ *  from layout, so the ancestor-squeeze in nav-store stays in sync with the View squeeze.) */
 const PANEL_SPINE_W = 48
 /** How far the View is squeezed IN from a side when that side's panel is OPEN: the
  *  full panel footprint (spine + panel), so the content sits flush beside the panel's
@@ -136,7 +136,11 @@ export function EntityBody({
   useEffect(() => {
     prevActiveRef.current = active
   }, [active])
-  const panelSnappy = active && !activeJustChanged
+  // Snappy (manual-toggle curve) whenever `active` did NOT just flip: covers the focused
+  // leaf clicking its own spine (active stayed true) AND a covered ancestor being manually
+  // SPINE-EXPANDED via its peek band (active stayed false). Only an AUTO morph — a child
+  // opening/closing, which flips `active` — falls through to the slow symmetric dive morph.
+  const panelSnappy = !activeJustChanged
   // IN/OUT GUTTERS: the View is everything visually INSIDE the entity window — inset on
   // the left/right by the in/out panels, so it never underlaps them. Each side's gutter
   // is the panel's current footprint: the thin RAIL (`PANEL_SPINE_W`, 48) when collapsed,
@@ -149,8 +153,14 @@ export function EntityBody({
   // Region 2 (dock) is mounted ONLY when this context has pinned items, so an empty
   // entity's do-list region fills the whole view. Same source the Dock reads, so they
   // agree. `dataVersion` makes this reactive to pin add/remove.
-  const { dataVersion } = useZeroNav()
+  const { dataVersion, isSpineExpanded, toggleSpineExpand } = useZeroNav()
   void dataVersion
+  // SPINE-EXPANDED: this entity is a COVERED ANCESTOR (a child is focused, so `!active`)
+  // whose Resources panel the user clicked open from its peek band. Its panel renders the
+  // FULL list (not the peek strip) and nav-store slides the covering child(ren) right to
+  // uncover it. `isSpineExpanded` already only holds covered ancestors (pruned on dive),
+  // but gate on `!active` too so a refocused leaf never reads as spine-expanded.
+  const spineExpanded = isSpineExpanded(entityId) && !active
   const hasPins = getPinnedItems(entityId).length > 0
 
   // [v0] DEBUG: short identity prefix for the frame labels. entity0 (the always-mounted
@@ -289,6 +299,11 @@ export function EntityBody({
             open={inOpen}
             onOpenChange={setInOpen}
             focused={active}
+            // Covered-ancestor spine-expand: force the FULL list (not the peek strip) and
+            // route band clicks to toggle THIS ancestor's spine-expanded state (which
+            // slides the covering child right, via nav-store `styleFor`).
+            forceExpanded={spineExpanded}
+            onSpineExpandToggle={() => toggleSpineExpand(entityId)}
             spineWidth={spineWidth}
             panelWidth={panelWidth}
             spineScale={spineScale}
@@ -311,7 +326,9 @@ export function EntityBody({
                 visible under the child" case anymore. `spineWidth` = strip width. */}
             <AssetPanel
               spaceId={entityId}
-              peek={!(active && inOpen)}
+              // FULL list when the focused leaf has its panel open (`active && inOpen`) OR
+              // when this is a spine-expanded covered ancestor; PEEK losange strip otherwise.
+              peek={!((active && inOpen) || spineExpanded)}
               // `snappy` picks the CURVE only: a MANUAL toggle (`panelSnappy` — user clicked
               // the spine, `active` didn't just flip) uses the quick curves (bloom on expand,
               // fast bounce on collapse). An AUTO morph (a child opening OR closing, so
