@@ -3,7 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react"
 import { flushSync } from "react-dom"
 import { getEntity, hydrateFromStorage, isDetachedChild } from "./data"
-  import { stackTargetRect, spaceLeafInsets, LEAF_HY } from "./motion"
+  import { stackTargetRect, LEAF_WEDGE_RATIO } from "./motion"
 import { VIEW_PAD_TOP, VIEW_PAD_BOTTOM } from "./layout"
 import {
   captureStage,
@@ -619,22 +619,25 @@ export function ZeroNavProvider({
       let spaceAy = 0
       if (selfIsSpace) {
         // HEXAGON-COVERS-REGION (octagon dropped). Every Space window is a pointy-top
-        // hexagon whose CENTRAL RECTANGLE (between the shoulders at LEAF_HY) exactly
-        // covers the allowed box. To achieve that we GROW the frame beyond the box: the
-        // shoulders sit at LEAF_HY% of the (taller) frame, so the box height is the
-        // allowed height divided by the central fraction, and the top/bottom wedges
-        // (each `wedge` px) extend past the allowed box. Those wedges are hidden — the
+        // hexagon whose CENTRAL RECTANGLE (between the shoulders) exactly covers the
+        // allowed box. To achieve that we GROW the frame beyond the box: the box height
+        // plus one wedge top and bottom, so the central band equals the allowed height
+        // and the top/bottom wedges (each `wedge` px) extend past it. Those wedges are
+        // hidden — the
         // top behind the header (depth 1) or cropped at the parent frame top (deeper),
         // the bottom past the region's lower edge — so the settled leaf reads as a flat
         // rectangle covering the View, exactly like a Task window.
-        const insets = spaceLeafInsets(rect.width, rect.height)
-        const centralFrac = (100 - 2 * insets.hy) / 100
-        const boxH = rect.height / centralFrac
-        const wedge = (insets.hy / 100) * boxH
+        // LOCKED-RATIO WEDGE: the triangle height is a fixed fraction of WIDTH, so
+        // only the central rectangle stretches as the region gets taller. Closed form
+        // (no circular dep on frame height): wedge = ratio·width, boxH = regionH +
+        // 2·wedge, and the shoulders land at hy = 100·wedge / boxH — which matches
+        // spaceLeafInsets(width, boxH) at settle, keeping the morph endpoint exact.
+        const wedge = LEAF_WEDGE_RATIO * rect.width
+        const boxH = rect.height + 2 * wedge
         rect = { top: rect.top - wedge, left: rect.left, width: rect.width, height: boxH }
         hexInsetY = 0
-        spaceAx = insets.ax
-        spaceAy = insets.hy
+        spaceAx = 50
+        spaceAy = (wedge / boxH) * 100
         // Px height of the top/bottom wedge = the inset from the frame edge down to the
         // top of the central rectangle. The header sits at this offset; the body starts
         // below the header and fills the rest of the central rectangle.

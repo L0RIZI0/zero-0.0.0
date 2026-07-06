@@ -502,17 +502,29 @@ export function spaceMorphPoints(
 }
 
 /**
- * Resting LEAF insets. The leaf Space is now a POINTY-TOP HEXAGON (octagon dropped):
- * a single top/bottom apex (ax=50) with shoulders at LEAF_HY. Its CENTRAL RECTANGLE
- * (between the shoulders) is what covers the parent's View; the top/bottom wedges
- * extend BEYOND the box and are hidden (behind the header at depth 1, cropped at the
- * parent frame top deeper). This is the SAME shape as the morph's `hexWaypoint`
- * (spaceClipPoints(50, LEAF_HY)), so the row/card→leaf morph no longer has to split
- * the apex into an octagon — the leaf endpoint IS the hexagon. `width`/`height` are
- * unused now (kept for call-site compatibility and a possible future stretch knob).
+ * LOCKED-RATIO WEDGE (experimental). The wedge (top/bottom triangle) height is a
+ * fixed fraction of the frame WIDTH, not a fixed % of its height — so as a Space
+ * window stretches TALLER only the CENTRAL RECTANGLE grows and the triangles keep
+ * their shape (a regular-hexagon 120° apex). `2√3` gives that apex: with
+ * halfWidth = W/2 and wedge = W/(2√3), the apex half-angle is atan(√3)=60° → a 120°
+ * point identical to the dock card's. Set back to a constant `hy: LEAF_HY` to revert.
  */
-export function spaceLeafInsets(_width: number, _height: number): { ax: number; hy: number } {
-  return { ax: 50, hy: LEAF_HY }
+export const LEAF_WEDGE_RATIO = 1 / (2 * Math.sqrt(3)) // ≈0.2887 wedge px per px of width
+
+/**
+ * Resting LEAF insets. Pointy-top HEXAGON (octagon dropped): a single top/bottom
+ * apex (ax=50) with shoulders at `hy`. Its CENTRAL RECTANGLE (between the shoulders)
+ * covers the parent's View; the top/bottom wedges extend BEYOND the box and are
+ * hidden (behind the header at depth 1, cropped at the parent frame top deeper).
+ * `hy` is now DERIVED so the wedge px = LEAF_WEDGE_RATIO × width regardless of frame
+ * height (locked triangle ratio). Clamped below 50 so the central band never inverts.
+ * At settle this stays consistent with nav-store's frame growth
+ * (boxH = regionH + 2·wedge ⇒ hy = 100·wedge / boxH).
+ */
+export function spaceLeafInsets(width: number, height: number): { ax: number; hy: number } {
+  if (!(width > 0) || !(height > 0)) return { ax: 50, hy: LEAF_HY }
+  const wedge = LEAF_WEDGE_RATIO * width
+  return { ax: 50, hy: Math.min(49, (wedge / height) * 100) }
 }
 
 /**
