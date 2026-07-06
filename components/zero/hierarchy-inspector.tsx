@@ -608,10 +608,19 @@ export function HierarchyInspector() {
               const s = byId.get(e.source)
               const t = byId.get(e.target)
               if (!s || !t) return null
-              // Edges attach to a node's glyph point, EXCEPT an Individual, whose
-              // anchor is its true center of gravity (glyph+label midpoint).
+              // Edges attach to a node's glyph point, EXCEPT an Individual (anchored
+              // at its glyph+label center of gravity) and its Soul parent, which is
+              // rendered stacked directly above that same CoG.
+              const indForAnchor = nodes.find((m) => m.entity.kind === "individual")
+              const indCogXForAnchor = indForAnchor
+                ? indForAnchor.x + (indForAnchor.rw - GLYPH / 2) / 2
+                : 0
               const anchorX = (n: SimNode) =>
-                n.entity.kind === "individual" ? n.x + (n.rw - GLYPH / 2) / 2 : n.x
+                n.entity.kind === "individual"
+                  ? n.x + (n.rw - GLYPH / 2) / 2
+                  : n.entity.kind === "soul"
+                    ? indCogXForAnchor
+                    : n.x
               const sx = anchorX(s)
               const sy = s.y
               const tx = anchorX(t)
@@ -737,9 +746,10 @@ export function HierarchyInspector() {
                     {shown}
                   </text>
 
-                  {/* glyph: tight draggable box centered exactly on (n.x, n.y). */}
+                  {/* glyph: tight draggable box centered on (n.x, n.y) — except a
+                      Soul, whose glyph stacks directly above the Individual's CoG. */}
                   <foreignObject
-                    x={n.x - GLYPH / 2}
+                    x={(isSoul ? indCogX : n.x) - GLYPH / 2}
                     y={n.y - GLYPH / 2}
                     width={GLYPH}
                     height={GLYPH}
