@@ -420,14 +420,21 @@ export function HierarchyInspector() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [graph])
 
-  // Center the viewport on the WORLD center once it's laid out, so the settling
-  // tree (which is built around the middle of the big world) starts in frame.
+  // On open, frame the Individual (entity0) horizontally centered and vertically
+  // at ~1/3 from the top, so their branches have room to fan out downward.
   useLayoutEffect(() => {
     if (!graph || centeredRef.current) return
     const vp = viewportRef.current
     if (!vp) return
     const r = vp.getBoundingClientRect()
-    panRef.current = { x: r.width / 2 - WORLD_W / 2, y: r.height / 2 - WORLD_H / 2 }
+    const focus =
+      graph.nodes.find((n) => n.entity.kind === "individual") ??
+      graph.nodes.find((n) => n.parentId == null) ??
+      null
+    const fx = focus ? focus.x : WORLD_W / 2
+    const fy = focus ? focus.y : WORLD_H / 2
+    const s = scaleRef.current
+    panRef.current = { x: r.width / 2 - fx * s, y: r.height / 3 - fy * s }
     centeredRef.current = true
     force((n) => n + 1)
   }, [graph])
