@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { useZeroNav } from "@/lib/zero/nav-store"
 import { useDebugView } from "@/lib/zero/debug-view"
 import { entities } from "@/lib/zero/data"
@@ -22,21 +22,26 @@ import type { Entity } from "@/lib/zero/types"
  * sim (no d3-force dep) relaxes the node cloud each frame with d3-style alpha decay:
  *   • charge      — every node repels every other (Coulomb, ~1/dist²)
  *   • link spring — parent↔child edges pull to a rest length
- *   • gravity     — a gentle pull toward the canvas center so it can't drift away
+ *   • gravity     — a gentle pull toward the WORLD center so it can't drift away
  *   • COLUMN HINT — a parent's LEAF children get a soft spring toward a vertical
  *     stack just to the parent's right, so sibling leaves settle into a tidy
  *     columned list "when possible" while the rest of the graph stays organic.
- * Nodes are draggable (drag reheats the sim); recurrence occurrences (`seriesId`)
- * are skipped so the graph is the true containment skeleton.
+ *
+ * The sim runs in a LARGE virtual WORLD (much bigger than the viewport) so nodes
+ * have room to breathe and the hierarchy reads clearly — the graph deliberately
+ * BLEEDS past the window edges and the whole thing is PANNABLE (drag empty space).
+ * Individual nodes are draggable too (drag reheats the sim). Recurrence occurrences
+ * (`seriesId`) are skipped so the graph is the true containment skeleton.
  *
  * Read-only: re-seeds on `dataVersion`, never mutates. Renders nothing in
  * production. Mirrors the §3 inspector's chrome/style.
  */
 
 const NODE_W = 150 // node pill width (label truncates within)
-const CANVAS_W = 960
-const CANVAS_H = 640
-const COL_DX = 190 // horizontal gap a leaf column sits to the right of its parent
+// Large virtual world so the graph can spread out and be panned (not squished to fit).
+const WORLD_W = 2800
+const WORLD_H = 2000
+const COL_DX = 210 // horizontal gap a leaf column sits to the right of its parent
 const ROW_DY = 34 // vertical spacing between stacked leaf siblings
 
 type SimNode = {
@@ -70,8 +75,8 @@ function buildGraph(): { nodes: SimNode[]; edges: Edge[] } {
 
   const nodes: SimNode[] = []
   const edges: Edge[] = []
-  const cx = CANVAS_W / 2
-  const cy = CANVAS_H / 2
+  const cx = WORLD_W / 2
+  const cy = WORLD_H / 2
 
   const walk = (entity: Entity, depth: number, seedY: number) => {
     const children = byParent.get(entity.id) ?? []
@@ -83,7 +88,7 @@ function buildGraph(): { nodes: SimNode[]; edges: Edge[] } {
       entity,
       hasChildren: children.length > 0,
       // seed roughly by depth (x) and a spread on y; jitter avoids perfect overlap
-      x: cx - CANVAS_W / 3 + depth * COL_DX + (Math.random() - 0.5) * 8,
+      x: cx - WORLD_W / 4 + depth * COL_DX + (Math.random() - 0.5) * 8,
       y: seedY + (Math.random() - 0.5) * 8,
       vx: 0,
       vy: 0,
@@ -97,7 +102,7 @@ function buildGraph(): { nodes: SimNode[]; edges: Edge[] } {
     let leafIdx = 0
     children.forEach((child, i) => {
       edges.push({ id: `${entity.id}->${child.id}`, source: entity.id, target: child.id })
-      const childSeedY = seedY + (i - (children.length - 1) / 2) * ROW_DY * 1.5
+      const childSeedY = seedY + (i - (children.length - 1) / 2) * ROW_DY * 1.6
       walk(child, depth + 1, childSeedY)
       // stamp leaf-column offset on the just-pushed child node if it's a leaf
       if ((byParent.get(child.id)?.length ?? 0) === 0) {
@@ -114,23 +119,23 @@ function buildGraph(): { nodes: SimNode[]; edges: Edge[] } {
 
 /** One physics tick, d3-style. Mutates node positions in place. */
 function tick(nodes: SimNode[], edges: Edge[], byId: Map<string, SimNode>, alpha: number) {
-  const CHARGE = -2600
+  const CHARGE = -4200
   const LINK_DIST = COL_DX
-  const LINK_K = 0.3
-  const GRAVITY = 0.028
-  const COLUMN_K = 0.16
+  const LINK_K = 0.32
+  const GRAVITY = 0.02
+  const COLUMN_K = 0.2
   const VELOCITY_DECAY = 0.6
   // Rectangular collision half-extents (pills are wide, short) + breathing margin.
-  const HALF_W = NODE_W / 2 + 8
-  const HALF_H = 13 + 3
+  const HALF_W = NODE_W / 2 + 10
+  const HALF_H = 13 + 4
 
   // charge: pairwise repulsion
   for (let i = 0; i < nodes.length; i++) {
     const a = nodes[i]
     for (let j = i + 1; j < nodes.length; j++) {
       const b = nodes[j]
-      let dx = a.x - b.x
-      let dy = a.y - b.y
+      const dx = a.x - b.x
+      const dy = a.y - b.y
       let d2 = dx * dx + dy * dy
       if (d2 < 1) d2 = 1
       const dist = Math.sqrt(d2)
@@ -186,8 +191,8 @@ function tick(nodes: SimNode[], edges: Edge[], byId: Map<string, SimNode>, alpha
   }
 
   // gravity toward center + column hint for leaves
-  const cx = CANVAS_W / 2
-  const cy = CANVAS_H / 2
+  const cx = WORLD_W / 2
+  const cy = WORLD_H / 2
   for (const n of nodes) {
     n.vx += (cx - n.x) * GRAVITY * alpha
     n.vy += (cy - n.y) * GRAVITY * alpha
@@ -237,88 +242,113 @@ export function HierarchyInspector() {
   const alphaRef = useRef(1)
   const rafRef = useRef<number | null>(null)
   const svgRef = useRef<SVGSVGElement | null>(null)
+  const viewportRef = useRef<HTMLDivElement | null>(null)
   const dragRef = useRef<{ id: string; dx: number; dy: number } | null>(null)
+  // Pan offset (world → screen translate). Panning shifts the whole world.
+  const panRef = useRef({ x: 0, y: 0 })
+  const panDragRef = useRef<{ px: number; py: number } | null>(null)
+  const centeredRef = useRef(false)
   const [, force] = useState(0)
+
+  const ALPHA_MIN = 0.002
+  const ALPHA_DECAY = 0.0228
+
+  const startLoop = () => {
+    if (rafRef.current != null || !graph) return
+    const loop = () => {
+      tick(nodesRef.current, graph.edges, byIdRef.current, alphaRef.current)
+      alphaRef.current += (0 - alphaRef.current) * ALPHA_DECAY
+      force((n) => n + 1)
+      if (alphaRef.current > ALPHA_MIN || dragRef.current) rafRef.current = requestAnimationFrame(loop)
+      else rafRef.current = null
+    }
+    rafRef.current = requestAnimationFrame(loop)
+  }
 
   useEffect(() => {
     if (!graph) return
     nodesRef.current = graph.nodes
     byIdRef.current = new Map(graph.nodes.map((n) => [n.id, n]))
     alphaRef.current = 1
-
-    const ALPHA_MIN = 0.002
-    const ALPHA_DECAY = 0.0228
-
-    const loop = () => {
-      const alpha = alphaRef.current
-      // run a couple of substeps per frame so it settles quickly
-      tick(nodesRef.current, graph.edges, byIdRef.current, alpha)
-      alphaRef.current = alpha + (0 - alpha) * ALPHA_DECAY
-      force((n) => n + 1)
-      if (alphaRef.current > ALPHA_MIN || dragRef.current) {
-        rafRef.current = requestAnimationFrame(loop)
-      } else {
-        rafRef.current = null
-      }
-    }
-    rafRef.current = requestAnimationFrame(loop)
+    centeredRef.current = false
+    startLoop()
     return () => {
       if (rafRef.current) cancelAnimationFrame(rafRef.current)
       rafRef.current = null
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [graph])
+
+  // Center the viewport on the WORLD center once it's laid out, so the settling
+  // cloud (which gravitates to the middle of the big world) starts in frame.
+  useLayoutEffect(() => {
+    if (!graph || centeredRef.current) return
+    const vp = viewportRef.current
+    if (!vp) return
+    const r = vp.getBoundingClientRect()
+    panRef.current = { x: r.width / 2 - WORLD_W / 2, y: r.height / 2 - WORLD_H / 2 }
+    centeredRef.current = true
+    force((n) => n + 1)
   }, [graph])
 
   if (!active || !graph) return null
 
   const nodes = nodesRef.current
   const byId = byIdRef.current
+  const pan = panRef.current
 
   const reheat = () => {
     alphaRef.current = Math.max(alphaRef.current, 0.3)
-    if (rafRef.current == null) {
-      const ALPHA_MIN = 0.002
-      const ALPHA_DECAY = 0.0228
-      const loop = () => {
-        tick(nodesRef.current, graph.edges, byIdRef.current, alphaRef.current)
-        alphaRef.current += (0 - alphaRef.current) * ALPHA_DECAY
-        force((n) => n + 1)
-        if (alphaRef.current > ALPHA_MIN || dragRef.current) rafRef.current = requestAnimationFrame(loop)
-        else rafRef.current = null
-      }
-      rafRef.current = requestAnimationFrame(loop)
-    }
+    startLoop()
   }
 
-  const toLocal = (clientX: number, clientY: number) => {
+  // client → world coordinates (svg is rendered at natural WORLD size, so the
+  // only transform between client and world space is the pan translate).
+  const toWorld = (clientX: number, clientY: number) => {
     const rect = svgRef.current?.getBoundingClientRect()
     if (!rect) return { x: clientX, y: clientY }
-    return {
-      x: ((clientX - rect.left) / rect.width) * CANVAS_W,
-      y: ((clientY - rect.top) / rect.height) * CANVAS_H,
-    }
+    return { x: clientX - rect.left, y: clientY - rect.top }
   }
 
   const onNodePointerDown = (id: string) => (ev: React.PointerEvent) => {
     ev.preventDefault()
-    ;(ev.target as Element).setPointerCapture?.(ev.pointerId)
+    ev.stopPropagation() // don't start a pan
+    ;(ev.currentTarget as Element).setPointerCapture?.(ev.pointerId)
     const n = byId.get(id)
     if (!n) return
-    const p = toLocal(ev.clientX, ev.clientY)
+    const p = toWorld(ev.clientX, ev.clientY)
     dragRef.current = { id, dx: n.x - p.x, dy: n.y - p.y }
     n.fx = n.x
     n.fy = n.y
     reheat()
   }
-  const onPointerMove = (ev: React.PointerEvent) => {
-    const d = dragRef.current
-    if (!d) return
-    const n = byId.get(d.id)
-    if (!n) return
-    const p = toLocal(ev.clientX, ev.clientY)
-    n.fx = p.x + d.dx
-    n.fy = p.y + d.dy
-    alphaRef.current = Math.max(alphaRef.current, 0.15)
+
+  // Pan: pointer down on empty viewport space.
+  const onViewportPointerDown = (ev: React.PointerEvent) => {
+    if (dragRef.current) return
+    ;(ev.currentTarget as Element).setPointerCapture?.(ev.pointerId)
+    panDragRef.current = { px: ev.clientX - pan.x, py: ev.clientY - pan.y }
   }
+
+  const onPointerMove = (ev: React.PointerEvent) => {
+    // node drag takes precedence
+    const d = dragRef.current
+    if (d) {
+      const n = byId.get(d.id)
+      if (!n) return
+      const p = toWorld(ev.clientX, ev.clientY)
+      n.fx = p.x + d.dx
+      n.fy = p.y + d.dy
+      alphaRef.current = Math.max(alphaRef.current, 0.15)
+      return
+    }
+    const pd = panDragRef.current
+    if (pd) {
+      panRef.current = { x: ev.clientX - pd.px, y: ev.clientY - pd.py }
+      force((n) => n + 1)
+    }
+  }
+
   const onPointerUp = () => {
     const d = dragRef.current
     if (d) {
@@ -329,11 +359,12 @@ export function HierarchyInspector() {
       }
     }
     dragRef.current = null
+    panDragRef.current = null
   }
 
   return (
     <div
-      className="fixed left-3 top-3 z-[9999] flex select-none flex-col overflow-hidden rounded-md border border-border bg-card/90 font-mono text-xs text-card-foreground shadow-lg backdrop-blur"
+      className="fixed inset-3 z-[9999] flex select-none flex-col overflow-hidden rounded-md border border-border bg-card/90 font-mono text-xs text-card-foreground shadow-lg backdrop-blur"
       role="status"
       aria-label="Hierarchy inspector"
     >
@@ -342,77 +373,85 @@ export function HierarchyInspector() {
         <span className="text-[10px] text-muted-foreground tabular-nums">{nodes.length} nodes</span>
       </div>
 
-      <svg
-        ref={svgRef}
-        width={CANVAS_W}
-        height={CANVAS_H}
-        className="max-h-[80vh] max-w-[92vw] touch-none"
+      {/* Pannable viewport — the world bleeds past these edges. */}
+      <div
+        ref={viewportRef}
+        className="relative flex-1 cursor-grab touch-none overflow-hidden active:cursor-grabbing"
+        onPointerDown={onViewportPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerLeave={onPointerUp}
       >
-        {/* edges */}
-        <g>
-          {graph.edges.map((e) => {
-            const s = byId.get(e.source)
-            const t = byId.get(e.target)
-            if (!s || !t) return null
-            return (
-              <line
-                key={e.id}
-                x1={s.x}
-                y1={s.y}
-                x2={t.x}
-                y2={t.y}
-                stroke="var(--border)"
-                strokeWidth={1.25}
-              />
-            )
-          })}
-        </g>
+        <svg
+          ref={svgRef}
+          width={WORLD_W}
+          height={WORLD_H}
+          className="absolute left-0 top-0"
+          style={{ transform: `translate(${pan.x}px, ${pan.y}px)` }}
+        >
+          {/* edges */}
+          <g>
+            {graph.edges.map((e) => {
+              const s = byId.get(e.source)
+              const t = byId.get(e.target)
+              if (!s || !t) return null
+              return (
+                <line
+                  key={e.id}
+                  x1={s.x}
+                  y1={s.y}
+                  x2={t.x}
+                  y2={t.y}
+                  stroke="var(--border)"
+                  strokeWidth={1.25}
+                />
+              )
+            })}
+          </g>
 
-        {/* nodes */}
-        <g>
-          {nodes.map((n) => {
-            const closed = isClosed(n.entity)
-            const cancelled = !!n.entity.cancelled
-            return (
-              <foreignObject
-                key={n.id}
-                x={n.x - NODE_W / 2}
-                y={n.y - 12}
-                width={NODE_W}
-                height={24}
-                onPointerDown={onNodePointerDown(n.id)}
-                className="cursor-grab active:cursor-grabbing"
-              >
-                <div
-                  className="flex h-6 items-center gap-1.5 rounded-md border border-border bg-background/90 px-2 leading-none shadow-sm"
-                  title={`${n.entity.title} · ${NODE_KIND_META[n.entity.kind].label}`}
+          {/* nodes */}
+          <g>
+            {nodes.map((n) => {
+              const closed = isClosed(n.entity)
+              const cancelled = !!n.entity.cancelled
+              return (
+                <foreignObject
+                  key={n.id}
+                  x={n.x - NODE_W / 2}
+                  y={n.y - 12}
+                  width={NODE_W}
+                  height={24}
+                  onPointerDown={onNodePointerDown(n.id)}
+                  className="cursor-grab active:cursor-grabbing"
                 >
-                  <span className="shrink-0 text-foreground">
-                    <NodeGlyph
-                      kind={n.entity.kind}
-                      filled={closed}
-                      struck={cancelled}
-                      className="h-3.5 w-3.5"
-                      strokeWidth={1.75}
-                    />
-                  </span>
-                  <span
-                    className={`truncate ${cancelled ? "text-muted-foreground line-through" : n.hasChildren ? "font-semibold text-foreground" : "text-card-foreground"}`}
+                  <div
+                    className="flex h-6 items-center gap-1.5 rounded-md border border-border bg-background/90 px-2 leading-none shadow-sm"
+                    title={`${n.entity.title} · ${NODE_KIND_META[n.entity.kind].label}`}
                   >
-                    {n.entity.title}
-                  </span>
-                </div>
-              </foreignObject>
-            )
-          })}
-        </g>
-      </svg>
+                    <span className="shrink-0 text-foreground">
+                      <NodeGlyph
+                        kind={n.entity.kind}
+                        filled={closed}
+                        struck={cancelled}
+                        className="h-3.5 w-3.5"
+                        strokeWidth={1.75}
+                      />
+                    </span>
+                    <span
+                      className={`truncate ${cancelled ? "text-muted-foreground line-through" : n.hasChildren ? "font-semibold text-foreground" : "text-card-foreground"}`}
+                    >
+                      {n.entity.title}
+                    </span>
+                  </div>
+                </foreignObject>
+              )
+            })}
+          </g>
+        </svg>
+      </div>
 
       <div className="flex items-center justify-between border-t border-border px-3 py-1.5">
-        <span className="text-[10px] text-muted-foreground">{"§4 hide · drag nodes"}</span>
+        <span className="text-[10px] text-muted-foreground">{"§4 hide · drag nodes · drag bg to pan"}</span>
         <span className="text-[10px] text-muted-foreground">{"origin tree"}</span>
       </div>
     </div>
