@@ -620,7 +620,25 @@ export function HierarchyInspector() {
                   />
                 )
               }
-              // NON-SPACE targets: HORIZONTAL-biased S-curve (cubic with horizontal
+              // NON-SPACE targets whose PARENT is non-space AND not a task: the edge
+              // LEAVES the parent from its BOTTOM (vertical start tangent) and REACHES
+              // the child on its LEFT side (horizontal end tangent) — a bottom→left elbow.
+              const parentNonSpaceNonTask = s.entity.kind !== "space" && s.entity.kind !== "task"
+              if (parentNonSpaceNonTask) {
+                const k = 0.6
+                const c1y = s.y + (t.y - s.y) * k // straight down out of the parent
+                const c2x = t.x - (t.x - s.x) * k // straight in from the child's left
+                return (
+                  <path
+                    key={e.id}
+                    d={`M ${s.x} ${s.y} C ${s.x} ${c1y} ${c2x} ${t.y} ${t.x} ${t.y}`}
+                    fill="none"
+                    stroke="var(--border)"
+                    strokeWidth={1.25}
+                  />
+                )
+              }
+              // Other NON-SPACE targets: HORIZONTAL-biased S-curve (cubic with horizontal
               // tangents — control pts share each endpoint's y, pulled toward the
               // horizontal midpoint by `hf`). Stronger tune for more flow.
               const hf = 0.72
