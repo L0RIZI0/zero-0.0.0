@@ -487,7 +487,7 @@ export const entities: Entity[] = [
   { id: "w1", kind: "task", title: "Warm-up & mobility", parentId: "s_workout", taggedSpaceIds: [], completed: false, priority: "medium", tags: ["workout"] },
   { id: "w2", kind: "task", title: "Squats — 4×8", parentId: "s_workout", taggedSpaceIds: [], completed: false, priority: "high", tags: ["workout", "legs"] },
   { id: "w3", kind: "task", title: "Bench press — 4×8", parentId: "s_workout", taggedSpaceIds: [], completed: false, priority: "high", tags: ["workout", "push"] },
-  { id: "w4", kind: "task", title: "Pull-ups — 3�� max", parentId: "s_workout", taggedSpaceIds: [], completed: false, priority: "high", tags: ["workout", "pull"] },
+  { id: "w4", kind: "task", title: "Pull-ups — 3× max", parentId: "s_workout", taggedSpaceIds: [], completed: false, priority: "high", tags: ["workout", "pull"] },
   { id: "w5", kind: "task", title: "Core circuit", parentId: "s_workout", taggedSpaceIds: [], completed: false, priority: "medium", tags: ["workout", "core"] },
   { id: "w6", kind: "task", title: "Cooldown stretch", parentId: "s_workout", taggedSpaceIds: [], completed: false, priority: "low", tags: ["workout"] },
 
