@@ -61,7 +61,7 @@ const IH = 12 // intrinsic half-height of a node's own row (→ leaves ~2·IH ap
 const SPACE_GAP = 40 // vertical gap below the parent before its space row starts
 const SPACE_HGAP = 48 // horizontal gap between sibling-space SUBTREES in the row
 const SPINE_DY = 132 // vertical gap for an `individual` child (identity spine)
-const DR_DX = 44 // action children indent clearly right of the parent
+const DR_DX = 32 // action children indent clearly right of the parent
 const DR_TOP = 12 // first action child's subtree top sits this far below the parent
 const ROW_GAP = 2 // gap between stacked action-child SUBTREES
 
