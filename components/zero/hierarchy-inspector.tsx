@@ -598,7 +598,7 @@ export function HierarchyInspector() {
               Masked so the tips are punched out where they'd show through the
               transparent glyph interiors. */}
           <g
-            stroke="color-mix(in oklch, var(--muted-foreground) 55%, var(--border))"
+            stroke="color-mix(in oklch, var(--muted-foreground) 38%, var(--border))"
             mask="url(#zero-glyph-holes)"
           >
             {graph.edges.map((e) => {
