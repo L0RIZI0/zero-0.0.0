@@ -174,8 +174,9 @@ function buildGraph(): { nodes: SimNode[]; edges: Edge[]; tagEdges: Edge[] } {
     let left = -node.rw * 0 - IH // node's own left reach (glyph center → left is ~half glyph)
     let right_ = node.rw // own right reach = glyph + label
 
-    // action children: stack their SUBTREES straight down, indented slightly right
-    let cur = DR_TOP
+    // action children: stack their SUBTREES straight down, indented slightly right.
+    // An Individual drops these non-space children lower (3× its space-child drop).
+    let cur = DR_TOP + (node.entity.kind === "individual" ? INDIVIDUAL_CHILD_DROP * 3 : 0)
     for (const a of dr) {
       const e = ext.get(a.id)!
       a.ox = DR_DX
