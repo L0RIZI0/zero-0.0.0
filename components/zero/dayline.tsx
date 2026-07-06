@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { useZeroNav } from "@/lib/zero/nav-store"
-import { getTimelineOccurrences, getInheritedAccent } from "@/lib/zero/data"
+import { getTimelineOccurrences, getInheritedAccent, getEntity } from "@/lib/zero/data"
+import { getSegments, useActivityRevision } from "@/lib/zero/activity-log"
 import { entityInterval } from "@/lib/zero/timeline-index"
 import { KIND_META, isClosed } from "@/lib/zero/kinds"
 import { rangeText, NOW_COLOR } from "@/lib/zero/timeline-format"
@@ -257,6 +258,9 @@ export function Dayline() {
   const winStart = viewStart
 
   const [hovered, setHovered] = useState<string | null>(null)
+  // Separate hover key for the PRESENCE (activity) band along the lane bottom, so
+  // highlighting a "where I was" bar never fights the planned-tick hover above it.
+  const [presHovered, setPresHovered] = useState<string | null>(null)
   // Hover state for the NOW marker's time tooltip (React-driven, like the chips —
   // the Tailwind `group-hover` variant isn't reliably compiled in this project).
   const [nowHover, setNowHover] = useState(false)
@@ -318,6 +322,68 @@ export function Dayline() {
   const nowInView = nowPct >= 0 && nowPct <= 100
 
   // ==========================================================================
+  // PRESENCE band (STEP 2) — paint WHERE the Individual actually was, alongside
+  // what they PLANNED. Reads the activity log's raw segments and lays each one
+  // out in the SAME window coordinates as the planned items (leftPct/widthPct vs
+  // winStart + DAY_MS), so "what happened" lines up under "what was planned".
+  //
+  // • `useActivityRevision()` (not the segments array — it's mutated in place)
+  //   re-derives on any structural change; `now` grows the open segment + keeps
+  //   it in step with the NOW marker.
+  // • Only segments overlapping the buffered window are kept, bounding node count.
+  // • Colored by the space's OWN inherited accent so a Day Job stretch reads in
+  //   Day Job's color; falls back to neutral (e.g. Home/root).
+  // ==========================================================================
+  const activityRevision = useActivityRevision()
+  const presence = useMemo(() => {
+    if (!mounted) return [] as {
+      key: string
+      id: string
+      title: string
+      color: string
+      leftPct: number
+      widthPct: number
+      centerPct: number
+      range: string
+    }[]
+    const nowMs = now
+    const lo = winStart - RENDER_MARGIN_MS
+    const hi = winStart + DAY_MS + RENDER_MARGIN_MS
+    const out: {
+      key: string
+      id: string
+      title: string
+      color: string
+      leftPct: number
+      widthPct: number
+      centerPct: number
+      range: string
+    }[] = []
+    for (const s of getSegments()) {
+      const st = s.enteredAt
+      const en = s.leftAt ?? nowMs
+      if (en <= st) continue // zero/negative-width (e.g. instantaneous flush) — skip
+      if (en < lo || st > hi) continue // fully outside the buffered window
+      const leftPct = ((st - winStart) / DAY_MS) * 100
+      const widthPct = ((en - st) / DAY_MS) * 100
+      out.push({
+        key: `pres:${s.entityId}:${s.enteredAt}`,
+        id: s.entityId,
+        title: getEntity(s.entityId)?.title ?? "Elsewhere",
+        color: getInheritedAccent(s.entityId) ?? NEUTRAL,
+        leftPct,
+        widthPct,
+        centerPct: leftPct + widthPct / 2,
+        range: rangeText(st, en),
+      })
+    }
+    return out
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [winStart, now, mounted, activityRevision, dataVersion])
+
+  const hoveredPres = presHovered ? presence.find((p) => p.key === presHovered) : null
+
+  // ==========================================================================
   // RIPPLE — per-column critically-damped springs, driven imperatively.
   // ==========================================================================
   const laneRef = useRef<HTMLDivElement>(null)
@@ -373,11 +439,14 @@ export function Dayline() {
   // cursor. It gets its own layer so its content's own `-translate-x-1/2` centering stays
   // intact (this wrapper only carries the pan translateX).
   const tooltipPanRef = useRef<HTMLDivElement>(null)
+  // Presence (activity) hover tooltip rides the same base pan as everything else.
+  const presTooltipPanRef = useRef<HTMLDivElement>(null)
   const applyPan = useCallback((px: number) => {
     const t = px ? `translateX(${px}px)` : ""
     if (ticksPanRef.current) ticksPanRef.current.style.transform = t
     if (markerPanRef.current) markerPanRef.current.style.transform = t
     if (tooltipPanRef.current) tooltipPanRef.current.style.transform = t
+    if (presTooltipPanRef.current) presTooltipPanRef.current.style.transform = t
   }, [])
   // Bridge so the ripple loop (defined above) can trigger the deferred wheel-pan flush
   // once the ripple settles — assigned below where `maybeFlushAtRest` is defined.
@@ -810,6 +879,43 @@ export function Dayline() {
               window, so ticks entering from either edge reveal correctly during the gesture.
               Identity except mid-wheel-gesture; flushed into `viewStart` on settle. */}
           <div ref={ticksPanRef} className="pointer-events-none absolute inset-0 will-change-transform">
+          {/* PRESENCE band — actual "where I was" stretches, pinned to the lane's
+              BOTTOM edge so they read as a separate track beneath the planned ticks.
+              Rendered FIRST (underneath), each wrapped in a ripple node so it pans +
+              catches the same wave as the ticks. Click opens that space (same
+              open-from law as ticks); drag is guarded by draggedRef. */}
+          {mounted &&
+            presence.map((p) => {
+              const isHot = presHovered === p.key
+              return (
+                <div
+                  key={p.key}
+                  ref={registerRipple(p.key)}
+                  data-left={p.leftPct}
+                  className="pointer-events-none absolute inset-0 will-change-transform"
+                >
+                  <button
+                    type="button"
+                    aria-label={`Was in ${p.title}, ${p.range}`}
+                    onMouseEnter={() => setPresHovered(p.key)}
+                    onMouseLeave={() => setPresHovered((h) => (h === p.key ? null : h))}
+                    onClick={(e) => {
+                      if (draggedRef.current) return // a pan, not a tap
+                      openFromTick(p.id, e.currentTarget)
+                    }}
+                    className="pointer-events-auto absolute bottom-1 cursor-default rounded-full transition-[height,opacity] duration-150"
+                    style={{
+                      left: `${p.leftPct}%`,
+                      width: `max(3px, ${p.widthPct}%)`,
+                      height: isHot ? 6 : 3,
+                      backgroundColor: p.color,
+                      opacity: isHot ? 0.9 : 0.5,
+                      zIndex: isHot ? 15 : 0,
+                    }}
+                  />
+                </div>
+              )
+            })}
           {mounted &&
             items.map((it) => {
               const isHot = hovered === it.key
@@ -983,6 +1089,33 @@ export function Dayline() {
                 </span>
                 <span className="truncate text-foreground">{hoveredItem.title}</span>
                 <span className="shrink-0 text-muted-foreground tabular-nums">{hoveredItem.range}</span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* PRESENCE HOVER HELPER — mirrors the planned-item tooltip (same two-layer
+            pan-follow), but labelled as actual presence: a color dot for the space +
+            "in {title}" + the clock range. Anchored at the presence bar's center. */}
+        {hoveredPres && (
+          <div ref={presTooltipPanRef} className="pointer-events-none absolute inset-0 z-40 will-change-transform">
+            <div
+              ref={registerRipple("__prestooltip__")}
+              data-left={hoveredPres.leftPct}
+              className="pointer-events-none absolute inset-0 will-change-transform"
+            >
+              <div
+                className="pointer-events-none absolute top-full flex max-w-[40vw] -translate-x-1/2 items-center gap-1.5 whitespace-nowrap rounded border border-border/70 bg-card px-2 py-1 text-[10.5px] font-medium leading-none tracking-tight text-foreground/80 shadow-sm animate-in fade-in duration-150"
+                style={{ left: `${Math.min(96, Math.max(4, hoveredPres.centerPct))}%`, marginTop: 4 }}
+              >
+                <span
+                  aria-hidden
+                  className="h-2 w-2 shrink-0 rounded-full"
+                  style={{ backgroundColor: hoveredPres.color }}
+                />
+                <span className="shrink-0 text-muted-foreground">in</span>
+                <span className="truncate text-foreground">{hoveredPres.title}</span>
+                <span className="shrink-0 text-muted-foreground tabular-nums">{hoveredPres.range}</span>
               </div>
             </div>
           </div>

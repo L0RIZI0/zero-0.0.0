@@ -44,8 +44,15 @@ let currentEntityId: string | null = null
 let hydrated = false
 let visibilityInstalled = false
 
+// Monotonic revision, bumped on every structural change. `segments` is mutated
+// IN PLACE (push / set leftAt), so its array reference stays stable — a
+// useSyncExternalStore snapshot keyed on the array alone would miss those edits.
+// Consumers that need to recompute on any change subscribe to this number instead.
+let revision = 0
+
 const listeners = new Set<() => void>()
 function emit() {
+  revision++
   for (const l of listeners) l()
 }
 
@@ -259,5 +266,19 @@ export function useActivityLog(): PresenceSegment[] {
     subscribe,
     () => segments,
     () => segments,
+  )
+}
+
+/**
+ * Subscribe to the log's revision counter. Returns a number that increments on
+ * every structural change. Because `segments` is mutated in place, this is the
+ * reliable trigger for consumers that read via `getSegments()` and want to
+ * recompute whenever anything changes (e.g. the dayline's presence layer).
+ */
+export function useActivityRevision(): number {
+  return useSyncExternalStore(
+    subscribe,
+    () => revision,
+    () => 0,
   )
 }
