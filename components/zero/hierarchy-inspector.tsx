@@ -196,13 +196,9 @@ function buildGraph(): { nodes: SimNode[]; edges: Edge[] } {
       dc = d.oy + e.down + SPINE_DY
     }
 
-    // space children: horizontal ROW BELOW the node, the row CENTERED on the node's x
-    const widths = right.map((s) => {
-      const e = ext.get(s.id)!
-      return e.right - e.left
-    })
-    const totalW = widths.reduce((a, b) => a + b, 0) + Math.max(0, right.length - 1) * SPACE_HGAP
-    let rc = -totalW / 2
+    // space children: horizontal ROW BELOW the node, the row's LEFT TIP aligned
+    // with the node's x (glyph center) — the row grows rightward from there.
+    let rc = 0
     const spaceTop = down_ + SPACE_GAP // clear the node's own down-extent first
     for (const s of right) {
       const e = ext.get(s.id)!
