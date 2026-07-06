@@ -583,19 +583,25 @@ export function HierarchyInspector() {
             })}
           </g>
 
-          {/* parent → child edges */}
+          {/* parent → child edges (quadratic bulge for an organic look) */}
           <g>
             {graph.edges.map((e) => {
               const s = byId.get(e.source)
               const t = byId.get(e.target)
               if (!s || !t) return null
+              // control point = midpoint pushed perpendicular to the edge by a
+              // capped fraction of its length, so the line bows out gently.
+              const dx = t.x - s.x
+              const dy = t.y - s.y
+              const len = Math.hypot(dx, dy) || 1
+              const bulge = Math.min(len * 0.18, 26)
+              const mx = (s.x + t.x) / 2 + (-dy / len) * bulge
+              const my = (s.y + t.y) / 2 + (dx / len) * bulge
               return (
-                <line
+                <path
                   key={e.id}
-                  x1={s.x}
-                  y1={s.y}
-                  x2={t.x}
-                  y2={t.y}
+                  d={`M ${s.x} ${s.y} Q ${mx} ${my} ${t.x} ${t.y}`}
+                  fill="none"
                   stroke="var(--border)"
                   strokeWidth={1.25}
                 />
