@@ -1896,3 +1896,24 @@ export function setEventCancelled(id: string, cancelled: boolean): void {
   }
   persist()
 }
+
+/**
+ * Manually CLOSE (or reopen) an entity — the "Close" menu action. Sets the
+ * persisted `closed` flag so the glyph renders FILLED (distinct from a task's
+ * "done"/checkmark). Reopening clears the flag; note this only undoes a MANUAL
+ * close — a task that is DERIVED-closed (done past midnight) or an event past its
+ * end still reads as closed via {@link isClosed}. Seeded items record a partial
+ * override so the state survives refreshes (mirrors setEventCancelled).
+ */
+export function setEntityClosed(id: string, closed: boolean): void {
+  const entity = byId.get(id)
+  if (!entity) return
+  const closedOn = closed ? Date.now() : undefined
+  entity.closed = closed
+  entity.closedOn = closedOn
+  if (!userEntityIds.has(id)) {
+    // Seeded entity — track as an override patch.
+    seededOverrides.set(id, { ...seededOverrides.get(id), closed, closedOn })
+  }
+  persist()
+}

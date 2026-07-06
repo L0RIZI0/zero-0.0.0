@@ -133,3 +133,40 @@ export function isTerminal(entity: Entity): boolean {
   if (entity.kind === "organism" || entity.kind === "individual") return entity.diedOn != null
   return false
 }
+
+/** The first LOCAL midnight strictly AFTER `epoch` (start of the next day). */
+function nextLocalMidnight(epoch: number): number {
+  const d = new Date(epoch)
+  d.setHours(0, 0, 0, 0) // midnight opening the day of `epoch`
+  d.setDate(d.getDate() + 1) // → the next midnight
+  return d.getTime()
+}
+
+/**
+ * Whether `entity` is CLOSED — i.e. its glyph should render FILLED. "Closed" is
+ * the archived / lifecycle-ended state, DISTINCT from a task's "done" (checkmark,
+ * no fill). Sources, in order:
+ *   1. the MANUAL `closed` flag (the "Close" menu action), persisted;
+ *   2. `cancelled` (the "Cancel" action — also strikes through + fades);
+ *   3. DERIVED, not stored:
+ *      - a done TASK auto-closes at the first local midnight AFTER `completedOn`;
+ *      - an EVENT/INSTANT closes once its end time has passed (instant end == `at`).
+ * `now` is injectable for testing; defaults to the current time. Terminal kinds
+ * (community/organism/individual) never "close" here — they retire/die instead.
+ */
+export function isClosed(entity: Entity, now: number = Date.now()): boolean {
+  if (entity.closed) return true
+  if (entity.cancelled) return true
+  if (entity.kind === "task") {
+    return (
+      !!entity.completed &&
+      entity.completedOn != null &&
+      now >= nextLocalMidnight(entity.completedOn)
+    )
+  }
+  if (entity.kind === "event" || entity.kind === "instant") {
+    const end = entity.schedule?.endAt ?? entity.schedule?.at
+    return end != null && now >= end
+  }
+  return false
+}

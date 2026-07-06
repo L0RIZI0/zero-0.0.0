@@ -3,13 +3,14 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { AnimatePresence, motion, type Transition } from "motion/react"
-import { Check, Pin, Trash2, Ban, RotateCcw, ChevronDown, Globe, Shapes, Send, CalendarClock } from "lucide-react"
+import { Check, Pin, Trash2, Ban, RotateCcw, ChevronDown, Globe, Shapes, Send, CalendarClock, Archive, ArchiveRestore } from "lucide-react"
 import {
   getContextItems,
   isPinned,
   pinItem,
   deleteEntity,
   setEventCancelled,
+  setEntityClosed,
   changeEntityKind,
   setEntityRequested,
   addTask,
@@ -31,6 +32,7 @@ import {
   webDisplayName,
   type WebResource,
 } from "@/lib/zero/web-resources"
+import { isCompletable } from "@/lib/zero/kinds"
 import { useZeroNav, ADD_KEY } from "@/lib/zero/nav-store"
 import { MORPH_EASE } from "@/lib/zero/motion"
 import { NodeGlyph, NODE_KIND_META, type NodeKind } from "./node-glyph"
@@ -905,7 +907,10 @@ export function DoList({
     e.stopPropagation()
     // Keep this row lit while its menu is open (pointer may move onto the menu).
     setMenuKey(`${contextId}:${item.id}`)
-    const canCancel = item.kind === "event" || item.kind === "instant"
+    // Close (fill glyph) and Cancel (fill + strike + fade) apply to any COMPLETABLE
+    // kind (task/space/event/instant/resource); terminal kinds retire/die instead.
+    const canClose = isCompletable(item.kind)
+    const isClosedManually = !!item.entity.closed
     const isCancelled = !!item.entity.cancelled
     // Captured here (not read inside the menu closure) so the TaskSpace narrowing
     // survives — closures don't retain control-flow narrowing of `item.entity`.
@@ -927,8 +932,24 @@ export function DoList({
             }, `${contextId}:${item.id}`)
           },
         },
-        ...(canCancel
+        ...(canClose
           ? [
+              // "Close" — fill the glyph (archived / lifecycle-ended). "Reopen" only
+              // clears the MANUAL flag; a derived-closed item (done task past midnight,
+              // event past its end) still reads closed via isClosed.
+              {
+                label: isClosedManually ? "Reopen" : "Close",
+                icon: isClosedManually ? (
+                  <ArchiveRestore className="h-3.5 w-3.5" />
+                ) : (
+                  <Archive className="h-3.5 w-3.5" />
+                ),
+                onSelect: () => {
+                  setEntityClosed(item.id, !isClosedManually)
+                  notifyDataChanged()
+                },
+              },
+              // "Cancel" — fill the glyph AND strike through the title + fade the row.
               {
                 label: isCancelled ? "Restore" : "Cancel",
                 icon: isCancelled ? <RotateCcw className="h-3.5 w-3.5" /> : <Ban className="h-3.5 w-3.5" />,

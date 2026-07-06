@@ -5,7 +5,7 @@ import { useTheme } from "next-themes"
 import { Check, X } from "lucide-react"
   import { getEntity, getOpenTaskCount, setEntityCompleted } from "@/lib/zero/data"
 import type { TaskPriority } from "@/lib/zero/types"
-import { KIND_META, isTerminal } from "@/lib/zero/kinds"
+import { KIND_META, isTerminal, isClosed } from "@/lib/zero/kinds"
 import { useZeroNav, useRowSelection } from "@/lib/zero/nav-store"
 import {
   HEADER_H,
@@ -206,27 +206,37 @@ export function EntityNode({
   useLayoutEffect(() => {
     setDone(!!entity?.completed)
   }, [entity?.completed])
-  // Inner-checkmark color phase. The check is painted OVER the glyph; the glyph FILL
-  // wipes its silhouette with ink left→right over GLYPH_FILL_SECONDS when completed.
-  // So at the MOMENT of completing we want the check in INK (foreground) — visible on
-  // the still-empty glyph — then fading to `background` (white) in lockstep with the
-  // fill inking the silhouette behind it. `checkWhite` true = white, false = ink. A
-  // node that is ALREADY done at mount (reopened / re-rendered) starts white, no fade.
-  const [checkWhite, setCheckWhite] = useState(!!entity?.completed)
-  const prevDoneForCheck = useRef(!!entity?.completed)
+  // CLOSED mirror — drives the glyph FILL, which is now DISTINCT from `done`. Closed
+  // = the manual `closed` flag OR `cancelled` OR a DERIVED case (a done task past its
+  // first following midnight; an event/instant past its end); see `isClosed`. It is
+  // recomputed each render so it tracks store edits and reloads, with a state mirror
+  // so the fill wipe animates on the open⇄closed transition.
+  const closedNow = entity ? isClosed(entity) : false
+  const [closed, setClosed] = useState(closedNow)
   useLayoutEffect(() => {
-    if (done === prevDoneForCheck.current) return
-    prevDoneForCheck.current = done
-    if (done) {
-      // Just completed: paint ink THIS frame (pre-paint), then flip to white next frame
+    setClosed(closedNow)
+  }, [closedNow])
+  // Inner-checkmark color phase. The check is painted OVER the glyph; the glyph FILL
+  // wipes its silhouette with ink left→right over GLYPH_FILL_SECONDS when the entity
+  // CLOSES (no longer merely when done). So a done-but-still-open task shows an INK
+  // check on the EMPTY glyph; once it CLOSES the check fades to `background` (white) in
+  // lockstep with the fill inking the silhouette behind it. `checkWhite` true = white,
+  // false = ink. A node ALREADY closed at mount starts white, no fade.
+  const [checkWhite, setCheckWhite] = useState(closedNow)
+  const prevClosedForCheck = useRef(closedNow)
+  useLayoutEffect(() => {
+    if (closed === prevClosedForCheck.current) return
+    prevClosedForCheck.current = closed
+    if (closed) {
+      // Just closed: paint ink THIS frame (pre-paint), then flip to white next frame
       // so the CSS color transition runs alongside the glyph's fill wipe.
       setCheckWhite(false)
       const id = requestAnimationFrame(() => setCheckWhite(true))
       return () => cancelAnimationFrame(id)
     }
-    // Just un-completed: reset so the next completion animates from ink again.
+    // Just reopened: reset so the next close animates from ink again.
     setCheckWhite(false)
-  }, [done])
+  }, [closed])
   // Inner-checkmark morph gate. The check is a SEPARATE layer painted OVER the glyph
   // (the glyph draws the task SQUARE; the check is the tick inside it — the two stacked
   // marks that together read as a "checkbox"). When an entity's KIND changes, `kind`
@@ -337,18 +347,21 @@ export function EntityNode({
   // to a normal Task window — only the central working surface differs.
   const isResource = isTask && !!entity.webUrl
   // GLYPH SEMANTICS (driven by KIND_META, single source of truth):
-  //  - any completable kind FILLS its silhouette when done (event triangle, space
-  //    hexagon, etc.), not just tasks;
-  //  - only a done TASK additionally gets the inner checkmark;
-  //  - terminal kinds (community→retired, organism/individual→dead) never fill as
-  //    "done"; they instead carry a terminal cross (inert today — nothing sets
-  //    retiredOn/diedOn yet — and its exact styling is deferred).
+  //  - FILL now means CLOSED (archived / lifecycle-ended), not merely "done": any
+  //    completable kind fills its silhouette (event triangle, space hexagon, etc.)
+  //    once it is closed — manually, cancelled, or derived (done task past midnight,
+  //    event/instant past its end);
+  //  - a DONE task shows the inner checkmark — with NO fill until it also closes, so
+  //    a freshly-checked task reads as a square + tick on an empty glyph, and a
+  //    done+closed task reads as a FILLED square + tick;
+  //  - terminal kinds (community→retired, organism/individual→dead) never fill; they
+  //    instead carry a terminal cross (inert today — nothing sets retiredOn/diedOn
+  //    yet — and its exact styling is deferred).
   const meta = KIND_META[kind]
   const terminal = isTerminal(entity)
   // A terminal glyph is NOT filled — it stays an outline and carries the terminal
-  // cross instead (per the model: a retired Community / dead Organism is never a
-  // "filled" silhouette). Only completable kinds fill, and only when done.
-  const glyphFilled = meta.fillGlyphWhenDone && done
+  // cross instead. Only completable kinds fill, and only once CLOSED.
+  const glyphFilled = meta.fillGlyphWhenDone && closed
   const showCheckmark = meta.checkmarkWhenDone && done
 
   // OWNERSHIP. The same entity can be referenced in several contexts, so it can

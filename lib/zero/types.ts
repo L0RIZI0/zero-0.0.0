@@ -205,6 +205,19 @@ export interface SpaceBase {
   createdWhere?: string
   /** When `completed` last flipped true (mirrors the completion write). */
   completedOn?: Epoch
+  /**
+   * CLOSED = the glyph is FILLED (lifecycle ended / archived). Distinct from
+   * `completed` (a task's "done" = checkmark, no fill). A space is closed when:
+   *   - this MANUAL flag is set (the "Close" menu action), or
+   *   - it is `cancelled` (the "Cancel" action also fills, plus strike + fade), or
+   *   - (DERIVED, not stored) a done task whose `completedOn` is before the first
+   *     following local midnight, or an event/instant whose end time has passed.
+   * Only the manual flag is persisted; the derived cases are computed at read-time
+   * by {@link isClosed} in `lib/zero/kinds.ts`.
+   */
+  closed?: boolean
+  /** When the manual `closed` flag last flipped true (epoch ms). */
+  closedOn?: Epoch
 
   // --- Shared state + display (relevance varies by kind) --------------------
   /**
