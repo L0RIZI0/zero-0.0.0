@@ -1,12 +1,13 @@
 import type { Metadata } from "next"
 import Link from "next/link"
 import { ArrowLeft } from "lucide-react"
-import { UnifrakturMaguntia } from "next/font/google"
+import { Grenze_Gotisch } from "next/font/google"
 
-// Classic German blackletter (Fraktur) — a single 400 weight. Scoped to this page
-// only via its CSS variable so it never leaks into the rest of the shell's Geist UI.
-const blackletter = UnifrakturMaguntia({
-  weight: "400",
+// Germanic gothic (blackletter-inspired) but far more legible than Fraktur — the
+// ornate Unifraktur letterforms were hard to read. Scoped to this page only via its
+// CSS variable so it never leaks into the rest of the shell's Geist UI.
+const blackletter = Grenze_Gotisch({
+  weight: ["500", "700"],
   subsets: ["latin"],
   variable: "--font-blackletter",
 })
@@ -79,8 +80,7 @@ export default function ZeroLawsPage() {
             >
               <span
                 aria-hidden="true"
-                className="shrink-0 text-5xl leading-none text-muted-foreground md:w-24 md:text-6xl"
-                style={{ fontFamily: "var(--font-blackletter)" }}
+                className="shrink-0 font-sans text-5xl font-light leading-none tabular-nums text-muted-foreground md:w-24 md:text-6xl"
               >
                 {law.numeral}
               </span>
