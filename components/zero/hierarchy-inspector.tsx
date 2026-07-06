@@ -6,7 +6,7 @@ import { useDebugView } from "@/lib/zero/debug-view"
 import { entities } from "@/lib/zero/data"
 import { isClosed } from "@/lib/zero/kinds"
 import { NODE_KIND_META, NodeGlyph } from "./node-glyph"
-import type { Entity } from "@/lib/zero/types"
+import type { Entity, EntityKind } from "@/lib/zero/types"
 
 /**
  * Dev-only HIERARCHY inspector (`§ 4`).
@@ -18,20 +18,28 @@ import type { Entity } from "@/lib/zero/types"
  * tree via `parentId` so the identity triad and every leaf are visible — a debug
  * X-ray of the real structure, not a browsable listing.
  *
- * LAYOUT — a LAYERED (hierarchical) force graph. A free force-directed cloud makes
- * depth invisible, so instead we constrain the sim so the tree READS top-down. We
- * split nodes into BRANCHES (have children) and LEAVES (don't):
- *   • BRANCHES form a tidy top-down tree:
- *       – VERTICAL by DEPTH — pulled to a layer band (`ty = depth · LAYER_H`) by a
- *         stiff spring, so a PARENT ALWAYS SITS NORTH of its children;
- *       – HORIZONTAL is force-driven: parent ← barycenter of its branch children
- *         (apex centers OVER its subtree → distinct clusters), child → parent
- *         alignment, charge repulsion between columns, weak root centering.
- *   • LEAVES take NO horizontal slot — each hangs in a vertical COLUMN just
- *     below/right of its parent (spring to `parent + (leafOrder+1)·ROW_DY`), so a
- *     subtree reads as a heading with an indented list beneath it. This keeps the
- *     graph narrow and legible instead of spreading every leaf across the row.
- *   • Seeded with a tidy-tree pass so the sim starts near-solved and just relaxes.
+ * LAYOUT — a KIND-DIRECTIONAL force graph. A node's position relative to its parent
+ * is decided by the NODE'S OWN KIND, expressed as a strong spring toward a
+ * parent-relative target (physics only smooths + resolves overlaps):
+ *   • `space`      → to the RIGHT of the parent. Space siblings stack as a vertical
+ *                    column whose CENTER sits on the parent's y (half above / half
+ *                    below), one step to the right (cleared past the parent's label).
+ *   • `individual` → straight DOWN, aligned on the parent's x → the Soul→Individual
+ *                    identity spine stays vertical and centered.
+ *   • everything else (task/event/instant/…) → DOWN and slightly right, stacked as
+ *                    an indented column under the parent — whether or not it has its
+ *                    own children (a branch task carries its subtree with it).
+ * So containers expand the tree HORIZONTALLY while actions expand it VERTICALLY.
+ * The right-offset is measured from the parent's actual label width, so glyph
+ * centers align exactly (no stray padding).
+ *
+ * Sibling spacing is SUBTREE-EXTENT-AWARE: each node computes how far its whole
+ * subtree reaches above/below itself, and siblings are stacked by those real
+ * extents (a `place()` pass assigns every node a fixed offset `ox/oy` relative to
+ * its parent). This is what stops a tall action column under one space from
+ * crashing into the next space below it. The physics then just springs each node to
+ * `parent + (ox,oy)`, smooths motion, allows dragging, and runs a label-aware
+ * collision pass as a safety net for long labels.
  *
  * Each node is a bare GLYPH (its center = the node point) with a free-floating
  * label beside it — no box — so it reads like Obsidian's graph. The sim runs in a
@@ -46,29 +54,42 @@ import type { Entity } from "@/lib/zero/types"
 const GLYPH = 16 // glyph box (px); its geometric center IS the node's (x,y)
 const LABEL_GAP = 6 // gap between the glyph and its label text
 // Large virtual world so the graph can spread out and be panned (not squished to fit).
-const WORLD_W = 3200
-const WORLD_H = 2200
-const LAYER_H = 112 // vertical gap between BRANCH depth levels (parent north of children)
-const X_GAP = 240 // horizontal seed spacing between branch columns (tidy-tree first pass)
-const LEAF_DX = 18 // leaf column sits slightly right of its parent (reads as indent)
-const ROW_DY = 22 // vertical spacing between stacked leaf siblings in a column
+const WORLD_W = 4000
+const WORLD_H = 2600
+
+// Directional offsets (see childDir): the target of a child relative to its parent.
+const IH = 12 // intrinsic half-height of a node's own row (→ leaves ~2·IH apart)
+const SPACE_GAP = 40 // gap after the parent's LABEL before its space column starts
+const SPACE_VGAP = 20 // gap between sibling-space SUBTREES in the right column
+const SPINE_DY = 132 // vertical gap for an `individual` child (identity spine)
+const DR_DX = 16 // action children indent slightly right of the parent
+const DR_TOP = 28 // first action child's subtree top sits this far below the parent
+const ROW_GAP = 8 // gap between stacked action-child SUBTREES
 
 // approx label rendering metrics (mono 11px) used for collision + truncation
 const LABEL_MAX = 22 // chars before we ellipsize
 const CHAR_W = 6.6 // px per mono char at 11px
 const LINE_H = 15 // label line box height
 
+type Dir = "right" | "down" | "downRight"
+
+/** A child's placement direction is decided by ITS OWN kind (draft rules). */
+function childDir(kind: EntityKind): Dir {
+  if (kind === "individual") return "down" // identity spine, aligned under parent
+  if (kind === "space") return "right" // containers expand horizontally
+  return "downRight" // actions (task/event/instant/…) expand vertically
+}
+
 type SimNode = {
   id: string
   entity: Entity
   hasChildren: boolean
-  isLeaf: boolean // no children → hangs in a vertical column under its parent
   parentId: string | null
-  leafOrder: number // index among its parent's LEAF children (for column stacking)
-  depth: number // BRANCH depth (only meaningful for branch nodes / layering)
-  ty: number // target Y (world) for a branch node's depth band — the layering constraint
+  dir: Dir // this node's direction relative to its parent (from its kind)
+  ox: number // fixed offset from the parent (x), assigned by place()
+  oy: number // fixed offset from the parent (y), assigned by place()
   /** right extent from the node center = glyph half + gap + label width, so
-   *  collision reserves room for the label and labels stop overlapping. */
+   *  collision reserves room for the label and the space column clears the label. */
   rw: number
   x: number
   y: number
@@ -76,16 +97,14 @@ type SimNode = {
   vy: number
   fx: number | null // pinned position while dragging
   fy: number | null
+  ax: number | null // fixed anchor (roots only) — springs hold the root in place
+  ay: number | null
 }
 
 type Edge = { id: string; source: string; target: string }
 
-/** Build the sim nodes + edges from the raw origin tree.
- *
- *  BRANCH nodes (those with children) form a tidy top-down tree: X seeded by an
- *  in-order pass over branch columns, Y by branch depth. LEAF nodes don't take a
- *  horizontal slot — they hang in a vertical COLUMN just below/right of their
- *  parent, so a subtree reads as a heading with an indented list under it. */
+/** Build the sim nodes + edges from the raw origin tree, then run an extent-aware
+ *  `place()` pass to assign every node a fixed offset (`ox/oy`) from its parent. */
 function buildGraph(): { nodes: SimNode[]; edges: Edge[] } {
   const byParent = new Map<string | null, Entity[]>()
   for (const e of entities) {
@@ -94,26 +113,23 @@ function buildGraph(): { nodes: SimNode[]; edges: Edge[] } {
     if (list) list.push(e)
     else byParent.set(e.parentId, [e])
   }
-  const hasKids = (id: string) => (byParent.get(id)?.length ?? 0) > 0
 
   const nodes: SimNode[] = []
   const edges: Edge[] = []
   const byId = new Map<string, SimNode>()
+  const kids = new Map<string, SimNode[]>()
 
-  // pass 1: create every node + edge, stamp isLeaf / parentId / leafOrder.
-  const walk = (entity: Entity) => {
+  const make = (entity: Entity) => {
     const children = byParent.get(entity.id) ?? []
-    const isLeaf = children.length === 0
     const shownLen = Math.min(entity.title.length, LABEL_MAX)
     const node: SimNode = {
       id: entity.id,
       entity,
-      hasChildren: !isLeaf,
-      isLeaf,
+      hasChildren: children.length > 0,
       parentId: entity.parentId,
-      leafOrder: 0,
-      depth: 0,
-      ty: 0,
+      dir: childDir(entity.kind),
+      ox: 0,
+      oy: 0,
       rw: GLYPH / 2 + LABEL_GAP + shownLen * CHAR_W,
       x: 0,
       y: 0,
@@ -121,122 +137,140 @@ function buildGraph(): { nodes: SimNode[]; edges: Edge[] } {
       vy: 0,
       fx: null,
       fy: null,
+      ax: null,
+      ay: null,
     }
     nodes.push(node)
     byId.set(node.id, node)
-
-    let leafOrder = 0
-    for (const child of children) {
-      edges.push({ id: `${entity.id}->${child.id}`, source: entity.id, target: child.id })
-      walk(child)
-      if (!hasKids(child.id)) {
-        const cn = byId.get(child.id)
-        if (cn) cn.leafOrder = leafOrder++
-      }
+    for (const c of children) {
+      edges.push({ id: `${entity.id}->${c.id}`, source: entity.id, target: c.id })
+      make(c)
+      const cn = byId.get(c.id)!
+      const arr = kids.get(node.id)
+      if (arr) arr.push(cn)
+      else kids.set(node.id, [cn])
     }
   }
-  for (const root of byParent.get(null) ?? []) walk(root)
+  for (const root of byParent.get(null) ?? []) make(root)
 
-  // pass 2: tidy-tree X for BRANCH nodes only (leaves never claim an X slot).
-  let leafCounter = 0
-  let maxDepth = 0
-  const seedBranch = (entity: Entity, depth: number): number => {
-    if (depth > maxDepth) maxDepth = depth
-    const children = byParent.get(entity.id) ?? []
-    const branchKids = children.filter((c) => hasKids(c.id))
-    let x: number
-    if (branchKids.length === 0) x = leafCounter++ * X_GAP
-    else x = branchKids.reduce((s, c) => s + seedBranch(c, depth + 1), 0) / branchKids.length
-    const n = byId.get(entity.id)!
+  // place(): assign each child an offset from its parent, returning the subtree's
+  // vertical extent {up ≤ 0, down ≥ 0} relative to this node. Sibling spacing uses
+  // these real extents so tall columns never crash into the next sibling.
+  const place = (node: SimNode): { up: number; down: number } => {
+    const children = kids.get(node.id) ?? []
+    const right = children.filter((c) => c.dir === "right")
+    const down = children.filter((c) => c.dir === "down")
+    const dr = children.filter((c) => c.dir === "downRight")
+    const ext = new Map<string, { up: number; down: number }>()
+    for (const c of children) ext.set(c.id, place(c))
+
+    let up = -IH
+    let down_ = IH
+
+    // action children: stack their SUBTREES straight down, indented slightly right
+    let cur = DR_TOP
+    for (const a of dr) {
+      const e = ext.get(a.id)!
+      a.ox = DR_DX
+      a.oy = cur - e.up // subtree top aligns at `cur` below the node
+      down_ = Math.max(down_, a.oy + e.down)
+      cur = a.oy + e.down + ROW_GAP
+    }
+
+    // individual child: straight down (identity spine), aligned x
+    let dc = SPINE_DY
+    for (const d of down) {
+      const e = ext.get(d.id)!
+      d.ox = 0
+      d.oy = dc - e.up
+      down_ = Math.max(down_, d.oy + e.down)
+      dc = d.oy + e.down + SPINE_DY
+    }
+
+    // space children: vertical column to the RIGHT, the stack CENTERED on the node
+    const heights = right.map((s) => {
+      const e = ext.get(s.id)!
+      return e.down - e.up
+    })
+    const totalH = heights.reduce((a, b) => a + b, 0) + Math.max(0, right.length - 1) * SPACE_VGAP
+    let rc = -totalH / 2
+    for (const s of right) {
+      const e = ext.get(s.id)!
+      s.ox = node.rw + SPACE_GAP
+      s.oy = rc - e.up // subtree top aligns at `rc`
+      up = Math.min(up, s.oy + e.up)
+      down_ = Math.max(down_, s.oy + e.down)
+      rc = s.oy + e.down + SPACE_VGAP
+    }
+
+    return { up, down: down_ }
+  }
+  for (const root of byParent.get(null) ?? []) place(byId.get(root.id)!)
+
+  // Seed absolute positions from the offsets, root at origin.
+  const seed = (n: SimNode, x: number, y: number) => {
     n.x = x
-    n.depth = depth
-    return x
+    n.y = y
+    for (const c of kids.get(n.id) ?? []) seed(c, x + c.ox, y + c.oy)
   }
-  for (const root of byParent.get(null) ?? []) if (hasKids(root.id)) seedBranch(root, 0)
+  for (const root of byParent.get(null) ?? []) seed(byId.get(root.id)!, 0, 0)
 
-  // center branch tree in the world; set branch target-Y bands.
-  const branches = nodes.filter((n) => !n.isLeaf)
-  const meanX = branches.reduce((s, n) => s + n.x, 0) / (branches.length || 1)
-  const dx = WORLD_W / 2 - meanX
-  const topY = WORLD_H / 2 - (maxDepth * LAYER_H) / 2
-  for (const n of branches) {
-    n.x += dx + (Math.random() - 0.5) * 6
-    n.ty = topY + n.depth * LAYER_H
-    n.y = n.ty + (Math.random() - 0.5) * 6
-  }
-  // seed each leaf in its parent's column.
-  for (const n of nodes) {
-    if (!n.isLeaf) continue
-    const p = n.parentId ? byId.get(n.parentId) : null
-    n.x = (p?.x ?? WORLD_W / 2) + LEAF_DX
-    n.y = (p?.y ?? WORLD_H / 2) + (n.leafOrder + 1) * ROW_DY
-    n.ty = n.y
+  // Center the whole seeded tree in the world, then pin roots to that spot.
+  if (nodes.length) {
+    let minX = Infinity
+    let maxX = -Infinity
+    let minY = Infinity
+    let maxY = -Infinity
+    for (const n of nodes) {
+      if (n.x < minX) minX = n.x
+      if (n.x > maxX) maxX = n.x
+      if (n.y < minY) minY = n.y
+      if (n.y > maxY) maxY = n.y
+    }
+    const dx = WORLD_W / 2 - (minX + maxX) / 2
+    const dy = WORLD_H / 2 - (minY + maxY) / 2
+    for (const n of nodes) {
+      n.x += dx
+      n.y += dy
+    }
+    for (const root of byParent.get(null) ?? []) {
+      const rn = byId.get(root.id)!
+      rn.ax = rn.x
+      rn.ay = rn.y
+    }
   }
 
   return { nodes, edges }
 }
 
-/** One physics tick. BRANCH nodes: stiff Y layer spring (depth) + horizontal
- *  forces. LEAF nodes: spring to a vertical column slot under their parent. */
+/** Target position of child `c` = parent position + c's fixed offset. */
+function targetX(p: SimNode, c: SimNode): number {
+  return p.x + c.ox
+}
+function targetY(p: SimNode, c: SimNode): number {
+  return p.y + c.oy
+}
+
+/** One physics tick: springs to each node's fixed parent-relative target (the
+ *  extent-aware layout), then a label-aware collision pass as a safety net. */
 function tick(nodes: SimNode[], edges: Edge[], byId: Map<string, SimNode>, alpha: number) {
-  const CHARGE = -1500 // horizontal repulsion between BRANCH columns
-  const LAYER_K = 0.4 // stiff pull to the depth band (keeps parents north)
-  const CHILD_ALIGN_K = 0.02 // branch child.x → parent.x (tucks subtree under parent)
-  const PARENT_BARY_K = 0.12 // parent.x → mean branch-child.x (apex centers over subtree)
-  const ROOT_X_K = 0.05 // roots gently anchored to world-center X
-  const X_GRAVITY = 0.003 // faint global X centering for stability
-  const LEAF_K = 0.35 // leaf → its column slot under the parent
-  const VELOCITY_DECAY = 0.78
-  const cx = WORLD_W / 2
-  // label-aware collision box: small left/vertical, wide right (n.rw)
+  const SPRING_K = 0.3 // pull to the parent-relative target (ox/oy)
+  const ROOT_K = 0.14 // pull roots to their fixed anchor
+  const VELOCITY_DECAY = 0.8
   const LEFT_EXT = GLYPH / 2 + 2
   const V_EXT = LINE_H / 2 + 1
 
-  // horizontal charge between BRANCH nodes only (leaves are held by their column
-  // spring; spacing between leaf labels is handled by collision).
-  for (let i = 0; i < nodes.length; i++) {
-    const a = nodes[i]
-    if (a.isLeaf) continue
-    for (let j = i + 1; j < nodes.length; j++) {
-      const b = nodes[j]
-      if (b.isLeaf) continue
-      const dx = a.x - b.x
-      const dy = a.y - b.y
-      let d2 = dx * dx + dy * dy
-      if (d2 < 1) d2 = 1
-      const dist = Math.sqrt(d2)
-      const f = (CHARGE * alpha) / d2
-      const fx = (dx / dist) * f
-      a.vx += fx
-      b.vx -= fx
-    }
-  }
-
-  // horizontal alignment along BRANCH↔BRANCH edges (barycenter → apex centering)
+  // directional springs (child → its parent-relative target); roots → anchor.
   for (const e of edges) {
     const p = byId.get(e.source)
     const c = byId.get(e.target)
-    if (!p || !c || c.isLeaf) continue
-    const d = c.x - p.x
-    c.vx += -d * CHILD_ALIGN_K * alpha
-    p.vx += d * PARENT_BARY_K * alpha
+    if (!p || !c) continue
+    c.vx += (targetX(p, c) - c.x) * SPRING_K * alpha
+    c.vy += (targetY(p, c) - c.y) * SPRING_K * alpha
   }
-
-  // branch layering + centering; leaf column springs
   for (const n of nodes) {
-    if (n.isLeaf) {
-      const p = n.parentId ? byId.get(n.parentId) : null
-      if (p) {
-        const targetX = p.x + LEAF_DX
-        const targetY = p.y + (n.leafOrder + 1) * ROW_DY
-        n.vx += (targetX - n.x) * LEAF_K * alpha
-        n.vy += (targetY - n.y) * LEAF_K * alpha
-      }
-      continue
-    }
-    n.vy += (n.ty - n.y) * LAYER_K * alpha
-    n.vx += (cx - n.x) * X_GRAVITY * alpha
-    if (n.depth === 0) n.vx += (cx - n.x) * ROOT_X_K * alpha
+    if (n.ax != null) n.vx += (n.ax - n.x) * ROOT_K * alpha
+    if (n.ay != null) n.vy += (n.ay - n.y) * ROOT_K * alpha
   }
 
   // label-aware AABB collision, several relaxation passes so dense rows un-overlap
@@ -427,7 +461,7 @@ export function HierarchyInspector() {
       aria-label="Hierarchy inspector"
     >
       <div className="flex items-center justify-between gap-6 border-b border-border px-3 py-2">
-        <span className="font-bold">{"Hierarchy · layered graph"}</span>
+        <span className="font-bold">{"Hierarchy · kind-directional graph"}</span>
         <span className="text-[10px] text-muted-foreground tabular-nums">{nodes.length} nodes</span>
       </div>
 
