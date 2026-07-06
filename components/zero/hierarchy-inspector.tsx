@@ -459,10 +459,9 @@ export function HierarchyInspector() {
       graph.nodes.find((n) => n.entity.kind === "individual") ??
       graph.nodes.find((n) => n.parentId == null) ??
       null
-    // Center on the Individual's CENTER OF GRAVITY = the middle of its glyph+label
-    // combined (spans n.x-GLYPH/2 … n.x+rw), not just the glyph point.
-    const cog = focus ? (focus.rw - GLYPH / 2) / 2 : 0
-    const fx = (focus ? focus.x : WORLD_W / 2) + cog
+    // Center on the Individual's CENTER OF GRAVITY. It now stacks glyph over label
+    // centered on its node x, so the CoG is simply focus.x (no horizontal offset).
+    const fx = focus ? focus.x : WORLD_W / 2
     const fy = focus ? focus.y : WORLD_H / 2
     const s = scaleRef.current
     panRef.current = { x: r.width / 2 - fx * s, y: r.height / 3 - fy * s }
@@ -616,19 +615,12 @@ export function HierarchyInspector() {
               const s = byId.get(e.source)
               const t = byId.get(e.target)
               if (!s || !t) return null
-              // Edges attach to a node's glyph point, EXCEPT an Individual (anchored
-              // at its glyph+label center of gravity) and its Soul parent, which is
-              // rendered stacked directly above that same CoG.
+              // Edges attach to a node's glyph point. The Individual now stacks glyph
+              // over label centered on its node x, so its CoG is just n.x; its Soul
+              // parent stacks directly above that same x.
               const indForAnchor = nodes.find((m) => m.entity.kind === "individual")
-              const indCogXForAnchor = indForAnchor
-                ? indForAnchor.x + (indForAnchor.rw - GLYPH / 2) / 2
-                : 0
-              const anchorX = (n: SimNode) =>
-                n.entity.kind === "individual"
-                  ? n.x + (n.rw - GLYPH / 2) / 2
-                  : n.entity.kind === "soul"
-                    ? indCogXForAnchor
-                    : n.x
+              const indCogXForAnchor = indForAnchor ? indForAnchor.x : 0
+              const anchorX = (n: SimNode) => (n.entity.kind === "soul" ? indCogXForAnchor : n.x)
               const sx = anchorX(s)
               const sy = s.y
               const tx = anchorX(t)
@@ -700,10 +692,11 @@ export function HierarchyInspector() {
               label to the right. No box, so the graph breathes like Obsidian's. */}
           <g>
             {(() => {
-              // The single Individual's center of gravity (glyph+label midpoint):
-              // used to anchor its label bg AND to center the Soul label above it.
+              // The single Individual now stacks its glyph OVER its label, both
+              // centered on n.x — so its center of gravity is just n.x. Used to
+              // anchor edges + center the Soul label above it.
               const ind = nodes.find((m) => m.entity.kind === "individual")
-              const indCogX = ind ? ind.x + (ind.rw - GLYPH / 2) / 2 : 0
+              const indCogX = ind ? ind.x : 0
               return nodes.map((n) => {
               const closed = isClosed(n.entity)
               const cancelled = !!n.entity.cancelled
@@ -711,6 +704,13 @@ export function HierarchyInspector() {
               const isSoul = n.entity.kind === "soul"
               const shown =
                 n.entity.title.length > 22 ? `${n.entity.title.slice(0, 21)}…` : n.entity.title
+              // Individual vertical stack (glyph on top, label below), centered on n.y.
+              const INDIV_STACK_GAP = 6
+              const indTextH = 11
+              const indLabelW = shown.length * CHAR_W * 1.05
+              const indStackH = GLYPH + INDIV_STACK_GAP + indTextH
+              const indStackTop = n.y - indStackH / 2
+              const indLabelY = indStackTop + GLYPH + INDIV_STACK_GAP + indTextH / 2
               return (
                 <g key={n.id}>
                   {/* label: plain SVG text, non-interactive (so it never clips or
@@ -720,16 +720,16 @@ export function HierarchyInspector() {
                       label floats to the right, vertically centered. */}
                   {isIndividual &&
                     (() => {
-                      const w = shown.length * CHAR_W * 1.05 // uppercase runs a touch wide
-                      const padX = 6
-                      const padY = 4
-                      // one thick white bg spanning the GLYPH + gap + label together
+                      const padX = 8
+                      const padY = 6
+                      // one thick white bg spanning the stacked GLYPH + label
+                      const maxW = Math.max(GLYPH, indLabelW)
                       return (
                         <rect
-                          x={n.x - GLYPH / 2 - padX}
-                          y={n.y - GLYPH / 2 - padY}
-                          width={GLYPH + LABEL_GAP + w + padX * 2}
-                          height={GLYPH + padY * 2}
+                          x={n.x - maxW / 2 - padX}
+                          y={indStackTop - padY}
+                          width={maxW + padX * 2}
+                          height={indStackH + padY * 2}
                           rx={3}
                           fill="var(--background)"
                           style={{ pointerEvents: "none" }}
@@ -737,13 +737,13 @@ export function HierarchyInspector() {
                       )
                     })()}
                   <text
-                    x={isSoul ? indCogX : n.x + GLYPH / 2 + LABEL_GAP}
-                    y={isSoul ? n.y - GLYPH / 2 - LABEL_GAP : n.y}
+                    x={isSoul || isIndividual ? indCogX : n.x + GLYPH / 2 + LABEL_GAP}
+                    y={isSoul ? n.y - GLYPH / 2 - LABEL_GAP : isIndividual ? indLabelY : n.y}
                     fontSize={11}
                     fontFamily="var(--font-mono, monospace)"
                     fontWeight={isIndividual ? 700 : n.hasChildren ? 600 : 400}
                     fill={cancelled ? "var(--muted-foreground)" : "var(--foreground)"}
-                    textAnchor={isSoul ? "middle" : "start"}
+                    textAnchor={isSoul || isIndividual ? "middle" : "start"}
                     dominantBaseline={isSoul ? "auto" : "middle"}
                     style={{
                       pointerEvents: "none",
@@ -756,10 +756,11 @@ export function HierarchyInspector() {
                   </text>
 
                   {/* glyph: tight draggable box centered on (n.x, n.y) — except a
-                      Soul, whose glyph stacks directly above the Individual's CoG. */}
+                      Soul (stacks above the Individual's CoG) and the Individual
+                      itself (glyph sits at the TOP of its vertical stack). */}
                   <foreignObject
                     x={(isSoul ? indCogX : n.x) - GLYPH / 2}
-                    y={n.y - GLYPH / 2}
+                    y={isIndividual ? indStackTop : n.y - GLYPH / 2}
                     width={GLYPH}
                     height={GLYPH}
                     onPointerDown={onNodePointerDown(n.id)}
