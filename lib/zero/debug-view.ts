@@ -11,6 +11,7 @@ import { clearActivityLog } from "./activity-log"
 //   • `§ 1` → the FPS meter window (bottom-left)
 //   • `§ 2` → the colored element frames + their ID/property labels
 //   • `§ 3` → the ACTIVITY inspector (today's presence segments + per-space totals)
+//   • `§ 4` → the HIERARCHY inspector (the whole containment tree, root → leaves)
 //   • `§ 0` → RESET PREVIEW DATA: wipe THIS browser's persisted user items
 //            (created entities + pins + tombstones + overrides) AND the activity
 //            log, then reload, so the app returns to pure seed data. localStorage
@@ -27,10 +28,10 @@ import { clearActivityLog } from "./activity-log"
 // there's a single source of truth. Remove this whole file with the debug borders.
 // ============================================================================
 
-type DebugState = { fps: boolean; frames: boolean; activity: boolean }
+type DebugState = { fps: boolean; frames: boolean; activity: boolean; hierarchy: boolean }
 
-// All overlays default OFF; reveal them on demand via the `§ 1` / `§ 2` / `§ 3` chords.
-let state: DebugState = { fps: false, frames: false, activity: false }
+// All overlays default OFF; reveal them on demand via the `§ 1`..`§ 4` chords.
+let state: DebugState = { fps: false, frames: false, activity: false, hierarchy: false }
 
 const listeners = new Set<() => void>()
 function emit() {
@@ -50,6 +51,9 @@ export function toggleDebugFrames() {
 }
 export function toggleDebugActivity() {
   setState({ activity: !state.activity })
+}
+export function toggleDebugHierarchy() {
+  setState({ hierarchy: !state.hierarchy })
 }
 
 // --- Global `§`-prefix chord listener (installed once, client-only) ----------
@@ -80,11 +84,15 @@ function ensureListener() {
       return
     }
 
-    if (prefixActive && (e.key === "0" || e.key === "1" || e.key === "2" || e.key === "3")) {
+    if (
+      prefixActive &&
+      (e.key === "0" || e.key === "1" || e.key === "2" || e.key === "3" || e.key === "4")
+    ) {
       e.preventDefault()
       if (e.key === "1") toggleDebugFps()
       else if (e.key === "2") toggleDebugFrames()
       else if (e.key === "3") toggleDebugActivity()
+      else if (e.key === "4") toggleDebugHierarchy()
       else {
         // `§ 0` — reset THIS browser's preview data back to pure seeds. Confirmed
         // because it clears created entities too (web-preview store is disposable,
