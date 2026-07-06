@@ -24,6 +24,7 @@
   --color-accent-foreground: var(--accent-foreground);
   --color-accent: var(--accent);
   --color-muted-foreground: var(--muted-foreground);
+  --color-excerpt-ink: var(--excerpt-ink);
   --color-muted: var(--muted);
   --color-secondary-foreground: var(--secondary-foreground);
   --color-secondary: var(--secondary);
@@ -66,6 +67,11 @@
   --secondary-foreground: oklch(0.3 0 0);
   --muted: oklch(0.93 0 0);
   --muted-foreground: oklch(0.52 0 0);
+  /* Opaque grey for the spine-excerpt glyphs/counts: this is exactly
+     `muted-foreground` composited at 70% over `background` (sRGB blend), so it
+     matches the old `text-muted-foreground/70` look but WITHOUT sub-1 opacity —
+     so overlapping glyph strokes (e.g. the checkmark tip) no longer darken. */
+  --excerpt-ink: oklch(0.661 0 0);
   --accent: oklch(0.7 0.07 65);
   --accent-foreground: oklch(0.98 0 0);
   --destructive: oklch(0.55 0.16 28);
@@ -97,6 +103,9 @@
   --secondary-foreground: oklch(0.93 0 0);
   --muted: oklch(0.18 0 0);
   --muted-foreground: oklch(0.66 0 0);
+  /* Dark-theme counterpart: `muted-foreground` composited at 70% over the dark
+     `background` (sRGB blend). Opaque, so glyph stroke overlaps don't compound. */
+  --excerpt-ink: oklch(0.514 0 0);
   --accent: oklch(0.7 0.07 65);
   --accent-foreground: oklch(0.12 0 0);
   --destructive: oklch(0.6 0.16 28);

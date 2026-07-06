@@ -34,9 +34,25 @@ import { Dayline } from "./dayline"
  * remaining unification step; this component captures the kind-specific header content
  * so that fold is a localized swap when we get there.
  */
-export function IndividualHeader() {
+export function IndividualHeader({
+  surface,
+  bgTransition,
+}: {
+  /** entity0's telescopic backdrop color (from WorkSurface). Painted as this header's
+   *  own SOLID background so the chrome is opaque: the opened window bleeds UP behind
+   *  the header (via the region's negative-top clip-path for morph shadows), and a
+   *  transparent header let its hexagon diagonals show through. Using the exact
+   *  `homeSurface` keeps the fill seamless with the surrounding canvas at every depth. */
+  surface?: string
+  /** Same background-color transition the frame uses, so the header's fill tracks the
+   *  telescopic surface in lockstep during dives (no flash/seam). */
+  bgTransition?: string
+}) {
   return (
-    <div className="pointer-events-none relative z-40 flex shrink-0 flex-col">
+    <div
+      className="pointer-events-none relative z-40 flex shrink-0 flex-col"
+      style={{ backgroundColor: surface, transition: bgTransition } as React.CSSProperties}
+    >
       <ShellHeader />
       <Dayline />
     </div>

@@ -84,7 +84,10 @@ function Counter({
       exit={{ opacity: 0, height: 0, marginBottom: 0, y: -4 }}
       transition={COUNTER_TRANSITION}
       className={cn(
-        "flex items-center gap-1 overflow-hidden text-[10px] leading-none text-muted-foreground/70",
+        // Opaque grey (see `--excerpt-ink`) rather than `text-muted-foreground/70`:
+        // same visual tone, but no sub-1 opacity, so overlapping glyph strokes (the
+        // checkmark crossing the square) no longer render a darker tip.
+        "flex items-center gap-1 overflow-hidden text-[10px] leading-none text-excerpt-ink",
       )}
     >
       <span className="flex h-2.5 w-2.5 items-center justify-center">
