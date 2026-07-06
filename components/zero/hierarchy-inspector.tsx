@@ -682,32 +682,59 @@ export function HierarchyInspector() {
           {/* nodes — a bare glyph (its center = the node point) + a free-floating
               label to the right. No box, so the graph breathes like Obsidian's. */}
           <g>
-            {nodes.map((n) => {
+            {(() => {
+              // The single Individual's center of gravity (glyph+label midpoint):
+              // used to anchor its label bg AND to center the Soul label above it.
+              const ind = nodes.find((m) => m.entity.kind === "individual")
+              const indCogX = ind ? ind.x + (ind.rw - GLYPH / 2) / 2 : 0
+              return nodes.map((n) => {
               const closed = isClosed(n.entity)
               const cancelled = !!n.entity.cancelled
+              const isIndividual = n.entity.kind === "individual"
+              const isSoul = n.entity.kind === "soul"
+              const shown =
+                n.entity.title.length > 22 ? `${n.entity.title.slice(0, 21)}…` : n.entity.title
               return (
                 <g key={n.id}>
                   {/* label: plain SVG text, non-interactive (so it never clips or
                       blocks panning); truncated to keep the cloud readable.
-                      A Soul's label sits centered ON TOP of its glyph; everyone
-                      else's floats to the right, vertically centered. */}
+                      A Soul's label sits centered ABOVE the Individual's center of
+                      gravity; an Individual gets a thick white bg; everyone else's
+                      label floats to the right, vertically centered. */}
+                  {isIndividual &&
+                    (() => {
+                      const w = shown.length * CHAR_W * 1.05 // uppercase runs a touch wide
+                      const padX = 6
+                      const padY = 4
+                      return (
+                        <rect
+                          x={n.x + GLYPH / 2 + LABEL_GAP - padX}
+                          y={n.y - 11 / 2 - padY}
+                          width={w + padX * 2}
+                          height={11 + padY * 2}
+                          rx={3}
+                          fill="var(--background)"
+                          style={{ pointerEvents: "none" }}
+                        />
+                      )
+                    })()}
                   <text
-                    x={n.entity.kind === "soul" ? n.x : n.x + GLYPH / 2 + LABEL_GAP}
-                    y={n.entity.kind === "soul" ? n.y - GLYPH / 2 - LABEL_GAP : n.y}
+                    x={isSoul ? indCogX : n.x + GLYPH / 2 + LABEL_GAP}
+                    y={isSoul ? n.y - GLYPH / 2 - LABEL_GAP : n.y}
                     fontSize={11}
                     fontFamily="var(--font-mono, monospace)"
-                    fontWeight={n.entity.kind === "individual" ? 700 : n.hasChildren ? 600 : 400}
+                    fontWeight={isIndividual ? 700 : n.hasChildren ? 600 : 400}
                     fill={cancelled ? "var(--muted-foreground)" : "var(--foreground)"}
-                    textAnchor={n.entity.kind === "soul" ? "middle" : "start"}
-                    dominantBaseline={n.entity.kind === "soul" ? "auto" : "middle"}
+                    textAnchor={isSoul ? "middle" : "start"}
+                    dominantBaseline={isSoul ? "auto" : "middle"}
                     style={{
                       pointerEvents: "none",
                       textDecoration: cancelled ? "line-through" : undefined,
-                      textTransform: n.entity.kind === "individual" ? "uppercase" : undefined,
-                      letterSpacing: n.entity.kind === "individual" ? "0.02em" : undefined,
+                      textTransform: isIndividual ? "uppercase" : undefined,
+                      letterSpacing: isIndividual ? "0.02em" : undefined,
                     }}
                   >
-                    {n.entity.title.length > 22 ? `${n.entity.title.slice(0, 21)}…` : n.entity.title}
+                    {shown}
                   </text>
 
                   {/* glyph: tight draggable box centered exactly on (n.x, n.y). */}
@@ -734,7 +761,8 @@ export function HierarchyInspector() {
                   </foreignObject>
                 </g>
               )
-            })}
+            })
+            })()}
           </g>
         </svg>
       </div>
