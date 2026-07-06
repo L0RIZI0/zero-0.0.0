@@ -63,7 +63,7 @@ const SPACE_HGAP = 48 // horizontal gap between sibling-space SUBTREES in the ro
 const SPINE_DY = 132 // vertical gap for an `individual` child (identity spine)
 const DR_DX = 56 // action children indent clearly right of the parent
 const DR_TOP = 12 // first action child's subtree top sits this far below the parent
-const ROW_GAP = 8 // gap between stacked action-child SUBTREES
+const ROW_GAP = 2 // gap between stacked action-child SUBTREES
 
 // approx label rendering metrics (mono 11px) used for collision + truncation
 const LABEL_MAX = 22 // chars before we ellipsize
