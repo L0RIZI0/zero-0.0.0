@@ -621,15 +621,15 @@ export function DoList({
     })
   }, [items, filter, contextId])
 
-  // The do-list is "virgin" when it's empty OR every item is still open (not
-  // completed, not cancelled) AND unplanned (no schedule). Only a NON-virgin list —
-  // something has been acted upon (resolved) or planned — reveals the Open/All
-  // selectors; a fresh list shows no chrome.
+  // The Open/All selectors reveal ONLY when the do-list isn't empty AND its entries
+  // are not ALL open — i.e. at least one item has been RESOLVED (completed or
+  // cancelled). An "open" item is one that is neither completed nor cancelled;
+  // merely scheduling/planning an open item no longer triggers the selectors. A list
+  // that is empty, or whose every item is still open, stays "virgin" ⇒ no chrome.
   const showSelectors = useMemo(
     () =>
-      items.some(
-        (it) => it.entity.completed || it.entity.cancelled || !!it.entity.schedule,
-      ),
+      items.length > 0 &&
+      items.some((it) => it.entity.completed || it.entity.cancelled),
     [items],
   )
 
@@ -1065,10 +1065,10 @@ export function DoList({
           flow space, so the input rests just above it with no manual clamp. */}
           <div className={cn("flex min-h-0 flex-1 flex-col", centered && "justify-center-safe")}>
         {/* Open/All selectors. Hidden while the list is "virgin" (empty, or every item
-            still open AND unplanned) ⇒ no chrome. Shown once something has been acted
-            upon — resolved (completed/cancelled) or planned (scheduled). "Open" hides
-            resolved items (a just-resolved one stays put via the retain set until the
-            selector changes); "All" shows everything in place.
+            still open) ⇒ no chrome. Shown once at least one item has been RESOLVED
+            (completed/cancelled) — scheduling/planning alone no longer reveals them.
+            "Open" hides resolved items (a just-resolved one stays put via the retain set
+            until the selector changes); "All" shows everything in place.
             Placed INSIDE the centering group and directly above the scroller so it rides
             with the (rows + input) block and sits right on top of the FIRST row rather
             than pinned to the region top. `px-2` matches the list's inset and `pl-1.5`
@@ -1090,8 +1090,8 @@ export function DoList({
         <div className="h-6 shrink-0">
           {/* The pills are shown CONSTANTLY whenever the list is non-virgin (`showSelectors`)
               — no hover required. They stay hidden + inert only while the list is "virgin"
-              (empty, or every item still open AND unplanned) so a fresh list with nothing to
-              filter shows no chrome. The reveal still animates (fade + slight rise) on the
+              (empty, or every item still open — i.e. none resolved) so a list with nothing
+              to filter shows no chrome. The reveal still animates (fade + slight rise) on the
               virgin→non-virgin transition; the reserved `h-6` slot keeps the rows below from
               shifting either way. */}
           <div
