@@ -522,7 +522,6 @@ export const entities: Entity[] = [
     parentId: "s_root",
     taggedSpaceIds: [],
     completed: false,
-    cancelled: true,
     schedule: { dueAt: t(17) },
     priority: "medium",
     tags: ["ritual"],
