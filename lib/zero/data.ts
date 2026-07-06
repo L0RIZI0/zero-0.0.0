@@ -518,10 +518,10 @@ export const entities: Entity[] = [
   {
     id: "t3",
     kind: "task",
-    title: "Review today's priorities",
+    title: "Task 1",
     parentId: "s_root",
     taggedSpaceIds: [],
-    completed: true,
+    completed: false,
     schedule: { dueAt: t(17) },
     priority: "medium",
     tags: ["ritual"],
