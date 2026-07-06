@@ -2,26 +2,35 @@
 
 import { useRef } from "react"
 import { AnimatePresence, motion, type Transition } from "motion/react"
-import { NodeGlyph } from "./node-glyph"
+import { NodeGlyph, type NodeKind } from "./node-glyph"
 import {
   getOpenTaskCount,
   getDoneTaskCount,
   getClosedTaskCount,
   getCancelledTaskCount,
+  getOpenEventCount,
+  getCancelledEventCount,
+  getCancelledInstantCount,
 } from "@/lib/zero/data"
 import { useZeroNav } from "@/lib/zero/nav-store"
 import { cn } from "@/lib/utils"
 
 /**
  * The spine EXCERPT — a compact summary of what an entity holds, shown at the TOP of a
- * side spine (currently the left/Resources spine). It surfaces the four MUTUALLY
- * EXCLUSIVE task tallies (matching the glyph states) so the counts read consistently
+ * side spine (currently the left/Resources spine). It surfaces a set of MUTUALLY
+ * EXCLUSIVE tallies (matching the glyph states) so the counts read consistently
  * across the app:
  *
- *   • open tasks      — outline glyph      + count of incomplete, un-closed child tasks
- *   • done tasks      — outline + check    + count of done-but-not-closed child tasks
- *   • closed tasks    — filled glyph       + count of closed-but-not-cancelled tasks
- *   • cancelled tasks — struck-through glyph + count of cancelled child tasks
+ *   • open tasks       — outline square        + incomplete, un-closed child tasks
+ *   • done tasks       — outline square + check + done-but-not-closed child tasks
+ *   • closed tasks     — filled square          + closed-but-not-cancelled child tasks
+ *   • cancelled tasks  — struck-through square  + cancelled child tasks
+ *   • open events      — outline triangle       + un-closed child events
+ *   • cancelled events — struck-through triangle + cancelled child events
+ *   • cancelled instants — struck-through triangle (inverted) + cancelled child instants
+ *
+ * Events show only their OPEN and CANCELLED states; instants show only CANCELLED —
+ * the rest are intentionally omitted (this list is being tuned).
  *
  * All come from the SAME `getChildren` listing as the do-list/dock (origin + tagged),
  * so the excerpt reflects whatever is browsable inside the entity. Shown for EVERY
@@ -38,21 +47,35 @@ export function SpineExcerpt({ entityId }: { entityId: string }) {
   const { dataVersion } = useZeroNav()
   void dataVersion
 
-  const open = getOpenTaskCount(entityId)
-  const done = getDoneTaskCount(entityId)
-  const closed = getClosedTaskCount(entityId)
-  const cancelled = getCancelledTaskCount(entityId)
+  const openTasks = getOpenTaskCount(entityId)
+  const doneTasks = getDoneTaskCount(entityId)
+  const closedTasks = getClosedTaskCount(entityId)
+  const cancelledTasks = getCancelledTaskCount(entityId)
+  const openEvents = getOpenEventCount(entityId)
+  const cancelledEvents = getCancelledEventCount(entityId)
+  const cancelledInstants = getCancelledInstantCount(entityId)
 
   // Build the active tallies as a keyed list so AnimatePresence can animate each
-  // counter in/out individually as its count crosses zero. Order is stable
-  // (open → done → closed → cancelled) so counters slot into a consistent
-  // vertical position.
-  const counters = [
-    { id: "open", count: open, filled: false, checked: false, struck: false },
-    { id: "done", count: done, filled: false, checked: true, struck: false },
-    { id: "closed", count: closed, filled: true, checked: false, struck: false },
-    { id: "cancelled", count: cancelled, filled: false, checked: false, struck: true },
-  ].filter((c) => c.count > 0)
+  // counter in/out individually as its count crosses zero. Order is stable — task
+  // states first (open → done → closed → cancelled), then events (open → cancelled),
+  // then cancelled instants — so counters slot into consistent vertical positions.
+  const allCounters: {
+    id: string
+    kind: NodeKind
+    count: number
+    filled: boolean
+    checked: boolean
+    struck: boolean
+  }[] = [
+    { id: "task-open", kind: "task", count: openTasks, filled: false, checked: false, struck: false },
+    { id: "task-done", kind: "task", count: doneTasks, filled: false, checked: true, struck: false },
+    { id: "task-closed", kind: "task", count: closedTasks, filled: true, checked: false, struck: false },
+    { id: "task-cancelled", kind: "task", count: cancelledTasks, filled: false, checked: false, struck: true },
+    { id: "event-open", kind: "event", count: openEvents, filled: false, checked: false, struck: false },
+    { id: "event-cancelled", kind: "event", count: cancelledEvents, filled: false, checked: false, struck: true },
+    { id: "instant-cancelled", kind: "instant", count: cancelledInstants, filled: false, checked: false, struck: true },
+  ]
+  const counters = allCounters.filter((c) => c.count > 0)
 
   return (
     <div className="flex flex-col items-center overflow-hidden">
@@ -61,7 +84,7 @@ export function SpineExcerpt({ entityId }: { entityId: string }) {
           <Counter
             key={c.id}
             count={c.count}
-            kind="task"
+            kind={c.kind}
             filled={c.filled}
             checked={c.checked}
             struck={c.struck}
@@ -89,7 +112,7 @@ function Counter({
   struck = false,
 }: {
   count: number
-  kind: "task"
+  kind: NodeKind
   filled?: boolean
   checked?: boolean
   struck?: boolean

@@ -851,6 +851,23 @@ export function getCancelledTaskCount(contextId: string): number {
   return getChildren(contextId).filter((e) => e.kind === "task" && !!e.cancelled).length
 }
 
+/** Count of OPEN direct child events (outline triangle). "Open" = not yet closed,
+ *  which — via `isClosed` — also excludes cancelled events and ones past their end. */
+export function getOpenEventCount(contextId: string): number {
+  return getChildren(contextId).filter((e) => e.kind === "event" && !isClosed(e)).length
+}
+
+/** Count of CANCELLED direct child events (struck-through triangle). */
+export function getCancelledEventCount(contextId: string): number {
+  return getChildren(contextId).filter((e) => e.kind === "event" && !!e.cancelled).length
+}
+
+/** Count of CANCELLED direct child instants (struck-through triangle). Only the
+ *  cancelled instants surface in the excerpt (open/passed instants are omitted). */
+export function getCancelledInstantCount(contextId: string): number {
+  return getChildren(contextId).filter((e) => e.kind === "instant" && !!e.cancelled).length
+}
+
 /**
  * Count of DIRECT child SPACES (origin + tagged). Uses the same `getChildren`
  * listing as the do-list/dock, so it matches what's browsable inside the entity.
