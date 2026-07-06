@@ -106,8 +106,10 @@ type Edge = { id: string; source: string; target: string }
 type Ext = { up: number; down: number; left: number; right: number }
 
 /** Build the sim nodes + edges from the raw origin tree, then run an extent-aware
- *  `place()` pass to assign every node a fixed offset (`ox/oy`) from its parent. */
-function buildGraph(): { nodes: SimNode[]; edges: Edge[] } {
+ *  `place()` pass to assign every node a fixed offset (`ox/oy`) from its parent.
+ *  `tagEdges` = secondary (non parent→child) relationships, e.g. taggedSpaceIds;
+ *  they are rendered dotted and DO NOT affect layout (the physics ignores them). */
+function buildGraph(): { nodes: SimNode[]; edges: Edge[]; tagEdges: Edge[] } {
   const byParent = new Map<string | null, Entity[]>()
   for (const e of entities) {
     if (e.seriesId != null) continue
@@ -251,7 +253,25 @@ function buildGraph(): { nodes: SimNode[]; edges: Edge[] } {
     }
   }
 
-  return { nodes, edges }
+  // Secondary relationships (dotted, layout-neutral): every taggedSpaceIds link
+  // is an edge from the entity to each space it is ALSO displayed in. De-duped
+  // and skipped if it merely restates the parent edge or a node is missing.
+  const tagEdges: Edge[] = []
+  const seen = new Set<string>()
+  for (const node of nodes) {
+    const tags = node.entity.taggedSpaceIds
+    if (!tags) continue
+    for (const spaceId of tags) {
+      if (spaceId === node.parentId) continue
+      if (!byId.has(spaceId)) continue
+      const id = `${node.id}~${spaceId}`
+      if (seen.has(id)) continue
+      seen.add(id)
+      tagEdges.push({ id, source: spaceId, target: node.id })
+    }
+  }
+
+  return { nodes, edges, tagEdges }
 }
 
 /** Target position of child `c` = parent position + c's fixed offset. */
@@ -540,7 +560,29 @@ export function HierarchyInspector() {
           className="absolute left-0 top-0"
           style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${scale})`, transformOrigin: "0 0" }}
         >
-          {/* edges */}
+          {/* secondary relationships (taggedSpaceIds): dotted, layout-neutral */}
+          <g>
+            {graph.tagEdges.map((e) => {
+              const s = byId.get(e.source)
+              const t = byId.get(e.target)
+              if (!s || !t) return null
+              return (
+                <line
+                  key={e.id}
+                  x1={s.x}
+                  y1={s.y}
+                  x2={t.x}
+                  y2={t.y}
+                  stroke="var(--muted-foreground)"
+                  strokeWidth={1.25}
+                  strokeDasharray="2 4"
+                  strokeLinecap="round"
+                />
+              )
+            })}
+          </g>
+
+          {/* parent → child edges */}
           <g>
             {graph.edges.map((e) => {
               const s = byId.get(e.source)
