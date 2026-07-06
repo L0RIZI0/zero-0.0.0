@@ -21,9 +21,8 @@ import type { Entity, EntityKind } from "@/lib/zero/types"
  * LAYOUT — a KIND-DIRECTIONAL force graph. A node's position relative to its parent
  * is decided by the NODE'S OWN KIND, expressed as a strong spring toward a
  * parent-relative target (physics only smooths + resolves overlaps):
- *   • `space`      → to the RIGHT of the parent. Space siblings stack as a vertical
- *                    column whose CENTER sits on the parent's y (half above / half
- *                    below), one step to the right (cleared past the parent's label).
+ *   • `space`      → a horizontal ROW placed BELOW the parent, the row's CENTER OF
+ *                    GRAVITY aligned on the parent's x (grows out symmetrically).
  *   • `individual` → straight DOWN, aligned on the parent's x → the Soul→Individual
  *                    identity spine stays vertical and centered.
  *   • everything else (task/event/instant/…) → DOWN and slightly right, stacked as
@@ -63,7 +62,7 @@ const SPACE_GAP = 40 // vertical gap below the parent before its space row start
 const SPACE_HGAP = 48 // horizontal gap between sibling-space SUBTREES in the row
 const SPINE_DY = 132 // vertical gap for an `individual` child (identity spine)
 const DR_DX = 56 // action children indent clearly right of the parent
-const DR_TOP = 28 // first action child's subtree top sits this far below the parent
+const DR_TOP = 12 // first action child's subtree top sits this far below the parent
 const ROW_GAP = 8 // gap between stacked action-child SUBTREES
 
 // approx label rendering metrics (mono 11px) used for collision + truncation
@@ -196,9 +195,14 @@ function buildGraph(): { nodes: SimNode[]; edges: Edge[] } {
       dc = d.oy + e.down + SPINE_DY
     }
 
-    // space children: horizontal ROW BELOW the node, the row's LEFT TIP aligned
-    // with the node's x (glyph center) — the row grows rightward from there.
-    let rc = 0
+    // space children: horizontal ROW BELOW the node, the row's CENTER OF GRAVITY
+    // aligned with the node's x (glyph center) — grows out symmetrically from there.
+    const rowW =
+      right.reduce((sum, s) => {
+        const e = ext.get(s.id)!
+        return sum + (e.right - e.left)
+      }, 0) + Math.max(0, right.length - 1) * SPACE_HGAP
+    let rc = -rowW / 2
     const spaceTop = down_ + SPACE_GAP // clear the node's own down-extent first
     for (const s of right) {
       const e = ext.get(s.id)!
