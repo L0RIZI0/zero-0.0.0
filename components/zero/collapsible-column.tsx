@@ -383,9 +383,9 @@ export function CollapsibleColumn({
                 className="flex justify-center overflow-hidden"
               >
                 <motion.div
-                  initial={{ y: "-100%" }}
-                  animate={{ y: "0%" }}
-                  exit={{ y: "-100%" }}
+                  initial={{ y: "-100%", opacity: 0 }}
+                  animate={{ y: "0%", opacity: 1 }}
+                  exit={{ y: "-100%", opacity: 0 }}
                   transition={{ duration: MORPH_SECONDS, ease: MORPH_EASE }}
                   className="flex items-center justify-center"
                 >
@@ -412,9 +412,9 @@ export function CollapsibleColumn({
                   // translated up (−100% of its own height) and thus entirely clipped; as
                   // the box grows it eases to 0 and lands flush. Same duration/ease as the
                   // height so the two stay in lockstep.
-                  initial={{ y: "-100%" }}
-                  animate={{ y: "0%" }}
-                  exit={{ y: "-100%" }}
+                  initial={{ y: "-100%", opacity: 0 }}
+                  animate={{ y: "0%", opacity: 1 }}
+                  exit={{ y: "-100%", opacity: 0 }}
                   transition={{ duration: MORPH_SECONDS, ease: MORPH_EASE }}
                   // sideways-lr = upright, reading bottom-to-top. inline-block so translateY
                   // % resolves against its own height and the crop box can measure it.
