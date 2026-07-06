@@ -673,7 +673,10 @@ export function EntityNode({
       )
     : cn(
         "absolute inset-0 flex cursor-pointer flex-col overflow-visible",
-        cancelled && "opacity-50",
+        // Cancelled rows fade — opacity-40 (slightly more accentuated than the old 50).
+        // When OPEN the frame carries no fade; instead the header glyph + title each
+        // fade to opacity-40 individually (so it isn't compounded by a frame fade).
+        cancelled && "opacity-40",
       )
 
   // SPINE: an ancestor window collapses its horizontal header into a vertical left
@@ -1131,6 +1134,9 @@ export function EntityNode({
                   : "h-4 w-4",
               // Sent-as-request reflow: hop the glyph to the row's right edge.
               rowReq && (sent ? REQ_SENT.glyph : REQ_REST.glyph),
+              // Cancelled + OPEN: fade the header glyph to match its title (the row's
+              // frame-level fade doesn't apply once open, so scope it here).
+              asWindow && cancelled && "opacity-40",
             )}
           >
             {isResource ? (
@@ -1276,8 +1282,11 @@ export function EntityNode({
                     "min-w-0 max-w-full truncate font-medium",
               // Completing a task changes ONLY its glyph (fills + checkmark, above) —
               // the title is intentionally left unstyled so the row stays visually put
-              // in the do-list. Cancelled is a distinct state and keeps its strikethrough.
-              !asWindow && (cancelled ? "line-through" : ""),
+              // in the do-list. The CANCELLED strikethrough lives on the inner text span
+              // below (an inline-block that a parent's text-decoration can't reach).
+              // A cancelled entity's title also FADES to opacity-40 when open (asWindow),
+              // mirroring the row's frame-level fade — see the fade class further down.
+              asWindow && cancelled && "opacity-40",
               // Sent-as-request reflow: right-align the title against the moved glyph
               // (sent) or keep the normal left layout with mr-auto spacer (rest).
               rowReq && (sent ? REQ_SENT.title : REQ_REST.title),
@@ -1303,6 +1312,12 @@ export function EntityNode({
             <span
               className={cn(
                 "inline-block whitespace-nowrap",
+                // Strikethrough for a CANCELLED entity. It MUST live on this inner text
+                // span, not the <h3>: the span is `inline-block`, and CSS text-decoration
+                // does not propagate from a parent into an inline-block descendant — so a
+                // `line-through` on the <h3> never actually drew over the text. Applied in
+                // BOTH row and window states so the cancelled treatment persists on open.
+                cancelled && "line-through",
                 asWindow && "transition-opacity",
                 asWindow && isSpine && "opacity-0",
               )}
