@@ -166,6 +166,12 @@ export function WorkSurface() {
           isRoot
           centerList
           surface={homeSurface}
+          // When entity0 (home) is COVERED by a child window it becomes an ANCESTOR, so
+          // its left (Resources) spine — peeking through the window's side gutter — shows
+          // the Individual's name ROTATED, exactly like a covered Space ancestor shows its
+          // title (CollapsibleColumn handles the identical 13px size + slide-down morph).
+          // Undefined while home is the focused leaf, so the title slides back up on close.
+          spineTitle={activeEntity.id !== rootId ? getEntity(rootId)?.title : undefined}
         />
 
         {/* DETACHED WINDOWS. The recursive in-place tree above only reaches a stack
