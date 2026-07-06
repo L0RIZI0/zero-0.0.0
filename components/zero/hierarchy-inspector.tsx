@@ -451,7 +451,10 @@ export function HierarchyInspector() {
       graph.nodes.find((n) => n.entity.kind === "individual") ??
       graph.nodes.find((n) => n.parentId == null) ??
       null
-    const fx = focus ? focus.x : WORLD_W / 2
+    // Center on the Individual's CENTER OF GRAVITY = the middle of its glyph+label
+    // combined (spans n.x-GLYPH/2 … n.x+rw), not just the glyph point.
+    const cog = focus ? (focus.rw - GLYPH / 2) / 2 : 0
+    const fx = (focus ? focus.x : WORLD_W / 2) + cog
     const fy = focus ? focus.y : WORLD_H / 2
     const s = scaleRef.current
     panRef.current = { x: r.width / 2 - fx * s, y: r.height / 3 - fy * s }
@@ -677,20 +680,23 @@ export function HierarchyInspector() {
               return (
                 <g key={n.id}>
                   {/* label: plain SVG text, non-interactive (so it never clips or
-                      blocks panning); truncated to keep the cloud readable. */}
+                      blocks panning); truncated to keep the cloud readable.
+                      A Soul's label sits centered ON TOP of its glyph; everyone
+                      else's floats to the right, vertically centered. */}
                   <text
-                    x={n.x + GLYPH / 2 + LABEL_GAP}
-                    y={n.y}
+                    x={n.entity.kind === "soul" ? n.x : n.x + GLYPH / 2 + LABEL_GAP}
+                    y={n.entity.kind === "soul" ? n.y - GLYPH / 2 - LABEL_GAP : n.y}
                     fontSize={11}
                     fontFamily="var(--font-mono, monospace)"
                     fontWeight={n.entity.kind === "individual" ? 700 : n.hasChildren ? 600 : 400}
                     fill={cancelled ? "var(--muted-foreground)" : "var(--foreground)"}
-                    dominantBaseline="middle"
+                    textAnchor={n.entity.kind === "soul" ? "middle" : "start"}
+                    dominantBaseline={n.entity.kind === "soul" ? "auto" : "middle"}
                     style={{
                       pointerEvents: "none",
                       textDecoration: cancelled ? "line-through" : undefined,
                       textTransform: n.entity.kind === "individual" ? "uppercase" : undefined,
-                      letterSpacing: n.entity.kind === "individual" ? "0.08em" : undefined,
+                      letterSpacing: n.entity.kind === "individual" ? "0.02em" : undefined,
                     }}
                   >
                     {n.entity.title.length > 22 ? `${n.entity.title.slice(0, 21)}…` : n.entity.title}
