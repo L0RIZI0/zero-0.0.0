@@ -17,14 +17,28 @@ import type { Entity } from "@/lib/zero/types"
  * tree via `parentId` so the identity triad and every leaf are visible — it is a
  * debug X-ray of the real structure, not a browsable listing.
  *
+ * LAYOUT — a left→right node-edge tree in the spirit of Obsidian's graph: depth maps
+ * to an X column, and each parent's children are stacked as a VERTICAL column to its
+ * right (so a branch of leaves reads as one tidy columned list), linked by smooth
+ * curved connectors. The parent is centered vertically against its child block.
+ *
  * Read-only: re-reads on `dataVersion` and never mutates. Recurrence occurrences
  * (`seriesId != null`) are materialized timeline instances, not structural nodes,
  * so they're excluded to keep the tree the true containment skeleton. Renders
  * nothing in production. Mirrors the §3 inspector's chrome/style.
  */
-type Row = { entity: Entity; depth: number }
 
-function buildRows(): Row[] {
+const ROW_H = 30 // vertical slot per leaf (also the min gap between siblings)
+const COL_W = 184 // horizontal distance between depth columns
+const NODE_W = 148 // width of a node pill (label truncates within this)
+const PAD = 16 // inner padding around the whole diagram
+
+type PositionedNode = { entity: Entity; x: number; y: number; depth: number; hasChildren: boolean }
+type Edge = { id: string; x1: number; y1: number; x2: number; y2: number }
+
+type Layout = { nodes: PositionedNode[]; edges: Edge[]; width: number; height: number }
+
+function buildLayout(): Layout {
   // Group every structural entity under its origin parent, preserving insertion
   // (creation) order — the same order `entities` already holds.
   const byParent = new Map<string | null, Entity[]>()
@@ -35,15 +49,48 @@ function buildRows(): Row[] {
     else byParent.set(e.parentId, [e])
   }
 
-  const rows: Row[] = []
-  const walk = (parentId: string | null, depth: number) => {
-    for (const e of byParent.get(parentId) ?? []) {
-      rows.push({ entity: e, depth })
-      walk(e.id, depth + 1)
+  const nodes: PositionedNode[] = []
+  const edges: Edge[] = []
+  let cursorY = PAD // running vertical position for the next leaf slot
+  let maxDepth = 0
+
+  // Returns the node's center Y. Leaves consume one ROW_H slot; parents center
+  // on the span of their children.
+  const place = (entity: Entity, depth: number): number => {
+    maxDepth = Math.max(maxDepth, depth)
+    const x = PAD + depth * COL_W
+    const children = byParent.get(entity.id) ?? []
+
+    let y: number
+    if (children.length === 0) {
+      y = cursorY + ROW_H / 2
+      cursorY += ROW_H
+    } else {
+      const childYs = children.map((c) => place(c, depth + 1))
+      y = (childYs[0] + childYs[childYs.length - 1]) / 2
+      // Connectors run from this node's right edge to each child's left edge.
+      const x1 = x + NODE_W
+      const x2 = PAD + (depth + 1) * COL_W
+      for (let i = 0; i < children.length; i++) {
+        edges.push({ id: `${entity.id}->${children[i].id}`, x1, y1: y, x2, y2: childYs[i] })
+      }
     }
+
+    nodes.push({ entity, x, y, depth, hasChildren: children.length > 0 })
+    return y
   }
-  walk(null, 0) // roots = the parentId:null nodes (the Soul)
-  return rows
+
+  for (const root of byParent.get(null) ?? []) place(root, 0)
+
+  const width = PAD * 2 + maxDepth * COL_W + NODE_W
+  const height = Math.max(cursorY + PAD, ROW_H + PAD * 2)
+  return { nodes, edges, width, height }
+}
+
+/** Smooth Obsidian-style S-curve between two points with horizontal tangents. */
+function edgePath(e: Edge): string {
+  const midX = (e.x1 + e.x2) / 2
+  return `M ${e.x1} ${e.y1} C ${midX} ${e.y1}, ${midX} ${e.y2}, ${e.x2} ${e.y2}`
 }
 
 export function HierarchyInspector() {
@@ -54,32 +101,50 @@ export function HierarchyInspector() {
 
   if (process.env.NODE_ENV === "production" || !visible) return null
 
-  const rows = buildRows()
+  const { nodes, edges, width, height } = buildLayout()
 
   return (
     <div
-      className="fixed left-3 top-3 z-[9999] flex max-h-[80vh] w-80 select-none flex-col overflow-hidden rounded-md border border-border bg-card/90 font-mono text-xs text-card-foreground shadow-lg backdrop-blur"
+      className="fixed left-3 top-3 z-[9999] flex max-h-[85vh] max-w-[92vw] select-none flex-col overflow-hidden rounded-md border border-border bg-card/90 font-mono text-xs text-card-foreground shadow-lg backdrop-blur"
       role="status"
       aria-label="Hierarchy inspector"
     >
-      <div className="flex items-center justify-between border-b border-border px-3 py-2">
+      <div className="flex items-center justify-between gap-6 border-b border-border px-3 py-2">
         <span className="font-bold">{"Hierarchy · root → leaves"}</span>
-        <span className="text-[10px] text-muted-foreground tabular-nums">{rows.length} nodes</span>
+        <span className="text-[10px] text-muted-foreground tabular-nums">{nodes.length} nodes</span>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
-        <ul className="flex flex-col gap-0.5">
-          {rows.map(({ entity, depth }) => {
+      <div className="min-h-0 flex-1 overflow-auto">
+        <div className="relative" style={{ width, height }}>
+          {/* Edges behind the nodes. */}
+          <svg
+            className="pointer-events-none absolute inset-0"
+            width={width}
+            height={height}
+            aria-hidden
+          >
+            {edges.map((e) => (
+              <path
+                key={e.id}
+                d={edgePath(e)}
+                fill="none"
+                stroke="var(--border)"
+                strokeWidth={1.5}
+              />
+            ))}
+          </svg>
+
+          {/* Node pills. */}
+          {nodes.map(({ entity, x, y, hasChildren }) => {
             const closed = isClosed(entity)
             const cancelled = !!entity.cancelled
             return (
-              <li
+              <div
                 key={entity.id}
-                className="flex items-center gap-1.5 whitespace-nowrap leading-none"
-                style={{ paddingLeft: depth * 14 }}
+                className="absolute flex items-center gap-1.5 rounded-md border border-border bg-background/85 px-2 py-1 leading-none shadow-sm"
+                style={{ left: x, top: y, width: NODE_W, transform: "translateY(-50%)" }}
+                title={`${entity.title} · ${NODE_KIND_META[entity.kind].label}`}
               >
-                {/* Depth guide: a faint tick so nesting reads at a glance. */}
-                {depth > 0 && <span className="text-muted-foreground/40" aria-hidden>{"·"}</span>}
                 <span className="shrink-0 text-foreground">
                   <NodeGlyph
                     kind={entity.kind}
@@ -89,16 +154,15 @@ export function HierarchyInspector() {
                     strokeWidth={1.75}
                   />
                 </span>
-                <span className={`truncate ${cancelled ? "text-muted-foreground line-through" : ""}`} title={entity.title}>
+                <span
+                  className={`truncate ${cancelled ? "text-muted-foreground line-through" : hasChildren ? "font-semibold text-foreground" : "text-card-foreground"}`}
+                >
                   {entity.title}
                 </span>
-                <span className="ml-auto shrink-0 pl-2 text-[9px] uppercase tracking-wide text-muted-foreground/70">
-                  {NODE_KIND_META[entity.kind].label}
-                </span>
-              </li>
+              </div>
             )
           })}
-        </ul>
+        </div>
       </div>
 
       <div className="flex items-center justify-between border-t border-border px-3 py-1.5">
