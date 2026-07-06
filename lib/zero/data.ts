@@ -273,7 +273,7 @@ export const entities: Entity[] = [
   {
     id: "soul_self",
     kind: "soul",
-    title: currentUser.name,
+    title: "Soul",
     parentId: null,
     taggedSpaceIds: [],
     description: "The irreducible core self.",

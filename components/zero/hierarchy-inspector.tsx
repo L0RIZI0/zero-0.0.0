@@ -59,6 +59,7 @@ const WORLD_H = 2600
 // Directional offsets (see childDir): the target of a child relative to its parent.
 const IH = 12 // intrinsic half-height of a node's own row (→ leaves ~2·IH apart)
 const SPACE_GAP = 40 // vertical gap below the parent before its space row starts
+const INDIVIDUAL_CHILD_DROP = 56 // extra drop for an Individual's space children (sit lower)
 const SPACE_HGAP = 48 // horizontal gap between sibling-space SUBTREES in the row
 const SPINE_DY = 132 // vertical gap for an `individual` child (identity spine)
 const DR_DX = 26 // action children indent clearly right of the parent
@@ -205,7 +206,9 @@ function buildGraph(): { nodes: SimNode[]; edges: Edge[]; tagEdges: Edge[] } {
         return sum + (e.right - e.left)
       }, 0) + Math.max(0, right.length - 1) * SPACE_HGAP
     let rc = -rowW / 2
-    const spaceTop = down_ + SPACE_GAP // clear the node's own down-extent first
+    // clear the node's own down-extent first; an Individual drops its children lower
+    const spaceTop =
+      down_ + SPACE_GAP + (node.entity.kind === "individual" ? INDIVIDUAL_CHILD_DROP : 0)
     for (const s of right) {
       const e = ext.get(s.id)!
       s.ox = rc - e.left // subtree left aligns at `rc`
@@ -715,12 +718,13 @@ export function HierarchyInspector() {
                       const w = shown.length * CHAR_W * 1.05 // uppercase runs a touch wide
                       const padX = 6
                       const padY = 4
+                      // one thick white bg spanning the GLYPH + gap + label together
                       return (
                         <rect
-                          x={n.x + GLYPH / 2 + LABEL_GAP - padX}
-                          y={n.y - 11 / 2 - padY}
-                          width={w + padX * 2}
-                          height={11 + padY * 2}
+                          x={n.x - GLYPH / 2 - padX}
+                          y={n.y - GLYPH / 2 - padY}
+                          width={GLYPH + LABEL_GAP + w + padX * 2}
+                          height={GLYPH + padY * 2}
                           rx={3}
                           fill="var(--background)"
                           style={{ pointerEvents: "none" }}
