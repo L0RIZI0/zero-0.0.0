@@ -60,7 +60,6 @@ const WORLD_H = 2600
 const IH = 12 // intrinsic half-height of a node's own row (→ leaves ~2·IH apart)
 const SPACE_GAP = 40 // vertical gap below the parent before its space row starts
 const INDIVIDUAL_CHILD_DROP = 56 // extra drop for an Individual's space children (sit lower)
-const INDIVIDUAL_ACTION_DX = 110 // extra rightward push for an Individual's non-space children
 const SPACE_HGAP = 48 // horizontal gap between sibling-space SUBTREES in the row
 const SPINE_DY = 132 // vertical gap for an `individual` child (identity spine)
 const DR_DX = 26 // action children indent clearly right of the parent
@@ -175,20 +174,38 @@ function buildGraph(): { nodes: SimNode[]; edges: Edge[]; tagEdges: Edge[] } {
     let left = -node.rw * 0 - IH // node's own left reach (glyph center → left is ~half glyph)
     let right_ = node.rw // own right reach = glyph + label
 
-    // action children: stack their SUBTREES straight down, indented slightly right.
-    // An Individual keeps its non-space children higher up (small drop) and pushes
-    // them further RIGHT; the non-space↔space vertical gap is preserved regardless,
-    // since everything below shifts with them (gap = SPACE_GAP + INDIVIDUAL_CHILD_DROP).
     const isIndividualNode = node.entity.kind === "individual"
-    let cur = DR_TOP + (isIndividualNode ? INDIVIDUAL_CHILD_DROP : 0)
-    for (const a of dr) {
-      const e = ext.get(a.id)!
-      a.ox = DR_DX + (isIndividualNode ? INDIVIDUAL_ACTION_DX : 0)
-      a.oy = cur - e.up // subtree top aligns at `cur` below the node
-      down_ = Math.max(down_, a.oy + e.down)
-      left = Math.min(left, a.ox + e.left)
-      right_ = Math.max(right_, a.ox + e.right)
-      cur = a.oy + e.down + ROW_GAP
+    if (isIndividualNode && dr.length) {
+      // Individual's non-space children: a HORIZONTAL ROW below the node (and above
+      // the space row), centered on the node's x — mirrors the space-row layout.
+      const rowW =
+        dr.reduce((sum, a) => {
+          const e = ext.get(a.id)!
+          return sum + (e.right - e.left)
+        }, 0) + Math.max(0, dr.length - 1) * SPACE_HGAP
+      let rc = -rowW / 2
+      const top = down_ + SPACE_GAP + INDIVIDUAL_CHILD_DROP
+      for (const a of dr) {
+        const e = ext.get(a.id)!
+        a.ox = rc - e.left
+        a.oy = top - e.up
+        down_ = Math.max(down_, a.oy + e.down)
+        left = Math.min(left, a.ox + e.left)
+        right_ = Math.max(right_, a.ox + e.right)
+        rc = a.ox + e.right + SPACE_HGAP
+      }
+    } else {
+      // action children: stack their SUBTREES straight down, indented slightly right.
+      let cur = DR_TOP
+      for (const a of dr) {
+        const e = ext.get(a.id)!
+        a.ox = DR_DX
+        a.oy = cur - e.up // subtree top aligns at `cur` below the node
+        down_ = Math.max(down_, a.oy + e.down)
+        left = Math.min(left, a.ox + e.left)
+        right_ = Math.max(right_, a.ox + e.right)
+        cur = a.oy + e.down + ROW_GAP
+      }
     }
 
     // individual child: straight down (identity spine), aligned x
@@ -649,26 +666,6 @@ export function HierarchyInspector() {
                   <path
                     key={e.id}
                     d={`M ${sx} ${sy} C ${sx} ${c1y} ${tx} ${c2y} ${tx} ${ty}`}
-                    fill="none"
-                    strokeWidth={1.25}
-                  />
-                )
-              }
-              // INDIVIDUAL → NON-SPACE child: leave from the Individual's RIGHT side
-              // (horizontal start tangent) and reach the child on its LEFT — a clean
-              // right→left S-curve out of the identity chip.
-              if (s.entity.kind === "individual") {
-                const shown =
-                  s.entity.title.length > 22 ? `${s.entity.title.slice(0, 21)}…` : s.entity.title
-                const indLabelW = shown.length * CHAR_W * 1.05
-                const rightEdge = s.x + Math.max(GLYPH, indLabelW) / 2 + 8 // + bg padX
-                const hf = 0.7
-                const c1x = rightEdge + (tx - rightEdge) * hf
-                const c2x = tx - (tx - rightEdge) * hf
-                return (
-                  <path
-                    key={e.id}
-                    d={`M ${rightEdge} ${sy} C ${c1x} ${sy} ${c2x} ${ty} ${tx} ${ty}`}
                     fill="none"
                     strokeWidth={1.25}
                   />
