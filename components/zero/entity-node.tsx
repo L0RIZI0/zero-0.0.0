@@ -655,11 +655,11 @@ export function EntityNode({
     // Background recede transition (ancestors darkening as the stack deepens). Window
     // uses the morph duration; collapsed rows/cards keep the snappy hover fade. Width
     // is NOT transitioned here — that stays on the frame (Flip owns it during morphs).
-    // ASYMMETRIC hover: fade IN quickly (0.12s) when the frame lights, fade OUT more
-    // slowly (0.32s) so the highlight lingers a moment after the pointer leaves.
+    // ASYMMETRIC hover: fade IN quickly (0.12s) when the frame lights, fade OUT much
+    // more slowly (0.7s) so the highlight lingers well after the pointer leaves.
     transition: asWindow
       ? `background-color ${DURATION_S} ${MORPH_CSS_EASE}`
-      : `background-color ${frameActive ? "0.12s" : "0.32s"} ease-out`,
+      : `background-color ${frameActive ? "0.12s" : "0.7s"} ease-out`,
   }
   const frameClass = asWindow
     ? cn(

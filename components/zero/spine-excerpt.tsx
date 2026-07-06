@@ -1,5 +1,6 @@
 "use client"
 
+import { useRef } from "react"
 import { AnimatePresence, motion, type Transition } from "motion/react"
 import { NodeGlyph } from "./node-glyph"
 import { getOpenTaskCount, getDoneTaskCount, getClosedTaskCount } from "@/lib/zero/data"
@@ -85,7 +86,44 @@ function Counter({
       <span className="flex h-2.5 w-2.5 items-center justify-center">
         <NodeGlyph kind={kind} filled={filled} showCheck={checked} strokeWidth={1.5} />
       </span>
-      <span className="font-medium tabular-nums">{count}</span>
+      <DigitRoll value={count} />
     </motion.span>
+  )
+}
+
+/** Framer transition for the digit roll (a touch snappier than the row enter/exit). */
+const DIGIT_TRANSITION: Transition = { duration: 0.22, ease: [0.22, 1, 0.36, 1] }
+
+/**
+ * A single number that ROLLS when it changes: on INCREMENT the new value fades up
+ * from below while the old one exits upward; on DECREMENT the direction reverses
+ * (new fades down from above, old exits downward). Direction is derived from the
+ * previous render's value. Uses a fixed-height clipped box so the vertical slide is
+ * masked to just the digit's line.
+ */
+function DigitRoll({ value }: { value: number }) {
+  const prev = useRef(value)
+  const dir = value > prev.current ? 1 : value < prev.current ? -1 : 0
+  prev.current = value
+  // dir === 1 (increment): enter from below (+y), exit upward (−y).
+  // dir === -1 (decrement): enter from above (−y), exit downward (+y).
+  const enterFrom = dir >= 0 ? 6 : -6
+  const exitTo = dir >= 0 ? -6 : 6
+
+  return (
+    <span className="relative inline-grid h-[1.2em] items-center overflow-hidden font-medium tabular-nums">
+      <AnimatePresence initial={false} mode="popLayout">
+        <motion.span
+          key={value}
+          className="col-start-1 row-start-1"
+          initial={{ opacity: 0, y: enterFrom }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: exitTo }}
+          transition={DIGIT_TRANSITION}
+        >
+          {value}
+        </motion.span>
+      </AnimatePresence>
+    </span>
   )
 }
