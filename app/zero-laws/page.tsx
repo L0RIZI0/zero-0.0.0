@@ -79,7 +79,8 @@ export default function ZeroLawsPage() {
             >
               <span
                 aria-hidden="true"
-                className="shrink-0 font-sans text-5xl font-light leading-none tabular-nums text-muted-foreground md:w-24 md:text-6xl"
+                className="shrink-0 text-5xl leading-none text-muted-foreground md:w-24 md:text-6xl"
+                style={{ fontFamily: "var(--font-blackletter)" }}
               >
                 {law.numeral}
               </span>
