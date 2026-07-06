@@ -654,6 +654,26 @@ export function HierarchyInspector() {
                   />
                 )
               }
+              // INDIVIDUAL → NON-SPACE child: leave from the Individual's RIGHT side
+              // (horizontal start tangent) and reach the child on its LEFT — a clean
+              // right→left S-curve out of the identity chip.
+              if (s.entity.kind === "individual") {
+                const shown =
+                  s.entity.title.length > 22 ? `${s.entity.title.slice(0, 21)}…` : s.entity.title
+                const indLabelW = shown.length * CHAR_W * 1.05
+                const rightEdge = s.x + Math.max(GLYPH, indLabelW) / 2 + 8 // + bg padX
+                const hf = 0.7
+                const c1x = rightEdge + (tx - rightEdge) * hf
+                const c2x = tx - (tx - rightEdge) * hf
+                return (
+                  <path
+                    key={e.id}
+                    d={`M ${rightEdge} ${sy} C ${c1x} ${sy} ${c2x} ${ty} ${tx} ${ty}`}
+                    fill="none"
+                    strokeWidth={1.25}
+                  />
+                )
+              }
               // NON-SPACE targets whose PARENT is NOT a task (spaces included): the edge
               // LEAVES the parent from its BOTTOM (vertical start tangent) and REACHES
               // the child on its LEFT side (horizontal end tangent) — a bottom→left elbow.
