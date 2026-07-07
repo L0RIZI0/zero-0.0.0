@@ -30,8 +30,6 @@ export function FpsMeter() {
   const fmtBrat = (s: number) => (s === 0 ? "0" : `${s}`)
 
   useEffect(() => {
-    if (process.env.NODE_ENV === "production") return
-
     let raf = 0
     let last = performance.now()
     // Exponential moving average so the readout is steady, not jittery per-frame.
@@ -68,7 +66,6 @@ export function FpsMeter() {
   }, [])
 
   useEffect(() => {
-    if (process.env.NODE_ENV === "production") return
     const onKey = (e: KeyboardEvent) => {
       // Visibility is toggled by the shared `§ 1` chord (see debug-view store).
       // Here we only handle the local "reset max/min" key.
@@ -78,7 +75,9 @@ export function FpsMeter() {
     return () => window.removeEventListener("keydown", onKey)
   }, [])
 
-  if (process.env.NODE_ENV === "production" || !visible) return null
+  // Visibility is driven solely by the `§ 1` chord — kept available in ALL builds
+  // (incl. the packaged Electron dogfooding app) since it's hidden behind that chord.
+  if (!visible) return null
 
   return (
     <div

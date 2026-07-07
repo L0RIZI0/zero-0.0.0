@@ -48,12 +48,14 @@ export function ActivityInspector() {
   const [now, setNow] = useState(() => Date.now())
 
   useEffect(() => {
-    if (process.env.NODE_ENV === "production" || !visible) return
+    if (!visible) return
     const id = setInterval(() => setNow(Date.now()), 1000)
     return () => clearInterval(id)
   }, [visible])
 
-  if (process.env.NODE_ENV === "production" || !visible) return null
+  // Driven solely by the `§ 3` chord — available in ALL builds (incl. packaged
+  // Electron) since it's hidden behind that chord.
+  if (!visible) return null
 
   const segments = getSegmentsForDay(now, now)
   const rollup = getDayRollup(now, now)

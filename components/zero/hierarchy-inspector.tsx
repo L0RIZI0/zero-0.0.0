@@ -379,8 +379,9 @@ export function HierarchyInspector() {
   const { hierarchy: visible } = useDebugView()
   const { dataVersion } = useZeroNav()
 
-  const isDev = process.env.NODE_ENV !== "production"
-  const active = isDev && visible
+  // Driven solely by the `§ 4` chord — available in ALL builds (incl. packaged
+  // Electron) since it's hidden behind that chord.
+  const active = visible
 
   // Build the graph fresh whenever it's opened or data changes.
   const graph = useMemo(() => (active ? buildGraph() : null), [active, dataVersion])
