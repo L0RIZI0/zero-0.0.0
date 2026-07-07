@@ -198,11 +198,36 @@ export function getResourceDef(id: string): ResourceDef | undefined {
 }
 
 /**
+ * Per-entity custom resource ORDER from drag-and-drop reordering in the panel.
+ * IN-MEMORY only (session-scoped) — this whole layer is a presentational mockup with
+ * no persistence, so the reorder deliberately isn't written to localStorage. Ranked
+ * ids sort first (in this order); anything unranked keeps catalog order at the end.
+ */
+const resourceOrder: Record<string, string[]> = {}
+
+/** Record a new resource order for an entity (the full arranged id sequence). */
+export function reorderEntityResources(entityId: string, orderedIds: string[]): void {
+  resourceOrder[entityId] = [...orderedIds]
+}
+
+/**
  * All resources HELD by an entity, resolved to their definitions and returned in
  * catalog order. Empty for any entity with no holdings (an untouched child) — the
  * panel then shows only the "+ Add resource" affordance.
  */
 export function getEntityResources(entityId: string): EntityResource[] {
+  const custom = resourceOrder[entityId]
+  const rank = custom ? new Map(custom.map((id, i) => [id, i])) : null
+  // Ordering: a user-arranged order (if any) ranks first, then catalog order for
+  // anything unranked. With no custom order this is exactly the catalog order.
+  const orderKey = (id: string) => {
+    if (rank) {
+      const r = rank.get(id)
+      if (r != null) return r
+      return custom!.length + (DEF_ORDER.get(id) ?? 0)
+    }
+    return DEF_ORDER.get(id) ?? 0
+  }
   return RESOURCE_HOLDINGS.filter((h) => h.entityId === entityId)
     .flatMap<EntityResource>((h) => {
       const def = DEF_BY_ID.get(h.resourceId)
@@ -217,7 +242,7 @@ export function getEntityResources(entityId: string): EntityResource[] {
       }
       return [resolved]
     })
-    .sort((a, b) => (DEF_ORDER.get(a.id) ?? 0) - (DEF_ORDER.get(b.id) ?? 0))
+    .sort((a, b) => orderKey(a.id) - orderKey(b.id))
 }
 
 /** How many resources an entity holds (drives the rail's "RESOURCES (n)" counter). */

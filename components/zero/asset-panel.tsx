@@ -1,12 +1,17 @@
 "use client"
 
-import { useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { createPortal } from "react-dom"
-import { motion, AnimatePresence } from "motion/react"
+import { motion, AnimatePresence, Reorder } from "motion/react"
 import { ChevronDown, Plus } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { panelSlideTransition, panelCollapseTransition, MORPH_SECONDS, MORPH_EASE } from "@/lib/zero/motion"
-import { getEntityResources, groupResources, type EntityResource } from "@/lib/zero/resources"
+import {
+  getEntityResources,
+  groupResources,
+  reorderEntityResources,
+  type EntityResource,
+} from "@/lib/zero/resources"
 
 /**
  * RESOURCES panel — a presentational MOCKUP of the "stuff that goes IN" side of a space.
@@ -146,6 +151,8 @@ function ResourceRow({
   snappy = false,
   spineWidth,
   onHover,
+  onDragStart,
+  onDragEnd,
 }: {
   item: EntityResource
   peek: boolean
@@ -156,6 +163,10 @@ function ResourceRow({
   snappy?: boolean
   spineWidth: number
   onHover: (h: PeekHover) => void
+  /** Drag lifecycle (open panel only) — the row is a Reorder.Item, directly draggable
+   *  with no handle. Absent (and drag disabled) in peek. */
+  onDragStart?: () => void
+  onDragEnd?: () => void
 }) {
   const tileRef = useRef<HTMLSpanElement>(null)
   // Row hover is driven by LOCAL state + inline styles rather than a Tailwind
@@ -184,30 +195,24 @@ function ResourceRow({
     onHover({ item, top: r.top + r.height / 2, left: r.right + 10, side: "left" })
   }
 
-  return (
-    <motion.button
-      type="button"
-      initial={false}
-      // Compress the row to a tight height in peek so the losanges stack close; expanded is
-      // the deterministic ROW_H_OPEN (NUMERIC, not "auto" → no end-of-uncollapse snap). Same
-      // morph curve as everything else → the vertical compaction glides in lockstep.
-      animate={{ height: peek ? PEEK_ROW_H : ROW_H_OPEN }}
-      transition={peekMorph(peek, peekDelayed, morphBase)}
-      onPointerEnter={peek ? undefined : () => setHovered(true)}
-      onPointerLeave={peek ? undefined : () => setHovered(false)}
-      className={cn(
-        "group relative flex w-full items-center gap-3 rounded-lg border border-transparent px-2 py-1.5 text-left",
-        peek ? "pointer-events-none" : "pointer-events-auto",
-      )}
-      style={{
-        // Inline hover fill + outline (see the `hovered` note above). Transparent at
-        // rest; card fill + visible border on hover. Duration is asymmetric so the
-        // highlight lingers slightly after the pointer leaves.
-        backgroundColor: !peek && hovered ? "var(--card)" : "transparent",
-        borderColor: !peek && hovered ? "var(--border)" : "transparent",
-        transition: `background-color ${hovered ? "0.15s" : "0.3s"} ease-out, border-color ${hovered ? "0.15s" : "0.3s"} ease-out`,
-      }}
-    >
+  // Shared row chrome (className/style/animate) used by BOTH the peek motion.button and
+  // the open-panel Reorder.Item wrapper below.
+  const sharedClassName = cn(
+    "group relative flex w-full items-center gap-3 rounded-lg border border-transparent px-2 py-1.5 text-left",
+    peek ? "pointer-events-none" : "pointer-events-auto",
+    !peek && onDragEnd && "cursor-grab active:cursor-grabbing",
+  )
+  const sharedStyle: React.CSSProperties = {
+    // Inline hover fill + outline (see the `hovered` note above). Transparent at
+    // rest; card fill + visible border on hover. Duration is asymmetric so the
+    // highlight lingers slightly after the pointer leaves.
+    backgroundColor: !peek && hovered ? "var(--card)" : "transparent",
+    borderColor: !peek && hovered ? "var(--border)" : "transparent",
+    transition: `background-color ${hovered ? "0.15s" : "0.3s"} ease-out, border-color ${hovered ? "0.15s" : "0.3s"} ease-out`,
+  }
+
+  const rowInner = (
+    <>
       {/* Continuity hairline: runs from the window edge to the glyph. It PERSISTS in peek
           (stays visible, connecting the screen edge to the peek losange). Its left anchor is
           fixed at the window edge; the ROW no longer moves, so the hairline no longer needs
@@ -285,6 +290,52 @@ function ResourceRow({
         <span className="truncate text-[12.5px] tracking-tight text-foreground">{item.name}</span>
         <span className="truncate text-[11px] text-muted-foreground/70">{item.detail}</span>
       </motion.span>
+    </>
+  )
+
+  // Compress the row to a tight height in peek so the losanges stack close; expanded is the
+  // deterministic ROW_H_OPEN (NUMERIC, not "auto" → no end-of-uncollapse snap). Same morph
+  // curve as everything else → the vertical compaction glides in lockstep.
+  const heightAnimate = { height: peek ? PEEK_ROW_H : ROW_H_OPEN }
+  const heightTransition = peekMorph(peek, peekDelayed, morphBase)
+
+  // OPEN panel: the row is a directly-draggable Reorder.Item (no handle) so it can be
+  // dragged to reorder within its section. In PEEK the losange strip isn't reorderable,
+  // so we fall back to the plain motion.button (unchanged behavior).
+  if (!peek && onDragEnd) {
+    return (
+      <Reorder.Item
+        as="button"
+        type="button"
+        value={item.id}
+        initial={false}
+        animate={heightAnimate}
+        transition={heightTransition}
+        onPointerEnter={() => setHovered(true)}
+        onPointerLeave={() => setHovered(false)}
+        onDragStart={onDragStart}
+        onDragEnd={onDragEnd}
+        whileDrag={{ scale: 1.02, zIndex: 40 }}
+        className={sharedClassName}
+        style={sharedStyle}
+      >
+        {rowInner}
+      </Reorder.Item>
+    )
+  }
+
+  return (
+    <motion.button
+      type="button"
+      initial={false}
+      animate={heightAnimate}
+      transition={heightTransition}
+      onPointerEnter={peek ? undefined : () => setHovered(true)}
+      onPointerLeave={peek ? undefined : () => setHovered(false)}
+      className={sharedClassName}
+      style={sharedStyle}
+    >
+      {rowInner}
     </motion.button>
   )
 }
@@ -297,6 +348,7 @@ function Section({
   snappy = false,
   spineWidth,
   onHover,
+  onReorder,
   defaultOpen = true,
 }: {
   title: string
@@ -306,9 +358,28 @@ function Section({
   snappy?: boolean
   spineWidth: number
   onHover: (h: PeekHover) => void
+  /** Commit a new order for THIS section's resources (open panel drag-and-drop). */
+  onReorder?: (orderedIds: string[]) => void
   defaultOpen?: boolean
 }) {
   const [open, setOpen] = useState(defaultOpen)
+
+  // Live order for drag-and-drop reorder (open panel only). Mirrors the incoming item
+  // order; a drag rearranges it live and commits on drop via `onReorder`. Never resynced
+  // mid-drag (that would yank the row from the cursor).
+  const itemIds = items.map((i) => i.id)
+  const itemsKey = itemIds.join("|")
+  const [liveIds, setLiveIds] = useState<string[]>(itemIds)
+  const liveRef = useRef(liveIds)
+  liveRef.current = liveIds
+  const draggingRef = useRef(false)
+  useEffect(() => {
+    if (draggingRef.current) return
+    setLiveIds(itemIds)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [itemsKey])
+  const byId = new Map(items.map((i) => [i.id, i]))
+  const orderedItems = liveIds.map((id) => byId.get(id)).filter(Boolean) as EntityResource[]
   // The height-collapse animation needs `overflow-hidden`, but that also clips the rows'
   // connector hairlines horizontally so they can't reach the window edge. So we only clip
   // WHILE animating; once the section is open and idle we switch overflow to visible,
@@ -360,19 +431,50 @@ function Section({
             // the height collapse animates (see note above).
             style={{ overflow: peek || settled ? "visible" : "hidden" }}
           >
-            <div className="flex flex-col pb-1">
-              {items.map((item) => (
-                <ResourceRow
-                  key={item.id}
-                  item={item}
-                  peek={peek}
-                  peekDelayed={peekDelayed}
-                  snappy={snappy}
-                  spineWidth={spineWidth}
-                  onHover={onHover}
-                />
-              ))}
-            </div>
+            {peek ? (
+              // Peek: the losange strip isn't reorderable — plain flow, catalog order.
+              <div className="flex flex-col pb-1">
+                {items.map((item) => (
+                  <ResourceRow
+                    key={item.id}
+                    item={item}
+                    peek={peek}
+                    peekDelayed={peekDelayed}
+                    snappy={snappy}
+                    spineWidth={spineWidth}
+                    onHover={onHover}
+                  />
+                ))}
+              </div>
+            ) : (
+              // Open: each row is a directly-draggable Reorder.Item within this group.
+              <Reorder.Group
+                as="div"
+                axis="y"
+                values={liveIds}
+                onReorder={setLiveIds}
+                className="flex flex-col pb-1"
+              >
+                {orderedItems.map((item) => (
+                  <ResourceRow
+                    key={item.id}
+                    item={item}
+                    peek={peek}
+                    peekDelayed={peekDelayed}
+                    snappy={snappy}
+                    spineWidth={spineWidth}
+                    onHover={onHover}
+                    onDragStart={() => {
+                      draggingRef.current = true
+                    }}
+                    onDragEnd={() => {
+                      draggingRef.current = false
+                      onReorder?.(liveRef.current)
+                    }}
+                  />
+                ))}
+              </Reorder.Group>
+            )}
           </motion.div>
         )}
       </AnimatePresence>
@@ -402,6 +504,8 @@ export function AssetPanel({
   const [hover, setHover] = useState<PeekHover>(null)
   // The minimal add affordance on the peek strip only shows on hover.
   const [addHover, setAddHover] = useState(false)
+  // Bumped after a drag-and-drop reorder so the panel re-reads the new resource order.
+  const [, setReorderTick] = useState(0)
   // No PEEK_IN_DELAY in any case: the user wants the collapse to START immediately. The DIVE
   // case still rides the slow 2s MORPH curve (via `snappy=false` → the coherent window-dive
   // ride) but with zero lead-in; the focused-leaf case uses the quick panel-slide. So the
@@ -428,6 +532,17 @@ export function AssetPanel({
   // add/import its first resource.
   const resources = getEntityResources(spaceId)
   const { money, assets, apps } = groupResources(resources)
+
+  // Commit a within-section reorder: splice the class's new id sequence back into the
+  // entity's full order (other classes keep their relative order), persist to the model,
+  // and re-read. Ordering only ever changes within a section, so this is stable.
+  const commitReorder = (newClassIds: string[]) => {
+    const set = new Set(newClassIds)
+    const queue = [...newClassIds]
+    const fullOrder = resources.map((r) => r.id).map((id) => (set.has(id) ? (queue.shift() as string) : id))
+    reorderEntityResources(spaceId, fullOrder)
+    setReorderTick((t) => t + 1)
+  }
 
   if (resources.length === 0) {
     return (
@@ -472,6 +587,7 @@ export function AssetPanel({
           snappy={snappy}
           spineWidth={spineWidth}
           onHover={setHover}
+          onReorder={commitReorder}
         />
       )}
       {apps.length > 0 && (
@@ -483,6 +599,7 @@ export function AssetPanel({
           snappy={snappy}
           spineWidth={spineWidth}
           onHover={setHover}
+          onReorder={commitReorder}
         />
       )}
 

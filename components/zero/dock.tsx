@@ -53,11 +53,15 @@ export function Dock({ contextId, active = true }: { contextId: string; active?:
   const liveOrderRef = useRef(liveOrder)
   liveOrderRef.current = liveOrder
   const draggingRef = useRef(false)
-  // The card following the pointer: its id + live pointer delta + the box it started
-  // in (so it stays glued to the cursor even as its slot index reshuffles).
-  const [drag, setDrag] = useState<{ id: string; dx: number; dy: number; ox: number; oy: number } | null>(null)
-  // On drop, the card's leftover offset from its final slot eases to 0 (a smooth land).
-  const [settle, setSettle] = useState<{ id: string; x: number; y: number } | null>(null)
+  // The card following the pointer. `px/py` = pointer position in CONTAINER coords;
+  // `ox/oy` = where inside the card it was grabbed. The card renders at `px-ox, py-oy`,
+  // so it stays glued to the cursor no matter how its slot index reshuffles beneath it.
+  const [drag, setDrag] = useState<{ id: string; px: number; py: number; ox: number; oy: number } | null>(null)
+  // The id currently gliding home after a drop (its left/top transition is kept on for
+  // one cycle so it eases from the drop point into its final slot instead of snapping).
+  const [landing, setLanding] = useState<string | null>(null)
+  // The positioned honeycomb container — pointer math is done relative to its box.
+  const gridRef = useRef<HTMLDivElement>(null)
   const dragRef = useRef<{ id: string; startX: number; startY: number; ox: number; oy: number; started: boolean } | null>(null)
   // Set true for the click that immediately follows a real drag, so it doesn't ALSO
   // open the card (a drag and an open are mutually exclusive).
@@ -103,6 +107,94 @@ export function Dock({ contextId, active = true }: { contextId: string; active?:
   )
 
   const dockMetrics = { cardW: layout.cardW, cardH: layout.cardH, contentScale: layout.contentScale }
+
+  // The cards in their LIVE visual order (data order, or the drag's rearrangement).
+  // Slot `idx` of this list maps to `boxes[idx]`, so reordering the list repositions
+  // cards. Ids missing from `pinned` (stale mid-transition) are skipped.
+  const byId = useMemo(() => {
+    const m = new Map<string, ContextItem>()
+    for (const p of pinned) m.set(p.entity.id, p)
+    return m
+  }, [pinned])
+  const orderedItems = liveOrder.map((id) => byId.get(id)).filter(Boolean) as ContextItem[]
+
+  // Move `id` to visual slot `j` within an order array (used as the pointer sweeps
+  // over slots during a drag).
+  const moveTo = (order: string[], id: string, j: number) => {
+    const arr = order.filter((x) => x !== id)
+    arr.splice(Math.max(0, Math.min(j, arr.length)), 0, id)
+    return arr
+  }
+
+  const cardW = layout.cardW
+  const cardH = layout.cardH
+
+  const onCardPointerDown = (e: React.PointerEvent, id: string, box: { left: number; top: number }) => {
+    // Left button only; ignore if a card is open/animating into a window.
+    if (e.button !== 0) return
+    const rect = gridRef.current?.getBoundingClientRect()
+    if (!rect) return
+    const px = e.clientX - rect.left
+    const py = e.clientY - rect.top
+    dragRef.current = { id, startX: e.clientX, startY: e.clientY, ox: px - box.left, oy: py - box.top, started: false }
+
+    const onMove = (ev: PointerEvent) => {
+      const d = dragRef.current
+      const g = gridRef.current?.getBoundingClientRect()
+      if (!d || !g) return
+      // Threshold: only promote to a real drag past 4px, so a plain tap still opens.
+      if (!d.started) {
+        if (Math.hypot(ev.clientX - d.startX, ev.clientY - d.startY) < 4) return
+        d.started = true
+        draggingRef.current = true
+      }
+      const npx = ev.clientX - g.left
+      const npy = ev.clientY - g.top
+      setDrag({ id: d.id, px: npx, py: npy, ox: d.ox, oy: d.oy })
+      // Nearest slot to the dragged card's center → target visual index.
+      const cx = npx - d.ox + cardW / 2
+      const cy = npy - d.oy + cardH / 2
+      let best = 0
+      let bestDist = Number.POSITIVE_INFINITY
+      boxes.forEach((b, i) => {
+        const dx = b.left + cardW / 2 - cx
+        const dy = b.top + cardH / 2 - cy
+        const dist = dx * dx + dy * dy
+        if (dist < bestDist) {
+          bestDist = dist
+          best = i
+        }
+      })
+      setLiveOrder((prev) => moveTo(prev, d.id, best))
+    }
+
+    const onUp = () => {
+      window.removeEventListener("pointermove", onMove)
+      window.removeEventListener("pointerup", onUp)
+      const d = dragRef.current
+      dragRef.current = null
+      if (d?.started) {
+        justDraggedRef.current = true
+        // Fallback: if no click follows (e.g. pointer released off the card), clear the
+        // suppression flag so a later genuine tap still opens.
+        window.setTimeout(() => {
+          justDraggedRef.current = false
+        }, 300)
+        reorderPins(contextId, liveOrderRef.current)
+        notifyDataChanged()
+        // Keep the transition on for one cycle so the card glides into its slot.
+        setLanding(d.id)
+        setDrag(null)
+        window.setTimeout(() => setLanding(null), 220)
+      } else {
+        setDrag(null)
+      }
+      draggingRef.current = false
+    }
+
+    window.addEventListener("pointermove", onMove)
+    window.addEventListener("pointerup", onUp)
+  }
 
   const openItem = (item: ContextItem) => {
     // Every kind — including events/instants — opens its own window now.
@@ -238,23 +330,41 @@ export function Dock({ contextId, active = true }: { contextId: string; active?:
       <div ref={rowRef} className="w-full">
         <div
           key={contextId}
+          ref={gridRef}
           className="relative w-full"
           style={{ height: containerH }}
         >
           <AnimatePresence initial={false}>
-            {pinned.map((item, idx) => {
+            {orderedItems.map((item, idx) => {
               const box = boxes[idx]
               if (!box) return null
+              const isDragging = drag?.id === item.id
+              const isLanding = landing === item.id
+              // The dragged card is glued to the pointer (px-ox, py-oy); every other
+              // card sits at its slot box. Positions use left/top so an OPEN card's
+              // fixed window still resolves vs. the viewport. Transitions are enabled
+              // only DURING a drag (so non-dragged cards glide to new slots) and for the
+              // one landing card — never at rest, so continuous width-tracking of the
+              // panel squeeze isn't rubber-banded.
+              const left = isDragging && drag ? drag.px - drag.ox : box.left
+              const top = isDragging && drag ? drag.py - drag.oy : box.top
+              const transition =
+                isDragging ? "none" : drag || isLanding ? "left 0.2s ease-out, top 0.2s ease-out" : "none"
               return (
                 <div
                   key={item.id}
-                  className="absolute"
-                  // Positions use left/top ONLY (never transforms) so an open card's
-                  // fixed window still resolves vs. the viewport. NO CSS transition:
-                  // card size + gap now shrink continuously with width (no discrete
-                  // jumps), and the panel-squeeze width itself animates smoothly, so
-                  // cards track it in real time — a transition here would only rubber-band.
-                  style={{ left: box.left, top: box.top }}
+                  className={cn("absolute touch-none", isDragging && "cursor-grabbing")}
+                  style={{ left, top, transition, zIndex: isDragging ? 50 : undefined }}
+                  onPointerDown={(e) => onCardPointerDown(e, item.entity.id, box)}
+                  // Suppress the click that fires right after a real drag so the card
+                  // doesn't also open. A plain tap (no drag) leaves the flag false.
+                  onClickCapture={(e) => {
+                    if (justDraggedRef.current) {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      justDraggedRef.current = false
+                    }
+                  }}
                 >
                   <EntityNode
                     entityId={item.entity.id}
