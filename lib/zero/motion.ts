@@ -390,6 +390,16 @@ export function regularHexPoints(W: number, H: number): [number, number][] {
   ]
 }
 
+/**
+ * `clip-path` string for the largest centered REGULAR hexagon inside a `W × H` frame.
+ * This is the EXACT shape the card→leaf morph driver paints at p=0 (its pre-split leg
+ * starts from `regularHexPoints(W, H)`), so a dock CARD must REST with this — not the
+ * aspect-STRETCHED `SPACE_CLIP_HEX` — or the hexagon snaps on the morph's first frame
+ * whenever the card isn't the regular-hex aspect (i.e. any time the dock is squeezed
+ * narrower than cardH·√3/2). Matching them makes the open start perfectly continuous.
+ */
+export const regularHexClip = (W: number, H: number): string => toPolygon(regularHexPoints(W, H))
+
 /** Component-wise lerp between two equal-length point lists. */
 function lerpPoints(a: [number, number][], b: [number, number][], t: number): [number, number][] {
   return a.map(([ax, ay], i) => [ax + (b[i][0] - ax) * t, ay + (b[i][1] - ay) * t] as [number, number])

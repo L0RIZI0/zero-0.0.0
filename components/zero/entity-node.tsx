@@ -19,6 +19,8 @@ import {
   LEAF_HY,
   spaceClip,
   spaceClipPoints,
+  regularHexPoints,
+  regularHexClip,
   surfaceAt,
   telescopicLevel,
   telescopicSurface,
@@ -630,7 +632,14 @@ export function EntityNode({
         // spines its header. (SPACE_CLIP_RECT is now used only as a row "from" state.)
         leafClip
       : variant === "dock"
-        ? SPACE_CLIP_HEX
+        ? // Rest as the CENTERED regular hexagon at the card's live pixel size — the
+          // exact shape the card→leaf morph driver paints at p=0. Using the static,
+          // aspect-STRETCHED SPACE_CLIP_HEX made the hexagon snap on the morph's first
+          // frame whenever the dock was squeezed (cardW < cardH·√3/2). Falls back to the
+          // static hex only when metrics are absent (un-metered dock render).
+          dockMetrics
+          ? regularHexClip(dockMetrics.cardW, dockMetrics.cardH)
+          : SPACE_CLIP_HEX
         : // A collapsed DO-LIST row Space is clipped to ROW_RECT_CLIP — a full-box
           // rectangle whose doubled vertices sit at the MIDDLE of the top/bottom edges
           // (not the corners). Visually identical to an unclipped box, but it gives the
@@ -664,7 +673,11 @@ export function EntityNode({
       ? asWindow
         ? spaceClipPoints(leafAx, leafAy)
         : variant === "dock"
-          ? SPACE_HEX_POINTS
+          ? // Same regular-hex points as the clip above, so the SVG rim tracks the
+            // fill exactly at every squeezed card size (matches the morph's p=0).
+            dockMetrics
+            ? regularHexPoints(dockMetrics.cardW, dockMetrics.cardH)
+            : SPACE_HEX_POINTS
           : ROW_RECT_POINTS
       : null
   // Visible (opacity 1) for both leaf and ancestor WINDOWS; the collapsed
@@ -1195,7 +1208,7 @@ export function EntityNode({
               // foreground/75 (like their title), everything else stays full ink.
               ancestorHeader ? "text-foreground/75" : "text-foreground",
               // Only a SPACE leaf keeps the enlarged 20px glyph. A non-space
-              // (task/event) leaf keeps its collapsed size — 18px if it opened from a
+              // (task/event) leaf keeps its collapsed size �� 18px if it opened from a
               // dock card, 16px from a do-list row — so the glyph doesn't pop bigger on
               // open. Compact ancestors use 16px; collapsed dock card 18px / row 16px.
               // The size change is animated by GSAP Flip (this glyph is a flip target
