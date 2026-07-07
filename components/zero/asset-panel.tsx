@@ -199,7 +199,11 @@ function ResourceRow({
   const sharedClassName = cn(
     "group relative flex w-full items-center gap-3 rounded-lg border border-transparent px-2 py-1.5 text-left",
     peek ? "pointer-events-none" : "pointer-events-auto",
-    !peek && "cursor-grab active:cursor-grabbing touch-none",
+    // `cursor-pointer` (finger), not grab: resources are becoming openable from
+    // here, so the affordance reads as "click to open." Drag still works — the
+    // cursor is purely cosmetic. `touch-none` stays so a press-drag isn't stolen
+    // by the browser as a scroll/pan gesture.
+    !peek && "cursor-pointer touch-none",
   )
   const sharedStyle: React.CSSProperties = {
     // Inline hover fill + outline (see the `hovered` note above). Transparent at
@@ -266,9 +270,10 @@ function ResourceRow({
           className={cn(
             "flex rotate-45 items-center justify-center border",
             // In peek the losange is the drag HANDLE: re-enable pointer events (the row is
-            // pointer-events-none), show the grab cursor, and touch-none so a press-drag
-            // isn't stolen by the browser as a scroll/pan gesture.
-            peek && "pointer-events-auto cursor-grab touch-none active:cursor-grabbing",
+            // pointer-events-none) and touch-none so a press-drag isn't stolen by the browser
+            // as a scroll/pan gesture. Cursor is `pointer` (finger) not grab — resources are
+            // becoming click-to-open from here; dragging still works regardless of cursor.
+            peek && "pointer-events-auto cursor-pointer touch-none",
           )}
           style={peek ? { position: "relative", zIndex: 30 } : undefined}
         >

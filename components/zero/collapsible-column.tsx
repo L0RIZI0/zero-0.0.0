@@ -496,7 +496,10 @@ export function CollapsibleColumn({
               </motion.div>
             )}
           </AnimatePresence>
-          {excerpt && <div className="pt-3">{excerpt}</div>}
+          {/* `pt-5` (was pt-3): a slightly bigger breather between the rotated spine
+              title above and the excerpt counters. Constant in both leaf+spine states,
+              so it just sets the resting title↔excerpt gap. */}
+          {excerpt && <div className="pt-5">{excerpt}</div>}
         </div>
       )}
     </div>
