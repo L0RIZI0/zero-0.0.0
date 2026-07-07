@@ -114,13 +114,16 @@ export function EntityBody({
   // (entity0's world inputs; a child's imported/added resources) — model-driven, so a
   // child with no holdings reads (0).
   const assetCount = getEntityResourceCount(entityId)
-  // Resources (IN) default OPEN for every entity regardless of kind; Published (OUT) default
-  // CLOSED. State is session-persistent (the in-memory panel store keeps a user's per-entity
-  // expand/collapse choice across navigation, resetting to these defaults on a full reload).
-  // Because Resources defaults open, diving into a child turns every ancestor into a covered
-  // ancestor with an open panel → the existing dive peek (`inOpen && !active`) morphs it into
-  // the peek-losange strip, so every ancestor shows its resources collapsed.
-  const [inOpen, setInOpen] = usePanelOpen(`${entityId}:in`, true)
+  // BOTH panels default COLLAPSED for every entity/kind — Resources (IN) and Published (OUT).
+  // State is session-persistent: the in-memory panel store keeps a user's per-entity
+  // expand/collapse choice across navigation (open a panel, leave the entity, come back → it's
+  // still open), resetting to these collapsed defaults only on a full reload/app restart. It is
+  // NOT written to localStorage, so it never touches persisted (Electron) data.
+  // NOTE the collapsed default does not affect ancestors: a COVERED ancestor is `!active`, so
+  // `active && inOpen` is already false regardless of `inOpen`, and it keeps showing its
+  // peek-losange strip. Only the FOCUSED leaf's initial state changes (now collapsed until the
+  // user expands it); a manually-expanded leaf still dive-peek morphs into losanges on dive.
+  const [inOpen, setInOpen] = usePanelOpen(`${entityId}:in`, false)
   const [outOpen, setOutOpen] = usePanelOpen(`${entityId}:out`, false)
   // A resources-panel peek morph is "snappy" (fast, manual-toggle curve) ONLY when the user
   // clicked the spine — i.e. `active` stayed true and `inOpen` changed. When the morph is
