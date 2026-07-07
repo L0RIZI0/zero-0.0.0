@@ -5,7 +5,16 @@ import { createPortal } from "react-dom"
 import { motion, AnimatePresence, Reorder } from "motion/react"
 import { ChevronDown, Plus } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { panelSlideTransition, panelCollapseTransition, MORPH_SECONDS, MORPH_EASE } from "@/lib/zero/motion"
+// `layerTransition as MORPH` + `PEEK_IN_DELAY` are LIVE ESM bindings (BRAT-derived in
+// motion.ts). The peek/snappy transition builders below reference them at CALL time
+// (render / default-param eval), so a `§ 5` BRAT change is picked up on the next morph —
+// they must NOT be copied into a module-scope const here (that would freeze the value).
+import {
+  panelSlideTransition,
+  panelCollapseTransition,
+  layerTransition as MORPH,
+  PEEK_IN_DELAY,
+} from "@/lib/zero/motion"
 import {
   getEntityResources,
   groupResources,
@@ -39,13 +48,6 @@ import {
  * All content here is static mock data — no store reads, no persistence.
  */
 
-const MORPH = { duration: MORPH_SECONDS, ease: MORPH_EASE }
-/**
- * Beat to HOLD the full panel before it collapses into peek, once a child opens.
- * Pegged to 60% of the open-window morph (MORPH_SECONDS) so the panel stays whole for
- * most of the dive-in, then morphs into losanges as the child window settles in.
- */
-const PEEK_IN_DELAY = MORPH_SECONDS * 0.6
 /**
  * Transition for every peek-driven property. Entering peek is HELD for PEEK_IN_DELAY only
  * when `delayed` — the DIVE case (a child opened): the full panel lingers before morphing

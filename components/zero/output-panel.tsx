@@ -4,7 +4,10 @@ import { useEffect, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { motion, AnimatePresence } from "motion/react"
 import { Plus, FileOutput } from "lucide-react"
-import { panelSlideTransition, MORPH_SECONDS, MORPH_EASE } from "@/lib/zero/motion"
+// `layerTransition as MORPH` is a LIVE ESM binding (BRAT-derived in motion.ts) read at
+// render time in the JSX transitions below, so `§ 5` BRAT changes are picked up. Do NOT
+// copy it into a module-scope const (that freezes the value at import).
+import { panelSlideTransition, layerTransition as MORPH } from "@/lib/zero/motion"
 import { cn } from "@/lib/utils"
 
 interface Output {
@@ -12,7 +15,6 @@ interface Output {
   title: string
 }
 
-const MORPH = { duration: MORPH_SECONDS, ease: MORPH_EASE }
 /** Shrunk peek-title size == the floating hover-label size. */
 const PEEK_LABEL_PX = 11
 /** Distance from a row's left edge to its glyph-tile center: scroll px-2 (8) + row px-2
