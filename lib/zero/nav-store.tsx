@@ -4,7 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { flushSync } from "react-dom"
 import { getEntity, hydrateFromStorage, isDetachedChild } from "./data"
   import { stackTargetRect, LEAF_WEDGE_RATIO } from "./motion"
-import { VIEW_PAD_TOP, VIEW_PAD_BOTTOM, PANEL_OPEN_W } from "./layout"
+import { VIEW_PAD_TOP, PANEL_OPEN_W } from "./layout"
 import {
   captureStage,
   playStage,
@@ -599,16 +599,19 @@ export function ZeroNavProvider({
     // it sits inside the parent's View content box (a consistent gutter) rather than
     // covering the full region edge-to-edge. The SIDES are already inset by exactly
     // VIEW_PAD_X in stackTargetRect (WINDOW_BASE_SIDE, which is derived from VIEW_PAD_X),
-    // and the TOP is 0 (windows stay flush under the Dayline). So here we only bake in
-    // the vertical inset — mainly the VIEW_PAD_BOTTOM gutter so a window no longer kisses
-    // the region's bottom edge — matching the View's own bottom padding. Home (the
-    // full-bleed depth-0 backdrop) is not measured through here, so it keeps its own
-    // View padding untouched.
+    // and the TOP is 0 (windows stay flush under the Dayline).
+    // BOTTOM = 0 (no VIEW_PAD_BOTTOM here, on purpose): the window FRAME now runs all the
+    // way to the region's bottom edge (the screen bottom) so EVERY window kisses it. For a
+    // Space this lands the hexagon's lower SHOULDERS (the bottom of the central rectangle)
+    // exactly at the screen bottom, dropping the bottom wedge off-screen — no diagonal peek.
+    // For a task/event rectangle it simply reaches the bottom edge. The VIEW_PAD_BOTTOM
+    // gutter still lives on the View's own content padding (entity-body), so the region
+    // stack keeps its breathing room INSIDE this now-full-height frame.
     const liftedRegion = {
       top: regionRect.top + VIEW_PAD_TOP,
       left: regionRect.left,
       width: regionRect.width,
-      height: regionRect.height - VIEW_PAD_TOP - VIEW_PAD_BOTTOM,
+      height: regionRect.height - VIEW_PAD_TOP,
     }
 
     // Fixed geometry for an open window: walk the in-stack ancestors (above the
