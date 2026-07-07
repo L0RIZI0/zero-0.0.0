@@ -60,6 +60,8 @@ contextBridge.exposeInMainWorld("zero", {
       ipcRenderer.on("zero:update:downloaded", handler)
       return () => ipcRenderer.removeListener("zero:update:downloaded", handler)
     },
+    /** Quit + install the staged update now, then relaunch. No-op if none staged. */
+    restartToApply: () => ipcRenderer.send("zero:update:install"),
   },
 
   /** Frameless window controls, rendered inside Zero's own header. */

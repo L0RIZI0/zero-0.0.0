@@ -4,6 +4,7 @@ import { useState } from "react"
 import { Search } from "lucide-react"
 import { UserIdentity } from "./user-identity"
 import { WindowControls } from "./window-controls"
+import { UpdateIndicator } from "./update-indicator"
 import { VersionSwitcher } from "@/components/version-switcher"
 import { HEADER_H, HEADER_PAD_Y } from "@/lib/zero/layout"
 import { useNow } from "@/lib/zero/use-now"
@@ -97,6 +98,10 @@ export function ShellHeader() {
           if (!e.currentTarget.contains(e.relatedTarget as Node)) setRightHover(false)
         }}
       >
+        {/* Update pill (desktop only): stays hidden until a background update has
+            downloaded, then is always visible (not hover-gated) so the user can
+            restart to apply whenever they like. */}
+        <UpdateIndicator />
         {/* Version switcher stays quiet until the right cluster is hovered (or something
             in it is focused, for keyboard users). Opacity-only so it never shifts the
             row's layout as it reveals. */}

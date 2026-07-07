@@ -434,6 +434,20 @@ ipcMain.on("zero:win:toggle-maximize", () => {
 ipcMain.on("zero:win:close", () => mainWindow?.close())
 ipcMain.handle("zero:win:is-maximized", () => !!mainWindow?.isMaximized())
 
+// ── Apply a downloaded update on demand ──────────────────────────────────────
+// Triggered by the in-app "Restart to update" affordance. Only meaningful once an
+// update has actually been downloaded (autoUpdater guards this internally); if
+// nothing is staged it's a harmless no-op. isForceRunAfter=true relaunches Zero
+// right after the silent install so the user lands back where they were.
+ipcMain.on("zero:update:install", () => {
+  if (!app.isPackaged) return
+  try {
+    autoUpdater.quitAndInstall(false, true)
+  } catch (err) {
+    console.log("[v0] update: quitAndInstall failed", err?.message || err)
+  }
+})
+
 // ── Branded context-menu overlay ─────────────────────────────────────────────
 // The menu is a transparent, frameless child window (so it floats above the native
 // resource views and can show Zero's own themed UI with real rounded corners +
