@@ -221,11 +221,15 @@ export function CollapsibleColumn({
             height and reaching from the window EDGE (left:0) to spineWidth+panelWidth.
             No rounding; a single border on the inner (View-facing) edge only. */}
         <AnimatePresence initial={false}>
-          {/* Mount whenever open OR in any peek state. `peek` now includes a covered ancestor
-              that was manually collapsed (open=false) — it must still mount to paint its peek
-              losanges. `leafStrip ⊂ peek`, and non-stripCollapse peek implies open, so this is
-              a safe superset of the old `(open || leafStrip)`. */}
-          {(open || peek) && (
+          {/* Mount whenever open OR in any peek state OR forceExpanded. `peek` now includes a
+              covered ancestor that was manually collapsed (open=false) — it must still mount to
+              paint its peek losanges. `leafStrip ⊂ peek`, and non-stripCollapse peek implies
+              open, so this is a safe superset of the old `(open || leafStrip)`.
+              `forceExpanded` MUST be included explicitly: a spine-expanded covered ancestor sets
+              `peek = false` (it shows the FULL list) while its local `open`/`inOpen` flag stays
+              false (it was never toggled via the chevron) — without this term the panel body
+              would unmount and the ancestor's Resources panel renders EMPTY. */}
+          {(open || peek || forceExpanded) && (
             <motion.section
               key="panel"
               aria-label={title}
