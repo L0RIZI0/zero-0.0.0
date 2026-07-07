@@ -231,9 +231,14 @@ export function ZeroNavProvider({
 
   // The window expanded to fullscreen (see `fullscreenId` doc above). Ephemeral.
   const [fullscreenId, setFullscreenId] = useState<string | null>(null)
+  // Mirror in a ref so the window-level keydown listener (subscribed once) can read
+  // the latest fullscreen state without re-subscribing on every toggle.
+  const fullscreenIdRef = useRef(fullscreenId)
+  fullscreenIdRef.current = fullscreenId
   const toggleFullscreen = useCallback((id: string) => {
     setFullscreenId((prev) => (prev === id ? null : id))
   }, [])
+  const exitFullscreen = useCallback(() => setFullscreenId(null), [])
   // Prune on stack change: a window can only stay fullscreen while it is still open
   // (present in the stack). Closing it — or navigating away — clears the flag so the
   // next opened window doesn't inherit a stale fullscreen state.
@@ -579,17 +584,27 @@ export function ZeroNavProvider({
     recordPresence(activeId)
   }, [activeId])
 
-  // Escape closes the current focus window (unless typing in a field).
+  // Escape is two-stage (unless typing in a field):
+  //  1. If a window is fullscreen, the FIRST Escape just EXITS fullscreen (shrinks
+  //     back to the normal window) — nothing closes. This matters most for an
+  //     edge-to-edge web page, where the native web view covers all Zero chrome so
+  //     Escape is the primary way back out.
+  //  2. Otherwise Escape closes the current focus window as before. So a second
+  //     Escape (now that fullscreen is cleared) closes it normally.
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return
       const el = e.target as HTMLElement | null
       if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable)) return
+      if (fullscreenIdRef.current) {
+        exitFullscreen()
+        return
+      }
       close()
     }
     window.addEventListener("keydown", onKeyDown)
     return () => window.removeEventListener("keydown", onKeyDown)
-  }, [close])
+  }, [close, exitFullscreen])
 
   const value = useMemo<ZeroNavContextValue>(() => {
     const activeId = stack[stack.length - 1]

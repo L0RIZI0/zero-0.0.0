@@ -52,6 +52,7 @@ export function EntityBody({
   active = true,
   isRoot = false,
   closing = false,
+  fullscreen = false,
   centerList = true,
   spineShift = 0,
   spineBleedLeft = PANEL_SPINE_W,
@@ -75,6 +76,9 @@ export function EntityBody({
    *  into the Task's Outputs. `url` is the page to open; `resourceId` selects the
    *  catalog entry (branding + embed behavior). */
   resource?: { url: string; resourceId?: string }
+  /** When true AND this is a resource task, the native web view goes edge-to-edge
+   *  (full viewport). Forwarded to ResourceCanvas. */
+  fullscreen?: boolean
   /** Forwarded to the DoList so it can keep its scroller clipped during this
    *  window's close morph (prevents the ADD row jumping up over the title). */
   closing?: boolean
@@ -195,7 +199,13 @@ export function EntityBody({
           animate={{ paddingLeft: padLeft, paddingRight: padRight }}
           transition={panelSlideTransition}
         >
-          <ResourceCanvas id={entityId} url={resource.url} resourceId={resource.resourceId} active={active} />
+          <ResourceCanvas
+            id={entityId}
+            url={resource.url}
+            resourceId={resource.resourceId}
+            active={active}
+            fullscreen={fullscreen}
+          />
         </motion.div>
       ) : (
         // THE VIEW — everything visually INSIDE the entity window: the region stack,

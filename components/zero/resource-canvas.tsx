@@ -43,11 +43,15 @@ export function ResourceCanvas({
   url,
   resourceId,
   active = true,
+  fullscreen = false,
 }: {
   id: string
   url: string
   resourceId?: string
   active?: boolean
+  /** When true, the native web view streams FULL-VIEWPORT bounds (edge-to-edge),
+   *  covering Zero's spines/header/peek. Exit is via Escape (see nav-store). */
+  fullscreen?: boolean
 }) {
   const resource = getWebResource(resourceId) ?? resolveWebResourceByUrl(url)
   // Feature-detect the desktop bridge once on mount (window.zero is injected by the
@@ -69,6 +73,7 @@ export function ResourceCanvas({
           url={url}
           resourceId={resourceId}
           active={active}
+          fullscreen={fullscreen}
           name={webDisplayName(url, resource?.id)}
           resource={resource}
         />
@@ -116,6 +121,7 @@ function NativeSurface({
   url,
   resourceId,
   active,
+  fullscreen,
   name,
   resource,
 }: {
@@ -123,6 +129,7 @@ function NativeSurface({
   url: string
   resourceId?: string
   active: boolean
+  fullscreen: boolean
   name: string
   resource?: WebResource
 }) {
@@ -133,6 +140,10 @@ function NativeSurface({
   const [retryKey, setRetryKey] = useState(0)
   const activeRef = useRef(active)
   activeRef.current = active
+  // Read fullscreen from a ref inside the rAF loop so toggling it re-streams bounds
+  // without re-running the effect (which would tear down + remount the native view).
+  const fullscreenRef = useRef(fullscreen)
+  fullscreenRef.current = fullscreen
 
   useLayoutEffect(() => {
     const bridge = window.zero
@@ -148,6 +159,12 @@ function NativeSurface({
     const start = performance.now()
 
     const rectOf = () => {
+      // Edge-to-edge when fullscreen: stream the WHOLE viewport so the native view
+      // covers Zero's left/right spines, top header, and bottom peek — a true
+      // full-bleed web page. Exit is via Escape (nav-store two-stage handler).
+      if (fullscreenRef.current) {
+        return { x: 0, y: 0, width: window.innerWidth, height: window.innerHeight }
+      }
       const r = holder.getBoundingClientRect()
       return { x: r.x, y: r.y, width: r.width, height: r.height }
     }
