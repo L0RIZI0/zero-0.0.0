@@ -81,6 +81,7 @@ function ReorderRow({
   animating,
   born,
   canReorder,
+  faded,
   onContextMenu,
   onDragStartRow,
   onCommit,
@@ -90,6 +91,8 @@ function ReorderRow({
   animating: boolean
   born: boolean
   canReorder: boolean
+  /** Dim the row: the resolved "settled" zone below the open items in the Open view. */
+  faded?: boolean
   onContextMenu: (e: React.MouseEvent) => void
   onDragStartRow: () => void
   onCommit: () => void
@@ -106,7 +109,10 @@ function ReorderRow({
       dragControls={controls}
       layout={animating ? undefined : true}
       initial={born ? { opacity: 0, y: 6 } : false}
-      animate={{ opacity: 1, y: 0 }}
+      // Resolved rows in the Open view settle at reduced opacity; framer animates the
+      // fade so a row you just checked GLIDES down and dims in one motion. (EntityNode
+      // adds its own dimming for cancelled items, so those end up a touch fainter still.)
+      animate={{ opacity: faded ? 0.5 : 1, y: 0 }}
       exit={animating ? undefined : { opacity: 0, scale: 0.96, transition: { duration: 0.18 } }}
       transition={ROW_REFLOW}
       onDragStart={() => {
@@ -680,45 +686,36 @@ export function DoList({
   // the retain set until the selector changes again.
   useEffect(() => setFilter("all"), [contextId])
 
-  // A task the user checks off in the current view STAYS in its position rather than
-  // being yanked out by the "open" filter (only its glyph fills + gets a check). We
-  // freeze membership against completion flips via a retain set of ids that were
-  // visible while open. The reset MUST happen synchronously inside the memo (keyed on
-  // context+filter), not in a post-render effect: an effect runs AFTER this memo has
-  // already populated the set on context entry, so it would clobber the set and the
-  // FIRST task you then checked would find an empty set and vanish (the reported bug).
-  const retainRef = useRef<Set<string>>(new Set())
-  const retainKeyRef = useRef<string>("")
+  // Classify each item as OPEN (still actionable) vs RESOLVED. "Resolved" = completed
+  // (any completable kind) OR closed — `isClosed` so a DERIVED close counts too (a done
+  // task past midnight, a passed event, a cancelled item). Everything else is open.
+  const openItemIds = useMemo(() => {
+    const s = new Set<string>()
+    for (const it of items) if (!it.entity.completed && !isClosed(it.entity)) s.add(it.id)
+    return s
+  }, [items])
 
+  // Under "Open", resolved items are no longer HIDDEN — they SINK to a faded zone below
+  // the still-open items (the user's "bubble open to the top, fade the rest below"
+  // model, which also supersedes the old retain-set trick: a task you check simply
+  // glides down into the resolved zone instead of being yanked out or frozen in place).
+  // So `shown` is a STABLE partition — open items first (in canonical order), then
+  // resolved items after them. "All" shows the raw canonical order untouched.
   const shown = useMemo(() => {
-    const key = `${contextId}|${filter}`
-    if (retainKeyRef.current !== key) {
-      retainKeyRef.current = key
-      retainRef.current = new Set()
-    }
     if (filter !== "open") return items
-    return items.filter((it) => {
-      // "Open" = still actionable: not completed (any completable kind, not just
-      // tasks) and not cancelled. Resolved items are hidden under "Open".
-      const open = !it.entity.completed && !it.entity.cancelled
-      if (open) {
-        // Remember every currently-open item so it survives its own later resolve.
-        retainRef.current.add(it.id)
-        return true
-      }
-      // Resolved item: keep it only if it was on-screen when it got resolved.
-      return retainRef.current.has(it.id)
-    })
-  }, [items, filter, contextId])
+    const open = items.filter((it) => openItemIds.has(it.id))
+    const resolved = items.filter((it) => !openItemIds.has(it.id))
+    return [...open, ...resolved]
+  }, [items, filter, openItemIds])
 
   // DRAG-AND-DROP REORDER (via motion's Reorder). The list renders from `liveOrder`
   // — a local mirror of the shown ids — so a drag can rearrange it instantly (framer
   // calls `onReorder` with the new sequence mid-drag) without waiting on the data
-  // layer. On drop we persist the arranged sequence (`reorderContextItems`) and let
-  // the resulting data change flow back. Between drags `liveOrder` is kept in lockstep
-  // with the real order; we NEVER resync mid-drag (that would yank the row from the
-  // cursor). Reorder is offered only in the "all" view for now — the "open" view hides
-  // resolved items, so a drop there can't map unambiguously to the full order yet.
+  // layer. On drop we persist the arranged sequence (`commitReorder`) and let the
+  // resulting data change flow back. Between drags `liveOrder` is kept in lockstep with
+  // the real order; we NEVER resync mid-drag (that would yank the row from the cursor).
+  // BOTH views reorder now: "all" permutes everything freely; "open" permutes only the
+  // open rows and keeps them clamped above the faded resolved zone (see applyReorder).
   const shownIds = useMemo(() => shown.map((it) => it.id), [shown])
   const shownKey = shownIds.join("|")
   const itemById = useMemo(() => {
@@ -730,7 +727,23 @@ export function DoList({
   const liveOrderRef = useRef(liveOrder)
   liveOrderRef.current = liveOrder
   const draggingRef = useRef(false)
-  const canReorder = filter === "all"
+  // Every proposed sequence from a drag passes through here. In "open" view we re-split
+  // it open-before-resolved (stable) so a resolved row never rises above an open one and
+  // an open row dragged DOWN can't cross the boundary — it just settles at the end of the
+  // open group. motion animates that clamp, giving the "snap smoothly to the end of the
+  // open items" feel the user asked for. "All" view keeps the raw sequence.
+  const applyReorder = useCallback(
+    (next: string[]) => {
+      if (filter !== "open") {
+        setLiveOrder(next)
+        return
+      }
+      const open = next.filter((id) => openItemIds.has(id))
+      const resolved = next.filter((id) => !openItemIds.has(id))
+      setLiveOrder([...open, ...resolved])
+    },
+    [filter, openItemIds],
+  )
   // Resync the live order from the data layer whenever the shown set/order changes
   // (create, delete, complete, context switch, or a just-committed reorder) — but
   // never while a drag is in flight.
@@ -1137,25 +1150,42 @@ export function DoList({
     })
   }
 
-  // Commit the freshly-arranged order on drop: persist the sequence the user
-  // dragged into place, then let the data change flow back (which resyncs
-  // `liveOrder`). Read the latest sequence from the ref — `onReorder` has been
-  // updating it live throughout the drag.
+  // Commit the freshly-arranged order on drop, then let the data change flow back
+  // (which resyncs `liveOrder`). Read the latest sequence from the ref — onReorder has
+  // been updating it live throughout the drag.
+  // • "All" view: persist `liveOrder` verbatim — the user arranged the whole list.
+  // • "Open" view: only the OPEN rows were permutable and the resolved rows were merely
+  //   floated to the bottom for display, so persisting `liveOrder` as-is would shove
+  //   every resolved item to the end of the CANONICAL order (corrupting the All view).
+  //   Instead we permute open items IN PLACE: walk the canonical order and, wherever a
+  //   slot holds an open item, drop in the next id from the new open sequence; resolved
+  //   items keep their exact canonical slot. So a reorder in Open only reshuffles open
+  //   items relative to each other and never disturbs where resolved items live.
   const commitReorder = useCallback(() => {
     draggingRef.current = false
-    reorderContextItems(contextId, liveOrderRef.current)
+    const live = liveOrderRef.current
+    let nextOrder = live
+    if (filter === "open") {
+      const canonical = items.map((it) => it.id)
+      const newOpenSeq = live.filter((id) => openItemIds.has(id))
+      let p = 0
+      nextOrder = canonical.map((id) => (openItemIds.has(id) ? newOpenSeq[p++] : id))
+    }
+    reorderContextItems(contextId, nextOrder)
     notifyDataChanged()
-  }, [contextId, notifyDataChanged])
+  }, [contextId, filter, items, openItemIds, notifyDataChanged])
 
-  // The entity rows, rendered from `liveOrder` so a drag can rearrange them
-  // instantly. Each cell is a `ReorderRow` (a handle-only draggable wrapper around
-  // the row's EntityNode). Rows glide to make room via framer `layout`; only the
-  // just-born row plays an enter animation. Ids missing from `itemById` (a stale
-  // entry mid-transition) are skipped.
+  // The entity rows, rendered from `liveOrder` so a drag can rearrange them instantly.
+  // Each cell is a `ReorderRow` (a handle-only draggable wrapper around the row's
+  // EntityNode). In "open" view a RESOLVED row is not draggable (no grip) and renders
+  // faded — it's the settled zone below the open items; only open rows carry a grip.
+  // In "all" view every row is draggable. Rows glide via framer `layout`; only the
+  // just-born row plays an enter animation. Stale ids (missing from itemById) are skipped.
   const rowItems = liveOrder
     .map((id) => {
       const it = itemById.get(id)
       if (!it) return null
+      const isOpenRow = filter !== "open" || openItemIds.has(id)
       return (
         <ReorderRow
           key={id}
@@ -1163,7 +1193,8 @@ export function DoList({
           contextId={contextId}
           animating={animating}
           born={id === bornId}
-          canReorder={canReorder}
+          canReorder={isOpenRow}
+          faded={filter === "open" && !isOpenRow}
           onContextMenu={(e) => openMenu(e, it)}
           onDragStartRow={() => {
             draggingRef.current = true
@@ -1292,7 +1323,7 @@ export function DoList({
           as="ul"
           axis="y"
           values={liveOrder}
-          onReorder={(next) => setLiveOrder(next as string[])}
+          onReorder={(next) => applyReorder(next as string[])}
           key={contextId}
           ref={scrollerRef}
           // `overflow: visible` during a window morph so a row growing into a window
