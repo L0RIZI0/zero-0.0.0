@@ -3,7 +3,7 @@
 import gsap from "gsap"
 import { Flip } from "gsap/Flip"
 import { CustomEase } from "gsap/CustomEase"
-import { MORPH_SECONDS, spaceMorphPoints, type SpaceKind } from "./motion"
+import { MORPH_SECONDS, subscribeBrat, spaceMorphPoints, type SpaceKind } from "./motion"
 import type { OriginRect } from "./placement"
 
 /**
@@ -54,17 +54,27 @@ export { gsap }
  *  the final ~40% for a soft, gentle landing. Duration is the single canonical
  *  `MORPH_SECONDS` from motion.ts so the GSAP morph and all Framer/CSS chrome share
  *  one beat. */
-export const MORPH_DURATION = MORPH_SECONDS
+// Duration is the live BRAT (`MORPH_SECONDS`, from motion.ts). Both this GSAP-side
+// number and its CSS-string mirror are `let` and kept in lockstep with BRAT via the
+// subscription below, so the `§ 5` dev chord rescales the Flip morph and every CSS
+// chrome transition that reads DURATION_S. GSAP reads MORPH_DURATION at PLAY time, so
+// each new morph picks up the current value.
+export let MORPH_DURATION = MORPH_SECONDS
 export const MORPH_EASE = "zeroLand"
 /** Anticipate+overshoot curve for the "send as request" glyph/title reflow slide.
  *  cubic-bezier(.63, -0.25, 0, 1.12). Registered as `zeroSend` above. */
 export const SEND_EASE = "zeroSend"
 /** Same duration as a CSS string, for the fade/transition chrome (spine bg,
  *  divider, close-button reposition) that rides along with the Flip morph. */
-export const DURATION_S = `${MORPH_DURATION}s`
+export let DURATION_S = `${MORPH_DURATION}s`
 /** The `zeroLand` curve as a CSS timing function, so chrome that fades along with
  *  the morph (spine cover, divider) lands on the same beat as the Flip. */
 export const MORPH_CSS_EASE = "cubic-bezier(0.62, 0.02, 0.07, 0.99)"
+// Keep the GSAP duration + its CSS-string mirror locked to the live BRAT.
+subscribeBrat(() => {
+  MORPH_DURATION = MORPH_SECONDS
+  DURATION_S = `${MORPH_DURATION}s`
+})
 
 type FlipState = ReturnType<typeof Flip.getState>
 

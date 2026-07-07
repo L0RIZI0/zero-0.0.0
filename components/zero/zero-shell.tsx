@@ -7,7 +7,7 @@ import { FpsMeter } from "./fps-meter"
 import { ActivityInspector } from "./activity-inspector"
 import { HierarchyInspector } from "./hierarchy-inspector"
 import { ZeroNavProvider, useZeroNav } from "@/lib/zero/nav-store"
-import { telescopicSurface } from "@/lib/zero/motion"
+import { telescopicSurface, useMorphTime } from "@/lib/zero/motion"
 import { DURATION_S, MORPH_CSS_EASE } from "@/lib/zero/flip-stage"
 
 // Inner shell — runs inside ZeroNavProvider so it can read the stack. The whole
@@ -17,6 +17,10 @@ import { DURATION_S, MORPH_CSS_EASE } from "@/lib/zero/flip-stage"
 // the work-surface card and there is no seam between them.
 function ZeroShellInner() {
   const { stack } = useZeroNav()
+  // Subscribe the whole Zero tree to BRAT so a `§ 5` change re-renders everything,
+  // and every component re-reads the live, BRAT-derived transitions immediately
+  // (rather than only on the next interaction-driven render).
+  useMorphTime()
   const { resolvedTheme } = useTheme()
   const isDark = resolvedTheme !== "light"
   const homeSurface = telescopicSurface(0, Math.max(0, stack.length - 1), isDark)

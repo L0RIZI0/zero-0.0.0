@@ -1,3 +1,4 @@
+import { useSyncExternalStore } from "react"
 import type { Transition } from "motion/react"
 import type { EntityKind } from "./types"
 import { VIEW_PAD_X } from "./layout"
@@ -6,66 +7,137 @@ import { VIEW_PAD_X } from "./layout"
  * Zero motion language: calm, precise, deterministic. No bounce.
  * A single shared transition keeps the shared-element morph coherent.
  */
-// ── Timing ──────────────────────────────────────────────────────────────────
-// ONE canonical duration drives the entire shared-element morph, so the GSAP Flip
-// (frames) and the Framer-driven chrome (surfaces, header, panels) always land on
-// the exact same beat. Deliberately 2s: shorter felt like dropped frames on the
-// heavier reshape/clip morphs. Tune the whole system from here — `flip-stage.ts`
-// derives its `MORPH_DURATION` from this same constant.
-export const MORPH_SECONDS = 1.8
+// ── BRAT: the one Big Referential Animation Time ─────────────────────────────
+// A SINGLE runtime-tunable duration ("BRAT") is the reference for the entire motion
+// language: the do-list-row → opened-window shared-element morph runs for exactly
+// BRAT seconds, and every other "big" animation is expressed relative to it, so they
+// all stretch/shrink together. Change BRAT at runtime with the `§ 5` dev chord (see
+// debug-view.ts): `cycleBrat()` increments through BRAT_STEPS and recomputes every
+// derived timing, so the next time each animation runs it lands on the new beat.
+//
+// BRAT_REFERENCE is the value at which the hand-tuned absolute sub-durations below
+// (panel slide 0.8s, collapse spring 0.44s, …) were dialed in. Each derived time =
+// base × (BRAT / BRAT_REFERENCE), so at the default BRAT everything is byte-for-byte
+// what it was before this harmonization — only §5 excursions scale it proportionally.
+export const BRAT_REFERENCE = 1.8
+export const BRAT_STEPS = [0.6, 1.6, 2.6, 3.6]
+let _brat = BRAT_REFERENCE
 
 // Shared easing: cubic-bezier(.62, .02, .07, .99). A smooth ease-in-out with a
 // firm pull through the middle and a soft settle so the motion feels deliberate.
 // Mirrored in flip-stage.ts as a GSAP CustomEase ("zeroLand") and a CSS string
-// (MORPH_CSS_EASE) so Flip, CSS chrome and Framer chrome share one curve.
+// (MORPH_CSS_EASE) so Flip, CSS chrome and Framer chrome share one curve. Eases are
+// BRAT-INDEPENDENT (curves, not durations), so they stay `const`.
 export const MORPH_EASE: [number, number, number, number] = [0.62, 0.02, 0.07, 0.99]
-
-// All three are the same beat as the morph; kept as distinct named exports so
-// their intent stays legible at call sites (and so any one can diverge later).
-const morphBeat: Transition = { duration: MORPH_SECONDS, ease: MORPH_EASE }
-/** Surfaces / backdrops receding or advancing as the window stack changes. */
-export const layerTransition: Transition = morphBeat
-/** Body content fading / sliding along with its window. */
-export const contentTransition: Transition = morphBeat
-/** IN / OUT side panels expanding & collapsing. The open panel OVERLAYS the
- *  content (it doesn't reflow the center list), so this animation never waits on
- *  any sibling layout — it starts the instant the panel toggles. */
-export const panelTransition: Transition = morphBeat
-
-/**
- * ASSETS / PUBLISHED side panels sliding in/out as an opaque overlay over the View, AND
- * the child-window "butter slide" when a covered ancestor is spine-expanded (the window
- * slides right + narrows to uncover the ancestor panel — see entity-node's frame rest
- * transition, which reuses PANEL_SLIDE_SEC/PANEL_SLIDE_CSS_EASE so the two stay locked).
- * Deliberately DECOUPLED from the 2s morph beat: this is not part of the window
- * shared-element morph. A pronounced ease-OUT curve (responsive entry, long decelerating
- * tail = easeOutQuint) so it glides in SMOOTHLY and lands softly rather than popping.
- * Lengthened to 0.8s for a slower, buttery slide (per design — the 0.55s felt too quick).
- */
-export const PANEL_SLIDE_SEC = 0.8
 export const PANEL_SLIDE_BEZIER: [number, number, number, number] = [0.22, 1, 0.36, 1]
 /** CSS `cubic-bezier(...)` string mirror of PANEL_SLIDE_BEZIER, for CSS `transition` values. */
 export const PANEL_SLIDE_CSS_EASE = `cubic-bezier(${PANEL_SLIDE_BEZIER.join(",")})`
-export const panelSlideTransition: Transition = { duration: PANEL_SLIDE_SEC, ease: PANEL_SLIDE_BEZIER }
+
+// ── Live, BRAT-derived timings ───────────────────────────────────────────────
+// These are `let` (not `const`) and get RECOMPUTED by `recompute()` whenever BRAT
+// changes. ESM live bindings mean every importer sees the fresh value the next time
+// it READS the binding (at render / animation time). IMPORTANT: never copy one of
+// these into your own module-scope const — read it live in render, in a call-time
+// default, or via `useMorphTime()`, so §5 can rescale it.
+
+/** THE reference beat: the do-list-row ⇄ opened-window shared-element morph. == BRAT.
+ *  Open and close are symmetric (both 1× BRAT), so a window dives and retracts on the
+ *  same beat. `flip-stage.ts` mirrors this into its GSAP `MORPH_DURATION`. */
+export let MORPH_SECONDS = _brat
+/** Surfaces / backdrops receding or advancing as the window stack changes. (1× BRAT) */
+export let layerTransition: Transition = { duration: MORPH_SECONDS, ease: MORPH_EASE }
+/** Body content fading / sliding along with its window. (1× BRAT) */
+export let contentTransition: Transition = layerTransition
+/** IN / OUT side panels expanding & collapsing. The open panel OVERLAYS the content
+ *  (never reflows the center list), so it starts the instant the panel toggles. (1× BRAT) */
+export let panelTransition: Transition = layerTransition
 
 /**
- * The MANUAL COLLAPSE of a resources panel (user clicks the spine on a focused leaf). Per the
- * design: manual collapse is the SAME animation as the auto-collapse (a child opening, the slow
- * 2s MORPH) EXCEPT it is (a) much FASTER and (b) has a SLIGHT BOUNCE at the end. A spring is the
- * natural primitive for that: it starts promptly (no slow ease-in ramp, so no perceived delay)
- * and overshoots slightly before settling. `bounce` is kept LOW (0.22) so the overshoot is a
- * gentle, ease-out settle rather than a nervous wobble. The nested `opacity` override finishes
- * the element FADE-OUT slightly earlier (a short easeOut tween) than the losange travel, which
- * keeps riding the spring — so the content is gone before the losanges finish snapping home.
- * Only manual collapse uses this; manual expand keeps the panelSlideTransition bloom and BOTH
- * auto directions (child open AND child close) ride the slow 2s MORPH so they stay symmetric
- * with the window dive.
+ * MANUAL panel expand / the covered-ancestor "butter slide" (window slides right +
+ * narrows to uncover an ancestor panel — entity-node's frame rest transition reuses
+ * PANEL_SLIDE_SEC/PANEL_SLIDE_CSS_EASE so the two stay locked). Its CURVE is decoupled
+ * from the morph (a pronounced ease-OUT / easeOutQuint bloom that lands softly), but its
+ * DURATION SCALES with BRAT (base 0.8s at BRAT_REFERENCE) so it harmonizes under §5.
  */
-export const panelCollapseTransition: Transition = {
+export let PANEL_SLIDE_SEC = 0.8
+export let panelSlideTransition: Transition = { duration: PANEL_SLIDE_SEC, ease: PANEL_SLIDE_BEZIER }
+
+/**
+ * MANUAL COLLAPSE of a resources panel: the SAME character as the auto-collapse (a child
+ * opening) but FASTER and with a SLIGHT end BOUNCE — a spring (prompt start, gentle low-
+ * bounce overshoot). The nested `opacity` fades the content out slightly earlier than the
+ * losange travel. Both the spring and the fade SCALE with BRAT (bases 0.44s / 0.24s at
+ * BRAT_REFERENCE). Manual expand uses panelSlideTransition; both AUTO directions ride the
+ * 1× BRAT morph so collapse ⇄ uncollapse stay symmetric with the window dive.
+ */
+export let panelCollapseTransition: Transition = {
   type: "spring",
   duration: 0.44,
   bounce: 0.22,
   opacity: { duration: 0.24, ease: "easeOut" },
+}
+
+/**
+ * Beat to HOLD the full resources panel before it collapses into peek, once a child opens.
+ * 60% of the window morph, so the panel stays whole for most of the dive-in, then morphs
+ * into losanges as the child window settles. Proportional to BRAT by construction.
+ */
+export let PEEK_IN_DELAY = _brat * 0.6
+
+/** Recompute every BRAT-derived timing from the current BRAT. Called synchronously by
+ *  `setBrat` BEFORE notifying subscribers, so they read fresh values. */
+function recompute() {
+  const b = _brat
+  const k = b / BRAT_REFERENCE // scale factor for the hand-tuned sub-durations
+  MORPH_SECONDS = b
+  const morphBeat: Transition = { duration: b, ease: MORPH_EASE }
+  layerTransition = morphBeat
+  contentTransition = morphBeat
+  panelTransition = morphBeat
+  PANEL_SLIDE_SEC = 0.8 * k
+  panelSlideTransition = { duration: PANEL_SLIDE_SEC, ease: PANEL_SLIDE_BEZIER }
+  panelCollapseTransition = {
+    type: "spring",
+    duration: 0.44 * k,
+    bounce: 0.22,
+    opacity: { duration: 0.24 * k, ease: "easeOut" },
+  }
+  PEEK_IN_DELAY = b * 0.6
+}
+
+// ── BRAT store (runtime-tunable via the `§ 5` dev chord) ─────────────────────
+const bratSubs = new Set<() => void>()
+/** Current BRAT in seconds. */
+export function getBrat() {
+  return _brat
+}
+/** Set BRAT, recompute all derived timings, then notify subscribers. */
+export function setBrat(seconds: number) {
+  _brat = seconds
+  recompute()
+  for (const fn of bratSubs) fn()
+}
+/** Increment BRAT to the next-higher value in BRAT_STEPS, wrapping to the first.
+ *  From the default 1.8 the first `§ 5` press goes to 2.6, then 3.6 → 0.6 → 1.6 → … */
+export function cycleBrat() {
+  const next = BRAT_STEPS.find((s) => s > _brat + 1e-6) ?? BRAT_STEPS[0]
+  setBrat(next)
+  return next
+}
+/** Subscribe to BRAT changes (flip-stage recomputes its GSAP/CSS mirrors; `useMorphTime`
+ *  re-renders the tree). Returns an unsubscribe fn. */
+export function subscribeBrat(fn: () => void) {
+  bratSubs.add(fn)
+  return () => bratSubs.delete(fn)
+}
+/** React hook: subscribe a component to BRAT so it re-renders (and re-reads the live
+ *  transitions) the instant BRAT changes. Returns the current BRAT. */
+export function useMorphTime() {
+  return useSyncExternalStore(
+    subscribeBrat,
+    () => _brat,
+    () => _brat,
+  )
 }
 
 /**

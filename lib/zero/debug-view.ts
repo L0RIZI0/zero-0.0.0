@@ -3,6 +3,7 @@
 import { useSyncExternalStore } from "react"
 import { clearUserItems } from "./persistence"
 import { clearActivityLog } from "./activity-log"
+import { cycleBrat } from "./motion"
 
 // ============================================================================
 // Shared DEBUG-view store ([v0] DEBUG)
@@ -12,6 +13,8 @@ import { clearActivityLog } from "./activity-log"
 //   • `§ 2` → the colored element frames + their ID/property labels
 //   • `§ 3` → the ACTIVITY inspector (today's presence segments + per-space totals)
 //   • `§ 4` → the HIERARCHY inspector (the whole containment tree, root → leaves)
+//   • `§ 5` → cycle the global BRAT (morph time) through BRAT_STEPS; every big
+//            animation scales proportionally off it (see motion.ts). Logs the beat.
 //   • `§ 0` → RESET PREVIEW DATA: wipe THIS browser's persisted user items
 //            (created entities + pins + tombstones + overrides) AND the activity
 //            log, then reload, so the app returns to pure seed data. localStorage
@@ -86,14 +89,22 @@ function ensureListener() {
 
     if (
       prefixActive &&
-      (e.key === "0" || e.key === "1" || e.key === "2" || e.key === "3" || e.key === "4")
+      (e.key === "0" || e.key === "1" || e.key === "2" || e.key === "3" || e.key === "4" || e.key === "5")
     ) {
       e.preventDefault()
       if (e.key === "1") toggleDebugFps()
       else if (e.key === "2") toggleDebugFrames()
       else if (e.key === "3") toggleDebugActivity()
       else if (e.key === "4") toggleDebugHierarchy()
-      else {
+      else if (e.key === "5") {
+        // `§ 5` — cycle the global BRAT (Big Referential Animation Time) through
+        // BRAT_STEPS. Every "big" morph (window open/close, resources panel
+        // collapse/expand, butter slide) scales proportionally off it, so this
+        // rescales the whole motion language at once. Logged so the current beat
+        // is discoverable (there's no on-screen indicator).
+        const v = cycleBrat()
+        console.log("[v0] BRAT (morph time) = " + v + "s")
+      } else {
         // `§ 0` — reset THIS browser's preview data back to pure seeds. Confirmed
         // because it clears created entities too (web-preview store is disposable,
         // but a stray chord shouldn't silently wipe it).
