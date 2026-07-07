@@ -118,9 +118,21 @@ function fmtMoment(epoch: number) {
 }
 
 /** Relative day label for a deadline: "Today" / "Tomorrow" / weekday within a
- *  week / "Mon D" further out. Replaces the old free-text `dueDate`. */
-function fmtDue(epoch: number) {
+ *  week / "Mon D" further out. Replaces the old free-text `dueDate`.
+ *
+ *  HYDRATION SAFETY: the relative wording ("Today"…) depends on the CURRENT day,
+ *  but Zero ships as a STATIC EXPORT — the server HTML is generated once at BUILD
+ *  time. If the client runs on a later day, "Today" baked at build becomes
+ *  "Yesterday" on the client → a text hydration mismatch that tears down the tree
+ *  (this is what was blanking the web preview). So `relative` is passed as the
+ *  component's `mounted` flag: during SSR + the first (hydration) render it is
+ *  FALSE and we emit only the absolute `Mon D` form, which is derived purely from
+ *  the task's own epoch and is therefore identical on server and client. After
+ *  mount the flag flips true and the friendly relative wording takes over. */
+function fmtDue(epoch: number, relative: boolean) {
   const due = new Date(epoch)
+  const abs = () => due.toLocaleDateString(undefined, { month: "short", day: "numeric" })
+  if (!relative) return abs()
   const startOfDay = (d: Date) => {
     const x = new Date(d)
     x.setHours(0, 0, 0, 0)
@@ -131,7 +143,7 @@ function fmtDue(epoch: number) {
   if (days === 1) return "Tomorrow"
   if (days === -1) return "Yesterday"
   if (days > 1 && days < 7) return due.toLocaleDateString(undefined, { weekday: "short" })
-  return due.toLocaleDateString(undefined, { month: "short", day: "numeric" })
+  return abs()
 }
 
 /**
@@ -1543,7 +1555,12 @@ export function EntityNode({
                 </span>
               )}
               {isTask && typeof sched?.dueAt === "number" && (
-                <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground/70">{fmtDue(sched.dueAt)}</span>
+                <span
+                  suppressHydrationWarning
+                  className="shrink-0 text-[11px] tabular-nums text-muted-foreground/70"
+                >
+                  {fmtDue(sched.dueAt, mounted)}
+                </span>
               )}
               {isTask && (
                 <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", priorityDot[entity.priority ?? "medium"])} />
