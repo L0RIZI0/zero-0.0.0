@@ -1045,7 +1045,14 @@ export function EntityNode({
             clipped, so it rides the safe band near it). Ancestor Spaces and all
             other windows are rectangles, so the X sits in the true top-right
             corner — which, for an ancestor Space, is the top of its right peek. */}
-        {asWindow && (!nav.fullscreenId || entityId === nav.fullscreenId) && (
+        {/* Chrome visibility during a fullscreen session is DEPTH-based (stale-safe):
+            hide it only on the covered ancestors BELOW the fullscreen target in the
+            chain (depth 1..fsDepth-1) — those are painted over, so their chrome would
+            bleed through. The target (depth===fsDepth) and any window OPENED ON TOP of
+            it (depth>fsDepth) keep their chrome. If fullscreenId is unset or its target
+            is no longer in the stack, fsDepth is -1 and this whole clause is inert, so
+            every window shows chrome normally (no dependence on a possibly-stale id). */}
+        {asWindow && !(fsDepth >= 1 && depth < fsDepth) && (
           <div
             // data-fade-late (NOT data-fade): the close button fades in over the BACK
             // half of the open morph instead of with the body at the start, so it
