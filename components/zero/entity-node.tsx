@@ -343,6 +343,37 @@ export function EntityNode({
     })
   }, [nav.dataVersion, nav.animating])
 
+  // ── Deferred body mount (open-morph perf) ─────────────────────────────────
+  // The heavy EntityBody subtree (do-list + resource panels + dock) is the bulk of
+  // the open commit's cost. When a window opens DURING a morph, hold that subtree
+  // back by ONE animation frame: the frame/glyph/title/header (the Flip anchors, all
+  // OUTSIDE EntityBody) still mount synchronously, so the morph's first frame paints
+  // on time. The body then mounts INTO the already-running [data-body] grow+fade
+  // tween (flip-stage scales [data-body] from 0.15→1 / 0→1 opacity), so the do-list +
+  // panels fade+grow in DURING the morph with no pop. When it's NOT a morph (initial
+  // deep mount, reduced motion, an already-open ancestor re-rendering) the body
+  // mounts immediately, so a window never flashes empty. `showBodyRef` mirrors the
+  // post-early-return `showBody` (rules of hooks: this effect must precede the return).
+  const showBodyRef = useRef(false)
+  const [bodyReady, setBodyReady] = useState(false)
+  useEffect(() => {
+    if (!showBodyRef.current) {
+      if (bodyReady) setBodyReady(false)
+      return
+    }
+    if (bodyReady) return
+    // Not animating → this body isn't riding an open morph (deep initial mount or a
+    // steady-state re-render); mount now so there's no empty frame.
+    if (!nav.animating) {
+      setBodyReady(true)
+      return
+    }
+    // Morph in flight → let the frame's first paint land, then mount the body one
+    // frame later so it joins the [data-body] grow tween already underway.
+    const raf = requestAnimationFrame(() => setBodyReady(true))
+    return () => cancelAnimationFrame(raf)
+  }, [nav.stack, nav.animating, nav.closing, nav.fading, bodyReady])
+
   if (!entity) return null
 
   const kind = entity.kind
@@ -410,6 +441,9 @@ export function EntityNode({
   const isTop = (ownsOpen && nav.activeId === entityId) || detachedFading
   const animating = nav.animating
   const showBody = asWindow || isClosing
+  // Expose to the deferred-body effect above (declared before the early return, so it
+  // can't read `showBody` directly). See that effect for the one-frame open deferral.
+  showBodyRef.current = showBody
 
   const depth = ownsOpen
     ? stackDepth
@@ -1591,6 +1625,10 @@ export function EntityNode({
               // stay safely inset via their own centered `max-w` + `w-2/3` column.
             )}
           >
+            {/* The [data-body] wrapper above mounts synchronously (flip-stage runs the
+                grow+fade tween on IT), but its heavy contents are held back one frame
+                on an open morph — see the deferred-body effect near the top. */}
+            {bodyReady && (
             <EntityBody
               entityId={entityId}
               active={isTop && !isClosing}
@@ -1616,6 +1654,7 @@ export function EntityNode({
               panelTopOffset={0}
               resource={isResource ? { url: entity.webUrl!, resourceId: entity.webResourceId } : undefined}
             />
+            )}
           </div>
         )}
       </div>
