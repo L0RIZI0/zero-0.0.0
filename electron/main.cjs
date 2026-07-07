@@ -211,16 +211,32 @@ app.whenReady().then(() => {
   if (!isDev) {
     // Serve the static export. `app://local/<path>` → `<OUT_DIR>/<path>`, with a
     // sane fallback to index.html so client-side routing still resolves.
-    protocol.handle("app", (request) => {
+    protocol.handle("app", async (request) => {
       const { pathname } = new URL(request.url)
       let rel = decodeURIComponent(pathname).replace(/^\/+/, "")
       if (rel === "" || rel.endsWith("/")) rel += "index.html"
-      let filePath = path.join(OUT_DIR, rel)
-      // Guard against path traversal escaping the export dir.
-      if (!filePath.startsWith(OUT_DIR)) filePath = path.join(OUT_DIR, "index.html")
-      return net.fetch(pathToFileURL(filePath).toString()).catch(() =>
-        net.fetch(pathToFileURL(path.join(OUT_DIR, "index.html")).toString()),
-      )
+
+      // Candidate files to try in order. An extensionless route like "zero-laws"
+      // (an internal Zero page opened as a resource) is emitted by the Next static
+      // export — with trailingSlash:true — as "zero-laws/index.html"; we also try
+      // "zero-laws.html" so either export style resolves without a 404-to-shell.
+      const candidates = [rel]
+      if (!path.extname(rel)) candidates.push(path.join(rel, "index.html"), `${rel}.html`)
+
+      for (const cand of candidates) {
+        const filePath = path.join(OUT_DIR, cand)
+        // Guard against path traversal escaping the export dir.
+        if (!filePath.startsWith(OUT_DIR)) continue
+        try {
+          const res = await net.fetch(pathToFileURL(filePath).toString())
+          if (res.ok) return res
+        } catch {
+          /* missing file — try the next candidate */
+        }
+      }
+
+      // SPA fallback so client-side routing still resolves.
+      return net.fetch(pathToFileURL(path.join(OUT_DIR, "index.html")).toString())
     })
   }
 

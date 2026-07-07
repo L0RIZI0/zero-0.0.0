@@ -6,6 +6,22 @@ import { ResourceGlyph } from "./resource-glyph"
 import { cn } from "@/lib/utils"
 
 /**
+ * Resolve an internal/relative resource URL (e.g. Zero's own "/zero-laws" page) to
+ * an ABSOLUTE URL the native WebContentsView can load. Electron's `loadURL` rejects
+ * a bare path with ERR_INVALID_URL, so a relative URL must be pinned to the app's
+ * own origin — `app://local` in the packaged build, `http://localhost:3000` in dev.
+ * We build it from `protocol` + `host` rather than `location.origin`, because for a
+ * custom scheme like `app:` the origin can serialize to the string "null". Absolute
+ * URLs (https://figma.com, etc.) pass through untouched.
+ */
+function toDesktopUrl(url: string): string {
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(url)) return url
+  if (typeof window === "undefined") return url
+  const { protocol, host } = window.location
+  return `${protocol}//${host}${url.startsWith("/") ? url : `/${url}`}`
+}
+
+/**
  * The body of a RESOURCE TASK — Zero behaving as a contextual browser. It fills the
  * Task window's central rectangle (Task windows are rectangular, so unlike a Space
  * leaf there's no octagon to clip the web surface). No browser chrome: per the
@@ -139,8 +155,9 @@ function NativeSurface({
       `${Math.round(r.x)},${Math.round(r.y)},${Math.round(r.width)},${Math.round(r.height)}`
 
     // Mount NOW, parked offscreen, so the network load begins immediately rather
-    // than waiting for the morph to finish — this is the main latency win.
-    bridge.resource.mount({ id, url, resourceId, rect: hiddenRectOf(rectOf()) })
+    // than waiting for the morph to finish — this is the main latency win. Internal
+    // pages (relative URLs) are resolved to the app origin so loadURL accepts them.
+    bridge.resource.mount({ id, url: toDesktopUrl(url), resourceId, rect: hiddenRectOf(rectOf()) })
 
     // dom-ready (ok) lets us snap in; failure shows the graceful error overlay.
     const offStatus = bridge.resource.onStatus((s) => {
