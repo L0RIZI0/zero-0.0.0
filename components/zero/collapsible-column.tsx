@@ -167,11 +167,19 @@ export function CollapsibleColumn({
   // `forceExpanded` (a spine-expanded covered ancestor) forces the FULL list — never the
   // peek strip — so its panel body shows in the gap the squeezed child opened.
   const peek = forceExpanded ? false : stripCollapse ? !(focused && open) : open && !focused
-  // COVERED-ANCESTOR PEEK: a stripCollapse ancestor (not focused, so not a leaf strip). Its
-  // spine band is the SPINE-EXPAND toggle target — clicking it expands/collapses this
-  // ancestor's panel (squeezing the child), NOT the local open flag. True in BOTH its
-  // collapsed peek and its `forceExpanded` full state (so the band can collapse it back).
-  const coveredAncestorPeek = stripCollapse && !focused && !leafStrip
+  // COVERED ANCESTOR: a stripCollapse ancestor (not focused, so not a leaf strip). Its spine
+  // band is the SPINE-EXPAND toggle target — clicking it expands/collapses this ancestor's
+  // panel (squeezing the child), NOT the local open flag. True in BOTH its collapsed peek and
+  // its `forceExpanded` full state (so the band can collapse it back), which is why button
+  // click-routing + clickability key off THIS flag.
+  const isCoveredAncestor = stripCollapse && !focused && !leafStrip
+  // …but the z-40 clip lift + non-interactive section (so losanges intercept their own hits
+  // while the empty band falls through to the spine button) apply ONLY while the ancestor is
+  // COLLAPSED to its peek losanges. When `forceExpanded` (full list shown) we must NOT lift
+  // the clip — that would paint the panel body OVER the z-30 spine head and hide the
+  // unrotated title/excerpt — so the expanded ancestor behaves like a normal open panel
+  // (clip z-0, interactive rows) with just its 48px spine band still driving collapse.
+  const coveredAncestorStrip = isCoveredAncestor && !forceExpanded
   // The content inset (`--panel-edge-inset`, the scroller `pl`/`pr`) is FROZEN at the
   // open spine width during peek. It's a CSS custom property, which is NOT smoothly
   // animatable — so letting it follow `spineWidth` (which shrinks to the bleed the moment
@@ -201,7 +209,9 @@ export function CollapsibleColumn({
           // intercept their own pointer events. The section itself is pointer-events-none in
           // these modes, so the EMPTY band area falls through to the spine button below → a
           // band click expands (leaf) or spine-expands the ancestor (covered ancestor).
-          leafStrip || coveredAncestorPeek ? "z-40" : "z-0",
+          // NOTE: `coveredAncestorStrip` (not the broader `isCoveredAncestor`) so a
+          // forceExpanded ancestor keeps z-0 and its z-30 spine head/title stays on top.
+          leafStrip || coveredAncestorStrip ? "z-40" : "z-0",
         )}
         style={{ width: spineWidth + panelWidth + 48, transition: widthTransition }}
       >
@@ -243,11 +253,12 @@ export function CollapsibleColumn({
                 // edge line (below); light mode needs no separator at all.
                 "absolute inset-y-0 flex min-h-0 flex-col",
                 side === "left" ? "left-0" : "right-0",
-                // LEAF STRIP and COVERED-ANCESTOR PEEK: transparent to pointer events so
-                // clicks on the empty band fall through to the spine button (→ expand /
-                // spine-expand). The losange tiles re-enable their own pointer events.
-                // Otherwise (focused open panel) it is fully interactive.
-                leafStrip || coveredAncestorPeek ? "pointer-events-none" : "pointer-events-auto",
+                // LEAF STRIP and COLLAPSED covered-ancestor peek: transparent to pointer
+                // events so clicks on the empty band fall through to the spine button (→
+                // expand / spine-expand). The losange tiles re-enable their own pointer
+                // events. A forceExpanded ancestor (full list) stays interactive so its
+                // resource rows are clickable; only its 48px spine band drives collapse.
+                leafStrip || coveredAncestorStrip ? "pointer-events-none" : "pointer-events-auto",
               )}
               style={{
                 width: spineWidth + panelWidth,
@@ -300,10 +311,11 @@ export function CollapsibleColumn({
         type="button"
         onClick={(e) => {
           e.stopPropagation()
-          // COVERED-ANCESTOR PEEK: the band drives the nav-store SPINE-EXPAND (bloom the
-          // full panel + squeeze the covering child), toggling on each click. Everywhere
-          // else (focused leaf) it toggles the local panel-store open flag as before.
-          if (coveredAncestorPeek) onSpineExpandToggle?.()
+          // COVERED ANCESTOR (collapsed peek OR forceExpanded): the band drives the
+          // nav-store SPINE-EXPAND (bloom the full panel + squeeze the covering child →
+          // collapse back), toggling on each click. Everywhere else (focused leaf) it
+          // toggles the local panel-store open flag as before.
+          if (isCoveredAncestor) onSpineExpandToggle?.()
           else onOpenChange(!open)
         }}
         onPointerEnter={() => setRailHover(true)}
@@ -321,9 +333,10 @@ export function CollapsibleColumn({
           // band, so it MUST stay clickable — the clip is lifted to z-40 above it so the
           // losanges still win their own hits. So only disable for a NON-stripCollapse
           // covered-ancestor peek (e.g. right Published). A stripCollapse covered ancestor
-          // (`coveredAncestorPeek`) NOW keeps the band clickable — it is the spine-expand
-          // toggle — with its clip lifted to z-40 so the losanges still win their own hits.
-          peek && !leafStrip && !coveredAncestorPeek ? "pointer-events-none" : "pointer-events-auto",
+          // (`isCoveredAncestor`) keeps the band clickable — it is the spine-expand toggle —
+          // in BOTH its collapsed peek (clip z-40, losanges win) and forceExpanded (clip z-0,
+          // spine band is the 48px collapse target while rows stay interactive).
+          peek && !leafStrip && !isCoveredAncestor ? "pointer-events-none" : "pointer-events-auto",
         )}
       >
         <span
@@ -444,7 +457,13 @@ export function CollapsibleColumn({
                 // sticks to the box's BOTTOM edge and any overflow is clipped at the TOP (the
                 // header edge) only. Top-anchoring instead let the box's GROWING BOTTOM edge
                 // slice through the block, cropping the bottom of the username mid-animation.
-                className="flex flex-col items-center justify-end overflow-hidden"
+                // When `forceExpanded` (settled ancestor, no leaf↔spine height flip in play)
+                // switch to overflow-VISIBLE so the unrotated title can overhang RIGHT past the
+                // 48px spine into the uncovered panel gap (overflow-hidden clips both axes).
+                className={cn(
+                  "flex flex-col items-center justify-end",
+                  forceExpanded ? "overflow-visible" : "overflow-hidden",
+                )}
               >
                 <motion.div
                   initial={{ y: -SPINE_HIDE_Y, opacity: 0 }}
