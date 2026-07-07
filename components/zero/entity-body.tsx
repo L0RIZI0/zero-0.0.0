@@ -303,6 +303,10 @@ export function EntityBody({
             // route band clicks to toggle THIS ancestor's spine-expanded state (which
             // slides the covering child right, via nav-store `styleFor`).
             forceExpanded={spineExpanded}
+            // entity0/home: its name + glyph already live in the top ShellHeader, so when its
+            // Resources panel is spine-expanded from a child leaf, collapse the whole spine
+            // head (glyph + rotated title) rather than leaving a bare, title-less glyph.
+            hideSpineHeadWhenExpanded={isRoot}
             onSpineExpandToggle={() => toggleSpineExpand(entityId)}
             spineWidth={spineWidth}
             panelWidth={panelWidth}

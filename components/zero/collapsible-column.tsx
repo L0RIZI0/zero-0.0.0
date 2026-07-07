@@ -47,6 +47,7 @@ export function CollapsibleColumn({
   surface,
   stripCollapse = false,
   forceExpanded = false,
+  hideSpineHeadWhenExpanded = false,
   onSpineExpandToggle,
 }: {
   title: string
@@ -99,6 +100,12 @@ export function CollapsibleColumn({
    *  this ancestor isn't focused. Set by EntityBody when the user has spine-expanded this
    *  ancestor (its covering child has slid right to uncover the panel). */
   forceExpanded?: boolean
+  /** When forceExpanded, COLLAPSE the entire spine head (glyph + rotated title) away instead
+   *  of keeping the glyph. Set for the entity0/home root, whose name+glyph already live in
+   *  the top ShellHeader/IndividualHeader — so a spine-expanded home shows NO redundant head,
+   *  it just reveals its Resources list. Non-root ancestors leave this false: their glyph
+   *  stays and their real horizontal header title (entity-node <h3>) is revealed instead. */
+  hideSpineHeadWhenExpanded?: boolean
   /** Toggle handler for a COVERED ANCESTOR's spine-expand: clicking the empty peek band of
    *  a covered stripCollapse ancestor calls this instead of `onOpenChange`, so the band
    *  drives the nav-store spine-expand (which squeezes the child) rather than the local
@@ -446,7 +453,7 @@ export function CollapsibleColumn({
               translates the whole block UP by SPINE_HIDE_Y (~header height → user-avatar
               level) so it tucks behind the header rather than just behind the dayline. */}
           <AnimatePresence initial={false}>
-            {(spineGlyph || spineTitle) && (
+            {(spineGlyph || spineTitle) && !(forceExpanded && hideSpineHeadWhenExpanded) && (
               <motion.div
                 key="spine-head"
                 initial={{ height: 0 }}
