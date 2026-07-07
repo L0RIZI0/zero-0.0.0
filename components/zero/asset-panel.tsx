@@ -195,12 +195,11 @@ function ResourceRow({
     onHover({ item, top: r.top + r.height / 2, left: r.right + 10, side: "left" })
   }
 
-  // Shared row chrome (className/style/animate) used by BOTH the peek motion.button and
-  // the open-panel Reorder.Item wrapper below.
+  // Row chrome (className/style) for the single Reorder.Item element below.
   const sharedClassName = cn(
     "group relative flex w-full items-center gap-3 rounded-lg border border-transparent px-2 py-1.5 text-left",
     peek ? "pointer-events-none" : "pointer-events-auto",
-    !peek && onDragEnd && "cursor-grab active:cursor-grabbing",
+    !peek && "cursor-grab active:cursor-grabbing touch-none",
   )
   const sharedStyle: React.CSSProperties = {
     // Inline hover fill + outline (see the `hovered` note above). Transparent at
@@ -299,49 +298,31 @@ function ResourceRow({
   const heightAnimate = { height: peek ? PEEK_ROW_H : ROW_H_OPEN }
   const heightTransition = peekMorph(peek, peekDelayed, morphBase)
 
-  // OPEN panel: the row is a directly-draggable Reorder.Item (no handle) so it can be
-  // dragged to reorder within its section. In PEEK the losange strip isn't reorderable,
-  // so we fall back to the plain motion.button (unchanged behavior).
-  if (!peek && onDragEnd) {
-    return (
-      <Reorder.Item
-        // A DIV (not a native <button>): framer's drag listener doesn't attach reliably
-        // to a <button>, so the working do-list rows use div+role. role/tabIndex keep it
-        // keyboard-accessible; touch-none stops the browser from claiming vertical
-        // touch-drags for scrolling so the reorder gesture gets through.
-        as="div"
-        role="button"
-        tabIndex={0}
-        value={item.id}
-        initial={false}
-        animate={heightAnimate}
-        transition={heightTransition}
-        onPointerEnter={() => setHovered(true)}
-        onPointerLeave={() => setHovered(false)}
-        onDragStart={onDragStart}
-        onDragEnd={onDragEnd}
-        whileDrag={{ scale: 1.02, zIndex: 40 }}
-        className={cn(sharedClassName, "touch-none")}
-        style={sharedStyle}
-      >
-        {rowInner}
-      </Reorder.Item>
-    )
-  }
-
+  // ONE element for both peek and open: a Reorder.Item rendered as a DIV (framer's drag
+  // listener doesn't attach reliably to a native <button>; the working do-list rows also
+  // use div+role). Keeping the SAME element type across the peek↔open morph is what makes
+  // the morph smooth — swapping element types here remounts and kills the animation.
+  // `dragListener` is off in peek, so peek stays hover/click only (no drag) for now.
   return (
-    <motion.button
-      type="button"
+    <Reorder.Item
+      as="div"
+      role="button"
+      tabIndex={0}
+      value={item.id}
+      dragListener={!peek}
       initial={false}
       animate={heightAnimate}
       transition={heightTransition}
       onPointerEnter={peek ? undefined : () => setHovered(true)}
       onPointerLeave={peek ? undefined : () => setHovered(false)}
+      onDragStart={onDragStart}
+      onDragEnd={onDragEnd}
+      whileDrag={peek ? undefined : { scale: 1.02, zIndex: 40 }}
       className={sharedClassName}
       style={sharedStyle}
     >
       {rowInner}
-    </motion.button>
+    </Reorder.Item>
   )
 }
 
@@ -369,9 +350,9 @@ function Section({
 }) {
   const [open, setOpen] = useState(defaultOpen)
 
-  // Live order for drag-and-drop reorder (open panel only). Mirrors the incoming item
-  // order; a drag rearranges it live and commits on drop via `onReorder`. Never resynced
-  // mid-drag (that would yank the row from the cursor).
+  // Live order for drag-and-drop reorder. Mirrors the incoming item order; a drag
+  // rearranges it live and commits on drop via `onReorder`. Never resynced mid-drag (that
+  // would yank the row from the cursor).
   const itemIds = items.map((i) => i.id)
   const itemsKey = itemIds.join("|")
   const [liveIds, setLiveIds] = useState<string[]>(itemIds)
@@ -383,8 +364,21 @@ function Section({
     setLiveIds(itemIds)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [itemsKey])
+  // Robust ordering: ranked ids (the live drag order) first, then ANY items not yet in
+  // `liveIds` appended in catalog order — this covers the frame after `items` changes but
+  // before the resync effect runs, so the section never renders empty.
   const byId = new Map(items.map((i) => [i.id, i]))
-  const orderedItems = liveIds.map((id) => byId.get(id)).filter(Boolean) as EntityResource[]
+  const seen = new Set<string>()
+  const orderedItems: EntityResource[] = []
+  for (const id of liveIds) {
+    const it = byId.get(id)
+    if (it) {
+      orderedItems.push(it)
+      seen.add(id)
+    }
+  }
+  for (const it of items) if (!seen.has(it.id)) orderedItems.push(it)
+  const orderedIds = orderedItems.map((i) => i.id)
   // The height-collapse animation needs `overflow-hidden`, but that also clips the rows'
   // connector hairlines horizontally so they can't reach the window edge. So we only clip
   // WHILE animating; once the section is open and idle we switch overflow to visible,
@@ -436,50 +430,37 @@ function Section({
             // the height collapse animates (see note above).
             style={{ overflow: peek || settled ? "visible" : "hidden" }}
           >
-            {peek ? (
-              // Peek: the losange strip isn't reorderable — plain flow, catalog order.
-              <div className="flex flex-col pb-1">
-                {items.map((item) => (
-                  <ResourceRow
-                    key={item.id}
-                    item={item}
-                    peek={peek}
-                    peekDelayed={peekDelayed}
-                    snappy={snappy}
-                    spineWidth={spineWidth}
-                    onHover={onHover}
-                  />
-                ))}
-              </div>
-            ) : (
-              // Open: each row is a directly-draggable Reorder.Item within this group.
-              <Reorder.Group
-                as="div"
-                axis="y"
-                values={liveIds}
-                onReorder={(next) => setLiveIds(next as string[])}
-                className="flex flex-col pb-1"
-              >
-                {orderedItems.map((item) => (
-                  <ResourceRow
-                    key={item.id}
-                    item={item}
-                    peek={peek}
-                    peekDelayed={peekDelayed}
-                    snappy={snappy}
-                    spineWidth={spineWidth}
-                    onHover={onHover}
-                    onDragStart={() => {
-                      draggingRef.current = true
-                    }}
-                    onDragEnd={() => {
-                      draggingRef.current = false
-                      onReorder?.(liveRef.current)
-                    }}
-                  />
-                ))}
-              </Reorder.Group>
-            )}
+            {/* ONE Reorder.Group for BOTH peek and open — the row element type stays stable
+                across the peek↔open morph (no remount), so Framer's height/losange/text morph
+                stays smooth. Rows are draggable only when open (ResourceRow gates its own
+                dragListener on !peek); peek is still hover/click only, but structurally ready
+                for upcoming peek-reorder work. */}
+            <Reorder.Group
+              as="div"
+              axis="y"
+              values={orderedIds}
+              onReorder={(next) => setLiveIds(next as string[])}
+              className="flex flex-col pb-1"
+            >
+              {orderedItems.map((item) => (
+                <ResourceRow
+                  key={item.id}
+                  item={item}
+                  peek={peek}
+                  peekDelayed={peekDelayed}
+                  snappy={snappy}
+                  spineWidth={spineWidth}
+                  onHover={onHover}
+                  onDragStart={() => {
+                    draggingRef.current = true
+                  }}
+                  onDragEnd={() => {
+                    draggingRef.current = false
+                    onReorder?.(liveRef.current)
+                  }}
+                />
+              ))}
+            </Reorder.Group>
           </motion.div>
         )}
       </AnimatePresence>
