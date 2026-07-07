@@ -288,6 +288,15 @@ export function playStage(
      */
     detachedTop?: { origin: OriginRect | null }
     /**
+     * On CLOSE, the re-expanding DESTINATION window (the closing frame's parent, now
+     * the new front window). `top` is null on close, so this carries the destination
+     * whose do-list we fade in over the morph — otherwise its freshly-mounted body
+     * pops to full opacity on frame 1 (the "ghost parent do-list" flashing behind the
+     * still-large closing window). Opacity only; its layout stays intact so the Flip
+     * has a correct row slot to fly the closing frame into.
+     */
+    revealTop?: Key | null
+    /**
      * When true, re-query the live DOM for the morph targets instead of
      * re-measuring the originally-captured element references. REQUIRED for
      * cross-element morphs (pin/unpin) where the node that carries a given
@@ -538,6 +547,36 @@ export function playStage(
         { opacity: 1, scale: 1 },
         { opacity: 0, scale: 0.15, transformOrigin: "center", duration: MORPH_DURATION * 0.7, ease: MORPH_EASE },
       )
+    }
+
+    // Reveal the DESTINATION (re-expanding parent) window's do-list by FADING it in
+    // over the morph, instead of letting it pop to full opacity on frame 1. Its body
+    // is mounted IMMEDIATELY on close (entity-node forces bodyReady when nav.closing)
+    // so the Flip has a correct row slot to fly the closing frame into — but a mounted
+    // full-opacity do-list flashed behind the still-large closing window = the "ghost
+    // parent do-list" seen early in the close. We keep it mounted (layout intact) and
+    // only tween its OPACITY 0→1, so the parent list materialises as the child recedes
+    // into it (mirror of the open, which scales+fades the entering body in). Opacity
+    // only — no scale — because the parent is already at full size (it was the spine),
+    // it is being uncovered, not grown. `revealTop` is the new top on close (opts.top
+    // is null then). Skipped when it IS the closing window (defensive).
+    if (
+      opts.revealTop &&
+      !(opts.revealTop.id === opts.closing.id && opts.revealTop.depth === opts.closing.depth)
+    ) {
+      const destBody = stage.querySelector<HTMLElement>(sel(opts.revealTop, "[data-body]"))
+      if (destBody && destBody !== body) {
+        gsap.fromTo(
+          destBody,
+          { opacity: 0 },
+          {
+            opacity: 1,
+            duration: MORPH_DURATION * 0.6,
+            ease: MORPH_EASE,
+            onComplete: () => gsap.set(destBody, { clearProps: "opacity" }),
+          },
+        )
+      }
     }
     // Deeper levels removed in the same gesture telescope inward toward the same
     // top-left origin, scaling down + fading. Pure transform/opacity (GPU cheap),
