@@ -263,7 +263,13 @@ function ResourceRow({
           onPointerLeave={peek ? () => onHover(null) : undefined}
           onClick={peek ? (e) => e.stopPropagation() : undefined}
           data-peek-losange={peek ? item.id : undefined}
-          className={cn("flex rotate-45 items-center justify-center border", peek && "pointer-events-auto")}
+          className={cn(
+            "flex rotate-45 items-center justify-center border",
+            // In peek the losange is the drag HANDLE: re-enable pointer events (the row is
+            // pointer-events-none), show the grab cursor, and touch-none so a press-drag
+            // isn't stolen by the browser as a scroll/pan gesture.
+            peek && "pointer-events-auto cursor-grab touch-none active:cursor-grabbing",
+          )}
           style={peek ? { position: "relative", zIndex: 30 } : undefined}
         >
           {/* Counter-rotate so the icon/favicon reads upright inside the diamond. */}
@@ -302,14 +308,17 @@ function ResourceRow({
   // listener doesn't attach reliably to a native <button>; the working do-list rows also
   // use div+role). Keeping the SAME element type across the peek↔open morph is what makes
   // the morph smooth — swapping element types here remounts and kills the animation.
-  // `dragListener` is off in peek, so peek stays hover/click only (no drag) for now.
+  // Drag is enabled in BOTH peek and open. In peek the ROW is `pointer-events-none` and only
+  // the losange re-enables events; a native pointerdown on the losange bubbles up to framer's
+  // listener on this Reorder.Item (pointer-events:none blocks hit-testing of the row itself
+  // but NOT event bubbling from children), so the drag starts from the losange. `whileDrag`
+  // just floats the dragged element above its siblings (a tiny scale bump for feedback).
   return (
     <Reorder.Item
       as="div"
       role="button"
       tabIndex={0}
       value={item.id}
-      dragListener={!peek}
       initial={false}
       animate={heightAnimate}
       transition={heightTransition}
@@ -317,7 +326,9 @@ function ResourceRow({
       onPointerLeave={peek ? undefined : () => setHovered(false)}
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
-      whileDrag={peek ? undefined : { scale: 1.02, zIndex: 40 }}
+      // In peek, only lift z (no scale): the losange sits far left of the row center, so a
+      // row-centered scale would visibly shove it sideways as you grab it.
+      whileDrag={peek ? { zIndex: 40 } : { scale: 1.02, zIndex: 40 }}
       className={sharedClassName}
       style={sharedStyle}
     >
