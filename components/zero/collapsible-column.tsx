@@ -2,7 +2,7 @@
 
 import { useRef, useState } from "react"
 import { motion, AnimatePresence } from "motion/react"
-import { ChevronLeft, ChevronRight, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from "lucide-react"
+import { ChevronLeft, ChevronRight } from "lucide-react"
 import { panelSlideTransition, MORPH_SECONDS, MORPH_EASE, HEADER_H } from "@/lib/zero/motion"
 import { cn } from "@/lib/utils"
 
@@ -112,17 +112,14 @@ export function CollapsibleColumn({
    *  panel-store open flag. Undefined on a focused leaf (there the band uses onOpenChange). */
   onSpineExpandToggle?: () => void
 }) {
-  const OpenIcon = side === "left" ? PanelLeftClose : PanelRightClose
-  const ClosedIcon = side === "left" ? PanelLeftOpen : PanelRightOpen
-  const ToggleIcon = open ? OpenIcon : ClosedIcon
   // Chevron shown IN PLACE OF the vertical label while open — points toward the window
   // edge (the collapse direction) to signal the spine still closes the panel.
   const CollapseChevron = side === "left" ? ChevronLeft : ChevronRight
   // The opposite direction: points INTO the view (away from the edge) = the EXPAND
   // affordance. Used on an EMPTY, collapsed Resources spine so a bare spine still shows a
-  // "click to open" hint (there are no losanges to imply it).
+  // "click to open" hint, AND as the sole collapsed glyph for a non-stripCollapse panel
+  // (e.g. Published) — replacing the old toggle-icon + rotated label.
   const ExpandChevron = side === "left" ? ChevronRight : ChevronLeft
-  const label = collapsedTitle ?? title
   // EMPTY = no resources at all. For the stripCollapse (Resources) spine the losanges are
   // the normal affordance, so we only draw a chevron when there's nothing to show: a bare
   // empty spine (collapsed → ExpandChevron; expanded → CollapseChevron). A NON-empty
@@ -133,10 +130,6 @@ export function CollapsibleColumn({
   // variant is gated behind `@media (hover: hover)` in Tailwind v4 and didn't fire
   // reliably here. State-driven opacity always works.
   const [spineHover, setRailHover] = useState(false)
-  // Spine label opacity: fully HIDDEN when open (the horizontal panel title names it;
-  // the spine stays a clickable close-area) OR in leaf-strip mode (the losanges are the
-  // collapsed affordance — no vertical label), bright on hover, faint when idle/closed.
-  const labelOpacity = open ? "opacity-0" : spineHover ? "opacity-100" : "opacity-35"
 
   // PERSISTENT: an open panel stays open until explicitly closed via its spine (the
   // chevron toggle below). It is NOT dismissed by clicking elsewhere on the View —
@@ -402,24 +395,17 @@ export function CollapsibleColumn({
               )}
             />
           ) : (
-            <>
-              <ToggleIcon
-                className={cn(
-                  "h-3 w-3 transition-opacity duration-200",
-                  spineHover ? "text-foreground opacity-100" : "text-muted-foreground opacity-35",
-                )}
-              />
-              <span
-                className={cn(
-                  "text-[10px] font-medium uppercase tracking-[0.14em] text-foreground transition-opacity duration-200",
-                  labelOpacity,
-                )}
-                style={{ writingMode: "vertical-rl" }}
-              >
-                {label}
-                {typeof count === "number" ? ` (${count})` : ""}
-              </span>
-            </>
+            /* COLLAPSED (non-stripCollapse, e.g. Published/right): show ONLY a directional
+               chevron — no toggle icon, no rotated label. Mirrors the left spine's chevron
+               system and this panel's own expanded state: collapsed → ExpandChevron (points
+               INTO the view = "click to open"); expanded → CollapseChevron (points at the edge
+               = "click to close", the branch above). */
+            <ExpandChevron
+              className={cn(
+                "h-4 w-4 transition-opacity duration-500",
+                spineHover ? "text-foreground opacity-100" : "text-muted-foreground opacity-45",
+              )}
+            />
           )}
         </span>
       </button>
