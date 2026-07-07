@@ -20,6 +20,15 @@ export interface UserItems {
   /** Per-context pin map: context space id → ordered list of pinned item ids. */
   pins: Record<string, string[]>
   /**
+   * Per-context custom sibling ORDER for the do-list (drag-and-drop reorder):
+   * context space id → the ordered list of child ids the user arranged. Additive
+   * and fully back-compat — a missing/empty entry means "use natural creation
+   * order". Ids not present fall to the end in creation order, so newly created
+   * items keep appending at the bottom. Scoped per-context (like pins) so a
+   * tagged item can sit in a different position in each list it appears in.
+   */
+  order: Record<string, string[]>
+  /**
    * Tombstones — ids of SEEDED entities the user deleted. (User-created
    * entities are removed simply by not serializing them.) Applied on hydrate
    * so deletions of demo data also survive refreshes.
@@ -36,6 +45,7 @@ export interface UserItems {
 export const emptyUserItems = (): UserItems => ({
   entities: [],
   pins: {},
+  order: {},
   deletedIds: [],
   overrides: {},
 })
@@ -49,6 +59,7 @@ export function readUserItems(): UserItems {
     return {
       entities: Array.isArray(parsed.entities) ? parsed.entities : [],
       pins: parsed.pins && typeof parsed.pins === "object" ? parsed.pins : {},
+      order: parsed.order && typeof parsed.order === "object" ? parsed.order : {},
       deletedIds: Array.isArray(parsed.deletedIds) ? parsed.deletedIds : [],
       overrides:
         parsed.overrides && typeof parsed.overrides === "object" ? parsed.overrides : {},

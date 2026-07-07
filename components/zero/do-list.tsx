@@ -2,12 +2,13 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom"
-import { AnimatePresence, motion, type Transition } from "motion/react"
-import { Check, Pin, Trash2, Ban, RotateCcw, ChevronDown, Globe, Shapes, Send, CalendarClock, Archive, ArchiveRestore } from "lucide-react"
+import { AnimatePresence, motion, Reorder, useDragControls, type Transition } from "motion/react"
+import { Check, Pin, Trash2, Ban, RotateCcw, ChevronDown, Globe, Shapes, Send, CalendarClock, Archive, ArchiveRestore, GripVertical } from "lucide-react"
 import {
   getContextItems,
   isPinned,
   pinItem,
+  reorderContextItems,
   deleteEntity,
   setEventCancelled,
   setEntityClosed,
@@ -58,6 +59,93 @@ const ROW_REFLOW: Transition = { duration: 0.4, ease: MORPH_EASE }
 
 /** Shared leading glyph box, matching EntityRow so the edit row aligns. */
 const GLYPH_BOX = "flex h-4 w-4 shrink-0 items-center justify-center"
+
+/**
+ * One draggable do-list cell. Wraps the row's {@link EntityNode} in a
+ * `Reorder.Item` so the user can drag it above/below its siblings to set a
+ * custom order (persisted per-context via `reorderContextItems`).
+ *
+ * Drag is HANDLE-ONLY (`dragListener={false}` + `useDragControls`): the row body
+ * keeps its normal click-to-open + hover behaviour untouched, and a small grip
+ * appears in the left gutter on hover to start a drag. This avoids any conflict
+ * between "click a row to open it" and "drag a row to reorder it".
+ *
+ * `layout` is disabled while a WINDOW morph is in flight (`animating`) for the
+ * same reason the old `motion.li` did it: opening a row grows that same node into
+ * a window via GSAP Flip, and a simultaneous framer layout animation on the <li>
+ * would fight it. Reorder never sets `animating`, so drags still animate.
+ */
+function ReorderRow({
+  id,
+  contextId,
+  animating,
+  born,
+  canReorder,
+  onContextMenu,
+  onDragStartRow,
+  onCommit,
+}: {
+  id: string
+  contextId: string
+  animating: boolean
+  born: boolean
+  canReorder: boolean
+  onContextMenu: (e: React.MouseEvent) => void
+  onDragStartRow: () => void
+  onCommit: () => void
+}) {
+  const controls = useDragControls()
+  const [dragging, setDragging] = useState(false)
+  return (
+    <Reorder.Item
+      value={id}
+      as="li"
+      // Handle-only: the item never starts a drag on its own pointer-down; only
+      // the grip below (via `controls.start`) does. Keeps click-to-open intact.
+      dragListener={false}
+      dragControls={controls}
+      layout={animating ? undefined : true}
+      initial={born ? { opacity: 0, y: 6 } : false}
+      animate={{ opacity: 1, y: 0 }}
+      exit={animating ? undefined : { opacity: 0, scale: 0.96, transition: { duration: 0.18 } }}
+      transition={ROW_REFLOW}
+      onDragStart={() => {
+        setDragging(true)
+        onDragStartRow()
+      }}
+      onDragEnd={() => {
+        setDragging(false)
+        onCommit()
+      }}
+      className={cn("group/row relative", dragging && "z-20")}
+    >
+      {canReorder && (
+        <div
+          role="button"
+          tabIndex={-1}
+          aria-label="Drag to reorder"
+          // preventDefault stops text selection; stopPropagation keeps the row
+          // frame's click-to-open from firing when the user grabs the handle.
+          onPointerDown={(e) => {
+            e.preventDefault()
+            e.stopPropagation()
+            controls.start(e)
+          }}
+          onClick={(e) => e.stopPropagation()}
+          className={cn(
+            "absolute top-1/2 left-0 z-10 flex h-6 w-4 -translate-x-full -translate-y-1/2 items-center justify-center",
+            "cursor-grab text-muted-foreground/50 opacity-0 transition-opacity duration-150",
+            "hover:text-foreground group-hover/row:opacity-100",
+            dragging && "cursor-grabbing opacity-100",
+          )}
+        >
+          <GripVertical className="h-3.5 w-3.5" strokeWidth={1.75} />
+        </div>
+      )}
+      <EntityNode entityId={id} contextId={contextId} variant="row" onContextMenu={onContextMenu} />
+    </Reorder.Item>
+  )
+}
 
 /**
  * The glyph (kind) picker for the inline draft row. Rendered to a body portal
@@ -623,6 +711,37 @@ export function DoList({
     })
   }, [items, filter, contextId])
 
+  // DRAG-AND-DROP REORDER (via motion's Reorder). The list renders from `liveOrder`
+  // — a local mirror of the shown ids — so a drag can rearrange it instantly (framer
+  // calls `onReorder` with the new sequence mid-drag) without waiting on the data
+  // layer. On drop we persist the arranged sequence (`reorderContextItems`) and let
+  // the resulting data change flow back. Between drags `liveOrder` is kept in lockstep
+  // with the real order; we NEVER resync mid-drag (that would yank the row from the
+  // cursor). Reorder is offered only in the "all" view for now — the "open" view hides
+  // resolved items, so a drop there can't map unambiguously to the full order yet.
+  const shownIds = useMemo(() => shown.map((it) => it.id), [shown])
+  const shownKey = shownIds.join("|")
+  const itemById = useMemo(() => {
+    const m = new Map<string, ContextItem>()
+    for (const it of shown) m.set(it.id, it)
+    return m
+  }, [shown])
+  const [liveOrder, setLiveOrder] = useState<string[]>(shownIds)
+  const liveOrderRef = useRef(liveOrder)
+  liveOrderRef.current = liveOrder
+  const draggingRef = useRef(false)
+  const canReorder = filter === "all"
+  // Resync the live order from the data layer whenever the shown set/order changes
+  // (create, delete, complete, context switch, or a just-committed reorder) — but
+  // never while a drag is in flight.
+  useEffect(() => {
+    if (draggingRef.current) return
+    setLiveOrder(shownIds)
+    // shownKey is the content signature of shownIds; depend on it (not the array
+    // identity) so we only resync on a real membership/order change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shownKey])
+
   // The Open/All selectors reveal ONLY when the do-list isn't empty AND its entries
   // are not ALL open — i.e. at least one item is RESOLVED: done (completed) OR CLOSED.
   // "Closed" uses isClosed so a DERIVED close counts too — e.g. an Event whose end
@@ -1018,35 +1137,42 @@ export function DoList({
     })
   }
 
-  // The entity rows — shared between the ATLAS layout (create-row pinned inside the
-  // scroller) and the default layout (create-row decoupled into an overlay below).
-  const rowItems = shown.map((it) => (
-    <motion.li
-      key={it.id}
-      // `layout` lets the row glide to its new slot when a sibling is added
-      // above/below or removed — this is what stops the list from "jumping"
-      // on every edit. Only the just-born row (committed from the CreateRow)
-      // plays an enter animation; every other row mounts with `initial={false}`
-      // so context switches and commits never flash the whole list.
-      // `exit` fades + slightly shrinks a deleted row while popLayout pulls it
-      // out of flow so the rows below slide up to close the gap.
-      //
-      // CRITICAL: disable framer layout while a WINDOW morph is in flight
-      // (`animating`). Opening a row grows that SAME node into a window driven
-      // by GSAP Flip (which transforms the row's frame/glyph/title and reflows
-      // its siblings). If framer also layout-animated these <li>s at the same
-      // time, the two systems fight over the same elements — the glyph/title
-      // flash out and back and the morph snaps on its first/last frame. Add/
-      // delete/reorder do NOT set `animating`, so those edits still animate.
-      layout={!animating}
-      initial={it.id === bornId ? { opacity: 0, y: 6 } : false}
-      animate={{ opacity: 1, y: 0 }}
-      exit={animating ? undefined : { opacity: 0, scale: 0.96, transition: { duration: 0.18 } }}
-      transition={ROW_REFLOW}
-    >
-      <EntityNode entityId={it.id} contextId={contextId} variant="row" onContextMenu={(e) => openMenu(e, it)} />
-    </motion.li>
-  ))
+  // Commit the freshly-arranged order on drop: persist the sequence the user
+  // dragged into place, then let the data change flow back (which resyncs
+  // `liveOrder`). Read the latest sequence from the ref — `onReorder` has been
+  // updating it live throughout the drag.
+  const commitReorder = useCallback(() => {
+    draggingRef.current = false
+    reorderContextItems(contextId, liveOrderRef.current)
+    notifyDataChanged()
+  }, [contextId, notifyDataChanged])
+
+  // The entity rows, rendered from `liveOrder` so a drag can rearrange them
+  // instantly. Each cell is a `ReorderRow` (a handle-only draggable wrapper around
+  // the row's EntityNode). Rows glide to make room via framer `layout`; only the
+  // just-born row plays an enter animation. Ids missing from `itemById` (a stale
+  // entry mid-transition) are skipped.
+  const rowItems = liveOrder
+    .map((id) => {
+      const it = itemById.get(id)
+      if (!it) return null
+      return (
+        <ReorderRow
+          key={id}
+          id={id}
+          contextId={contextId}
+          animating={animating}
+          born={id === bornId}
+          canReorder={canReorder}
+          onContextMenu={(e) => openMenu(e, it)}
+          onDragStartRow={() => {
+            draggingRef.current = true
+          }}
+          onCommit={commitReorder}
+        />
+      )
+    })
+    .filter(Boolean)
 
   // The permanent terminal creation row. It stays mounted at ALL times — including
   // while opening a CHILD and during this window's own CLOSE — so the list never
@@ -1157,7 +1283,16 @@ export function DoList({
             ))}
           </div>
         </div>
-        <ul
+        {/* Reorder.Group renders the scrolling <ul> AND powers drag-and-drop
+            reordering: `values` is the live id sequence, `onReorder` fires with the
+            rearranged sequence during a drag (we mirror it into `liveOrder`), and the
+            per-row grip commits it on drop. Non-draggable rows (the "open" view) simply
+            never start a drag — the group is inert without a handle grab. */}
+        <Reorder.Group
+          as="ul"
+          axis="y"
+          values={liveOrder}
+          onReorder={(next) => setLiveOrder(next as string[])}
           key={contextId}
           ref={scrollerRef}
           // `overflow: visible` during a window morph so a row growing into a window
@@ -1179,7 +1314,7 @@ export function DoList({
           className="-mx-2 flex min-h-0 flex-initial flex-col gap-1.5 overflow-y-auto px-2 no-scrollbar"
         >
           <AnimatePresence initial={false} mode="popLayout">{rowItems}</AnimatePresence>
-        </ul>
+        </Reorder.Group>
         {/* Create-input — its own one-row list directly below the scroller. The inner
             `motion.li` carries `layout={!animating}`, so it SLIDES down as rows are
             added above (and back up on delete). `mt-1.5` only when rows exist mimics

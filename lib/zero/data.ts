@@ -805,7 +805,7 @@ export function getResource(id: string): Resource | undefined {
  * sorting by kind. The user may reorder later via drag-and-drop.
  */
 export function getChildren(contextId: string): Entity[] {
-  return entities.filter(
+  const kids = entities.filter(
     (e) =>
       e.id !== contextId &&
       // The identity triad's inner two kinds are structural, not browsable content,
@@ -818,6 +818,27 @@ export function getChildren(contextId: string): Entity[] {
       e.seriesId == null &&
       (e.parentId === contextId || e.taggedSpaceIds.includes(contextId)),
   )
+
+  // Apply the user's drag-and-drop order (if any) for this context. Ranked ids
+  // come first in the saved order; anything unranked (e.g. a freshly created
+  // item, or one added after the last reorder) keeps its creation-order slot at
+  // the end. Decorate/sort/undecorate so we never depend on Array.sort stability
+  // for the unranked tail and never mutate the source `entities` array.
+  const order = orderByContext[contextId]
+  if (!order || order.length === 0) return kids
+  const rank = new Map<string, number>()
+  order.forEach((id, i) => rank.set(id, i))
+  return kids
+    .map((e, i) => ({ e, i }))
+    .sort((a, b) => {
+      const ra = rank.get(a.e.id)
+      const rb = rank.get(b.e.id)
+      if (ra != null && rb != null) return ra - rb
+      if (ra != null) return -1
+      if (rb != null) return 1
+      return a.i - b.i
+    })
+    .map((x) => x.e)
 }
 
 /**
@@ -1306,6 +1327,33 @@ export function unpinItem(contextId: string, itemId: string): void {
 }
 
 // ----------------------------------------------------------------------------
+// Per-context ORDER — the user's drag-and-drop sibling order for a do-list.
+// Scoped per context (like pins): `contextId` → the ordered child ids. A context
+// with no entry uses natural creation order; ids missing from an entry fall to
+// the end in creation order, so newly created items keep appending at the bottom.
+// getChildren applies this ordering. Persisted so a reorder survives refreshes.
+// ----------------------------------------------------------------------------
+
+const orderByContext: Record<string, string[]> = {}
+
+/** The user's saved child order for a context, or [] if none set. */
+export function getContextOrder(contextId: string): string[] {
+  return orderByContext[contextId] ?? []
+}
+
+/**
+ * Persist a new sibling order for a context's do-list. `orderedIds` is the full
+ * visible order the user arranged via drag-and-drop. Stored verbatim; getChildren
+ * ranks children by it (unknown/deleted ids are simply ignored, and children not
+ * listed sort to the end in creation order). Idempotent + safe to call on every
+ * drop.
+ */
+export function reorderContextItems(contextId: string, orderedIds: string[]): void {
+  orderByContext[contextId] = [...orderedIds]
+  persist()
+}
+
+// ----------------------------------------------------------------------------
 // Mutations — user-created entities. Persisted to localStorage so created
 // items survive refreshes. They push into the same `entities` array/index the
 // selectors above read from, so a new item shows up everywhere it should.
@@ -1327,6 +1375,7 @@ function persist() {
   writeUserItems({
     entities: entities.filter((e) => userEntityIds.has(e.id)),
     pins: pinnedByContext,
+    order: orderByContext,
     deletedIds: [...deletedSeededIds],
     overrides: Object.fromEntries(seededOverrides),
   })
@@ -1391,6 +1440,13 @@ export function hydrateFromStorage(): boolean {
   for (const [contextId, ids] of Object.entries(stored.pins)) {
     if (!Array.isArray(ids) || ids.length === 0) continue
     pinnedByContext[contextId] = [...ids]
+    added = true
+  }
+
+  // Restore per-context drag-and-drop order (references seeded or user ids).
+  for (const [contextId, ids] of Object.entries(stored.order)) {
+    if (!Array.isArray(ids) || ids.length === 0) continue
+    orderByContext[contextId] = [...ids]
     added = true
   }
 
