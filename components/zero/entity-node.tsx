@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useLayoutEffect, useRef } from "react"
+import { useState, useLayoutEffect, useEffect, useRef } from "react"
 import { useTheme } from "next-themes"
 import { Check, X } from "lucide-react"
   import { getEntity, getOpenTaskCount, setEntityCompleted } from "@/lib/zero/data"
