@@ -305,8 +305,13 @@ function ResourceRow({
   if (!peek && onDragEnd) {
     return (
       <Reorder.Item
-        as="button"
-        type="button"
+        // A DIV (not a native <button>): framer's drag listener doesn't attach reliably
+        // to a <button>, so the working do-list rows use div+role. role/tabIndex keep it
+        // keyboard-accessible; touch-none stops the browser from claiming vertical
+        // touch-drags for scrolling so the reorder gesture gets through.
+        as="div"
+        role="button"
+        tabIndex={0}
         value={item.id}
         initial={false}
         animate={heightAnimate}
@@ -316,7 +321,7 @@ function ResourceRow({
         onDragStart={onDragStart}
         onDragEnd={onDragEnd}
         whileDrag={{ scale: 1.02, zIndex: 40 }}
-        className={sharedClassName}
+        className={cn(sharedClassName, "touch-none")}
         style={sharedStyle}
       >
         {rowInner}
@@ -452,7 +457,10 @@ function Section({
                 as="div"
                 axis="y"
                 values={liveIds}
-                onReorder={setLiveIds}
+                onReorder={(next) => {
+                  console.log("[v0] group onReorder", next)
+                  setLiveIds(next as string[])
+                }}
                 className="flex flex-col pb-1"
               >
                 {orderedItems.map((item) => (
@@ -465,9 +473,11 @@ function Section({
                     spineWidth={spineWidth}
                     onHover={onHover}
                     onDragStart={() => {
+                      console.log("[v0] item onDragStart", item.id)
                       draggingRef.current = true
                     }}
                     onDragEnd={() => {
+                      console.log("[v0] item onDragEnd", item.id, liveRef.current)
                       draggingRef.current = false
                       onReorder?.(liveRef.current)
                     }}
