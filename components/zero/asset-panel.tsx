@@ -457,10 +457,7 @@ function Section({
                 as="div"
                 axis="y"
                 values={liveIds}
-                onReorder={(next) => {
-                  console.log("[v0] group onReorder", next)
-                  setLiveIds(next as string[])
-                }}
+                onReorder={(next) => setLiveIds(next as string[])}
                 className="flex flex-col pb-1"
               >
                 {orderedItems.map((item) => (
@@ -473,11 +470,9 @@ function Section({
                     spineWidth={spineWidth}
                     onHover={onHover}
                     onDragStart={() => {
-                      console.log("[v0] item onDragStart", item.id)
                       draggingRef.current = true
                     }}
                     onDragEnd={() => {
-                      console.log("[v0] item onDragEnd", item.id, liveRef.current)
                       draggingRef.current = false
                       onReorder?.(liveRef.current)
                     }}
