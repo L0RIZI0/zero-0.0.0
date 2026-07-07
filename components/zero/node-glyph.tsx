@@ -223,6 +223,19 @@ function requestAccentPath(angleDeg: number): string {
 const INDIVIDUAL_Z_PATH = "M 6 6.5 L 18 6.5 L 6 17.5 L 18 17.5"
 const INDIVIDUAL_Z_ROTATE = "rotate(-45 12 12)"
 
+// --- Done CHECK tick --------------------------------------------------------
+//
+// A plain checkmark centered in the 24-box, drawn OVER the silhouette when
+// `showCheck`. Shared by the visible tick AND the mask that carves a matching
+// GAP out of the silhouette (see `checkMaskId` in the render): masking a slightly
+// WIDER copy of this same polyline out of the fill/outline separates the tick from
+// the shape it sits on (e.g. a triangle's edges) with a clean transparent notch —
+// so the check stays readable without a background-colored "clip border" halo.
+const CHECK_POINTS = "7,12.5 10.5,16 17,8"
+// How much wider (than the visible tick) the mask cutout is, in user units — this
+// is the width of the transparent gap ringing the tick.
+const CHECK_MASK_EXTRA = 2.5
+
 /**
  * A crisp geometric silhouette for a node kind, drawn as a single SVG `<polygon>`
  * whose vertices are the kind's canonical equal-count sampling. When `kind`
@@ -282,6 +295,9 @@ export function NodeGlyph({
   // we tween the rect's width 0↔24 so the ink slides in/out horizontally. Soul is
   // always solid, so its rect stays full. A per-instance clip id avoids collisions.
   const clipId = useId().replace(/:/g, "")
+  // Separate id for the done-check cutout mask (see CHECK_POINTS); per-instance to
+  // avoid collisions. Only referenced when `showCheck` is set.
+  const checkMaskId = `chk-${clipId}`
   const fillRef = useRef<SVGPolygonElement | null>(null)
   const clipRectRef = useRef<SVGRectElement | null>(null)
   const fillWidthRef = useRef<number>(filled || kind === "soul" ? GLYPH_FILL_W : 0)
@@ -451,6 +467,25 @@ export function NodeGlyph({
             width={filled || kind === "soul" ? GLYPH_FILL_W : 0}
           />
         </clipPath>
+        {/* Done-check cutout mask: white = kept, black = removed. A rect keeps the
+            whole glyph, then a WIDER copy of the check tick (black) punches a gap
+            around where the tick sits — so the silhouette (fill + outline) is carved
+            back along the check, giving a clean transparent separation instead of the
+            tick's strokes clashing with the shape's edges. Applied to fill+outline
+            only when showCheck. */}
+        {showCheck && (
+          <mask id={checkMaskId} maskUnits="userSpaceOnUse" x="-2" y="-2" width="28" height="28">
+            <rect x="-2" y="-2" width="28" height="28" fill="white" />
+            <polyline
+              points={CHECK_POINTS}
+              fill="none"
+              stroke="black"
+              strokeWidth={strokeWidth + CHECK_MASK_EXTRA}
+              strokeLinejoin="round"
+              strokeLinecap="round"
+            />
+          </mask>
+        )}
       </defs>
       {/* FILL layer — solid silhouette, revealed through the wipe clip. Tracks the
           outline's points/opacity during a kind morph (synced in the effect). */}
@@ -460,6 +495,7 @@ export function NodeGlyph({
         fill="currentColor"
         stroke="none"
         clipPath={`url(#${clipId})`}
+        mask={showCheck ? `url(#${checkMaskId})` : undefined}
         opacity={kind === "individual" ? 0 : 1}
       />
       {/* OUTLINE layer — always the bare silhouette stroke (never self-fills, so the
@@ -472,7 +508,7 @@ export function NodeGlyph({
         strokeWidth={strokeWidth}
         strokeLinejoin="miter"
         vectorEffect="non-scaling-stroke"
-        // Initial crossfade state (mount): the disc is hidden only for `individual`.
+        mask={showCheck ? `url(#${checkMaskId})` : undefined}
         opacity={kind === "individual" ? 0 : 1}
       />
       {/* Individual "Z" — a non-morphing stroke letterform rotated 45° anticlockwise,
@@ -521,10 +557,16 @@ export function NodeGlyph({
         />
       )}
       {/* Static done CHECK — a plain tick centered in the 24×24 box. Non-animated;
-          used by the spine excerpt's "done" counter (see showCheck doc above). */}
-      {showCheck && (
+          used by the spine excerpt's "done" counter + the dayline hover glyph.
+          Drawn in currentColor ONLY when the glyph is an OUTLINE (not filled): the
+          silhouette is masked with a matching gap (checkMaskId) so the tick reads
+          cleanly against the shape's edges. When the glyph is FILLED, the tick is
+          instead the mask CUTOUT itself (the shape's fill is carved along the check,
+          so the background shows through as a negative-space tick) — drawing a
+          currentColor tick on top would just refill it, so we skip it. */}
+      {showCheck && !filled && (
         <polyline
-          points="7,12.5 10.5,16 17,8"
+          points={CHECK_POINTS}
           fill="none"
           stroke="currentColor"
           strokeWidth={strokeWidth}

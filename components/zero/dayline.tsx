@@ -184,6 +184,9 @@ interface DayItem {
   range: string
   /** Glyph fills only for completable kinds once done; otherwise it's a silhouette. */
   filled: boolean
+  /** Show a done CHECK on the glyph (kinds with checkmarkWhenDone that are completed) —
+   *  so a done-but-not-yet-closed Moment reads as done in the dayline, matching its row. */
+  checked: boolean
   /** A sleep Moment paints a procedural night-sky fill instead of a flat accent bar. */
   sky: string | null
 }
@@ -307,6 +310,10 @@ export function Dayline() {
         // its own end) — or when the entity is otherwise closed (manual/cancelled/done
         // past midnight) via isClosed.
         filled: KIND_META[e.kind].fillGlyphWhenDone && (en <= Date.now() || isClosed(e)),
+        // Done check: kinds that checkmark-when-done (task/event/instant) that this
+        // occurrence has completed. Mirrors the do-list row so a done Moment shows a
+        // tick in the dayline instead of a bare outline.
+        checked: KIND_META[e.kind].checkmarkWhenDone && !!e.completed,
         // A sleep Moment (span) gets its own procedural night sky, seeded by the
         // occurrence key so each night differs but stays stable across pans.
         sky: isDuration && e.kind === "event" && isSleepTitle(e.title) ? sleepSkyBackground(e.occKey) : null,
@@ -1085,7 +1092,7 @@ export function Dayline() {
                 style={{ left: `${Math.min(96, Math.max(4, hoveredItem.centerPct))}%`, marginTop: 4 }}
               >
                 <span className="h-3 w-3 shrink-0" style={{ color: hoveredItem.color }}>
-                  <NodeGlyph kind={hoveredItem.kind} filled={hoveredItem.filled} strokeWidth={2} />
+                  <NodeGlyph kind={hoveredItem.kind} filled={hoveredItem.filled} showCheck={hoveredItem.checked} strokeWidth={2} />
                 </span>
                 <span className="truncate text-foreground">{hoveredItem.title}</span>
                 <span className="shrink-0 text-muted-foreground tabular-nums">{hoveredItem.range}</span>
