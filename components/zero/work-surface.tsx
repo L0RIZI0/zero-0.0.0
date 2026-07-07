@@ -41,7 +41,13 @@ import { NodeGlyph } from "./node-glyph"
  * are unchanged by the in-flow region restructure.
  */
 export function WorkSurface() {
-  const { activeEntity, stack, fading } = useZeroNav()
+  const { activeEntity, stack, fading, fullscreenId } = useZeroNav()
+  // When ANY window is fullscreen, the window-region must escape its normal z-10
+  // stacking context (which is capped below the entity0 header at z-40) and drop its
+  // clip-path, so the full-viewport frame paints OVER the header for a true fullscreen
+  // experience. The header itself is intentionally NOT animated away this pass — it is
+  // simply covered.
+  const anyFullscreen = fullscreenId != null
   // [v0] DEBUG: colored frames + labels are gated on the shared `§ 2` toggle.
   const { frames: showFrames } = useDebugView()
   // The root entity's body is the permanent home backdrop at z-0. It is ALWAYS
@@ -152,6 +158,11 @@ export function WorkSurface() {
         // safety). The negative top in the clip-path lets morph shadows bleed up behind
         // the header (which paints above at z-40).
         className="pointer-events-none relative z-10 flex min-h-0 flex-1 flex-col [clip-path:inset(-48px_0px_-120px_0px_round_6px)]"
+        // Fullscreen override (inline wins over the class; `undefined` defers back to
+        // the class values when nothing is fullscreen): lift the region above the z-40
+        // header and drop the clip so a full-viewport window reaches the true top edge
+        // and covers the header. No layout/geometry change when not fullscreen.
+        style={anyFullscreen ? { zIndex: 50, clipPath: "none" } : undefined}
       >
         {/* The home view: region 0 = the timeline (passed in), region 1 = the do-list,
             region 2 = the dock (when pinned). centerList (true): the do-list + create-

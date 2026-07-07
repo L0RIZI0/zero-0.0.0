@@ -1100,7 +1100,10 @@ export function EntityNode({
             // above the child and paint this ancestor's X over the leaf header; 35
             // keeps the X confined to this ancestor's own exposed top-right corner.
             className={cn(
-              "absolute z-[35] flex flex-col items-center gap-1",
+              // flex-row-reverse: DOM order is [close, expand] but we render them as
+              // [expand | close] left-to-right, so the CLOSE X keeps its corner anchor
+              // (rightmost) and the expand button sits just to its LEFT.
+              "absolute z-[35] flex flex-row-reverse items-center gap-1",
               // Leaf hexagon + spine use inline top/right (above); everyone else uses
               // the static top-right corner.
               spaceLeafWindow || isSpine ? "" : "right-1.5 top-3",
@@ -1124,9 +1127,9 @@ export function EntityNode({
             >
               <X size={14} strokeWidth={closeHover ? 2.25 : 1.5} />
             </button>
-            {/* Expand / restore — toggles this window's fullscreen. Sits just below the
-                X in the same right-edge chrome column (leaf, ancestor, spine — never
-                root, which isn't rendered through this window header). */}
+            {/* Expand / restore — toggles this window's fullscreen. Sits just LEFT of
+                the X in the same right-edge chrome cluster (leaf, ancestor, spine —
+                never root, which isn't rendered through this window header). */}
             <button
               type="button"
               onClick={(e) => {
