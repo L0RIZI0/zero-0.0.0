@@ -294,8 +294,22 @@ export function CollapsibleColumn({
             >
               {/* `min-h-full` + `justify-center`: a short list centers in the panel;
                   a tall one grows past the container and scrolls naturally (no
-                  top-clipping, unlike `justify-center` directly on the scroll box). */}
-              <div className="flex min-h-full flex-col justify-center">{children}</div>
+                  top-clipping, unlike `justify-center` directly on the scroll box).
+                  translateY(spineShift): match the SAME re-centering the spine chevron
+                  gets (line ~354) so the centered content (esp. an empty-state CTA like
+                  "Add resource"/"Create publication") lands on the true body middle,
+                  vertically aligned with the chevron. Without this the content centers on
+                  the raw slot while the chevron is shifted −headerH/2 (in-flow task/event/
+                  space headers), so the CTA drifted below the chevron on non-entity0
+                  windows; entity0 looked fine only because its spineShift is 0. The shift
+                  (~headerH/2) is well inside the py-8 padding, so tall scrolling lists are
+                  unaffected. */}
+              <div
+                className="flex min-h-full flex-col justify-center"
+                style={{ transform: `translateY(${spineShift}px)` }}
+              >
+                {children}
+              </div>
             </div>
           </motion.section>
         )}
