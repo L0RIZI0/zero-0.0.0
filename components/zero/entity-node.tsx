@@ -701,6 +701,12 @@ export function EntityNode({
   // leaf again → condition flips → strip rotates back). Keep this rule identical to
   // nav-store's `ancestorVertical`.
   const isSpine = asWindow && !isTop && isSpace
+  // SPINE-EXPANDED: this covered Space ancestor has had its left Resources panel bloomed
+  // open (nav-store `spineExpandedIds`, toggled by clicking its spine band). When true we
+  // simply REVEAL the ancestor's existing horizontal header title (it's already pinned at
+  // the leaf slot, `left-[48px] top-3`, and normally faded to opacity-0 for a spine) — no
+  // duplicate title is drawn. Its rotated spine twin collapses away in collapsible-column.
+  const spineExpanded = isSpine && nav.isSpineExpanded(entityId)
 
   // FLOATING HEADER (Space windows only). A Space window renders its glyph + title
   // as an ABSOLUTELY-POSITIONED overlay instead of an in-flow header band, so the
@@ -1344,7 +1350,11 @@ export function EntityNode({
                 // BOTH row and window states so the cancelled treatment persists on open.
                 cancelled && "line-through",
                 asWindow && "transition-opacity",
-                asWindow && isSpine && "opacity-0",
+                // A covered Space ancestor normally fades this horizontal title out (its
+                // rotated spine twin represents it). But when the ancestor is SPINE-EXPANDED
+                // we bring THIS existing, correctly-positioned title back (opacity-1) instead
+                // of drawing a duplicate — the rotated twin collapses away in parallel.
+                asWindow && isSpine && !spineExpanded && "opacity-0",
               )}
               style={
                 asWindow

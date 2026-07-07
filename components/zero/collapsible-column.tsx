@@ -3,7 +3,7 @@
 import { useRef, useState } from "react"
 import { motion, AnimatePresence } from "motion/react"
 import { ChevronLeft, ChevronRight, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from "lucide-react"
-import { panelSlideTransition, PANEL_SLIDE_BEZIER, MORPH_SECONDS, MORPH_EASE, HEADER_H } from "@/lib/zero/motion"
+import { panelSlideTransition, MORPH_SECONDS, MORPH_EASE, HEADER_H } from "@/lib/zero/motion"
 import { cn } from "@/lib/utils"
 
 /** How far UP the spine glyph/title slide when hiding. The crop box top sits on the
@@ -457,13 +457,7 @@ export function CollapsibleColumn({
                 // sticks to the box's BOTTOM edge and any overflow is clipped at the TOP (the
                 // header edge) only. Top-anchoring instead let the box's GROWING BOTTOM edge
                 // slice through the block, cropping the bottom of the username mid-animation.
-                // When `forceExpanded` (settled ancestor, no leaf↔spine height flip in play)
-                // switch to overflow-VISIBLE so the unrotated title can overhang RIGHT past the
-                // 48px spine into the uncovered panel gap (overflow-hidden clips both axes).
-                className={cn(
-                  "flex flex-col items-center justify-end",
-                  forceExpanded ? "overflow-visible" : "overflow-hidden",
-                )}
+                className="flex flex-col items-center justify-end overflow-hidden"
               >
                 <motion.div
                   initial={{ y: -SPINE_HIDE_Y, opacity: 0 }}
@@ -472,33 +466,11 @@ export function CollapsibleColumn({
                   transition={{ duration: MORPH_SECONDS, ease: MORPH_EASE }}
                   className="flex flex-col items-center"
                 >
-                  {/* GLYPH — and, when this ancestor is SPINE-EXPANDED (`forceExpanded`), its
-                      title UNROTATED to the RIGHT of the glyph. The horizontal title is absolute
-                      (`left-full`) so it adds no layout width — the glyph stays centered on the
-                      spine while the title overhangs into the uncovered panel gap. It fades +
-                      slides in on the panel-slide beat. */}
-                  <div className="relative flex items-center justify-center">
-                    {spineGlyph}
-                    {spineTitle && (
-                      <AnimatePresence>
-                        {forceExpanded && (
-                          <motion.span
-                            key="spine-title-h"
-                            initial={{ opacity: 0, x: -6 }}
-                            animate={{ opacity: 1, x: 0 }}
-                            exit={{ opacity: 0, x: -6 }}
-                            transition={{ duration: 0.5, ease: PANEL_SLIDE_BEZIER }}
-                            className="pointer-events-none absolute left-full top-1/2 ml-2 -translate-y-1/2 whitespace-nowrap text-[13px] font-medium tracking-tight text-foreground"
-                          >
-                            {spineTitle}
-                          </motion.span>
-                        )}
-                      </AnimatePresence>
-                    )}
-                  </div>
+                  {spineGlyph}
                   {/* ROTATED (vertical) title BELOW the glyph — the resting spine label. When
-                      spine-expanded it COLLAPSES away (height 0 + fade) so the horizontal title
-                      above takes over and the excerpt slides up, all on the panel-slide beat. */}
+                      spine-expanded it COLLAPSES away (height 0 + fade); the ancestor's real
+                      HORIZONTAL header title (in entity-node, pinned at the leaf slot) is
+                      revealed in parallel, so we never draw a duplicate title here. */}
                   {spineTitle && (
                     <motion.span
                       initial={false}
