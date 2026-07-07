@@ -325,6 +325,10 @@ function ResourceRow({
       onPointerEnter={peek ? undefined : () => setHovered(true)}
       onPointerLeave={peek ? undefined : () => setHovered(false)}
       onDragStart={onDragStart}
+      // In peek the label tooltip is anchored to the losange's live bbox; re-run showLabel
+      // each drag frame so the tooltip travels WITH the losange instead of staying pinned
+      // at the pre-drag spot. (framer passes (event, info) — showLabel ignores them.)
+      onDrag={peek ? () => showLabel() : undefined}
       onDragEnd={onDragEnd}
       // In peek, only lift z (no scale): the losange sits far left of the row center, so a
       // row-centered scale would visibly shove it sideways as you grab it.
