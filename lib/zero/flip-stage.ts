@@ -373,12 +373,14 @@ export function playStage(
             }
           }
         }
-        // NOTE: do NOT call applyClip(0) synchronously here. A getBoundingClientRect
-        // read on THIS tick (right after Flip.from) forces a reflow before GSAP Flip
-        // has finished its deferred `absolute` conversion + invert-transform setup,
-        // which corrupts the whole morph — frames snap straight to their target size
-        // with nothing in between (regression seen on depth≥1 opens). The p=0 clip is
-        // instead pre-applied from CAPTURED sizes above, before Flip.from runs.
+        // Paint the SOURCE (p=0) shape synchronously now: the gsap tween's first
+        // onUpdate doesn't fire until the next rAF, so without this the card→leaf
+        // frame 1 shows React's committed TARGET clip (e.g. a squeezed pinned dock
+        // card flashing the full leaf octagon) before snapping back to the source
+        // hexagon. Flip.from has already applied its invert transforms synchronously,
+        // so reading getBoundingClientRect here returns the inverted (source) rect and
+        // does not disturb the Flip timeline.
+        applyClip(0)
         gsap.to(driver, {
           p: 1,
           duration: MORPH_DURATION,
