@@ -2,7 +2,7 @@
 
 import { useState, useLayoutEffect, useEffect, useRef } from "react"
 import { useTheme } from "next-themes"
-import { Check, X } from "lucide-react"
+import { Check, X, Maximize2, Minimize2 } from "lucide-react"
   import { getEntity, getOpenTaskCount, setEntityCompleted } from "@/lib/zero/data"
 import type { TaskPriority } from "@/lib/zero/types"
 import { KIND_META, isTerminal, isClosed } from "@/lib/zero/kinds"
@@ -271,6 +271,7 @@ export function EntityNode({
     setGlyphSettledTask(false)
   }, [entityKind])
   const [closeHover, setCloseHover] = useState(false)
+  const [expandHover, setExpandHover] = useState(false)
   // Mouse-hover state for the collapsed row/card. Driven in JS (not a Tailwind
   // `hover:` class) so the background can be the dynamic per-depth `surfaceAt`
   // color — the same value the node's window adopts when opened.
@@ -459,6 +460,14 @@ export function EntityNode({
         ? closingEntry.depth
         : 0
 
+  // FULLSCREEN: the user clicked a window's expand button. That window (fullscreenId)
+  // AND every strict ancestor above the root form the "fullscreen chain" — stack
+  // depths 1..fsDepth — and each fills the viewport. Root (depth 0 / home) never
+  // joins. A fading/closing window opts out so the close morph keeps its own geometry.
+  const fsDepth = nav.fullscreenId ? nav.stack.indexOf(nav.fullscreenId) : -1
+  const fullscreen =
+    asWindow && !fadingWindow && !isClosing && depth >= 1 && fsDepth >= 1 && depth <= fsDepth
+
   // Per-instance flip-id prefix. Two references to the same entity (different
   // contexts) must NOT share a flip-id, or GSAP Flip mismatches their before/
   // after states. Scoping by context keeps each instance's morph self-consistent
@@ -595,13 +604,32 @@ export function EntityNode({
   // than the telescoping `fadingStyleFor` box — it has no row to retract into and
   // is morphed toward its launch point by `morphDetached` instead. `selfKind` is
   // passed because it has been popped from the stack and can't be read back.
-  const winStyle = asWindow
+  const winStyleBase = asWindow
     ? detachedFading
       ? nav.styleFor(depth, { forceLeaf: true, selfKind: kind })
       : fadingWindow
         ? nav.fadingStyleFor(depth)
         : nav.styleFor(depth)
     : null
+  // Fullscreen override: fill the viewport and drop the Space hexagon CSS vars (the
+  // clip-path is forced off below so the shape becomes a full box reaching all four
+  // corners). Keep the per-depth zIndex so a fullscreen chain still stacks leaf-over-
+  // ancestor. NOTE this pass does NOT move the entity0 header (relative z-40); a
+  // fullscreen window lives inside the z-10 region, so `top: 0` makes it extend up
+  // BEHIND the header — covering the sides + bottom to the viewport edges now, and
+  // already correctly sized for when the header slide-up (a later pass) reveals the top.
+  const winStyle: React.CSSProperties | null =
+    fullscreen && winStyleBase
+      ? {
+          position: "fixed",
+          top: 0,
+          left: 0,
+          width: "100vw",
+          height: "100vh",
+          zIndex: (winStyleBase.zIndex as number | undefined) ?? 20 + depth * 10,
+          borderRadius: "0",
+        }
+      : winStyleBase
 
   // A Space is always shaped by the SAME 8-point clip-path; only its two insets
   // change between states:
@@ -624,8 +652,10 @@ export function EntityNode({
   const leafAyRaw = winStyle ? Number((winStyle as Record<string, unknown>)["--space-ay"]) : NaN
   const leafAy = Number.isFinite(leafAyRaw) ? leafAyRaw : LEAF_HY
   const leafClip = Number.isFinite(leafAx) ? spaceClip(leafAx, leafAy) : SPACE_CLIP_HEX
-  const clipPath = !isSpace
-    ? undefined
+  const clipPath = fullscreen || !isSpace
+    ? // A fullscreen Space drops its hexagon so the fill reaches all four viewport
+      // corners (a plain full box); non-Spaces never clip.
+      undefined
     : asWindow
       ? // Leaf AND ancestor windows are the SAME grown hexagon — opening a child no
         // longer flattens the Space to a rectangle; it keeps this exact clip and only
@@ -669,7 +699,7 @@ export function EntityNode({
   // flip no longer swaps rims at all — the hexagon boundary simply stays put.
   // DARK mode renders no SVG (the dark surface reads cleanly), so dark is unchanged.
   const spaceOutlinePoints =
-    mounted && !isDark && isSpace
+    mounted && !isDark && isSpace && !fullscreen
       ? asWindow
         ? spaceClipPoints(leafAx, leafAy)
         : variant === "dock"
@@ -1093,6 +1123,29 @@ export function EntityNode({
               )}
             >
               <X size={14} strokeWidth={closeHover ? 2.25 : 1.5} />
+            </button>
+            {/* Expand / restore — toggles this window's fullscreen. Sits just below the
+                X in the same right-edge chrome column (leaf, ancestor, spine — never
+                root, which isn't rendered through this window header). */}
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation()
+                nav.toggleFullscreen(entityId)
+              }}
+              onPointerEnter={() => setExpandHover(true)}
+              onPointerLeave={() => setExpandHover(false)}
+              aria-label={`${fullscreen ? "Restore" : "Expand"} ${entity.title}`}
+              className={cn(
+                "flex size-6 items-center justify-center transition-all ease-out",
+                expandHover ? "text-foreground opacity-100" : "text-muted-foreground opacity-40",
+              )}
+            >
+              {fullscreen ? (
+                <Minimize2 size={13} strokeWidth={expandHover ? 2.25 : 1.5} />
+              ) : (
+                <Maximize2 size={13} strokeWidth={expandHover ? 2.25 : 1.5} />
+              )}
             </button>
           </div>
         )}

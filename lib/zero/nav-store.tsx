@@ -108,6 +108,15 @@ interface ZeroNavContextValue {
   toggleSpineExpand: (id: string) => void
   /** Whether `id` is currently spine-expanded. */
   isSpineExpanded: (id: string) => boolean
+  /** Id of the window the user has expanded to FULLSCREEN, or null. That window and
+   *  every strict ancestor above the root (stack depths 1..itsDepth) fill the viewport
+   *  — `styleFor`'s consumer (entity-node) reads this to override the frame geometry.
+   *  Ephemeral in-memory nav state (never persisted); auto-pruned when the target
+   *  window is no longer in the stack. Root (depth 0 / home) can never be fullscreen. */
+  fullscreenId: string | null
+  /** Toggle a window's fullscreen state: fullscreen `id` if a different (or no) window
+   *  is fullscreen, else clear it. Passing the currently-fullscreen id restores. */
+  toggleFullscreen: (id: string) => void
   /** Bumps on any in-memory data mutation so selectors re-read fresh data. */
   dataVersion: number
   /** Signal that the underlying data arrays changed (entity added). */
@@ -218,6 +227,18 @@ export function ZeroNavProvider({
       }
       return changed ? next : prev
     })
+  }, [stack])
+
+  // The window expanded to fullscreen (see `fullscreenId` doc above). Ephemeral.
+  const [fullscreenId, setFullscreenId] = useState<string | null>(null)
+  const toggleFullscreen = useCallback((id: string) => {
+    setFullscreenId((prev) => (prev === id ? null : id))
+  }, [])
+  // Prune on stack change: a window can only stay fullscreen while it is still open
+  // (present in the stack). Closing it — or navigating away — clears the flag so the
+  // next opened window doesn't inherit a stale fullscreen state.
+  useEffect(() => {
+    setFullscreenId((prev) => (prev && !stack.includes(prev) ? null : prev))
   }, [stack])
 
   const [dataVersion, setDataVersion] = useState(0)
@@ -766,6 +787,8 @@ export function ZeroNavProvider({
       spineExpandedIds,
       toggleSpineExpand,
       isSpineExpanded,
+      fullscreenId,
+      toggleFullscreen,
       dataVersion,
       notifyDataChanged,
       morphCommit,
@@ -788,6 +811,8 @@ export function ZeroNavProvider({
     spineExpandedIds,
     toggleSpineExpand,
     isSpineExpanded,
+    fullscreenId,
+    toggleFullscreen,
     open,
     close,
     closeWindow,
