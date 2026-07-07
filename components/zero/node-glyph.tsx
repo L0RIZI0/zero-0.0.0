@@ -232,11 +232,16 @@ const INDIVIDUAL_Z_ROTATE = "rotate(-45 12 12)"
 // the shape it sits on (e.g. a triangle's edges) with a clean transparent notch —
 // so the check stays readable without a background-colored "clip border" halo.
 const CHECK_POINTS = "7,12.5 10.5,16 17,8"
-// How much wider (than the visible tick) the mask cutout is, in user units — this
-// is the width of the transparent gap ringing the tick. Needs to be generous: at
-// glyph size a thin gap fuses visually with the shape's own edges, so the ring
-// reads as ~half this value on each side of the tick.
-const CHECK_MASK_EXTRA = 4.5
+// The mask cut-out has two jobs depending on the glyph:
+//  • FILLED glyph: the cut-out IS the visible check (negative space in the fill). We
+//    want it to read as a clean checkmark shape, so keep it close to the tick's own
+//    stroke width — just a hair wider so the corners stay crisp.
+const CHECK_MASK_EXTRA_FILLED = 1.5
+//  • HOLLOW glyph (events/instants): the check is drawn as INK, and the cut-out is a
+//    wider gap ringing that ink so it separates from the triangle's edges (contour).
+//    At glyph size a thin gap fuses with the shape's own edges, so this is generous —
+//    the ring reads as ~half this value on each side of the tick.
+const CHECK_MASK_EXTRA_HOLLOW = 4.5
 
 /**
  * A crisp geometric silhouette for a node kind, drawn as a single SVG `<polygon>`
@@ -482,7 +487,7 @@ export function NodeGlyph({
               points={CHECK_POINTS}
               fill="none"
               stroke="black"
-              strokeWidth={strokeWidth + CHECK_MASK_EXTRA}
+              strokeWidth={strokeWidth + (filled ? CHECK_MASK_EXTRA_FILLED : CHECK_MASK_EXTRA_HOLLOW)}
               strokeLinejoin="round"
               strokeLinecap="round"
             />
@@ -560,12 +565,13 @@ export function NodeGlyph({
       )}
       {/* Static done CHECK — a plain tick centered in the 24×24 box. Non-animated;
           used by the spine excerpt's "done" counter + the dayline hover glyph.
-          ALWAYS drawn in currentColor when showCheck (both outline AND filled): the
-          silhouette (fill + outline) is masked with a WIDER gap (checkMaskId) around
-          this same tick, so the result is  shape → transparent ring → tick ink. On a
-          FILLED glyph that reads as a check ink haloed by a thin cut-out ring; on an
-          OUTLINE glyph the ring just breaks the outline where the tick crosses it. */}
-      {showCheck && (
+          Drawn in currentColor ONLY on a HOLLOW glyph (events/instants, !filled): the
+          outline is masked with a wider gap (checkMaskId) around this same tick, so the
+          check ink sits in a clean CONTOUR notch instead of merging with the triangle's
+          edges. On a FILLED glyph we draw NO ink — the mask carves the check straight out
+          of the fill, so the tick reads as a clean negative-space CUT-OUT (the look you
+          liked); an ink stroke on top would just refill that cut-out. */}
+      {showCheck && !filled && (
         <polyline
           points={CHECK_POINTS}
           fill="none"
