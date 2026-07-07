@@ -682,7 +682,6 @@ export function DoList({
   // the closing row's OWN `<li>` (below) makes it win among those contexts. `.id` is
   // unique, so matching on it alone is safe (the row only lives in its parent list).
   const closingChildId = navClosing?.id ?? null
-  if (navClosing) console.log("[v0] DoList ctx=", contextId, "navClosing=", navClosing?.id, "parent=", navClosing?.parent)
   // Re-read whenever data mutates or context changes. Pinned items are promoted
   // to the dock, so they're excluded here.
   const items = useMemo(
