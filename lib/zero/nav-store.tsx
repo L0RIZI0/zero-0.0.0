@@ -347,15 +347,6 @@ export function ZeroNavProvider({
     const topKey: WindowKey | null = opening
       ? { id: nextStack[topDepth], depth: topDepth, parent: nextStack[topDepth - 1] }
       : null
-    // On CLOSE, the re-expanding destination (new front window) = the new top of the
-    // stack. Passed to playStage as `revealTop` so its freshly-mounted do-list fades
-    // in over the morph instead of popping (the "ghost parent do-list"). Null when
-    // opening (the open path fades the entering `top` body itself) or on a root close
-    // with nothing left underneath.
-    const revealTopKey: WindowKey | null =
-      !opening && topDepth >= 0
-        ? { id: nextStack[topDepth], depth: topDepth, parent: nextStack[topDepth - 1] }
-        : null
 
     // Keep the region rect fresh at the moment of the morph.
     setRegionRect(getRegionRect())
@@ -430,7 +421,6 @@ export function ZeroNavProvider({
       top: topKey,
       closing: closingEntity,
       fading: fadingList,
-      revealTop: revealTopKey,
       detachedTop: detachedTop ? { origin: topOrigin?.rect ?? null } : undefined,
     })
 
