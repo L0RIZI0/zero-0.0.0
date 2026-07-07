@@ -1045,7 +1045,7 @@ export function EntityNode({
             clipped, so it rides the safe band near it). Ancestor Spaces and all
             other windows are rectangles, so the X sits in the true top-right
             corner — which, for an ancestor Space, is the top of its right peek. */}
-        {asWindow && (
+        {asWindow && (!nav.fullscreenId || entityId === nav.fullscreenId) && (
           <div
             // data-fade-late (NOT data-fade): the close button fades in over the BACK
             // half of the open morph instead of with the body at the start, so it
@@ -1067,7 +1067,13 @@ export function EntityNode({
               // Because these are inline values that flip when the window SPINES, the X
               // SLIDES from the normal top-right corner into the centered-on-peek spot.
               transitionProperty: "top, right, left",
-              ...(spaceLeafWindow
+              // Fullscreen wins over every hexagon/spine anchor: the frame is a plain
+              // viewport rectangle, so the chrome belongs in the true top-right corner
+              // (matches the non-Space window case). Leaving top/right unset lets the
+              // `right-1.5 top-3` class below take over.
+              ...(fullscreen
+                ? null
+                : spaceLeafWindow
                 ? // The Space leaf is a grown hexagon whose top-right SHOULDER vertex sits
                   // at (100%, leafAy%) — leafAy is the live corner-bracket inset (from
                   // `--space-ay`, ~25% of the frame). Anchor the X at that shoulder + a few
@@ -1100,13 +1106,18 @@ export function EntityNode({
             // above the child and paint this ancestor's X over the leaf header; 35
             // keeps the X confined to this ancestor's own exposed top-right corner.
             className={cn(
-              // flex-row-reverse: DOM order is [close, expand] but we render them as
-              // [expand | close] left-to-right, so the CLOSE X keeps its corner anchor
-              // (rightmost) and the expand button sits just to its LEFT.
-              "absolute z-[35] flex flex-row-reverse items-center gap-1",
-              // Leaf hexagon + spine use inline top/right (above); everyone else uses
-              // the static top-right corner.
-              spaceLeafWindow || isSpine ? "" : "right-1.5 top-3",
+              "absolute z-[35] flex items-center gap-1",
+              // Layout + anchor split by shape:
+              //  • Hexagon shoulder (leaf Space) + narrow spine peek → flex-COL: the two
+              //    buttons stack vertically INSIDE the 24px-wide right-edge column so the
+              //    cluster never widens past the ancestor's exposed 48px peek and bleeds
+              //    over the covering child (the image-3 poke-out). Keeps inline top/right.
+              //  • Corner case (plain windows) + ALWAYS when fullscreen → flex-ROW-REVERSE
+              //    at the true top-right corner: DOM order [close, expand] renders as
+              //    [expand | close] so the X keeps the corner and expand sits to its LEFT.
+              !fullscreen && (spaceLeafWindow || isSpine)
+                ? "flex-col"
+                : "flex-row-reverse right-1.5 top-3",
             )}
           >
             <button
