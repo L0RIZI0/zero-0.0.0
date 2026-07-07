@@ -79,6 +79,7 @@ function ReorderRow({
   id,
   contextId,
   animating,
+  morphing,
   born,
   canReorder,
   faded,
@@ -89,6 +90,10 @@ function ReorderRow({
   id: string
   contextId: string
   animating: boolean
+  /** This row is the child currently CLOSING back into the list — elevate its own
+   *  `<li>` (see below) so the opaque morphing window always paints ABOVE its
+   *  siblings-below and the dock during the early close frames. */
+  morphing: boolean
   born: boolean
   canReorder: boolean
   /** Dim the row: the resolved "settled" zone below the open items in the Open view. */
@@ -123,7 +128,14 @@ function ReorderRow({
         setDragging(false)
         onCommit()
       }}
-      className={cn("group/row relative", dragging && "z-20")}
+      // `relative` alone leaves the row at z:auto, so the closing frame's inner
+      // z-index is trapped whenever framer's reflow makes this `<li>` a stacking
+      // context — letting siblings-below/dock paint over the closing window for a
+      // frame. `morphing` lifts the WHOLE row to z-40 (matching the frame's own
+      // closing elevation) so it wins among sibling row contexts and the dock.
+      // IMPORTANT (`z-40!`): framer's Reorder.Item writes an INLINE `z-index: unset`
+      // that would otherwise beat a plain `z-40` class — the `!important` wins over it.
+      className={cn("group/row relative", dragging && "z-20", morphing && "z-40!")}
     >
       {canReorder && (
         <div
@@ -657,8 +669,20 @@ export function DoList({
    *  top). Pass `false` to force a specific list back to top-aligned. */
   centered?: boolean
 }) {
-  const { dataVersion, notifyDataChanged, morphCommit, setMenuKey, open, selection, select, moveSelection, publishNavOrder, animating } =
+  const { dataVersion, notifyDataChanged, morphCommit, setMenuKey, open, selection, select, moveSelection, publishNavOrder, animating, closing: navClosing } =
     useZeroNav()
+  // The child entity that is CLOSING back into this list (globally, from the nav
+  // store). During the 1-2 commit frames where this do-list re-expands out of its
+  // spine, framer's `layout` reflow can apply a transient `transform` to each row
+  // `<li>` (a Reorder.Item) — which makes every row its OWN stacking context and
+  // TRAPS the closing frame's inner `zIndex:40` inside its row. Among those equal
+  // (auto) sibling contexts paint order is pure DOM order, so rows positioned BELOW
+  // the closing child (and the later-in-DOM dock region) briefly paint OVER the
+  // still-full-size closing window — the "ghost parent do-list/dock" flash. Elevating
+  // the closing row's OWN `<li>` (below) makes it win among those contexts. `.id` is
+  // unique, so matching on it alone is safe (the row only lives in its parent list).
+  const closingChildId = navClosing?.id ?? null
+  if (navClosing) console.log("[v0] DoList ctx=", contextId, "navClosing=", navClosing?.id, "parent=", navClosing?.parent)
   // Re-read whenever data mutates or context changes. Pinned items are promoted
   // to the dock, so they're excluded here.
   const items = useMemo(
@@ -1196,6 +1220,7 @@ export function DoList({
           id={id}
           contextId={contextId}
           animating={animating}
+          morphing={id === closingChildId}
           born={id === bornId}
           canReorder={isOpenRow}
           // Resolved-zone dim (Open view). A CLOSED row is skipped here because the
