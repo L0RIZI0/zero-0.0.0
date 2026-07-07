@@ -347,33 +347,35 @@ export function EntityNode({
 
   // ── Deferred body mount (open-morph perf) ─────────────────────────────────
   // The heavy EntityBody subtree (do-list + resource panels + dock) is the bulk of
-  // the open commit's cost. When a window opens DURING a morph, hold that subtree
-  // back by ONE animation frame: the frame/glyph/title/header (the Flip anchors, all
-  // OUTSIDE EntityBody) still mount synchronously, so the morph's first frame paints
-  // on time. The body then mounts INTO the already-running [data-body] grow+fade
-  // tween (flip-stage scales [data-body] from 0.15→1 / 0→1 opacity), so the do-list +
-  // panels fade+grow in DURING the morph with no pop. When it's NOT a morph (initial
-  // deep mount, reduced motion, an already-open ancestor re-rendering) the body
-  // mounts immediately, so a window never flashes empty. `showBodyRef` mirrors the
-  // post-early-return `showBody` (rules of hooks: this effect must precede the return).
+  // the open commit's cost. During a pure OPEN morph, hold that subtree back by ONE
+  // animation frame: the frame/glyph/title/header (the Flip anchors, all OUTSIDE
+  // EntityBody) mount synchronously so the morph's first frame paints on time, then
+  // the body mounts INTO the already-running [data-body] grow+fade tween (flip-stage
+  // scales it 0.15→1 / 0→1 opacity), so the do-list + panels grow in DURING the morph
+  // with no pop.
+  //
+  // CRITICAL: this deferral is expressed SYNCHRONOUSLY in the render gate below
+  // (`deferBody`), NOT purely via `bodyReady`. In every non-deferred case — a CLOSE
+  // (the closing window shrinks and MUST keep its body to shrink; the destination
+  // re-expands and MUST show its do-list immediately), a telescoping FADE, steady
+  // state, or reduced motion — the body must be present on the SAME commit. A gate
+  // that relied on a post-paint effect to flip `bodyReady` true would blank a
+  // freshly-mounted closing window for exactly one frame (the close "hides the window
+  // then reappears" flash). So `bodyReady` ONLY gates the open-morph path; everything
+  // else mounts the body directly. `showBodyRef` mirrors the post-return `showBody`
+  // (rules of hooks: this effect must precede the early return).
   const showBodyRef = useRef(false)
   const [bodyReady, setBodyReady] = useState(false)
   useEffect(() => {
-    if (!showBodyRef.current) {
+    const deferOpen =
+      showBodyRef.current && nav.animating && !nav.closing && nav.fading.length === 0
+    if (!deferOpen) {
+      // Not an open morph → the render gate mounts the body directly; just reset the
+      // flag so the NEXT open morph starts hidden again.
       if (bodyReady) setBodyReady(false)
       return
     }
     if (bodyReady) return
-    // Only defer during a pure OPEN morph. On a CLOSE/telescope-out (`nav.closing`
-    // set) or a multi-level FADE, the DESTINATION window re-expands from an ancestor
-    // spine and its do-list must be present IMMEDIATELY so the retracting child has a
-    // row to recede into — deferring it there flashes a one-frame ghost do-list as the
-    // reveal races the reverse morph. So: not animating, or a close/fade in flight →
-    // mount now (no empty frame, matches pre-deferral behaviour).
-    if (!nav.animating || nav.closing || nav.fading.length > 0) {
-      setBodyReady(true)
-      return
-    }
     // Open morph in flight → let the frame's first paint land, then mount the body one
     // frame later so it joins the [data-body] grow tween already underway.
     const raf = requestAnimationFrame(() => setBodyReady(true))
@@ -450,6 +452,12 @@ export function EntityNode({
   // Expose to the deferred-body effect above (declared before the early return, so it
   // can't read `showBody` directly). See that effect for the one-frame open deferral.
   showBodyRef.current = showBody
+  // Defer the heavy body by one frame ONLY for a pure open morph (this node is the
+  // opening window: showBody + animating, no close/fade in flight). Every other case
+  // — close, telescoping fade, steady state — mounts the body on THIS commit so a
+  // freshly-mounted closing window never flashes empty. See the effect above.
+  const deferBody = showBody && animating && !isClosing && nav.fading.length === 0
+  const bodyMounted = showBody && (!deferBody || bodyReady)
 
   const depth = ownsOpen
     ? stackDepth
@@ -1644,8 +1652,9 @@ export function EntityNode({
           >
             {/* The [data-body] wrapper above mounts synchronously (flip-stage runs the
                 grow+fade tween on IT), but its heavy contents are held back one frame
-                on an open morph — see the deferred-body effect near the top. */}
-            {bodyReady && (
+                on an OPEN morph only — see the deferred-body effect near the top. On a
+                close/fade/steady state `bodyMounted` is true on this same commit. */}
+            {bodyMounted && (
             <EntityBody
               entityId={entityId}
               active={isTop && !isClosing}

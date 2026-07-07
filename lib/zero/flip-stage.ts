@@ -359,22 +359,33 @@ export function playStage(
         .filter((fr) => fr.source !== fr.target)
       if (frames.length) {
         const driver = { p: 0 }
+        // Paint every driven frame at a given progress. Factored out so we can force
+        // the p=0 frame SYNCHRONOUSLY below.
+        const applyClip = (p: number) => {
+          for (const fr of frames) {
+            // Live pixel size — read each frame because Flip resizes them per frame.
+            const r = fr.el.getBoundingClientRect()
+            if (r.width <= 0 || r.height <= 0) continue
+            const pts = spaceMorphPoints(p, r.width, r.height, fr.source, fr.target)
+            fr.shape.style.clipPath = `polygon(${pts.map(([x, y]) => `${x}% ${y}%`).join(", ")})`
+            if (fr.outline) {
+              fr.outline.setAttribute("points", pts.map(([x, y]) => `${x},${y}`).join(" "))
+            }
+          }
+        }
+        // CRITICAL: overwrite React's just-committed clip with the SOURCE (p=0) shape
+        // on THIS synchronous tick. The gsap.to below is a decoupled tween whose first
+        // onUpdate does not fire until the next rAF — without this call, frame 1 paints
+        // the committed TARGET clip (e.g. an opening card showing the full leaf octagon
+        // at card size) and then snaps back to the source hexagon on the next frame.
+        // That one-frame snap is the "jump early in the animation" (most visible on
+        // squeezed pinned cards, whose aspect makes leaf vs. regular-hex diverge most).
+        applyClip(0)
         gsap.to(driver, {
           p: 1,
           duration: MORPH_DURATION,
           ease: MORPH_EASE,
-          onUpdate: () => {
-            for (const fr of frames) {
-              // Live pixel size — read each frame because Flip resizes them per frame.
-              const r = fr.el.getBoundingClientRect()
-              if (r.width <= 0 || r.height <= 0) continue
-              const pts = spaceMorphPoints(driver.p, r.width, r.height, fr.source, fr.target)
-              fr.shape.style.clipPath = `polygon(${pts.map(([x, y]) => `${x}% ${y}%`).join(", ")})`
-              if (fr.outline) {
-                fr.outline.setAttribute("points", pts.map(([x, y]) => `${x},${y}`).join(" "))
-              }
-            }
-          },
+          onUpdate: () => applyClip(driver.p),
           // No onComplete reset: the final frame (p=1) already equals React's
           // committed clip/outline for the target shape, so we LEAVE the inline value.
           // Clearing it would briefly unclip the frame until React next re-renders

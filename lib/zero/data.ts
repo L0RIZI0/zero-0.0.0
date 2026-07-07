@@ -384,6 +384,26 @@ export const entities: Entity[] = [
     assignedResourceIds: ["r_browser", "r_notion", "r_ai"],
     accent: ACCENT.zero,
   },
+  {
+    id: "s_prototype",
+    kind: "space",
+    title: "Prototype",
+    parentId: "s_zero",
+    taggedSpaceIds: [],
+    description: "The working build — experiments and rough edges.",
+    assignedResourceIds: ["r_figma", "r_whiteboard", "r_ai"],
+    accent: ACCENT.zero,
+  },
+  {
+    id: "s_lowprio_backlog",
+    kind: "space",
+    title: "Low Prio Backlog",
+    parentId: "s_prototype",
+    taggedSpaceIds: [],
+    description: "Nice-to-haves to return to one day.",
+    assignedResourceIds: ["r_notes"],
+    accent: ACCENT.zero,
+  },
   // Personal
   {
     id: "s_personal",
@@ -653,6 +673,16 @@ export const entities: Entity[] = [
     schedule: { dueAt: nextWeekday(4) },
     priority: "medium",
     tags: ["admin"],
+  },
+  {
+    id: "t_refine_hollow_check",
+    kind: "task",
+    title: "Refine checkmark on hollow Events & Instants",
+    parentId: "s_lowprio_backlog",
+    taggedSpaceIds: [],
+    completed: false,
+    priority: "low",
+    tags: ["prototype", "polish"],
   },
 
   // --- Events ---------------------------------------------------------------
