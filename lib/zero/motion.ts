@@ -12,7 +12,7 @@ import { VIEW_PAD_X } from "./layout"
 // the exact same beat. Deliberately 2s: shorter felt like dropped frames on the
 // heavier reshape/clip morphs. Tune the whole system from here — `flip-stage.ts`
 // derives its `MORPH_DURATION` from this same constant.
-export const MORPH_SECONDS = 8
+export const MORPH_SECONDS = 1.8
 
 // Shared easing: cubic-bezier(.62, .02, .07, .99). A smooth ease-in-out with a
 // firm pull through the middle and a soft settle so the motion feels deliberate.
