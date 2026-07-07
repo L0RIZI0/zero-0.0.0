@@ -139,13 +139,17 @@ function ReorderRow({
           }}
           onClick={(e) => e.stopPropagation()}
           className={cn(
-            "absolute top-1/2 left-0 z-10 flex h-6 w-4 -translate-x-full -translate-y-1/2 items-center justify-center",
+            // Bigger target (h-7 w-5, was h-6 w-4) and nudged further into the gutter
+            // (`-ml-1` on top of `-translate-x-full`) so it reads clearly instead of
+            // sitting cropped against the row edge. The widened scroller gutter above
+            // keeps this fully visible.
+            "absolute top-1/2 left-0 z-10 flex h-7 w-5 -translate-x-full -translate-y-1/2 -ml-1 items-center justify-center",
             "cursor-grab text-muted-foreground/50 opacity-0 transition-opacity duration-150",
             "hover:text-foreground group-hover/row:opacity-100",
             dragging && "cursor-grabbing opacity-100",
           )}
         >
-          <GripVertical className="h-3.5 w-3.5" strokeWidth={1.75} />
+          <GripVertical className="h-4 w-4" strokeWidth={1.75} />
         </div>
       )}
       <EntityNode entityId={id} contextId={contextId} variant="row" onContextMenu={onContextMenu} />
@@ -1345,7 +1349,12 @@ export function DoList({
                 ? { maskImage: edgeFadeMask, WebkitMaskImage: edgeFadeMask }
                 : undefined
           }
-          className="-mx-2 flex min-h-0 flex-initial flex-col gap-1.5 overflow-y-auto px-2 no-scrollbar"
+          // `-mx-7 px-7`: the negative margin + equal padding keep row CONTENT aligned to
+          // the parent's content box (unchanged visually) while reserving a WIDE clip-safe
+          // left gutter. `overflow-y-auto` also clips overflow-x, so the drag grip (which
+          // lives to the LEFT of each row via `-translate-x-full`) was previously cropped in
+          // the old 8px (`-mx-2`) gutter — 28px comfortably fits the bigger grip now.
+          className="-mx-7 flex min-h-0 flex-initial flex-col gap-1.5 overflow-y-auto px-7 no-scrollbar"
         >
           <AnimatePresence initial={false} mode="popLayout">{rowItems}</AnimatePresence>
         </Reorder.Group>
