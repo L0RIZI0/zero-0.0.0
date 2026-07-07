@@ -41,7 +41,6 @@ export function CollapsibleColumn({
   spineWidth,
   panelWidth,
   spineScale = 1,
-  spineShift = 0,
   spineTitle,
   spineGlyph,
   surface,
@@ -74,7 +73,10 @@ export function CollapsibleColumn({
   panelWidth: number
   /** Recessed scale for a covered ancestor's spine label (1 = full, uncovered). */
   spineScale?: number
-  /** Vertical px nudge aligning the spine label with the FRAME center (aesthetic). */
+  /** @deprecated Vestigial. Formerly a −headerH/2 nudge that pulled the spine chevron +
+   *  panel content UP to the FRAME center; the chevron/CTA now center on the View/body
+   *  (aligned with the do-list create-input), so this is no longer applied. Still accepted
+   *  from PanelSlot for call-site compatibility. */
   spineShift?: number
   /** When set, this is a covered SPACE ancestor: render its title ROTATED (reading
    *  bottom-to-top) at the top of the spine, directly below the glyph and ABOVE the
@@ -295,21 +297,13 @@ export function CollapsibleColumn({
               {/* `min-h-full` + `justify-center`: a short list centers in the panel;
                   a tall one grows past the container and scrolls naturally (no
                   top-clipping, unlike `justify-center` directly on the scroll box).
-                  translateY(spineShift): match the SAME re-centering the spine chevron
-                  gets (line ~354) so the centered content (esp. an empty-state CTA like
-                  "Add resource"/"Create publication") lands on the true body middle,
-                  vertically aligned with the chevron. Without this the content centers on
-                  the raw slot while the chevron is shifted −headerH/2 (in-flow task/event/
-                  space headers), so the CTA drifted below the chevron on non-entity0
-                  windows; entity0 looked fine only because its spineShift is 0. The shift
-                  (~headerH/2) is well inside the py-8 padding, so tall scrolling lists are
-                  unaffected. */}
-              <div
-                className="flex min-h-full flex-col justify-center"
-                style={{ transform: `translateY(${spineShift}px)` }}
-              >
-                {children}
-              </div>
+                  NO spineShift here (nor on the chevron below): the content centers on the
+                  slot = the View/body center, which is exactly where the do-list create-input
+                  sits. So an empty-state CTA ("Add resource"/"Create publication"), the spine
+                  chevron, and the create-input all share ONE vertical center. (Previously these
+                  were pulled UP by −headerH/2 to the frame center while the create-input stayed
+                  at the body center, leaving the CTA/chevron floating above it.) */}
+              <div className="flex min-h-full flex-col justify-center">{children}</div>
             </div>
           </motion.section>
         )}
@@ -362,10 +356,13 @@ export function CollapsibleColumn({
             // ExpandChevron hint instead.
             leafStrip && !isEmpty && "opacity-0",
           )}
-          // `spineShift` re-centers the label on the body center. Applied INSTANTLY: leaf
-          // and spine now share the same −headerH/2 shift, so it doesn't change on a
-          // leaf↔spine flip — nothing to snap, no transition needed.
-          style={{ transform: `translateY(${spineShift}px) scale(${spineScale})` }}
+          // NO vertical shift: the chevron centers on the slot = the View/body center, so it
+          // lines up with the do-list create-input and the empty-state CTA (see the content
+          // wrapper note above). Only `spineScale` (1 today) remains. The covered-ancestor
+          // spine head is a SEPARATE top-pinned block, and this chevron is invisible on a
+          // covered ancestor (focused=false → opacity-0), so dropping the shift never causes a
+          // leaf↔spine jump.
+          style={{ transform: `scale(${spineScale})` }}
         >
           {stripCollapse ? (
             /* STRIP-COLLAPSE (Resources spine). The losanges are the collapsed affordance and
