@@ -396,11 +396,11 @@ export function CollapsibleColumn({
             />
           ) : (
             /* COLLAPSED (non-stripCollapse, e.g. Published/right): show ONLY a directional
-               chevron — no toggle icon, no rotated label. Mirrors the left spine's chevron
-               system and this panel's own expanded state: collapsed → ExpandChevron (points
-               INTO the view = "click to open"); expanded → CollapseChevron (points at the edge
-               = "click to close", the branch above). */
-            <ExpandChevron
+               chevron — no toggle icon, no rotated label. Uses the SAME CollapseChevron as the
+               open branch above so the spine keeps ONE consistent direction across both states
+               (for the right/Published panel that's a right-pointing chevron), per the user's
+               request — collapsed and expanded no longer flip the chevron. */
+            <CollapseChevron
               className={cn(
                 "h-4 w-4 transition-opacity duration-500",
                 spineHover ? "text-foreground opacity-100" : "text-muted-foreground opacity-45",

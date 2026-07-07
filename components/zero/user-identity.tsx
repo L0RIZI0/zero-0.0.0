@@ -10,7 +10,7 @@ import { cn } from "@/lib/utils"
 // Avatar diameter. The handle is no longer an in-flow element (it shows as a hover
 // tooltip), so the name sits alone vertically centered on the avatar — the avatar is
 // sized for that single line so it doesn't look oversized.
-const AVATAR = 32
+const AVATAR = 28
 
 /**
  * The identity of Space 0 — the user. Lives permanently in the top-left of the shell
@@ -37,7 +37,7 @@ export function UserIdentity({ className }: { className?: string }) {
       onMouseEnter={show}
       onMouseLeave={() => setTip(null)}
     >
-      <span className="relative h-8 w-8 shrink-0 overflow-hidden rounded-full border border-border">
+      <span className="relative h-7 w-7 shrink-0 overflow-hidden rounded-full border border-border">
         <Image
           src={currentUser.avatarUrl ?? "/loris-avatar.png"}
           alt={`${currentUser.name} avatar`}
