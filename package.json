@@ -69,7 +69,7 @@
     },
     "publish": {
       "provider": "generic",
-      "url": "${env.ZERO_UPDATE_FEED_URL}",
+      "url": "https://nxge4raka52ini1u.public.blob.vercel-storage.com/updates",
       "channel": "latest"
     },
     "mac": {

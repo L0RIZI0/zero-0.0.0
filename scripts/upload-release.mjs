@@ -3,14 +3,14 @@
 // (see .github/workflows/release.yml). Token-free downloads on the client require a
 // PUBLIC blob store, so this uploads with `access: "public"`.
 //
-// The upload keys MUST live under the same path segment that ZERO_UPDATE_FEED_URL
-// points at (e.g. feed = https://<store>.public.blob.vercel-storage.com/updates ⇒
-// keys are updates/<file>). electron-updater fetches <feed>/latest.yml, reads the
-// installer + .blockmap filenames from it, and downloads them from the same folder.
+// The upload keys MUST live under the same path segment that the electron-builder
+// `publish.url` points at (see package.json → build.publish.url). Both are the
+// PUBLIC store's `/updates` prefix, kept in sync via FEED_URL below. electron-updater
+// fetches <feed>/latest.yml, reads the installer + .blockmap filenames from it, and
+// downloads them from the same folder.
 //
 // Env:
 //   BLOB_READ_WRITE_TOKEN  – write token for the PUBLIC store (GitHub secret)
-//   ZERO_UPDATE_FEED_URL   – full feed URL incl. the path prefix (GitHub variable)
 
 import { readFile, readdir } from "node:fs/promises"
 import path from "node:path"
@@ -18,12 +18,12 @@ import { put } from "@vercel/blob"
 
 const RELEASE_DIR = path.resolve("release")
 
+// PUBLIC, stable, non-secret. MUST match package.json → build.publish.url.
+const FEED_URL = "https://nxge4raka52ini1u.public.blob.vercel-storage.com/updates"
+
 function feedPrefix() {
-  const feed = process.env.ZERO_UPDATE_FEED_URL
-  if (!feed) throw new Error("ZERO_UPDATE_FEED_URL is not set")
   // The path portion of the feed URL is the blob key prefix (strip leading slash).
-  const prefix = new URL(feed).pathname.replace(/^\/+/, "").replace(/\/+$/, "")
-  return prefix // e.g. "updates"
+  return new URL(FEED_URL).pathname.replace(/^\/+/, "").replace(/\/+$/, "") // -> "updates"
 }
 
 // Only these artifacts belong in the feed: the update manifest, the NSIS installer,
@@ -51,7 +51,7 @@ async function main() {
     })
     console.log(`[release] uploaded ${name} -> ${url}`)
   }
-  console.log(`[release] feed ready at ${process.env.ZERO_UPDATE_FEED_URL}/latest.yml`)
+  console.log(`[release] feed ready at ${FEED_URL}/latest.yml`)
 }
 
 main().catch((err) => {

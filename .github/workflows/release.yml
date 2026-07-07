@@ -10,7 +10,7 @@
 #
 # Required repo config (Settings → Secrets and variables → Actions):
 #   • Secret   BLOB_READ_WRITE_TOKEN  – write token for the PUBLIC Blob store
-#   • Variable ZERO_UPDATE_FEED_URL   – e.g. https://<store>.public.blob.vercel-storage.com/updates
+#     (the feed URL itself is public + hardcoded in package.json / upload-release.mjs)
 name: release-desktop
 
 on:
@@ -50,12 +50,9 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build Windows installer
-        env:
-          ZERO_UPDATE_FEED_URL: ${{ vars.ZERO_UPDATE_FEED_URL }}
         run: pnpm electron:build:ci
 
       - name: Upload update feed to Blob
         env:
           BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN }}
-          ZERO_UPDATE_FEED_URL: ${{ vars.ZERO_UPDATE_FEED_URL }}
         run: pnpm release:upload
