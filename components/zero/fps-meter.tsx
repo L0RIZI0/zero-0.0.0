@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react"
 import { useDebugView } from "@/lib/zero/debug-view"
+import { BRAT_STEPS, cycleBrat, useMorphTime } from "@/lib/zero/motion"
 
 /**
  * Dev-only on-screen FPS meter — a no-DevTools way to answer the 120Hz question.
@@ -14,16 +15,19 @@ import { useDebugView } from "@/lib/zero/debug-view"
  *   - stays near the max       → smooth, cost is fine.
  *   - drops well below max     → genuine per-frame cost (gesture-decoupling refactor).
  *
- * Renders nothing in production. Toggle with the `§ 1` chord (shared debug store). Click
- * "reset" (or press R while hovering) to clear the max — do that right before a drag to
- * capture the drag's own min/max cleanly.
+ * Renders nothing in production. Revealed by the `§ 1` chord (shared debug store), which
+ * ALSO cycles the global BRAT / morph time (shown at the bottom) and auto-hides the whole
+ * overlay 10s after the last press. Click "reset" (or press R while hovering) to clear the
+ * max — do that right before a drag to capture the drag's own min/max cleanly.
  */
 export function FpsMeter() {
   const [fps, setFps] = useState(0)
   const [maxFps, setMaxFps] = useState(0)
   const [minFps, setMinFps] = useState(0)
   const { fps: visible } = useDebugView()
+  const brat = useMorphTime()
   const resetRef = useRef(false)
+  const fmtBrat = (s: number) => (s === 0 ? "0" : `${s}`)
 
   useEffect(() => {
     if (process.env.NODE_ENV === "production") return
@@ -99,7 +103,37 @@ export function FpsMeter() {
       >
         reset (R)
       </button>
-      <div className="mt-1 text-[10px] text-muted-foreground">{"§1 hide · §2 frames"}</div>
+      {/* Morph time (BRAT): §1 also cycles this; clicking the row advances it too. */}
+      <div className="mt-2 border-t border-border/60 pt-1.5">
+        <div className="flex items-baseline gap-1.5">
+          <span className="text-sm font-bold tabular-nums leading-none">{fmtBrat(brat)}</span>
+          <span className="text-[10px] text-muted-foreground">s morph</span>
+        </div>
+        <button
+          type="button"
+          onClick={() => cycleBrat()}
+          className="mt-1 flex items-center gap-1 tabular-nums"
+          aria-label={`Animation morph time ${fmtBrat(brat)} seconds. Click or press section-1 to cycle.`}
+          title="§ 1 — cycle animation time (BRAT)"
+        >
+          {BRAT_STEPS.map((s) => {
+            const active = Math.abs(s - brat) < 1e-6
+            return (
+              <span
+                key={s}
+                className={
+                  active
+                    ? "rounded bg-foreground px-1 py-0.5 text-[10px] font-semibold text-background"
+                    : "rounded px-1 py-0.5 text-[10px] text-muted-foreground hover:text-card-foreground"
+                }
+              >
+                {fmtBrat(s)}
+              </span>
+            )
+          })}
+        </button>
+      </div>
+      <div className="mt-1.5 text-[10px] text-muted-foreground">{"§1 cycles morph · §2 frames"}</div>
     </div>
   )
 }

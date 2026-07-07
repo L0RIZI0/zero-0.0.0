@@ -8,13 +8,14 @@ import { cycleBrat } from "./motion"
 // ============================================================================
 // Shared DEBUG-view store ([v0] DEBUG)
 // ----------------------------------------------------------------------------
-// Two independently-toggleable dev overlays, flipped by a `§`-prefixed chord:
-//   • `§ 1` → the FPS meter window (bottom-left)
+// Dev overlays, flipped by a `§`-prefixed chord:
+//   • `§ 1` → the FPS + morph-time helper (bottom-left). Each press ALSO cycles the
+//            global BRAT (morph time) through BRAT_STEPS — every big animation scales
+//            off it (see motion.ts). The overlay auto-reveals on the first press and
+//            auto-hides 10s after the LAST press (transient, not a sticky toggle).
 //   • `§ 2` → the colored element frames + their ID/property labels
 //   • `§ 3` → the ACTIVITY inspector (today's presence segments + per-space totals)
 //   • `§ 4` → the HIERARCHY inspector (the whole containment tree, root → leaves)
-//   • `§ 5` → cycle the global BRAT (morph time) through BRAT_STEPS; every big
-//            animation scales proportionally off it (see motion.ts). Logs the beat.
 //   • `§ 0` → RESET PREVIEW DATA: wipe THIS browser's persisted user items
 //            (created entities + pins + tombstones + overrides) AND the activity
 //            log, then reload, so the app returns to pure seed data. localStorage
@@ -46,8 +47,24 @@ function setState(next: Partial<DebugState>) {
   emit()
 }
 
-export function toggleDebugFps() {
-  setState({ fps: !state.fps })
+// The FPS/morph-time helper is TRANSIENT: it reveals on a `§ 1` press and auto-hides
+// this long after the LAST press (each press restarts the countdown). Not a sticky toggle.
+const FPS_AUTOHIDE_MS = 10_000
+let fpsHideTimer: ReturnType<typeof setTimeout> | null = null
+
+/**
+ * `§ 1` action: (1) reveal the FPS/morph-time overlay if hidden, (2) advance the global
+ * BRAT to the next step (so §1 doubles as the morph-time cycler), and (3) (re)start the
+ * 10s auto-hide countdown. Repeated presses keep it visible AND keep cycling BRAT.
+ */
+export function pulseDebugFps() {
+  cycleBrat()
+  if (!state.fps) setState({ fps: true })
+  if (fpsHideTimer) clearTimeout(fpsHideTimer)
+  fpsHideTimer = setTimeout(() => {
+    fpsHideTimer = null
+    setState({ fps: false })
+  }, FPS_AUTOHIDE_MS)
 }
 export function toggleDebugFrames() {
   setState({ frames: !state.frames })
@@ -89,22 +106,14 @@ function ensureListener() {
 
     if (
       prefixActive &&
-      (e.key === "0" || e.key === "1" || e.key === "2" || e.key === "3" || e.key === "4" || e.key === "5")
+      (e.key === "0" || e.key === "1" || e.key === "2" || e.key === "3" || e.key === "4")
     ) {
       e.preventDefault()
-      if (e.key === "1") toggleDebugFps()
+      if (e.key === "1") pulseDebugFps()
       else if (e.key === "2") toggleDebugFrames()
       else if (e.key === "3") toggleDebugActivity()
       else if (e.key === "4") toggleDebugHierarchy()
-      else if (e.key === "5") {
-        // `§ 5` — cycle the global BRAT (Big Referential Animation Time) through
-        // BRAT_STEPS. Every "big" morph (window open/close, resources panel
-        // collapse/expand, butter slide) scales proportionally off it, so this
-        // rescales the whole motion language at once. Logged so the current beat
-        // is discoverable (there's no on-screen indicator).
-        const v = cycleBrat()
-        console.log("[v0] BRAT (morph time) = " + v + "s")
-      } else {
+      else {
         // `§ 0` — reset THIS browser's preview data back to pure seeds. Confirmed
         // because it clears created entities too (web-preview store is disposable,
         // but a stray chord shouldn't silently wipe it).
