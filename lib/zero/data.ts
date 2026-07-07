@@ -1326,6 +1326,22 @@ export function unpinItem(contextId: string, itemId: string): void {
   persist()
 }
 
+/**
+ * Persist a new dock order for a context. `orderedIds` is the full arranged pin
+ * sequence from a drag-and-drop reorder; only ids that are actually pinned in this
+ * context are kept (any that aren't are dropped, and any currently-pinned id missing
+ * from the list is appended so nothing silently disappears). Idempotent.
+ */
+export function reorderPins(contextId: string, orderedIds: string[]): void {
+  const current = pinnedByContext[contextId]
+  if (!current || current.length === 0) return
+  const set = new Set(current)
+  const next = orderedIds.filter((id) => set.has(id))
+  for (const id of current) if (!next.includes(id)) next.push(id)
+  pinnedByContext[contextId] = next
+  persist()
+}
+
 // ----------------------------------------------------------------------------
 // Per-context ORDER — the user's drag-and-drop sibling order for a do-list.
 // Scoped per context (like pins): `contextId` → the ordered child ids. A context

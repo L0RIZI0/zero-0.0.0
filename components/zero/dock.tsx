@@ -9,6 +9,7 @@ import {
   getEntity,
   getPinnedItems,
   unpinItem,
+  reorderPins,
   deleteEntity,
   setEventCancelled,
   type ContextItem,
@@ -39,6 +40,33 @@ export function Dock({ contextId, active = true }: { contextId: string; active?:
   void dataVersion
   const pinned: ContextItem[] = getPinnedItems(contextId)
   const hasPins = pinned.length > 0
+
+  // DRAG-AND-DROP REORDER. The dock is an absolutely-positioned honeycomb (not a
+  // flow list), so motion's Reorder can't drive it — we drive it by hand. `liveOrder`
+  // is a local mirror of the pin ids; a drag rearranges it instantly (nearest-slot
+  // snapping) and we persist it on drop via `reorderPins`. Cards are directly
+  // draggable — no handles. While a drag is in flight we never resync from data
+  // (that would yank the card from the cursor).
+  const pinnedIds = pinned.map((p) => p.entity.id)
+  const pinnedKey = pinnedIds.join("|")
+  const [liveOrder, setLiveOrder] = useState<string[]>(pinnedIds)
+  const liveOrderRef = useRef(liveOrder)
+  liveOrderRef.current = liveOrder
+  const draggingRef = useRef(false)
+  // The card following the pointer: its id + live pointer delta + the box it started
+  // in (so it stays glued to the cursor even as its slot index reshuffles).
+  const [drag, setDrag] = useState<{ id: string; dx: number; dy: number; ox: number; oy: number } | null>(null)
+  // On drop, the card's leftover offset from its final slot eases to 0 (a smooth land).
+  const [settle, setSettle] = useState<{ id: string; x: number; y: number } | null>(null)
+  const dragRef = useRef<{ id: string; startX: number; startY: number; ox: number; oy: number; started: boolean } | null>(null)
+  // Set true for the click that immediately follows a real drag, so it doesn't ALSO
+  // open the card (a drag and an open are mutually exclusive).
+  const justDraggedRef = useRef(false)
+  useEffect(() => {
+    if (draggingRef.current) return
+    setLiveOrder(pinnedIds)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pinnedKey])
 
   const parentIsSpace = getEntity(contextId)?.kind === "space"
   const contextDepth = Math.max(0, stack.indexOf(contextId))

@@ -112,7 +112,7 @@ function ReorderRow({
       // Resolved rows in the Open view settle at reduced opacity; framer animates the
       // fade so a row you just checked GLIDES down and dims in one motion. (EntityNode
       // adds its own dimming for cancelled items, so those end up a touch fainter still.)
-      animate={{ opacity: faded ? 0.5 : 1, y: 0 }}
+        animate={{ opacity: faded ? 0.4 : 1, y: 0 }}
       exit={animating ? undefined : { opacity: 0, scale: 0.96, transition: { duration: 0.18 } }}
       transition={ROW_REFLOW}
       onDragStart={() => {
@@ -1194,7 +1194,10 @@ export function DoList({
           animating={animating}
           born={id === bornId}
           canReorder={isOpenRow}
-          faded={filter === "open" && !isOpenRow}
+          // Resolved-zone dim (Open view). A CLOSED row is skipped here because the
+          // EntityNode frame already fades it (opacity-40) — dimming it twice would
+          // stack the two and make it nearly invisible.
+          faded={filter === "open" && !isOpenRow && !isClosed(it.entity)}
           onContextMenu={(e) => openMenu(e, it)}
           onDragStartRow={() => {
             draggingRef.current = true

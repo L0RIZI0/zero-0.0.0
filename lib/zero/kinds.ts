@@ -68,7 +68,9 @@ export const KIND_META: Record<EntityKind, KindMeta> = {
     creatable: true,
     completable: true,
     fillGlyphWhenDone: true,
-    checkmarkWhenDone: false,
+    // Events behave like tasks now: clicking the glyph marks them done (a checkmark
+    // appears in the triangle) and they CLOSE at the midnight after their done date.
+    checkmarkWhenDone: true,
     terminal: null,
   },
   instant: {
@@ -77,7 +79,8 @@ export const KIND_META: Record<EntityKind, KindMeta> = {
     creatable: true,
     completable: true,
     fillGlyphWhenDone: true,
-    checkmarkWhenDone: false,
+    // Same as events — completable via the glyph, checkmarked when done.
+    checkmarkWhenDone: true,
     terminal: null,
   },
   community: {
@@ -160,16 +163,24 @@ export function isClosed(entity: Entity, now: number = Date.now()): boolean {
   // Explicit user reopen overrides the DERIVED closes below (but not the manual
   // `closed` / `cancelled` cases handled above) — see SpaceBase.reopened.
   if (entity.reopened) return false
-  if (entity.kind === "task") {
-    return (
+  // Task / Event / Instant all resolve "done" the same way: once completed, they
+  // auto-close at the first LOCAL midnight after `completedOn`. (Events/instants
+  // gained glyph-completion — a done Moment shows a checkmark, then fills at the
+  // following midnight, exactly like a Task.)
+  if (entity.kind === "task" || entity.kind === "event" || entity.kind === "instant") {
+    if (
       !!entity.completed &&
       entity.completedOn != null &&
       now >= nextLocalMidnight(entity.completedOn)
-    )
+    ) {
+      return true
+    }
   }
+  // Events/instants ALSO close once their scheduled end has passed, even if never
+  // marked done (instant end == `at`).
   if (entity.kind === "event" || entity.kind === "instant") {
     const end = entity.schedule?.endAt ?? entity.schedule?.at
-    return end != null && now >= end
+    if (end != null && now >= end) return true
   }
   return false
 }

@@ -249,18 +249,23 @@ export function EntityNode({
   // has settled. A plain done-toggle (kind unchanged) leaves it true, so completing a
   // task still shows the check promptly alongside the fill wipe.
   const entityKind = entity?.kind
-  const [glyphSettledTask, setGlyphSettledTask] = useState(entityKind === "task")
+  // Any kind whose glyph carries a checkmark when done (task/event/instant). The gate
+  // was task-only; events/instants now complete via their glyph too, so it keys off
+  // KIND_META rather than a hard-coded "task".
+  const kindChecks = (k: typeof entityKind) => !!k && KIND_META[k].checkmarkWhenDone
+  const [glyphSettledTask, setGlyphSettledTask] = useState(kindChecks(entityKind))
   const prevKindForCheck = useRef(entityKind)
   useLayoutEffect(() => {
     if (prevKindForCheck.current === entityKind) return
     prevKindForCheck.current = entityKind
-    if (entityKind === "task") {
-      // Morphing INTO task: hide the check now, reveal it once the square settles.
+    if (kindChecks(entityKind)) {
+      // Morphing INTO a checkmark kind: hide the check now, reveal it once the
+      // silhouette settles into its final shape.
       setGlyphSettledTask(false)
       const id = setTimeout(() => setGlyphSettledTask(true), GLYPH_MORPH_SECONDS * 1000)
       return () => clearTimeout(id)
     }
-    // Morphing OUT of task (or between non-task kinds): the check isn't applicable.
+    // Morphing OUT to a non-checkmark kind: the check isn't applicable.
     setGlyphSettledTask(false)
   }, [entityKind])
   const [closeHover, setCloseHover] = useState(false)
@@ -681,11 +686,12 @@ export function EntityNode({
         fadingWindow && "pointer-events-none",
       )
     : cn(
-        "absolute inset-0 flex cursor-pointer flex-col overflow-visible",
-        // Cancelled rows fade — opacity-40 (slightly more accentuated than the old 50).
-        // When OPEN the frame carries no fade; instead the header glyph + title each
-        // fade to opacity-40 individually (so it isn't compounded by a frame fade).
-        cancelled && "opacity-40",
+          "absolute inset-0 flex cursor-pointer flex-col overflow-visible",
+          // CLOSED rows (which includes cancelled) always fade — opacity-40. This is the
+          // archived/resolved dim, applied everywhere a closed node is collapsed (do-list,
+          // dock). When OPEN the frame carries no fade; instead the header glyph + title
+          // each fade individually (so it isn't compounded by a frame fade).
+          closed && "opacity-40",
       )
 
   // SPINE: an ancestor window collapses its horizontal header into a vertical left
@@ -1164,9 +1170,9 @@ export function EntityNode({
                   : "h-4 w-4",
               // Sent-as-request reflow: hop the glyph to the row's right edge.
               rowReq && (sent ? REQ_SENT.glyph : REQ_REST.glyph),
-              // Cancelled + OPEN: fade the header glyph to match its title (the row's
+              // Closed + OPEN: fade the header glyph to match its title (the row's
               // frame-level fade doesn't apply once open, so scope it here).
-              asWindow && cancelled && "opacity-40",
+              asWindow && closed && "opacity-40",
             )}
           >
             {isResource ? (
@@ -1315,9 +1321,9 @@ export function EntityNode({
               // the title is intentionally left unstyled so the row stays visually put
               // in the do-list. The CANCELLED strikethrough lives on the inner text span
               // below (an inline-block that a parent's text-decoration can't reach).
-              // A cancelled entity's title also FADES to opacity-40 when open (asWindow),
-              // mirroring the row's frame-level fade — see the fade class further down.
-              asWindow && cancelled && "opacity-40",
+            // A closed entity's title also FADES to opacity-40 when open (asWindow),
+            // mirroring the row's frame-level fade — see the fade class further down.
+            asWindow && closed && "opacity-40",
               // Sent-as-request reflow: right-align the title against the moved glyph
               // (sent) or keep the normal left layout with mr-auto spacer (rest).
               rowReq && (sent ? REQ_SENT.title : REQ_REST.title),
