@@ -33,15 +33,20 @@ export const contentTransition: Transition = morphBeat
 export const panelTransition: Transition = morphBeat
 
 /**
- * ASSETS / PUBLISHED side panels sliding in/out as an opaque overlay over the View.
- * Deliberately DECOUPLED from the 2s morph beat: the panel is not part of the window
- * shared-element morph, so it should feel snappy and immediate — the shortcut spine
- * stays put and the panel just pops in from the edge. A pronounced ease-OUT curve
- * (fast entry, long decelerating tail) so it lands SOFTLY at the edge — a clearly
- * visible, cushioned glide rather than a hard pop. Lengthened to 0.55s so the soft
- * landing actually reads (the shorter versions felt instantaneous).
+ * ASSETS / PUBLISHED side panels sliding in/out as an opaque overlay over the View, AND
+ * the child-window "butter slide" when a covered ancestor is spine-expanded (the window
+ * slides right + narrows to uncover the ancestor panel — see entity-node's frame rest
+ * transition, which reuses PANEL_SLIDE_SEC/PANEL_SLIDE_CSS_EASE so the two stay locked).
+ * Deliberately DECOUPLED from the 2s morph beat: this is not part of the window
+ * shared-element morph. A pronounced ease-OUT curve (responsive entry, long decelerating
+ * tail = easeOutQuint) so it glides in SMOOTHLY and lands softly rather than popping.
+ * Lengthened to 0.8s for a slower, buttery slide (per design — the 0.55s felt too quick).
  */
-export const panelSlideTransition: Transition = { duration: 0.55, ease: [0.16, 1, 0.3, 1] }
+export const PANEL_SLIDE_SEC = 0.8
+export const PANEL_SLIDE_BEZIER: [number, number, number, number] = [0.22, 1, 0.36, 1]
+/** CSS `cubic-bezier(...)` string mirror of PANEL_SLIDE_BEZIER, for CSS `transition` values. */
+export const PANEL_SLIDE_CSS_EASE = `cubic-bezier(${PANEL_SLIDE_BEZIER.join(",")})`
+export const panelSlideTransition: Transition = { duration: PANEL_SLIDE_SEC, ease: PANEL_SLIDE_BEZIER }
 
 /**
  * The MANUAL COLLAPSE of a resources panel (user clicks the spine on a focused leaf). Per the

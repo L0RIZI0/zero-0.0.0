@@ -3,7 +3,7 @@
 import { useRef, useState } from "react"
 import { motion, AnimatePresence } from "motion/react"
 import { ChevronLeft, ChevronRight, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from "lucide-react"
-import { panelSlideTransition, MORPH_SECONDS, MORPH_EASE, HEADER_H } from "@/lib/zero/motion"
+import { panelSlideTransition, PANEL_SLIDE_BEZIER, MORPH_SECONDS, MORPH_EASE, HEADER_H } from "@/lib/zero/motion"
 import { cn } from "@/lib/utils"
 
 /** How far UP the spine glyph/title slide when hiding. The crop box top sits on the
@@ -111,7 +111,16 @@ export function CollapsibleColumn({
   // Chevron shown IN PLACE OF the vertical label while open — points toward the window
   // edge (the collapse direction) to signal the spine still closes the panel.
   const CollapseChevron = side === "left" ? ChevronLeft : ChevronRight
+  // The opposite direction: points INTO the view (away from the edge) = the EXPAND
+  // affordance. Used on an EMPTY, collapsed Resources spine so a bare spine still shows a
+  // "click to open" hint (there are no losanges to imply it).
+  const ExpandChevron = side === "left" ? ChevronRight : ChevronLeft
   const label = collapsedTitle ?? title
+  // EMPTY = no resources at all. For the stripCollapse (Resources) spine the losanges are
+  // the normal affordance, so we only draw a chevron when there's nothing to show: a bare
+  // empty spine (collapsed → ExpandChevron; expanded → CollapseChevron). A NON-empty
+  // expanded panel shows the list and NO chevron; a non-empty collapsed spine shows losanges.
+  const isEmpty = (count ?? 0) === 0
 
   // Hover handled via React state (not Tailwind `group-hover:`) — the CSS hover
   // variant is gated behind `@media (hover: hover)` in Tailwind v4 and didn't fire
@@ -320,24 +329,48 @@ export function CollapsibleColumn({
         <span
           className={cn(
             "flex flex-col items-center gap-2 transition-opacity duration-200",
-            // LEAF STRIP: the losanges ARE the collapsed affordance, so hide the toggle
-            // glyph + vertical label entirely (the band stays a clickable expand target).
-            leafStrip && "opacity-0",
+            // LEAF STRIP with resources: the losanges ARE the collapsed affordance, so hide
+            // the toggle glyph + vertical label entirely (the band stays a clickable expand
+            // target). When EMPTY there are no losanges, so keep the span visible to show the
+            // ExpandChevron hint instead.
+            leafStrip && !isEmpty && "opacity-0",
           )}
           // `spineShift` re-centers the label on the body center. Applied INSTANTLY: leaf
           // and spine now share the same −headerH/2 shift, so it doesn't change on a
           // leaf↔spine flip — nothing to snap, no transition needed.
           style={{ transform: `translateY(${spineShift}px) scale(${spineScale})` }}
         >
-          {open ? (
-            /* OPEN: the vertical label + panel-toggle icon are hidden. A single collapse
-               chevron pointing at the window edge indicates the spine still closes the
-               panel — but only while this entity is the FOCUSED front view. Once one or
-               more children are open (this becomes an ancestor), the chevron FADES OUT
-               (it stays mounted so the opacity can transition, rather than unmounting and
-               vanishing instantly); the spine stays clickable but glyph-less until the
-               entity is refocused. A longer 500ms fade makes the appearance/disappearance
-               gentle rather than a snap. */
+          {stripCollapse ? (
+            /* STRIP-COLLAPSE (Resources spine). The losanges are the collapsed affordance and
+               the list is the expanded one, so normally the spine shows NO glyph. The ONLY
+               time we draw a chevron is when the panel is EMPTY (no losanges/list to imply the
+               toggle): a bare spine gets a directional hint. Collapsed-empty → ExpandChevron
+               (points into the view = "click to open"); expanded-empty → CollapseChevron
+               (points to the edge = "click to close"). Non-empty in EITHER state → null (the
+               losanges / list carry the affordance; matches "remove the chevron when the panel
+               is expanded and non-empty"). Uses `peek` (not `open`) so a spine-expanded covered
+               ancestor — whose `open` flag may be false — is classified by what it's SHOWING. */
+            isEmpty ? (
+              (() => {
+                const EmptyChevron = peek ? ExpandChevron : CollapseChevron
+                return (
+                  <EmptyChevron
+                    className={cn(
+                      "h-4 w-4 transition-opacity duration-500",
+                      spineHover ? "text-foreground opacity-100" : "text-muted-foreground opacity-45",
+                    )}
+                  />
+                )
+              })()
+            ) : null
+          ) : open ? (
+            /* OPEN (non-stripCollapse): the vertical label + panel-toggle icon are hidden. A
+               single collapse chevron pointing at the window edge indicates the spine still
+               closes the panel — but only while this entity is the FOCUSED front view. Once one
+               or more children are open (this becomes an ancestor), the chevron FADES OUT (it
+               stays mounted so the opacity can transition, rather than unmounting and vanishing
+               instantly); the spine stays clickable but glyph-less until the entity is
+               refocused. A longer 500ms fade makes the appearance/disappearance gentle. */
             <CollapseChevron
               className={cn(
                 "h-4 w-4 transition-opacity duration-500",
@@ -348,13 +381,6 @@ export function CollapsibleColumn({
                     : "text-muted-foreground opacity-45",
               )}
             />
-          ) : stripCollapse ? (
-            /* STRIP-COLLAPSE: the collapsed affordance is the peek LOSANGES, so the spine
-               shows NEITHER the toggle icon NOR the vertical label — ever. (Rendering them
-               here would let the "RESOURCES (n)" label briefly FLASH during the collapse
-               transition, since `open` flips false one frame before the parent span fades
-               out.) The band stays a clickable expand target with no glyph. */
-            null
           ) : (
             <>
               <ToggleIcon
@@ -427,16 +453,45 @@ export function CollapsibleColumn({
                   transition={{ duration: MORPH_SECONDS, ease: MORPH_EASE }}
                   className="flex flex-col items-center"
                 >
-                  {spineGlyph}
+                  {/* GLYPH — and, when this ancestor is SPINE-EXPANDED (`forceExpanded`), its
+                      title UNROTATED to the RIGHT of the glyph. The horizontal title is absolute
+                      (`left-full`) so it adds no layout width — the glyph stays centered on the
+                      spine while the title overhangs into the uncovered panel gap. It fades +
+                      slides in on the panel-slide beat. */}
+                  <div className="relative flex items-center justify-center">
+                    {spineGlyph}
+                    {spineTitle && (
+                      <AnimatePresence>
+                        {forceExpanded && (
+                          <motion.span
+                            key="spine-title-h"
+                            initial={{ opacity: 0, x: -6 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            exit={{ opacity: 0, x: -6 }}
+                            transition={{ duration: 0.5, ease: PANEL_SLIDE_BEZIER }}
+                            className="pointer-events-none absolute left-full top-1/2 ml-2 -translate-y-1/2 whitespace-nowrap text-[13px] font-medium tracking-tight text-foreground"
+                          >
+                            {spineTitle}
+                          </motion.span>
+                        )}
+                      </AnimatePresence>
+                    )}
+                  </div>
+                  {/* ROTATED (vertical) title BELOW the glyph — the resting spine label. When
+                      spine-expanded it COLLAPSES away (height 0 + fade) so the horizontal title
+                      above takes over and the excerpt slides up, all on the panel-slide beat. */}
                   {spineTitle && (
-                    <span
+                    <motion.span
+                      initial={false}
+                      animate={{ height: forceExpanded ? 0 : "auto", opacity: forceExpanded ? 0 : 1 }}
+                      transition={panelSlideTransition}
                       // sideways-lr = upright, reading bottom-to-top. Regular 13px / medium
                       // weight to match the horizontal title.
-                      className="inline-block whitespace-nowrap text-[13px] font-medium tracking-tight text-foreground"
+                      className="inline-block overflow-hidden whitespace-nowrap text-[13px] font-medium tracking-tight text-foreground"
                       style={{ writingMode: "sideways-lr" }}
                     >
                       {spineTitle}
-                    </span>
+                    </motion.span>
                   )}
                 </motion.div>
               </motion.div>

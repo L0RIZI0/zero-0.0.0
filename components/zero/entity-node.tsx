@@ -22,6 +22,8 @@ import {
   surfaceAt,
   telescopicLevel,
   telescopicSurface,
+  PANEL_SLIDE_SEC,
+  PANEL_SLIDE_CSS_EASE,
   type SpaceKind,
 } from "@/lib/zero/motion"
 import gsap from "gsap"
@@ -873,13 +875,16 @@ export function EntityNode({
                 // Rest-only geometry transition. Both `left` and `width` change at rest ONLY
                 // when a covered ANCESTOR is spine-expanded/collapsed (nav-store adds/removes
                 // PANEL_OPEN_W of left-inset, sliding this window right + narrowing it) or on
-                // a viewport resize. Tuned to the panel-slide beat (0.55s, same curve as
-                // `panelSlideTransition`) so the window slides/narrows IN STEP with the
-                // ancestor panel blooming open. During a dive/close morph GSAP Flip drives
-                // geometry directly, so this is gated off by `!animating` to avoid double-animation.
+                // a viewport resize. Locked to the shared panel-slide beat
+                // (PANEL_SLIDE_SEC + PANEL_SLIDE_CSS_EASE, same as `panelSlideTransition`) so
+                // the window "butter slides" / narrows IN STEP with the ancestor panel blooming
+                // open. During a dive/close morph GSAP Flip drives geometry directly, so this is
+                // gated off by `!animating` to avoid double-animation.
                 ...(animating
                   ? null
-                  : { transition: `left 0.55s cubic-bezier(0.16,1,0.3,1), width 0.55s cubic-bezier(0.16,1,0.3,1)` }),
+                  : {
+                      transition: `left ${PANEL_SLIDE_SEC}s ${PANEL_SLIDE_CSS_EASE}, width ${PANEL_SLIDE_SEC}s ${PANEL_SLIDE_CSS_EASE}`,
+                    }),
               }
             : {
                 // While shrinking closed it is a row again, but Flip animates it at full
