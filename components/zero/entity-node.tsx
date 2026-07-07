@@ -362,13 +362,17 @@ export function EntityNode({
       return
     }
     if (bodyReady) return
-    // Not animating → this body isn't riding an open morph (deep initial mount or a
-    // steady-state re-render); mount now so there's no empty frame.
-    if (!nav.animating) {
+    // Only defer during a pure OPEN morph. On a CLOSE/telescope-out (`nav.closing`
+    // set) or a multi-level FADE, the DESTINATION window re-expands from an ancestor
+    // spine and its do-list must be present IMMEDIATELY so the retracting child has a
+    // row to recede into — deferring it there flashes a one-frame ghost do-list as the
+    // reveal races the reverse morph. So: not animating, or a close/fade in flight →
+    // mount now (no empty frame, matches pre-deferral behaviour).
+    if (!nav.animating || nav.closing || nav.fading.length > 0) {
       setBodyReady(true)
       return
     }
-    // Morph in flight → let the frame's first paint land, then mount the body one
+    // Open morph in flight → let the frame's first paint land, then mount the body one
     // frame later so it joins the [data-body] grow tween already underway.
     const raf = requestAnimationFrame(() => setBodyReady(true))
     return () => cancelAnimationFrame(raf)
