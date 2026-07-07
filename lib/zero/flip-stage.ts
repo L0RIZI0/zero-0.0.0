@@ -373,14 +373,12 @@ export function playStage(
             }
           }
         }
-        // CRITICAL: overwrite React's just-committed clip with the SOURCE (p=0) shape
-        // on THIS synchronous tick. The gsap.to below is a decoupled tween whose first
-        // onUpdate does not fire until the next rAF — without this call, frame 1 paints
-        // the committed TARGET clip (e.g. an opening card showing the full leaf octagon
-        // at card size) and then snaps back to the source hexagon on the next frame.
-        // That one-frame snap is the "jump early in the animation" (most visible on
-        // squeezed pinned cards, whose aspect makes leaf vs. regular-hex diverge most).
-        applyClip(0)
+        // NOTE: do NOT call applyClip(0) synchronously here. A getBoundingClientRect
+        // read on THIS tick (right after Flip.from) forces a reflow before GSAP Flip
+        // has finished its deferred `absolute` conversion + invert-transform setup,
+        // which corrupts the whole morph — frames snap straight to their target size
+        // with nothing in between (regression seen on depth≥1 opens). The p=0 clip is
+        // instead pre-applied from CAPTURED sizes above, before Flip.from runs.
         gsap.to(driver, {
           p: 1,
           duration: MORPH_DURATION,
