@@ -80,6 +80,7 @@ function ReorderRow({
   contextId,
   animating,
   morphing,
+  hostsWindow,
   born,
   canReorder,
   faded,
@@ -94,6 +95,11 @@ function ReorderRow({
    *  `<li>` (see below) so the opaque morphing window always paints ABOVE its
    *  siblings-below and the dock during the early close frames. */
   morphing: boolean
+  /** This row currently HOSTS an open/opening/closing `position: fixed` window.
+   *  Neutralizes the containing-block trap on the `<li>` (see className) so the
+   *  fixed window stays anchored to the viewport and never jumps to the row's
+   *  coordinates when framer transiently transforms the animating Reorder.Item. */
+  hostsWindow: boolean
   born: boolean
   canReorder: boolean
   /** Dim the row: the resolved "settled" zone below the open items in the Open view. */
@@ -135,7 +141,23 @@ function ReorderRow({
       // closing elevation) so it wins among sibling row contexts and the dock.
       // IMPORTANT (`z-40!`): framer's Reorder.Item writes an INLINE `z-index: unset`
       // that would otherwise beat a plain `z-40` class — the `!important` wins over it.
-      className={cn("group/row relative", dragging && "z-20", morphing && "z-40!")}
+      //
+      // `hostsWindow`: this row contains an open/opening/closing `position: fixed`
+      // window. Framer transiently sets `will-change: transform` (and/or a transform)
+      // on the animating Reorder.Item — and ANY such value makes the `<li>` the
+      // CONTAINING BLOCK for its fixed descendant, which snaps the window from the
+      // viewport to the row's coordinates for 1-2 frames (the "window jumps on the
+      // first open frame" bug). `transform-none!` + `[will-change:auto]!` override
+      // framer's inline hints (the `!important` beats inline styles) so the `<li>`
+      // never establishes a containing block while it hosts a window. Safe because
+      // the row's own layout animation is disabled (`layout={undefined}`) throughout
+      // the morph, and Flip transforms the FRAME (a child), not this `<li>`.
+      className={cn(
+        "group/row relative",
+        dragging && "z-20",
+        morphing && "z-40!",
+        hostsWindow && "transform-none! [will-change:auto]!",
+      )}
     >
       {canReorder && (
         <div
@@ -669,7 +691,7 @@ export function DoList({
    *  top). Pass `false` to force a specific list back to top-aligned. */
   centered?: boolean
 }) {
-  const { dataVersion, notifyDataChanged, morphCommit, setMenuKey, open, selection, select, moveSelection, publishNavOrder, animating, closing: navClosing } =
+  const { dataVersion, notifyDataChanged, morphCommit, setMenuKey, open, selection, select, moveSelection, publishNavOrder, animating, closing: navClosing, stack } =
     useZeroNav()
   // The child entity that is CLOSING back into this list (globally, from the nav
   // store). During the 1-2 commit frames where this do-list re-expands out of its
@@ -682,6 +704,17 @@ export function DoList({
   // the closing row's OWN `<li>` (below) makes it win among those contexts. `.id` is
   // unique, so matching on it alone is safe (the row only lives in its parent list).
   const closingChildId = navClosing?.id ?? null
+  // Whether a given row currently HOSTS an open/opening/closing window (its
+  // EntityNode is rendered as a `position: fixed` window). True when the entity is
+  // in the nav stack (open or opening) OR is the closing child. Used to neutralize
+  // the containing-block trap on that row's `<li>` (see ReorderRow `hostsWindow`):
+  // framer transiently sets `will-change: transform` / a transform on the animating
+  // Reorder.Item, and ANY such ancestor becomes the containing block for its
+  // `position: fixed` descendant — which re-anchors the window from the viewport to
+  // the ROW's coordinates for 1-2 frames, so the opening window visibly JUMPS by the
+  // row offset on the first frame. Forcing the `<li>` to establish no containing
+  // block keeps the fixed window pinned to the viewport throughout the morph.
+  const hostsWindow = (rowId: string) => rowId === closingChildId || stack.includes(rowId)
   // Re-read whenever data mutates or context changes. Pinned items are promoted
   // to the dock, so they're excluded here.
   const items = useMemo(
@@ -1220,6 +1253,7 @@ export function DoList({
           contextId={contextId}
           animating={animating}
           morphing={id === closingChildId}
+          hostsWindow={hostsWindow(id)}
           born={id === bornId}
           canReorder={isOpenRow}
           // Resolved-zone dim (Open view). A CLOSED row is skipped here because the
