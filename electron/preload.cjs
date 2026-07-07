@@ -38,6 +38,30 @@ contextBridge.exposeInMainWorld("zero", {
   /** Open a URL in the user's real external browser (graceful fallback). */
   openExternal: (url) => ipcRenderer.send("zero:open-external", url),
 
+  /** Background auto-update lifecycle (see setupAutoUpdate in main.cjs). All are
+   *  best-effort notifications for a future "Update ready — restart to apply" UI;
+   *  the update itself downloads + installs on quit without any renderer action. */
+  updates: {
+    /** A newer version was found and is downloading. cb({ version }). */
+    onAvailable: (cb) => {
+      const handler = (_e, payload) => cb(payload)
+      ipcRenderer.on("zero:update:available", handler)
+      return () => ipcRenderer.removeListener("zero:update:available", handler)
+    },
+    /** Download progress. cb({ percent }). */
+    onProgress: (cb) => {
+      const handler = (_e, payload) => cb(payload)
+      ipcRenderer.on("zero:update:progress", handler)
+      return () => ipcRenderer.removeListener("zero:update:progress", handler)
+    },
+    /** Update downloaded and staged; installs on next restart. cb({ version }). */
+    onDownloaded: (cb) => {
+      const handler = (_e, payload) => cb(payload)
+      ipcRenderer.on("zero:update:downloaded", handler)
+      return () => ipcRenderer.removeListener("zero:update:downloaded", handler)
+    },
+  },
+
   /** Frameless window controls, rendered inside Zero's own header. */
   win: {
     minimize: () => ipcRenderer.send("zero:win:minimize"),

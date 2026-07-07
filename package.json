@@ -10,7 +10,9 @@
     "lint": "eslint .",
     "electron": "electron .",
     "electron:dev": "concurrently -k -n NEXT,ELECTRON -c blue,magenta \"cross-env CHOKIDAR_USEPOLLING=true WATCHPACK_POLLING=true next dev\" \"wait-on tcp:3000 && electronmon .\"",
-    "electron:build": "cross-env BUILD_TARGET=electron next build && electron-builder"
+    "electron:build": "cross-env BUILD_TARGET=electron next build && electron-builder",
+    "electron:build:ci": "cross-env BUILD_TARGET=electron next build && electron-builder --win nsis --publish never",
+    "release:upload": "node scripts/upload-release.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.5.0",
@@ -23,6 +25,7 @@
     "d3-scale": "^4.0.2",
     "d3-time": "^3.1.0",
     "d3-time-format": "^4.1.0",
+    "electron-updater": "^6.8.9",
     "gsap": "^3.15.0",
     "lucide-react": "^1.16.0",
     "motion": "^12.40.0",
@@ -64,12 +67,23 @@
     "directories": {
       "output": "release"
     },
+    "publish": {
+      "provider": "generic",
+      "url": "${env.ZERO_UPDATE_FEED_URL}",
+      "channel": "latest"
+    },
     "mac": {
       "target": "dmg",
       "category": "public.app-category.productivity"
     },
     "win": {
-      "target": "nsis"
+      "target": "nsis",
+      "artifactName": "Zero-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": false
     },
     "linux": {
       "target": "AppImage",

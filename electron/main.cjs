@@ -11,6 +11,7 @@
 const { app, BrowserWindow, WebContentsView, protocol, net, shell, session, ipcMain, screen, Menu } = require("electron")
 const path = require("node:path")
 const { pathToFileURL } = require("node:url")
+const { autoUpdater } = require("electron-updater")
 
 const isDev = !app.isPackaged
 const DEV_URL = process.env.ELECTRON_RENDERER_URL || "http://localhost:3000"
@@ -53,6 +54,63 @@ function logGpuStatus(win) {
   } catch (err) {
     console.log("[v0] getGPUFeatureStatus failed:", err?.message || err)
   }
+}
+
+// ── Background auto-update (Surface dogfooding, tag-triggered releases) ───────
+// The app stays a self-contained bundled build (data lives under the app://local
+// origin and is NEVER touched by updates). electron-updater pulls a small delta from
+// a public "generic" feed (Vercel Blob) that CI populates on every `v*` git tag:
+//   • checks once on launch, downloads in the BACKGROUND
+//   • installs on the NEXT quit/restart (autoInstallOnAppQuit) — no forced restart
+// The feed URL is baked into app-update.yml at build time from the electron-builder
+// `publish` config (driven by ZERO_UPDATE_FEED_URL in CI). If no feed is configured
+// (e.g. a local `electron:build`), the check simply fails and is swallowed.
+//
+// Update lifecycle is surfaced to the renderer as `zero:update:*` IPC events so a
+// future in-app "Update ready — restart to apply" affordance can hook in; for now
+// they're also logged. Nothing here reads or writes user data.
+function setupAutoUpdate() {
+  // Only meaningful for a packaged app: app-update.yml only exists in the build, and
+  // an unpackaged/dev run has no installer to replace.
+  if (!app.isPackaged) return
+
+  autoUpdater.logger = console
+  autoUpdater.autoDownload = true // pull the delta as soon as one is found
+  autoUpdater.autoInstallOnAppQuit = true // apply on the next restart, never mid-session
+
+  const notify = (channel, payload) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send(channel, payload)
+    }
+  }
+
+  autoUpdater.on("checking-for-update", () => console.log("[v0] update: checking"))
+  autoUpdater.on("update-available", (info) => {
+    console.log("[v0] update: available", info?.version)
+    notify("zero:update:available", { version: info?.version })
+  })
+  autoUpdater.on("update-not-available", () => console.log("[v0] update: up to date"))
+  autoUpdater.on("download-progress", (p) => {
+    notify("zero:update:progress", { percent: Math.round(p?.percent || 0) })
+  })
+  autoUpdater.on("update-downloaded", (info) => {
+    console.log("[v0] update: downloaded", info?.version, "— will install on quit")
+    // Do NOT quitAndInstall() here: per the plan, restarting to apply is fine and we
+    // never want to interrupt a dogfooding session. It installs on the next quit.
+    notify("zero:update:downloaded", { version: info?.version })
+  })
+  autoUpdater.on("error", (err) => {
+    // A missing/unreachable feed (offline, feed not yet provisioned) must never crash
+    // or nag — auto-update is best-effort. Just log it.
+    console.log("[v0] update: error", err?.message || err)
+  })
+
+  // Kick off a single check shortly after launch (let the window paint first).
+  setTimeout(() => {
+    autoUpdater.checkForUpdates().catch((err) => {
+      console.log("[v0] update: check failed", err?.message || err)
+    })
+  }, 4000)
 }
 
 // Directory of the Next.js static export (`next build` with output:'export').
@@ -167,6 +225,9 @@ app.whenReady().then(() => {
   }
 
   createWindow()
+
+  // Best-effort background update check (production/packaged only).
+  setupAutoUpdate()
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

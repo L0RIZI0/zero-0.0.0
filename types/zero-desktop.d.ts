@@ -20,6 +20,11 @@ export interface ZeroDesktopBridge {
     onStatus: (cb: (payload: { id: string; ok: boolean; detail?: string }) => void) => () => void
   }
   openExternal: (url: string) => void
+  updates: {
+    onAvailable: (cb: (payload: { version?: string }) => void) => () => void
+    onProgress: (cb: (payload: { percent: number }) => void) => () => void
+    onDownloaded: (cb: (payload: { version?: string }) => void) => () => void
+  }
   win: {
     minimize: () => void
     toggleMaximize: () => void

@@ -1,0 +1,61 @@
+# Builds the Zero Windows desktop app and publishes it to the public Vercel Blob
+# "update feed" that the app's electron-updater polls. Triggered ONLY when you push
+# a version tag, e.g.:
+#
+#   git tag v0.2.0 && git push origin v0.2.0
+#
+# The installed Surface app checks the feed on launch, downloads any newer version in
+# the background, and applies it on the next restart. Data is never touched (the app
+# stays on the app://local origin regardless of version).
+#
+# Required repo config (Settings → Secrets and variables → Actions):
+#   • Secret   BLOB_READ_WRITE_TOKEN  – write token for the PUBLIC Blob store
+#   • Variable ZERO_UPDATE_FEED_URL   – e.g. https://<store>.public.blob.vercel-storage.com/updates
+name: release-desktop
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Set version from tag
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "Releasing version $VERSION"
+          npm version "$VERSION" --no-git-tag-version --allow-same-version
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build Windows installer
+        env:
+          ZERO_UPDATE_FEED_URL: ${{ vars.ZERO_UPDATE_FEED_URL }}
+        run: pnpm electron:build:ci
+
+      - name: Upload update feed to Blob
+        env:
+          BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN }}
+          ZERO_UPDATE_FEED_URL: ${{ vars.ZERO_UPDATE_FEED_URL }}
+        run: pnpm release:upload
