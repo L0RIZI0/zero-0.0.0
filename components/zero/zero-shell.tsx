@@ -6,6 +6,7 @@ import { ThemeToggle } from "./theme-toggle"
 import { FpsMeter } from "./fps-meter"
 import { ActivityInspector } from "./activity-inspector"
 import { HierarchyInspector } from "./hierarchy-inspector"
+import { BratMeter } from "./brat-meter"
 import { ZeroNavProvider, useZeroNav } from "@/lib/zero/nav-store"
 import { telescopicSurface, useMorphTime } from "@/lib/zero/motion"
 import { DURATION_S, MORPH_CSS_EASE } from "@/lib/zero/flip-stage"
@@ -50,6 +51,7 @@ export function ZeroShell() {
       <FpsMeter />
       <ActivityInspector />
       <HierarchyInspector />
+      <BratMeter />
     </ZeroNavProvider>
   )
 }

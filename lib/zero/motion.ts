@@ -20,7 +20,9 @@ import { VIEW_PAD_X } from "./layout"
 // base × (BRAT / BRAT_REFERENCE), so at the default BRAT everything is byte-for-byte
 // what it was before this harmonization — only §5 excursions scale it proportionally.
 export const BRAT_REFERENCE = 1.8
-export const BRAT_STEPS = [0.6, 1.6, 2.6, 3.6]
+// 0s = instant/no morph (useful for A/B-ing whether an animation reads at all). The
+// default 1.8 is a member so a fresh load sits on a real step. `§ 5` cycles up, wraps.
+export const BRAT_STEPS = [0, 0.6, 1.8, 3.2, 5]
 let _brat = BRAT_REFERENCE
 
 // Shared easing: cubic-bezier(.62, .02, .07, .99). A smooth ease-in-out with a
