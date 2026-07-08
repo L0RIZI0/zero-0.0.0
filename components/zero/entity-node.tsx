@@ -291,6 +291,15 @@ export function EntityNode({
   // effect — which must run before that return to satisfy the rules of hooks —
   // can read the latest value without re-deriving it.
   const asWindowRef = useRef(false)
+  // CLOSE-SETTLE fade for the dock-card OUTLINE. The rim/border/checkmark are hidden
+  // during the close morph (dockCardCollapsed is false while isClosing) and hard-mount
+  // the instant the card settles back into its slot — which read as a pop. This token
+  // bumps ONCE each time a close settles (see the render-time guard after `isClosing`
+  // below); it keys the outline wrapper so its fade-in keyframe replays only then —
+  // never on a plain page-load / pin mount (token stays 0). `> 0` = "has settled at
+  // least once", so the very first close animates too.
+  const [closeFadeToken, setCloseFadeToken] = useState(0)
+  const prevIsClosingRef = useRef(false)
 
   // Keep hover state honest across morphs. `hovered`/`closeHover` are driven by
   // pointer enter/leave on the frame, but a morph moves the frame UNDER a
@@ -460,6 +469,12 @@ export function EntityNode({
     nav.closing && nav.closing.id === entityId && nav.closing.parent === contextId ? nav.closing : null
   const fadingEntry = nav.fading.find((f) => f.id === entityId && f.parent === contextId) ?? null
   const isClosing = !!closingEntry
+  // Detect the close→settled edge during render (no effect, so no opacity flash): the
+  // frame where isClosing goes true→false is exactly when the collapsed card reappears.
+  // Guarded by the ref so the token bumps once; setting state during render re-renders
+  // this instance immediately (before paint), so the outline mounts already fading.
+  if (prevIsClosingRef.current && !isClosing) setCloseFadeToken((t) => t + 1)
+  prevIsClosingRef.current = isClosing
   const fadingWindow = !!fadingEntry
   // `open` here means "this instance owns the open window" — used for the click
   // behaviour and the window/header/spine rendering below.
@@ -587,8 +602,8 @@ export function EntityNode({
   // solid tone means it reads IDENTICALLY regardless of what's behind it. The alpha here
   // is only the mix ratio; over the bare bg it matches the old empty-card look exactly.
   const cardInk = isDark
-    ? "color-mix(in oklab, #fff 4.5%, var(--background))"
-    : "color-mix(in oklab, #000 3.5%, var(--background))"
+    ? "color-mix(in oklab, #fff 8%, var(--background))"
+    : "color-mix(in oklab, #000 7%, var(--background))"
   // SOLID fill — a space/resource WITH contents. Slightly darker than before in dark
   // mode (opposite / slightly lighter in light mode), and kept a touch brighter than the
   // outline so the outline stays visible on top of it.
@@ -895,12 +910,10 @@ export function EntityNode({
   const shapeStyle: React.CSSProperties = {
     backgroundColor: frameSurface,
     ...(clipPath ? { clipPath } : { borderRadius: 0 }),
-    // RECT dock card (task/event/instant) → ALWAYS trace the square with the glyph-
-    // weight border, in every state, so the outline stays on top of any soft closed
-    // fill. Clipped kinds (space/resource) use the SVG rim below instead.
-    ...(dockCardCollapsed && !clipPath
-      ? { border: `${cardBorderPx}px solid ${cardInk}` }
-      : null),
+    // (The RECT dock-card square outline is drawn by the mountable outline wrapper in
+    // the JSX below — alongside the rim/check — so all three can share the close-settle
+    // fade. It used to be a CSS border here, but this element persists through the morph
+    // and so couldn't replay a mount animation.)
     // DARK ancestor/leaf-less Space windows draw their boundary as an inset ring
     // (light mode uses the SVG outline). Same condition as before, just relocated
     // onto the clipped fill so the ring still rides the shape edge.
@@ -1204,49 +1217,61 @@ export function EntityNode({
               />
             </svg>
           )}
-          {/* Clipped-card rim — a Space or Resource dock card ALWAYS shows its OUTLINE
-              hexagon / diamond edge, drawn ON TOP of any fill (so a closed card's soft
-              fill never erases the silhouette). Traces the SAME points as the card clip,
-              in BOTH themes; the clip trims the stroke's outer half to a clean inner edge. */}
-          {cardRimPoints && (
-            <svg
+          {/* DOCK-CARD OUTLINE wrapper — the collapsed glyph's edge, drawn on top of any
+              fill: the SQUARE border (rect kinds), the hexagon/diamond RIM (clipped
+              kinds), and the done CHECK. Grouped into ONE element so they share the
+              close-settle fade: `key` = closeFadeToken remounts this the frame a close
+              settles, replaying `zero-outline-in` (applied only once a close has happened
+              — token 0 on plain load/pin stays static, no fade). Lives inside [data-shape]
+              so the clip trims the rim's outer half to a clean inner edge. */}
+          {dockCardCollapsed && (
+            <div
+              key={`outline-${closeFadeToken}`}
               aria-hidden
-              className="absolute inset-0 z-[1] h-full w-full"
-              viewBox="0 0 100 100"
-              preserveAspectRatio="none"
+              className="absolute inset-0"
+              style={closeFadeToken > 0 ? { animation: "zero-outline-in 0.22s ease-out both" } : undefined}
             >
-              <polygon
-                points={cardRimPoints.map(([x, y]) => `${x},${y}`).join(" ")}
-                fill="none"
-                stroke={cardInk}
-                // Doubled: the clip trims the stroke's outer half, so this renders as
-                // ~cardBorderPx of visible rim — matching the empty-square border weight.
-                strokeWidth={cardBorderPx * 2}
-                strokeLinejoin="round"
-                vectorEffect="non-scaling-stroke"
-              />
-            </svg>
-          )}
-          {/* DONE CHECK — a scaled-up checkmark on an empty done card (task/event/
-              instant done but not yet closed), so the card reads like the small glyph's
-              tick blown up. Non-scaling stroke keeps it at the outline's weight. */}
-          {dockCardCollapsed && showCheckmark && (
-            <svg
-              aria-hidden
-              className="absolute inset-0 z-[2] h-full w-full"
-              viewBox="0 0 24 24"
-              preserveAspectRatio="none"
-            >
-              <polyline
-                points={DOCK_CHECK_POINTS}
-                fill="none"
-                stroke={cardInk}
-                strokeWidth={cardBorderPx}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                vectorEffect="non-scaling-stroke"
-              />
-            </svg>
+              {/* RECT square outline (task/event/instant) — clipped kinds use the rim SVG. */}
+              {!clipPath && (
+                <div className="absolute inset-0" style={{ border: `${cardBorderPx}px solid ${cardInk}` }} />
+              )}
+              {/* Clipped-card RIM (space hexagon / resource diamond). Doubled stroke: the
+                  clip trims its outer half to ~cardBorderPx, matching the square border. */}
+              {cardRimPoints && (
+                <svg
+                  className="absolute inset-0 z-[1] h-full w-full"
+                  viewBox="0 0 100 100"
+                  preserveAspectRatio="none"
+                >
+                  <polygon
+                    points={cardRimPoints.map(([x, y]) => `${x},${y}`).join(" ")}
+                    fill="none"
+                    stroke={cardInk}
+                    strokeWidth={cardBorderPx * 2}
+                    strokeLinejoin="round"
+                    vectorEffect="non-scaling-stroke"
+                  />
+                </svg>
+              )}
+              {/* DONE CHECK — scaled-up tick on a done (not-yet-closed) card. */}
+              {showCheckmark && (
+                <svg
+                  className="absolute inset-0 z-[2] h-full w-full"
+                  viewBox="0 0 24 24"
+                  preserveAspectRatio="none"
+                >
+                  <polyline
+                    points={DOCK_CHECK_POINTS}
+                    fill="none"
+                    stroke={cardInk}
+                    strokeWidth={cardBorderPx}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    vectorEffect="non-scaling-stroke"
+                  />
+                </svg>
+              )}
+            </div>
           )}
         </div>
 

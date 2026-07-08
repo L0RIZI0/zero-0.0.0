@@ -181,3 +181,15 @@
     opacity: 0;
   }
 }
+
+/* Dock-card OUTLINE settle fade — a gentle fade-in for the rim/border/checkmark the
+   moment a window finishes CLOSING back into its dock slot (keyed remount in
+   entity-node replays it only then). Softens the hard pop of the outline reappearing. */
+@keyframes zero-outline-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
