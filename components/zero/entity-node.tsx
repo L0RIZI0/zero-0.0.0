@@ -607,7 +607,7 @@ export function EntityNode({
   // SOLID fill — a space/resource WITH contents. Slightly darker than before in dark
   // mode (opposite / slightly lighter in light mode), and kept a touch brighter than the
   // outline so the outline stays visible on top of it.
-  const cardFillInk = isDark ? "rgb(255 255 255 / 0.08)" : "rgb(0 0 0 / 0.065)"
+  const cardFillInk = isDark ? "rgb(255 255 255 / 0.1)" : "rgb(0 0 0 / 0.085)"
   // CLOSED fill — a SOFT grey, much lighter than the outline: it nudges the card
   // background "less dark" (dark mode) / "less light" (light mode) to signal closed,
   // while staying subtle enough that an overlaid white title or dark favicon tile
