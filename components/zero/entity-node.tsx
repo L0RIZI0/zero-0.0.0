@@ -602,12 +602,15 @@ export function EntityNode({
   // solid tone means it reads IDENTICALLY regardless of what's behind it. The alpha here
   // is only the mix ratio; over the bare bg it matches the old empty-card look exactly.
   const cardInk = isDark
-    ? "color-mix(in oklab, #fff 8%, var(--background))"
+    ? "color-mix(in oklab, #fff 10%, var(--background))"
     : "color-mix(in oklab, #000 7%, var(--background))"
-  // SOLID fill — a space/resource WITH contents. Slightly darker than before in dark
-  // mode (opposite / slightly lighter in light mode), and kept a touch brighter than the
-  // outline so the outline stays visible on top of it.
-  const cardFillInk = isDark ? "rgb(255 255 255 / 0.1)" : "rgb(0 0 0 / 0.085)"
+  // SOLID fill — a space/resource WITH contents. OPAQUE color-mix over --background (same
+  // as the outline) so a fill+outline card never compounds. DARK mode: the fill and
+  // outline swapped, so the fill is the LIGHTER of the pair (outline reads on top). LIGHT
+  // mode: fill kept lighter than the outline (a gentler 5% vs 7%).
+  const cardFillInk = isDark
+    ? "color-mix(in oklab, #fff 8%, var(--background))"
+    : "color-mix(in oklab, #000 5%, var(--background))"
   // CLOSED fill — a SOFT grey, much lighter than the outline: it nudges the card
   // background "less dark" (dark mode) / "less light" (light mode) to signal closed,
   // while staying subtle enough that an overlaid white title or dark favicon tile
