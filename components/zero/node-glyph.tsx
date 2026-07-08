@@ -78,7 +78,7 @@ const KIND_CORNERS: Record<NodeKind, Pt[]> = {
     [12, 20.6],
     [3.4, 12],
   ],
-  event: [
+  moment: [
     [12, 4],
     [20.5, 19],
     [3.5, 19],

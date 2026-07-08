@@ -19,7 +19,7 @@ import { ContextMenu, type ContextMenuItem } from "./context-menu"
 import { NodeGlyph, NODE_KIND_META, type NodeKind } from "./node-glyph"
 
 // The kinds an entity can be turned INTO (order shown in the "Change into…" flyout).
-const KIND_ORDER: NodeKind[] = ["task", "space", "resource", "event", "instant", "community", "organism"]
+const KIND_ORDER: NodeKind[] = ["task", "space", "resource", "moment", "instant", "community", "organism"]
 
 /** The slice of the nav store the menu actions need. */
 interface MenuDeps {
@@ -41,7 +41,7 @@ export function buildEntityMenuItems(entity: Entity, contextId: string, deps: Me
   const kind = entity.kind
   const pinned = isPinned(contextId, id)
   // Close (fill glyph) + Cancel (fill + strike + fade) apply to any COMPLETABLE kind
-  // (task/space/event/instant/resource); terminal kinds retire/die instead.
+  // (task/space/moment/instant/resource); terminal kinds retire/die instead.
   const canClose = isCompletable(kind)
   const closedNow = isClosed(entity)
   const isCancelled = !!entity.cancelled

@@ -9,7 +9,7 @@ import type { Entity, EntityKind } from "./types"
  *
  * "Every entity is a Space"; these flags describe how a given kind of Space
  * resolves its end-of-life:
- *   - COMPLETABLE kinds hold a normal `completed` "done" (task/event/instant/
+ *   - COMPLETABLE kinds hold a normal `completed` "done" (task/moment/instant/
  *     space/resource).
  *   - TERMINAL kinds are never "done" — they retire (community) or die
  *     (organism/individual). Soul has no terminal state (system-only).
@@ -62,13 +62,13 @@ export const KIND_META: Record<EntityKind, KindMeta> = {
     checkmarkWhenDone: false,
     terminal: null,
   },
-  event: {
+  moment: {
     label: "Moment",
     description: "A span in time",
     creatable: true,
     completable: true,
     fillGlyphWhenDone: true,
-    // Events behave like tasks now: clicking the glyph marks them done (a checkmark
+    // Moments behave like tasks now: clicking the glyph marks them done (a checkmark
     // appears in the triangle) and they CLOSE at the midnight after their done date.
     checkmarkWhenDone: true,
     terminal: null,
@@ -79,7 +79,7 @@ export const KIND_META: Record<EntityKind, KindMeta> = {
     creatable: true,
     completable: true,
     fillGlyphWhenDone: true,
-    // Same as events — completable via the glyph, checkmarked when done.
+    // Same as moments — completable via the glyph, checkmarked when done.
     checkmarkWhenDone: true,
     terminal: null,
   },
@@ -163,11 +163,11 @@ export function isClosed(entity: Entity, now: number = Date.now()): boolean {
   // Explicit user reopen overrides the DERIVED closes below (but not the manual
   // `closed` / `cancelled` cases handled above) — see SpaceBase.reopened.
   if (entity.reopened) return false
-  // Task / Event / Instant all resolve "done" the same way: once completed, they
-  // auto-close at the first LOCAL midnight after `completedOn`. (Events/instants
+  // Task / Moment / Instant all resolve "done" the same way: once completed, they
+  // auto-close at the first LOCAL midnight after `completedOn`. (Moments/instants
   // gained glyph-completion — a done Moment shows a checkmark, then fills at the
   // following midnight, exactly like a Task.)
-  if (entity.kind === "task" || entity.kind === "event" || entity.kind === "instant") {
+  if (entity.kind === "task" || entity.kind === "moment" || entity.kind === "instant") {
     if (
       !!entity.completed &&
       entity.completedOn != null &&
@@ -176,9 +176,9 @@ export function isClosed(entity: Entity, now: number = Date.now()): boolean {
       return true
     }
   }
-  // Events/instants ALSO close once their scheduled end has passed, even if never
+  // Moments/instants ALSO close once their scheduled end has passed, even if never
   // marked done (instant end == `at`).
-  if (entity.kind === "event" || entity.kind === "instant") {
+  if (entity.kind === "moment" || entity.kind === "instant") {
     const end = entity.schedule?.endAt ?? entity.schedule?.at
     if (end != null && now >= end) return true
   }

@@ -7,7 +7,7 @@ import type { EntityKind, Schedule } from "./types"
  * time PARAMETER turns it into an archive entry — an already-`Done` entity spanning
  * (or pointing at) the given time. Examples:
  *
- *   "Slept --2330-0630"              → Moment (event), Done, 23:30 yesterday → 06:30 today
+ *   "Slept --2330-0630"              → Moment, Done, 23:30 yesterday → 06:30 today
  *   "Worked on Zero prototype --1100-1730" → Task, Done, 11:00 → 17:30 today
  *   "Woke --0630"                    → Instant, Done, today 06:30
  *   "Dentist --1400"                 → Instant (NOT done — unknown verb ⇒ future point)
@@ -21,7 +21,7 @@ import type { EntityKind, Schedule } from "./types"
  *       · a single clock token (`1400`)                                  ⇒ a POINT.
  *   - The FIRST WORD is matched (case-insensitive) against curated verb sets:
  *       · ACTIVE (transform/process: worked, wrote, coded…) + span ⇒ Task.
- *       · MOMENT (experience: slept, drove, walked…) or UNKNOWN + span ⇒ Moment(event).
+ *       · MOMENT (experience: slept, drove, walked…) or UNKNOWN + span ⇒ Moment.
  *       · any POINT param ⇒ Instant.
  *   - DONE: a recognized verb (active or moment) marks the entity `completed` — it's a
  *     logged PAST activity. An unknown verb leaves it open (so a bare point like
@@ -191,8 +191,8 @@ export function parseCreateField(raw: string): CreateFieldParse | null {
   const endAt = clockToEpoch(base, time.end)
   if (endAt <= startAt) startAt -= 86_400_000
 
-  // Active/transforming verb ⇒ Task; experiential or unknown ⇒ Moment (event).
-  const kind: EntityKind = verb === "active" ? "task" : "event"
+  // Active/transforming verb ⇒ Task; experiential or unknown ⇒ Moment.
+  const kind: EntityKind = verb === "active" ? "task" : "moment"
   const label = kind === "task" ? "Task" : "Moment"
   return {
     title,

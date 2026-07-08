@@ -33,12 +33,12 @@ export const scheduleParseSchema = z.object({
   /** The cleaned entity title with all scheduling words stripped (e.g. "Workout", not "Plan 1h Workout every weekday"). */
   title: z.string(),
   /**
-   * event ⇒ a timed span; instant ⇒ a single point in time; task ⇒ a to-do with an
+   * moment ⇒ a timed span; instant ⇒ a single point in time; task ⇒ a to-do with an
    * optional due date; space ⇒ an ongoing area of work that recurs as time blocks
    * (e.g. "Day Job every weekday 8–11:30 and 1:30–6"). Prefer `space` for multi-block
-   * recurring work areas, `event` for discrete recurring appointments.
+   * recurring work areas, `moment` for discrete recurring appointments.
    */
-  kind: z.enum(["event", "instant", "task", "space"]),
+  kind: z.enum(["moment", "instant", "task", "space"]),
   /** Time of day the (first) occurrence starts, 0–23. null ⇒ the client picks a sensible default. */
   startHour: z.number().int().min(0).max(23).nullable(),
   startMinute: z.number().int().min(0).max(59).nullable(),
@@ -48,7 +48,7 @@ export const scheduleParseSchema = z.object({
    * MULTI-BLOCK days (D4): two or more within-day spans on the SAME day, e.g.
    * "Day Job 8:00–11:30 AND 13:30–18:00". Each block is a local start/end time of
    * day. null or fewer than 2 entries ⇒ a single span (use startHour/durationMinutes).
-   * Typically paired with a daily/weekday `repeat` and `kind:"event"` or "space".
+   * Typically paired with a daily/weekday `repeat` and `kind:"moment"` or "space".
    */
   blocks: z
     .array(

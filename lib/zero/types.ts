@@ -38,8 +38,8 @@ export interface User {
  *
  *   - `space`   — an area / folder / gathering ("Day Job", "Health").
  *   - `task`    — a unit of work; still a container (it can hold subtasks).
- *   - `event`   — a scheduled span (start→end); also a container at its core.
- *   - `instant` — like an event, but a single point in time rather than a span.
+ *   - `moment`  — a scheduled span (start→end); also a container at its core.
+ *   - `instant` — like a moment, but a single point in time rather than a span.
  *   - `resource`  — a referenced asset/tool/material the work draws on.
  *   - `community` — a place gathering people and discussions (subreddit-like).
  *
@@ -66,21 +66,21 @@ export interface User {
  * The active-account path is: Soul (dot) → Individual (z) → Organism (body).
  *
  * LIFELINE: every Individual and Organism owns one Lifeline — the canonical master
- * timeline onto which all its Events, Instants, scheduled Tasks, etc. project.
+ * timeline onto which all its Moments, Instants, scheduled Tasks, etc. project.
  *
  * AGGREGATE LENSES (views over entities, not kinds): Population = all Individuals;
  * Society = Individuals + Organisms; Culture = Individuals + Organisms + Law + Art.
  *
  * Containment is recursive: any entity can contain any other entity. The shared
  * attributes below are present on every kind; only some are *relevant* per kind
- * (an event cares about start/end, an instant about `at`, a task about
+ * (a moment cares about start/end, an instant about `at`, a task about
  * priority/dueDate, a space about description), so renderers show fields
  * conditionally rather than the model splitting into separate shapes.
  */
 export type EntityKind =
   | "space"
   | "task"
-  | "event"
+  | "moment"
   | "instant"
   | "resource"
   | "community"
@@ -102,7 +102,7 @@ export interface Recurrence {
   freq: "daily" | "weekly" | "monthly" | "yearly"
   /** Every N units of `freq` (default 1). */
   interval?: number
-  /** For weekly rules: weekdays 0(Sun)–6(Sat) the event lands on. */
+  /** For weekly rules: weekdays 0(Sun)–6(Sat) the moment lands on. */
   byWeekday?: number[]
   /** Optional end of the series (inclusive), epoch ms. */
   until?: Epoch
@@ -113,7 +113,7 @@ export interface Recurrence {
  * `schedule` is the single "is this entity scheduled?" check. Every field is
  * optional and relevant to different kinds:
  *
- *   - event   → `startAt` + `endAt` (a contiguous span).
+ *   - moment  → `startAt` + `endAt` (a contiguous span).
  *   - instant → `at` (a single point in time).
  *   - task    → `dueAt` (a deadline) and/or `timebox` (effort budget).
  *
@@ -124,7 +124,7 @@ export interface Recurrence {
  *     independent of any single start/end.
  */
 export interface Schedule {
-  /** Contiguous span start (events, timed blocks). */
+  /** Contiguous span start (moments, timed blocks). */
   startAt?: Epoch
   /** Contiguous span end. */
   endAt?: Epoch
@@ -211,7 +211,7 @@ export interface SpaceBase {
    *   - this MANUAL flag is set (the "Close" menu action), or
    *   - it is `cancelled` (the "Cancel" action also fills, plus strike + fade), or
    *   - (DERIVED, not stored) a done task whose `completedOn` is before the first
-   *     following local midnight, or an event/instant whose end time has passed.
+   *     following local midnight, or a moment/instant whose end time has passed.
    * Only the manual flag is persisted; the derived cases are computed at read-time
    * by {@link isClosed} in `lib/zero/kinds.ts`.
    */
@@ -220,7 +220,7 @@ export interface SpaceBase {
   closedOn?: Epoch
   /**
    * Explicit user REOPEN that overrides a DERIVED close. Set by the "Reopen" menu
-   * action so an entity that closed only because time passed (an event past its end,
+   * action so an entity that closed only because time passed (a moment past its end,
    * a done task past its midnight) can be pulled back open and STAY open until it is
    * closed again. `isClosed` treats this as false for the derived cases only — a
    * manual `closed` or `cancelled` still wins (use Reopen / Restore to clear those).
@@ -231,14 +231,14 @@ export interface SpaceBase {
 
   // --- Shared state + display (relevance varies by kind) --------------------
   /**
-   * A NORMAL "done" flag. Only meaningful for completable kinds (task/event/
+   * A NORMAL "done" flag. Only meaningful for completable kinds (task/moment/
    * instant/space/resource). Community/Organism/Individual/Soul are NOT
    * "completed" — they reach a TERMINAL state (retire/death) instead; see
    * `KIND_META` in `lib/zero/kinds.ts`.
    */
   completed?: boolean
   /**
-   * An event (or instant) that was called off but kept on the timeline for
+   * A moment (or instant) that was called off but kept on the timeline for
    * reference. Cancelled items render dimmed with a struck-through title.
    */
   cancelled?: boolean
@@ -288,12 +288,12 @@ export interface TaskSpace extends SpaceBase {
   requested?: boolean
 }
 
-/** EVENT — a scheduled contiguous span (start→end); a container at its core. */
-export interface EventSpace extends SpaceBase {
-  kind: "event"
+/** MOMENT — a scheduled contiguous span (start→end); a container at its core. */
+export interface MomentSpace extends SpaceBase {
+  kind: "moment"
 }
 
-/** INSTANT — like an event, but a single point in time rather than a span. */
+/** INSTANT — like a moment, but a single point in time rather than a span. */
 export interface InstantSpace extends SpaceBase {
   kind: "instant"
 }
@@ -361,7 +361,7 @@ export interface SoulSpace extends SpaceBase {
  */
 export type Entity =
   | TaskSpace
-  | EventSpace
+  | MomentSpace
   | InstantSpace
   | PlainSpace
   | ResourceSpace

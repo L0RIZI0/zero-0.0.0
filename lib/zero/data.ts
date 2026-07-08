@@ -698,18 +698,18 @@ export const entities: Entity[] = [
   },
 
   // --- Events ---------------------------------------------------------------
-  { id: "e1", kind: "event", title: "Daily standup", parentId: "s_dayjob", taggedSpaceIds: [], schedule: { startAt: t(9), endAt: t(9, 30) } },
-  { id: "e2", kind: "event", title: "Deep work block", parentId: "s_zero", taggedSpaceIds: [], schedule: { startAt: t(9, 45), endAt: t(11, 30) } },
-  { id: "e3", kind: "event", title: "Product review", parentId: "s_product", taggedSpaceIds: [], schedule: { startAt: t(11, 30), endAt: t(12, 15) } },
-  { id: "e4", kind: "event", title: "Lunch", parentId: "s_personal", taggedSpaceIds: [], schedule: { startAt: t(12, 30), endAt: t(13, 15) } },
-  { id: "e5", kind: "event", title: "Investor prep", parentId: "s_deck", taggedSpaceIds: [], schedule: { startAt: t(13, 30), endAt: t(14, 45) } },
-  { id: "e6", kind: "event", title: "Admin hour", parentId: "s_admin", taggedSpaceIds: [], schedule: { startAt: t(15), endAt: t(16) } },
+  { id: "e1", kind: "moment", title: "Daily standup", parentId: "s_dayjob", taggedSpaceIds: [], schedule: { startAt: t(9), endAt: t(9, 30) } },
+  { id: "e2", kind: "moment", title: "Deep work block", parentId: "s_zero", taggedSpaceIds: [], schedule: { startAt: t(9, 45), endAt: t(11, 30) } },
+  { id: "e3", kind: "moment", title: "Product review", parentId: "s_product", taggedSpaceIds: [], schedule: { startAt: t(11, 30), endAt: t(12, 15) } },
+  { id: "e4", kind: "moment", title: "Lunch", parentId: "s_personal", taggedSpaceIds: [], schedule: { startAt: t(12, 30), endAt: t(13, 15) } },
+  { id: "e5", kind: "moment", title: "Investor prep", parentId: "s_deck", taggedSpaceIds: [], schedule: { startAt: t(13, 30), endAt: t(14, 45) } },
+  { id: "e6", kind: "moment", title: "Admin hour", parentId: "s_admin", taggedSpaceIds: [], schedule: { startAt: t(15), endAt: t(16) } },
   // Overlapping events — real days double-book. These deliberately collide with the
   // blocks above so the timeline demonstrates vertical lane-stacking (e9 runs through
   // the deep-work + product-review window; e10 overlaps investor prep + admin hour).
-  { id: "e9", kind: "event", title: "1:1 with Sarah", parentId: "s_dayjob", taggedSpaceIds: [], schedule: { startAt: t(10, 30), endAt: t(11, 15) } },
-  { id: "e10", kind: "event", title: "Design sync", parentId: "s_product", taggedSpaceIds: [], schedule: { startAt: t(14), endAt: t(15, 30) } },
-  { id: "e8", kind: "event", title: "Evening reset", parentId: "s_journal", taggedSpaceIds: [], schedule: { startAt: t(21), endAt: t(21, 30) } },
+  { id: "e9", kind: "moment", title: "1:1 with Sarah", parentId: "s_dayjob", taggedSpaceIds: [], schedule: { startAt: t(10, 30), endAt: t(11, 15) } },
+  { id: "e10", kind: "moment", title: "Design sync", parentId: "s_product", taggedSpaceIds: [], schedule: { startAt: t(14), endAt: t(15, 30) } },
+  { id: "e8", kind: "moment", title: "Evening reset", parentId: "s_journal", taggedSpaceIds: [], schedule: { startAt: t(21), endAt: t(21, 30) } },
 ]
 
 // ----------------------------------------------------------------------------
@@ -946,12 +946,12 @@ export function getCancelledTaskCount(contextId: string): number {
 /** Count of OPEN direct child events (outline triangle). "Open" = not yet closed,
  *  which — via `isClosed` — also excludes cancelled events and ones past their end. */
 export function getOpenEventCount(contextId: string): number {
-  return getChildren(contextId).filter((e) => e.kind === "event" && !isClosed(e)).length
+  return getChildren(contextId).filter((e) => e.kind === "moment" && !isClosed(e)).length
 }
 
 /** Count of CANCELLED direct child events (struck-through triangle). */
 export function getCancelledEventCount(contextId: string): number {
-  return getChildren(contextId).filter((e) => e.kind === "event" && !!e.cancelled).length
+  return getChildren(contextId).filter((e) => e.kind === "moment" && !!e.cancelled).length
 }
 
 /** Count of CANCELLED direct child instants (struck-through triangle). Only the
@@ -1066,7 +1066,7 @@ export function getTask(id: string): Entity | undefined {
 /** An event entity by id (undefined for non-event ids). */
 export function getEvent(id: string): Entity | undefined {
   const e = byId.get(id)
-  return e && e.kind === "event" ? e : undefined
+  return e && e.kind === "moment" ? e : undefined
 }
 
 /** An instant entity by id (undefined for non-instant ids). */
@@ -1114,7 +1114,7 @@ export function getSpaceTasks(spaceId: string): Entity[] {
 export function getSpaceEvents(spaceId: string): Entity[] {
   const isTimed = (e: Entity) =>
     e.seriesId == null &&
-    (e.kind === "event" || e.kind === "instant" || (e.kind === "space" && !!e.schedule))
+    (e.kind === "moment" || e.kind === "instant" || (e.kind === "space" && !!e.schedule))
   if (spaceId === "s_root") return entities.filter(isTimed)
   const descendants = collectDescendants(spaceId)
   return entities.filter(
@@ -1298,7 +1298,7 @@ function toContextItem(e: Entity): ContextItem {
     title: e.title,
     entity: e,
     task: e.kind === "task" ? e : undefined,
-    event: e.kind === "event" ? e : undefined,
+    event: e.kind === "moment" ? e : undefined,
     space: e.kind === "space" ? e : undefined,
   }
 }
@@ -1486,6 +1486,20 @@ function migrateWebTaskToResource(entity: Entity): void {
   delete loose.priority
 }
 
+/**
+ * ONTOLOGY MIGRATION (Jul 2026): the time-span kind was renamed `event` → `moment`
+ * (a "Moment" — a span in time — per the Zero ontology bible). This one-time,
+ * in-place flip upgrades any PERSISTED entity still carrying the legacy
+ * `kind:"event"` so old data matches newly-created moments. Reads `kind` through a
+ * loose view because `"event"` is no longer part of the EntityKind union. No-op for
+ * every other kind; id/title/schedule/pins are untouched, so the entity — and any
+ * dock pin or recurrence override referencing its id — survives unchanged.
+ */
+function migrateEventToMoment(entity: Entity): void {
+  if ((entity as { kind: string }).kind !== "event") return
+  ;(entity as { kind: EntityKind }).kind = "moment"
+}
+
 let _hydrated = false
 
 /**
@@ -1503,6 +1517,7 @@ export function hydrateFromStorage(): boolean {
     if (byId.has(entity.id)) continue
     migrateLegacyTime(entity)
     migrateWebTaskToResource(entity)
+    migrateEventToMoment(entity)
     entities.push(entity)
     byId.set(entity.id, entity)
     userEntityIds.add(entity.id)
@@ -1760,7 +1775,7 @@ export function addSpace(input: { name: string; parentId: string }): Entity {
 export function addEvent(input: { title: string; spaceId: string }): Entity {
   const entity: Entity = {
     id: uid("e"),
-    kind: "event",
+    kind: "moment",
     title: input.title,
     parentId: input.spaceId,
     taggedSpaceIds: [],
@@ -1876,7 +1891,7 @@ export function changeEntityKind(id: string, kind: EntityKind): void {
   } else if (kind === "space") {
     entity.description = entity.description ?? ""
     entity.assignedResourceIds = entity.assignedResourceIds ?? []
-  } else if (kind === "event") {
+  } else if (kind === "moment") {
     entity.schedule = { startAt: t(12), endAt: t(13), ...entity.schedule }
   } else if (kind === "instant") {
     entity.schedule = { at: t(12), ...entity.schedule }
@@ -1978,7 +1993,7 @@ export function applyParsedSchedule(id: string, plan: ScheduleParse): boolean {
 
   if (plan.kind === "instant") {
     entity.schedule = { at: startAt, ...(repeat ? { repeat } : {}) }
-  } else if (plan.kind === "event" || plan.kind === "space") {
+  } else if (plan.kind === "moment" || plan.kind === "space") {
     if (plan.kind === "space") {
       entity.description = entity.description ?? ""
       entity.assignedResourceIds = entity.assignedResourceIds ?? []
