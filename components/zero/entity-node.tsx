@@ -323,6 +323,32 @@ export function EntityNode({
   // closed by then, so there's no real hover to rely on).
   const [reqAnimating, setReqAnimating] = useState(false)
 
+  // FULLSCREEN geometry re-assertion. When a child opens OVER a fullscreen window,
+  // the open Flip runs in `absolute` mode and leaves the covered target frame with a
+  // GSAP-written inline `transform` (+ top/left) from the morph. Toggling/entering
+  // fullscreen is NOT a stack change, so no later Flip clears it — and React won't
+  // re-apply its committed geometry because its own virtual style value never changed
+  // (classic React↔GSAP inline conflict). The stale transform shoves the frame up by
+  // one hexagon wedge, pushing a covered Space ancestor's spine TITLE off-screen (the
+  // "ancestors lose their title" bug). Once the morph settles, imperatively clear the
+  // transform and re-assert the committed fullscreen box so the title lands in view.
+  // Mirrors are set during render below (after `fullscreen`/`winStyle` exist).
+  const fullscreenRef = useRef(false)
+  const winStyleRef = useRef<React.CSSProperties | null>(null)
+  useLayoutEffect(() => {
+    if (nav.animating) return
+    const el = ref.current
+    const ws = winStyleRef.current
+    if (!fullscreenRef.current || !el || !ws) return
+    el.style.transform = "none"
+    if (ws.top != null) el.style.top = typeof ws.top === "number" ? `${ws.top}px` : String(ws.top)
+    if (ws.left != null) el.style.left = typeof ws.left === "number" ? `${ws.left}px` : String(ws.left)
+    if (ws.width != null) el.style.width = typeof ws.width === "number" ? `${ws.width}px` : String(ws.width)
+    if (ws.height != null)
+      el.style.height = typeof ws.height === "number" ? `${ws.height}px` : String(ws.height)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nav.animating, nav.fullscreenId, nav.stack, ref])
+
   useLayoutEffect(() => {
     const sent = sentRef.current
     // While the node is (un)morphing between row and window — or rendered AS a window
@@ -645,6 +671,10 @@ export function EntityNode({
           borderRadius: "0",
         }
       : winStyleBase
+  // Mirror fullscreen + committed geometry for the post-morph re-assertion effect above
+  // (which clears GSAP's leftover transform on a covered fullscreen frame).
+  fullscreenRef.current = fullscreen
+  winStyleRef.current = winStyle
 
   // A Space is always shaped by the SAME 8-point clip-path; only its two insets
   // change between states:
