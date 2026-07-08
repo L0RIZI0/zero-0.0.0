@@ -615,8 +615,24 @@ export function EntityNode({
   // which shrinks the card as an open panel squeezes REG2 and picks honeycomb sizes);
   // fall back to the historical constants (150×130 home / 116×100 else) when unmetered
   // so nothing regresses. Applied as an INLINE size (not a class) since it's dynamic.
-  const dockSlotClass = contextDepth === 0 ? "h-[150px] w-[130px]" : "h-[116px] w-[100px]"
-  const dockSlotStyle = dockMetrics ? { width: dockMetrics.cardW, height: dockMetrics.cardH } : undefined
+  // Card FOOTPRINT aspect. Only a SPACE card is tall: its box is a pointy-top regular
+  // hexagon (ratio √3/2), it morphs into the hexagonal window, and it honeycomb-packs —
+  // all of which need cardH > cardW. Every OTHER kind's glyph lives in a SQUARE (task
+  // square, resource diamond, event triangle…), so its card must be 1:1 or the shape
+  // renders vertically stretched (a diamond becomes a tall kite). For non-Spaces the
+  // height collapses to the layout's packing WIDTH, giving a perfect square.
+  const dockSquare = variant === "dock" && !isSpace
+  const dockSlotClass =
+    contextDepth === 0
+      ? dockSquare
+        ? "h-[130px] w-[130px]"
+        : "h-[150px] w-[130px]"
+      : dockSquare
+        ? "h-[100px] w-[100px]"
+        : "h-[116px] w-[100px]"
+  const dockSlotStyle = dockMetrics
+    ? { width: dockMetrics.cardW, height: dockSquare ? dockMetrics.cardW : dockMetrics.cardH }
+    : undefined
   // Row slot height: h-11 (44px) gives the airier, more padded look — its inner
   // content uses `h-full`, so this fixed height is what governs a row's vertical
   // padding. Kept in sync with the CreateRow's vertical padding below so the draft
@@ -828,7 +844,7 @@ export function EntityNode({
         // Gated on the shared `§ 2` toggle.
         showFrames && "border border-green-500",
         // overflow-visible (was hidden): the clip now lives on [data-shape], so the
-        // frame no longer needs to clip — and must not, or it would re-crop the glyph.
+        // frame no longer needs to clip ��� and must not, or it would re-crop the glyph.
         "flex cursor-default flex-col overflow-visible",
         // shadow-2xl ONLY for unclipped (task/event) windows. A Space window is clipped
         // (hexagon/octagon/rect) on its fill child; previously the clip lived on the
