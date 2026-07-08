@@ -60,6 +60,30 @@ async function pruneStale(prefix, keepKeys) {
   else console.log(`[release] pruned ${removed} stale artifact(s), freed ${(freedBytes / 1e6).toFixed(1)}MB`)
 }
 
+// Blob's quota accounting is EVENTUALLY CONSISTENT: `del` returns before the freed
+// bytes are reflected in the quota check, so a `put` fired immediately after pruning
+// can still see the OLD (full) usage and throw "Storage quota exceeded" — exactly what
+// happened in v0.2.9 (prune freed 1061MB, then the next put failed anyway). Retry with
+// backoff so the upload lands once the deletes propagate (a few seconds in practice).
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+
+async function putWithRetry(key, body, opts, attempts = 6) {
+  let lastErr
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await put(key, body, opts)
+    } catch (err) {
+      lastErr = err
+      const quota = /quota exceeded/i.test(err?.message || "")
+      if (!quota || i === attempts - 1) throw err
+      const waitMs = 3000 * (i + 1) // 3s, 6s, 9s, 12s, 15s
+      console.log(`[release] quota not yet freed (attempt ${i + 1}/${attempts}); waiting ${waitMs / 1000}s…`)
+      await sleep(waitMs)
+    }
+  }
+  throw lastErr
+}
+
 async function main() {
   const prefix = feedPrefix()
   const entries = await readdir(RELEASE_DIR)
@@ -75,7 +99,7 @@ async function main() {
   for (const name of targets) {
     const body = await readFile(path.join(RELEASE_DIR, name))
     const key = `${prefix}/${name}`
-    const { url } = await put(key, body, {
+    const { url } = await putWithRetry(key, body, {
       access: "public",
       addRandomSuffix: false, // stable, predictable URLs the updater can resolve
       allowOverwrite: true, // latest.yml (and re-runs) must overwrite
