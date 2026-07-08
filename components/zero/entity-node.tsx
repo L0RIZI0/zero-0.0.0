@@ -602,8 +602,8 @@ export function EntityNode({
   // solid tone means it reads IDENTICALLY regardless of what's behind it. The alpha here
   // is only the mix ratio; over the bare bg it matches the old empty-card look exactly.
   const cardInk = isDark
-    ? "color-mix(in oklab, #fff 10%, var(--background))"
-    : "color-mix(in oklab, #000 7%, var(--background))"
+    ? "color-mix(in oklab, #fff 13%, var(--background))"
+    : "color-mix(in oklab, #000 10%, var(--background))"
   // SOLID fill — a space/resource WITH contents. OPAQUE color-mix over --background (same
   // as the outline) so a fill+outline card never compounds. DARK mode: the fill and
   // outline swapped, so the fill is the LIGHTER of the pair (outline reads on top). LIGHT
