@@ -116,6 +116,43 @@ function setupAutoUpdate() {
 // Directory of the Next.js static export (`next build` with output:'export').
 const OUT_DIR = path.join(__dirname, "..", "out")
 
+/**
+ * Serve the static export for the privileged `app://local/<path>` scheme.
+ * `app://local/<path>` → `<OUT_DIR>/<path>`, with candidate resolution for
+ * extensionless routes and an index.html SPA fallback so client-side routing
+ * resolves. Shared by the DEFAULT session (main window) AND every resource
+ * partition session — otherwise a partition with no `app:` handler treats an
+ * internal URL like `app://local/zero-laws` as an unknown external protocol and
+ * hands it to the OS shell ("Get an app to open this 'app' link").
+ */
+async function serveAppProtocol(request) {
+  const { pathname } = new URL(request.url)
+  let rel = decodeURIComponent(pathname).replace(/^\/+/, "")
+  if (rel === "" || rel.endsWith("/")) rel += "index.html"
+
+  // Candidate files to try in order. An extensionless route like "zero-laws"
+  // (an internal Zero page opened as a resource) is emitted by the Next static
+  // export — with trailingSlash:true — as "zero-laws/index.html"; we also try
+  // "zero-laws.html" so either export style resolves without a 404-to-shell.
+  const candidates = [rel]
+  if (!path.extname(rel)) candidates.push(path.join(rel, "index.html"), `${rel}.html`)
+
+  for (const cand of candidates) {
+    const filePath = path.join(OUT_DIR, cand)
+    // Guard against path traversal escaping the export dir.
+    if (!filePath.startsWith(OUT_DIR)) continue
+    try {
+      const res = await net.fetch(pathToFileURL(filePath).toString())
+      if (res.ok) return res
+    } catch {
+      /* missing file — try the next candidate */
+    }
+  }
+
+  // SPA fallback so client-side routing still resolves.
+  return net.fetch(pathToFileURL(path.join(OUT_DIR, "index.html")).toString())
+}
+
 /** @type {BrowserWindow | null} */
 let mainWindow = null
 
@@ -209,35 +246,10 @@ app.whenReady().then(() => {
   if (process.platform !== "darwin") Menu.setApplicationMenu(null)
 
   if (!isDev) {
-    // Serve the static export. `app://local/<path>` → `<OUT_DIR>/<path>`, with a
-    // sane fallback to index.html so client-side routing still resolves.
-    protocol.handle("app", async (request) => {
-      const { pathname } = new URL(request.url)
-      let rel = decodeURIComponent(pathname).replace(/^\/+/, "")
-      if (rel === "" || rel.endsWith("/")) rel += "index.html"
-
-      // Candidate files to try in order. An extensionless route like "zero-laws"
-      // (an internal Zero page opened as a resource) is emitted by the Next static
-      // export — with trailingSlash:true — as "zero-laws/index.html"; we also try
-      // "zero-laws.html" so either export style resolves without a 404-to-shell.
-      const candidates = [rel]
-      if (!path.extname(rel)) candidates.push(path.join(rel, "index.html"), `${rel}.html`)
-
-      for (const cand of candidates) {
-        const filePath = path.join(OUT_DIR, cand)
-        // Guard against path traversal escaping the export dir.
-        if (!filePath.startsWith(OUT_DIR)) continue
-        try {
-          const res = await net.fetch(pathToFileURL(filePath).toString())
-          if (res.ok) return res
-        } catch {
-          /* missing file — try the next candidate */
-        }
-      }
-
-      // SPA fallback so client-side routing still resolves.
-      return net.fetch(pathToFileURL(path.join(OUT_DIR, "index.html")).toString())
-    })
+    // Serve the static export on the DEFAULT session (the main window). Resource
+    // views run in their OWN partitioned sessions and get the same handler wired up
+    // in prepareResourceSession() — see the note there.
+    protocol.handle("app", serveAppProtocol)
   }
 
   createWindow()
@@ -287,6 +299,19 @@ function prepareResourceSession(partition) {
   preparedPartitions.add(partition)
   const ses = session.fromPartition(partition)
   ses.setUserAgent(RESOURCE_UA)
+
+  // Teach this partition how to serve `app://local/…` too. protocol.handle() only
+  // registers on the DEFAULT session, so without this an internal resource (e.g.
+  // Zero's own "/zero-laws" → app://local/zero-laws) has no handler in the
+  // partition and Chromium punts `app:` to the OS shell ("Get an app to open this
+  // 'app' link"). Only meaningful in the packaged build (dev uses http://localhost).
+  if (!isDev) {
+    try {
+      ses.protocol.handle("app", serveAppProtocol)
+    } catch (err) {
+      console.log(`[v0] resource: app:// handler already set for ${partition}`, err?.message || err)
+    }
+  }
 
   const STRIP = new Set([
     "x-frame-options",
@@ -453,13 +478,26 @@ ipcMain.handle("zero:win:is-maximized", () => !!mainWindow?.isMaximized())
 // ── Apply a downloaded update on demand ──────────────────────────────────────
 // Triggered by the in-app "Restart to update" affordance. Only meaningful once an
 // update has actually been downloaded (autoUpdater guards this internally); if
-// nothing is staged it's a harmless no-op. isForceRunAfter=true relaunches Zero
-// right after the silent install so the user lands back where they were.
+// nothing is staged it's a harmless no-op.
+//
+// Feels near-instant (Figma-like) rather than a frozen 2-minute wait:
+//   1. Hide every window IMMEDIATELY so Zero visually vanishes the moment you click
+//      (the old flow left the unresponsive window on screen while NSIS churned).
+//   2. quitAndInstall(isSilent=TRUE, isForceRunAfter=TRUE): isSilent runs the NSIS
+//      installer with NO visible "Installing, please wait…" progress dialog — much
+//      faster and unattended; isForceRunAfter relaunches Zero right after so you
+//      land back where you were.
+let installingUpdate = false
 ipcMain.on("zero:update:install", () => {
-  if (!app.isPackaged) return
+  if (!app.isPackaged || installingUpdate) return
+  installingUpdate = true
   try {
-    autoUpdater.quitAndInstall(false, true)
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (!win.isDestroyed()) win.hide()
+    }
+    autoUpdater.quitAndInstall(true, true)
   } catch (err) {
+    installingUpdate = false
     console.log("[v0] update: quitAndInstall failed", err?.message || err)
   }
 })
