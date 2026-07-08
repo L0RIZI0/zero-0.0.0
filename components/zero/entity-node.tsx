@@ -563,27 +563,25 @@ export function EntityNode({
   // hover lingers a beat after the pointer leaves (feels less twitchy).
   const frameActive = hovered || showHighlight || isClosing || held || reqAnimating
 
-  // DOCK-CARD "WINDOW" FILL — the collapsed dock card is a GIANT GLYPH: its silhouette
-  // fills only in the glyph's filled state and otherwise reads as an empty outline, so
-  // the card mirrors its small glyph instead of always being a solid chip.
-  //   • task / event / instant → filled only when the glyph is filled (i.e. CLOSED);
-  //     open reads as an empty square, done as an empty square + the small glyph's check.
-  //   • resource               → ALWAYS filled (the diamond/losange) — for now.
-  //   • space                  → filled when it HAS children; an EMPTY hexagon when it
-  //     has none at all.
-  const cardFilled = isResourceKind
-    ? true
-    : isSpace
-      ? getChildren(entityId).length > 0
-      : glyphFilled
+  // DOCK-CARD "WINDOW" — the collapsed dock card is a GIANT GLYPH. By default EVERY kind
+  // reads as an EMPTY OUTLINE (open task square, resource diamond, space hexagon), so a
+  // card mirrors the hollow small glyph rather than a solid chip. The silhouette FILLS
+  // only once the entity is CLOSED — and then with a SOFT grey (see cardClosedFill) so
+  // the title + glyph laid over it stay legible. `void getChildren` keeps the card
+  // re-rendering when children mutate (child count still drives the counter below).
+  void getChildren(entityId).length
+  const cardFilled = closed
   // An EMPTY card = a collapsed dock card whose window should read unfilled. Excludes the
   // close morph (isClosing) so the shrink keeps the opaque lit surface until it settles.
   const cardEmpty = variant === "dock" && !asWindow && !isClosing && !cardFilled
-  // A single mid-grey "ink" shared by BOTH a filled card's fill AND an empty card's
-  // outline, so every dock-card glyph reads at the same weight (was two mismatched
-  // greys). Kept on the LIGHTER side of mid so a filled resource's dark favicon tile
-  // stays legible against it (a 50% grey washed the tile out).
+  // OUTLINE ink — the readable mid-grey that traces every empty glyph (square border,
+  // diamond/hexagon rim, done checkmark). Weighty enough to read as the scaled-up glyph.
   const cardInk = isDark ? "rgb(255 255 255 / 0.52)" : "rgb(0 0 0 / 0.4)"
+  // CLOSED fill — a SOFT grey, much lighter than the outline: it nudges the card
+  // background "less dark" (dark mode) / "less light" (light mode) to signal closed,
+  // while staying subtle enough that an overlaid white title or a dark favicon tile
+  // remains clearly visible on top (a strong fill swallowed them).
+  const cardClosedFill = isDark ? "rgb(255 255 255 / 0.14)" : "rgb(0 0 0 / 0.1)"
   // Outline weight that mimics the small glyph SCALED UP rather than a hairline frame.
   // The glyph strokes 1.75 on a 24-unit box (≈0.073 of the box), so at card size the
   // matching stroke is cardW × 0.073 (≈9px on the 130px home card). Shrinks with the
@@ -596,16 +594,20 @@ export function EntityNode({
   // glyph's checkmark blown up.
   const DOCK_CHECK_POINTS = "7,12.5 10.5,16 17,8"
   const dockCardFilledFill = variant === "dock" && !asWindow && !isClosing && cardFilled
-  // Hexagon rim for an empty SPACE card (a clip-path can't carry a border, so the
+  // Outline rim for an empty CLIPPED card (a clip-path can't carry a border, so the
   // silhouette is traced by an SVG polygon on the [data-shape] child — same technique as
-  // the Space window outline). Rect kinds (task/event/instant) are unclipped, so their
+  // the Space window outline). SPACE → hexagon, RESOURCE → diamond (spaceClipPoints(50,50),
+  // matching its diamond clip). Rect kinds (task/event/instant) are unclipped, so their
   // empty square is drawn with a plain CSS border instead (see shapeStyle).
-  const cardEmptyHexPoints =
-    cardEmpty && isSpace
+  const cardEmptyRimPoints = !cardEmpty
+    ? null
+    : isSpace
       ? dockMetrics
         ? regularHexPoints(dockMetrics.cardW, dockMetrics.cardH)
         : SPACE_HEX_POINTS
-      : null
+      : isResourceKind
+        ? spaceClipPoints(50, 50)
+        : null
 
   const frameSurface = asWindow
     ? telescopicSurface(depth, leafDepth, isDark)
@@ -616,9 +618,9 @@ export function EntityNode({
           // frameActive → highlightColor above; the rim/border carries the identity).
           "transparent"
         : dockCardFilledFill
-          ? // Filled dock-card window (resource diamond, space-with-children hexagon,
-            // closed task square): the solid mid-grey ink, matching the empty outline.
-            cardInk
+          ? // CLOSED dock card — soft grey fill inside the clipped/bordered silhouette,
+            // subtle enough that the overlaid title + glyph stay readable.
+            cardClosedFill
           : collapsedRest
 
   void nav.dataVersion // re-read counts when data mutates
@@ -1185,11 +1187,11 @@ export function EntityNode({
               />
             </svg>
           )}
-          {/* EMPTY-SPACE hexagon rim — a childless Space dock card reads as an outline
-              hexagon (not a filled chip). Traces the SAME hex points as the card clip,
-              in BOTH themes (the window outline above is light-only); the clip trims the
-              stroke's outer half to a clean inner hairline. */}
-          {cardEmptyHexPoints && (
+          {/* EMPTY clipped-card rim — a default (not-closed) Space or Resource dock card
+              reads as an OUTLINE hexagon / diamond (not a filled chip). Traces the SAME
+              points as the card clip, in BOTH themes (the window outline above is
+              light-only); the clip trims the stroke's outer half to a clean inner edge. */}
+          {cardEmptyRimPoints && (
             <svg
               aria-hidden
               className="absolute inset-0 z-[1] h-full w-full"
@@ -1197,7 +1199,7 @@ export function EntityNode({
               preserveAspectRatio="none"
             >
               <polygon
-                points={cardEmptyHexPoints.map(([x, y]) => `${x},${y}`).join(" ")}
+                points={cardEmptyRimPoints.map(([x, y]) => `${x},${y}`).join(" ")}
                 fill="none"
                 stroke={cardInk}
                 // Doubled: the clip trims the stroke's outer half, so this renders as
