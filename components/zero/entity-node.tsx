@@ -579,6 +579,11 @@ export function EntityNode({
   // An EMPTY card = a collapsed dock card whose window should read unfilled. Excludes the
   // close morph (isClosing) so the shrink keeps the opaque lit surface until it settles.
   const cardEmpty = variant === "dock" && !asWindow && !isClosing && !cardFilled
+  // A single mid-grey "ink" shared by BOTH a filled card's fill AND an empty card's
+  // outline, so every dock-card glyph reads at the same weight (was two mismatched
+  // greys: a faint fill + a lighter, thinner outline). Sits between them in both themes.
+  const cardInk = isDark ? "rgb(255 255 255 / 0.6)" : "rgb(0 0 0 / 0.5)"
+  const dockCardFilledFill = variant === "dock" && !asWindow && !isClosing && cardFilled
   // Hexagon rim for an empty SPACE card (a clip-path can't carry a border, so the
   // silhouette is traced by an SVG polygon on the [data-shape] child — same technique as
   // the Space window outline). Rect kinds (task/event/instant) are unclipped, so their
@@ -598,7 +603,11 @@ export function EntityNode({
         ? // Empty card reads as an outline: no resting fill (hover still lifts via
           // frameActive → highlightColor above; the rim/border carries the identity).
           "transparent"
-        : collapsedRest
+        : dockCardFilledFill
+          ? // Filled dock-card window (resource diamond, space-with-children hexagon,
+            // closed task square): the solid mid-grey ink, matching the empty outline.
+            cardInk
+          : collapsedRest
 
   void nav.dataVersion // re-read counts when data mutates
   const openCount = getOpenTaskCount(entityId)
@@ -858,7 +867,9 @@ export function EntityNode({
     // hairline border. Space cards are clipped (hexagon), so they use the SVG rim
     // below instead; resources are always filled, so they never reach here.
     ...(cardEmpty && !clipPath
-      ? { border: `1px solid ${isDark ? "rgb(255 255 255 / 0.45)" : "rgb(0 0 0 / 0.32)"}` }
+      ? // Thicker outline (was 1px) so the empty square reads like the SCALED-UP glyph
+        // stroke rather than a hairline frame; shares the unified mid-grey `cardInk`.
+        { border: `2.5px solid ${cardInk}` }
       : null),
     // DARK ancestor/leaf-less Space windows draw their boundary as an inset ring
     // (light mode uses the SVG outline). Same condition as before, just relocated
@@ -1176,8 +1187,10 @@ export function EntityNode({
               <polygon
                 points={cardEmptyHexPoints.map(([x, y]) => `${x},${y}`).join(" ")}
                 fill="none"
-                stroke={isDark ? "rgb(255 255 255 / 0.45)" : "rgb(0 0 0 / 0.32)"}
-                strokeWidth={2}
+                stroke={cardInk}
+                // The clip trims the stroke's outer half, so 5 renders ~2.5px — matching
+                // the empty-square border. Unified `cardInk` mid-grey.
+                strokeWidth={5}
                 strokeLinejoin="round"
                 vectorEffect="non-scaling-stroke"
               />
