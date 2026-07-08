@@ -94,6 +94,51 @@ export type EntityKind =
 export type Epoch = number
 
 /**
+ * The kind of lifecycle event a single {@link Instant} log entry records. This is
+ * ontology Meta **field 1** ("a list of Instants for logs"): every state change an
+ * entity can undergo is one typed, timestamped entry, so the entity's CURRENT state
+ * is derived by folding the log rather than stored as separate booleans.
+ *
+ *   - `created`   — birth (creation). The first entry of any log.
+ *   - `done` / `undone`      — completion toggled on / off.
+ *   - `closed` / `reopened`  — archived / pulled back open.
+ *   - `cancelled` / `restored` — called off / un-cancelled.
+ *   - `retired` / `died`     — TERMINAL ends (community retires, organism/individual die).
+ *   - `accessed`  — an entry/exit "who was here, when" access record.
+ *
+ * NOTE: this type is ADDITIVE and not yet persisted or written by any code path —
+ * see `v0 memory: entity log model`. The `log` field below is optional and every
+ * derive helper falls back to today's scalar fields when it is absent.
+ */
+export type LogType =
+  | "created"
+  | "done"
+  | "undone"
+  | "closed"
+  | "reopened"
+  | "cancelled"
+  | "restored"
+  | "retired"
+  | "died"
+  | "accessed"
+
+/**
+ * ONE lifecycle-log entry — a single timestamped "Instant" in an entity's history.
+ * (Distinct from the `instant` entity KIND, which is a point-in-time entity; this is
+ * a log record.) A `by`/`where` pair captures provenance for `created`/`accessed`.
+ */
+export interface Instant {
+  /** When this event happened (epoch ms). */
+  at: Epoch
+  /** What kind of lifecycle event it was. */
+  type: LogType
+  /** Id of the acting Individual/Organism ("by whom"), when known. */
+  by?: string
+  /** Place id or label ("where"), when known. */
+  where?: string
+}
+
+/**
  * Recurrence rule for a repeating schedule. Absent `repeat` = a one-off.
  * Deliberately a small subset of iCal RRULE — enough for "every weekday",
  * "every 2 weeks on Mon/Wed", "monthly", etc.
@@ -199,6 +244,17 @@ export interface EntityBase {
   recurrenceId?: Epoch
 
   // --- Lifecycle / provenance META (every space has meta) -------------------
+  /**
+   * The append-only lifecycle LOG — ontology Meta field 1. One {@link Instant}
+   * per state change (created / done / closed / cancelled / accessed / …), from
+   * which the current state is DERIVED by folding (see `lib/zero/entity-log.ts`).
+   *
+   * ADDITIVE + not yet written: no code path populates this today, and every
+   * derive helper falls back to the scalar fields below when `log` is absent, so
+   * persisted data is untouched. This is the target shape that the scalars
+   * (`createdAt`, `completed`, `closed`, …) will eventually fold into.
+   */
+  log?: Instant[]
   /** When this space was created (epoch ms). */
   createdAt?: Epoch
   /** Id of the creating Individual/Organism ("created by"). */
