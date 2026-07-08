@@ -194,18 +194,21 @@ export function EntityBody({
           Zero acting as a contextual browser. */}
       {resource ? (
         <motion.div
-          className="pointer-events-auto flex min-h-0 min-w-0 flex-1 flex-col pb-3 pt-2"
+          // FULLSCREEN: drop the spine/peek insets so the resource canvas (native web
+          // view in Electron) fills the window body EDGE-TO-EDGE below the window
+          // header. The header itself is NOT covered — it stays above [data-body] with
+          // its shrink/close, which is how you exit (no reliance on Escape, which the
+          // focused native web view swallows). Non-fullscreen keeps the normal insets:
+          // slim top/bottom + animated left/right gutters for the in/out spines.
+          className={cn(
+            "pointer-events-auto flex min-h-0 min-w-0 flex-1 flex-col",
+            !fullscreen && "pb-3 pt-2",
+          )}
           initial={false}
-          animate={{ paddingLeft: padLeft, paddingRight: padRight }}
+          animate={{ paddingLeft: fullscreen ? 0 : padLeft, paddingRight: fullscreen ? 0 : padRight }}
           transition={panelSlideTransition}
         >
-          <ResourceCanvas
-            id={entityId}
-            url={resource.url}
-            resourceId={resource.resourceId}
-            active={active}
-            fullscreen={fullscreen}
-          />
+          <ResourceCanvas id={entityId} url={resource.url} resourceId={resource.resourceId} active={active} />
         </motion.div>
       ) : (
         // THE VIEW — everything visually INSIDE the entity window: the region stack,

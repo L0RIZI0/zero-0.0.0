@@ -37,6 +37,7 @@ import { Dayline } from "./dayline"
 export function IndividualHeader({
   surface,
   bgTransition,
+  fullscreen = false,
 }: {
   /** entity0's telescopic backdrop color (from WorkSurface). Painted as this header's
    *  own SOLID background so the chrome is opaque: the opened window bleeds UP behind
@@ -47,13 +48,18 @@ export function IndividualHeader({
   /** Same background-color transition the frame uses, so the header's fill tracks the
    *  telescopic surface in lockstep during dives (no flash/seam). */
   bgTransition?: string
+  /** When a window is fullscreen the app bar (avatar/time/logo) is HIDDEN and only the
+   *  Dayline remains — pulled to the very top (y=0) so the fullscreen window can touch
+   *  its bottom. The Dayline (planned entities + activity band) is the one piece of
+   *  chrome a fullscreen entity always reserves space for. */
+  fullscreen?: boolean
 }) {
   return (
     <div
       className="pointer-events-none relative z-40 flex shrink-0 flex-col"
       style={{ backgroundColor: surface, transition: bgTransition } as React.CSSProperties}
     >
-      <ShellHeader />
+      {!fullscreen && <ShellHeader />}
       <Dayline />
     </div>
   )

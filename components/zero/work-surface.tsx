@@ -115,7 +115,7 @@ export function WorkSurface() {
           (no longer a decoupled absolute overlay), so the window-region below starts at
           this header's bottom by natural flow — the old `marginTop: HEADER_OVERLAY_H`
           hack is gone. Its height is constant, so the region rect stays put across depth. */}
-      <IndividualHeader surface={homeSurface} bgTransition={homeBgTransition} />
+      <IndividualHeader surface={homeSurface} bgTransition={homeBgTransition} fullscreen={anyFullscreen} />
       {/* REGION 0 (fill) — the focus-window region, where the SINGLE recursive
           entity tree lives. It fills the ENTIRE card, so an opened window fills from
           the card top: its header sits just under the app bar. The root entity's body

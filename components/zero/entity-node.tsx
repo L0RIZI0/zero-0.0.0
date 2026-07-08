@@ -28,6 +28,7 @@ import {
   PANEL_SLIDE_CSS_EASE,
   type SpaceKind,
 } from "@/lib/zero/motion"
+import { DAYLINE_ROW_H } from "@/lib/zero/layout"
 import gsap from "gsap"
 import { Flip } from "gsap/Flip"
 import { DURATION_S, MORPH_CSS_EASE, SEND_EASE } from "@/lib/zero/flip-stage"
@@ -623,21 +624,23 @@ export function EntityNode({
         ? nav.fadingStyleFor(depth)
         : nav.styleFor(depth)
     : null
-  // Fullscreen override: fill the viewport and drop the Space hexagon CSS vars (the
-  // clip-path is forced off below so the shape becomes a full box reaching all four
-  // corners). Keep the per-depth zIndex so a fullscreen chain still stacks leaf-over-
-  // ancestor. NOTE this pass does NOT move the entity0 header (relative z-40); a
-  // fullscreen window lives inside the z-10 region, so `top: 0` makes it extend up
-  // BEHIND the header — covering the sides + bottom to the viewport edges now, and
-  // already correctly sized for when the header slide-up (a later pass) reveals the top.
+  // Fullscreen override: fill the viewport BELOW the dayline and drop the Space
+  // hexagon CSS vars (the clip-path is forced off below so the shape becomes a full
+  // box reaching the left/right/bottom edges). A fullscreen entity is never TRULY
+  // full-viewport: it reserves DAYLINE_ROW_H at the very top so the Dayline (planned
+  // entities + activity band) stays visible — the WorkSurface hides the app header
+  // bar and pulls the Dayline up to y=0 during fullscreen. The window touches the
+  // dayline's bottom. Its own header (glyph/title/shrink/close) rides just inside the
+  // top of this box, so for a resource (web) task the shrink/close stay visible above
+  // the native web view (which fills the body edge-to-edge) — that's the exit path.
   const winStyle: React.CSSProperties | null =
     fullscreen && winStyleBase
       ? {
           position: "fixed",
-          top: 0,
+          top: DAYLINE_ROW_H,
           left: 0,
           width: "100vw",
-          height: "100vh",
+          height: `calc(100vh - ${DAYLINE_ROW_H}px)`,
           zIndex: (winStyleBase.zIndex as number | undefined) ?? 20 + depth * 10,
           borderRadius: "0",
         }
