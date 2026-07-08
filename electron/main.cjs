@@ -93,10 +93,13 @@ function setupAutoUpdate() {
   autoUpdater.on("download-progress", (p) => {
     notify("zero:update:progress", { percent: Math.round(p?.percent || 0) })
   })
+  // Once a build is staged we stop polling — nothing new to find until it's applied.
+  let updateDownloaded = false
   autoUpdater.on("update-downloaded", (info) => {
     console.log("[v0] update: downloaded", info?.version, "— will install on quit")
     // Do NOT quitAndInstall() here: per the plan, restarting to apply is fine and we
     // never want to interrupt a dogfooding session. It installs on the next quit.
+    updateDownloaded = true
     notify("zero:update:downloaded", { version: info?.version })
   })
   autoUpdater.on("error", (err) => {
@@ -105,12 +108,38 @@ function setupAutoUpdate() {
     console.log("[v0] update: error", err?.message || err)
   })
 
-  // Kick off a single check shortly after launch (let the window paint first).
-  setTimeout(() => {
-    autoUpdater.checkForUpdates().catch((err) => {
-      console.log("[v0] update: check failed", err?.message || err)
-    })
-  }, 4000)
+  // Single reusable checker. Guarded so overlapping triggers (interval + focus) don't
+  // stack, and a no-op once a build is already staged for the next quit.
+  let checking = false
+  let lastCheck = 0
+  const runUpdateCheck = (reason) => {
+    if (updateDownloaded || checking) return
+    checking = true
+    lastCheck = Date.now()
+    console.log(`[v0] update: check (${reason})`)
+    autoUpdater
+      .checkForUpdates()
+      .catch((err) => console.log("[v0] update: check failed", err?.message || err))
+      .finally(() => {
+        checking = false
+      })
+  }
+
+  // The app used to check only ONCE ~4s after launch, so a long-running dogfooding
+  // session never noticed builds published after it started — you had to fully quit
+  // and relaunch. Now we ALSO re-check on a timer and whenever the window regains
+  // focus (throttled), so a fresh build gets picked up within the session.
+  setTimeout(() => runUpdateCheck("startup"), 4000)
+
+  const CHECK_INTERVAL_MS = 30 * 60 * 1000 // every 30 min
+  const checkTimer = setInterval(() => runUpdateCheck("interval"), CHECK_INTERVAL_MS)
+
+  const FOCUS_THROTTLE_MS = 10 * 60 * 1000 // at most one focus-triggered check / 10 min
+  app.on("browser-window-focus", () => {
+    if (Date.now() - lastCheck >= FOCUS_THROTTLE_MS) runUpdateCheck("focus")
+  })
+
+  app.on("before-quit", () => clearInterval(checkTimer))
 }
 
 // Directory of the Next.js static export (`next build` with output:'export').
