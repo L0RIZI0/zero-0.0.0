@@ -34,6 +34,13 @@ contextBridge.exposeInMainWorld("zero", {
       ipcRenderer.on("zero:resource:status", handler)
       return () => ipcRenderer.removeListener("zero:resource:status", handler)
     },
+    /** Main-frame URL changes per task: { id, url } — lets the renderer persist the
+     *  last-visited page so reopening a closed resource resumes where you left off. */
+    onNavigated: (cb) => {
+      const handler = (_e, payload) => cb(payload)
+      ipcRenderer.on("zero:resource:navigated", handler)
+      return () => ipcRenderer.removeListener("zero:resource:navigated", handler)
+    },
   },
   /** Open a URL in the user's real external browser (graceful fallback). */
   openExternal: (url) => ipcRenderer.send("zero:open-external", url),

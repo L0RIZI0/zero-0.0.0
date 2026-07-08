@@ -447,6 +447,20 @@ ipcMain.handle("zero:resource:mount", async (_e, args) => {
     report(false, desc || `error ${code}`)
   })
 
+  // NAVIGATION BRIDGE: report the main-frame URL whenever it changes so the renderer
+  // can remember "where I left off" per resource (persisted, so reopening resumes the
+  // last page instead of the original webUrl). Covers full navigations, history moves,
+  // and in-page (SPA / pushState) changes — the latter matters for apps like v0.app.
+  const reportNav = (navUrl) => {
+    if (mainWindow && !mainWindow.isDestroyed() && typeof navUrl === "string" && navUrl) {
+      mainWindow.webContents.send("zero:resource:navigated", { id, url: navUrl })
+    }
+  }
+  view.webContents.on("did-navigate", (_e3, navUrl) => reportNav(navUrl))
+  view.webContents.on("did-navigate-in-page", (_e4, navUrl, isMainFrame) => {
+    if (isMainFrame) reportNav(navUrl)
+  })
+
   try {
     await view.webContents.loadURL(url)
   } catch (err) {

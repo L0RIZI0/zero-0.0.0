@@ -18,6 +18,7 @@ export interface ZeroDesktopBridge {
     unmount: (id: string) => void
     onOutput: (cb: (payload: { id: string; name: string; dataUrl: string }) => void) => () => void
     onStatus: (cb: (payload: { id: string; ok: boolean; detail?: string }) => void) => () => void
+    onNavigated: (cb: (payload: { id: string; url: string }) => void) => () => void
   }
   openExternal: (url: string) => void
   updates: {

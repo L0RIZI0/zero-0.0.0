@@ -95,3 +95,56 @@ export function clearUserItems(): void {
     // Ignore — nothing more we can do if storage is unavailable.
   }
 }
+
+/**
+ * Per-resource "resume where I left off" — remembers the LAST url a resource task
+ * was navigated to (desktop native web view only tracks this), so reopening a
+ * closed resource lands on the page you were on rather than its original webUrl.
+ *
+ * Stored under its OWN dedicated key (NOT folded into the entity), so it never
+ * mutates persisted entity data or its shape: a plain `{ [entityId]: url }` map.
+ * Fully additive + disposable — wiping the key just resets every resource to its
+ * seed/origin url. Keyed by entity id, so it survives title/URL edits.
+ */
+const RESOURCE_LAST_URL_KEY = "zero:resource-last-url:v1"
+
+export function readResourceLastUrls(): Record<string, string> {
+  if (typeof window === "undefined") return {}
+  try {
+    const raw = window.localStorage.getItem(RESOURCE_LAST_URL_KEY)
+    if (!raw) return {}
+    const parsed = JSON.parse(raw) as unknown
+    return parsed && typeof parsed === "object" ? (parsed as Record<string, string>) : {}
+  } catch {
+    return {}
+  }
+}
+
+/** Last remembered url for one resource, or null if none stored yet. */
+export function readResourceLastUrl(id: string): string | null {
+  const url = readResourceLastUrls()[id]
+  return typeof url === "string" && url ? url : null
+}
+
+/** Remember the last url for a resource (no-op if unchanged). */
+export function writeResourceLastUrl(id: string, url: string): void {
+  if (typeof window === "undefined" || !id || !url) return
+  try {
+    const all = readResourceLastUrls()
+    if (all[id] === url) return
+    all[id] = url
+    window.localStorage.setItem(RESOURCE_LAST_URL_KEY, JSON.stringify(all))
+  } catch {
+    // Storage unavailable — fail quietly (resume just won't persist this session).
+  }
+}
+
+/** Wipe all remembered resource urls (THIS browser only). Part of the `§ 0` reset. */
+export function clearResourceLastUrls(): void {
+  if (typeof window === "undefined") return
+  try {
+    window.localStorage.removeItem(RESOURCE_LAST_URL_KEY)
+  } catch {
+    // Ignore.
+  }
+}

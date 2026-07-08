@@ -4,6 +4,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react"
 import { getWebResource, resolveWebResourceByUrl, webDisplayName, type WebResource } from "@/lib/zero/web-resources"
 import { ResourceGlyph } from "./resource-glyph"
 import { cn } from "@/lib/utils"
+import { readResourceLastUrl, writeResourceLastUrl } from "@/lib/zero/persistence"
 
 /**
  * Resolve an internal/relative resource URL (e.g. Zero's own "/zero-laws" page) to
@@ -53,11 +54,13 @@ export function ResourceCanvas({
   // Feature-detect the desktop bridge once on mount (window.zero is injected by the
   // Electron preload; undefined in the browser, and during SSR).
   const [isDesktop, setIsDesktop] = useState(false)
+  // "Resume where I left off": on mount, prefer the last-visited url remembered for
+  // THIS resource (desktop native view only) over the entity's original webUrl.
+  // Computed ONCE at mount so later navigations don't remount the view. Falls back to
+  // `url` in the browser or when nothing is stored. See lib/zero/persistence.ts.
+  const [initialUrl] = useState(() => (typeof window === "undefined" ? url : readResourceLastUrl(id) ?? url))
   useEffect(() => {
     const detected = typeof window !== "undefined" && !!window.zero?.isDesktop
-    console.log(
-      `[v0] ResourceCanvas mount → window.zero=${typeof window !== "undefined" && !!window.zero} isDesktop=${detected} hasOnStatus=${typeof window !== "undefined" && typeof window.zero?.resource?.onStatus === "function"} url=${url}`,
-    )
     setIsDesktop(detected)
   }, [url])
 
@@ -66,7 +69,7 @@ export function ResourceCanvas({
       <div className="h-full w-full overflow-hidden bg-card">
         <NativeSurface
           id={id}
-          url={url}
+          url={initialUrl}
           resourceId={resourceId}
           active={active}
           name={webDisplayName(url, resource?.id)}
@@ -173,6 +176,14 @@ function NativeSurface({
       }
     })
 
+    // Remember the last page navigated to, so reopening this resource resumes here.
+    // Skip internal app:// pages — those are Zero's own routes (e.g. /zero-laws), not
+    // user browsing, and shouldn't override the resource's identity url.
+    const offNav = bridge.resource.onNavigated?.((n) => {
+      if (n.id !== id || !n.url || n.url.startsWith("app://")) return
+      writeResourceLastUrl(id, n.url)
+    })
+
     const loop = () => {
       const rect = rectOf()
       const key = keyOf(rect)
@@ -216,6 +227,7 @@ function NativeSurface({
     return () => {
       cancelAnimationFrame(raf)
       offStatus()
+      offNav?.()
       bridge.resource.unmount(id)
     }
   }, [id, url, resourceId, retryKey])

@@ -1,7 +1,7 @@
 "use client"
 
 import { useSyncExternalStore } from "react"
-import { clearUserItems } from "./persistence"
+import { clearUserItems, clearResourceLastUrls } from "./persistence"
 import { clearActivityLog } from "./activity-log"
 import { cycleBrat } from "./motion"
 
@@ -123,6 +123,7 @@ function ensureListener() {
         if (ok) {
           clearUserItems()
           clearActivityLog()
+          clearResourceLastUrls()
           window.location.reload()
         }
       }
