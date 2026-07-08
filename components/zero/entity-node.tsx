@@ -688,8 +688,9 @@ export function EntityNode({
   //     a DO-LIST row → the rectangle (a Flip-interpolable polygon "from" state).
   // Tasks/events never clip.
   const spaceWindow = isSpace && asWindow
+  // A Space window is EITHER the focused leaf OR a covered ancestor (a "spine" strip);
+  // spaceLeafWindow and isSpine (defined below with its full rule) partition spaceWindow.
   const spaceLeafWindow = spaceWindow && isTop
-  const spaceAncestorWindow = spaceWindow && !isTop
   // Leaf octagon insets (%), read from the window style: ax = flat top/bottom inset,
   // ay = corner-bracket height. Fall back to the regular hexagon (50, LEAF_HY) if
   // absent so a Space never renders unclipped.
@@ -832,7 +833,7 @@ export function EntityNode({
   // Never the leaf, never a hexagon leaf; closing un-spines (the window becomes the
   // leaf again → condition flips → strip rotates back). Keep this rule identical to
   // nav-store's `ancestorVertical`.
-  const isSpine = asWindow && !isTop && isSpace
+  const isSpine = spaceWindow && !isTop
   // SPINE-EXPANDED: this covered Space ancestor has had its left Resources panel bloomed
   // open (nav-store `spineExpandedIds`, toggled by clicking its spine band). When true we
   // simply REVEAL the ancestor's existing horizontal header title (it's already pinned at
@@ -840,17 +841,17 @@ export function EntityNode({
   // duplicate title is drawn. Its rotated spine twin collapses away in collapsible-column.
   const spineExpanded = isSpine && nav.isSpineExpanded(entityId)
 
-  // FLOATING HEADER (Space windows only). A Space window renders its glyph + title
-  // as an ABSOLUTELY-POSITIONED overlay instead of an in-flow header band, so the
-  // header reserves no vertical height and the body fills the whole frame. This is
-  // what stops the parent do-list from re-centering when a child opens: with no
-  // in-flow header, the do-list centers on the FRAME CENTER identically whether the
-  // Space is the leaf (tall hexagon) or an ancestor (short rectangle), so the
-  // leaf→ancestor flip no longer shifts it. The spine (its own full-height left
-  // strip) and task/event windows (left-aligned in-flow header) are unaffected.
-  // Closing Spaces also fall through to the old path (spaceWindow is false once
-  // asWindow flips false at close), leaving the tuned close morph untouched.
-  const floatingHeader = spaceWindow && !isSpine
+  // Every Space window renders its glyph + title as an ABSOLUTELY-POSITIONED overlay
+  // instead of an in-flow header band, so the header reserves no vertical height and
+  // the body fills the whole frame. This is what stops the parent do-list from
+  // re-centering when a child opens: with no in-flow header, the do-list centers on
+  // the FRAME CENTER identically whether the Space is the leaf (tall hexagon) or a
+  // spine ancestor (short rectangle), so the leaf→spine flip no longer shifts it.
+  // Task/event windows keep the in-flow left-aligned header. Closing Spaces fall
+  // through to the old path (spaceWindow is false once asWindow flips false at close),
+  // leaving the tuned close morph untouched. The leaf vs spine split is drawn directly
+  // from `spaceLeafWindow` / `isSpine` below — no separate `floatingHeader` flag needed
+  // (it was exactly `spaceLeafWindow`).
 
   // Header layout:
   //   - SPINE ancestor → a narrow full-height strip pinned to the LEFT edge; glyph
@@ -860,8 +861,6 @@ export function EntityNode({
   //   - LEAF Space window (hexagon) → glyph+title FLOAT (absolute) centered near the
   //     top, below the hexagon's tapering top point (matching the dock card's
   //     centered glyph + title so the morph is a straight scale).
-  //   - ancestor Space window → glyph+title FLOAT (absolute) top-left in a compact
-  //     35px band — visually identical to the old in-flow compact header.
   //   - non-space window → in-flow left-aligned header so the glyph + title sit near
   //     the top-LEFT corner and dominate the children peeking below.
   //   - dock card → centered column (glyph, title, then the open-task counter).
@@ -887,12 +886,9 @@ export function EntityNode({
           // CENTRAL RECTANGLE via style (top = --hex-corner-inset-y, the top wedge
           // height) with a fixed HEADER_H band, so nothing renders in the top wedge.
           "absolute inset-x-0 z-10 flex items-center gap-3 pr-12 pl-4"
-        : spaceAncestorWindow
-          ? // FLOATING compact top-left band. Absolute; fixed band height via style so
-            // the glyph/title stay vertically centered exactly as the old in-flow header.
-            "absolute inset-x-0 top-0 z-10 flex items-center gap-3 pr-12 pl-4"
-          : // Task / event window: in-flow left-aligned header (unchanged).
-            cn("relative z-10 flex shrink-0 items-center gap-3 pr-12 pl-4")
+        : // Task / event window: in-flow left-aligned header (unchanged). A covered Space
+          // ancestor never reaches here — it is caught by the `isSpine` branch above.
+          cn("relative z-10 flex shrink-0 items-center gap-3 pr-12 pl-4")
     : variant === "dock"
       ? // relative z-10: sit above the [data-shape] fill layer (z-0) so the glyph/title
         // paint over the hexagon surface (collapsed headers had no positioning before
@@ -1278,14 +1274,12 @@ export function EntityNode({
           // glyph/title stay vertically centered exactly where the in-flow header had
           // them. Non-space windows keep the old in-flow height + top margin.
           style={
-            floatingHeader
-              ? spaceLeafWindow
-                ? // Sit at the TOP OF THE CENTRAL RECTANGLE: top = the top wedge height
-                  // (--hex-corner-inset-y), with a normal HEADER_H band — so the header
-                  // reads exactly like a Task's, and the top wedge above it stays empty
-                  // (and hidden behind the parent header / off the top edge).
-                  { top: "var(--hex-corner-inset-y, 0px)", height: headerH }
-                : { height: headerH }
+            spaceLeafWindow
+              ? // Sit at the TOP OF THE CENTRAL RECTANGLE: top = the top wedge height
+                // (--hex-corner-inset-y), with a normal HEADER_H band — so the header
+                // reads exactly like a Task's, and the top wedge above it stays empty
+                // (and hidden behind the parent header / off the top edge).
+                { top: "var(--hex-corner-inset-y, 0px)", height: headerH }
               : isSpine
                 ? // Pin the left strip to the CENTRAL RECTANGLE (top/bottom = the wedge
                   // inset) instead of the grown frame edges, so the glyph + rotated
@@ -1709,7 +1703,7 @@ export function EntityNode({
                   isSpace
                   ? { top: 0 }
                   : { top: HEADER_H }
-                : floatingHeader || isSpine
+                : spaceWindow
                   ? {
                       // EVERY Space window (leaf AND spine) insets its body IDENTICALLY:
                       // top = the top wedge (--hex-corner-inset-y) PLUS the HEADER_H band,
