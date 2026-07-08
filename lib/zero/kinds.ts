@@ -162,7 +162,7 @@ export function isClosed(entity: Entity, now: number = Date.now()): boolean {
   if (entity.closed) return true
   if (entity.cancelled) return true
   // Explicit user reopen overrides the DERIVED closes below (but not the manual
-  // `closed` / `cancelled` cases handled above) — see SpaceBase.reopened.
+  // `closed` / `cancelled` cases handled above) — see EntityBase.reopened.
   if (entity.reopened) return false
   // Task / Moment / Instant all resolve "done" the same way: once completed, they
   // auto-close at the first LOCAL midnight after `completedOn`. (Moments/instants

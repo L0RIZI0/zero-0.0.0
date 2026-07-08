@@ -165,7 +165,7 @@ export interface Schedule {
  * Fields here are shared by all kinds; per-kind specifics live on the variant
  * interfaces below, and `Entity` is their discriminated union (on `kind`).
  */
-export interface SpaceBase {
+export interface EntityBase {
   id: string
   title: string
 
@@ -264,7 +264,7 @@ export interface SpaceBase {
    * entity shows a live web surface (external site, or one of Zero's own internal
    * pages via a root-relative path like "/vision") instead of a do-list. This is
    * the defining trait of the `resource` kind produced by typing a URL, but it
-   * lives on SpaceBase so the binding is kind-agnostic (any space could, in
+   * lives on EntityBase so the binding is kind-agnostic (any space could, in
    * principle, front a web surface). `webResourceId` optionally points into the
    * known web-resource catalog (see `web-resources.ts`) for branding/embed
    * behavior; absent for an arbitrary typed URL.
@@ -276,9 +276,9 @@ export interface SpaceBase {
 /**
  * TASK — a unit of work; still a container (it can hold subtasks). Carries a
  * sent/requested flag and a priority. (The web-surface binding now lives on
- * SpaceBase and defines the `resource` kind — see below.)
+ * EntityBase and defines the `resource` kind — see below.)
  */
-export interface TaskSpace extends SpaceBase {
+export interface TaskEntity extends EntityBase {
   kind: "task"
   /** Task priority. */
   priority?: TaskPriority
@@ -291,17 +291,17 @@ export interface TaskSpace extends SpaceBase {
 }
 
 /** MOMENT — a scheduled contiguous span (start→end); a container at its core. */
-export interface MomentSpace extends SpaceBase {
+export interface MomentEntity extends EntityBase {
   kind: "moment"
 }
 
 /** INSTANT — like a moment, but a single point in time rather than a span. */
-export interface InstantSpace extends SpaceBase {
+export interface InstantEntity extends EntityBase {
   kind: "instant"
 }
 
 /** SPACE — a plain area / folder / gathering ("Day Job", "Health"). */
-export interface PlainSpace extends SpaceBase {
+export interface PlainEntity extends EntityBase {
   kind: "space"
 }
 
@@ -309,9 +309,9 @@ export interface PlainSpace extends SpaceBase {
  * RESOURCE — a referenced asset/tool/material the work draws on. When Zero
  * recognizes typed text as a URL (external, or an internal "/…" route) it creates
  * a resource whose `webUrl` fronts a live web surface (the contextual browser),
- * shown with the diamond glyph. `webUrl`/`webResourceId` live on SpaceBase.
+ * shown with the diamond glyph. `webUrl`/`webResourceId` live on EntityBase.
  */
-export interface ResourceSpace extends SpaceBase {
+export interface ResourceEntity extends EntityBase {
   kind: "resource"
 }
 
@@ -319,7 +319,7 @@ export interface ResourceSpace extends SpaceBase {
  * COMMUNITY — a place gathering people and discussions (subreddit-like). NOT
  * completable; its terminal state is RETIREMENT (`retiredOn`).
  */
-export interface CommunitySpace extends SpaceBase {
+export interface CommunityEntity extends EntityBase {
   kind: "community"
   /** When the community was retired (terminal state; epoch ms). */
   retiredOn?: Epoch
@@ -329,7 +329,7 @@ export interface CommunitySpace extends SpaceBase {
  * ORGANISM — a living entity at the level of Society (a body, or a company /
  * institution). NOT completable; its terminal state is DEATH (`diedOn`).
  */
-export interface OrganismSpace extends SpaceBase {
+export interface OrganismEntity extends EntityBase {
   kind: "organism"
   /** Whether still alive (open-ended until killed). */
   alive?: boolean
@@ -341,7 +341,7 @@ export interface OrganismSpace extends SpaceBase {
  * INDIVIDUAL — a person as an entity, animated by exactly one Soul. NOT
  * completable; birth/death meta live here.
  */
-export interface IndividualSpace extends SpaceBase {
+export interface IndividualEntity extends EntityBase {
   kind: "individual"
   /** Birth time (epoch ms). */
   bornAt?: Epoch
@@ -353,7 +353,7 @@ export interface IndividualSpace extends SpaceBase {
  * SOUL — the primary animating "it" behind a conscious person; one Soul per
  * person. System-only, never completable, no terminal state.
  */
-export interface SoulSpace extends SpaceBase {
+export interface SoulEntity extends EntityBase {
   kind: "soul"
 }
 
@@ -362,15 +362,15 @@ export interface SoulSpace extends SpaceBase {
  * Narrow on `entity.kind === "task"` etc. to reach a variant's own fields.
  */
 export type Entity =
-  | TaskSpace
-  | MomentSpace
-  | InstantSpace
-  | PlainSpace
-  | ResourceSpace
-  | CommunitySpace
-  | OrganismSpace
-  | IndividualSpace
-  | SoulSpace
+  | TaskEntity
+  | MomentEntity
+  | InstantEntity
+  | PlainEntity
+  | ResourceEntity
+  | CommunityEntity
+  | OrganismEntity
+  | IndividualEntity
+  | SoulEntity
 
 export interface Resource {
   id: string

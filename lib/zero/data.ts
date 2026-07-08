@@ -1,16 +1,16 @@
-import type { Asset, Entity, EntityKind, Recurrence, Schedule, Resource, SpaceBase, TaskPriority, User } from "./types"
+import type { Asset, Entity, EntityKind, Recurrence, Schedule, Resource, EntityBase, TaskPriority, User } from "./types"
 import { isCompletable, isClosed } from "./kinds"
 import { readUserItems, writeUserItems } from "./persistence"
 import type { ScheduleParse } from "./schedule-parse"
 
 /**
- * The loose shape accepted by {@link makeEntity}: a SpaceBase plus a (possibly
+ * The loose shape accepted by {@link makeEntity}: an EntityBase plus a (possibly
  * dynamic) `kind` and any kind-specific optional fields. The discriminated `Entity`
  * union can't be built from a literal whose `kind` is only known at runtime (TS
  * can't pick a variant), so this is the SINGLE place we cross that boundary with a
  * cast. Seed literals with a static `kind` build `Entity` directly and bypass this.
  */
-type LooseEntity = SpaceBase & {
+type LooseEntity = EntityBase & {
   kind: EntityKind
   // task-only
   priority?: TaskPriority
@@ -1670,7 +1670,7 @@ export function materializeOccurrence(seriesId: string, dayStart: number): Entit
   const mother = byId.get(seriesId)
   if (!mother) return undefined
 
-  // The web-surface binding lives on SpaceBase, so it carries over for any kind
+    // The web-surface binding lives on EntityBase, so it carries over for any kind
   // (e.g. a recurring resource). `priority` is task-only, so it stays narrowed.
   const taskExtras = {
     ...(mother.kind === "task" && mother.priority ? { priority: mother.priority } : {}),

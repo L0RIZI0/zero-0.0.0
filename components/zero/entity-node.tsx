@@ -438,7 +438,7 @@ export function EntityNode({
   // URL. When open it renders that surface (live embed or illustrative stand-in) in
   // place of the do-list; the glyph+title header, IN/OUT spines and close stay identical
   // to any other window — only the central working surface differs. Kind-agnostic now
-  // that `webUrl` lives on SpaceBase (was gated to tasks).
+  // that `webUrl` lives on EntityBase (was gated to tasks).
   const hasWebSurface = !!entity.webUrl
   // GLYPH SEMANTICS (driven by KIND_META, single source of truth):
   //  - FILL now means CLOSED (archived / lifecycle-ended), not merely "done": any

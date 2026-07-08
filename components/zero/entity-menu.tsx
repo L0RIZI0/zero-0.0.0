@@ -45,7 +45,7 @@ export function buildEntityMenuItems(entity: Entity, contextId: string, deps: Me
   const canClose = isCompletable(kind)
   const closedNow = isClosed(entity)
   const isCancelled = !!entity.cancelled
-  // Narrowed inline (the `&&` guards the TaskSpace field) — a captured local would
+  // Narrowed inline (the `&&` guards the TaskEntity field) — a captured local would
   // lose the discriminated-union narrowing.
   const isRequested = entity.kind === "task" && !!entity.requested
 
