@@ -1764,10 +1764,13 @@ export function EntityNode({
               // spine (via spineTitle), so it needs no panel offset either.
               panelTopOffset={0}
               resource={isResource ? { url: entity.webUrl!, resourceId: entity.webResourceId } : undefined}
-              // Edge-to-edge web view only when this resource task is the fullscreen
-              // TARGET itself (depth === fsDepth) — not when it's merely a covered
-              // ancestor in the chain, which would wrongly cover the real target.
-              fullscreen={fullscreen && depth === fsDepth}
+              // Edge-to-edge web view for the fullscreen TARGET (depth === fsDepth) AND
+              // any window opened ON TOP of it (depth > fsDepth) — recursive fullscreen
+              // re-nests those descendants inside the target's expanded View, and each
+              // web child should fill its (inset) window body edge-to-edge below its own
+              // header, just like the target does. Excludes covered ANCESTORS below the
+              // target (depth < fsDepth), which are painted over anyway.
+              fullscreen={fsDepth >= 1 && depth >= fsDepth}
             />
             )}
           </div>

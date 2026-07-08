@@ -4,7 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { flushSync } from "react-dom"
 import { getEntity, hydrateFromStorage, isDetachedChild } from "./data"
   import { stackTargetRect, LEAF_WEDGE_RATIO } from "./motion"
-import { VIEW_PAD_TOP, PANEL_OPEN_W } from "./layout"
+import { VIEW_PAD_TOP, PANEL_OPEN_W, DAYLINE_ROW_H } from "./layout"
 import {
   captureStage,
   playStage,
@@ -670,6 +670,49 @@ export function ZeroNavProvider({
       // fall back to the explicitly-passed `selfKind`.
       const selfKind = opts?.selfKind ?? getEntity(stack[windowDepth])?.kind ?? "task"
       const selfIsSpace = selfKind === "space"
+
+      // ── RECURSIVE FULLSCREEN ────────────────────────────────────────────────
+      // A window OPENED ON TOP of the fullscreen target (windowDepth > fsDepth) must
+      // stay GLUED inside the target's expanded View instead of drifting back to the
+      // normal region. The target fills the "fullscreen box" = the viewport minus the
+      // dayline strip reserved at the top (see entity-node's winStyle override + the
+      // WorkSurface dayline pull-up). So we re-nest this descendant inside THAT box,
+      // treating the target as a LOCAL ROOT: walk the sub-stack [fsDepth .. windowDepth)
+      // as its ancestors (target first, contributing its side spines + top peek), so a
+      // child spans the target's View exactly like it spans a normal parent's View.
+      //
+      // Geometry is expressed as viewport calc() (matching the target override) so no
+      // viewport measurement is needed. Insets from stackTargetRect are region-size-
+      // INDEPENDENT (fixed px accumulations), so a large probe region recovers them.
+      // SPACE descendants are excluded for now — the hexagon wedge needs a numeric
+      // width, which a viewport calc can't supply; they fall through to the normal path.
+      const fsDepth = fullscreenId ? stack.indexOf(fullscreenId) : -1
+      if (fsDepth >= 1 && windowDepth > fsDepth && !selfIsSpace) {
+        const subKinds = stack.slice(fsDepth, windowDepth).map((sid) => getEntity(sid)?.kind ?? "task")
+        const subVertical = subKinds.map((k) => k === "space")
+        const PROBE = 100000
+        const probe = stackTargetRect(subKinds, { w: PROBE, h: PROBE }, subVertical, selfIsSpace)
+        const leftInset = probe.left
+        const rightInset = PROBE - probe.left - probe.width
+        const topInset = probe.top
+        // Spine-expanded ancestors still slide this window right + narrow it, same as the
+        // normal path — count every expanded strict ancestor above this window.
+        let fsExtraLeft = 0
+        for (let d = 0; d < windowDepth; d++) {
+          if (spineExpandedIds.has(stack[d])) fsExtraLeft += PANEL_OPEN_W
+        }
+        const totalLeft = leftInset + fsExtraLeft
+        return {
+          position: "fixed",
+          top: DAYLINE_ROW_H + topInset,
+          left: totalLeft,
+          width: `calc(100vw - ${totalLeft + rightInset}px)`,
+          height: `calc(100vh - ${DAYLINE_ROW_H + topInset}px)`,
+          zIndex: 20 + windowDepth * 10,
+          borderRadius: "0",
+        }
+      }
+
       let rect = stackTargetRect(
         ancestorKinds,
         { w: liftedRegion.width, h: liftedRegion.height },
