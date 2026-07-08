@@ -128,28 +128,43 @@ export function resolveWebResourceByUrl(url: string | undefined): WebResource | 
 }
 
 /**
- * Heuristic: does this free-text input look like a URL / bare domain the user
- * means to open (e.g. "www.figma.com", "photopea.com", "https://x.com/path")?
- * Deliberately conservative so ordinary task titles ("Call the bank") never match:
- * requires a single token with a dot and a plausible TLD, or an explicit scheme.
+ * Heuristic: does this free-text input look like a URL / bare domain / internal
+ * Zero route the user means to open (e.g. "www.figma.com", "photopea.com",
+ * "https://x.com/path", or "/vision")? Deliberately conservative so ordinary task
+ * titles ("Call the bank") never match: requires a single whitespace-free token
+ * that is either an explicit scheme, a bare domain with a plausible TLD, or a
+ * root-relative internal path.
  */
 export function looksLikeUrl(input: string): boolean {
   const t = input.trim()
   if (!t || /\s/.test(t)) return false
   if (/^[a-z]+:\/\//i.test(t)) return true
+  // Root-relative path ("/vision", "/zero-laws"): an INTERNAL Zero page. A leading
+  // "/" + word char unambiguously reads as an app route, not a task title, so we
+  // treat it as browsable — normalizeUrl leaves it as-is and it resolves to the
+  // app's own origin at open time (app://local/... on desktop, /... on web).
+  if (/^\/[a-z0-9]/i.test(t)) return true
   // bare domain: label(.label)+ with a 2+ char alpha TLD, optional path/query.
   return /^[a-z0-9-]+(\.[a-z0-9-]+)+(\/[^\s]*)?$/i.test(t) && /\.[a-z]{2,}($|\/)/i.test(t)
 }
 
-/** Normalize a typed URL into a full https URL (adds scheme if missing). */
+/** Normalize a typed URL into a full https URL (adds scheme if missing). Leaves
+ *  root-relative internal paths ("/vision") untouched — they are pinned to the
+ *  app's own origin at open time (see resource-canvas `toDesktopUrl`). */
 export function normalizeUrl(input: string): string {
   const t = input.trim()
+  if (t.startsWith("/")) return t
   return /^[a-z]+:\/\//i.test(t) ? t : `https://${t}`
 }
 
-/** Short display label for a URL — the resource name, else the bare hostname. */
+/** Short display label for a URL — the resource name, else the bare hostname, else
+ *  the root-relative path itself (an internal Zero route like "/vision" has no host,
+ *  so we keep the path, which reads clearly as an app route). */
 export function webDisplayName(url: string, resourceId?: string): string {
-  return getWebResource(resourceId)?.name ?? hostOf(url) ?? url
+  const named = getWebResource(resourceId)?.name
+  if (named) return named
+  if (url.startsWith("/")) return url
+  return hostOf(url) ?? url
 }
 
 /**
