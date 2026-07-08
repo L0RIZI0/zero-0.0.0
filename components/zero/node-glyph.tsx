@@ -8,7 +8,7 @@ import { KIND_META } from "@/lib/zero/kinds"
 
 /**
  * The node kinds Zero can draw — identical to the domain {@link EntityKind} union
- * (every entity is a Space, and each kind has its own silhouette). Kept as an
+ * (every entity has a kind, and each kind has its own silhouette). Kept as an
  * alias so glyph callers don't all need to import from the domain types.
  */
 export type NodeKind = EntityKind

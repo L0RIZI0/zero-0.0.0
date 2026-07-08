@@ -17,16 +17,25 @@ import { NodeGlyph, type NodeKind } from "@/components/zero/node-glyph"
  *   - the shared Meta (the cascaded fields every entity carries), including the
  *     children/tagged REFERENCES that groundwork the reference-based future.
  *
- * KEY REFRAME vs. the old page: Entity is the ESSENCE of every entity; Space is
- * just one KIND (the one that contains). Not every entity is a Space, but every
- * Space is an Entity. NOTE the time-span kind is presented as "Moment"; its
- * internal key is still `event` (a rename to `moment` is a separate, data-touching
- * task).
+ * KEY REFRAME: Entity is the ESSENCE of every entity; Space is just one KIND (the
+ * one that contains). Not every entity is a Space, but every Space is an Entity.
+ *
+ * GLYPH STATES are RENDERED, not described: each card shows a little row of the
+ * actual silhouettes (open / done / closed / cancelled) via <NodeGlyph>, so the
+ * page reads its own glyphs instead of narrating them.
  */
 
 /** A glyph is either a real runtime kind (drawn by NodeGlyph) or one of the two
  *  document-only abstractions drawn inline here. */
 type GlyphKey = NodeKind | "entity" | "everything"
+
+/** One rendered glyph-state chip within a card (drawn by NodeGlyph). */
+type GlyphStateSpec = {
+  label: string
+  filled?: boolean
+  showCheck?: boolean
+  struck?: boolean
+}
 
 type EntityRow = {
   /** Hierarchy code from the ontology, e.g. "0.0.3". `null` = not yet assigned. */
@@ -42,6 +51,8 @@ type EntityRow = {
   lifecycle: string
   /** Extra field / behavior bullets (optional). */
   fields?: string[]
+  /** RENDERED glyph states for this kind (optional; real kinds only). */
+  states?: GlyphStateSpec[]
   /** Glyph-state or other special notes (optional). */
   special?: ReactNode
 }
@@ -88,8 +99,7 @@ const FOUNDATIONS: EntityRow[] = [
 ]
 
 // ── The kinds ────────────────────────────────────────────────────────────────
-// The ordinary entity kinds, in hierarchy order. Organism has no assigned code
-// yet (it was omitted from the draft table) but is kept in full.
+// The ordinary entity kinds, in hierarchy order.
 const KINDS: EntityRow[] = [
   {
     code: "0.0.1",
@@ -100,6 +110,10 @@ const KINDS: EntityRow[] = [
     creatable: "yes",
     lifecycle: "Open / closed",
     fields: ["Same Meta as Entity, plus residence (geographical position)."],
+    states: [
+      { label: "Open" },
+      { label: "Closed", filled: true },
+    ],
     special:
       "The glyph gains a dot for Zero Citizens (Conscious Individuals). None exist yet except uzer0 (userID 0), which has privileged access to everything; uzer1 (userID 1) is Loris, a regular user.",
   },
@@ -112,7 +126,10 @@ const KINDS: EntityRow[] = [
     creatable: "yes",
     lifecycle: "Open / closed",
     fields: ["Inherited from Entity."],
-    special: "A filled hexagon is a Space that is retired, archived, or dead.",
+    states: [
+      { label: "Open" },
+      { label: "Closed — retired, archived, dead", filled: true },
+    ],
   },
   {
     code: "0.0.3",
@@ -126,8 +143,12 @@ const KINDS: EntityRow[] = [
       "Space + doneState — not a boolean but a list of timestamps: odd length means done.",
       "Every odd timestamp is a markedAsDone date, every even one a markedAsUndone date; an empty list means never done.",
     ],
-    special:
-      "A checkmarked square is a done Task; a filled square is a retired / dead Task; a struck-through square is a cancelled Task.",
+    states: [
+      { label: "Open" },
+      { label: "Done", showCheck: true },
+      { label: "Closed", filled: true },
+      { label: "Cancelled", struck: true },
+    ],
   },
   {
     code: "0.0.4",
@@ -137,15 +158,25 @@ const KINDS: EntityRow[] = [
     desc: "Something to use.",
     creatable: "yes",
     lifecycle: "Open / closed",
+    states: [
+      { label: "Open" },
+      { label: "Closed", filled: true },
+    ],
   },
   {
     code: "0.0.5",
     name: "Moment",
-    glyph: "event",
+    glyph: "moment",
     glyphDesc: "An equilateral triangle pointing up",
     desc: "A span in time — usually two Instants defining that span.",
     creatable: "yes",
     lifecycle: "Open / closed + undone / done",
+    states: [
+      { label: "Open" },
+      { label: "Done", showCheck: true },
+      { label: "Closed", filled: true },
+      { label: "Cancelled", struck: true },
+    ],
   },
   {
     code: "0.0.6",
@@ -155,6 +186,12 @@ const KINDS: EntityRow[] = [
     desc: "A point in time — a single Instant, possibly recurrent.",
     creatable: "yes",
     lifecycle: "Open / closed + undone / done",
+    states: [
+      { label: "Open" },
+      { label: "Done", showCheck: true },
+      { label: "Closed", filled: true },
+      { label: "Cancelled", struck: true },
+    ],
   },
   {
     code: "0.0.7",
@@ -164,16 +201,23 @@ const KINDS: EntityRow[] = [
     desc: "A shared Space with an Access Rule.",
     creatable: "yes",
     lifecycle: "Open / closed",
+    states: [
+      { label: "Open" },
+      { label: "Closed — retired", filled: true },
+    ],
   },
   {
-    code: null,
+    code: "0.0.8",
     name: "Organism",
     glyph: "organism",
     glyphDesc: "A regular circle",
-    desc: "A living entity — a company, a point of view.",
+    desc: "A living entity — a company, an institution, a point of view.",
     creatable: "yes",
     lifecycle: "Alive / dead",
-    special: "Hierarchy code not yet assigned.",
+    states: [
+      { label: "Alive" },
+      { label: "Dead", filled: true },
+    ],
   },
 ]
 
@@ -200,6 +244,22 @@ const META_FIELDS: { n: number; label: string; note: string }[] = [
   },
   { n: 7, label: "Children references", note: "References to the entities this one contains." },
   { n: 8, label: "Tagged references", note: "References to entities tagged onto this one (multi-parent)." },
+]
+
+// Aggregate LENSES — views over the shared pool of entities, not kinds. Each
+// layer adds to the one before it.
+const LENSES: { name: string; formula: string; blurb: string }[] = [
+  { name: "Population", formula: "All Individuals", blurb: "Every person, considered alone." },
+  {
+    name: "Society",
+    formula: "Individuals + Organisms",
+    blurb: "People together with the living entities they form.",
+  },
+  {
+    name: "Culture",
+    formula: "Individuals + Organisms + Law + Art",
+    blurb: "Society plus the rules it lives by and the artifacts it makes — artworks, urbanism, and the rest.",
+  },
 ]
 
 /** The two document-only glyphs (no NodeGlyph entry). Drawn to sit in a 24-box,
@@ -247,7 +307,28 @@ function CreatableTag({ creatable }: { creatable: EntityRow["creatable"] }) {
   )
 }
 
-/** A single entity card: glyph, name, code, pills, essence, and any field / special notes. */
+/** A row of RENDERED glyph states for a kind: each chip draws the real silhouette
+ *  in the given state (open / done / closed / cancelled) with a caption below. */
+function GlyphStates({ kind, states }: { kind: NodeKind; states: GlyphStateSpec[] }) {
+  return (
+    <ul className="mt-3 flex flex-wrap gap-3">
+      {states.map((s) => (
+        <li
+          key={s.label}
+          className="flex min-w-[64px] flex-col items-center gap-1.5 rounded-lg border border-border bg-background/60 px-3 py-2 text-center"
+        >
+          <span className="inline-flex h-6 w-6 items-center justify-center text-foreground">
+            <NodeGlyph kind={kind} filled={s.filled} showCheck={s.showCheck} struck={s.struck} />
+          </span>
+          <span className="text-pretty text-[10px] leading-tight text-muted-foreground">{s.label}</span>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+/** A single entity card: glyph, name, code, pills, essence, fields, rendered
+ *  glyph states, and any special note. */
 function EntityCard({ row }: { row: EntityRow }) {
   return (
     <li className="flex items-start gap-4 rounded-xl border border-border bg-card p-4 text-card-foreground">
@@ -284,6 +365,7 @@ function EntityCard({ row }: { row: EntityRow }) {
             ))}
           </ul>
         )}
+        {row.states && <GlyphStates kind={row.glyph as NodeKind} states={row.states} />}
         {row.special && (
           <p className="mt-2 text-pretty text-[11px] leading-relaxed text-muted-foreground">{row.special}</p>
         )}
@@ -308,13 +390,14 @@ export default function ZeroEntitiesPage() {
           <h1 className="text-pretty text-2xl font-semibold tracking-tight">Zero Entities</h1>
           <p className="mt-3 max-w-prose text-pretty leading-relaxed text-muted-foreground">
             <strong className="font-medium text-foreground">Entity</strong> is the essence of everything in Zero —
-            &ldquo;something that is, was, will be, or could be,&rdquo; the brick every context is made of. A{" "}
-            <strong className="font-medium text-foreground">Space</strong> is just one <em>kind</em> — the one that
-            contains — and probably the kind closest to Entity itself, differing mainly in its glyph and behavior.
+            &ldquo;something that is, was, will be, or could be,&rdquo; the brick every context is made of. Each
+            entity has a <em>kind</em> that gives it a glyph and a behavior, and layers its own fields on top of the
+            shared Meta below.
           </p>
           <p className="mt-2 max-w-prose text-pretty leading-relaxed text-muted-foreground">
-            So: <em>not every entity is a Space, but every Space is an Entity.</em> Each kind layers extra fields and
-            a dedicated glyph on top of the shared Meta below, identified by a stable id — never its title.
+            A <strong className="font-medium text-foreground">Space</strong> — the kind that contains — is the one
+            closest to Entity itself. So <em>not every entity is a Space, but every Space is an Entity.</em> Every
+            entity is identified by a stable id, never its title.
           </p>
         </header>
 
@@ -346,7 +429,7 @@ export default function ZeroEntitiesPage() {
           </ol>
         </section>
 
-        {/* Glyph states — how a silhouette reads across its lifecycle. */}
+        {/* Glyph states — how a silhouette reads across its lifecycle (rendered). */}
         <section className="mt-10">
           <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Glyph states</h2>
           <p className="mt-3 max-w-prose text-pretty text-sm leading-relaxed text-muted-foreground">
@@ -355,11 +438,11 @@ export default function ZeroEntitiesPage() {
             archived, or dead. A <strong className="font-medium text-foreground">struck-through</strong> glyph is a
             cancelled entity. Completable kinds (Task, Moment, Instant) additionally show a{" "}
             <strong className="font-medium text-foreground">checkmark</strong> when done, and Soul&apos;s closed
-            glyph carries a small bar over it.
+            glyph carries a small bar over it. Each kind below shows its own states.
           </p>
-          <ul className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+          <ul className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
             <GlyphState kind="task" label="Open — outline" />
-            <GlyphState kind="task" showCheck label="Done Task — check" />
+            <GlyphState kind="task" showCheck label="Done — check" />
             <GlyphState kind="space" filled label="Closed — filled" />
             <GlyphState kind="task" struck label="Cancelled — struck" />
           </ul>
@@ -386,12 +469,34 @@ export default function ZeroEntitiesPage() {
             ))}
           </ul>
         </section>
+
+        {/* Lenses — aggregate views over the shared pool of entities, not kinds. */}
+        <section className="mt-10">
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Lenses</h2>
+          <p className="mt-3 max-w-prose text-pretty text-sm leading-relaxed text-muted-foreground">
+            Beyond the kinds, Zero can be read through aggregate <strong className="font-medium text-foreground">
+            lenses</strong> — views over the shared pool of entities rather than new kinds. Each layer builds on the
+            one before it.
+          </p>
+          <ul className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+            {LENSES.map((lens) => (
+              <li
+                key={lens.name}
+                className="rounded-xl border border-border bg-card p-4 text-card-foreground"
+              >
+                <h3 className="text-sm font-medium">{lens.name}</h3>
+                <code className="mt-1 block text-[10px] leading-relaxed text-muted-foreground">{lens.formula}</code>
+                <p className="mt-1.5 text-pretty text-xs leading-relaxed text-muted-foreground">{lens.blurb}</p>
+              </li>
+            ))}
+          </ul>
+        </section>
       </div>
     </main>
   )
 }
 
-/** A glyph-state demo chip for the legend. */
+/** A glyph-state demo chip for the top legend. */
 function GlyphState({
   kind,
   filled = false,

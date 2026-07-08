@@ -71,8 +71,8 @@ export function SpineExcerpt({ entityId }: { entityId: string }) {
     { id: "task-done", kind: "task", count: doneTasks, filled: false, checked: true, struck: false },
     { id: "task-closed", kind: "task", count: closedTasks, filled: true, checked: false, struck: false },
     { id: "task-cancelled", kind: "task", count: cancelledTasks, filled: false, checked: false, struck: true },
-    { id: "event-open", kind: "event", count: openEvents, filled: false, checked: false, struck: false },
-    { id: "event-cancelled", kind: "event", count: cancelledEvents, filled: false, checked: false, struck: true },
+    { id: "event-open", kind: "moment", count: openEvents, filled: false, checked: false, struck: false },
+    { id: "event-cancelled", kind: "moment", count: cancelledEvents, filled: false, checked: false, struck: true },
     { id: "instant-cancelled", kind: "instant", count: cancelledInstants, filled: false, checked: false, struck: true },
   ]
   const counters = allCounters.filter((c) => c.count > 0)

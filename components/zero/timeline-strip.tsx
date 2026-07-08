@@ -333,7 +333,7 @@ interface Bar {
   to: number
   color: string
   title: string
-  kind: "event" | "space" | "band" | "recur"
+  kind: "moment" | "space" | "band" | "recur"
   entity?: Entity
   count?: number
   cancelled?: boolean
@@ -1128,7 +1128,7 @@ export function TimelineStrip({
 
   const instants = useMemo(() => rolled.items.filter((e) => e.kind === "instant"), [rolled])
   const spans = useMemo(
-    () => rolled.items.filter((e) => e.kind === "event" || e.kind === "space"),
+    () => rolled.items.filter((e) => e.kind === "moment" || e.kind === "space"),
     [rolled],
   )
 
@@ -1144,7 +1144,7 @@ export function TimelineStrip({
     const out: Bar[] = []
     for (const e of spans) {
       const color = getInheritedAccent(e.parentId ?? "s_root") ?? NEUTRAL_MARKER
-      const kind = e.kind === "space" ? "space" : "event"
+      const kind = e.kind === "space" ? "space" : "moment"
       const blocks = e.schedule?.blocks
       if (blocks && blocks.length > 1) {
         // MULTI-BLOCK DAY (D4): one occurrence with N within-day spans (e.g. Day Job
@@ -2599,7 +2599,7 @@ export function TimelineStrip({
               // you wait, and the old chip→tick hand-off (with its ~2s swap jump) is gone entirely.
               //
               // This covers BOTH one-off events AND the individual occurrences of a recurring series at
-              // fine zoom (each occurrence is its own `kind:"event"` bar whose entity carries
+              // fine zoom (each occurrence is its own `kind:"moment"` bar whose entity carries
               // `schedule.repeat`). The ONLY thing excluded here is the `kind:"recur"` AGGREGATE bar
               // (emitted at coarse zoom) — that one is drawn as a downsampled dot-row in the rail pass,
               // which owns it. Excluding occurrences by `schedule.repeat` (the old check) is what made
@@ -2757,7 +2757,7 @@ export function TimelineStrip({
               const onCollapsedTickEnter = () => {
                 if (draggingRef.current) return // don't highlight along a pan path
                 const range = rangeText(b.from, b.to, b.entity?.schedule?.repeat)
-                const kind = (b.entity?.kind as NodeKind) ?? "event"
+                const kind = (b.entity?.kind as NodeKind) ?? "moment"
                 const filled = glyphFilled(b.entity)
                 if (collapsedTarget && rkForBar) {
                   // TICK form: light the whole rail + show glyph + title + range. Anchored on
@@ -2871,7 +2871,7 @@ export function TimelineStrip({
               // tick so the rail reads cleanly. A dark veil (below) rests over the sky
               // when idle and lifts on hover.
               const sky =
-                b.kind === "event" && !collapsedTarget && isSleepTitle(b.entity?.title)
+                b.kind === "moment" && !collapsedTarget && isSleepTitle(b.entity?.title)
                   ? sleepSkyBackground(b.key)
                   : null
 
@@ -3050,7 +3050,7 @@ export function TimelineStrip({
                         className="h-2.5 w-2.5 shrink-0"
                         style={{ color: sky ? "rgba(255,255,255,0.92)" : b.color || "var(--muted-foreground)" }}
                       >
-                        <NodeGlyph kind={(b.entity?.kind as NodeKind) ?? "event"} filled={glyphFilled(b.entity)} strokeWidth={2} />
+                        <NodeGlyph kind={(b.entity?.kind as NodeKind) ?? "moment"} filled={glyphFilled(b.entity)} strokeWidth={2} />
                       </span>
                       <span
                         className={cn("whitespace-nowrap", b.cancelled && "line-through", sky && "text-white/90")}

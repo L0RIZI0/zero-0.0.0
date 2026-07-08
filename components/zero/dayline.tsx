@@ -310,13 +310,13 @@ export function Dayline() {
         // its own end) — or when the entity is otherwise closed (manual/cancelled/done
         // past midnight) via isClosed.
         filled: KIND_META[e.kind].fillGlyphWhenDone && (en <= Date.now() || isClosed(e)),
-        // Done check: kinds that checkmark-when-done (task/event/instant) that this
+        // Done check: kinds that checkmark-when-done (task/moment/instant) that this
         // occurrence has completed. Mirrors the do-list row so a done Moment shows a
         // tick in the dayline instead of a bare outline.
         checked: KIND_META[e.kind].checkmarkWhenDone && !!e.completed,
         // A sleep Moment (span) gets its own procedural night sky, seeded by the
         // occurrence key so each night differs but stays stable across pans.
-        sky: isDuration && e.kind === "event" && isSleepTitle(e.title) ? sleepSkyBackground(e.occKey) : null,
+        sky: isDuration && e.kind === "moment" && isSleepTitle(e.title) ? sleepSkyBackground(e.occKey) : null,
       })
     }
     // Paint durations first so the thin instant ticks sit visually on top.

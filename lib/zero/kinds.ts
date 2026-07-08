@@ -1,13 +1,14 @@
 import type { Entity, EntityKind } from "./types"
 
 /**
- * Per-kind SEMANTICS — the single source of truth for what each particular Space
- * kind means and how it behaves around completion / lifecycle. Consumed by:
+ * Per-kind SEMANTICS — the single source of truth for what each entity kind
+ * means and how it behaves around completion / lifecycle. Consumed by:
  *   - the glyph (`entity-node.tsx`): fill-when-done + checkmark-when-done + terminal,
  *   - the do-list (creatable filtering),
  *   - the "Zero Entities" page (label + description + behavior copy).
  *
- * "Every entity is a Space"; these flags describe how a given kind of Space
+ * ENTITY is the essence; SPACE (the container) is just one kind — not every entity
+ * is a Space, but every Space is an Entity. These flags describe how a given kind
  * resolves its end-of-life:
  *   - COMPLETABLE kinds hold a normal `completed` "done" (task/moment/instant/
  *     space/resource).

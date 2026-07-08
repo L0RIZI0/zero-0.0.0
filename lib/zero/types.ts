@@ -150,11 +150,13 @@ export interface Schedule {
 }
 
 /**
- * SPACE BASE — the recursive container that EVERY entity is, before it is any
- * particular kind. "Every entity is a Space": a Task, an Event, an Organism…
- * are all Spaces with extra, kind-specific properties layered on top. A space's
- * own world (its do-list, sub-spaces, resources) is reached by opening it; the
- * subtree rooted at `id` IS "the world of" that space.
+ * ENTITY BASE (historically named `SpaceBase`) — the fields EVERY entity shares
+ * before it is any particular kind. ENTITY is the essence; SPACE (the container)
+ * is just one kind — not every entity is a Space, but every Space is an Entity.
+ * A Task, a Moment, an Organism… all extend this base with kind-specific fields.
+ * Every entity is nonetheless a recursive container: its own world (do-list,
+ * sub-spaces, resources) is reached by opening it, and the subtree rooted at `id`
+ * IS "the world of" that entity.
  *
  * IDENTITY: a space is identified by its stable `id`, never its `title`. Titles
  * are mutable display labels and may repeat; all relationships key off `id`
