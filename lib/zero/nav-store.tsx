@@ -3,7 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react"
 import { flushSync } from "react-dom"
 import { getEntity, hydrateFromStorage, isDetachedChild } from "./data"
-  import { stackTargetRect, LEAF_WEDGE_RATIO } from "./motion"
+  import { stackTargetRect, LEAF_WEDGE_RATIO, WINDOW_BASE_SIDE } from "./motion"
 import { VIEW_PAD_TOP, PANEL_OPEN_W, DAYLINE_ROW_H } from "./layout"
 import {
   captureStage,
@@ -692,8 +692,17 @@ export function ZeroNavProvider({
         const subVertical = subKinds.map((k) => k === "space")
         const PROBE = 100000
         const probe = stackTargetRect(subKinds, { w: PROBE, h: PROBE }, subVertical, selfIsSpace)
-        const leftInset = probe.left
-        const rightInset = PROBE - probe.left - probe.width
+        // stackTargetRect SEEDS both sides with WINDOW_BASE_SIDE (the ROOT region's base
+        // side padding, which keeps the home view's IN/OUT spines peeking beside any open
+        // window) and then adds TASK_SIDE/RIGHT_PEEK per ancestor. In the NORMAL layout a
+        // child is inset from its PARENT's frame by only the per-ancestor spine — the
+        // shared WINDOW_BASE_SIDE cancels out in the parent→child delta. But the fullscreen
+        // TARGET's frame is edge-to-edge (left:0, width:100vw — see entity-node winStyle),
+        // so it does NOT carry that base; re-adding it here double-insets the child (the
+        // "2× spine margin" bug). Subtract WINDOW_BASE_SIDE off each side so the descendant
+        // is inset from the target's frame by exactly the spine accumulation, glued flush.
+        const leftInset = probe.left - WINDOW_BASE_SIDE
+        const rightInset = PROBE - probe.left - probe.width - WINDOW_BASE_SIDE
         const topInset = probe.top
         // Spine-expanded ancestors still slide this window right + narrow it, same as the
         // normal path — count every expanded strict ancestor above this window.
