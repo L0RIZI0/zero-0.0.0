@@ -580,10 +580,15 @@ export function EntityNode({
   const cardSolidFill = dockCardCollapsed && !closed && cardHasContents
   const cardSoftFill = dockCardCollapsed && closed
   // OUTLINE ink — traces every glyph edge (square border, diamond/hexagon rim, done
-  // checkmark). DARK MODE uses a DARKER outline (deeper toward the near-black bg); LIGHT
-  // MODE mirrors it with a LIGHTER outline. It's the darker of the outline/fill pair, so
-  // on a filled card it reads as a crisp edge sitting on top of the (brighter) fill.
-  const cardInk = isDark ? "rgb(255 255 255 / 0.045)" : "rgb(0 0 0 / 0.035)"
+  // checkmark). OPAQUE, composited over --background (same trick as --excerpt-ink): a
+  // translucent outline would COMPOUND when it lands on a filled card's translucent fill
+  // (rim-over-fill = darker edge) yet stay light on an empty card (rim-over-bg), so the
+  // same outline looked different on NOW (filled) vs Task (empty). Resolving it to a
+  // solid tone means it reads IDENTICALLY regardless of what's behind it. The alpha here
+  // is only the mix ratio; over the bare bg it matches the old empty-card look exactly.
+  const cardInk = isDark
+    ? "color-mix(in oklab, #fff 4.5%, var(--background))"
+    : "color-mix(in oklab, #000 3.5%, var(--background))"
   // SOLID fill — a space/resource WITH contents. Slightly darker than before in dark
   // mode (opposite / slightly lighter in light mode), and kept a touch brighter than the
   // outline so the outline stays visible on top of it.
