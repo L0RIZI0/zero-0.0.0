@@ -208,6 +208,10 @@ function createWindow() {
     // expect them top-left) via hiddenInset; on Windows/Linux we go fully
     // frameless and render custom min/max/close in the header.
     ...(process.platform === "darwin" ? { titleBarStyle: "hiddenInset" } : { frame: false }),
+    // Zero "z" mark for the live window / taskbar / dock (bundled via files:
+    // electron/**). macOS ignores this at runtime and uses the packaged .icns
+    // instead, so it's mainly for Windows/Linux; harmless on mac.
+    icon: path.join(__dirname, "icon.png"),
     backgroundColor: "#0b0b0c",
     show: false,
     webPreferences: {
