@@ -3,17 +3,13 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { AnimatePresence, motion, Reorder, useDragControls, type Transition } from "motion/react"
-import { Check, Pin, Trash2, Ban, RotateCcw, ChevronDown, Globe, Shapes, Send, CalendarClock, Archive, ArchiveRestore, GripVertical } from "lucide-react"
+import { Check, ChevronDown, Globe, CalendarClock, GripVertical } from "lucide-react"
 import {
   getContextItems,
   isPinned,
-  pinItem,
   reorderContextItems,
   deleteEntity,
-  setEventCancelled,
-  setEntityClosed,
   changeEntityKind,
-  setEntityRequested,
   addTask,
   addParsedEntity,
   addWebTask,
@@ -33,13 +29,12 @@ import {
   webDisplayName,
   type WebResource,
 } from "@/lib/zero/web-resources"
-import { isCompletable, isClosed } from "@/lib/zero/kinds"
+import { isClosed } from "@/lib/zero/kinds"
 import { useZeroNav, ADD_KEY } from "@/lib/zero/nav-store"
 import { MORPH_EASE } from "@/lib/zero/motion"
 import { NodeGlyph, NODE_KIND_META, type NodeKind } from "./node-glyph"
 import { ResourceGlyph } from "./resource-glyph"
 import { EntityNode } from "./entity-node"
-import { ContextMenu, type ContextMenuState } from "./context-menu"
 import { CaretTextInput } from "./caret-text-input"
 import { cn } from "@/lib/utils"
 
@@ -84,7 +79,6 @@ function ReorderRow({
   born,
   canReorder,
   faded,
-  onContextMenu,
   onDragStartRow,
   onCommit,
 }: {
@@ -104,7 +98,6 @@ function ReorderRow({
   canReorder: boolean
   /** Dim the row: the resolved "settled" zone below the open items in the Open view. */
   faded?: boolean
-  onContextMenu: (e: React.MouseEvent) => void
   onDragStartRow: () => void
   onCommit: () => void
 }) {
@@ -186,7 +179,7 @@ function ReorderRow({
           <GripVertical className="h-4 w-4" strokeWidth={1.75} />
         </div>
       )}
-      <EntityNode entityId={id} contextId={contextId} variant="row" onContextMenu={onContextMenu} />
+      <EntityNode entityId={id} contextId={contextId} variant="row" />
     </Reorder.Item>
   )
 }
@@ -691,7 +684,7 @@ export function DoList({
    *  top). Pass `false` to force a specific list back to top-aligned. */
   centered?: boolean
 }) {
-  const { dataVersion, notifyDataChanged, morphCommit, setMenuKey, open, selection, select, moveSelection, publishNavOrder, animating, closing: navClosing, stack } =
+  const { dataVersion, notifyDataChanged, open, selection, select, moveSelection, publishNavOrder, animating, closing: navClosing, stack } =
     useZeroNav()
   // The child entity that is CLOSING back into this list (globally, from the nav
   // store). During the 1-2 commit frames where this do-list re-expands out of its
@@ -726,7 +719,6 @@ export function DoList({
   // fade/slide as it's "born" from the creation input); all other rows mount with
   // `initial={false}` so context switches and commits never flash the whole list.
   const [bornId, setBornId] = useState<string | null>(null)
-  const [menu, setMenu] = useState<ContextMenuState | null>(null)
 
   // Transient inline notice for the async NL→schedule parse (below). Because that
   // upgrade happens AFTER the row is created, a failure (or a gated AI Gateway) would
@@ -1095,121 +1087,6 @@ export function DoList({
     return () => window.removeEventListener("keydown", onKey)
   }, [active, selection, moveSelection, open, listKeys, notifyDataChanged, select])
 
-  const openMenu = (e: React.MouseEvent, item: ContextItem) => {
-    e.preventDefault()
-    e.stopPropagation()
-    // Keep this row lit while its menu is open (pointer may move onto the menu).
-    setMenuKey(`${contextId}:${item.id}`)
-    // Close (fill glyph) and Cancel (fill + strike + fade) apply to any COMPLETABLE
-    // kind (task/space/event/instant/resource); terminal kinds retire/die instead.
-    const canClose = isCompletable(item.kind)
-    const closedNow = isClosed(item.entity)
-    const isCancelled = !!item.entity.cancelled
-    // Captured here (not read inside the menu closure) so the TaskSpace narrowing
-    // survives — closures don't retain control-flow narrowing of `item.entity`.
-    const isRequested = item.entity.kind === "task" && !!item.entity.requested
-    setMenu({
-      x: e.clientX,
-      y: e.clientY,
-      items: [
-        {
-          label: "Pin to Dock",
-          icon: <Pin className="h-3.5 w-3.5" />,
-          onSelect: () => {
-            // Morph the row down into its new dock card (frame + glyph + title
-            // glide, Spaces morph rectangle→hexagon) via the shared Flip stage —
-            // `morphCommit` raises the `animating` gate so framer stands down.
-            morphCommit(() => {
-              pinItem(contextId, item.id)
-              notifyDataChanged()
-            }, `${contextId}:${item.id}`)
-          },
-        },
-        ...(canClose
-          ? [
-              // "Close" fills the glyph; "Reopen" pulls it back open. They mirror the
-              // entity's closed state: show "Close" only when NOT closed, "Reopen" when
-              // closed. Reopen works for ANY closed entity — manual OR derived (an event
-              // past its end, a done task past its midnight) — via setEntityClosed's
-              // `reopened` override. A CANCELLED entity is the exception: it's reopened
-              // through "Restore" below, so it shows neither Close nor Reopen here.
-              ...(isCancelled
-                ? []
-                : !closedNow
-                  ? [
-                      {
-                        label: "Close",
-                        icon: <Archive className="h-3.5 w-3.5" />,
-                        onSelect: () => {
-                          setEntityClosed(item.id, true)
-                          notifyDataChanged()
-                        },
-                      },
-                    ]
-                  : [
-                      {
-                        label: "Reopen",
-                        icon: <ArchiveRestore className="h-3.5 w-3.5" />,
-                        onSelect: () => {
-                          setEntityClosed(item.id, false)
-                          notifyDataChanged()
-                        },
-                      },
-                    ]),
-              // "Cancel" — fill the glyph AND strike through the title + fade the row.
-              {
-                label: isCancelled ? "Restore" : "Cancel",
-                icon: isCancelled ? <RotateCcw className="h-3.5 w-3.5" /> : <Ban className="h-3.5 w-3.5" />,
-                onSelect: () => {
-                  setEventCancelled(item.id, !isCancelled)
-                  notifyDataChanged()
-                },
-              },
-            ]
-          : []),
-        // "Send" — mock sending the task to someone as a request. Tasks only; no
-        // transport yet, it just toggles the `requested` flag, which makes the
-        // row's glyph swing out its tilted "sent" edge (and fold it back on undo).
-        ...(item.entity.kind === "task"
-          ? [
-              {
-                label: isRequested ? "Unsend request" : "Send as request",
-                icon: <Send className="h-3.5 w-3.5" />,
-                onSelect: () => {
-                  setEntityRequested(item.id, !isRequested)
-                  notifyDataChanged()
-                },
-              },
-            ]
-          : []),
-        {
-          // "Change into…" — switch the entity's kind in place. The row's glyph
-          // (a single morphing <polygon>) tweens from the old silhouette to the
-          // new one, e.g. a task's square unfolds into a space's hexagon, because
-          // the same EntityNode (keyed by id) stays mounted across the change.
-          label: "Change into…",
-          icon: <Shapes className="h-3.5 w-3.5" />,
-          submenu: KIND_ORDER.filter((k) => k !== item.kind).map((k) => ({
-            label: NODE_KIND_META[k].label,
-            icon: <NodeGlyph kind={k} className="text-foreground" />,
-            onSelect: () => {
-              changeEntityKind(item.id, k)
-              notifyDataChanged()
-            },
-          })),
-        },
-        {
-          label: "Delete",
-          icon: <Trash2 className="h-3.5 w-3.5" />,
-          onSelect: () => {
-            deleteEntity(item.id)
-            notifyDataChanged()
-          },
-        },
-      ],
-    })
-  }
-
   // Commit the freshly-arranged order on drop, then let the data change flow back
   // (which resyncs `liveOrder`). Read the latest sequence from the ref — onReorder has
   // been updating it live throughout the drag.
@@ -1260,7 +1137,6 @@ export function DoList({
           // EntityNode frame already fades it (opacity-40) — dimming it twice would
           // stack the two and make it nearly invisible.
           faded={filter === "open" && !isOpenRow && !isClosed(it.entity)}
-          onContextMenu={(e) => openMenu(e, it)}
           onDragStartRow={() => {
             draggingRef.current = true
           }}
@@ -1455,14 +1331,6 @@ export function DoList({
           </AnimatePresence>,
           document.body,
         )}
-
-      <ContextMenu
-        state={menu}
-        onClose={() => {
-          setMenu(null)
-          setMenuKey(null)
-        }}
-      />
     </section>
   )
 }

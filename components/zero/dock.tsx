@@ -2,21 +2,16 @@
 
 import { useEffect, useMemo, useRef, useState } from "react"
 import { AnimatePresence, motion } from "motion/react"
-import { PinOff, Trash2, Ban, RotateCcw } from "lucide-react"
 import { layerTransition } from "@/lib/zero/motion"
 import { computeDockLayout, dockCardBoxes } from "@/lib/zero/dock-layout"
 import {
   getEntity,
   getPinnedItems,
-  unpinItem,
   reorderPins,
-  deleteEntity,
-  setEventCancelled,
   type ContextItem,
 } from "@/lib/zero/data"
 import { useZeroNav } from "@/lib/zero/nav-store"
 import { EntityNode } from "./entity-node"
-import { ContextMenu, type ContextMenuState } from "./context-menu"
 import { cn } from "@/lib/utils"
 
 /**
@@ -32,9 +27,8 @@ import { cn } from "@/lib/utils"
  * pins, so an empty context has no dock region at all and its do-list fills the view.
  */
 export function Dock({ contextId, active = true }: { contextId: string; active?: boolean }) {
-  const { open, dataVersion, notifyDataChanged, morphCommit, setMenuKey, selection, moveSelection, publishNavOrder, stack } =
+  const { open, dataVersion, notifyDataChanged, selection, moveSelection, publishNavOrder, stack } =
     useZeroNav()
-  const [menu, setMenu] = useState<ContextMenuState | null>(null)
 
   // Re-read pins whenever data mutates or the context changes.
   void dataVersion
@@ -252,58 +246,6 @@ export function Dock({ contextId, active = true }: { contextId: string; active?:
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active, selection, moveSelection, pinned])
 
-  const openMenu = (e: React.MouseEvent, item: ContextItem) => {
-    e.preventDefault()
-    e.stopPropagation()
-    // Keep this card lit while its menu is open (pointer may move onto the menu).
-    setMenuKey(`${contextId}:${item.id}`)
-    const canCancel = item.kind === "event" || item.kind === "instant"
-    const isCancelled = !!item.entity.cancelled
-    setMenu({
-      x: e.clientX,
-      y: e.clientY,
-      items: [
-        {
-          label: "Unpin from Dock",
-          icon: <PinOff className="h-3.5 w-3.5" />,
-          onSelect: () => {
-            // Morph the card back up into its do-list row (frame + glyph + title
-            // glide, Spaces morph hexagon→rectangle) via the shared Flip stage —
-            // `morphCommit` raises the `animating` gate so framer stands down.
-            morphCommit(() => {
-              unpinItem(contextId, item.id)
-              notifyDataChanged()
-            }, `${contextId}:${item.id}`)
-          },
-        },
-        ...(canCancel
-          ? [
-              {
-                label: isCancelled ? "Restore" : "Cancel",
-                icon: isCancelled ? (
-                  <RotateCcw className="h-3.5 w-3.5" />
-                ) : (
-                  <Ban className="h-3.5 w-3.5" />
-                ),
-                onSelect: () => {
-                  setEventCancelled(item.id, !isCancelled)
-                  notifyDataChanged()
-                },
-              },
-            ]
-          : []),
-        {
-          label: "Delete",
-          icon: <Trash2 className="h-3.5 w-3.5" />,
-          onSelect: () => {
-            deleteEntity(item.id)
-            notifyDataChanged()
-          },
-        },
-      ],
-    })
-  }
-
   return (
     // Region-2 (hug) content. EntityBody mounts the Dock ONLY when the context has
     // pins, so this whole element appears/disappears with the dock region. On mount
@@ -371,7 +313,6 @@ export function Dock({ contextId, active = true }: { contextId: string; active?:
                     contextId={contextId}
                     variant="dock"
                     dockMetrics={dockMetrics}
-                    onContextMenu={(e) => openMenu(e, item)}
                   />
                 </div>
               )
@@ -379,14 +320,6 @@ export function Dock({ contextId, active = true }: { contextId: string; active?:
           </AnimatePresence>
         </div>
       </div>
-
-      <ContextMenu
-        state={menu}
-        onClose={() => {
-          setMenu(null)
-          setMenuKey(null)
-        }}
-      />
     </motion.div>
   )
 }

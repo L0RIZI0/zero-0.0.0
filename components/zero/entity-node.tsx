@@ -171,7 +171,6 @@ export function EntityNode({
   entityId,
   contextId,
   variant,
-  onContextMenu,
   detached = false,
   dockMetrics,
 }: {
@@ -181,7 +180,6 @@ export function EntityNode({
    *  single owning window instead of one window per rendered copy. */
   contextId: string
   variant: "row" | "dock"
-  onContextMenu?: (e: React.MouseEvent) => void
   /** Responsive dock-card sizing from the dock's layout engine (see dock-layout.ts).
    *  Present only for dock cards; when absent the historical constants are used, so
    *  do-list rows and any un-metered dock render exactly as before. `contentScale`
@@ -588,6 +586,18 @@ export function EntityNode({
     else if (!isTop) nav.closeWindow(depth + 1)
   }
 
+  // Right-click → the SINGLE app-wide entity menu. The node owns this for EVERY
+  // surface (collapsed row, dock card, window header) so there is no per-component
+  // menu: the menu is specific to the entity + its context, not to where it renders.
+  // `stopPropagation` keeps a right-click on a child row from also firing an ancestor
+  // window's header handler. On a window, this is wired ONLY to the header glyph+title
+  // area (see headerClass div) — right-clicking blank window chrome does nothing.
+  function onCtxMenu(e: React.MouseEvent) {
+    e.preventDefault()
+    e.stopPropagation()
+    nav.openEntityMenu(entityId, contextId, e.clientX, e.clientY)
+  }
+
   // Stable collapsed footprint so siblings never shift when this lifts out.
   // Dock card footprint is a PERFECT pointy-top hexagon: width = height × 0.866
   // (√3/2). The size is CONTEXT-DEPENDENT:
@@ -982,7 +992,10 @@ export function EntityNode({
         role="button"
         aria-label={asWindow ? undefined : `Open ${entity.title}`}
         onClick={onFrameClick}
-        onContextMenu={onContextMenu}
+        // Collapsed row/dock card: the whole frame is the entity, so the menu opens
+        // anywhere on it. A window instead scopes the trigger to its header glyph+title
+        // (below), leaving the body's own rows to open their own menus.
+        onContextMenu={asWindow ? undefined : onCtxMenu}
         onPointerEnter={() => {
           // Highlight is painted PURELY from local `hovered` state so it lights up the
           // instant the pointer enters — no shared-store write, no app-wide re-render.
@@ -1254,6 +1267,11 @@ export function EntityNode({
         <div
           ref={reqHeaderRef}
           className={headerClass}
+          // Window right-click surface: the glyph+title header (horizontal for a leaf/
+          // task window, vertical for a spine ancestor) opens the same shared entity
+          // menu. Collapsed rows/cards use the frame handler instead, so this is
+          // window-only to avoid double-binding.
+          onContextMenu={asWindow ? onCtxMenu : undefined}
           // Header height SNAPS to its target (no CSS transition): GSAP Flip owns
           // the glyph/title motion during a morph, and the divider slides via its
           // own transition-[top]. A CSS height tween here would animate the
