@@ -6,6 +6,7 @@ import { ThemeToggle } from "./theme-toggle"
 import { FpsMeter } from "./fps-meter"
 import { ActivityInspector } from "./activity-inspector"
 import { HierarchyInspector } from "./hierarchy-inspector"
+import { EntityContextMenu } from "./entity-menu"
 import { ZeroNavProvider, useZeroNav } from "@/lib/zero/nav-store"
 import { telescopicSurface, useMorphTime } from "@/lib/zero/motion"
 import { DURATION_S, MORPH_CSS_EASE } from "@/lib/zero/flip-stage"
@@ -46,6 +47,9 @@ export function ZeroShell() {
   return (
       <ZeroNavProvider>
       <ZeroShellInner />
+      {/* The single app-wide right-click menu. Every surface (do-list, dock, window
+          header, later Resources/dayline) opens it via `nav.openEntityMenu`. */}
+      <EntityContextMenu />
       <ThemeToggle />
       <FpsMeter />
       <ActivityInspector />

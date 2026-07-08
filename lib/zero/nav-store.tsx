@@ -131,6 +131,18 @@ interface ZeroNavContextValue {
   menuKey: string | null
   /** Set/clear the entity whose context menu is open (its flip-id). */
   setMenuKey: (key: string | null) => void
+  /** The single, app-wide right-click menu anchor: which entity (in which
+   *  context) was right-clicked and where. `null` when no menu is open. One
+   *  `<EntityContextMenu>` (mounted in ZeroShell) reads this and renders the
+   *  shared per-entity menu, so every surface — do-list row, dock card, window
+   *  header, later the Resources panel / dayline — just calls `openEntityMenu`
+   *  instead of owning its own menu. */
+  entityMenu: { entityId: string; contextId: string; x: number; y: number } | null
+  /** Open the shared context menu for `entityId` (as rendered in `contextId`) at
+   *  viewport point (x, y). Also lights the entity via `menuKey` for the duration. */
+  openEntityMenu: (entityId: string, contextId: string, x: number, y: number) => void
+  /** Close the shared context menu and clear the lit `menuKey`. */
+  closeEntityMenu: () => void
   /** Flip-id of the entity currently flying between the do-list and dock during
    *  a pin/unpin morph, or null. Kept lit for the whole flight. */
   morphKey: string | null
@@ -196,6 +208,22 @@ export function ZeroNavProvider({
   // share the same key — the landed node stays lit through the whole morph.
   const [menuKey, setMenuKey] = useState<string | null>(null)
   const [morphKey, setMorphKey] = useState<string | null>(null)
+
+  // The single app-wide right-click menu anchor (see interface docs). Surfaces
+  // call `openEntityMenu`; the lone <EntityContextMenu> renders the shared menu.
+  const [entityMenu, setEntityMenu] = useState<
+    { entityId: string; contextId: string; x: number; y: number } | null
+  >(null)
+  const openEntityMenu = useCallback((entityId: string, contextId: string, x: number, y: number) => {
+    // Light the target while its menu is up (pointer may move onto the menu). The
+    // flip-id key matches the row/card/header so the held highlight tracks morphs.
+    setMenuKey(`${contextId}:${entityId}`)
+    setEntityMenu({ entityId, contextId, x, y })
+  }, [])
+  const closeEntityMenu = useCallback(() => {
+    setEntityMenu(null)
+    setMenuKey(null)
+  }, [])
 
   // Covered ancestors whose left Resources panel is manually spine-expanded. Adding an
   // id here makes `styleFor` reserve an extra PANEL_OPEN_W of left-inset for every window
@@ -914,6 +942,9 @@ export function ZeroNavProvider({
       morphCommit,
       menuKey,
       setMenuKey,
+      entityMenu,
+      openEntityMenu,
+      closeEntityMenu,
       morphKey,
       setRegionRect,
       pulse,
@@ -944,6 +975,9 @@ export function ZeroNavProvider({
     notifyDataChanged,
     morphCommit,
     menuKey,
+    entityMenu,
+    openEntityMenu,
+    closeEntityMenu,
     morphKey,
     setRegionRect,
     pulse,
