@@ -480,6 +480,14 @@ export function EntityNode({
   const fsDepth = nav.fullscreenId ? nav.stack.indexOf(nav.fullscreenId) : -1
   const fullscreen =
     asWindow && !fadingWindow && !isClosing && depth >= 1 && fsDepth >= 1 && depth <= fsDepth
+  if (isSpace && asWindow) {
+    console.log("[v0] fs-check", entity.title, {
+      depth,
+      fsDepth,
+      fullscreen,
+      animating: nav.animating,
+    })
+  }
 
   // Per-instance flip-id prefix. Two references to the same entity (different
   // contexts) must NOT share a flip-id, or GSAP Flip mismatches their before/
@@ -645,6 +653,16 @@ export function EntityNode({
           borderRadius: "0",
         }
       : winStyleBase
+  if (isSpace && asWindow) {
+    console.log("[v0] winStyle", entity.title, {
+      contextId,
+      flip,
+      isTop,
+      fullscreen,
+      top: winStyle?.top,
+      left: winStyle?.left,
+    })
+  }
 
   // A Space is always shaped by the SAME 8-point clip-path; only its two insets
   // change between states:
