@@ -1,6 +1,6 @@
 "use client"
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react"
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { flushSync } from "react-dom"
 import { getEntity, hydrateFromStorage, isDetachedChild } from "./data"
   import { stackTargetRect, LEAF_WEDGE_RATIO, WINDOW_BASE_SIDE } from "./motion"
@@ -245,6 +245,31 @@ export function ZeroNavProvider({
   useEffect(() => {
     setFullscreenId((prev) => (prev && !stack.includes(prev) ? null : prev))
   }, [stack])
+
+  // Numeric viewport size, kept fresh on resize. The recursive-fullscreen branch
+  // expresses non-Space descendants as viewport calc() (natively responsive), but a
+  // Space descendant needs the hexagon WEDGE = ratio·width computed from a NUMBER, so
+  // it reads these. Seeded to 0/0 (SSR-safe); measured on mount + resize. Fullscreen is
+  // always a user action, so these are populated well before the Space branch runs.
+  const [viewport, setViewport] = useState({ w: 0, h: 0 })
+  useEffect(() => {
+    const measure = () => setViewport({ w: window.innerWidth, h: window.innerHeight })
+    measure()
+    window.addEventListener("resize", measure)
+    return () => window.removeEventListener("resize", measure)
+  }, [])
+
+  // Re-measure the focus-region whenever fullscreen toggles. Entering fullscreen removes
+  // the app-bar header from the flow (individual-header hides ShellHeader while fs), which
+  // makes the in-flow region taller and higher. regionRect is otherwise only refreshed on
+  // a stack-change morph — so if a morph happened DURING fullscreen (opening a child, or
+  // the closing transition), the region stayed captured at the tall fullscreen layout and
+  // every window painted up behind the entity0 header after EXIT until the next morph
+  // corrected it. useLayoutEffect lands the fresh measurement before paint (no flicker).
+  useLayoutEffect(() => {
+    setRegionRect(getRegionRect())
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fullscreenId])
 
   const [dataVersion, setDataVersion] = useState(0)
   const [pulse, setPulse] = useState<{ id: string; n: number } | null>(null)
@@ -684,10 +709,8 @@ export function ZeroNavProvider({
       // Geometry is expressed as viewport calc() (matching the target override) so no
       // viewport measurement is needed. Insets from stackTargetRect are region-size-
       // INDEPENDENT (fixed px accumulations), so a large probe region recovers them.
-      // SPACE descendants are excluded for now — the hexagon wedge needs a numeric
-      // width, which a viewport calc can't supply; they fall through to the normal path.
       const fsDepth = fullscreenId ? stack.indexOf(fullscreenId) : -1
-      if (fsDepth >= 1 && windowDepth > fsDepth && !selfIsSpace) {
+      if (fsDepth >= 1 && windowDepth > fsDepth) {
         const subKinds = stack.slice(fsDepth, windowDepth).map((sid) => getEntity(sid)?.kind ?? "task")
         const subVertical = subKinds.map((k) => k === "space")
         const PROBE = 100000
@@ -711,14 +734,44 @@ export function ZeroNavProvider({
           if (spineExpandedIds.has(stack[d])) fsExtraLeft += PANEL_OPEN_W
         }
         const totalLeft = leftInset + fsExtraLeft
-        return {
-          position: "fixed",
-          top: DAYLINE_ROW_H + topInset,
-          left: totalLeft,
-          width: `calc(100vw - ${totalLeft + rightInset}px)`,
-          height: `calc(100vh - ${DAYLINE_ROW_H + topInset}px)`,
-          zIndex: 20 + windowDepth * 10,
-          borderRadius: "0",
+        const boxTop = DAYLINE_ROW_H + topInset
+        // NON-Space descendant: express as viewport calc() (natively responsive to resize,
+        // no measurement needed) — matches the target's own edge-to-edge override.
+        if (!selfIsSpace) {
+          return {
+            position: "fixed",
+            top: boxTop,
+            left: totalLeft,
+            width: `calc(100vw - ${totalLeft + rightInset}px)`,
+            height: `calc(100vh - ${boxTop}px)`,
+            zIndex: 20 + windowDepth * 10,
+            borderRadius: "0",
+          }
+        }
+        // SPACE descendant: the pointy-top hexagon's WEDGE = ratio·width needs a NUMERIC
+        // width (a calc string can't drive --space-ay), so use the measured viewport. Grow
+        // the frame by one wedge top+bottom so the central band exactly covers the box —
+        // identical to the normal-path Space geometry, just anchored to the fullscreen box
+        // instead of the region. If the viewport isn't measured yet (0/0 before mount),
+        // fall through to the normal path (no regression — that's the prior behavior).
+        if (viewport.w > 0 && viewport.h > 0) {
+          const boxWidth = viewport.w - (totalLeft + rightInset)
+          const boxHeight = viewport.h - boxTop
+          const wedge = LEAF_WEDGE_RATIO * boxWidth
+          const boxH = boxHeight + 2 * wedge
+          return {
+            position: "fixed",
+            top: boxTop - wedge,
+            left: totalLeft,
+            width: boxWidth,
+            height: boxH,
+            zIndex: 20 + windowDepth * 10,
+            borderRadius: "0",
+            ["--hex-inset-y"]: "0px",
+            ["--hex-corner-inset-y"]: `${wedge}px`,
+            ["--space-ax"]: "50",
+            ["--space-ay"]: `${(wedge / boxH) * 100}`,
+          } as React.CSSProperties
         }
       }
 

@@ -1134,12 +1134,19 @@ export function EntityNode({
               //    buttons stack vertically INSIDE the 24px-wide right-edge column so the
               //    cluster never widens past the ancestor's exposed 48px peek and bleeds
               //    over the covering child (the image-3 poke-out). Keeps inline top/right.
-              //  • Corner case (plain windows) + ALWAYS when fullscreen → flex-ROW-REVERSE
-              //    at the true top-right corner: DOM order [close, expand] renders as
-              //    [expand | close] so the X keeps the corner and expand sits to its LEFT.
+              //  • Corner case (plain windows) + fullscreen LEAF (not yet covered) →
+              //    flex-ROW-REVERSE at the true top-right corner: DOM order [close, expand]
+              //    renders as [expand | close] so the X keeps the corner and expand sits LEFT.
+              //  • Fullscreen SPACE ANCESTOR (covered by a child) → flex-COL at the corner:
+              //    a covered Space never peeks its header above the leaf, so an expand button
+              //    to the LEFT of the X pokes over the child window. Stacking [close, expand]
+              //    vertically drops the restore button BELOW the X, inside the Space's own
+              //    exposed right-edge peek, clear of the covering child.
               !fullscreen && (spaceLeafWindow || isSpine)
                 ? "flex-col"
-                : "flex-row-reverse right-1.5 top-3",
+                : fullscreen && isSpine
+                  ? "flex-col right-1.5 top-3"
+                  : "flex-row-reverse right-1.5 top-3",
             )}
           >
             <button
