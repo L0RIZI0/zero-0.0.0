@@ -563,43 +563,48 @@ export function EntityNode({
   // hover lingers a beat after the pointer leaves (feels less twitchy).
   const frameActive = hovered || showHighlight || isClosing || held || reqAnimating
 
-  // DOCK-CARD "WINDOW" — the collapsed dock card is a GIANT GLYPH. By default EVERY kind
-  // reads as an EMPTY OUTLINE (open task square, resource diamond, space hexagon), so a
-  // card mirrors the hollow small glyph rather than a solid chip. The silhouette FILLS
-  // only once the entity is CLOSED — and then with a SOFT grey (see cardClosedFill) so
-  // the title + glyph laid over it stay legible. `void getChildren` keeps the card
-  // re-rendering when children mutate (child count still drives the counter below).
-  void getChildren(entityId).length
-  const cardFilled = closed
-  // An EMPTY card = a collapsed dock card whose window should read unfilled. Excludes the
-  // close morph (isClosing) so the shrink keeps the opaque lit surface until it settles.
-  const cardEmpty = variant === "dock" && !asWindow && !isClosing && !cardFilled
-  // OUTLINE ink — the readable mid-grey that traces every empty glyph (square border,
-  // diamond/hexagon rim, done checkmark). Weighty enough to read as the scaled-up glyph.
+  // DOCK-CARD "WINDOW" — the collapsed dock card is a GIANT GLYPH drawn in two
+  // independent layers: an OUTLINE that is ALWAYS present (so the silhouette never
+  // disappears) and an optional FILL painted behind it.
+  //   • OUTLINE  → every collapsed dock card, in every state (square border / diamond +
+  //                hexagon SVG rim). It sits ON TOP of any fill, so a filled card still
+  //                shows its crisp glyph edge.
+  //   • FILL     → a Space or Resource that actually CONTAINS something (non-empty
+  //                children OR tagged-entity list — getChildren unions both) reads as the
+  //                SOLID "filled" glyph. A CLOSED entity instead gets a SOFT grey fill,
+  //                light enough that its overlaid title + glyph stay legible. Closed wins
+  //                over solid so a closed card never hides its label.
+  const childCount = getChildren(entityId).length
+  const dockCardCollapsed = variant === "dock" && !asWindow && !isClosing
+  const cardHasContents = (isSpace || isResourceKind) && childCount > 0
+  const cardSolidFill = dockCardCollapsed && !closed && cardHasContents
+  const cardSoftFill = dockCardCollapsed && closed
+  // OUTLINE ink — the readable mid-grey tracing every glyph edge (square border,
+  // diamond/hexagon rim, done checkmark). Also serves as the SOLID fill for a
+  // space/resource-with-contents, so the outline melds seamlessly into that fill.
   const cardInk = isDark ? "rgb(255 255 255 / 0.52)" : "rgb(0 0 0 / 0.4)"
   // CLOSED fill — a SOFT grey, much lighter than the outline: it nudges the card
   // background "less dark" (dark mode) / "less light" (light mode) to signal closed,
-  // while staying subtle enough that an overlaid white title or a dark favicon tile
-  // remains clearly visible on top (a strong fill swallowed them).
-  const cardClosedFill = isDark ? "rgb(255 255 255 / 0.14)" : "rgb(0 0 0 / 0.1)"
+  // while staying subtle enough that an overlaid white title or dark favicon tile
+  // remains clearly visible on top (a strong fill swallowed them). The outline stays.
+  const cardSoftFillColor = isDark ? "rgb(255 255 255 / 0.14)" : "rgb(0 0 0 / 0.1)"
   // Outline weight that mimics the small glyph SCALED UP rather than a hairline frame.
   // The glyph strokes 1.75 on a 24-unit box (≈0.073 of the box), so at card size the
   // matching stroke is cardW × 0.073 (≈9px on the 130px home card). Shrinks with the
-  // card as the dock is squeezed. The empty SQUARE uses this directly (CSS border); the
-  // empty HEXAGON doubles it since its clip trims the stroke's outer half.
+  // card as the dock is squeezed. The SQUARE uses this directly (CSS border); the
+  // clipped rim doubles it since the clip trims the stroke's outer half.
   const cardBoxW = dockMetrics ? dockMetrics.cardW : contextDepth === 0 ? 130 : 100
   const cardBorderPx = Math.max(3, Math.round(cardBoxW * 0.073))
   // The done CHECK tick, in the 24-unit glyph box (mirrors node-glyph's CHECK_POINTS)
-  // — drawn scaled-up and centered on an empty done card so it reads like the small
-  // glyph's checkmark blown up.
+  // — drawn scaled-up and centered on a done card so it reads like the small glyph's
+  // checkmark blown up.
   const DOCK_CHECK_POINTS = "7,12.5 10.5,16 17,8"
-  const dockCardFilledFill = variant === "dock" && !asWindow && !isClosing && cardFilled
-  // Outline rim for an empty CLIPPED card (a clip-path can't carry a border, so the
+  // Outline rim for a CLIPPED dock card (a clip-path can't carry a border, so the
   // silhouette is traced by an SVG polygon on the [data-shape] child — same technique as
   // the Space window outline). SPACE → hexagon, RESOURCE → diamond (spaceClipPoints(50,50),
-  // matching its diamond clip). Rect kinds (task/event/instant) are unclipped, so their
-  // empty square is drawn with a plain CSS border instead (see shapeStyle).
-  const cardEmptyRimPoints = !cardEmpty
+  // matching its diamond clip). Always drawn for these kinds (independent of fill). Rect
+  // kinds (task/event/instant) are unclipped, so their square uses a CSS border instead.
+  const cardRimPoints = !dockCardCollapsed
     ? null
     : isSpace
       ? dockMetrics
@@ -613,15 +618,17 @@ export function EntityNode({
     ? telescopicSurface(depth, leafDepth, isDark)
     : frameActive
       ? highlightColor
-      : cardEmpty
-        ? // Empty card reads as an outline: no resting fill (hover still lifts via
-          // frameActive → highlightColor above; the rim/border carries the identity).
-          "transparent"
-        : dockCardFilledFill
-          ? // CLOSED dock card — soft grey fill inside the clipped/bordered silhouette,
-            // subtle enough that the overlaid title + glyph stay readable.
-            cardClosedFill
-          : collapsedRest
+      : cardSoftFill
+        ? // CLOSED dock card — soft grey fill; the always-on outline stays on top.
+          cardSoftFillColor
+        : cardSolidFill
+          ? // Space/resource WITH contents — solid "filled" glyph (outline melds in).
+            cardInk
+          : dockCardCollapsed
+            ? // Default empty glyph: no resting fill, the outline carries the identity
+              // (hover still lifts via frameActive → highlightColor above).
+              "transparent"
+            : collapsedRest
 
   void nav.dataVersion // re-read counts when data mutates
   const openCount = getOpenTaskCount(entityId)
@@ -877,12 +884,11 @@ export function EntityNode({
   const shapeStyle: React.CSSProperties = {
     backgroundColor: frameSurface,
     ...(clipPath ? { clipPath } : { borderRadius: 0 }),
-    // Empty RECT card (task/event/instant open state) → trace the square with a
-    // hairline border. Space cards are clipped (hexagon), so they use the SVG rim
-    // below instead; resources are always filled, so they never reach here.
-    ...(cardEmpty && !clipPath
-      ? // Empty square outline scaled like the glyph stroke (cardBorderPx), unified ink.
-        { border: `${cardBorderPx}px solid ${cardInk}` }
+    // RECT dock card (task/event/instant) → ALWAYS trace the square with the glyph-
+    // weight border, in every state, so the outline stays on top of any soft closed
+    // fill. Clipped kinds (space/resource) use the SVG rim below instead.
+    ...(dockCardCollapsed && !clipPath
+      ? { border: `${cardBorderPx}px solid ${cardInk}` }
       : null),
     // DARK ancestor/leaf-less Space windows draw their boundary as an inset ring
     // (light mode uses the SVG outline). Same condition as before, just relocated
@@ -1187,11 +1193,11 @@ export function EntityNode({
               />
             </svg>
           )}
-          {/* EMPTY clipped-card rim — a default (not-closed) Space or Resource dock card
-              reads as an OUTLINE hexagon / diamond (not a filled chip). Traces the SAME
-              points as the card clip, in BOTH themes (the window outline above is
-              light-only); the clip trims the stroke's outer half to a clean inner edge. */}
-          {cardEmptyRimPoints && (
+          {/* Clipped-card rim — a Space or Resource dock card ALWAYS shows its OUTLINE
+              hexagon / diamond edge, drawn ON TOP of any fill (so a closed card's soft
+              fill never erases the silhouette). Traces the SAME points as the card clip,
+              in BOTH themes; the clip trims the stroke's outer half to a clean inner edge. */}
+          {cardRimPoints && (
             <svg
               aria-hidden
               className="absolute inset-0 z-[1] h-full w-full"
@@ -1199,7 +1205,7 @@ export function EntityNode({
               preserveAspectRatio="none"
             >
               <polygon
-                points={cardEmptyRimPoints.map(([x, y]) => `${x},${y}`).join(" ")}
+                points={cardRimPoints.map(([x, y]) => `${x},${y}`).join(" ")}
                 fill="none"
                 stroke={cardInk}
                 // Doubled: the clip trims the stroke's outer half, so this renders as
@@ -1213,7 +1219,7 @@ export function EntityNode({
           {/* DONE CHECK — a scaled-up checkmark on an empty done card (task/event/
               instant done but not yet closed), so the card reads like the small glyph's
               tick blown up. Non-scaling stroke keeps it at the outline's weight. */}
-          {cardEmpty && showCheckmark && (
+          {dockCardCollapsed && showCheckmark && (
             <svg
               aria-hidden
               className="absolute inset-0 z-[2] h-full w-full"

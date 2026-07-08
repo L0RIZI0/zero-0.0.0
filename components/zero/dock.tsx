@@ -54,6 +54,11 @@ export function Dock({ contextId, active = true }: { contextId: string; active?:
   // The id currently gliding home after a drop (its left/top transition is kept on for
   // one cycle so it eases from the drop point into its final slot instead of snapping).
   const [landing, setLanding] = useState<string | null>(null)
+  // True for a short window right after a pin is REMOVED (deleted or unpinned): it turns
+  // the left/top transition on for ALL cards so the survivors glide into their new slots
+  // as the dock recomputes, instead of snapping. The removed card itself fades+shrinks
+  // out via AnimatePresence `exit` below. Paired with the deleted card's ~0.18s exit.
+  const [reflowing, setReflowing] = useState(false)
   // The positioned honeycomb container — pointer math is done relative to its box.
   const gridRef = useRef<HTMLDivElement>(null)
   const dragRef = useRef<{ id: string; startX: number; startY: number; ox: number; oy: number; started: boolean } | null>(null)
@@ -62,7 +67,14 @@ export function Dock({ contextId, active = true }: { contextId: string; active?:
   const justDraggedRef = useRef(false)
   useEffect(() => {
     if (draggingRef.current) return
+    // A card LEAVING the pin set (delete/unpin) → glide the survivors for one beat.
+    const removed = liveOrderRef.current.some((id) => !pinnedIds.includes(id))
     setLiveOrder(pinnedIds)
+    if (removed) {
+      setReflowing(true)
+      const t = window.setTimeout(() => setReflowing(false), 260)
+      return () => window.clearTimeout(t)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pinnedKey])
 
@@ -290,10 +302,17 @@ export function Dock({ contextId, active = true }: { contextId: string; active?:
               // panel squeeze isn't rubber-banded.
               const left = isDragging && drag ? drag.px - drag.ox : box.left
               const top = isDragging && drag ? drag.py - drag.oy : box.top
+              // Glide left/top when dragging siblings, when landing a drop, OR while the
+              // dock is reflowing after a removal — never at rest (so continuous width
+              // tracking of the panel squeeze isn't rubber-banded).
               const transition =
-                isDragging ? "none" : drag || isLanding ? "left 0.2s ease-out, top 0.2s ease-out" : "none"
+                isDragging
+                  ? "none"
+                  : drag || isLanding || reflowing
+                    ? "left 0.2s ease-out, top 0.2s ease-out"
+                    : "none"
               return (
-                <div
+                <motion.div
                   key={item.id}
                   // Reserve the FULL slot height (the tall hexagon's cardH) and CENTER the
                   // card within it. Non-Space cards render as a shorter 1:1 square, so
@@ -303,6 +322,16 @@ export function Dock({ contextId, active = true }: { contextId: string; active?:
                   // are unaffected.
                   className={cn("absolute flex touch-none items-center justify-center", isDragging && "cursor-grabbing")}
                   style={{ left, top, height: box.height, transition, zIndex: isDragging ? 50 : undefined }}
+                  // ENTER (newly pinned) pops in; EXIT (deleted/unpinned) shrinks + fades
+                  // in place while survivors glide to their new slots. AnimatePresence's
+                  // `initial={false}` suppresses this on the initial context mount, so it
+                  // only fires for genuine add/remove — the smooth delete the dock needed.
+                  // (opacity/scale go through motion's transform; the CSS `transition`
+                  // above only names left/top, so the two never fight.)
+                  initial={{ opacity: 0, scale: 0.6 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.5 }}
+                  transition={{ duration: 0.18, ease: "easeOut" }}
                   onPointerDown={(e) => onCardPointerDown(e, item.entity.id, box)}
                   // Suppress the click that fires right after a real drag so the card
                   // doesn't also open. A plain tap (no drag) leaves the flag false.
@@ -320,7 +349,7 @@ export function Dock({ contextId, active = true }: { contextId: string; active?:
                     variant="dock"
                     dockMetrics={dockMetrics}
                   />
-                </div>
+                </motion.div>
               )
             })}
           </AnimatePresence>
