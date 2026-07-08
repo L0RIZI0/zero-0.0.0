@@ -579,10 +579,15 @@ export function EntityNode({
   const cardHasContents = (isSpace || isResourceKind) && childCount > 0
   const cardSolidFill = dockCardCollapsed && !closed && cardHasContents
   const cardSoftFill = dockCardCollapsed && closed
-  // OUTLINE ink — the readable mid-grey tracing every glyph edge (square border,
-  // diamond/hexagon rim, done checkmark). Also serves as the SOLID fill for a
-  // space/resource-with-contents, so the outline melds seamlessly into that fill.
-  const cardInk = isDark ? "rgb(255 255 255 / 0.52)" : "rgb(0 0 0 / 0.4)"
+  // OUTLINE ink — traces every glyph edge (square border, diamond/hexagon rim, done
+  // checkmark). DARK MODE uses a DARKER outline (deeper toward the near-black bg); LIGHT
+  // MODE mirrors it with a LIGHTER outline. It's the darker of the outline/fill pair, so
+  // on a filled card it reads as a crisp edge sitting on top of the (brighter) fill.
+  const cardInk = isDark ? "rgb(255 255 255 / 0.34)" : "rgb(0 0 0 / 0.3)"
+  // SOLID fill — a space/resource WITH contents. Slightly darker than before in dark
+  // mode (opposite / slightly lighter in light mode), and kept a touch brighter than the
+  // outline so the outline stays visible on top of it.
+  const cardFillInk = isDark ? "rgb(255 255 255 / 0.48)" : "rgb(0 0 0 / 0.44)"
   // CLOSED fill — a SOFT grey, much lighter than the outline: it nudges the card
   // background "less dark" (dark mode) / "less light" (light mode) to signal closed,
   // while staying subtle enough that an overlaid white title or dark favicon tile
@@ -622,8 +627,9 @@ export function EntityNode({
         ? // CLOSED dock card — soft grey fill; the always-on outline stays on top.
           cardSoftFillColor
         : cardSolidFill
-          ? // Space/resource WITH contents — solid "filled" glyph (outline melds in).
-            cardInk
+          ? // Space/resource WITH contents — solid "filled" glyph (the darker outline
+            // rides on top of this slightly-brighter fill).
+            cardFillInk
           : dockCardCollapsed
             ? // Default empty glyph: no resting fill, the outline carries the identity
               // (hover still lifts via frameActive → highlightColor above).
