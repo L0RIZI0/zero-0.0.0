@@ -423,11 +423,14 @@ export function EntityNode({
   const kind = entity.kind
   const isTask = kind === "task"
   const isSpace = kind === "space"
-  // A RESOURCE TASK is a task bound to a web surface (Zero as a contextual browser).
-  // When open it renders that surface (live embed or illustrative stand-in) in place
-  // of the do-list. The glyph+title header, IN/OUT spines and close all stay identical
-  // to a normal Task window — only the central working surface differs.
-  const isResource = isTask && !!entity.webUrl
+  const isResourceKind = kind === "resource"
+  // Does this entity FRONT A WEB SURFACE (Zero as a contextual browser)? True for any
+  // entity carrying a `webUrl` — in practice the `resource` kind produced by typing a
+  // URL. When open it renders that surface (live embed or illustrative stand-in) in
+  // place of the do-list; the glyph+title header, IN/OUT spines and close stay identical
+  // to any other window — only the central working surface differs. Kind-agnostic now
+  // that `webUrl` lives on SpaceBase (was gated to tasks).
+  const hasWebSurface = !!entity.webUrl
   // GLYPH SEMANTICS (driven by KIND_META, single source of truth):
   //  - FILL now means CLOSED (archived / lifecycle-ended), not merely "done": any
   //    completable kind fills its silhouette (event triangle, space hexagon, etc.)
@@ -708,11 +711,25 @@ export function EntityNode({
   const leafAyRaw = winStyle ? Number((winStyle as Record<string, unknown>)["--space-ay"]) : NaN
   const leafAy = Number.isFinite(leafAyRaw) ? leafAyRaw : LEAF_HY
   const leafClip = Number.isFinite(leafAx) ? spaceClip(leafAx, leafAy) : SPACE_CLIP_HEX
-  const clipPath = fullscreen || !isSpace
+  // A RESOURCE dock card takes the FILLED SHAPE of its kind glyph — a DIAMOND (the
+  // task square rotated 45°) = spaceClipPoints(50, 50), the same 8-point family as the
+  // Space hexagon so it uses the identical [data-shape] clip pipeline. Only the
+  // collapsed CARD is a diamond: a resource's do-list ROW stays a plain rectangle
+  // (a diamond in a wide/short row reads wrong), and its opened WINDOW stays UNCLIPPED
+  // so the web surface fills edge-to-edge AND keeps its drop shadow (a clip-path would
+  // swallow the shadow, exactly as it does for Spaces). Resources deliberately do NOT
+  // set `data-space-kind`, so the GSAP hexagon morph driver ignores them — the card
+  // simply rests as a diamond and squares off as it grows into its window.
+  const resourceDiamondCard = isResourceKind && variant === "dock" && !asWindow
+  const clipPath = fullscreen || (!isSpace && !resourceDiamondCard)
     ? // A fullscreen Space drops its hexagon so the fill reaches all four viewport
-      // corners (a plain full box); non-Spaces never clip.
+      // corners (a plain full box); non-Spaces (except a resource dock card) never clip.
       undefined
-    : asWindow
+    : resourceDiamondCard
+      ? // Diamond: apexes at the four edge-midpoints. Aspect-independent (0/50/100
+        // percentages map correctly to any card W×H), so no regularHex-style correction.
+        spaceClip(50, 50)
+      : asWindow
       ? // Leaf AND ancestor windows are the SAME grown hexagon — opening a child no
         // longer flattens the Space to a rectangle; it keeps this exact clip and only
         // spines its header. (SPACE_CLIP_RECT is now used only as a row "from" state.)
@@ -1372,7 +1389,7 @@ export function EntityNode({
               asWindow && closed && "opacity-40",
             )}
           >
-            {isResource ? (
+            {hasWebSurface ? (
               // Favicon-as-icon: a resource task shows its resource/site mark in every
               // state (row, dock card, window header) so it reads as "the Figma tab",
               // "the Photopea tab", etc. — Zero's contextual-browser identity.
@@ -1820,7 +1837,7 @@ export function EntityNode({
               // A spine's rotated title is a flow element ABOVE the excerpt in the left
               // spine (via spineTitle), so it needs no panel offset either.
               panelTopOffset={0}
-              resource={isResource ? { url: entity.webUrl!, resourceId: entity.webResourceId } : undefined}
+              resource={hasWebSurface ? { url: entity.webUrl!, resourceId: entity.webResourceId } : undefined}
               // Edge-to-edge web view for the fullscreen TARGET (depth === fsDepth) AND
               // any window opened ON TOP of it (depth > fsDepth) — recursive fullscreen
               // re-nests those descendants inside the target's expanded View, and each

@@ -527,27 +527,27 @@ export const entities: Entity[] = [
     accent: ACCENT.zero,
   },
   {
+    // A URL is a thing the work DRAWS ON → a `resource` (diamond), not a task. The
+    // id keeps its historical `t_` prefix (identity is the id STRING, not the prefix;
+    // pins reference it) but the kind is a resource. Opening swaps its body for the
+    // ResourceCanvas web surface (the contextual browser). Relative URL resolves
+    // against the current origin in the iframe, so it works on any deploy.
     id: "t_zerolaws",
-    kind: "task",
+    kind: "resource",
     title: "Zero Laws",
     parentId: "s_now",
     taggedSpaceIds: [],
-    completed: false,
-    // Opening this task swaps its body for the ResourceCanvas web surface (the
-    // contextual browser). Relative URL resolves against the current origin in the
-    // iframe, so it works on any deploy without hardcoding a host.
     webUrl: "/zero-laws",
     tags: ["zero", "laws"],
   },
   {
+    // Same as above: an internal-page resource (diamond). Frames the in-app /vision
+    // manifesto (Do, don't plan; the substrate + honest constraints).
     id: "t_vision",
-    kind: "task",
+    kind: "resource",
     title: "The Vision",
     parentId: "s_now",
     taggedSpaceIds: [],
-    completed: false,
-    // Same contextual-browser mechanism as `t_zerolaws`: opening it frames the
-    // in-app /vision manifesto (Do, don't plan; the substrate + honest constraints).
     webUrl: "/vision",
     tags: ["zero", "vision"],
   },
@@ -1470,6 +1470,22 @@ function migrateLegacyTime(entity: Entity): void {
   delete legacy.dueDate
 }
 
+/**
+ * ONTOLOGY MIGRATION (Jul 2026): web-surfaces used to be created as `kind:"task"`
+ * with a `webUrl` (the old "resource task"). A URL is a thing the work DRAWS ON, so
+ * it is now its own `resource` kind (diamond glyph). This one-time, in-place flip
+ * upgrades any such PERSISTED entity so old data matches newly-created resources.
+ * Mutates in place; no-op for anything that isn't a task-with-webUrl. It drops the
+ * task-only `priority` (resources have none) and keeps id/title/webUrl/pins intact,
+ * so the entity — and any dock pin referencing its id — survives unchanged.
+ */
+function migrateWebTaskToResource(entity: Entity): void {
+  if (entity.kind !== "task" || !entity.webUrl) return
+  const loose = entity as Entity & { priority?: unknown }
+  ;(entity as { kind: EntityKind }).kind = "resource"
+  delete loose.priority
+}
+
 let _hydrated = false
 
 /**
@@ -1486,6 +1502,7 @@ export function hydrateFromStorage(): boolean {
   for (const entity of stored.entities) {
     if (byId.has(entity.id)) continue
     migrateLegacyTime(entity)
+    migrateWebTaskToResource(entity)
     entities.push(entity)
     byId.set(entity.id, entity)
     userEntityIds.add(entity.id)
@@ -1638,16 +1655,13 @@ export function materializeOccurrence(seriesId: string, dayStart: number): Entit
   const mother = byId.get(seriesId)
   if (!mother) return undefined
 
-  // Task-only carry-overs are read only when the mother is actually a task, so the
-  // union narrows and `priority`/`webUrl`/`webResourceId` are in scope.
-  const taskExtras =
-    mother.kind === "task"
-      ? {
-          ...(mother.priority ? { priority: mother.priority } : {}),
-          ...(mother.webUrl ? { webUrl: mother.webUrl } : {}),
-          ...(mother.webResourceId ? { webResourceId: mother.webResourceId } : {}),
-        }
-      : {}
+  // The web-surface binding lives on SpaceBase, so it carries over for any kind
+  // (e.g. a recurring resource). `priority` is task-only, so it stays narrowed.
+  const taskExtras = {
+    ...(mother.kind === "task" && mother.priority ? { priority: mother.priority } : {}),
+    ...(mother.webUrl ? { webUrl: mother.webUrl } : {}),
+    ...(mother.webResourceId ? { webResourceId: mother.webResourceId } : {}),
+  }
 
   // `kind` is dynamic (mirrors the mother), so build through the makeEntity boundary.
   const override: Entity = makeEntity({
@@ -1691,25 +1705,26 @@ export function materializeOccurrence(seriesId: string, dayStart: number): Entit
 }
 
 /**
- * Create a RESOURCE TASK — a task bound to a web resource/URL. Opening it shows a
- * web surface (live embed or illustrative stand-in) instead of a do-list. This is
- * the create path behind the "type a URL / pick a resource" gesture. Title falls
- * back to the resource/host name when the user only supplied a URL.
+ * Create a RESOURCE — a `resource` entity (diamond glyph) bound to a web
+ * resource/URL. A URL is a thing the work DRAWS ON, so Zero models it as a
+ * resource, never a task: opening it shows a web surface (live embed or
+ * illustrative stand-in) instead of a do-list. This is the create path behind the
+ * "type a URL / pick a resource" gesture. Title falls back to the resource/host
+ * name when the user only supplied a URL.
  */
-export function addWebTask(input: {
+export function addWebResource(input: {
   title: string
   url: string
   spaceId: string
   resourceId?: string
 }): Entity {
   const entity: Entity = {
-    id: uid("t"),
-    kind: "task",
+    id: uid("r"),
+    kind: "resource",
     title: input.title,
     parentId: input.spaceId,
     taggedSpaceIds: [],
     completed: false,
-    priority: "medium",
     tags: [],
     webUrl: input.url,
     webResourceId: input.resourceId,

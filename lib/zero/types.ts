@@ -256,12 +256,25 @@ export interface SpaceBase {
   schedule?: Schedule
   /** Free-text labels. */
   tags?: string[]
+
+  /**
+   * WEB SURFACE binding (Zero as a contextual browser). When set, opening this
+   * entity shows a live web surface (external site, or one of Zero's own internal
+   * pages via a root-relative path like "/vision") instead of a do-list. This is
+   * the defining trait of the `resource` kind produced by typing a URL, but it
+   * lives on SpaceBase so the binding is kind-agnostic (any space could, in
+   * principle, front a web surface). `webResourceId` optionally points into the
+   * known web-resource catalog (see `web-resources.ts`) for branding/embed
+   * behavior; absent for an arbitrary typed URL.
+   */
+  webUrl?: string
+  webResourceId?: string
 }
 
 /**
- * TASK — a unit of work; still a container (it can hold subtasks). The only kind
- * that carries the web-resource binding (the "contextual browser") and a sent/
- * requested flag and a priority.
+ * TASK — a unit of work; still a container (it can hold subtasks). Carries a
+ * sent/requested flag and a priority. (The web-surface binding now lives on
+ * SpaceBase and defines the `resource` kind — see below.)
  */
 export interface TaskSpace extends SpaceBase {
   kind: "task"
@@ -273,16 +286,6 @@ export interface TaskSpace extends SpaceBase {
    * square glyph's bottom-right corner.
    */
   requested?: boolean
-  /**
-   * When set, this is a RESOURCE TASK: opening it shows a live web surface instead
-   * of a do-list (Zero as a contextual browser). Holds the URL the task opens.
-   */
-  webUrl?: string
-  /**
-   * Optional id into the known web-resource catalog (see `web-resources.ts`) for
-   * branding + embed behavior. Absent for an arbitrary typed URL.
-   */
-  webResourceId?: string
 }
 
 /** EVENT — a scheduled contiguous span (start→end); a container at its core. */
@@ -300,7 +303,12 @@ export interface PlainSpace extends SpaceBase {
   kind: "space"
 }
 
-/** RESOURCE — a referenced asset/tool/material the work draws on. */
+/**
+ * RESOURCE — a referenced asset/tool/material the work draws on. When Zero
+ * recognizes typed text as a URL (external, or an internal "/…" route) it creates
+ * a resource whose `webUrl` fronts a live web surface (the contextual browser),
+ * shown with the diamond glyph. `webUrl`/`webResourceId` live on SpaceBase.
+ */
 export interface ResourceSpace extends SpaceBase {
   kind: "resource"
 }

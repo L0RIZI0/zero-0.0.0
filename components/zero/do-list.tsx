@@ -12,7 +12,7 @@ import {
   changeEntityKind,
   addTask,
   addParsedEntity,
-  addWebTask,
+  addWebResource,
   parseInstantTime,
   setInstantAt,
   applyParsedSchedule,
@@ -931,7 +931,7 @@ export function DoList({
   const createWebEntity = useCallback(
     (url: string, resourceId?: string) => {
       const resource = getWebResource(resourceId) ?? resolveWebResourceByUrl(url)
-      const entity = addWebTask({
+      const entity = addWebResource({
         title: webDisplayName(url, resource?.id),
         url,
         spaceId: contextId,
