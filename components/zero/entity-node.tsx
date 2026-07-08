@@ -3,7 +3,7 @@
 import { useState, useLayoutEffect, useEffect, useRef } from "react"
 import { useTheme } from "next-themes"
 import { Check, X, Maximize2, Minimize2 } from "lucide-react"
-  import { getEntity, getOpenTaskCount, setEntityCompleted } from "@/lib/zero/data"
+  import { getEntity, getChildren, getOpenTaskCount, setEntityCompleted } from "@/lib/zero/data"
 import type { TaskPriority } from "@/lib/zero/types"
 import { KIND_META, isTerminal, isClosed } from "@/lib/zero/kinds"
 import { useZeroNav, useRowSelection } from "@/lib/zero/nav-store"
@@ -563,11 +563,42 @@ export function EntityNode({
   // hover lingers a beat after the pointer leaves (feels less twitchy).
   const frameActive = hovered || showHighlight || isClosing || held || reqAnimating
 
+  // DOCK-CARD "WINDOW" FILL — the collapsed dock card is a GIANT GLYPH: its silhouette
+  // fills only in the glyph's filled state and otherwise reads as an empty outline, so
+  // the card mirrors its small glyph instead of always being a solid chip.
+  //   • task / event / instant → filled only when the glyph is filled (i.e. CLOSED);
+  //     open reads as an empty square, done as an empty square + the small glyph's check.
+  //   • resource               → ALWAYS filled (the diamond/losange) — for now.
+  //   • space                  → filled when it HAS children; an EMPTY hexagon when it
+  //     has none at all.
+  const cardFilled = isResourceKind
+    ? true
+    : isSpace
+      ? getChildren(entityId).length > 0
+      : glyphFilled
+  // An EMPTY card = a collapsed dock card whose window should read unfilled. Excludes the
+  // close morph (isClosing) so the shrink keeps the opaque lit surface until it settles.
+  const cardEmpty = variant === "dock" && !asWindow && !isClosing && !cardFilled
+  // Hexagon rim for an empty SPACE card (a clip-path can't carry a border, so the
+  // silhouette is traced by an SVG polygon on the [data-shape] child — same technique as
+  // the Space window outline). Rect kinds (task/event/instant) are unclipped, so their
+  // empty square is drawn with a plain CSS border instead (see shapeStyle).
+  const cardEmptyHexPoints =
+    cardEmpty && isSpace
+      ? dockMetrics
+        ? regularHexPoints(dockMetrics.cardW, dockMetrics.cardH)
+        : SPACE_HEX_POINTS
+      : null
+
   const frameSurface = asWindow
     ? telescopicSurface(depth, leafDepth, isDark)
     : frameActive
       ? highlightColor
-      : collapsedRest
+      : cardEmpty
+        ? // Empty card reads as an outline: no resting fill (hover still lifts via
+          // frameActive → highlightColor above; the rim/border carries the identity).
+          "transparent"
+        : collapsedRest
 
   void nav.dataVersion // re-read counts when data mutates
   const openCount = getOpenTaskCount(entityId)
@@ -823,6 +854,12 @@ export function EntityNode({
   const shapeStyle: React.CSSProperties = {
     backgroundColor: frameSurface,
     ...(clipPath ? { clipPath } : { borderRadius: 0 }),
+    // Empty RECT card (task/event/instant open state) → trace the square with a
+    // hairline border. Space cards are clipped (hexagon), so they use the SVG rim
+    // below instead; resources are always filled, so they never reach here.
+    ...(cardEmpty && !clipPath
+      ? { border: `1px solid ${isDark ? "rgb(255 255 255 / 0.45)" : "rgb(0 0 0 / 0.32)"}` }
+      : null),
     // DARK ancestor/leaf-less Space windows draw their boundary as an inset ring
     // (light mode uses the SVG outline). Same condition as before, just relocated
     // onto the clipped fill so the ring still rides the shape edge.
@@ -831,7 +868,7 @@ export function EntityNode({
       : null),
     // Background recede transition (ancestors darkening as the stack deepens). Window
     // uses the morph duration; collapsed rows/cards keep the snappy hover fade. Width
-    // is NOT transitioned here — that stays on the frame (Flip owns it during morphs).
+    // is NOT transitioned here ��� that stays on the frame (Flip owns it during morphs).
     // ASYMMETRIC hover: fade IN fairly quick (0.2s) when the frame lights, fade OUT
     // more slowly (0.5s) so the highlight lingers after the pointer leaves.
     transition: asWindow
@@ -1117,6 +1154,27 @@ export function EntityNode({
               <polygon
                 data-space-outline
                 points={spaceOutlinePoints.map(([x, y]) => `${x},${y}`).join(" ")}
+                fill="none"
+                stroke={isDark ? "rgb(255 255 255 / 0.45)" : "rgb(0 0 0 / 0.32)"}
+                strokeWidth={2}
+                strokeLinejoin="round"
+                vectorEffect="non-scaling-stroke"
+              />
+            </svg>
+          )}
+          {/* EMPTY-SPACE hexagon rim — a childless Space dock card reads as an outline
+              hexagon (not a filled chip). Traces the SAME hex points as the card clip,
+              in BOTH themes (the window outline above is light-only); the clip trims the
+              stroke's outer half to a clean inner hairline. */}
+          {cardEmptyHexPoints && (
+            <svg
+              aria-hidden
+              className="absolute inset-0 z-[1] h-full w-full"
+              viewBox="0 0 100 100"
+              preserveAspectRatio="none"
+            >
+              <polygon
+                points={cardEmptyHexPoints.map(([x, y]) => `${x},${y}`).join(" ")}
                 fill="none"
                 stroke={isDark ? "rgb(255 255 255 / 0.45)" : "rgb(0 0 0 / 0.32)"}
                 strokeWidth={2}
@@ -1628,11 +1686,13 @@ export function EntityNode({
               className={cn("flex shrink-0 items-center gap-2", sent ? REQ_SENT.meta : REQ_REST.meta)}
             >
               {!isTask && openCount > 0 && (
+                // "[glyph] n" — glyph FIRST, then the count, matching the left-spine
+                // excerpt so tallies read identically everywhere.
                 <span className="flex shrink-0 items-center gap-1 text-[11px] text-muted-foreground/70">
-                  <span className="font-medium tabular-nums">{openCount}</span>
                   <span className="flex h-2.5 w-2.5 items-center justify-center">
                     <NodeGlyph kind="task" strokeWidth={1.5} />
                   </span>
+                  <span className="font-medium tabular-nums">{openCount}</span>
                 </span>
               )}
               {hasRange && (
@@ -1683,16 +1743,18 @@ export function EntityNode({
               morph, so the counter resolves as the card settles rather than appearing
               early. `fill-mode-both` pins it at opacity 0 during the delay so it does
               not flash in before the keyframe starts. */}
-          {!asWindow && variant === "dock" && (
+          {!asWindow && variant === "dock" && openCount > 0 && (
+            // "[glyph] n" — glyph FIRST, then the count (matches the spine excerpt + row).
+            // Hidden entirely when there are no open tasks, so an empty card shows none.
             <span
               className="flex animate-in items-center gap-1 fade-in fill-mode-both text-[10px] text-muted-foreground/70 delay-700 duration-700"
               // Scale the 10px counter with the crowded card (floored by the layout engine).
               style={dockScale !== 1 ? { fontSize: 10 * dockScale } : undefined}
             >
-              <span className="font-medium tabular-nums">{openCount}</span>
               <span className="flex h-2.5 w-2.5 items-center justify-center">
                 <NodeGlyph kind="task" strokeWidth={1.5} />
               </span>
+              <span className="font-medium tabular-nums">{openCount}</span>
             </span>
           )}
         </div>
