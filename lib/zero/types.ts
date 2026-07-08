@@ -301,7 +301,7 @@ export interface InstantEntity extends EntityBase {
 }
 
 /** SPACE — a plain area / folder / gathering ("Day Job", "Health"). */
-export interface PlainEntity extends EntityBase {
+export interface SpaceEntity extends EntityBase {
   kind: "space"
 }
 
@@ -365,7 +365,7 @@ export type Entity =
   | TaskEntity
   | MomentEntity
   | InstantEntity
-  | PlainEntity
+  | SpaceEntity
   | ResourceEntity
   | CommunityEntity
   | OrganismEntity
