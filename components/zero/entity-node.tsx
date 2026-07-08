@@ -1134,7 +1134,11 @@ export function EntityNode({
                   // simplification — 9.2% of the top-bleeding frame fell ABOVE the viewport,
                   // which is why the leaf's close button was invisible.) right: 12px centers
                   // the 24px X on the OUT spine's 24px-from-edge axis (a right-edge column).
-                  { top: `calc(${leafAy}% + 6px)`, right: "12px" }
+                  // VERTICAL: match the spine formula below — glyph center = leafAy% + 22px,
+                  // so the 24px button's top = leafAy% + 10px lands its center on the glyph
+                  // row. (Was +6px, which put the center at +18px = 4px ABOVE the glyph, the
+                  // "close button too high" look on an opened leaf Space header.)
+                  { top: `calc(${leafAy}% + 10px)`, right: "12px" }
                 : isSpine
                   ? // SPINE ancestor: the X is the right-edge twin of the left glyph, so
                     // it must sit CENTERED on the right peek and vertically aligned with
@@ -1175,7 +1179,11 @@ export function EntityNode({
               !fullscreen && (spaceLeafWindow || isSpine)
                 ? "flex-col"
                 : fullscreen && isSpine
-                  ? "flex-col right-1.5 top-3"
+                  ? // right-3 (12px) centers the 24px-wide cluster in the covered Space's
+                    // 48px right-edge peek: (48 − 24)/2 = 12px. (Was right-1.5 = 6px, which
+                    // left the buttons in the OUTER half of the peek — the "too far right"
+                    // drift.) A covered fullscreen Space is edge-to-edge, so top-3 is fine.
+                    "flex-col right-3 top-3"
                   : "flex-row-reverse right-1.5 top-3",
             )}
           >
