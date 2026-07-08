@@ -295,8 +295,14 @@ export function Dock({ contextId, active = true }: { contextId: string; active?:
               return (
                 <div
                   key={item.id}
-                  className={cn("absolute touch-none", isDragging && "cursor-grabbing")}
-                  style={{ left, top, transition, zIndex: isDragging ? 50 : undefined }}
+                  // Reserve the FULL slot height (the tall hexagon's cardH) and CENTER the
+                  // card within it. Non-Space cards render as a shorter 1:1 square, so
+                  // without this they top-aligned and sat ~10px higher than the taller
+                  // hexagon — making a Space card look dropped below its neighbours. A
+                  // fixed open-window (position: fixed) ignores this flex box, so morphs
+                  // are unaffected.
+                  className={cn("absolute flex touch-none items-center justify-center", isDragging && "cursor-grabbing")}
+                  style={{ left, top, height: box.height, transition, zIndex: isDragging ? 50 : undefined }}
                   onPointerDown={(e) => onCardPointerDown(e, item.entity.id, box)}
                   // Suppress the click that fires right after a real drag so the card
                   // doesn't also open. A plain tap (no drag) leaves the flag false.

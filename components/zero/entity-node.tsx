@@ -581,8 +581,20 @@ export function EntityNode({
   const cardEmpty = variant === "dock" && !asWindow && !isClosing && !cardFilled
   // A single mid-grey "ink" shared by BOTH a filled card's fill AND an empty card's
   // outline, so every dock-card glyph reads at the same weight (was two mismatched
-  // greys: a faint fill + a lighter, thinner outline). Sits between them in both themes.
-  const cardInk = isDark ? "rgb(255 255 255 / 0.6)" : "rgb(0 0 0 / 0.5)"
+  // greys). Kept on the LIGHTER side of mid so a filled resource's dark favicon tile
+  // stays legible against it (a 50% grey washed the tile out).
+  const cardInk = isDark ? "rgb(255 255 255 / 0.52)" : "rgb(0 0 0 / 0.4)"
+  // Outline weight that mimics the small glyph SCALED UP rather than a hairline frame.
+  // The glyph strokes 1.75 on a 24-unit box (≈0.073 of the box), so at card size the
+  // matching stroke is cardW × 0.073 (≈9px on the 130px home card). Shrinks with the
+  // card as the dock is squeezed. The empty SQUARE uses this directly (CSS border); the
+  // empty HEXAGON doubles it since its clip trims the stroke's outer half.
+  const cardBoxW = dockMetrics ? dockMetrics.cardW : contextDepth === 0 ? 130 : 100
+  const cardBorderPx = Math.max(3, Math.round(cardBoxW * 0.073))
+  // The done CHECK tick, in the 24-unit glyph box (mirrors node-glyph's CHECK_POINTS)
+  // — drawn scaled-up and centered on an empty done card so it reads like the small
+  // glyph's checkmark blown up.
+  const DOCK_CHECK_POINTS = "7,12.5 10.5,16 17,8"
   const dockCardFilledFill = variant === "dock" && !asWindow && !isClosing && cardFilled
   // Hexagon rim for an empty SPACE card (a clip-path can't carry a border, so the
   // silhouette is traced by an SVG polygon on the [data-shape] child — same technique as
@@ -867,9 +879,8 @@ export function EntityNode({
     // hairline border. Space cards are clipped (hexagon), so they use the SVG rim
     // below instead; resources are always filled, so they never reach here.
     ...(cardEmpty && !clipPath
-      ? // Thicker outline (was 1px) so the empty square reads like the SCALED-UP glyph
-        // stroke rather than a hairline frame; shares the unified mid-grey `cardInk`.
-        { border: `2.5px solid ${cardInk}` }
+      ? // Empty square outline scaled like the glyph stroke (cardBorderPx), unified ink.
+        { border: `${cardBorderPx}px solid ${cardInk}` }
       : null),
     // DARK ancestor/leaf-less Space windows draw their boundary as an inset ring
     // (light mode uses the SVG outline). Same condition as before, just relocated
@@ -905,11 +916,12 @@ export function EntityNode({
       )
     : cn(
           "absolute inset-0 flex cursor-pointer flex-col overflow-visible",
-          // CLOSED rows (which includes cancelled) always fade — opacity-40. This is the
-          // archived/resolved dim, applied everywhere a closed node is collapsed (do-list,
-          // dock). When OPEN the frame carries no fade; instead the header glyph + title
-          // each fade individually (so it isn't compounded by a frame fade).
-          closed && "opacity-40",
+          // CLOSED ROWS (incl. cancelled) fade — opacity-40 — the archived/resolved dim
+          // in the do-list. DOCK CARDS deliberately do NOT fade when closed: a pinned card
+          // is a deliberate shortcut, and its filled-glyph window already signals closed,
+          // so dimming it just made it hard to see. When OPEN the frame carries no fade
+          // either (the header glyph + title fade individually instead).
+          variant === "row" && closed && "opacity-40",
       )
 
   // SPINE: an ancestor window collapses its horizontal header into a vertical left
@@ -1188,9 +1200,30 @@ export function EntityNode({
                 points={cardEmptyHexPoints.map(([x, y]) => `${x},${y}`).join(" ")}
                 fill="none"
                 stroke={cardInk}
-                // The clip trims the stroke's outer half, so 5 renders ~2.5px — matching
-                // the empty-square border. Unified `cardInk` mid-grey.
-                strokeWidth={5}
+                // Doubled: the clip trims the stroke's outer half, so this renders as
+                // ~cardBorderPx of visible rim — matching the empty-square border weight.
+                strokeWidth={cardBorderPx * 2}
+                strokeLinejoin="round"
+                vectorEffect="non-scaling-stroke"
+              />
+            </svg>
+          )}
+          {/* DONE CHECK — a scaled-up checkmark on an empty done card (task/event/
+              instant done but not yet closed), so the card reads like the small glyph's
+              tick blown up. Non-scaling stroke keeps it at the outline's weight. */}
+          {cardEmpty && showCheckmark && (
+            <svg
+              aria-hidden
+              className="absolute inset-0 z-[2] h-full w-full"
+              viewBox="0 0 24 24"
+              preserveAspectRatio="none"
+            >
+              <polyline
+                points={DOCK_CHECK_POINTS}
+                fill="none"
+                stroke={cardInk}
+                strokeWidth={cardBorderPx}
+                strokeLinecap="round"
                 strokeLinejoin="round"
                 vectorEffect="non-scaling-stroke"
               />
