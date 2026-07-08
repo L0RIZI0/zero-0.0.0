@@ -539,6 +539,18 @@ export const entities: Entity[] = [
     webUrl: "/zero-laws",
     tags: ["zero", "laws"],
   },
+  {
+    id: "t_vision",
+    kind: "task",
+    title: "The Vision",
+    parentId: "s_now",
+    taggedSpaceIds: [],
+    completed: false,
+    // Same contextual-browser mechanism as `t_zerolaws`: opening it frames the
+    // in-app /vision manifesto (Do, don't plan; the substrate + honest constraints).
+    webUrl: "/vision",
+    tags: ["zero", "vision"],
+  },
 
   // --- Tasks ----------------------------------------------------------------
   // Multi-space tasks re-parented to a single origin; the rest become tags.
@@ -1322,9 +1334,9 @@ for (const e of entities) {
   arr.push(e.id)
 }
 
-// The NOW space pins its browsable Zero Laws page into its own dock. The loop above
-// only auto-pins SPACES; `t_zerolaws` is a resource TASK, so it's pinned explicitly.
-;(pinnedByContext["s_now"] ??= []).push("t_zerolaws")
+// The NOW space pins its browsable resource TASKS into its own dock. The loop above
+// only auto-pins SPACES; these are resource tasks, so they're pinned explicitly.
+;(pinnedByContext["s_now"] ??= []).push("t_zerolaws", "t_vision")
 
 export function getPinnedIds(contextId: string): string[] {
   return pinnedByContext[contextId] ?? []
