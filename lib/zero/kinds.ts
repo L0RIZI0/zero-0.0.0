@@ -1,5 +1,5 @@
 import type { Entity, EntityKind } from "./types"
-import { isDone, getCompletedOn } from "./entity-log"
+import { isDone, getCompletedOn, getCloseState } from "./entity-log"
 
 /**
  * Per-kind SEMANTICS — the single source of truth for what each entity kind
@@ -160,11 +160,14 @@ function nextLocalMidnight(epoch: number): number {
  * (community/organism/individual) never "close" here — they retire/die instead.
  */
 export function isClosed(entity: Entity, now: number = Date.now()): boolean {
-  if (entity.closed) return true
+  // Manual close/reopen is read through the log-aware helper (log if present, else
+  // the `closed`/`reopened` scalars). `cancelled` stays scalar-only for now.
+  const closeState = getCloseState(entity)
+  if (closeState === "closed") return true
   if (entity.cancelled) return true
   // Explicit user reopen overrides the DERIVED closes below (but not the manual
   // `closed` / `cancelled` cases handled above) — see EntityBase.reopened.
-  if (entity.reopened) return false
+  if (closeState === "reopened") return false
   // Task / Moment / Instant all resolve "done" the same way: once completed, they
   // auto-close at the first LOCAL midnight after `completedOn`. (Moments/instants
   // gained glyph-completion — a done Moment shows a checkmark, then fills at the

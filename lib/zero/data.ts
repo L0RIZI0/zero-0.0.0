@@ -1,6 +1,6 @@
-import type { Asset, Entity, EntityKind, Recurrence, Schedule, Resource, EntityBase, TaskPriority, User } from "./types"
+import type { Asset, Entity, EntityKind, Instant, Recurrence, Schedule, Resource, EntityBase, TaskPriority, User } from "./types"
 import { isCompletable, isClosed } from "./kinds"
-import { isDone } from "./entity-log"
+import { isDone, buildLogFromScalars, makeInstant, appendInstant } from "./entity-log"
 import { readUserItems, writeUserItems } from "./persistence"
 import type { ScheduleParse } from "./schedule-parse"
 
@@ -40,6 +40,21 @@ function makeEntity(props: LooseEntity): Entity {
  */
 function mutable(e: Entity): LooseEntity {
   return e as unknown as LooseEntity
+}
+
+/**
+ * Ensure `entity` has a lifecycle log, seeding one from its scalar fields if absent
+ * (see {@link buildLogFromScalars}), and return it. Used by the write paths so that
+ * appending a new {@link Instant} always lands on a coherent log — even for entities
+ * created before the log existed, or seeded entities that never persisted one. Sets
+ * `entity.log` in place on the SAME reference held by `byId`/`entities`, so the seed
+ * persists alongside the appended entry. Idempotent: a non-empty log is left as is.
+ */
+function ensureEntityLog(entity: Entity): Instant[] {
+  if (!entity.log || entity.log.length === 0) {
+    entity.log = buildLogFromScalars(entity)
+  }
+  return entity.log
 }
 
 export const currentUser: User = {
@@ -1501,6 +1516,20 @@ function migrateEventToMoment(entity: Entity): void {
   ;(entity as { kind: EntityKind }).kind = "moment"
 }
 
+/**
+ * ONTOLOGY MIGRATION (Jul 2026, Phase 2): fold a persisted entity's legacy SCALAR
+ * lifecycle fields (`createdAt`/`completedOn`/`closedOn`/`reopenedOn`) into the
+ * append-only {@link Instant} log — Meta field 1 — if it doesn't already have one.
+ * Idempotent (a non-empty `log` is left untouched) and NON-destructive: the scalar
+ * fields are kept as the transitional backup, and reads already prefer the log. Only
+ * runs for PERSISTED user entities in the hydrate loop; seeded entities keep reading
+ * through the scalar fallback and gain a session log lazily when toggled.
+ */
+function migrateCompletionToLog(entity: Entity): void {
+  if (entity.log && entity.log.length > 0) return
+  entity.log = buildLogFromScalars(entity)
+}
+
 let _hydrated = false
 
 /**
@@ -1519,6 +1548,7 @@ export function hydrateFromStorage(): boolean {
     migrateLegacyTime(entity)
     migrateWebTaskToResource(entity)
     migrateEventToMoment(entity)
+    migrateCompletionToLog(entity)
     entities.push(entity)
     byId.set(entity.id, entity)
     userEntityIds.add(entity.id)
@@ -1563,6 +1593,7 @@ export function hydrateFromStorage(): boolean {
 }
 
 export function addTask(input: { title: string; spaceId: string }): Entity {
+  const now = Date.now()
   const entity: Entity = {
     id: uid("t"),
     kind: "task",
@@ -1570,6 +1601,9 @@ export function addTask(input: { title: string; spaceId: string }): Entity {
     parentId: input.spaceId,
     taggedSpaceIds: [],
     completed: false,
+    createdAt: now,
+    // Birth is the first log entry; scalars above are the transitional backup.
+    log: [makeInstant("created", now)],
     priority: "medium",
     tags: [],
   }
@@ -1609,6 +1643,10 @@ export function addParsedEntity(input: {
     // Tasks carry a priority + tags like `addTask` seeds; other kinds don't need them.
     ...(input.kind === "task" ? { priority: "medium" as TaskPriority, tags: [] } : {}),
   })
+  // Seed the lifecycle log from the just-set scalars: a `created` entry, plus a
+  // `done` entry when logging a PAST activity (input.completed) — so "Slept …"
+  // lands as a finished Moment WITH history in one persist.
+  entity.log = buildLogFromScalars(entity)
   entities.push(entity)
   byId.set(entity.id, entity)
   userEntityIds.add(entity.id)
@@ -1863,10 +1901,21 @@ export function setEntityCompleted(id: string, completed: boolean): void {
   // Only completable kinds hold a normal "done". Community/Organism/Individual/Soul
   // reach a TERMINAL state (retire/death) instead — ignore completion writes on them.
   if (completed && !isCompletable(stored.kind)) return
+  // Only append a log entry on a REAL state change (guards against redundant sets
+  // adding duplicate done/undone Instants).
+  const changed = isDone(stored) !== completed
   const entity = mutable(stored)
+  const now = Date.now()
   entity.completed = completed
   // Track WHEN it was completed (cleared when un-checked) — part of every space's meta.
-  entity.completedOn = completed ? Date.now() : undefined
+  entity.completedOn = completed ? now : undefined
+  // DUAL-WRITE: append the toggle to the lifecycle log (the source of truth for reads),
+  // seeding a log from scalars first if this entity predates it. Scalars above remain
+  // as the transitional backup.
+  if (changed) {
+    const log = ensureEntityLog(stored)
+    stored.log = appendInstant(log, makeInstant(completed ? "done" : "undone", entity.completedOn ?? now))
+  }
   persist()
 }
 
@@ -1903,6 +1952,9 @@ export function changeEntityKind(id: string, kind: EntityKind): void {
     entity.description = entity.description ?? ""
     entity.assignedResourceIds = entity.assignedResourceIds ?? []
   }
+  // A row switched into a real kind should carry a lifecycle log (an inline draft
+  // may have none yet); seed one from scalars if absent.
+  ensureEntityLog(stored)
   persist()
 }
 
@@ -2134,6 +2186,12 @@ export function setEntityClosed(id: string, closed: boolean): void {
   entity.closedOn = closedOn
   entity.reopened = reopened
   entity.reopenedOn = reopenedOn
+  // DUAL-WRITE: append the Close/Reopen to the lifecycle log (source of truth for
+  // reads via getCloseState), seeding from scalars first if absent. For SEEDED
+  // entities this log lives only for the session — the override patch below carries
+  // the scalars, and the migration rebuilds the log on reload.
+  const log = ensureEntityLog(entity)
+  entity.log = appendInstant(log, makeInstant(closed ? "closed" : "reopened", now))
   if (!userEntityIds.has(id)) {
     // Seeded entity — track as an override patch.
     seededOverrides.set(id, { ...seededOverrides.get(id), closed, closedOn, reopened, reopenedOn })

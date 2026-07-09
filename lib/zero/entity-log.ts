@@ -6,16 +6,21 @@
  * its CURRENT state is DERIVED by folding that log rather than read from separate
  * boolean scalars. See the "entity log model" memory / spec for the full plan.
  *
- * PHASE 1 (this file): additive + NON-data-touching. Nothing here writes to storage
- * and no entity carries a `log` yet. Every helper reads `entity.log` IF PRESENT and
- * otherwise FALLS BACK to the existing scalar fields (`createdAt`, `completed`,
- * `completedOn`, `createdBy`, `createdWhere`). Because no persisted entity has a
- * `log`, these helpers are behavior-preserving today — they exist so the rest of the
- * app can start reading through them, ahead of the Phase 2 migration that will fold
- * the scalars into a real `log` and switch write paths to append Instants.
+ * Every derive helper reads `entity.log` IF PRESENT and otherwise FALLS BACK to the
+ * existing scalar fields (`createdAt`, `completed`, `completedOn`, `closed`/`closedOn`,
+ * `reopened`/`reopenedOn`, `createdBy`, `createdWhere`), so entities that predate the
+ * log — or seeded entities that never persist one — stay correct.
  *
- * The pure builders (`appendInstant`, `makeInstant`) never mutate; they return a new
- * array, ready for the Phase 2 write paths.
+ * PHASE 2 (Jul 2026): the completion + close/reopen WRITE paths in `data.ts` now
+ * DUAL-WRITE — they keep the scalar fields (as a backup / rollback) AND append typed
+ * {@link Instant} entries via {@link appendInstant}, seeding a coherent starting log
+ * from the scalars via {@link buildLogFromScalars} when one is absent. Reads already
+ * prefer the log, so it is the source of truth; the scalars are the safety net until
+ * a later phase retires them. `cancelled` is intentionally NOT yet in the log (it has
+ * no timestamp scalar to fold, so it would be lossy) — it stays scalar-only for now.
+ *
+ * The pure builders (`appendInstant`, `makeInstant`, `buildLogFromScalars`) never
+ * mutate; they return new values, safe for the write paths and React state.
  */
 import type { Entity, Epoch, Instant, LogType } from "./types"
 
@@ -73,6 +78,24 @@ export function getCompletedOn(entity: Entity): Epoch | undefined {
   return entity.completedOn
 }
 
+/**
+ * The current MANUAL close state — the "Close"/"Reopen" toggle, DISTINCT from
+ * completion (done/undone) and from the cancelled/derived closes. Returns:
+ *   - `"closed"`   — last close/reopen toggle was a Close;
+ *   - `"reopened"` — last toggle was a Reopen (overrides a DERIVED close);
+ *   - `null`       — never manually closed or reopened (derived rules apply).
+ * Log view: the latest `closed`/`reopened` entry. Fallback: the `closed`/`reopened`
+ * scalars (kept mutually exclusive by `setEntityClosed`). Callers (see `isClosed`)
+ * still handle `cancelled` and the derived time-based closes separately.
+ */
+export function getCloseState(entity: Entity): "closed" | "reopened" | null {
+  const last = lastEntry(entity, "closed", "reopened")
+  if (last) return last.type === "closed" ? "closed" : "reopened"
+  if (entity.closed) return "closed"
+  if (entity.reopened) return "reopened"
+  return null
+}
+
 /** Birth time. Log: first `created`.at; else the scalar `createdAt`. */
 export function getCreatedAt(entity: Entity): Epoch | undefined {
   return firstEntry(entity, "created")?.at ?? entity.createdAt
@@ -116,4 +139,23 @@ export function makeInstant(
  */
 export function appendInstant(log: Instant[] | undefined, entry: Instant): Instant[] {
   return [...(log ?? []), entry]
+}
+
+/**
+ * Fold an entity's legacy SCALAR lifecycle fields into a starting {@link Instant}
+ * log — the one-time seed used by the Phase 2 migration AND by the write paths when
+ * they encounter a pre-log entity. Best-effort and LOSSY by nature: the scalars only
+ * retain the LATEST timestamp per axis (one `completedOn`, one `closedOn`, one
+ * `reopenedOn`), so this reconstructs a coherent SNAPSHOT, not full history — real
+ * history accumulates from the next toggle onward. Entries are sorted ascending by
+ * `at` so `created` comes first. `cancelled` is deliberately excluded (no timestamp).
+ */
+export function buildLogFromScalars(entity: Entity): Instant[] {
+  const log: Instant[] = []
+  const createdAt = entity.createdAt ?? entity.completedOn ?? Date.now()
+  log.push(makeInstant("created", createdAt, { by: entity.createdBy, where: entity.createdWhere }))
+  if (entity.completed && entity.completedOn != null) log.push(makeInstant("done", entity.completedOn))
+  if (entity.closed && entity.closedOn != null) log.push(makeInstant("closed", entity.closedOn))
+  if (entity.reopened && entity.reopenedOn != null) log.push(makeInstant("reopened", entity.reopenedOn))
+  return log.sort((a, b) => a.at - b.at)
 }
