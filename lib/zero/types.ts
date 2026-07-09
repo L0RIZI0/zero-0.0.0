@@ -276,7 +276,7 @@ export interface EntityBase {
    * that FILLS the glyph. Set by "Mark as Complete", and DERIVED (not stored) when a
    * done task passes its next local midnight or a moment/instant passes its end. Only
    * the explicit flag is persisted; derivation lives in {@link isComplete}. Reversed by
-   * Reopen. Completable kinds only (task/moment/instant).
+   * Reopen. Completable kinds only (task/space/resource/moment/instant).
    */
   complete?: boolean
   /** When the explicit `complete` verdict last flipped true (epoch ms). */
@@ -311,8 +311,8 @@ export interface EntityBase {
    * The soft "DONE" marker (badly named `completed` for legacy reasons — this is
    * DONE, not the COMPLETE verdict which lives in `complete`). Done shows a checkmark
    * and does NOT close/fill; it means "done but maybe not yet filed". Only meaningful
-   * for completable kinds (task/moment/instant). Community/Organism/Individual/Soul are
-   * NOT done — they reach a TERMINAL state (retire/death) instead; see `KIND_META`.
+   * for completable kinds (task/space/resource/moment/instant). Community/Organism/
+   * Individual/Soul are NOT done — they reach a TERMINAL state instead; see `KIND_META`.
    */
   completed?: boolean
   /**

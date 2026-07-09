@@ -173,7 +173,9 @@ export function Zero0Canvas() {
     metaRows.push(["created", fmt(getCreatedAt(context))])
     if (meta.completable) {
       const done = isDone(context)
+      const complete = isComplete(context)
       metaRows.push(["done", done ? fmt(getCompletedOn(context)) : "no"])
+      metaRows.push(["complete", complete ? fmt(getCompleteOn(context)) : "no"])
       metaRows.push(["closed", isClosed(context) ? "yes" : "no"])
       metaRows.push(["cancelled", isCancelled(context) ? "yes" : "no"])
     }
@@ -252,16 +254,18 @@ export function Zero0Canvas() {
       <div className="flex-1 overflow-auto">
         {mounted && context && meta && (
           <section className="border-b border-border px-4 py-3">
-            {/* Node header line: glyph + title + kind. */}
-            <div className="flex items-center gap-2 text-[12px]">
+            {/* Node header line: glyph + title + kind. Fill = complete, bar =
+                cancelled, fade+strike follow the same rules as the child rows. */}
+            <div className={"flex items-center gap-2 text-[12px] " + (isClosed(context) ? "opacity-60" : "")}>
               <Zero0Glyph
                 kind={context.kind}
-                filled={isClosed(context)}
+                complete={isComplete(context)}
                 done={meta.completable && isDone(context) && meta.checkmarkWhenDone}
+                cancelled={isCancelled(context)}
                 requested={context.kind === "task" && !!context.requested}
                 className="h-4 w-4 text-foreground"
               />
-              <span className={"text-foreground " + (isClosed(context) ? "line-through" : "")}>
+              <span className={"text-foreground " + (isCancelled(context) ? "line-through" : "")}>
                 {context.title}
               </span>
               <span className="text-[10px] uppercase tracking-wider text-muted-foreground">{meta.label}</span>
@@ -289,38 +293,43 @@ export function Zero0Canvas() {
             <ul className="text-[11px] tabular-nums">
               {children.map((e, i) => {
                 const km = KIND_META[e.kind]
-                // Three independent ontology axes, each read + shown on its own:
-                const done = isDone(e) // completion
-                const cancelled = isCancelled(e) // called-off
-                const closed = isClosed(e) // lifecycle (archived/retired/dead/derived)
+                const done = isDone(e) // soft DONE marker (checkmark, no close)
+                const complete = isComplete(e) // the COMPLETE verdict (fills, closes)
+                const cancelled = isCancelled(e) // called-off (bar + strike, closes)
+                const closed = isClosed(e) // lifecycle ended ⇒ fade the row
                 const terminal = isTerminal(e)
                 const showCheck = done && km.checkmarkWhenDone
                 const requested = e.kind === "task" && !!e.requested
-                // Lifecycle token: cancel + terminal are read-only end-states; open/closed
-                // is the toggleable pair for a live completable entity.
+                // Read-only lifecycle token (verdicts are set via the right-click menu).
+                // Priority: cancelled > terminal > complete > (plain) closed > open.
                 const lifeLabel = cancelled
                   ? "cancelled"
                   : terminal
                     ? e.kind === "community"
                       ? "retired"
                       : "dead"
-                    : closed
-                      ? "closed"
-                      : "open"
-                const lifeToggleable = km.completable && !cancelled && !terminal
-                const stateLabel = `${done ? "done, " : ""}${lifeLabel}${requested ? ", requested" : ""}`
+                    : complete
+                      ? "complete"
+                      : closed
+                        ? "closed"
+                        : "open"
+                const stateLabel =
+                  `${done ? "done, " : ""}${lifeLabel}${requested ? ", requested" : ""}`
                 return (
                   <li
                     key={e.id}
                     onContextMenu={(ev) => openMenu(e, ev)}
-                    className="group flex items-baseline gap-3 border-b border-border/60 py-1.5"
+                    className={
+                      "group flex items-baseline gap-3 border-b border-border/60 py-1.5 " +
+                      // CLOSED (complete / plain-close / cancel / terminal) fades the row.
+                      (closed ? "opacity-60" : "")
+                    }
                   >
                     <span className="w-6 shrink-0 text-right text-muted-foreground">
                       {String(i + 1).padStart(2, "0")}
                     </span>
-                    {/* Glyph-state column: static SVG per kind — outline vs filled =
-                        open vs closed, check overlay = done (kept even when closed),
-                        task "sent" flap = requested. Encodes all axes at a glance. */}
+                    {/* Glyph column: fill = complete, check = done, bar = cancelled,
+                        "sent" flap = requested. Plain close doesn't alter the glyph. */}
                     <span
                       className="flex w-6 shrink-0 justify-center self-center text-foreground"
                       aria-label={stateLabel}
@@ -328,29 +337,31 @@ export function Zero0Canvas() {
                     >
                       <Zero0Glyph
                         kind={e.kind}
-                        filled={closed}
+                        complete={complete}
                         done={showCheck}
+                        cancelled={cancelled}
                         requested={requested}
                         className="h-3.5 w-3.5"
                       />
                     </span>
-                    {/* Kind label — STATIC text, not the toggle. */}
+                    {/* Kind label — STATIC text. */}
                     <span className="w-16 shrink-0 uppercase tracking-wider text-muted-foreground">
                       {km.label}
                     </span>
-                    {/* Title — click to DRILL IN to this entity's own context. */}
+                    {/* Title — click to DRILL IN. Strikethrough only when CANCELLED
+                        (plain closed just fades via the row). */}
                     <button
                       type="button"
                       onClick={() => openEntity(e)}
                       className={
-                        "flex-1 truncate text-left underline-offset-2 hover:underline " +
-                        (closed ? "text-muted-foreground line-through" : "text-foreground")
+                        "flex-1 truncate text-left text-foreground underline-offset-2 hover:underline " +
+                        (cancelled ? "line-through" : "")
                       }
                       title="Open"
                     >
                       {e.title}
                     </button>
-                    {/* COMPLETION axis (done ⟷ undone) — toggle, completable only. */}
+                    {/* Inline DONE toggle (soft marker), completable only. */}
                     <button
                       type="button"
                       onClick={() => toggleDone(e)}
@@ -365,21 +376,8 @@ export function Zero0Canvas() {
                     >
                       {km.completable ? (done ? "done" : "undone") : "—"}
                     </button>
-                    {/* LIFECYCLE axis (open ⟷ closed) — a SEPARATE column from done.
-                        Toggle for live completable entities; read-only for cancelled
-                        / terminal end-states. */}
-                    {lifeToggleable ? (
-                      <button
-                        type="button"
-                        onClick={() => toggleClosed(e)}
-                        className="w-20 shrink-0 text-right text-muted-foreground hover:text-foreground"
-                        title="Toggle open / closed"
-                      >
-                        {lifeLabel}
-                      </button>
-                    ) : (
-                      <span className="w-20 shrink-0 text-right text-muted-foreground/50">{lifeLabel}</span>
-                    )}
+                    {/* Read-only LIFECYCLE state token (Complete/Close/Cancel via menu). */}
+                    <span className="w-20 shrink-0 text-right text-muted-foreground/60">{lifeLabel}</span>
                     <button
                       type="button"
                       onClick={() => remove(e)}
