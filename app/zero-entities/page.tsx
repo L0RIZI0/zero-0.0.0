@@ -21,8 +21,9 @@ import { NodeGlyph, type NodeKind } from "@/components/zero/node-glyph"
  * one that contains). Not every entity is a Space, but every Space is an Entity.
  *
  * GLYPH STATES are RENDERED, not described: each card shows a little row of the
- * actual silhouettes (open / done / complete / closed / cancelled) via <NodeGlyph>,
- * so the page reads its own glyphs instead of narrating them.
+ * actual silhouettes via <NodeGlyph>, so the page reads its own glyphs instead of
+ * narrating them. The model has TWO stored axes — CLOSE (every kind) and DONE (Task/
+ * Moment/Instant only); "complete" is just the human name for a closed FILLABLE kind.
  */
 
 /** A glyph is either a real runtime kind (drawn by NodeGlyph) or one of the two
@@ -30,14 +31,16 @@ import { NodeGlyph, type NodeKind } from "@/components/zero/node-glyph"
 type GlyphKey = NodeKind | "entity" | "everything"
 
 /**
- * One rendered glyph-state chip within a card. The four visual axes map onto the
- * completion/lifecycle model:
- *   - `showCheck` → DONE (soft marker, does not close);
- *   - `filled`    → COMPLETE (the success verdict — the ONLY thing that fills);
- *   - `faded`     → CLOSED via a plain Close (fades the row, glyph unchanged);
+ * One rendered glyph-state chip within a card. The visual axes map onto the two-axis
+ * model:
+ *   - `showCheck` → DONE (soft marker, Task/Moment/Instant only — does not close);
+ *   - `filled`    → CLOSED for a FILLABLE kind (fill DERIVES from close) — this IS the
+ *                   "complete" look; usually paired with `faded`;
+ *   - `faded`     → CLOSED (the row fades). Alone = a terminal close (retire/die) that
+ *                   keeps its outline; with `filled` = a fillable kind's complete;
  *   - `struck`    → CANCELLED (a bar over the glyph + strikethrough — also closes).
  * `filled`/`showCheck`/`struck` are drawn by NodeGlyph; `faded` is applied as opacity
- * at the chip level (a plain close leaves the silhouette untouched).
+ * at the chip level.
  */
 type GlyphStateSpec = {
   label: string
@@ -81,8 +84,8 @@ const FOUNDATIONS: EntityRow[] = [
     lifecycle: "Some kinds open / closed",
     fields: [
       "The base every kind extends: all kinds inherit the shared Meta below.",
-      "Every entity is OPEN until its lifecycle ends. Closing it just FADES it; the glyph stays as it was.",
-      "Completable kinds (Task, Space, Resource, Moment, Instant) carry two things: DONE — a soft checkmark that does not close — and COMPLETE — the success verdict that fills the glyph and closes it (complete implies done).",
+      "TWO lifecycle axes. CLOSE (open \u2192 closed) belongs to every kind and always FADES the row. Fillable kinds (Task, Space, Resource, Moment, Instant) also FILL their glyph when closed \u2014 that filled+faded state is what we call \u201Ccomplete.\u201D Terminal kinds (Community, Organism, Individual) just fade on close, keeping their outline (retire / die).",
+      "DONE (done \u2192 undone) is a SECOND, softer axis \u2014 a checkmark that does NOT close \u2014 carried only by Task, Moment, and Instant.",
       "Any entity can be CANCELLED (called off): a bar is laid over its glyph and its title is struck through. Cancel also closes.",
       "Entities keep a record of who has access to them, who accessed them, and when (gathered in an auto-created Community).",
     ],
@@ -135,13 +138,12 @@ const KINDS: EntityRow[] = [
     glyphDesc: "A regular hexagon",
     desc: "Something that contains.",
     creatable: "yes",
-    lifecycle: "Open / done / complete / closed",
-    fields: ["Inherited from Entity. Completable, but shows no checkmark when done."],
+    lifecycle: "Open / closed",
+    fields: ["No DONE axis \u2014 a Space has no checkmark. It simply closes; closing fills its glyph and fades the row (\u201Ccomplete\u201D)."],
     states: [
       { label: "Open" },
-      { label: "Complete — filled", filled: true },
-      { label: "Closed — faded", faded: true },
-      { label: "Cancelled — barred", struck: true },
+      { label: "Closed (complete) — filled + faded", filled: true, faded: true },
+      { label: "Cancelled — barred", struck: true, faded: true },
     ],
   },
   {
@@ -151,17 +153,16 @@ const KINDS: EntityRow[] = [
     glyphDesc: "A square",
     desc: "Something to do.",
     creatable: "yes",
-    lifecycle: "Open / done / complete / closed",
+    lifecycle: "Open / done / closed",
     fields: [
-      "DONE and COMPLETE are two distinct marks. Done (a checkmark) says the work happened; it does NOT close the task. Complete is the verdict that files it away — it fills the glyph and closes it.",
-      "A done-but-not-complete task auto-COMPLETES at the next local midnight (filing it overnight).",
+      "DONE (a checkmark) says the work happened; it does NOT close the task on its own.",
+      "CLOSING the task fills its glyph and fades the row \u2014 that filled+faded state is \u201Ccomplete.\u201D A done task auto-closes at the next local midnight (filed overnight).",
     ],
     states: [
       { label: "Open" },
       { label: "Done — check, stays open", showCheck: true },
-      { label: "Complete — filled", filled: true },
-      { label: "Closed — faded", faded: true },
-      { label: "Cancelled — barred + struck", struck: true },
+      { label: "Closed (complete) — filled + faded", filled: true, faded: true },
+      { label: "Cancelled — barred + struck", struck: true, faded: true },
     ],
   },
   {
@@ -171,13 +172,12 @@ const KINDS: EntityRow[] = [
     glyphDesc: "A diamond",
     desc: "Something to use.",
     creatable: "yes",
-    lifecycle: "Open / done / complete / closed",
-    fields: ["Completable, but shows no checkmark when done."],
+    lifecycle: "Open / closed",
+    fields: ["No DONE axis \u2014 no checkmark. It simply closes; closing fills its glyph and fades the row (\u201Ccomplete\u201D)."],
     states: [
       { label: "Open" },
-      { label: "Complete — filled", filled: true },
-      { label: "Closed — faded", faded: true },
-      { label: "Cancelled — barred", struck: true },
+      { label: "Closed (complete) — filled + faded", filled: true, faded: true },
+      { label: "Cancelled — barred", struck: true, faded: true },
     ],
   },
   {
@@ -187,14 +187,13 @@ const KINDS: EntityRow[] = [
     glyphDesc: "An equilateral triangle pointing up",
     desc: "A span in time — usually two Instants defining that span.",
     creatable: "yes",
-    lifecycle: "Open / done / complete / closed",
-    fields: ["A Moment auto-COMPLETES once its span has passed, even if never marked done."],
+    lifecycle: "Open / done / closed",
+    fields: ["A Moment auto-CLOSES (fills + fades) once its span has passed, even if never marked done."],
     states: [
       { label: "Open" },
       { label: "Done — check, stays open", showCheck: true },
-      { label: "Complete — filled", filled: true },
-      { label: "Closed — faded", faded: true },
-      { label: "Cancelled — barred + struck", struck: true },
+      { label: "Closed (complete) — filled + faded", filled: true, faded: true },
+      { label: "Cancelled — barred + struck", struck: true, faded: true },
     ],
   },
   {
@@ -204,14 +203,13 @@ const KINDS: EntityRow[] = [
     glyphDesc: "An equilateral triangle pointing down",
     desc: "A point in time — a single Instant, possibly recurrent.",
     creatable: "yes",
-    lifecycle: "Open / done / complete / closed",
-    fields: ["An Instant auto-COMPLETES once its moment has passed, even if never marked done."],
+    lifecycle: "Open / done / closed",
+    fields: ["An Instant auto-CLOSES (fills + fades) once its moment has passed, even if never marked done."],
     states: [
       { label: "Open" },
       { label: "Done — check, stays open", showCheck: true },
-      { label: "Complete — filled", filled: true },
-      { label: "Closed — faded", faded: true },
-      { label: "Cancelled — barred + struck", struck: true },
+      { label: "Closed (complete) — filled + faded", filled: true, faded: true },
+      { label: "Cancelled — barred + struck", struck: true, faded: true },
     ],
   },
   {
@@ -250,7 +248,7 @@ const META_FIELDS: { n: number; label: string; note: string }[] = [
   {
     n: 1,
     label: "Instants log",
-    note: "Creation (\u201Cbirth\u201D), done and complete marks, close and cancel dates, access entries & exits with who and when, status changes, and reopen/rebirth suggestions.",
+    note: "Creation (\u201Cbirth\u201D), done marks, close/reopen and cancel dates, access entries & exits with who and when, status changes, and rebirth suggestions.",
   },
   { n: 2, label: "Title", note: "A mutable, possibly repeated label." },
   { n: 3, label: "Description", note: "A list of entities plus a layout." },
@@ -461,13 +459,16 @@ export default function ZeroEntitiesPage() {
           <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Glyph states</h2>
           <p className="mt-3 max-w-prose text-pretty text-sm leading-relaxed text-muted-foreground">
             A glyph is an <strong className="font-medium text-foreground">outline</strong> while open. There are two
-            independent things a completable entity carries. <strong className="font-medium text-foreground">Done</strong>{" "}
-            is a soft marker — a <strong className="font-medium text-foreground">checkmark</strong> over the outline —
-            and does <em>not</em> close the entity. <strong className="font-medium text-foreground">Complete</strong> is
-            the success verdict: it fills the glyph solid, and it is the <em>only</em> thing that fills. Complete implies
-            done and closes the entity. A plain <strong className="font-medium text-foreground">Close</strong> ends the
-            lifecycle without a verdict — the glyph is unchanged and the row simply{" "}
-            <strong className="font-medium text-foreground">fades</strong>. A{" "}
+            independent axes. <strong className="font-medium text-foreground">Done</strong> is a soft marker — a{" "}
+            <strong className="font-medium text-foreground">checkmark</strong> over the outline, carried only by Task,
+            Moment, and Instant — and does <em>not</em> close the entity.{" "}
+            <strong className="font-medium text-foreground">Close</strong> ends the lifecycle and always{" "}
+            <strong className="font-medium text-foreground">fades</strong> the row. A{" "}
+            <strong className="font-medium text-foreground">fillable</strong> kind (Task, Space, Resource, Moment,
+            Instant) also <strong className="font-medium text-foreground">fills</strong> its glyph when closed — that
+            filled + faded state is what we call <strong className="font-medium text-foreground">complete</strong>. A{" "}
+            <strong className="font-medium text-foreground">terminal</strong> kind (Community, Organism, Individual)
+            fades only, keeping its outline (retire / die). A{" "}
             <strong className="font-medium text-foreground">Cancel</strong> (called off) lays a{" "}
             <strong className="font-medium text-foreground">bar</strong> over the glyph and strikes the title through;
             it also closes. Soul&apos;s closed glyph carries a small bar over it. Each kind below shows its own states.
@@ -475,9 +476,9 @@ export default function ZeroEntitiesPage() {
           <ul className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-5">
             <GlyphState kind="task" label="Open — outline" />
             <GlyphState kind="task" showCheck label="Done — check, stays open" />
-            <GlyphState kind="task" filled label="Complete — filled" />
-            <GlyphState kind="space" faded label="Closed — faded" />
-            <GlyphState kind="task" struck label="Cancelled — barred + struck" />
+            <GlyphState kind="task" filled faded label="Closed (complete) — filled + faded" />
+            <GlyphState kind="community" faded label="Terminal close — faded, outline kept" />
+            <GlyphState kind="task" struck faded label="Cancelled — barred + struck" />
           </ul>
         </section>
 

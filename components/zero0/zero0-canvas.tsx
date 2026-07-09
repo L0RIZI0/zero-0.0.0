@@ -364,20 +364,21 @@ export function Zero0Canvas() {
                     >
                       {e.title}
                     </button>
-                    {/* Inline DONE toggle (soft marker), completable only. */}
+                    {/* Inline DONE toggle (soft marker) — only kinds WITH a done axis
+                        (Task / Moment / Instant). Others show a muted placeholder. */}
                     <button
                       type="button"
                       onClick={() => toggleDone(e)}
-                      disabled={!km.completable}
+                      disabled={!km.hasDoneState}
                       className={
                         "w-16 shrink-0 text-right " +
-                        (km.completable
+                        (km.hasDoneState
                           ? "text-muted-foreground hover:text-foreground"
                           : "text-transparent")
                       }
-                      title={km.completable ? "Toggle done" : "Not completable"}
+                      title={km.hasDoneState ? "Toggle done" : "No done state"}
                     >
-                      {km.completable ? (done ? "done" : "undone") : "—"}
+                      {km.hasDoneState ? (done ? "done" : "undone") : "—"}
                     </button>
                     {/* Read-only LIFECYCLE state token (Complete/Close/Cancel via menu). */}
                     <span className="w-20 shrink-0 text-right text-muted-foreground/60">{lifeLabel}</span>

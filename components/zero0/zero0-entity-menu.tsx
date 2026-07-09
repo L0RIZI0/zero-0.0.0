@@ -4,14 +4,13 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react"
 import {
   deleteEntity,
   setEntityCompleted,
-  setEntityComplete,
   setEntityClosed,
   setEventCancelled,
   setEntityRequested,
   reopenEntity,
   changeEntityKind,
 } from "@/lib/zero/data"
-import { isCompletable, isClosed, isComplete, KIND_META } from "@/lib/zero/kinds"
+import { isClosed, KIND_META } from "@/lib/zero/kinds"
 import { isDone } from "@/lib/zero/entity-log"
 import type { Entity, EntityKind } from "@/lib/zero/types"
 import { Zero0Glyph } from "./zero0-glyph"
@@ -38,15 +37,16 @@ interface MenuRow {
  * in the GSAP nav-store + morph stage): zero0 stays lean and data-styled, so this
  * calls the backbone lifecycle mutators directly.
  *
- * The menu is a pure function of the entity's kind + state. For a LIVE completable
- * entity it offers the four write actions of the completion/lifecycle model:
- *   - Mark as Done / Undone  — the SOFT marker (checkmark, does not close);
- *   - Mark as Complete       — the success VERDICT (fills glyph, closes);
- *   - Close                  — plain archive (fades the row only);
+ * The menu is a pure function of the entity's kind + state, following the TWO-AXIS
+ * model. For a LIVE entity with a lifecycle it offers:
+ *   - Mark as Done / Undone  — the SOFT marker (checkmark), only kinds WITH a done
+ *                              axis (Task / Moment / Instant);
+ *   - Close                  — end the lifecycle. Fillable kinds fill+fade ("complete"),
+ *                              terminal kinds just fade (retire / die);
  *   - Cancel                 — called off (bar + strike, closes).
- * An ENDED entity (complete / closed / cancelled / derived) offers just Reopen (one
- * return path via {@link reopenEntity}). Plus Send as request (tasks), Change into…,
- * and Delete. No Pin — the dock is flashy-UX that root doesn't have.
+ * An ENDED entity (closed / cancelled / derived / legacy complete) offers just Reopen
+ * (one return path via {@link reopenEntity}). Plus Send as request (tasks), Change
+ * into…, and Delete. No Pin — the dock is flashy-UX that root doesn't have.
  */
 export function Zero0EntityMenu({
   anchor,
@@ -97,29 +97,31 @@ export function Zero0EntityMenu({
     onClose()
   }
 
-  const completable = isCompletable(entity.kind)
-  // An entity is ENDED once it's closed for ANY reason — Complete (verdict), plain
-  // Close, Cancel, or a DERIVED close. All three write-paths converge on {@link
+  const meta = KIND_META[entity.kind]
+  // A kind has a lifecycle if it can close (fillable) or reach a terminal end.
+  const closeable = meta.fillsWhenClosed || meta.terminal != null
+  // An entity is ENDED once it's closed for ANY reason — plain Close, Cancel, a
+  // DERIVED time-close, or a LEGACY complete verdict. All converge on {@link
   // reopenEntity} as the single return path, which clears whichever applied.
   const ended = isClosed(entity)
   const done = isDone(entity)
-  const complete = isComplete(entity)
   const requested = entity.kind === "task" && !!entity.requested
+  // "Close" reads as its terminal flavor for non-fillable kinds.
+  const closeLabel = meta.terminal === "retire" ? "Retire" : meta.terminal === "death" ? "End" : "Close"
 
   const rows: MenuRow[] = []
-  if (completable) {
+  if (closeable) {
     if (ended) {
       rows.push({ label: "Reopen", onSelect: () => run(() => reopenEntity(id)) })
     } else {
-      // DONE is the soft marker (toggle, no close); COMPLETE is the verdict (closes).
-      rows.push({
-        label: done ? "Mark as Undone" : "Mark as Done",
-        onSelect: () => run(() => setEntityCompleted(id, !done)),
-      })
-      if (!complete) {
-        rows.push({ label: "Mark as Complete", onSelect: () => run(() => setEntityComplete(id, true)) })
+      // DONE is the soft marker — only kinds that HAVE a done axis.
+      if (meta.hasDoneState) {
+        rows.push({
+          label: done ? "Mark as Undone" : "Mark as Done",
+          onSelect: () => run(() => setEntityCompleted(id, !done)),
+        })
       }
-      rows.push({ label: "Close", onSelect: () => run(() => setEntityClosed(id, true)) })
+      rows.push({ label: closeLabel, onSelect: () => run(() => setEntityClosed(id, true)) })
       rows.push({ label: "Cancel", onSelect: () => run(() => setEventCancelled(id, true)) })
     }
   }
