@@ -1029,6 +1029,21 @@ export function reorderContextItems(contextId: string, orderedIds: string[]): vo
 let _seq = 0
 const uid = (prefix: string) => `${prefix}_u${Date.now().toString(36)}${(_seq++).toString(36)}`
 
+// Kind → id prefix. Kept in sync with the dedicated add* fns (addTask→t, addEvent→e,
+// addInstant→i, addResource→r, addSpace→s). Used by addParsedEntity so an entity's id
+// reflects its kind regardless of the create path. Falls back to "t" for unmapped kinds.
+const ID_PREFIX: Partial<Record<EntityKind, string>> = {
+  task: "t",
+  moment: "e",
+  instant: "i",
+  resource: "r",
+  space: "s",
+  community: "c",
+  organism: "o",
+  individual: "n",
+  soul: "l",
+}
+
 // Track which ids are user-created so we can re-serialize just those on save.
 const userEntityIds = new Set<string>()
 // Tombstones for SEEDED entities the user deleted (user-created ones are simply
@@ -1298,7 +1313,10 @@ export function addParsedEntity(input: {
 }): Entity {
   const now = Date.now()
   const entity = makeEntity({
-    id: uid("t"),
+    // Kind-correct id prefix (matches the dedicated add* fns): task→t, moment→e,
+    // instant→i, resource→r, space→s, community→c, organism→o, individual→n, soul→l.
+    // Defaults to "t" for any kind without a dedicated prefix.
+    id: uid(ID_PREFIX[input.kind] ?? "t"),
     kind: input.kind,
     title: input.title,
     parentId: input.spaceId,

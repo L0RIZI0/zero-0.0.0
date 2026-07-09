@@ -203,16 +203,20 @@ export function Zero0Canvas() {
       metaRows.push(["cancelled", isCancelled(context) ? "yes" : "no"])
     }
     if (context.kind === "task" && context.requested) metaRows.push(["requested", "yes"])
-    if (context.schedule) {
-      const s = context.schedule
-      const span = s.at
-        ? fmt(s.at)
-        : s.startAt || s.endAt
-          ? `${fmt(s.startAt)} → ${fmt(s.endAt)}`
-          : s.dueAt
-            ? `due ${fmt(s.dueAt)}`
-            : "—"
-      metaRows.push(["scheduled", span])
+    // TEMPORAL slots — a kind's defining time dimension is ALWAYS shown (as "—" when
+    // unset), the same way DONE/CLOSED always render. A Moment IS a span, an Instant
+    // IS a point, so hiding those rows when empty would hide the kind's essence.
+    const s = context.schedule
+    if (context.kind === "moment") {
+      metaRows.push(["start", s?.startAt ? fmt(s.startAt) : "—"])
+      metaRows.push(["end", s?.endAt ? fmt(s.endAt) : "—"])
+    } else if (context.kind === "instant") {
+      metaRows.push(["at", s?.at ? fmt(s.at) : "—"])
+    } else if (s?.dueAt) {
+      // Tasks (and other kinds) only surface a schedule row when one is actually set.
+      metaRows.push(["due", fmt(s.dueAt)])
+    } else if (s && (s.startAt || s.endAt || s.at)) {
+      metaRows.push(["scheduled", s.at ? fmt(s.at) : `${fmt(s.startAt)} → ${fmt(s.endAt)}`])
     }
   }
 
