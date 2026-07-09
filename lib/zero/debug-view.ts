@@ -4,7 +4,7 @@ import { useSyncExternalStore } from "react"
 import { clearUserItems, clearResourceLastUrls } from "./persistence"
 import { clearActivityLog } from "./activity-log"
 import { cycleBrat } from "./motion"
-import { runLogConsistencyAudit } from "./data"
+import { buildLogAuditReport } from "./data"
 
 // ============================================================================
 // Shared DEBUG-view store ([v0] DEBUG)
@@ -82,25 +82,39 @@ export function toggleDebugHierarchy() {
 
 /**
  * `§ 5` action: run the on-demand entity-log consistency audit (log-derived state vs
- * the scalar backup) over every entity and REPORT via `window.alert`, so it's visible
- * in the PACKAGED app too — the hydrate-time check is console-only + dev-gated. A clean
- * result (0 mismatches) sustained through dogfooding is the green light to retire the
- * scalar backups (Phase 3). Also logs details to the console for inspection.
+ * the scalar backup) over every entity and REPORT — visible in the PACKAGED app too
+ * (the hydrate-time check is console-only + dev-gated). On any mismatch it builds a
+ * FULL diagnostic (id/kind/title, complete log, all scalars) and COPIES it to the
+ * clipboard so it can be pasted straight to v0 — no retyping/screenshotting. Also
+ * console.logs the report as a fallback. A clean result sustained through dogfooding
+ * is the green light to retire the scalar backups (Phase 3).
  */
 export function runLogAudit() {
   if (typeof window === "undefined") return
-  const mismatches = runLogConsistencyAudit()
-  if (mismatches.length === 0) {
+  const { count, text } = buildLogAuditReport()
+  if (count === 0) {
     window.alert("Entity-log audit: ✓ consistent\n\nEvery logged entity's derived state matches its scalar backup.")
     return
   }
-  console.warn(`[v0] entity-log consistency: ${mismatches.length} mismatch(es):`, mismatches)
-  const lines = mismatches
-    .slice(0, 12)
-    .map((m) => `• ${m.id} — ${m.axis}: log=${m.fromLog} vs scalar=${m.fromScalar}`)
-    .join("\n")
-  const more = mismatches.length > 12 ? `\n…and ${mismatches.length - 12} more (see console)` : ""
-  window.alert(`Entity-log audit: ${mismatches.length} mismatch(es)\n\n${lines}${more}`)
+  // Always log the full report (survives even if clipboard is blocked).
+  console.warn("[v0] entity-log consistency report:\n" + text)
+  const finish = (copied: boolean) => {
+    window.alert(
+      `Entity-log audit: ${count} mismatch(es).\n\n` +
+        (copied
+          ? "A full diagnostic has been COPIED to your clipboard — paste it to v0 to fix."
+          : "Clipboard was blocked — open the dev console and copy the '[v0] entity-log consistency report' output to send to v0."),
+    )
+  }
+  const clip = navigator.clipboard
+  if (clip?.writeText) {
+    clip.writeText(text).then(
+      () => finish(true),
+      () => finish(false),
+    )
+  } else {
+    finish(false)
+  }
 }
 
 // --- Global `§`-prefix chord listener (installed once, client-only) ----------

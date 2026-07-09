@@ -1623,6 +1623,50 @@ export function runLogConsistencyAudit(): LogScalarMismatch[] {
   return out
 }
 
+/**
+ * Build a FULL, copy-pasteable diagnostic for the `§ 5` audit — everything needed to
+ * debug a mismatch without a follow-up round: the count, plus for each affected entity
+ * its id/kind/title, its COMPLETE `log` array, and every raw lifecycle scalar. Returned
+ * as a formatted JSON string so the chord can drop it on the clipboard. `count: 0` means
+ * consistent. Non-mutating.
+ */
+export function buildLogAuditReport(): { count: number; text: string } {
+  const mismatches = runLogConsistencyAudit()
+  // Group the flat mismatch list by entity so each affected entity is dumped once.
+  const affectedIds = [...new Set(mismatches.map((m) => m.id))]
+  const detail = affectedIds.map((id) => {
+    const e = byId.get(id)
+    return {
+      id,
+      kind: e?.kind,
+      title: e?.title,
+      axes: mismatches.filter((m) => m.id === id).map((m) => ({ axis: m.axis, log: m.fromLog, scalar: m.fromScalar })),
+      log: e?.log ?? null,
+      scalars: e
+        ? {
+            completed: e.completed,
+            completedOn: e.completedOn,
+            closed: e.closed,
+            closedOn: e.closedOn,
+            reopened: e.reopened,
+            reopenedOn: e.reopenedOn,
+            cancelled: e.cancelled,
+            cancelledOn: e.cancelledOn,
+            createdAt: e.createdAt,
+          }
+        : null,
+    }
+  })
+  const report = {
+    kind: "zero-entity-log-audit",
+    at: new Date().toISOString(),
+    mismatchCount: mismatches.length,
+    affectedEntityCount: affectedIds.length,
+    detail,
+  }
+  return { count: mismatches.length, text: JSON.stringify(report, null, 2) }
+}
+
 export function addTask(input: { title: string; spaceId: string }): Entity {
   const now = Date.now()
   const entity: Entity = {
