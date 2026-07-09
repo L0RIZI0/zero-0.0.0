@@ -1,4 +1,5 @@
 import type { Entity, EntityKind } from "./types"
+import { isDone, getCompletedOn } from "./entity-log"
 
 /**
  * Per-kind SEMANTICS — the single source of truth for what each entity kind
@@ -169,11 +170,8 @@ export function isClosed(entity: Entity, now: number = Date.now()): boolean {
   // gained glyph-completion — a done Moment shows a checkmark, then fills at the
   // following midnight, exactly like a Task.)
   if (entity.kind === "task" || entity.kind === "moment" || entity.kind === "instant") {
-    if (
-      !!entity.completed &&
-      entity.completedOn != null &&
-      now >= nextLocalMidnight(entity.completedOn)
-    ) {
+    const completedOn = getCompletedOn(entity)
+    if (isDone(entity) && completedOn != null && now >= nextLocalMidnight(completedOn)) {
       return true
     }
   }

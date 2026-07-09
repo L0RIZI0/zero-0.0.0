@@ -42,6 +42,7 @@ import {
 } from "@/lib/zero/timeline-scale"
 import type { Entity } from "@/lib/zero/types"
 import { KIND_META } from "@/lib/zero/kinds"
+import { isDone } from "@/lib/zero/entity-log"
 import { rangeText, NOW_COLOR } from "@/lib/zero/timeline-format"
 import { panelTransition, layerTransition } from "@/lib/zero/motion"
 import { TIMELINE_TOP_PAD } from "@/lib/zero/layout"
@@ -383,9 +384,12 @@ export interface Ribbon {
  * silhouette. Tolerant of partial occurrence/ribbon shapes so every glyph caller
  * in the strip can share it.
  */
-function glyphFilled(entity?: { kind?: Entity["kind"]; completed?: boolean } | null): boolean {
+function glyphFilled(entity?: { kind?: Entity["kind"]; completed?: boolean; log?: Entity["log"] } | null): boolean {
   if (!entity?.kind) return false
-  return KIND_META[entity.kind].fillGlyphWhenDone && !!entity.completed
+  // Route the completion read through the log-aware helper (falls back to the
+  // `completed` scalar while no entity carries a `log`). Only `.log`/`.completed`
+  // are read, so the loose partial shape is safe to pass.
+  return KIND_META[entity.kind].fillGlyphWhenDone && isDone(entity as Entity)
 }
 
 /** Lexicographic compare of two numeric "tree path" keys (shorter-prefix first). */

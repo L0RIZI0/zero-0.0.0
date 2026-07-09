@@ -1,5 +1,6 @@
 import type { Asset, Entity, EntityKind, Recurrence, Schedule, Resource, EntityBase, TaskPriority, User } from "./types"
 import { isCompletable, isClosed } from "./kinds"
+import { isDone } from "./entity-log"
 import { readUserItems, writeUserItems } from "./persistence"
 import type { ScheduleParse } from "./schedule-parse"
 
@@ -919,12 +920,12 @@ export function isDetachedChild(childId: string, hostId: string | undefined): bo
 
 /** Count of open (incomplete, not closed) direct child tasks. */
 export function getOpenTaskCount(contextId: string): number {
-  return getChildren(contextId).filter((e) => e.kind === "task" && !e.completed && !isClosed(e)).length
+  return getChildren(contextId).filter((e) => e.kind === "task" && !isDone(e) && !isClosed(e)).length
 }
 
 /** Count of done-but-not-closed direct child tasks (checkmark, no fill). */
 export function getDoneTaskCount(contextId: string): number {
-  return getChildren(contextId).filter((e) => e.kind === "task" && !!e.completed && !isClosed(e)).length
+  return getChildren(contextId).filter((e) => e.kind === "task" && isDone(e) && !isClosed(e)).length
 }
 
 /**

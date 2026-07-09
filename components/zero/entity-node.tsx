@@ -6,6 +6,7 @@ import { Check, X, Maximize2, Minimize2 } from "lucide-react"
   import { getEntity, getChildren, getOpenTaskCount, setEntityCompleted } from "@/lib/zero/data"
 import type { TaskPriority } from "@/lib/zero/types"
 import { KIND_META, isTerminal, isClosed } from "@/lib/zero/kinds"
+import { isDone } from "@/lib/zero/entity-log"
 import { useZeroNav, useRowSelection } from "@/lib/zero/nav-store"
 import {
   HEADER_H,
@@ -213,14 +214,18 @@ export function EntityNode({
   const entity = getEntity(entityId)
   const region = variant === "dock" ? "dock" : "list"
   const { showHighlight, ref } = useRowSelection(region, entityId)
-  const [done, setDone] = useState(!!entity?.completed)
+  // DONE is derived through the log-aware helper (falls back to the `completed`
+  // scalar while no entity carries a `log`), so completion reads route through the
+  // ontology log model rather than the raw flag.
+  const doneNow = entity ? isDone(entity) : false
+  const [done, setDone] = useState(doneNow)
   // Keep the local completion mirror honest with the store. The toggle sets `done`
   // optimistically AND persists, but a node that stays mounted (e.g. a do-list row)
   // must also reflect completion changed elsewhere; reading the persisted value here
   // makes both paths converge (the optimistic set becomes a no-op once persisted).
   useLayoutEffect(() => {
-    setDone(!!entity?.completed)
-  }, [entity?.completed])
+    setDone(doneNow)
+  }, [doneNow])
   // CLOSED mirror — drives the glyph FILL, which is now DISTINCT from `done`. Closed
   // = the manual `closed` flag OR `cancelled` OR a DERIVED case (a done task past its
   // first following midnight; an event/instant past its end); see `isClosed`. It is

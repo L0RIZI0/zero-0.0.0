@@ -30,6 +30,7 @@ import {
   type WebResource,
 } from "@/lib/zero/web-resources"
 import { isClosed } from "@/lib/zero/kinds"
+import { isDone } from "@/lib/zero/entity-log"
 import { useZeroNav, ADD_KEY } from "@/lib/zero/nav-store"
 import { MORPH_EASE } from "@/lib/zero/motion"
 import { NodeGlyph, NODE_KIND_META, type NodeKind } from "./node-glyph"
@@ -743,7 +744,7 @@ export function DoList({
   // task past midnight, a passed event, a cancelled item). Everything else is open.
   const openItemIds = useMemo(() => {
     const s = new Set<string>()
-    for (const it of items) if (!it.entity.completed && !isClosed(it.entity)) s.add(it.id)
+    for (const it of items) if (!isDone(it.entity) && !isClosed(it.entity)) s.add(it.id)
     return s
   }, [items])
 
@@ -816,7 +817,7 @@ export function DoList({
   const showSelectors = useMemo(
     () =>
       items.length > 0 &&
-      items.some((it) => it.entity.completed || isClosed(it.entity)),
+      items.some((it) => isDone(it.entity) || isClosed(it.entity)),
     [items],
   )
 

@@ -6,6 +6,7 @@ import { getTimelineOccurrences, getInheritedAccent, getEntity } from "@/lib/zer
 import { getSegments, useActivityRevision } from "@/lib/zero/activity-log"
 import { entityInterval } from "@/lib/zero/timeline-index"
 import { KIND_META, isClosed } from "@/lib/zero/kinds"
+import { isDone } from "@/lib/zero/entity-log"
 import { rangeText, NOW_COLOR } from "@/lib/zero/timeline-format"
 import { placementKey } from "@/lib/zero/placement"
 import { DAYLINE_ROW_H } from "@/lib/zero/layout"
@@ -313,7 +314,7 @@ export function Dayline() {
         // Done check: kinds that checkmark-when-done (task/moment/instant) that this
         // occurrence has completed. Mirrors the do-list row so a done Moment shows a
         // tick in the dayline instead of a bare outline.
-        checked: KIND_META[e.kind].checkmarkWhenDone && !!e.completed,
+        checked: KIND_META[e.kind].checkmarkWhenDone && isDone(e),
         // A sleep Moment (span) gets its own procedural night sky, seeded by the
         // occurrence key so each night differs but stays stable across pans.
         sky: isDuration && e.kind === "moment" && isSleepTitle(e.title) ? sleepSkyBackground(e.occKey) : null,
