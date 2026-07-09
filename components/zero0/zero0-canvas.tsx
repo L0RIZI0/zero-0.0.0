@@ -22,8 +22,8 @@ import {
   renameEntity,
   deleteEntity,
 } from "@/lib/zero/data"
-import { KIND_META, isClosed, isTerminal, fillsGlyph } from "@/lib/zero/kinds"
-import { isDone, isCancelled, getCreatedAt, getCompletedOn } from "@/lib/zero/entity-log"
+  import { KIND_META, isClosed, fillsGlyph, getState, type EntityState } from "@/lib/zero/kinds"
+  import { isDone, isCancelled, getCreatedAt, getCompletedOn } from "@/lib/zero/entity-log"
 import { parseCreateField, parseKindPrefix, parseFieldSetter, parseDateToken, parseHexColor } from "@/lib/zero/create-parse"
 import { looksLikeUrl, normalizeUrl, resolveWebResourceByUrl, webDisplayName } from "@/lib/zero/web-resources"
 import type { Entity } from "@/lib/zero/types"
@@ -50,6 +50,27 @@ const isColorPickerTrigger = (draft: string) => /^:color:\s*$/i.test(draft)
 function fmt(epoch?: number): string {
   if (!epoch) return "—"
   return new Date(epoch).toLocaleString()
+}
+
+// Render an {@link EntityState} as one stable STATE-row string. `open` shows no date
+// (CREATED already carries "since when"); every other position carries its own instant,
+// which lives nowhere else. `complete` also shows WHEN it will auto-close at midnight.
+function formatState(state: EntityState, format: (e?: number) => string): string {
+  switch (state.word) {
+    case "open":
+      return state.reopenedAt ? `open · reopened ${format(state.reopenedAt)}` : "open"
+    case "complete":
+      return state.willCloseAt ? `complete · closes ${format(state.willCloseAt)} (auto)` : "complete"
+    case "dead":
+      return state.age != null ? `dead · ${format(state.at)} (${state.age})` : `dead · ${format(state.at)}`
+    case "retired":
+      return `retired · ${format(state.at)}`
+    case "cancelled":
+      return `cancelled · ${format(state.at)}`
+    case "closed":
+    default:
+      return `closed · ${format(state.at)}`
+  }
 }
 
 /**
@@ -331,15 +352,16 @@ export function Zero0Canvas() {
     if (context.titleLog && context.titleLog.length > 1) {
       metaRows.push(["titles", context.titleLog.map((t) => `${t.title} (${fmt(t.at)})`).join("  →  ")])
     }
-    // DONE axis — only kinds that have it (Task / Moment / Instant).
+    // DONE — its own orthogonal row, TASKS only (the soft "I did this" marker).
     if (meta.hasDoneState) {
       const done = isDone(context)
-      metaRows.push(["done", done ? fmt(getCompletedOn(context)) : "no"])
+      metaRows.push(["done", done ? `yes · ${fmt(getCompletedOn(context))}` : "no"])
     }
-    // CLOSE axis — every kind with a lifecycle (fillable or terminal).
+    // STATE — the single mutually-exclusive lifecycle row (open / complete / closed /
+    // cancelled / dead / retired), replacing the old CLOSED + CANCELLED booleans. `open`
+    // carries no date (CREATED above already says since when); other states carry theirs.
     if (meta.fillsWhenClosed || meta.terminal) {
-      metaRows.push(["closed", isClosed(context) ? "yes" : "no"])
-      metaRows.push(["cancelled", isCancelled(context) ? "yes" : "no"])
+      metaRows.push(["state", formatState(getState(context), fmt)])
     }
     if (context.kind === "task" && context.requested) metaRows.push(["requested", "yes"])
     // TEMPORAL slots — a kind's defining time dimension is ALWAYS shown (as "—" when
@@ -490,27 +512,16 @@ export function Zero0Canvas() {
             <ul className="text-[11px] tabular-nums">
               {children.map((e, i) => {
                 const km = KIND_META[e.kind]
-                const done = isDone(e) // soft DONE marker (checkmark, no close)
-                const cancelled = isCancelled(e) // called-off (bar + strike, closes)
-                const closed = isClosed(e) // lifecycle ended ⇒ fade the row
-                const filled = fillsGlyph(e) // fill DERIVES from close (fillable kinds)
-                const terminal = isTerminal(e)
+                const state = getState(e) // the single lifecycle position (STATE axis)
+                const done = isDone(e) // soft DONE marker (Task only), orthogonal to STATE
+                const cancelled = state.word === "cancelled" // bar + strike
+                const closed = isClosed(e) // ENDED (closed/dead/retired/cancelled) ⇒ fade — NOT complete
+                const filled = fillsGlyph(e) // fill on complete AND closed (fillable kinds)
                 const showCheck = done && km.hasDoneState
                 const requested = e.kind === "task" && !!e.requested
-                // Read-only lifecycle token (actions are set via the right-click menu).
-                // Priority: cancelled > terminal > closed > open. A closed FILLABLE kind
-                // reads "complete"; a terminal kind reads retired/dead.
-                const lifeLabel = cancelled
-                  ? "cancelled"
-                  : terminal
-                    ? e.kind === "community"
-                      ? "retired"
-                      : "dead"
-                    : closed
-                      ? km.fillsWhenClosed
-                        ? "complete"
-                        : "closed"
-                      : "open"
+                // Read-only lifecycle token — one word straight off the STATE axis
+                // (open / complete / closed / cancelled / dead / retired).
+                const lifeLabel = state.word
                 const stateLabel =
                   `${done ? "done, " : ""}${lifeLabel}${requested ? ", requested" : ""}`
                 return (

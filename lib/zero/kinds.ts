@@ -1,23 +1,44 @@
 import type { Entity, EntityKind } from "./types"
-import { isDone, getCompletedOn, getCloseState, isCancelled, getExplicitComplete } from "./entity-log"
+import {
+  isDone,
+  getCompletedOn,
+  getCloseState,
+  isCancelled,
+  getExplicitComplete,
+  getCompleteOn,
+  getCreatedAt,
+} from "./entity-log"
 
 /**
  * Per-kind SEMANTICS — the single source of truth for what each entity kind
  * means and how it behaves around the two lifecycle axes. Consumed by the glyph,
  * the root canvas, the entity menu, and the "Zero Entities" doc page.
  *
- * THE MODEL (Jul 2026 simplification): there are exactly TWO stored axes —
- *   1. CLOSE (open ⟷ closed): EVERY entity has it. Closing FADES the row. This is
- *      the whole lifecycle; there is no separate "complete" field.
- *   2. DONE (done ⟷ undone): ONLY Task / Moment / Instant. A soft checkmark that
- *      does NOT close on its own.
- * Two STATIC per-kind flags describe how a kind renders those axes:
- *   - `hasDoneState`   — can hold the DONE checkmark (task/moment/instant).
- *   - `fillsWhenClosed` — its glyph FILLS when it closes (task/space/resource/
- *      moment/instant). Terminal kinds (community/organism/individual) do NOT fill:
- *      they just FADE (retire / die), keeping their outline.
- * "Complete" is no longer a field — it is simply the human name for a fillable kind
- * that is done AND closed (checkmark + filled + faded). Fill DERIVES from close.
+ * THE MODEL (Jul 2026 — STATE axis). An entity's lifecycle is ONE position on a
+ * mutually-exclusive STATE axis, derived by {@link getState}:
+ *
+ *     open  →  complete  →  closed        (+ cancelled, and terminal dead/retired)
+ *   outline    FILLED       FILLED+faded
+ *
+ *   - OPEN     — live, nothing terminal reached. Glyph outline.
+ *   - COMPLETE — the positive terminal is REACHED but not yet filed. INTERIM: the
+ *      glyph FILLS (bright, full opacity) but the row does NOT fade — it is still
+ *      "live, awaiting overnight filing". Complete NO LONGER closes anything.
+ *   - CLOSED   — filed away at the stamped midnight (`entity.closeAt`). Glyph stays
+ *      filled and the row FADES. For terminal kinds this reads DEAD / RETIRED (and
+ *      the glyph does NOT fill — it just fades, keeping its outline).
+ *   - CANCELLED — called off (bar over glyph + strike + fade); its own flag.
+ *
+ * DONE is a SEPARATE, orthogonal axis (Task only): a soft checkmark meaning "I did
+ * this", which for the owner ALSO makes the task complete (see data.ts write path).
+ * A task can thus be done-and-complete yet still OPEN-looking until its midnight close.
+ *
+ * WHOSE MIDNIGHT: the close instant is STAMPED once as an absolute epoch (`closeAt`)
+ * in the actor's local day, so every viewer flips Complete→Closed at the same real
+ * moment regardless of timezone (see the `closeAt` doc in types.ts).
+ *
+ * Two STATIC per-kind flags: `hasDoneState` (Task only now) and `fillsWhenClosed`
+ * (task/space/resource/moment/instant fill; terminal kinds only fade).
  */
 export interface KindMeta {
   /** Display name, e.g. "Task". */
@@ -66,9 +87,9 @@ export const KIND_META: Record<EntityKind, KindMeta> = {
     label: "Moment",
     description: "A span in time",
     creatable: true,
-    // Moments behave like tasks: they can be marked done (a checkmark appears in the
-    // triangle) and they CLOSE (fill + fade) at the midnight after their done date.
-    hasDoneState: true,
+    // DONE is a Task-only marker now. A Moment is not "done" — it simply becomes
+    // COMPLETE once its end passes, and CLOSES (fills + fades) at the next midnight.
+    hasDoneState: false,
     fillsWhenClosed: true,
     terminal: null,
   },
@@ -76,7 +97,8 @@ export const KIND_META: Record<EntityKind, KindMeta> = {
     label: "Instant",
     description: "A point in time",
     creatable: true,
-    hasDoneState: true,
+    // Like a Moment: no DONE marker; complete once its point passes, closes at midnight.
+    hasDoneState: false,
     fillsWhenClosed: true,
     terminal: null,
   },
@@ -136,56 +158,146 @@ export function isTerminal(entity: Entity): boolean {
 }
 
 /** The first LOCAL midnight strictly AFTER `epoch` (start of the next day). */
-function nextLocalMidnight(epoch: number): number {
+export function nextLocalMidnight(epoch: number): number {
   const d = new Date(epoch)
   d.setHours(0, 0, 0, 0) // midnight opening the day of `epoch`
   d.setDate(d.getDate() + 1) // → the next midnight
   return d.getTime()
 }
 
+/** Whole years elapsed between two epochs (for a dead Individual's age). */
+function yearsBetween(from: number, to: number): number {
+  const a = new Date(from)
+  const b = new Date(to)
+  let y = b.getFullYear() - a.getFullYear()
+  const m = b.getMonth() - a.getMonth()
+  if (m < 0 || (m === 0 && b.getDate() < a.getDate())) y--
+  return Math.max(0, y)
+}
+
+/** The mutually-exclusive lifecycle positions (see {@link getState}). */
+export type StateWord = "open" | "complete" | "closed" | "cancelled" | "dead" | "retired"
+
 /**
- * Whether `entity` is CLOSED — its lifecycle has ended, so its row FADES. Closing is
- * the WHOLE lifecycle now (no separate "complete" verdict). Sources, in order:
- *   1. the MANUAL `closed` flag (the "Close" / "Complete" action), persisted;
- *   2. `cancelled` (the "Cancel" action — also bar-over-glyph + strike);
- *   3. an explicit REOPEN (`reopened`) short-circuits the DERIVED + legacy rules
- *      below so a reopened entity genuinely stays open;
- *   4. LEGACY back-compat: a persisted `complete` verdict (from before this model)
- *      still reads as closed, so old data keeps its filled/faded look;
- *   5. DERIVED, not stored:
- *      - a done TASK/MOMENT/INSTANT closes at the first local midnight AFTER it was
- *        done (`completedOn`) — "done today, filed overnight";
- *      - a MOMENT/INSTANT closes once its end time has passed (it occurred), even if
- *        never marked done.
- * `now` is injectable for testing.
+ * An entity's current lifecycle STATE — one position on the STATE axis, plus the
+ * timestamp that position took effect and (for complete) when it will close.
  */
-export function isClosed(entity: Entity, now: number = Date.now()): boolean {
-  const closeState = getCloseState(entity)
-  if (closeState === "closed") return true
-  if (isCancelled(entity)) return true
-  // An explicit reopen overrides the derived + legacy close rules (but not a manual
-  // close or cancel, which are cleared via Reopen / Restore in reopenEntity).
-  if (closeState === "reopened") return false
-  // LEGACY: honor a pre-existing explicit complete verdict as a close.
-  if (getExplicitComplete(entity) === true) return true
-  // DERIVED: a done task/moment/instant closes at the first local midnight after doneOn.
-  const doneOn = getCompletedOn(entity)
-  if (KIND_META[entity.kind].hasDoneState && isDone(entity) && doneOn != null && now >= nextLocalMidnight(doneOn)) {
-    return true
-  }
-  // A moment/instant whose scheduled end has passed has occurred ⇒ closed.
-  if (entity.kind === "moment" || entity.kind === "instant") {
-    const end = entity.schedule?.endAt ?? entity.schedule?.at
-    if (end != null && now >= end) return true
-  }
-  return false
+export interface EntityState {
+  word: StateWord
+  /** When this state took effect (epoch ms): complete-since, closed-at, cancelled-on… */
+  at?: number
+  /** For `complete`: the stamped instant it will become `closed`. */
+  willCloseAt?: number
+  /** For a reopened (`open`) entity: when it was reopened. */
+  reopenedAt?: number
+  /** For a `dead` Individual/Organism: age in whole years, when birth is known. */
+  age?: number
 }
 
 /**
- * Whether `entity`'s glyph should render FILLED. Fill DERIVES from close: a closed
- * entity of a fillable kind fills its silhouette — UNLESS it was cancelled, which
- * shows a bar over the glyph instead of a fill. Terminal kinds never fill (they fade).
+ * The stamped ABSOLUTE close instant an entity SHOULD carry given its current terminal
+ * event — computed once, in the caller's local day, and frozen by the write paths onto
+ * `entity.closeAt` (see types.ts). Pure; callers persist the result.
+ *   - TASK: the next local midnight after it was marked done (else none).
+ *   - MOMENT/INSTANT: the next local midnight after its end/point (else none).
+ *   - everything else: none (they close only manually).
+ * `now` backfills a done task that somehow lacks a `completedOn`.
+ */
+export function computeCloseAt(entity: Entity, now: number = Date.now()): number | undefined {
+  if (entity.kind === "task") {
+    return isDone(entity) ? nextLocalMidnight(getCompletedOn(entity) ?? now) : undefined
+  }
+  if (entity.kind === "moment") {
+    const end = entity.schedule?.endAt ?? entity.schedule?.at
+    return end != null ? nextLocalMidnight(end) : undefined
+  }
+  if (entity.kind === "instant") {
+    const at = entity.schedule?.at ?? entity.schedule?.endAt
+    return at != null ? nextLocalMidnight(at) : undefined
+  }
+  return undefined
+}
+
+/**
+ * When (if ever) `entity` reached its positive terminal — i.e. became COMPLETE —
+ * IGNORING whether it has since closed. Returns that instant, or null if not complete.
+ *   - TASK: complete the moment it is Done (single-user: done ⇒ complete). `completedOn`.
+ *   - MOMENT/INSTANT: complete once its end/point is in the past. That end epoch.
+ *   - LEGACY: a persisted explicit `complete` verdict from old data.
+ */
+function completeSince(entity: Entity, now: number): number | null {
+  if (entity.kind === "task") {
+    return isDone(entity) ? getCompletedOn(entity) ?? getCreatedAt(entity) ?? now : null
+  }
+  if (entity.kind === "moment") {
+    const end = entity.schedule?.endAt ?? entity.schedule?.at
+    return end != null && now >= end ? end : null
+  }
+  if (entity.kind === "instant") {
+    const at = entity.schedule?.at ?? entity.schedule?.endAt
+    return at != null && now >= at ? at : null
+  }
+  if (getExplicitComplete(entity) === true) return getCompleteOn(entity) ?? getCreatedAt(entity) ?? now
+  return null
+}
+
+/**
+ * The SINGLE source of truth for an entity's lifecycle position. Everything else
+ * (glyph fill, row fade, the meta STATE row, the menu wording) derives from this.
+ * Priority: cancelled > closed (manual or stamped-midnight) > reopened-open > complete
+ * (interim) > open. `now` is injectable for testing.
+ */
+export function getState(entity: Entity, now: number = Date.now()): EntityState {
+  const meta = KIND_META[entity.kind]
+  if (isCancelled(entity)) return { word: "cancelled", at: entity.cancelledOn }
+
+  const closeState = getCloseState(entity) // "closed" | "reopened" | null
+  const manualClosed = closeState === "closed"
+  // A reopen override suppresses the stamped time-close (as well as manual close, which
+  // Reopen also clears). Otherwise the frozen `closeAt` decides — the SAME instant for
+  // every viewer, so timezones can't disagree on open-vs-closed.
+  const timeClosed = closeState !== "reopened" && entity.closeAt != null && now >= entity.closeAt
+  if (manualClosed || timeClosed) {
+    const at = manualClosed ? entity.closedOn ?? entity.closeAt : entity.closeAt
+    if (meta.terminal === "death") {
+      const born = getCreatedAt(entity)
+      const age = born != null && at != null ? yearsBetween(born, at) : undefined
+      return { word: "dead", at, age }
+    }
+    if (meta.terminal === "retire") return { word: "retired", at }
+    return { word: "closed", at }
+  }
+
+  if (closeState === "reopened") return { word: "open", reopenedAt: entity.reopenedOn }
+
+  const c = completeSince(entity, now)
+  if (c != null) return { word: "complete", at: c, willCloseAt: entity.closeAt }
+
+  return { word: "open" }
+}
+
+/**
+ * Whether `entity`'s lifecycle has ENDED (its row FADES): closed / dead / retired /
+ * cancelled. COMPLETE is deliberately NOT closed — it is the live interim state.
+ * Thin wrapper over {@link getState} kept for the many existing call sites.
+ */
+export function isClosed(entity: Entity, now: number = Date.now()): boolean {
+  const w = getState(entity, now).word
+  return w === "closed" || w === "dead" || w === "retired" || w === "cancelled"
+}
+
+/** Whether `entity` is in the COMPLETE interim (positive terminal reached, not yet filed). */
+export function isComplete(entity: Entity, now: number = Date.now()): boolean {
+  return getState(entity, now).word === "complete"
+}
+
+/**
+ * Whether `entity`'s glyph should render FILLED. Fill marks the positive terminal:
+ * a fillable kind fills once it is COMPLETE and stays filled through CLOSED. Cancelled
+ * shows a bar instead of a fill; terminal kinds never fill (they only fade).
  */
 export function fillsGlyph(entity: Entity, now: number = Date.now()): boolean {
-  return KIND_META[entity.kind].fillsWhenClosed && isClosed(entity, now) && !isCancelled(entity)
+  if (!KIND_META[entity.kind].fillsWhenClosed) return false
+  const w = getState(entity, now).word
+  return w === "complete" || w === "closed"
 }

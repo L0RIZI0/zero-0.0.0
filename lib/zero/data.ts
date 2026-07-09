@@ -1,5 +1,5 @@
 import type { Asset, Entity, EntityKind, Instant, Recurrence, Schedule, Resource, EntityBase, TaskPriority, TitleEntry, User } from "./types"
-import { hasDoneState, isClosed } from "./kinds"
+  import { hasDoneState, isClosed, computeCloseAt } from "./kinds"
 import {
   isDone,
   isCancelled,
@@ -1332,6 +1332,9 @@ export function addParsedEntity(input: {
   // `done` entry when logging a PAST activity (input.completed) — so "Slept …"
   // lands as a finished Moment WITH history in one persist.
   entity.log = buildLogFromScalars(entity)
+  // Stamp the absolute midnight close for a scheduled moment/instant (or a done task,
+  // e.g. a past-tense "Slept …" logged as already-done) so it time-closes tz-stably.
+  entity.closeAt = computeCloseAt(entity, now)
   entities.push(entity)
   byId.set(entity.id, entity)
   userEntityIds.add(entity.id)
@@ -1621,12 +1624,30 @@ export function setEntityCompleted(id: string, completed: boolean): void {
   entity.completed = completed
   // Track WHEN it was completed (cleared when un-checked) — part of every space's meta.
   entity.completedOn = completed ? now : undefined
+  // SINGLE-USER RULE: marking a task Done also makes the OWNER's task COMPLETE right away,
+  // and STAMPS its absolute midnight close (`closeAt`) in the actor's local day so it closes
+  // at the same real instant for every viewer. Undone clears all three.
+  // MULTI-USER (future): a REQUESTED task's recipient could mark Done without Complete; only
+  // the owner completes. Not implemented — today Done ⇒ Complete + stamp in one step.
+  entity.complete = completed
+  entity.completeOn = completed ? now : undefined
+  entity.closeAt = completed ? computeCloseAt(entity, now) : undefined
   // DUAL-WRITE: append the toggle to the lifecycle log (the source of truth for reads),
   // seeding a log from scalars first if this entity predates it. Scalars above remain
   // as the transitional backup.
   if (changed) {
     const log = ensureEntityLog(stored)
     stored.log = appendInstant(log, makeInstant(completed ? "done" : "undone", entity.completedOn ?? now))
+  }
+  if (!userEntityIds.has(id)) {
+    seededOverrides.set(id, {
+      ...seededOverrides.get(id),
+      completed,
+      completedOn: entity.completedOn,
+      complete: entity.complete,
+      completeOn: entity.completeOn,
+      closeAt: entity.closeAt,
+    })
   }
   persist()
 }
@@ -1667,6 +1688,9 @@ export function changeEntityKind(id: string, kind: EntityKind): void {
   // A row switched into a real kind should carry a lifecycle log (an inline draft
   // may have none yet); seed one from scalars if absent.
   ensureEntityLog(stored)
+  // Re-stamp (or clear) the midnight close for the new kind — a fresh moment/instant
+  // gets one from its default schedule; switching away from those clears it.
+  entity.closeAt = computeCloseAt(entity)
   persist()
 }
 
@@ -1830,9 +1854,15 @@ export function setEntityScheduleField(
   if (epoch == null) delete sched[field]
   else sched[field] = epoch
   entity.schedule = sched
+  // Re-stamp the absolute midnight close whenever a MOMENT/INSTANT's end (or point)
+  // changes, so its time-close stays tz-stable and in sync with the new schedule. Tasks
+  // stamp on Done instead, not from `dueAt`, so they're unaffected here.
+  if (entity.kind === "moment" || entity.kind === "instant") {
+    entity.closeAt = computeCloseAt(entity)
+  }
   if (!userEntityIds.has(id)) {
   // Seeded entity — persist as an override patch so the value survives refreshes.
-  seededOverrides.set(id, { ...seededOverrides.get(id), schedule: sched })
+  seededOverrides.set(id, { ...seededOverrides.get(id), schedule: sched, closeAt: entity.closeAt })
   }
   persist()
   return true
@@ -1980,13 +2010,21 @@ export function reopenEntity(id: string): void {
   const stored = byId.get(id)
   if (!stored) return
   if (isCancelled(stored)) setEventCancelled(id, false)
-  // Clear any pre-existing LEGACY complete verdict so it can't read as closed again.
-  if (stored.complete) {
+  // Clear the COMPLETE verdict + the stamped midnight close so a reopened entity can't
+  // read as complete/closed again (the `reopened` override also suppresses the derived
+  // rules, but clearing `closeAt` keeps the data honest).
+  {
     const entity = mutable(stored)
     entity.complete = false
     entity.completeOn = undefined
+    entity.closeAt = undefined
     if (!userEntityIds.has(id)) {
-      seededOverrides.set(id, { ...seededOverrides.get(id), complete: false, completeOn: undefined })
+      seededOverrides.set(id, {
+        ...seededOverrides.get(id),
+        complete: false,
+        completeOn: undefined,
+        closeAt: undefined,
+      })
     }
   }
   setEntityClosed(id, false)

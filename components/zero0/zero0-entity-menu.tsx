@@ -37,16 +37,16 @@ interface MenuRow {
  * in the GSAP nav-store + morph stage): zero0 stays lean and data-styled, so this
  * calls the backbone lifecycle mutators directly.
  *
- * The menu is a pure function of the entity's kind + state, following the TWO-AXIS
- * model. For a LIVE entity with a lifecycle it offers:
- *   - Mark as Done / Undone  — the SOFT marker (checkmark), only kinds WITH a done
- *                              axis (Task / Moment / Instant);
- *   - Close                  — end the lifecycle. Fillable kinds fill+fade ("complete"),
- *                              terminal kinds just fade (retire / die);
- *   - Cancel                 — called off (bar + strike, closes).
- * An ENDED entity (closed / cancelled / derived / legacy complete) offers just Reopen
- * (one return path via {@link reopenEntity}). Plus Send as request (tasks), Change
- * into…, and Delete. No Pin — the dock is flashy-UX that root doesn't have.
+ * The menu is a pure function of the entity's kind + state, following the STATE model.
+ * For a LIVE entity with a lifecycle it offers:
+ *   - Mark as Done / Undone  — the SOFT marker (checkmark), TASKS only. For the owner,
+ *                              Done also completes the task (see data.ts write path);
+ *   - Close                  — end the lifecycle (fillable kinds fill+fade; terminal
+ *                              kinds just fade — labelled Retire / End);
+ *   - Cancel                 — called off (bar + strike). NOT offered for Individuals.
+ * An ENDED entity (closed / cancelled / dead / retired) offers just Reopen (one return
+ * path via {@link reopenEntity}). Plus Send as request (tasks), Change into…, and
+ * Delete. No Pin — the dock is flashy-UX that root doesn't have.
  */
 export function Zero0EntityMenu({
   anchor,
@@ -122,7 +122,12 @@ export function Zero0EntityMenu({
         })
       }
       rows.push({ label: closeLabel, onSelect: () => run(() => setEntityClosed(id, true)) })
-      rows.push({ label: "Cancel", onSelect: () => run(() => setEventCancelled(id, true)) })
+      // An Individual cannot be "cancelled" (called off) — a person's life isn't an
+      // event you retract. It only reaches its terminal END (dead). All other closeable
+      // kinds keep Cancel.
+      if (entity.kind !== "individual") {
+        rows.push({ label: "Cancel", onSelect: () => run(() => setEventCancelled(id, true)) })
+      }
     }
   }
   if (entity.kind === "task") {

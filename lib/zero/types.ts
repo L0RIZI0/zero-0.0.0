@@ -317,6 +317,24 @@ export interface EntityBase {
   /** When the manual `closed` flag last flipped true (epoch ms). */
   closedOn?: Epoch
   /**
+   * The STAMPED absolute close instant (epoch ms) — the "closes at midnight" rule made
+   * TIMEZONE-STABLE. Instead of every viewer deriving close against THEIR own local
+   * midnight (which would make a shared entity look open for one person and closed for
+   * another at the same real time), the close instant is computed ONCE in the ACTOR's
+   * local day and frozen here as an absolute epoch — the standard "floating time resolved
+   * to an absolute instant" approach (cf. iCal/RFC 5545). Everyone everywhere then flips
+   * Complete → Closed at the SAME real moment. Stamped by the write paths:
+   *   - a TASK marked Done → next local midnight after the done time;
+   *   - a MOMENT/INSTANT with an end → next local midnight after that end.
+   * Cleared on Undone / Reopen. Absent = no time-close scheduled (open, or manual-close only).
+   *
+   * MULTI-USER NOTE (future, not implemented): when a task is REQUESTED from another
+   * Individual, only the OWNER may mark it Complete; the recipient can mark it Done, and it
+   * still time-closes at this stamped instant unless the owner changes the setting. Today
+   * (single-user) marking Done also completes + stamps this in one step.
+   */
+  closeAt?: Epoch
+  /**
    * Explicit user REOPEN that overrides a DERIVED close. Set by the "Reopen" menu
    * action so an entity that closed only because time passed (a moment past its end,
    * a done task past its midnight) can be pulled back open and STAY open until it is
