@@ -29,7 +29,7 @@ function KindShape({ kind, requested }: { kind: EntityKind; requested?: boolean 
       // attaches, the flag dips below to the tip, then climbs back to the corner. ONE
       // continuous silhouette (so it fills solid when complete), not a detached stroke.
       return requested ? (
-        <path d="M4.5,4.5 L19.5,4.5 L19.5,19.5 L11,23 L14,19.5 L4.5,19.5 Z" />
+        <path d="M4.5,4.5 L19.5,4.5 L19.5,19.5 L8.5,23.2 L13,19.5 L4.5,19.5 Z" />
       ) : (
         <rect x="4.5" y="4.5" width="15" height="15" />
       )
@@ -46,13 +46,12 @@ function KindShape({ kind, requested }: { kind: EntityKind; requested?: boolean 
     case "organism":
       return <circle cx="12" cy="12" r="9" />
     case "individual":
-      // Diamond with a centre dot — the animating "citizen" mark.
-      return (
-        <>
-          <polygon points={DIAMOND} />
-          <circle cx="12" cy="12" r="2.2" fill="currentColor" stroke="none" />
-        </>
-      )
+      // A capital "Z" rotated 45° anticlockwise — the ontology's Individual mark.
+      // Authored upright (top bar → diagonal → bottom bar) and rotated −45° about the
+      // centre; a non-convex stroke letterform, so it's drawn as a bare path (never
+      // filled — Individuals aren't completable).
+      return <path d="M6 6.5 L18 6.5 L6 17.5 L18 17.5" transform="rotate(-45 12 12)" fill="none" />
+
     case "soul":
       // A bare dot — always solid, the smallest essence.
       return <circle cx="12" cy="12" r="3.5" fill="currentColor" stroke="none" />
