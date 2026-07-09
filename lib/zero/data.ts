@@ -1624,13 +1624,18 @@ export function setEntityCompleted(id: string, completed: boolean): void {
   entity.completed = completed
   // Track WHEN it was completed (cleared when un-checked) — part of every space's meta.
   entity.completedOn = completed ? now : undefined
-  // SINGLE-USER RULE: marking a task Done also makes the OWNER's task COMPLETE right away,
-  // and STAMPS its absolute midnight close (`closeAt`) in the actor's local day so it closes
-  // at the same real instant for every viewer. Undone clears all three.
-  // MULTI-USER (future): a REQUESTED task's recipient could mark Done without Complete; only
-  // the owner completes. Not implemented — today Done ⇒ Complete + stamp in one step.
-  entity.complete = completed
-  entity.completeOn = completed ? now : undefined
+  // DONE is the soft "I did this" checkmark — its OWN axis. For a Task it DERIVES the
+  // interim COMPLETE state (see getState/completeSince) and STAMPS the absolute midnight
+  // close (`closeAt`) in the actor's local day, so the task files itself at the same real
+  // instant for every viewer. Undone clears the stamped close.
+  //
+  // Done does NOT set the EXPLICIT complete verdict: a done task keeps its glyph OUTLINE
+  // (checkmark only) and only FILLS once it is explicitly Completed or CLOSES at midnight.
+  // We actively clear any explicit-complete here so tasks auto-completed by the OLD rule
+  // (Done ⇒ Complete) revert to outline. MULTI-USER (future): a requested task's recipient
+  // marks Done; only the owner (or a Complete action) sets the fill-driving verdict.
+  entity.complete = undefined
+  entity.completeOn = undefined
   entity.closeAt = completed ? computeCloseAt(entity, now) : undefined
   // DUAL-WRITE: append the toggle to the lifecycle log (the source of truth for reads),
   // seeding a log from scalars first if this entity predates it. Scalars above remain
@@ -1644,8 +1649,9 @@ export function setEntityCompleted(id: string, completed: boolean): void {
       ...seededOverrides.get(id),
       completed,
       completedOn: entity.completedOn,
-      complete: entity.complete,
-      completeOn: entity.completeOn,
+      // Cleared: Done no longer implies the explicit complete verdict (see above).
+      complete: undefined,
+      completeOn: undefined,
       closeAt: entity.closeAt,
     })
   }

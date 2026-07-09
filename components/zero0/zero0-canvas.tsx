@@ -364,7 +364,7 @@ export function Zero0Canvas() {
     setMenu({ entity: e, x: ev.clientX, y: ev.clientY })
   }, [])
 
-  // Meta rows for the CURRENT open node — raw lifecycle data, kind-aware. Recomputed
+  // Meta rows for the CURRENT open node ��� raw lifecycle data, kind-aware. Recomputed
   // per render (cheap) rather than memoised, so it always mirrors `rev`.
   const meta = context ? KIND_META[context.kind] : undefined
   const metaRows: [string, string][] = []
@@ -412,7 +412,7 @@ export function Zero0Canvas() {
 
   return (
     <main
-      className="relative flex min-h-screen flex-col bg-background text-foreground"
+      className="relative flex h-screen flex-col bg-background text-foreground"
       style={{ fontFamily: "var(--font-zero0-mono), ui-monospace, monospace" }}
     >
       {/* ── ACTIVITY BAND (above the header) ───────────────────────────────────
@@ -488,8 +488,10 @@ export function Zero0Canvas() {
 
       {/* ── ENTITY CONTENT ─────────────────────────────────────────────────────
           The open node as raw data: META, then CHILDREN. Recursive — the root
-          Individual renders exactly like any other entity. */}
-      <div className="flex-1 overflow-auto">
+          Individual renders exactly like any other entity. `min-h-0` lets this flex
+          child shrink below its content so ONLY this band scrolls — the header,
+          create field, and footer stay pinned regardless of how tall the list grows. */}
+      <div className="min-h-0 flex-1 overflow-auto">
         {mounted && context && meta && (
           <section className="border-b border-border px-4 py-3">
             {/* Node header line: glyph + title + kind. Fill = closed (fillable kinds),

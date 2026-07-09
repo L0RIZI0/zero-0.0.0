@@ -292,12 +292,18 @@ export function isComplete(entity: Entity, now: number = Date.now()): boolean {
 }
 
 /**
- * Whether `entity`'s glyph should render FILLED. Fill marks the positive terminal:
- * a fillable kind fills once it is COMPLETE and stays filled through CLOSED. Cancelled
- * shows a bar instead of a fill; terminal kinds never fill (they only fade).
+ * Whether `entity`'s glyph should render FILLED. Fill marks a POSITIVELY-FINALIZED
+ * state, so it appears only when:
+ *   • CLOSED (filed) — always fills, or
+ *   • COMPLETE that was EXPLICITLY marked complete (`getExplicitComplete`).
+ * A merely-DERIVED complete does NOT fill — a Task that's just Done, or a Moment/Instant
+ * whose time has elapsed, stays OUTLINE (the checkmark / interim conveys it) and only
+ * fills once it CLOSES at midnight. Cancelled shows a bar; terminal kinds never fill.
  */
 export function fillsGlyph(entity: Entity, now: number = Date.now()): boolean {
   if (!KIND_META[entity.kind].fillsWhenClosed) return false
   const w = getState(entity, now).word
-  return w === "complete" || w === "closed"
+  if (w === "closed") return true
+  if (w === "complete") return getExplicitComplete(entity) === true
+  return false
 }

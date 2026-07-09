@@ -13,6 +13,7 @@ import {
 } from "@/lib/zero/activity-log"
 import { Zero0Glyph } from "@/components/zero0/zero0-glyph"
 import { Zero0Dayline } from "@/components/zero0/zero0-dayline"
+import { useZero0Readout, toggleZero0Readout } from "@/lib/zero/zero0-chord"
 import type { EntityKind } from "@/lib/zero/types"
 
 // The root context id — its label is "Home" when it surfaces as a place, matching the
@@ -76,6 +77,8 @@ export function Zero0Activity({ onOpen, dataRev }: { onOpen: (id: string) => voi
   useEffect(() => setMounted(true), [])
   // Re-render on structural log changes (segments are mutated in place).
   useActivityRevision()
+  // `§ 3` chord: hide/show just the textual READOUT — the dayline below stays put.
+  const readoutVisible = useZero0Readout()
 
   if (!mounted) {
     return (
@@ -88,9 +91,10 @@ export function Zero0Activity({ onOpen, dataRev }: { onOpen: (id: string) => voi
   return (
     <>
       {/* The ported presence DAYLINE — fluid pan/ripple + live NOW marker, sitting
-          above the textual rollup/feed. Clicking a bar drills the canvas into it. */}
+          above the textual rollup/feed. Clicking a bar drills the canvas into it.
+          NOT gated by `§ 3` — only the readout below is. */}
       <Zero0Dayline onOpen={onOpen} dataRev={dataRev} />
-      <ActivityReadout onOpen={onOpen} />
+      {readoutVisible && <ActivityReadout onOpen={onOpen} />}
     </>
   )
 }
@@ -150,11 +154,11 @@ function ActivityReadout({ onOpen }: { onOpen: (id: string) => void }) {
             {rollup.map((r) => {
               const pct = trackedMs > 0 ? (r.totalMs / trackedMs) * 100 : 0
               const isOpen = r.entityId === openId
-              // Each place paints its OWN color: its accent (set via `:color:`),
-              // inherited from an ancestor if unset, else the white+hairline fallback
-              // (the same convention as the dayline presence ticks — a colorless place
-              // like the root Individual reads as an OUTLINE bar). The place NOT
-              // currently in focus fades to half, keeping the /2 §3 focus effect.
+              // A bar is TINTED only when the user actually chose a color (via `:color:`,
+              // own or inherited). Otherwise it's the plain monochrome `bg-foreground`
+              // (dark on light, light on dark) — we DON'T apply the dayline's colorless
+              // white+hairline convention here, since an unset color like the root
+              // Individual's isn't a user choice. The out-of-focus place fades to half.
               const accent = accentOf(r.entityId)
               return (
                 <div key={r.entityId} className="flex items-center gap-2">
@@ -167,16 +171,17 @@ function ActivityReadout({ onOpen }: { onOpen: (id: string) => void }) {
                   >
                     {titleForAt(r.entityId, Date.now())}
                   </button>
-                  {/* Live proportional bar — the open place's fill grows each second,
-                      tinted to the entity's color. */}
+                  {/* Live proportional bar — the open place's fill grows each second.
+                      Tinted to the user-chosen color if any, else plain foreground. */}
                   <span className="relative h-1.5 flex-1 overflow-hidden rounded-[2px] bg-muted">
                     <span
-                      className="absolute inset-y-0 left-0 rounded-[2px] transition-[width] duration-1000 ease-linear"
+                      className={
+                        "absolute inset-y-0 left-0 rounded-[2px] transition-[width] duration-1000 ease-linear " +
+                        (accent ? "" : "bg-foreground")
+                      }
                       style={{
                         width: `${pct}%`,
-                        backgroundColor: accent ?? "#ffffff",
-                        // colorless ⇒ white fill outlined by a hairline so it reads.
-                        boxShadow: accent ? undefined : "inset 0 0 0 1px var(--border)",
+                        backgroundColor: accent ?? undefined,
                         opacity: isOpen ? 1 : 0.5,
                       }}
                     />
@@ -223,6 +228,19 @@ function ActivityReadout({ onOpen }: { onOpen: (id: string) => void }) {
           </ol>
         </div>
       )}
+
+      {/* Chord affordance — mirrors /2's footer. Clicking it (or pressing `§ 3`)
+          hides just this readout; the dayline above stays. */}
+      <div className="mt-2 border-t border-border/50 pt-1.5">
+        <button
+          type="button"
+          onClick={() => toggleZero0Readout()}
+          className="text-[10px] text-muted-foreground/60 transition-colors hover:text-foreground"
+          title="Hide the activity readout (toggle with § 3)"
+        >
+          {"§3 hide"}
+        </button>
+      </div>
     </section>
   )
 }
