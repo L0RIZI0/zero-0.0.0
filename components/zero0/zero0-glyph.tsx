@@ -23,11 +23,12 @@ const TRIANGLE_DOWN = "12,20 20,5 4,5"
 function KindShape({ kind, requested }: { kind: EntityKind; requested?: boolean }) {
   switch (kind) {
     case "task":
-      // A "sent as request" task pulls its bottom-right corner out into a small
-      // pennant/tail — ONE continuous silhouette (so it also fills when complete),
-      // not a detached stroke. Otherwise a plain square.
+      // A "sent as request" task pulls its bottom-right corner DOWN into a pennant
+      // point: the right edge runs whole and continues PAST the bottom to a tip, then
+      // a diagonal climbs back to the bottom edge. ONE continuous silhouette (so it
+      // fills when complete), not a detached stroke. Otherwise a plain square.
       return requested ? (
-        <path d="M4.5,4.5 L19.5,4.5 L19.5,15 L22,21.5 L14,19.5 L4.5,19.5 Z" />
+        <path d="M4.5,4.5 L19.5,4.5 L19.5,22.5 L13,19.5 L4.5,19.5 Z" />
       ) : (
         <rect x="4.5" y="4.5" width="15" height="15" />
       )
