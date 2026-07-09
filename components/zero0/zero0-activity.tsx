@@ -8,6 +8,7 @@ import {
   getDayRollup,
   getSegmentsForDay,
   clearActivityLog,
+  recordPresence,
   type DaySegment,
   type SpaceRollup,
 } from "@/lib/zero/activity-log"
@@ -71,7 +72,17 @@ function titleForAt(id: string, epoch: number): string {
  * segments) refresh via `useActivityRevision`; the per-second live counting lives in
  * {@link ActivityReadout} so this heavy dayline sibling is NOT re-rendered every tick.
  */
-export function Zero0Activity({ onOpen, dataRev }: { onOpen: (id: string) => void; dataRev: number }) {
+export function Zero0Activity({
+  onOpen,
+  dataRev,
+  currentContextId,
+}: {
+  onOpen: (id: string) => void
+  dataRev: number
+  /** The canvas's current place — re-seeded into the log right after a clear, so the
+   *  tracker keeps recording (a bare `clearActivityLog` would leave it idle). */
+  currentContextId: string
+}) {
   // Time formatting is client-only; gate to avoid an SSR/static-export hydration trap.
   const [mounted, setMounted] = useState(false)
   useEffect(() => setMounted(true), [])
@@ -94,7 +105,7 @@ export function Zero0Activity({ onOpen, dataRev }: { onOpen: (id: string) => voi
           above the textual rollup/feed. Clicking a bar drills the canvas into it.
           NOT gated by `§ 3` — only the readout below is. */}
       <Zero0Dayline onOpen={onOpen} dataRev={dataRev} />
-      {readoutVisible && <ActivityReadout onOpen={onOpen} />}
+      {readoutVisible && <ActivityReadout onOpen={onOpen} currentContextId={currentContextId} />}
     </>
   )
 }
@@ -105,7 +116,13 @@ export function Zero0Activity({ onOpen, dataRev }: { onOpen: (id: string) => voi
  * segment's duration, its bar width, and the "tracked" total all count up in real time,
  * exactly like /2's §3 inspector. Isolated from the dayline so the tick is cheap.
  */
-function ActivityReadout({ onOpen }: { onOpen: (id: string) => void }) {
+function ActivityReadout({
+  onOpen,
+  currentContextId,
+}: {
+  onOpen: (id: string) => void
+  currentContextId: string
+}) {
   // Structural changes here too (so a place switch refreshes immediately, not only on
   // the next whole-second tick).
   useActivityRevision()
@@ -137,7 +154,14 @@ function ActivityReadout({ onOpen }: { onOpen: (id: string) => void }) {
         </span>
         <button
           type="button"
-          onClick={() => clearActivityLog()}
+          onClick={() => {
+            // Wipe the log, then IMMEDIATELY re-open a segment for where we are now —
+            // otherwise `clearActivityLog` nulls the current place and, since the canvas
+            // only records on a context CHANGE, the tracker would sit idle (0s, no bars)
+            // until the next drill. This keeps it live: cleared, then counting again.
+            clearActivityLog()
+            recordPresence(currentContextId)
+          }}
           className="text-muted-foreground/60 transition-colors hover:text-foreground"
           aria-label="Clear today's activity log"
         >

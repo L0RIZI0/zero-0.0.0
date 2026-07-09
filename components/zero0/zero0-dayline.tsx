@@ -88,6 +88,12 @@ interface DaylineBar {
   /** A single-point occurrence (instant / zero-length) renders as a thin tick. */
   point: boolean
   /**
+   * A presence segment that is still OPEN (`leftAt === null`) — its right edge IS
+   * "now". Rendered anchored to its right edge (growing leftward) so its min-width
+   * never spills a tick PAST the NOW marker.
+   */
+  openEnded?: boolean
+  /**
    * For a sleep-titled planned Moment: a procedural night-sky CSS `background`
    * string (see {@link sleepSkyBackground}) painted INSTEAD of the flat accent, so
    * a night's sleep reads as a tiny starfield. Absent for every other bar.
@@ -135,6 +141,16 @@ export function Zero0Dayline({ onOpen, dataRev }: { onOpen: (id: string) => void
   const [hoveredKey, setHoveredKey] = useState<string | null>(null)
   // Hover state for the NOW marker's time tooltip.
   const [nowHover, setNowHover] = useState(false)
+  // A per-SECOND clock, live ONLY while the NOW marker is hovered, so the marker's
+  // tooltip can tick seconds without the whole app running a 1s interval (`useNow`
+  // is per-minute). Idle otherwise.
+  const [nowSec, setNowSec] = useState(() => Date.now())
+  useEffect(() => {
+    if (!nowHover) return
+    setNowSec(Date.now())
+    const id = setInterval(() => setNowSec(Date.now()), 1000)
+    return () => clearInterval(id)
+  }, [nowHover])
 
   const lo = winStart - RENDER_MARGIN_MS
   const hi = winStart + DAY_MS + RENDER_MARGIN_MS
@@ -208,6 +224,7 @@ export function Zero0Dayline({ onOpen, dataRev }: { onOpen: (id: string) => void
         range: rangeText(st, en),
         track: "presence",
         point: false,
+        openEnded: s.leftAt == null,
       })
     }
     return out
@@ -620,9 +637,14 @@ export function Zero0Dayline({ onOpen, dataRev }: { onOpen: (id: string) => void
                           if (draggedRef.current) return // a pan, not a tap
                           onOpen(p.id)
                         }}
-                        className="pointer-events-auto absolute bottom-0.5 cursor-default rounded-[2px] transition-[height,opacity] duration-150"
+                        className={cn(
+                          "pointer-events-auto absolute bottom-0.5 cursor-default rounded-[2px] transition-[height,opacity] duration-150",
+                          // Open segment: anchor the RIGHT edge at "now" and grow LEFT,
+                          // so a short segment's min-width can't spill past the marker.
+                          p.openEnded && "-translate-x-full",
+                        )}
                         style={{
-                          left: `${p.leftPct}%`,
+                          left: p.openEnded ? `${p.leftPct + p.widthPct}%` : `${p.leftPct}%`,
                           width: `max(3px, ${p.widthPct}%)`,
                           height: isHot ? 10 : 7,
                           backgroundColor: p.color,
@@ -666,7 +688,12 @@ export function Zero0Dayline({ onOpen, dataRev }: { onOpen: (id: string) => void
                       nowHover ? "opacity-100" : "opacity-0",
                     )}
                   >
-                    {new Date(now).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false })}
+                    {new Date(nowHover ? nowSec : now).toLocaleTimeString([], {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                      second: "2-digit",
+                      hour12: false,
+                    })}
                   </span>
                 </div>
               </div>

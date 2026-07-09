@@ -364,7 +364,7 @@ export function Zero0Canvas() {
     setMenu({ entity: e, x: ev.clientX, y: ev.clientY })
   }, [])
 
-  // Meta rows for the CURRENT open node ��� raw lifecycle data, kind-aware. Recomputed
+  // Meta rows for the CURRENT open node ����� raw lifecycle data, kind-aware. Recomputed
   // per render (cheap) rather than memoised, so it always mirrors `rev`.
   const meta = context ? KIND_META[context.kind] : undefined
   const metaRows: [string, string][] = []
@@ -431,7 +431,7 @@ export function Zero0Canvas() {
           inert={!showActivity}
         >
           <div className="overflow-hidden">
-            <Zero0Activity onOpen={navigateTo} dataRev={rev} />
+            <Zero0Activity onOpen={navigateTo} dataRev={rev} currentContextId={contextId} />
           </div>
         </div>
       )}
