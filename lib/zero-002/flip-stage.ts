@@ -1,0 +1,583 @@
+"use client"
+
+import gsap from "gsap"
+import { Flip } from "gsap/Flip"
+import { CustomEase } from "gsap/CustomEase"
+import { MORPH_SECONDS, subscribeBrat, spaceMorphPoints, type SpaceKind } from "./motion"
+import type { OriginRect } from "./placement"
+
+/**
+ * The GSAP Flip morph engine for Zero's focus-window region — a faithful port of
+ * the `flip-demo` prototype's SINGLE-NODE technique into the real app.
+ *
+ * The load-bearing idea: every entity is ONE persistent DOM node (see
+ * `EntityNode`). A do-list row / dock card and the window it opens into are the
+ * SAME element — it merely swaps between its collapsed (row/card) classes and
+ * its expanded (fixed window) classes. Nothing unmounts on open or close, so
+ * there is never a duplicate to fade out and never a stale captured rect: the
+ * window literally morphs back into the row it came from.
+ *
+ * Each transition is exactly ONE `Flip.getState` (captured BEFORE the React
+ * commit) + ONE `Flip.from` (run AFTER it). A single pass keeps every frame and
+ * its nested glyph/title measured against the same before/after snapshot.
+ *
+ *   - frames  → `absolute: "[data-flip-role='frame']"`, so Flip tweens REAL
+ *               width/height (edge-to-edge growth, zero text distortion).
+ *   - glyph + title → stay in the header's flex flow and animate via transforms
+ *               (+ a real `fontSize` tween), so the header keeps its true height
+ *               and the body never jumps. `nested: true` lets these in-flow
+ *               children compensate for their absolutely-flipping ancestor.
+ *
+ * Chrome that only exists while open (body, close button, divider) is NOT a flip
+ * target — it just fades. Deeper levels removed in a multi-level close telescope
+ * inward (scale + fade) so they read as retracting into their parent.
+ */
+if (typeof window !== "undefined") {
+  gsap.registerPlugin(Flip, CustomEase)
+  // "zeroLand": cubic-bezier(.62, .02, .07, .99). A smooth ease-in-out with a firm
+  // pull through the middle and a soft settle so the motion reads deliberate. Kept
+  // identical to MORPH_EASE in motion.ts so the GSAP Flip and the Framer-driven
+  // chrome share one curve.
+  CustomEase.create("zeroLand", "M0,0 C0.62,0.02 0.07,0.99 1,1")
+  // "zeroSend": cubic-bezier(.63, -0.25, 0, 1.12). An anticipate-then-overshoot
+  // curve — it dips BACK slightly before launching (the negative y1) and overshoots
+  // PAST the target before settling (y2 > 1), giving the send-as-request glyph/title
+  // slide a snappy, springy character. Used by EntityNode's request reflow Flip.
+  CustomEase.create("zeroSend", "M0,0 C0.63,-0.25 0,1.12 1,1")
+}
+// (CSS equivalent of the curve above lives in MORPH_CSS_EASE below.)
+
+export { gsap }
+
+/** Quick, elegant motion shared by every window — the `zeroLand` ease-in-out curve
+ *  (defined above): accelerates into a fast expansion/shrink, then eases out over
+ *  the final ~40% for a soft, gentle landing. Duration is the single canonical
+ *  `MORPH_SECONDS` from motion.ts so the GSAP morph and all Framer/CSS chrome share
+ *  one beat. */
+// Duration is the live BRAT (`MORPH_SECONDS`, from motion.ts). Both this GSAP-side
+// number and its CSS-string mirror are `let` and kept in lockstep with BRAT via the
+// subscription below, so the `§ 5` dev chord rescales the Flip morph and every CSS
+// chrome transition that reads DURATION_S. GSAP reads MORPH_DURATION at PLAY time, so
+// each new morph picks up the current value.
+export let MORPH_DURATION = MORPH_SECONDS
+export const MORPH_EASE = "zeroLand"
+/** Anticipate+overshoot curve for the "send as request" glyph/title reflow slide.
+ *  cubic-bezier(.63, -0.25, 0, 1.12). Registered as `zeroSend` above. */
+export const SEND_EASE = "zeroSend"
+/** Same duration as a CSS string, for the fade/transition chrome (spine bg,
+ *  divider, close-button reposition) that rides along with the Flip morph. */
+export let DURATION_S = `${MORPH_DURATION}s`
+/** The `zeroLand` curve as a CSS timing function, so chrome that fades along with
+ *  the morph (spine cover, divider) lands on the same beat as the Flip. */
+export const MORPH_CSS_EASE = "cubic-bezier(0.62, 0.02, 0.07, 0.99)"
+// Keep the GSAP duration + its CSS-string mirror locked to the live BRAT.
+subscribeBrat(() => {
+  MORPH_DURATION = MORPH_SECONDS
+  DURATION_S = `${MORPH_DURATION}s`
+})
+
+type FlipState = ReturnType<typeof Flip.getState>
+
+// The live focus-window region (registered by WorkSurface). Captured Flip
+// snapshots are scoped to it so we never pick up stray flip-ids elsewhere, and
+// its viewport rect is the origin for every fixed-positioned window.
+let stageEl: HTMLElement | null = null
+
+// Per-frame background colour snapshot from the most recent `captureStage`, keyed
+// by flip-id. Consumed once by the next `playStage` to drive the manual colour FLIP.
+let capturedBg: Map<string, string> | null = null
+
+// Per-frame drop-shadow snapshot from the most recent `captureStage`, keyed by
+// flip-id. Only NON-space frames are recorded (space frames are clip-path'd, which
+// hides any box-shadow). Consumed once by the next `playStage` so a closing window's
+// shadow can FADE OUT over the morph instead of vanishing the instant its window
+// classes (incl. `shadow-2xl`) are swapped for shadowless row/card classes.
+let capturedShadow: Map<string, string> | null = null
+
+// Per-frame SOURCE Space shape kind (leaf/ancestor/row/card) from the most recent
+// `captureStage`, keyed by flip-id. The clip-path is NOT animated by Flip (Flip would
+// interpolate the polygon percentages while the frame resizes, STRETCHING the hexagon
+// and drifting the angle). Instead `playStage` drives the clip itself, per frame, from
+// the LIVE pixel size via spaceMorphPoints — keeping the hexagon phase a PERFECT
+// regular hexagon and splitting it late into the octagon — interpolating between this
+// source kind and the committed target kind.
+let capturedSpaceKind: Map<string, SpaceKind> | null = null
+
+export function registerStage(el: HTMLElement | null) {
+  stageEl = el
+}
+
+/** Current viewport rect of the focus-window region — the origin every window's
+ *  fixed geometry is measured from. Falls back to a sane full-ish box before the
+ *  region has mounted (windows only appear after interaction, by which point it
+ *  is measured). */
+export function getRegionRect(): { top: number; left: number; width: number; height: number } {
+  if (!stageEl) return { top: 0, left: 0, width: 0, height: 0 }
+  const r = stageEl.getBoundingClientRect()
+  return { top: r.top, left: r.left, width: r.width, height: r.height }
+}
+
+/** A window node's stable key for imperative lookups during a morph. */
+export function windowKey(id: string, depth: number) {
+  return `${depth}::${id}`
+}
+
+/** A small box at the focus-region center — the fallback origin for a DETACHED
+ *  open with no on-screen placement (search / programmatic): the window grows
+ *  from / shrinks toward the middle rather than a corner. */
+function centerOriginRect(): OriginRect {
+  const r = getRegionRect()
+  const w = 56
+  const h = 56
+  return { top: r.top + r.height / 2 - h / 2, left: r.left + r.width / 2 - w / 2, width: w, height: h }
+}
+
+/**
+ * Grow (opening) or shrink (closing) a DETACHED window between its committed
+ * window rect and a visual `origin` rect (or the region center when null). A
+ * detached window has no persistent row to Flip out of / back into, so we drive
+ * it standalone (see work-surface) — but we deliberately MIRROR the feel of the
+ * in-place open instead of doing a flat zoom of the whole window:
+ *
+ *  - The FRAME (the coloured shape — incl. the Space leaf's clip-path octagon)
+ *    scales + translates between the origin and the full window via transform.
+ *    `transformOrigin: 0 0` maps the frame's top-left onto the origin's top-left
+ *    and scales by the size ratio. It stays opaque the whole trip so it reads as
+ *    a solid shape growing out of / retracting into the launch point.
+ *  - The BODY (do-list / surface content) is animated SEPARATELY so it does not
+ *    just zoom with the frame: on open it stays hidden while the empty shape
+ *    grows, then fades in over the BACK half (≈ the midpoint) once the frame is
+ *    near full size; on close it fades out FIRST so the shape finishes its trip
+ *    empty. This is the same "shape grows, then content materialises" rhythm as
+ *    the in-place open (see the opening/closing body tweens elsewhere here).
+ */
+export function morphDetached(
+  key: { id: string; depth: number },
+  origin: OriginRect | null,
+  opening: boolean,
+) {
+  if (!stageEl) return
+  const frame = stageEl.querySelector<HTMLElement>(
+    `[data-window="${key.id}"][data-depth="${key.depth}"][data-flip-role="frame"]`,
+  )
+  if (!frame) return
+  const body = stageEl.querySelector<HTMLElement>(
+    `[data-window="${key.id}"][data-depth="${key.depth}"] [data-body]`,
+  )
+  const target = frame.getBoundingClientRect()
+  if (target.width <= 0 || target.height <= 0) return
+  const src = origin ?? centerOriginRect()
+  // Geometry only — opacity is handled separately so the frame stays SOLID while it
+  // grows/shrinks (it should read as the window physically retracting into the chip,
+  // not dissolving). The fill is opaque, so a scaled-down frame simply looks like a
+  // tiny version of the window sitting on the chip.
+  const fromGeom = {
+    x: src.left - target.left,
+    y: src.top - target.top,
+    scaleX: src.width / target.width,
+    scaleY: src.height / target.height,
+    transformOrigin: "0 0",
+  }
+  const toGeom = { x: 0, y: 0, scaleX: 1, scaleY: 1, transformOrigin: "0 0" }
+  if (opening) {
+    gsap.fromTo(frame, fromGeom, {
+      ...toGeom,
+      duration: MORPH_DURATION,
+      ease: MORPH_EASE,
+      // Clear inline transform so the settled window has no leftover scale.
+      onComplete: () => gsap.set(frame, { clearProps: "transform,opacity" }),
+    })
+    // Snap to opaque almost immediately — only the first sliver hides the pop-in.
+    gsap.fromTo(frame, { opacity: 0 }, { opacity: 1, duration: MORPH_DURATION * 0.15, ease: "power1.out" })
+    if (body) {
+      // Content materialises over the BACK half: hidden while the empty shape grows
+      // out of the chip, then fades + lifts in once the frame is ~full size (so it
+      // isn't distorted by the frame's earlier non-uniform scale). Mirrors the
+      // in-place open's body reveal, just gated to the second half of the morph.
+      gsap.fromTo(
+        body,
+        { opacity: 0, y: 6 },
+        {
+          opacity: 1,
+          y: 0,
+          duration: MORPH_DURATION * 0.55,
+          delay: MORPH_DURATION * 0.45,
+          ease: MORPH_EASE,
+          onComplete: () => gsap.set(body, { clearProps: "opacity,transform" }),
+        },
+      )
+    }
+  } else {
+    gsap.fromTo(frame, toGeom, { ...fromGeom, duration: MORPH_DURATION, ease: MORPH_EASE })
+    // Stay fully opaque while it retracts; fade out only in the final sliver, by which
+    // point the frame is already chip-sized — so it tucks away rather than dissolving.
+    gsap.to(frame, {
+      opacity: 0,
+      duration: MORPH_DURATION * 0.2,
+      delay: MORPH_DURATION * 0.8,
+      ease: "power1.in",
+    })
+    if (body) {
+      // Content fades out FIRST (front third) so the shape completes its retraction
+      // into the chip empty — the exact mirror of the open's late content reveal.
+      gsap.to(body, { opacity: 0, duration: MORPH_DURATION * 0.35, ease: MORPH_EASE })
+    }
+  }
+}
+
+/**
+ * Snapshot the positions of EVERY flip part in the stage (frames + their
+ * glyph/title). MUST be called synchronously BEFORE the stack state change so it
+ * records the pre-morph layout; pair it with `playStage` after the React commit.
+ * Returns null when there is nothing to capture yet.
+ */
+export function captureStage(): FlipState | null {
+  if (!stageEl) return null
+  const targets = stageEl.querySelectorAll("[data-flip-id]")
+  if (!targets.length) return null
+  // Record every FRAME's pre-morph background colour, keyed by flip-id, so
+  // `playStage` can replay it into a real CSS transition (a manual colour FLIP —
+  // see playStage for why). Only frames carry a surface colour.
+  const colors = new Map<string, string>()
+  // Drop-shadow snapshot for the close-shadow fade (see capturedShadow). A frame
+  // that carries a clip-path is a Space window — its clip hides any box-shadow, so
+  // there is no visible shadow to fade and it is skipped. Only un-clipped (task /
+  // event / non-space) frames with a real shadow are recorded.
+  const shadows = new Map<string, string>()
+  const kinds = new Map<string, SpaceKind>()
+  stageEl.querySelectorAll<HTMLElement>("[data-flip-role='frame'][data-flip-id]").forEach((f) => {
+    const id = f.getAttribute("data-flip-id")
+    if (!id) return
+    // Surface colour + clip now live on the [data-shape] fill child (see entity-node);
+    // the drop shadow (shadow-2xl) still lives on the FRAME. So read bg/clip from the
+    // shape and the box-shadow from the frame.
+    const shape = f.querySelector<HTMLElement>("[data-shape]")
+    const cs = getComputedStyle(f)
+    const shapeCs = shape ? getComputedStyle(shape) : cs
+    colors.set(id, shapeCs.backgroundColor)
+    if ((!shapeCs.clipPath || shapeCs.clipPath === "none") && cs.boxShadow && cs.boxShadow !== "none") {
+      shadows.set(id, cs.boxShadow)
+    }
+    const kind = f.dataset.spaceKind as SpaceKind | undefined
+    if (kind) kinds.set(id, kind)
+  })
+  capturedBg = colors
+  capturedShadow = shadows
+  capturedSpaceKind = kinds
+  // NOTE: `clipPath` is deliberately NOT a Flip prop. Flip interpolates the polygon
+  // PERCENTAGES linearly while the frame's pixel size changes, so the corner angle
+  // drifts off 120° and the hexagon splits early. `playStage` instead drives the clip
+  // per frame from the live pixel size (true 120° throughout, late split) — see
+  // capturedSpaceKind. `backgroundColor` is likewise NOT a Flip prop: Flip would
+  // interpolate it from a bad captured value (black flash for entering windows, and a
+  // fight with the CSS transition on receding ancestors); we drive colour in playStage.
+  return Flip.getState(targets, { props: "fontSize,borderRadius" })
+}
+
+type Key = { id: string; depth: number }
+
+/**
+ * Animate the whole stage from a captured snapshot to its just-committed layout.
+ * One `Flip.from` morphs every persistent node (rows growing into windows,
+ * windows shrinking back into rows, ancestor headers gliding to/from their
+ * vertical spine). Layered on top: the opening window's chrome fades in; a
+ * closing window's body scales down into its row; deeper levels telescope away.
+ */
+export function playStage(
+  state: FlipState | null,
+  opts: {
+    opening: boolean
+    top: Key | null
+    closing: Key | null
+    fading: Key[]
+    /**
+     * When set, the opening `top` window is DETACHED (opened standalone, e.g. from
+     * a timeline chip) — it has no captured row to grow out of, so its frame is
+     * grown from `origin` (or region center when null) via `morphDetached`, and the
+     * in-place body scale is skipped (the frame transform already carries the body).
+     */
+    detachedTop?: { origin: OriginRect | null }
+    /**
+     * When true, re-query the live DOM for the morph targets instead of
+     * re-measuring the originally-captured element references. REQUIRED for
+     * cross-element morphs (pin/unpin) where the node that carries a given
+     * `data-flip-id` is REMOVED and a brand-new node with the same id is
+     * mounted elsewhere (row ⇄ dock card): Flip only matches the new node if it
+     * is present in the destination state, which means it must be re-queried.
+     * Window open/close reuses the same element reference, so it leaves this
+     * off and keeps the original (cheaper, conflict-free) behaviour.
+     */
+    rematch?: boolean
+  },
+) {
+  const stage = stageEl
+  if (state) {
+    // Space windows carry NO filter (their boundary is an SVG outline, not a
+    // drop-shadow), so there is nothing to strip here — the morph stays cheap
+    // because no layer is re-rasterized blurred on every frame as it grows.
+    Flip.from(state, {
+      duration: MORPH_DURATION,
+      ease: MORPH_EASE,
+      // Re-query live DOM so newly-mounted nodes (the swapped-in row/card) join
+      // the destination state and get matched to the captured node by flip-id.
+      targets: opts.rematch && stage ? stage.querySelectorAll("[data-flip-id]") : undefined,
+      absolute: "[data-flip-role='frame']",
+      nested: true,
+      // Flip animates only size/position here. The Space clip-path is driven SEPARATELY
+      // per frame (see the Space clip driver below) so the corner holds a true 120° and
+      // the hexagon splits late; background colour rides its own CSS transition.
+      // Clear leftover sub-pixel transforms / will-change on the inner glyph+title
+      // when the morph lands so they settle crisply instead of shaking at the very
+      // end (prototype fix).
+      onComplete: () => {
+        const inner = stageEl?.querySelectorAll("[data-flip-role='inner']")
+        if (inner?.length) gsap.set(inner, { clearProps: "transform,willChange" })
+      },
+    })
+
+    // Per-frame Space CLIP driver. Flip is NOT animating clipPath (it would interpolate
+    // polygon percentages while the frame resizes, stretching the hexagon and drifting
+    // the angle — see captureStage). Instead we tween progress 0→1 over the SAME
+    // duration/ease and, every frame, recompute each Space frame's clip points from its
+    // LIVE pixel size via spaceMorphPoints — which keeps the hexagon phase a PERFECT
+    // regular hexagon (centered, never stretched) and splits it late into the octagon.
+    // We rewrite the light-mode SVG outline polygon from the same points so the rim
+    // tracks the body exactly. `p` runs from the SOURCE shape (captured kind) to the
+    // committed TARGET shape (current data-space-kind).
+    if (stage && capturedSpaceKind) {
+      const sourceKinds = capturedSpaceKind
+      const frames = Array.from(
+        stage.querySelectorAll<HTMLElement>("[data-flip-role='frame'][data-flip-id][data-space-kind]"),
+      )
+        .map((f) => {
+          const id = f.getAttribute("data-flip-id") || ""
+          return {
+            el: f,
+            // The clip-path lives on the [data-shape] fill child now (so the frame can
+            // stay overflow-visible and not crop the glyph). Drive the clip THERE; the
+            // shape is inset-0 within the frame, so the frame's live rect IS its size.
+            shape: f.querySelector<HTMLElement>("[data-shape]") ?? f,
+            source: sourceKinds.get(id) ?? (f.dataset.spaceKind as SpaceKind),
+            target: f.dataset.spaceKind as SpaceKind,
+            outline: f.querySelector<SVGPolygonElement>("polygon[data-space-outline]"),
+          }
+        })
+        // Only drive frames whose SHAPE actually changes. A frame that stays the same
+        // kind (e.g. a settled leaf on an incidental re-render, or an ancestor pushed
+        // deeper) keeps React's committed clip — driving it would needlessly animate it
+        // from a degenerate q=0 rectangle and, if interrupted, leave it stuck as a rect.
+        .filter((fr) => fr.source !== fr.target)
+      if (frames.length) {
+        const driver = { p: 0 }
+        // Paint every driven frame at a given progress. Factored out so we can force
+        // the p=0 frame SYNCHRONOUSLY below.
+        const applyClip = (p: number) => {
+          for (const fr of frames) {
+            // Live pixel size — read each frame because Flip resizes them per frame.
+            const r = fr.el.getBoundingClientRect()
+            if (r.width <= 0 || r.height <= 0) continue
+            const pts = spaceMorphPoints(p, r.width, r.height, fr.source, fr.target)
+            fr.shape.style.clipPath = `polygon(${pts.map(([x, y]) => `${x}% ${y}%`).join(", ")})`
+            if (fr.outline) {
+              fr.outline.setAttribute("points", pts.map(([x, y]) => `${x},${y}`).join(" "))
+            }
+          }
+        }
+        // Paint the SOURCE (p=0) shape synchronously now: the gsap tween's first
+        // onUpdate doesn't fire until the next rAF, so without this the card→leaf
+        // frame 1 shows React's committed TARGET clip (e.g. a squeezed pinned dock
+        // card flashing the full leaf octagon) before snapping back to the source
+        // hexagon. Flip.from has already applied its invert transforms synchronously,
+        // so reading getBoundingClientRect here returns the inverted (source) rect and
+        // does not disturb the Flip timeline.
+        applyClip(0)
+        gsap.to(driver, {
+          p: 1,
+          duration: MORPH_DURATION,
+          ease: MORPH_EASE,
+          onUpdate: () => applyClip(driver.p),
+          // No onComplete reset: the final frame (p=1) already equals React's
+          // committed clip/outline for the target shape, so we LEAVE the inline value.
+          // Clearing it would briefly unclip the frame until React next re-renders
+          // (React set clipPath via inline style and won't re-apply an unchanged value).
+          // A later layout change (e.g. resize) re-renders and overrides it correctly.
+        })
+      }
+    }
+
+    // Manual colour FLIP. `Flip.from` makes every frame `position:absolute` and
+    // hard-sets `transition:none` for the whole morph (GSAP Flip internals), which
+    // kills the CSS `background-color` transition on the frame — so the per-depth
+    // surface recede (ancestors darkening when the stack crosses the cap) would
+    // SNAP. We replay it by hand: for each frame that existed before the morph,
+    // pin its OLD colour with no transition, force a reflow, then re-enable the
+    // colour transition and set the NEW (already-committed) colour so the browser
+    // tweens old→new over the morph. CSS colour interpolation is premultiplied, so
+    // there is no black midpoint. Entering windows have no captured colour → they
+    // are skipped and simply render at their target (no flash). Background colour
+    // is NOT a Flip prop, so nothing fights this tween (no dark dip).
+    if (capturedBg && stage) {
+      const from = capturedBg
+      stage.querySelectorAll<HTMLElement>("[data-flip-role='frame'][data-flip-id]").forEach((f) => {
+        const id = f.getAttribute("data-flip-id")
+        const prev = id ? from.get(id) : undefined
+        if (!prev) return
+        // The surface colour lives on the [data-shape] fill child now; the target colour
+        // EXPRESSION (`data-surface`) is still published on the frame. So tween the colour
+        // on the shape, but read the expression from the frame. (Fallback to the frame if
+        // the shape is missing, so this degrades gracefully.)
+        const shape = f.querySelector<HTMLElement>("[data-shape]") ?? f
+        // Compare against the RESOLVED current colour (to skip frames whose colour did
+        // not actually change), but TWEEN TO THE EXPRESSION (`data-surface`, e.g.
+        // `var(--background)` / `color-mix(...)`). getComputedStyle resolves the CSS
+        // variables to a concrete rgb that is frozen to the current theme; baking that
+        // into the inline style left some frames stuck on the old theme's colour after a
+        // dark↔light toggle (React only rewrites the inline colour when its expression
+        // STRING changes, which it doesn't for level-0 windows that read the same in both
+        // themes). Ending the tween on the expression keeps the inline colour live.
+        const targetResolved = getComputedStyle(shape).backgroundColor
+        const targetExpr = f.dataset.surface
+        if (!targetExpr || prev === targetResolved) return
+        shape.style.transition = "none"
+        shape.style.backgroundColor = prev
+        void shape.offsetWidth // force reflow so the old colour is committed first
+        shape.style.transition = `background-color ${DURATION_S} ${MORPH_CSS_EASE}`
+        shape.style.backgroundColor = targetExpr
+      })
+    }
+  }
+  // Grab the shadow snapshot into a local before clearing the module slot — it is
+  // consumed later (in the closing block below), after this reset point.
+  const shadowSnap = capturedShadow
+  capturedBg = null
+  capturedShadow = null
+  capturedSpaceKind = null
+  if (!stage) return
+
+  const sel = (k: Key, rest: string) => `[data-window="${k.id}"][data-depth="${k.depth}"] ${rest}`
+
+  if (opts.opening && opts.top) {
+    // DETACHED open: the window has no captured row to grow from. Drive its frame
+    // from the origin rect (or center) — the transform carries the body + clip — and
+    // skip the in-place body scale below so they don't compound.
+    if (opts.detachedTop) {
+      morphDetached(opts.top, opts.detachedTop.origin, true)
+    }
+
+    // Fade any pure-fade chrome in immediately — no delay, so it doesn't appear to lag
+    // behind the frame at the start. The do-list BODY is handled separately below (it
+    // also scales), so exclude it here to avoid two competing opacity tweens.
+    const chrome = stage.querySelectorAll(sel(opts.top, "[data-fade]:not([data-body])"))
+    if (chrome.length) gsap.fromTo(chrome, { opacity: 0 }, { opacity: 1, duration: MORPH_DURATION * 0.45 })
+
+    // Open body: scale UP + fade IN from center — the exact mirror of the close (which
+    // scales the body down to 0.15 + fades out). Previously the body only faded, so it
+    // looked static/full-size while the hexagon simply unveiled it; now it grows into
+    // the leaf frame as the frame expands. Skipped for a detached open (the frame
+    // transform already scales the body in).
+    const body = opts.detachedTop ? null : stage.querySelector<HTMLElement>(sel(opts.top, "[data-body]"))
+    if (body) {
+      gsap.fromTo(
+        body,
+        { opacity: 0, scale: 0.15 },
+        {
+          opacity: 1,
+          scale: 1,
+          transformOrigin: "center",
+          duration: MORPH_DURATION * 0.7,
+          ease: MORPH_EASE,
+          // Clear the inline transform afterward so the settled body has no leftover
+          // scale (it's a persistent node reused as a row/ancestor later).
+          onComplete: () => gsap.set(body, { clearProps: "scale,transform" }),
+        },
+      )
+    }
+
+    // Late chrome (the close button) eases in starting at 0.3 of the morph (0.6s at
+    // the default 2s) over 0.4 of it (0.8s), so it is fully visible at 0.7 (1.4s) and
+    // then keeps sliding to its target with the rest of the animation — rather than
+    // popping in early alongside the body. Scaled to MORPH_DURATION so it stays
+    // proportional at any duration.
+    const lateChrome = stage.querySelectorAll(sel(opts.top, "[data-fade-late]"))
+    if (lateChrome.length)
+      gsap.fromTo(
+        lateChrome,
+        { opacity: 0 },
+        { opacity: 1, duration: MORPH_DURATION * 0.4, delay: MORPH_DURATION * 0.3, ease: MORPH_EASE },
+      )
+  }
+
+  if (opts.closing) {
+    // Fade the closing window's drop shadow out over the FIRST ~HALF of the morph
+    // instead of letting it vanish instantly. The frame morphs into its row/card
+    // (it does NOT fade its opacity like the deeper telescoping frames), so when
+    // React swaps its window classes — incl. `shadow-2xl` — for the shadowless
+    // row/card classes, the shadow disappeared in one frame (very obvious in light
+    // mode). We re-apply the captured shadow inline and tween its colour alpha to 0
+    // so it lingers, shrinking with the frame, then gently fades as it nears the row.
+    const closingFrame = stage.querySelector<HTMLElement>(
+      `[data-window="${opts.closing.id}"][data-depth="${opts.closing.depth}"][data-flip-role="frame"]`,
+    )
+    const prevShadow = closingFrame ? shadowSnap?.get(closingFrame.getAttribute("data-flip-id") ?? "") : undefined
+    if (closingFrame && prevShadow) {
+      // Same shadow geometry (offset/blur/spread), but every colour stop forced to
+      // zero alpha — GSAP tweens the alpha down so the shadow fades rather than
+      // popping to `none` (which is not interpolable).
+      const fadedShadow = prevShadow.replace(/rgba?\([^)]*\)/g, "rgba(0, 0, 0, 0)")
+      gsap.fromTo(
+        closingFrame,
+        { boxShadow: prevShadow },
+        {
+          boxShadow: fadedShadow,
+          duration: MORPH_DURATION * 0.55,
+          ease: MORPH_EASE,
+          // Drop the inline boxShadow afterward so the persistent node falls back to
+          // its class-driven shadow when it is opened as a window again.
+          onComplete: () => gsap.set(closingFrame, { clearProps: "boxShadow" }),
+        },
+      )
+    }
+
+    const body = stage.querySelector<HTMLElement>(sel(opts.closing, "[data-body]"))
+    if (body) {
+      // Shrink toward the body's CENTER (was "top left", which made the content
+      // collapse into the upper-left corner of the window). Centering reads as the
+      // window's content imploding into the middle as it closes.
+      gsap.fromTo(
+        body,
+        { opacity: 1, scale: 1 },
+        { opacity: 0, scale: 0.15, transformOrigin: "center", duration: MORPH_DURATION * 0.7, ease: MORPH_EASE },
+      )
+    }
+
+    // Deeper levels removed in the same gesture telescope inward toward the same
+    // top-left origin, scaling down + fading. Pure transform/opacity (GPU cheap),
+    // and it keeps covering the parent's do-list until they're gone.
+    opts.fading.forEach(({ id, depth }) => {
+      const win = stage.querySelector<HTMLElement>(`[data-window="${id}"][data-depth="${depth}"][data-flip-role="frame"]`)
+      if (!win) return
+      gsap.fromTo(
+        win,
+        { opacity: 1, scale: 1 },
+        {
+          opacity: 0,
+          scale: Math.max(0.1, 0.4 - depth * 0.08),
+          transformOrigin: "top left",
+          duration: MORPH_DURATION * 0.7,
+          ease: MORPH_EASE,
+        },
+      )
+    })
+  }
+}
+
+/** Clear the transient inline props the telescope tween wrote, so persistent
+ *  nodes are clean if shown again. */
+export function clearFadingProps(fading: Key[]) {
+  const stage = stageEl
+  if (!stage) return
+  fading.forEach(({ id, depth }) => {
+    const win = stage.querySelector<HTMLElement>(`[data-window="${id}"][data-depth="${depth}"][data-flip-role="frame"]`)
+    if (win) gsap.set(win, { clearProps: "opacity,scale,transform" })
+  })
+}

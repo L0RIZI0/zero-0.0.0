@@ -4,23 +4,26 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
 
-// Tiny monospace pill that lets you hop between the live build at `/` and the
-// frozen pre-ribbon snapshot at `/1`. It reads the current route, highlights
-// the active version, and links to the other — a discrete way to A/B the two
-// builds inside one app instead of separate Electron builds or retyping URLs.
+// Tiny monospace pill that lets you hop between the routes: the live root canvas
+// at `/` (label "0"), the frozen pre-ribbon snapshot at `/1`, and the frozen
+// log-model app at `/2`. It reads the current route, highlights the active
+// version, and links to the others — a discrete way to A/B the builds inside one
+// app instead of separate Electron builds or retyping URLs.
 //
-// Lives outside both the `zero` and `zero-000` trees on purpose: it is shared
-// navigation chrome, not part of either frozen/live app's logic, so a single
-// copy can sit in both headers.
+// Lives outside the `zero`, `zero-000`, and `zero-002` trees on purpose: it is
+// shared navigation chrome, not part of any frozen/live app's logic, so a single
+// copy can sit in every header.
 const VERSIONS = [
-  { href: "/", label: "0" },
-  { href: "/1", label: "/1" },
+  { href: "/", label: "0", title: "Live root canvas" },
+  { href: "/1", label: "/1", title: "Frozen pre-ribbon snapshot" },
+  { href: "/2", label: "/2", title: "Frozen log-model app" },
 ] as const
 
 export function VersionSwitcher() {
   const pathname = usePathname()
-  // `/1` (and anything nested under it) is the snapshot; everything else is live.
-  const active = pathname?.startsWith("/1") ? "/1" : "/"
+  // `/1` and `/2` (and anything nested) are the frozen snapshots; the exact root
+  // `/` is the live canvas.
+  const active = pathname?.startsWith("/1") ? "/1" : pathname?.startsWith("/2") ? "/2" : "/"
 
   return (
     <div
@@ -35,7 +38,7 @@ export function VersionSwitcher() {
             key={v.href}
             href={v.href}
             aria-current={isActive ? "page" : undefined}
-            title={v.href === "/" ? "Live version" : "Frozen pre-ribbon snapshot"}
+            title={v.title}
             className={cn(
               "rounded-full px-1.5 py-1 transition-colors",
               isActive
