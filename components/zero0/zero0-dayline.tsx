@@ -598,15 +598,15 @@ export function Zero0Dayline({ onOpen, dataRev }: { onOpen: (id: string) => void
                           if (draggedRef.current) return // a pan, not a tap
                           onOpen(p.id)
                         }}
-                        className="pointer-events-auto absolute bottom-px cursor-default rounded-full border transition-[height,opacity] duration-150"
+                        className="pointer-events-auto absolute bottom-0.5 cursor-default rounded-[2px] border transition-[height,opacity] duration-150"
                         style={{
                           left: `${p.leftPct}%`,
                           width: `max(3px, ${p.widthPct}%)`,
-                          height: isHot ? 7 : 4,
+                          height: isHot ? 10 : 7,
                           backgroundColor: "#ffffff",
                           borderColor: "var(--border)",
                           borderWidth: 1,
-                          opacity: isHot ? 1 : 0.9,
+                          opacity: 1,
                           zIndex: isHot ? 15 : 10,
                         }}
                       />
@@ -627,8 +627,8 @@ export function Zero0Dayline({ onOpen, dataRev }: { onOpen: (id: string) => void
                 className="pointer-events-none absolute inset-0 will-change-transform"
               >
                 <div
-                  className="pointer-events-auto absolute -bottom-px -top-px w-[2px] -translate-x-1/2 rounded-full"
-                  style={{ left: `${nowPct}%`, backgroundColor: NOW_COLOR, boxShadow: `0 0 4px ${NOW_COLOR}` }}
+                  className="pointer-events-auto absolute -bottom-px -top-px w-px -translate-x-1/2"
+                  style={{ left: `${nowPct}%`, backgroundColor: NOW_COLOR }}
                 >
                   <span
                     className="absolute -bottom-1 -top-1 left-1/2 w-4 -translate-x-1/2 cursor-default"

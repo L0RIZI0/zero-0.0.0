@@ -630,6 +630,10 @@ export function Zero0Canvas() {
                 aria-selected={false}
                 aria-label={hex}
                 title={hex}
+                // Keep focus on the create input: preventing mousedown's default stops
+                // the button from stealing focus, so the field stays focused and Enter
+                // fires the command right after picking (no manual re-click needed).
+                onMouseDown={(ev) => ev.preventDefault()}
                 onClick={() => setDraft(`:color:${hex.replace(/^#/, "")}`)}
                 className="h-4 w-4 rounded-sm border border-border transition-transform hover:scale-125"
                 style={{ backgroundColor: hex }}
