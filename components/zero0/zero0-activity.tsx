@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useLayoutEffect, useRef, useState } from "react"
 import { getEntity, getInheritedAccent } from "@/lib/zero/data"
 import { titleAt } from "@/lib/zero/entity-log"
 import {
@@ -116,6 +116,44 @@ export function Zero0Activity({
  * segment's duration, its bar width, and the "tracked" total all count up in real time,
  * exactly like /2's §3 inspector. Isolated from the dayline so the tick is cheap.
  */
+/**
+ * A tiny dep-free FLIP animator for a keyed list. Rows keep stable DOM nodes (via
+ * their React `key`), so when the rollup re-sorts and a row changes position, we
+ * translate it from its PREVIOUS top back to zero and let CSS ease it into place —
+ * turning the abrupt jump into a smooth slide. Positions that didn't move (the common
+ * per-second re-render) get delta 0 and are skipped. Kept manual on purpose: zero0
+ * stays free of the `motion` dependency the rest of the app uses.
+ */
+function useFlipRows() {
+  const nodes = useRef(new Map<string, HTMLElement>())
+  const prevTops = useRef(new Map<string, number>())
+  useLayoutEffect(() => {
+    const nextTops = new Map<string, number>()
+    nodes.current.forEach((el, id) => nextTops.set(id, el.getBoundingClientRect().top))
+    console.log("[v0] flip tops=", [...nextTops.entries()].map(([id, t]) => `${id.slice(0, 8)}:${Math.round(t)}`).join(" "))
+    nodes.current.forEach((el, id) => {
+      const prev = prevTops.current.get(id)
+      const next = nextTops.get(id)
+      if (prev != null && next != null && prev !== next) console.log("[v0] flip MOVE", id, "delta=", prev - next)
+      if (prev == null || next == null || prev === next) return
+      const delta = prev - next
+      // First: jump back to the old position with no transition…
+      el.style.transition = "none"
+      el.style.transform = `translateY(${delta}px)`
+      // …then on the next frame, release to the new position with an eased transition.
+      requestAnimationFrame(() => {
+        el.style.transition = "transform 320ms cubic-bezier(0.22, 1, 0.36, 1)"
+        el.style.transform = ""
+      })
+    })
+    prevTops.current = nextTops
+  })
+  return (id: string) => (el: HTMLElement | null) => {
+    if (el) nodes.current.set(id, el)
+    else nodes.current.delete(id)
+  }
+}
+
 function ActivityReadout({
   onOpen,
   currentContextId,
@@ -123,6 +161,7 @@ function ActivityReadout({
   onOpen: (id: string) => void
   currentContextId: string
 }) {
+  const flipRef = useFlipRows()
   // Structural changes here too (so a place switch refreshes immediately, not only on
   // the next whole-second tick).
   useActivityRevision()
@@ -179,13 +218,15 @@ function ActivityReadout({
               const pct = trackedMs > 0 ? (r.totalMs / trackedMs) * 100 : 0
               const isOpen = r.entityId === openId
               // A bar is TINTED only when the user actually chose a color (via `:color:`,
-              // own or inherited). Otherwise it's the plain monochrome `bg-foreground`
-              // (dark on light, light on dark) — we DON'T apply the dayline's colorless
-              // white+hairline convention here, since an unset color like the root
-              // Individual's isn't a user choice. The out-of-focus place fades to half.
+              // own or inherited). A COLORLESS place (e.g. the root Individual) instead
+              // renders as an OUTLINE that inverts with the theme — border is always the
+              // foreground (white in dark, dark in light), and the interior is filled in
+              // light mode (bg-background = white) but empty in dark mode. Net: dark = no
+              // fill + white hairline; light = white fill + dark hairline. The
+              // out-of-focus place fades to half.
               const accent = accentOf(r.entityId)
               return (
-                <div key={r.entityId} className="flex items-center gap-2">
+                <div key={r.entityId} ref={flipRef(r.entityId)} className="flex items-center gap-2">
                   <Zero0Glyph kind={kindOf(r.entityId)} className="h-3 w-3 shrink-0 text-muted-foreground" />
                   <button
                     type="button"
@@ -196,12 +237,12 @@ function ActivityReadout({
                     {titleForAt(r.entityId, Date.now())}
                   </button>
                   {/* Live proportional bar — the open place's fill grows each second.
-                      Tinted to the user-chosen color if any, else plain foreground. */}
+                      Tinted to the user-chosen color, else a theme-inverting outline. */}
                   <span className="relative h-1.5 flex-1 overflow-hidden rounded-[2px] bg-muted">
                     <span
                       className={
                         "absolute inset-y-0 left-0 rounded-[2px] transition-[width] duration-1000 ease-linear " +
-                        (accent ? "" : "bg-foreground")
+                        (accent ? "" : "border border-foreground bg-background dark:bg-transparent")
                       }
                       style={{
                         width: `${pct}%`,
