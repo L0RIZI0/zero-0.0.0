@@ -131,6 +131,48 @@ function parseTimeParam(value: string): TimeParam | null {
   return at ? { kind: "point", at } : null
 }
 
+/**
+ * Creatable kinds keyed by their ":xxxx" selector = the first 4 letters of the kind
+ * name. Non-creatable kinds (individual, soul) are intentionally absent. All four-letter
+ * keys are unique, so there's no collision.
+ */
+const KIND_PREFIX: Record<string, EntityKind> = {
+  spac: "space",
+  task: "task",
+  mome: "moment",
+  inst: "instant",
+  reso: "resource",
+  comm: "community",
+  orga: "organism",
+}
+
+export interface KindPrefixParse {
+  kind: EntityKind
+  /** The remaining title after the ":xxxx" selector token is stripped. */
+  rest: string
+}
+
+/**
+ * Detect a leading ":xxxx" KIND SELECTOR as the first whitespace-delimited token —
+ * ":" followed by (at least) the first 4 letters of a creatable kind name. Examples:
+ *   ":spac Day Job"   → { kind: "space",     rest: "Day Job" }
+ *   ":comm Friends"   → { kind: "community", rest: "Friends" }
+ *   ":mome Slept --2330-0630" → { kind: "moment", rest: "Slept --2330-0630" }
+ * Case-insensitive; a longer token is truncated to 4 (so ":space" and ":spac" both
+ * work). Returns null when the first token isn't a recognized selector, so the caller
+ * falls back to the default create path.
+ */
+export function parseKindPrefix(raw: string): KindPrefixParse | null {
+  const trimmed = raw.trimStart()
+  if (!trimmed.startsWith(":")) return null
+  const spaceIdx = trimmed.search(/\s/)
+  const token = (spaceIdx === -1 ? trimmed : trimmed.slice(0, spaceIdx)).slice(1).toLowerCase()
+  const kind = KIND_PREFIX[token.slice(0, 4)]
+  if (!kind) return null
+  const rest = spaceIdx === -1 ? "" : trimmed.slice(spaceIdx + 1).trim()
+  return { kind, rest }
+}
+
 export interface CreateFieldParse {
   /** Title with all `--params` stripped (verb kept, e.g. "Slept"). */
   title: string

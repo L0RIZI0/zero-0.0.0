@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { VersionSwitcher } from "@/components/version-switcher"
 import { Zero0ThemeToggle } from "./zero0-theme-toggle"
+import { Zero0Glyph } from "./zero0-glyph"
 import {
   currentUser,
   getChildren,
@@ -15,41 +16,12 @@ import {
 } from "@/lib/zero/data"
 import { KIND_META, isClosed } from "@/lib/zero/kinds"
 import { isDone } from "@/lib/zero/entity-log"
-import { parseCreateField } from "@/lib/zero/create-parse"
-import type { Entity, EntityKind } from "@/lib/zero/types"
+import { parseCreateField, parseKindPrefix } from "@/lib/zero/create-parse"
+import type { Entity } from "@/lib/zero/types"
 
 // The root context: the Individual whose space IS the homeview. Everything the
 // user grows on the canvas nests under this id. Matches the seed in `data.ts`.
 const ROOT_ID = "s_root"
-
-// A monospace, self-contained glyph per kind — outline vs filled forms echoing the
-// ontology's geometry (square Task, hexagon Space, diamond Resource, triangle-up
-// Moment, triangle-down Instant, pentagon Community, circle Organism, the tilted
-// Individual, the Soul dot). Kept as plain text on purpose: zero0 reads as raw
-// DATA, and this stays independent of the orphaned `components/zero` NodeGlyph (a
-// GSAP component) so zero0 owns no heavy UI deps.
-const GLYPH_OUTLINE: Record<EntityKind, string> = {
-  task: "□",
-  space: "⬡",
-  resource: "◇",
-  moment: "△",
-  instant: "▽",
-  community: "⬠",
-  organism: "○",
-  individual: "◈",
-  soul: "◦",
-}
-const GLYPH_FILLED: Record<EntityKind, string> = {
-  task: "■",
-  space: "⬢",
-  resource: "◆",
-  moment: "▲",
-  instant: "▼",
-  community: "⬟",
-  organism: "●",
-  individual: "◆",
-  soul: "•",
-}
 
 /**
  * Root `/` canvas — the stripped, "seemingly blank" slate for the next iteration
@@ -107,11 +79,30 @@ export function Zero0Canvas() {
   const create = useCallback(() => {
     const raw = draft.trim()
     if (!raw) return
-    // The backbone's "terminal hybrid" parser: a `--time` param (optionally with a
-    // past-tense verb) creates a scheduled Moment/Instant, else a plain Task. New
-    // entities nest under the CURRENT drilled-in context.
-    const parsed = parseCreateField(raw)
-    if (parsed) {
+
+    // 1) A leading ":xxxx" selector (":" + first 4 letters of a kind) FORCES the kind
+    //    (e.g. ":spac Day Job" → Space). It's stripped, and the remaining text still
+    //    runs through the time grammar below.
+    const kindPrefix = parseKindPrefix(raw)
+    const body = kindPrefix ? kindPrefix.rest : raw
+    if (!body) return // e.g. ":space" with no title — nothing to create
+
+    // 2) The backbone's "terminal hybrid" parser: a `--time` param (optionally with a
+    //    past-tense verb) yields a scheduled Moment/Instant/Task. New entities nest
+    //    under the CURRENT drilled-in context.
+    const parsed = parseCreateField(body)
+
+    if (kindPrefix) {
+      // Explicit kind wins over the parser's verb-inferred kind; keep any parsed
+      // schedule/done state from the time grammar.
+      addParsedEntity({
+        title: parsed ? parsed.title : body,
+        spaceId: contextId,
+        kind: kindPrefix.kind,
+        schedule: parsed?.schedule,
+        completed: parsed?.completed ?? false,
+      })
+    } else if (parsed) {
       addParsedEntity({
         title: parsed.title,
         spaceId: contextId,
@@ -120,7 +111,7 @@ export function Zero0Canvas() {
         completed: parsed.completed,
       })
     } else {
-      addTask({ title: raw, spaceId: contextId })
+      addTask({ title: body, spaceId: contextId })
     }
     setDraft("")
     bump()
@@ -216,7 +207,6 @@ export function Zero0Canvas() {
               const meta = KIND_META[e.kind]
               const done = isDone(e)
               const closed = isClosed(e)
-              const glyph = closed ? GLYPH_FILLED[e.kind] : GLYPH_OUTLINE[e.kind]
               const showCheck = done && !closed && meta.checkmarkWhenDone
               return (
                 <li
@@ -226,15 +216,15 @@ export function Zero0Canvas() {
                   <span className="w-6 shrink-0 text-right text-muted-foreground">
                     {String(i + 1).padStart(2, "0")}
                   </span>
-                  {/* Glyph-state column: outline vs filled = open vs closed, with a
-                      trailing check for a done-but-open completable. Read-only. */}
+                  {/* Glyph-state column: static SVG per kind — outline vs filled =
+                      open vs closed, with an overlaid check for a done-but-open
+                      completable. Read-only. */}
                   <span
-                    className="w-6 shrink-0 text-center text-foreground"
+                    className="flex w-6 shrink-0 justify-center self-center text-foreground"
                     aria-label={closed ? "closed" : done ? "done" : "open"}
                     title={closed ? "closed" : done ? "done" : "open"}
                   >
-                    {glyph}
-                    {showCheck && <span className="text-muted-foreground">✓</span>}
+                    <Zero0Glyph kind={e.kind} filled={closed} done={showCheck} className="h-3.5 w-3.5" />
                   </span>
                   {/* Kind label — now STATIC text, not the toggle. */}
                   <span className="w-16 shrink-0 uppercase tracking-wider text-muted-foreground">
@@ -265,7 +255,7 @@ export function Zero0Canvas() {
                     }
                     title={meta.completable ? "Toggle done" : "Not completable"}
                   >
-                    {meta.completable ? (done ? "[done]" : "[ open]") : "—"}
+                    {meta.completable ? (done ? "[done]" : "[open]") : "—"}
                   </button>
                   <button
                     type="button"
@@ -297,7 +287,7 @@ export function Zero0Canvas() {
               if (ev.nativeEvent.isComposing || ev.keyCode === 229) return
               create()
             }}
-            placeholder="create entity…  (try:  Slept --2330-0630)"
+            placeholder="create entity…  (try:  :spac Day Job   ·   Slept --2330-0630)"
             className="flex-1 bg-transparent text-foreground placeholder:text-muted-foreground/60 focus:outline-none"
             aria-label="Create entity"
           />
