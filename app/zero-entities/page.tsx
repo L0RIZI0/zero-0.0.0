@@ -204,12 +204,14 @@ const KINDS: EntityRow[] = [
     glyphDesc: "An equilateral triangle pointing down",
     desc: "A point in time — a single Instant, possibly recurrent.",
     creatable: "yes",
-    lifecycle: "Open / closed + undone / done",
+    lifecycle: "Open / done / complete / closed",
+    fields: ["An Instant auto-COMPLETES once its moment has passed, even if never marked done."],
     states: [
       { label: "Open" },
-      { label: "Done", showCheck: true },
-      { label: "Closed", filled: true },
-      { label: "Cancelled", struck: true },
+      { label: "Done — check, stays open", showCheck: true },
+      { label: "Complete — filled", filled: true },
+      { label: "Closed — faded", faded: true },
+      { label: "Cancelled — barred + struck", struck: true },
     ],
   },
   {
@@ -219,10 +221,11 @@ const KINDS: EntityRow[] = [
     glyphDesc: "A regular pentagon",
     desc: "A shared Space with an Access Rule.",
     creatable: "yes",
-    lifecycle: "Open / closed",
+    lifecycle: "Open / retired (fades)",
+    fields: ["Not completable — it reaches a TERMINAL end (retired) rather than being done or completed."],
     states: [
       { label: "Open" },
-      { label: "Closed — retired", filled: true },
+      { label: "Retired — faded", faded: true },
     ],
   },
   {
@@ -232,10 +235,11 @@ const KINDS: EntityRow[] = [
     glyphDesc: "A regular circle",
     desc: "A living entity — a company, an institution, a point of view.",
     creatable: "yes",
-    lifecycle: "Alive / dead",
+    lifecycle: "Alive / dead (fades)",
+    fields: ["Not completable — it reaches a TERMINAL end (dead) rather than being done or completed."],
     states: [
       { label: "Alive" },
-      { label: "Dead", filled: true },
+      { label: "Dead — faded", faded: true },
     ],
   },
 ]
@@ -246,7 +250,7 @@ const META_FIELDS: { n: number; label: string; note: string }[] = [
   {
     n: 1,
     label: "Instants log",
-    note: "Creation (\u201Cbirth\u201D), completion (\u201Cdeath\u201D), access entries & exits with who and when, status changes, close and cancel dates, and rebirth suggestions.",
+    note: "Creation (\u201Cbirth\u201D), done and complete marks, close and cancel dates, access entries & exits with who and when, status changes, and reopen/rebirth suggestions.",
   },
   { n: 2, label: "Title", note: "A mutable, possibly repeated label." },
   { n: 3, label: "Description", note: "A list of entities plus a layout." },
