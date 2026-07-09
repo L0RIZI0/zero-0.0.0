@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { VersionSwitcher } from "@/components/version-switcher"
 import { Zero0ThemeToggle } from "./zero0-theme-toggle"
+import { Zero0UpdateIndicator } from "./zero0-update-indicator"
 import { Zero0Activity } from "./zero0-activity"
 import { recordPresence } from "@/lib/zero/activity-log"
 import { Zero0Glyph } from "./zero0-glyph"
@@ -676,6 +677,11 @@ export function Zero0Canvas() {
         >
           activity
         </button>
+        {/* Surface-only "restart to update" affordance. Renders null on the web and
+            whenever no background update is staged, so it adds no chrome by default. */}
+        <span className="ml-auto">
+          <Zero0UpdateIndicator />
+        </span>
       </footer>
 
       {menu && <Zero0EntityMenu anchor={menu} onMutate={bump} onClose={() => setMenu(null)} />}
