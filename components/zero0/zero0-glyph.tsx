@@ -62,7 +62,7 @@ function KindShape({ kind, requested }: { kind: EntityKind; requested?: boolean 
 
 export function Zero0Glyph({
   kind,
-  complete,
+  filled,
   done,
   cancelled,
   requested,
@@ -70,14 +70,15 @@ export function Zero0Glyph({
 }: {
   kind: EntityKind
   /**
-   * COMPLETE (the success verdict) ⇒ the shape FILLS solid. This is the ONLY thing
-   * that fills — a plain "closed" entity keeps its outline (the row fades instead).
+   * FILLED ⇒ the shape fills solid. Fill DERIVES from close: a closed entity of a
+   * fillable kind (task/space/resource/moment/instant) fills. Terminal kinds and
+   * cancelled entities never fill (the row fades / a bar is drawn instead).
    */
-  complete?: boolean
+  filled?: boolean
   /**
    * DONE mark — overlay a check on the shape. Drawn whether the shape is outline or
-   * filled: on a filled (complete) shape the check strokes in the BACKGROUND colour
-   * so it stays legible. Independent of complete — a done entity reads as done.
+   * filled: on a filled shape the check strokes in the BACKGROUND colour so it stays
+   * legible. Independent of fill — a done-but-open entity reads as done.
    */
   done?: boolean
   /**
@@ -96,9 +97,9 @@ export function Zero0Glyph({
     <svg
       viewBox="0 0 24 24"
       className={className}
-      fill={complete ? "currentColor" : "none"}
+      fill={filled ? "currentColor" : "none"}
       stroke="currentColor"
-      strokeWidth={complete ? 0 : 1.6}
+      strokeWidth={filled ? 0 : 1.6}
       strokeLinejoin="round"
       strokeLinecap="round"
       aria-hidden="true"
@@ -109,7 +110,7 @@ export function Zero0Glyph({
         <path
           d="M7.5 12.5 L10.5 15.5 L16.5 8.5"
           fill="none"
-          stroke={complete ? "var(--background)" : "currentColor"}
+          stroke={filled ? "var(--background)" : "currentColor"}
           strokeWidth="1.8"
         />
       )}

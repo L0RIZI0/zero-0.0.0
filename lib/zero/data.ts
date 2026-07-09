@@ -1,5 +1,5 @@
 import type { Asset, Entity, EntityKind, Instant, Recurrence, Schedule, Resource, EntityBase, TaskPriority, User } from "./types"
-import { isCompletable, isClosed, isComplete } from "./kinds"
+import { hasDoneState, isClosed } from "./kinds"
 import {
   isDone,
   isCancelled,
@@ -1565,9 +1565,9 @@ export function setEntityTitle(id: string, title: string): void {
 export function setEntityCompleted(id: string, completed: boolean): void {
   const stored = byId.get(id)
   if (!stored) return
-  // Only completable kinds hold a normal "done". Community/Organism/Individual/Soul
-  // reach a TERMINAL state (retire/death) instead — ignore completion writes on them.
-  if (completed && !isCompletable(stored.kind)) return
+  // Only kinds WITH a done axis (Task / Moment / Instant) hold a "done" checkmark.
+  // Space/Resource only open⟷close; terminal kinds retire/die — ignore done writes on them.
+  if (completed && !hasDoneState(stored.kind)) return
   // Only append a log entry on a REAL state change (guards against redundant sets
   // adding duplicate done/undone Instants).
   const changed = isDone(stored) !== completed
@@ -1582,37 +1582,6 @@ export function setEntityCompleted(id: string, completed: boolean): void {
   if (changed) {
     const log = ensureEntityLog(stored)
     stored.log = appendInstant(log, makeInstant(completed ? "done" : "undone", entity.completedOn ?? now))
-  }
-  persist()
-}
-
-/**
- * Mark an entity COMPLETE (the success verdict) or clear that verdict. Complete is a
- * SEPARATE action from "done": it IMPLIES done (marks it if needed) and CLOSES the
- * entity — it is the only thing that FILLS the glyph. Completable kinds only.
- *
- * Clearing (`complete=false`) is used by {@link reopenEntity}: it appends an
- * `uncompleted` entry so the DERIVED "done → next midnight ⇒ complete" rule stays
- * suppressed and a reopened entity genuinely stays open.
- */
-export function setEntityComplete(id: string, complete: boolean): void {
-  const stored = byId.get(id)
-  if (!stored) return
-  if (complete && !isCompletable(stored.kind)) return
-  const entity = mutable(stored)
-  const now = Date.now()
-  // Complete implies Done — set the done marker first if it isn't already.
-  if (complete && !isDone(stored)) {
-    entity.completed = true
-    entity.completedOn = now
-    stored.log = appendInstant(ensureEntityLog(stored), makeInstant("done", now))
-  }
-  entity.complete = complete
-  entity.completeOn = complete ? now : undefined
-  stored.log = appendInstant(ensureEntityLog(stored), makeInstant(complete ? "completed" : "uncompleted", now))
-  if (!userEntityIds.has(id)) {
-    // Seeded entity — persist as an override patch (log rebuilt from these on reload).
-    seededOverrides.set(id, { ...seededOverrides.get(id), complete, completeOn: entity.completeOn })
   }
   persist()
 }
@@ -1905,19 +1874,28 @@ export function setEntityClosed(id: string, closed: boolean): void {
 }
 
 /**
- * REOPEN an entity that ended for ANY reason. Since an entity can be closed via three
- * routes — Complete (the verdict), Cancel (called off), or a plain Close — there is a
- * SINGLE return path, Reopen, which clears whichever applied:
- *   1. un-cancel (if cancelled), 2. un-complete (if complete — explicit or derived),
- *   3. lift the manual/derived close (`setEntityClosed(false)` sets the `reopened`
- *      override). Order matters: clearing complete appends `uncompleted`, and the
- *      final `reopened` override guarantees the derived midnight-complete rule can't
- *      immediately re-close it. Leaves the entity DONE-but-open if it was done.
+ * REOPEN an entity that ended for ANY reason. Since an entity can close via a few
+ * routes — Cancel (called off), a plain Close, a DERIVED time-close, or a LEGACY
+ * complete verdict from old data — there is a SINGLE return path, Reopen, which
+ * clears whichever applied:
+ *   1. un-cancel (if cancelled), 2. clear any legacy `complete` scalar, 3. lift the
+ *      manual/derived close (`setEntityClosed(false)` sets the `reopened` override,
+ *      which short-circuits BOTH the derived midnight/end rule AND the legacy
+ *      complete read in {@link isClosed}). Leaves the entity DONE-but-open if it was
+ *      done (checkmark stays, opacity returns to 1).
  */
 export function reopenEntity(id: string): void {
   const stored = byId.get(id)
   if (!stored) return
   if (isCancelled(stored)) setEventCancelled(id, false)
-  if (isComplete(stored)) setEntityComplete(id, false)
+  // Clear any pre-existing LEGACY complete verdict so it can't read as closed again.
+  if (stored.complete) {
+    const entity = mutable(stored)
+    entity.complete = false
+    entity.completeOn = undefined
+    if (!userEntityIds.has(id)) {
+      seededOverrides.set(id, { ...seededOverrides.get(id), complete: false, completeOn: undefined })
+    }
+  }
   setEntityClosed(id, false)
 }

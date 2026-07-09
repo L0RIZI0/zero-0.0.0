@@ -15,8 +15,8 @@ import {
   setEntityCompleted,
   deleteEntity,
 } from "@/lib/zero/data"
-import { KIND_META, isClosed, isComplete, isTerminal } from "@/lib/zero/kinds"
-import { isDone, isCancelled, getCreatedAt, getCompletedOn, getCompleteOn } from "@/lib/zero/entity-log"
+import { KIND_META, isClosed, isTerminal, fillsGlyph } from "@/lib/zero/kinds"
+import { isDone, isCancelled, getCreatedAt, getCompletedOn } from "@/lib/zero/entity-log"
 import { parseCreateField, parseKindPrefix } from "@/lib/zero/create-parse"
 import type { Entity } from "@/lib/zero/types"
 
@@ -128,12 +128,12 @@ export function Zero0Canvas() {
     bump()
   }, [draft, bump, contextId])
 
-  // The one quick INLINE toggle: the soft DONE marker (done ⟷ undone), completable
-  // kinds only. The heavier lifecycle VERDICTS — Complete / Close / Cancel / Reopen —
-  // live in the right-click menu, since each closes the entity in a different way.
+  // The one quick INLINE toggle: the soft DONE marker (done ⟷ undone), for kinds
+  // that HAVE a done axis (Task / Moment / Instant). The lifecycle actions — Close /
+  // Cancel / Reopen — live in the right-click menu.
   const toggleDone = useCallback(
     (e: Entity) => {
-      if (!KIND_META[e.kind].completable) return
+      if (!KIND_META[e.kind].hasDoneState) return
       setEntityCompleted(e.id, !isDone(e))
       bump()
     },
@@ -171,11 +171,13 @@ export function Zero0Canvas() {
     metaRows.push(["id", context.id])
     metaRows.push(["kind", context.kind])
     metaRows.push(["created", fmt(getCreatedAt(context))])
-    if (meta.completable) {
+    // DONE axis — only kinds that have it (Task / Moment / Instant).
+    if (meta.hasDoneState) {
       const done = isDone(context)
-      const complete = isComplete(context)
       metaRows.push(["done", done ? fmt(getCompletedOn(context)) : "no"])
-      metaRows.push(["complete", complete ? fmt(getCompleteOn(context)) : "no"])
+    }
+    // CLOSE axis — every kind with a lifecycle (fillable or terminal).
+    if (meta.fillsWhenClosed || meta.terminal) {
       metaRows.push(["closed", isClosed(context) ? "yes" : "no"])
       metaRows.push(["cancelled", isCancelled(context) ? "yes" : "no"])
     }
@@ -254,13 +256,13 @@ export function Zero0Canvas() {
       <div className="flex-1 overflow-auto">
         {mounted && context && meta && (
           <section className="border-b border-border px-4 py-3">
-            {/* Node header line: glyph + title + kind. Fill = complete, bar =
-                cancelled, fade+strike follow the same rules as the child rows. */}
+            {/* Node header line: glyph + title + kind. Fill = closed (fillable kinds),
+                bar = cancelled, fade+strike follow the same rules as the child rows. */}
             <div className={"flex items-center gap-2 text-[12px] " + (isClosed(context) ? "opacity-60" : "")}>
               <Zero0Glyph
                 kind={context.kind}
-                complete={isComplete(context)}
-                done={meta.completable && isDone(context) && meta.checkmarkWhenDone}
+                filled={fillsGlyph(context)}
+                done={meta.hasDoneState && isDone(context)}
                 cancelled={isCancelled(context)}
                 requested={context.kind === "task" && !!context.requested}
                 className="h-4 w-4 text-foreground"
@@ -294,25 +296,26 @@ export function Zero0Canvas() {
               {children.map((e, i) => {
                 const km = KIND_META[e.kind]
                 const done = isDone(e) // soft DONE marker (checkmark, no close)
-                const complete = isComplete(e) // the COMPLETE verdict (fills, closes)
                 const cancelled = isCancelled(e) // called-off (bar + strike, closes)
                 const closed = isClosed(e) // lifecycle ended ⇒ fade the row
+                const filled = fillsGlyph(e) // fill DERIVES from close (fillable kinds)
                 const terminal = isTerminal(e)
-                const showCheck = done && km.checkmarkWhenDone
+                const showCheck = done && km.hasDoneState
                 const requested = e.kind === "task" && !!e.requested
-                // Read-only lifecycle token (verdicts are set via the right-click menu).
-                // Priority: cancelled > terminal > complete > (plain) closed > open.
+                // Read-only lifecycle token (actions are set via the right-click menu).
+                // Priority: cancelled > terminal > closed > open. A closed FILLABLE kind
+                // reads "complete"; a terminal kind reads retired/dead.
                 const lifeLabel = cancelled
                   ? "cancelled"
                   : terminal
                     ? e.kind === "community"
                       ? "retired"
                       : "dead"
-                    : complete
-                      ? "complete"
-                      : closed
-                        ? "closed"
-                        : "open"
+                    : closed
+                      ? km.fillsWhenClosed
+                        ? "complete"
+                        : "closed"
+                      : "open"
                 const stateLabel =
                   `${done ? "done, " : ""}${lifeLabel}${requested ? ", requested" : ""}`
                 return (
@@ -328,8 +331,8 @@ export function Zero0Canvas() {
                     <span className="w-6 shrink-0 text-right text-muted-foreground">
                       {String(i + 1).padStart(2, "0")}
                     </span>
-                    {/* Glyph column: fill = complete, check = done, bar = cancelled,
-                        "sent" flap = requested. Plain close doesn't alter the glyph. */}
+                    {/* Glyph column: fill = closed (fillable kinds), check = done,
+                        bar = cancelled, "sent" flap = requested. */}
                     <span
                       className="flex w-6 shrink-0 justify-center self-center text-foreground"
                       aria-label={stateLabel}
@@ -337,7 +340,7 @@ export function Zero0Canvas() {
                     >
                       <Zero0Glyph
                         kind={e.kind}
-                        complete={complete}
+                        filled={filled}
                         done={showCheck}
                         cancelled={cancelled}
                         requested={requested}
