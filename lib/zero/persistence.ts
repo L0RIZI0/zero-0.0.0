@@ -9,11 +9,14 @@ import type { Entity } from "./types"
  * server render (seed data only), then stored entities are merged in after
  * mount to avoid hydration mismatches.
  *
- * The key is versioned (v2 = unified Entity model). Bumping it cleanly retires
- * any data written under the old three-type shape.
+ * The key is versioned. `zero:root-items:v1` is the ROOT canvas's OWN namespace,
+ * isolated from the frozen `/2` app (which persists under `zero:user-items:v2` via
+ * its vendored `lib/zero-002` copy). This isolation means the root canvas starts
+ * from a clean, independent dataset and can never read or clobber the dogfooding
+ * data behind `/2`.
  */
 
-const STORAGE_KEY = "zero:user-items:v2"
+const STORAGE_KEY = "zero:root-items:v1"
 
 export interface UserItems {
   entities: Entity[]
