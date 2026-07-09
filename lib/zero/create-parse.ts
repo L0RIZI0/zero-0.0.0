@@ -234,6 +234,19 @@ export function parseFieldSetter(raw: string): FieldSetterParse | null {
   return { field: m[1].toLowerCase(), value: m[2].trim() }
 }
 
+/**
+ * Normalize a user-typed hex color into `#rrggbb`, or null if it isn't one. Accepts an
+ * optional leading `#` and either 3- or 6-digit hex ("f00", "#f00", "ff0000", "#FF0000"
+ * all → "#ff0000"). Drives the `:color:` setter — geeks type the hex directly instead of
+ * clicking the swatch picker.
+ */
+export function parseHexColor(raw: string): string | null {
+  const s = raw.trim().replace(/^#/, "").toLowerCase()
+  if (/^[0-9a-f]{3}$/.test(s)) return `#${s[0]}${s[0]}${s[1]}${s[1]}${s[2]}${s[2]}`
+  if (/^[0-9a-f]{6}$/.test(s)) return `#${s}`
+  return null
+}
+
 export interface CreateFieldParse {
   /** Title with all `--params` stripped (verb kept, e.g. "Slept"). */
   title: string

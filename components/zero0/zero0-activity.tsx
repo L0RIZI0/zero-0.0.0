@@ -56,7 +56,7 @@ function titleForAt(id: string, epoch: number): string {
  * Rows are clickable to drill the canvas into that place. Deliberately dep-free + static,
  * matching the zero0 data aesthetic — this is the ported activity tracker, minus chrome.
  */
-export function Zero0Activity({ onOpen }: { onOpen: (id: string) => void }) {
+export function Zero0Activity({ onOpen, dataRev }: { onOpen: (id: string) => void; dataRev: number }) {
   // Time formatting is client-only; gate to avoid an SSR/static-export hydration trap.
   const [mounted, setMounted] = useState(false)
   useEffect(() => setMounted(true), [])
@@ -79,7 +79,7 @@ export function Zero0Activity({ onOpen }: { onOpen: (id: string) => void }) {
     <>
       {/* The ported presence DAYLINE — fluid pan/ripple + live NOW marker, sitting
           above the textual rollup/feed. Clicking a bar drills the canvas into it. */}
-      <Zero0Dayline onOpen={onOpen} />
+      <Zero0Dayline onOpen={onOpen} dataRev={dataRev} />
       <section
         aria-label="Activity today"
         className="border-b border-border px-4 py-3 text-[11px] leading-relaxed tabular-nums"

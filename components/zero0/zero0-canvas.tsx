@@ -17,18 +17,32 @@ import {
   addWebResource,
   setEntityCompleted,
   setEntityScheduleField,
+  setEntityAccent,
   renameEntity,
   deleteEntity,
 } from "@/lib/zero/data"
 import { KIND_META, isClosed, isTerminal, fillsGlyph } from "@/lib/zero/kinds"
 import { isDone, isCancelled, getCreatedAt, getCompletedOn } from "@/lib/zero/entity-log"
-import { parseCreateField, parseKindPrefix, parseFieldSetter, parseDateToken } from "@/lib/zero/create-parse"
+import { parseCreateField, parseKindPrefix, parseFieldSetter, parseDateToken, parseHexColor } from "@/lib/zero/create-parse"
 import { looksLikeUrl, normalizeUrl, resolveWebResourceByUrl, webDisplayName } from "@/lib/zero/web-resources"
 import type { Entity } from "@/lib/zero/types"
 
 // The root context: the Individual whose space IS the homeview. Everything the
 // user grows on the canvas nests under this id. Matches the seed in `data.ts`.
 const ROOT_ID = "s_root"
+
+// The `:color:` swatch palette — a small curated ramp shown when the create field
+// reads exactly ":color:". Clicking one fills the draft with ":color:<hex>"; geeks can
+// skip the picker and type the hex directly. Kept short + legible on the dark canvas.
+const COLOR_SWATCHES = [
+  "#ef4444", "#f97316", "#eab308", "#22c55e", "#14b8a6",
+  "#3b82f6", "#8b5cf6", "#ec4899", "#f5f5f5", "#71717a",
+]
+
+// True when the draft is a bare ":color:" (empty value) — the trigger to reveal the
+// swatch picker. Any character typed after the trailing ":" no longer matches, so the
+// picker hides instantly as the user keeps writing (e.g. a hand-typed hex).
+const isColorPickerTrigger = (draft: string) => /^:color:\s*$/i.test(draft)
 
 // Format an epoch (ms) for the meta readout. Only ever called under the `mounted`
 // gate, so it's client-only — no SSR/static-export time-freeze hydration trap.
@@ -138,6 +152,28 @@ export function Zero0Canvas() {
         }
         return
       }
+      // :color: — a kind-agnostic ACCENT. Empty value clears; otherwise it must parse
+      // as a hex (typed directly, or filled in by the swatch picker). Painted on the
+      // dayline ticks + anywhere the entity shows its color.
+      if (setter.field === "color") {
+        if (setter.value === "") {
+          setEntityAccent(contextId, null)
+          setNotice({ tone: "ok", text: "color cleared" })
+          setDraft("")
+          bump()
+          return
+        }
+        const hex = parseHexColor(setter.value)
+        if (!hex) {
+          setNotice({ tone: "err", text: `invalid color "${setter.value}" — use a hex like ff0000` })
+          return
+        }
+        setEntityAccent(contextId, hex)
+        setNotice({ tone: "ok", text: `color set · ${hex}` })
+        setDraft("")
+        bump()
+        return
+      }
       const fieldMap: Record<string, "startAt" | "endAt" | "at" | "dueAt"> = {
         start: "startAt",
         end: "endAt",
@@ -146,7 +182,7 @@ export function Zero0Canvas() {
       }
       const key = fieldMap[setter.field]
       if (!key) {
-        setNotice({ tone: "err", text: `unknown field :${setter.field}: — try :title: :start: :end: :at: :due:` })
+        setNotice({ tone: "err", text: `unknown field :${setter.field}: — try :title: :start: :end: :at: :due: :color:` })
         return
       }
       // Empty value clears the slot; otherwise it must parse to a valid date token.
@@ -320,6 +356,9 @@ export function Zero0Canvas() {
     } else if (s && (s.startAt || s.endAt || s.at)) {
       metaRows.push(["scheduled", s.at ? fmt(s.at) : `${fmt(s.startAt)} → ${fmt(s.endAt)}`])
     }
+    // ACCENT — only when set (via `:color:`). The value is the raw hex; the dt cell
+    // paints a matching swatch so the raw-data view still shows the color itself.
+    if (context.accent) metaRows.push(["color", context.accent])
   }
 
   return (
@@ -343,12 +382,12 @@ export function Zero0Canvas() {
           inert={!showActivity}
         >
           <div className="overflow-hidden">
-            <Zero0Activity onOpen={navigateTo} />
+            <Zero0Activity onOpen={navigateTo} dataRev={rev} />
           </div>
         </div>
       )}
 
-      {/* ── TOP HELPER ─────────────────────────────────────────────────────────
+      {/* ── TOP HELPER ────────────────────────────────────────────────────���────
           Zero-UX chrome: the mark, the access path (breadcrumb), and a session
           readout. Not part of the node's own data. */}
       <header className="border-b border-border p-4 text-[10px] leading-relaxed text-muted-foreground tabular-nums">
@@ -425,8 +464,15 @@ export function Zero0Canvas() {
               {metaRows.map(([k, v]) => (
                 <div key={k} className="contents">
                   <dt className="uppercase tracking-widest text-muted-foreground">{k}</dt>
-                  <dd className="truncate text-foreground" title={v}>
-                    {v}
+                  <dd className="flex items-center gap-1.5 truncate text-foreground" title={v}>
+                    {k === "color" && (
+                      <span
+                        aria-hidden
+                        className="h-2.5 w-2.5 shrink-0 rounded-sm border border-border"
+                        style={{ backgroundColor: v }}
+                      />
+                    )}
+                    <span className="truncate">{v}</span>
                   </dd>
                 </div>
               ))}
@@ -565,11 +611,32 @@ export function Zero0Canvas() {
               if (ev.nativeEvent.isComposing || ev.keyCode === 229) return
               create()
             }}
-            placeholder="create entity…  (try:  :spac Day Job   ·   :start: 2607092046)"
+            placeholder="create entity…  (try:  :spac Day Job   ·   :start: 2607092046   ·   :color:)"
             className="flex-1 bg-transparent text-foreground placeholder:text-muted-foreground/60 focus:outline-none"
             aria-label="Create entity"
           />
         </div>
+        {/* :color: SWATCH PICKER — surfaces only while the draft is a bare ":color:".
+            Clicking a swatch fills the field with ":color:<hex>", which no longer matches
+            the trigger so the picker vanishes instantly; Enter then commits. Geeks can
+            ignore this and type the hex straight after the colon. */}
+        {isColorPickerTrigger(draft) && (
+          <div className="mt-1.5 flex flex-wrap items-center gap-1.5 pl-4" role="listbox" aria-label="Pick a color">
+            {COLOR_SWATCHES.map((hex) => (
+              <button
+                key={hex}
+                type="button"
+                role="option"
+                aria-selected={false}
+                aria-label={hex}
+                title={hex}
+                onClick={() => setDraft(`:color:${hex.replace(/^#/, "")}`)}
+                className="h-4 w-4 rounded-sm border border-border transition-transform hover:scale-125"
+                style={{ backgroundColor: hex }}
+              />
+            ))}
+          </div>
+        )}
         {/* Terminal talk-back: one transient line confirming a `:field:` set or
             flagging a rejected value. Muted-ok vs a soft error tone. */}
         {notice && (

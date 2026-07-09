@@ -1831,12 +1831,32 @@ export function setEntityScheduleField(
   else sched[field] = epoch
   entity.schedule = sched
   if (!userEntityIds.has(id)) {
-    // Seeded entity — persist as an override patch so the value survives refreshes.
-    seededOverrides.set(id, { ...seededOverrides.get(id), schedule: sched })
+  // Seeded entity — persist as an override patch so the value survives refreshes.
+  seededOverrides.set(id, { ...seededOverrides.get(id), schedule: sched })
   }
   persist()
   return true
-}
+  }
+
+  /**
+   * Set (or clear) an entity's ACCENT color — the kind-agnostic display color used
+   * on the dayline ticks and anywhere an entity paints itself. `hex` is a normalized
+   * `#rrggbb` string (see `parseHexColor`); `null` clears it back to inherited/neutral.
+   * Mirrors `setEntityScheduleField`'s seeded-override handling so a color set on a
+   * seed entity survives refreshes.
+   */
+  export function setEntityAccent(id: string, hex: string | null): boolean {
+  const stored = byId.get(id)
+  if (!stored) return false
+  const entity = mutable(stored)
+  if (hex == null) delete entity.accent
+  else entity.accent = hex
+  if (!userEntityIds.has(id)) {
+  seededOverrides.set(id, { ...seededOverrides.get(id), accent: hex ?? undefined })
+  }
+  persist()
+  return true
+  }
 
 /**
  * Low-level removal of a single entity from the in-memory store + indexes, plus

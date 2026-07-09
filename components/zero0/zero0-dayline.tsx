@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { getSegments, useActivityRevision } from "@/lib/zero/activity-log"
-import { getEntity, getInheritedAccent } from "@/lib/zero/data"
+import { getEntity, getInheritedAccent, getTimelineOccurrences } from "@/lib/zero/data"
 import { titleAt } from "@/lib/zero/entity-log"
 import { rangeText, NOW_COLOR } from "@/lib/zero/timeline-format"
 import { DAYLINE_ROW_H } from "@/lib/zero/layout"
@@ -64,7 +64,13 @@ function dayWindow(now: number): [number, number] {
   return [start, start + DAY_MS]
 }
 
-interface PresenceBar {
+// A bar on the lane. Two TRACKS share one geometry/hover model:
+//  • "planned"  — a SCHEDULED occurrence (moment/instant/scheduled space) from the
+//    real entity graph, COLORED by the entity's `accent` (set via `:color:`), else an
+//    inherited space accent, else neutral. This is the "intent".
+//  • "presence" — a TRACKED activity segment ("where I actually was"), drawn as a
+//    PURE-WHITE hairline tick along the bottom edge. This is "what happened".
+interface DaylineBar {
   key: string
   id: string
   title: string
@@ -73,13 +79,19 @@ interface PresenceBar {
   widthPct: number
   centerPct: number
   range: string
+  track: "planned" | "presence"
+  /** A single-point occurrence (instant / zero-length) renders as a thin tick. */
+  point: boolean
 }
 
 /**
- * Root `/0` presence dayline. `onOpen(id)` drills the canvas into a place when its
- * bar is tapped (guarded against pans by `draggedRef`).
+ * Root `/0` dayline. Renders PLANNED scheduled occurrences (colored) and TRACKED
+ * presence (white ticks) on one fluid, pannable lane. `onOpen(id)` drills the canvas
+ * into an entity when its bar is tapped (guarded against pans by `draggedRef`).
+ * `dataRev` is the canvas's mutation counter — bumping it re-derives the planned bars
+ * after a `:color:` / `:start:` / create edit.
  */
-export function Zero0Dayline({ onOpen }: { onOpen: (id: string) => void }) {
+export function Zero0Dayline({ onOpen, dataRev }: { onOpen: (id: string) => void; dataRev: number }) {
   const now = useNow()
   const [mounted, setMounted] = useState(false)
   // `viewStart` is the left edge of the shown 24h window. Panning moves it directly;
@@ -108,21 +120,56 @@ export function Zero0Dayline({ onOpen }: { onOpen: (id: string) => void }) {
 
   const winStart = viewStart
 
-  // Hover key for a presence bar (drives its tooltip + highlight).
-  const [presHovered, setPresHovered] = useState<string | null>(null)
+  // Hover key for ANY bar (planned or presence) — drives its tooltip + highlight.
+  const [hoveredKey, setHoveredKey] = useState<string | null>(null)
   // Hover state for the NOW marker's time tooltip.
   const [nowHover, setNowHover] = useState(false)
 
-  // PRESENCE bars laid out in window coordinates. Titles fold `titleAt` so a past
+  const lo = winStart - RENDER_MARGIN_MS
+  const hi = winStart + DAY_MS + RENDER_MARGIN_MS
+
+  // PLANNED bars — SCHEDULED occurrences from the real entity graph (whole tree from
+  // s_root), expanded across the window by the recurrence engine. Colored by the
+  // entity's own `accent` (set via `:color:`), else an inherited space accent, else
+  // neutral. `dataRev` re-derives after a create / `:color:` / `:start:` edit; `now`
+  // is only a dep so a point exactly at "now" stays consistent with the marker.
+  const planned = useMemo<DaylineBar[]>(() => {
+    if (!mounted) return []
+    const out: DaylineBar[] = []
+    for (const occ of getTimelineOccurrences("s_root", lo, hi)) {
+      const s = occ.schedule
+      if (!s) continue
+      const st = s.startAt ?? s.at
+      if (st == null) continue
+      const en = s.endAt ?? st // a point (instant / no end) has zero span
+      if (en < lo || st > hi) continue
+      const leftPct = ((st - winStart) / DAY_MS) * 100
+      const widthPct = ((en - st) / DAY_MS) * 100
+      out.push({
+        key: `plan:${occ.occKey}`,
+        id: occ.id,
+        title: occ.title,
+        color: occ.accent ?? getInheritedAccent(occ.parentId) ?? NEUTRAL,
+        leftPct,
+        widthPct,
+        centerPct: leftPct + widthPct / 2,
+        range: rangeText(st, en, s.repeat),
+        track: "planned",
+        point: en <= st,
+      })
+    }
+    return out
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [winStart, lo, hi, now, mounted, dataRev])
+
+  // PRESENCE bars — tracked activity ("where I was"). Titles fold `titleAt` so a past
   // segment reads with the name the place had THEN. `useActivityRevision()` re-derives
   // on any log change; `now` grows the open segment + keeps it in step with the marker.
   const activityRevision = useActivityRevision()
-  const presence = useMemo<PresenceBar[]>(() => {
+  const presence = useMemo<DaylineBar[]>(() => {
     if (!mounted) return []
     const nowMs = now
-    const lo = winStart - RENDER_MARGIN_MS
-    const hi = winStart + DAY_MS + RENDER_MARGIN_MS
-    const out: PresenceBar[] = []
+    const out: DaylineBar[] = []
     for (const s of getSegments()) {
       const st = s.enteredAt
       const en = s.leftAt ?? nowMs
@@ -136,18 +183,27 @@ export function Zero0Dayline({ onOpen }: { onOpen: (id: string) => void }) {
         id: s.entityId,
         // Historical title — the name the place carried at the segment's start.
         title: entity ? titleAt(entity, st) : s.entityId === "s_root" ? "Home" : "Elsewhere",
-        color: getInheritedAccent(s.entityId) ?? NEUTRAL,
+        color: "#ffffff",
         leftPct,
         widthPct,
         centerPct: leftPct + widthPct / 2,
         range: rangeText(st, en),
+        track: "presence",
+        point: false,
       })
     }
     return out
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [winStart, now, mounted, activityRevision])
+  }, [winStart, lo, hi, now, mounted, activityRevision])
 
-  const hoveredPres = presHovered ? presence.find((p) => p.key === presHovered) : null
+  // One lookup for the hovered bar's tooltip, across both tracks.
+  const byKey = useMemo(() => {
+    const m = new Map<string, DaylineBar>()
+    for (const b of planned) m.set(b.key, b)
+    for (const b of presence) m.set(b.key, b)
+    return m
+  }, [planned, presence])
+  const hovered = hoveredKey ? byKey.get(hoveredKey) ?? null : null
 
   // NOW marker position within the shown window; off-screen (outside 0–100) when panned.
   const nowPct = ((now - winStart) / DAY_MS) * 100
@@ -219,9 +275,9 @@ export function Zero0Dayline({ onOpen }: { onOpen: (id: string) => void }) {
     if (!pointerInsideRef.current) return
     const { x, y } = lastPointerRef.current
     const el = document.elementFromPoint(x, y) as HTMLElement | null
-    const bar = el?.closest("[data-preskey]") as HTMLElement | null
-    const key = bar?.getAttribute("data-preskey") ?? null
-    setPresHovered((h) => (h === key ? h : key))
+    const bar = el?.closest("[data-barkey]") as HTMLElement | null
+    const key = bar?.getAttribute("data-barkey") ?? null
+    setHoveredKey((h) => (h === key ? h : key))
   }, [])
 
   const paintRipple = useCallback(() => {
@@ -476,11 +532,14 @@ export function Zero0Dayline({ onOpen }: { onOpen: (id: string) => void }) {
           {/* CLIP layer — fixed to the lane so it always trims to the true bounds. */}
           <div className="pointer-events-none absolute inset-0 overflow-hidden rounded-md">
             {/* CONTENT PAN — the in-progress wheel pan is applied here as an imperative
-                translateX; the presence bars slide within the fixed clip window. */}
+                translateX; the bars slide within the fixed clip window. PLANNED bars
+                (colored) sit in the main body; PRESENCE (white ticks) lines the bottom. */}
             <div ref={contentPanRef} className="pointer-events-none absolute inset-0 will-change-transform">
+              {/* PLANNED — scheduled occurrences, colored by accent. Spans are rounded
+                  chips centered in the upper body; points (instants) are thin ticks. */}
               {mounted &&
-                presence.map((p) => {
-                  const isHot = presHovered === p.key
+                planned.map((p) => {
+                  const isHot = hoveredKey === p.key
                   return (
                     <div
                       key={p.key}
@@ -490,22 +549,65 @@ export function Zero0Dayline({ onOpen }: { onOpen: (id: string) => void }) {
                     >
                       <button
                         type="button"
-                        data-preskey={p.key}
-                        aria-label={`Was in ${p.title}, ${p.range}`}
-                        onMouseEnter={() => setPresHovered(p.key)}
-                        onMouseLeave={() => setPresHovered((h) => (h === p.key ? null : h))}
-                        onClick={(e) => {
+                        data-barkey={p.key}
+                        aria-label={`${p.title}, ${p.range}`}
+                        onMouseEnter={() => setHoveredKey(p.key)}
+                        onMouseLeave={() => setHoveredKey((h) => (h === p.key ? null : h))}
+                        onClick={() => {
                           if (draggedRef.current) return // a pan, not a tap
                           onOpen(p.id)
                         }}
-                        className="pointer-events-auto absolute top-1/2 -translate-y-1/2 cursor-default rounded-full transition-[height,opacity] duration-150"
+                        className={cn(
+                          "pointer-events-auto absolute cursor-default transition-[height,opacity] duration-150",
+                          p.point ? "-translate-x-1/2 rounded-full" : "rounded-[2px]",
+                        )}
+                        style={{
+                          left: `${p.leftPct}%`,
+                          top: 3,
+                          width: p.point ? 2 : `max(3px, ${p.widthPct}%)`,
+                          height: isHot ? 13 : 9,
+                          backgroundColor: p.color,
+                          opacity: isHot ? 1 : 0.85,
+                          zIndex: isHot ? 16 : 5,
+                        }}
+                      />
+                    </div>
+                  )
+                })}
+
+              {/* PRESENCE — tracked activity, PURE WHITE with the smallest hairline
+                  border, hugging the bottom edge so it reads as "what actually happened"
+                  under the colored plan. */}
+              {mounted &&
+                presence.map((p) => {
+                  const isHot = hoveredKey === p.key
+                  return (
+                    <div
+                      key={p.key}
+                      ref={registerRipple(p.key)}
+                      data-left={p.leftPct}
+                      className="pointer-events-none absolute inset-0 will-change-transform"
+                    >
+                      <button
+                        type="button"
+                        data-barkey={p.key}
+                        aria-label={`Was in ${p.title}, ${p.range}`}
+                        onMouseEnter={() => setHoveredKey(p.key)}
+                        onMouseLeave={() => setHoveredKey((h) => (h === p.key ? null : h))}
+                        onClick={() => {
+                          if (draggedRef.current) return // a pan, not a tap
+                          onOpen(p.id)
+                        }}
+                        className="pointer-events-auto absolute bottom-px cursor-default rounded-full border transition-[height,opacity] duration-150"
                         style={{
                           left: `${p.leftPct}%`,
                           width: `max(3px, ${p.widthPct}%)`,
-                          height: isHot ? 12 : 6,
-                          backgroundColor: p.color,
-                          opacity: isHot ? 0.9 : 0.5,
-                          zIndex: isHot ? 15 : 0,
+                          height: isHot ? 7 : 4,
+                          backgroundColor: "#ffffff",
+                          borderColor: "var(--border)",
+                          borderWidth: 1,
+                          opacity: isHot ? 1 : 0.9,
+                          zIndex: isHot ? 15 : 10,
                         }}
                       />
                     </div>
@@ -568,28 +670,29 @@ export function Zero0Dayline({ onOpen }: { onOpen: (id: string) => void }) {
             </div>
           )}
 
-          {/* PRESENCE HOVER HELPER — floats just below the lane: a color dot for the
-              place + "in {title}" (the historical name) + the clock range. Rides the
-              same two-layer pan-follow as everything else. */}
-          {hoveredPres && (
+          {/* HOVER HELPER — floats just below the lane for the hovered bar (either
+              track): a color chip + title + clock range. Presence reads "in {title}"
+              (the historical name); planned reads just the title. Rides the same
+              two-layer pan-follow as everything else. */}
+          {hovered && (
             <div ref={presTooltipPanRef} className="pointer-events-none absolute inset-0 z-40 will-change-transform">
               <div
                 ref={registerRipple("__prestooltip__")}
-                data-left={hoveredPres.leftPct}
+                data-left={hovered.leftPct}
                 className="pointer-events-none absolute inset-0 will-change-transform"
               >
                 <div
                   className="pointer-events-none absolute top-full flex max-w-[40vw] -translate-x-1/2 items-center gap-1.5 whitespace-nowrap rounded border border-border/70 bg-card px-2 py-1 text-[10.5px] font-medium leading-none tracking-tight text-foreground/80 shadow-sm"
-                  style={{ left: `${Math.min(96, Math.max(4, hoveredPres.centerPct))}%`, marginTop: 4 }}
+                  style={{ left: `${Math.min(96, Math.max(4, hovered.centerPct))}%`, marginTop: 4 }}
                 >
                   <span
                     aria-hidden
-                    className="h-2 w-2 shrink-0 rounded-full"
-                    style={{ backgroundColor: hoveredPres.color }}
+                    className="h-2 w-2 shrink-0 rounded-full border"
+                    style={{ backgroundColor: hovered.color, borderColor: "var(--border)" }}
                   />
-                  <span className="shrink-0 text-muted-foreground">in</span>
-                  <span className="truncate text-foreground">{hoveredPres.title}</span>
-                  <span className="shrink-0 text-muted-foreground tabular-nums">{hoveredPres.range}</span>
+                  {hovered.track === "presence" && <span className="shrink-0 text-muted-foreground">in</span>}
+                  <span className="truncate text-foreground">{hovered.title}</span>
+                  <span className="shrink-0 text-muted-foreground tabular-nums">{hovered.range}</span>
                 </div>
               </div>
             </div>
