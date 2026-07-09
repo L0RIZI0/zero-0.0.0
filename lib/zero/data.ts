@@ -314,6 +314,10 @@ export const entities: Entity[] = [
     parentId: "soul_self",
     taggedSpaceIds: [],
     description: "A person, animated by a Soul.",
+    // Loris's BIRTH — the Individual's creation. Built from local-time components
+    // (month is 0-based, so 4 = May) so it round-trips through `toLocaleString()` as
+    // 19 May 1991, 13:33 in whatever timezone/locale the reader is in.
+    createdAt: new Date(1991, 4, 19, 13, 33, 0, 0).getTime(),
     // Root canvas starts as a FRESH tree: the Individual owns no resources yet, and
     // has no space/task children. Everything below is grown by the user at runtime.
     assignedResourceIds: [],
@@ -464,7 +468,7 @@ export function getChildren(contextId: string): Entity[] {
       e.kind !== "individual" &&
       e.kind !== "soul" &&
       // Materialized recurrence occurrences (overrides) are timeline instances, not
-      // do-list children — they must never leak into any listing (the round-27 trap).
+      // do-list children �� they must never leak into any listing (the round-27 trap).
       e.seriesId == null &&
       (e.parentId === contextId || e.taggedSpaceIds.includes(contextId)),
   )
