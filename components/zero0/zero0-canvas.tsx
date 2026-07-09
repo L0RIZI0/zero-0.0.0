@@ -98,16 +98,22 @@ export function Zero0Canvas() {
     if (!raw) return
 
     // 0) SELF-FIELD setter: `:field: value` mutates THIS entity (the ":" = "in this",
-    //    trailing colon = a field, vs `:kind` which creates a child). MVP fields =
-    //    :start:/:end: → schedule.startAt/endAt, parsed from a compact date token
-    //    (HHMM today / YYMMDD / YYMMDDHHMM). Empty value clears the field. Talks back
-    //    via the notice line instead of creating anything.
+    //    trailing colon = a field, vs `:kind` which creates a child). Schedule fields:
+    //    :start:/:end: (moment span) → startAt/endAt, :at: (instant point) → at,
+    //    :due: (task deadline) → dueAt. Values parse from a compact date token (HHMM
+    //    today / YYMMDD / YYMMDDHHMM). Empty value clears the field. Talks back via the
+    //    notice line instead of creating anything.
     const setter = parseFieldSetter(raw)
     if (setter) {
-      const fieldMap: Record<string, "startAt" | "endAt"> = { start: "startAt", end: "endAt" }
+      const fieldMap: Record<string, "startAt" | "endAt" | "at" | "dueAt"> = {
+        start: "startAt",
+        end: "endAt",
+        at: "at",
+        due: "dueAt",
+      }
       const key = fieldMap[setter.field]
       if (!key) {
-        setNotice({ tone: "err", text: `unknown field :${setter.field}: — try :start: or :end:` })
+        setNotice({ tone: "err", text: `unknown field :${setter.field}: — try :start: :end: :at: :due:` })
         return
       }
       // Empty value clears the slot; otherwise it must parse to a valid date token.
