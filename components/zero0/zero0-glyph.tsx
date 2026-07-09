@@ -54,13 +54,22 @@ export function Zero0Glyph({
   kind,
   filled,
   done,
+  requested,
   className,
 }: {
   kind: EntityKind
   /** Closed / lifecycle-ended ⇒ shape fills solid. */
   filled?: boolean
-  /** Done-but-open completable ⇒ overlay a check on the outline. */
+  /**
+   * Completion mark — overlay a check on the shape. Drawn whether the shape is
+   * open (outline) or closed (filled): on a filled shape the check is stroked in
+   * the BACKGROUND colour so it stays legible against the solid silhouette. This
+   * keeps the two ontology axes independent in the glyph — a done entity reads as
+   * done even after it has also closed.
+   */
   done?: boolean
+  /** Task only: "sent as request" ⇒ a tilted flap lifting off the top edge. */
+  requested?: boolean
   className?: string
 }) {
   return (
@@ -76,8 +85,17 @@ export function Zero0Glyph({
       focusable="false"
     >
       <KindShape kind={kind} />
-      {done && !filled && (
-        <path d="M7.5 12.5 L10.5 15.5 L16.5 8.5" fill="none" stroke="currentColor" strokeWidth="1.8" />
+      {done && (
+        <path
+          d="M7.5 12.5 L10.5 15.5 L16.5 8.5"
+          fill="none"
+          stroke={filled ? "var(--background)" : "currentColor"}
+          strokeWidth="1.8"
+        />
+      )}
+      {requested && kind === "task" && (
+        // The "sent" flap: a short edge swung up off the square's top-right corner.
+        <path d="M13 4.5 L20 1.8" fill="none" stroke="currentColor" strokeWidth="1.6" />
       )}
     </svg>
   )

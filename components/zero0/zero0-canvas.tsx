@@ -13,9 +13,10 @@ import {
   addTask,
   addParsedEntity,
   setEntityCompleted,
+  setEntityClosed,
   deleteEntity,
 } from "@/lib/zero/data"
-import { KIND_META, isClosed } from "@/lib/zero/kinds"
+import { KIND_META, isClosed, isTerminal } from "@/lib/zero/kinds"
 import { isDone, isCancelled, getCreatedAt, getCompletedOn } from "@/lib/zero/entity-log"
 import { parseCreateField, parseKindPrefix } from "@/lib/zero/create-parse"
 import type { Entity } from "@/lib/zero/types"
@@ -128,10 +129,23 @@ export function Zero0Canvas() {
     bump()
   }, [draft, bump, contextId])
 
+  // COMPLETION axis (done ⟷ undone): only for completable kinds.
   const toggleDone = useCallback(
     (e: Entity) => {
       if (!KIND_META[e.kind].completable) return
       setEntityCompleted(e.id, !isDone(e))
+      bump()
+    },
+    [bump],
+  )
+
+  // LIFECYCLE axis (open ⟷ closed), INDEPENDENT of completion and cancellation.
+  // `isClosed` here reflects manual/derived close (cancel is gated out by the
+  // caller), so this flips open↔closed. A done-but-open entity stays done.
+  const toggleClosed = useCallback(
+    (e: Entity) => {
+      if (!KIND_META[e.kind].completable || isCancelled(e)) return
+      setEntityClosed(e.id, !isClosed(e))
       bump()
     },
     [bump],
@@ -254,7 +268,8 @@ export function Zero0Canvas() {
               <Zero0Glyph
                 kind={context.kind}
                 filled={isClosed(context)}
-                done={meta.completable && isDone(context) && !isClosed(context) && meta.checkmarkWhenDone}
+                done={meta.completable && isDone(context) && meta.checkmarkWhenDone}
+                requested={context.kind === "task" && !!context.requested}
                 className="h-4 w-4 text-foreground"
               />
               <span className={"text-foreground " + (isClosed(context) ? "line-through" : "")}>
@@ -285,9 +300,26 @@ export function Zero0Canvas() {
             <ul className="text-[11px] tabular-nums">
               {children.map((e, i) => {
                 const km = KIND_META[e.kind]
-                const done = isDone(e)
-                const closed = isClosed(e)
-                const showCheck = done && !closed && km.checkmarkWhenDone
+                // Three independent ontology axes, each read + shown on its own:
+                const done = isDone(e) // completion
+                const cancelled = isCancelled(e) // called-off
+                const closed = isClosed(e) // lifecycle (archived/retired/dead/derived)
+                const terminal = isTerminal(e)
+                const showCheck = done && km.checkmarkWhenDone
+                const requested = e.kind === "task" && !!e.requested
+                // Lifecycle token: cancel + terminal are read-only end-states; open/closed
+                // is the toggleable pair for a live completable entity.
+                const lifeLabel = cancelled
+                  ? "cancelled"
+                  : terminal
+                    ? e.kind === "community"
+                      ? "retired"
+                      : "dead"
+                    : closed
+                      ? "closed"
+                      : "open"
+                const lifeToggleable = km.completable && !cancelled && !terminal
+                const stateLabel = `${done ? "done, " : ""}${lifeLabel}${requested ? ", requested" : ""}`
                 return (
                   <li
                     key={e.id}
@@ -298,13 +330,20 @@ export function Zero0Canvas() {
                       {String(i + 1).padStart(2, "0")}
                     </span>
                     {/* Glyph-state column: static SVG per kind — outline vs filled =
-                        open vs closed, overlaid check for a done-but-open completable. */}
+                        open vs closed, check overlay = done (kept even when closed),
+                        task "sent" flap = requested. Encodes all axes at a glance. */}
                     <span
                       className="flex w-6 shrink-0 justify-center self-center text-foreground"
-                      aria-label={closed ? "closed" : done ? "done" : "open"}
-                      title={closed ? "closed" : done ? "done" : "open"}
+                      aria-label={stateLabel}
+                      title={stateLabel}
                     >
-                      <Zero0Glyph kind={e.kind} filled={closed} done={showCheck} className="h-3.5 w-3.5" />
+                      <Zero0Glyph
+                        kind={e.kind}
+                        filled={closed}
+                        done={showCheck}
+                        requested={requested}
+                        className="h-3.5 w-3.5"
+                      />
                     </span>
                     {/* Kind label — STATIC text, not the toggle. */}
                     <span className="w-16 shrink-0 uppercase tracking-wider text-muted-foreground">
@@ -322,21 +361,36 @@ export function Zero0Canvas() {
                     >
                       {e.title}
                     </button>
-                    {/* Status cell — the clear DONE/OPEN toggle button. */}
+                    {/* COMPLETION axis (done ⟷ undone) — toggle, completable only. */}
                     <button
                       type="button"
                       onClick={() => toggleDone(e)}
                       disabled={!km.completable}
                       className={
-                        "w-12 shrink-0 text-right " +
+                        "w-16 shrink-0 text-right " +
                         (km.completable
                           ? "text-muted-foreground hover:text-foreground"
-                          : "text-muted-foreground/40")
+                          : "text-transparent")
                       }
                       title={km.completable ? "Toggle done" : "Not completable"}
                     >
-                      {km.completable ? (done ? "[done]" : "[open]") : "—"}
+                      {km.completable ? (done ? "done" : "undone") : "—"}
                     </button>
+                    {/* LIFECYCLE axis (open ⟷ closed) — a SEPARATE column from done.
+                        Toggle for live completable entities; read-only for cancelled
+                        / terminal end-states. */}
+                    {lifeToggleable ? (
+                      <button
+                        type="button"
+                        onClick={() => toggleClosed(e)}
+                        className="w-20 shrink-0 text-right text-muted-foreground hover:text-foreground"
+                        title="Toggle open / closed"
+                      >
+                        {lifeLabel}
+                      </button>
+                    ) : (
+                      <span className="w-20 shrink-0 text-right text-muted-foreground/50">{lifeLabel}</span>
+                    )}
                     <button
                       type="button"
                       onClick={() => remove(e)}

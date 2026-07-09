@@ -90,19 +90,25 @@ export function Zero0EntityMenu({
   }
 
   const canClose = isCompletable(entity.kind)
-  const closedNow = isClosed(entity)
   const cancelled = isCancelled(entity)
+  // Closed via the manual flag OR the derived rule (done→midnight), but NOT via
+  // cancellation — cancel is a separate axis with its own Restore. So a cancelled
+  // entity still offers "Close" (independent), and "Reopen" only appears for a
+  // manual/derived close.
+  const closedNow = isClosed(entity) && !cancelled
   const requested = entity.kind === "task" && !!entity.requested
 
+  // Close/reopen (lifecycle) and cancel/restore (called-off) are INDEPENDENT axes,
+  // so both are always offered for a completable entity — a cancelled entity can
+  // still be closed or reopened, and vice versa. `getCloseState`-backed `closedNow`
+  // reflects the MANUAL close flag, so "Reopen" appears once a manual close is set.
   const rows: MenuRow[] = []
-  if (canClose && !cancelled) {
+  if (canClose) {
     rows.push(
       closedNow
         ? { label: "Reopen", onSelect: () => run(() => setEntityClosed(id, false)) }
         : { label: "Close", onSelect: () => run(() => setEntityClosed(id, true)) },
     )
-  }
-  if (canClose) {
     rows.push({
       label: cancelled ? "Restore" : "Cancel",
       onSelect: () => run(() => setEventCancelled(id, !cancelled)),
