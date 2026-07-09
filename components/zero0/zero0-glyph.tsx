@@ -20,10 +20,17 @@ const TRIANGLE_UP = "12,4 20,19 4,19"
 const TRIANGLE_DOWN = "12,20 20,5 4,5"
 
 /** Draw the kind's outline shape. Fill/stroke are set by the caller via props. */
-function KindShape({ kind }: { kind: EntityKind }) {
+function KindShape({ kind, requested }: { kind: EntityKind; requested?: boolean }) {
   switch (kind) {
     case "task":
-      return <rect x="4.5" y="4.5" width="15" height="15" />
+      // A "sent as request" task pulls its bottom-right corner out into a small
+      // pennant/tail — ONE continuous silhouette (so it also fills when complete),
+      // not a detached stroke. Otherwise a plain square.
+      return requested ? (
+        <path d="M4.5,4.5 L19.5,4.5 L19.5,15 L22,21.5 L14,19.5 L4.5,19.5 Z" />
+      ) : (
+        <rect x="4.5" y="4.5" width="15" height="15" />
+      )
     case "space":
       return <polygon points={HEXAGON} />
     case "resource":
@@ -79,7 +86,8 @@ export function Zero0Glyph({
    * cancel, so a completed-then-cancelled glyph stays filled + barred.
    */
   cancelled?: boolean
-  /** Task only: "sent as request" ⇒ a tilted flap swung off the bottom edge. */
+  /** Task only: "sent as request" ⇒ the square's bottom-right corner is drawn as a
+   *  pennant/tail (an integral part of the silhouette, so it fills when complete). */
   requested?: boolean
   className?: string
 }) {
@@ -95,7 +103,7 @@ export function Zero0Glyph({
       aria-hidden="true"
       focusable="false"
     >
-      <KindShape kind={kind} />
+      <KindShape kind={kind} requested={requested && kind === "task"} />
       {done && (
         <path
           d="M7.5 12.5 L10.5 15.5 L16.5 8.5"
@@ -103,11 +111,6 @@ export function Zero0Glyph({
           stroke={complete ? "var(--background)" : "currentColor"}
           strokeWidth="1.8"
         />
-      )}
-      {requested && kind === "task" && (
-        // The "sent" flap: a short edge swung DOWN off the square's bottom-right
-        // corner — the request dispatched outward/below.
-        <path d="M13 19.5 L20 22.2" fill="none" stroke="currentColor" strokeWidth="1.6" />
       )}
       {cancelled && (
         // The "called-off" bar, laid across the whole box (extends past the shape so
