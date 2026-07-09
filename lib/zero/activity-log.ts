@@ -34,7 +34,10 @@ export interface PresenceSegment {
   leftAt: number | null
 }
 
-const STORAGE_KEY = "zero:activity-log:v1"
+// Root `/0` owns its OWN presence log, isolated from `/2` (which uses the vendored
+// `lib/zero-002` copy under `zero:activity-log:v1`). Mirrors the `zero:root-items:v1`
+// data isolation so root's activity never mixes with the dogfooding shell's.
+const STORAGE_KEY = "zero:root-activity:v1"
 // Safety cap so the log can't grow unbounded in a long-lived session. Oldest
 // segments are dropped first; a day rarely exceeds a few hundred switches.
 const MAX_SEGMENTS = 5000

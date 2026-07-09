@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { VersionSwitcher } from "@/components/version-switcher"
 import { Zero0ThemeToggle } from "./zero0-theme-toggle"
+import { Zero0Activity } from "./zero0-activity"
+import { recordPresence } from "@/lib/zero/activity-log"
 import { Zero0Glyph } from "./zero0-glyph"
 import { Zero0EntityMenu, type Zero0MenuAnchor } from "./zero0-entity-menu"
 import {
@@ -71,6 +73,9 @@ export function Zero0Canvas() {
   const [path, setPath] = useState<string[]>([ROOT_ID])
   // Right-click menu anchor (null = closed).
   const [menu, setMenu] = useState<Zero0MenuAnchor | null>(null)
+  // The activity view (ported tracker) is hidden by default so the canvas stays blank;
+  // toggled from the footer, it surfaces as a band ABOVE the header.
+  const [showActivity, setShowActivity] = useState(false)
 
   useEffect(() => {
     hydrateFromStorage()
@@ -80,6 +85,15 @@ export function Zero0Canvas() {
   const bump = useCallback(() => setRev((r) => r + 1), [])
 
   const contextId = path[path.length - 1]
+
+  // PRESENCE: log WHERE the user is — the current drilled-in context. Fires on every
+  // context change (and initial mount) so the activity tracker records the trail through
+  // the graph, exactly as the old shell did on `activeId`. `recordPresence` no-ops on a
+  // repeat of the same id, so this is safe to run on each `contextId`.
+  useEffect(() => {
+    if (!mounted) return
+    recordPresence(contextId)
+  }, [mounted, contextId])
   const context = mounted ? getEntity(contextId) : undefined
   // eslint-disable-next-line react-hooks/exhaustive-deps -- rev/contextId are the intended re-read triggers
   const children = useMemo(() => (mounted ? getChildren(contextId) : []), [mounted, rev, contextId])
@@ -241,6 +255,26 @@ export function Zero0Canvas() {
     setPath((p) => p.slice(0, i + 1))
   }, [])
 
+  // Jump to an ARBITRARY entity (e.g. clicked in the activity view), rebuilding the drill
+  // path by walking `parentId` up to the root. Used when the target isn't a direct child
+  // of the current context. Falls back to just [ROOT, id] if the chain can't reach root
+  // (e.g. orphaned/detached), and to the root alone if the id is the root or unknown.
+  const navigateTo = useCallback((id: string) => {
+    if (id === ROOT_ID || !getEntity(id)) {
+      setPath([ROOT_ID])
+      return
+    }
+    const chain: string[] = []
+    let cursor: string | undefined = id
+    const guard = new Set<string>() // cycle guard
+    while (cursor && cursor !== ROOT_ID && !guard.has(cursor)) {
+      guard.add(cursor)
+      chain.unshift(cursor)
+      cursor = getEntity(cursor)?.parentId ?? undefined
+    }
+    setPath([ROOT_ID, ...chain])
+  }, [])
+
   const openMenu = useCallback((e: Entity, ev: React.MouseEvent) => {
     ev.preventDefault()
     setMenu({ entity: e, x: ev.clientX, y: ev.clientY })
@@ -293,6 +327,12 @@ export function Zero0Canvas() {
       className="relative flex min-h-screen flex-col bg-background text-foreground"
       style={{ fontFamily: "var(--font-zero0-mono), ui-monospace, monospace" }}
     >
+      {/* ── ACTIVITY BAND (above the header) ───────────────────────────────────
+          The ported presence tracker — WHERE the user has been today. Hidden by
+          default (toggled from the footer) so the canvas stays blank; when shown it
+          sits ABOVE the top helper. Clicking a place drills the canvas into it. */}
+      {mounted && showActivity && <Zero0Activity onOpen={navigateTo} />}
+
       {/* ── TOP HELPER ─────────────────────────────────────────────────────────
           Zero-UX chrome: the mark, the access path (breadcrumb), and a session
           readout. Not part of the node's own data. */}
@@ -535,6 +575,21 @@ export function Zero0Canvas() {
           |
         </span>
         <Zero0ThemeToggle />
+        <span className="text-border" aria-hidden>
+          |
+        </span>
+        <button
+          type="button"
+          onClick={() => setShowActivity((v) => !v)}
+          aria-pressed={showActivity}
+          className={
+            showActivity
+              ? "text-foreground transition-colors"
+              : "text-muted-foreground transition-colors hover:text-foreground"
+          }
+        >
+          activity
+        </button>
       </footer>
 
       {menu && <Zero0EntityMenu anchor={menu} onMutate={bump} onClose={() => setMenu(null)} />}
