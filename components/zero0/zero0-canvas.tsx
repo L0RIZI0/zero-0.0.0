@@ -12,12 +12,14 @@ import {
   hydrateFromStorage,
   addTask,
   addParsedEntity,
+  addWebResource,
   setEntityCompleted,
   deleteEntity,
 } from "@/lib/zero/data"
 import { KIND_META, isClosed, isTerminal, fillsGlyph } from "@/lib/zero/kinds"
 import { isDone, isCancelled, getCreatedAt, getCompletedOn } from "@/lib/zero/entity-log"
 import { parseCreateField, parseKindPrefix } from "@/lib/zero/create-parse"
+import { looksLikeUrl, normalizeUrl, resolveWebResourceByUrl, webDisplayName } from "@/lib/zero/web-resources"
 import type { Entity } from "@/lib/zero/types"
 
 // The root context: the Individual whose space IS the homeview. Everything the
@@ -98,7 +100,26 @@ export function Zero0Canvas() {
     const body = kindPrefix ? kindPrefix.rest : raw
     if (!body) return // e.g. ":space" with no title — nothing to create
 
-    // 2) The backbone's "terminal hybrid" parser: a `--time` param (optionally with a
+    // 2) With NO explicit kind, a body that reads as a URL / bare domain / internal
+    //    Zero route (e.g. "figma.com", "https://x.com/p", "/zero-entities") is a
+    //    RESOURCE, not a task — Zero is a contextual browser, so a browsable address
+    //    becomes a diamond resource pinned to the current context. An explicit `:kind`
+    //    prefix opts OUT (e.g. `:task /zero-entities` really is a task titled that).
+    if (!kindPrefix && looksLikeUrl(body)) {
+      const url = normalizeUrl(body)
+      const resource = resolveWebResourceByUrl(url)
+      addWebResource({
+        title: webDisplayName(url, resource?.id),
+        url,
+        spaceId: contextId,
+        resourceId: resource?.id,
+      })
+      setDraft("")
+      bump()
+      return
+    }
+
+    // 3) The backbone's "terminal hybrid" parser: a `--time` param (optionally with a
     //    past-tense verb) yields a scheduled Moment/Instant/Task. New entities nest
     //    under the CURRENT drilled-in context.
     const parsed = parseCreateField(body)
