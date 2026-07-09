@@ -1,6 +1,7 @@
 import type { Asset, Entity, EntityKind, Instant, Recurrence, Schedule, Resource, EntityBase, TaskPriority, User } from "./types"
 import { isCompletable, isClosed } from "./kinds"
-import { isDone, buildLogFromScalars, makeInstant, appendInstant } from "./entity-log"
+import { isDone, buildLogFromScalars, makeInstant, appendInstant, auditLogScalarConsistency } from "./entity-log"
+import type { LogScalarMismatch } from "./entity-log"
 import { readUserItems, writeUserItems } from "./persistence"
 import type { ScheduleParse } from "./schedule-parse"
 
@@ -1543,12 +1544,18 @@ export function hydrateFromStorage(): boolean {
   _hydrated = true
   const stored = readUserItems()
   let added = false
+  // DEV-only: collect log↔scalar disagreements to prove out dual-write before the
+  // scalars are retired (Phase 3). Reported once after the loop; never in prod.
+  const logAudit: LogScalarMismatch[] = []
 
   for (const entity of stored.entities) {
     if (byId.has(entity.id)) continue
     migrateLegacyTime(entity)
     migrateWebTaskToResource(entity)
     migrateEventToMoment(entity)
+    // Audit BEFORE seeding a log so only GENUINELY persisted logs are checked
+    // (freshly-migrated ones would match their scalars by construction).
+    if (process.env.NODE_ENV !== "production") logAudit.push(...auditLogScalarConsistency(entity))
     migrateCompletionToLog(entity)
     entities.push(entity)
     byId.set(entity.id, entity)
@@ -1588,6 +1595,15 @@ export function hydrateFromStorage(): boolean {
       deletedSeededIds.add(id)
       added = true
     }
+  }
+
+  // DEV-only: surface any log↔scalar drift found above. A clean load (no warning)
+  // across normal dogfooding is the green light to retire the scalar backups.
+  if (process.env.NODE_ENV !== "production" && logAudit.length > 0) {
+    console.warn(
+      `[v0] entity-log consistency: ${logAudit.length} mismatch(es) between log-derived state and scalar backup:`,
+      logAudit,
+    )
   }
 
   return added

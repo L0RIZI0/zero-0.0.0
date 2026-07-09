@@ -180,3 +180,47 @@ export function buildLogFromScalars(entity: Entity): Instant[] {
   if (term.diedOn != null) log.push(makeInstant("died", term.diedOn))
   return log.sort((a, b) => a.at - b.at)
 }
+
+/** One disagreement between an entity's log-derived state and its scalar backup. */
+export interface LogScalarMismatch {
+  id: string
+  axis: "done" | "closed" | "cancelled"
+  fromLog: string | boolean
+  fromScalar: string | boolean
+}
+
+/**
+ * DEV-only consistency audit (log-model Phase 3 groundwork): for an entity that
+ * ALREADY carries a `log`, verify the log-derived state agrees with the scalar
+ * backup on each lifecycle axis (done / manual-close / cancelled). Returns the list
+ * of disagreements (empty = consistent). This is the safety check that must stay
+ * clean through dogfooding BEFORE the scalars are retired — while both are written,
+ * a mismatch means a write path updated one without the other (a bug to fix).
+ *
+ * Entities WITHOUT a log are skipped (they read pure scalar fallback, so they can't
+ * disagree). Non-mutating and side-effect-free; the caller decides how to report.
+ */
+export function auditLogScalarConsistency(entity: Entity): LogScalarMismatch[] {
+  if (!entity.log || entity.log.length === 0) return []
+  const out: LogScalarMismatch[] = []
+
+  const doneLog = isDone(entity)
+  const doneScalar = !!entity.completed
+  if (doneLog !== doneScalar) {
+    out.push({ id: entity.id, axis: "done", fromLog: doneLog, fromScalar: doneScalar })
+  }
+
+  const closeLog = getCloseState(entity) ?? "none"
+  const closeScalar = entity.closed ? "closed" : entity.reopened ? "reopened" : "none"
+  if (closeLog !== closeScalar) {
+    out.push({ id: entity.id, axis: "closed", fromLog: closeLog, fromScalar: closeScalar })
+  }
+
+  const cancelLog = isCancelled(entity)
+  const cancelScalar = !!entity.cancelled
+  if (cancelLog !== cancelScalar) {
+    out.push({ id: entity.id, axis: "cancelled", fromLog: cancelLog, fromScalar: cancelScalar })
+  }
+
+  return out
+}
