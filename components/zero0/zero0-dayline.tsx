@@ -5,6 +5,7 @@ import { getSegments, useActivityRevision } from "@/lib/zero/activity-log"
 import { getEntity, getInheritedAccent, getTimelineOccurrences } from "@/lib/zero/data"
 import { titleAt } from "@/lib/zero/entity-log"
 import { rangeText, NOW_COLOR } from "@/lib/zero/timeline-format"
+import { isSleepTitle, sleepSkyBackground } from "@/lib/zero/sleep-sky"
 import { DAYLINE_ROW_H } from "@/lib/zero/layout"
 import { useNow } from "@/lib/zero/use-now"
 import { cn } from "@/lib/utils"
@@ -17,10 +18,11 @@ import { cn } from "@/lib/utils"
 // the live NOW marker — but strips it to what root actually has: the PRESENCE
 // band ("where I was"), fed by root's ISOLATED activity log (`zero:root-activity:v1`).
 //
-// Deliberately DROPPED from the /2 version (root has no scheduling engine wired,
-// and zero0 stays dep-free): the planned-occurrence ticks (recurrence expansion,
-// accent-inherited bars, sleep-sky), the GSAP `useZeroNav().open` morph launcher,
-// and the GSAP `NodeGlyph`. Opening a presence bar calls the `onOpen` prop
+// Now carries BOTH tracks: PLANNED occurrences (recurrence-expanded, accent-colored,
+// with sleep-titled moments painting the procedural /0 night sky) AND the PRESENCE
+// band. Deliberately DROPPED from the /2 version (zero0 stays dep-free): the GSAP
+// `useZeroNav().open` morph launcher and the GSAP `NodeGlyph`. Opening a bar calls
+// the `onOpen` prop
 // (zero0's `navigateTo`, which drills the canvas into that place); the hover
 // tooltip shows the title the place had AT that time (`titleAt` fold), matching
 // the rest of the root activity tracker.
@@ -85,6 +87,12 @@ interface DaylineBar {
   track: "planned" | "presence"
   /** A single-point occurrence (instant / zero-length) renders as a thin tick. */
   point: boolean
+  /**
+   * For a sleep-titled planned Moment: a procedural night-sky CSS `background`
+   * string (see {@link sleepSkyBackground}) painted INSTEAD of the flat accent, so
+   * a night's sleep reads as a tiny starfield. Absent for every other bar.
+   */
+  sky?: string
 }
 
 /**
@@ -148,6 +156,9 @@ export function Zero0Dayline({ onOpen, dataRev }: { onOpen: (id: string) => void
       if (en < lo || st > hi) continue
       const leftPct = ((st - winStart) / DAY_MS) * 100
       const widthPct = ((en - st) / DAY_MS) * 100
+      // A sleep-titled DURATION moment paints a procedural night sky instead of a
+      // flat accent bar (seeded per-occurrence so it's stable yet unique per night).
+      const isSleepSpan = en > st && occ.kind === "moment" && isSleepTitle(occ.title)
       out.push({
         key: `plan:${occ.occKey}`,
         id: occ.id,
@@ -159,6 +170,7 @@ export function Zero0Dayline({ onOpen, dataRev }: { onOpen: (id: string) => void
         range: rangeText(st, en, s.repeat),
         track: "planned",
         point: en <= st,
+        sky: isSleepSpan ? sleepSkyBackground(occ.occKey) : undefined,
       })
     }
     return out
@@ -571,8 +583,12 @@ export function Zero0Dayline({ onOpen, dataRev }: { onOpen: (id: string) => void
                           left: `${p.leftPct}%`,
                           top: 3,
                           width: p.point ? 2 : `max(3px, ${p.widthPct}%)`,
-                          height: isHot ? 13 : 9,
-                          backgroundColor: p.color,
+                          // A sleep span grows a touch taller so its starfield has room
+                          // to read; everything else keeps the standard tick height.
+                          height: p.sky ? (isHot ? 16 : 12) : isHot ? 13 : 9,
+                          // Sleep spans paint the procedural night sky; all other bars
+                          // use their flat accent color.
+                          background: p.sky ?? p.color,
                           opacity: isHot ? 1 : 0.85,
                           zIndex: isHot ? 16 : 5,
                         }}
@@ -644,7 +660,9 @@ export function Zero0Dayline({ onOpen, dataRev }: { onOpen: (id: string) => void
                   />
                   <span
                     className={cn(
-                      "pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 whitespace-nowrap rounded border border-border/70 bg-card px-2 py-1 text-[10.5px] font-medium leading-none tracking-tight tabular-nums text-foreground/80 shadow-sm transition-opacity duration-150",
+                      // Float ABOVE the marker (its bottom edge sits just over the
+                      // marker's top) instead of superposed on the line.
+                      "pointer-events-none absolute bottom-full left-1/2 mb-1 -translate-x-1/2 whitespace-nowrap rounded border border-border/70 bg-card px-2 py-1 text-[10.5px] font-medium leading-none tracking-tight tabular-nums text-foreground/80 shadow-sm transition-opacity duration-150",
                       nowHover ? "opacity-100" : "opacity-0",
                     )}
                   >
