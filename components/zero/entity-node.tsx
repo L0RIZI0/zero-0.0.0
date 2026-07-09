@@ -1539,9 +1539,9 @@ export function EntityNode({
               "relative flex shrink-0 items-center justify-center",
               // A glyph that acts as a completion toggle gets a pointer cursor.
               canToggleComplete && "cursor-pointer",
-              // Glyph ink matches the title: compact ancestors are dimmed to
-              // foreground/75 (like their title), everything else stays full ink.
-              ancestorHeader ? "text-foreground/75" : "text-foreground",
+              // Glyph ink matches the title: full text-foreground at every depth
+              // (ancestor headers no longer dim, to keep the header uniform).
+              "text-foreground",
               // Only a SPACE leaf keeps the enlarged 20px glyph. A non-space
               // (task/event) leaf keeps its collapsed size �� 18px if it opened from a
               // dock card, 16px from a do-list row — so the glyph doesn't pop bigger on
@@ -1674,12 +1674,13 @@ export function EntityNode({
                   cn(
                     "whitespace-nowrap",
                     isSpace && "text-center",
-                    // Weight is UNIFORM: rows, dock cards, and every header (leaf or
-                    // ancestor) stay font-medium. Opening/focusing an entity no longer
-                    // bumps the title heavier (the old leaf → font-semibold step was
-                    // removed per user — the header keeps the same weight it had as a
-                    // collapsed row/card). Ancestor headers keep their dimmed tone.
-                    ancestorHeader ? "font-medium text-foreground/75" : "font-medium",
+                    // Weight AND color are UNIFORM: rows, dock cards, and every header
+                    // (leaf or ancestor) stay font-medium at full text-foreground.
+                    // Opening/focusing an entity no longer bumps the title heavier (the
+                    // old leaf → font-semibold step was removed per user), and ancestor
+                    // headers no longer dim their tone — a title reads the same at every
+                    // depth (per user: same color/opacity regardless of nesting).
+                    "font-medium",
                   )
                 : variant === "dock"
                   ? // Hug content (centered by the dock header's items-center) so the
