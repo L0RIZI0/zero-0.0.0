@@ -12,6 +12,7 @@ const { app, BrowserWindow, WebContentsView, protocol, net, shell, session, ipcM
 const path = require("node:path")
 const { pathToFileURL } = require("node:url")
 const { autoUpdater } = require("electron-updater")
+const { hideWindowsBorder } = require("./win-border.cjs")
 
 const isDev = !app.isPackaged
 const DEV_URL = process.env.ELECTRON_RENDERER_URL || "http://localhost:3000"
@@ -232,8 +233,13 @@ function createWindow() {
   mainWindow.on("maximize", sendMaxState)
   mainWindow.on("unmaximize", sendMaxState)
 
-  // Avoid a white flash: reveal only once the first paint is ready.
-  mainWindow.once("ready-to-show", () => mainWindow?.show())
+  // Avoid a white flash: reveal only once the first paint is ready. At the same time
+  // strip the Windows 11 DWM border (no-op elsewhere) so our frameless near-black
+  // canvas isn't framed by the OS accent hairline.
+  mainWindow.once("ready-to-show", () => {
+    if (mainWindow) hideWindowsBorder(mainWindow)
+    mainWindow?.show()
+  })
 
   // Once the app's DOM is up, report the GPU status into its devtools console so the
   // user can confirm whether the acceleration flags above actually engaged.

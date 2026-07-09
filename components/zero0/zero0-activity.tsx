@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { getEntity } from "@/lib/zero/data"
+import { getEntity, getInheritedAccent } from "@/lib/zero/data"
 import { titleAt } from "@/lib/zero/entity-log"
 import {
   useActivityRevision,
@@ -41,6 +41,17 @@ function dur(ms: number): string {
 /** The kind of a place id, for its glyph. Defaults to space (the container kind). */
 function kindOf(id: string): EntityKind {
   return getEntity(id)?.kind ?? "space"
+}
+
+/**
+ * A place's OWN color for its bar: its `accent` (set via `:color:` on ANY kind — so a
+ * blue Moment reads blue), else the nearest ancestor SPACE accent, else undefined
+ * (⇒ the white+hairline fallback). Mirrors the dayline's planned-bar rule; note
+ * `getInheritedAccent` alone only sees SPACE accents, so we check the node itself first.
+ */
+function accentOf(id: string): string | undefined {
+  const e = getEntity(id)
+  return e?.accent ?? getInheritedAccent(e?.parentId ?? null)
 }
 
 /** Title a place had AT `epoch` — folds titleLog so a past segment reads with its name
@@ -139,6 +150,12 @@ function ActivityReadout({ onOpen }: { onOpen: (id: string) => void }) {
             {rollup.map((r) => {
               const pct = trackedMs > 0 ? (r.totalMs / trackedMs) * 100 : 0
               const isOpen = r.entityId === openId
+              // Each place paints its OWN color: its accent (set via `:color:`),
+              // inherited from an ancestor if unset, else the white+hairline fallback
+              // (the same convention as the dayline presence ticks — a colorless place
+              // like the root Individual reads as an OUTLINE bar). The place NOT
+              // currently in focus fades to half, keeping the /2 §3 focus effect.
+              const accent = accentOf(r.entityId)
               return (
                 <div key={r.entityId} className="flex items-center gap-2">
                   <Zero0Glyph kind={kindOf(r.entityId)} className="h-3 w-3 shrink-0 text-muted-foreground" />
@@ -150,13 +167,18 @@ function ActivityReadout({ onOpen }: { onOpen: (id: string) => void }) {
                   >
                     {titleForAt(r.entityId, Date.now())}
                   </button>
-                  {/* Live proportional bar — the open place's fill grows each second. */}
+                  {/* Live proportional bar — the open place's fill grows each second,
+                      tinted to the entity's color. */}
                   <span className="relative h-1.5 flex-1 overflow-hidden rounded-[2px] bg-muted">
                     <span
-                      className={`absolute inset-y-0 left-0 rounded-[2px] transition-[width] duration-1000 ease-linear ${
-                        isOpen ? "bg-foreground" : "bg-foreground/50"
-                      }`}
-                      style={{ width: `${pct}%` }}
+                      className="absolute inset-y-0 left-0 rounded-[2px] transition-[width] duration-1000 ease-linear"
+                      style={{
+                        width: `${pct}%`,
+                        backgroundColor: accent ?? "#ffffff",
+                        // colorless ⇒ white fill outlined by a hairline so it reads.
+                        boxShadow: accent ? undefined : "inset 0 0 0 1px var(--border)",
+                        opacity: isOpen ? 1 : 0.5,
+                      }}
                     />
                   </span>
                   <span className="w-14 shrink-0 text-right text-muted-foreground">

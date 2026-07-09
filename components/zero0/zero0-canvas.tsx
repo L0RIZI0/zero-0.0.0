@@ -196,6 +196,32 @@ export function Zero0Canvas() {
         bump()
         return
       }
+      // :done: — the soft DONE marker on THIS entity (Task only). `yes`/`no` (also
+      // y/n, true/false, 1/0, done/undone); an empty value toggles. For the owner,
+      // marking done also completes + stamps the midnight close (the data layer's rule).
+      if (setter.field === "done") {
+        const ctx = getEntity(contextId)
+        if (!ctx || !KIND_META[ctx.kind].hasDoneState) {
+          setNotice({ tone: "err", text: "only tasks have a done state" })
+          return
+        }
+        const v = setter.value.toLowerCase()
+        const truthy = ["yes", "y", "true", "1", "done"]
+        const falsy = ["no", "n", "false", "0", "undone"]
+        let next: boolean
+        if (v === "") next = !isDone(ctx)
+        else if (truthy.includes(v)) next = true
+        else if (falsy.includes(v)) next = false
+        else {
+          setNotice({ tone: "err", text: `use :done: yes | no (got "${setter.value}")` })
+          return
+        }
+        setEntityCompleted(contextId, next)
+        setNotice({ tone: "ok", text: next ? "marked done" : "marked undone" })
+        setDraft("")
+        bump()
+        return
+      }
       const fieldMap: Record<string, "startAt" | "endAt" | "at" | "dueAt"> = {
         start: "startAt",
         end: "endAt",
@@ -204,7 +230,7 @@ export function Zero0Canvas() {
       }
       const key = fieldMap[setter.field]
       if (!key) {
-        setNotice({ tone: "err", text: `unknown field :${setter.field}: — try :title: :start: :end: :at: :due: :color:` })
+        setNotice({ tone: "err", text: `unknown field :${setter.field}: — try :title: :start: :end: :at: :due: :color: :done:` })
         return
       }
       // Empty value clears the slot; otherwise it must parse to a valid date token.
@@ -469,14 +495,33 @@ export function Zero0Canvas() {
             {/* Node header line: glyph + title + kind. Fill = closed (fillable kinds),
                 bar = cancelled, fade+strike follow the same rules as the child rows. */}
             <div className={"flex items-center gap-2 text-[12px] " + (isClosed(context) ? "opacity-60" : "")}>
-              <Zero0Glyph
-                kind={context.kind}
-                filled={fillsGlyph(context)}
-                done={meta.hasDoneState && isDone(context)}
-                cancelled={isCancelled(context)}
-                requested={context.kind === "task" && !!context.requested}
-                className="h-4 w-4 text-foreground"
-              />
+              {meta.hasDoneState ? (
+                <button
+                  type="button"
+                  onClick={() => toggleDone(context)}
+                  className="cursor-pointer text-foreground transition-opacity hover:opacity-70"
+                  aria-label={isDone(context) ? "Mark undone" : "Mark done"}
+                  title={isDone(context) ? "Mark undone" : "Mark done"}
+                >
+                  <Zero0Glyph
+                    kind={context.kind}
+                    filled={fillsGlyph(context)}
+                    done={isDone(context)}
+                    cancelled={isCancelled(context)}
+                    requested={context.kind === "task" && !!context.requested}
+                    className="h-4 w-4"
+                  />
+                </button>
+              ) : (
+                <Zero0Glyph
+                  kind={context.kind}
+                  filled={fillsGlyph(context)}
+                  done={meta.hasDoneState && isDone(context)}
+                  cancelled={isCancelled(context)}
+                  requested={context.kind === "task" && !!context.requested}
+                  className="h-4 w-4 text-foreground"
+                />
+              )}
               <span className={"text-foreground " + (isCancelled(context) ? "line-through" : "")}>
                 {context.title}
               </span>
@@ -538,21 +583,42 @@ export function Zero0Canvas() {
                       {String(i + 1).padStart(2, "0")}
                     </span>
                     {/* Glyph column: fill = closed (fillable kinds), check = done,
-                        bar = cancelled, "sent" flap = requested. */}
-                    <span
-                      className="flex w-6 shrink-0 justify-center self-center text-foreground"
-                      aria-label={stateLabel}
-                      title={stateLabel}
-                    >
-                      <Zero0Glyph
-                        kind={e.kind}
-                        filled={filled}
-                        done={showCheck}
-                        cancelled={cancelled}
-                        requested={requested}
-                        className="h-3.5 w-3.5"
-                      />
-                    </span>
+                        bar = cancelled, "sent" flap = requested. For a TASK the glyph
+                        is a BUTTON — clicking it toggles Done (same as the text toggle);
+                        other kinds render a static span. */}
+                    {km.hasDoneState ? (
+                      <button
+                        type="button"
+                        onClick={() => toggleDone(e)}
+                        className="flex w-6 shrink-0 cursor-pointer justify-center self-center text-foreground transition-opacity hover:opacity-70"
+                        aria-label={`${done ? "Mark undone" : "Mark done"} · ${stateLabel}`}
+                        title={done ? "Mark undone" : "Mark done"}
+                      >
+                        <Zero0Glyph
+                          kind={e.kind}
+                          filled={filled}
+                          done={showCheck}
+                          cancelled={cancelled}
+                          requested={requested}
+                          className="h-3.5 w-3.5"
+                        />
+                      </button>
+                    ) : (
+                      <span
+                        className="flex w-6 shrink-0 justify-center self-center text-foreground"
+                        aria-label={stateLabel}
+                        title={stateLabel}
+                      >
+                        <Zero0Glyph
+                          kind={e.kind}
+                          filled={filled}
+                          done={showCheck}
+                          cancelled={cancelled}
+                          requested={requested}
+                          className="h-3.5 w-3.5"
+                        />
+                      </span>
+                    )}
                     {/* Kind label — STATIC text. */}
                     <span className="w-16 shrink-0 uppercase tracking-wider text-muted-foreground">
                       {km.label}

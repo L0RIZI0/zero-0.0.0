@@ -66,6 +66,11 @@
       "out/**/*",
       "electron/**/*"
     ],
+    "asarUnpack": [
+      "**/*.node",
+      "node_modules/koffi/**",
+      "node_modules/@koromix/**"
+    ],
     "directories": {
       "output": "release"
     },
