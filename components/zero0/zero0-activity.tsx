@@ -12,6 +12,7 @@ import {
   type SpaceRollup,
 } from "@/lib/zero/activity-log"
 import { Zero0Glyph } from "@/components/zero0/zero0-glyph"
+import { Zero0Dayline } from "@/components/zero0/zero0-dayline"
 import type { EntityKind } from "@/lib/zero/types"
 
 // The root context id — its label is "Home" when it surfaces as a place, matching the
@@ -75,10 +76,14 @@ export function Zero0Activity({ onOpen }: { onOpen: (id: string) => void }) {
   const recent = segments.slice(-12).reverse() // newest first, capped
 
   return (
-    <section
-      aria-label="Activity today"
-      className="border-b border-border px-4 py-3 text-[11px] leading-relaxed tabular-nums"
-    >
+    <>
+      {/* The ported presence DAYLINE — fluid pan/ripple + live NOW marker, sitting
+          above the textual rollup/feed. Clicking a bar drills the canvas into it. */}
+      <Zero0Dayline onOpen={onOpen} />
+      <section
+        aria-label="Activity today"
+        className="border-b border-border px-4 py-3 text-[11px] leading-relaxed tabular-nums"
+      >
       <div className="mb-2 flex items-center justify-between text-muted-foreground">
         <span className="uppercase tracking-wider">activity · today</span>
         <button
@@ -134,6 +139,7 @@ export function Zero0Activity({ onOpen }: { onOpen: (id: string) => void }) {
           </ol>
         </div>
       )}
-    </section>
+      </section>
+    </>
   )
 }

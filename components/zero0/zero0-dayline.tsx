@@ -1,0 +1,601 @@
+"use client"
+
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
+import { getSegments, useActivityRevision } from "@/lib/zero/activity-log"
+import { getEntity, getInheritedAccent } from "@/lib/zero/data"
+import { titleAt } from "@/lib/zero/entity-log"
+import { rangeText, NOW_COLOR } from "@/lib/zero/timeline-format"
+import { DAYLINE_ROW_H } from "@/lib/zero/layout"
+import { useNow } from "@/lib/zero/use-now"
+import { cn } from "@/lib/utils"
+
+// ============================================================================
+// The ZERO0 DAYLINE — a PRESENCE-ONLY port of the /2 dayline into root `/0`.
+// ----------------------------------------------------------------------------
+// This vendors the /2 dayline's *fluid* machinery VERBATIM — the ripple pan
+// (coupled critically-damped spring chain), wheel/trackpad momentum glide, and
+// the live NOW marker — but strips it to what root actually has: the PRESENCE
+// band ("where I was"), fed by root's ISOLATED activity log (`zero:root-activity:v1`).
+//
+// Deliberately DROPPED from the /2 version (root has no scheduling engine wired,
+// and zero0 stays dep-free): the planned-occurrence ticks (recurrence expansion,
+// accent-inherited bars, sleep-sky), the GSAP `useZeroNav().open` morph launcher,
+// and the GSAP `NodeGlyph`. Opening a presence bar calls the `onOpen` prop
+// (zero0's `navigateTo`, which drills the canvas into that place); the hover
+// tooltip shows the title the place had AT that time (`titleAt` fold), matching
+// the rest of the root activity tracker.
+//
+// The ripple TUNING below is copied from the /2 dayline and is specific to this
+// lane's width/density — do not blind-copy elsewhere without re-tuning.
+// ============================================================================
+
+const DAY_MS = 86_400_000
+// The day "bucket" runs 5am→5am so a normal day (and its late-evening items)
+// land inside one window instead of being split at midnight.
+const DAY_START_HOUR = 5
+const NEUTRAL = "oklch(0.72 0.004 75)"
+
+// --- Ripple tuning (copied verbatim from the /2 dayline) ---------------------
+const RIPPLE_COLS = 32
+const RIPPLE_STIFFNESS = 20
+const RIPPLE_DAMPING = 2 * Math.sqrt(RIPPLE_STIFFNESS)
+const RIPPLE_COUPLING = 600
+const RIPPLE_LAG = 0.99
+const RIPPLE_GAIN = 1.2
+const RIPPLE_FALLOFF = 0.5
+const RIPPLE_MAX_OFFSET = 320
+
+// --- Wheel / trackpad momentum (copied verbatim) -----------------------------
+const WHEEL_PAN_SENSITIVITY = 0.42
+const TRACKPAD_PAN_SENSITIVITY = 1.0
+const WHEEL_NOTCH_MIN_PX = 50
+const WHEEL_FRICTION_TAU = 0.19
+const WHEEL_STOP_V = 14
+const WHEEL_FLUSH_FRAC = 0.35
+const RIPPLE_REST = 0.4
+const RENDER_MARGIN_MS = DAY_MS * 1.5
+
+/** [start,end) of the 5am→5am window containing `now`. */
+function dayWindow(now: number): [number, number] {
+  const d = new Date(now)
+  d.setHours(DAY_START_HOUR, 0, 0, 0)
+  let start = d.getTime()
+  if (now < start) start -= DAY_MS // before 5am → the window opened at yesterday's 5am
+  return [start, start + DAY_MS]
+}
+
+interface PresenceBar {
+  key: string
+  id: string
+  title: string
+  color: string
+  leftPct: number
+  widthPct: number
+  centerPct: number
+  range: string
+}
+
+/**
+ * Root `/0` presence dayline. `onOpen(id)` drills the canvas into a place when its
+ * bar is tapped (guarded against pans by `draggedRef`).
+ */
+export function Zero0Dayline({ onOpen }: { onOpen: (id: string) => void }) {
+  const now = useNow()
+  const [mounted, setMounted] = useState(false)
+  // `viewStart` is the left edge of the shown 24h window. Panning moves it directly;
+  // the auto-shift advances it on a time boundary. Independent of `now`.
+  const [viewStart, setViewStart] = useState(0)
+  const prevNowRef = useRef(0)
+  useEffect(() => {
+    const n = Date.now()
+    setMounted(true)
+    setViewStart(dayWindow(n)[0])
+    prevNowRef.current = n
+  }, [])
+
+  // AUTO-SHIFT — fires ONLY on a `now` transition (never on `viewStart`, so panning
+  // can't trigger it). When time carries `now` past the window's right edge, jump to
+  // the natural 24h window containing `now`, landing the marker at the left edge.
+  useEffect(() => {
+    if (!mounted) return
+    const prev = prevNowRef.current
+    prevNowRef.current = now
+    setViewStart((vs) => {
+      const viewEnd = vs + DAY_MS
+      return prev < viewEnd && now >= viewEnd ? dayWindow(now)[0] : vs
+    })
+  }, [now, mounted])
+
+  const winStart = viewStart
+
+  // Hover key for a presence bar (drives its tooltip + highlight).
+  const [presHovered, setPresHovered] = useState<string | null>(null)
+  // Hover state for the NOW marker's time tooltip.
+  const [nowHover, setNowHover] = useState(false)
+
+  // PRESENCE bars laid out in window coordinates. Titles fold `titleAt` so a past
+  // segment reads with the name the place had THEN. `useActivityRevision()` re-derives
+  // on any log change; `now` grows the open segment + keeps it in step with the marker.
+  const activityRevision = useActivityRevision()
+  const presence = useMemo<PresenceBar[]>(() => {
+    if (!mounted) return []
+    const nowMs = now
+    const lo = winStart - RENDER_MARGIN_MS
+    const hi = winStart + DAY_MS + RENDER_MARGIN_MS
+    const out: PresenceBar[] = []
+    for (const s of getSegments()) {
+      const st = s.enteredAt
+      const en = s.leftAt ?? nowMs
+      if (en <= st) continue // zero/negative width — skip
+      if (en < lo || st > hi) continue // fully outside the buffered window
+      const leftPct = ((st - winStart) / DAY_MS) * 100
+      const widthPct = ((en - st) / DAY_MS) * 100
+      const entity = getEntity(s.entityId)
+      out.push({
+        key: `pres:${s.entityId}:${s.enteredAt}`,
+        id: s.entityId,
+        // Historical title — the name the place carried at the segment's start.
+        title: entity ? titleAt(entity, st) : s.entityId === "s_root" ? "Home" : "Elsewhere",
+        color: getInheritedAccent(s.entityId) ?? NEUTRAL,
+        leftPct,
+        widthPct,
+        centerPct: leftPct + widthPct / 2,
+        range: rangeText(st, en),
+      })
+    }
+    return out
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [winStart, now, mounted, activityRevision])
+
+  const hoveredPres = presHovered ? presence.find((p) => p.key === presHovered) : null
+
+  // NOW marker position within the shown window; off-screen (outside 0–100) when panned.
+  const nowPct = ((now - winStart) / DAY_MS) * 100
+  const nowInView = nowPct >= 0 && nowPct <= 100
+
+  // ==========================================================================
+  // RIPPLE — per-column critically-damped springs, driven imperatively.
+  // (Machinery copied verbatim from the /2 dayline.)
+  // ==========================================================================
+  const laneRef = useRef<HTMLDivElement>(null)
+  const offsetRef = useRef<Float64Array>(new Float64Array(RIPPLE_COLS))
+  const velRef = useRef<Float64Array>(new Float64Array(RIPPLE_COLS))
+  const prevXRef = useRef<Float64Array>(new Float64Array(RIPPLE_COLS))
+  const rafRef = useRef<number | null>(null)
+  const lastTsRef = useRef(0)
+  const cursorColRef = useRef((RIPPLE_COLS - 1) / 2)
+  const reducedRef = useRef(false)
+  const lastPointerRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 })
+  const pointerInsideRef = useRef(false)
+  const wheelVelRef = useRef(0)
+  const wheelRafRef = useRef<number | null>(null)
+  const wheelTsRef = useRef(0)
+  const wheelCommitRef = useRef(0)
+  const pendingFlushRef = useRef(0)
+  // Base pan applied imperatively to both the presence CONTENT (inside the fixed clip)
+  // and the NOW marker + presence tooltip (which live outside the clip for edge bleed).
+  const contentPanRef = useRef<HTMLDivElement>(null)
+  const markerPanRef = useRef<HTMLDivElement>(null)
+  const presTooltipPanRef = useRef<HTMLDivElement>(null)
+  const applyPan = useCallback((px: number) => {
+    const t = px ? `translateX(${px}px)` : ""
+    if (contentPanRef.current) contentPanRef.current.style.transform = t
+    if (markerPanRef.current) markerPanRef.current.style.transform = t
+    if (presTooltipPanRef.current) presTooltipPanRef.current.style.transform = t
+  }, [])
+  const flushAtRestRef = useRef<() => void>(() => {})
+  const rippleNodesRef = useRef<Map<string, HTMLElement>>(new Map())
+
+  const registerRipple = useCallback((key: string) => {
+    return (el: HTMLElement | null) => {
+      const map = rippleNodesRef.current
+      if (el) map.set(key, el)
+      else map.delete(key)
+    }
+  }, [])
+
+  // Detect reduced-motion once (and keep it current).
+  useEffect(() => {
+    const mq = window.matchMedia("(prefers-reduced-motion: reduce)")
+    const sync = () => (reducedRef.current = mq.matches)
+    sync()
+    mq.addEventListener("change", sync)
+    return () => mq.removeEventListener("change", sync)
+  }, [])
+
+  const pctToCol = useCallback((clientX: number) => {
+    const lane = laneRef.current
+    if (!lane) return (RIPPLE_COLS - 1) / 2
+    const r = lane.getBoundingClientRect()
+    const pct = r.width > 0 ? (clientX - r.left) / r.width : 0.5
+    return Math.max(0, Math.min(RIPPLE_COLS - 1, Math.round(pct * (RIPPLE_COLS - 1))))
+  }, [])
+
+  // Re-resolve which PRESENCE bar sits under the (possibly stationary) cursor and sync
+  // `presHovered`. Called each pan frame: bars slide by transform, so the DOM's own hover
+  // doesn't fire — we hit-test the real pixel under the cursor. No-ops (no re-render) when
+  // the bar under the cursor is unchanged, so it's cheap to call every frame.
+  const resolveHoverAtCursor = useCallback(() => {
+    if (!pointerInsideRef.current) return
+    const { x, y } = lastPointerRef.current
+    const el = document.elementFromPoint(x, y) as HTMLElement | null
+    const bar = el?.closest("[data-preskey]") as HTMLElement | null
+    const key = bar?.getAttribute("data-preskey") ?? null
+    setPresHovered((h) => (h === key ? h : key))
+  }, [])
+
+  const paintRipple = useCallback(() => {
+    const off = offsetRef.current
+    const maxCol = RIPPLE_COLS - 1
+    const lane = laneRef.current
+    const w = lane ? lane.clientWidth || 1 : 1
+    const baseFrac = -wheelCommitRef.current / w
+    for (const el of rippleNodesRef.current.values()) {
+      const left = +(el.dataset.left ?? "") || 0
+      const frac = left / 100 + baseFrac
+      if (frac < -0.4 || frac > 1.4) {
+        if (el.style.transform) el.style.transform = ""
+        continue
+      }
+      const fcol = Math.max(0, Math.min(maxCol, frac * maxCol))
+      const i = Math.floor(fcol)
+      const t = fcol - i
+      const x0 = off[i] || 0
+      const x1 = off[Math.min(maxCol, i + 1)] || 0
+      const x = x0 + (x1 - x0) * t
+      el.style.transform = x ? `translateX(${x}px)` : ""
+    }
+  }, [])
+
+  const tick = useCallback(
+    (ts: number) => {
+      const off = offsetRef.current
+      const vel = velRef.current
+      let dt = (ts - lastTsRef.current) / 1000
+      lastTsRef.current = ts
+      if (!(dt > 0)) dt = 1 / 60
+      dt = Math.min(dt, 0.05)
+      const steps = Math.max(1, Math.ceil(dt / 0.008))
+      const h = dt / steps
+      const prev = prevXRef.current
+      for (let s = 0; s < steps; s++) {
+        for (let c = 0; c < RIPPLE_COLS; c++) prev[c] = off[c]
+        for (let c = 0; c < RIPPLE_COLS; c++) {
+          const x = prev[c]
+          const v = vel[c]
+          const xl = c > 0 ? prev[c - 1] : x
+          const xr = c < RIPPLE_COLS - 1 ? prev[c + 1] : x
+          const a = RIPPLE_COUPLING * (xl + xr - 2 * x) - RIPPLE_STIFFNESS * x - RIPPLE_DAMPING * v
+          const nv = v + a * h
+          vel[c] = nv
+          off[c] = x + nv * h
+        }
+      }
+      let active = false
+      for (let c = 0; c < RIPPLE_COLS; c++) {
+        if (Math.abs(off[c]) < RIPPLE_REST && Math.abs(vel[c]) < RIPPLE_REST) {
+          off[c] = 0
+          vel[c] = 0
+        } else {
+          active = true
+        }
+      }
+      paintRipple()
+      if (active) {
+        rafRef.current = requestAnimationFrame(tick)
+      } else {
+        rafRef.current = null
+        flushAtRestRef.current()
+      }
+    },
+    [paintRipple],
+  )
+
+  const startRipple = useCallback(() => {
+    if (rafRef.current != null) return
+    lastTsRef.current = performance.now()
+    rafRef.current = requestAnimationFrame(tick)
+  }, [tick])
+
+  const injectPan = useCallback(
+    (shiftPx: number) => {
+      if (reducedRef.current || shiftPx === 0) return
+      const off = offsetRef.current
+      const cc = cursorColRef.current
+      const maxDist = Math.max(cc, RIPPLE_COLS - 1 - cc, 1)
+      for (let c = 0; c < RIPPLE_COLS; c++) {
+        const dist = Math.abs(c - cc) / maxDist
+        const hold = Math.min(1, RIPPLE_LAG * Math.pow(dist, RIPPLE_FALLOFF) * RIPPLE_GAIN)
+        let x = off[c] - shiftPx * hold
+        if (x > RIPPLE_MAX_OFFSET) x = RIPPLE_MAX_OFFSET
+        else if (x < -RIPPLE_MAX_OFFSET) x = -RIPPLE_MAX_OFFSET
+        off[c] = x
+      }
+      startRipple()
+    },
+    [startRipple],
+  )
+
+  // --- Panning (linear drag, no zoom) ---------------------------------------
+  const dragRef = useRef<{ startX: number; startView: number; lastX: number } | null>(null)
+  const draggedRef = useRef(false)
+
+  const onPointerDown = useCallback(
+    (e: React.PointerEvent) => {
+      if (e.button !== 0) return
+      draggedRef.current = false
+      dragRef.current = { startX: e.clientX, startView: viewStart, lastX: e.clientX }
+      cursorColRef.current = pctToCol(e.clientX)
+      lastPointerRef.current = { x: e.clientX, y: e.clientY }
+      pointerInsideRef.current = true
+    },
+    [viewStart, pctToCol],
+  )
+  const onPointerMove = useCallback(
+    (e: React.PointerEvent) => {
+      const d = dragRef.current
+      const lane = laneRef.current
+      cursorColRef.current = pctToCol(e.clientX)
+      lastPointerRef.current = { x: e.clientX, y: e.clientY }
+      pointerInsideRef.current = true
+      if (!d || !lane) return
+      const w = lane.clientWidth || 1
+      const dx = e.clientX - d.startX
+      if (Math.abs(dx) > 3 && !draggedRef.current) {
+        draggedRef.current = true
+        laneRef.current?.setPointerCapture(e.pointerId)
+      }
+      const inc = e.clientX - d.lastX
+      d.lastX = e.clientX
+      injectPan(inc)
+      setViewStart(d.startView - (dx / w) * DAY_MS)
+      resolveHoverAtCursor()
+    },
+    [pctToCol, injectPan, resolveHoverAtCursor],
+  )
+  const onPointerUp = useCallback((e: React.PointerEvent) => {
+    dragRef.current = null
+    if (laneRef.current?.hasPointerCapture(e.pointerId)) laneRef.current.releasePointerCapture(e.pointerId)
+  }, [])
+  const recenter = useCallback(() => setViewStart(dayWindow(Date.now())[0]), [])
+
+  const flushWheelPan = useCallback(() => {
+    const lane = laneRef.current
+    if (!lane) return
+    if (pendingFlushRef.current !== 0) return
+    const commit = wheelCommitRef.current
+    if (!commit) return
+    const w = lane.clientWidth || 1
+    pendingFlushRef.current = commit
+    setViewStart((vs) => vs + (commit / w) * DAY_MS)
+  }, [])
+
+  const maybeFlushAtRest = useCallback(() => {
+    if (wheelRafRef.current == null && rafRef.current == null && wheelCommitRef.current !== 0) {
+      flushWheelPan()
+    }
+  }, [flushWheelPan])
+  flushAtRestRef.current = maybeFlushAtRest
+
+  useEffect(() => {
+    const lane = laneRef.current
+    if (!lane) return
+
+    const glide = (ts: number) => {
+      const w = lane.clientWidth || 1
+      const dt = wheelTsRef.current ? Math.min((ts - wheelTsRef.current) / 1000, 0.05) : 1 / 60
+      wheelTsRef.current = ts
+      const vel = wheelVelRef.current
+      const slice = vel * dt
+      wheelVelRef.current = vel * Math.exp(-dt / WHEEL_FRICTION_TAU)
+      wheelCommitRef.current += slice
+      applyPan(-wheelCommitRef.current)
+      injectPan(-slice)
+      resolveHoverAtCursor()
+      if (Math.abs(wheelCommitRef.current) > w * WHEEL_FLUSH_FRAC) flushWheelPan()
+      if (Math.abs(wheelVelRef.current) > WHEEL_STOP_V) {
+        wheelRafRef.current = requestAnimationFrame(glide)
+      } else {
+        wheelVelRef.current = 0
+        wheelTsRef.current = 0
+        wheelRafRef.current = null
+        maybeFlushAtRest()
+      }
+    }
+
+    const onWheel = (e: WheelEvent) => {
+      let delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY
+      if (delta === 0) return
+      e.preventDefault()
+      const isMouseWheel = e.deltaMode !== 0 || Math.abs(delta) >= WHEEL_NOTCH_MIN_PX
+      if (e.deltaMode === 1) delta *= 16
+      else if (e.deltaMode === 2) delta *= lane.clientWidth || 1
+      delta *= isMouseWheel ? WHEEL_PAN_SENSITIVITY : TRACKPAD_PAN_SENSITIVITY
+      cursorColRef.current = pctToCol(e.clientX)
+      lastPointerRef.current = { x: e.clientX, y: e.clientY }
+      pointerInsideRef.current = true
+      wheelVelRef.current += delta / WHEEL_FRICTION_TAU
+      if (wheelRafRef.current == null) {
+        wheelTsRef.current = 0
+        wheelRafRef.current = requestAnimationFrame(glide)
+      }
+    }
+
+    lane.addEventListener("wheel", onWheel, { passive: false })
+    return () => {
+      lane.removeEventListener("wheel", onWheel)
+      if (wheelRafRef.current != null) cancelAnimationFrame(wheelRafRef.current)
+      wheelRafRef.current = null
+      wheelVelRef.current = 0
+      wheelCommitRef.current = 0
+      pendingFlushRef.current = 0
+      wheelTsRef.current = 0
+    }
+  }, [pctToCol, injectPan, flushWheelPan, maybeFlushAtRest, applyPan, resolveHoverAtCursor])
+
+  useLayoutEffect(() => {
+    if (pendingFlushRef.current !== 0) {
+      wheelCommitRef.current -= pendingFlushRef.current
+      pendingFlushRef.current = 0
+    }
+    applyPan(-wheelCommitRef.current)
+  }, [viewStart, applyPan])
+
+  useEffect(() => {
+    return () => {
+      if (rafRef.current != null) cancelAnimationFrame(rafRef.current)
+    }
+  }, [])
+
+  return (
+    <div className="border-b border-border px-4 py-3">
+      <div className="mb-2 flex items-center justify-between text-[10px] uppercase tracking-wider text-muted-foreground">
+        <span>dayline · today</span>
+        <button
+          type="button"
+          onClick={recenter}
+          className="normal-case text-muted-foreground/60 transition-colors hover:text-foreground"
+          aria-label="Recenter dayline on now"
+        >
+          now
+        </button>
+      </div>
+      {/* Constant-height lane row. */}
+      <div className="relative" style={{ height: DAYLINE_ROW_H }}>
+        <div
+          ref={laneRef}
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp}
+          onPointerCancel={onPointerUp}
+          onMouseEnter={() => (pointerInsideRef.current = true)}
+          onMouseLeave={() => (pointerInsideRef.current = false)}
+          onDoubleClick={recenter}
+          className="relative h-7 w-full cursor-default select-none overflow-visible rounded-md border border-border/60 bg-card/40 [touch-action:none]"
+        >
+          {/* CLIP layer — fixed to the lane so it always trims to the true bounds. */}
+          <div className="pointer-events-none absolute inset-0 overflow-hidden rounded-md">
+            {/* CONTENT PAN — the in-progress wheel pan is applied here as an imperative
+                translateX; the presence bars slide within the fixed clip window. */}
+            <div ref={contentPanRef} className="pointer-events-none absolute inset-0 will-change-transform">
+              {mounted &&
+                presence.map((p) => {
+                  const isHot = presHovered === p.key
+                  return (
+                    <div
+                      key={p.key}
+                      ref={registerRipple(p.key)}
+                      data-left={p.leftPct}
+                      className="pointer-events-none absolute inset-0 will-change-transform"
+                    >
+                      <button
+                        type="button"
+                        data-preskey={p.key}
+                        aria-label={`Was in ${p.title}, ${p.range}`}
+                        onMouseEnter={() => setPresHovered(p.key)}
+                        onMouseLeave={() => setPresHovered((h) => (h === p.key ? null : h))}
+                        onClick={(e) => {
+                          if (draggedRef.current) return // a pan, not a tap
+                          onOpen(p.id)
+                        }}
+                        className="pointer-events-auto absolute top-1/2 -translate-y-1/2 cursor-default rounded-full transition-[height,opacity] duration-150"
+                        style={{
+                          left: `${p.leftPct}%`,
+                          width: `max(3px, ${p.widthPct}%)`,
+                          height: isHot ? 12 : 6,
+                          backgroundColor: p.color,
+                          opacity: isHot ? 0.9 : 0.5,
+                          zIndex: isHot ? 15 : 0,
+                        }}
+                      />
+                    </div>
+                  )
+                })}
+            </div>
+          </div>
+
+          {/* NOW marker — a thin bright vertical tick, painted above the bars. Hidden
+              when panned out of view. Rides the same catch-up wave as the content. */}
+          {mounted && nowInView && (
+            <div ref={markerPanRef} className="pointer-events-none absolute inset-0 z-30 will-change-transform">
+              <div
+                aria-hidden
+                ref={registerRipple("__now__")}
+                data-left={nowPct}
+                className="pointer-events-none absolute inset-0 will-change-transform"
+              >
+                <div
+                  className="pointer-events-auto absolute -bottom-px -top-px w-[2px] -translate-x-1/2 rounded-full"
+                  style={{ left: `${nowPct}%`, backgroundColor: NOW_COLOR, boxShadow: `0 0 4px ${NOW_COLOR}` }}
+                >
+                  <span
+                    className="absolute -bottom-1 -top-1 left-1/2 w-4 -translate-x-1/2 cursor-default"
+                    onMouseEnter={() => setNowHover(true)}
+                    onMouseLeave={() => setNowHover(false)}
+                  />
+                  <span
+                    className="absolute left-1/2 -translate-x-1/2"
+                    style={{
+                      top: 1,
+                      width: 0,
+                      height: 0,
+                      borderLeft: "3px solid transparent",
+                      borderRight: "3px solid transparent",
+                      borderTop: `5px solid ${NOW_COLOR}`,
+                    }}
+                  />
+                  <span
+                    className="absolute left-1/2 -translate-x-1/2"
+                    style={{
+                      bottom: 1,
+                      width: 0,
+                      height: 0,
+                      borderLeft: "3px solid transparent",
+                      borderRight: "3px solid transparent",
+                      borderBottom: `5px solid ${NOW_COLOR}`,
+                    }}
+                  />
+                  <span
+                    className={cn(
+                      "pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 whitespace-nowrap rounded border border-border/70 bg-card px-2 py-1 text-[10.5px] font-medium leading-none tracking-tight tabular-nums text-foreground/80 shadow-sm transition-opacity duration-150",
+                      nowHover ? "opacity-100" : "opacity-0",
+                    )}
+                  >
+                    {new Date(now).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false })}
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* PRESENCE HOVER HELPER — floats just below the lane: a color dot for the
+              place + "in {title}" (the historical name) + the clock range. Rides the
+              same two-layer pan-follow as everything else. */}
+          {hoveredPres && (
+            <div ref={presTooltipPanRef} className="pointer-events-none absolute inset-0 z-40 will-change-transform">
+              <div
+                ref={registerRipple("__prestooltip__")}
+                data-left={hoveredPres.leftPct}
+                className="pointer-events-none absolute inset-0 will-change-transform"
+              >
+                <div
+                  className="pointer-events-none absolute top-full flex max-w-[40vw] -translate-x-1/2 items-center gap-1.5 whitespace-nowrap rounded border border-border/70 bg-card px-2 py-1 text-[10.5px] font-medium leading-none tracking-tight text-foreground/80 shadow-sm"
+                  style={{ left: `${Math.min(96, Math.max(4, hoveredPres.centerPct))}%`, marginTop: 4 }}
+                >
+                  <span
+                    aria-hidden
+                    className="h-2 w-2 shrink-0 rounded-full"
+                    style={{ backgroundColor: hoveredPres.color }}
+                  />
+                  <span className="shrink-0 text-muted-foreground">in</span>
+                  <span className="truncate text-foreground">{hoveredPres.title}</span>
+                  <span className="shrink-0 text-muted-foreground tabular-nums">{hoveredPres.range}</span>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}

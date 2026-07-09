@@ -330,8 +330,23 @@ export function Zero0Canvas() {
       {/* ── ACTIVITY BAND (above the header) ───────────────────────────────────
           The ported presence tracker — WHERE the user has been today. Hidden by
           default (toggled from the footer) so the canvas stays blank; when shown it
-          sits ABOVE the top helper. Clicking a place drills the canvas into it. */}
-      {mounted && showActivity && <Zero0Activity onOpen={navigateTo} />}
+          sits ABOVE the top helper. Clicking a place drills the canvas into it.
+          Show/hide is animated with the dep-free CSS grid-rows 0fr↔1fr trick: the
+          whole flex column reflows smoothly at ~zero compute cost (a single
+          compositor-friendly layout transition, no per-frame JS). Kept MOUNTED while
+          collapsed so BOTH directions animate; `inert` drops it from tab/hit-testing
+          when hidden, and reduced-motion users get an instant toggle. */}
+      {mounted && (
+        <div
+          className="grid transition-[grid-template-rows] duration-300 ease-out motion-reduce:transition-none"
+          style={{ gridTemplateRows: showActivity ? "1fr" : "0fr" }}
+          inert={!showActivity}
+        >
+          <div className="overflow-hidden">
+            <Zero0Activity onOpen={navigateTo} />
+          </div>
+        </div>
+      )}
 
       {/* ── TOP HELPER ─────────────────────────────────────────────────────────
           Zero-UX chrome: the mark, the access path (breadcrumb), and a session
