@@ -15,6 +15,7 @@ import {
   addWebResource,
   setEntityCompleted,
   setEntityScheduleField,
+  renameEntity,
   deleteEntity,
 } from "@/lib/zero/data"
 import { KIND_META, isClosed, isTerminal, fillsGlyph } from "@/lib/zero/kinds"
@@ -98,13 +99,31 @@ export function Zero0Canvas() {
     if (!raw) return
 
     // 0) SELF-FIELD setter: `:field: value` mutates THIS entity (the ":" = "in this",
-    //    trailing colon = a field, vs `:kind` which creates a child). Schedule fields:
-    //    :start:/:end: (moment span) → startAt/endAt, :at: (instant point) → at,
-    //    :due: (task deadline) → dueAt. Values parse from a compact date token (HHMM
-    //    today / YYMMDD / YYMMDDHHMM). Empty value clears the field. Talks back via the
-    //    notice line instead of creating anything.
+    //    trailing colon = a field, vs `:kind` which creates a child). Fields:
+    //    :title: (free text) → renames self + records title history; :start:/:end:
+    //    (moment span) → startAt/endAt, :at: (instant point) → at, :due: (task deadline)
+    //    → dueAt (these parse a compact date token: HHMM today / YYMMDD / YYMMDDHHMM;
+    //    empty value clears the slot). Talks back via the notice line instead of creating.
     const setter = parseFieldSetter(raw)
     if (setter) {
+      // :title: is free text (not a date), and renames THIS entity while logging history.
+      if (setter.field === "title") {
+        if (setter.value === "") {
+          setNotice({ tone: "err", text: "title can't be empty" })
+          return
+        }
+        const ok = renameEntity(contextId, setter.value)
+        setNotice(
+          ok
+            ? { tone: "ok", text: `renamed · ${setter.value}` }
+            : { tone: "err", text: "no change" },
+        )
+        if (ok) {
+          setDraft("")
+          bump()
+        }
+        return
+      }
       const fieldMap: Record<string, "startAt" | "endAt" | "at" | "dueAt"> = {
         start: "startAt",
         end: "endAt",
@@ -113,7 +132,7 @@ export function Zero0Canvas() {
       }
       const key = fieldMap[setter.field]
       if (!key) {
-        setNotice({ tone: "err", text: `unknown field :${setter.field}: — try :start: :end: :at: :due:` })
+        setNotice({ tone: "err", text: `unknown field :${setter.field}: — try :title: :start: :end: :at: :due:` })
         return
       }
       // Empty value clears the slot; otherwise it must parse to a valid date token.
@@ -235,6 +254,12 @@ export function Zero0Canvas() {
     metaRows.push(["id", context.id])
     metaRows.push(["kind", context.kind])
     metaRows.push(["created", fmt(getCreatedAt(context))])
+    // TITLE HISTORY — only when the entity has actually been renamed (>1 entry). Shows
+    // the full chain oldest→newest with the time each name took effect, so the raw-data
+    // view exposes what `titleAt(entity, t)` folds for the activity tracker.
+    if (context.titleLog && context.titleLog.length > 1) {
+      metaRows.push(["titles", context.titleLog.map((t) => `${t.title} (${fmt(t.at)})`).join("  →  ")])
+    }
     // DONE axis — only kinds that have it (Task / Moment / Instant).
     if (meta.hasDoneState) {
       const done = isDone(context)

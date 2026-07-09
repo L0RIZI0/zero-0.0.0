@@ -216,9 +216,30 @@ export interface Schedule {
  * Fields here are shared by all kinds; per-kind specifics live on the variant
  * interfaces below, and `Entity` is their discriminated union (on `kind`).
  */
+/**
+ * ONE entry in an entity's TITLE HISTORY — the title it carried, and WHEN that name
+ * took effect (epoch ms). The entity's CURRENT title stays the canonical `title: string`
+ * below; this log lets a historical view ask "what was this called at time T?" so the
+ * activity tracker can label a past segment with the name it had *then*, not today's.
+ * (Same "faithful to its moment" principle as always-showing a Moment's empty slots.)
+ */
+export interface TitleEntry {
+  /** The title as of `at`. */
+  title: string
+  /** When this title took effect (epoch ms). */
+  at: Epoch
+}
+
 export interface EntityBase {
   id: string
   title: string
+  /**
+   * Append-only TITLE HISTORY (additive; absent on entities never renamed). Each entry
+   * is a {@link TitleEntry} `{title, at}`, oldest→newest. On the FIRST rename the prior
+   * title is backfilled at `createdAt` so the history is complete from birth. `title`
+   * above remains the current value; fold with `titleAt(entity, epoch)` for a past name.
+   */
+  titleLog?: TitleEntry[]
 
   // --- Relationships --------------------------------------------------------
   /** The single ORIGIN parent ("created-from"). Root (Space 0) has `null`. */

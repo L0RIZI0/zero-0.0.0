@@ -1,4 +1,4 @@
-import type { Asset, Entity, EntityKind, Instant, Recurrence, Schedule, Resource, EntityBase, TaskPriority, User } from "./types"
+import type { Asset, Entity, EntityKind, Instant, Recurrence, Schedule, Resource, EntityBase, TaskPriority, TitleEntry, User } from "./types"
 import { hasDoneState, isClosed } from "./kinds"
 import {
   isDone,
@@ -1571,6 +1571,33 @@ export function setEntityTitle(id: string, title: string): void {
   if (!entity) return
   entity.title = title
   persist()
+}
+
+/**
+ * Rename an entity AND record the change in its append-only title history, so a
+ * historical view (e.g. the activity tracker) can label a past segment with the name
+ * the entity had at that time. On the FIRST rename the PRIOR title is backfilled at the
+ * entity's `createdAt` (or `now` if unknown), so the log is complete from birth; then
+ * the new title is appended at `now`. `entity.title` stays the canonical current value.
+ * No-op (returns false) if the id is unknown or the trimmed title is empty/unchanged.
+ */
+export function renameEntity(id: string, nextTitle: string, now = Date.now()): boolean {
+  const stored = byId.get(id)
+  if (!stored) return false
+  const title = nextTitle.trim()
+  if (!title || title === stored.title) return false
+  const entity = mutable(stored)
+  const prior = entity.title
+  const log: TitleEntry[] = entity.titleLog ? [...entity.titleLog] : [{ title: prior, at: entity.createdAt ?? now }]
+  log.push({ title, at: now })
+  entity.titleLog = log
+  entity.title = title
+  if (!userEntityIds.has(id)) {
+    // Seeded entity — persist title + history as an override so both survive refreshes.
+    seededOverrides.set(id, { ...seededOverrides.get(id), title, titleLog: log })
+  }
+  persist()
+  return true
 }
 
 /**

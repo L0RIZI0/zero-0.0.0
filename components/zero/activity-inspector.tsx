@@ -9,6 +9,7 @@ import {
   useActivityLog,
 } from "@/lib/zero/activity-log"
 import { getEntity } from "@/lib/zero/data"
+import { titleAt } from "@/lib/zero/entity-log"
 
 /**
  * Dev-only ACTIVITY inspector (STEP 1 of the Activity Tracker).
@@ -22,6 +23,18 @@ import { getEntity } from "@/lib/zero/data"
 function titleFor(id: string): string {
   const e = getEntity(id)
   if (e) return e.title
+  if (id === "s_root") return "Home"
+  return id
+}
+
+/**
+ * The title a place carried AT the time of a segment — so a past segment reads with the
+ * name the entity had *then*, not its current one (folds `titleLog` via {@link titleAt}).
+ * Falls back to the plain current-title resolution when the entity/history is absent.
+ */
+function titleForAt(id: string, epoch: number): string {
+  const e = getEntity(id)
+  if (e) return titleAt(e, epoch)
   if (id === "s_root") return "Home"
   return id
 }
@@ -121,8 +134,8 @@ export function ActivityInspector() {
                 <span className="w-10 text-[10px] text-muted-foreground tabular-nums">
                   {fmtClock(s.startAt)}
                 </span>
-                <span className="flex-1 truncate" title={titleFor(s.entityId)}>
-                  {titleFor(s.entityId)}
+                <span className="flex-1 truncate" title={titleForAt(s.entityId, s.startAt)}>
+                  {titleForAt(s.entityId, s.startAt)}
                 </span>
                 <span className="text-[10px] text-muted-foreground tabular-nums">
                   {fmtDuration(s.durationMs)}

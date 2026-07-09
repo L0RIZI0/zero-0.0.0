@@ -53,6 +53,25 @@ export function firstEntry(entity: Entity, ...types: LogType[]): Instant | undef
   return undefined
 }
 
+/**
+ * The entity's title AS OF `epoch` — folds the additive `titleLog` so a historical view
+ * (the activity tracker) shows the name the entity carried at that time rather than its
+ * current one. Falls back to the current `title` when there is no history (never renamed).
+ * The `titleLog` is chronological (oldest→newest); we return the last entry with
+ * `at <= epoch`, and for a time BEFORE the first recorded title we return that earliest
+ * known title (the closest faithful answer).
+ */
+export function titleAt(entity: Entity, epoch: Epoch): string {
+  const log = entity.titleLog
+  if (!log || log.length === 0) return entity.title
+  let result = log[0].title
+  for (const entry of log) {
+    if (entry.at <= epoch) result = entry.title
+    else break
+  }
+  return result
+}
+
 /** Whether the entity carries any log entries at all. */
 export function hasLog(entity: Entity): boolean {
   return !!entity.log && entity.log.length > 0
