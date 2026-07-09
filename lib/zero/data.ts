@@ -1778,10 +1778,37 @@ export function setEntityRequested(id: string, requested: boolean): void {
   const entity = mutable(stored)
   entity.requested = requested
   if (!userEntityIds.has(id)) {
-    // Seeded entity — track as an override patch so the sent state survives refreshes.
-    seededOverrides.set(id, { ...seededOverrides.get(id), requested })
+  // Seeded entity — track as an override patch so the sent state survives refreshes.
+  seededOverrides.set(id, { ...seededOverrides.get(id), requested })
   }
   persist()
+  }
+
+/**
+ * Set (or CLEAR) a single absolute time field on an entity's schedule, in place. This is
+ * the write-side of the create-field self-setters (`:start:`/`:end:` → startAt/endAt).
+ * Passing `null` removes that field; all OTHER schedule fields are preserved (so setting
+ * start doesn't wipe end). If the entity had no schedule yet, one is created. Returns
+ * true when the entity existed.
+ */
+export function setEntityScheduleField(
+  id: string,
+  field: "startAt" | "endAt" | "at" | "dueAt",
+  epoch: number | null,
+): boolean {
+  const stored = byId.get(id)
+  if (!stored) return false
+  const entity = mutable(stored)
+  const sched: NonNullable<Entity["schedule"]> = { ...(entity.schedule ?? {}) }
+  if (epoch == null) delete sched[field]
+  else sched[field] = epoch
+  entity.schedule = sched
+  if (!userEntityIds.has(id)) {
+    // Seeded entity — persist as an override patch so the value survives refreshes.
+    seededOverrides.set(id, { ...seededOverrides.get(id), schedule: sched })
+  }
+  persist()
+  return true
 }
 
 /**

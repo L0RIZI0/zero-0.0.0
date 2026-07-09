@@ -14,11 +14,12 @@ import {
   addParsedEntity,
   addWebResource,
   setEntityCompleted,
+  setEntityScheduleField,
   deleteEntity,
 } from "@/lib/zero/data"
 import { KIND_META, isClosed, isTerminal, fillsGlyph } from "@/lib/zero/kinds"
 import { isDone, isCancelled, getCreatedAt, getCompletedOn } from "@/lib/zero/entity-log"
-import { parseCreateField, parseKindPrefix } from "@/lib/zero/create-parse"
+import { parseCreateField, parseKindPrefix, parseFieldSetter, parseDateToken } from "@/lib/zero/create-parse"
 import { looksLikeUrl, normalizeUrl, resolveWebResourceByUrl, webDisplayName } from "@/lib/zero/web-resources"
 import type { Entity } from "@/lib/zero/types"
 
@@ -61,6 +62,9 @@ export function Zero0Canvas() {
   const [mounted, setMounted] = useState(false)
   const [rev, setRev] = useState(0)
   const [draft, setDraft] = useState("")
+  // Transient one-line feedback under the create field (the "terminal" talking back):
+  // confirms a `:field:` setter or explains a rejected value. Cleared on next keystroke.
+  const [notice, setNotice] = useState<{ tone: "ok" | "err"; text: string } | null>(null)
   // The drill-in stack: ids from the root context down to the current one. The
   // last id is the context whose children we render + create into.
   const [path, setPath] = useState<string[]>([ROOT_ID])
@@ -92,6 +96,39 @@ export function Zero0Canvas() {
   const create = useCallback(() => {
     const raw = draft.trim()
     if (!raw) return
+
+    // 0) SELF-FIELD setter: `:field: value` mutates THIS entity (the ":" = "in this",
+    //    trailing colon = a field, vs `:kind` which creates a child). MVP fields =
+    //    :start:/:end: → schedule.startAt/endAt, parsed from a compact date token
+    //    (HHMM today / YYMMDD / YYMMDDHHMM). Empty value clears the field. Talks back
+    //    via the notice line instead of creating anything.
+    const setter = parseFieldSetter(raw)
+    if (setter) {
+      const fieldMap: Record<string, "startAt" | "endAt"> = { start: "startAt", end: "endAt" }
+      const key = fieldMap[setter.field]
+      if (!key) {
+        setNotice({ tone: "err", text: `unknown field :${setter.field}: — try :start: or :end:` })
+        return
+      }
+      // Empty value clears the slot; otherwise it must parse to a valid date token.
+      let epoch: number | null = null
+      if (setter.value !== "") {
+        epoch = parseDateToken(setter.value)
+        if (epoch == null) {
+          setNotice({ tone: "err", text: `invalid time "${setter.value}" — use HHMM, YYMMDD, or YYMMDDHHMM` })
+          return
+        }
+      }
+      const ok = setEntityScheduleField(contextId, key, epoch)
+      if (!ok) {
+        setNotice({ tone: "err", text: "no open entity to set" })
+        return
+      }
+      setNotice({ tone: "ok", text: epoch == null ? `${setter.field} cleared` : `${setter.field} set · ${fmt(epoch)}` })
+      setDraft("")
+      bump()
+      return
+    }
 
     // 1) A leading ":xxxx" selector (":" + first 4 letters of a kind) FORCES the kind
     //    (e.g. ":spac Day Job" → Space). It's stripped, and the remaining text still
@@ -432,18 +469,31 @@ export function Zero0Canvas() {
           </span>
           <input
             value={draft}
-            onChange={(ev) => setDraft(ev.target.value)}
+            onChange={(ev) => {
+              setDraft(ev.target.value)
+              if (notice) setNotice(null) // clear feedback as soon as you type again
+            }}
             onKeyDown={(ev) => {
               if (ev.key !== "Enter") return
               // CJK IME guard: don't submit while composing.
               if (ev.nativeEvent.isComposing || ev.keyCode === 229) return
               create()
             }}
-            placeholder="create entity…  (try:  :spac Day Job   ·   Slept --2330-0630)"
+            placeholder="create entity…  (try:  :spac Day Job   ·   :start: 2607092046)"
             className="flex-1 bg-transparent text-foreground placeholder:text-muted-foreground/60 focus:outline-none"
             aria-label="Create entity"
           />
         </div>
+        {/* Terminal talk-back: one transient line confirming a `:field:` set or
+            flagging a rejected value. Muted-ok vs a soft error tone. */}
+        {notice && (
+          <p
+            className={"mt-1 pl-4 text-[10px] leading-none " + (notice.tone === "err" ? "text-destructive" : "text-muted-foreground")}
+            role="status"
+          >
+            {notice.text}
+          </p>
+        )}
       </div>
 
       {/* ── BOTTOM HELPER ──────────────────────────────────────────────────────

@@ -173,6 +173,67 @@ export function parseKindPrefix(raw: string): KindPrefixParse | null {
   return { kind, rest }
 }
 
+/**
+ * Parse a compact ABSOLUTE date/time token for the `:field:` setters. The digit-count
+ * selects the shape (all interpreted in LOCAL time):
+ *   - 4  "HHMM"        → that time TODAY          ("1718" → 17:18 today)
+ *   - 6  "YYMMDD"      → that date at 00:00        ("260709" → 2026-07-09 00:00)
+ *   - 10 "YYMMDDHHMM"  → that date & time          ("2607092046" → 2026-07-09 20:46)
+ * Year is 2000+YY. Returns epoch ms, or null when the token isn't one of those shapes
+ * or is out of range (e.g. "2599" → minute 99, "260732" → day 32, "260230" → Feb 30).
+ */
+export function parseDateToken(raw: string): number | null {
+  const s = raw.trim()
+  if (!/^\d+$/.test(s)) return null
+  const n = (a: number, b: number) => parseInt(s.slice(a, b), 10)
+
+  if (s.length === 4) {
+    const h = n(0, 2)
+    const min = n(2, 4)
+    if (h > 23 || min > 59) return null
+    const d = new Date()
+    d.setHours(h, min, 0, 0)
+    return d.getTime()
+  }
+  if (s.length === 6 || s.length === 10) {
+    const yy = n(0, 2)
+    const mm = n(2, 4)
+    const dd = n(4, 6)
+    const h = s.length === 10 ? n(6, 8) : 0
+    const min = s.length === 10 ? n(8, 10) : 0
+    if (mm < 1 || mm > 12 || dd < 1 || dd > 31 || h > 23 || min > 59) return null
+    const d = new Date(2000 + yy, mm - 1, dd, h, min, 0, 0)
+    // Reject calendar overflow that Date would silently roll over (e.g. Feb 30 → Mar 2).
+    if (d.getMonth() !== mm - 1 || d.getDate() !== dd) return null
+    return d.getTime()
+  }
+  return null
+}
+
+export interface FieldSetterParse {
+  /** Self-field name, lowercased, colons stripped (e.g. "start"). */
+  field: string
+  /** Raw value after the `:field:` token (empty ⇒ the caller may treat as "clear"). */
+  value: string
+}
+
+/**
+ * Detect a leading SELF-FIELD setter — `:field: value` — where a colon-WRAPPED leading
+ * token means "in THIS entity, set <field> to <value>". It's distinguished from the
+ * `:kind` selector purely by the TRAILING colon: `:start:` SETS a field, `:task` CREATES
+ * a child. Examples:
+ *   ":start: 260709" → { field: "start", value: "260709" }
+ *   ":end:1718"      → { field: "end",   value: "1718" }
+ *   ":start:"        → { field: "start", value: "" }
+ * Returns null when the first token isn't a `:word:` setter, so the caller falls through
+ * to the kind-selector / timed-create / plain-create paths.
+ */
+export function parseFieldSetter(raw: string): FieldSetterParse | null {
+  const m = raw.trimStart().match(/^:([a-z]+):\s*([\s\S]*)$/i)
+  if (!m) return null
+  return { field: m[1].toLowerCase(), value: m[2].trim() }
+}
+
 export interface CreateFieldParse {
   /** Title with all `--params` stripped (verb kept, e.g. "Slept"). */
   title: string
