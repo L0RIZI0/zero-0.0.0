@@ -1029,12 +1029,12 @@ export function reorderContextItems(contextId: string, orderedIds: string[]): vo
 let _seq = 0
 const uid = (prefix: string) => `${prefix}_u${Date.now().toString(36)}${(_seq++).toString(36)}`
 
-// Kind → id prefix. Kept in sync with the dedicated add* fns (addTask→t, addEvent→e,
+// Kind → id prefix. Kept in sync with the dedicated add* fns (addTask→t, addEvent→m,
 // addInstant→i, addResource→r, addSpace→s). Used by addParsedEntity so an entity's id
 // reflects its kind regardless of the create path. Falls back to "t" for unmapped kinds.
 const ID_PREFIX: Partial<Record<EntityKind, string>> = {
   task: "t",
-  moment: "e",
+  moment: "m",
   instant: "i",
   resource: "r",
   space: "s",
@@ -1313,7 +1313,7 @@ export function addParsedEntity(input: {
 }): Entity {
   const now = Date.now()
   const entity = makeEntity({
-    // Kind-correct id prefix (matches the dedicated add* fns): task→t, moment→e,
+    // Kind-correct id prefix (matches the dedicated add* fns): task→t, moment→m,
     // instant→i, resource→r, space→s, community→c, organism→o, individual→n, soul→l.
     // Defaults to "t" for any kind without a dedicated prefix.
     id: uid(ID_PREFIX[input.kind] ?? "t"),
@@ -1498,7 +1498,7 @@ export function addSpace(input: { name: string; parentId: string }): Entity {
 
 export function addEvent(input: { title: string; spaceId: string }): Entity {
   const entity: Entity = {
-    id: uid("e"),
+    id: uid("m"),
     kind: "moment",
     title: input.title,
     parentId: input.spaceId,
