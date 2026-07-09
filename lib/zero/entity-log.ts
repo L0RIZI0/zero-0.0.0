@@ -96,6 +96,17 @@ export function getCloseState(entity: Entity): "closed" | "reopened" | null {
   return null
 }
 
+/**
+ * Whether the entity is currently CANCELLED (called off) — a separate axis from
+ * done and closed. Log view: the latest `cancelled`/`restored` entry is a cancel.
+ * Fallback: the `cancelled` scalar. (`restored` un-cancels.)
+ */
+export function isCancelled(entity: Entity): boolean {
+  const last = lastEntry(entity, "cancelled", "restored")
+  if (last) return last.type === "cancelled"
+  return !!entity.cancelled
+}
+
 /** Birth time. Log: first `created`.at; else the scalar `createdAt`. */
 export function getCreatedAt(entity: Entity): Epoch | undefined {
   return firstEntry(entity, "created")?.at ?? entity.createdAt
@@ -148,14 +159,24 @@ export function appendInstant(log: Instant[] | undefined, entry: Instant): Insta
  * retain the LATEST timestamp per axis (one `completedOn`, one `closedOn`, one
  * `reopenedOn`), so this reconstructs a coherent SNAPSHOT, not full history — real
  * history accumulates from the next toggle onward. Entries are sorted ascending by
- * `at` so `created` comes first. `cancelled` is deliberately excluded (no timestamp).
+ * `at` so `created` comes first.
+ *
+ * `cancelled` folds in via `cancelledOn` (Phase 2b); entities cancelled BEFORE that
+ * scalar existed have no real time, so this approximates them at `createdAt`. The
+ * terminal `retired`/`died` states fold from `retiredOn`/`diedOn` (per-kind fields).
  */
 export function buildLogFromScalars(entity: Entity): Instant[] {
   const log: Instant[] = []
+  // Terminal timestamps live on per-kind interfaces, not EntityBase.
+  const term = entity as { retiredOn?: Epoch; diedOn?: Epoch }
   const createdAt = entity.createdAt ?? entity.completedOn ?? Date.now()
   log.push(makeInstant("created", createdAt, { by: entity.createdBy, where: entity.createdWhere }))
   if (entity.completed && entity.completedOn != null) log.push(makeInstant("done", entity.completedOn))
   if (entity.closed && entity.closedOn != null) log.push(makeInstant("closed", entity.closedOn))
   if (entity.reopened && entity.reopenedOn != null) log.push(makeInstant("reopened", entity.reopenedOn))
+  // Cancelled: use its timestamp when known, else approximate at creation time.
+  if (entity.cancelled) log.push(makeInstant("cancelled", entity.cancelledOn ?? createdAt))
+  if (term.retiredOn != null) log.push(makeInstant("retired", term.retiredOn))
+  if (term.diedOn != null) log.push(makeInstant("died", term.diedOn))
   return log.sort((a, b) => a.at - b.at)
 }

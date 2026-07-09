@@ -1,5 +1,5 @@
 import type { Entity, EntityKind } from "./types"
-import { isDone, getCompletedOn, getCloseState } from "./entity-log"
+import { isDone, getCompletedOn, getCloseState, isCancelled } from "./entity-log"
 
 /**
  * Per-kind SEMANTICS — the single source of truth for what each entity kind
@@ -160,11 +160,11 @@ function nextLocalMidnight(epoch: number): number {
  * (community/organism/individual) never "close" here — they retire/die instead.
  */
 export function isClosed(entity: Entity, now: number = Date.now()): boolean {
-  // Manual close/reopen is read through the log-aware helper (log if present, else
-  // the `closed`/`reopened` scalars). `cancelled` stays scalar-only for now.
+  // Manual close/reopen AND cancelled are read through the log-aware helpers (log if
+  // present, else the `closed`/`reopened`/`cancelled` scalars).
   const closeState = getCloseState(entity)
   if (closeState === "closed") return true
-  if (entity.cancelled) return true
+  if (isCancelled(entity)) return true
   // Explicit user reopen overrides the DERIVED closes below (but not the manual
   // `closed` / `cancelled` cases handled above) — see EntityBase.reopened.
   if (closeState === "reopened") return false

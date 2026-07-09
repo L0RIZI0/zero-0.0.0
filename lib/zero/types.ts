@@ -300,6 +300,13 @@ export interface EntityBase {
    * reference. Cancelled items render dimmed with a struck-through title.
    */
   cancelled?: boolean
+  /**
+   * When the cancel/restore state last changed (epoch ms) — added in log-model
+   * Phase 2b so `cancelled` can fold into the lifecycle log as a timestamped
+   * Instant. Absent on entities cancelled before this existed (the migration
+   * approximates their time as `createdAt`).
+   */
+  cancelledOn?: Epoch
   /** Mainly spaces. */
   description?: string
   /** Contextual tint, mainly spaces. */

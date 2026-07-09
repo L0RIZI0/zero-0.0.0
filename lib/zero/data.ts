@@ -1517,9 +1517,10 @@ function migrateEventToMoment(entity: Entity): void {
 }
 
 /**
- * ONTOLOGY MIGRATION (Jul 2026, Phase 2): fold a persisted entity's legacy SCALAR
- * lifecycle fields (`createdAt`/`completedOn`/`closedOn`/`reopenedOn`) into the
- * append-only {@link Instant} log — Meta field 1 — if it doesn't already have one.
+ * ONTOLOGY MIGRATION (Jul 2026, Phase 2 + 2b): fold a persisted entity's legacy
+ * SCALAR lifecycle fields (`createdAt`/`completedOn`/`closedOn`/`reopenedOn`, plus
+ * `cancelled` and the terminal `retiredOn`/`diedOn`) into the append-only
+ * {@link Instant} log — Meta field 1 — if it doesn't already have one.
  * Idempotent (a non-empty `log` is left untouched) and NON-destructive: the scalar
  * fields are kept as the transitional backup, and reads already prefer the log. Only
  * runs for PERSISTED user entities in the hydrate loop; seeded entities keep reading
@@ -2154,10 +2155,18 @@ export function deleteEntity(id: string): void {
 export function setEventCancelled(id: string, cancelled: boolean): void {
   const entity = byId.get(id)
   if (!entity) return
+  const now = Date.now()
   entity.cancelled = cancelled
+  // Phase 2b: track WHEN, so cancel folds into the log as a timestamped Instant.
+  entity.cancelledOn = now
+  // DUAL-WRITE: append the cancel/restore to the lifecycle log (source of truth for
+  // reads via isCancelled), seeding from scalars first if absent. Scalars remain the
+  // transitional backup.
+  const log = ensureEntityLog(entity)
+  entity.log = appendInstant(log, makeInstant(cancelled ? "cancelled" : "restored", now))
   if (!userEntityIds.has(id)) {
-    // Seeded entity — track as an override patch.
-    seededOverrides.set(id, { ...seededOverrides.get(id), cancelled })
+    // Seeded entity — track as an override patch (log rebuilt from these on reload).
+    seededOverrides.set(id, { ...seededOverrides.get(id), cancelled, cancelledOn: now })
   }
   persist()
 }
