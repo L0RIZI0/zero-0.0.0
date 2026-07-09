@@ -4,6 +4,7 @@ import { useSyncExternalStore } from "react"
 import { clearUserItems, clearResourceLastUrls } from "./persistence"
 import { clearActivityLog } from "./activity-log"
 import { cycleBrat } from "./motion"
+import { runLogConsistencyAudit } from "./data"
 
 // ============================================================================
 // Shared DEBUG-view store ([v0] DEBUG)
@@ -16,6 +17,9 @@ import { cycleBrat } from "./motion"
 //   • `§ 2` → the colored element frames + their ID/property labels
 //   • `§ 3` → the ACTIVITY inspector (today's presence segments + per-space totals)
 //   • `§ 4` → the HIERARCHY inspector (the whole containment tree, root → leaves)
+//   • `§ 5` → ENTITY-LOG AUDIT: check every logged entity's derived state against its
+//            scalar backup and report via window.alert (works in the PACKAGED app too,
+//            unlike the console-only hydrate check). Green light for Phase 3 = clean.
 //   • `§ 0` → RESET PREVIEW DATA: wipe THIS browser's persisted user items
 //            (created entities + pins + tombstones + overrides) AND the activity
 //            log, then reload, so the app returns to pure seed data. localStorage
@@ -76,6 +80,29 @@ export function toggleDebugHierarchy() {
   setState({ hierarchy: !state.hierarchy })
 }
 
+/**
+ * `§ 5` action: run the on-demand entity-log consistency audit (log-derived state vs
+ * the scalar backup) over every entity and REPORT via `window.alert`, so it's visible
+ * in the PACKAGED app too — the hydrate-time check is console-only + dev-gated. A clean
+ * result (0 mismatches) sustained through dogfooding is the green light to retire the
+ * scalar backups (Phase 3). Also logs details to the console for inspection.
+ */
+export function runLogAudit() {
+  if (typeof window === "undefined") return
+  const mismatches = runLogConsistencyAudit()
+  if (mismatches.length === 0) {
+    window.alert("Entity-log audit: ✓ consistent\n\nEvery logged entity's derived state matches its scalar backup.")
+    return
+  }
+  console.warn(`[v0] entity-log consistency: ${mismatches.length} mismatch(es):`, mismatches)
+  const lines = mismatches
+    .slice(0, 12)
+    .map((m) => `• ${m.id} — ${m.axis}: log=${m.fromLog} vs scalar=${m.fromScalar}`)
+    .join("\n")
+  const more = mismatches.length > 12 ? `\n…and ${mismatches.length - 12} more (see console)` : ""
+  window.alert(`Entity-log audit: ${mismatches.length} mismatch(es)\n\n${lines}${more}`)
+}
+
 // --- Global `§`-prefix chord listener (installed once, client-only) ----------
 let installed = false
 function ensureListener() {
@@ -106,13 +133,19 @@ function ensureListener() {
 
     if (
       prefixActive &&
-      (e.key === "0" || e.key === "1" || e.key === "2" || e.key === "3" || e.key === "4")
+      (e.key === "0" ||
+        e.key === "1" ||
+        e.key === "2" ||
+        e.key === "3" ||
+        e.key === "4" ||
+        e.key === "5")
     ) {
       e.preventDefault()
       if (e.key === "1") pulseDebugFps()
       else if (e.key === "2") toggleDebugFrames()
       else if (e.key === "3") toggleDebugActivity()
       else if (e.key === "4") toggleDebugHierarchy()
+      else if (e.key === "5") runLogAudit()
       else {
         // `§ 0` — reset THIS browser's preview data back to pure seeds. Confirmed
         // because it clears created entities too (web-preview store is disposable,

@@ -1609,6 +1609,20 @@ export function hydrateFromStorage(): boolean {
   return added
 }
 
+/**
+ * ON-DEMAND log↔scalar consistency audit over ALL current in-memory entities
+ * (the `§ 5` dev chord). Unlike the hydrate-time check — which is dev-gated and
+ * console-only — this runs anytime and returns the mismatches so the caller can
+ * surface them in the packaged app (where NODE_ENV is production). Only entities
+ * that carry a persisted log are checked; log-less ones read pure scalar fallback
+ * and can't disagree. Non-mutating.
+ */
+export function runLogConsistencyAudit(): LogScalarMismatch[] {
+  const out: LogScalarMismatch[] = []
+  for (const entity of entities) out.push(...auditLogScalarConsistency(entity))
+  return out
+}
+
 export function addTask(input: { title: string; spaceId: string }): Entity {
   const now = Date.now()
   const entity: Entity = {
