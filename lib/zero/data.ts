@@ -1,6 +1,13 @@
 import type { Asset, Entity, EntityKind, Instant, Recurrence, Schedule, Resource, EntityBase, TaskPriority, User } from "./types"
-import { isCompletable, isClosed } from "./kinds"
-import { isDone, buildLogFromScalars, makeInstant, appendInstant, auditLogScalarConsistency } from "./entity-log"
+import { isCompletable, isClosed, isComplete } from "./kinds"
+import {
+  isDone,
+  isCancelled,
+  buildLogFromScalars,
+  makeInstant,
+  appendInstant,
+  auditLogScalarConsistency,
+} from "./entity-log"
 import type { LogScalarMismatch } from "./entity-log"
 import { readUserItems, writeUserItems } from "./persistence"
 import type { ScheduleParse } from "./schedule-parse"
@@ -1576,6 +1583,37 @@ export function setEntityCompleted(id: string, completed: boolean): void {
 }
 
 /**
+ * Mark an entity COMPLETE (the success verdict) or clear that verdict. Complete is a
+ * SEPARATE action from "done": it IMPLIES done (marks it if needed) and CLOSES the
+ * entity — it is the only thing that FILLS the glyph. Completable kinds only.
+ *
+ * Clearing (`complete=false`) is used by {@link reopenEntity}: it appends an
+ * `uncompleted` entry so the DERIVED "done → next midnight ⇒ complete" rule stays
+ * suppressed and a reopened entity genuinely stays open.
+ */
+export function setEntityComplete(id: string, complete: boolean): void {
+  const stored = byId.get(id)
+  if (!stored) return
+  if (complete && !isCompletable(stored.kind)) return
+  const entity = mutable(stored)
+  const now = Date.now()
+  // Complete implies Done — set the done marker first if it isn't already.
+  if (complete && !isDone(stored)) {
+    entity.completed = true
+    entity.completedOn = now
+    stored.log = appendInstant(ensureEntityLog(stored), makeInstant("done", now))
+  }
+  entity.complete = complete
+  entity.completeOn = complete ? now : undefined
+  stored.log = appendInstant(ensureEntityLog(stored), makeInstant(complete ? "completed" : "uncompleted", now))
+  if (!userEntityIds.has(id)) {
+    // Seeded entity — persist as an override patch (log rebuilt from these on reload).
+    seededOverrides.set(id, { ...seededOverrides.get(id), complete, completeOn: entity.completeOn })
+  }
+  persist()
+}
+
+/**
  * Change an entity's kind IN PLACE (same id/row), filling in sensible defaults
  * for the target kind's relevant fields. Used by the inline draft's glyph picker
  * so switching kind keeps the exact same list row (no remount/re-animate).
@@ -1827,17 +1865,16 @@ export function setEventCancelled(id: string, cancelled: boolean): void {
 }
 
 /**
- * CLOSE or REOPEN an entity — the "Close"/"Reopen" menu actions. The glyph fills
- * when closed (distinct from a task's "done"/checkmark).
+ * CLOSE or REOPEN an entity's MANUAL close flag (a PLAIN close only fades the row —
+ * it does NOT fill the glyph; fill is reserved for Complete).
  *  - CLOSE (`closed=true`): sets the manual `closed` flag and clears any prior
  *    `reopened` override.
  *  - REOPEN (`closed=false`): clears the manual `closed` flag AND sets `reopened`,
- *    which overrides a DERIVED close (an event past its end, a done task past its
- *    midnight) via {@link isClosed} — so ANY closed entity can be pulled back open
- *    and stays open until closed again. (A `cancelled` entity is reopened via
- *    Restore / setEventCancelled instead.)
- * Seeded items record a partial override so the state survives refreshes (mirrors
- * setEventCancelled).
+ *    which overrides a DERIVED close via {@link isClosed}. NOTE: to fully reopen an
+ *    entity that ended for ANY reason (complete / cancel / close), call the
+ *    higher-level {@link reopenEntity} — it clears all three axes; this only handles
+ *    the manual close axis.
+ * Seeded items record a partial override so the state survives refreshes.
  */
 export function setEntityClosed(id: string, closed: boolean): void {
   const entity = byId.get(id)
@@ -1861,4 +1898,22 @@ export function setEntityClosed(id: string, closed: boolean): void {
     seededOverrides.set(id, { ...seededOverrides.get(id), closed, closedOn, reopened, reopenedOn })
   }
   persist()
+}
+
+/**
+ * REOPEN an entity that ended for ANY reason. Since an entity can be closed via three
+ * routes — Complete (the verdict), Cancel (called off), or a plain Close — there is a
+ * SINGLE return path, Reopen, which clears whichever applied:
+ *   1. un-cancel (if cancelled), 2. un-complete (if complete — explicit or derived),
+ *   3. lift the manual/derived close (`setEntityClosed(false)` sets the `reopened`
+ *      override). Order matters: clearing complete appends `uncompleted`, and the
+ *      final `reopened` override guarantees the derived midnight-complete rule can't
+ *      immediately re-close it. Leaves the entity DONE-but-open if it was done.
+ */
+export function reopenEntity(id: string): void {
+  const stored = byId.get(id)
+  if (!stored) return
+  if (isCancelled(stored)) setEventCancelled(id, false)
+  if (isComplete(stored)) setEntityComplete(id, false)
+  setEntityClosed(id, false)
 }

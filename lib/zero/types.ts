@@ -100,9 +100,13 @@ export type Epoch = number
  * is derived by folding the log rather than stored as separate booleans.
  *
  *   - `created`   — birth (creation). The first entry of any log.
- *   - `done` / `undone`      — completion toggled on / off.
- *   - `closed` / `reopened`  — archived / pulled back open.
- *   - `cancelled` / `restored` — called off / un-cancelled.
+ *   - `done` / `undone`      — DONE toggled on / off. A SOFT marker: "done, but not
+ *                              yet complete". Does NOT close the entity.
+ *   - `completed` / `uncompleted` — the COMPLETE verdict set / cleared. Complete
+ *                              implies done and CLOSES the entity (fills the glyph).
+ *                              Reversed only by Reopen (which appends `uncompleted`).
+ *   - `closed` / `reopened`  — archived / pulled back open (plain close = fade only).
+ *   - `cancelled` / `restored` — called off / un-cancelled (also closes: bar + strike).
  *   - `retired` / `died`     — TERMINAL ends (community retires, organism/individual die).
  *   - `accessed`  — an entry/exit "who was here, when" access record.
  *
@@ -114,6 +118,8 @@ export type LogType =
   | "created"
   | "done"
   | "undone"
+  | "completed"
+  | "uncompleted"
   | "closed"
   | "reopened"
   | "cancelled"
@@ -261,17 +267,30 @@ export interface EntityBase {
   createdBy?: string
   /** Place id or label where it was created ("created where"). */
   createdWhere?: string
-  /** When `completed` last flipped true (mirrors the completion write). */
+  /** When `completed` (the DONE marker) last flipped true (mirrors the done write). */
   completedOn?: Epoch
   /**
-   * CLOSED = the glyph is FILLED (lifecycle ended / archived). Distinct from
-   * `completed` (a task's "done" = checkmark, no fill). A space is closed when:
-   *   - this MANUAL flag is set (the "Close" menu action), or
-   *   - it is `cancelled` (the "Cancel" action also fills, plus strike + fade), or
-   *   - (DERIVED, not stored) a done task whose `completedOn` is before the first
-   *     following local midnight, or a moment/instant whose end time has passed.
-   * Only the manual flag is persisted; the derived cases are computed at read-time
-   * by {@link isClosed} in `lib/zero/kinds.ts`.
+   * COMPLETE = the success VERDICT (its own axis, distinct from the soft `completed`
+   * "done" marker despite the near-identical name — `completed` here means DONE, this
+   * means COMPLETE). Complete implies done and CLOSES the entity; it is the ONLY thing
+   * that FILLS the glyph. Set by "Mark as Complete", and DERIVED (not stored) when a
+   * done task passes its next local midnight or a moment/instant passes its end. Only
+   * the explicit flag is persisted; derivation lives in {@link isComplete}. Reversed by
+   * Reopen. Completable kinds only (task/moment/instant).
+   */
+  complete?: boolean
+  /** When the explicit `complete` verdict last flipped true (epoch ms). */
+  completeOn?: Epoch
+  /**
+   * CLOSED = lifecycle ended / archived. A PLAIN close (this manual flag, the "Close"
+   * action) only FADES the row — it does NOT fill the glyph (fill is reserved for
+   * `complete`). An entity is closed when:
+   *   - this MANUAL flag is set (plain "Close"), or
+   *   - it is `complete` (the success verdict — also fills), or
+   *   - it is `cancelled` (the "Cancel" action — also bar-over-glyph + strike), or
+   *   - (DERIVED via `complete`) a done task past its next local midnight, or a
+   *     moment/instant past its end.
+   * Only the manual flag is persisted; the rest are computed by {@link isClosed}.
    */
   closed?: boolean
   /** When the manual `closed` flag last flipped true (epoch ms). */
@@ -289,10 +308,11 @@ export interface EntityBase {
 
   // --- Shared state + display (relevance varies by kind) --------------------
   /**
-   * A NORMAL "done" flag. Only meaningful for completable kinds (task/moment/
-   * instant/space/resource). Community/Organism/Individual/Soul are NOT
-   * "completed" — they reach a TERMINAL state (retire/death) instead; see
-   * `KIND_META` in `lib/zero/kinds.ts`.
+   * The soft "DONE" marker (badly named `completed` for legacy reasons — this is
+   * DONE, not the COMPLETE verdict which lives in `complete`). Done shows a checkmark
+   * and does NOT close/fill; it means "done but maybe not yet filed". Only meaningful
+   * for completable kinds (task/moment/instant). Community/Organism/Individual/Soul are
+   * NOT done — they reach a TERMINAL state (retire/death) instead; see `KIND_META`.
    */
   completed?: boolean
   /**

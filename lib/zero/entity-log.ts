@@ -78,6 +78,32 @@ export function getCompletedOn(entity: Entity): Epoch | undefined {
   return entity.completedOn
 }
 
+/** Log entry types that TOGGLE the COMPLETE verdict on/off (its own axis). */
+const COMPLETE_TYPES: readonly LogType[] = ["completed", "uncompleted"]
+
+/**
+ * The EXPLICIT complete verdict from the log/scalars, IGNORING derivation:
+ *   - `true`  — last complete-axis entry is `completed` (or the scalar is set);
+ *   - `false` — last complete-axis entry is `uncompleted` (e.g. after a Reopen);
+ *   - `null`  — never explicitly (un)completed ⇒ the caller applies DERIVED rules.
+ * The `false` case is what makes Reopen stick: it short-circuits the derived
+ * "done → midnight ⇒ complete" rule so a reopened entity stays open. Lives here
+ * with the other log readers; the derived rule itself is in {@link isComplete}.
+ */
+export function getExplicitComplete(entity: Entity): boolean | null {
+  const last = lastEntry(entity, ...COMPLETE_TYPES)
+  if (last) return last.type === "completed"
+  if (entity.complete) return true
+  return null
+}
+
+/** When the COMPLETE verdict last flipped true. Log: latest `completed`.at; else `completeOn`. */
+export function getCompleteOn(entity: Entity): Epoch | undefined {
+  const last = lastEntry(entity, ...COMPLETE_TYPES)
+  if (last) return last.type === "completed" ? last.at : undefined
+  return entity.completeOn
+}
+
 /**
  * The current MANUAL close state — the "Close"/"Reopen" toggle, DISTINCT from
  * completion (done/undone) and from the cancelled/derived closes. Returns:
@@ -172,6 +198,7 @@ export function buildLogFromScalars(entity: Entity): Instant[] {
   const createdAt = entity.createdAt ?? entity.completedOn ?? Date.now()
   log.push(makeInstant("created", createdAt, { by: entity.createdBy, where: entity.createdWhere }))
   if (entity.completed && entity.completedOn != null) log.push(makeInstant("done", entity.completedOn))
+  if (entity.complete && entity.completeOn != null) log.push(makeInstant("completed", entity.completeOn))
   if (entity.closed && entity.closedOn != null) log.push(makeInstant("closed", entity.closedOn))
   if (entity.reopened && entity.reopenedOn != null) log.push(makeInstant("reopened", entity.reopenedOn))
   // Cancelled: use its timestamp when known, else approximate at creation time.

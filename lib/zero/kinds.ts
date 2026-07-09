@@ -1,5 +1,5 @@
 import type { Entity, EntityKind } from "./types"
-import { isDone, getCompletedOn, getCloseState, isCancelled } from "./entity-log"
+import { isDone, getCompletedOn, getCloseState, isCancelled, getExplicitComplete } from "./entity-log"
 
 /**
  * Per-kind SEMANTICS — the single source of truth for what each entity kind
@@ -148,41 +148,53 @@ function nextLocalMidnight(epoch: number): number {
 }
 
 /**
- * Whether `entity` is CLOSED — i.e. its glyph should render FILLED. "Closed" is
- * the archived / lifecycle-ended state, DISTINCT from a task's "done" (checkmark,
- * no fill). Sources, in order:
- *   1. the MANUAL `closed` flag (the "Close" menu action), persisted;
- *   2. `cancelled` (the "Cancel" action — also strikes through + fades);
- *   3. DERIVED, not stored (unless overridden by an explicit `reopened`):
- *      - a done TASK auto-closes at the first local midnight AFTER `completedOn`;
- *      - an EVENT/INSTANT closes once its end time has passed (instant end == `at`).
- * `now` is injectable for testing; defaults to the current time. Terminal kinds
- * (community/organism/individual) never "close" here — they retire/die instead.
+ * Whether `entity` is COMPLETE — the success VERDICT, and the ONLY thing that FILLS
+ * the glyph. Complete implies done and closes the entity. DISTINCT from "done" (a
+ * soft checkmark that does NOT close). Sources, in order:
+ *   1. an explicit REOPEN wins — a `reopened` close-state OR an explicit `uncompleted`
+ *      complete-entry means "not complete", short-circuiting the derived rule below so
+ *      a reopened entity stays open;
+ *   2. the explicit COMPLETE verdict ("Mark as Complete" ⇒ `completed` log / scalar);
+ *   3. DERIVED, not stored:
+ *      - a done TASK/MOMENT/INSTANT auto-completes at the first local midnight AFTER
+ *        it was done (`completedOn`);
+ *      - a MOMENT/INSTANT auto-completes once its end time has passed (it occurred;
+ *        instant end == `at`), even if never marked done.
+ * Only completable kinds can be complete. `now` is injectable for testing.
  */
-export function isClosed(entity: Entity, now: number = Date.now()): boolean {
-  // Manual close/reopen AND cancelled are read through the log-aware helpers (log if
-  // present, else the `closed`/`reopened`/`cancelled` scalars).
-  const closeState = getCloseState(entity)
-  if (closeState === "closed") return true
-  if (isCancelled(entity)) return true
-  // Explicit user reopen overrides the DERIVED closes below (but not the manual
-  // `closed` / `cancelled` cases handled above) — see EntityBase.reopened.
-  if (closeState === "reopened") return false
-  // Task / Moment / Instant all resolve "done" the same way: once completed, they
-  // auto-close at the first LOCAL midnight after `completedOn`. (Moments/instants
-  // gained glyph-completion — a done Moment shows a checkmark, then fills at the
-  // following midnight, exactly like a Task.)
-  if (entity.kind === "task" || entity.kind === "moment" || entity.kind === "instant") {
-    const completedOn = getCompletedOn(entity)
-    if (isDone(entity) && completedOn != null && now >= nextLocalMidnight(completedOn)) {
-      return true
-    }
-  }
-  // Moments/instants ALSO close once their scheduled end has passed, even if never
-  // marked done (instant end == `at`).
+export function isComplete(entity: Entity, now: number = Date.now()): boolean {
+  if (!isCompletable(entity.kind)) return false
+  // An explicit reopen (either axis) forces "not complete" and overrides derivation.
+  if (getCloseState(entity) === "reopened") return false
+  const explicit = getExplicitComplete(entity)
+  if (explicit === false) return false
+  if (explicit === true) return true
+  // DERIVED: a done completable completes at the first local midnight after doneOn.
+  const doneOn = getCompletedOn(entity)
+  if (isDone(entity) && doneOn != null && now >= nextLocalMidnight(doneOn)) return true
+  // A moment/instant that has passed its scheduled end has occurred ⇒ complete.
   if (entity.kind === "moment" || entity.kind === "instant") {
     const end = entity.schedule?.endAt ?? entity.schedule?.at
     if (end != null && now >= end) return true
   }
+  return false
+}
+
+/**
+ * Whether `entity` is CLOSED — its lifecycle has ended, so its row FADES. Note that
+ * closed no longer means "filled": a PLAIN close only fades; the glyph FILLS only
+ * when {@link isComplete}. Sources:
+ *   1. the MANUAL `closed` flag (the "Close" action), persisted;
+ *   2. `cancelled` (the "Cancel" action — also bar-over-glyph + strike);
+ *   3. `complete` (the success verdict, explicit or derived — also fills).
+ * An explicit `reopened` overrides the derived complete (but not a manual `closed`
+ * or `cancelled`, cleared via Reopen / Restore). `now` is injectable for testing.
+ * Terminal kinds (community/organism/individual) retire/die instead of closing here.
+ */
+export function isClosed(entity: Entity, now: number = Date.now()): boolean {
+  const closeState = getCloseState(entity)
+  if (closeState === "closed") return true
+  if (isCancelled(entity)) return true
+  if (isComplete(entity, now)) return true
   return false
 }

@@ -13,11 +13,10 @@ import {
   addTask,
   addParsedEntity,
   setEntityCompleted,
-  setEntityClosed,
   deleteEntity,
 } from "@/lib/zero/data"
-import { KIND_META, isClosed, isTerminal } from "@/lib/zero/kinds"
-import { isDone, isCancelled, getCreatedAt, getCompletedOn } from "@/lib/zero/entity-log"
+import { KIND_META, isClosed, isComplete, isTerminal } from "@/lib/zero/kinds"
+import { isDone, isCancelled, getCreatedAt, getCompletedOn, getCompleteOn } from "@/lib/zero/entity-log"
 import { parseCreateField, parseKindPrefix } from "@/lib/zero/create-parse"
 import type { Entity } from "@/lib/zero/types"
 
@@ -129,23 +128,13 @@ export function Zero0Canvas() {
     bump()
   }, [draft, bump, contextId])
 
-  // COMPLETION axis (done ⟷ undone): only for completable kinds.
+  // The one quick INLINE toggle: the soft DONE marker (done ⟷ undone), completable
+  // kinds only. The heavier lifecycle VERDICTS — Complete / Close / Cancel / Reopen —
+  // live in the right-click menu, since each closes the entity in a different way.
   const toggleDone = useCallback(
     (e: Entity) => {
       if (!KIND_META[e.kind].completable) return
       setEntityCompleted(e.id, !isDone(e))
-      bump()
-    },
-    [bump],
-  )
-
-  // LIFECYCLE axis (open ⟷ closed), INDEPENDENT of completion and cancellation.
-  // `isClosed` here reflects manual/derived close (cancel is gated out by the
-  // caller), so this flips open↔closed. A done-but-open entity stays done.
-  const toggleClosed = useCallback(
-    (e: Entity) => {
-      if (!KIND_META[e.kind].completable || isCancelled(e)) return
-      setEntityClosed(e.id, !isClosed(e))
       bump()
     },
     [bump],
