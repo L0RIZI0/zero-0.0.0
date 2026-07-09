@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import { VersionSwitcher } from "@/components/version-switcher"
 import { Zero0ThemeToggle } from "./zero0-theme-toggle"
 import { Zero0Glyph } from "./zero0-glyph"
+import { Zero0EntityMenu, type Zero0MenuAnchor } from "./zero0-entity-menu"
 import {
   currentUser,
   getChildren,
@@ -15,7 +16,7 @@ import {
   deleteEntity,
 } from "@/lib/zero/data"
 import { KIND_META, isClosed } from "@/lib/zero/kinds"
-import { isDone } from "@/lib/zero/entity-log"
+import { isDone, isCancelled, getCreatedAt, getCompletedOn } from "@/lib/zero/entity-log"
 import { parseCreateField, parseKindPrefix } from "@/lib/zero/create-parse"
 import type { Entity } from "@/lib/zero/types"
 
@@ -23,24 +24,33 @@ import type { Entity } from "@/lib/zero/types"
 // user grows on the canvas nests under this id. Matches the seed in `data.ts`.
 const ROOT_ID = "s_root"
 
+// Format an epoch (ms) for the meta readout. Only ever called under the `mounted`
+// gate, so it's client-only — no SSR/static-export time-freeze hydration trap.
+function fmt(epoch?: number): string {
+  if (!epoch) return "—"
+  return new Date(epoch).toLocaleString()
+}
+
 /**
  * Root `/` canvas — the stripped, "seemingly blank" slate for the next iteration
- * of Zero, now wired to the REAL backbone (`lib/zero`): the same ontology, entity
+ * of Zero, wired to the REAL backbone (`lib/zero`): the same ontology, entity
  * model, and append-only lifecycle log that powers `/2`, but reading a FRESH,
  * isolated dataset (its own `zero:root-items:v1` storage key) that starts as just
  * the identity scaffold (Soul → Individual) and grows only from what you create.
  *
- * Its visual language is deliberately the one from the `§3`/`§4` dev inspectors:
- * monospace, tiny muted `tabular-nums` type, hairline rules, and no chrome (no
- * cards, radii, shadows, or motion) — it reads as raw DATA. Styling is scoped to
- * this route: colors come from the shared TOKENS (dark/light still flips globally)
- * and the mono family is a page-local var (`--font-zero0-mono`, set by
- * `app/page.tsx`), so `layout.tsx`/`globals.css` stay untouched and `/1` + `/2`
- * keep Geist.
+ * LAYOUT — three bands. The canvas treats the top + bottom as pure Zero-UX HELPERS
+ * that SANDWICH the current node's raw data:
+ *   1. TOP HELPER (`<header>`): the "zero · root canvas" mark, the ACCESS PATH
+ *      (breadcrumb), and a CONTEXT/STORE/ENTITIES session readout.
+ *   2. ENTITY CONTENT: the open node rendered as raw data — its META (id, kind,
+ *      states, timestamps), then its CHILDREN list, then a create field. Because
+ *      every entity is a context, this is fully recursive: the root Individual
+ *      ("Loris") shows its own meta + children exactly like any Task or Space.
+ *   3. BOTTOM HELPER (`<footer>`): the version switcher + theme toggle.
  *
- * Navigation is recursive: every entity is a context, so clicking a row's TITLE
- * drills into that entity (the list re-roots to its children) and a mono
- * breadcrumb climbs back — the containment tree explored one level at a time.
+ * Visual language is the `§3`/`§4` dev-inspector one: monospace, tiny muted
+ * `tabular-nums`, hairline rules, no chrome — raw DATA. Scoped to this route
+ * (tokens + a page-local `--font-zero0-mono`), so `/1` + `/2` keep Geist.
  */
 export function Zero0Canvas() {
   // All reads/writes touch localStorage-backed module state, so gate behind mount
@@ -52,6 +62,8 @@ export function Zero0Canvas() {
   // The drill-in stack: ids from the root context down to the current one. The
   // last id is the context whose children we render + create into.
   const [path, setPath] = useState<string[]>([ROOT_ID])
+  // Right-click menu anchor (null = closed).
+  const [menu, setMenu] = useState<Zero0MenuAnchor | null>(null)
 
   useEffect(() => {
     hydrateFromStorage()
@@ -67,12 +79,11 @@ export function Zero0Canvas() {
   // Resolve each crumb to a display label (fall back to the user name at the root).
   const crumbs = useMemo(
     () =>
-      // eslint-disable-next-line react-hooks/exhaustive-deps -- rev re-reads titles after renames
       path.map((id, i) => ({
         id,
         label: getEntity(id)?.title ?? (i === 0 ? currentUser.name : id),
       })),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- rev re-reads titles after renames
     [path, mounted, rev],
   )
 
@@ -144,28 +155,56 @@ export function Zero0Canvas() {
     setPath((p) => p.slice(0, i + 1))
   }, [])
 
+  const openMenu = useCallback((e: Entity, ev: React.MouseEvent) => {
+    ev.preventDefault()
+    setMenu({ entity: e, x: ev.clientX, y: ev.clientY })
+  }, [])
+
+  // Meta rows for the CURRENT open node — raw lifecycle data, kind-aware. Recomputed
+  // per render (cheap) rather than memoised, so it always mirrors `rev`.
+  const meta = context ? KIND_META[context.kind] : undefined
+  const metaRows: [string, string][] = []
+  if (context && meta) {
+    metaRows.push(["id", context.id])
+    metaRows.push(["kind", context.kind])
+    metaRows.push(["created", fmt(getCreatedAt(context))])
+    if (meta.completable) {
+      const done = isDone(context)
+      metaRows.push(["done", done ? fmt(getCompletedOn(context)) : "no"])
+      metaRows.push(["closed", isClosed(context) ? "yes" : "no"])
+      metaRows.push(["cancelled", isCancelled(context) ? "yes" : "no"])
+    }
+    if (context.kind === "task" && context.requested) metaRows.push(["requested", "yes"])
+    if (context.schedule) {
+      const s = context.schedule
+      const span = s.at
+        ? fmt(s.at)
+        : s.startAt || s.endAt
+          ? `${fmt(s.startAt)} → ${fmt(s.endAt)}`
+          : s.dueAt
+            ? `due ${fmt(s.dueAt)}`
+            : "—"
+      metaRows.push(["scheduled", span])
+    }
+  }
+
   return (
     <main
       className="relative flex min-h-screen flex-col bg-background text-foreground"
       style={{ fontFamily: "var(--font-zero0-mono), ui-monospace, monospace" }}
     >
-      {/* Inspector-style key/value readout — the header of the data surface. */}
-      <header className="p-4 text-[10px] leading-relaxed text-muted-foreground tabular-nums">
+      {/* ── TOP HELPER ─────────────────────────────────────────────────────────
+          Zero-UX chrome: the mark, the access path (breadcrumb), and a session
+          readout. Not part of the node's own data. */}
+      <header className="border-b border-border p-4 text-[10px] leading-relaxed text-muted-foreground tabular-nums">
         <div className="flex gap-2">
           <span className="text-foreground">zero</span>
           <span aria-hidden>·</span>
           <span>root canvas</span>
         </div>
-        <dl className="mt-2 grid grid-cols-[auto_auto] gap-x-4">
-          <dt className="uppercase tracking-widest">context</dt>
-          <dd className="text-foreground">{mounted && context ? context.title : currentUser.name}</dd>
-          <dt className="uppercase tracking-widest">store</dt>
-          <dd className="text-foreground">zero:root-items:v1</dd>
-          <dt className="uppercase tracking-widest">entities</dt>
-          <dd className="text-foreground">{mounted ? children.length : "—"}</dd>
-        </dl>
-        {/* Breadcrumb — the drill-in trail; each crumb climbs back to that depth. */}
-        {mounted && path.length > 1 && (
+        {/* Access path — always shown (it's the trail to the open node); each crumb
+            climbs back to that depth. At the root it's just the user, non-clickable. */}
+        {mounted && (
           <nav className="mt-2 flex flex-wrap items-center gap-1" aria-label="Breadcrumb">
             {crumbs.map((c, i) => {
               const last = i === crumbs.length - 1
@@ -194,85 +233,128 @@ export function Zero0Canvas() {
             })}
           </nav>
         )}
+        <dl className="mt-2 grid grid-cols-[auto_auto] gap-x-4">
+          <dt className="uppercase tracking-widest">context</dt>
+          <dd className="text-foreground">{mounted && context ? context.title : currentUser.name}</dd>
+          <dt className="uppercase tracking-widest">store</dt>
+          <dd className="text-foreground">zero:root-items:v1</dd>
+          <dt className="uppercase tracking-widest">entities</dt>
+          <dd className="text-foreground">{mounted ? children.length : "—"}</dd>
+        </dl>
       </header>
 
-      {/* Body: the entity listing. Empty until you create something. */}
-      <div className="flex-1 px-4 pb-4">
-        {mounted && children.length === 0 && (
-          <p className="text-[11px] text-muted-foreground">— empty — create below</p>
+      {/* ── ENTITY CONTENT ─────────────────────────────────────────────────────
+          The open node as raw data: META, then CHILDREN. Recursive — the root
+          Individual renders exactly like any other entity. */}
+      <div className="flex-1 overflow-auto">
+        {mounted && context && meta && (
+          <section className="border-b border-border px-4 py-3">
+            {/* Node header line: glyph + title + kind. */}
+            <div className="flex items-center gap-2 text-[12px]">
+              <Zero0Glyph
+                kind={context.kind}
+                filled={isClosed(context)}
+                done={meta.completable && isDone(context) && !isClosed(context) && meta.checkmarkWhenDone}
+                className="h-4 w-4 text-foreground"
+              />
+              <span className={"text-foreground " + (isClosed(context) ? "line-through" : "")}>
+                {context.title}
+              </span>
+              <span className="text-[10px] uppercase tracking-wider text-muted-foreground">{meta.label}</span>
+            </div>
+            {/* Raw meta key/values. */}
+            <dl className="mt-2 grid grid-cols-[6rem_1fr] gap-x-4 gap-y-0.5 text-[10px] tabular-nums">
+              {metaRows.map(([k, v]) => (
+                <div key={k} className="contents">
+                  <dt className="uppercase tracking-widest text-muted-foreground">{k}</dt>
+                  <dd className="truncate text-foreground" title={v}>
+                    {v}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          </section>
         )}
-        {mounted && children.length > 0 && (
-          <ul className="text-[11px] tabular-nums">
-            {children.map((e, i) => {
-              const meta = KIND_META[e.kind]
-              const done = isDone(e)
-              const closed = isClosed(e)
-              const showCheck = done && !closed && meta.checkmarkWhenDone
-              return (
-                <li
-                  key={e.id}
-                  className="group flex items-baseline gap-3 border-b border-border/60 py-1.5"
-                >
-                  <span className="w-6 shrink-0 text-right text-muted-foreground">
-                    {String(i + 1).padStart(2, "0")}
-                  </span>
-                  {/* Glyph-state column: static SVG per kind — outline vs filled =
-                      open vs closed, with an overlaid check for a done-but-open
-                      completable. Read-only. */}
-                  <span
-                    className="flex w-6 shrink-0 justify-center self-center text-foreground"
-                    aria-label={closed ? "closed" : done ? "done" : "open"}
-                    title={closed ? "closed" : done ? "done" : "open"}
+
+        {/* Children listing. Empty until you create something. */}
+        <div className="px-4 py-3">
+          {mounted && children.length === 0 && (
+            <p className="text-[11px] text-muted-foreground">— empty — create below</p>
+          )}
+          {mounted && children.length > 0 && (
+            <ul className="text-[11px] tabular-nums">
+              {children.map((e, i) => {
+                const km = KIND_META[e.kind]
+                const done = isDone(e)
+                const closed = isClosed(e)
+                const showCheck = done && !closed && km.checkmarkWhenDone
+                return (
+                  <li
+                    key={e.id}
+                    onContextMenu={(ev) => openMenu(e, ev)}
+                    className="group flex items-baseline gap-3 border-b border-border/60 py-1.5"
                   >
-                    <Zero0Glyph kind={e.kind} filled={closed} done={showCheck} className="h-3.5 w-3.5" />
-                  </span>
-                  {/* Kind label — now STATIC text, not the toggle. */}
-                  <span className="w-16 shrink-0 uppercase tracking-wider text-muted-foreground">
-                    {meta.label}
-                  </span>
-                  {/* Title — click to DRILL IN to this entity's own context. */}
-                  <button
-                    type="button"
-                    onClick={() => openEntity(e)}
-                    className={
-                      "flex-1 truncate text-left underline-offset-2 hover:underline " +
-                      (closed ? "text-muted-foreground line-through" : "text-foreground")
-                    }
-                    title="Open"
-                  >
-                    {e.title}
-                  </button>
-                  {/* Status cell — the clear DONE/OPEN toggle button. */}
-                  <button
-                    type="button"
-                    onClick={() => toggleDone(e)}
-                    disabled={!meta.completable}
-                    className={
-                      "w-12 shrink-0 text-right " +
-                      (meta.completable
-                        ? "text-muted-foreground hover:text-foreground"
-                        : "text-muted-foreground/40")
-                    }
-                    title={meta.completable ? "Toggle done" : "Not completable"}
-                  >
-                    {meta.completable ? (done ? "[done]" : "[open]") : "—"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => remove(e)}
-                    className="w-4 shrink-0 text-right text-transparent group-hover:text-muted-foreground hover:!text-foreground"
-                    aria-label={`Delete ${e.title}`}
-                  >
-                    ×
-                  </button>
-                </li>
-              )
-            })}
-          </ul>
-        )}
+                    <span className="w-6 shrink-0 text-right text-muted-foreground">
+                      {String(i + 1).padStart(2, "0")}
+                    </span>
+                    {/* Glyph-state column: static SVG per kind — outline vs filled =
+                        open vs closed, overlaid check for a done-but-open completable. */}
+                    <span
+                      className="flex w-6 shrink-0 justify-center self-center text-foreground"
+                      aria-label={closed ? "closed" : done ? "done" : "open"}
+                      title={closed ? "closed" : done ? "done" : "open"}
+                    >
+                      <Zero0Glyph kind={e.kind} filled={closed} done={showCheck} className="h-3.5 w-3.5" />
+                    </span>
+                    {/* Kind label — STATIC text, not the toggle. */}
+                    <span className="w-16 shrink-0 uppercase tracking-wider text-muted-foreground">
+                      {km.label}
+                    </span>
+                    {/* Title — click to DRILL IN to this entity's own context. */}
+                    <button
+                      type="button"
+                      onClick={() => openEntity(e)}
+                      className={
+                        "flex-1 truncate text-left underline-offset-2 hover:underline " +
+                        (closed ? "text-muted-foreground line-through" : "text-foreground")
+                      }
+                      title="Open"
+                    >
+                      {e.title}
+                    </button>
+                    {/* Status cell — the clear DONE/OPEN toggle button. */}
+                    <button
+                      type="button"
+                      onClick={() => toggleDone(e)}
+                      disabled={!km.completable}
+                      className={
+                        "w-12 shrink-0 text-right " +
+                        (km.completable
+                          ? "text-muted-foreground hover:text-foreground"
+                          : "text-muted-foreground/40")
+                      }
+                      title={km.completable ? "Toggle done" : "Not completable"}
+                    >
+                      {km.completable ? (done ? "[done]" : "[open]") : "—"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => remove(e)}
+                      className="w-4 shrink-0 text-right text-transparent group-hover:text-muted-foreground hover:!text-foreground"
+                      aria-label={`Delete ${e.title}`}
+                    >
+                      ×
+                    </button>
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+        </div>
       </div>
 
-      {/* Create field — bare mono input, hairline top, no chrome. */}
+      {/* Create field — part of the entity content (you create INTO this context),
+          pinned above the footer helper. Bare mono input, hairline top. */}
       <div className="border-t border-border px-4 py-2">
         <div className="flex items-baseline gap-2 text-[11px]">
           <span className="text-muted-foreground" aria-hidden>
@@ -294,7 +376,8 @@ export function Zero0Canvas() {
         </div>
       </div>
 
-      {/* Controls: hairline-topped footer, mono + muted, no chrome. */}
+      {/* ── BOTTOM HELPER ──────────────────────────────────────────────────────
+          Zero-UX chrome: version switch + theme toggle. */}
       <footer className="flex items-center gap-3 border-t border-border p-4 text-[10px] leading-none text-muted-foreground">
         <VersionSwitcher />
         <span className="text-border" aria-hidden>
@@ -302,6 +385,8 @@ export function Zero0Canvas() {
         </span>
         <Zero0ThemeToggle />
       </footer>
+
+      {menu && <Zero0EntityMenu anchor={menu} onMutate={bump} onClose={() => setMenu(null)} />}
     </main>
   )
 }
