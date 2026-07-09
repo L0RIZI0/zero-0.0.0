@@ -68,7 +68,7 @@ export function Zero0Glyph({
    * done even after it has also closed.
    */
   done?: boolean
-  /** Task only: "sent as request" ⇒ a tilted flap lifting off the top edge. */
+  /** Task only: "sent as request" ⇒ a tilted flap swung off the bottom edge. */
   requested?: boolean
   className?: string
 }) {
@@ -94,8 +94,9 @@ export function Zero0Glyph({
         />
       )}
       {requested && kind === "task" && (
-        // The "sent" flap: a short edge swung up off the square's top-right corner.
-        <path d="M13 4.5 L20 1.8" fill="none" stroke="currentColor" strokeWidth="1.6" />
+        // The "sent" flap: a short edge swung DOWN off the square's bottom-right
+        // corner — the request dispatched outward/below (mirror of the top version).
+        <path d="M13 19.5 L20 22.2" fill="none" stroke="currentColor" strokeWidth="1.6" />
       )}
     </svg>
   )
