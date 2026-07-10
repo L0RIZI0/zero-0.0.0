@@ -165,7 +165,7 @@ export function nextLocalMidnight(epoch: number): number {
   return d.getTime()
 }
 
-/** Whole years elapsed between two epochs (for a dead Individual's age). */
+/** Whole years elapsed between two epochs. */
 function yearsBetween(from: number, to: number): number {
   const a = new Date(from)
   const b = new Date(to)
@@ -173,6 +173,37 @@ function yearsBetween(from: number, to: number): number {
   const m = b.getMonth() - a.getMonth()
   if (m < 0 || (m === 0 && b.getDate() < a.getDate())) y--
   return Math.max(0, y)
+}
+
+/** Whole months elapsed between two epochs (calendar-aware, for sub-1-year ages). */
+function monthsBetween(from: number, to: number): number {
+  const a = new Date(from)
+  const b = new Date(to)
+  let mo = (b.getFullYear() - a.getFullYear()) * 12 + (b.getMonth() - a.getMonth())
+  if (b.getDate() < a.getDate()) mo--
+  return Math.max(0, mo)
+}
+
+/**
+ * A human-readable AGE (lifespan) between birth and death, ALWAYS naming its unit so
+ * there's no ambiguity — a life can sadly be measured in years, months, weeks, days,
+ * hours, or even minutes. Picks the largest unit that yields a whole count ≥ 1; falls
+ * back to "0 minutes" for the degenerate same-instant case. Pluralized ("1 year" /
+ * "3 years").
+ */
+export function formatAge(from: number, to: number): string {
+  const unit = (n: number, label: string) => `${n} ${label}${n === 1 ? "" : "s"}`
+  const ms = Math.max(0, to - from)
+  const years = yearsBetween(from, to)
+  if (years >= 1) return unit(years, "year")
+  const months = monthsBetween(from, to)
+  if (months >= 1) return unit(months, "month")
+  const days = Math.floor(ms / 86_400_000)
+  if (days >= 7) return unit(Math.floor(days / 7), "week")
+  if (days >= 1) return unit(days, "day")
+  const hours = Math.floor(ms / 3_600_000)
+  if (hours >= 1) return unit(hours, "hour")
+  return unit(Math.floor(ms / 60_000), "minute")
 }
 
 /** The mutually-exclusive lifecycle positions (see {@link getState}). */
@@ -190,8 +221,12 @@ export interface EntityState {
   willCloseAt?: number
   /** For a reopened (`open`) entity: when it was reopened. */
   reopenedAt?: number
-  /** For a `dead` Individual/Organism: age in whole years, when birth is known. */
-  age?: number
+  /**
+   * For a `dead` Individual/Organism: the lifespan as a human-readable string that
+   * always names its unit (e.g. "35 years", "3 months", "5 days", "42 minutes"),
+   * computed by {@link formatAge}. Present only when the birth instant is known.
+   */
+  age?: string
 }
 
 /**
@@ -261,7 +296,7 @@ export function getState(entity: Entity, now: number = Date.now()): EntityState 
     const at = manualClosed ? entity.closedOn ?? entity.closeAt : entity.closeAt
     if (meta.terminal === "death") {
       const born = getCreatedAt(entity)
-      const age = born != null && at != null ? yearsBetween(born, at) : undefined
+      const age = born != null && at != null ? formatAge(born, at) : undefined
       return { word: "dead", at, age }
     }
     if (meta.terminal === "retire") return { word: "retired", at }

@@ -74,13 +74,17 @@ function sexSymbol(sex: string): string {
 // Render an {@link EntityState} as one stable STATE-row string. `open` shows no date
 // (CREATED already carries "since when"); every other position carries its own instant,
 // which lives nowhere else. `complete` also shows WHEN it will auto-close at midnight.
-function formatState(state: EntityState, format: (e?: number) => string): string {
+// `isLiving` (a death-terminal kind — an Individual/Organism) reads its `open` state as
+// "Alive", the natural antonym of its `dead` terminal.
+function formatState(state: EntityState, format: (e?: number) => string, isLiving = false): string {
   switch (state.word) {
     case "open":
+      if (isLiving) return state.reopenedAt ? `Alive · reopened ${format(state.reopenedAt)}` : "Alive"
       return state.reopenedAt ? `open · reopened ${format(state.reopenedAt)}` : "open"
     case "complete":
       return state.willCloseAt ? `complete · closes ${format(state.willCloseAt)} (auto)` : "complete"
     case "dead":
+      // Age already carries its unit (e.g. "35 years"), so no ambiguity in the lifespan.
       return state.age != null ? `dead · ${format(state.at)} (${state.age})` : `dead · ${format(state.at)}`
     case "retired":
       return `retired · ${format(state.at)}`
@@ -443,7 +447,7 @@ export function Zero0Canvas() {
     // cancelled / dead / retired), replacing the old CLOSED + CANCELLED booleans. `open`
     // carries no date (CREATED above already says since when); other states carry theirs.
     if (meta.fillsWhenClosed || meta.terminal) {
-      metaRows.push(["state", formatState(getState(context), fmt)])
+      metaRows.push(["state", formatState(getState(context), fmt, meta.terminal === "death")])
     }
     if (context.kind === "task" && context.requested) metaRows.push(["requested", "yes"])
     // TEMPORAL slots — a kind's defining time dimension is ALWAYS shown (as "—" when
