@@ -117,30 +117,32 @@ export function Zero0Activity({
  * exactly like /2's §3 inspector. Isolated from the dayline so the tick is cheap.
  */
 /**
- * A tiny dep-free FLIP animator for a keyed list. Rows keep stable DOM nodes (via
- * their React `key`), so when the rollup re-sorts and a row changes position, we
- * translate it from its PREVIOUS top back to zero and let CSS ease it into place —
- * turning the abrupt jump into a smooth slide. Positions that didn't move (the common
- * per-second re-render) get delta 0 and are skipped. Kept manual on purpose: zero0
- * stays free of the `motion` dependency the rest of the app uses.
+ * A tiny dep-free FLIP animator for the rollup list. Give it a ref to the list
+ * container; every row inside must carry a `data-flip-id`. After each render it
+ * measures each row's top, and for any row whose position changed since the last
+ * render it plays the FLIP: snap back to the OLD top (no transition), then on the
+ * next frame release to the new top with an eased transition — so when a place
+ * accumulates enough time to overtake a sibling, it slides past instead of jumping.
+ * Querying the DOM by attribute (rather than per-row refs) avoids ref churn from the
+ * once-a-second re-render. Kept manual on purpose: zero0 stays free of the `motion`
+ * dependency the rest of the app uses.
  */
-function useFlipRows() {
-  const nodes = useRef(new Map<string, HTMLElement>())
+function useFlipList(listRef: React.RefObject<HTMLElement | null>) {
   const prevTops = useRef(new Map<string, number>())
   useLayoutEffect(() => {
+    const list = listRef.current
+    if (!list) return
+    const rows = list.querySelectorAll<HTMLElement>("[data-flip-id]")
     const nextTops = new Map<string, number>()
-    nodes.current.forEach((el, id) => nextTops.set(id, el.getBoundingClientRect().top))
-    console.log("[v0] flip tops=", [...nextTops.entries()].map(([id, t]) => `${id.slice(0, 8)}:${Math.round(t)}`).join(" "))
-    nodes.current.forEach((el, id) => {
+    rows.forEach((el) => nextTops.set(el.dataset.flipId!, el.getBoundingClientRect().top))
+    rows.forEach((el) => {
+      const id = el.dataset.flipId!
       const prev = prevTops.current.get(id)
       const next = nextTops.get(id)
-      if (prev != null && next != null && prev !== next) console.log("[v0] flip MOVE", id, "delta=", prev - next)
       if (prev == null || next == null || prev === next) return
       const delta = prev - next
-      // First: jump back to the old position with no transition…
       el.style.transition = "none"
       el.style.transform = `translateY(${delta}px)`
-      // …then on the next frame, release to the new position with an eased transition.
       requestAnimationFrame(() => {
         el.style.transition = "transform 320ms cubic-bezier(0.22, 1, 0.36, 1)"
         el.style.transform = ""
@@ -148,10 +150,6 @@ function useFlipRows() {
     })
     prevTops.current = nextTops
   })
-  return (id: string) => (el: HTMLElement | null) => {
-    if (el) nodes.current.set(id, el)
-    else nodes.current.delete(id)
-  }
 }
 
 function ActivityReadout({
@@ -161,7 +159,8 @@ function ActivityReadout({
   onOpen: (id: string) => void
   currentContextId: string
 }) {
-  const flipRef = useFlipRows()
+  const listRef = useRef<HTMLDListElement>(null)
+  useFlipList(listRef)
   // Structural changes here too (so a place switch refreshes immediately, not only on
   // the next whole-second tick).
   useActivityRevision()
@@ -213,20 +212,16 @@ function ActivityReadout({
       ) : (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           {/* ROLLUP — per-place totals with live proportional bars. */}
-          <dl className="space-y-1">
+          <dl ref={listRef} className="space-y-1">
             {rollup.map((r) => {
               const pct = trackedMs > 0 ? (r.totalMs / trackedMs) * 100 : 0
               const isOpen = r.entityId === openId
               // A bar is TINTED only when the user actually chose a color (via `:color:`,
-              // own or inherited). A COLORLESS place (e.g. the root Individual) instead
-              // renders as an OUTLINE that inverts with the theme — border is always the
-              // foreground (white in dark, dark in light), and the interior is filled in
-              // light mode (bg-background = white) but empty in dark mode. Net: dark = no
-              // fill + white hairline; light = white fill + dark hairline. The
-              // out-of-focus place fades to half.
+              // own or inherited). Otherwise it's the plain monochrome `bg-foreground`
+              // (dark on light, light on dark). The out-of-focus place fades to half.
               const accent = accentOf(r.entityId)
               return (
-                <div key={r.entityId} ref={flipRef(r.entityId)} className="flex items-center gap-2">
+                <div key={r.entityId} data-flip-id={r.entityId} className="flex items-center gap-2">
                   <Zero0Glyph kind={kindOf(r.entityId)} className="h-3 w-3 shrink-0 text-muted-foreground" />
                   <button
                     type="button"
@@ -237,12 +232,12 @@ function ActivityReadout({
                     {titleForAt(r.entityId, Date.now())}
                   </button>
                   {/* Live proportional bar — the open place's fill grows each second.
-                      Tinted to the user-chosen color, else a theme-inverting outline. */}
+                      Tinted to the user-chosen color if any, else plain foreground. */}
                   <span className="relative h-1.5 flex-1 overflow-hidden rounded-[2px] bg-muted">
                     <span
                       className={
                         "absolute inset-y-0 left-0 rounded-[2px] transition-[width] duration-1000 ease-linear " +
-                        (accent ? "" : "border border-foreground bg-background dark:bg-transparent")
+                        (accent ? "" : "bg-foreground")
                       }
                       style={{
                         width: `${pct}%`,

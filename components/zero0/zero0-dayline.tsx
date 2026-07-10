@@ -36,9 +36,10 @@ const DAY_MS = 86_400_000
 // land inside one window instead of being split at midnight.
 const DAY_START_HOUR = 5
 const NEUTRAL = "oklch(0.72 0.004 75)"
-// The fallback presence-tick color for a colorless place (e.g. the root Individual):
-// pure white, which is the ONLY case that also draws the hairline border.
-const DEFAULT_PRESENCE = "#ffffff"
+  // Sentinel color marking a COLORLESS place (e.g. the root Individual). It's never
+  // painted as a fill — at render it maps to a transparent tick + grey hairline (see
+  // the presence tick's style). Kept as a distinct value so the render can detect it.
+  const DEFAULT_PRESENCE = "#ffffff"
 
 // --- Ripple tuning (copied verbatim from the /2 dayline) ---------------------
 const RIPPLE_COLS = 32
@@ -214,9 +215,9 @@ export function Zero0Dayline({ onOpen, dataRev }: { onOpen: (id: string) => void
         id: s.entityId,
         // Historical title — the name the place carried at the segment's start.
         title: entity ? titleAt(entity, st) : s.entityId === "s_root" ? "Home" : "Elsewhere",
-        // The place's OWN color: its accent (set via `:color:`), inherited from an
-        // ancestor if unset, else the default white. White + hairline border is thus
-        // only the fallback for a colorless place (e.g. the root Individual).
+  // The place's OWN color: its accent (set via `:color:`), inherited from an
+  // ancestor if unset, else the DEFAULT_PRESENCE sentinel — which renders as a
+  // transparent tick + grey hairline (the colorless root Individual case).
         color: getInheritedAccent(s.entityId) ?? DEFAULT_PRESENCE,
         leftPct,
         widthPct,
@@ -647,10 +648,12 @@ export function Zero0Dayline({ onOpen, dataRev }: { onOpen: (id: string) => void
                           left: p.openEnded ? `${p.leftPct + p.widthPct}%` : `${p.leftPct}%`,
                           width: `max(3px, ${p.widthPct}%)`,
                           height: isHot ? 10 : 7,
-                          backgroundColor: p.color,
-                          // Hairline border only for the white default, so a colored
-                          // place shows its color cleanly with no outline.
-                          border: p.color === DEFAULT_PRESENCE ? "1px solid var(--border)" : "none",
+                          // Colorless place (root Individual): transparent fill + a
+                          // subtle GREY hairline (NEUTRAL, visible on both themes) so it
+                          // reads as a quiet outline instead of a popping white tick. A
+                          // place with its own accent fills cleanly with no outline.
+                          backgroundColor: p.color === DEFAULT_PRESENCE ? "transparent" : p.color,
+                          border: p.color === DEFAULT_PRESENCE ? `1px solid ${NEUTRAL}` : "none",
                           opacity: 1,
                           zIndex: isHot ? 15 : 10,
                         }}
