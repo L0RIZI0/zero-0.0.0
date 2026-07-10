@@ -101,14 +101,33 @@ export function Zero0Activity({
 
   return (
     <>
+      {/* FRAME TITLE — the whole "activity" frame's heading, sitting above both daylines.
+          Carries the frame-level `clear` action; the tracked total lives on the PRESENCE
+          row below (next to its dayline), not here. */}
+      <div className="flex items-center justify-between border-b border-border px-4 py-2 text-[10px] uppercase tracking-wider text-muted-foreground">
+        <span>activity · today</span>
+        <button
+          type="button"
+          onClick={() => {
+            // Wipe the log, then IMMEDIATELY re-open a segment for where we are now —
+            // otherwise `clearActivityLog` nulls the current place and, since the canvas
+            // only records on a context CHANGE, the tracker would sit idle (0s, no bars)
+            // until the next drill. This keeps it live: cleared, then counting again.
+            clearActivityLog()
+            recordPresence(currentContextId)
+          }}
+          className="normal-case text-muted-foreground/60 transition-colors hover:text-foreground"
+          aria-label="Clear today's activity log"
+        >
+          clear
+        </button>
+      </div>
       {/* The PLANNED dayline — fluid pan/ripple + live NOW marker, showing scheduled
           occurrences ("dayline · today"). The PRESENCE lane ("where I was") is split off
-          into its own dedicated dayline INSIDE the activity frame below.
+          into its own dedicated dayline INSIDE the readout below.
           NOT gated by `§ 3` — only the readout below is. */}
       <Zero0Dayline onOpen={onOpen} dataRev={dataRev} tracks="planned" />
-      {readoutVisible && (
-        <ActivityReadout onOpen={onOpen} dataRev={dataRev} currentContextId={currentContextId} />
-      )}
+      {readoutVisible && <ActivityReadout onOpen={onOpen} dataRev={dataRev} />}
     </>
   )
 }
@@ -158,11 +177,9 @@ function useFlipList(listRef: React.RefObject<HTMLElement | null>) {
 function ActivityReadout({
   onOpen,
   dataRev,
-  currentContextId,
 }: {
   onOpen: (id: string) => void
   dataRev: number
-  currentContextId: string
 }) {
   const listRef = useRef<HTMLDListElement>(null)
   useFlipList(listRef)
@@ -186,45 +203,25 @@ function ActivityReadout({
     : null
 
   return (
-    <section
-      aria-label="Activity today"
-      className="border-b border-border px-4 py-3 text-[11px] leading-relaxed tabular-nums"
-    >
-      <div className="mb-2 flex items-center justify-between text-muted-foreground">
-        <span className="uppercase tracking-wider">
-          activity · today
-          <span className="ml-2 text-muted-foreground/60">{dur(trackedMs)} tracked</span>
-        </span>
-        <button
-          type="button"
-          onClick={() => {
-            // Wipe the log, then IMMEDIATELY re-open a segment for where we are now —
-            // otherwise `clearActivityLog` nulls the current place and, since the canvas
-            // only records on a context CHANGE, the tracker would sit idle (0s, no bars)
-            // until the next drill. This keeps it live: cleared, then counting again.
-            clearActivityLog()
-            recordPresence(currentContextId)
-          }}
-          className="text-muted-foreground/60 transition-colors hover:text-foreground"
-          aria-label="Clear today's activity log"
-        >
-          clear
-        </button>
-      </div>
-
+    <section aria-label="Activity today" className="border-b border-border">
       {/* The dedicated PRESENCE dayline — tracked activity ("where I was"), split out of
-          the planned band into its own module here inside the Activity frame. Negative
-          margins let its own px-4 / border-b align flush with the section edges. */}
-      <div className="-mx-4 mb-3 border-t border-border/60">
-        <Zero0Dayline onOpen={onOpen} dataRev={dataRev} tracks="presence" />
-      </div>
+          the planned band into its own module. It carries the "x tracked" total in its
+          header (next to the "presence · today" label), per the frame's layout. */}
+      <Zero0Dayline
+        onOpen={onOpen}
+        dataRev={dataRev}
+        tracks="presence"
+        trailing={`${dur(trackedMs)} tracked`}
+      />
 
-      {segments.length === 0 ? (
-        <p className="text-muted-foreground/60">— no presence recorded yet —</p>
-      ) : (
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          {/* ROLLUP — per-place totals with live proportional bars. */}
-          <dl ref={listRef} className="space-y-1">
+      {/* Presence tracker DETAILS — the per-place rollup + recent-segments feed. */}
+      <div className="px-4 py-3 text-[11px] leading-relaxed tabular-nums">
+        {segments.length === 0 ? (
+          <p className="text-muted-foreground/60">— no presence recorded yet —</p>
+        ) : (
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            {/* ROLLUP — per-place totals with live proportional bars. */}
+            <dl ref={listRef} className="space-y-1">
             {rollup.map((r) => {
               const pct = trackedMs > 0 ? (r.totalMs / trackedMs) * 100 : 0
               const isOpen = r.entityId === openId
@@ -258,7 +255,12 @@ function ActivityReadout({
                       }}
                     />
                   </span>
-                  <span className="w-14 shrink-0 text-right text-muted-foreground">
+                  {/* Duration is content-width, nowrap, and the LAST flex child, so its
+                      right edge pins to the frame while the flex-1 bar absorbs any
+                      width change. This kills the old bugs: no fixed cell for the live
+                      "·" to wrap out of, and a ticking single→double digit no longer
+                      shifts the row — only the one open bar breathes by ~1 char. */}
+                  <span className="shrink-0 whitespace-nowrap text-muted-foreground">
                     {dur(r.totalMs)}
                     {isOpen ? " ·" : ""}
                   </span>
@@ -290,7 +292,7 @@ function ActivityReadout({
                   >
                     {titleForAt(s.entityId, s.startAt)}
                   </button>
-                  <span className="shrink-0 text-muted-foreground">
+                  <span className="shrink-0 whitespace-nowrap text-muted-foreground">
                     {dur(s.durationMs)}
                     {isOpen ? " ·" : ""}
                   </span>
@@ -312,6 +314,7 @@ function ActivityReadout({
         >
           {"§3 hide"}
         </button>
+        </div>
       </div>
     </section>
   )

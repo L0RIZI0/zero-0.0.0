@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { getSegments, useActivityRevision } from "@/lib/zero/activity-log"
 import { getEntity, getInheritedAccent, getTimelineOccurrences } from "@/lib/zero/data"
 import { titleAt } from "@/lib/zero/entity-log"
@@ -113,6 +113,7 @@ export function Zero0Dayline({
   onOpen,
   dataRev,
   tracks = "planned",
+  trailing,
 }: {
   onOpen: (id: string) => void
   dataRev: number
@@ -120,6 +121,9 @@ export function Zero0Dayline({
    *  (scheduled occurrences); the presence lane ("where I was") is split off into its
    *  own instance inside the Activity frame so the two no longer share a band. */
   tracks?: "planned" | "presence"
+  /** Optional node rendered in the header next to the label (e.g. the presence lane's
+   *  "3h 56m tracked" total). */
+  trailing?: ReactNode
 }) {
   const isPresence = tracks === "presence"
   const now = useNow()
@@ -555,7 +559,10 @@ export function Zero0Dayline({
   return (
     <div className="border-b border-border px-4 py-3">
       <div className="mb-2 flex items-center justify-between text-[10px] uppercase tracking-wider text-muted-foreground">
-        <span>{isPresence ? "presence · today" : "dayline · today"}</span>
+        <span className="flex items-center gap-2">
+          <span>{isPresence ? "presence · today" : "dayline · today"}</span>
+          {trailing != null && <span className="text-muted-foreground/60">{trailing}</span>}
+        </span>
         <button
           type="button"
           onClick={recenter}
