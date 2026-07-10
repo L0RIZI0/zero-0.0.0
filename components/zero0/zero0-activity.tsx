@@ -66,11 +66,34 @@ function titleForAt(id: string, epoch: number): string {
 }
 
 /**
- * Root `/0` ACTIVITY VIEW — a stripped, mono readout of WHERE the user has been today,
- * fed by the isolated presence log (`zero:root-activity:v1`). Renders the presence
- * DAYLINE above a live textual READOUT (rollup + feed). Structural changes (new/closed
- * segments) refresh via `useActivityRevision`; the per-second live counting lives in
- * {@link ActivityReadout} so this heavy dayline sibling is NOT re-rendered every tick.
+ * AGENDA frame (root `/0`) — the FORWARD-looking band: what is PLANNED today. Just a
+ * frame title over the PLANNED dayline (scheduled occurrences, fluid pan/ripple + live
+ * NOW marker). Split off from ACTIVITY (Jul 2026) so planning and presence are two
+ * independent, separately-toggled frames. No `clear` — that belongs to the presence log.
+ */
+export function Zero0Agenda({
+  onOpen,
+  dataRev,
+}: {
+  onOpen: (id: string) => void
+  dataRev: number
+}) {
+  return (
+    <section aria-label="Agenda today">
+      <div className="flex items-center justify-between border-b border-border px-4 py-2 text-[11px] uppercase tracking-wider text-muted-foreground">
+        <span>agenda · today</span>
+      </div>
+      <Zero0Dayline onOpen={onOpen} dataRev={dataRev} tracks="planned" />
+    </section>
+  )
+}
+
+/**
+ * ACTIVITY frame (root `/0`) — the BACKWARD-looking band: WHERE the user has been today,
+ * fed by the isolated presence log (`zero:root-activity:v1`). Frame title (+ the `clear`
+ * action) over the PRESENCE dayline, which is ALWAYS shown while the frame is open; the
+ * `§ 3` chord hides only the textual DETAILS (rollup + feed) below it. The per-second
+ * live counting lives in {@link ActivityBody} so the toggle chrome here is cheap.
  */
 export function Zero0Activity({
   onOpen,
@@ -88,8 +111,8 @@ export function Zero0Activity({
   useEffect(() => setMounted(true), [])
   // Re-render on structural log changes (segments are mutated in place).
   useActivityRevision()
-  // `§ 3` chord: hide/show just the textual READOUT — the dayline below stays put.
-  const readoutVisible = useZero0Readout()
+  // `§ 3` chord: hide/show just the textual DETAILS — the presence dayline stays put.
+  const detailsVisible = useZero0Readout()
 
   if (!mounted) {
     return (
@@ -100,10 +123,9 @@ export function Zero0Activity({
   }
 
   return (
-    <>
-      {/* FRAME TITLE — the whole "activity" frame's heading, sitting above both daylines.
-          Carries the frame-level `clear` action; the tracked total lives on the PRESENCE
-          row below (next to its dayline), not here. */}
+    <section aria-label="Activity today">
+      {/* FRAME TITLE — "activity · today" heading, carrying the frame-level `clear`
+          action. The tracked total lives on the PRESENCE dayline row below, not here. */}
       <div className="flex items-center justify-between border-b border-border px-4 py-2 text-[11px] uppercase tracking-wider text-muted-foreground">
         <span>activity · today</span>
         <button
@@ -122,13 +144,8 @@ export function Zero0Activity({
           clear
         </button>
       </div>
-      {/* The PLANNED dayline — fluid pan/ripple + live NOW marker, showing scheduled
-          occurrences ("dayline · today"). The PRESENCE lane ("where I was") is split off
-          into its own dedicated dayline INSIDE the readout below.
-          NOT gated by `§ 3` — only the readout below is. */}
-      <Zero0Dayline onOpen={onOpen} dataRev={dataRev} tracks="planned" />
-      {readoutVisible && <ActivityReadout onOpen={onOpen} dataRev={dataRev} />}
-    </>
+      <ActivityBody onOpen={onOpen} dataRev={dataRev} showDetails={detailsVisible} />
+    </section>
   )
 }
 
@@ -174,12 +191,16 @@ function useFlipList(listRef: React.RefObject<HTMLElement | null>) {
   })
 }
 
-function ActivityReadout({
+function ActivityBody({
   onOpen,
   dataRev,
+  showDetails,
 }: {
   onOpen: (id: string) => void
   dataRev: number
+  /** `§ 3` — whether the textual rollup/feed DETAILS show. The presence dayline is
+   *  always rendered regardless, so ACTIVITY still shows PRESENCE when details hide. */
+  showDetails: boolean
 }) {
   const listRef = useRef<HTMLDListElement>(null)
   useFlipList(listRef)
@@ -203,10 +224,10 @@ function ActivityReadout({
     : null
 
   return (
-    <section aria-label="Activity today" className="border-b border-border">
-      {/* The dedicated PRESENCE dayline — tracked activity ("where I was"), split out of
-          the planned band into its own module. It carries the "x tracked" total in its
-          header (next to the "presence · today" label), per the frame's layout. */}
+    <div className="border-b border-border">
+      {/* The dedicated PRESENCE dayline — tracked activity ("where I was"), ALWAYS shown
+          while the ACTIVITY frame is open. Carries the "x tracked" total in its header
+          (next to the "presence · today" label). */}
       <Zero0Dayline
         onOpen={onOpen}
         dataRev={dataRev}
@@ -214,8 +235,9 @@ function ActivityReadout({
         trailing={`${dur(trackedMs)} tracked`}
       />
 
-      {/* Presence tracker DETAILS — the per-place rollup + recent-segments feed. Sits
-          directly under the presence dayline (no divider), so it drops its top padding. */}
+      {/* Presence tracker DETAILS — per-place rollup + recent-segments feed. Gated by
+          `§ 3` (showDetails); the presence dayline above stays regardless. */}
+      {showDetails && (
       <div className="px-4 pb-3 pt-1 text-[11px] leading-relaxed tabular-nums">
         {segments.length === 0 ? (
           <p className="text-muted-foreground/60">— no presence recorded yet —</p>
@@ -303,20 +325,22 @@ function ActivityReadout({
           </ol>
         </div>
       )}
+      </div>
+      )}
 
-      {/* Chord affordance — mirrors /2's footer. Clicking it (or pressing `§ 3`)
-          hides just this readout; the dayline above stays. */}
-      <div className="mt-2 border-t border-border/50 pt-1.5">
+      {/* Chord affordance — toggles just the DETAILS (rollup/feed); the presence dayline
+          above always stays. Always rendered so it's reversible by click even when the
+          details are hidden (also the `§ 3` chord). */}
+      <div className="px-4 pb-2 pt-1.5">
         <button
           type="button"
           onClick={() => toggleZero0Readout()}
           className="text-[10px] text-muted-foreground/60 transition-colors hover:text-foreground"
-          title="Hide the activity readout (toggle with § 3)"
+          title="Toggle the activity details (§ 3)"
         >
-          {"§3 hide"}
+          {showDetails ? "§3 hide details" : "§3 show details"}
         </button>
-        </div>
       </div>
-    </section>
+    </div>
   )
 }

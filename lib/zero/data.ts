@@ -482,10 +482,12 @@ export function getChildren(contextId: string): Entity[] {
   const kids = entities.filter(
     (e) =>
       e.id !== contextId &&
-      // The identity triad's inner two kinds are structural, not browsable content,
-      // so they never appear in any do-list / child listing (e.g. the Individual is
-      // a direct child of the root Organism but must stay invisible at home).
-      e.kind !== "individual" &&
+      // The SOUL stays structural — the animating self is never browsable content, so
+      // it's excluded from every do-list / child listing. INDIVIDUAL is intentionally
+      // NOT filtered anymore (Jul 2026): it's temporarily creatable for dogfooding, and
+      // in the root canvas the root itself IS the Individual, so a created person should
+      // appear as a normal child. (The scaffold's own Individual is the root context and
+      // its Soul parent is unreachable, so neither leaks into a listing here.)
       e.kind !== "soul" &&
       // Materialized recurrence occurrences (overrides) are timeline instances, not
       // do-list children �� they must never leak into any listing (the round-27 trap).

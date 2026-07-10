@@ -173,8 +173,9 @@ function repeatLabel(r: Recurrence): string {
 
 /**
  * Creatable kinds keyed by their ":xxxx" selector = the first 4 letters of the kind
- * name. Non-creatable kinds (individual, soul) are intentionally absent. All four-letter
- * keys are unique, so there's no collision.
+ * name. `individual` ("indi") is TEMPORARILY creatable (dogfooding, Jul 2026); only
+ * `soul` stays absent (system-spawned). All four-letter keys are unique, so there's no
+ * collision.
  */
 const KIND_PREFIX: Record<string, EntityKind> = {
   spac: "space",
@@ -184,6 +185,7 @@ const KIND_PREFIX: Record<string, EntityKind> = {
   reso: "resource",
   comm: "community",
   orga: "organism",
+  indi: "individual",
 }
 
 /**

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import { VersionSwitcher } from "@/components/version-switcher"
 import { Zero0ThemeToggle } from "./zero0-theme-toggle"
 import { Zero0UpdateIndicator } from "./zero0-update-indicator"
-import { Zero0Activity } from "./zero0-activity"
+import { Zero0Agenda, Zero0Activity } from "./zero0-activity"
 import { recordPresence } from "@/lib/zero/activity-log"
 import { Zero0Glyph } from "./zero0-glyph"
 import { Zero0EntityMenu, type Zero0MenuAnchor } from "./zero0-entity-menu"
@@ -140,8 +140,12 @@ export function Zero0Canvas() {
   const [path, setPath] = useState<string[]>([ROOT_ID])
   // Right-click menu anchor (null = closed).
   const [menu, setMenu] = useState<Zero0MenuAnchor | null>(null)
-  // The activity view (ported tracker) is hidden by default so the canvas stays blank;
-  // toggled from the footer, it surfaces as a band ABOVE the header.
+  // The two time bands — AGENDA (planned dayline) and ACTIVITY (presence dayline +
+  // details) — are independent frames stacked ABOVE the ZERO header, each hidden by
+  // default (so the canvas stays blank) and toggled from the footer. Top-to-bottom the
+  // stack is: AGENDA · ACTIVITY · ZERO HEADER · ENTITY HEADER · ENTITY CONTENT ·
+  // CREATE-ENTITY · FOOTER.
+  const [showAgenda, setShowAgenda] = useState(false)
   const [showActivity, setShowActivity] = useState(false)
   // §-chord visibility for the two chrome headers: §0 → the ENTITY header (the open
   // node's raw-data block), §1 → the ZERO header (the "zero · root canvas" helper).
@@ -514,15 +518,29 @@ export function Zero0Canvas() {
       className="relative flex h-screen flex-col bg-background text-foreground"
       style={{ fontFamily: "var(--font-zero0-mono), ui-monospace, monospace" }}
     >
-      {/* ── ACTIVITY BAND (above the header) ───────────────────────────────────
-          The ported presence tracker — WHERE the user has been today. Hidden by
-          default (toggled from the footer) so the canvas stays blank; when shown it
-          sits ABOVE the top helper. Clicking a place drills the canvas into it.
-          Show/hide is animated with the dep-free CSS grid-rows 0fr↔1fr trick: the
-          whole flex column reflows smoothly at ~zero compute cost (a single
-          compositor-friendly layout transition, no per-frame JS). Kept MOUNTED while
-          collapsed so BOTH directions animate; `inert` drops it from tab/hit-testing
-          when hidden, and reduced-motion users get an instant toggle. */}
+      {/* ── AGENDA BAND (topmost) ──────────────────────────────────────────────
+          The FORWARD-looking frame — what's PLANNED today (the planned dayline).
+          Hidden by default (toggled from the footer) so the canvas stays blank; when
+          shown it sits at the very top, above ACTIVITY. Show/hide is animated with the
+          dep-free CSS grid-rows 0fr↔1fr trick (one compositor-friendly layout
+          transition, no per-frame JS). Kept MOUNTED while collapsed so BOTH directions
+          animate; `inert` drops it from tab/hit-testing when hidden. */}
+      {mounted && (
+        <div
+          className="grid transition-[grid-template-rows] duration-300 ease-out motion-reduce:transition-none"
+          style={{ gridTemplateRows: showAgenda ? "1fr" : "0fr" }}
+          inert={!showAgenda}
+        >
+          <div className="overflow-hidden">
+            <Zero0Agenda onOpen={navigateTo} dataRev={rev} />
+          </div>
+        </div>
+      )}
+
+      {/* ── ACTIVITY BAND (below AGENDA, above the header) ──────────────────────
+          The BACKWARD-looking frame — WHERE the user has been today (presence dayline
+          + details). Hidden by default, toggled from the footer, same grid-rows
+          collapse animation as AGENDA. Clicking a place drills the canvas into it. */}
       {mounted && (
         <div
           className="grid transition-[grid-template-rows] duration-300 ease-out motion-reduce:transition-none"
@@ -911,6 +929,19 @@ export function Zero0Canvas() {
         <span className="text-border" aria-hidden>
           |
         </span>
+        {/* AGENDA + ACTIVITY frame toggles, in top-to-bottom order. */}
+        <button
+          type="button"
+          onClick={() => setShowAgenda((v) => !v)}
+          aria-pressed={showAgenda}
+          className={
+            showAgenda
+              ? "text-foreground transition-colors"
+              : "text-muted-foreground transition-colors hover:text-foreground"
+          }
+        >
+          agenda
+        </button>
         <button
           type="button"
           onClick={() => setShowActivity((v) => !v)}

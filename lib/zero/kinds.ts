@@ -120,8 +120,10 @@ export const KIND_META: Record<EntityKind, KindMeta> = {
   },
   individual: {
     label: "Individual",
+    // TEMPORARILY creatable (Jul 2026) so the user can dogfood people/other Individuals
+    // directly; normally an Individual is spawned with a Soul, not created ad hoc.
     description: "A person, animated by a Soul",
-    creatable: false,
+    creatable: true,
     hasDoneState: false,
     fillsWhenClosed: false,
     terminal: "death",
