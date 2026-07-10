@@ -161,6 +161,7 @@ export function Zero0Dayline({
   dataRev,
   tracks = "planned",
   trailing,
+  minimized = false,
 }: {
   onOpen: (id: string) => void
   /** Right-click a tick → open the entity menu for that occurrence's entity. Optional so
@@ -174,6 +175,11 @@ export function Zero0Dayline({
   /** Optional node rendered in the header next to the label (e.g. the presence lane's
    *  "3h 56m tracked" total). */
   trailing?: ReactNode
+  /** Compact render for a MINIMIZED frame: the header (day labels / tracked total) moves
+   *  from ABOVE the band to an overlay INSIDE it, and vertical margins tighten — so a
+   *  minimized frame is just the band itself. (This is essentially the pre-v0.3.21 layout
+   *  where day labels lived inside the band.) */
+  minimized?: boolean
 }) {
   const isPresence = tracks === "presence"
   const now = useNow()
@@ -685,39 +691,59 @@ export function Zero0Dayline({
     return out
   }, [mounted, isPresence, lo, hi, winStart, shortDay])
 
+  // Reposition the sticky day labels when they REMOUNT (toggling `minimized` swaps their
+  // host container: above-band strip ⇄ in-band overlay) or when the marker SET changes.
+  // The base-pan layout effect above only fires on a `viewStart` change, so these two
+  // paths would otherwise leave freshly-mounted labels untransformed until the next pan.
+  useLayoutEffect(() => {
+    paintDayLabels()
+  }, [minimized, dayMarkers, paintDayLabels])
+
+  // Header CONTENT, shared between the two layouts. PLANNED = the sticky-push day-label
+  // rail (one abs-positioned label per midnight boundary, placed imperatively by
+  // `paintDayLabels`); PRESENCE = the "x tracked" total. Registered via `registerDayLabel`
+  // regardless of where it's mounted, so the imperative positioning is identical whether
+  // the strip sits above the band (full) or overlaid inside it (minimized).
+  const headerContent = isPresence ? (
+    <span>{trailing}</span>
+  ) : (
+    dayMarkers.map((dm) => (
+      <span
+        key={dm.key}
+        ref={registerDayLabel(dm.key)}
+        data-left={dm.leftPct}
+        className="absolute left-0 top-0 whitespace-nowrap leading-none will-change-transform"
+      >
+        {dm.label}
+      </span>
+    ))
+  )
+
   return (
     <div
       className={cn(
-        "px-4 pt-3",
+        // Minimized frames want "little margins" — tighten padding and drop the divider,
+        // since a minimized frame is just the bare band.
+        minimized ? "px-2 py-1" : "px-4 pt-3",
         // The presence instance flows straight into its tracked list below, so it drops
-        // the bottom divider + bottom padding; the planned instance keeps both.
-        isPresence ? "pb-1" : "border-b border-border pb-3",
+        // the bottom divider + bottom padding; the planned instance keeps both. (Only when
+        // NOT minimized — minimized always uses the tight padding above.)
+        !minimized && (isPresence ? "pb-1" : "border-b border-border pb-3"),
       )}
     >
-      {/* ABOVE-BAND HEADER STRIP (faded). For the PLANNED lane this is the sticky-push day
-          rail: one absolutely-positioned label per midnight boundary, placed imperatively
-          by `paintDayLabels` — the left-most day pins to the edge and gets pushed out by the
-          next day sliding in. For the PRESENCE lane it's just the "x tracked" total. The old
-          "now" button is gone (double-click the band still recenters); the live full
-          date+time lives in the glued-top clock. */}
-      {isPresence ? (
-        <div className="mb-2 text-[10px] uppercase tracking-wider text-muted-foreground/60">
-          <span>{trailing}</span>
-        </div>
-      ) : (
-        <div className="relative mb-2 h-3 overflow-hidden text-[10px] uppercase tracking-wider text-muted-foreground/60">
-          {dayMarkers.map((dm) => (
-            <span
-              key={dm.key}
-              ref={registerDayLabel(dm.key)}
-              data-left={dm.leftPct}
-              className="absolute left-0 top-0 whitespace-nowrap leading-none will-change-transform"
-            >
-              {dm.label}
-            </span>
-          ))}
-        </div>
-      )}
+      {/* ABOVE-BAND HEADER STRIP (faded) — only when NOT minimized. The old "now" button is
+          gone (double-click the band still recenters); the live full date+time lives in the
+          glued-top clock. When minimized, this same content is overlaid INSIDE the band. */}
+      {!minimized &&
+        (isPresence ? (
+          <div className="mb-2 text-[10px] uppercase tracking-wider text-muted-foreground/60">
+            {headerContent}
+          </div>
+        ) : (
+          <div className="relative mb-2 h-3 overflow-hidden text-[10px] uppercase tracking-wider text-muted-foreground/60">
+            {headerContent}
+          </div>
+        ))}
       {/* Constant-height lane row. */}
       <div className="relative" style={{ height: DAYLINE_ROW_H }}>
         <div
@@ -731,6 +757,17 @@ export function Zero0Dayline({
           onDoubleClick={recenter}
           className="relative h-7 w-full cursor-default select-none overflow-visible rounded-md border border-border/60 bg-card/40 [touch-action:none]"
         >
+          {/* IN-BAND HEADER OVERLAY (minimized only) — the same faded header content that
+              normally sits ABOVE the band is overlaid at its TOP-LEFT instead, so a
+              minimized frame is just the band. `pl-1` gives the sticky day labels a small
+              left offset so each reads to the RIGHT of its 1px marker (the marker rides at
+              the boundary x; the label is nudged clear of it). Non-interactive + clipped so
+              it never blocks panning and trims to the band. `z-10` keeps it above the ticks. */}
+          {minimized && (
+            <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-3 overflow-hidden pl-1 pt-0.5 text-[9px] uppercase leading-none tracking-wider text-muted-foreground/60">
+              {headerContent}
+            </div>
+          )}
           {/* CLIP layer — fixed to the lane so it always trims to the true bounds. */}
           <div className="pointer-events-none absolute inset-0 overflow-hidden rounded-md">
             {/* CONTENT PAN — the in-progress wheel pan is applied here as an imperative

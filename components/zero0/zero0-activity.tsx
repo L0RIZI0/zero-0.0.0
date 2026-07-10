@@ -105,7 +105,13 @@ export function Zero0Agenda({
           <span>today</span>
         </div>
       )}
-      <Zero0Dayline onOpen={onOpen} onContextMenuEntity={onContextMenuEntity} dataRev={dataRev} tracks="planned" />
+      <Zero0Dayline
+        onOpen={onOpen}
+        onContextMenuEntity={onContextMenuEntity}
+        dataRev={dataRev}
+        tracks="planned"
+        minimized={minimized}
+      />
       <Zero0FrameMarker flag="agenda" label="the agenda" />
     </section>
   )
@@ -287,16 +293,21 @@ function ActivityBody({
     : null
 
   return (
-    <div className={minimized ? "" : "border-b border-border"}>
+    // Always keep the bottom divider — even minimized — so ACTIVITY stays visually
+    // separated from the next frame (ZERO HEADER). The presence dayline never carries its
+    // own border, so this wrapper is the sole separator.
+    <div className="border-b border-border">
       {/* The dedicated PRESENCE dayline — tracked activity ("where I was"), ALWAYS shown
           while the ACTIVITY frame is open. Carries the "x tracked" total in its header
-          (next to the "presence · today" label). Right-click a tick → the entity menu. */}
+          (next to the "presence · today" label). Right-click a tick → the entity menu.
+          When minimized, the total overlays inside the band (see Zero0Dayline). */}
       <Zero0Dayline
         onOpen={onOpen}
         onContextMenuEntity={onContextMenuEntity}
         dataRev={dataRev}
         tracks="presence"
         trailing={`${dur(trackedMs)} tracked`}
+        minimized={minimized}
       />
 
       {/* Presence tracker DETAILS — per-place rollup + recent-segments feed. Gated by
