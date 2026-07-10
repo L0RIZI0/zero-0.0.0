@@ -64,3 +64,44 @@ const getServerSnapshot = () => 0
 export function useNow(): number {
   return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot)
 }
+
+// ---------------------------------------------------------------------------
+// Per-SECOND clock (separate store).
+// ---------------------------------------------------------------------------
+// A second, independent store ticking every second — for the glued-top live clock
+// that shows seconds. Kept separate from the minute clock so the rest of the app
+// (dayline marker, etc.) isn't forced onto a 1s cadence; only subscribers of THIS
+// hook pay for the per-second re-render, and the interval runs only while at least
+// one is mounted. Same SSR-safe snapshot (0) contract as `useNow`.
+let currentSec = 0
+const secListeners = new Set<() => void>()
+let secInterval: ReturnType<typeof setInterval> | null = null
+
+function emitSec() {
+  currentSec = Date.now()
+  for (const l of secListeners) l()
+}
+
+function subscribeSec(cb: () => void) {
+  const wasEmpty = secListeners.size === 0
+  secListeners.add(cb)
+  if (wasEmpty) {
+    currentSec = Date.now()
+    secInterval = setInterval(emitSec, 1000)
+  }
+  return () => {
+    secListeners.delete(cb)
+    if (secListeners.size === 0 && secInterval) {
+      clearInterval(secInterval)
+      secInterval = null
+    }
+  }
+}
+
+const getSecSnapshot = () => currentSec
+
+/** Shared "now" in epoch ms, updated once per second. Returns 0 on the server and the
+ *  first client render — gate time-dependent UI on `mounted`. */
+export function useNowSeconds(): number {
+  return useSyncExternalStore(subscribeSec, getSecSnapshot, getServerSnapshot)
+}

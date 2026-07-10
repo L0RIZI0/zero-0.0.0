@@ -36,6 +36,7 @@ import {
 } from "@/lib/zero/create-parse"
 import { looksLikeUrl, normalizeUrl, resolveWebResourceByUrl, webDisplayName } from "@/lib/zero/web-resources"
 import { useZero0Flag, toggleZero0Flag } from "@/lib/zero/zero0-chord"
+import { useNowSeconds } from "@/lib/zero/use-now"
 import { Zero0FrameMarker } from "./zero0-frame-marker"
 import { ZERO_VERSION } from "@/lib/zero/version"
 import { Zero0ResourceCanvas } from "./zero0-resource-canvas"
@@ -159,6 +160,19 @@ export function Zero0Canvas() {
   }, [])
 
   const bump = useCallback(() => setRev((r) => r + 1), [])
+
+  // GLUED-TOP live clock — the full weekday/date + time WITH SECONDS, shown at the very
+  // top-left for ANY open entity, regardless of which frames are toggled below (it's
+  // permanent chrome, mirroring the footer's glued-bottom role). Ticks once per second
+  // via its own store; gated on `mounted` so the SSR value (0) never mismatches.
+  const nowSec = useNowSeconds()
+  const topClock = useMemo(() => {
+    if (!mounted) return ""
+    const d = new Date(nowSec)
+    const date = d.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric", year: "numeric" })
+    const time = d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit", second: "2-digit" })
+    return `${date} · ${time}`
+  }, [mounted, nowSec])
 
   const contextId = path[path.length - 1]
 
@@ -518,7 +532,16 @@ export function Zero0Canvas() {
       className="relative flex h-screen flex-col bg-background text-foreground"
       style={{ fontFamily: "var(--font-zero0-mono), ui-monospace, monospace" }}
     >
-      {/* ── AGENDA BAND (topmost) ──────────────────────────────────────────────
+      {/* ── GLUED TOP: live clock ──────────────────────────────────────────────
+          Permanent top chrome (mirrors the footer's glued-bottom role): the live full
+          date + time WITH seconds, top-left. Always present — for any open entity, and
+          regardless of which frames are toggled below. `min-h` reserves its row so the
+          layout doesn't jump between the SSR blank and the first mounted tick. */}
+      <div className="flex min-h-[41px] shrink-0 items-center border-b border-border px-4 py-3 text-[10px] uppercase tracking-wider leading-none tabular-nums text-foreground">
+        {topClock}
+      </div>
+
+      {/* ── AGENDA BAND (topmost, "TODAY") ──────────────────────────────────────
           The FORWARD-looking frame — what's PLANNED today (the planned dayline).
           Hidden by default (toggled from the footer) so the canvas stays blank; when
           shown it sits at the very top, above ACTIVITY. Show/hide is animated with the

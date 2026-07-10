@@ -606,24 +606,39 @@ export function Zero0Dayline({
     }
   }, [])
 
-  // The PLANNED (AGENDA) lane shows the live FULL day date + time where the old
-  // "dayline · today" sub-label used to sit. Minute granularity (driven by the shared
-  // `useNow` clock); gated on `mounted` so the SSR / first-paint value (now = 0) never
-  // mismatches. The presence lane keeps its `trailing` "x tracked" total instead.
-  const liveDateTime =
-    mounted && !isPresence
-      ? (() => {
-          const d = new Date(now)
-          const date = d.toLocaleDateString(undefined, {
-            weekday: "long",
-            month: "long",
-            day: "numeric",
-            year: "numeric",
-          })
-          const time = d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })
-          return `${date} · ${time}`
-        })()
-      : null
+  // Short "FRI JUL 10" formatter for day-boundary labels + the header's left-edge tag.
+  // Commas are stripped so the label reads as a clean uppercase triple (some locales
+  // render "Fri, Jul 10").
+  const shortDay = useCallback(
+    (epoch: number) =>
+      new Date(epoch)
+        .toLocaleDateString(undefined, { weekday: "short", month: "short", day: "2-digit" })
+        .replace(/,/g, "")
+        .toUpperCase(),
+    [],
+  )
+
+  // The PLANNED (AGENDA/"TODAY") lane's header slot now shows — faded — the day currently
+  // in view at the LEFT-MOST extremity of the band (its `winStart` 5am bucket), in the
+  // same short "FRI JUL 10" format as the on-band day markers. It updates as panning
+  // settles the window. The live full date+time moved to the glued-top clock; the
+  // presence lane keeps its `trailing` "x tracked" total instead.
+  const leftEdgeDay = mounted && !isPresence ? shortDay(winStart) : null
+
+  // DAY-BOUNDARY MARKERS (planned lane only) — one per 5am day bucket across the buffered
+  // window. Each rides INSIDE the content-pan layer (registered as a ripple node with its
+  // `data-left`), so it pans/ripples/clips exactly like a bar: scrolling slides the labels
+  // along the band and the left-most one clips off the lane's left edge. A 1px faded grey
+  // line marks the boundary; the short date label sits just to its right (labelling the
+  // day that starts there). The ACTIVITY presence lane is intentionally left plain for now.
+  const dayMarkers = useMemo(() => {
+    if (!mounted || isPresence) return [] as { key: string; leftPct: number; label: string }[]
+    const out: { key: string; leftPct: number; label: string }[] = []
+    for (let t = dayWindow(lo)[0]; t <= hi; t += DAY_MS) {
+      out.push({ key: `day:${t}`, leftPct: ((t - winStart) / DAY_MS) * 100, label: shortDay(t) })
+    }
+    return out
+  }, [mounted, isPresence, lo, hi, winStart, shortDay])
 
   return (
     <div
@@ -634,17 +649,12 @@ export function Zero0Dayline({
         isPresence ? "pb-1" : "border-b border-border pb-3",
       )}
     >
-      {/* Controls row — the redundant "· today" sub-label was DROPPED (Jul 2026): the
-          enclosing frame (AGENDA / ACTIVITY) already carries the single "X · today"
-          title. On the left the PLANNED lane now shows the live full date + time (white),
-          while the PRESENCE lane shows its "x tracked" total (faded); the recenter "now"
-          button sits on the right. */}
-      <div className="mb-2 flex items-center justify-between text-[10px] uppercase tracking-wider">
-        {isPresence ? (
-          <span className="text-muted-foreground/60">{trailing}</span>
-        ) : (
-          <span className="text-foreground">{liveDateTime}</span>
-        )}
+      {/* Controls row — both slots are FADED. The PLANNED lane shows the day at the
+          band's left-most edge ("FRI JUL 10", short) which updates as you pan; the
+          PRESENCE lane shows its "x tracked" total. The recenter "now" button sits on
+          the right. (The live full date+time now lives in the glued-top clock.) */}
+      <div className="mb-2 flex items-center justify-between text-[10px] uppercase tracking-wider text-muted-foreground/60">
+        {isPresence ? <span>{trailing}</span> : <span>{leftEdgeDay}</span>}
         <button
           type="button"
           onClick={recenter}
@@ -673,6 +683,25 @@ export function Zero0Dayline({
                 translateX; the bars slide within the fixed clip window. PLANNED bars
                 (colored) sit in the main body; PRESENCE (white ticks) lines the bottom. */}
             <div ref={contentPanRef} className="pointer-events-none absolute inset-0 will-change-transform">
+              {/* DAY-BOUNDARY MARKERS (planned lane) — painted BEHIND the ticks. Each is a
+                  ripple node (data-left + registerRipple) so it pans/slides/clips with the
+                  band: a 1px faded grey line at the 5am boundary + the short date label just
+                  to its right, labelling the day that begins there. */}
+              {dayMarkers.map((dm) => (
+                <div
+                  key={dm.key}
+                  ref={registerRipple(dm.key)}
+                  data-left={dm.leftPct}
+                  className="pointer-events-none absolute inset-0 will-change-transform"
+                >
+                  <div className="absolute inset-y-0" style={{ left: `${dm.leftPct}%`, zIndex: 2 }}>
+                    <div className="absolute inset-y-0 w-px bg-muted-foreground/25" />
+                    <span className="absolute bottom-0.5 left-1 whitespace-nowrap text-[8px] uppercase leading-none tracking-wider text-muted-foreground/50">
+                      {dm.label}
+                    </span>
+                  </div>
+                </div>
+              ))}
               {/* TICK BAND — ONE generic loop for BOTH tracks. Each instance paints its
                   own list (`planned` scheduled occurrences OR `presence` tracked segments),
                   but the rendering is identical: a rounded chip (or a thin point for a

@@ -80,12 +80,13 @@ export function Zero0Agenda({
   dataRev: number
 }) {
   return (
-    <section aria-label="Agenda today" className="relative">
-      {/* Frame TITLE — its divider is INSET (inset-x-4) and lighter (border/50) so a
-          within-frame division reads differently from the full-bleed `border-border`
-          separators that mark FRAME boundaries. */}
+    <section aria-label="Today" className="relative">
+      {/* Frame TITLE — this frame is named TODAY (dropped the "agenda ·" prefix Jul 2026;
+          the footer toggle link stays labelled "agenda"). Its divider is INSET (inset-x-4)
+          and lighter (border/50) so a within-frame division reads differently from the
+          full-bleed `border-border` separators that mark FRAME boundaries. */}
       <div className="relative flex items-center justify-between px-4 py-2 text-[11px] uppercase tracking-wider text-muted-foreground after:absolute after:inset-x-4 after:bottom-0 after:h-px after:bg-border/50 after:content-['']">
-        <span>agenda · today</span>
+        <span>today</span>
       </div>
       <Zero0Dayline onOpen={onOpen} dataRev={dataRev} tracks="planned" />
       <Zero0FrameMarker flag="agenda" label="the agenda" />
