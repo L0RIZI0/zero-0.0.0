@@ -1,4 +1,4 @@
-import type { EntityKind, Schedule } from "./types"
+import type { EntityKind, Schedule, Recurrence } from "./types"
 
 /**
  * CREATE-FIELD PARSER — the "terminal hybrid" grammar for the inline create row.
@@ -129,6 +129,46 @@ function parseTimeParam(value: string): TimeParam | null {
   }
   const at = parseClock(value)
   return at ? { kind: "point", at } : null
+}
+
+/**
+ * Interpret an unnamed param as a RECURRENCE flag → a `Recurrence` rule (or null).
+ * A recurring create pairs one of these with a time param, e.g. "Standup --daily --0900"
+ * (a daily 9am instant) or "Workout --weekdays --1800-1900". Kept deliberately small and
+ * word-based (matching the compact `--flag` style); the shared timeline engine
+ * (`getTimelineOccurrences` / `dayMatchesRecurrence`) expands the rule into ticks, so this
+ * is the whole "port recurrence to /0" surface. Weekday convention: 0(Sun)–6(Sat).
+ */
+function parseRepeatToken(value: string): Recurrence | null {
+  switch (value.toLowerCase()) {
+    case "daily":
+      return { freq: "daily" }
+    case "weekly":
+      return { freq: "weekly" }
+    case "monthly":
+      return { freq: "monthly" }
+    case "yearly":
+    case "annually":
+      return { freq: "yearly" }
+    case "weekday":
+    case "weekdays":
+      return { freq: "weekly", byWeekday: [1, 2, 3, 4, 5] }
+    case "weekend":
+    case "weekends":
+      return { freq: "weekly", byWeekday: [0, 6] }
+    default:
+      return null
+  }
+}
+
+/** Short human label for a recurrence rule, for the create-field confirmation summary. */
+function repeatLabel(r: Recurrence): string {
+  if (r.freq === "weekly" && r.byWeekday) {
+    const wd = r.byWeekday
+    if (wd.length === 5 && wd.every((d) => d >= 1 && d <= 5)) return "weekdays"
+    if (wd.length === 2 && wd.includes(0) && wd.includes(6)) return "weekends"
+  }
+  return r.freq
 }
 
 /**
@@ -268,16 +308,22 @@ export function parseCreateField(raw: string): CreateFieldParse | null {
   const tokens = [...raw.matchAll(/--(\S+)/g)]
   if (tokens.length === 0) return null
 
-  // First UNNAMED (no "=") param that reads as a time drives the schedule.
+  // First UNNAMED (no "=") param that reads as a time drives the schedule; a separate
+  // pass picks up a RECURRENCE flag (`--daily`, `--weekdays`, …). A repeat word never
+  // parses as a time, so the two never collide.
   let time: TimeParam | null = null
+  let repeat: Recurrence | null = null
   for (const m of tokens) {
     const value = m[1]
     if (value.includes("=")) continue // named param — ignore for now
-    const parsed = parseTimeParam(value)
-    if (parsed) {
-      time = parsed
-      break
+    if (!time) {
+      const parsed = parseTimeParam(value)
+      if (parsed) {
+        time = parsed
+        continue
+      }
     }
+    if (!repeat) repeat = parseRepeatToken(value)
   }
   if (!time) return null
 
@@ -286,8 +332,11 @@ export function parseCreateField(raw: string): CreateFieldParse | null {
   if (!title) return null
 
   const verb = classifyVerb(title)
-  const completed = verb !== null // recognized past-tense verb ⇒ logged as Done
+  // A RECURRING create is a forward-looking PLAN, never a one-time "logged done" — even
+  // with a past-tense verb. Only a one-off past activity is auto-completed.
+  const completed = repeat === null && verb !== null
   const base = todayMidnight()
+  const recurSuffix = repeat ? ` · ${repeatLabel(repeat)}` : ""
 
   if (time.kind === "point") {
     // A point in time is an Instant, whatever the verb.
@@ -296,8 +345,8 @@ export function parseCreateField(raw: string): CreateFieldParse | null {
       title,
       kind: "instant",
       completed,
-      schedule: { at },
-      summary: `${completed ? "Instant logged" : "Instant"} · ${fmt(time.at)}`,
+      schedule: { at, ...(repeat ? { repeat } : {}) },
+      summary: `${completed ? "Instant logged" : "Instant"} · ${fmt(time.at)}${recurSuffix}`,
     }
   }
 
@@ -314,7 +363,7 @@ export function parseCreateField(raw: string): CreateFieldParse | null {
     title,
     kind,
     completed,
-    schedule: { startAt, endAt },
-    summary: `${label}${completed ? " logged" : ""} · ${fmt(time.start)}–${fmt(time.end)}`,
+    schedule: { startAt, endAt, ...(repeat ? { repeat } : {}) },
+    summary: `${label}${completed ? " logged" : ""} · ${fmt(time.start)}–${fmt(time.end)}${recurSuffix}`,
   }
 }

@@ -109,7 +109,19 @@ interface DaylineBar {
  * `dataRev` is the canvas's mutation counter — bumping it re-derives the planned bars
  * after a `:color:` / `:start:` / create edit.
  */
-export function Zero0Dayline({ onOpen, dataRev }: { onOpen: (id: string) => void; dataRev: number }) {
+export function Zero0Dayline({
+  onOpen,
+  dataRev,
+  tracks = "planned",
+}: {
+  onOpen: (id: string) => void
+  dataRev: number
+  /** Which lane this instance paints. The main "dayline · today" shows PLANNED
+   *  (scheduled occurrences); the presence lane ("where I was") is split off into its
+   *  own instance inside the Activity frame so the two no longer share a band. */
+  tracks?: "planned" | "presence"
+}) {
+  const isPresence = tracks === "presence"
   const now = useNow()
   const [mounted, setMounted] = useState(false)
   // `viewStart` is the left edge of the shown 24h window. Panning moves it directly;
@@ -167,9 +179,10 @@ export function Zero0Dayline({ onOpen, dataRev }: { onOpen: (id: string) => void
     for (const occ of getTimelineOccurrences("s_root", lo, hi)) {
       const s = occ.schedule
       if (!s) continue
-      const st = s.startAt ?? s.at
+      // start / point / due — a due-only task anchors on its deadline and paints a point.
+      const st = s.startAt ?? s.at ?? s.dueAt
       if (st == null) continue
-      const en = s.endAt ?? st // a point (instant / no end) has zero span
+      const en = s.endAt ?? st // a point (instant / due / no end) has zero span
       if (en < lo || st > hi) continue
       const leftPct = ((st - winStart) / DAY_MS) * 100
       const widthPct = ((en - st) / DAY_MS) * 100
@@ -542,7 +555,7 @@ export function Zero0Dayline({ onOpen, dataRev }: { onOpen: (id: string) => void
   return (
     <div className="border-b border-border px-4 py-3">
       <div className="mb-2 flex items-center justify-between text-[10px] uppercase tracking-wider text-muted-foreground">
-        <span>dayline · today</span>
+        <span>{isPresence ? "presence · today" : "dayline · today"}</span>
         <button
           type="button"
           onClick={recenter}
@@ -572,8 +585,10 @@ export function Zero0Dayline({ onOpen, dataRev }: { onOpen: (id: string) => void
                 (colored) sit in the main body; PRESENCE (white ticks) lines the bottom. */}
             <div ref={contentPanRef} className="pointer-events-none absolute inset-0 will-change-transform">
               {/* PLANNED — scheduled occurrences, colored by accent. Spans are rounded
-                  chips centered in the upper body; points (instants) are thin ticks. */}
+                  chips centered in the upper body; points (instants / due dates) are thin
+                  ticks. Only painted in the main "dayline · today" (planned) instance. */}
               {mounted &&
+                !isPresence &&
                 planned.map((p) => {
                   const isHot = hoveredKey === p.key
                   return (
@@ -608,8 +623,8 @@ export function Zero0Dayline({ onOpen, dataRev }: { onOpen: (id: string) => void
                           // use their flat accent color.
                           background: p.sky ?? p.color,
                           // PLANNED ticks are deliberately TRANSLUCENT (a faint "intention"
-                          // layer) so the solid presence hairline beneath reads clearly and
-                          // the band feels like glass; hovering one snaps it to full opacity.
+                          // layer that reads as glass, not solid commitment); hovering one
+                          // snaps it to full opacity.
                           opacity: isHot ? 1 : 0.4,
                           zIndex: isHot ? 16 : 5,
                         }}
@@ -619,9 +634,10 @@ export function Zero0Dayline({ onOpen, dataRev }: { onOpen: (id: string) => void
                 })}
 
               {/* PRESENCE — tracked activity, PURE WHITE with the smallest hairline
-                  border, hugging the bottom edge so it reads as "what actually happened"
-                  under the colored plan. */}
+                  border. Split OUT of the planned band into its own dedicated dayline
+                  inside the Activity frame; only painted in the presence instance. */}
               {mounted &&
+                isPresence &&
                 presence.map((p) => {
                   const isHot = hoveredKey === p.key
                   return (

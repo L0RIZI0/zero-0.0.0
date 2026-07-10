@@ -58,7 +58,14 @@ function fmt(epoch?: number): string {
 const TIME_LOG_FIELDS = new Set(["startAt", "endAt", "at", "dueAt"])
 function fmtLogValue(field: string, value: string | number | boolean): string {
   if (TIME_LOG_FIELDS.has(field) && typeof value === "number") return fmt(value)
+  if (field === "sex" && typeof value === "string") return sexSymbol(value)
   return String(value)
+}
+
+// Render an Individual's sex as the Unicode gender GLYPH. "man"/"woman" stay the stored
+// model values; ♂/♀ is purely the display form (falls back to the raw word if unknown).
+function sexSymbol(sex: string): string {
+  return sex === "man" ? "♂" : sex === "woman" ? "♀" : sex
 }
 
 // Render an {@link EntityState} as one stable STATE-row string. `open` shows no date
@@ -252,7 +259,7 @@ export function Zero0Canvas() {
           return
         }
         setEntitySex(contextId, sex)
-        setNotice({ tone: "ok", text: `sex set · ${sex}` })
+        setNotice({ tone: "ok", text: `sex set · ${sexSymbol(sex)}` })
         setDraft("")
         bump()
         return
@@ -445,7 +452,7 @@ export function Zero0Canvas() {
     if (context.accent) metaRows.push(["color", context.accent])
   // SEX — an Individual's defining identity field, always shown (— when unset), the
   // same way a Moment always shows its span. Individual-only.
-  if (context.kind === "individual") metaRows.push(["sex", context.sex ?? "—"])
+  if (context.kind === "individual") metaRows.push(["sex", context.sex ? sexSymbol(context.sex) : "—"])
   }
 
   return (

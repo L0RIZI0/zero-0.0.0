@@ -744,9 +744,14 @@ export function getSpaceTasks(spaceId: string): Entity[] {
  *  epoch ms). Recurring entities are expanded into per-day occurrences by
  *  getTimelineOccurrences; this selector returns the underlying entities. */
 export function getSpaceEvents(spaceId: string): Entity[] {
-  const isTimed = (e: Entity) =>
-    e.seriesId == null &&
-    (e.kind === "moment" || e.kind === "instant" || (e.kind === "space" && !!e.schedule))
+  // ANY entity that carries a scheduled time (start / end / point / due) is timed —
+  // we no longer discriminate by kind. A Task with a start+end, a Space with a due
+  // date, a Community with a point — all belong on the lifeline. `seriesId != null`
+  // rows are per-day occurrence OVERRIDES (materialized from a recurring mother), which
+  // getTimelineOccurrences emits itself, so they're excluded here to avoid duplicates.
+  const hasScheduledTime = (s: Entity["schedule"]) =>
+    !!s && (s.startAt != null || s.endAt != null || s.at != null || s.dueAt != null)
+  const isTimed = (e: Entity) => e.seriesId == null && hasScheduledTime(e.schedule)
   if (spaceId === "s_root") return entities.filter(isTimed)
   const descendants = collectDescendants(spaceId)
   return entities.filter(
@@ -852,7 +857,10 @@ export function getTimelineOccurrences(
   for (const e of getSpaceEvents(spaceId)) {
     const s = e.schedule
     if (!s) continue
-    const anchor = s.at ?? s.startAt
+    // A point (`at`), a span start, or — for a due-only entity like a Task deadline —
+    // the `dueAt` all serve as the timeline anchor, so a task with just a due date still
+    // places a marker.
+    const anchor = s.at ?? s.startAt ?? s.dueAt
     if (anchor == null) continue
 
     if (!s.repeat) {

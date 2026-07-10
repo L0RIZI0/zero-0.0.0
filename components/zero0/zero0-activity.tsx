@@ -101,11 +101,14 @@ export function Zero0Activity({
 
   return (
     <>
-      {/* The ported presence DAYLINE — fluid pan/ripple + live NOW marker, sitting
-          above the textual rollup/feed. Clicking a bar drills the canvas into it.
+      {/* The PLANNED dayline — fluid pan/ripple + live NOW marker, showing scheduled
+          occurrences ("dayline · today"). The PRESENCE lane ("where I was") is split off
+          into its own dedicated dayline INSIDE the activity frame below.
           NOT gated by `§ 3` — only the readout below is. */}
-      <Zero0Dayline onOpen={onOpen} dataRev={dataRev} />
-      {readoutVisible && <ActivityReadout onOpen={onOpen} currentContextId={currentContextId} />}
+      <Zero0Dayline onOpen={onOpen} dataRev={dataRev} tracks="planned" />
+      {readoutVisible && (
+        <ActivityReadout onOpen={onOpen} dataRev={dataRev} currentContextId={currentContextId} />
+      )}
     </>
   )
 }
@@ -154,9 +157,11 @@ function useFlipList(listRef: React.RefObject<HTMLElement | null>) {
 
 function ActivityReadout({
   onOpen,
+  dataRev,
   currentContextId,
 }: {
   onOpen: (id: string) => void
+  dataRev: number
   currentContextId: string
 }) {
   const listRef = useRef<HTMLDListElement>(null)
@@ -205,6 +210,13 @@ function ActivityReadout({
         >
           clear
         </button>
+      </div>
+
+      {/* The dedicated PRESENCE dayline — tracked activity ("where I was"), split out of
+          the planned band into its own module here inside the Activity frame. Negative
+          margins let its own px-4 / border-b align flush with the section edges. */}
+      <div className="-mx-4 mb-3 border-t border-border/60">
+        <Zero0Dayline onOpen={onOpen} dataRev={dataRev} tracks="presence" />
       </div>
 
       {segments.length === 0 ? (
