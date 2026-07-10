@@ -293,17 +293,25 @@ export function isComplete(entity: Entity, now: number = Date.now()): boolean {
 
 /**
  * Whether `entity`'s glyph should render FILLED. Fill marks a POSITIVELY-FINALIZED
- * state, so it appears only when:
+ * state:
  *   • CLOSED (filed) — always fills, or
- *   • COMPLETE that was EXPLICITLY marked complete (`getExplicitComplete`).
- * A merely-DERIVED complete does NOT fill — a Task that's just Done, or a Moment/Instant
- * whose time has elapsed, stays OUTLINE (the checkmark / interim conveys it) and only
- * fills once it CLOSES at midnight. Cancelled shows a bar; terminal kinds never fill.
+ *   • COMPLETE — fills, EXCEPT for a Task, which fills on complete ONLY when it was
+ *     EXPLICITLY marked complete (`getExplicitComplete`), not merely Done.
+ * The Task carve-out exists because a task's complete is DERIVED from its Done checkmark,
+ * and a done-but-not-explicitly-completed task should read as OUTLINE (the checkmark
+ * conveys it) until it CLOSES at midnight. A Moment/Instant's complete is TIME-driven
+ * (its end/point has elapsed), which IS the positive signal, so it fills right away.
+ * Cancelled shows a bar; terminal kinds never fill.
  */
 export function fillsGlyph(entity: Entity, now: number = Date.now()): boolean {
   if (!KIND_META[entity.kind].fillsWhenClosed) return false
   const w = getState(entity, now).word
   if (w === "closed") return true
-  if (w === "complete") return getExplicitComplete(entity) === true
+  if (w === "complete") {
+    // Task (the only fillable kind with a Done axis) needs an explicit complete;
+    // time-driven kinds (Moment/Instant) fill as soon as they are complete.
+    if (KIND_META[entity.kind].hasDoneState) return getExplicitComplete(entity) === true
+    return true
+  }
   return false
 }
