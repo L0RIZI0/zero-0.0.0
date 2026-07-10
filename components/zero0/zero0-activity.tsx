@@ -14,6 +14,7 @@ import {
 } from "@/lib/zero/activity-log"
 import { Zero0Glyph } from "@/components/zero0/zero0-glyph"
 import { Zero0Dayline } from "@/components/zero0/zero0-dayline"
+import { Zero0FrameMarker } from "@/components/zero0/zero0-frame-marker"
 import { useZero0Readout, toggleZero0Readout } from "@/lib/zero/zero0-chord"
 import type { EntityKind } from "@/lib/zero/types"
 
@@ -79,11 +80,12 @@ export function Zero0Agenda({
   dataRev: number
 }) {
   return (
-    <section aria-label="Agenda today">
+    <section aria-label="Agenda today" className="relative">
       <div className="flex items-center justify-between border-b border-border px-4 py-2 text-[11px] uppercase tracking-wider text-muted-foreground">
         <span>agenda · today</span>
       </div>
       <Zero0Dayline onOpen={onOpen} dataRev={dataRev} tracks="planned" />
+      <Zero0FrameMarker flag="agenda" label="the agenda" />
     </section>
   )
 }
@@ -123,7 +125,7 @@ export function Zero0Activity({
   }
 
   return (
-    <section aria-label="Activity today">
+    <section aria-label="Activity today" className="relative">
       {/* FRAME TITLE — "activity · today" heading, carrying the frame-level `clear`
           action. The tracked total lives on the PRESENCE dayline row below, not here. */}
       <div className="flex items-center justify-between border-b border-border px-4 py-2 text-[11px] uppercase tracking-wider text-muted-foreground">
@@ -145,6 +147,7 @@ export function Zero0Activity({
         </button>
       </div>
       <ActivityBody onOpen={onOpen} dataRev={dataRev} showDetails={detailsVisible} />
+      <Zero0FrameMarker flag="activity" label="the activity frame" />
     </section>
   )
 }
@@ -328,17 +331,17 @@ function ActivityBody({
       </div>
       )}
 
-      {/* Chord affordance — toggles just the DETAILS (rollup/feed); the presence dayline
-          above always stays. Always rendered so it's reversible by click even when the
-          details are hidden (also the `§ 3` chord). */}
+      {/* DETAILS toggle — shows/hides just the rollup+feed; the presence dayline above
+          always stays. Always rendered so it's reversible by click even when the details
+          are hidden. (No § chord — §2 now toggles the whole ACTIVITY frame instead.) */}
       <div className="px-4 pb-2 pt-1.5">
         <button
           type="button"
           onClick={() => toggleZero0Readout()}
           className="text-[10px] text-muted-foreground/60 transition-colors hover:text-foreground"
-          title="Toggle the activity details (§ 3)"
+          title="Show or hide the activity details"
         >
-          {showDetails ? "§3 hide details" : "§3 show details"}
+          {showDetails ? "hide details" : "show details"}
         </button>
       </div>
     </div>

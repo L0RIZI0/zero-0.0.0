@@ -7,11 +7,16 @@ import { useSyncExternalStore } from "react"
 // ----------------------------------------------------------------------------
 // A lean, dependency-free port of /2's `debug-view` chord, generalised to a small
 // set of boolean visibility FLAGS. `§` is a one-shot PREFIX: press it, then press a
-// digit within a short window to toggle the matching band:
+// digit within a short window to toggle the matching frame — top-to-bottom the digit
+// order mirrors the stack (§3 topmost AGENDA … §0 the ENTITY HEADER):
 //
 //   §0 → the ENTITY HEADER  (the open node's raw-data block: glyph/title/kind + meta + log)
 //   §1 → the ZERO HEADER    (the "zero · root canvas" top helper: mark + breadcrumb + session)
-//   §3 → the activity READOUT (the textual rollup + feed under the presence dayline)
+//   §2 → the ACTIVITY frame  (presence dayline + details) — mirrors the footer "activity" link
+//   §3 → the AGENDA frame    (planned dayline)           — mirrors the footer "agenda" link
+//
+// `readout` (the ACTIVITY details rollup/feed) is still a flag but is NO LONGER chorded —
+// it's toggled only by the in-frame "show/hide details" link.
 //
 // We key off `§` (ISO/EU layouts) and accept the physical backtick (`Backquote`) as a
 // fallback, exactly like /2. Chords typed into inputs/editables are ignored.
@@ -20,20 +25,30 @@ import { useSyncExternalStore } from "react"
 // useSyncExternalStore, so every toggle stays in lockstep across the tree.
 // ============================================================================
 
-/** The chorded visibility bands. All default to shown. */
-export type Zero0Flag = "entityHeader" | "zeroHeader" | "readout"
+/** The visibility flags. Chrome headers default to shown; the two time frames (AGENDA,
+ *  ACTIVITY) default to HIDDEN so the canvas stays blank until summoned. */
+export type Zero0Flag = "entityHeader" | "zeroHeader" | "activity" | "agenda" | "readout"
 
-// Which digit (pressed after §) toggles which band.
+// Which digit (pressed after §) toggles which frame. `readout` is intentionally absent.
 const DIGIT_FLAG: Record<string, Zero0Flag> = {
   "0": "entityHeader",
   "1": "zeroHeader",
-  "3": "readout",
+  "2": "activity",
+  "3": "agenda",
 }
 
-// Everything shown by default; a chord (or an on-screen affordance) hides/re-shows it.
+/** Reverse map — the § digit that toggles a given flag. Drives the in-frame "§x" corner
+ *  markers so their label can never drift from the keybinding. `readout` has no digit. */
+export const FLAG_DIGIT: Partial<Record<Zero0Flag, string>> = Object.fromEntries(
+  Object.entries(DIGIT_FLAG).map(([digit, flag]) => [flag, digit]),
+) as Partial<Record<Zero0Flag, string>>
+
+// Chrome headers shown by default; the AGENDA/ACTIVITY frames hidden until toggled.
 const visible: Record<Zero0Flag, boolean> = {
   entityHeader: true,
   zeroHeader: true,
+  activity: false,
+  agenda: false,
   readout: true,
 }
 

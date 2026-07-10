@@ -35,7 +35,8 @@ import {
   resolveCreatableKind,
 } from "@/lib/zero/create-parse"
 import { looksLikeUrl, normalizeUrl, resolveWebResourceByUrl, webDisplayName } from "@/lib/zero/web-resources"
-import { useZero0Flag } from "@/lib/zero/zero0-chord"
+import { useZero0Flag, toggleZero0Flag } from "@/lib/zero/zero0-chord"
+import { Zero0FrameMarker } from "./zero0-frame-marker"
 import { ZERO_VERSION } from "@/lib/zero/version"
 import { Zero0ResourceCanvas } from "./zero0-resource-canvas"
 import type { Entity } from "@/lib/zero/types"
@@ -140,16 +141,15 @@ export function Zero0Canvas() {
   const [path, setPath] = useState<string[]>([ROOT_ID])
   // Right-click menu anchor (null = closed).
   const [menu, setMenu] = useState<Zero0MenuAnchor | null>(null)
-  // The two time bands — AGENDA (planned dayline) and ACTIVITY (presence dayline +
-  // details) — are independent frames stacked ABOVE the ZERO header, each hidden by
-  // default (so the canvas stays blank) and toggled from the footer. Top-to-bottom the
-  // stack is: AGENDA · ACTIVITY · ZERO HEADER · ENTITY HEADER · ENTITY CONTENT ·
-  // CREATE-ENTITY · FOOTER.
-  const [showAgenda, setShowAgenda] = useState(false)
-  const [showActivity, setShowActivity] = useState(false)
-  // §-chord visibility for the two chrome headers: §0 → the ENTITY header (the open
-  // node's raw-data block), §1 → the ZERO header (the "zero · root canvas" helper).
-  // Both default to shown; the chord store keeps them in lockstep across the tree.
+  // Every hideable frame's visibility lives in the shared § chord store, so the footer
+  // links, the in-frame "§x" corner markers, and the keyboard chords all drive the SAME
+  // source of truth (in lockstep across the tree). Top-to-bottom the stack is: AGENDA ·
+  // ACTIVITY · ZERO HEADER · ENTITY HEADER · ENTITY CONTENT · CREATE-ENTITY · FOOTER.
+  //   §3 AGENDA (planned) + §2 ACTIVITY (presence) — the two time frames, hidden by
+  //      default so the canvas stays blank until summoned.
+  //   §1 ZERO HEADER + §0 ENTITY HEADER — the chrome headers, shown by default.
+  const showAgenda = useZero0Flag("agenda")
+  const showActivity = useZero0Flag("activity")
   const showEntityHeader = useZero0Flag("entityHeader")
   const showZeroHeader = useZero0Flag("zeroHeader")
 
@@ -553,11 +553,19 @@ export function Zero0Canvas() {
         </div>
       )}
 
-      {/* ── TOP HELPER ────────────────────────────────────────────────────���────
+      {/* ── ZERO HEADER (§1) ───────────────────────────────────────────────────
           Zero-UX chrome: the mark, the access path (breadcrumb), and a session
-          readout. Not part of the node's own data. */}
-      {showZeroHeader && (
-      <header className="border-b border-border p-4 text-[10px] leading-relaxed text-muted-foreground tabular-nums">
+          readout. Not part of the node's own data. Toggled by §1 / the corner marker,
+          and — like every frame in the stack — collapses with the dep-free grid-rows
+          0fr↔1fr animation so the frames below slide up/down. Kept mounted so BOTH
+          directions animate; `inert` drops it from tab/hit-testing when hidden. */}
+      <div
+        className="grid transition-[grid-template-rows] duration-300 ease-out motion-reduce:transition-none"
+        style={{ gridTemplateRows: showZeroHeader ? "1fr" : "0fr" }}
+        inert={!showZeroHeader}
+      >
+        <div className="overflow-hidden">
+      <header className="relative border-b border-border p-4 text-[10px] leading-relaxed text-muted-foreground tabular-nums">
         <div className="flex items-center gap-2">
           <span className="text-foreground">zero</span>
           <span aria-hidden>·</span>
@@ -622,8 +630,10 @@ export function Zero0Canvas() {
             <dd className="text-foreground">{mounted ? children.length : "—"}</dd>
           </dl>
         )}
+        <Zero0FrameMarker flag="zeroHeader" label="the zero header" />
       </header>
-      )}
+        </div>
+      </div>
 
       {/* ── ENTITY CONTENT ─────────────────────────────────────────────────────
           The open node as raw data: META, then CHILDREN. Recursive — the root
@@ -655,9 +665,16 @@ export function Zero0Canvas() {
         onContextMenu={context ? (ev) => openMenu(context, ev) : undefined}
       >
         {/* ENTITY HEADER (§0) — the open node's raw-data block (glyph/title/kind, meta
-            rows, life log). Toggled with §0; the children list below stays put. */}
-        {showEntityHeader && mounted && context && meta && (
-          <section className="border-b border-border px-4 py-3">
+            rows, life log). Toggled with §0 / the corner marker; the children list below
+            slides up/down with the same grid-rows collapse animation as every frame. */}
+        {mounted && context && meta && (
+          <div
+            className="grid transition-[grid-template-rows] duration-300 ease-out motion-reduce:transition-none"
+            style={{ gridTemplateRows: showEntityHeader ? "1fr" : "0fr" }}
+            inert={!showEntityHeader}
+          >
+            <div className="overflow-hidden">
+          <section className="relative border-b border-border px-4 py-3">
             {/* Node header line: glyph + title + kind. Fill = closed (fillable kinds),
                 bar = cancelled, fade+strike follow the same rules as the child rows.
                 Right-clicking it opens the same per-entity menu as the node's own row. */}
@@ -731,7 +748,10 @@ export function Zero0Canvas() {
                 </ol>
               </div>
             )}
+            <Zero0FrameMarker flag="entityHeader" label="the entity header" />
           </section>
+            </div>
+          </div>
         )}
 
         {/* Children listing. Empty until you create something. */}
@@ -929,10 +949,11 @@ export function Zero0Canvas() {
         <span className="text-border" aria-hidden>
           |
         </span>
-        {/* AGENDA + ACTIVITY frame toggles, in top-to-bottom order. */}
+        {/* AGENDA (§3) + ACTIVITY (§2) frame toggles, in top-to-bottom order. These flip
+            the SAME chord flags as the § keybindings and the in-frame "§x" markers. */}
         <button
           type="button"
-          onClick={() => setShowAgenda((v) => !v)}
+          onClick={() => toggleZero0Flag("agenda")}
           aria-pressed={showAgenda}
           className={
             showAgenda
@@ -944,7 +965,7 @@ export function Zero0Canvas() {
         </button>
         <button
           type="button"
-          onClick={() => setShowActivity((v) => !v)}
+          onClick={() => toggleZero0Flag("activity")}
           aria-pressed={showActivity}
           className={
             showActivity

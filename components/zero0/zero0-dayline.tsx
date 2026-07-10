@@ -615,11 +615,12 @@ export function Zero0Dayline({
         isPresence ? "pb-1" : "border-b border-border pb-3",
       )}
     >
+      {/* Controls row — the redundant "· today" sub-label was DROPPED (Jul 2026): the
+          enclosing frame (AGENDA / ACTIVITY) already carries the single "X · today"
+          title, so this row keeps only the lane's own controls — the optional trailing
+          total (e.g. "3h 56m tracked") on the left, the recenter "now" button right. */}
       <div className="mb-2 flex items-center justify-between text-[10px] uppercase tracking-wider text-muted-foreground">
-        <span className="flex items-center gap-2">
-          <span>{isPresence ? "presence · today" : "dayline · today"}</span>
-          {trailing != null && <span className="text-muted-foreground/60">{trailing}</span>}
-        </span>
+        <span className="text-muted-foreground/60">{trailing}</span>
         <button
           type="button"
           onClick={recenter}
