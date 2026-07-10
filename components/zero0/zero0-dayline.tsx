@@ -607,7 +607,10 @@ export function Zero0Dayline({ onOpen, dataRev }: { onOpen: (id: string) => void
                           // Sleep spans paint the procedural night sky; all other bars
                           // use their flat accent color.
                           background: p.sky ?? p.color,
-                          opacity: isHot ? 1 : 0.85,
+                          // PLANNED ticks are deliberately TRANSLUCENT (a faint "intention"
+                          // layer) so the solid presence hairline beneath reads clearly and
+                          // the band feels like glass; hovering one snaps it to full opacity.
+                          opacity: isHot ? 1 : 0.4,
                           zIndex: isHot ? 16 : 5,
                         }}
                       />

@@ -19,11 +19,12 @@ import {
   setEntityCompleted,
   setEntityScheduleField,
   setEntityAccent,
+  setEntitySex,
   renameEntity,
   deleteEntity,
 } from "@/lib/zero/data"
   import { KIND_META, isClosed, fillsGlyph, getState, type EntityState } from "@/lib/zero/kinds"
-  import { isDone, isCancelled, getCreatedAt, getCompletedOn } from "@/lib/zero/entity-log"
+  import { isDone, isCancelled, getCreatedAt, getCompletedOn, describeLogEntry } from "@/lib/zero/entity-log"
 import { parseCreateField, parseKindPrefix, parseFieldSetter, parseDateToken, parseHexColor } from "@/lib/zero/create-parse"
 import { looksLikeUrl, normalizeUrl, resolveWebResourceByUrl, webDisplayName } from "@/lib/zero/web-resources"
 import type { Entity } from "@/lib/zero/types"
@@ -50,6 +51,14 @@ const isColorPickerTrigger = (draft: string) => /^:color:\s*$/i.test(draft)
 function fmt(epoch?: number): string {
   if (!epoch) return "—"
   return new Date(epoch).toLocaleString()
+}
+
+// Schedule `set` entries carry an epoch NUMBER as their value; render it as a date rather
+// than a raw millisecond count in the life-log history. Everything else prints as-is.
+const TIME_LOG_FIELDS = new Set(["startAt", "endAt", "at", "dueAt"])
+function fmtLogValue(field: string, value: string | number | boolean): string {
+  if (TIME_LOG_FIELDS.has(field) && typeof value === "number") return fmt(value)
+  return String(value)
 }
 
 // Render an {@link EntityState} as one stable STATE-row string. `open` shows no date
@@ -222,6 +231,32 @@ export function Zero0Canvas() {
         bump()
         return
       }
+      // :sex: — an INDIVIDUAL's biological sex ("man" | "woman"; also m/w). Empty clears.
+      if (setter.field === "sex") {
+        const ctx = getEntity(contextId)
+        if (!ctx || ctx.kind !== "individual") {
+          setNotice({ tone: "err", text: "only individuals have a sex" })
+          return
+        }
+        if (setter.value === "") {
+          setEntitySex(contextId, null)
+          setNotice({ tone: "ok", text: "sex cleared" })
+          setDraft("")
+          bump()
+          return
+        }
+        const v = setter.value.toLowerCase()
+        const sex = v === "man" || v === "m" ? "man" : v === "woman" || v === "w" ? "woman" : null
+        if (!sex) {
+          setNotice({ tone: "err", text: `use :sex: man | woman (got "${setter.value}")` })
+          return
+        }
+        setEntitySex(contextId, sex)
+        setNotice({ tone: "ok", text: `sex set · ${sex}` })
+        setDraft("")
+        bump()
+        return
+      }
       const fieldMap: Record<string, "startAt" | "endAt" | "at" | "dueAt"> = {
         start: "startAt",
         end: "endAt",
@@ -230,7 +265,7 @@ export function Zero0Canvas() {
       }
       const key = fieldMap[setter.field]
       if (!key) {
-        setNotice({ tone: "err", text: `unknown field :${setter.field}: — try :title: :start: :end: :at: :due: :color: :done:` })
+        setNotice({ tone: "err", text: `unknown field :${setter.field}: — try :title: :start: :end: :at: :due: :color: :done: :sex:` })
         return
       }
       // Empty value clears the slot; otherwise it must parse to a valid date token.
@@ -364,7 +399,7 @@ export function Zero0Canvas() {
     setMenu({ entity: e, x: ev.clientX, y: ev.clientY })
   }, [])
 
-  // Meta rows for the CURRENT open node ����� raw lifecycle data, kind-aware. Recomputed
+  // Meta rows for the CURRENT open node ������� raw lifecycle data, kind-aware. Recomputed
   // per render (cheap) rather than memoised, so it always mirrors `rev`.
   const meta = context ? KIND_META[context.kind] : undefined
   const metaRows: [string, string][] = []
@@ -408,6 +443,9 @@ export function Zero0Canvas() {
     // ACCENT — only when set (via `:color:`). The value is the raw hex; the dt cell
     // paints a matching swatch so the raw-data view still shows the color itself.
     if (context.accent) metaRows.push(["color", context.accent])
+  // SEX — an Individual's defining identity field, always shown (— when unset), the
+  // same way a Moment always shows its span. Individual-only.
+  if (context.kind === "individual") metaRows.push(["sex", context.sex ?? "—"])
   }
 
   return (
@@ -547,6 +585,22 @@ export function Zero0Canvas() {
                 </div>
               ))}
             </dl>
+            {/* LIFE LOG — the whole append-only history (lifecycle transitions AND field
+                sets), oldest→newest, so the entity's entire life is retraceable. Every
+                setter dual-writes here; a per-field history is just this list filtered. */}
+            {mounted && context.log && context.log.length > 0 && (
+              <div className="mt-3 border-t border-border pt-2">
+                <p className="text-[10px] uppercase tracking-widest text-muted-foreground">log</p>
+                <ol className="mt-1 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-[10px] tabular-nums">
+                  {context.log.map((entry, i) => (
+                    <li key={i} className="contents">
+                      <span className="shrink-0 text-muted-foreground">{fmt(entry.at)}</span>
+                      <span className="truncate text-foreground">{describeLogEntry(entry, fmtLogValue)}</span>
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            )}
           </section>
         )}
 

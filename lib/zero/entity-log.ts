@@ -198,6 +198,50 @@ export function appendInstant(log: Instant[] | undefined, entry: Instant): Insta
 }
 
 /**
+ * Construct a generic FIELD-SET log entry (`type: "set"`). `value` is the new value the
+ * field took, or `null` to record that it was CLEARED. This is the single primitive every
+ * field setter uses, so the unified log becomes the UNION of an entity's lifecycle AND its
+ * edits — no per-field log structures needed.
+ */
+export function makeSet(
+  field: string,
+  value: string | number | boolean | null,
+  at: Epoch = Date.now(),
+  provenance?: { by?: string; where?: string },
+): Instant {
+  const entry: Instant = { at, type: "set", field, value }
+  if (provenance?.by != null) entry.by = provenance.by
+  if (provenance?.where != null) entry.where = provenance.where
+  return entry
+}
+
+/**
+ * The per-field HISTORY VIEW — every `set` entry for `field`, chronological. This is how a
+ * "title history", "color history", "schedule history", etc. are derived from the ONE log
+ * rather than stored separately. Empty when the field was never set through the log.
+ */
+export function fieldHistory(entity: Entity, field: string): Instant[] {
+  return (entity.log ?? []).filter((e) => e.type === "set" && e.field === field)
+}
+
+/**
+ * A short human label for ONE log entry, used by the raw-data history view so the user can
+ * retrace an entity's whole life. Lifecycle entries read as their bare verb (`created`,
+ * `done`, `closed`, …); a `set` entry reads `field = value` (or `field cleared`). Callers
+ * that want to pretty-print time-valued fields (e.g. `startAt`) can pass a `formatValue`.
+ */
+export function describeLogEntry(
+  e: Instant,
+  formatValue?: (field: string, value: string | number | boolean) => string,
+): string {
+  if (e.type !== "set") return e.type
+  const field = e.field ?? "field"
+  if (e.value == null) return `${field} cleared`
+  const v = formatValue ? formatValue(field, e.value) : String(e.value)
+  return `${field} = ${v}`
+}
+
+/**
  * Fold an entity's legacy SCALAR lifecycle fields into a starting {@link Instant}
  * log — the one-time seed used by the Phase 2 migration AND by the write paths when
  * they encounter a pre-log entity. Best-effort and LOSSY by nature: the scalars only

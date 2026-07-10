@@ -15,6 +15,9 @@ export type ResourceKind =
 
 export type TaskPriority = "low" | "medium" | "high"
 
+/** Biological sex of an Individual. */
+export type Sex = "man" | "woman"
+
 export type AssetType =
   | "document"
   | "deck"
@@ -109,10 +112,17 @@ export type Epoch = number
  *   - `cancelled` / `restored` — called off / un-cancelled (also closes: bar + strike).
  *   - `retired` / `died`     — TERMINAL ends (community retires, organism/individual die).
  *   - `accessed`  — an entry/exit "who was here, when" access record.
+ *   - `set`       — a generic FIELD ASSIGNMENT: some editable field (`title`, `color`,
+ *                   `startAt`, `sex`, `kind`, …) was set to a new `value` (or cleared,
+ *                   `value: null`). This is what makes the log the UNION of an entity's
+ *                   whole life: lifecycle transitions AND field edits live in one list, so
+ *                   a per-field history (title, color, schedule…) is just a FILTERED VIEW
+ *                   over `set` entries (see `fieldHistory`). Adding a new field needs no
+ *                   new log type — it logs through `set` and gets history for free.
  *
- * NOTE: this type is ADDITIVE and not yet persisted or written by any code path —
- * see `v0 memory: entity log model`. The `log` field below is optional and every
- * derive helper falls back to today's scalar fields when it is absent.
+ * The log is the SOURCE OF TRUTH for state (folded by the derive helpers) and history;
+ * every derive helper falls back to today's scalar fields when `log` is absent, so
+ * pre-log / seeded data stays correct.
  */
 export type LogType =
   | "created"
@@ -127,6 +137,7 @@ export type LogType =
   | "retired"
   | "died"
   | "accessed"
+  | "set"
 
 /**
  * ONE lifecycle-log entry — a single timestamped "Instant" in an entity's history.
@@ -142,6 +153,17 @@ export interface Instant {
   by?: string
   /** Place id or label ("where"), when known. */
   where?: string
+  /**
+   * For a `set` entry: WHICH field was assigned (e.g. "title", "color", "startAt",
+   * "endAt", "at", "dueAt", "requested", "kind", "sex"). Absent on lifecycle entries.
+   */
+  field?: string
+  /**
+   * For a `set` entry: the NEW value the field took. `null` means the field was CLEARED.
+   * Times are stored as their epoch number, colors/titles/kinds as strings, flags as
+   * booleans — the reader formats per field. Absent on lifecycle entries.
+   */
+  value?: string | number | boolean | null
 }
 
 /**
@@ -469,6 +491,8 @@ export interface IndividualEntity extends EntityBase {
   bornAt?: Epoch
   /** When the individual died (terminal state; epoch ms). */
   diedOn?: Epoch
+  /** Biological sex. Individual-only; set via the `:sex:` self-field setter. */
+  sex?: Sex
 }
 
 /**

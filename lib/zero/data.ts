@@ -1,13 +1,14 @@
-import type { Asset, Entity, EntityKind, Instant, Recurrence, Schedule, Resource, EntityBase, TaskPriority, TitleEntry, User } from "./types"
+import type { Asset, Entity, EntityKind, IndividualEntity, Instant, Recurrence, Schedule, Resource, EntityBase, Sex, TaskPriority, TitleEntry, User } from "./types"
   import { hasDoneState, isClosed, computeCloseAt } from "./kinds"
 import {
   isDone,
   isCancelled,
   buildLogFromScalars,
   makeInstant,
+  makeSet,
   appendInstant,
   auditLogScalarConsistency,
-} from "./entity-log"
+  } from "./entity-log"
 import type { LogScalarMismatch } from "./entity-log"
 import { readUserItems, writeUserItems } from "./persistence"
 import type { ScheduleParse } from "./schedule-parse"
@@ -58,12 +59,29 @@ function mutable(e: Entity): LooseEntity {
  * `entity.log` in place on the SAME reference held by `byId`/`entities`, so the seed
  * persists alongside the appended entry. Idempotent: a non-empty log is left as is.
  */
-function ensureEntityLog(entity: Entity): Instant[] {
+  function ensureEntityLog(entity: Entity): Instant[] {
   if (!entity.log || entity.log.length === 0) {
-    entity.log = buildLogFromScalars(entity)
+  entity.log = buildLogFromScalars(entity)
   }
   return entity.log
-}
+  }
+
+  /**
+   * Append a generic FIELD-SET entry to `entity`'s unified lifecycle log — the single
+   * primitive every value-bearing setter (color / schedule / kind / requested / sex /
+   * title) calls so an entity's whole life is retraceable from one list. `value` is the
+   * new value, or `null` to record a clear. Seeds a log from scalars first if absent.
+   *
+   * NOTE (seeded entities): like the close/cancel dual-writes, a `set` entry on a SEEDED
+   * entity lives only for the session — `buildLogFromScalars` rebuilds the log from scalars
+   * on reload and does not replay field sets. The seeded-override patch carries the VALUE
+   * forward (so the field itself persists); only its in-log history is session-scoped. For
+   * USER entities the whole entity — log included — is persisted, so history is durable.
+   */
+  function logSet(entity: Entity, field: string, value: string | number | boolean | null, at = Date.now()): void {
+  const log = ensureEntityLog(entity)
+  entity.log = appendInstant(log, makeSet(field, value, at))
+  }
 
 export const currentUser: User = {
   id: "u_self",
@@ -317,12 +335,14 @@ export const entities: Entity[] = [
     // Loris's BIRTH — the Individual's creation. Built from local-time components
     // (month is 0-based, so 4 = May) so it round-trips through `toLocaleString()` as
     // 19 May 1991, 13:33 in whatever timezone/locale the reader is in.
-    createdAt: new Date(1991, 4, 19, 13, 33, 0, 0).getTime(),
-    // Root canvas starts as a FRESH tree: the Individual owns no resources yet, and
-    // has no space/task children. Everything below is grown by the user at runtime.
-    assignedResourceIds: [],
+  createdAt: new Date(1991, 4, 19, 13, 33, 0, 0).getTime(),
+  // Loris is a man.
+  sex: "man",
+  // Root canvas starts as a FRESH tree: the Individual owns no resources yet, and
+  // has no space/task children. Everything below is grown by the user at runtime.
+  assignedResourceIds: [],
   },
-]
+  ]
 
 // ----------------------------------------------------------------------------
 // Assets — unified resource/asset model (kept as a separate concern)
@@ -1595,6 +1615,9 @@ export function renameEntity(id: string, nextTitle: string, now = Date.now()): b
   log.push({ title, at: now })
   entity.titleLog = log
   entity.title = title
+  // DUAL-WRITE the rename into the UNIFIED log too, so an entity's whole life reads from one
+  // list. `titleLog` stays as the derived mirror the activity tracker's `titleAt` folds today.
+  logSet(entity, "title", title, now)
   if (!userEntityIds.has(id)) {
     // Seeded entity — persist title + history as an override so both survive refreshes.
     seededOverrides.set(id, { ...seededOverrides.get(id), title, titleLog: log })
@@ -1692,8 +1715,8 @@ export function changeEntityKind(id: string, kind: EntityKind): void {
     entity.assignedResourceIds = entity.assignedResourceIds ?? []
   }
   // A row switched into a real kind should carry a lifecycle log (an inline draft
-  // may have none yet); seed one from scalars if absent.
-  ensureEntityLog(stored)
+  // may have none yet); seed one from scalars if absent, then record the kind change.
+  logSet(entity, "kind", kind)
   // Re-stamp (or clear) the midnight close for the new kind — a fresh moment/instant
   // gets one from its default schedule; switching away from those clears it.
   entity.closeAt = computeCloseAt(entity)
@@ -1834,6 +1857,7 @@ export function setEntityRequested(id: string, requested: boolean): void {
   if (!stored) return
   const entity = mutable(stored)
   entity.requested = requested
+  logSet(entity, "requested", requested)
   if (!userEntityIds.has(id)) {
   // Seeded entity — track as an override patch so the sent state survives refreshes.
   seededOverrides.set(id, { ...seededOverrides.get(id), requested })
@@ -1860,11 +1884,12 @@ export function setEntityScheduleField(
   if (epoch == null) delete sched[field]
   else sched[field] = epoch
   entity.schedule = sched
+  logSet(entity, field, epoch)
   // Re-stamp the absolute midnight close whenever a MOMENT/INSTANT's end (or point)
   // changes, so its time-close stays tz-stable and in sync with the new schedule. Tasks
   // stamp on Done instead, not from `dueAt`, so they're unaffected here.
   if (entity.kind === "moment" || entity.kind === "instant") {
-    entity.closeAt = computeCloseAt(entity)
+  entity.closeAt = computeCloseAt(entity)
   }
   if (!userEntityIds.has(id)) {
   // Seeded entity — persist as an override patch so the value survives refreshes.
@@ -1887,8 +1912,28 @@ export function setEntityScheduleField(
   const entity = mutable(stored)
   if (hex == null) delete entity.accent
   else entity.accent = hex
+  logSet(entity, "color", hex)
   if (!userEntityIds.has(id)) {
   seededOverrides.set(id, { ...seededOverrides.get(id), accent: hex ?? undefined })
+  }
+  persist()
+  return true
+  }
+
+  /**
+   * Set (or clear) an INDIVIDUAL's biological `sex` ("man" | "woman"), in place. Individual-
+   * only (returns false for any other kind). Logs the change to the unified lifecycle log and
+   * mirrors `setEntityAccent`'s seeded-override handling so it survives refreshes.
+   */
+  export function setEntitySex(id: string, sex: Sex | null): boolean {
+  const stored = byId.get(id)
+  if (!stored || stored.kind !== "individual") return false
+  const entity = mutable(stored)
+  if (sex == null) delete (entity as IndividualEntity).sex
+  else (entity as IndividualEntity).sex = sex
+  logSet(entity, "sex", sex)
+  if (!userEntityIds.has(id)) {
+  seededOverrides.set(id, { ...seededOverrides.get(id), sex: sex ?? undefined } as Partial<Entity>)
   }
   persist()
   return true
