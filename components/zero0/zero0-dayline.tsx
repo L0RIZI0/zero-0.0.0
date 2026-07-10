@@ -606,6 +606,25 @@ export function Zero0Dayline({
     }
   }, [])
 
+  // The PLANNED (AGENDA) lane shows the live FULL day date + time where the old
+  // "dayline · today" sub-label used to sit. Minute granularity (driven by the shared
+  // `useNow` clock); gated on `mounted` so the SSR / first-paint value (now = 0) never
+  // mismatches. The presence lane keeps its `trailing` "x tracked" total instead.
+  const liveDateTime =
+    mounted && !isPresence
+      ? (() => {
+          const d = new Date(now)
+          const date = d.toLocaleDateString(undefined, {
+            weekday: "long",
+            month: "long",
+            day: "numeric",
+            year: "numeric",
+          })
+          const time = d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })
+          return `${date} · ${time}`
+        })()
+      : null
+
   return (
     <div
       className={cn(
@@ -617,10 +636,15 @@ export function Zero0Dayline({
     >
       {/* Controls row — the redundant "· today" sub-label was DROPPED (Jul 2026): the
           enclosing frame (AGENDA / ACTIVITY) already carries the single "X · today"
-          title, so this row keeps only the lane's own controls — the optional trailing
-          total (e.g. "3h 56m tracked") on the left, the recenter "now" button right. */}
-      <div className="mb-2 flex items-center justify-between text-[10px] uppercase tracking-wider text-muted-foreground">
-        <span className="text-muted-foreground/60">{trailing}</span>
+          title. On the left the PLANNED lane now shows the live full date + time (white),
+          while the PRESENCE lane shows its "x tracked" total (faded); the recenter "now"
+          button sits on the right. */}
+      <div className="mb-2 flex items-center justify-between text-[10px] uppercase tracking-wider">
+        {isPresence ? (
+          <span className="text-muted-foreground/60">{trailing}</span>
+        ) : (
+          <span className="text-foreground">{liveDateTime}</span>
+        )}
         <button
           type="button"
           onClick={recenter}

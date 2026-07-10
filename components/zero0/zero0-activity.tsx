@@ -81,7 +81,10 @@ export function Zero0Agenda({
 }) {
   return (
     <section aria-label="Agenda today" className="relative">
-      <div className="flex items-center justify-between border-b border-border px-4 py-2 text-[11px] uppercase tracking-wider text-muted-foreground">
+      {/* Frame TITLE — its divider is INSET (inset-x-4) and lighter (border/50) so a
+          within-frame division reads differently from the full-bleed `border-border`
+          separators that mark FRAME boundaries. */}
+      <div className="relative flex items-center justify-between px-4 py-2 text-[11px] uppercase tracking-wider text-muted-foreground after:absolute after:inset-x-4 after:bottom-0 after:h-px after:bg-border/50 after:content-['']">
         <span>agenda · today</span>
       </div>
       <Zero0Dayline onOpen={onOpen} dataRev={dataRev} tracks="planned" />
@@ -127,8 +130,10 @@ export function Zero0Activity({
   return (
     <section aria-label="Activity today" className="relative">
       {/* FRAME TITLE — "activity · today" heading, carrying the frame-level `clear`
-          action. The tracked total lives on the PRESENCE dayline row below, not here. */}
-      <div className="flex items-center justify-between border-b border-border px-4 py-2 text-[11px] uppercase tracking-wider text-muted-foreground">
+          action. The tracked total lives on the PRESENCE dayline row below, not here.
+          Its divider is INSET + lighter (see AGENDA) so within-frame divisions stay
+          distinct from the full-bleed FRAME separators. */}
+      <div className="relative flex items-center justify-between px-4 py-2 text-[11px] uppercase tracking-wider text-muted-foreground after:absolute after:inset-x-4 after:bottom-0 after:h-px after:bg-border/50 after:content-['']">
         <span>activity · today</span>
         <button
           type="button"
@@ -168,15 +173,23 @@ export function Zero0Activity({
  * Querying the DOM by attribute (rather than per-row refs) avoids ref churn from the
  * once-a-second re-render. Kept manual on purpose: zero0 stays free of the `motion`
  * dependency the rest of the app uses.
+ *
+ * Tops are measured RELATIVE TO THE LIST CONTAINER, not the viewport. Otherwise any
+ * ANCESTOR layout shift — e.g. collapsing/expanding the AGENDA frame above, which
+ * slides this whole list up/down — would change every row's absolute top and fire a
+ * bogus FLIP on each frame of that animation (the "bars jump / re-animate" bug). With
+ * a container-relative offset, the list and its rows move together, so only a genuine
+ * INTRA-list reorder produces a non-zero delta.
  */
 function useFlipList(listRef: React.RefObject<HTMLElement | null>) {
   const prevTops = useRef(new Map<string, number>())
   useLayoutEffect(() => {
     const list = listRef.current
     if (!list) return
+    const listTop = list.getBoundingClientRect().top
     const rows = list.querySelectorAll<HTMLElement>("[data-flip-id]")
     const nextTops = new Map<string, number>()
-    rows.forEach((el) => nextTops.set(el.dataset.flipId!, el.getBoundingClientRect().top))
+    rows.forEach((el) => nextTops.set(el.dataset.flipId!, el.getBoundingClientRect().top - listTop))
     rows.forEach((el) => {
       const id = el.dataset.flipId!
       const prev = prevTops.current.get(id)
