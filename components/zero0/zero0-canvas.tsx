@@ -409,8 +409,14 @@ export function Zero0Canvas() {
     setPath([ROOT_ID, ...chain])
   }, [])
 
+  // The per-entity right-click menu. Opened from ANYWHERE an entity is shown — a
+  // child row, a breadcrumb crumb, the open node's header, or the empty content frame
+  // (which targets the current context). `stopPropagation` so an inner target that
+  // handled the event (a row) doesn't ALSO bubble up to a container handler (the
+  // content frame) and overwrite the anchor with the context entity.
   const openMenu = useCallback((e: Entity, ev: React.MouseEvent) => {
     ev.preventDefault()
+    ev.stopPropagation()
     setMenu({ entity: e, x: ev.clientX, y: ev.clientY })
   }, [])
 
@@ -512,7 +518,17 @@ export function Zero0Canvas() {
             {crumbs.map((c, i) => {
               const last = i === crumbs.length - 1
               return (
-                <span key={c.id} className="flex items-center gap-1">
+                <span
+                  key={c.id}
+                  className="flex items-center gap-1"
+                  onContextMenu={(ev) => {
+                    // Right-clicking a crumb targets THAT entity (same menu as its
+                    // row) — handled on the span so it works even for the current/last
+                    // crumb, whose button is `disabled` and wouldn't fire the event.
+                    const ent = getEntity(c.id)
+                    if (ent) openMenu(ent, ev)
+                  }}
+                >
                   {i > 0 && (
                     <span className="text-muted-foreground/50" aria-hidden>
                       /
@@ -562,7 +578,10 @@ export function Zero0Canvas() {
           so you can always climb back out. `overflow-hidden` (not auto) lets the
           surface fill without a scrollbar; the native desktop view tracks this rect. */}
       {mounted && context?.webUrl ? (
-        <div className="min-h-0 flex-1 overflow-hidden">
+        <div
+          className="min-h-0 flex-1 overflow-hidden"
+          onContextMenu={(ev) => openMenu(context, ev)}
+        >
           <Zero0ResourceCanvas
             key={context.id}
             id={context.id}
@@ -571,14 +590,23 @@ export function Zero0Canvas() {
           />
         </div>
       ) : (
-      <div className="min-h-0 flex-1 overflow-auto">
+      <div
+        className="min-h-0 flex-1 overflow-auto"
+        // Right-clicking the empty content frame targets the CURRENT open node (the
+        // context). Child rows stopPropagation, so this only fires on blank space.
+        onContextMenu={context ? (ev) => openMenu(context, ev) : undefined}
+      >
         {/* ENTITY HEADER (§0) — the open node's raw-data block (glyph/title/kind, meta
             rows, life log). Toggled with §0; the children list below stays put. */}
         {showEntityHeader && mounted && context && meta && (
           <section className="border-b border-border px-4 py-3">
             {/* Node header line: glyph + title + kind. Fill = closed (fillable kinds),
-                bar = cancelled, fade+strike follow the same rules as the child rows. */}
-            <div className={"flex items-center gap-2 text-[12px] " + (isClosed(context) ? "opacity-60" : "")}>
+                bar = cancelled, fade+strike follow the same rules as the child rows.
+                Right-clicking it opens the same per-entity menu as the node's own row. */}
+            <div
+              className={"flex items-center gap-2 text-[12px] " + (isClosed(context) ? "opacity-60" : "")}
+              onContextMenu={(ev) => openMenu(context, ev)}
+            >
               {meta.hasDoneState ? (
                 <button
                   type="button"

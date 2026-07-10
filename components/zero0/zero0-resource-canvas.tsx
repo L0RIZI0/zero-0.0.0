@@ -79,13 +79,17 @@ export function Zero0ResourceCanvas({
     )
   }
 
-  const illustrative = resource?.mode === "illustrative"
+  // Only a KNOWN, frame-friendly resource (Photopea) actually embeds in an <iframe>.
+  // Everything else — a known illustrative tool (Figma) OR any UNKNOWN site the user
+  // pinned (github.com, …) — gets the universal branded stand-in inviting them to open
+  // it in the desktop app, instead of a broken iframe that the site refuses to frame.
+  const live = resource?.mode === "live"
   return (
     <div className="h-full w-full overflow-hidden bg-card">
-      {illustrative ? (
-        <IllustrativeSurface resource={resource!} />
-      ) : (
+      {live ? (
         <LiveSurface url={url} name={webDisplayName(url, resource?.id)} />
+      ) : (
+        <IllustrativeSurface resource={resource} url={url} />
       )}
     </div>
   )
@@ -222,7 +226,7 @@ function NativeSurface({
         aria-hidden={!covered}
       >
         <div className="absolute inset-0 scale-105 opacity-70 blur-[8px]">
-          {resource ? <PreviewSkeleton resource={resource} /> : <div className="h-full w-full bg-muted" />}
+          <PreviewSkeleton tint={resource?.tint} preview={resource?.preview} />
         </div>
         <div className="absolute inset-0 bg-background/40" />
         {phase !== "error" && (
@@ -297,37 +301,50 @@ function LiveSurface({ url, name }: { url: string; name: string }) {
   )
 }
 
-/** Branded stand-in for a frame-blocking resource. */
-function IllustrativeSurface({ resource }: { resource: WebResource }) {
+const NEUTRAL_TINT = "#8A8F99"
+
+/**
+ * Branded stand-in for a resource that can't be embedded here — a KNOWN frame-blocking
+ * tool (Figma) OR any UNKNOWN website the user pinned. This is the UNIVERSAL placeholder:
+ * when `resource` is undefined we synthesize the display from the URL itself (name =
+ * hostname, real favicon via the glyph, neutral tint, a generic "opens natively" invite,
+ * and the default mockup behind), so github.com reads exactly like Figma does.
+ */
+function IllustrativeSurface({ resource, url }: { resource?: WebResource; url: string }) {
+  const name = webDisplayName(url, resource?.id)
+  const tint = resource?.tint ?? NEUTRAL_TINT
+  const tagline = resource?.tagline ?? "Full site — loads as a real native window in the Zero desktop app."
+  const artifact = resource?.artifact ?? "Any website"
+  const preview = resource?.preview ?? "design"
   return (
     <div className="flex h-full w-full flex-col bg-card text-foreground">
       <div className="flex shrink-0 items-center gap-2 border-b border-border px-4 py-2.5">
         <span className="h-5 w-5">
-          <Zero0ResourceGlyph resourceId={resource.id} />
+          <Zero0ResourceGlyph resourceId={resource?.id} url={url} />
         </span>
-        <span className="text-[13px] font-medium">{resource.name}</span>
+        <span className="text-[13px] font-medium">{name}</span>
         <span className="ml-auto flex items-center gap-1.5" aria-hidden>
           <span className="h-2 w-8 rounded-full bg-foreground/10" />
           <span className="h-2 w-8 rounded-full bg-foreground/10" />
-          <span className="h-5 w-5 rounded-[4px]" style={{ backgroundColor: resource.tint }} />
+          <span className="h-5 w-5 rounded-[4px]" style={{ backgroundColor: tint }} />
         </span>
       </div>
       <div className="relative min-h-0 flex-1">
-        <PreviewSkeleton resource={resource} />
+        <PreviewSkeleton tint={tint} preview={preview} />
         <div className="absolute inset-0 flex items-center justify-center bg-background/45 px-6 backdrop-blur-[1.5px]">
           <div className="flex max-w-[300px] flex-col items-center gap-3 rounded-xl border border-border bg-popover/95 px-6 py-6 text-center shadow-[0_24px_60px_-24px_rgba(0,0,0,0.5)]">
             <span className="h-11 w-11">
-              <Zero0ResourceGlyph resourceId={resource.id} />
+              <Zero0ResourceGlyph resourceId={resource?.id} url={url} />
             </span>
             <p className="text-pretty text-sm font-medium leading-snug">
-              {`${resource.name} opens natively in the Zero desktop app`}
+              {`${name} opens natively in the Zero desktop app`}
             </p>
-            <p className="text-pretty text-xs leading-relaxed text-muted-foreground">{resource.tagline}</p>
+            <p className="text-pretty text-xs leading-relaxed text-muted-foreground">{tagline}</p>
             <span
               className="rounded-full px-2.5 py-1 text-[11px] font-medium"
-              style={{ backgroundColor: `${resource.tint}22`, color: resource.tint }}
+              style={{ backgroundColor: `${tint}22`, color: tint }}
             >
-              {resource.artifact}
+              {artifact}
             </span>
           </div>
         </div>
@@ -340,9 +357,15 @@ function IllustrativeSurface({ resource }: { resource: WebResource }) {
  * A tasteful faux-UI skeleton per tool type — structured app furniture, NOT
  * decorative blobs, so it reads as that tool sitting behind the notice.
  */
-function PreviewSkeleton({ resource }: { resource: WebResource }) {
+function PreviewSkeleton({
+  tint = NEUTRAL_TINT,
+  preview = "design",
+}: {
+  tint?: string
+  preview?: WebResource["preview"]
+}) {
   const bar = "rounded bg-foreground/10"
-  if (resource.preview === "doc") {
+  if (preview === "doc") {
     return (
       <div className="flex h-full w-full justify-center overflow-hidden p-8">
         <div className="flex w-full max-w-[520px] flex-col gap-3">
@@ -358,13 +381,13 @@ function PreviewSkeleton({ resource }: { resource: WebResource }) {
       </div>
     )
   }
-  if (resource.preview === "board") {
+  if (preview === "board") {
     return (
       <div className="grid h-full w-full grid-cols-3 gap-4 overflow-hidden p-6">
         {[0, 1, 2].map((col) => (
           <div key={col} className="flex flex-col gap-3">
             <div className="flex items-center gap-2">
-              <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: resource.tint }} />
+              <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: tint }} />
               <span className={cn(bar, "h-3 w-20")} />
             </div>
             {[0, 1, 2].map((card) => (
@@ -388,11 +411,11 @@ function PreviewSkeleton({ resource }: { resource: WebResource }) {
       <div className="flex min-w-0 flex-1 items-center justify-center gap-6 p-8">
         {[0, 1].map((f) => (
           <div key={f} className="flex h-44 w-40 flex-col overflow-hidden rounded-md border border-border bg-background/70">
-            <div className="h-8 w-full" style={{ backgroundColor: `${resource.tint}26` }} />
+            <div className="h-8 w-full" style={{ backgroundColor: `${tint}26` }} />
             <div className="flex flex-1 flex-col gap-2 p-3">
               <div className={cn(bar, "h-3 w-2/3")} />
               <div className={cn(bar, "h-3 w-full")} />
-              <div className={cn(bar, "mt-auto h-8 w-1/2")} style={{ backgroundColor: `${resource.tint}33` }} />
+              <div className={cn(bar, "mt-auto h-8 w-1/2")} style={{ backgroundColor: `${tint}33` }} />
             </div>
           </div>
         ))}
