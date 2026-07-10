@@ -74,21 +74,38 @@ function titleForAt(id: string, epoch: number): string {
  */
 export function Zero0Agenda({
   onOpen,
+  onContextMenuEntity,
+  onFrameMenu,
+  minimized = false,
   dataRev,
 }: {
   onOpen: (id: string) => void
+  /** Right-click a planned tick → the entity menu for that occurrence. */
+  onContextMenuEntity?: (id: string, ev: React.MouseEvent) => void
+  /** Right-click the frame chrome (header / empty area) → the frame menu (minimize). */
+  onFrameMenu?: (frame: "agenda" | "activity", ev: React.MouseEvent) => void
+  /** When minimized, render ONLY the dayline band (with its day-label header) — no frame
+   *  title, no border, tight margins. Right-click → maximize. */
+  minimized?: boolean
   dataRev: number
 }) {
   return (
-    <section aria-label="Today" className="relative">
+    <section
+      aria-label="Today"
+      className="relative"
+      onContextMenu={onFrameMenu ? (ev) => onFrameMenu("agenda", ev) : undefined}
+    >
       {/* Frame TITLE — this frame is named TODAY (dropped the "agenda ·" prefix Jul 2026;
           the footer toggle link stays labelled "agenda"). Its divider is INSET (inset-x-4)
           and lighter (border/50) so a within-frame division reads differently from the
-          full-bleed `border-border` separators that mark FRAME boundaries. */}
-      <div className="relative flex items-center justify-between px-4 py-2 text-[11px] uppercase tracking-wider text-muted-foreground after:absolute after:inset-x-4 after:bottom-0 after:h-px after:bg-border/50 after:content-['']">
-        <span>today</span>
-      </div>
-      <Zero0Dayline onOpen={onOpen} dataRev={dataRev} tracks="planned" />
+          full-bleed `border-border` separators that mark FRAME boundaries. Hidden while
+          minimized — the compact render is just the dayline. */}
+      {!minimized && (
+        <div className="relative flex items-center justify-between px-4 py-2 text-[11px] uppercase tracking-wider text-muted-foreground after:absolute after:inset-x-4 after:bottom-0 after:h-px after:bg-border/50 after:content-['']">
+          <span>today</span>
+        </div>
+      )}
+      <Zero0Dayline onOpen={onOpen} onContextMenuEntity={onContextMenuEntity} dataRev={dataRev} tracks="planned" />
       <Zero0FrameMarker flag="agenda" label="the agenda" />
     </section>
   )
@@ -103,10 +120,20 @@ export function Zero0Agenda({
  */
 export function Zero0Activity({
   onOpen,
+  onContextMenuEntity,
+  onFrameMenu,
+  minimized = false,
   dataRev,
   currentContextId,
 }: {
   onOpen: (id: string) => void
+  /** Right-click a rollup/feed row OR a presence tick → the entity menu for that place. */
+  onContextMenuEntity?: (id: string, ev: React.MouseEvent) => void
+  /** Right-click the frame chrome (header / empty area) → the frame menu (minimize). */
+  onFrameMenu?: (frame: "agenda" | "activity", ev: React.MouseEvent) => void
+  /** When minimized, render ONLY the presence dayline (with its "x tracked" total) — no
+   *  frame title, no details, no border, tight margins. Right-click → maximize. */
+  minimized?: boolean
   dataRev: number
   /** The canvas's current place — re-seeded into the log right after a clear, so the
    *  tracker keeps recording (a bare `clearActivityLog` would leave it idle). */
@@ -129,30 +156,42 @@ export function Zero0Activity({
   }
 
   return (
-    <section aria-label="Activity today" className="relative">
+    <section
+      aria-label="Activity today"
+      className="relative"
+      onContextMenu={onFrameMenu ? (ev) => onFrameMenu("activity", ev) : undefined}
+    >
       {/* FRAME TITLE — "activity · today" heading, carrying the frame-level `clear`
           action. The tracked total lives on the PRESENCE dayline row below, not here.
           Its divider is INSET + lighter (see AGENDA) so within-frame divisions stay
-          distinct from the full-bleed FRAME separators. */}
-      <div className="relative flex items-center justify-between px-4 py-2 text-[11px] uppercase tracking-wider text-muted-foreground after:absolute after:inset-x-4 after:bottom-0 after:h-px after:bg-border/50 after:content-['']">
-        <span>activity · today</span>
-        <button
-          type="button"
-          onClick={() => {
-            // Wipe the log, then IMMEDIATELY re-open a segment for where we are now —
-            // otherwise `clearActivityLog` nulls the current place and, since the canvas
-            // only records on a context CHANGE, the tracker would sit idle (0s, no bars)
-            // until the next drill. This keeps it live: cleared, then counting again.
-            clearActivityLog()
-            recordPresence(currentContextId)
-          }}
-          className="normal-case text-muted-foreground/60 transition-colors hover:text-foreground"
-          aria-label="Clear today's activity log"
-        >
-          clear
-        </button>
-      </div>
-      <ActivityBody onOpen={onOpen} dataRev={dataRev} showDetails={detailsVisible} />
+          distinct from the full-bleed FRAME separators. Hidden while minimized. */}
+      {!minimized && (
+        <div className="relative flex items-center justify-between px-4 py-2 text-[11px] uppercase tracking-wider text-muted-foreground after:absolute after:inset-x-4 after:bottom-0 after:h-px after:bg-border/50 after:content-['']">
+          <span>activity · today</span>
+          <button
+            type="button"
+            onClick={() => {
+              // Wipe the log, then IMMEDIATELY re-open a segment for where we are now —
+              // otherwise `clearActivityLog` nulls the current place and, since the canvas
+              // only records on a context CHANGE, the tracker would sit idle (0s, no bars)
+              // until the next drill. This keeps it live: cleared, then counting again.
+              clearActivityLog()
+              recordPresence(currentContextId)
+            }}
+            className="normal-case text-muted-foreground/60 transition-colors hover:text-foreground"
+            aria-label="Clear today's activity log"
+          >
+            clear
+          </button>
+        </div>
+      )}
+      <ActivityBody
+        onOpen={onOpen}
+        onContextMenuEntity={onContextMenuEntity}
+        dataRev={dataRev}
+        showDetails={detailsVisible}
+        minimized={minimized}
+      />
       <Zero0FrameMarker flag="activity" label="the activity frame" />
     </section>
   )
@@ -210,14 +249,21 @@ function useFlipList(listRef: React.RefObject<HTMLElement | null>) {
 
 function ActivityBody({
   onOpen,
+  onContextMenuEntity,
   dataRev,
   showDetails,
+  minimized = false,
 }: {
   onOpen: (id: string) => void
+  /** Right-click a rollup/feed row → the entity menu for that place. */
+  onContextMenuEntity?: (id: string, ev: React.MouseEvent) => void
   dataRev: number
   /** `§ 3` — whether the textual rollup/feed DETAILS show. The presence dayline is
    *  always rendered regardless, so ACTIVITY still shows PRESENCE when details hide. */
   showDetails: boolean
+  /** When minimized, render ONLY the presence dayline (keeping the live "x tracked"
+   *  total) — no details, no toggle, no bottom border. */
+  minimized?: boolean
 }) {
   const listRef = useRef<HTMLDListElement>(null)
   useFlipList(listRef)
@@ -241,20 +287,22 @@ function ActivityBody({
     : null
 
   return (
-    <div className="border-b border-border">
+    <div className={minimized ? "" : "border-b border-border"}>
       {/* The dedicated PRESENCE dayline — tracked activity ("where I was"), ALWAYS shown
           while the ACTIVITY frame is open. Carries the "x tracked" total in its header
-          (next to the "presence · today" label). */}
+          (next to the "presence · today" label). Right-click a tick → the entity menu. */}
       <Zero0Dayline
         onOpen={onOpen}
+        onContextMenuEntity={onContextMenuEntity}
         dataRev={dataRev}
         tracks="presence"
         trailing={`${dur(trackedMs)} tracked`}
       />
 
       {/* Presence tracker DETAILS — per-place rollup + recent-segments feed. Gated by
-          `§ 3` (showDetails); the presence dayline above stays regardless. */}
-      {showDetails && (
+          `§ 3` (showDetails) AND hidden while minimized; the presence dayline above stays
+          regardless. */}
+      {!minimized && showDetails && (
       <div className="px-4 pb-3 pt-1 text-[11px] leading-relaxed tabular-nums">
         {segments.length === 0 ? (
           <p className="text-muted-foreground/60">— no presence recorded yet —</p>
@@ -275,6 +323,9 @@ function ActivityBody({
                   <button
                     type="button"
                     onClick={() => onOpen(r.entityId)}
+                    onContextMenu={
+                      onContextMenuEntity ? (ev) => onContextMenuEntity(r.entityId, ev) : undefined
+                    }
                     className="w-24 shrink-0 truncate text-left text-foreground transition-colors hover:text-muted-foreground"
                     title={titleForAt(r.entityId, Date.now())}
                   >
@@ -327,6 +378,9 @@ function ActivityBody({
                   <button
                     type="button"
                     onClick={() => onOpen(s.entityId)}
+                    onContextMenu={
+                      onContextMenuEntity ? (ev) => onContextMenuEntity(s.entityId, ev) : undefined
+                    }
                     className="flex-1 truncate text-left text-foreground transition-colors hover:text-muted-foreground"
                     title={titleForAt(s.entityId, s.startAt)}
                   >
@@ -347,17 +401,20 @@ function ActivityBody({
 
       {/* DETAILS toggle — shows/hides just the rollup+feed; the presence dayline above
           always stays. Always rendered so it's reversible by click even when the details
-          are hidden. (No § chord — §2 now toggles the whole ACTIVITY frame instead.) */}
-      <div className="px-4 pb-2 pt-1.5">
-        <button
-          type="button"
-          onClick={() => toggleZero0Readout()}
-          className="text-[10px] text-muted-foreground/60 transition-colors hover:text-foreground"
-          title="Show or hide the activity details"
-        >
-          {showDetails ? "hide details" : "show details"}
-        </button>
-      </div>
+          are hidden. (No § chord — §2 now toggles the whole ACTIVITY frame instead.)
+          Hidden while minimized — the compact render is the bare dayline. */}
+      {!minimized && (
+        <div className="px-4 pb-2 pt-1.5">
+          <button
+            type="button"
+            onClick={() => toggleZero0Readout()}
+            className="text-[10px] text-muted-foreground/60 transition-colors hover:text-foreground"
+            title="Show or hide the activity details"
+          >
+            {showDetails ? "hide details" : "show details"}
+          </button>
+        </div>
+      )}
     </div>
   )
 }

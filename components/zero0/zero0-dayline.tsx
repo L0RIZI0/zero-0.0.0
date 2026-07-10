@@ -157,11 +157,15 @@ interface DaylineBar {
  */
 export function Zero0Dayline({
   onOpen,
+  onContextMenuEntity,
   dataRev,
   tracks = "planned",
   trailing,
 }: {
   onOpen: (id: string) => void
+  /** Right-click a tick → open the entity menu for that occurrence's entity. Optional so
+   *  the dayline stays usable standalone; wired from the canvas via the frames. */
+  onContextMenuEntity?: (id: string, ev: React.MouseEvent) => void
   dataRev: number
   /** Which lane this instance paints. The main "dayline · today" shows PLANNED
    *  (scheduled occurrences); the presence lane ("where I was") is split off into its
@@ -777,6 +781,9 @@ export function Zero0Dayline({
                           if (draggedRef.current) return // a pan, not a tap
                           onOpen(p.id)
                         }}
+                        onContextMenu={
+                          onContextMenuEntity ? (ev) => onContextMenuEntity(p.id, ev) : undefined
+                        }
                         className={cn(
                           "pointer-events-auto absolute cursor-default transition-[height,opacity] duration-150",
                           // Vertical alignment is the sole per-track difference: PLANNED

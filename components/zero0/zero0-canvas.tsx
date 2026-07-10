@@ -8,6 +8,7 @@ import { Zero0Agenda, Zero0Activity } from "./zero0-activity"
 import { recordPresence } from "@/lib/zero/activity-log"
 import { Zero0Glyph } from "./zero0-glyph"
 import { Zero0EntityMenu, type Zero0MenuAnchor } from "./zero0-entity-menu"
+import { Zero0FrameMenu, type Zero0FrameMenuAnchor } from "./zero0-frame-menu"
 import {
   currentUser,
   getChildren,
@@ -142,6 +143,14 @@ export function Zero0Canvas() {
   const [path, setPath] = useState<string[]>([ROOT_ID])
   // Right-click menu anchor (null = closed).
   const [menu, setMenu] = useState<Zero0MenuAnchor | null>(null)
+  // Frame right-click menu anchor (null = closed) — minimize/maximize a time frame.
+  const [frameMenu, setFrameMenu] = useState<Zero0FrameMenuAnchor | null>(null)
+  // Which time frames are MINIMIZED (collapsed to just their dayline band). Session-only,
+  // a separate axis from § visibility: a shown frame can be full or minimized.
+  const [minimized, setMinimized] = useState<{ agenda: boolean; activity: boolean }>({
+    agenda: false,
+    activity: false,
+  })
   // Every hideable frame's visibility lives in the shared § chord store, so the footer
   // links, the in-frame "§x" corner markers, and the keyboard chords all drive the SAME
   // source of truth (in lockstep across the tree). Top-to-bottom the stack is: AGENDA ·
@@ -478,6 +487,26 @@ export function Zero0Canvas() {
     setMenu({ entity: e, x: ev.clientX, y: ev.clientY })
   }, [])
 
+  // Right-click by ENTITY ID — used by the ACTIVITY rows and the dayline ticks, which
+  // only carry ids. Resolves to the live entity (skipping deleted / sentinel ids so no
+  // empty menu appears) and defers to `openMenu`. `stopPropagation` there also stops the
+  // event bubbling up to the FRAME's onContextMenu, so a tick opens the entity menu, not
+  // the frame menu.
+  const openMenuById = useCallback(
+    (id: string, ev: React.MouseEvent) => {
+      const e = getEntity(id)
+      if (e) openMenu(e, ev)
+    },
+    [openMenu],
+  )
+
+  // Right-click the FRAME chrome (header or empty area) → the minimize/maximize menu.
+  const openFrameMenu = useCallback((frame: "agenda" | "activity", ev: React.MouseEvent) => {
+    ev.preventDefault()
+    ev.stopPropagation()
+    setFrameMenu({ frame, x: ev.clientX, y: ev.clientY })
+  }, [])
+
   // Meta rows for the CURRENT open node ������� raw lifecycle data, kind-aware. Recomputed
   // per render (cheap) rather than memoised, so it always mirrors `rev`.
   const meta = context ? KIND_META[context.kind] : undefined
@@ -555,7 +584,13 @@ export function Zero0Canvas() {
           inert={!showAgenda}
         >
           <div className="overflow-hidden">
-            <Zero0Agenda onOpen={navigateTo} dataRev={rev} />
+            <Zero0Agenda
+              onOpen={navigateTo}
+              onContextMenuEntity={openMenuById}
+              onFrameMenu={openFrameMenu}
+              minimized={minimized.agenda}
+              dataRev={rev}
+            />
           </div>
         </div>
       )}
@@ -571,7 +606,14 @@ export function Zero0Canvas() {
           inert={!showActivity}
         >
           <div className="overflow-hidden">
-            <Zero0Activity onOpen={navigateTo} dataRev={rev} currentContextId={contextId} />
+            <Zero0Activity
+              onOpen={navigateTo}
+              onContextMenuEntity={openMenuById}
+              onFrameMenu={openFrameMenu}
+              minimized={minimized.activity}
+              dataRev={rev}
+              currentContextId={contextId}
+            />
           </div>
         </div>
       )}
@@ -1006,6 +1048,14 @@ export function Zero0Canvas() {
       </footer>
 
       {menu && <Zero0EntityMenu anchor={menu} onMutate={bump} onClose={() => setMenu(null)} />}
+      {frameMenu && (
+        <Zero0FrameMenu
+          anchor={frameMenu}
+          minimized={minimized[frameMenu.frame]}
+          onToggle={() => setMinimized((m) => ({ ...m, [frameMenu.frame]: !m[frameMenu.frame] }))}
+          onClose={() => setFrameMenu(null)}
+        />
+      )}
     </main>
   )
 }
