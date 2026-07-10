@@ -3,34 +3,54 @@
 import { useSyncExternalStore } from "react"
 
 // ============================================================================
-// `/0` §-prefix CHORD — the activity READOUT toggle (`§ 3`)
+// `/0` §-prefix CHORDS — visibility toggles for the canvas's chrome bands
 // ----------------------------------------------------------------------------
-// A lean, dependency-free port of /2's `debug-view` chord, scoped to ONE flag:
-// whether the activity READOUT (the textual rollup + feed — the "tracker frame")
-// is shown. The presence DAYLINE is deliberately NOT chorded: as long as the
-// footer "activity" band is on, the dayline stays put; `§ 3` only hides/shows the
-// readout that sits under it.
+// A lean, dependency-free port of /2's `debug-view` chord, generalised to a small
+// set of boolean visibility FLAGS. `§` is a one-shot PREFIX: press it, then press a
+// digit within a short window to toggle the matching band:
 //
-// `§` is a one-shot PREFIX: press it, then press `3` within a short window. We key
-// off `§` (ISO/EU layouts) and accept the physical backtick (`Backquote`) as a
+//   §0 → the ENTITY HEADER  (the open node's raw-data block: glyph/title/kind + meta + log)
+//   §1 → the ZERO HEADER    (the "zero · root canvas" top helper: mark + breadcrumb + session)
+//   §3 → the activity READOUT (the textual rollup + feed under the presence dayline)
+//
+// We key off `§` (ISO/EU layouts) and accept the physical backtick (`Backquote`) as a
 // fallback, exactly like /2. Chords typed into inputs/editables are ignored.
 //
-// One module-level flag + one global keydown listener serve every subscriber via
-// useSyncExternalStore, so the toggle stays in lockstep across the tree.
+// One module-level flag map + one global keydown listener serve every subscriber via
+// useSyncExternalStore, so every toggle stays in lockstep across the tree.
 // ============================================================================
 
-// Shown by default: when the band first opens, both dayline + readout are visible;
-// `§ 3` then hides/re-shows the readout.
-let readoutVisible = true
+/** The chorded visibility bands. All default to shown. */
+export type Zero0Flag = "entityHeader" | "zeroHeader" | "readout"
+
+// Which digit (pressed after §) toggles which band.
+const DIGIT_FLAG: Record<string, Zero0Flag> = {
+  "0": "entityHeader",
+  "1": "zeroHeader",
+  "3": "readout",
+}
+
+// Everything shown by default; a chord (or an on-screen affordance) hides/re-shows it.
+const visible: Record<Zero0Flag, boolean> = {
+  entityHeader: true,
+  zeroHeader: true,
+  readout: true,
+}
+
 const listeners = new Set<() => void>()
 function emit() {
   for (const l of listeners) l()
 }
 
-/** Toggle the activity readout (also used by the on-screen "§3 hide" affordance). */
-export function toggleZero0Readout() {
-  readoutVisible = !readoutVisible
+/** Toggle any chorded band (also used by on-screen affordances like "§3 hide"). */
+export function toggleZero0Flag(flag: Zero0Flag) {
+  visible[flag] = !visible[flag]
   emit()
+}
+
+/** Back-compat alias — the activity readout's own "§3 hide" affordance calls this. */
+export function toggleZero0Readout() {
+  toggleZero0Flag("readout")
 }
 
 let installed = false
@@ -59,14 +79,15 @@ function ensureListener() {
       return
     }
 
-    if (prefixActive && e.key === "3") {
+    if (!prefixActive) return
+
+    const flag = DIGIT_FLAG[e.key]
+    if (flag) {
       e.preventDefault()
-      toggleZero0Readout()
-      clearPrefix()
-    } else if (prefixActive) {
-      // Any other key disarms the prefix (only §3 is bound on /0 for now).
-      clearPrefix()
+      toggleZero0Flag(flag)
     }
+    // Any key while armed (bound or not) disarms the one-shot prefix.
+    clearPrefix()
   })
 }
 
@@ -78,11 +99,16 @@ const subscribe = (cb: () => void) => {
   }
 }
 
-/** Subscribe to the readout-visibility flag. SSR/first paint returns the default (true). */
-export function useZero0Readout(): boolean {
+/** Subscribe to a single band's visibility. SSR/first paint returns the default (true). */
+export function useZero0Flag(flag: Zero0Flag): boolean {
   return useSyncExternalStore(
     subscribe,
-    () => readoutVisible,
-    () => readoutVisible,
+    () => visible[flag],
+    () => visible[flag],
   )
+}
+
+/** Back-compat hook — the activity component reads the readout flag through this. */
+export function useZero0Readout(): boolean {
+  return useZero0Flag("readout")
 }

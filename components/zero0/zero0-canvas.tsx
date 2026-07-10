@@ -27,6 +27,7 @@ import {
   import { isDone, isCancelled, getCreatedAt, getCompletedOn, describeLogEntry } from "@/lib/zero/entity-log"
 import { parseCreateField, parseKindPrefix, parseFieldSetter, parseDateToken, parseHexColor } from "@/lib/zero/create-parse"
 import { looksLikeUrl, normalizeUrl, resolveWebResourceByUrl, webDisplayName } from "@/lib/zero/web-resources"
+import { useZero0Flag } from "@/lib/zero/zero0-chord"
 import type { Entity } from "@/lib/zero/types"
 
 // The root context: the Individual whose space IS the homeview. Everything the
@@ -128,6 +129,11 @@ export function Zero0Canvas() {
   // The activity view (ported tracker) is hidden by default so the canvas stays blank;
   // toggled from the footer, it surfaces as a band ABOVE the header.
   const [showActivity, setShowActivity] = useState(false)
+  // §-chord visibility for the two chrome headers: §0 → the ENTITY header (the open
+  // node's raw-data block), §1 → the ZERO header (the "zero · root canvas" helper).
+  // Both default to shown; the chord store keeps them in lockstep across the tree.
+  const showEntityHeader = useZero0Flag("entityHeader")
+  const showZeroHeader = useZero0Flag("zeroHeader")
 
   useEffect(() => {
     hydrateFromStorage()
@@ -484,6 +490,7 @@ export function Zero0Canvas() {
       {/* ── TOP HELPER ────────────────────────────────────────────────────���────
           Zero-UX chrome: the mark, the access path (breadcrumb), and a session
           readout. Not part of the node's own data. */}
+      {showZeroHeader && (
       <header className="border-b border-border p-4 text-[10px] leading-relaxed text-muted-foreground tabular-nums">
         <div className="flex gap-2">
           <span className="text-foreground">zero</span>
@@ -530,6 +537,7 @@ export function Zero0Canvas() {
           <dd className="text-foreground">{mounted ? children.length : "—"}</dd>
         </dl>
       </header>
+      )}
 
       {/* ── ENTITY CONTENT ─────────────────────────────────────────────────────
           The open node as raw data: META, then CHILDREN. Recursive — the root
@@ -537,7 +545,9 @@ export function Zero0Canvas() {
           child shrink below its content so ONLY this band scrolls — the header,
           create field, and footer stay pinned regardless of how tall the list grows. */}
       <div className="min-h-0 flex-1 overflow-auto">
-        {mounted && context && meta && (
+        {/* ENTITY HEADER (§0) — the open node's raw-data block (glyph/title/kind, meta
+            rows, life log). Toggled with §0; the children list below stays put. */}
+        {showEntityHeader && mounted && context && meta && (
           <section className="border-b border-border px-4 py-3">
             {/* Node header line: glyph + title + kind. Fill = closed (fillable kinds),
                 bar = cancelled, fade+strike follow the same rules as the child rows. */}
