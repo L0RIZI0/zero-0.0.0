@@ -17,6 +17,32 @@ const { hideWindowsBorder } = require("./win-border.cjs")
 const isDev = !app.isPackaged
 const DEV_URL = process.env.ELECTRON_RENDERER_URL || "http://localhost:3000"
 
+// ── OS date/time format locale ───────────────────────────────────────────────
+// Electron's bundled V8 defaults the ICU/Intl locale to en-US regardless of the
+// OS, so `toLocaleString()` with no explicit locale prints American AM/PM +
+// MM/DD/YYYY even on a device set to a European region / 24h clock. We can't
+// change V8's default, so instead we resolve the REAL OS format locale here (main
+// is the only place with `app` locale APIs) and hand it to the renderer, which
+// passes it explicitly to every toLocale* call.
+//
+// Region matters more than UI language for date/time FORMAT: a device whose
+// display language is English (US) but whose REGION is European should format
+// dates the European way. So we splice the OS country code (getLocaleCountryCode,
+// e.g. "FR") onto the primary language subtag → e.g. "en-FR", which Intl formats
+// with European date order + 24h. Best-effort; falls back to the plain locale.
+function osFormatLocale() {
+  try {
+    const base = app.getLocale() || app.getPreferredSystemLanguages?.()?.[0] || "en"
+    const lang = String(base).split("-")[0]
+    const country =
+      typeof app.getLocaleCountryCode === "function" ? app.getLocaleCountryCode() : ""
+    if (country && /^[A-Za-z]{2}$/.test(country)) return `${lang}-${country.toUpperCase()}`
+    return base || null
+  } catch {
+    return null
+  }
+}
+
 // ── Hardware acceleration ────────────────────────────────────────────────────
 // We never call app.disableHardwareAcceleration(), so in theory the GPU is on. BUT
 // Electron's bundled Chromium ships a conservative GPU BLOCKLIST that, on a lot of
@@ -235,10 +261,29 @@ function createWindow() {
 
   // Avoid a white flash: reveal only once the first paint is ready. At the same time
   // strip the Windows 11 DWM border (no-op elsewhere) so our frameless near-black
-  // canvas isn't framed by the OS accent hairline.
+  // canvas isn't framed by the OS accent hairline. We apply it BEFORE show and AGAIN
+  // right after (some Win11 builds paint the default border on first show, which would
+  // otherwise linger until the next attribute change), and surface the result into the
+  // renderer console so an on-device run can confirm whether the FFI actually engaged.
+  const applyBorder = (phase) => {
+    if (!mainWindow) return
+    const applied = hideWindowsBorder(mainWindow)
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents
+        .executeJavaScript(
+          `console.log("[v0] win-border(${phase}):", ${JSON.stringify({
+            platform: process.platform,
+            applied: !!applied,
+          })})`,
+        )
+        .catch(() => {})
+    }
+  }
   mainWindow.once("ready-to-show", () => {
-    if (mainWindow) hideWindowsBorder(mainWindow)
+    applyBorder("ready-to-show")
     mainWindow?.show()
+    // One more pass on the next tick, after the window is actually on screen.
+    setTimeout(() => applyBorder("post-show"), 0)
   })
 
   // Once the app's DOM is up, report the GPU status into its devtools console so the
@@ -278,6 +323,12 @@ function createWindow() {
     mainWindow = null
   })
 }
+
+// Synchronous so the renderer's preload can expose `window.zero.locale` at load
+// time (one tiny call; the value is needed for the very first formatted render).
+ipcMain.on("zero:locale", (event) => {
+  event.returnValue = osFormatLocale()
+})
 
 app.whenReady().then(() => {
   // Drop the default application menu (File/Edit/View/Window) on Windows/Linux —

@@ -40,6 +40,7 @@ import { useZero0Flag, toggleZero0Flag } from "@/lib/zero/zero0-chord"
 import { useNowSeconds } from "@/lib/zero/use-now"
 import { Zero0FrameMarker } from "./zero0-frame-marker"
 import { ZERO_VERSION } from "@/lib/zero/version"
+import { formatLocale } from "@/lib/zero/format-locale"
 import { Zero0ResourceCanvas } from "./zero0-resource-canvas"
 import type { Entity } from "@/lib/zero/types"
 
@@ -64,7 +65,7 @@ const isColorPickerTrigger = (draft: string) => /^:color:\s*$/i.test(draft)
 // gate, so it's client-only — no SSR/static-export time-freeze hydration trap.
 function fmt(epoch?: number): string {
   if (!epoch) return "—"
-  return new Date(epoch).toLocaleString()
+  return new Date(epoch).toLocaleString(formatLocale())
 }
 
 // Schedule `set` entries carry an epoch NUMBER as their value; render it as a date rather
@@ -178,8 +179,9 @@ export function Zero0Canvas() {
   const topClock = useMemo(() => {
     if (!mounted) return ""
     const d = new Date(nowSec)
-    const date = d.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric", year: "numeric" })
-    const time = d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit", second: "2-digit" })
+    const loc = formatLocale()
+    const date = d.toLocaleDateString(loc, { weekday: "long", month: "long", day: "numeric", year: "numeric" })
+    const time = d.toLocaleTimeString(loc, { hour: "numeric", minute: "2-digit", second: "2-digit" })
     return `${date} · ${time}`
   }, [mounted, nowSec])
 

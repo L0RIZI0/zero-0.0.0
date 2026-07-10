@@ -11,6 +11,18 @@ contextBridge.exposeInMainWorld("zero", {
   isDesktop: true,
   platform: process.platform,
 
+  /** The OS date/time FORMAT locale (e.g. "en-FR"), resolved in main from the
+   *  system language + region country code. Electron's V8 defaults Intl to en-US
+   *  regardless of OS, so the renderer passes THIS to every toLocale* call to honor
+   *  the device's region / 24h settings. Null if it couldn't be resolved. */
+  locale: (() => {
+    try {
+      return ipcRenderer.sendSync("zero:locale")
+    } catch {
+      return null
+    }
+  })(),
+
   // ── STEP 2 anchor: native resource host ──────────────────────────────────
   // These are the calls ResourceCanvas will use once the native view lands in
   // main. They are safe no-op-ish stubs today (main doesn't handle them yet), so

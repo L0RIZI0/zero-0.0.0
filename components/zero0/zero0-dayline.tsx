@@ -8,6 +8,7 @@ import { rangeText, NOW_COLOR } from "@/lib/zero/timeline-format"
 import { isSleepTitle, sleepSkyBackground } from "@/lib/zero/sleep-sky"
 import { DAYLINE_ROW_H } from "@/lib/zero/layout"
 import { useNow } from "@/lib/zero/use-now"
+import { formatLocale } from "@/lib/zero/format-locale"
 import { cn } from "@/lib/utils"
 
 /** Horizontal gap (px) between a day label and its 1px boundary marker in the minimized
@@ -685,10 +686,10 @@ export function Zero0Dayline({
   // render "Fri, Jul 10").
   const shortDay = useCallback(
     (epoch: number) =>
-      new Date(epoch)
-        .toLocaleDateString(undefined, { weekday: "short", month: "short", day: "2-digit" })
-        .replace(/,/g, "")
-        .toUpperCase(),
+    new Date(epoch)
+      .toLocaleDateString(formatLocale(), { weekday: "short", month: "short", day: "2-digit" })
+      .replace(/,/g, "")
+      .toUpperCase(),
     [],
   )
 
@@ -915,12 +916,12 @@ export function Zero0Dayline({
                       nowHover && !hovered ? "opacity-100" : "opacity-0",
                     )}
                   >
-                    {new Date(nowHover ? nowSec : now).toLocaleTimeString([], {
-                      hour: "2-digit",
-                      minute: "2-digit",
-                      second: "2-digit",
-                      hour12: false,
-                    })}
+                {new Date(nowHover ? nowSec : now).toLocaleTimeString(formatLocale(), {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                  second: "2-digit",
+                  hour12: false,
+                })}
                   </span>
                 </div>
               </div>

@@ -12,6 +12,10 @@ export interface ZeroResourceMountArgs {
 export interface ZeroDesktopBridge {
   isDesktop: true
   platform: NodeJS.Platform
+  /** OS date/time format locale (e.g. "en-FR"), or null. Passed to toLocale* calls
+   *  so formatting honors the device region / 24h settings (Electron's V8 otherwise
+   *  defaults Intl to en-US). */
+  locale: string | null
   resource: {
     mount: (args: ZeroResourceMountArgs) => Promise<void>
     setBounds: (args: { id: string; rect: ZeroResourceMountArgs["rect"] }) => void

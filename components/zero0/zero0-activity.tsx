@@ -16,6 +16,7 @@ import { Zero0Glyph } from "@/components/zero0/zero0-glyph"
 import { Zero0Dayline } from "@/components/zero0/zero0-dayline"
 import { Zero0FrameMarker } from "@/components/zero0/zero0-frame-marker"
 import { useZero0Readout, toggleZero0Readout } from "@/lib/zero/zero0-chord"
+import { formatLocale } from "@/lib/zero/format-locale"
 import type { EntityKind } from "@/lib/zero/types"
 
 // The root context id — its label is "Home" when it surfaces as a place, matching the
@@ -24,7 +25,7 @@ const ROOT_ID = "s_root"
 
 /** Clock time (HH:MM) for a segment edge. Client-only (called under `mounted`). */
 function clock(epoch: number): string {
-  return new Date(epoch).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+  return new Date(epoch).toLocaleTimeString(formatLocale(), { hour: "2-digit", minute: "2-digit" })
 }
 
 /**

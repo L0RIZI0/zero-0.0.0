@@ -59,16 +59,20 @@ function hwndAddress(win) {
  * OS version — it no-ops if the attribute isn't supported.
  */
 function hideWindowsBorder(win) {
-  if (process.platform !== "win32" || !win || win.isDestroyed()) return
+  if (process.platform !== "win32" || !win || win.isDestroyed()) return false
   const fn = loadBinding()
-  if (!fn) return
+  if (!fn) return false
   try {
     // DWORD (4 bytes, little-endian) holding the COLOR_NONE sentinel.
     const color = Buffer.alloc(4)
     color.writeUInt32LE(DWMWA_COLOR_NONE, 0)
-    fn(hwndAddress(win), DWMWA_BORDER_COLOR, color, 4)
+    // HRESULT: 0 (S_OK) means the attribute was accepted. A non-zero result (e.g. on
+    // Windows 10, which lacks DWMWA_BORDER_COLOR) means the border stays.
+    const hr = fn(hwndAddress(win), DWMWA_BORDER_COLOR, color, 4)
+    return hr === 0
   } catch (err) {
     console.log("[v0] win-border: DwmSetWindowAttribute failed:", err?.message)
+    return false
   }
 }
 
