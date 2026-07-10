@@ -536,14 +536,18 @@ export function Zero0Canvas() {
             })}
           </nav>
         )}
-        <dl className="mt-2 grid grid-cols-[auto_auto] gap-x-4">
-          <dt className="uppercase tracking-widest">context</dt>
-          <dd className="text-foreground">{mounted && context ? context.title : currentUser.name}</dd>
-          <dt className="uppercase tracking-widest">store</dt>
-          <dd className="text-foreground">zero:root-items:v1</dd>
-          <dt className="uppercase tracking-widest">entities</dt>
-          <dd className="text-foreground">{mounted ? children.length : "—"}</dd>
-        </dl>
+        {/* Session readout — hidden in web view so only the identity line + breadcrumb
+            (the trail back out) sit above the edge-to-edge web surface. */}
+        {!context?.webUrl && (
+          <dl className="mt-2 grid grid-cols-[auto_auto] gap-x-4">
+            <dt className="uppercase tracking-widest">context</dt>
+            <dd className="text-foreground">{mounted && context ? context.title : currentUser.name}</dd>
+            <dt className="uppercase tracking-widest">store</dt>
+            <dd className="text-foreground">zero:root-items:v1</dd>
+            <dt className="uppercase tracking-widest">entities</dt>
+            <dd className="text-foreground">{mounted ? children.length : "—"}</dd>
+          </dl>
+        )}
       </header>
       )}
 
