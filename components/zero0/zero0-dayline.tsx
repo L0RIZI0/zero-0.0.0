@@ -607,7 +607,14 @@ export function Zero0Dayline({
   }, [])
 
   return (
-    <div className="border-b border-border px-4 py-3">
+    <div
+      className={cn(
+        "px-4 pt-3",
+        // The presence instance flows straight into its tracked list below, so it drops
+        // the bottom divider + bottom padding; the planned instance keeps both.
+        isPresence ? "pb-1" : "border-b border-border pb-3",
+      )}
+    >
       <div className="mb-2 flex items-center justify-between text-[10px] uppercase tracking-wider text-muted-foreground">
         <span className="flex items-center gap-2">
           <span>{isPresence ? "presence · today" : "dayline · today"}</span>
@@ -673,9 +680,9 @@ export function Zero0Dayline({
                           left: `${p.leftPct}%`,
                           top: 3,
                           width: p.point ? 2 : `max(3px, ${p.widthPct}%)`,
-                          // A sleep span grows a touch taller so its starfield has room
-                          // to read; everything else keeps the standard tick height.
-                          height: p.sky ? (isHot ? 16 : 12) : isHot ? 13 : 9,
+                          // All spans share one tick height — sleep spans no longer grow
+                          // taller; the starfield simply fills the standard band.
+                          height: isHot ? 13 : 9,
                           // Sleep spans paint the procedural night sky; all other bars
                           // use their flat fill color (root sentinel → transparent).
                           background: p.color === DEFAULT_PRESENCE ? "transparent" : (p.sky ?? p.color),

@@ -214,8 +214,9 @@ function ActivityReadout({
         trailing={`${dur(trackedMs)} tracked`}
       />
 
-      {/* Presence tracker DETAILS — the per-place rollup + recent-segments feed. */}
-      <div className="px-4 py-3 text-[11px] leading-relaxed tabular-nums">
+      {/* Presence tracker DETAILS — the per-place rollup + recent-segments feed. Sits
+          directly under the presence dayline (no divider), so it drops its top padding. */}
+      <div className="px-4 pb-3 pt-1 text-[11px] leading-relaxed tabular-nums">
         {segments.length === 0 ? (
           <p className="text-muted-foreground/60">— no presence recorded yet —</p>
         ) : (
