@@ -36,10 +36,50 @@ const DAY_MS = 86_400_000
 // land inside one window instead of being split at midnight.
 const DAY_START_HOUR = 5
 const NEUTRAL = "oklch(0.72 0.004 75)"
-  // Sentinel color marking the COLORLESS ROOT place (the root Individual with no accent
-  // and no colored ancestor). It's never painted as a fill — at render it maps to a
-  // transparent tick + grey hairline (a quiet outline). Kept distinct so render detects it.
-  const DEFAULT_PRESENCE = "#ffffff"
+// Sentinel color marking the COLORLESS ROOT place (the root Individual with no accent
+// and no colored ancestor). It's never painted as a fill — at render it maps to a
+// transparent tick + grey hairline (a quiet outline). Kept distinct so render detects it.
+const DEFAULT_PRESENCE = "#ffffff"
+
+/**
+ * Resolve the two colors a dayline tick paints, shared by BOTH tracks (planned +
+ * presence):
+ *   • `fill`   — the entity's OWN color: its `accent` (`:color:`), else the nearest
+ *                ancestor SPACE accent, else neutral grey. The root uses the
+ *                DEFAULT_PRESENCE sentinel (→ transparent fill at render). A sleep span
+ *                paints its night-sky OVER this fill (handled at the call site).
+ *   • `stroke` — the HAIRLINE, shown only when the entity sits inside at least one
+ *                Space ancestor: it takes the PARENT's resolved color (parent accent,
+ *                else the parent's inherited space accent), else neutral grey when no
+ *                ancestor is colored. The ROOT keeps its grey hairline as a special case;
+ *                a top-level entity directly under the Individual (no Space ancestor) has
+ *                no hairline (`null`).
+ * `getInheritedAccent` walks SPACE accents from the given node UPWARD (skipping the node
+ * itself), which is exactly "the parent's resolved color" when seeded with the parent.
+ */
+function paintFor(entityId: string): { fill: string; stroke: string | null } {
+  const e = getEntity(entityId)
+  const isRoot = entityId === "s_root"
+  const own = e?.accent ?? getInheritedAccent(e?.parentId ?? null)
+  const fill = own ?? (isRoot ? DEFAULT_PRESENCE : NEUTRAL)
+
+  // Walk ancestors (from the parent up) to (a) detect a Space container and (b) resolve
+  // the parent's display color for the hairline.
+  const parent = e?.parentId ? getEntity(e.parentId) : undefined
+  const parentColor = parent ? (parent.accent ?? getInheritedAccent(parent.parentId)) : undefined
+  let cursor = parent
+  let inSpace = false
+  while (cursor) {
+    if (cursor.kind === "space") {
+      inSpace = true
+      break
+    }
+    cursor = cursor.parentId ? getEntity(cursor.parentId) : undefined
+  }
+
+  const stroke = isRoot ? NEUTRAL : inSpace ? (parentColor ?? NEUTRAL) : null
+  return { fill, stroke }
+}
 
 // --- Ripple tuning (copied verbatim from the /2 dayline) ---------------------
 const RIPPLE_COLS = 32
@@ -80,7 +120,13 @@ interface DaylineBar {
   key: string
   id: string
   title: string
+  /** The tick's FILL — the entity's own resolved color (see {@link paintFor}). */
   color: string
+  /**
+   * The tick's HAIRLINE color, or `null` for no outline. Set (to the parent's color)
+   * only when the entity sits inside a Space; the root keeps a grey hairline.
+   */
+  stroke: string | null
   leftPct: number
   widthPct: number
   centerPct: number
@@ -193,11 +239,14 @@ export function Zero0Dayline({
       // A sleep-titled DURATION moment paints a procedural night sky instead of a
       // flat accent bar (seeded per-occurrence so it's stable yet unique per night).
       const isSleepSpan = en > st && occ.kind === "moment" && isSleepTitle(occ.title)
+      // fill = the occurrence's own color; stroke = its parent's color (only inside a Space).
+      const { fill, stroke } = paintFor(occ.id)
       out.push({
         key: `plan:${occ.occKey}`,
         id: occ.id,
         title: occ.title,
-        color: occ.accent ?? getInheritedAccent(occ.parentId) ?? NEUTRAL,
+        color: fill,
+        stroke,
         leftPct,
         widthPct,
         centerPct: leftPct + widthPct / 2,
@@ -227,22 +276,16 @@ export function Zero0Dayline({
       const leftPct = ((st - winStart) / DAY_MS) * 100
       const widthPct = ((en - st) / DAY_MS) * 100
       const entity = getEntity(s.entityId)
-      // Color resolution (mirrors the planned bar): the place's OWN accent (set via
-      // `:color:` on ANY kind — a blue Task reads blue), else the nearest ANCESTOR
-      // space's accent. `getInheritedAccent` only sees SPACE accents and skips the node
-      // itself, so we check `entity.accent` first, then walk from its parent.
-      const resolved = entity?.accent ?? getInheritedAccent(entity?.parentId ?? null)
-      const color =
-        resolved ??
-        // No color anywhere on the chain: the ROOT place → DEFAULT_PRESENCE sentinel
-        // (transparent tick + grey hairline); any other place → a solid grey fill.
-        (s.entityId === "s_root" ? DEFAULT_PRESENCE : NEUTRAL)
+      // Same paint model as the planned bar: fill = the place's own color, stroke = its
+      // parent's color (a hairline, only when the place sits inside a Space).
+      const { fill, stroke } = paintFor(s.entityId)
       out.push({
         key: `pres:${s.entityId}:${s.enteredAt}`,
         id: s.entityId,
         // Historical title — the name the place carried at the segment's start.
         title: entity ? titleAt(entity, st) : s.entityId === "s_root" ? "Home" : "Elsewhere",
-        color,
+        color: fill,
+        stroke,
         leftPct,
         widthPct,
         centerPct: leftPct + widthPct / 2,
@@ -634,8 +677,11 @@ export function Zero0Dayline({
                           // to read; everything else keeps the standard tick height.
                           height: p.sky ? (isHot ? 16 : 12) : isHot ? 13 : 9,
                           // Sleep spans paint the procedural night sky; all other bars
-                          // use their flat accent color.
-                          background: p.sky ?? p.color,
+                          // use their flat fill color (root sentinel → transparent).
+                          background: p.color === DEFAULT_PRESENCE ? "transparent" : (p.sky ?? p.color),
+                          // Hairline = the parent's color, shown when the entity lives
+                          // inside a Space (see paintFor); no outline otherwise.
+                          border: p.stroke ? `1px solid ${p.stroke}` : "none",
                           // PLANNED ticks are deliberately TRANSLUCENT (a faint "intention"
                           // layer that reads as glass, not solid commitment); hovering one
                           // snaps it to full opacity.
@@ -681,12 +727,11 @@ export function Zero0Dayline({
                           left: p.openEnded ? `${p.leftPct + p.widthPct}%` : `${p.leftPct}%`,
                           width: `max(3px, ${p.widthPct}%)`,
                           height: isHot ? 10 : 7,
-                          // Colorless place (root Individual): transparent fill + a
-                          // subtle GREY hairline (NEUTRAL, visible on both themes) so it
-                          // reads as a quiet outline instead of a popping white tick. A
-                          // place with its own accent fills cleanly with no outline.
+                          // FILL = the place's own color; the root sentinel renders as a
+                          // transparent tick. STROKE = the parent's color hairline, shown
+                          // only inside a Space (root keeps its grey hairline) — see paintFor.
                           backgroundColor: p.color === DEFAULT_PRESENCE ? "transparent" : p.color,
-                          border: p.color === DEFAULT_PRESENCE ? `1px solid ${NEUTRAL}` : "none",
+                          border: p.stroke ? `1px solid ${p.stroke}` : "none",
                           // Translucent by default (matching the planned ticks so both
                           // lanes read as a faint layer); hovering one snaps it to full.
                           opacity: isHot ? 1 : 0.4,
@@ -760,8 +805,11 @@ export function Zero0Dayline({
                 >
                   <span
                     aria-hidden
-                    className="h-2 w-2 shrink-0 rounded-full border"
-                    style={{ backgroundColor: hovered.color, borderColor: "var(--border)" }}
+            className="h-2 w-2 shrink-0 rounded-full border"
+            style={{
+              backgroundColor: hovered.color === DEFAULT_PRESENCE ? "transparent" : hovered.color,
+              borderColor: hovered.stroke ?? "var(--border)",
+            }}
                   />
                   {hovered.track === "presence" && <span className="shrink-0 text-muted-foreground">in</span>}
                   <span className="truncate text-foreground">{hovered.title}</span>
