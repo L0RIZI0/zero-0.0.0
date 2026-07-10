@@ -77,6 +77,7 @@ export function Zero0Agenda({
   onContextMenuEntity,
   onFrameMenu,
   minimized = false,
+  hideBottomBorder = false,
   dataRev,
 }: {
   onOpen: (id: string) => void
@@ -87,6 +88,9 @@ export function Zero0Agenda({
   /** When minimized, render ONLY the dayline band (with its day-label header) — no frame
    *  title, no border, tight margins. Right-click → maximize. */
   minimized?: boolean
+  /** Drop the bottom separator when the frame below (ACTIVITY) is ALSO a minimized band,
+   *  so the two merge into one grouped strip. */
+  hideBottomBorder?: boolean
   dataRev: number
 }) {
   return (
@@ -111,8 +115,11 @@ export function Zero0Agenda({
         dataRev={dataRev}
         tracks="planned"
         minimized={minimized}
+        hideBottomBorder={hideBottomBorder}
       />
-      <Zero0FrameMarker flag="agenda" label="the agenda" />
+      {/* The §x corner affordance is chrome — hide it on a minimized band (which is meant
+          to be nothing but the dayline). Re-show via the § chord or the footer link. */}
+      {!minimized && <Zero0FrameMarker flag="agenda" label="the agenda" />}
     </section>
   )
 }
@@ -198,7 +205,8 @@ export function Zero0Activity({
         showDetails={detailsVisible}
         minimized={minimized}
       />
-      <Zero0FrameMarker flag="activity" label="the activity frame" />
+      {/* §x corner affordance hidden on a minimized band (chrome-free). */}
+      {!minimized && <Zero0FrameMarker flag="activity" label="the activity frame" />}
     </section>
   )
 }

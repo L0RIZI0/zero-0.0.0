@@ -166,6 +166,7 @@ export function Zero0Dayline({
   tracks = "planned",
   trailing,
   minimized = false,
+  hideBottomBorder = false,
 }: {
   onOpen: (id: string) => void
   /** Right-click a tick → open the entity menu for that occurrence's entity. Optional so
@@ -184,6 +185,10 @@ export function Zero0Dayline({
    *  minimized frame is just the band itself. (This is essentially the pre-v0.3.21 layout
    *  where day labels lived inside the band.) */
   minimized?: boolean
+  /** Drop the full-bleed bottom separator + bottom padding — used when the NEXT frame is
+   *  also a minimized band, so two adjacent minimized frames merge into one grouped strip
+   *  with a single balanced gap between them (no divider). */
+  hideBottomBorder?: boolean
 }) {
   const isPresence = tracks === "presence"
   const now = useNow()
@@ -435,7 +440,11 @@ export function Zero0Dayline({
     items.sort((a, b) => a.x - b.x)
     for (let i = 0; i < items.length; i++) {
       const nat = items[i].x
-      const upper = i < items.length - 1 ? items[i + 1].x - items[i].wdt : Infinity
+      // The upper clamp keeps a pushed-out label from overrunning the NEXT boundary. In
+      // minimized mode both labels carry `+inset`, so subtract `2·inset`: the incoming
+      // label keeps its `inset` gap to the RIGHT of the marker, and the pushed label keeps
+      // an equal `inset` gap to the LEFT of it (otherwise they'd touch across the marker).
+      const upper = i < items.length - 1 ? items[i + 1].x - items[i].wdt - 2 * inset : Infinity
       const x = Math.min(Math.max(nat, 0), upper)
       items[i].el.style.transform = `translateX(${x + inset}px)`
       // Fade out once shoved off the left edge or parked beyond the right edge.
@@ -732,14 +741,17 @@ export function Zero0Dayline({
     <div
       className={cn(
         // Minimized frames want "little margins" — symmetric tight padding so a minimized
-        // frame is just the bare band, top and bottom balanced.
-        minimized ? "px-2 py-1" : "px-4 pt-3",
+        // frame is just the bare band, top and bottom balanced. When the next frame is also
+        // a minimized band (`hideBottomBorder`), drop THIS band's bottom padding so the sole
+        // inter-band gap is the next band's own top padding — one balanced 4px gap, no divider.
+        minimized ? cn("px-2 pt-1", hideBottomBorder ? "pb-0" : "pb-1") : "px-4 pt-3",
         // The PLANNED lane owns a full-bleed bottom separator in BOTH full and minimized
         // modes — mirroring ACTIVITY, whose ActivityBody wrapper is always `border-b`, so
         // the two frames separate identically. The PRESENCE lane never carries it (it flows
-        // into its tracked list, and ActivityBody owns ACTIVITY's separator).
-        !isPresence && "border-b border-border",
-        // Extra bottom padding only in full mode; minimized uses the symmetric py-1 above.
+        // into its tracked list, and ActivityBody owns ACTIVITY's separator). Dropped when
+        // the next frame is also minimized, so two adjacent minimized bands merge.
+        !isPresence && !hideBottomBorder && "border-b border-border",
+        // Extra bottom padding only in full mode; minimized uses the tight padding above.
         !minimized && (isPresence ? "pb-1" : "pb-3"),
       )}
     >

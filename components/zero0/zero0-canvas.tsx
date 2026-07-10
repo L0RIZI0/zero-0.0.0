@@ -589,6 +589,9 @@ export function Zero0Canvas() {
               onContextMenuEntity={openMenuById}
               onFrameMenu={openFrameMenu}
               minimized={minimized.agenda}
+              // Merge with ACTIVITY below when BOTH are minimized AND ACTIVITY is shown —
+              // then TODAY drops its divider so the two minimized bands group together.
+              hideBottomBorder={minimized.agenda && minimized.activity && showActivity}
               dataRev={rev}
             />
           </div>
