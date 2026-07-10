@@ -28,6 +28,8 @@ import {
 import { parseCreateField, parseKindPrefix, parseFieldSetter, parseDateToken, parseHexColor } from "@/lib/zero/create-parse"
 import { looksLikeUrl, normalizeUrl, resolveWebResourceByUrl, webDisplayName } from "@/lib/zero/web-resources"
 import { useZero0Flag } from "@/lib/zero/zero0-chord"
+import { ZERO_VERSION } from "@/lib/zero/version"
+import { Zero0ResourceCanvas } from "./zero0-resource-canvas"
 import type { Entity } from "@/lib/zero/types"
 
 // The root context: the Individual whose space IS the homeview. Everything the
@@ -492,10 +494,16 @@ export function Zero0Canvas() {
           readout. Not part of the node's own data. */}
       {showZeroHeader && (
       <header className="border-b border-border p-4 text-[10px] leading-relaxed text-muted-foreground tabular-nums">
-        <div className="flex gap-2">
+        <div className="flex items-center gap-2">
           <span className="text-foreground">zero</span>
           <span aria-hidden>·</span>
           <span>root canvas</span>
+          {/* Build version — the release git tag this Surface was built from. Sits at
+              the end of the identity line (right-aligned) so it's always in view, even
+              in web-resource view where only the top of this header shows. */}
+          <span className="ml-auto text-muted-foreground/70" title="Build version">
+            {ZERO_VERSION}
+          </span>
         </div>
         {/* Access path — always shown (it's the trail to the open node); each crumb
             climbs back to that depth. At the root it's just the user, non-clickable. */}
@@ -544,6 +552,21 @@ export function Zero0Canvas() {
           Individual renders exactly like any other entity. `min-h-0` lets this flex
           child shrink below its content so ONLY this band scrolls — the header,
           create field, and footer stay pinned regardless of how tall the list grows. */}
+      {/* WEB VIEW — when the drilled-in context is a web resource (has a webUrl),
+          the content area BECOMES that web surface, edge-to-edge horizontally. The
+          zero header (breadcrumb), create field, and footer stay in place around it,
+          so you can always climb back out. `overflow-hidden` (not auto) lets the
+          surface fill without a scrollbar; the native desktop view tracks this rect. */}
+      {mounted && context?.webUrl ? (
+        <div className="min-h-0 flex-1 overflow-hidden">
+          <Zero0ResourceCanvas
+            key={context.id}
+            id={context.id}
+            url={context.webUrl}
+            resourceId={context.webResourceId}
+          />
+        </div>
+      ) : (
       <div className="min-h-0 flex-1 overflow-auto">
         {/* ENTITY HEADER (§0) — the open node's raw-data block (glyph/title/kind, meta
             rows, life log). Toggled with §0; the children list below stays put. */}
@@ -742,6 +765,7 @@ export function Zero0Canvas() {
           )}
         </div>
       </div>
+      )}
 
       {/* Create field — part of the entity content (you create INTO this context),
           pinned above the footer helper. Bare mono input, hairline top. */}
