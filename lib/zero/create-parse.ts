@@ -186,6 +186,19 @@ const KIND_PREFIX: Record<string, EntityKind> = {
   orga: "organism",
 }
 
+/**
+ * Resolve a typed kind NAME to a creatable {@link EntityKind}, accepting either the full
+ * name or (at least) its first 4 letters — the same keys as the `:xxxx` create selector.
+ * Case-insensitive. Examples: "space"/"Space"/"spac" → "space", "organism"/"orga" →
+ * "organism". Returns null for a non-creatable/unknown name (individual, soul, "xyz"), so
+ * the `:kind:` setter can reject it. Drives BOTH the `:kind:` field-setter and reuses the
+ * exact prefix table, so the two grammars never drift apart.
+ */
+export function resolveCreatableKind(raw: string): EntityKind | null {
+  const key = raw.trim().toLowerCase().slice(0, 4)
+  return KIND_PREFIX[key] ?? null
+}
+
 export interface KindPrefixParse {
   kind: EntityKind
   /** The remaining title after the ":xxxx" selector token is stripped. */

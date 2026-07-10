@@ -21,11 +21,19 @@ import {
   setEntityAccent,
   setEntitySex,
   renameEntity,
+  changeEntityKind,
   deleteEntity,
 } from "@/lib/zero/data"
   import { KIND_META, isClosed, fillsGlyph, getState, type EntityState } from "@/lib/zero/kinds"
   import { isDone, isCancelled, getCreatedAt, getCompletedOn, describeLogEntry } from "@/lib/zero/entity-log"
-import { parseCreateField, parseKindPrefix, parseFieldSetter, parseDateToken, parseHexColor } from "@/lib/zero/create-parse"
+import {
+  parseCreateField,
+  parseKindPrefix,
+  parseFieldSetter,
+  parseDateToken,
+  parseHexColor,
+  resolveCreatableKind,
+} from "@/lib/zero/create-parse"
 import { looksLikeUrl, normalizeUrl, resolveWebResourceByUrl, webDisplayName } from "@/lib/zero/web-resources"
 import { useZero0Flag } from "@/lib/zero/zero0-chord"
 import { ZERO_VERSION } from "@/lib/zero/version"
@@ -276,6 +284,34 @@ export function Zero0Canvas() {
         bump()
         return
       }
+      // :kind: — turn THIS entity into another creatable kind (same as the menu's
+      // "Change into…"). Accepts the full name or its 4-letter prefix (space/spac,
+      // organism/orga, …). Rejects a non-creatable/unknown target (individual, soul).
+      if (setter.field === "kind") {
+        const ctx = getEntity(contextId)
+        if (!ctx) {
+          setNotice({ tone: "err", text: "no open entity to set" })
+          return
+        }
+        if (setter.value === "") {
+          setNotice({ tone: "err", text: "use :kind: task | space | resource | moment | instant | community | organism" })
+          return
+        }
+        const next = resolveCreatableKind(setter.value)
+        if (!next) {
+          setNotice({ tone: "err", text: `unknown kind "${setter.value}" — try task, space, resource, moment, instant, community, organism` })
+          return
+        }
+        if (next === ctx.kind) {
+          setNotice({ tone: "err", text: `already a ${KIND_META[next].label}` })
+          return
+        }
+        changeEntityKind(contextId, next)
+        setNotice({ tone: "ok", text: `kind set · ${KIND_META[next].label}` })
+        setDraft("")
+        bump()
+        return
+      }
       const fieldMap: Record<string, "startAt" | "endAt" | "at" | "dueAt"> = {
         start: "startAt",
         end: "endAt",
@@ -284,7 +320,7 @@ export function Zero0Canvas() {
       }
       const key = fieldMap[setter.field]
       if (!key) {
-        setNotice({ tone: "err", text: `unknown field :${setter.field}: — try :title: :start: :end: :at: :due: :color: :done: :sex:` })
+        setNotice({ tone: "err", text: `unknown field :${setter.field}: — try :kind: :title: :start: :end: :at: :due: :color: :done: :sex:` })
         return
       }
       // Empty value clears the slot; otherwise it must parse to a valid date token.
