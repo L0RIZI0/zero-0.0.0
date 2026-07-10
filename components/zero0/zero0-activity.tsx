@@ -104,7 +104,7 @@ export function Zero0Activity({
       {/* FRAME TITLE — the whole "activity" frame's heading, sitting above both daylines.
           Carries the frame-level `clear` action; the tracked total lives on the PRESENCE
           row below (next to its dayline), not here. */}
-      <div className="flex items-center justify-between border-b border-border px-4 py-2 text-[10px] uppercase tracking-wider text-muted-foreground">
+      <div className="flex items-center justify-between border-b border-border px-4 py-2 text-[11px] uppercase tracking-wider text-muted-foreground">
         <span>activity · today</span>
         <button
           type="button"

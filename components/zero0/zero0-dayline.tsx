@@ -36,9 +36,9 @@ const DAY_MS = 86_400_000
 // land inside one window instead of being split at midnight.
 const DAY_START_HOUR = 5
 const NEUTRAL = "oklch(0.72 0.004 75)"
-  // Sentinel color marking a COLORLESS place (e.g. the root Individual). It's never
-  // painted as a fill — at render it maps to a transparent tick + grey hairline (see
-  // the presence tick's style). Kept as a distinct value so the render can detect it.
+  // Sentinel color marking the COLORLESS ROOT place (the root Individual with no accent
+  // and no colored ancestor). It's never painted as a fill — at render it maps to a
+  // transparent tick + grey hairline (a quiet outline). Kept distinct so render detects it.
   const DEFAULT_PRESENCE = "#ffffff"
 
 // --- Ripple tuning (copied verbatim from the /2 dayline) ---------------------
@@ -227,15 +227,22 @@ export function Zero0Dayline({
       const leftPct = ((st - winStart) / DAY_MS) * 100
       const widthPct = ((en - st) / DAY_MS) * 100
       const entity = getEntity(s.entityId)
+      // Color resolution (mirrors the planned bar): the place's OWN accent (set via
+      // `:color:` on ANY kind — a blue Task reads blue), else the nearest ANCESTOR
+      // space's accent. `getInheritedAccent` only sees SPACE accents and skips the node
+      // itself, so we check `entity.accent` first, then walk from its parent.
+      const resolved = entity?.accent ?? getInheritedAccent(entity?.parentId ?? null)
+      const color =
+        resolved ??
+        // No color anywhere on the chain: the ROOT place → DEFAULT_PRESENCE sentinel
+        // (transparent tick + grey hairline); any other place → a solid grey fill.
+        (s.entityId === "s_root" ? DEFAULT_PRESENCE : NEUTRAL)
       out.push({
         key: `pres:${s.entityId}:${s.enteredAt}`,
         id: s.entityId,
         // Historical title — the name the place carried at the segment's start.
         title: entity ? titleAt(entity, st) : s.entityId === "s_root" ? "Home" : "Elsewhere",
-  // The place's OWN color: its accent (set via `:color:`), inherited from an
-  // ancestor if unset, else the DEFAULT_PRESENCE sentinel — which renders as a
-  // transparent tick + grey hairline (the colorless root Individual case).
-        color: getInheritedAccent(s.entityId) ?? DEFAULT_PRESENCE,
+        color,
         leftPct,
         widthPct,
         centerPct: leftPct + widthPct / 2,
@@ -680,7 +687,9 @@ export function Zero0Dayline({
                           // place with its own accent fills cleanly with no outline.
                           backgroundColor: p.color === DEFAULT_PRESENCE ? "transparent" : p.color,
                           border: p.color === DEFAULT_PRESENCE ? `1px solid ${NEUTRAL}` : "none",
-                          opacity: 1,
+                          // Translucent by default (matching the planned ticks so both
+                          // lanes read as a faint layer); hovering one snaps it to full.
+                          opacity: isHot ? 1 : 0.4,
                           zIndex: isHot ? 15 : 10,
                         }}
                       />
@@ -705,7 +714,10 @@ export function Zero0Dayline({
                   style={{ left: `${nowPct}%`, backgroundColor: NOW_COLOR }}
                 >
                   <span
-                    className="absolute -bottom-1 -top-1 left-1/2 w-4 -translate-x-1/2 cursor-default"
+                    // Narrow hit strip hugging the marker LINE only (was w-4/16px, which
+                    // overhung nearby ticks and stole their hover). ~6px keeps the marker
+                    // easy to hover without blanketing adjacent presence/planned ticks.
+                    className="absolute -bottom-1 -top-1 left-1/2 w-1.5 -translate-x-1/2 cursor-default"
                     onMouseEnter={() => setNowHover(true)}
                     onMouseLeave={() => setNowHover(false)}
                   />
@@ -714,7 +726,9 @@ export function Zero0Dayline({
                       // Float ABOVE the marker (its bottom edge sits just over the
                       // marker's top) instead of superposed on the line.
                       "pointer-events-none absolute bottom-full left-1/2 mb-1 -translate-x-1/2 whitespace-nowrap rounded border border-border/70 bg-card px-2 py-1 text-[10.5px] font-medium leading-none tracking-tight tabular-nums text-foreground/80 shadow-sm transition-opacity duration-150",
-                      nowHover ? "opacity-100" : "opacity-0",
+                      // A hovered BAR always wins: suppress the NOW tooltip so a tick near
+                      // the marker shows its own tooltip instead of the clock.
+                      nowHover && !hovered ? "opacity-100" : "opacity-0",
                     )}
                   >
                     {new Date(nowHover ? nowSec : now).toLocaleTimeString([], {
