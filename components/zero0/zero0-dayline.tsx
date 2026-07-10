@@ -648,12 +648,15 @@ export function Zero0Dayline({
                 translateX; the bars slide within the fixed clip window. PLANNED bars
                 (colored) sit in the main body; PRESENCE (white ticks) lines the bottom. */}
             <div ref={contentPanRef} className="pointer-events-none absolute inset-0 will-change-transform">
-              {/* PLANNED — scheduled occurrences, colored by accent. Spans are rounded
-                  chips centered in the upper body; points (instants / due dates) are thin
-                  ticks. Only painted in the main "dayline · today" (planned) instance. */}
+              {/* TICK BAND — ONE generic loop for BOTH tracks. Each instance paints its
+                  own list (`planned` scheduled occurrences OR `presence` tracked segments),
+                  but the rendering is identical: a rounded chip (or a thin point for a
+                  zero-length occurrence) whose FILL is the entity color (sleep paints a
+                  night-sky, root → transparent) and whose HAIRLINE is the parent color.
+                  The ONLY per-track difference is vertical alignment: PLANNED rides the
+                  TOP of the lane, TRACKED is vertically CENTERED. */}
               {mounted &&
-                !isPresence &&
-                planned.map((p) => {
+                (isPresence ? presence : planned).map((p) => {
                   const isHot = hoveredKey === p.key
                   return (
                     <div
@@ -665,7 +668,7 @@ export function Zero0Dayline({
                       <button
                         type="button"
                         data-barkey={p.key}
-                        aria-label={`${p.title}, ${p.range}`}
+                        aria-label={isPresence ? `Was in ${p.title}, ${p.range}` : `${p.title}, ${p.range}`}
                         onMouseEnter={() => setHoveredKey(p.key)}
                         onMouseLeave={() => setHoveredKey((h) => (h === p.key ? null : h))}
                         onClick={() => {
@@ -674,75 +677,30 @@ export function Zero0Dayline({
                         }}
                         className={cn(
                           "pointer-events-auto absolute cursor-default transition-[height,opacity] duration-150",
-                          p.point ? "-translate-x-1/2 rounded-full" : "rounded-[2px]",
-                        )}
-                        style={{
-                          left: `${p.leftPct}%`,
-                          top: 3,
-                          width: p.point ? 2 : `max(3px, ${p.widthPct}%)`,
-                          // All spans share one tick height — sleep spans no longer grow
-                          // taller; the starfield simply fills the standard band.
-                          height: isHot ? 13 : 9,
-                          // Sleep spans paint the procedural night sky; all other bars
-                          // use their flat fill color (root sentinel → transparent).
-                          background: p.color === DEFAULT_PRESENCE ? "transparent" : (p.sky ?? p.color),
-                          // Hairline = the parent's color, shown when the entity lives
-                          // inside a Space (see paintFor); no outline otherwise.
-                          border: p.stroke ? `1px solid ${p.stroke}` : "none",
-                          // PLANNED ticks are deliberately TRANSLUCENT (a faint "intention"
-                          // layer that reads as glass, not solid commitment); hovering one
-                          // snaps it to full opacity.
-                          opacity: isHot ? 1 : 0.4,
-                          zIndex: isHot ? 16 : 5,
-                        }}
-                      />
-                    </div>
-                  )
-                })}
-
-              {/* PRESENCE — tracked activity, PURE WHITE with the smallest hairline
-                  border. Split OUT of the planned band into its own dedicated dayline
-                  inside the Activity frame; only painted in the presence instance. */}
-              {mounted &&
-                isPresence &&
-                presence.map((p) => {
-                  const isHot = hoveredKey === p.key
-                  return (
-                    <div
-                      key={p.key}
-                      ref={registerRipple(p.key)}
-                      data-left={p.leftPct}
-                      className="pointer-events-none absolute inset-0 will-change-transform"
-                    >
-                      <button
-                        type="button"
-                        data-barkey={p.key}
-                        aria-label={`Was in ${p.title}, ${p.range}`}
-                        onMouseEnter={() => setHoveredKey(p.key)}
-                        onMouseLeave={() => setHoveredKey((h) => (h === p.key ? null : h))}
-                        onClick={() => {
-                          if (draggedRef.current) return // a pan, not a tap
-                          onOpen(p.id)
-                        }}
-                        className={cn(
-                          "pointer-events-auto absolute bottom-0.5 cursor-default rounded-[2px] transition-[height,opacity] duration-150",
-                          // Open segment: anchor the RIGHT edge at "now" and grow LEFT,
-                          // so a short segment's min-width can't spill past the marker.
+                          // Vertical alignment is the sole per-track difference: PLANNED
+                          // hugs the TOP of the lane; TRACKED is CENTERED (top-1/2 + the
+                          // -translate-y-1/2 below), so the two bands read distinctly.
+                          isPresence ? "top-1/2" : "top-[3px]",
+                          p.point ? "rounded-full" : "rounded-[2px]",
+                          // Translate composes: X for a point / open-ended segment, Y to
+                          // center a tracked bar. Tailwind's translate utilities stack.
+                          p.point && "-translate-x-1/2",
                           p.openEnded && "-translate-x-full",
+                          isPresence && "-translate-y-1/2",
                         )}
                         style={{
                           left: p.openEnded ? `${p.leftPct + p.widthPct}%` : `${p.leftPct}%`,
-                          width: `max(3px, ${p.widthPct}%)`,
-                          height: isHot ? 10 : 7,
-                          // FILL = the place's own color; the root sentinel renders as a
-                          // transparent tick. STROKE = the parent's color hairline, shown
-                          // only inside a Space (root keeps its grey hairline) — see paintFor.
-                          backgroundColor: p.color === DEFAULT_PRESENCE ? "transparent" : p.color,
+                          // All ticks share ONE height across both tracks; sleep spans no
+                          // longer grow taller — the starfield fills the standard band.
+                          width: p.point ? 2 : `max(3px, ${p.widthPct}%)`,
+                          height: isHot ? 13 : 9,
+                          // FILL = entity color (sleep → night sky; root sentinel →
+                          // transparent). HAIRLINE = parent color, only inside a Space.
+                          background: p.color === DEFAULT_PRESENCE ? "transparent" : (p.sky ?? p.color),
                           border: p.stroke ? `1px solid ${p.stroke}` : "none",
-                          // Translucent by default (matching the planned ticks so both
-                          // lanes read as a faint layer); hovering one snaps it to full.
+                          // Both tracks read as a faint layer; hovering one snaps to full.
                           opacity: isHot ? 1 : 0.4,
-                          zIndex: isHot ? 15 : 10,
+                          zIndex: isHot ? 16 : 8,
                         }}
                       />
                     </div>
