@@ -625,16 +625,20 @@ export function Zero0Dayline({
   // presence lane keeps its `trailing` "x tracked" total instead.
   const leftEdgeDay = mounted && !isPresence ? shortDay(winStart) : null
 
-  // DAY-BOUNDARY MARKERS (planned lane only) — one per 5am day bucket across the buffered
-  // window. Each rides INSIDE the content-pan layer (registered as a ripple node with its
-  // `data-left`), so it pans/ripples/clips exactly like a bar: scrolling slides the labels
-  // along the band and the left-most one clips off the lane's left edge. A 1px faded grey
-  // line marks the boundary; the short date label sits just to its right (labelling the
+  // DAY-BOUNDARY MARKERS (planned lane only) — one per MIDNIGHT across the buffered window.
+  // (The band's visible window is Zero's 5am–5am design choice, but the markers themselves
+  // sit at true local midnight, so a day label lands on the calendar-date boundary.) Each
+  // rides INSIDE the content-pan layer (registered as a ripple node with its `data-left`),
+  // so it pans/ripples/clips exactly like a bar: scrolling slides the labels along the band
+  // and the left-most one clips off the lane's left edge. A 1px faded grey line marks the
+  // boundary; the short date label sits at the TOP, flush-right of the line (labelling the
   // day that starts there). The ACTIVITY presence lane is intentionally left plain for now.
   const dayMarkers = useMemo(() => {
     if (!mounted || isPresence) return [] as { key: string; leftPct: number; label: string }[]
     const out: { key: string; leftPct: number; label: string }[] = []
-    for (let t = dayWindow(lo)[0]; t <= hi; t += DAY_MS) {
+    const firstMidnight = new Date(lo)
+    firstMidnight.setHours(0, 0, 0, 0)
+    for (let t = firstMidnight.getTime(); t <= hi; t += DAY_MS) {
       out.push({ key: `day:${t}`, leftPct: ((t - winStart) / DAY_MS) * 100, label: shortDay(t) })
     }
     return out
@@ -696,7 +700,7 @@ export function Zero0Dayline({
                 >
                   <div className="absolute inset-y-0" style={{ left: `${dm.leftPct}%`, zIndex: 2 }}>
                     <div className="absolute inset-y-0 w-px bg-muted-foreground/25" />
-                    <span className="absolute bottom-0.5 left-1 whitespace-nowrap text-[8px] uppercase leading-none tracking-wider text-muted-foreground/50">
+                    <span className="absolute left-px top-0.5 whitespace-nowrap text-[8px] uppercase leading-none tracking-wider text-muted-foreground/50">
                       {dm.label}
                     </span>
                   </div>
