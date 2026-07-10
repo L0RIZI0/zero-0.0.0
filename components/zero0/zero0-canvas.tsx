@@ -75,11 +75,11 @@ function sexSymbol(sex: string): string {
 // (CREATED already carries "since when"); every other position carries its own instant,
 // which lives nowhere else. `complete` also shows WHEN it will auto-close at midnight.
 // `isLiving` (a death-terminal kind — an Individual/Organism) reads its `open` state as
-// "Alive", the natural antonym of its `dead` terminal.
+// "alive" (lowercase, like every other state word), the natural antonym of `dead`.
 function formatState(state: EntityState, format: (e?: number) => string, isLiving = false): string {
   switch (state.word) {
     case "open":
-      if (isLiving) return state.reopenedAt ? `Alive · reopened ${format(state.reopenedAt)}` : "Alive"
+      if (isLiving) return state.reopenedAt ? `alive · reopened ${format(state.reopenedAt)}` : "alive"
       return state.reopenedAt ? `open · reopened ${format(state.reopenedAt)}` : "open"
     case "complete":
       return state.willCloseAt ? `complete · closes ${format(state.willCloseAt)} (auto)` : "complete"
