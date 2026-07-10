@@ -353,6 +353,17 @@ export function Zero0Dayline({
     }
   }, [])
 
+  // Above-band DAY LABELS live in their own node map (NOT ripple nodes): they must NOT
+  // wobble with the ripple — they're STICKY, painted imperatively by `paintDayLabels`.
+  const dayLabelNodesRef = useRef<Map<string, HTMLElement>>(new Map())
+  const registerDayLabel = useCallback((key: string) => {
+    return (el: HTMLElement | null) => {
+      const map = dayLabelNodesRef.current
+      if (el) map.set(key, el)
+      else map.delete(key)
+    }
+  }, [])
+
   // Detect reduced-motion once (and keep it current).
   useEffect(() => {
     const mq = window.matchMedia("(prefers-reduced-motion: reduce)")
@@ -383,6 +394,37 @@ export function Zero0Dayline({
     setHoveredKey((h) => (h === key ? h : key))
   }, [])
 
+  // STICKY-PUSH day labels (above-band strip). Every frame we compute each boundary's
+  // real on-screen X — one formula covers BOTH pan paths: `leftPct/100·w − wheelCommit`
+  // (drag re-anchors `winStart`, so `leftPct` is already fresh and wheelCommit is 0;
+  // wheel keeps `winStart` fixed and slides via wheelCommit). Then, sorted left→right,
+  // each label is clamped to `[0, nextBoundaryX − ownWidth]`:
+  //   • a label whose boundary is still on-screen sits AT its boundary (flush-right);
+  //   • the left-most past boundary PINS to the strip's left edge (x=0);
+  //   • as the next day's boundary nears the edge it PUSHES the pinned label out left.
+  // Purely imperative (no React state / re-render), mirroring `paintRipple`.
+  const paintDayLabels = useCallback(() => {
+    const lane = laneRef.current
+    if (!lane) return
+    const w = lane.clientWidth || 1
+    const panPx = -wheelCommitRef.current
+    const items: { el: HTMLElement; x: number; wdt: number }[] = []
+    for (const el of dayLabelNodesRef.current.values()) {
+      const leftPct = +(el.dataset.left ?? "") || 0
+      items.push({ el, x: (leftPct / 100) * w + panPx, wdt: el.offsetWidth })
+    }
+    items.sort((a, b) => a.x - b.x)
+    for (let i = 0; i < items.length; i++) {
+      const nat = items[i].x
+      const upper = i < items.length - 1 ? items[i + 1].x - items[i].wdt : Infinity
+      const x = Math.min(Math.max(nat, 0), upper)
+      items[i].el.style.transform = `translateX(${x}px)`
+      // Fade out once shoved off the left edge or parked beyond the right edge.
+      const off = x + items[i].wdt <= 0 || nat >= w
+      items[i].el.style.opacity = off ? "0" : "1"
+    }
+  }, [])
+
   const paintRipple = useCallback(() => {
     const off = offsetRef.current
     const maxCol = RIPPLE_COLS - 1
@@ -404,7 +446,8 @@ export function Zero0Dayline({
       const x = x0 + (x1 - x0) * t
       el.style.transform = x ? `translateX(${x}px)` : ""
     }
-  }, [])
+    paintDayLabels()
+  }, [paintDayLabels])
 
   const tick = useCallback(
     (ts: number) => {
@@ -598,7 +641,10 @@ export function Zero0Dayline({
       pendingFlushRef.current = 0
     }
     applyPan(-wheelCommitRef.current)
-  }, [viewStart, applyPan])
+    // Re-place the sticky day labels after any base-pan settle (drag, wheel flush,
+    // initial mount) — the ripple loop is not running at rest, so paint them here.
+    paintDayLabels()
+  }, [viewStart, applyPan, paintDayLabels])
 
   useEffect(() => {
     return () => {
@@ -618,21 +664,12 @@ export function Zero0Dayline({
     [],
   )
 
-  // The PLANNED (AGENDA/"TODAY") lane's header slot now shows — faded — the day currently
-  // in view at the LEFT-MOST extremity of the band (its `winStart` 5am bucket), in the
-  // same short "FRI JUL 10" format as the on-band day markers. It updates as panning
-  // settles the window. The live full date+time moved to the glued-top clock; the
-  // presence lane keeps its `trailing` "x tracked" total instead.
-  const leftEdgeDay = mounted && !isPresence ? shortDay(winStart) : null
-
   // DAY-BOUNDARY MARKERS (planned lane only) — one per MIDNIGHT across the buffered window.
   // (The band's visible window is Zero's 5am–5am design choice, but the markers themselves
-  // sit at true local midnight, so a day label lands on the calendar-date boundary.) Each
-  // rides INSIDE the content-pan layer (registered as a ripple node with its `data-left`),
-  // so it pans/ripples/clips exactly like a bar: scrolling slides the labels along the band
-  // and the left-most one clips off the lane's left edge. A 1px faded grey line marks the
-  // boundary; the short date label sits at the TOP, flush-right of the line (labelling the
-  // day that starts there). The ACTIVITY presence lane is intentionally left plain for now.
+  // sit at true local midnight, so a day label lands on the calendar-date boundary.) The
+  // `leftPct` drives TWO things: the in-band 1px line (a ripple node that slides/clips with
+  // the timeline) AND the sticky-push label in the strip ABOVE the band (see paintDayLabels).
+  // The ACTIVITY presence lane is intentionally left plain for now.
   const dayMarkers = useMemo(() => {
     if (!mounted || isPresence) return [] as { key: string; leftPct: number; label: string }[]
     const out: { key: string; leftPct: number; label: string }[] = []
@@ -653,21 +690,30 @@ export function Zero0Dayline({
         isPresence ? "pb-1" : "border-b border-border pb-3",
       )}
     >
-      {/* Controls row — both slots are FADED. The PLANNED lane shows the day at the
-          band's left-most edge ("FRI JUL 10", short) which updates as you pan; the
-          PRESENCE lane shows its "x tracked" total. The recenter "now" button sits on
-          the right. (The live full date+time now lives in the glued-top clock.) */}
-      <div className="mb-2 flex items-center justify-between text-[10px] uppercase tracking-wider text-muted-foreground/60">
-        {isPresence ? <span>{trailing}</span> : <span>{leftEdgeDay}</span>}
-        <button
-          type="button"
-          onClick={recenter}
-          className="normal-case text-muted-foreground/60 transition-colors hover:text-foreground"
-          aria-label="Recenter dayline on now"
-        >
-          now
-        </button>
-      </div>
+      {/* ABOVE-BAND HEADER STRIP (faded). For the PLANNED lane this is the sticky-push day
+          rail: one absolutely-positioned label per midnight boundary, placed imperatively
+          by `paintDayLabels` — the left-most day pins to the edge and gets pushed out by the
+          next day sliding in. For the PRESENCE lane it's just the "x tracked" total. The old
+          "now" button is gone (double-click the band still recenters); the live full
+          date+time lives in the glued-top clock. */}
+      {isPresence ? (
+        <div className="mb-2 text-[10px] uppercase tracking-wider text-muted-foreground/60">
+          <span>{trailing}</span>
+        </div>
+      ) : (
+        <div className="relative mb-2 h-3 overflow-hidden text-[10px] uppercase tracking-wider text-muted-foreground/60">
+          {dayMarkers.map((dm) => (
+            <span
+              key={dm.key}
+              ref={registerDayLabel(dm.key)}
+              data-left={dm.leftPct}
+              className="absolute left-0 top-0 whitespace-nowrap leading-none will-change-transform"
+            >
+              {dm.label}
+            </span>
+          ))}
+        </div>
+      )}
       {/* Constant-height lane row. */}
       <div className="relative" style={{ height: DAYLINE_ROW_H }}>
         <div
@@ -687,10 +733,10 @@ export function Zero0Dayline({
                 translateX; the bars slide within the fixed clip window. PLANNED bars
                 (colored) sit in the main body; PRESENCE (white ticks) lines the bottom. */}
             <div ref={contentPanRef} className="pointer-events-none absolute inset-0 will-change-transform">
-              {/* DAY-BOUNDARY MARKERS (planned lane) — painted BEHIND the ticks. Each is a
-                  ripple node (data-left + registerRipple) so it pans/slides/clips with the
-                  band: a 1px faded grey line at the 5am boundary + the short date label just
-                  to its right, labelling the day that begins there. */}
+              {/* DAY-BOUNDARY LINES (planned lane) — painted BEHIND the ticks. Each is a
+                  ripple node (data-left + registerRipple) so the 1px faded midnight line
+                  pans/slides/clips WITH the timeline. The date LABEL is no longer here — it
+                  lives in the sticky strip above the band (see paintDayLabels). */}
               {dayMarkers.map((dm) => (
                 <div
                   key={dm.key}
@@ -698,12 +744,10 @@ export function Zero0Dayline({
                   data-left={dm.leftPct}
                   className="pointer-events-none absolute inset-0 will-change-transform"
                 >
-                  <div className="absolute inset-y-0" style={{ left: `${dm.leftPct}%`, zIndex: 2 }}>
-                    <div className="absolute inset-y-0 w-px bg-muted-foreground/25" />
-                    <span className="absolute left-px top-0.5 whitespace-nowrap text-[8px] uppercase leading-none tracking-wider text-muted-foreground/50">
-                      {dm.label}
-                    </span>
-                  </div>
+                  <div
+                    className="absolute inset-y-0 w-px bg-muted-foreground/25"
+                    style={{ left: `${dm.leftPct}%`, zIndex: 2 }}
+                  />
                 </div>
               ))}
               {/* TICK BAND — ONE generic loop for BOTH tracks. Each instance paints its
