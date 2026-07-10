@@ -10,6 +10,10 @@ import { DAYLINE_ROW_H } from "@/lib/zero/layout"
 import { useNow } from "@/lib/zero/use-now"
 import { cn } from "@/lib/utils"
 
+/** Horizontal gap (px) between a day label and its 1px boundary marker in the minimized
+ *  in-band overlay, so the two never touch. */
+const LABEL_MARKER_GAP = 8
+
 // ============================================================================
 // The ZERO0 DAYLINE — a PRESENCE-ONLY port of the /2 dayline into root `/0`.
 // ----------------------------------------------------------------------------
@@ -418,6 +422,11 @@ export function Zero0Dayline({
     if (!lane) return
     const w = lane.clientWidth || 1
     const panPx = -wheelCommitRef.current
+    // In the MINIMIZED in-band overlay the label sits ON the band next to its 1px marker,
+    // so nudge each one a few px right to clear the line (absolute labels ignore the
+    // overlay's padding, so the gap is baked into the transform). Above-band (full) mode
+    // keeps labels flush at their boundary — the marker lives below them, not beside them.
+    const inset = minimized ? LABEL_MARKER_GAP : 0
     const items: { el: HTMLElement; x: number; wdt: number }[] = []
     for (const el of dayLabelNodesRef.current.values()) {
       const leftPct = +(el.dataset.left ?? "") || 0
@@ -428,12 +437,12 @@ export function Zero0Dayline({
       const nat = items[i].x
       const upper = i < items.length - 1 ? items[i + 1].x - items[i].wdt : Infinity
       const x = Math.min(Math.max(nat, 0), upper)
-      items[i].el.style.transform = `translateX(${x}px)`
+      items[i].el.style.transform = `translateX(${x + inset}px)`
       // Fade out once shoved off the left edge or parked beyond the right edge.
       const off = x + items[i].wdt <= 0 || nat >= w
       items[i].el.style.opacity = off ? "0" : "1"
     }
-  }, [])
+  }, [minimized])
 
   const paintRipple = useCallback(() => {
     const off = offsetRef.current
@@ -712,7 +721,7 @@ export function Zero0Dayline({
         key={dm.key}
         ref={registerDayLabel(dm.key)}
         data-left={dm.leftPct}
-        className="absolute left-0 top-0 whitespace-nowrap leading-none will-change-transform"
+        className="absolute inset-y-0 left-0 flex items-center whitespace-nowrap leading-none will-change-transform"
       >
         {dm.label}
       </span>
@@ -722,13 +731,16 @@ export function Zero0Dayline({
   return (
     <div
       className={cn(
-        // Minimized frames want "little margins" — tighten padding and drop the divider,
-        // since a minimized frame is just the bare band.
+        // Minimized frames want "little margins" — symmetric tight padding so a minimized
+        // frame is just the bare band, top and bottom balanced.
         minimized ? "px-2 py-1" : "px-4 pt-3",
-        // The presence instance flows straight into its tracked list below, so it drops
-        // the bottom divider + bottom padding; the planned instance keeps both. (Only when
-        // NOT minimized — minimized always uses the tight padding above.)
-        !minimized && (isPresence ? "pb-1" : "border-b border-border pb-3"),
+        // The PLANNED lane owns a full-bleed bottom separator in BOTH full and minimized
+        // modes — mirroring ACTIVITY, whose ActivityBody wrapper is always `border-b`, so
+        // the two frames separate identically. The PRESENCE lane never carries it (it flows
+        // into its tracked list, and ActivityBody owns ACTIVITY's separator).
+        !isPresence && "border-b border-border",
+        // Extra bottom padding only in full mode; minimized uses the symmetric py-1 above.
+        !minimized && (isPresence ? "pb-1" : "pb-3"),
       )}
     >
       {/* ABOVE-BAND HEADER STRIP (faded) — only when NOT minimized. The old "now" button is
@@ -744,8 +756,11 @@ export function Zero0Dayline({
             {headerContent}
           </div>
         ))}
-      {/* Constant-height lane row. */}
-      <div className="relative" style={{ height: DAYLINE_ROW_H }}>
+      {/* Lane row. Full mode reserves the constant DAYLINE_ROW_H (34px) so the band sits
+          at a stable height; minimized lets the row wrap the lane exactly (h-7 = 28px) so
+          there's no dead space below the band making the bottom margin look bigger than
+          the top. */}
+      <div className="relative" style={minimized ? undefined : { height: DAYLINE_ROW_H }}>
         <div
           ref={laneRef}
           onPointerDown={onPointerDown}
@@ -758,13 +773,14 @@ export function Zero0Dayline({
           className="relative h-7 w-full cursor-default select-none overflow-visible rounded-md border border-border/60 bg-card/40 [touch-action:none]"
         >
           {/* IN-BAND HEADER OVERLAY (minimized only) — the same faded header content that
-              normally sits ABOVE the band is overlaid at its TOP-LEFT instead, so a
-              minimized frame is just the band. `pl-1` gives the sticky day labels a small
-              left offset so each reads to the RIGHT of its 1px marker (the marker rides at
-              the boundary x; the label is nudged clear of it). Non-interactive + clipped so
-              it never blocks panning and trims to the band. `z-10` keeps it above the ticks. */}
+              normally sits ABOVE the band is overlaid INSIDE it, vertically CENTERED
+              (`inset-y-0 flex items-center`), so a minimized frame is just the band. The
+              presence "x tracked" total is a flex child (respects `pl-2`); the planned day
+              labels are absolute and get their marker gap from LABEL_MARKER_GAP in the
+              transform. Non-interactive + clipped so it never blocks panning and trims to
+              the band; `z-10` keeps it above the ticks. */}
           {minimized && (
-            <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-3 overflow-hidden pl-1 pt-0.5 text-[9px] uppercase leading-none tracking-wider text-muted-foreground/60">
+            <div className="pointer-events-none absolute inset-y-0 inset-x-0 z-10 flex items-center overflow-hidden pl-2 text-[9px] uppercase leading-none tracking-wider text-muted-foreground/60">
               {headerContent}
             </div>
           )}
