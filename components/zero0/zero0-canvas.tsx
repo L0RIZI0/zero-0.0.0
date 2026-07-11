@@ -198,14 +198,15 @@ export function Zero0Canvas() {
   const context = mounted ? getEntity(contextId) : undefined
   // eslint-disable-next-line react-hooks/exhaustive-deps -- rev/contextId are the intended re-read triggers
   const children = useMemo(() => (mounted ? getChildren(contextId) : []), [mounted, rev, contextId])
-  // SIBLINGS (tabs): the children of the open node's PARENT — i.e. entities at the same
-  // depth on the same branch. `path[len-2]` is the parent (undefined at the root, which
-  // has no parent within the drill path, so no tabs there). Rendered as a horizontal tab
-  // strip under the breadcrumb ONLY when there's more than one, giving quick lateral
-  // access to siblings without climbing a crumb and drilling back in.
+  // SIBLINGS: the children of the open node's PARENT — i.e. entities at the same depth on
+  // the same branch. `path[len-2]` is the parent (undefined at the root, which has no
+  // parent within the drill path, so no siblings there). `otherSiblings` drops the open
+  // node itself; it's surfaced as a SIBLINGS entry in the zero header (lateral shortcuts
+  // to same-parent entities without climbing a crumb and drilling back in).
   const parentId = path.length >= 2 ? path[path.length - 2] : undefined
   // eslint-disable-next-line react-hooks/exhaustive-deps -- rev/parentId are the intended re-read triggers
   const siblings = useMemo(() => (mounted && parentId ? getChildren(parentId) : []), [mounted, rev, parentId])
+  const otherSiblings = useMemo(() => siblings.filter((s) => s.id !== contextId), [siblings, contextId])
   // Resolve each crumb to a display label (fall back to the user name at the root).
   const crumbs = useMemo(
     () =>
@@ -703,50 +704,43 @@ export function Zero0Canvas() {
             })}
           </nav>
         )}
-        {/* SIBLING TABS — a horizontal strip of the open node's siblings (parent's other
-            children), shown only when there's more than one. Acts as lateral shortcuts:
-            the open one is highlighted (underlined, full-contrast), the rest faded. Shown
-            in web view too (switch between sibling resources without leaving the surface).
-            Right-click a tab → the same entity menu as its row/crumb. */}
-        {mounted && siblings.length > 1 && (
-          <div
-            className="mt-2 flex items-center gap-3 overflow-x-auto"
-            role="tablist"
-            aria-label="Sibling entities"
-          >
-            {siblings.map((s) => {
-              const active = s.id === contextId
-              return (
-                <button
-                  key={s.id}
-                  type="button"
-                  role="tab"
-                  aria-selected={active}
-                  onClick={() => goToSibling(s.id)}
-                  onContextMenu={(ev) => openMenu(s, ev)}
-                  className={
-                    "whitespace-nowrap border-b pb-0.5 transition-colors " +
-                    (active
-                      ? "border-foreground text-foreground"
-                      : "border-transparent text-muted-foreground/50 hover:text-foreground")
-                  }
-                >
-                  {s.title}
-                </button>
-              )
-            })}
-          </div>
-        )}
         {/* Session readout — hidden in web view so only the identity line + breadcrumb
-            (the trail back out) sit above the edge-to-edge web surface. */}
+            (the trail back out) sit above the edge-to-edge web surface. Matches the ENTITY
+            HEADER meta layout exactly: a tight `6rem` label column + value column packed to
+            the left (not two half-width columns), so everything reads as one compact block. */}
         {!context?.webUrl && (
-          <dl className="mt-2 grid grid-cols-[auto_auto] gap-x-4">
+          <dl className="mt-2 grid grid-cols-[6rem_1fr] gap-x-4 gap-y-0.5">
             <dt className="uppercase tracking-widest">context</dt>
-            <dd className="text-foreground">{mounted && context ? context.title : currentUser.name}</dd>
+            <dd className="truncate text-foreground">
+              {mounted && context ? context.title : currentUser.name}
+            </dd>
+            {/* SIBLINGS — the open node's OTHER same-parent children (itself excluded), as a
+                header entry rather than a tab strip. Each is a lateral shortcut: click to
+                open (goToSibling swaps just the path leaf so the crumb prefix holds and the
+                activity tracker refocuses), right-click for the same entity menu as its row.
+                Hidden when the node has no siblings (e.g. an only child, or the root). */}
+            {mounted && otherSiblings.length > 0 && (
+              <>
+                <dt className="uppercase tracking-widest">siblings</dt>
+                <dd className="flex flex-wrap items-center gap-x-3 gap-y-0.5">
+                  {otherSiblings.map((s) => (
+                    <button
+                      key={s.id}
+                      type="button"
+                      onClick={() => goToSibling(s.id)}
+                      onContextMenu={(ev) => openMenu(s, ev)}
+                      className="max-w-full truncate text-foreground underline-offset-2 hover:underline"
+                    >
+                      {s.title}
+                    </button>
+                  ))}
+                </dd>
+              </>
+            )}
             <dt className="uppercase tracking-widest">store</dt>
-            <dd className="text-foreground">zero:root-items:v1</dd>
+            <dd className="truncate text-foreground">zero:root-items:v1</dd>
             <dt className="uppercase tracking-widest">entities</dt>
-            <dd className="text-foreground">
+            <dd className="truncate text-foreground">
               {mounted
                 ? children.length === 0
                   ? "none"
@@ -780,6 +774,13 @@ export function Zero0Canvas() {
             id={context.id}
             url={context.webUrl}
             resourceId={context.webResourceId}
+            // A native WebContentsView is layered ABOVE all DOM (z-index can't reach it),
+            // so an open context/frame menu would be occluded by the live site — you'd see
+            // only the top row (the classic "just Close showing" bug). Marking the surface
+            // inactive while a menu is open parks it offscreen (reusing NativeSurface's
+            // existing active→hiddenRect machinery — instant, no reload), so the DOM menu is
+            // fully visible over the card backdrop; closing the menu snaps the site back.
+            active={!menu && !frameMenu}
           />
         </div>
       ) : (
