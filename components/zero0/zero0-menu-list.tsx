@@ -67,14 +67,21 @@ function MenuRow({ item, onSelect }: { item: Indentable; onSelect: (id: string) 
     <button
       type="button"
       role="menuitem"
+      aria-current={item.current ? "true" : undefined}
       onClick={() => onSelect(item.id)}
       className={
-        "flex w-full items-center gap-2 px-3 py-1 text-left text-muted-foreground hover:bg-muted hover:text-foreground" +
+        "flex w-full items-center gap-2 px-3 py-1 text-left hover:bg-muted hover:text-foreground " +
+        (item.current ? "text-foreground" : "text-muted-foreground") +
         (item._indent ? " pl-5" : "")
       }
     >
       {item.glyphKind && <Zero0Glyph kind={item.glyphKind} className="h-3 w-3" />}
       <span>{item.label}</span>
+      {item.current && (
+        <span aria-hidden className="ml-auto pl-3 text-muted-foreground/70">
+          {"\u2022"}
+        </span>
+      )}
     </button>
   )
 }

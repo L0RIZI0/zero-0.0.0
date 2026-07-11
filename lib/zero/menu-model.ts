@@ -30,7 +30,7 @@ import type { Entity, EntityKind } from "@/lib/zero/types"
 // the DOM menu both expand it locally; only the final leaf action id crosses IPC).
 export type MenuItem =
   | { type: "divider" }
-  | { type: "item"; id: string; label: string; danger?: boolean; glyphKind?: EntityKind }
+  | { type: "item"; id: string; label: string; danger?: boolean; glyphKind?: EntityKind; current?: boolean }
   | { type: "submenu"; label: string; items: MenuItem[] }
 
 // The kinds an entity can be turned INTO — the creatable set only (identity kinds

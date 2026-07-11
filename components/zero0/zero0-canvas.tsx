@@ -210,13 +210,34 @@ export function Zero0Canvas() {
   const children = useMemo(() => (mounted ? getChildren(contextId) : []), [mounted, rev, contextId])
   // SIBLINGS: the children of the open node's PARENT — i.e. entities at the same depth on
   // the same branch. `path[len-2]` is the parent (undefined at the root, which has no
-  // parent within the drill path, so no siblings there). `otherSiblings` drops the open
-  // node itself; it's surfaced as a SIBLINGS entry in the zero header (lateral shortcuts
-  // to same-parent entities without climbing a crumb and drilling back in).
+  // parent within the drill path, so no siblings there). Surfaced via the breadcrumb's
+  // trailing chevron as a stable dropdown of ALL same-parent children (current one marked)
+  // — lateral shortcuts to switch branch without climbing a crumb and drilling back in.
   const parentId = path.length >= 2 ? path[path.length - 2] : undefined
   // eslint-disable-next-line react-hooks/exhaustive-deps -- rev/parentId are the intended re-read triggers
   const siblings = useMemo(() => (mounted && parentId ? getChildren(parentId) : []), [mounted, rev, parentId])
-  const otherSiblings = useMemo(() => siblings.filter((s) => s.id !== contextId), [siblings, contextId])
+
+  // ENTITIES readout breakdown over the direct children, by STATE:
+  //   • open     — still open (word "open"); the true "to-do / live" count.
+  //   • complete — reached its positive terminal but not yet filed (word "complete").
+  //     Split into "done" (the complete is a Task's DONE checkmark — human name for it)
+  //     vs "complete" (any other complete, e.g. a Moment whose end is in the past).
+  // `total` is every direct child; ended (closed/cancelled/dead/retired) children are
+  // simply not surfaced (total − open − done − complete = the ended remainder).
+  const childBreakdown = useMemo(() => {
+    let open = 0
+    let done = 0
+    let complete = 0
+    for (const c of children) {
+      const w = getState(c).word
+      if (w === "open") open++
+      else if (w === "complete") {
+        if (isDone(c)) done++
+        else complete++
+      }
+    }
+    return { open, done, complete, total: children.length }
+  }, [children])
   // Resolve each crumb to a display label (fall back to the user name at the root).
   const crumbs = useMemo(
     () =>
@@ -557,25 +578,28 @@ export function Zero0Canvas() {
     setFrameMenu({ frame, x: ev.clientX, y: ev.clientY })
   }, [])
 
-  // SIBLINGS dropdown — opened from the chevron beside the breadcrumb. A menu of the open
-  // node's OTHER same-parent children; picking one drills laterally (goToSibling). Using a
-  // dropdown (rather than an inline row) keeps the header stable: switching siblings no
-  // longer reshuffles a visible list, since the choices live behind the chevron. Routed
-  // through `showMenu`, so over a web Resource it draws in the native overlay (unoccluded).
+  // SIBLINGS dropdown — opened from the chevron beside the breadcrumb. Lists ALL of the
+  // open node's same-parent children (INCLUDING the current one, marked), in their stable
+  // child order. Listing all — not just the "others" — means the menu's contents + order
+  // NEVER change as you switch: only which row is marked current moves. Picking one drills
+  // laterally (goToSibling; picking the current is a harmless no-op). Behind a chevron so
+  // the visible header never reshuffles; routed through `showMenu`, so over a web Resource
+  // it draws in the native overlay (unoccluded).
   const openSiblings = useCallback(
     (ev: React.MouseEvent) => {
       ev.preventDefault()
       ev.stopPropagation()
-      if (otherSiblings.length === 0) return
-      const items: MenuItem[] = otherSiblings.map((s) => ({
+      if (siblings.length < 2) return
+      const items: MenuItem[] = siblings.map((s) => ({
         type: "item",
         id: s.id,
         label: s.title,
         glyphKind: s.kind,
+        current: s.id === contextId,
       }))
       showMenu(items, ev.clientX, ev.clientY, (id) => goToSibling(id))
     },
-    [otherSiblings, showMenu, goToSibling],
+    [siblings, contextId, showMenu, goToSibling],
   )
 
   // Detect the Electron desktop shell (only there do native web views occlude the DOM).
@@ -699,14 +723,14 @@ export function Zero0Canvas() {
         )
       })}
       {/* SIBLINGS chevron — a compact affordance at the end of the trail, shown only when
-          the open node has same-parent siblings. Click → a dropdown of those siblings
-          (openSiblings). Behind a chevron so the header stays STABLE: switching siblings
-          no longer reshuffles a visible tab list. */}
-      {otherSiblings.length > 0 && (
+          the open node has same-parent siblings to switch between. Click → a dropdown of
+          ALL those siblings (openSiblings), current one marked. Behind a chevron so the
+          header stays STABLE: switching siblings never reshuffles a visible tab list. */}
+      {siblings.length > 1 && (
         <button
           type="button"
           onClick={openSiblings}
-          aria-label={`Switch sibling (${otherSiblings.length} other${otherSiblings.length > 1 ? "s" : ""})`}
+          aria-label={`Switch sibling (${siblings.length} at this level)`}
           title="Switch sibling"
           className="ml-0.5 leading-none text-muted-foreground hover:text-foreground"
         >
@@ -838,7 +862,12 @@ export function Zero0Canvas() {
                 <dd className="truncate text-foreground">
                   {children.length === 0
                     ? "none"
-                    : `${children.filter((c) => !isClosed(c)).length} open · ${children.length} total`}
+                    : [
+                        `${childBreakdown.open} open`,
+                        `${childBreakdown.total} total`,
+                        ...(childBreakdown.done > 0 ? [`${childBreakdown.done} done`] : []),
+                        ...(childBreakdown.complete > 0 ? [`${childBreakdown.complete} complete`] : []),
+                      ].join(" · ")}
                 </dd>
               </>
             )}
