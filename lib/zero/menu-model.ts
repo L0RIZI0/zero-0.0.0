@@ -1,7 +1,7 @@
 // SHARED right-click MENU MODEL for the root canvas.
 //
 // One source of truth for the entity context-menu, consumed by BOTH:
-//   • the in-DOM menu (`Zero0EntityMenu`), used when nothing occludes it, and
+//   • the in-DOM menu (`Zero0DomMenu`), used when nothing occludes it, and
 //   • the NATIVE overlay window (`/desktop/context-menu`), used on desktop when a web
 //     Resource is open — a DOM menu can't paint over a native WebContentsView, so the
 //     menu is drawn in a transparent child window floating ABOVE the site (the site

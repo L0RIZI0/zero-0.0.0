@@ -10,8 +10,9 @@ export interface Zero0FrameMenuAnchor {
 }
 
 /**
- * A lean right-click menu for a MINIMIZABLE frame (TODAY / ACTIVITY). Distinct from the
- * per-entity {@link Zero0EntityMenu}: it acts on the FRAME chrome, not a data node. It
+ * A lean right-click menu for a MINIMIZABLE frame (TODAY / ACTIVITY / ZERO HEADER).
+ * Distinct from the per-entity menu ({@link Zero0DomMenu}): it acts on the FRAME chrome,
+ * not a data node. It
  * offers a single toggle — "Minimize the frame" (collapse to just its dayline band) or
  * "Maximize the frame" (restore the full render) — and shares the entity menu's chrome
  * (fixed position, viewport-clamped, closes on outside pointer-down / Escape). Kept as

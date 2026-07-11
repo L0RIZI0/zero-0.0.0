@@ -504,11 +504,6 @@ export function Zero0Canvas() {
     setPath([ROOT_ID, ...chain])
   }, [])
 
-  // The per-entity right-click menu. Opened from ANYWHERE an entity is shown — a
-  // child row, a breadcrumb crumb, the open node's header, or the empty content frame
-  // (which targets the current context). `stopPropagation` so an inner target that
-  // handled the event (a row) doesn't ALSO bubble up to a container handler (the
-  // content frame) and overwrite the anchor with the context entity.
   // Show a menu at CLIENT coords (x,y). Over a native web Resource on desktop the DOM is
   // occluded by the live site (no z-index can beat a WebContentsView), so the menu is
   // drawn in the transparent overlay window ABOVE the site — the site stays put, no
@@ -561,6 +556,58 @@ export function Zero0Canvas() {
     ev.stopPropagation()
     setFrameMenu({ frame, x: ev.clientX, y: ev.clientY })
   }, [])
+
+  // SIBLINGS dropdown — opened from the chevron beside the breadcrumb. A menu of the open
+  // node's OTHER same-parent children; picking one drills laterally (goToSibling). Using a
+  // dropdown (rather than an inline row) keeps the header stable: switching siblings no
+  // longer reshuffles a visible list, since the choices live behind the chevron. Routed
+  // through `showMenu`, so over a web Resource it draws in the native overlay (unoccluded).
+  const openSiblings = useCallback(
+    (ev: React.MouseEvent) => {
+      ev.preventDefault()
+      ev.stopPropagation()
+      if (otherSiblings.length === 0) return
+      const items: MenuItem[] = otherSiblings.map((s) => ({
+        type: "item",
+        id: s.id,
+        label: s.title,
+        glyphKind: s.kind,
+      }))
+      showMenu(items, ev.clientX, ev.clientY, (id) => goToSibling(id))
+    },
+    [otherSiblings, showMenu, goToSibling],
+  )
+
+  // Detect the Electron desktop shell (only there do native web views occlude the DOM).
+  useEffect(() => {
+    setIsDesktop(typeof window !== "undefined" && !!window.zero?.menu)
+  }, [])
+
+  // Route the NATIVE overlay menu's chosen action back to whatever opened it. One
+  // persistent listener; `nativeSelectRef` points at the current menu's onSelect.
+  useEffect(() => {
+    if (!window.zero?.menu?.onSelected) return
+    return window.zero.menu.onSelected((actionId) => {
+      const fn = nativeSelectRef.current
+      nativeSelectRef.current = null
+      fn?.(actionId)
+    })
+  }, [])
+
+  // A right-click landed INSIDE the open web view (main forwards it as client coords,
+  // since the DOM never sees it). Build the CURRENT context entity's menu and draw it in
+  // the overlay at that point — so right-clicking the site itself gets the same menu.
+  useEffect(() => {
+    if (!window.zero?.resource?.onContextMenu) return
+    return window.zero.resource.onContextMenu(({ id, x, y }) => {
+      const ent = getEntity(id) ?? (contextId ? getEntity(contextId) : undefined)
+      if (!ent) return
+      showMenu(buildEntityMenuItems(ent), x, y, (actionId) => {
+        applyEntityMenuAction(ent, actionId)
+        bump()
+      })
+    })
+  }, [contextId, showMenu, bump])
 
   // Meta rows for the CURRENT open node ������� raw lifecycle data, kind-aware. Recomputed
   // per render (cheap) rather than memoised, so it always mirrors `rev`.
@@ -651,35 +698,32 @@ export function Zero0Canvas() {
           </span>
         )
       })}
+      {/* SIBLINGS chevron — a compact affordance at the end of the trail, shown only when
+          the open node has same-parent siblings. Click → a dropdown of those siblings
+          (openSiblings). Behind a chevron so the header stays STABLE: switching siblings
+          no longer reshuffles a visible tab list. */}
+      {otherSiblings.length > 0 && (
+        <button
+          type="button"
+          onClick={openSiblings}
+          aria-label={`Switch sibling (${otherSiblings.length} other${otherSiblings.length > 1 ? "s" : ""})`}
+          title="Switch sibling"
+          className="ml-0.5 leading-none text-muted-foreground hover:text-foreground"
+        >
+          {"\u25BE"}
+        </button>
+      )}
     </nav>
   )
-  // SIBLINGS value — the open node's OTHER same-parent children as lateral shortcuts
-  // (click = goToSibling swaps just the path leaf; right-click = that entity's menu).
-  const siblingsList =
-    otherSiblings.length > 0 ? (
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5">
-        {otherSiblings.map((s) => (
-          <button
-            key={s.id}
-            type="button"
-            onClick={() => goToSibling(s.id)}
-            onContextMenu={(ev) => openMenu(s, ev)}
-            className="max-w-full truncate text-foreground underline-offset-2 hover:underline"
-          >
-            {s.title}
-          </button>
-        ))}
-      </div>
-    ) : null
 
   return (
     <main
       className="relative flex h-screen flex-col bg-background text-foreground"
       style={{ fontFamily: "var(--font-zero0-mono), ui-monospace, monospace" }}
     >
-      {/* ── GLUED TOP: live clock ──────────────────────────────────────────────
+      {/* ── GLUED TOP: live clock ──────────────────���───────────────────────────
           Permanent top chrome (mirrors the footer's glued-bottom role): the live full
-          date + time WITH seconds, top-left. Always present — for any open entity, and
+          date + time WITH seconds, top-left. Always present �� for any open entity, and
           regardless of which frames are toggled below. `min-h` reserves its row so the
           layout doesn't jump between the SSR blank and the first mounted tick. */}
       <div className="flex min-h-[41px] shrink-0 items-center border-b border-border px-4 py-3 text-[10px] uppercase tracking-wider leading-none tabular-nums text-foreground">
@@ -770,32 +814,22 @@ export function Zero0Canvas() {
             {ZERO_VERSION}
           </span>
         </div>
-        {/* MINIMIZED — just the values (breadcrumb + siblings), tight under the mark, so
-            you keep the access path + the tabs row without the fuller session block or its
-            label column. Toggled via the header's right-click frame menu. */}
-        {mounted && minimized.zeroHeader && (
-          <div className="mt-1.5 space-y-0.5">
-            {breadcrumb}
-            {siblingsList}
-          </div>
-        )}
-        {/* FULL — the session readout as a labelled meta block. CONTEXT is now the breadcrumb
-            itself (the crumb trail IS the context, so no separate title row); SIBLINGS follows
-            as the "tabs" row, then STORE/ENTITIES. Matches the ENTITY HEADER meta exactly (tight
-            `6rem` label col + left-packed values) so the two blocks align as one column. Over a
-            web surface only CONTEXT + SIBLINGS show (STORE/ENTITIES are session/debug detail that
-            would overcrowd the clean breadcrumb-over-site view); the header sits ABOVE the
-            web-view holder, so these rows naturally push the tracked surface rect down. */}
+        {/* MINIMIZED — just the breadcrumb (with its trailing SIBLINGS chevron), tight
+            under the mark: the access path + the lateral-switch affordance without the
+            fuller session block or its label column. Toggled via the header frame menu. */}
+        {mounted && minimized.zeroHeader && <div className="mt-1.5">{breadcrumb}</div>}
+        {/* FULL — the session readout as a labelled meta block. CONTEXT is the breadcrumb
+            itself (the crumb trail IS the context, and its trailing chevron opens the
+            SIBLINGS dropdown — so there's no separate reshuffling siblings row), then
+            STORE/ENTITIES. Matches the ENTITY HEADER meta exactly (tight `6rem` label col +
+            left-packed values) so the two blocks align as one column. Over a web surface
+            only CONTEXT shows (STORE/ENTITIES are session/debug detail that would overcrowd
+            the clean breadcrumb-over-site view); the header sits ABOVE the web-view holder,
+            so its rows naturally push the tracked surface rect down. */}
         {mounted && !minimized.zeroHeader && (
           <dl className="mt-2 grid grid-cols-[6rem_1fr] gap-x-4 gap-y-0.5">
             <dt className="uppercase tracking-widest">context</dt>
             <dd className="min-w-0">{breadcrumb}</dd>
-            {otherSiblings.length > 0 && (
-              <>
-                <dt className="uppercase tracking-widest">siblings</dt>
-                <dd className="min-w-0">{siblingsList}</dd>
-              </>
-            )}
             {!context?.webUrl && (
               <>
                 <dt className="uppercase tracking-widest">store</dt>
@@ -1162,7 +1196,7 @@ export function Zero0Canvas() {
         </span>
       </footer>
 
-      {menu && <Zero0EntityMenu anchor={menu} onMutate={bump} onClose={() => setMenu(null)} />}
+      {menu && <Zero0DomMenu menu={menu} onClose={() => setMenu(null)} />}
       {frameMenu && (
         <Zero0FrameMenu
           anchor={frameMenu}

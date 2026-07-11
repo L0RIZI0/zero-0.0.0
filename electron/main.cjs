@@ -617,9 +617,12 @@ ipcMain.on("zero:update:install", () => {
 
 // ── Branded context-menu overlay ─────────────────────────────────────────────
 // The menu is a transparent, frameless child window (so it floats above the native
-// resource views and can show Zero's own themed UI with real rounded corners +
-// shadow). It loads the /desktop/context-menu route, receives the right-click
-// context, reports its measured size, and dismisses on blur / action / Escape.
+// resource views — no DOM z-index can beat a WebContentsView — and shows Zero's own
+// themed UI with real corners + shadow). It loads the /desktop/context-menu route,
+// receives a GENERIC menu-item tree built by the main renderer (which owns the live
+// entity data), reports its measured size, echoes the chosen action id back for the
+// main renderer to execute, and dismisses on blur / action / Escape. The website
+// underneath is never moved or hidden.
 
 /** @type {BrowserWindow | null} */
 let menuWin = null
