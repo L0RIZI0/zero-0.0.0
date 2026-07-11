@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react"
-import { getEntity, getInheritedAccent } from "@/lib/zero/data"
+import { ROOT_ID, getEntity, getInheritedAccent } from "@/lib/zero/data"
 import { titleAt } from "@/lib/zero/entity-log"
 import {
   useActivityRevision,
@@ -18,10 +18,6 @@ import { Zero0FrameMarker } from "@/components/zero0/zero0-frame-marker"
 import { useZero0Readout, toggleZero0Readout } from "@/lib/zero/zero0-chord"
 import { formatLocale } from "@/lib/zero/format-locale"
 import type { EntityKind } from "@/lib/zero/types"
-
-// The root context id — its label is "Home" when it surfaces as a place, matching the
-// canvas + the old shell's convention.
-const ROOT_ID = "s_root"
 
 /** Clock time (HH:MM) for a segment edge. Client-only (called under `mounted`). */
 function clock(epoch: number): string {

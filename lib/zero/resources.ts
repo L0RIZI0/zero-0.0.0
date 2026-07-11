@@ -13,7 +13,7 @@
 //   • local     → the user's own device (Files live on-disk, no internet).
 //   • internet  → a hosted SaaS the user subscribes to (Figma, Linear, Notion…).
 //
-// entity0 (the user's Individual / home, `ROOT_ENTITY_ID`) is where the person's
+// entity0 (the user's Individual / home, `ROOT_ID`) is where the person's
 // resources first plug in from the world — so on entity0 they are INPUTS. The user
 // then creates child spaces and FORWARDS resources down into them (the future drag-
 // and-drop from a parent's peek losange onto an open child). A child can also plug
@@ -38,9 +38,9 @@
 // imported holding is NOT built yet — `forwardResource` is the pure seam for it.
 
 import { FileText, ImageIcon, type LucideIcon } from "lucide-react"
-
-/** The user's Individual / home entity — where the world's resources first plug in. */
-export const ROOT_ENTITY_ID = "s_root"
+// The user's Individual / home entity id ("0") — where the world's resources first
+// plug in. Single source of truth in data.ts (formerly the local `ROOT_ID`).
+import { ROOT_ID } from "./data"
 
 /** The three families of resource shown in the panel (money figure, assets, apps). */
 export type ResourceClass = "money" | "asset" | "app"
@@ -170,26 +170,26 @@ const DEF_BY_ID = new Map(RESOURCE_DEFS.map((d) => [d.id, d]))
 const DEF_ORDER = new Map(RESOURCE_DEFS.map((d, i) => [d.id, i]))
 
 /**
- * The resource GRAPH — who holds what. entity0 (`ROOT_ENTITY_ID`) holds every
+ * The resource GRAPH — who holds what. entity0 (`ROOT_ID`) holds every
  * catalog resource as a direct INPUT from the world; assets/apps draw the connector
  * hairline (money doesn't). Child IMPORT holdings (resources the user forwarded from
  * a parent) are mocked in here on request — see the commented example.
  */
 export const RESOURCE_HOLDINGS: ResourceHolding[] = [
   // ── entity0 (the Individual / home): the world plugs in here ──────────────
-  { entityId: ROOT_ENTITY_ID, resourceId: "money", provision: "input", connector: false },
-  { entityId: ROOT_ENTITY_ID, resourceId: "camera-roll", provision: "input", connector: true },
-  { entityId: ROOT_ENTITY_ID, resourceId: "files", provision: "input", connector: false },
-  { entityId: ROOT_ENTITY_ID, resourceId: "figma", provision: "input", connector: true },
-  { entityId: ROOT_ENTITY_ID, resourceId: "linear", provision: "input", connector: true },
-  { entityId: ROOT_ENTITY_ID, resourceId: "notion", provision: "input", connector: true },
-  { entityId: ROOT_ENTITY_ID, resourceId: "vercel", provision: "input", connector: true },
+  { entityId: ROOT_ID, resourceId: "money", provision: "input", connector: false },
+  { entityId: ROOT_ID, resourceId: "camera-roll", provision: "input", connector: true },
+  { entityId: ROOT_ID, resourceId: "files", provision: "input", connector: false },
+  { entityId: ROOT_ID, resourceId: "figma", provision: "input", connector: true },
+  { entityId: ROOT_ID, resourceId: "linear", provision: "input", connector: true },
+  { entityId: ROOT_ID, resourceId: "notion", provision: "input", connector: true },
+  { entityId: ROOT_ID, resourceId: "vercel", provision: "input", connector: true },
 
   // ── Child imports (mockups) — added on request. Shape, for reference: ─────
   // Forward Figma from home down to the Zero space, and allocate a $2,000 budget
   // to Home & Family from the money resource:
-  //   { entityId: "s_zero",   resourceId: "figma", provision: "imported", fromId: ROOT_ENTITY_ID, connector: true },
-  //   { entityId: "s_family", resourceId: "money", provision: "imported", fromId: ROOT_ENTITY_ID, amount: 2000, connector: false },
+  //   { entityId: "s_zero",   resourceId: "figma", provision: "imported", fromId: ROOT_ID, connector: true },
+  //   { entityId: "s_family", resourceId: "money", provision: "imported", fromId: ROOT_ID, amount: 2000, connector: false },
 ]
 
 /** Look up a resource definition by id. */

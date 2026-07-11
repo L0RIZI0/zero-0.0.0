@@ -20,6 +20,7 @@
 // ============================================================================
 
 import {
+  ROOT_ID,
   getTimedDescendants,
   getTimelineOccurrences,
   getInheritedAccent,
@@ -171,7 +172,7 @@ export function queryTimeline(
     if (!s) continue
     const anchor = s.at ?? s.startAt
     if (anchor == null) continue
-    const color = getInheritedAccent(e.parentId ?? "s_root") ?? NEUTRAL
+    const color = getInheritedAccent(e.parentId ?? ROOT_ID) ?? NEUTRAL
 
     if (!s.repeat) {
       const [st, en] = entityInterval(e)
@@ -239,7 +240,7 @@ export function clusterInstants(
 function finishCluster(items: TimelineOccurrence[]): InstantCluster {
   // Representative position = mean time; color = first item's accent.
   const ms = items.reduce((sum, e) => sum + (e.schedule?.at ?? 0), 0) / items.length
-  const color = getInheritedAccent(items[0].parentId ?? "s_root") ?? NEUTRAL
+  const color = getInheritedAccent(items[0].parentId ?? ROOT_ID) ?? NEUTRAL
   return { key: items.map((e) => e.occKey).join("|"), ms, items, color }
 }
 
@@ -293,7 +294,7 @@ export function applySemanticRollup(
       passThrough.push(it)
       continue
     }
-    const child = directChildOfFocus(it.parentId ?? "s_root", focusId)
+    const child = directChildOfFocus(it.parentId ?? ROOT_ID, focusId)
     if (child == null) {
       passThrough.push(it) // direct member of focus, or not under it — always shown
       continue

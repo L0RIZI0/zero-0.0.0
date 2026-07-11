@@ -26,7 +26,7 @@ import { useSyncExternalStore } from "react"
 // ============================================================================
 
 export interface PresenceSegment {
-  /** The focused space's entity id at this moment (root = "s_root"). */
+  /** The focused space's entity id at this moment (root = ROOT_ID, "0"). */
   entityId: string
   /** When this presence began (epoch ms). */
   enteredAt: number

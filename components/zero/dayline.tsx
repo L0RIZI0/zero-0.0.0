@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { useZeroNav } from "@/lib/zero/nav-store"
-import { getTimelineOccurrences, getInheritedAccent, getEntity } from "@/lib/zero/data"
+import { ROOT_ID, getTimelineOccurrences, getInheritedAccent, getEntity } from "@/lib/zero/data"
 import { getSegments, useActivityRevision } from "@/lib/zero/activity-log"
 import { entityInterval } from "@/lib/zero/timeline-index"
 import { KIND_META, isClosed } from "@/lib/zero/kinds"
@@ -300,7 +300,7 @@ export function Dayline() {
         id: e.id,
         kind: e.kind,
         title: e.title,
-        color: getInheritedAccent(e.parentId ?? "s_root") ?? NEUTRAL,
+        color: getInheritedAccent(e.parentId ?? ROOT_ID) ?? NEUTRAL,
         leftPct,
         widthPct,
         isDuration,

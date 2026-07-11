@@ -11,6 +11,7 @@ import {
   Eye,
 } from "lucide-react"
 import {
+  ROOT_ID,
   getInheritedAccent,
   isInSubtree,
   getEntity,
@@ -1119,7 +1120,7 @@ export function TimelineStrip({
   const UNRELATED_OPACITY = 0.3
   const relatedFactor = (parentId?: string | null, id?: string | null): number => {
     if (atRootFocus) return 1
-    const container = parentId ?? "s_root"
+    const container = parentId ?? ROOT_ID
     const related = isInSubtree(contextId, container) || (id != null && isInSubtree(contextId, id))
     return related ? 1 : UNRELATED_OPACITY
   }
@@ -1147,7 +1148,7 @@ export function TimelineStrip({
   const bars = useMemo<Bar[]>(() => {
     const out: Bar[] = []
     for (const e of spans) {
-      const color = getInheritedAccent(e.parentId ?? "s_root") ?? NEUTRAL_MARKER
+      const color = getInheritedAccent(e.parentId ?? ROOT_ID) ?? NEUTRAL_MARKER
       const kind = e.kind === "space" ? "space" : "moment"
       const blocks = e.schedule?.blocks
       if (blocks && blocks.length > 1) {
@@ -1268,7 +1269,7 @@ export function TimelineStrip({
   const mothers = useMemo<MotherBlock[]>(() => {
     const out: MotherBlock[] = []
     for (const r of lanes.ribbons) {
-      const motherId = directChildOfFocus(r.spaceId, "s_root") ?? null
+      const motherId = directChildOfFocus(r.spaceId, ROOT_ID) ?? null
       const last = out[out.length - 1]
       if (last && motherId !== null && last.motherId === motherId) {
         last.laneCount += r.laneCount
@@ -3264,7 +3265,7 @@ export function TimelineStrip({
                   <button
                     key={`ribbon-label:${r.spaceId}`}
                     type="button"
-                    onClick={() => r.spaceId !== "s_root" && open(r.spaceId)}
+                    onClick={() => r.spaceId !== ROOT_ID && open(r.spaceId)}
                     title={r.title}
                     className={cn(
                       "absolute z-20 flex max-w-[42%] items-center gap-1 rounded border border-border/70 bg-card px-1.5 py-0.5 text-[9.5px] font-medium leading-none tracking-tight text-foreground/80 shadow-sm transition-[opacity,colors,top,left] duration-300 ease-out animate-in fade-in hover:text-foreground",

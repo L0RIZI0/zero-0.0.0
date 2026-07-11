@@ -11,6 +11,7 @@ import {
   } from "./entity-log"
 import type { LogScalarMismatch } from "./entity-log"
 import { readUserItems, writeUserItems } from "./persistence"
+import type { UserItems } from "./persistence"
 import type { ScheduleParse } from "./schedule-parse"
 
 /**
@@ -90,6 +91,16 @@ export const currentUser: User = {
   avatarUrl: "/loris-avatar.png",
 }
 
+/**
+ * The id of the ROOT node — the user's own Individual, the zero-point the whole
+ * app is named for and the node every context descends from. It is literally `"0"`:
+ * the origin of the tree, the individual's point of view on their world. This is the
+ * SINGLE source of truth for that id (formerly the space-era `ROOT_ID`, renamed
+ * Jul 2026); every module imports it rather than hard-coding the string, and a
+ * one-time hydrate migration reattaches any data persisted under the old id.
+ */
+export const ROOT_ID = "0"
+
 // ----------------------------------------------------------------------------
 // Resources — apps, services, documents, tools available as contextual inputs
 // ----------------------------------------------------------------------------
@@ -101,7 +112,7 @@ export const resources: Resource[] = [
     kind: "communication",
     icon: "Gm",
     description: "Inbox and threads",
-    spaceIds: ["s_root", "s_dayjob", "s_admin", "s_team"],
+    spaceIds: [ROOT_ID, "s_dayjob", "s_admin", "s_team"],
     tint: "#C9685E",
   },
   {
@@ -119,7 +130,7 @@ export const resources: Resource[] = [
     kind: "storage",
     icon: "Dr",
     description: "Cloud files",
-    spaceIds: ["s_root", "s_dayjob", "s_zero", "s_admin"],
+    spaceIds: [ROOT_ID, "s_dayjob", "s_zero", "s_admin"],
     tint: "#6E9C84",
   },
   {
@@ -137,7 +148,7 @@ export const resources: Resource[] = [
     kind: "document",
     icon: "No",
     description: "Docs and wikis",
-    spaceIds: ["s_root", "s_dayjob", "s_zero", "s_strategy", "s_research"],
+    spaceIds: [ROOT_ID, "s_dayjob", "s_zero", "s_strategy", "s_research"],
     tint: "#9A9A93",
   },
   {
@@ -155,7 +166,7 @@ export const resources: Resource[] = [
     kind: "note",
     icon: "Jr",
     description: "Daily entries",
-    spaceIds: ["s_personal", "s_journal", "s_root"],
+    spaceIds: ["s_personal", "s_journal", ROOT_ID],
     tint: "#A88C6A",
   },
   {
@@ -164,7 +175,7 @@ export const resources: Resource[] = [
     kind: "note",
     icon: "Nt",
     description: "Quick captures",
-    spaceIds: ["s_root", "s_personal", "s_zero", "s_product"],
+    spaceIds: [ROOT_ID, "s_personal", "s_zero", "s_product"],
     tint: "#9A9488",
   },
   {
@@ -182,7 +193,7 @@ export const resources: Resource[] = [
     kind: "service",
     icon: "Co",
     description: "People & relations",
-    spaceIds: ["s_root", "s_dayjob", "s_personal", "s_family"],
+    spaceIds: [ROOT_ID, "s_dayjob", "s_personal", "s_family"],
     tint: "#7F9AA3",
   },
   {
@@ -191,7 +202,7 @@ export const resources: Resource[] = [
     kind: "file",
     icon: "Fl",
     description: "Local resources",
-    spaceIds: ["s_root", "s_admin", "s_home"],
+    spaceIds: [ROOT_ID, "s_admin", "s_home"],
     tint: "#969089",
   },
   {
@@ -201,7 +212,7 @@ export const resources: Resource[] = [
     icon: "Ze",
     description: "Zero agent",
     spaceIds: [
-      "s_root",
+      ROOT_ID,
       "s_dayjob",
       "s_zero",
       "s_strategy",
@@ -321,12 +332,12 @@ export const entities: Entity[] = [
     description: "The irreducible core self.",
   },
   // entity0 is the INDIVIDUAL (glyph: a Z rotated 45° anticlockwise) — the person the
-  // Soul animates, whose space IS the homeview (the door to their life). It keeps id
-  // `s_root` and all its space children; only its `kind` flipped organism→individual,
-  // its `title` is the user's name, and it now nests inside the Soul (`soul_self`).
-  // The former separate "i_self" individual node is gone — `s_root` is that person.
+  // Soul animates, whose space IS the homeview (the door to their life). Its id is
+  // `ROOT_ID` ("0" — the zero-point of the tree, formerly the space-era `s_root`);
+  // its `kind` is individual, its `title` is the user's name, and it nests inside the
+  // Soul (`soul_self`). The former separate "i_self" node is gone — `"0"` is that person.
   {
-    id: "s_root",
+    id: ROOT_ID,
     kind: "individual",
     title: currentUser.name,
     parentId: "soul_self",
@@ -394,7 +405,7 @@ export const assets: Asset[] = [
     title: "Notion Plus",
     type: "subscription",
     linkedResourceId: "r_notion",
-    spaceId: "s_root",
+    spaceId: ROOT_ID,
     preview: "Subscription · renews Apr 2",
   },
   {
@@ -418,7 +429,7 @@ export const assets: Asset[] = [
     title: "Figma Organization",
     type: "subscription",
     linkedResourceId: "r_figma",
-    spaceId: "s_root",
+    spaceId: ROOT_ID,
     preview: "Subscription · seat active",
   },
   {
@@ -626,7 +637,7 @@ function collectDescendants(spaceId: string): Set<string> {
 
 /** True when `spaceId` is `nodeId` or a descendant of it. */
 export function isInSubtree(nodeId: string, spaceId: string): boolean {
-  if (nodeId === "s_root") return true
+  if (nodeId === ROOT_ID) return true
   return collectDescendants(nodeId).has(spaceId)
 }
 
@@ -651,9 +662,9 @@ export function directChildOfFocus(spaceId: string | null, focusId: string): str
   }
   const focusIdx = chain.indexOf(focusId)
   // s_root focus: the "direct child of root" is the chain element just below root.
-  if (focusId === "s_root") {
+  if (focusId === ROOT_ID) {
     // chain ends at the true root (s_root or a top-level node). Find s_root's index.
-    const rootIdx = chain.indexOf("s_root")
+    const rootIdx = chain.indexOf(ROOT_ID)
     const idx = rootIdx === -1 ? chain.length - 1 : rootIdx
     if (idx <= 0) return null // item lives directly at root
     return chain[idx - 1]
@@ -728,7 +739,7 @@ export function getAssignedResources(contextId: string): Resource[] {
  * callers; the task list itself uses getChildren for direct children.
  */
 export function getSubtreeTasks(contextId: string): Entity[] {
-  if (contextId === "s_root") return entities.filter((e) => e.kind === "task" && e.seriesId == null)
+  if (contextId === ROOT_ID) return entities.filter((e) => e.kind === "task" && e.seriesId == null)
   const descendants = collectDescendants(contextId)
   return entities.filter(
     (e) =>
@@ -754,7 +765,7 @@ export function getTimedDescendants(contextId: string): Entity[] {
   const hasScheduledTime = (s: Entity["schedule"]) =>
     !!s && (s.startAt != null || s.endAt != null || s.at != null || s.dueAt != null)
   const isTimed = (e: Entity) => e.seriesId == null && hasScheduledTime(e.schedule)
-  if (contextId === "s_root") return entities.filter(isTimed)
+  if (contextId === ROOT_ID) return entities.filter(isTimed)
   const descendants = collectDescendants(contextId)
   return entities.filter(
     (e) => isTimed(e) && e.parentId !== null && descendants.has(e.parentId),
@@ -913,7 +924,7 @@ export function getTimelineOccurrences(
 
 /** Assets anywhere in a context's subtree. */
 export function getSubtreeAssets(contextId: string): Asset[] {
-  if (contextId === "s_root") return assets
+  if (contextId === ROOT_ID) return assets
   const descendants = collectDescendants(contextId)
   return assets.filter((a) => descendants.has(a.spaceId))
 }
@@ -1169,6 +1180,44 @@ function migrateCompletionToLog(entity: Entity): void {
   entity.log = buildLogFromScalars(entity)
 }
 
+/** The space-era id the root Individual used before it became {@link ROOT_ID} ("0"). */
+const LEGACY_ROOT_ID = "s_root"
+
+/**
+ * ONE-TIME MIGRATION (Jul 2026): the root Individual's id changed from the space-era
+ * `"s_root"` to the ontology-clean {@link ROOT_ID} (`"0"`). The root itself is seeded
+ * (so it already loads as `"0"`), but any data the user PERSISTED under the old id would
+ * otherwise dangle. This remaps, in place on the freshly-read {@link UserItems}:
+ *   • child `parentId`s pointing at the old root → `"0"` (reattaches the whole subtree);
+ *   • id references inside `taggedSpaceIds` / `assignedResourceIds`;
+ *   • the per-context `pins` / `order` maps keyed by (or listing) the old id;
+ *   • an `overrides` patch keyed by the old id (e.g. a renamed/recolored root);
+ *   • any `deletedIds` entry.
+ * Idempotent and fully no-op once a store has no `"s_root"` left (i.e. every future load).
+ */
+function migrateStoredRootId(stored: UserItems): void {
+  const swap = (id: string) => (id === LEGACY_ROOT_ID ? ROOT_ID : id)
+  for (const e of stored.entities) {
+    if (e.parentId === LEGACY_ROOT_ID) e.parentId = ROOT_ID
+    if (Array.isArray(e.taggedSpaceIds)) e.taggedSpaceIds = e.taggedSpaceIds.map(swap)
+    if (Array.isArray(e.assignedResourceIds)) e.assignedResourceIds = e.assignedResourceIds.map(swap)
+  }
+  const remapMap = (m: Record<string, string[]>) => {
+    if (Array.isArray(m[LEGACY_ROOT_ID])) {
+      m[ROOT_ID] = [...(m[ROOT_ID] ?? []), ...m[LEGACY_ROOT_ID]]
+      delete m[LEGACY_ROOT_ID]
+    }
+    for (const k of Object.keys(m)) m[k] = m[k].map(swap)
+  }
+  remapMap(stored.pins)
+  remapMap(stored.order)
+  if (stored.overrides[LEGACY_ROOT_ID]) {
+    stored.overrides[ROOT_ID] = { ...(stored.overrides[ROOT_ID] ?? {}), ...stored.overrides[LEGACY_ROOT_ID] }
+    delete stored.overrides[LEGACY_ROOT_ID]
+  }
+  stored.deletedIds = stored.deletedIds.map(swap)
+}
+
 let _hydrated = false
 
 /**
@@ -1180,6 +1229,8 @@ export function hydrateFromStorage(): boolean {
   if (_hydrated) return false
   _hydrated = true
   const stored = readUserItems()
+  // Reattach any data persisted under the old space-era root id before merging.
+  migrateStoredRootId(stored)
   let added = false
   // DEV-only: collect log↔scalar disagreements to prove out dual-write before the
   // scalars are retired (Phase 3). Reported once after the loop; never in prod.

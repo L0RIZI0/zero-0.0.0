@@ -2,7 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { flushSync } from "react-dom"
-import { getEntity, hydrateFromStorage, isDetachedChild } from "./data"
+import { ROOT_ID, getEntity, hydrateFromStorage, isDetachedChild } from "./data"
   import { stackTargetRect, LEAF_WEDGE_RATIO, WINDOW_BASE_SIDE } from "./motion"
 import { VIEW_PAD_TOP, PANEL_OPEN_W, DAYLINE_ROW_H } from "./layout"
 import {
@@ -66,7 +66,7 @@ export interface ActiveEntity {
 }
 
 interface ZeroNavContextValue {
-  /** Stack of entity ids. stack[0] is always the root, "s_root". */
+  /** Stack of entity ids. stack[0] is always the root, `ROOT_ID` ("0"). */
   stack: string[]
   /** The currently focused (top of stack) entity id. */
   activeId: string
@@ -167,7 +167,7 @@ const ZeroNavContext = createContext<ZeroNavContextValue | null>(null)
 
 export function ZeroNavProvider({
   children,
-  rootSpaceId = "s_root",
+  rootSpaceId = ROOT_ID,
 }: {
   children: React.ReactNode
   rootSpaceId?: string

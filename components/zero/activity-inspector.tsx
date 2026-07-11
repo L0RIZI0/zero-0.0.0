@@ -8,7 +8,7 @@ import {
   getSegmentsForDay,
   useActivityLog,
 } from "@/lib/zero/activity-log"
-import { getEntity } from "@/lib/zero/data"
+import { ROOT_ID, getEntity } from "@/lib/zero/data"
 import { titleAt } from "@/lib/zero/entity-log"
 
 /**
@@ -23,7 +23,7 @@ import { titleAt } from "@/lib/zero/entity-log"
 function titleFor(id: string): string {
   const e = getEntity(id)
   if (e) return e.title
-  if (id === "s_root") return "Home"
+  if (id === ROOT_ID) return "Home"
   return id
 }
 
@@ -35,7 +35,7 @@ function titleFor(id: string): string {
 function titleForAt(id: string, epoch: number): string {
   const e = getEntity(id)
   if (e) return titleAt(e, epoch)
-  if (id === "s_root") return "Home"
+  if (id === ROOT_ID) return "Home"
   return id
 }
 

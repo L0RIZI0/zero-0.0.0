@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { getSegments, useActivityRevision } from "@/lib/zero/activity-log"
-import { getEntity, getInheritedAccent, getTimelineOccurrences } from "@/lib/zero/data"
+import { ROOT_ID, getEntity, getInheritedAccent, getTimelineOccurrences } from "@/lib/zero/data"
 import { titleAt } from "@/lib/zero/entity-log"
 import { rangeText, NOW_COLOR } from "@/lib/zero/timeline-format"
 import { isSleepTitle, sleepSkyBackground } from "@/lib/zero/sleep-sky"
@@ -64,7 +64,7 @@ const DEFAULT_PRESENCE = "#ffffff"
  */
 function paintFor(entityId: string): { fill: string; stroke: string | null } {
   const e = getEntity(entityId)
-  const isRoot = entityId === "s_root"
+  const isRoot = entityId === ROOT_ID
   const own = e?.accent ?? getInheritedAccent(e?.parentId ?? null)
   const fill = own ?? (isRoot ? DEFAULT_PRESENCE : NEUTRAL)
 
@@ -246,7 +246,7 @@ export function Zero0Dayline({
   const planned = useMemo<DaylineBar[]>(() => {
     if (!mounted) return []
     const out: DaylineBar[] = []
-    for (const occ of getTimelineOccurrences("s_root", lo, hi)) {
+    for (const occ of getTimelineOccurrences(ROOT_ID, lo, hi)) {
       const s = occ.schedule
       if (!s) continue
       // start / point / due — a due-only task anchors on its deadline and paints a point.
@@ -303,7 +303,7 @@ export function Zero0Dayline({
         key: `pres:${s.entityId}:${s.enteredAt}`,
         id: s.entityId,
         // Historical title — the name the place carried at the segment's start.
-        title: entity ? titleAt(entity, st) : s.entityId === "s_root" ? "Home" : "Elsewhere",
+        title: entity ? titleAt(entity, st) : s.entityId === ROOT_ID ? "Home" : "Elsewhere",
         color: fill,
         stroke,
         leftPct,

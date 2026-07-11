@@ -11,6 +11,7 @@ import { Zero0DomMenu, type Zero0DomMenuState } from "./zero0-dom-menu"
 import { buildEntityMenuItems, applyEntityMenuAction, type MenuItem } from "@/lib/zero/menu-model"
 import { Zero0FrameMenu, type Zero0FrameMenuAnchor } from "./zero0-frame-menu"
 import {
+  ROOT_ID,
   currentUser,
   getChildren,
   getEntity,
@@ -42,10 +43,6 @@ import { ZERO_VERSION } from "@/lib/zero/version"
 import { formatLocale } from "@/lib/zero/format-locale"
 import { Zero0ResourceCanvas } from "./zero0-resource-canvas"
 import type { Entity } from "@/lib/zero/types"
-
-// The root context: the Individual whose space IS the homeview. Everything the
-// user grows on the canvas nests under this id. Matches the seed in `data.ts`.
-const ROOT_ID = "s_root"
 
 // The `--color` swatch palette — a small curated ramp shown when the create field
 // reads exactly "--color" / "--color:". Clicking one fills the draft with "--color:<hex>";
