@@ -53,6 +53,30 @@ contextBridge.exposeInMainWorld("zero", {
       ipcRenderer.on("zero:resource:navigated", handler)
       return () => ipcRenderer.removeListener("zero:resource:navigated", handler)
     },
+    /** A right-click landed INSIDE the native web view (the DOM never sees it). Main
+     *  reports { id, x, y } in main-window CLIENT coords so the renderer can build the
+     *  entity menu for that resource and draw it via the overlay. */
+    onContextMenu: (cb) => {
+      const handler = (_e, payload) => cb(payload)
+      ipcRenderer.on("zero:resource:contextmenu", handler)
+      return () => ipcRenderer.removeListener("zero:resource:contextmenu", handler)
+    },
+  },
+
+  /** Native context-menu OVERLAY — a transparent child window drawn ABOVE the native
+   *  web views (which no DOM z-index can beat). The renderer builds a generic MenuItem
+   *  tree + a client-space anchor; main positions the overlay and echoes the chosen
+   *  action id back via `onSelected`. Used only when a web Resource is open; otherwise
+   *  the in-DOM menu is fine. */
+  menu: {
+    /** Open the overlay at { x, y } (client coords) rendering { items }. */
+    open: (payload) => ipcRenderer.send("zero:menu:open", payload),
+    /** The chosen action id (or a "sibling:<id>" / "crumb:<id>" nav id). */
+    onSelected: (cb) => {
+      const handler = (_e, actionId) => cb(actionId)
+      ipcRenderer.on("zero:menu:selected", handler)
+      return () => ipcRenderer.removeListener("zero:menu:selected", handler)
+    },
   },
   /** Open a URL in the user's real external browser (graceful fallback). */
   openExternal: (url) => ipcRenderer.send("zero:open-external", url),

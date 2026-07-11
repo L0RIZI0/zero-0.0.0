@@ -1,13 +1,14 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { VersionSwitcher } from "@/components/version-switcher"
 import { Zero0ThemeToggle } from "./zero0-theme-toggle"
 import { Zero0UpdateIndicator } from "./zero0-update-indicator"
 import { Zero0Agenda, Zero0Activity } from "./zero0-activity"
 import { recordPresence } from "@/lib/zero/activity-log"
 import { Zero0Glyph } from "./zero0-glyph"
-import { Zero0EntityMenu, type Zero0MenuAnchor } from "./zero0-entity-menu"
+import { Zero0DomMenu, type Zero0DomMenuState } from "./zero0-dom-menu"
+import { buildEntityMenuItems, applyEntityMenuAction, type MenuItem } from "@/lib/zero/menu-model"
 import { Zero0FrameMenu, type Zero0FrameMenuAnchor } from "./zero0-frame-menu"
 import {
   currentUser,
@@ -142,8 +143,16 @@ export function Zero0Canvas() {
   // The drill-in stack: ids from the root context down to the current one. The
   // last id is the context whose children we render + create into.
   const [path, setPath] = useState<string[]>([ROOT_ID])
-  // Right-click menu anchor (null = closed).
-  const [menu, setMenu] = useState<Zero0MenuAnchor | null>(null)
+  // In-DOM right-click menu (null = closed). Used when nothing occludes the DOM; over a
+  // native web Resource we route to the transparent overlay window instead (see below).
+  const [menu, setMenu] = useState<Zero0DomMenuState | null>(null)
+  // Whether we're in the Electron desktop app (native web views occlude the DOM, so
+  // menus over an open Resource must be drawn in the native overlay window).
+  const [isDesktop, setIsDesktop] = useState(false)
+  // The onSelect callback for the CURRENTLY-open NATIVE overlay menu. The overlay echoes
+  // the chosen action id back through a single persistent IPC listener, which dispatches
+  // to whatever this points at (entity action, or a sibling-nav closure).
+  const nativeSelectRef = useRef<((id: string) => void) | null>(null)
   // Frame right-click menu anchor (null = closed) — minimize/maximize a time frame.
   const [frameMenu, setFrameMenu] = useState<Zero0FrameMenuAnchor | null>(null)
   // Which time frames are MINIMIZED (collapsed to just their dayline band). Session-only,
@@ -500,11 +509,38 @@ export function Zero0Canvas() {
   // (which targets the current context). `stopPropagation` so an inner target that
   // handled the event (a row) doesn't ALSO bubble up to a container handler (the
   // content frame) and overwrite the anchor with the context entity.
-  const openMenu = useCallback((e: Entity, ev: React.MouseEvent) => {
-    ev.preventDefault()
-    ev.stopPropagation()
-    setMenu({ entity: e, x: ev.clientX, y: ev.clientY })
-  }, [])
+  // Show a menu at CLIENT coords (x,y). Over a native web Resource on desktop the DOM is
+  // occluded by the live site (no z-index can beat a WebContentsView), so the menu is
+  // drawn in the transparent overlay window ABOVE the site — the site stays put, no
+  // parking/blanking. Otherwise it's an ordinary in-DOM popup. Both render the same
+  // MenuItem tree and resolve to the same `onSelect`.
+  const showMenu = useCallback(
+    (items: MenuItem[], x: number, y: number, onSelect: (id: string) => void) => {
+      if (isDesktop && !!context?.webUrl && window.zero?.menu) {
+        nativeSelectRef.current = onSelect
+        window.zero.menu.open({ x, y, items })
+      } else {
+        setMenu({ items, x, y, onSelect })
+      }
+    },
+    [isDesktop, context?.webUrl],
+  )
+
+  // Per-entity right-click menu. Opened from ANYWHERE an entity is shown — a child row, a
+  // breadcrumb crumb, a sibling shortcut, the open node's header, or the empty content
+  // frame (which targets the current context). `stopPropagation` so an inner target that
+  // handled the event (a row) doesn't ALSO bubble up to a container handler.
+  const openMenu = useCallback(
+    (e: Entity, ev: React.MouseEvent) => {
+      ev.preventDefault()
+      ev.stopPropagation()
+      showMenu(buildEntityMenuItems(e), ev.clientX, ev.clientY, (id) => {
+        applyEntityMenuAction(e, id)
+        bump()
+      })
+    },
+    [showMenu, bump],
+  )
 
   // Right-click by ENTITY ID — used by the ACTIVITY rows and the dayline ticks, which
   // only carry ids. Resolves to the live entity (skipping deleted / sentinel ids so no
@@ -678,7 +714,7 @@ export function Zero0Canvas() {
         </div>
       )}
 
-      {/* ── ACTIVITY BAND (below AGENDA, above the header) ──────────────────────
+      {/* ── ACTIVITY BAND (below AGENDA, above the header) ──────────────���───────
           The BACKWARD-looking frame — WHERE the user has been today (presence dayline
           + details). Hidden by default, toggled from the footer, same grid-rows
           collapse animation as AGENDA. Clicking a place drills the canvas into it. */}
@@ -799,13 +835,6 @@ export function Zero0Canvas() {
             id={context.id}
             url={context.webUrl}
             resourceId={context.webResourceId}
-            // A native WebContentsView is layered ABOVE all DOM (z-index can't reach it),
-            // so an open context/frame menu would be occluded by the live site — you'd see
-            // only the top row (the classic "just Close showing" bug). Marking the surface
-            // inactive while a menu is open parks it offscreen (reusing NativeSurface's
-            // existing active→hiddenRect machinery — instant, no reload), so the DOM menu is
-            // fully visible over the card backdrop; closing the menu snaps the site back.
-            active={!menu && !frameMenu}
           />
         </div>
       ) : (

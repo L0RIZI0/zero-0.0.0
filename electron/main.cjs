@@ -478,11 +478,20 @@ ipcMain.handle("zero:resource:mount", async (_e, args) => {
   mainWindow.contentView.addChildView(view)
   resourceViews.set(id, view)
 
-  // Right-click anywhere in the resource → Zero's own branded context menu, drawn
-  // in a transparent overlay window stacked ABOVE this native view (a DOM menu
-  // can't paint over a native WebContentsView, so the menu is itself native).
+  // Right-click anywhere in the resource → notify the renderer, which owns the live
+  // entity data and builds the menu spec, then draws it via the transparent overlay
+  // window stacked ABOVE this native view (a DOM menu can't paint over a native
+  // WebContentsView, so the menu is itself native). Translate the click (relative to
+  // the view's web contents) into main-window CLIENT coords the renderer can pass
+  // straight back to `zero:menu:open`.
   view.webContents.on("context-menu", (_e2, params) => {
-    showResourceMenu({ id, resourceId, url, params })
+    if (!mainWindow || mainWindow.isDestroyed()) return
+    const vb = view.getBounds()
+    mainWindow.webContents.send("zero:resource:contextmenu", {
+      id,
+      x: Math.round(vb.x + params.x),
+      y: Math.round(vb.y + params.y),
+    })
   })
 
   // Links that try to open a new window (e.g. OAuth popups) open a real child
@@ -665,40 +674,27 @@ function hideMenu() {
   if (menuWin && !menuWin.isDestroyed() && menuWin.isVisible()) menuWin.hide()
 }
 
-function showResourceMenu({ id, resourceId, url, params }) {
-  if (!mainWindow) return
-  const view = resourceViews.get(id)
+// Show a generic, renderer-built menu in the overlay window. `x`/`y` are CLIENT coords
+// relative to the main window's content area; `items` is the serialised MenuItem tree.
+// The overlay renders the items and reports the chosen action id back via
+// `zero:menu:action` → forwarded to the main renderer as `zero:menu:selected`.
+function showMenu({ x, y, items }) {
+  if (!mainWindow || mainWindow.isDestroyed()) return
   const win = ensureMenuWin()
 
-  // Translate the click (relative to the resource view's web contents) into screen
-  // coordinates: window content origin + the view's offset + the local click point.
   const content = mainWindow.getContentBounds()
-  const vb = view ? view.getBounds() : { x: 0, y: 0 }
-  menuAnchor = {
-    x: Math.round(content.x + vb.x + params.x),
-    y: Math.round(content.y + vb.y + params.y),
-  }
+  menuAnchor = { x: Math.round(content.x + x), y: Math.round(content.y + y) }
   win.setPosition(menuAnchor.x, menuAnchor.y)
 
-  const payload = {
-    id,
-    resourceId: resourceId || "",
-    url: url || "",
-    pageTitle: params.titleText || "",
-    selectionText: params.selectionText || "",
-    linkURL: params.linkURL || "",
-    srcURL: params.srcURL || "",
-    mediaType: params.mediaType || "none",
-    isEditable: !!params.isEditable,
-  }
-
-  const send = () => win.webContents.send("zero:menu:show", payload)
+  const send = () => win.webContents.send("zero:menu:show", { items: items || [] })
   if (menuReady) send()
   else win.webContents.once("did-finish-load", send)
 
   win.showInactive()
   win.focus()
 }
+
+ipcMain.on("zero:menu:open", (_e, payload) => showMenu(payload || {}))
 
 // The menu route reports its rendered size (including a transparent margin for the
 // shadow); place + size the overlay, clamped to the current display's work area.
@@ -719,8 +715,10 @@ ipcMain.on("zero:menu:resize", (_e, { width, height, anchorOffsetX = 0, anchorOf
 })
 
 ipcMain.on("zero:menu:action", (_e, actionId) => {
-  console.log(`[v0] menu:action ${actionId}`)
   hideMenu()
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send("zero:menu:selected", actionId)
+  }
 })
 
 ipcMain.on("zero:menu:dismiss", () => hideMenu())

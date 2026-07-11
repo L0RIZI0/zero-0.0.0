@@ -3,7 +3,7 @@
 const { contextBridge, ipcRenderer } = require("electron")
 
 contextBridge.exposeInMainWorld("zeroMenu", {
-  /** Receive the context for a right-click: { resourceId, url, pageTitle, selectionText, linkURL, srcURL, mediaType, isEditable }. */
+  /** Receive the menu to render: { items: MenuItem[] } (a serialised generic menu tree). */
   onShow: (cb) => {
     const handler = (_e, payload) => cb(payload)
     ipcRenderer.on("zero:menu:show", handler)

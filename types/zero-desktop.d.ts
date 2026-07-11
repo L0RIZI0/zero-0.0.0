@@ -23,6 +23,11 @@ export interface ZeroDesktopBridge {
     onOutput: (cb: (payload: { id: string; name: string; dataUrl: string }) => void) => () => void
     onStatus: (cb: (payload: { id: string; ok: boolean; detail?: string }) => void) => () => void
     onNavigated: (cb: (payload: { id: string; url: string }) => void) => () => void
+    onContextMenu: (cb: (payload: { id: string; x: number; y: number }) => void) => () => void
+  }
+  menu: {
+    open: (payload: { x: number; y: number; items: import("@/lib/zero/menu-model").MenuItem[] }) => void
+    onSelected: (cb: (actionId: string) => void) => () => void
   }
   openExternal: (url: string) => void
   updates: {
@@ -40,20 +45,12 @@ export interface ZeroDesktopBridge {
   }
 }
 
-export interface ZeroMenuContext {
-  id: string
-  resourceId: string
-  url: string
-  pageTitle: string
-  selectionText: string
-  linkURL: string
-  srcURL: string
-  mediaType: string
-  isEditable: boolean
+export interface ZeroMenuShowPayload {
+  items: import("@/lib/zero/menu-model").MenuItem[]
 }
 
 export interface ZeroMenuBridge {
-  onShow: (cb: (ctx: ZeroMenuContext) => void) => () => void
+  onShow: (cb: (payload: ZeroMenuShowPayload) => void) => () => void
   action: (actionId: string) => void
   dismiss: () => void
   resize: (size: { width: number; height: number; anchorOffsetX?: number; anchorOffsetY?: number }) => void
