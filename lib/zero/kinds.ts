@@ -209,7 +209,7 @@ export function formatAge(from: number, to: number): string {
 }
 
 /** The mutually-exclusive lifecycle positions (see {@link getState}). */
-export type StateWord = "open" | "complete" | "closed" | "cancelled" | "dead" | "retired"
+export type StateWord = "open" | "ongoing" | "complete" | "closed" | "cancelled" | "dead" | "retired"
 
 /**
  * An entity's current lifecycle STATE — one position on the STATE axis, plus the
@@ -245,7 +245,10 @@ export function computeCloseAt(entity: Entity, now: number = Date.now()): number
     return isDone(entity) ? nextLocalMidnight(getCompletedOn(entity) ?? now) : undefined
   }
   if (entity.kind === "moment") {
-    const end = entity.schedule?.endAt ?? entity.schedule?.at
+    // END only — a Moment is a SPAN, and only its END closes it. A lone point anchor
+    // (`schedule.at`) is NO LONGER treated as an end: a started-but-unended moment stays
+    // ONGOING (see getState) until an end is set. (Instants keep their point semantics.)
+    const end = entity.schedule?.endAt
     return end != null ? nextLocalMidnight(end) : undefined
   }
   if (entity.kind === "instant") {
@@ -267,7 +270,9 @@ function completeSince(entity: Entity, now: number): number | null {
     return isDone(entity) ? getCompletedOn(entity) ?? getCreatedAt(entity) ?? now : null
   }
   if (entity.kind === "moment") {
-    const end = entity.schedule?.endAt ?? entity.schedule?.at
+    // END only (see computeCloseAt): a moment completes when its span ENDS. With no end
+    // set, it never auto-completes — a past start makes it ONGOING, not complete.
+    const end = entity.schedule?.endAt
     return end != null && now >= end ? end : null
   }
   if (entity.kind === "instant") {
@@ -309,6 +314,15 @@ export function getState(entity: Entity, now: number = Date.now()): EntityState 
 
   const c = completeSince(entity, now)
   if (c != null) return { word: "complete", at: c, willCloseAt: entity.closeAt }
+
+  // ONGOING — a Moment that has STARTED (past start) but carries no end: a live span in
+  // progress, awaiting the end that will complete + close it. Distinct from a not-yet-
+  // started moment (still "open"). Currently Moment-only; the concept (an entity that is
+  // more than merely open — e.g. one with active children) may extend elsewhere later.
+  if (entity.kind === "moment") {
+    const start = entity.schedule?.startAt
+    if (start != null && now >= start) return { word: "ongoing", at: start }
+  }
 
   return { word: "open" }
 }

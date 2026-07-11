@@ -139,7 +139,7 @@ function parseTimeParam(value: string): TimeParam | null {
  * (`getTimelineOccurrences` / `dayMatchesRecurrence`) expands the rule into ticks, so this
  * is the whole "port recurrence to /0" surface. Weekday convention: 0(Sun)–6(Sat).
  */
-function parseRepeatToken(value: string): Recurrence | null {
+export function parseRepeatToken(value: string): Recurrence | null {
   switch (value.toLowerCase()) {
     case "daily":
       return { freq: "daily" }
@@ -381,4 +381,125 @@ export function parseCreateField(raw: string): CreateFieldParse | null {
     schedule: { startAt, endAt, ...(repeat ? { repeat } : {}) },
     summary: `${label}${completed ? " logged" : ""} · ${fmt(time.start)}–${fmt(time.end)}${recurSuffix}`,
   }
+}
+
+// ────────────────────────────────────────────────────────────────────────────────────
+// TWO-SIGIL ENTRY GRAMMAR (v0.3.34) — the universal create-bar language.
+//
+// One line parses into: an optional KIND, zero+ ACTIONS, zero+ ATTRIBUTES, and a TITLE.
+// Two sigils, learnable in a sentence:
+//   • `:word`        — a standalone DIRECTIVE. Either a KIND ("this is a …": `:mome`,
+//                      `:task`, 4-letter kind prefix) or an ACTION ("do this to it":
+//                      `:done`, `:undone`, `:close`, `:cancel`, `:reopen`, `:request`,
+//                      `:unrequest`, `:delete`).
+//   • `--field:value`— an ATTRIBUTE ("this has …"): `--start:2330`, `--end:0630`,
+//                      `--at:0630`, `--due:260709`, `--repeat:daily`, `--color:ff0000`,
+//                      `--sex:man`, `--title:new name`. First colon splits name/value;
+//                      `--s`/`--e` alias start/end. `--title:` captures the REST of the
+//                      line (free multi-word text).
+// The remaining words are the TITLE. TARGET RULE (applied by the caller): a title ⇒ act
+// on a NEW child; no title ⇒ act on the CURRENTLY OPEN entity (the bar is a command
+// line). A NAKED time with no `--field` is just title text — the field name is mandatory,
+// which is what removes all point-vs-start guessing.
+// ────────────────────────────────────────────────────────────────────────────────────
+
+/** Lifecycle/relationship actions expressible as a bare `:word` flag. Ids match {@link
+ *  applyEntityMenuAction}, so the create bar and the right-click menu do the exact same thing. */
+export type EntryActionId =
+  | "done" | "undone" | "close" | "cancel" | "reopen" | "request" | "unrequest" | "delete"
+
+const ACTION_IDS: Record<string, EntryActionId> = {
+  done: "done", undone: "undone", close: "close", cancel: "cancel",
+  reopen: "reopen", request: "request", unrequest: "unrequest", delete: "delete",
+}
+
+/** Short field aliases → canonical field name. */
+const FIELD_ALIASES: Record<string, string> = { s: "start", e: "end" }
+
+export interface EntryAttr {
+  /** Canonical field name (aliases resolved): start | end | at | due | repeat | color | sex | title. */
+  field: string
+  /** Raw value after the first colon (empty ⇒ the caller clears the slot). */
+  value: string
+}
+
+export interface EntryParse {
+  /** Explicit `:kind` directive, or null (caller infers via {@link inferKind}). */
+  kind: EntityKind | null
+  /** `:action` flags, in typed order. */
+  actions: EntryActionId[]
+  /** `--field:value` attributes, in typed order. */
+  attrs: EntryAttr[]
+  /** Unrecognized `:directives` (neither kind nor action) — the caller reports them. */
+  unknown: string[]
+  /** Remaining free text = the title (params/directives stripped, whitespace collapsed). */
+  title: string
+}
+
+/**
+ * Parse a create-bar line into the {@link EntryParse} structure. Pure + synchronous.
+ * Order of extraction: `--title:` (rest-of-line) → other `--field:value` → `:directives`
+ * → whatever's left is the title.
+ */
+export function parseEntry(raw: string): EntryParse {
+  let s = raw
+  const attrs: EntryAttr[] = []
+
+  // 1) `--title:REST` captures everything after it (free multi-word text). Handled first
+  //    so its spaces aren't split like the single-token params below. Only the first wins.
+  const titleAttr = s.match(/--title:(.*)$/i)
+  if (titleAttr && titleAttr.index != null) {
+    attrs.push({ field: "title", value: titleAttr[1].trim() })
+    s = s.slice(0, titleAttr.index)
+  }
+
+  // 2) `--field:value` / `--field` — single-token value up to the next whitespace.
+  s = s.replace(/--([a-zA-Z]+)(?::(\S*))?/g, (_m, f: string, v?: string) => {
+    const field = FIELD_ALIASES[f.toLowerCase()] ?? f.toLowerCase()
+    attrs.push({ field, value: (v ?? "").trim() })
+    return " "
+  })
+
+  // 3) `:word` directives — a standalone token that is a KIND prefix or an ACTION.
+  let kind: EntityKind | null = null
+  const actions: EntryActionId[] = []
+  const unknown: string[] = []
+  s = s.replace(/(?:^|\s):([a-zA-Z]+)(?=\s|$)/g, (_m, w: string) => {
+    const word = w.toLowerCase()
+    const k = KIND_PREFIX[word.slice(0, 4)]
+    if (k) {
+      kind = k
+      return " "
+    }
+    if (ACTION_IDS[word]) {
+      actions.push(ACTION_IDS[word])
+      return " "
+    }
+    unknown.push(word)
+    return " "
+  })
+
+  const title = s.replace(/\s+/g, " ").trim()
+  return { kind, actions, attrs, unknown, title }
+}
+
+/**
+ * Infer a creatable {@link EntityKind} for a NEW entity that carried no explicit `:kind`
+ * directive, from its attributes then its leading verb:
+ *   - `--due`               ⇒ task (a deadline is a task thing)
+ *   - `--start` / `--end`   ⇒ moment (a span)
+ *   - `--at`                ⇒ instant (a point)
+ *   - else a MOMENT_VERB    ⇒ moment; an ACTIVE_VERB ⇒ task
+ *   - else                  ⇒ task (the neutral default)
+ * Deterministic; no guessing about point-vs-span (fields decide that explicitly).
+ */
+export function inferKind(title: string, attrs: EntryAttr[]): EntityKind {
+  const has = (f: string) => attrs.some((a) => a.field === f && a.value !== "")
+  if (has("due")) return "task"
+  if (has("start") || has("end")) return "moment"
+  if (has("at")) return "instant"
+  const verb = classifyVerb(title)
+  if (verb === "moment") return "moment"
+  if (verb === "active") return "task"
+  return "task"
 }

@@ -94,6 +94,9 @@ function formatState(state: EntityState, format: (e?: number) => string, isLivin
     case "open":
       if (isLiving) return state.reopenedAt ? `alive · reopened ${format(state.reopenedAt)}` : "alive"
       return state.reopenedAt ? `open · reopened ${format(state.reopenedAt)}` : "open"
+    case "ongoing":
+      // A live span in progress — `at` is when it STARTED. No auto-close yet (no end set).
+      return `ongoing · since ${format(state.at)}`
     case "complete":
       return state.willCloseAt ? `complete · closes ${format(state.willCloseAt)} (auto)` : "complete"
     case "dead":
@@ -230,7 +233,8 @@ export function Zero0Canvas() {
     let complete = 0
     for (const c of children) {
       const w = getState(c).word
-      if (w === "open") open++
+      // open + ongoing are both "active / not yet done" for the tally.
+      if (w === "open" || w === "ongoing") open++
       else if (w === "complete") {
         if (isDone(c)) done++
         else complete++
@@ -956,6 +960,7 @@ export function Zero0Canvas() {
                   done={meta.hasDoneState && isDone(context)}
                   cancelled={isCancelled(context)}
                   requested={context.kind === "task" && !!context.requested}
+                  ongoing={getState(context).word === "ongoing"}
                   className="h-4 w-4 text-foreground"
                 />
               )}
@@ -1020,8 +1025,9 @@ export function Zero0Canvas() {
                 const filled = fillsGlyph(e) // fill on complete AND closed (fillable kinds)
                 const showCheck = done && km.hasDoneState
                 const requested = e.kind === "task" && !!e.requested
+                const ongoing = state.word === "ongoing" // live span ⇒ glyph rotates
                 // Read-only lifecycle token — one word straight off the STATE axis
-                // (open / complete / closed / cancelled / dead / retired).
+                // (open / ongoing / complete / closed / cancelled / dead / retired).
                 const lifeLabel = state.word
                 const stateLabel =
                   `${done ? "done, " : ""}${lifeLabel}${requested ? ", requested" : ""}`
@@ -1056,6 +1062,7 @@ export function Zero0Canvas() {
                           done={showCheck}
                           cancelled={cancelled}
                           requested={requested}
+                          ongoing={ongoing}
                           className="h-3.5 w-3.5"
                         />
                       </button>
@@ -1071,6 +1078,7 @@ export function Zero0Canvas() {
                           done={showCheck}
                           cancelled={cancelled}
                           requested={requested}
+                          ongoing={ongoing}
                           className="h-3.5 w-3.5"
                         />
                       </span>

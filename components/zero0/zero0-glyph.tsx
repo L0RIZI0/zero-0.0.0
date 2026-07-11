@@ -66,6 +66,7 @@ export function Zero0Glyph({
   done,
   cancelled,
   requested,
+  ongoing,
   className,
 }: {
   kind: EntityKind
@@ -75,6 +76,13 @@ export function Zero0Glyph({
    * cancelled entities never fill (the row fades / a bar is drawn instead).
    */
   filled?: boolean
+  /**
+   * ONGOING ⇒ the glyph SLOWLY ROTATES clockwise — the "live span in progress" signal
+   * for a started-but-unended Moment (see `getState` → "ongoing"). Reuses the built-in
+   * `spin` keyframe at a calm 6s cadence, gated on `motion-safe` so reduced-motion users
+   * see a still outline. The only motion in the otherwise-static zero0 glyph set.
+   */
+  ongoing?: boolean
   /**
    * DONE mark — overlay a check on the shape. Drawn whether the shape is outline or
    * filled: on a filled shape the check strokes in the BACKGROUND colour so it stays
@@ -96,7 +104,7 @@ export function Zero0Glyph({
   return (
     <svg
       viewBox="0 0 24 24"
-      className={className}
+      className={`${className ?? ""}${ongoing ? " motion-safe:animate-spin [animation-duration:6s]" : ""}`}
       fill={filled ? "currentColor" : "none"}
       stroke="currentColor"
       strokeWidth={filled ? 0 : 1.6}
