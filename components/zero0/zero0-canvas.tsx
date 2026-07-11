@@ -198,6 +198,14 @@ export function Zero0Canvas() {
   const context = mounted ? getEntity(contextId) : undefined
   // eslint-disable-next-line react-hooks/exhaustive-deps -- rev/contextId are the intended re-read triggers
   const children = useMemo(() => (mounted ? getChildren(contextId) : []), [mounted, rev, contextId])
+  // SIBLINGS (tabs): the children of the open node's PARENT — i.e. entities at the same
+  // depth on the same branch. `path[len-2]` is the parent (undefined at the root, which
+  // has no parent within the drill path, so no tabs there). Rendered as a horizontal tab
+  // strip under the breadcrumb ONLY when there's more than one, giving quick lateral
+  // access to siblings without climbing a crumb and drilling back in.
+  const parentId = path.length >= 2 ? path[path.length - 2] : undefined
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- rev/parentId are the intended re-read triggers
+  const siblings = useMemo(() => (mounted && parentId ? getChildren(parentId) : []), [mounted, rev, parentId])
   // Resolve each crumb to a display label (fall back to the user name at the root).
   const crumbs = useMemo(
     () =>
@@ -458,6 +466,13 @@ export function Zero0Canvas() {
     setPath((p) => p.slice(0, i + 1))
   }, [])
 
+  // Open a SIBLING (tab click): swap just the leaf of the path, keeping the breadcrumb
+  // prefix identical (siblings share a parent, so only the last crumb changes). The
+  // `contextId`-effect then re-logs presence, so the activity tracker refocuses as usual.
+  const goToSibling = useCallback((id: string) => {
+    setPath((p) => (p.length >= 2 ? [...p.slice(0, -1), id] : [ROOT_ID, id]))
+  }, [])
+
   // Jump to an ARBITRARY entity (e.g. clicked in the activity view), rebuilding the drill
   // path by walking `parentId` up to the root. Used when the target isn't a direct child
   // of the current context. Falls back to just [ROOT, id] if the chain can't reach root
@@ -688,6 +703,40 @@ export function Zero0Canvas() {
             })}
           </nav>
         )}
+        {/* SIBLING TABS — a horizontal strip of the open node's siblings (parent's other
+            children), shown only when there's more than one. Acts as lateral shortcuts:
+            the open one is highlighted (underlined, full-contrast), the rest faded. Shown
+            in web view too (switch between sibling resources without leaving the surface).
+            Right-click a tab → the same entity menu as its row/crumb. */}
+        {mounted && siblings.length > 1 && (
+          <div
+            className="mt-2 flex items-center gap-3 overflow-x-auto"
+            role="tablist"
+            aria-label="Sibling entities"
+          >
+            {siblings.map((s) => {
+              const active = s.id === contextId
+              return (
+                <button
+                  key={s.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={active}
+                  onClick={() => goToSibling(s.id)}
+                  onContextMenu={(ev) => openMenu(s, ev)}
+                  className={
+                    "whitespace-nowrap border-b pb-0.5 transition-colors " +
+                    (active
+                      ? "border-foreground text-foreground"
+                      : "border-transparent text-muted-foreground/50 hover:text-foreground")
+                  }
+                >
+                  {s.title}
+                </button>
+              )
+            })}
+          </div>
+        )}
         {/* Session readout — hidden in web view so only the identity line + breadcrumb
             (the trail back out) sit above the edge-to-edge web surface. */}
         {!context?.webUrl && (
@@ -697,7 +746,13 @@ export function Zero0Canvas() {
             <dt className="uppercase tracking-widest">store</dt>
             <dd className="text-foreground">zero:root-items:v1</dd>
             <dt className="uppercase tracking-widest">entities</dt>
-            <dd className="text-foreground">{mounted ? children.length : "—"}</dd>
+            <dd className="text-foreground">
+              {mounted
+                ? children.length === 0
+                  ? "none"
+                  : `${children.filter((c) => !isClosed(c)).length} open · ${children.length} total`
+                : "—"}
+            </dd>
           </dl>
         )}
         <Zero0FrameMarker flag="zeroHeader" label="the zero header" />
