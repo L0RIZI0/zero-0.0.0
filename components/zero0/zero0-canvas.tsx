@@ -704,22 +704,24 @@ export function Zero0Canvas() {
             })}
           </nav>
         )}
-        {/* Session readout — hidden in web view so only the identity line + breadcrumb
-            (the trail back out) sit above the edge-to-edge web surface. Matches the ENTITY
-            HEADER meta layout exactly: a tight `6rem` label column + value column packed to
-            the left (not two half-width columns), so everything reads as one compact block. */}
-        {!context?.webUrl && (
+        {/* Session readout. CONTEXT is intentionally DROPPED — the last breadcrumb crumb
+            already names the open node, so repeating it here was redundant. The list now
+            leads with SIBLINGS, which doubles as the "tabs" row. Matches the ENTITY HEADER
+            meta layout exactly: a tight `6rem` label column + value column packed to the
+            left (not two half-width columns), so everything reads as one compact block.
+            SIBLINGS shows in web view too (so you can hop between sibling resources without
+            leaving the surface) — it's part of the header, which sits ABOVE the web-view
+            holder, so its presence naturally pushes the tracked surface rect down and the
+            row stays visible. STORE/ENTITIES stay hidden over a web surface (session/debug
+            detail that would overcrowd the clean breadcrumb-over-site view). */}
+        {mounted && (otherSiblings.length > 0 || !context?.webUrl) && (
           <dl className="mt-2 grid grid-cols-[6rem_1fr] gap-x-4 gap-y-0.5">
-            <dt className="uppercase tracking-widest">context</dt>
-            <dd className="truncate text-foreground">
-              {mounted && context ? context.title : currentUser.name}
-            </dd>
-            {/* SIBLINGS — the open node's OTHER same-parent children (itself excluded), as a
-                header entry rather than a tab strip. Each is a lateral shortcut: click to
-                open (goToSibling swaps just the path leaf so the crumb prefix holds and the
-                activity tracker refocuses), right-click for the same entity menu as its row.
-                Hidden when the node has no siblings (e.g. an only child, or the root). */}
-            {mounted && otherSiblings.length > 0 && (
+            {/* SIBLINGS — the open node's OTHER same-parent children (itself excluded). Each
+                is a lateral shortcut: click to open (goToSibling swaps just the path leaf so
+                the crumb prefix holds and the activity tracker refocuses), right-click for the
+                same entity menu as its row. Hidden when there are no siblings (only child /
+                root). */}
+            {otherSiblings.length > 0 && (
               <>
                 <dt className="uppercase tracking-widest">siblings</dt>
                 <dd className="flex flex-wrap items-center gap-x-3 gap-y-0.5">
@@ -737,16 +739,18 @@ export function Zero0Canvas() {
                 </dd>
               </>
             )}
-            <dt className="uppercase tracking-widest">store</dt>
-            <dd className="truncate text-foreground">zero:root-items:v1</dd>
-            <dt className="uppercase tracking-widest">entities</dt>
-            <dd className="truncate text-foreground">
-              {mounted
-                ? children.length === 0
-                  ? "none"
-                  : `${children.filter((c) => !isClosed(c)).length} open · ${children.length} total`
-                : "—"}
-            </dd>
+            {!context?.webUrl && (
+              <>
+                <dt className="uppercase tracking-widest">store</dt>
+                <dd className="truncate text-foreground">zero:root-items:v1</dd>
+                <dt className="uppercase tracking-widest">entities</dt>
+                <dd className="truncate text-foreground">
+                  {children.length === 0
+                    ? "none"
+                    : `${children.filter((c) => !isClosed(c)).length} open · ${children.length} total`}
+                </dd>
+              </>
+            )}
           </dl>
         )}
         <Zero0FrameMarker flag="zeroHeader" label="the zero header" />
