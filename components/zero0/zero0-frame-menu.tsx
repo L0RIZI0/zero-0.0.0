@@ -4,7 +4,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react"
 
 /** Which minimizable frame a right-click targeted, plus the click position. */
 export interface Zero0FrameMenuAnchor {
-  frame: "agenda" | "activity"
+  frame: "agenda" | "activity" | "zeroHeader"
   x: number
   y: number
 }

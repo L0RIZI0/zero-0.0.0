@@ -148,9 +148,10 @@ export function Zero0Canvas() {
   const [frameMenu, setFrameMenu] = useState<Zero0FrameMenuAnchor | null>(null)
   // Which time frames are MINIMIZED (collapsed to just their dayline band). Session-only,
   // a separate axis from § visibility: a shown frame can be full or minimized.
-  const [minimized, setMinimized] = useState<{ agenda: boolean; activity: boolean }>({
+  const [minimized, setMinimized] = useState<{ agenda: boolean; activity: boolean; zeroHeader: boolean }>({
     agenda: false,
     activity: false,
+    zeroHeader: false,
   })
   // Every hideable frame's visibility lives in the shared § chord store, so the footer
   // links, the in-frame "§x" corner markers, and the keyboard chords all drive the SAME
@@ -519,7 +520,7 @@ export function Zero0Canvas() {
   )
 
   // Right-click the FRAME chrome (header or empty area) → the minimize/maximize menu.
-  const openFrameMenu = useCallback((frame: "agenda" | "activity", ev: React.MouseEvent) => {
+  const openFrameMenu = useCallback((frame: "agenda" | "activity" | "zeroHeader", ev: React.MouseEvent) => {
     ev.preventDefault()
     ev.stopPropagation()
     setFrameMenu({ frame, x: ev.clientX, y: ev.clientY })
@@ -573,6 +574,67 @@ export function Zero0Canvas() {
   // same way a Moment always shows its span. Individual-only.
   if (context.kind === "individual") metaRows.push(["sex", context.sex ? sexSymbol(context.sex) : "—"])
   }
+
+  // ── Shared ZERO HEADER elements (reused by the full + minimized layouts) ──────
+  // The ACCESS PATH breadcrumb — the trail to the open node; each crumb climbs back
+  // to that depth, right-click targets that entity. In the full layout it's the value
+  // of the CONTEXT row; minimized, it stands alone.
+  const breadcrumb = (
+    <nav className="flex flex-wrap items-center gap-1" aria-label="Breadcrumb">
+      {crumbs.map((c, i) => {
+        const last = i === crumbs.length - 1
+        return (
+          <span
+            key={c.id}
+            className="flex items-center gap-1"
+            onContextMenu={(ev) => {
+              // Right-click a crumb → THAT entity's menu (same as its row). Handled on the
+              // span so it fires even for the current/last crumb, whose button is disabled.
+              const ent = getEntity(c.id)
+              if (ent) openMenu(ent, ev)
+            }}
+          >
+            {i > 0 && (
+              <span className="text-muted-foreground/50" aria-hidden>
+                /
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={() => goToCrumb(i)}
+              disabled={last}
+              aria-current={last ? "page" : undefined}
+              className={
+                last
+                  ? "text-foreground"
+                  : "text-muted-foreground hover:text-foreground underline-offset-2 hover:underline"
+              }
+            >
+              {c.label}
+            </button>
+          </span>
+        )
+      })}
+    </nav>
+  )
+  // SIBLINGS value — the open node's OTHER same-parent children as lateral shortcuts
+  // (click = goToSibling swaps just the path leaf; right-click = that entity's menu).
+  const siblingsList =
+    otherSiblings.length > 0 ? (
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5">
+        {otherSiblings.map((s) => (
+          <button
+            key={s.id}
+            type="button"
+            onClick={() => goToSibling(s.id)}
+            onContextMenu={(ev) => openMenu(s, ev)}
+            className="max-w-full truncate text-foreground underline-offset-2 hover:underline"
+          >
+            {s.title}
+          </button>
+        ))}
+      </div>
+    ) : null
 
   return (
     <main
@@ -651,7 +713,16 @@ export function Zero0Canvas() {
         inert={!showZeroHeader}
       >
         <div className="overflow-hidden">
-      <header className="relative border-b border-border p-4 text-[10px] leading-relaxed text-muted-foreground tabular-nums">
+      <header
+        className="relative border-b border-border p-4 text-[10px] leading-relaxed text-muted-foreground tabular-nums"
+        // Right-click the header chrome → minimize/maximize this frame (same frame menu as
+        // the time frames). Guarded so a right-click on the breadcrumb/siblings (which target
+        // an ENTITY) isn't hijacked: only fires when the target didn't handle it itself.
+        onContextMenu={(ev) => {
+          if (ev.defaultPrevented) return
+          openFrameMenu("zeroHeader", ev)
+        }}
+      >
         <div className="flex items-center gap-2">
           <span className="text-foreground">zero</span>
           <span aria-hidden>·</span>
@@ -663,80 +734,30 @@ export function Zero0Canvas() {
             {ZERO_VERSION}
           </span>
         </div>
-        {/* Access path — always shown (it's the trail to the open node); each crumb
-            climbs back to that depth. At the root it's just the user, non-clickable. */}
-        {mounted && (
-          <nav className="mt-2 flex flex-wrap items-center gap-1" aria-label="Breadcrumb">
-            {crumbs.map((c, i) => {
-              const last = i === crumbs.length - 1
-              return (
-                <span
-                  key={c.id}
-                  className="flex items-center gap-1"
-                  onContextMenu={(ev) => {
-                    // Right-clicking a crumb targets THAT entity (same menu as its
-                    // row) — handled on the span so it works even for the current/last
-                    // crumb, whose button is `disabled` and wouldn't fire the event.
-                    const ent = getEntity(c.id)
-                    if (ent) openMenu(ent, ev)
-                  }}
-                >
-                  {i > 0 && (
-                    <span className="text-muted-foreground/50" aria-hidden>
-                      /
-                    </span>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => goToCrumb(i)}
-                    disabled={last}
-                    aria-current={last ? "page" : undefined}
-                    className={
-                      last
-                        ? "text-foreground"
-                        : "text-muted-foreground hover:text-foreground underline-offset-2 hover:underline"
-                    }
-                  >
-                    {c.label}
-                  </button>
-                </span>
-              )
-            })}
-          </nav>
+        {/* MINIMIZED — just the values (breadcrumb + siblings), tight under the mark, so
+            you keep the access path + the tabs row without the fuller session block or its
+            label column. Toggled via the header's right-click frame menu. */}
+        {mounted && minimized.zeroHeader && (
+          <div className="mt-1.5 space-y-0.5">
+            {breadcrumb}
+            {siblingsList}
+          </div>
         )}
-        {/* Session readout. CONTEXT is intentionally DROPPED — the last breadcrumb crumb
-            already names the open node, so repeating it here was redundant. The list now
-            leads with SIBLINGS, which doubles as the "tabs" row. Matches the ENTITY HEADER
-            meta layout exactly: a tight `6rem` label column + value column packed to the
-            left (not two half-width columns), so everything reads as one compact block.
-            SIBLINGS shows in web view too (so you can hop between sibling resources without
-            leaving the surface) — it's part of the header, which sits ABOVE the web-view
-            holder, so its presence naturally pushes the tracked surface rect down and the
-            row stays visible. STORE/ENTITIES stay hidden over a web surface (session/debug
-            detail that would overcrowd the clean breadcrumb-over-site view). */}
-        {mounted && (otherSiblings.length > 0 || !context?.webUrl) && (
+        {/* FULL — the session readout as a labelled meta block. CONTEXT is now the breadcrumb
+            itself (the crumb trail IS the context, so no separate title row); SIBLINGS follows
+            as the "tabs" row, then STORE/ENTITIES. Matches the ENTITY HEADER meta exactly (tight
+            `6rem` label col + left-packed values) so the two blocks align as one column. Over a
+            web surface only CONTEXT + SIBLINGS show (STORE/ENTITIES are session/debug detail that
+            would overcrowd the clean breadcrumb-over-site view); the header sits ABOVE the
+            web-view holder, so these rows naturally push the tracked surface rect down. */}
+        {mounted && !minimized.zeroHeader && (
           <dl className="mt-2 grid grid-cols-[6rem_1fr] gap-x-4 gap-y-0.5">
-            {/* SIBLINGS — the open node's OTHER same-parent children (itself excluded). Each
-                is a lateral shortcut: click to open (goToSibling swaps just the path leaf so
-                the crumb prefix holds and the activity tracker refocuses), right-click for the
-                same entity menu as its row. Hidden when there are no siblings (only child /
-                root). */}
+            <dt className="uppercase tracking-widest">context</dt>
+            <dd className="min-w-0">{breadcrumb}</dd>
             {otherSiblings.length > 0 && (
               <>
                 <dt className="uppercase tracking-widest">siblings</dt>
-                <dd className="flex flex-wrap items-center gap-x-3 gap-y-0.5">
-                  {otherSiblings.map((s) => (
-                    <button
-                      key={s.id}
-                      type="button"
-                      onClick={() => goToSibling(s.id)}
-                      onContextMenu={(ev) => openMenu(s, ev)}
-                      className="max-w-full truncate text-foreground underline-offset-2 hover:underline"
-                    >
-                      {s.title}
-                    </button>
-                  ))}
-                </dd>
+                <dd className="min-w-0">{siblingsList}</dd>
               </>
             )}
             {!context?.webUrl && (
