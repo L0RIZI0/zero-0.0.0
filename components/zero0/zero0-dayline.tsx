@@ -797,6 +797,28 @@ export function Zero0Dayline({
               {headerContent}
             </div>
           )}
+          {/* IN-BAND HOVER LABEL (minimized only) — the below-band floating tooltip (see
+              HOVER HELPER) can't be used on a minimized band: the frame is exactly
+              band-height and lives inside the canvas's `overflow-hidden` collapse wrapper,
+              so a tooltip floating ABOVE or BELOW the lane is clipped away. Instead, while a
+              tick is hovered we overlay its label INSIDE the band (over the header total /
+              day labels), on an opaque chip — clip-safe, styled, and self-reverting on
+              mouse-leave. `pointer-events-none` so hover/pan on the ticks below is unaffected. */}
+          {minimized && hovered && (
+            <div className="pointer-events-none absolute inset-y-0 inset-x-0 z-20 flex items-center gap-1.5 overflow-hidden bg-card/95 px-2 text-[10px] leading-none">
+              <span
+                aria-hidden
+                className="h-2 w-2 shrink-0 rounded-full border"
+                style={{
+                  backgroundColor: hovered.color === DEFAULT_PRESENCE ? "transparent" : hovered.color,
+                  borderColor: hovered.stroke ?? "var(--border)",
+                }}
+              />
+              {hovered.track === "presence" && <span className="shrink-0 text-muted-foreground">in</span>}
+              <span className="truncate text-foreground">{hovered.title}</span>
+              <span className="shrink-0 text-muted-foreground tabular-nums">{hovered.range}</span>
+            </div>
+          )}
           {/* CLIP layer — fixed to the lane so it always trims to the true bounds. */}
           <div className="pointer-events-none absolute inset-0 overflow-hidden rounded-md">
             {/* CONTENT PAN — the in-progress wheel pan is applied here as an imperative
@@ -931,8 +953,9 @@ export function Zero0Dayline({
           {/* HOVER HELPER — floats just below the lane for the hovered bar (either
               track): a color chip + title + clock range. Presence reads "in {title}"
               (the historical name); planned reads just the title. Rides the same
-              two-layer pan-follow as everything else. */}
-          {hovered && (
+              two-layer pan-follow as everything else. FULL mode only — a minimized band
+              shows the label in-band instead (it would be clipped floating below here). */}
+          {!minimized && hovered && (
             <div ref={presTooltipPanRef} className="pointer-events-none absolute inset-0 z-40 will-change-transform">
               <div
                 ref={registerRipple("__prestooltip__")}

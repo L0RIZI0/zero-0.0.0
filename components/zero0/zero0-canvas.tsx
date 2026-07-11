@@ -666,6 +666,13 @@ export function Zero0Canvas() {
     if (context.kind === "moment") {
       metaRows.push(["start", s?.startAt ? fmt(s.startAt) : "—"])
       metaRows.push(["end", s?.endAt ? fmt(s.endAt) : "—"])
+      // A Moment is conceptually a SPAN (start→end), but it can carry a lone POINT anchor
+      // (`schedule.at`) — e.g. when a `:mome` prefix is combined with a single-time token,
+      // or an Instant is later changed INTO a moment. The lifecycle machine reads that point
+      // (`getState` → `completeSince` uses `endAt ?? at`), so a past `at` silently drives the
+      // moment to COMPLETE + stamps its auto-close. Surface it here (was hidden, which made
+      // such a moment read as unscheduled — START —, END — — yet mysteriously "complete").
+      if (s?.at != null) metaRows.push(["at", fmt(s.at)])
     } else if (context.kind === "instant") {
       metaRows.push(["at", s?.at ? fmt(s.at) : "—"])
     } else if (s?.dueAt) {
