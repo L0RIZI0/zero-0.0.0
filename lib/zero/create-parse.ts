@@ -139,7 +139,7 @@ function parseTimeParam(value: string): TimeParam | null {
  * (`getTimelineOccurrences` / `dayMatchesRecurrence`) expands the rule into ticks, so this
  * is the whole "port recurrence to /0" surface. Weekday convention: 0(Sun)–6(Sat).
  */
-export function parseRepeatToken(value: string): Recurrence | null {
+function parseRepeatToken(value: string): Recurrence | null {
   switch (value.toLowerCase()) {
     case "daily":
       return { freq: "daily" }
@@ -393,10 +393,10 @@ export function parseCreateField(raw: string): CreateFieldParse | null {
 //                      `:done`, `:undone`, `:close`, `:cancel`, `:reopen`, `:request`,
 //                      `:unrequest`, `:delete`).
 //   • `--field:value`— an ATTRIBUTE ("this has …"): `--start:2330`, `--end:0630`,
-//                      `--at:0630`, `--due:260709`, `--repeat:daily`, `--color:ff0000`,
-//                      `--sex:man`, `--title:new name`. First colon splits name/value;
-//                      `--s`/`--e` alias start/end. `--title:` captures the REST of the
-//                      line (free multi-word text).
+//                      `--at:0630`, `--due:260709`, `--color:ff0000`, `--sex:man`,
+//                      `--title:new name`. First colon splits name/value; `--s`/`--e`
+//                      alias start/end. `--title:` captures the REST of the line (free
+//                      multi-word text). (`--repeat` is not wired yet — no mutator.)
 // The remaining words are the TITLE. TARGET RULE (applied by the caller): a title ⇒ act
 // on a NEW child; no title ⇒ act on the CURRENTLY OPEN entity (the bar is a command
 // line). A NAKED time with no `--field` is just title text — the field name is mandatory,

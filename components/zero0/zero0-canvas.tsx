@@ -15,7 +15,6 @@ import {
   getChildren,
   getEntity,
   hydrateFromStorage,
-  addTask,
   addParsedEntity,
   addWebResource,
   setEntityCompleted,
@@ -29,12 +28,11 @@ import {
   import { KIND_META, isClosed, fillsGlyph, getState, type EntityState } from "@/lib/zero/kinds"
   import { isDone, isCancelled, getCreatedAt, getCompletedOn, describeLogEntry } from "@/lib/zero/entity-log"
 import {
-  parseCreateField,
-  parseKindPrefix,
-  parseFieldSetter,
+  parseEntry,
+  inferKind,
   parseDateToken,
   parseHexColor,
-  resolveCreatableKind,
+  type EntryAttr,
 } from "@/lib/zero/create-parse"
 import { looksLikeUrl, normalizeUrl, resolveWebResourceByUrl, webDisplayName } from "@/lib/zero/web-resources"
 import { useZero0Flag, toggleZero0Flag } from "@/lib/zero/zero0-chord"
@@ -49,18 +47,18 @@ import type { Entity } from "@/lib/zero/types"
 // user grows on the canvas nests under this id. Matches the seed in `data.ts`.
 const ROOT_ID = "s_root"
 
-// The `:color:` swatch palette — a small curated ramp shown when the create field
-// reads exactly ":color:". Clicking one fills the draft with ":color:<hex>"; geeks can
-// skip the picker and type the hex directly. Kept short + legible on the dark canvas.
+// The `--color` swatch palette — a small curated ramp shown when the create field
+// reads exactly "--color" / "--color:". Clicking one fills the draft with "--color:<hex>";
+// geeks can skip the picker and type the hex directly. Kept short + legible on dark.
 const COLOR_SWATCHES = [
   "#ef4444", "#f97316", "#eab308", "#22c55e", "#14b8a6",
   "#3b82f6", "#8b5cf6", "#ec4899", "#f5f5f5", "#71717a",
 ]
 
-// True when the draft is a bare ":color:" (empty value) — the trigger to reveal the
-// swatch picker. Any character typed after the trailing ":" no longer matches, so the
+// True when the draft is a bare "--color" / "--color:" (empty value) — the trigger to
+// reveal the swatch picker. Any character typed after the colon no longer matches, so the
 // picker hides instantly as the user keeps writing (e.g. a hand-typed hex).
-const isColorPickerTrigger = (draft: string) => /^:color:\s*$/i.test(draft)
+const isColorPickerTrigger = (draft: string) => /^--color:?\s*$/i.test(draft)
 
 // Format an epoch (ms) for the meta readout. Only ever called under the `mounted`
 // gate, so it's client-only — no SSR/static-export time-freeze hydration trap.
@@ -257,179 +255,162 @@ export function Zero0Canvas() {
     const raw = draft.trim()
     if (!raw) return
 
-    // 0) SELF-FIELD setter: `:field: value` mutates THIS entity (the ":" = "in this",
-    //    trailing colon = a field, vs `:kind` which creates a child). Fields:
-    //    :title: (free text) → renames self + records title history; :start:/:end:
-    //    (moment span) → startAt/endAt, :at: (instant point) → at, :due: (task deadline)
-    //    → dueAt (these parse a compact date token: HHMM today / YYMMDD / YYMMDDHHMM;
-    //    empty value clears the slot). Talks back via the notice line instead of creating.
-    const setter = parseFieldSetter(raw)
-    if (setter) {
-      // :title: is free text (not a date), and renames THIS entity while logging history.
-      if (setter.field === "title") {
-        if (setter.value === "") {
-          setNotice({ tone: "err", text: "title can't be empty" })
-          return
+    // TWO-SIGIL GRAMMAR (v0.3.34): one line → a KIND directive + ACTION flags +
+    // ATTRIBUTES + a TITLE. `:word` = a kind (`:mome`) or an action (`:done`);
+    // `--field:value` = an attribute (`--start:2330`, `--color:ff0000`, `--title:…`);
+    // whatever's left is the title. TARGET RULE — a TITLE ⇒ create + configure a NEW
+    // child under the open context; NO title ⇒ the bar is a COMMAND LINE acting on the
+    // CURRENTLY OPEN entity.
+    const entry = parseEntry(raw)
+
+    if (entry.unknown.length > 0) {
+      setNotice({
+        tone: "err",
+        text: `unknown :${entry.unknown[0]} — kinds :task :spac :mome :inst :reso :comm :orga · actions :done :undone :close :cancel :reopen`,
+      })
+      return
+    }
+
+    // Apply ONE `--field:value` attribute to `id`, reusing the same mutators + validation
+    // whether the target is a brand-new child or the open entity. Returns a short success
+    // fragment for the notice, or null after setting its OWN error notice.
+    const applyAttr = (id: string, attr: EntryAttr): string | null => {
+      const ent = getEntity(id)
+      if (!ent) {
+        setNotice({ tone: "err", text: "no target entity" })
+        return null
+      }
+      const val = attr.value
+      switch (attr.field) {
+        case "title": {
+          if (val === "") {
+            setNotice({ tone: "err", text: "title can't be empty" })
+            return null
+          }
+          if (!renameEntity(id, val)) {
+            setNotice({ tone: "err", text: "no change" })
+            return null
+          }
+          return "renamed"
         }
-        const ok = renameEntity(contextId, setter.value)
-        setNotice(
-          ok
-            ? { tone: "ok", text: `renamed · ${setter.value}` }
-            : { tone: "err", text: "no change" },
-        )
-        if (ok) {
-          setDraft("")
-          bump()
+        case "color": {
+          // Kind-agnostic ACCENT (dayline ticks + wherever the entity shows its color).
+          if (val === "") {
+            setEntityAccent(id, null)
+            return "color cleared"
+          }
+          const hex = parseHexColor(val)
+          if (!hex) {
+            setNotice({ tone: "err", text: `invalid color "${val}" — use a hex like ff0000` })
+            return null
+          }
+          setEntityAccent(id, hex)
+          return `color ${hex}`
         }
+        case "sex": {
+          if (ent.kind !== "individual") {
+            setNotice({ tone: "err", text: "only individuals have a sex" })
+            return null
+          }
+          if (val === "") {
+            setEntitySex(id, null)
+            return "sex cleared"
+          }
+          const v = val.toLowerCase()
+          const sex = v === "man" || v === "m" ? "man" : v === "woman" || v === "w" ? "woman" : null
+          if (!sex) {
+            setNotice({ tone: "err", text: `use --sex:man | woman (got "${val}")` })
+            return null
+          }
+          setEntitySex(id, sex)
+          return `sex ${sexSymbol(sex)}`
+        }
+        case "start":
+        case "end":
+        case "at":
+        case "due": {
+          // A compact date token (HHMM today / YYMMDD / YYMMDDHHMM); empty clears the slot.
+          // A single time on a moment sets its START ⇒ ONGOING (never auto-completes); only
+          // an END completes/closes it. This is the whole point-vs-start fix.
+          const key = ({ start: "startAt", end: "endAt", at: "at", due: "dueAt" } as const)[attr.field]
+          let epoch: number | null = null
+          if (val !== "") {
+            epoch = parseDateToken(val)
+            if (epoch == null) {
+              setNotice({ tone: "err", text: `invalid time "${val}" — use HHMM, YYMMDD, or YYMMDDHHMM` })
+              return null
+            }
+          }
+          if (!setEntityScheduleField(id, key, epoch)) {
+            setNotice({ tone: "err", text: `can't set ${attr.field} on a ${KIND_META[ent.kind].label}` })
+            return null
+          }
+          return epoch == null ? `${attr.field} cleared` : `${attr.field} ${fmt(epoch)}`
+        }
+        default:
+          setNotice({
+            tone: "err",
+            text: `unknown --${attr.field} — try --start --end --at --due --color --sex --title`,
+          })
+          return null
+      }
+    }
+
+    const hasTitle = entry.title !== ""
+
+    // ── COMMAND MODE — no title ⇒ act on the currently OPEN entity. ─────────────────
+    if (!hasTitle) {
+      const target = getEntity(contextId)
+      if (!target) {
+        setNotice({ tone: "err", text: "no open entity" })
         return
       }
-      // :color: — a kind-agnostic ACCENT. Empty value clears; otherwise it must parse
-      // as a hex (typed directly, or filled in by the swatch picker). Painted on the
-      // dayline ticks + anywhere the entity shows its color.
-      if (setter.field === "color") {
-        if (setter.value === "") {
-          setEntityAccent(contextId, null)
-          setNotice({ tone: "ok", text: "color cleared" })
-          setDraft("")
-          bump()
+      const done: string[] = []
+
+      // `:kind` with no title turns THIS entity into that kind (the menu's "Change into…").
+      if (entry.kind) {
+        if (entry.kind === target.kind) {
+          setNotice({ tone: "err", text: `already a ${KIND_META[entry.kind].label}` })
           return
         }
-        const hex = parseHexColor(setter.value)
-        if (!hex) {
-          setNotice({ tone: "err", text: `invalid color "${setter.value}" — use a hex like ff0000` })
-          return
-        }
-        setEntityAccent(contextId, hex)
-        setNotice({ tone: "ok", text: `color set · ${hex}` })
-        setDraft("")
-        bump()
-        return
+        changeEntityKind(contextId, entry.kind)
+        done.push(`kind ${KIND_META[entry.kind].label}`)
       }
-      // :done: — the soft DONE marker on THIS entity (Task only). `yes`/`no` (also
-      // y/n, true/false, 1/0, done/undone); an empty value toggles. For the owner,
-      // marking done also completes + stamps the midnight close (the data layer's rule).
-      if (setter.field === "done") {
-        const ctx = getEntity(contextId)
-        if (!ctx || !KIND_META[ctx.kind].hasDoneState) {
-          setNotice({ tone: "err", text: "only tasks have a done state" })
-          return
-        }
-        const v = setter.value.toLowerCase()
-        const truthy = ["yes", "y", "true", "1", "done"]
-        const falsy = ["no", "n", "false", "0", "undone"]
-        let next: boolean
-        if (v === "") next = !isDone(ctx)
-        else if (truthy.includes(v)) next = true
-        else if (falsy.includes(v)) next = false
-        else {
-          setNotice({ tone: "err", text: `use :done: yes | no (got "${setter.value}")` })
-          return
-        }
-        setEntityCompleted(contextId, next)
-        setNotice({ tone: "ok", text: next ? "marked done" : "marked undone" })
-        setDraft("")
-        bump()
-        return
+
+      for (const attr of entry.attrs) {
+        const msg = applyAttr(contextId, attr)
+        if (msg == null) return // applyAttr already showed the error
+        done.push(msg)
       }
-      // :sex: — an INDIVIDUAL's biological sex ("man" | "woman"; also m/w). Empty clears.
-      if (setter.field === "sex") {
-        const ctx = getEntity(contextId)
-        if (!ctx || ctx.kind !== "individual") {
-          setNotice({ tone: "err", text: "only individuals have a sex" })
+
+      let deletedSelf = false
+      for (const action of entry.actions) {
+        const ent = getEntity(contextId)
+        if (!ent) break
+        // `applyEntityMenuAction` is the SAME dispatcher the right-click menu uses.
+        if (!applyEntityMenuAction(ent, action)) {
+          setNotice({ tone: "err", text: `can't ${action} this ${KIND_META[ent.kind].label}` })
           return
         }
-        if (setter.value === "") {
-          setEntitySex(contextId, null)
-          setNotice({ tone: "ok", text: "sex cleared" })
-          setDraft("")
-          bump()
-          return
-        }
-        const v = setter.value.toLowerCase()
-        const sex = v === "man" || v === "m" ? "man" : v === "woman" || v === "w" ? "woman" : null
-        if (!sex) {
-          setNotice({ tone: "err", text: `use :sex: man | woman (got "${setter.value}")` })
-          return
-        }
-        setEntitySex(contextId, sex)
-        setNotice({ tone: "ok", text: `sex set · ${sexSymbol(sex)}` })
-        setDraft("")
-        bump()
-        return
+        done.push(action)
+        if (action === "delete") deletedSelf = true
       }
-      // :kind: — turn THIS entity into another creatable kind (same as the menu's
-      // "Change into…"). Accepts the full name or its 4-letter prefix (space/spac,
-      // organism/orga, …). Rejects a non-creatable/unknown target (individual, soul).
-      if (setter.field === "kind") {
-        const ctx = getEntity(contextId)
-        if (!ctx) {
-          setNotice({ tone: "err", text: "no open entity to set" })
-          return
-        }
-        if (setter.value === "") {
-          setNotice({ tone: "err", text: "use :kind: task | space | resource | moment | instant | community | organism" })
-          return
-        }
-        const next = resolveCreatableKind(setter.value)
-        if (!next) {
-          setNotice({ tone: "err", text: `unknown kind "${setter.value}" — try task, space, resource, moment, instant, community, organism` })
-          return
-        }
-        if (next === ctx.kind) {
-          setNotice({ tone: "err", text: `already a ${KIND_META[next].label}` })
-          return
-        }
-        changeEntityKind(contextId, next)
-        setNotice({ tone: "ok", text: `kind set · ${KIND_META[next].label}` })
-        setDraft("")
-        bump()
-        return
-      }
-      const fieldMap: Record<string, "startAt" | "endAt" | "at" | "dueAt"> = {
-        start: "startAt",
-        end: "endAt",
-        at: "at",
-        due: "dueAt",
-      }
-      const key = fieldMap[setter.field]
-      if (!key) {
-        setNotice({ tone: "err", text: `unknown field :${setter.field}: — try :kind: :title: :start: :end: :at: :due: :color: :done: :sex:` })
-        return
-      }
-      // Empty value clears the slot; otherwise it must parse to a valid date token.
-      let epoch: number | null = null
-      if (setter.value !== "") {
-        epoch = parseDateToken(setter.value)
-        if (epoch == null) {
-          setNotice({ tone: "err", text: `invalid time "${setter.value}" — use HHMM, YYMMDD, or YYMMDDHHMM` })
-          return
-        }
-      }
-      const ok = setEntityScheduleField(contextId, key, epoch)
-      if (!ok) {
-        setNotice({ tone: "err", text: "no open entity to set" })
-        return
-      }
-      setNotice({ tone: "ok", text: epoch == null ? `${setter.field} cleared` : `${setter.field} set · ${fmt(epoch)}` })
+
+      if (done.length === 0) return
       setDraft("")
+      // Deleting the open entity: climb out of it (mirrors the row delete).
+      if (deletedSelf) setPath((p) => (p.length > 1 ? p.slice(0, -1) : p))
+      setNotice({ tone: "ok", text: done.join(" · ") })
       bump()
       return
     }
 
-    // 1) A leading ":xxxx" selector (":" + first 4 letters of a kind) FORCES the kind
-    //    (e.g. ":spac Day Job" → Space). It's stripped, and the remaining text still
-    //    runs through the time grammar below.
-    const kindPrefix = parseKindPrefix(raw)
-    const body = kindPrefix ? kindPrefix.rest : raw
-    if (!body) return // e.g. ":space" with no title — nothing to create
+    // ── CREATE MODE — a titled NEW child under the open context. ────────────────────
 
-    // 2) With NO explicit kind, a body that reads as a URL / bare domain / internal
-    //    Zero route (e.g. "figma.com", "https://x.com/p", "/zero-entities") is a
-    //    RESOURCE, not a task — Zero is a contextual browser, so a browsable address
-    //    becomes a diamond resource pinned to the current context. An explicit `:kind`
-    //    prefix opts OUT (e.g. `:task /zero-entities` really is a task titled that).
-    if (!kindPrefix && looksLikeUrl(body)) {
-      const url = normalizeUrl(body)
+    // A browsable address (URL / bare domain / internal Zero route) with NO explicit
+    // kind ⇒ a diamond RESOURCE (Zero is a contextual browser). `:kind` opts out.
+    if (entry.kind === null && looksLikeUrl(entry.title)) {
+      const url = normalizeUrl(entry.title)
       const resource = resolveWebResourceByUrl(url)
       addWebResource({
         title: webDisplayName(url, resource?.id),
@@ -442,32 +423,21 @@ export function Zero0Canvas() {
       return
     }
 
-    // 3) The backbone's "terminal hybrid" parser: a `--time` param (optionally with a
-    //    past-tense verb) yields a scheduled Moment/Instant/Task. New entities nest
-    //    under the CURRENT drilled-in context.
-    const parsed = parseCreateField(body)
+    // Kind = explicit `:kind`, else deterministically inferred from attributes then verb.
+    const kind = entry.kind ?? inferKind(entry.title, entry.attrs)
+    const created = addParsedEntity({ title: entry.title, spaceId: contextId, kind })
 
-    if (kindPrefix) {
-      // Explicit kind wins over the parser's verb-inferred kind; keep any parsed
-      // schedule/done state from the time grammar.
-      addParsedEntity({
-        title: parsed ? parsed.title : body,
-        spaceId: contextId,
-        kind: kindPrefix.kind,
-        schedule: parsed?.schedule,
-        completed: parsed?.completed ?? false,
-      })
-    } else if (parsed) {
-      addParsedEntity({
-        title: parsed.title,
-        spaceId: contextId,
-        kind: parsed.kind,
-        schedule: parsed.schedule,
-        completed: parsed.completed,
-      })
-    } else {
-      addTask({ title: body, spaceId: contextId })
+    // Configure the new child: apply every attribute (skip --title — the free text already
+    // named it), then any :action flags (e.g. `:done` logs it already-done / cancelled).
+    for (const attr of entry.attrs) {
+      if (attr.field === "title") continue
+      applyAttr(created.id, attr) // best-effort; a bad token shows a notice but keeps the entity
     }
+    for (const action of entry.actions) {
+      const ent = getEntity(created.id)
+      if (ent) applyEntityMenuAction(ent, action)
+    }
+
     setDraft("")
     bump()
   }, [draft, bump, contextId])
@@ -1154,13 +1124,13 @@ export function Zero0Canvas() {
               if (ev.nativeEvent.isComposing || ev.keyCode === 229) return
               create()
             }}
-            placeholder="create entity…  (try:  :spac Day Job   ·   :start: 2607092046   ·   :color:)"
+            placeholder="create entity…  (try:  :mome Sleep --start:2330   ·   --end:0630   ·   :done   ·   --color)"
             className="flex-1 bg-transparent text-foreground placeholder:text-muted-foreground/60 focus:outline-none"
             aria-label="Create entity"
           />
         </div>
-        {/* :color: SWATCH PICKER — surfaces only while the draft is a bare ":color:".
-            Clicking a swatch fills the field with ":color:<hex>", which no longer matches
+        {/* --color SWATCH PICKER — surfaces only while the draft is a bare "--color".
+            Clicking a swatch fills the field with "--color:<hex>", which no longer matches
             the trigger so the picker vanishes instantly; Enter then commits. Geeks can
             ignore this and type the hex straight after the colon. */}
         {isColorPickerTrigger(draft) && (
@@ -1177,7 +1147,7 @@ export function Zero0Canvas() {
                 // the button from stealing focus, so the field stays focused and Enter
                 // fires the command right after picking (no manual re-click needed).
                 onMouseDown={(ev) => ev.preventDefault()}
-                onClick={() => setDraft(`:color:${hex.replace(/^#/, "")}`)}
+                onClick={() => setDraft(`--color:${hex.replace(/^#/, "")}`)}
                 className="h-4 w-4 rounded-sm border border-border transition-transform hover:scale-125"
                 style={{ backgroundColor: hex }}
               />
