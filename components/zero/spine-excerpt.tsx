@@ -8,8 +8,8 @@ import {
   getDoneTaskCount,
   getClosedTaskCount,
   getCancelledTaskCount,
-  getOpenEventCount,
-  getCancelledEventCount,
+  getOpenMomentCount,
+  getCancelledMomentCount,
   getCancelledInstantCount,
 } from "@/lib/zero/data"
 import { useZeroNav } from "@/lib/zero/nav-store"
@@ -51,8 +51,8 @@ export function SpineExcerpt({ entityId }: { entityId: string }) {
   const doneTasks = getDoneTaskCount(entityId)
   const closedTasks = getClosedTaskCount(entityId)
   const cancelledTasks = getCancelledTaskCount(entityId)
-  const openEvents = getOpenEventCount(entityId)
-  const cancelledEvents = getCancelledEventCount(entityId)
+  const openEvents = getOpenMomentCount(entityId)
+  const cancelledEvents = getCancelledMomentCount(entityId)
   const cancelledInstants = getCancelledInstantCount(entityId)
 
   // Build the active tallies as a keyed list so AnimatePresence can animate each

@@ -17,7 +17,7 @@ import {
   deleteEntity,
   setEntityCompleted,
   setEntityClosed,
-  setEventCancelled,
+  setEntityCancelled,
   setEntityRequested,
   reopenEntity,
   changeEntityKind,
@@ -115,7 +115,7 @@ export function applyEntityMenuAction(entity: Entity, actionId: string): boolean
       setEntityClosed(id, true)
       return true
     case "cancel":
-      setEventCancelled(id, true)
+      setEntityCancelled(id, true)
       return true
     case "reopen":
       reopenEntity(id)

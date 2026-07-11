@@ -18,7 +18,7 @@ import {
   directChildOfFocus,
   type TimelineOccurrence,
   deleteEntity,
-  setEventCancelled,
+  setEntityCancelled,
   materializeOccurrence,
 } from "@/lib/zero/data"
 import {
@@ -508,7 +508,7 @@ export function TimelineStrip({
           label: isCancelled ? "Restore" : "Cancel",
           icon: isCancelled ? <RotateCcw className="h-3.5 w-3.5" /> : <Ban className="h-3.5 w-3.5" />,
           onSelect: () => {
-            setEventCancelled(entity.id, !isCancelled)
+            setEntityCancelled(entity.id, !isCancelled)
             notifyDataChanged()
           },
         },

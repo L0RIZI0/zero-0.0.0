@@ -20,7 +20,7 @@
 // ============================================================================
 
 import {
-  getSpaceEvents,
+  getTimedDescendants,
   getTimelineOccurrences,
   getInheritedAccent,
   directChildOfFocus,
@@ -166,7 +166,7 @@ export function queryTimeline(
 
   const items: TimelineOccurrence[] = []
   const streams: StreamSeries[] = []
-  for (const e of getSpaceEvents(spaceId)) {
+  for (const e of getTimedDescendants(spaceId)) {
     const s = e.schedule
     if (!s) continue
     const anchor = s.at ?? s.startAt

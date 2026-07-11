@@ -577,14 +577,14 @@ export function getCancelledTaskCount(contextId: string): number {
   return getChildren(contextId).filter((e) => e.kind === "task" && !!e.cancelled).length
 }
 
-/** Count of OPEN direct child events (outline triangle). "Open" = not yet closed,
- *  which — via `isClosed` — also excludes cancelled events and ones past their end. */
-export function getOpenEventCount(contextId: string): number {
+/** Count of OPEN direct child moments (outline triangle). "Open" = not yet closed,
+ *  which — via `isClosed` — also excludes cancelled moments and ones past their end. */
+export function getOpenMomentCount(contextId: string): number {
   return getChildren(contextId).filter((e) => e.kind === "moment" && !isClosed(e)).length
 }
 
-/** Count of CANCELLED direct child events (struck-through triangle). */
-export function getCancelledEventCount(contextId: string): number {
+/** Count of CANCELLED direct child moments (struck-through triangle). */
+export function getCancelledMomentCount(contextId: string): number {
   return getChildren(contextId).filter((e) => e.kind === "moment" && !!e.cancelled).length
 }
 
@@ -697,8 +697,8 @@ export function getTask(id: string): Entity | undefined {
   return e && e.kind === "task" ? e : undefined
 }
 
-/** An event entity by id (undefined for non-event ids). */
-export function getEvent(id: string): Entity | undefined {
+/** A moment entity by id (undefined for non-moment ids). */
+export function getMoment(id: string): Entity | undefined {
   const e = byId.get(id)
   return e && e.kind === "moment" ? e : undefined
 }
@@ -709,14 +709,14 @@ export function getInstant(id: string): Entity | undefined {
   return e && e.kind === "instant" ? e : undefined
 }
 
-/** Direct child spaces of a space. */
-export function getChildSpaces(spaceId: string): Entity[] {
-  return entities.filter((e) => e.kind === "space" && e.parentId === spaceId)
+/** Direct child spaces of a context. */
+export function getChildSpaces(contextId: string): Entity[] {
+  return entities.filter((e) => e.kind === "space" && e.parentId === contextId)
 }
 
-/** Resources assigned to a space. */
-export function getSpaceResources(spaceId: string): Resource[] {
-  const space = getSpace(spaceId)
+/** Resources DIRECTLY assigned to a context (its own assignedResourceIds — not the subtree). */
+export function getAssignedResources(contextId: string): Resource[] {
+  const space = getSpace(contextId)
   if (!space) return []
   return (space.assignedResourceIds ?? [])
     .map((id) => resourceById.get(id))
@@ -724,12 +724,12 @@ export function getSpaceResources(spaceId: string): Resource[] {
 }
 
 /**
- * Tasks anywhere in a space's subtree (origin or tagged). Used by legacy
+ * Tasks anywhere in a context's subtree (origin or tagged). Used by legacy
  * callers; the task list itself uses getChildren for direct children.
  */
-export function getSpaceTasks(spaceId: string): Entity[] {
-  if (spaceId === "s_root") return entities.filter((e) => e.kind === "task" && e.seriesId == null)
-  const descendants = collectDescendants(spaceId)
+export function getSubtreeTasks(contextId: string): Entity[] {
+  if (contextId === "s_root") return entities.filter((e) => e.kind === "task" && e.seriesId == null)
+  const descendants = collectDescendants(contextId)
   return entities.filter(
     (e) =>
       e.kind === "task" &&
@@ -739,13 +739,13 @@ export function getSpaceTasks(spaceId: string): Entity[] {
   )
 }
 
-/** Timed entities anywhere in a space's subtree. Drives the timeline — events
- *  render as spans, instants as single-point markers, and SCHEDULED SPACES
- *  (a space with its own `schedule`, e.g. a recurring "Workout" world) render
- *  as span chips too. Time is read directly off `entity.schedule` (absolute
- *  epoch ms). Recurring entities are expanded into per-day occurrences by
- *  getTimelineOccurrences; this selector returns the underlying entities. */
-export function getSpaceEvents(spaceId: string): Entity[] {
+/** Timed entities anywhere in a context's subtree (NOT just moments) — anything
+ *  carrying a schedule. Drives the timeline — moments render as spans, instants as
+ *  single-point markers, and SCHEDULED SPACES (a space with its own `schedule`, e.g.
+ *  a recurring "Workout" world) render as span chips too. Time is read directly off
+ *  `entity.schedule` (absolute epoch ms). Recurring entities are expanded into per-day
+ *  occurrences by getTimelineOccurrences; this selector returns the underlying entities. */
+export function getTimedDescendants(contextId: string): Entity[] {
   // ANY entity that carries a scheduled time (start / end / point / due) is timed —
   // we no longer discriminate by kind. A Task with a start+end, a Space with a due
   // date, a Community with a point — all belong on the lifeline. `seriesId != null`
@@ -754,8 +754,8 @@ export function getSpaceEvents(spaceId: string): Entity[] {
   const hasScheduledTime = (s: Entity["schedule"]) =>
     !!s && (s.startAt != null || s.endAt != null || s.at != null || s.dueAt != null)
   const isTimed = (e: Entity) => e.seriesId == null && hasScheduledTime(e.schedule)
-  if (spaceId === "s_root") return entities.filter(isTimed)
-  const descendants = collectDescendants(spaceId)
+  if (contextId === "s_root") return entities.filter(isTimed)
+  const descendants = collectDescendants(contextId)
   return entities.filter(
     (e) => isTimed(e) && e.parentId !== null && descendants.has(e.parentId),
   )
@@ -851,12 +851,12 @@ function shiftBlocksToDay(
  * wall-clock time-of-day (DST-safe, via setHours). Drives the timeline.
  */
 export function getTimelineOccurrences(
-  spaceId: string,
+  contextId: string,
   rangeStart: number,
   rangeEnd: number,
 ): TimelineOccurrence[] {
   const out: TimelineOccurrence[] = []
-  for (const e of getSpaceEvents(spaceId)) {
+  for (const e of getTimedDescendants(contextId)) {
     const s = e.schedule
     if (!s) continue
     // A point (`at`), a span start, or — for a due-only entity like a Task deadline —
@@ -911,17 +911,17 @@ export function getTimelineOccurrences(
   return out
 }
 
-/** Assets anywhere in a space's subtree. */
-export function getSpaceAssets(spaceId: string): Asset[] {
-  if (spaceId === "s_root") return assets
-  const descendants = collectDescendants(spaceId)
+/** Assets anywhere in a context's subtree. */
+export function getSubtreeAssets(contextId: string): Asset[] {
+  if (contextId === "s_root") return assets
+  const descendants = collectDescendants(contextId)
   return assets.filter((a) => descendants.has(a.spaceId))
 }
 
 /**
- * A "context item" wrapper around an Entity. The `task` / `event` / `space`
- * fields are back-compat aliases that all point to the SAME underlying entity
- * (populated based on `kind`), so existing readers continue to work.
+ * A "context item" wrapper around an Entity. The `task` / `moment` / `space`
+ * fields are convenience aliases that all point to the SAME underlying entity
+ * (populated based on `kind`), so kind-specific readers continue to work.
  */
 export interface ContextItem {
   id: string
@@ -929,7 +929,7 @@ export interface ContextItem {
   title: string
   entity: Entity
   task?: Entity
-  event?: Entity
+  moment?: Entity
   space?: Entity
 }
 
@@ -940,12 +940,12 @@ function toContextItem(e: Entity): ContextItem {
     title: e.title,
     entity: e,
     task: e.kind === "task" ? e : undefined,
-    event: e.kind === "moment" ? e : undefined,
+    moment: e.kind === "moment" ? e : undefined,
     space: e.kind === "space" ? e : undefined,
   }
 }
 
-/** Direct children of a context as ContextItems (spaces, tasks, events). */
+/** Direct children of a context as ContextItems (spaces, tasks, moments). */
 export function getContextItems(contextId: string): ContextItem[] {
   return getChildren(contextId).map(toContextItem)
 }
@@ -1059,7 +1059,7 @@ export function reorderContextItems(contextId: string, orderedIds: string[]): vo
 let _seq = 0
 const uid = (prefix: string) => `${prefix}_u${Date.now().toString(36)}${(_seq++).toString(36)}`
 
-// Kind → id prefix. Kept in sync with the dedicated add* fns (addTask→t, addEvent→m,
+// Kind → id prefix. Kept in sync with the dedicated add* fns (addTask→t, addMoment→m,
 // addInstant→i, addResource→r, addSpace→s). Used by addParsedEntity so an entity's id
 // reflects its kind regardless of the create path. Falls back to "t" for unmapped kinds.
 const ID_PREFIX: Partial<Record<EntityKind, string>> = {
@@ -1304,13 +1304,13 @@ export function buildLogAuditReport(): { count: number; text: string } {
   return { count: mismatches.length, text: JSON.stringify(report, null, 2) }
 }
 
-export function addTask(input: { title: string; spaceId: string }): Entity {
+export function addTask(input: { title: string; contextId: string }): Entity {
   const now = Date.now()
   const entity: Entity = {
     id: uid("t"),
     kind: "task",
     title: input.title,
-    parentId: input.spaceId,
+    parentId: input.contextId,
     taggedSpaceIds: [],
     completed: false,
     createdAt: now,
@@ -1336,7 +1336,7 @@ export function addTask(input: { title: string; spaceId: string }): Entity {
  */
 export function addParsedEntity(input: {
   title: string
-  spaceId: string
+  contextId: string
   kind: EntityKind
   schedule?: Schedule
   completed?: boolean
@@ -1349,7 +1349,7 @@ export function addParsedEntity(input: {
     id: uid(ID_PREFIX[input.kind] ?? "t"),
     kind: input.kind,
     title: input.title,
-    parentId: input.spaceId,
+    parentId: input.contextId,
     taggedSpaceIds: [],
     createdAt: now,
     completed: input.completed ?? false,
@@ -1487,14 +1487,14 @@ export function materializeOccurrence(seriesId: string, dayStart: number): Entit
 export function addWebResource(input: {
   title: string
   url: string
-  spaceId: string
+  contextId: string
   resourceId?: string
 }): Entity {
   const entity: Entity = {
     id: uid("r"),
     kind: "resource",
     title: input.title,
-    parentId: input.spaceId,
+    parentId: input.contextId,
     taggedSpaceIds: [],
     completed: false,
     tags: [],
@@ -1529,12 +1529,12 @@ export function addSpace(input: { name: string; parentId: string }): Entity {
   return entity
 }
 
-export function addEvent(input: { title: string; spaceId: string }): Entity {
+export function addMoment(input: { title: string; contextId: string }): Entity {
   const entity: Entity = {
     id: uid("m"),
     kind: "moment",
     title: input.title,
-    parentId: input.spaceId,
+    parentId: input.contextId,
     taggedSpaceIds: [],
     // Defaults to a noon→1pm block TODAY (absolute epoch ms).
     schedule: { startAt: t(12), endAt: t(13) },
@@ -1546,14 +1546,14 @@ export function addEvent(input: { title: string; spaceId: string }): Entity {
   return entity
 }
 
-export function addInstant(input: { title: string; spaceId: string }): Entity {
+export function addInstant(input: { title: string; contextId: string }): Entity {
   // An instant is a single point in time (down-triangle). It defaults to noon
   // today exactly; sub-minute precision is free now that `at` is absolute ms.
   const entity: Entity = {
     id: uid("i"),
     kind: "instant",
     title: input.title,
-    parentId: input.spaceId,
+    parentId: input.contextId,
     taggedSpaceIds: [],
     schedule: { at: t(12) },
   }
@@ -1997,11 +1997,11 @@ export function deleteEntity(id: string): void {
 }
 
 /**
- * Cancel (or un-cancel) an event/instant. It stays on the timeline and in the
- * DO list but renders dimmed with a struck-through title. Seeded items record
- * a partial override so the state survives refreshes.
+ * Cancel (or un-cancel) any entity. It stays on the timeline and in the DO list
+ * but renders dimmed with a struck-through title. Seeded items record a partial
+ * override so the state survives refreshes.
  */
-export function setEventCancelled(id: string, cancelled: boolean): void {
+export function setEntityCancelled(id: string, cancelled: boolean): void {
   const entity = byId.get(id)
   if (!entity) return
   const now = Date.now()
@@ -2070,7 +2070,7 @@ export function setEntityClosed(id: string, closed: boolean): void {
 export function reopenEntity(id: string): void {
   const stored = byId.get(id)
   if (!stored) return
-  if (isCancelled(stored)) setEventCancelled(id, false)
+  if (isCancelled(stored)) setEntityCancelled(id, false)
   // Clear the COMPLETE verdict + the stamped midnight close so a reopened entity can't
   // read as complete/closed again (the `reopened` override also suppresses the derived
   // rules, but clearing `closeAt` keeps the data honest).

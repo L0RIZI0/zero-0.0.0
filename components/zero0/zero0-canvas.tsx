@@ -415,7 +415,7 @@ export function Zero0Canvas() {
       addWebResource({
         title: webDisplayName(url, resource?.id),
         url,
-        spaceId: contextId,
+        contextId,
         resourceId: resource?.id,
       })
       setDraft("")
@@ -425,7 +425,7 @@ export function Zero0Canvas() {
 
     // Kind = explicit `:kind`, else deterministically inferred from attributes then verb.
     const kind = entry.kind ?? inferKind(entry.title, entry.attrs)
-    const created = addParsedEntity({ title: entry.title, spaceId: contextId, kind })
+    const created = addParsedEntity({ title: entry.title, contextId, kind })
 
     // Configure the new child: apply every attribute (skip --title — the free text already
     // named it), then any :action flags (e.g. `:done` logs it already-done / cancelled).

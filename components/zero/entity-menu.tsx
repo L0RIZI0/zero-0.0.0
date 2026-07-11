@@ -7,7 +7,7 @@ import {
   pinItem,
   unpinItem,
   deleteEntity,
-  setEventCancelled,
+  setEntityCancelled,
   setEntityClosed,
   setEntityRequested,
   changeEntityKind,
@@ -111,7 +111,7 @@ export function buildEntityMenuItems(entity: Entity, contextId: string, deps: Me
             label: isCancelled ? "Restore" : "Cancel",
             icon: isCancelled ? <RotateCcw className="h-3.5 w-3.5" /> : <Ban className="h-3.5 w-3.5" />,
             onSelect: () => {
-              setEventCancelled(id, !isCancelled)
+              setEntityCancelled(id, !isCancelled)
               notifyDataChanged()
             },
           },

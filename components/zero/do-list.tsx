@@ -858,7 +858,7 @@ export function DoList({
         if (past) {
           const entity = addParsedEntity({
             title: past.title,
-            spaceId: contextId,
+            contextId,
             kind: past.kind,
             schedule: past.schedule,
             completed: past.completed,
@@ -875,7 +875,7 @@ export function DoList({
       // the title and apply it as the instant's moment. Other kinds keep the
       // title verbatim.
       const parsed = kind === "instant" ? parseInstantTime(title) : { title, at: undefined }
-      const entity = addTask({ title: parsed.title, spaceId: contextId })
+      const entity = addTask({ title: parsed.title, contextId })
       if (kind !== "task") changeEntityKind(entity.id, kind)
       if (kind === "instant" && parsed.at != null) setInstantAt(entity.id, parsed.at)
       setBornId(entity.id)
@@ -935,7 +935,7 @@ export function DoList({
       const entity = addWebResource({
         title: webDisplayName(url, resource?.id),
         url,
-        spaceId: contextId,
+        contextId,
         resourceId: resource?.id,
       })
       setBornId(entity.id)
