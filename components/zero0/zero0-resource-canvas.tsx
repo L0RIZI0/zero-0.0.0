@@ -1,11 +1,12 @@
 "use client"
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react"
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import {
   getWebResource,
   resolveWebResourceByUrl,
   webDisplayName,
   webFaviconUrl,
+  webFaviconFallbackUrl,
   type WebResource,
 } from "@/lib/zero/web-resources"
 import { readResourceLastUrl, writeResourceLastUrl } from "@/lib/zero/persistence"
@@ -61,7 +62,11 @@ export function Zero0ResourceCanvas({
   // later navigations don't remount the view. Falls back to `url` on the web.
   const [initialUrl] = useState(() => (typeof window === "undefined" ? url : readResourceLastUrl(id) ?? url))
   useEffect(() => {
-    setIsDesktop(typeof window !== "undefined" && !!window.zero?.isDesktop)
+    // Require the ACTUAL native bridge API (resource.mount), not just the isDesktop flag:
+    // a partial/stub `window.zero` (e.g. an env that sets isDesktop but no bridge) must NOT
+    // route to NativeSurface, which would crash calling the missing mount(). On a real
+    // desktop build the full API is always present, so this is stricter-but-equivalent.
+    setIsDesktop(typeof window !== "undefined" && typeof window.zero?.resource?.mount === "function")
   }, [url])
 
   if (isDesktop) {
@@ -447,11 +452,27 @@ function Zero0ResourceGlyph({
   const resource = getWebResource(resourceId) ?? resolveWebResourceByUrl(url)
   const tint = resource?.tint ?? "#8A8F99"
   const isInternal = !!url && url.startsWith("/")
-  const favicon = isInternal ? null : webFaviconUrl(resource, url)
-  const [status, setStatus] = useState<"loading" | "ok" | "error">(favicon ? "loading" : "error")
+  // Favicon sources, best → most-available: [0] DuckDuckGo (preserves transparency, so it
+  // sits cleanly on the dark canvas), [1] Google (always available, but opaque/white). We
+  // walk the chain on load error; when we FALL BACK to the opaque source, the icon may
+  // carry a baked-in white square, so we frame it on a soft rounded chip (`onFallback`).
+  const sources = useMemo(
+    () =>
+      isInternal
+        ? []
+        : ([webFaviconUrl(resource, url), webFaviconFallbackUrl(resource, url)].filter(Boolean) as string[]),
+    [isInternal, resource, url],
+  )
+  const [srcIdx, setSrcIdx] = useState(0)
+  const [status, setStatus] = useState<"loading" | "ok" | "error">(sources.length ? "loading" : "error")
   useEffect(() => {
-    setStatus(favicon ? "loading" : "error")
-  }, [favicon])
+    setSrcIdx(0)
+    setStatus(sources.length ? "loading" : "error")
+  }, [sources])
+  const favicon = sources[srcIdx] ?? null
+  // On the opaque Google fallback (any index past the first), frame the icon so a possible
+  // white background reads as a deliberate chip rather than a stray block.
+  const onFallback = status === "ok" && srcIdx > 0
 
   return (
     <span
@@ -487,9 +508,21 @@ function Zero0ResourceGlyph({
           alt=""
           draggable={false}
           onLoad={() => setStatus("ok")}
-          onError={() => setStatus("error")}
+          onError={() =>
+            setSrcIdx((i) => {
+              // Walk the chain: try the next source, else give up (→ monogram).
+              if (i + 1 < sources.length) return i + 1
+              setStatus("error")
+              return i
+            })
+          }
           className={cn(
-            "absolute inset-0 h-full w-full bg-card object-contain p-[12%] transition-opacity duration-150",
+            "absolute inset-0 h-full w-full object-contain transition-opacity duration-150",
+            // Opaque fallback (Google): the icon likely carries a baked-in white square, so
+            // render it AS a clean white rounded chip (icon + backing merge into one tile) —
+            // reads intentional in dark mode. Transparent source: dark backing so the real
+            // mark sits cleanly on the canvas.
+            onFallback ? "rounded-[4px] bg-white p-[18%] ring-1 ring-inset ring-black/10" : "bg-card p-[12%]",
             status === "ok" ? "opacity-100" : "opacity-0",
           )}
         />

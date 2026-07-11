@@ -168,15 +168,27 @@ export function webDisplayName(url: string, resourceId?: string): string {
 }
 
 /**
- * Best-effort REAL favicon for a resource/URL. We resolve the host (catalog
- * domain first, else the typed URL's host) and fetch its icon through Google's
- * favicon service, which returns a clean square PNG at the requested size for any
- * public site — so a Figma/Notion/Linear task (or any pinned website) shows its
- * genuine mark instead of a monogram. The glyph falls back to the monogram tile
- * if this is null or the image fails to load. `size` should be the rendered px so
- * the icon is crisp on hi-dpi (request 2× the box).
+ * Best-effort REAL favicon for a resource/URL. We resolve the host (catalog domain
+ * first, else the typed URL's host) and fetch its icon through DuckDuckGo's icon
+ * service, which returns the site's ACTUAL favicon — crucially PRESERVING alpha
+ * transparency when the source icon has it (Figma, Linear, Notion, GitHub, …), so on
+ * the dark canvas the mark sits cleanly with no baked-in white plate. (Google's
+ * service always composites onto an opaque white square, which is the white-block
+ * problem in dark mode.) If DuckDuckGo 404s, the glyph retries via
+ * {@link webFaviconFallbackUrl} (Google, always-available but opaque), then the
+ * monogram tile.
  */
-export function webFaviconUrl(resource: WebResource | undefined, url?: string, size = 64): string | null {
+export function webFaviconUrl(resource: WebResource | undefined, url?: string): string | null {
+  const host = resource?.domains[0] ?? hostOf(url ?? "")
+  if (!host) return null
+  return `https://icons.duckduckgo.com/ip3/${encodeURIComponent(host)}.ico`
+}
+
+/** Always-available opaque fallback (Google S2). Used only when the transparent-friendly
+ *  {@link webFaviconUrl} fails to load. `size` should be the rendered px so it's crisp on
+ *  hi-dpi (request 2× the box). May carry a baked-in white background — the glyph frames
+ *  it on a soft rounded chip so it reads intentional rather than a stray white block. */
+export function webFaviconFallbackUrl(resource: WebResource | undefined, url?: string, size = 64): string | null {
   const host = resource?.domains[0] ?? hostOf(url ?? "")
   if (!host) return null
   return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(host)}&sz=${size}`
