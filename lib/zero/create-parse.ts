@@ -437,9 +437,19 @@ export interface EntryParse {
 }
 
 /**
+ * A SPAN END that is DATE-ONLY (6 digits, YYMMDD @ 00:00) should cover the WHOLE final
+ * day, so append `2359` → a 10-digit YYMMDDHHMM at 23:59. 4/10-digit ends already carry a
+ * time and pass through unchanged. (Start needs no such bump — a date-only start at 00:00
+ * is the natural "from the beginning of that day".)
+ */
+function endOfDayIfDateOnly(tok: string): string {
+  return tok.length === 6 ? tok + "2359" : tok
+}
+
+/**
  * Parse a create-bar line into the {@link EntryParse} structure. Pure + synchronous.
- * Order of extraction: `--title:` (rest-of-line) → other `--field:value` → `:directives`
- * → whatever's left is the title.
+ * Order of extraction: `--title:` (rest-of-line) → `--<digits>-<digits>` span shortcut →
+ * other `--field:value` → `:directives` → whatever's left is the title.
  */
 export function parseEntry(raw: string): EntryParse {
   let s = raw
@@ -452,6 +462,22 @@ export function parseEntry(raw: string): EntryParse {
     attrs.push({ field: "title", value: titleAttr[1].trim() })
     s = s.slice(0, titleAttr.index)
   }
+
+  // 1.5) `--<digits>-<digits>` SPAN shortcut — sugar for `--start:X --end:Y`. Always a
+  //      SPAN (never a point), so it reintroduces NO point-vs-start ambiguity (the reason
+  //      the bare `--2330-0630` form was retired in v0.3.34 — this one keeps the `--`).
+  //      Each side is 4 (HHMM today) / 6 (YYMMDD) / 10 (YYMMDDHHMM) digits, matching
+  //      parseDateToken. A DATE-ONLY end (6 digits) is bumped to 23:59 so the range covers
+  //      the whole final day. Runs before step 2 (that regex only matches `--[a-zA-Z]`, so
+  //      the digit tokens are invisible to it — no collision). Cross-midnight end-bump is
+  //      applied later in the canvas create flow, not here.
+  s = s.replace(/--(\d+)-(\d+)/g, (m, a: string, b: string) => {
+    const ok = (t: string) => t.length === 4 || t.length === 6 || t.length === 10
+    if (!ok(a) || !ok(b)) return m // not a valid span token — leave the text untouched
+    attrs.push({ field: "start", value: a })
+    attrs.push({ field: "end", value: endOfDayIfDateOnly(b) })
+    return " "
+  })
 
   // 2) `--field:value` / `--field` — single-token value up to the next whitespace.
   s = s.replace(/--([a-zA-Z]+)(?::(\S*))?/g, (_m, f: string, v?: string) => {
@@ -485,21 +511,22 @@ export function parseEntry(raw: string): EntryParse {
 
 /**
  * Infer a creatable {@link EntityKind} for a NEW entity that carried no explicit `:kind`
- * directive, from its attributes then its leading verb:
+ * directive, from its EXPLICIT scheduling fields alone:
  *   - `--due`               ⇒ task (a deadline is a task thing)
  *   - `--start` / `--end`   ⇒ moment (a span)
  *   - `--at`                ⇒ instant (a point)
- *   - else a MOMENT_VERB    ⇒ moment; an ACTIVE_VERB ⇒ task
- *   - else                  ⇒ task (the neutral default)
- * Deterministic; no guessing about point-vs-span (fields decide that explicitly).
+ *   - else                  ⇒ MOMENT (the neutral default)
+ * The default is MOMENT (was `task`): most of what a person logs on their canvas is
+ * something that HAPPENS in time, and a Moment is the most general timed thing (a Task is
+ * the special case that adds a deadline + done-state). Verb-based inference was DROPPED —
+ * titles are now kept verbatim (see the deferred past→present note in zero-create-field.md)
+ * and the kind no longer depends on guessing a leading verb. Deterministic; the fields (not
+ * the words) decide point-vs-span, and only when the user states them.
  */
-export function inferKind(title: string, attrs: EntryAttr[]): EntityKind {
+export function inferKind(_title: string, attrs: EntryAttr[]): EntityKind {
   const has = (f: string) => attrs.some((a) => a.field === f && a.value !== "")
   if (has("due")) return "task"
   if (has("start") || has("end")) return "moment"
   if (has("at")) return "instant"
-  const verb = classifyVerb(title)
-  if (verb === "moment") return "moment"
-  if (verb === "active") return "task"
-  return "task"
+  return "moment"
 }

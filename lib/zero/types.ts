@@ -309,6 +309,13 @@ export interface EntityBase {
   createdAt?: Epoch
   /** Id of the creating Individual/Organism ("created by"). */
   createdBy?: string
+  /**
+   * Id of the OWNING Individual — who governs the entity's lifecycle (e.g. only the
+   * owner may mark Complete or change {@link closePolicy}). Defaults to the creator.
+   * Distinct from `createdBy` so a task REQUESTED of someone else keeps its true owner
+   * (multi-user, future). Absent = fall back to `createdBy` then the current actor.
+   */
+  ownerId?: string
   /** Place id or label where it was created ("created where"). */
   createdWhere?: string
   /** When `completed` (the DONE marker) last flipped true (mirrors the done write). */
@@ -357,6 +364,15 @@ export interface EntityBase {
    * (single-user) marking Done also completes + stamps this in one step.
    */
   closeAt?: Epoch
+  /**
+   * How this entity CLOSES. `"auto"` (default when absent) = the standard time-close: a
+   * Complete entity rolls to Closed at its stamped {@link closeAt} (next local midnight).
+   * `"manual"` = NO automatic time-close — it rests at Complete/Ongoing indefinitely until
+   * someone explicitly Closes or Cancels it, and no `closeAt` is stamped. OWNER-ONLY to
+   * change (see `setEntityClosePolicy`). A manual Close/Cancel still applies under either
+   * policy — the policy only governs the AUTOMATIC path.
+   */
+  closePolicy?: "auto" | "manual"
   /**
    * Explicit user REOPEN that overrides a DERIVED close. Set by the "Reopen" menu
    * action so an entity that closed only because time passed (a moment past its end,

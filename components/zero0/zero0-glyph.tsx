@@ -79,7 +79,7 @@ export function Zero0Glyph({
   /**
    * ONGOING ⇒ the glyph SLOWLY ROTATES clockwise — the "live span in progress" signal
    * for a started-but-unended Moment (see `getState` → "ongoing"). Reuses the built-in
-   * `spin` keyframe at a calm 6s cadence, gated on `motion-safe` so reduced-motion users
+   * `spin` keyframe at a calm 9s cadence, gated on `motion-safe` so reduced-motion users
    * see a still outline. The only motion in the otherwise-static zero0 glyph set.
    */
   ongoing?: boolean
@@ -104,7 +104,7 @@ export function Zero0Glyph({
   return (
     <svg
       viewBox="0 0 24 24"
-      className={`${className ?? ""}${ongoing ? " motion-safe:animate-spin [animation-duration:6s]" : ""}`}
+      className={`${className ?? ""}${ongoing ? " motion-safe:animate-spin [animation-duration:9s]" : ""}`}
       fill={filled ? "currentColor" : "none"}
       stroke="currentColor"
       strokeWidth={filled ? 0 : 1.6}

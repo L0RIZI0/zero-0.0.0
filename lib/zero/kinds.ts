@@ -241,6 +241,9 @@ export interface EntityState {
  * `now` backfills a done task that somehow lacks a `completedOn`.
  */
 export function computeCloseAt(entity: Entity, now: number = Date.now()): number | undefined {
+  // A manual close policy opts OUT of any stamped time-close (belt-and-braces alongside
+  // the getState guard) — such entities close only by an explicit hand action.
+  if (entity.closePolicy === "manual") return undefined
   if (entity.kind === "task") {
     return isDone(entity) ? nextLocalMidnight(getCompletedOn(entity) ?? now) : undefined
   }
@@ -296,9 +299,15 @@ export function getState(entity: Entity, now: number = Date.now()): EntityState 
   const closeState = getCloseState(entity) // "closed" | "reopened" | null
   const manualClosed = closeState === "closed"
   // A reopen override suppresses the stamped time-close (as well as manual close, which
-  // Reopen also clears). Otherwise the frozen `closeAt` decides — the SAME instant for
-  // every viewer, so timezones can't disagree on open-vs-closed.
-  const timeClosed = closeState !== "reopened" && entity.closeAt != null && now >= entity.closeAt
+  // Reopen also clears). A `manual` close policy ALSO suppresses it — such an entity never
+  // auto-closes; it rests at Complete/Ongoing until someone Closes or Cancels it by hand.
+  // Otherwise the frozen `closeAt` decides — the SAME instant for every viewer, so
+  // timezones can't disagree on open-vs-closed.
+  const timeClosed =
+    entity.closePolicy !== "manual" &&
+    closeState !== "reopened" &&
+    entity.closeAt != null &&
+    now >= entity.closeAt
   if (manualClosed || timeClosed) {
     const at = manualClosed ? entity.closedOn ?? entity.closeAt : entity.closeAt
     if (meta.terminal === "death") {

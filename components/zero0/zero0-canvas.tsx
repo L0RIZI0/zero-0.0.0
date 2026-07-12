@@ -22,9 +22,15 @@ import {
   setEntityScheduleField,
   setEntityAccent,
   setEntitySex,
+  setEntityClosePolicy,
   renameEntity,
   changeEntityKind,
   deleteEntity,
+  autoTagByTitle,
+  getForwardTags,
+  getBackReferences,
+  getCreator,
+  getOwner,
 } from "@/lib/zero/data"
   import { KIND_META, isClosed, fillsGlyph, getState, type EntityState } from "@/lib/zero/kinds"
   import { isDone, isCancelled, getCreatedAt, getCompletedOn, describeLogEntry } from "@/lib/zero/entity-log"
@@ -62,6 +68,16 @@ const isColorPickerTrigger = (draft: string) => /^--color:?\s*$/i.test(draft)
 function fmt(epoch?: number): string {
   if (!epoch) return "—"
   return new Date(epoch).toLocaleString(formatLocale())
+}
+
+// A COMPACT when-label for an entity, used to distinguish multiple back-references that
+// share a title (e.g. several "Work on Zero" sessions): its span → its point → else the
+// date it was created. Under the `mounted` gate like `fmt`.
+function rangeLabel(e: Entity): string {
+  const s = e.schedule
+  if (s?.startAt != null || s?.endAt != null) return `${fmt(s?.startAt)} → ${fmt(s?.endAt)}`
+  if (s?.at != null) return fmt(s.at)
+  return fmt(getCreatedAt(e))
 }
 
 // Schedule `set` entries carry an epoch NUMBER as their value; render it as a date rather
@@ -344,10 +360,26 @@ export function Zero0Canvas() {
           }
           return epoch == null ? `${attr.field} cleared` : `${attr.field} ${fmt(epoch)}`
         }
+        case "close": {
+          // CLOSE POLICY (owner-only): `--close:manual` opts out of the automatic midnight
+          // close (rests at Complete/Ongoing until closed by hand); `--close:auto` (or empty)
+          // restores the default. Not the `:close` ACTION — that's a `:` directive.
+          const v = val.toLowerCase()
+          const policy = v === "" || v === "auto" ? "auto" : v === "manual" ? "manual" : null
+          if (policy == null) {
+            setNotice({ tone: "err", text: `use --close:manual | auto (got "${val}")` })
+            return null
+          }
+          if (!setEntityClosePolicy(id, policy)) {
+            setNotice({ tone: "err", text: "only the owner can change the close policy" })
+            return null
+          }
+          return `close ${policy}`
+        }
         default:
           setNotice({
             tone: "err",
-            text: `unknown --${attr.field} — try --start --end --at --due --color --sex --title`,
+            text: `unknown --${attr.field} — try --start --end --at --due --close --color --sex --title`,
           })
           return null
       }
@@ -420,7 +452,8 @@ export function Zero0Canvas() {
       return
     }
 
-    // Kind = explicit `:kind`, else deterministically inferred from attributes then verb.
+    // Kind = explicit `:kind`, else deterministically inferred from the scheduling fields
+    // (default MOMENT — most logged things happen in time).
     const kind = entry.kind ?? inferKind(entry.title, entry.attrs)
     const created = addParsedEntity({ title: entry.title, contextId, kind })
 
@@ -435,7 +468,27 @@ export function Zero0Canvas() {
       if (ent) applyEntityMenuAction(ent, action)
     }
 
+    // CROSS-MIDNIGHT SPAN: a moment whose end lands at/-before its start (e.g. sleep
+    // 23:30 → 06:30) means "the next day" — bump the end forward 24h so the span is real.
+    const fresh = getEntity(created.id)
+    if (fresh && fresh.kind === "moment") {
+      const st = fresh.schedule?.startAt
+      const en = fresh.schedule?.endAt
+      if (st != null && en != null && en <= st) {
+        setEntityScheduleField(created.id, "endAt", en + 86_400_000)
+      }
+    }
+
+    // AUTO-TAG by title: link the new entity into every existing (non-closed) entity whose
+    // name it contains — "Work on Zero" surfaces under the Space "Zero". It inherits the
+    // match's accent UNLESS the user set one explicitly with --color.
+    const explicitColor = entry.attrs.some((a) => a.field === "color" && a.value !== "")
+    const tagged = autoTagByTitle(created.id, { inheritAccent: !explicitColor })
+
     setDraft("")
+    if (tagged.length > 0) {
+      setNotice({ tone: "ok", text: `tagged: ${tagged.map((t) => t.title).join(", ")}` })
+    }
     bump()
   }, [draft, bump, contextId])
 
@@ -612,6 +665,11 @@ export function Zero0Canvas() {
     metaRows.push(["id", context.id])
     metaRows.push(["kind", context.kind])
     metaRows.push(["created", fmt(getCreatedAt(context))])
+    // PROVENANCE — who made it, who governs its lifecycle. Single-user: both resolve to
+    // "Loris". Ids resolve to titles; an unknown id shows raw (e.g. a future remote actor).
+    const nameOf = (uid: string) => getEntity(uid)?.title ?? uid
+    metaRows.push(["creator", nameOf(getCreator(context))])
+    metaRows.push(["owner", nameOf(getOwner(context))])
     // TITLE HISTORY — only when the entity has actually been renamed (>1 entry). Shows
     // the full chain oldest→newest with the time each name took effect, so the raw-data
     // view exposes what `titleAt(entity, t)` folds for the activity tracker.
@@ -629,6 +687,9 @@ export function Zero0Canvas() {
     if (meta.fillsWhenClosed || meta.terminal) {
       metaRows.push(["state", formatState(getState(context), fmt, meta.terminal === "death")])
     }
+    // CLOSE POLICY — only when MANUAL (auto is the silent default). Signals this entity
+    // won't roll to closed at midnight; it waits for a hand Close/Cancel.
+    if (context.closePolicy === "manual") metaRows.push(["close", "manual"])
     if (context.kind === "task" && context.requested) metaRows.push(["requested", "yes"])
     // TEMPORAL slots — a kind's defining time dimension is ALWAYS shown (as "—" when
     // unset), the same way DONE/CLOSED always render. A Moment IS a span, an Instant
@@ -658,6 +719,19 @@ export function Zero0Canvas() {
   // SEX — an Individual's defining identity field, always shown (— when unset), the
   // same way a Moment always shows its span. Individual-only.
   if (context.kind === "individual") metaRows.push(["sex", context.sex ? sexSymbol(context.sex) : "—"])
+    // TAG LINKS — the recursive "also shows up in" web, both directions:
+    //   • tags      = this entity's own outbound links (the contexts it plugs into).
+    //   • tagged by = the DERIVED reverse — entities that name/reference THIS one, each with a
+    //     when-label so multiple same-titled sessions ("Work on Zero") stay distinguishable.
+    // Only shown when non-empty (a leaf with no links stays quiet).
+    const forwardTags = getForwardTags(context)
+    if (forwardTags.length > 0) {
+      metaRows.push(["tags", forwardTags.map((t) => t.title).join(", ")])
+    }
+    const backRefs = getBackReferences(context.id)
+    if (backRefs.length > 0) {
+      metaRows.push(["tagged by", backRefs.map((b) => `${b.title} (${rangeLabel(b)})`).join(", ")])
+    }
   }
 
   // ── Shared ZERO HEADER elements (reused by the full + minimized layouts) ──────

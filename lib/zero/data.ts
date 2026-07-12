@@ -101,6 +101,14 @@ export const currentUser: User = {
  */
 export const ROOT_ID = "0"
 
+/**
+ * The Individual acting right now. Single-user today, so this IS the root Individual
+ * ("Loris" = {@link ROOT_ID}); it's the default `createdBy`/`ownerId` for everything
+ * created, and the identity that owner-only actions (Complete, set close policy) check
+ * against. Named separately from ROOT_ID so the multi-user future has one clear seam.
+ */
+export const CURRENT_ACTOR_ID = ROOT_ID
+
 // ----------------------------------------------------------------------------
 // Resources — apps, services, documents, tools available as contextual inputs
 // ----------------------------------------------------------------------------
@@ -2006,6 +2014,145 @@ export function setEntityScheduleField(
   persist()
   return true
   }
+
+// --- Provenance: creator + owner -------------------------------------------
+// Single-user today, so both fall back to the current actor ("Loris" = ROOT_ID)
+// for any entity written before provenance existed — no stamping or migration
+// needed. The stored fields exist for the multi-user future (a task REQUESTED of
+// or OWNED by someone else writes them explicitly).
+
+/** The Individual that CREATED an entity (falls back to the current actor). */
+export function getCreator(entity: Entity): string {
+  return entity.createdBy ?? CURRENT_ACTOR_ID
+}
+
+/** The Individual that OWNS an entity's lifecycle — governs Complete + close policy.
+ *  Falls back to the creator, then the current actor. */
+export function getOwner(entity: Entity): string {
+  return entity.ownerId ?? entity.createdBy ?? CURRENT_ACTOR_ID
+}
+
+// --- Tag links (taggedContextIds): forward + DERIVED reverse ---------------
+
+/** The contexts this entity is ALSO shown in — its own outbound tag links resolved
+ *  to entities (missing ids dropped). */
+export function getForwardTags(entity: Entity): Entity[] {
+  return (entity.taggedContextIds ?? [])
+    .map((tid) => byId.get(tid))
+    .filter((e): e is Entity => e != null)
+}
+
+/** The DERIVED reverse of {@link getForwardTags}: every entity that tags `id`. The link
+ *  is stored ONCE (on the tagging child); the back-reference is computed here, so the two
+ *  directions can never drift. */
+export function getBackReferences(id: string): Entity[] {
+  const out: Entity[] = []
+  for (const e of entities) {
+    if (e.id === id) continue
+    if (e.taggedContextIds?.includes(id)) out.push(e)
+  }
+  return out
+}
+
+// --- Auto-tag by title -----------------------------------------------------
+
+/** Escape a string for literal use inside a RegExp. */
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+}
+
+/** Whole-word phrase match with light singular/plural tolerance. `hay` is lowercase. */
+function titlePhraseMatches(hay: string, needleRaw: string): boolean {
+  const needle = needleRaw.toLowerCase().trim()
+  if (!needle) return false
+  const variants = new Set([needle])
+  if (needle.endsWith("s")) variants.add(needle.slice(0, -1))
+  else variants.add(needle + "s")
+  for (const v of variants) {
+    if (new RegExp(`\\b${escapeRegExp(v)}\\b`).test(hay)) return true
+  }
+  return false
+}
+
+/**
+ * Auto-tag a freshly created entity against the rest of the tree: for every OTHER,
+ * non-closed entity whose TITLE occurs as a whole-word phrase inside the new entity's
+ * title, add a `taggedContextIds` link (so "Work on Zero" surfaces under the Space
+ * "Zero"). Case-insensitive with singular/plural tolerance; skips self, the new
+ * entity's own parent (redundant with `parentId`), the root/soul scaffold, and any
+ * closed/cancelled entity. When `inheritAccent` and the new entity has no own accent,
+ * it adopts the first match's accent. Persists. Returns the matched entities.
+ */
+export function autoTagByTitle(
+  newId: string,
+  opts: { inheritAccent: boolean } = { inheritAccent: true },
+): Entity[] {
+  const stored = byId.get(newId)
+  if (!stored) return []
+  const hay = stored.title.toLowerCase()
+  if (!hay.trim()) return []
+  const matched: Entity[] = []
+  for (const cand of entities) {
+    if (cand.id === newId || cand.id === stored.parentId) continue
+    if (cand.id === ROOT_ID || cand.kind === "soul") continue
+    if (cand.title.trim().length < 2) continue // ignore 1-char titles (noise)
+    if (isClosed(cand)) continue
+    if (titlePhraseMatches(hay, cand.title)) matched.push(cand)
+  }
+  if (matched.length === 0) return []
+  const entity = mutable(stored)
+  const links = new Set(entity.taggedContextIds ?? [])
+  for (const m of matched) links.add(m.id)
+  entity.taggedContextIds = [...links]
+  if (opts.inheritAccent && entity.accent == null) {
+    const inherited = matched[0].accent ?? getInheritedAccent(matched[0].id)
+    if (inherited) entity.accent = inherited
+  }
+  if (!userEntityIds.has(newId)) {
+    seededOverrides.set(newId, {
+      ...seededOverrides.get(newId),
+      taggedContextIds: entity.taggedContextIds,
+      accent: entity.accent,
+    })
+  }
+  persist()
+  return matched
+}
+
+// --- Close policy (owner-only) ---------------------------------------------
+
+/**
+ * Set an entity's CLOSE POLICY — OWNER-ONLY (no-op + false if the current actor isn't the
+ * owner, or the id is unknown). `"manual"` opts out of the automatic midnight time-close
+ * and clears any stamped `closeAt`; `"auto"` (or `null` to clear the field) restores it,
+ * re-stamping `closeAt` from the schedule/done state via {@link computeCloseAt}. A manual
+ * Close/Cancel still applies under either policy — this only governs the AUTOMATIC path.
+ */
+export function setEntityClosePolicy(id: string, policy: "auto" | "manual" | null): boolean {
+  const stored = byId.get(id)
+  if (!stored) return false
+  if (getOwner(stored) !== CURRENT_ACTOR_ID) return false
+  const entity = mutable(stored)
+  if (policy === "manual") {
+    entity.closePolicy = "manual"
+    delete entity.closeAt
+  } else {
+    if (policy === "auto") entity.closePolicy = "auto"
+    else delete entity.closePolicy
+    const stamped = computeCloseAt(stored)
+    if (stamped != null) entity.closeAt = stamped
+  }
+  logSet(entity, "closePolicy", policy)
+  if (!userEntityIds.has(id)) {
+    seededOverrides.set(id, {
+      ...seededOverrides.get(id),
+      closePolicy: entity.closePolicy,
+      closeAt: entity.closeAt,
+    })
+  }
+  persist()
+  return true
+}
 
   /**
    * Set (or clear) an INDIVIDUAL's biological `sex` ("man" | "woman"), in place. Individual-
