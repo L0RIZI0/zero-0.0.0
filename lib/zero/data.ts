@@ -1332,6 +1332,94 @@ export function hydrateFromStorage(): boolean {
 }
 
 /**
+ * CROSS-WINDOW RESYNC — rebuild the user-created portion of the in-memory store from
+ * localStorage, reconciling ADD / UPDATE / DELETE (unlike {@link hydrateFromStorage},
+ * which only additively merges once). Called when ANOTHER window/tab writes our key (the
+ * `storage` event never fires in the window that made the change, so there's no echo
+ * loop). Returns true if anything actually changed, so the caller can bump its re-render.
+ *
+ * Model = last-write-wins on the whole blob (that's how `persist()` saves). We treat the
+ * stored blob as the source of truth for USER entities + pins + order + seed overrides +
+ * tombstones; SEED entities the reader hasn't overridden are left as their code defaults.
+ * Known limitation: an override CLEARED in another window isn't reverted here (we only
+ * apply present overrides) — acceptable for the browse-in-one-window/work-in-another case.
+ */
+export function resyncFromStorage(): boolean {
+  if (typeof window === "undefined") return false
+  const stored = readUserItems()
+  migrateStoredTaggedKey(stored)
+  migrateStoredRootId(stored)
+  let changed = false
+
+  const storedById = new Map(stored.entities.map((e) => [e.id, e]))
+
+  // 1) DELETE — user entities that vanished from storage (deleted in another window).
+  for (const id of [...userEntityIds]) {
+    if (!storedById.has(id)) {
+      if (removeEntityById(id)) {
+        userEntityIds.delete(id)
+        changed = true
+      }
+    }
+  }
+
+  // 2) ADD / UPDATE — from storage. New ones are pushed; existing user entities are
+  //    updated IN PLACE (same object reference, so live consumers stay valid): drop keys
+  //    no longer present, then copy the stored fields over.
+  for (const raw of stored.entities) {
+    const entity = raw
+    migrateLegacyTime(entity)
+    migrateWebTaskToResource(entity)
+    migrateEventToMoment(entity)
+    migrateCompletionToLog(entity)
+    const existing = byId.get(entity.id)
+    if (!existing) {
+      entities.push(entity)
+      byId.set(entity.id, entity)
+      userEntityIds.add(entity.id)
+      indexOverride(entity)
+      changed = true
+    } else if (userEntityIds.has(entity.id)) {
+      for (const k of Object.keys(existing)) {
+        if (!(k in entity)) delete (existing as unknown as Record<string, unknown>)[k]
+      }
+      Object.assign(existing, entity)
+      indexOverride(existing)
+      changed = true
+    }
+  }
+
+  // 3) PINS + ORDER — replace wholesale (storage is authoritative after an external write).
+  for (const k of Object.keys(pinnedByContext)) delete pinnedByContext[k]
+  for (const [c, ids] of Object.entries(stored.pins)) {
+    if (Array.isArray(ids) && ids.length) pinnedByContext[c] = [...ids]
+  }
+  for (const k of Object.keys(orderByContext)) delete orderByContext[k]
+  for (const [c, ids] of Object.entries(stored.order)) {
+    if (Array.isArray(ids) && ids.length) orderByContext[c] = [...ids]
+  }
+  changed = true
+
+  // 4) SEED OVERRIDES — apply patches onto seeded entities (e.g. a color set elsewhere).
+  for (const [id, patch] of Object.entries(stored.overrides)) {
+    const e = byId.get(id)
+    if (e && !userEntityIds.has(id)) {
+      Object.assign(e, patch)
+      seededOverrides.set(id, patch)
+    }
+  }
+
+  // 5) TOMBSTONES — seed entities deleted in another window.
+  for (const id of stored.deletedIds) {
+    if (!userEntityIds.has(id) && byId.has(id) && removeEntityById(id)) {
+      deletedSeededIds.add(id)
+    }
+  }
+
+  return changed
+}
+
+/**
  * ON-DEMAND log↔scalar consistency audit over ALL current in-memory entities
  * (the `§ 5` dev chord). Unlike the hydrate-time check — which is dev-gated and
  * console-only — this runs anytime and returns the mismatches so the caller can

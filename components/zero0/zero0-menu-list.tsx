@@ -76,6 +76,13 @@ function MenuRow({ item, onSelect }: { item: Indentable; onSelect: (id: string) 
       }
     >
       {item.glyphKind && <Zero0Glyph kind={item.glyphKind} className="h-3 w-3" />}
+      {item.swatch && (
+        <span
+          aria-hidden
+          className="h-2.5 w-2.5 shrink-0 rounded-full border border-border/60"
+          style={{ backgroundColor: item.swatch }}
+        />
+      )}
       <span>{item.label}</span>
       {item.current && (
         <span aria-hidden className="ml-auto pl-3 text-muted-foreground/70">

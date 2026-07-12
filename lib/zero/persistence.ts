@@ -18,6 +18,11 @@ import type { Entity } from "./types"
 
 const STORAGE_KEY = "zero:root-items:v1"
 
+/** The localStorage key holding the root canvas's user items. Exported so the
+ *  cross-window sync (a `storage`-event listener) can tell OUR writes apart from
+ *  other keys and re-hydrate only when this dataset changes in another window. */
+export const USER_ITEMS_STORAGE_KEY = STORAGE_KEY
+
 export interface UserItems {
   entities: Entity[]
   /** Per-context pin map: context space id → ordered list of pinned item ids. */

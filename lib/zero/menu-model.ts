@@ -20,6 +20,7 @@ import {
   setEntityCancelled,
   setEntityRequested,
   setEntityScheduleField,
+  setEntityAccent,
   reopenEntity,
   changeEntityKind,
 } from "@/lib/zero/data"
@@ -31,8 +32,46 @@ import type { Entity, EntityKind } from "@/lib/zero/types"
 // the DOM menu both expand it locally; only the final leaf action id crosses IPC).
 export type MenuItem =
   | { type: "divider" }
-  | { type: "item"; id: string; label: string; danger?: boolean; glyphKind?: EntityKind; current?: boolean }
+  | {
+      type: "item"
+      id: string
+      label: string
+      danger?: boolean
+      glyphKind?: EntityKind
+      current?: boolean
+      /** A `#rrggbb` swatch drawn as a leading dot (the color picker rows). */
+      swatch?: string
+    }
   | { type: "submenu"; label: string; items: MenuItem[] }
+
+// The entity-accent color picker choices (the "Set color…" submenu). A small, distinct
+// hue set; ids are `color:<hex>`, resolved by {@link applyEntityMenuAction} via
+// `setEntityAccent`. `color:clear` removes the accent (back to inherited/neutral).
+const COLOR_CHOICES: { label: string; hex: string }[] = [
+  { label: "Blue", hex: "#2f6fed" },
+  { label: "Teal", hex: "#12a594" },
+  { label: "Green", hex: "#15a36b" },
+  { label: "Amber", hex: "#f5a623" },
+  { label: "Orange", hex: "#e8810c" },
+  { label: "Red", hex: "#e5484d" },
+  { label: "Pink", hex: "#d6209a" },
+]
+
+/** Build the "Set color…" submenu for an entity — a swatch row per choice, the current
+ *  one marked, plus a Clear row. Kept here so the DOM menu + native overlay share it. */
+function buildColorSubmenu(entity: Entity): MenuItem {
+  const current = entity.accent?.toLowerCase()
+  const items: MenuItem[] = COLOR_CHOICES.map((c) => ({
+    type: "item" as const,
+    id: `color:${c.hex}`,
+    label: c.label,
+    swatch: c.hex,
+    current: current === c.hex,
+  }))
+  items.push({ type: "divider" })
+  items.push({ type: "item", id: "color:clear", label: "Clear color", current: !current })
+  return { type: "submenu", label: "Set color", items }
+}
 
 // The kinds an entity can be turned INTO — the creatable set only (identity kinds
 // `individual`/`soul` are excluded: not user-creatable, and changing them would break
@@ -101,6 +140,9 @@ export function buildEntityMenuItems(entity: Entity): MenuItem[] {
     })),
   })
 
+  // Set the entity's accent color (paints its dayline tick + row). A swatch picker.
+  items.push(buildColorSubmenu(entity))
+
   items.push({ type: "divider" })
   items.push({ type: "item", id: "delete", label: "Delete", danger: true })
 
@@ -116,6 +158,11 @@ export function applyEntityMenuAction(entity: Entity, actionId: string): boolean
   const id = entity.id
   if (actionId.startsWith("change:")) {
     changeEntityKind(id, actionId.slice("change:".length) as EntityKind)
+    return true
+  }
+  if (actionId.startsWith("color:")) {
+    const val = actionId.slice("color:".length)
+    setEntityAccent(id, val === "clear" ? null : val)
     return true
   }
   switch (actionId) {

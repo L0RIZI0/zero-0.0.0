@@ -43,6 +43,7 @@ import {
 } from "@/lib/zero/create-parse"
 import { looksLikeUrl, normalizeUrl, resolveWebResourceByUrl, webDisplayName } from "@/lib/zero/web-resources"
 import { useZero0Flag, toggleZero0Flag } from "@/lib/zero/zero0-chord"
+import { useZeroCrossWindowSync } from "@/lib/zero/use-zero-sync"
 import { useNowSeconds } from "@/lib/zero/use-now"
 import { Zero0FrameMarker } from "./zero0-frame-marker"
 import { ZERO_VERSION } from "@/lib/zero/version"
@@ -227,6 +228,11 @@ export function Zero0Canvas() {
   }, [])
 
   const bump = useCallback(() => setRev((r) => r + 1), [])
+
+  // TIER-2 cross-window sync: when ANOTHER window/tab edits the shared entity store,
+  // rebuild from localStorage and re-render this window. Lets you browse Zero in one
+  // window while working in another, both live on the same dataset.
+  useZeroCrossWindowSync(bump)
 
   // GLUED-TOP live clock — the full weekday/date + time WITH SECONDS, shown at the very
   // top-left for ANY open entity, regardless of which frames are toggled below (it's
@@ -973,7 +979,7 @@ export function Zero0Canvas() {
         </div>
       </div>
 
-      {/* ── ENTITY CONTENT ─────────────────────────────────────────────────────
+      {/* ── ENTITY CONTENT ────────────────────────────────────────────────��────
           The open node as raw data: META, then CHILDREN. Recursive — the root
           Individual renders exactly like any other entity. `min-h-0` lets this flex
           child shrink below its content so ONLY this band scrolls — the header,
