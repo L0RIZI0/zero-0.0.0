@@ -4,14 +4,17 @@
   "private": true,
   "main": "electron/main.cjs",
   "scripts": {
+    "gen:docs": "node scripts/gen-interaction-matrix.mjs",
+    "predev": "node scripts/gen-interaction-matrix.mjs",
+    "prebuild": "node scripts/gen-interaction-matrix.mjs",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
     "electron": "electron .",
     "electron:dev": "concurrently -k -n NEXT,ELECTRON -c blue,magenta \"cross-env CHOKIDAR_USEPOLLING=true WATCHPACK_POLLING=true next dev\" \"wait-on tcp:3000 && electronmon .\"",
-    "electron:build": "cross-env BUILD_TARGET=electron next build && electron-builder",
-    "electron:build:ci": "cross-env BUILD_TARGET=electron next build && electron-builder --win nsis --publish never",
+    "electron:build": "node scripts/gen-interaction-matrix.mjs && cross-env BUILD_TARGET=electron next build && electron-builder",
+    "electron:build:ci": "node scripts/gen-interaction-matrix.mjs && cross-env BUILD_TARGET=electron next build && electron-builder --win nsis --publish never",
     "release:upload": "node scripts/upload-release.mjs"
   },
   "dependencies": {

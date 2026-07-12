@@ -361,6 +361,24 @@ export const entities: Entity[] = [
   // has no space/task children. Everything below is grown by the user at runtime.
   assignedResourceIds: [],
   },
+  // WEB-PREVIEW-ONLY convenience: a Resource pointing at the internal `/matrix-interactions`
+  // doc viewer, seeded under the Individual so Loris can open the interaction matrix in one
+  // click. Excluded from the packaged DESKTOP export (its shell only mounts `/`, so the route
+  // wouldn't resolve) via the build-time NEXT_PUBLIC_ZERO_ELECTRON flag.
+  ...(process.env.NEXT_PUBLIC_ZERO_ELECTRON !== "1"
+    ? [
+        {
+          id: "r_matrix",
+          kind: "resource",
+          title: "Interaction Matrix",
+          parentId: ROOT_ID,
+          taggedContextIds: [],
+          completed: false,
+          tags: [],
+          webUrl: "/matrix-interactions",
+        } as Entity,
+      ]
+    : []),
   ]
 
 // ----------------------------------------------------------------------------

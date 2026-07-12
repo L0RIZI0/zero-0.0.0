@@ -88,7 +88,10 @@ export function Zero0ResourceCanvas({
   // Everything else — a known illustrative tool (Figma) OR any UNKNOWN site the user
   // pinned (github.com, …) — gets the universal branded stand-in inviting them to open
   // it in the desktop app, instead of a broken iframe that the site refuses to frame.
-  const live = resource?.mode === "live"
+  // EXCEPTION: an INTERNAL root-relative route ("/matrix-interactions") is Zero's OWN
+  // same-origin page, so it always embeds cleanly (no X-Frame-Options) — render it live.
+  const internal = url.startsWith("/")
+  const live = internal || resource?.mode === "live"
   return (
     <div className="h-full w-full overflow-hidden bg-card">
       {live ? (
