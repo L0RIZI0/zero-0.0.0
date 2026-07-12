@@ -1006,17 +1006,19 @@ export function Zero0Canvas() {
           <span className="ml-auto text-muted-foreground/70" title="Build version">
             {ZERO_VERSION}
           </span>
-          {/* CLOSE for a WEB RESOURCE — §0 (with its × ) is replaced by the web surface
-              while a resource is open, so the explicit-close gesture lives here in the
-              always-visible identity line instead. Destroys the warm tab + climbs out. */}
-          {mounted && context?.webUrl && (
-            <Zero0CloseButton className="ml-2" onClick={() => closeContext(context)} />
-          )}
         </div>
         {/* MINIMIZED — just the breadcrumb (with its trailing SIBLINGS chevron), tight
             under the mark: the access path + the lateral-switch affordance without the
             fuller session block or its label column. Toggled via the header frame menu. */}
-        {mounted && minimized.zeroHeader && <div className="mt-1.5">{breadcrumb}</div>}
+        {mounted && minimized.zeroHeader && (
+          <div className="mt-1.5 flex items-center">
+            {breadcrumb}
+            {/* CLOSE for a WEB RESOURCE — on the breadcrumb line, far-right (under the
+                version value). §0's × is hidden while the web surface is up, so this is
+                the explicit-close gesture for a resource. Destroys the warm tab + climbs out. */}
+            {context?.webUrl && <Zero0CloseButton className="ml-auto" onClick={() => closeContext(context)} />}
+          </div>
+        )}
         {/* FULL — the session readout as a labelled meta block. CONTEXT is the breadcrumb
             itself (the crumb trail IS the context, and its trailing chevron opens the
             SIBLINGS dropdown — so there's no separate reshuffling siblings row), then
@@ -1028,7 +1030,13 @@ export function Zero0Canvas() {
         {mounted && !minimized.zeroHeader && (
           <dl className="mt-2 grid grid-cols-[6rem_1fr] gap-x-4 gap-y-0.5">
             <dt className="uppercase tracking-widest">context</dt>
-            <dd className="min-w-0">{breadcrumb}</dd>
+            <dd className="flex min-w-0 items-center">
+              {breadcrumb}
+              {/* CLOSE for a WEB RESOURCE — far-right on the breadcrumb row, so it lands
+                  directly under the version value in the identity line above. §0's × is
+                  replaced by the web surface, so this is the resource's close gesture. */}
+              {context?.webUrl && <Zero0CloseButton className="ml-auto" onClick={() => closeContext(context)} />}
+            </dd>
             {!context?.webUrl && (
               <>
                 <dt className="uppercase tracking-widest">store</dt>
