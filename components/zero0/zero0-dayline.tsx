@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react"
+import { createPortal } from "react-dom"
 import { getSegments, useActivityRevision } from "@/lib/zero/activity-log"
 import { ROOT_ID, getEntity, getInheritedAccent, getTimelineOccurrences } from "@/lib/zero/data"
 import { titleAt } from "@/lib/zero/entity-log"
@@ -222,6 +223,11 @@ export function Zero0Dayline({
 
   // Hover key for ANY bar (planned or presence) — drives its tooltip + highlight.
   const [hoveredKey, setHoveredKey] = useState<string | null>(null)
+  // Screen anchor (viewport coords) of the hovered tick, captured on mouse-enter. Used
+  // ONLY by the minimized band: its tooltip is portaled to <body> (position:fixed) to
+  // escape the canvas collapse wrapper's `overflow-hidden`, so it needs absolute
+  // viewport coords rather than the in-lane percent the full-mode tooltip rides.
+  const [hoverAnchor, setHoverAnchor] = useState<{ x: number; y: number } | null>(null)
   // Hover state for the NOW marker's time tooltip.
   const [nowHover, setNowHover] = useState(false)
   // A per-SECOND clock, live ONLY while the NOW marker is hovered, so the marker's
@@ -797,28 +803,40 @@ export function Zero0Dayline({
               {headerContent}
             </div>
           )}
-          {/* IN-BAND HOVER LABEL (minimized only) — the below-band floating tooltip (see
-              HOVER HELPER) can't be used on a minimized band: the frame is exactly
-              band-height and lives inside the canvas's `overflow-hidden` collapse wrapper,
-              so a tooltip floating ABOVE or BELOW the lane is clipped away. Instead, while a
-              tick is hovered we overlay its label INSIDE the band (over the header total /
-              day labels), on an opaque chip — clip-safe, styled, and self-reverting on
-              mouse-leave. `pointer-events-none` so hover/pan on the ticks below is unaffected. */}
-          {minimized && hovered && (
-            <div className="pointer-events-none absolute inset-y-0 inset-x-0 z-20 flex items-center gap-1.5 overflow-hidden bg-card/95 px-2 text-[10px] leading-none">
-              <span
-                aria-hidden
-                className="h-2 w-2 shrink-0 rounded-full border"
+          {/* MINIMIZED HOVER TOOLTIP — the same floating design as the full-mode HOVER
+              HELPER below, but PORTALED to <body> in fixed/viewport coords. A minimized
+              band is exactly band-height and lives inside the canvas's `overflow-hidden`
+              collapse wrapper, so an in-flow tooltip above/below the lane is clipped. The
+              portal lets it BLEED past that wrapper (what the earlier in-band chip worked
+              around), so it reads identically to the non-minimized dayline tooltip. Anchored
+              just ABOVE the hovered tick via `hoverAnchor` (its on-screen midpoint), and
+              clamped to the viewport so it never runs off-screen. */}
+          {minimized &&
+            hovered &&
+            hoverAnchor &&
+            typeof document !== "undefined" &&
+            createPortal(
+              <div
+                className="pointer-events-none fixed z-[60] flex max-w-[40vw] -translate-x-1/2 -translate-y-full items-center gap-1.5 whitespace-nowrap rounded border border-border/70 bg-card px-2 py-1 text-[10.5px] font-medium leading-none tracking-tight text-foreground/80 shadow-sm"
                 style={{
-                  backgroundColor: hovered.color === DEFAULT_PRESENCE ? "transparent" : hovered.color,
-                  borderColor: hovered.stroke ?? "var(--border)",
+                  left: Math.min(window.innerWidth - 8, Math.max(8, hoverAnchor.x)),
+                  top: Math.max(8, hoverAnchor.y - 6),
                 }}
-              />
-              {hovered.track === "presence" && <span className="shrink-0 text-muted-foreground">in</span>}
-              <span className="truncate text-foreground">{hovered.title}</span>
-              <span className="shrink-0 text-muted-foreground tabular-nums">{hovered.range}</span>
-            </div>
-          )}
+              >
+                <span
+                  aria-hidden
+                  className="h-2 w-2 shrink-0 rounded-full border"
+                  style={{
+                    backgroundColor: hovered.color === DEFAULT_PRESENCE ? "transparent" : hovered.color,
+                    borderColor: hovered.stroke ?? "var(--border)",
+                  }}
+                />
+                {hovered.track === "presence" && <span className="shrink-0 text-muted-foreground">in</span>}
+                <span className="truncate text-foreground">{hovered.title}</span>
+                <span className="shrink-0 text-muted-foreground tabular-nums">{hovered.range}</span>
+              </div>,
+              document.body,
+            )}
           {/* CLIP layer — fixed to the lane so it always trims to the true bounds. */}
           <div className="pointer-events-none absolute inset-0 overflow-hidden rounded-md">
             {/* CONTENT PAN — the in-progress wheel pan is applied here as an imperative
@@ -863,8 +881,17 @@ export function Zero0Dayline({
                         type="button"
                         data-barkey={p.key}
                         aria-label={isPresence ? `Was in ${p.title}, ${p.range}` : `${p.title}, ${p.range}`}
-                        onMouseEnter={() => setHoveredKey(p.key)}
-                        onMouseLeave={() => setHoveredKey((h) => (h === p.key ? null : h))}
+                        onMouseEnter={(ev) => {
+                          setHoveredKey(p.key)
+                          // Capture the tick's on-screen midpoint for the minimized band's
+                          // portaled tooltip (anchored above the tick, in viewport coords).
+                          const r = (ev.currentTarget as HTMLElement).getBoundingClientRect()
+                          setHoverAnchor({ x: r.left + r.width / 2, y: r.top })
+                        }}
+                        onMouseLeave={() => {
+                          setHoveredKey((h) => (h === p.key ? null : h))
+                          setHoverAnchor(null)
+                        }}
                         onClick={() => {
                           if (draggedRef.current) return // a pan, not a tap
                           onOpen(p.id)
