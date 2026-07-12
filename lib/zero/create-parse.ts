@@ -1,4 +1,5 @@
 import type { EntityKind, Schedule, Recurrence } from "./types"
+import { resolveHHMMToLogicalDay } from "./day-window"
 
 /**
  * CREATE-FIELD PARSER — the "terminal hybrid" grammar for the inline create row.
@@ -237,7 +238,7 @@ export function parseKindPrefix(raw: string): KindPrefixParse | null {
  * Year is 2000+YY. Returns epoch ms, or null when the token isn't one of those shapes
  * or is out of range (e.g. "2599" → minute 99, "260732" → day 32, "260230" → Feb 30).
  */
-export function parseDateToken(raw: string): number | null {
+export function parseDateToken(raw: string, now: number = Date.now()): number | null {
   const s = raw.trim()
   if (!/^\d+$/.test(s)) return null
   const n = (a: number, b: number) => parseInt(s.slice(a, b), 10)
@@ -246,9 +247,10 @@ export function parseDateToken(raw: string): number | null {
     const h = n(0, 2)
     const min = n(2, 4)
     if (h > 23 || min > 59) return null
-    const d = new Date()
-    d.setHours(h, min, 0, 0)
-    return d.getTime()
+    // A bare HH:MM carries no date, so anchor it to the 5am→5am logical day-window that
+    // contains `now` (not the raw calendar date). Typed at 01:30, "2330" is the prior
+    // evening — 1.5h ago — because that window is still "today" until the 5am rollover.
+    return resolveHHMMToLogicalDay(h, min, now)
   }
   if (s.length === 6 || s.length === 10) {
     const yy = n(0, 2)

@@ -80,6 +80,36 @@ function rangeLabel(e: Entity): string {
   return fmt(getCreatedAt(e))
 }
 
+// DERIVED duration of an entity, in ms, from its schedule (never stored):
+//   • instant            → 0 (a point has no length)
+//   • span start+end     → end − start
+//   • ONGOING start-only → elapsed so far (now − start), so a running moment shows live
+//   • otherwise          → null (nothing to show)
+// `now` is passed so an ongoing value updates as the canvas re-renders.
+function getDurationMs(e: Entity, now: number): number | null {
+  const s = e.schedule
+  if (e.kind === "instant") return 0
+  if (s?.startAt != null && s?.endAt != null) return Math.max(0, s.endAt - s.startAt)
+  if (s?.at != null) return 0
+  if (s?.startAt != null) return Math.max(0, now - s.startAt) // ongoing
+  return null
+}
+
+// Human-readable duration: "0s", "45m", "1h 30m", "2d 3h". Compact, largest-two units.
+function formatDuration(ms: number): string {
+  if (ms < 1000) return "0s"
+  const totalMin = Math.floor(ms / 60000)
+  if (totalMin < 1) return `${Math.floor(ms / 1000)}s`
+  const d = Math.floor(totalMin / 1440)
+  const h = Math.floor((totalMin % 1440) / 60)
+  const m = totalMin % 60
+  const parts: string[] = []
+  if (d) parts.push(`${d}d`)
+  if (h) parts.push(`${h}h`)
+  if (m && !d) parts.push(`${m}m`) // drop minutes once we're in days territory (too noisy)
+  return parts.length ? parts.join(" ") : "0s"
+}
+
 // Schedule `set` entries carry an epoch NUMBER as their value; render it as a date rather
 // than a raw millisecond count in the life-log history. Everything else prints as-is.
 const TIME_LOG_FIELDS = new Set(["startAt", "endAt", "at", "dueAt"])
@@ -172,9 +202,12 @@ export function Zero0Canvas() {
   // Which time frames are MINIMIZED (collapsed to just their dayline band). Session-only,
   // a separate axis from § visibility: a shown frame can be full or minimized.
   const [minimized, setMinimized] = useState<{ agenda: boolean; activity: boolean; zeroHeader: boolean }>({
-    agenda: false,
+    // Agenda + the §1 ZERO HEADER open in their MINIMIZED form by default — a single
+    // dayline band / breadcrumb line — so the canvas stays calm until the user expands
+    // them. (Activity stays hidden entirely by its chord-flag default.)
+    agenda: true,
     activity: false,
-    zeroHeader: false,
+    zeroHeader: true,
   })
   // Every hideable frame's visibility lives in the shared § chord store, so the footer
   // links, the in-frame "§x" corner markers, and the keyboard chords all drive the SAME
@@ -206,7 +239,9 @@ export function Zero0Canvas() {
     const loc = formatLocale()
     const date = d.toLocaleDateString(loc, { weekday: "long", month: "long", day: "numeric", year: "numeric" })
     const time = d.toLocaleTimeString(loc, { hour: "numeric", minute: "2-digit", second: "2-digit" })
-    return `${date} · ${time}`
+    // TIME first, then day/date — the live clock is the glanceable part; the calendar
+    // context follows it.
+    return `${time} · ${date}`
   }, [mounted, nowSec])
 
   const contextId = path[path.length - 1]
@@ -347,10 +382,13 @@ export function Zero0Canvas() {
           // an END completes/closes it. This is the whole point-vs-start fix.
           const key = ({ start: "startAt", end: "endAt", at: "at", due: "dueAt" } as const)[attr.field]
           let epoch: number | null = null
-          if (val !== "") {
+          if (val.toLowerCase() === "now") {
+            // `--start:now` / `--end:now` / `--at:now` — stamp the current instant.
+            epoch = Date.now()
+          } else if (val !== "") {
             epoch = parseDateToken(val)
             if (epoch == null) {
-              setNotice({ tone: "err", text: `invalid time "${val}" — use HHMM, YYMMDD, or YYMMDDHHMM` })
+              setNotice({ tone: "err", text: `invalid time "${val}" — use HHMM, YYMMDD, YYMMDDHHMM, or now` })
               return null
             }
           }
@@ -713,6 +751,11 @@ export function Zero0Canvas() {
     } else if (s && (s.startAt || s.endAt || s.at)) {
       metaRows.push(["scheduled", s.at ? fmt(s.at) : `${fmt(s.startAt)} → ${fmt(s.endAt)}`])
     }
+    // DURATION — DERIVED length, shown for every entity: an instant is always 0s; a
+    // start+end span is its width; a start-only (ONGOING) entity counts up live from `now`;
+    // anything with no time reads "—". Never stored — always computed from the schedule.
+    const durMs = getDurationMs(context, nowSec)
+    metaRows.push(["duration", durMs == null ? "—" : formatDuration(durMs)])
     // ACCENT — only when set (via `:color:`). The value is the raw hex; the dt cell
     // paints a matching swatch so the raw-data view still shows the color itself.
     if (context.accent) metaRows.push(["color", context.accent])

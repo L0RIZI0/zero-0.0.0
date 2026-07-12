@@ -19,6 +19,7 @@ import {
   setEntityClosed,
   setEntityCancelled,
   setEntityRequested,
+  setEntityScheduleField,
   reopenEntity,
   changeEntityKind,
 } from "@/lib/zero/data"
@@ -76,6 +77,19 @@ export function buildEntityMenuItems(entity: Entity): MenuItem[] {
     })
   }
 
+  // NOW-stamps (quick lifecycle, temporary): let the user set a moment's start/end — or an
+  // instant's point — to the current instant WITHOUT drilling into the entity. Only offered
+  // while live (an ended entity's times are historical). Simple: stamps `Date.now()` with no
+  // cross-midnight adjustment (the create bar's `--start:now` etc. is the fuller path).
+  if (!ended) {
+    if (entity.kind === "moment") {
+      items.push({ type: "item", id: "start-now", label: "Start now" })
+      items.push({ type: "item", id: "end-now", label: "End now" })
+    } else if (entity.kind === "instant") {
+      items.push({ type: "item", id: "set-now", label: "Set to now" })
+    }
+  }
+
   items.push({
     type: "submenu",
     label: "Change into…",
@@ -119,6 +133,15 @@ export function applyEntityMenuAction(entity: Entity, actionId: string): boolean
       return true
     case "reopen":
       reopenEntity(id)
+      return true
+    case "start-now":
+      setEntityScheduleField(id, "startAt", Date.now())
+      return true
+    case "end-now":
+      setEntityScheduleField(id, "endAt", Date.now())
+      return true
+    case "set-now":
+      setEntityScheduleField(id, "at", Date.now())
       return true
     case "request":
       setEntityRequested(id, true)

@@ -25,8 +25,8 @@ import { useSyncExternalStore } from "react"
 // useSyncExternalStore, so every toggle stays in lockstep across the tree.
 // ============================================================================
 
-/** The visibility flags. Chrome headers default to shown; the two time frames (AGENDA,
- *  ACTIVITY) default to HIDDEN so the canvas stays blank until summoned. */
+/** The visibility flags. Chrome headers + AGENDA default to shown (AGENDA as a minimized
+ *  band); only ACTIVITY defaults to HIDDEN until summoned. */
 export type Zero0Flag = "entityHeader" | "zeroHeader" | "activity" | "agenda" | "readout"
 
 // Which digit (pressed after §) toggles which frame. `readout` is intentionally absent.
@@ -43,12 +43,13 @@ export const FLAG_DIGIT: Partial<Record<Zero0Flag, string>> = Object.fromEntries
   Object.entries(DIGIT_FLAG).map(([digit, flag]) => [flag, digit]),
 ) as Partial<Record<Zero0Flag, string>>
 
-// Chrome headers shown by default; the AGENDA/ACTIVITY frames hidden until toggled.
+// Chrome headers shown by default; AGENDA also shown (as a minimized band — see the
+// canvas `minimized` init); ACTIVITY stays hidden until toggled.
 const visible: Record<Zero0Flag, boolean> = {
   entityHeader: true,
   zeroHeader: true,
   activity: false,
-  agenda: false,
+  agenda: true,
   readout: true,
 }
 

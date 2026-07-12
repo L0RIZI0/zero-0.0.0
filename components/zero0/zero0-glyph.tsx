@@ -101,10 +101,17 @@ export function Zero0Glyph({
   requested?: boolean
   className?: string
 }) {
+  // The spin must pivot the shape's VISUAL centre, not the 24×24 box centre (12,12). A
+  // triangle's centroid sits 1/3 up from its base, so the moment's TRIANGLE_UP centres at
+  // y=14 (58.33%), not 12 — spinning about the box centre made it visibly wobble. Map only
+  // the kinds whose centroid differs from the box centre; everything else stays 50% 50%.
+  const spinOrigin = kind === "moment" ? "50% 58.33%" : kind === "instant" ? "50% 41.67%" : "50% 50%"
+
   return (
     <svg
       viewBox="0 0 24 24"
       className={`${className ?? ""}${ongoing ? " motion-safe:animate-spin [animation-duration:9s]" : ""}`}
+      style={ongoing ? { transformOrigin: spinOrigin } : undefined}
       fill={filled ? "currentColor" : "none"}
       stroke="currentColor"
       strokeWidth={filled ? 0 : 1.6}
