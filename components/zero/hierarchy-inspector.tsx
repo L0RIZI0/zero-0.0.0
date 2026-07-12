@@ -108,7 +108,7 @@ type Ext = { up: number; down: number; left: number; right: number }
 
 /** Build the sim nodes + edges from the raw origin tree, then run an extent-aware
  *  `place()` pass to assign every node a fixed offset (`ox/oy`) from its parent.
- *  `tagEdges` = secondary (non parent→child) relationships, e.g. taggedSpaceIds;
+ *  `tagEdges` = secondary (non parent→child) relationships, e.g. taggedContextIds;
  *  they are rendered dotted and DO NOT affect layout (the physics ignores them). */
 function buildGraph(): { nodes: SimNode[]; edges: Edge[]; tagEdges: Edge[] } {
   const byParent = new Map<string | null, Entity[]>()
@@ -278,21 +278,21 @@ function buildGraph(): { nodes: SimNode[]; edges: Edge[]; tagEdges: Edge[] } {
     }
   }
 
-  // Secondary relationships (dotted, layout-neutral): every taggedSpaceIds link
-  // is an edge from the entity to each space it is ALSO displayed in. De-duped
+  // Secondary relationships (dotted, layout-neutral): every taggedContextIds link
+  // is an edge from the entity to each context it is ALSO displayed in. De-duped
   // and skipped if it merely restates the parent edge or a node is missing.
   const tagEdges: Edge[] = []
   const seen = new Set<string>()
   for (const node of nodes) {
-    const tags = node.entity.taggedSpaceIds
+    const tags = node.entity.taggedContextIds
     if (!tags) continue
-    for (const spaceId of tags) {
-      if (spaceId === node.parentId) continue
-      if (!byId.has(spaceId)) continue
-      const id = `${node.id}~${spaceId}`
+    for (const contextId of tags) {
+      if (contextId === node.parentId) continue
+      if (!byId.has(contextId)) continue
+      const id = `${node.id}~${contextId}`
       if (seen.has(id)) continue
       seen.add(id)
-      tagEdges.push({ id, source: spaceId, target: node.id })
+      tagEdges.push({ id, source: contextId, target: node.id })
     }
   }
 
@@ -393,7 +393,7 @@ export function HierarchyInspector() {
   const svgRef = useRef<SVGSVGElement | null>(null)
   const viewportRef = useRef<HTMLDivElement | null>(null)
   const dragRef = useRef<{ id: string; dx: number; dy: number } | null>(null)
-  // Pan offset (world → screen translate). Panning shifts the whole world.
+  // Pan offset (world �� screen translate). Panning shifts the whole world.
   const panRef = useRef({ x: 0, y: 0 })
   const panDragRef = useRef<{ px: number; py: number } | null>(null)
   const centeredRef = useRef(false)
@@ -599,7 +599,7 @@ export function HierarchyInspector() {
             </mask>
           </defs>
 
-          {/* secondary relationships (taggedSpaceIds): dotted, layout-neutral */}
+          {/* secondary relationships (taggedContextIds): dotted, layout-neutral */}
           <g>
             {graph.tagEdges.map((e) => {
               const s = byId.get(e.source)

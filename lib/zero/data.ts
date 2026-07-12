@@ -264,10 +264,10 @@ export const resources: Resource[] = [
 // Entities — the single recursive model. Spaces, tasks, and events are all
 // `Entity` records differing only by `kind`. Every entity has one origin
 // `parentId` (the "created-from" container; the root `s_root` has null) plus an
-// optional `taggedSpaceIds[]` for multi-parent links ("also shows up in").
+// optional `taggedContextIds[]` for multi-parent links ("also shows up in").
 //
 // Containment for a context's task list is DIRECT children only:
-//   parentId === contextId  OR  taggedSpaceIds includes contextId.
+//   parentId === contextId  OR  taggedContextIds includes contextId.
 // The structural origin tree (parentId only) still drives timeline focus and
 // subtree dimming via collectDescendants / isInSubtree.
 // ----------------------------------------------------------------------------
@@ -328,7 +328,7 @@ export const entities: Entity[] = [
     kind: "soul",
     title: "Soul",
     parentId: null,
-    taggedSpaceIds: [],
+    taggedContextIds: [],
     description: "The irreducible core self.",
   },
   // entity0 is the INDIVIDUAL (glyph: a Z rotated 45° anticlockwise) — the person the
@@ -341,7 +341,7 @@ export const entities: Entity[] = [
     kind: "individual",
     title: currentUser.name,
     parentId: "soul_self",
-    taggedSpaceIds: [],
+    taggedContextIds: [],
     description: "A person, animated by a Soul.",
     // Loris's BIRTH — the Individual's creation. Built from local-time components
     // (month is 0-based, so 4 = May) so it round-trips through `toLocaleString()` as
@@ -503,7 +503,7 @@ export function getChildren(contextId: string): Entity[] {
       // Materialized recurrence occurrences (overrides) are timeline instances, not
       // do-list children �� they must never leak into any listing (the round-27 trap).
       e.seriesId == null &&
-      (e.parentId === contextId || e.taggedSpaceIds.includes(contextId)),
+      (e.parentId === contextId || e.taggedContextIds.includes(contextId)),
   )
 
   // Apply the user's drag-and-drop order (if any) for this context. Ranked ids
@@ -539,7 +539,7 @@ export function getChildren(contextId: string): Entity[] {
 export function isMemberOf(childId: string, hostId: string): boolean {
   const e = byId.get(childId)
   if (!e) return false
-  return e.parentId === hostId || e.taggedSpaceIds.includes(hostId) || isPinned(hostId, childId)
+  return e.parentId === hostId || e.taggedContextIds.includes(hostId) || isPinned(hostId, childId)
 }
 
 /**
@@ -746,7 +746,7 @@ export function getSubtreeTasks(contextId: string): Entity[] {
       e.kind === "task" &&
       e.seriesId == null &&
       ((e.parentId !== null && descendants.has(e.parentId)) ||
-        e.taggedSpaceIds.some((sid) => descendants.has(sid))),
+        e.taggedContextIds.some((sid) => descendants.has(sid))),
   )
 }
 
@@ -1180,6 +1180,29 @@ function migrateCompletionToLog(entity: Entity): void {
   entity.log = buildLogFromScalars(entity)
 }
 
+/** The space-era key the multi-parent link field used before it became `taggedContextIds`. */
+const LEGACY_TAGGED_KEY = "taggedSpaceIds"
+
+/**
+ * ONE-TIME KEY MIGRATION (Jul 2026): the persisted multi-parent link field was renamed
+ * `taggedSpaceIds` → `taggedContextIds` (a "context" is any entity, so the link is fully
+ * recursive — not space-specific). Persisted entities from older builds still carry the
+ * OLD key, so this renames it in place on the freshly-read {@link UserItems} — for both
+ * created `entities` and any seeded-entity `overrides` patch that captured the field.
+ * MUST run before {@link migrateStoredRootId}, which reads `taggedContextIds` to reattach
+ * the old root id inside those links. Idempotent: no-op once no legacy key remains.
+ */
+function migrateStoredTaggedKey(stored: UserItems): void {
+  const rename = (obj: Record<string, unknown>) => {
+    if (Array.isArray(obj[LEGACY_TAGGED_KEY]) && obj.taggedContextIds === undefined) {
+      obj.taggedContextIds = obj[LEGACY_TAGGED_KEY]
+    }
+    delete obj[LEGACY_TAGGED_KEY]
+  }
+  for (const e of stored.entities) rename(e as unknown as Record<string, unknown>)
+  for (const patch of Object.values(stored.overrides)) rename(patch as Record<string, unknown>)
+}
+
 /** The space-era id the root Individual used before it became {@link ROOT_ID} ("0"). */
 const LEGACY_ROOT_ID = "s_root"
 
@@ -1189,7 +1212,7 @@ const LEGACY_ROOT_ID = "s_root"
  * (so it already loads as `"0"`), but any data the user PERSISTED under the old id would
  * otherwise dangle. This remaps, in place on the freshly-read {@link UserItems}:
  *   • child `parentId`s pointing at the old root → `"0"` (reattaches the whole subtree);
- *   • id references inside `taggedSpaceIds` / `assignedResourceIds`;
+ *   • id references inside `taggedContextIds` / `assignedResourceIds`;
  *   • the per-context `pins` / `order` maps keyed by (or listing) the old id;
  *   • an `overrides` patch keyed by the old id (e.g. a renamed/recolored root);
  *   • any `deletedIds` entry.
@@ -1199,7 +1222,7 @@ function migrateStoredRootId(stored: UserItems): void {
   const swap = (id: string) => (id === LEGACY_ROOT_ID ? ROOT_ID : id)
   for (const e of stored.entities) {
     if (e.parentId === LEGACY_ROOT_ID) e.parentId = ROOT_ID
-    if (Array.isArray(e.taggedSpaceIds)) e.taggedSpaceIds = e.taggedSpaceIds.map(swap)
+    if (Array.isArray(e.taggedContextIds)) e.taggedContextIds = e.taggedContextIds.map(swap)
     if (Array.isArray(e.assignedResourceIds)) e.assignedResourceIds = e.assignedResourceIds.map(swap)
   }
   const remapMap = (m: Record<string, string[]>) => {
@@ -1229,6 +1252,9 @@ export function hydrateFromStorage(): boolean {
   if (_hydrated) return false
   _hydrated = true
   const stored = readUserItems()
+  // Normalize the space-era `taggedSpaceIds` key → `taggedContextIds` FIRST, so the
+  // root-id remap below can read the multi-parent links through the new key.
+  migrateStoredTaggedKey(stored)
   // Reattach any data persisted under the old space-era root id before merging.
   migrateStoredRootId(stored)
   let added = false
@@ -1362,7 +1388,7 @@ export function addTask(input: { title: string; contextId: string }): Entity {
     kind: "task",
     title: input.title,
     parentId: input.contextId,
-    taggedSpaceIds: [],
+    taggedContextIds: [],
     completed: false,
     createdAt: now,
     // Birth is the first log entry; scalars above are the transitional backup.
@@ -1401,7 +1427,7 @@ export function addParsedEntity(input: {
     kind: input.kind,
     title: input.title,
     parentId: input.contextId,
-    taggedSpaceIds: [],
+    taggedContextIds: [],
     createdAt: now,
     completed: input.completed ?? false,
     ...(input.completed ? { completedOn: now } : {}),
@@ -1492,7 +1518,7 @@ export function materializeOccurrence(seriesId: string, dayStart: number): Entit
     kind: mother.kind,
     title: mother.title,
     parentId: mother.parentId,
-    taggedSpaceIds: [...mother.taggedSpaceIds],
+    taggedContextIds: [...mother.taggedContextIds],
     seriesId,
     recurrenceId: dayStart,
     schedule: resolveOccurrenceSchedule(mother.schedule, dayStart),
@@ -1515,7 +1541,7 @@ export function materializeOccurrence(seriesId: string, dayStart: number): Entit
       ...child,
       id: uid("t"),
       parentId: override.id,
-      taggedSpaceIds: [...child.taggedSpaceIds],
+      taggedContextIds: [...child.taggedContextIds],
       completed: false,
     }
     entities.push(clone)
@@ -1546,7 +1572,7 @@ export function addWebResource(input: {
     kind: "resource",
     title: input.title,
     parentId: input.contextId,
-    taggedSpaceIds: [],
+    taggedContextIds: [],
     completed: false,
     tags: [],
     webUrl: input.url,
@@ -1565,7 +1591,7 @@ export function addSpace(input: { name: string; parentId: string }): Entity {
     kind: "space",
     title: input.name,
     parentId: input.parentId,
-    taggedSpaceIds: [],
+    taggedContextIds: [],
     description: "",
     assignedResourceIds: [],
   }
@@ -1586,7 +1612,7 @@ export function addMoment(input: { title: string; contextId: string }): Entity {
     kind: "moment",
     title: input.title,
     parentId: input.contextId,
-    taggedSpaceIds: [],
+    taggedContextIds: [],
     // Defaults to a noon→1pm block TODAY (absolute epoch ms).
     schedule: { startAt: t(12), endAt: t(13) },
   }
@@ -1605,7 +1631,7 @@ export function addInstant(input: { title: string; contextId: string }): Entity 
     kind: "instant",
     title: input.title,
     parentId: input.contextId,
-    taggedSpaceIds: [],
+    taggedContextIds: [],
     schedule: { at: t(12) },
   }
   entities.push(entity)

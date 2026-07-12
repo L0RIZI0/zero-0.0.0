@@ -233,7 +233,7 @@ export interface Schedule {
  *
  * IDENTITY: a space is identified by its stable `id`, never its `title`. Titles
  * are mutable display labels and may repeat; all relationships key off `id`
- * (`parentId`, `taggedSpaceIds`, `seriesId`+`recurrenceId`, the `byId` map).
+ * (`parentId`, `taggedContextIds`, `seriesId`+`recurrenceId`, the `byId` map).
  *
  * Fields here are shared by all kinds; per-kind specifics live on the variant
  * interfaces below, and `Entity` is their discriminated union (on `kind`).
@@ -268,10 +268,11 @@ export interface EntityBase {
   parentId: string | null
   /**
    * Secondary multi-parent links ("also shows up in"). The same entity — e.g.
-   * "Schedule dentist", born in Personal — surfaces in each tagged space (e.g.
-   * Health) in addition to its origin parent.
+   * "Schedule dentist", born in Personal — surfaces in each tagged context (e.g.
+   * Health) in addition to its origin parent. A "context" is any entity, so this
+   * is fully recursive (renamed from the space-era `taggedSpaceIds`, Jul 2026).
    */
-  taggedSpaceIds: string[]
+  taggedContextIds: string[]
   /**
    * RECURRENCE OVERRIDE link (materialize-on-touch, D1). When set, this entity is
    * NOT a normal do-list item — it is a single materialized OCCURRENCE of a
