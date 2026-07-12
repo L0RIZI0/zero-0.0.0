@@ -17,6 +17,23 @@ const { hideWindowsBorder } = require("./win-border.cjs")
 const isDev = !app.isPackaged
 const DEV_URL = process.env.ELECTRON_RENDERER_URL || "http://localhost:3000"
 
+// ── Single instance, multiple windows ────────────────────────────────────────
+// Launching Zero again must NOT start a second PROCESS. Two processes share one
+// userData dir, but Chromium's localStorage (where Zero persists everything) is a
+// single-writer LevelDB: the FIRST process holds the lock and the SECOND can't open
+// it, so it silently loads an EMPTY store — that's the "second window has no data"
+// bug, and a write from it could clobber the real data. Instead we keep ONE process
+// and open additional WINDOWS in it. Same-process windows share the same session →
+// the SAME localStorage on disk (no lock fight) AND Chromium dispatches the
+// cross-window `storage` event between them, which is exactly what the renderer's
+// Tier-2 sync hook listens to — so two Zero windows stay live in sync.
+const gotSingleInstanceLock = app.requestSingleInstanceLock()
+if (!gotSingleInstanceLock) {
+  // We're the second launch; the primary will get a `second-instance` event and
+  // open a window for us. Quit this redundant process before it touches storage.
+  app.quit()
+}
+
 // ── OS date/time format locale ───────────────────────────────────────────────
 // Electron's bundled V8 defaults the ICU/Intl locale to en-US regardless of the
 // OS, so `toLocaleString()` with no explicit locale prints American AM/PM +
@@ -225,7 +242,10 @@ if (!isDev) {
 }
 
 function createWindow() {
-  mainWindow = new BrowserWindow({
+  // Bind every per-window handler to THIS window via a local `win`, not the shared
+  // `mainWindow` global — otherwise, once a second window is opened, the global is
+  // reassigned and the first window's handlers would fire against the wrong window.
+  const win = new BrowserWindow({
     width: 1440,
     height: 900,
     minWidth: 880,
@@ -248,16 +268,21 @@ function createWindow() {
       sandbox: true,
     },
   })
+  // `mainWindow` tracks the most-recently-opened window; it's the target for
+  // auto-update notifications and the native resource host (both single-window
+  // features). All windows share one session, so entity data + Tier-2 sync work
+  // across every window regardless of which one this points at.
+  mainWindow = win
 
   // Report maximize/unmaximize so the in-app control can swap its restore/maximize
   // icon to match the real window state.
   const sendMaxState = () => {
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send("zero:win:maximized", mainWindow.isMaximized())
+    if (win && !win.isDestroyed()) {
+      win.webContents.send("zero:win:maximized", win.isMaximized())
     }
   }
-  mainWindow.on("maximize", sendMaxState)
-  mainWindow.on("unmaximize", sendMaxState)
+  win.on("maximize", sendMaxState)
+  win.on("unmaximize", sendMaxState)
 
   // Avoid a white flash: reveal only once the first paint is ready. At the same time
   // strip the Windows 11 DWM border (no-op elsewhere) so our frameless near-black
@@ -266,32 +291,30 @@ function createWindow() {
   // otherwise linger until the next attribute change), and surface the result into the
   // renderer console so an on-device run can confirm whether the FFI actually engaged.
   const applyBorder = (phase) => {
-    if (!mainWindow) return
-    const applied = hideWindowsBorder(mainWindow)
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents
-        .executeJavaScript(
-          `console.log("[v0] win-border(${phase}):", ${JSON.stringify({
-            platform: process.platform,
-            applied: !!applied,
-          })})`,
-        )
-        .catch(() => {})
-    }
+    if (!win || win.isDestroyed()) return
+    const applied = hideWindowsBorder(win)
+    win.webContents
+      .executeJavaScript(
+        `console.log("[v0] win-border(${phase}):", ${JSON.stringify({
+          platform: process.platform,
+          applied: !!applied,
+        })})`,
+      )
+      .catch(() => {})
   }
-  mainWindow.once("ready-to-show", () => {
+  win.once("ready-to-show", () => {
     applyBorder("ready-to-show")
-    mainWindow?.show()
+    win.show()
     // One more pass on the next tick, after the window is actually on screen.
     setTimeout(() => applyBorder("post-show"), 0)
   })
 
   // Once the app's DOM is up, report the GPU status into its devtools console so the
   // user can confirm whether the acceleration flags above actually engaged.
-  mainWindow.webContents.once("did-finish-load", () => logGpuStatus(mainWindow))
+  win.webContents.once("did-finish-load", () => logGpuStatus(win))
 
   if (isDev) {
-    mainWindow.loadURL(DEV_URL)
+    win.loadURL(DEV_URL)
     // DevTools is now OPT-IN (set ZERO_DEVTOOLS=1), NOT auto-opened. Having DevTools
     // attached is a massive perf tax on this app specifically: the timeline mutates the
     // DOM and emits console output EVERY frame during a drag/zoom, and an attached
@@ -302,15 +325,15 @@ function createWindow() {
     // smooth. Open it deliberately with the env var, or via the menu / Cmd-Opt-I, only
     // when you actually need it — and expect animation to get heavy while it's open.
     if (process.env.ZERO_DEVTOOLS === "1") {
-      mainWindow.webContents.openDevTools({ mode: "detach" })
+      win.webContents.openDevTools({ mode: "detach" })
     }
   } else {
-    mainWindow.loadURL("app://local/index.html")
+    win.loadURL("app://local/index.html")
   }
 
   // External links (and, later, anything that asks to open a new window) go to the
   // user's real browser rather than spawning rogue Electron windows.
-  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+  win.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith("http://") || url.startsWith("https://")) {
       shell.openExternal(url)
       return { action: "deny" }
@@ -318,9 +341,17 @@ function createWindow() {
     return { action: "deny" }
   })
 
-  mainWindow.on("closed", () => {
-    resourceViews.clear()
-    mainWindow = null
+  win.on("closed", () => {
+    // Only tear down the shared native resource-host state when the LAST window
+    // closes — otherwise a surviving window would lose its resource views. Keep the
+    // `mainWindow` pointer valid by repointing it at a surviving window.
+    const survivors = BrowserWindow.getAllWindows().filter((w) => w !== win && !w.isDestroyed())
+    if (survivors.length === 0) {
+      resourceViews.clear()
+      mainWindow = null
+    } else if (mainWindow === win || mainWindow?.isDestroyed()) {
+      mainWindow = survivors[0]
+    }
   })
 }
 
@@ -330,27 +361,37 @@ ipcMain.on("zero:locale", (event) => {
   event.returnValue = osFormatLocale()
 })
 
-app.whenReady().then(() => {
-  // Drop the default application menu (File/Edit/View/Window) on Windows/Linux —
-  // Zero is chromeless there. macOS keeps a menu so ⌘Q / ⌘H etc. still work.
-  if (process.platform !== "darwin") Menu.setApplicationMenu(null)
-
-  if (!isDev) {
-    // Serve the static export on the DEFAULT session (the main window). Resource
-    // views run in their OWN partitioned sessions and get the same handler wired up
-    // in prepareResourceSession() — see the note there.
-    protocol.handle("app", serveAppProtocol)
-  }
-
-  createWindow()
-
-  // Best-effort background update check (production/packaged only).
-  setupAutoUpdate()
-
-  app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
-  })
+// A second launch of the exe lands here in the PRIMARY process instead of starting
+// a new one. Open another window in this process — it shares storage with the
+// existing window(s) and live-syncs via the storage event. Best-effort: only once
+// the app is ready (Chromium/protocol are up).
+app.on("second-instance", () => {
+  if (app.isReady()) createWindow()
 })
+
+if (gotSingleInstanceLock) {
+  app.whenReady().then(() => {
+    // Drop the default application menu (File/Edit/View/Window) on Windows/Linux —
+    // Zero is chromeless there. macOS keeps a menu so ⌘Q / ⌘H etc. still work.
+    if (process.platform !== "darwin") Menu.setApplicationMenu(null)
+
+    if (!isDev) {
+      // Serve the static export on the DEFAULT session (the main window). Resource
+      // views run in their OWN partitioned sessions and get the same handler wired up
+      // in prepareResourceSession() — see the note there.
+      protocol.handle("app", serveAppProtocol)
+    }
+
+    createWindow()
+
+    // Best-effort background update check (production/packaged only).
+    setupAutoUpdate()
+
+    app.on("activate", () => {
+      if (BrowserWindow.getAllWindows().length === 0) createWindow()
+    })
+  })
+}
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit()
@@ -579,14 +620,19 @@ ipcMain.on("zero:open-external", (_e, url) => {
 })
 
 // ── In-app window controls (frameless Windows/Linux) ─────────────────────────
-ipcMain.on("zero:win:minimize", () => mainWindow?.minimize())
-ipcMain.on("zero:win:toggle-maximize", () => {
-  if (!mainWindow) return
-  if (mainWindow.isMaximized()) mainWindow.unmaximize()
-  else mainWindow.maximize()
+// Act on the window that SENT the event (via its webContents), not the global
+// `mainWindow` — with multiple windows open, the min/max/close buttons must control
+// their OWN window, not whichever happened to open last.
+const senderWindow = (e) => BrowserWindow.fromWebContents(e.sender)
+ipcMain.on("zero:win:minimize", (e) => senderWindow(e)?.minimize())
+ipcMain.on("zero:win:toggle-maximize", (e) => {
+  const win = senderWindow(e)
+  if (!win) return
+  if (win.isMaximized()) win.unmaximize()
+  else win.maximize()
 })
-ipcMain.on("zero:win:close", () => mainWindow?.close())
-ipcMain.handle("zero:win:is-maximized", () => !!mainWindow?.isMaximized())
+ipcMain.on("zero:win:close", (e) => senderWindow(e)?.close())
+ipcMain.handle("zero:win:is-maximized", (e) => !!senderWindow(e)?.isMaximized())
 
 // ── Apply a downloaded update on demand ──────────────────────────────────────
 // Triggered by the in-app "Restart to update" affordance. Only meaningful once an
