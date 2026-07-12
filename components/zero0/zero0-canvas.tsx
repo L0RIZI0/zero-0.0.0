@@ -85,30 +85,51 @@ function rangeLabel(e: Entity): string {
 //   • instant            → 0 (a point has no length)
 //   • span start+end     → end − start
 //   • ONGOING start-only → elapsed so far (now − start), so a running moment shows live
+//   • else, has a start  → its AGE: now − createdAt (an Individual/Space has a beginning
+//                          even with no schedule, so this reads as "3d" / "34y", never a dash)
 //   • otherwise          → null (nothing to show)
-// `now` is passed so an ongoing value updates as the canvas re-renders.
+// `now` is passed so a live/ongoing value updates as the canvas re-renders.
 function getDurationMs(e: Entity, now: number): number | null {
   const s = e.schedule
   if (e.kind === "instant") return 0
   if (s?.startAt != null && s?.endAt != null) return Math.max(0, s.endAt - s.startAt)
   if (s?.at != null) return 0
-  if (s?.startAt != null) return Math.max(0, now - s.startAt) // ongoing
+  if (s?.startAt != null) return Math.max(0, now - s.startAt) // ongoing (explicit start)
+  const created = getCreatedAt(e)
+  if (created != null) return Math.max(0, now - created) // age from creation
   return null
 }
 
-// Human-readable duration: "0s", "45m", "1h 30m", "2d 3h". Compact, largest-two units.
+// Human-readable duration: "0s", "45m", "1h 30m", "2d 3h", "3mo", "34y". Compact, largest
+// two units, scaling up to years so an Individual's age reads cleanly. Uses average
+// month/year lengths (30.44d / 365.25d) — display-only, not for exact arithmetic.
+const MIN = 60000
+const HOUR = 60 * MIN
+const DAY = 24 * HOUR
+const MONTH = 30.44 * DAY
+const YEAR = 365.25 * DAY
 function formatDuration(ms: number): string {
   if (ms < 1000) return "0s"
-  const totalMin = Math.floor(ms / 60000)
-  if (totalMin < 1) return `${Math.floor(ms / 1000)}s`
-  const d = Math.floor(totalMin / 1440)
-  const h = Math.floor((totalMin % 1440) / 60)
-  const m = totalMin % 60
-  const parts: string[] = []
-  if (d) parts.push(`${d}d`)
-  if (h) parts.push(`${h}h`)
-  if (m && !d) parts.push(`${m}m`) // drop minutes once we're in days territory (too noisy)
-  return parts.length ? parts.join(" ") : "0s"
+  if (ms < MIN) return `${Math.floor(ms / 1000)}s`
+  if (ms < HOUR) return `${Math.floor(ms / MIN)}m`
+  if (ms < DAY) {
+    const h = Math.floor(ms / HOUR)
+    const m = Math.floor((ms % HOUR) / MIN)
+    return m ? `${h}h ${m}m` : `${h}h`
+  }
+  if (ms < MONTH) {
+    const d = Math.floor(ms / DAY)
+    const h = Math.floor((ms % DAY) / HOUR)
+    return h ? `${d}d ${h}h` : `${d}d`
+  }
+  if (ms < YEAR) {
+    const mo = Math.floor(ms / MONTH)
+    const d = Math.floor((ms % MONTH) / DAY)
+    return d ? `${mo}mo ${d}d` : `${mo}mo`
+  }
+  const y = Math.floor(ms / YEAR)
+  const mo = Math.floor((ms % YEAR) / MONTH)
+  return mo ? `${y}y ${mo}mo` : `${y}y`
 }
 
 // Schedule `set` entries carry an epoch NUMBER as their value; render it as a date rather

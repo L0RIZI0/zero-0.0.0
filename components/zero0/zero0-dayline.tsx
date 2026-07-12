@@ -258,7 +258,12 @@ export function Zero0Dayline({
       // start / point / due — a due-only task anchors on its deadline and paints a point.
       const st = s.startAt ?? s.at ?? s.dueAt
       if (st == null) continue
-      const en = s.endAt ?? st // a point (instant / due / no end) has zero span
+      // ONGOING — an entity with a real start (in the past) but no end yet reads as still
+      // running, so its tick GROWS from start to NOW, as if `:end:` were live-set to now. It
+      // keeps extending each render until a real end is stamped. Only when the start is a
+      // genuine `startAt` (not a due/at point) and it's already begun.
+      const ongoing = s.endAt == null && s.startAt != null && s.startAt <= now
+      const en = s.endAt ?? (ongoing ? now : st) // else a point (instant/due/no end) = zero span
       if (en < lo || st > hi) continue
       const leftPct = ((st - winStart) / DAY_MS) * 100
       const widthPct = ((en - st) / DAY_MS) * 100
@@ -276,9 +281,12 @@ export function Zero0Dayline({
         leftPct,
         widthPct,
         centerPct: leftPct + widthPct / 2,
-        range: rangeText(st, en, s.repeat),
+        range: ongoing ? `${rangeText(st, en, s.repeat)} · ongoing` : rangeText(st, en, s.repeat),
         track: "planned",
         point: en <= st,
+        // An ongoing bar's right edge IS "now" — flag it so it renders anchored (never
+        // spilling a min-width tick PAST the now marker), same as an open presence segment.
+        openEnded: ongoing,
         sky: isSleepSpan ? sleepSkyBackground(occ.occKey) : undefined,
       })
     }
