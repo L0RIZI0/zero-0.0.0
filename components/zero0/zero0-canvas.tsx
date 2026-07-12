@@ -100,9 +100,11 @@ function getDurationMs(e: Entity, now: number): number | null {
   return null
 }
 
-// Human-readable duration: "0s", "45m", "1h 30m", "2d 3h", "3mo", "34y". Compact, largest
-// two units, scaling up to years so an Individual's age reads cleanly. Uses average
-// month/year lengths (30.44d / 365.25d) — display-only, not for exact arithmetic.
+// Human-readable duration: up to THREE adjacent units, from the largest non-zero unit
+// down — "0s", "45s", "5m 12s", "1h 30m 5s", "2d 3h 40m", "35y 1mo 24d". Scales to years
+// so an Individual's age reads cleanly. Uses average month/year lengths (30.44d / 365.25d)
+// — display-only, not for exact arithmetic. Trailing zero units are dropped, but a zero
+// BETWEEN two shown units is kept (e.g. "1y 0mo 5d") so the tiers stay positionally clear.
 const MIN = 60000
 const HOUR = 60 * MIN
 const DAY = 24 * HOUR
@@ -110,26 +112,31 @@ const MONTH = 30.44 * DAY
 const YEAR = 365.25 * DAY
 function formatDuration(ms: number): string {
   if (ms < 1000) return "0s"
-  if (ms < MIN) return `${Math.floor(ms / 1000)}s`
-  if (ms < HOUR) return `${Math.floor(ms / MIN)}m`
-  if (ms < DAY) {
-    const h = Math.floor(ms / HOUR)
-    const m = Math.floor((ms % HOUR) / MIN)
-    return m ? `${h}h ${m}m` : `${h}h`
-  }
-  if (ms < MONTH) {
-    const d = Math.floor(ms / DAY)
-    const h = Math.floor((ms % DAY) / HOUR)
-    return h ? `${d}d ${h}h` : `${d}d`
-  }
-  if (ms < YEAR) {
-    const mo = Math.floor(ms / MONTH)
-    const d = Math.floor((ms % MONTH) / DAY)
-    return d ? `${mo}mo ${d}d` : `${mo}mo`
-  }
-  const y = Math.floor(ms / YEAR)
-  const mo = Math.floor((ms % YEAR) / MONTH)
-  return mo ? `${y}y ${mo}mo` : `${y}y`
+  let rem = ms
+  const y = Math.floor(rem / YEAR)
+  rem -= y * YEAR
+  const mo = Math.floor(rem / MONTH)
+  rem -= mo * MONTH
+  const d = Math.floor(rem / DAY)
+  rem -= d * DAY
+  const h = Math.floor(rem / HOUR)
+  rem -= h * HOUR
+  const m = Math.floor(rem / MIN)
+  rem -= m * MIN
+  const s = Math.floor(rem / 1000)
+  const parts: [number, string][] = [
+    [y, "y"],
+    [mo, "mo"],
+    [d, "d"],
+    [h, "h"],
+    [m, "m"],
+    [s, "s"],
+  ]
+  const first = parts.findIndex(([v]) => v > 0)
+  if (first === -1) return "0s"
+  const shown = parts.slice(first, first + 3)
+  while (shown.length > 1 && shown[shown.length - 1][0] === 0) shown.pop()
+  return shown.map(([v, u]) => `${v}${u}`).join(" ")
 }
 
 // Schedule `set` entries carry an epoch NUMBER as their value; render it as a date rather
