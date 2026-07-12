@@ -29,6 +29,9 @@ Status tags: **[CUR]** = built + verified today · **[PART]** = partially built 
 | Trigger | Applies to | Effect | Guard / unless | Status |
 |---|---|---|---|---|
 | Drill into (open) an entity | any kind | Records a presence segment (activity log); becomes the breadcrumb leaf | no-op if same id repeated | [CUR] |
+| Drill INTO a web resource | resource w/ `webUrl` (desktop) | mounts a native tab; if already warm/parked ⇒ instant reveal (no reload) | web preview iframes internal `/…`; native only in Electron | [CUR] |
+| Drill AWAY from a web resource | resource w/ `webUrl` (desktop) | PARKS the tab: hidden + background-throttled, kept resident (warm) for instant re-open | LRU pool cap 4 ⇒ oldest parked tab destroyed | [CUR] |
+| Close button (§0/§1 header ×) | any drilled-in entity (`path>1`) | climbs out to parent; for a `webUrl` resource also DESTROYS its tab for good | root has no × | [CUR] |
 | Being the focused context | any kind | (today) no state change | — | [CUR] |
 | Enter a Task with empty `startAt` | task/open | SHOULD read `ongoing` + glyph spins while inside; revert on exit | all-children-open ⇒ back to open, else ongoing no-spin | [TODO] |
 | Focused-context spin scope | task only (proposed) | only Tasks spin while focused | — | [TODO] |
