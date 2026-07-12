@@ -32,7 +32,11 @@ contextBridge.exposeInMainWorld("zero", {
     mount: (args) => ipcRenderer.invoke("zero:resource:mount", args),
     /** Stream the placeholder's new rect (on resize/scroll) so the view tracks it. */
     setBounds: (args) => ipcRenderer.send("zero:resource:set-bounds", args),
-    /** Tear the native view down when the task closes/unmounts. */
+    /** Drill AWAY: park the view (hidden + throttled, kept warm for instant re-open). */
+    park: (id) => ipcRenderer.send("zero:resource:park", id),
+    /** Explicit CLOSE (header × button): destroy the view for good, ignoring the cap. */
+    close: (id) => ipcRenderer.send("zero:resource:close", id),
+    /** Legacy teardown alias; main now treats it as PARK. Prefer park()/close(). */
     unmount: (id) => ipcRenderer.send("zero:resource:unmount", id),
     /** Subscribe to outputs the resource produces (exports/downloads) → Outputs. */
     onOutput: (cb) => {

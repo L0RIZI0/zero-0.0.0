@@ -203,6 +203,28 @@ function formatState(state: EntityState, format: (e?: number) => string, isLivin
  * `tabular-nums`, hairline rules, no chrome — raw DATA. Scoped to this route
  * (tokens + a page-local `--font-zero0-mono`), so `/1` + `/2` keep Geist.
  */
+
+// A tiny dep-free × button (the zero0 tree avoids lucide). Explicitly CLOSES the open
+// entity — for a web resource that destroys its warm tab; otherwise it just climbs out.
+function Zero0CloseButton({ onClick, className = "" }: { onClick: () => void; className?: string }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label="Close"
+      title="Close"
+      className={
+        "flex h-4 w-4 shrink-0 items-center justify-center text-muted-foreground transition-opacity hover:opacity-70 " +
+        className
+      }
+    >
+      <svg viewBox="0 0 16 16" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth={1.5} aria-hidden>
+        <path d="M4 4l8 8M12 4l-8 8" strokeLinecap="round" />
+      </svg>
+    </button>
+  )
+}
+
 export function Zero0Canvas() {
   // All reads/writes touch localStorage-backed module state, so gate behind mount
   // to avoid SSR/hydration mismatch. `rev` is a manual re-render bump after every
@@ -594,6 +616,21 @@ export function Zero0Canvas() {
     setPath((p) => p.slice(0, i + 1))
   }, [])
 
+  // EXPLICIT CLOSE (header × button) — the counterpart to drilling away. Drilling away
+  // PARKS a web resource (kept warm/dormant for an instant re-open); closing destroys
+  // it for good (its native tab is torn down, freeing memory) and climbs out to the
+  // parent. For a non-web entity there's no view to destroy, so it's simply "climb out".
+  // No-op at the root (nothing above to close into).
+  const closeContext = useCallback(
+    (e: Entity) => {
+      if (typeof window !== "undefined" && window.zero?.resource?.close && e.webUrl) {
+        window.zero.resource.close(e.id)
+      }
+      setPath((p) => (p.includes(e.id) ? p.slice(0, p.indexOf(e.id)) : p.length > 1 ? p.slice(0, -1) : p))
+    },
+    [],
+  )
+
   // Open a SIBLING (tab click): swap just the leaf of the path, keeping the breadcrumb
   // prefix identical (siblings share a parent, so only the last crumb changes). The
   // `contextId`-effect then re-logs presence, so the activity tracker refocuses as usual.
@@ -969,6 +1006,12 @@ export function Zero0Canvas() {
           <span className="ml-auto text-muted-foreground/70" title="Build version">
             {ZERO_VERSION}
           </span>
+          {/* CLOSE for a WEB RESOURCE — §0 (with its × ) is replaced by the web surface
+              while a resource is open, so the explicit-close gesture lives here in the
+              always-visible identity line instead. Destroys the warm tab + climbs out. */}
+          {mounted && context?.webUrl && (
+            <Zero0CloseButton className="ml-2" onClick={() => closeContext(context)} />
+          )}
         </div>
         {/* MINIMIZED — just the breadcrumb (with its trailing SIBLINGS chevron), tight
             under the mark: the access path + the lateral-switch affordance without the
@@ -1089,6 +1132,10 @@ export function Zero0Canvas() {
                 {context.title}
               </span>
               <span className="text-[10px] uppercase tracking-wider text-muted-foreground">{meta.label}</span>
+              {/* CLOSE — top-right, same line as glyph+title. Shown once you've drilled
+                  in (never at the root). Here in §0 it's the close for a NON-web entity
+                  (a web resource hides §0 and gets its own × in the zero header below). */}
+              {path.length > 1 && <Zero0CloseButton className="ml-auto" onClick={() => closeContext(context)} />}
             </div>
             {/* Raw meta key/values. */}
             <dl className="mt-2 grid grid-cols-[6rem_1fr] gap-x-4 gap-y-0.5 text-[10px] tabular-nums">

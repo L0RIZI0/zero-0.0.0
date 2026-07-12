@@ -160,8 +160,10 @@ function NativeSurface({
     const keyOf = (r: { x: number; y: number; width: number; height: number }) =>
       `${Math.round(r.x)},${Math.round(r.y)},${Math.round(r.width)},${Math.round(r.height)}`
 
-    bridge.resource.mount({ id, url: toDesktopUrl(url), resourceId, rect: hiddenRectOf(rectOf()) })
-
+    // Subscribe BEFORE mounting so we never miss the reveal signal. For a warm/parked
+    // tab being re-opened, main re-sends `status ok` synchronously from the mount call
+    // (the view is already loaded, so onStatus wouldn't otherwise fire again) — this
+    // ordering guarantees we're listening when that arrives, so the cover drops at once.
     const offStatus = bridge.resource.onStatus((s) => {
       if (s.id !== id) return
       if (s.ok) ready = true
@@ -170,6 +172,8 @@ function NativeSurface({
         setPhase("error")
       }
     })
+
+    bridge.resource.mount({ id, url: toDesktopUrl(url), resourceId, rect: hiddenRectOf(rectOf()) })
 
     // Remember the last page navigated to (skip internal app:// routes — those are
     // Zero's own pages, not user browsing, and shouldn't override the resource url).
@@ -217,7 +221,9 @@ function NativeSurface({
       cancelAnimationFrame(raf)
       offStatus()
       offNav?.()
-      bridge.resource.unmount(id)
+      // Drilling away PARKS (keeps warm), not destroys — reopening is an instant
+      // tab-switch. Explicit destruction happens only via the header × (resource.close).
+      bridge.resource.park(id)
     }
   }, [id, url, resourceId, retryKey])
 

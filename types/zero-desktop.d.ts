@@ -19,6 +19,11 @@ export interface ZeroDesktopBridge {
   resource: {
     mount: (args: ZeroResourceMountArgs) => Promise<void>
     setBounds: (args: { id: string; rect: ZeroResourceMountArgs["rect"] }) => void
+    /** Drill away: park the view (hidden + throttled, kept warm for instant re-open). */
+    park: (id: string) => void
+    /** Explicit close (header ×): destroy the view for good, ignoring the warm cap. */
+    close: (id: string) => void
+    /** Legacy teardown alias; main now treats it as park. Prefer park()/close(). */
     unmount: (id: string) => void
     onOutput: (cb: (payload: { id: string; name: string; dataUrl: string }) => void) => () => void
     onStatus: (cb: (payload: { id: string; ok: boolean; detail?: string }) => void) => () => void

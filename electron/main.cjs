@@ -405,8 +405,54 @@ app.on("window-all-closed", () => {
 // screen rect here, so the native view tracks the placeholder through scrolls,
 // window resizes and the open/close morph.
 
+// The warm-tab pool. Keyed by entity id; the Map's insertion order doubles as an
+// LRU list (front = least-recently-used). A drilled-into resource is REVEALED and
+// touched to the back (MRU); drilling away PARKS it (hidden + throttled) but keeps
+// it resident so re-opening is an instant tab-switch, not a reload. We keep at most
+// WARM_LIMIT views alive — parking a new one evicts the oldest parked view. An
+// explicit close (the header × button) destroys immediately regardless of the cap.
 /** @type {Map<string, import('electron').WebContentsView>} */
 const resourceViews = new Map()
+const WARM_LIMIT = 4
+
+/** Bump a view to MRU (back of the Map's iteration order). */
+function touchWarm(id) {
+  const view = resourceViews.get(id)
+  if (!view) return
+  resourceViews.delete(id)
+  resourceViews.set(id, view)
+}
+
+/** Destroy the least-recently-used views until at most WARM_LIMIT remain. The
+ *  currently-visible view is always MRU (touched on mount), so it's never evicted. */
+function enforceWarmLimit() {
+  while (resourceViews.size > WARM_LIMIT) {
+    const oldest = resourceViews.keys().next().value
+    if (oldest === undefined) break
+    console.log(`[v0] resource:evict (warm cap ${WARM_LIMIT}) id=${oldest}`)
+    destroyResourceView(oldest)
+  }
+}
+
+/** Park a view: hide it and let Chromium throttle it to near-zero cost, but KEEP it
+ *  resident so reopening is instant. Parking counts as recent use (the tab you just
+ *  left is the most likely to be reopened), so it's bumped to MRU, then the cap is
+ *  enforced to retire older parked tabs. */
+function parkResourceView(id) {
+  const view = resourceViews.get(id)
+  if (!view) return
+  try {
+    view.setVisible(false)
+    // setVisible(false) stops compositing/painting; also flip background throttling
+    // back ON (the view was created with it OFF for a fast first load) so hidden
+    // timers/rAF are throttled while parked. Best-effort across Electron versions.
+    view.webContents?.setBackgroundThrottling?.(true)
+  } catch {
+    /* view already gone */
+  }
+  touchWarm(id)
+  enforceWarmLimit()
+}
 
 /** Partitions whose session has already had its embedding guards stripped. */
 const preparedPartitions = new Set()
@@ -495,10 +541,23 @@ ipcMain.handle("zero:resource:mount", async (_e, args) => {
   if (!mainWindow) return
   const { id, url, resourceId, rect } = args
   console.log(`[v0] resource:mount id=${id} resourceId=${resourceId || "-"} url=${url}`)
-  // Already mounted (e.g. re-open): just reposition so work-in-progress survives.
+  // Already resident (a warm/parked tab being re-opened): REVEAL it instead of
+  // reloading — this is the instant tab-switch. Un-throttle, show, reposition, bump
+  // to MRU. If it already finished loading once, re-announce ok so the renderer drops
+  // its "settling" cover immediately (its onStatus won't fire again for a cached view).
   const existing = resourceViews.get(id)
   if (existing) {
+    try {
+      existing.webContents?.setBackgroundThrottling?.(false)
+      existing.setVisible(true)
+    } catch {
+      /* fall through to reposition */
+    }
     existing.setBounds(toBounds(rect))
+    touchWarm(id)
+    if (existing.__zeroLoaded && mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("zero:resource:status", { id, ok: true })
+    }
     return
   }
 
@@ -517,7 +576,10 @@ ipcMain.handle("zero:resource:mount", async (_e, args) => {
   view.setBackgroundColor("#ffffff")
   view.setBounds(toBounds(rect))
   mainWindow.contentView.addChildView(view)
-  resourceViews.set(id, view)
+  view.__zeroLoaded = false
+  resourceViews.set(id, view) // newest ⇒ MRU (back of the LRU order)
+  // A freshly opened tab may push us over the warm cap; retire the oldest parked one.
+  enforceWarmLimit()
 
   // Right-click anywhere in the resource → notify the renderer, which owns the live
   // entity data and builds the menu spec, then draws it via the transparent overlay
@@ -574,10 +636,12 @@ ipcMain.handle("zero:resource:mount", async (_e, args) => {
   // heavy sites like Figma snap in seconds earlier.
   view.webContents.once("dom-ready", () => {
     console.log(`[v0] resource:dom-ready id=${id}`)
+    view.__zeroLoaded = true // mark resident-and-ready so a later re-open reveals instantly
     report(true)
   })
   view.webContents.on("did-finish-load", () => {
     console.log(`[v0] resource:loaded id=${id}`)
+    view.__zeroLoaded = true
     report(true)
   })
   view.webContents.on("did-fail-load", (_e2, code, desc, validatedURL, isMainFrame) => {
@@ -613,7 +677,14 @@ ipcMain.on("zero:resource:set-bounds", (_e, { id, rect }) => {
   if (view) view.setBounds(toBounds(rect))
 })
 
-ipcMain.on("zero:resource:unmount", (_e, id) => destroyResourceView(id))
+// Drilling AWAY (breadcrumb / dayline tick / sibling / anywhere) parks the view —
+// hidden + throttled, but kept warm for an instant re-open.
+ipcMain.on("zero:resource:park", (_e, id) => parkResourceView(id))
+// The header × button explicitly closes the tab for good — destroy now, ignore the cap.
+ipcMain.on("zero:resource:close", (_e, id) => destroyResourceView(id))
+// Back-compat alias (older renderers called unmount on teardown). Treat as PARK so a
+// stale build still keeps tabs warm rather than tearing them down.
+ipcMain.on("zero:resource:unmount", (_e, id) => parkResourceView(id))
 
 ipcMain.on("zero:open-external", (_e, url) => {
   if (typeof url === "string" && /^https?:\/\//.test(url)) shell.openExternal(url)
