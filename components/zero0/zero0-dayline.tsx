@@ -909,16 +909,16 @@ export function Zero0Dayline({
                         }
                         className={cn(
                           "pointer-events-auto absolute cursor-default transition-[height,opacity] duration-150",
-                          // Vertical alignment is the sole per-track difference: PLANNED
-                          // hugs the TOP of the lane; TRACKED is CENTERED (top-1/2 + the
-                          // -translate-y-1/2 below), so the two bands read distinctly.
-                          isPresence ? "top-1/2" : "top-[3px]",
+                          // ALL ticks are vertically CENTERED in the lane (top-1/2 + the
+                          // -translate-y-1/2 below), planned and tracked alike — they read as
+                          // one centered band rather than planned-hugs-top / tracked-centered.
+                          "top-1/2",
                           p.point ? "rounded-full" : "rounded-[2px]",
-                          // Translate composes: X for a point / open-ended segment, Y to
-                          // center a tracked bar. Tailwind's translate utilities stack.
+                          // Translate composes on separate axes: X for a point / open-ended
+                          // segment, Y to center every tick. Tailwind's translate utils stack.
                           p.point && "-translate-x-1/2",
                           p.openEnded && "-translate-x-full",
-                          isPresence && "-translate-y-1/2",
+                          "-translate-y-1/2",
                         )}
                         style={{
                           left: p.openEnded ? `${p.leftPct + p.widthPct}%` : `${p.leftPct}%`,

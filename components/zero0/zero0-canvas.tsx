@@ -778,11 +778,14 @@ export function Zero0Canvas() {
     } else if (s && (s.startAt || s.endAt || s.at)) {
       metaRows.push(["scheduled", s.at ? fmt(s.at) : `${fmt(s.startAt)} → ${fmt(s.endAt)}`])
     }
-    // DURATION — DERIVED length, shown for every entity: an instant is always 0s; a
+    // DURATION / AGE — DERIVED length, shown for every entity: an instant is always 0s; a
     // start+end span is its width; a start-only (ONGOING) entity counts up live from `now`;
-    // anything with no time reads "—". Never stored — always computed from the schedule.
+    // with no schedule start it falls back to the age since `createdAt`. For an Individual
+    // (whose createdAt IS a birth) the label reads AGE — the elapsed-since-birth framing —
+    // rather than DURATION. Never stored — always computed.
     const durMs = getDurationMs(context, nowSec)
-    metaRows.push(["duration", durMs == null ? "—" : formatDuration(durMs)])
+    const durLabel = context.kind === "individual" ? "age" : "duration"
+    metaRows.push([durLabel, durMs == null ? "—" : formatDuration(durMs)])
     // ACCENT — only when set (via `:color:`). The value is the raw hex; the dt cell
     // paints a matching swatch so the raw-data view still shows the color itself.
     if (context.accent) metaRows.push(["color", context.accent])
@@ -1198,6 +1201,16 @@ export function Zero0Canvas() {
                     <span className="w-16 shrink-0 uppercase tracking-wider text-muted-foreground">
                       {km.label}
                     </span>
+                    {/* MANUAL color marker — a small dot when THIS entity has an explicitly
+                        set accent (via the menu or `--color`). Inherited/ancestor colors are
+                        deliberately NOT shown, so a dot always means "I tagged this one". */}
+                    {e.accent && (
+                      <span
+                        aria-hidden
+                        className="h-2 w-2 shrink-0 self-center rounded-full"
+                        style={{ backgroundColor: e.accent }}
+                      />
+                    )}
                     {/* Title — click to DRILL IN. Strikethrough only when CANCELLED
                         (plain closed just fades via the row). */}
                     <button
