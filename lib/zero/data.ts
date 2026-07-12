@@ -112,7 +112,7 @@ export const resources: Resource[] = [
     kind: "communication",
     icon: "Gm",
     description: "Inbox and threads",
-    spaceIds: [ROOT_ID, "s_dayjob", "s_admin", "s_team"],
+    contextIds: [ROOT_ID, "s_dayjob", "s_admin", "s_team"],
     tint: "#C9685E",
   },
   {
@@ -121,7 +121,7 @@ export const resources: Resource[] = [
     kind: "communication",
     icon: "Sl",
     description: "Team channels",
-    spaceIds: ["s_dayjob", "s_team", "s_zero", "s_product"],
+    contextIds: ["s_dayjob", "s_team", "s_zero", "s_product"],
     tint: "#7B6CA6",
   },
   {
@@ -130,7 +130,7 @@ export const resources: Resource[] = [
     kind: "storage",
     icon: "Dr",
     description: "Cloud files",
-    spaceIds: [ROOT_ID, "s_dayjob", "s_zero", "s_admin"],
+    contextIds: [ROOT_ID, "s_dayjob", "s_zero", "s_admin"],
     tint: "#6E9C84",
   },
   {
@@ -139,7 +139,7 @@ export const resources: Resource[] = [
     kind: "design",
     icon: "Fg",
     description: "Design canvas",
-    spaceIds: ["s_zero", "s_product", "s_deck"],
+    contextIds: ["s_zero", "s_product", "s_deck"],
     tint: "#C97A5A",
   },
   {
@@ -148,7 +148,7 @@ export const resources: Resource[] = [
     kind: "document",
     icon: "No",
     description: "Docs and wikis",
-    spaceIds: [ROOT_ID, "s_dayjob", "s_zero", "s_strategy", "s_research"],
+    contextIds: [ROOT_ID, "s_dayjob", "s_zero", "s_strategy", "s_research"],
     tint: "#9A9A93",
   },
   {
@@ -157,7 +157,7 @@ export const resources: Resource[] = [
     kind: "browser",
     icon: "Br",
     description: "Open research tabs",
-    spaceIds: ["s_research", "s_strategy", "s_zero"],
+    contextIds: ["s_research", "s_strategy", "s_zero"],
     tint: "#8A8F99",
   },
   {
@@ -166,7 +166,7 @@ export const resources: Resource[] = [
     kind: "note",
     icon: "Jr",
     description: "Daily entries",
-    spaceIds: ["s_personal", "s_journal", ROOT_ID],
+    contextIds: ["s_personal", "s_journal", ROOT_ID],
     tint: "#A88C6A",
   },
   {
@@ -175,7 +175,7 @@ export const resources: Resource[] = [
     kind: "note",
     icon: "Nt",
     description: "Quick captures",
-    spaceIds: [ROOT_ID, "s_personal", "s_zero", "s_product"],
+    contextIds: [ROOT_ID, "s_personal", "s_zero", "s_product"],
     tint: "#9A9488",
   },
   {
@@ -184,7 +184,7 @@ export const resources: Resource[] = [
     kind: "document",
     icon: "Dk",
     description: "4FTER narrative",
-    spaceIds: ["s_zero", "s_deck", "s_strategy"],
+    contextIds: ["s_zero", "s_deck", "s_strategy"],
     tint: "#B5895E",
   },
   {
@@ -193,7 +193,7 @@ export const resources: Resource[] = [
     kind: "service",
     icon: "Co",
     description: "People & relations",
-    spaceIds: [ROOT_ID, "s_dayjob", "s_personal", "s_family"],
+    contextIds: [ROOT_ID, "s_dayjob", "s_personal", "s_family"],
     tint: "#7F9AA3",
   },
   {
@@ -202,7 +202,7 @@ export const resources: Resource[] = [
     kind: "file",
     icon: "Fl",
     description: "Local resources",
-    spaceIds: [ROOT_ID, "s_admin", "s_home"],
+    contextIds: [ROOT_ID, "s_admin", "s_home"],
     tint: "#969089",
   },
   {
@@ -211,7 +211,7 @@ export const resources: Resource[] = [
     kind: "ai",
     icon: "Ze",
     description: "Zero agent",
-    spaceIds: [
+    contextIds: [
       ROOT_ID,
       "s_dayjob",
       "s_zero",
@@ -228,7 +228,7 @@ export const resources: Resource[] = [
     kind: "document",
     icon: "Do",
     description: "Shared documents",
-    spaceIds: ["s_dayjob", "s_team", "s_strategy", "s_admin"],
+    contextIds: ["s_dayjob", "s_team", "s_strategy", "s_admin"],
     tint: "#8C8C84",
   },
   {
@@ -237,7 +237,7 @@ export const resources: Resource[] = [
     kind: "document",
     icon: "Sh",
     description: "Models & budgets",
-    spaceIds: ["s_admin", "s_strategy", "s_nutrition"],
+    contextIds: ["s_admin", "s_strategy", "s_nutrition"],
     tint: "#6E9C84",
   },
   {
@@ -246,7 +246,7 @@ export const resources: Resource[] = [
     kind: "planning",
     icon: "Wb",
     description: "Spatial planning",
-    spaceIds: ["s_product", "s_strategy", "s_zero"],
+    contextIds: ["s_product", "s_strategy", "s_zero"],
     tint: "#9189A6",
   },
   {
@@ -255,7 +255,7 @@ export const resources: Resource[] = [
     kind: "service",
     icon: "Hl",
     description: "Vitals & activity",
-    spaceIds: ["s_health", "s_training", "s_sleep", "s_nutrition"],
+    contextIds: ["s_health", "s_training", "s_sleep", "s_nutrition"],
     tint: "#6E9C84",
   },
 ]
@@ -365,7 +365,7 @@ export const assets: Asset[] = [
     title: "4FTER — Investor Deck v7",
     type: "deck",
     linkedResourceId: "r_deck",
-    spaceId: "s_deck",
+    contextId: "s_deck",
     preview: "18 slides · edited 2h ago",
   },
   {
@@ -373,7 +373,7 @@ export const assets: Asset[] = [
     title: "Zero — Interaction Spec",
     type: "document",
     linkedResourceId: "r_notion",
-    spaceId: "s_product",
+    contextId: "s_product",
     preview: "Living doc · 12 sections",
   },
   {
@@ -381,7 +381,7 @@ export const assets: Asset[] = [
     title: "Nested Space Studies",
     type: "image",
     linkedResourceId: "r_figma",
-    spaceId: "s_product",
+    contextId: "s_product",
     preview: "Frame set · 6 boards",
   },
   {
@@ -389,7 +389,7 @@ export const assets: Asset[] = [
     title: "Strategy Memo — H2",
     type: "note",
     linkedResourceId: "r_notes",
-    spaceId: "s_strategy",
+    contextId: "s_strategy",
     preview: "Note · 4 min read",
   },
   {
@@ -397,7 +397,7 @@ export const assets: Asset[] = [
     title: "Financial Model",
     type: "sheet",
     linkedResourceId: "r_sheet",
-    spaceId: "s_admin",
+    contextId: "s_admin",
     preview: "Sheet · 9 tabs",
   },
   {
@@ -405,7 +405,7 @@ export const assets: Asset[] = [
     title: "Notion Plus",
     type: "subscription",
     linkedResourceId: "r_notion",
-    spaceId: ROOT_ID,
+    contextId: ROOT_ID,
     preview: "Subscription · renews Apr 2",
   },
   {
@@ -413,7 +413,7 @@ export const assets: Asset[] = [
     title: "Research — Contextual UIs",
     type: "link",
     linkedResourceId: "r_browser",
-    spaceId: "s_research",
+    contextId: "s_research",
     preview: "14 saved links",
   },
   {
@@ -421,7 +421,7 @@ export const assets: Asset[] = [
     title: "Daily Journal",
     type: "note",
     linkedResourceId: "r_journal",
-    spaceId: "s_journal",
+    contextId: "s_journal",
     preview: "Note · 142 entries",
   },
   {
@@ -429,7 +429,7 @@ export const assets: Asset[] = [
     title: "Figma Organization",
     type: "subscription",
     linkedResourceId: "r_figma",
-    spaceId: ROOT_ID,
+    contextId: ROOT_ID,
     preview: "Subscription · seat active",
   },
   {
@@ -437,7 +437,7 @@ export const assets: Asset[] = [
     title: "Family Calendar",
     type: "link",
     linkedResourceId: "r_contacts",
-    spaceId: "s_family",
+    contextId: "s_family",
     preview: "Shared · 4 people",
   },
 ]
@@ -618,9 +618,9 @@ export function getChildSpaceCount(contextId: string): number {
 // Subtree helpers (structural origin tree) — drive timeline focus + dimming
 // ----------------------------------------------------------------------------
 
-/** Set of space ids in `spaceId`'s structural subtree, including itself. */
-function collectDescendants(spaceId: string): Set<string> {
-  const set = new Set<string>([spaceId])
+/** Set of space ids in `contextId`'s structural subtree, including itself. */
+function collectDescendants(contextId: string): Set<string> {
+  const set = new Set<string>([contextId])
   let grew = true
   while (grew) {
     grew = false
@@ -635,27 +635,27 @@ function collectDescendants(spaceId: string): Set<string> {
   return set
 }
 
-/** True when `spaceId` is `nodeId` or a descendant of it. */
-export function isInSubtree(nodeId: string, spaceId: string): boolean {
+/** True when `contextId` is `nodeId` or a descendant of it. */
+export function isInSubtree(nodeId: string, contextId: string): boolean {
   if (nodeId === ROOT_ID) return true
-  return collectDescendants(nodeId).has(spaceId)
+  return collectDescendants(nodeId).has(contextId)
 }
 
 /**
- * Walk up from `spaceId` and return the DIRECT child space of `focusId` whose
+ * Walk up from `contextId` and return the DIRECT child space of `focusId` whose
  * subtree contains it — i.e. the band an item would roll up INTO under the
  * adaptive semantic-LOD. Returns:
- *   - `null` if `spaceId` is the focus itself or a direct member of it (no
+ *   - `null` if `contextId` is the focus itself or a direct member of it (no
  *     intervening child space — these items always render individually), or
- *   - `undefined` if `spaceId` isn't under `focusId` at all.
+ *   - `undefined` if `contextId` isn't under `focusId` at all.
  * Drives timeline semantic rollup (e.g. a meeting deep under "Day Job" resolves
  * to the "Day Job" child space when focus is Home).
  */
-export function directChildOfFocus(spaceId: string | null, focusId: string): string | null | undefined {
-  if (!spaceId) return undefined
-  // Build the parent chain of `spaceId` up to the root.
+export function directChildOfFocus(contextId: string | null, focusId: string): string | null | undefined {
+  if (!contextId) return undefined
+  // Build the parent chain of `contextId` up to the root.
   const chain: string[] = []
-  let cur: Entity | undefined = byId.get(spaceId)
+  let cur: Entity | undefined = byId.get(contextId)
   while (cur) {
     chain.push(cur.id)
     cur = cur.parentId ? byId.get(cur.parentId) : undefined
@@ -687,14 +687,14 @@ export function getSpace(id: string): Entity | undefined {
 
 /**
  * Resolve the accent color a child should inherit on the timeline. Walk up the
- * parent chain starting at `spaceId` and return the nearest ancestor that has
+ * parent chain starting at `contextId` and return the nearest ancestor that has
  * its own accent. The root space (`s_root` / "Space 0") has no accent, so an
  * item created directly under it resolves to `undefined` — callers render those
  * with a neutral fallback (light grey). e.g. an instant in Zero inherits Zero's
  * magenta; an instant in Space 0 inherits nothing.
  */
-export function getInheritedAccent(spaceId: string | null): string | undefined {
-  let current = spaceId ? byId.get(spaceId) : undefined
+export function getInheritedAccent(contextId: string | null): string | undefined {
+  let current = contextId ? byId.get(contextId) : undefined
   while (current) {
     if (current.kind === "space" && current.accent) return current.accent
     current = current.parentId ? byId.get(current.parentId) : undefined
@@ -926,7 +926,7 @@ export function getTimelineOccurrences(
 export function getSubtreeAssets(contextId: string): Asset[] {
   if (contextId === ROOT_ID) return assets
   const descendants = collectDescendants(contextId)
-  return assets.filter((a) => descendants.has(a.spaceId))
+  return assets.filter((a) => descendants.has(a.contextId))
 }
 
 /**

@@ -148,7 +148,7 @@ export interface TimelineQuery {
 }
 
 /**
- * Everything on `spaceId`'s lifeline within [rangeStart, rangeEnd], shaped for
+ * Everything on `contextId`'s lifeline within [rangeStart, rangeEnd], shaped for
  * the current `grain`. At FINE grain the range is small, so we reuse the tested
  * per-day expander wholesale. At COARSE grain we do a single light pass —
  * one-offs that intersect the range pass through; recurring series are emitted
@@ -156,18 +156,18 @@ export interface TimelineQuery {
  * cheap" guarantee.
  */
 export function queryTimeline(
-  spaceId: string,
+  contextId: string,
   rangeStart: number,
   rangeEnd: number,
   grain: Grain,
 ): TimelineQuery {
   if (FINE_GRAINS.includes(grain)) {
-    return { items: getTimelineOccurrences(spaceId, rangeStart, rangeEnd), streams: [] }
+    return { items: getTimelineOccurrences(contextId, rangeStart, rangeEnd), streams: [] }
   }
 
   const items: TimelineOccurrence[] = []
   const streams: StreamSeries[] = []
-  for (const e of getTimedDescendants(spaceId)) {
+  for (const e of getTimedDescendants(contextId)) {
     const s = e.schedule
     if (!s) continue
     const anchor = s.at ?? s.startAt

@@ -525,7 +525,9 @@ export interface Resource {
   /** Short glyph / monogram used in the resource chip. */
   icon: string
   description: string
-  spaceIds: string[]
+  /** The contexts (any entity — space, individual, community, …) this resource is
+   *  attached to. A resource is cross-cutting: it can plug into many contexts. */
+  contextIds: string[]
   /** Optional brand-ish tint, pulled from the resource not the shell. */
   tint?: string
 }
@@ -535,6 +537,7 @@ export interface Asset {
   title: string
   type: AssetType
   linkedResourceId: string | null
-  spaceId: string
+  /** The single context (any entity) this asset lives in. */
+  contextId: string
   preview: string
 }
