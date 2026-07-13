@@ -31,6 +31,7 @@ import {
   getBackReferences,
   getCreator,
   getOwner,
+  type FrequentGroup,
 } from "@/lib/zero/data"
   import { KIND_META, isClosed, fillsGlyph, getState, type EntityState } from "@/lib/zero/kinds"
   import { isDone, isCancelled, getCreatedAt, getCompletedOn, describeLogEntry } from "@/lib/zero/entity-log"
@@ -49,6 +50,7 @@ import { Zero0FrameMarker } from "./zero0-frame-marker"
 import { ZERO_VERSION } from "@/lib/zero/version"
 import { formatLocale } from "@/lib/zero/format-locale"
 import { Zero0ResourceCanvas } from "./zero0-resource-canvas"
+import { Zero0Frequent } from "./zero0-frequent"
 import type { Entity } from "@/lib/zero/types"
 
 // The `--color` swatch palette — a small curated ramp shown when the create field
@@ -271,6 +273,8 @@ export function Zero0Canvas() {
   const showActivity = useZero0Flag("activity")
   const showEntityHeader = useZero0Flag("entityHeader")
   const showZeroHeader = useZero0Flag("zeroHeader")
+  // §4 FREQUENT — the topmost quick-create band; shown by default (see the chord store).
+  const showFrequent = useZero0Flag("frequent")
 
   useEffect(() => {
     hydrateFromStorage()
@@ -692,6 +696,24 @@ export function Zero0Canvas() {
     setPath([ROOT_ID, ...chain])
   }, [])
 
+  // FREQUENT (§4) quick-create — spawn a fresh occurrence of a recurring activity: the
+  // SAME kind + title, starting NOW, under the activity's USUAL parent (its modal
+  // parentId). For a Moment that lands it "ongoing" (spinning glyph). Then drill straight
+  // into the new entity so it becomes the current context.
+  const createFromFrequent = useCallback(
+    (g: FrequentGroup) => {
+      const created = addParsedEntity({
+        title: g.title,
+        contextId: g.parentId,
+        kind: g.kind,
+        schedule: { startAt: Date.now() },
+      })
+      navigateTo(created.id)
+      bump()
+    },
+    [navigateTo, bump],
+  )
+
   // Show a menu at CLIENT coords (x,y). Over a native web Resource on desktop the DOM is
   // occluded by the live site (no z-index can beat a WebContentsView), so the menu is
   // drawn in the transparent overlay window ABOVE the site — the site stays put, no
@@ -964,6 +986,22 @@ export function Zero0Canvas() {
         {topClock}
       </div>
 
+      {/* ── FREQUENT BAND (§4, topmost — just under the clock) ──────────────────
+          A quick-create palette of the user's most-repeated activities. Shown by
+          default. Same dep-free grid-rows collapse animation as every frame; kept
+          MOUNTED while hidden so both directions animate, `inert` when collapsed. */}
+      {mounted && (
+        <div
+          className="grid transition-[grid-template-rows] duration-300 ease-out motion-reduce:transition-none"
+          style={{ gridTemplateRows: showFrequent ? "1fr" : "0fr" }}
+          inert={!showFrequent}
+        >
+          <div className="overflow-hidden">
+            <Zero0Frequent dataRev={rev} onCreate={createFromFrequent} onOpen={navigateTo} />
+          </div>
+        </div>
+      )}
+
       {/* ── AGENDA BAND (topmost, "TODAY") ──────────────────────────────────────
           The FORWARD-looking frame — what's PLANNED today (the planned dayline).
           Hidden by default (toggled from the footer) so the canvas stays blank; when
@@ -992,7 +1030,7 @@ export function Zero0Canvas() {
         </div>
       )}
 
-      {/* ── ACTIVITY BAND (below AGENDA, above the header) ──────────────���───────
+      {/* ── ACTIVITY BAND (below AGENDA, above the header) ─────────────������───────
           The BACKWARD-looking frame — WHERE the user has been today (presence dayline
           + details). Hidden by default, toggled from the footer, same grid-rows
           collapse animation as AGENDA. Clicking a place drills the canvas into it. */}
@@ -1449,8 +1487,20 @@ export function Zero0Canvas() {
         <span className="text-border" aria-hidden>
           |
         </span>
-        {/* AGENDA (§3) + ACTIVITY (§2) frame toggles, in top-to-bottom order. These flip
-            the SAME chord flags as the § keybindings and the in-frame "§x" markers. */}
+        {/* FREQUENT (§4) + AGENDA (§3) + ACTIVITY (§2) frame toggles, in top-to-bottom
+            order. These flip the SAME chord flags as the § keybindings and "§x" markers. */}
+        <button
+          type="button"
+          onClick={() => toggleZero0Flag("frequent")}
+          aria-pressed={showFrequent}
+          className={
+            showFrequent
+              ? "text-foreground transition-colors"
+              : "text-muted-foreground transition-colors hover:text-foreground"
+          }
+        >
+          frequent
+        </button>
         <button
           type="button"
           onClick={() => toggleZero0Flag("agenda")}

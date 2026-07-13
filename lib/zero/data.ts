@@ -1,5 +1,5 @@
 import type { Asset, Entity, EntityKind, IndividualEntity, Instant, Recurrence, Schedule, Resource, EntityBase, Sex, TaskPriority, TitleEntry, User } from "./types"
-  import { hasDoneState, isClosed, computeCloseAt } from "./kinds"
+  import { hasDoneState, isClosed, computeCloseAt, getState } from "./kinds"
 import {
   isDone,
   isCancelled,
@@ -726,6 +726,115 @@ export function getInheritedAccent(contextId: string | null): string | undefined
     current = current.parentId ? byId.get(current.parentId) : undefined
   }
   return undefined
+}
+
+// ----------------------------------------------------------------------------
+// FREQUENT ENTITIES (§4 quick-create band)
+// ----------------------------------------------------------------------------
+
+/** One row of the FREQUENT band: a recurring activity (a kind+title the user creates
+ *  repeatedly), with the info needed to quick-create another and to list the ones
+ *  currently running. */
+export interface FrequentGroup {
+  /** Stable identity: `${kind}\u0000${normalizedTitle}`. */
+  key: string
+  kind: EntityKind
+  /** Display title (the most recent occurrence's exact casing). */
+  title: string
+  /** How many occurrences fell inside the recent window (the ranking weight). */
+  count: number
+  /** Where a NEW occurrence is created — the parent the activity USUALLY lives under
+   *  (the modal parentId across matches, tie-broken by the most recent). */
+  parentId: string
+  /** The representative occurrence's OWN accent (`:color:`), if any — else undefined
+   *  (the tile falls back to grey, or the sleep default for sleep-titled rows). */
+  accent?: string
+  /** Members whose STATE is currently "ongoing" (started, unended → spinning glyph).
+   *  In practice only Moments can be ongoing, so non-moment rows carry an empty list. */
+  ongoing: { id: string; kind: EntityKind; title: string }[]
+}
+
+/** Kinds that count as repeatable "activities" for the FREQUENT band. Structural kinds
+ *  (identity scaffold + containers) are excluded — you don't quick-create a Space "now". */
+const FREQUENT_KINDS: ReadonlySet<EntityKind> = new Set<EntityKind>(["task", "moment", "instant"])
+
+/**
+ * Rank the user's recurring activities for the FREQUENT band: group live entities by
+ * (kind + normalized title), COUNT occurrences created within a recent window (default
+ * 30 days), and return the busiest groups. Each group also carries where to create the
+ * next one (its usual parent) and the members currently ongoing.
+ *
+ * "Frequent" means repeated: a group needs at least `minCount` (default 2) windowed
+ * occurrences to qualify, so genuine one-offs never clutter the band.
+ */
+export function getFrequentEntities(opts?: {
+  windowDays?: number
+  limit?: number
+  minCount?: number
+}): FrequentGroup[] {
+  const windowDays = opts?.windowDays ?? 30
+  const limit = opts?.limit ?? 12
+  const minCount = opts?.minCount ?? 2
+  const now = Date.now()
+  const since = now - windowDays * DAY_MS
+
+  interface Bucket {
+    kind: EntityKind
+    members: Entity[] // all live members sharing this key (any time)
+    windowCount: number // members created within the window (ranking weight)
+    latest: Entity // most-recently-created member (representative casing/accent)
+    parentCounts: Map<string, number> // parentId → how many members live there
+  }
+  const buckets = new Map<string, Bucket>()
+
+  for (const e of entities) {
+    if (e.id === ROOT_ID) continue
+    if (!FREQUENT_KINDS.has(e.kind)) continue
+    const norm = e.title.trim().replace(/\s+/g, " ").toLowerCase()
+    if (!norm) continue
+    const key = `${e.kind}\u0000${norm}`
+    const created = e.createdAt ?? 0
+    let b = buckets.get(key)
+    if (!b) {
+      b = { kind: e.kind, members: [], windowCount: 0, latest: e, parentCounts: new Map() }
+      buckets.set(key, b)
+    }
+    b.members.push(e)
+    if (created >= since) b.windowCount++
+    if (created >= (b.latest.createdAt ?? 0)) b.latest = e
+    if (e.parentId) b.parentCounts.set(e.parentId, (b.parentCounts.get(e.parentId) ?? 0) + 1)
+  }
+
+  const groups: FrequentGroup[] = []
+  for (const [key, b] of buckets) {
+    if (b.windowCount < minCount) continue
+    // Usual parent = the modal parentId (tie → the latest member's parent).
+    let parentId = b.latest.parentId ?? ROOT_ID
+    let best = -1
+    for (const [pid, c] of b.parentCounts) {
+      if (c > best) {
+        best = c
+        parentId = pid
+      }
+    }
+    const ongoing = b.members
+      .filter((m) => getState(m, now).word === "ongoing")
+      .sort((a, c) => (a.schedule?.startAt ?? 0) - (c.schedule?.startAt ?? 0))
+      .map((m) => ({ id: m.id, kind: m.kind, title: m.title }))
+    groups.push({
+      key,
+      kind: b.kind,
+      title: b.latest.title,
+      count: b.windowCount,
+      parentId,
+      accent: b.latest.accent,
+      ongoing,
+    })
+  }
+
+  // Busiest first; ties broken by the most recent occurrence so a fresh habit floats up.
+  groups.sort((a, c) => c.count - a.count)
+  return groups.slice(0, limit)
 }
 
 /** A task entity by id (undefined for non-task ids). */

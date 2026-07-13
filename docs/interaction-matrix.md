@@ -38,6 +38,9 @@ Status tags: **[CUR]** = built + verified today · **[PART]** = partially built 
 | Presence on the TODAY dayline | any visited entity | drill-in presence segments paint ticks on the TODAY lane (`tracks="both"`); tooltip = title, click opens it | — | [CUR] |
 | Planned vs presence on the TODAY lane | scheduled occurrence vs presence segment | one centered band; planned ticks a fixed 20px TALL, presence 20% SHORTER; presence painted last so it stacks IN FRONT | applies before AND after the now marker | [CUR] |
 | Tick color (any dayline) | any tick | un-hovered ticks at 0.4 opacity with true colors (hover → full opacity). Root presence = solid theme-bg chip (near-black dark / near-white light) + grey hairline | root fill themed; no color-muting | [CUR] |
+| Click a FREQUENT tile (§4) | recurring activity (kind+title, ≥2 in last 30d) | creates a NEW occurrence: same kind+title, `startAt`=now, under the activity's USUAL (modal) parent; drills into it | Moment ⇒ lands ongoing (spinning); band shown by default, toggle §4 / footer "frequent" | [CUR] |
+| Click an ONGOING glyph (§4 tile) | a currently-ongoing member of that activity | opens (drills into) that live occurrence | only Moments can be ongoing, so only they list | [CUR] |
+| FREQUENT tile dot color | frequent activity | own `accent`, else the bluey Sleep default (`#5566d8`) for sleep-titled, else grey | — | [CUR] |
 | Being the focused context | any kind | (today) no state change | — | [CUR] |
 | Enter a Task with empty `startAt` | task/open | SHOULD read `ongoing` + glyph spins while inside; revert on exit | all-children-open ⇒ back to open, else ongoing no-spin | [TODO] |
 | Focused-context spin scope | task only (proposed) | only Tasks spin while focused | — | [TODO] |

@@ -50,6 +50,14 @@ export function isSleepTitle(title: string | undefined | null): boolean {
   return !!title && SLEEP_RE.test(title)
 }
 
+/**
+ * The flat SOLID color standing in for a sleep's night-sky where a full procedural
+ * starfield would be overkill — e.g. the tiny FREQUENT-tile color dot. A bright-enough
+ * oceanic indigo (bluey-purple) that still reads against the near-black /0 canvas, so
+ * "Sleep" gets a recognisable default even with no accent assigned.
+ */
+export const sleepDotColor = "#5566d8"
+
 // Palette anchors — pushed DARKER + BLUER than /2. The night blues start nearly
 // black and stay oceanic; plum/rose are deepened so even a "warm" night reads dim.
 const NIGHT_BLUE = ["#05081f", "#070d2e", "#0b1440", "#101e52"] // near-black → deep oceanic blue

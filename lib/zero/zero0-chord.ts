@@ -14,6 +14,7 @@ import { useSyncExternalStore } from "react"
 //   §1 → the ZERO HEADER    (the "zero · root canvas" top helper: mark + breadcrumb + session)
 //   §2 → the ACTIVITY frame  (presence dayline + details) — mirrors the footer "activity" link
 //   §3 → the AGENDA frame    (planned dayline)           — mirrors the footer "agenda" link
+//   §4 → the FREQUENT frame  (quick-create tiles for recurring activities) — topmost band
 //
 // `readout` (the ACTIVITY details rollup/feed) is still a flag but is NO LONGER chorded —
 // it's toggled only by the in-frame "show/hide details" link.
@@ -27,7 +28,7 @@ import { useSyncExternalStore } from "react"
 
 /** The visibility flags. Chrome headers + AGENDA default to shown (AGENDA as a minimized
  *  band); only ACTIVITY defaults to HIDDEN until summoned. */
-export type Zero0Flag = "entityHeader" | "zeroHeader" | "activity" | "agenda" | "readout"
+export type Zero0Flag = "entityHeader" | "zeroHeader" | "activity" | "agenda" | "frequent" | "readout"
 
 // Which digit (pressed after §) toggles which frame. `readout` is intentionally absent.
 const DIGIT_FLAG: Record<string, Zero0Flag> = {
@@ -35,6 +36,7 @@ const DIGIT_FLAG: Record<string, Zero0Flag> = {
   "1": "zeroHeader",
   "2": "activity",
   "3": "agenda",
+  "4": "frequent",
 }
 
 /** Reverse map — the § digit that toggles a given flag. Drives the in-frame "§x" corner
@@ -50,6 +52,8 @@ const visible: Record<Zero0Flag, boolean> = {
   zeroHeader: true,
   activity: false,
   agenda: true,
+  // FREQUENT (§4) — the quick-create tile band. Shown by default for now (per request).
+  frequent: true,
   readout: true,
 }
 
