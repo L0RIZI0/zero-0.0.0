@@ -141,9 +141,9 @@ export function Zero0Frequent({
   // form auto-flip). It runs whenever ANYTHING is ongoing (so collapsed header timers still
   // tick) or the log form is open — idle otherwise.
   const anyOngoing = groups.some((g) => g.ongoingCount > 0)
-  // The right-click popover: first a small MENU, then (via "Log…") the block FORM. `key`
-  // pins it to a tile; `view` swaps content in place at the same cursor anchor.
-  const [menu, setMenu] = useState<{ key: string; x: number; y: number; view: "menu" | "form" } | null>(null)
+  // The right-click popover, pinned to a tile at the cursor: a bulk-action row (End/Close all)
+  // stacked directly above the block log form — no intermediate menu step.
+  const [menu, setMenu] = useState<{ key: string; x: number; y: number } | null>(null)
   const menuGroup = menu ? groups.find((g) => g.key === menu.key) : undefined
   const [nowTick, setNowTick] = useState(() => Date.now())
   useEffect(() => {
@@ -226,7 +226,7 @@ export function Zero0Frequent({
                         onClick={() => onPunchIn(g, { stay: false })}
                         onContextMenu={(e) => {
                           e.preventDefault()
-                          setMenu({ key: g.key, x: e.clientX, y: e.clientY, view: "menu" })
+                          setMenu({ key: g.key, x: e.clientX, y: e.clientY })
                         }}
                         className={
                           "max-w-[10rem] truncate transition-opacity hover:opacity-70 " +
@@ -293,117 +293,19 @@ export function Zero0Frequent({
         <Zero0FrameMarker flag="frequent" label="the frequent band" />
       </div>
 
-      {/* RIGHT-CLICK POPOVER — the small menu, or (via "Log…") the block form. */}
-      {menu && menuGroup && menu.view === "menu" && (
-        <TileMenu
-          group={menuGroup}
-          x={menu.x}
-          y={menu.y}
-          onClose={() => setMenu(null)}
-          onLogOpen={() => setMenu((m) => (m ? { ...m, view: "form" } : m))}
-          onEndAll={onEndAll}
-          onCloseAll={onCloseAll}
-        />
-      )}
-      {menu && menuGroup && menu.view === "form" && (
-        <LogForm
+      {/* RIGHT-CLICK POPOVER — bulk actions above the block log form. */}
+      {menu && menuGroup && (
+        <TilePopover
           group={menuGroup}
           x={menu.x}
           y={menu.y}
           onClose={() => setMenu(null)}
           onLog={onLog}
+          onEndAll={onEndAll}
+          onCloseAll={onCloseAll}
         />
       )}
     </section>
-  )
-}
-
-/**
- * The right-click TILE MENU — a compact command list for one activity. Always offers "Log…"
- * (which swaps this popover to the block form); when the activity has any ongoing occurrence
- * it also offers "End all ongoing" (punch every one out → COMPLETE) and "Close all ongoing"
- * (force-close every one now). Fixed popover at the cursor behind a dismissing backdrop.
- */
-function TileMenu({
-  group,
-  x,
-  y,
-  onClose,
-  onLogOpen,
-  onEndAll,
-  onCloseAll,
-}: {
-  group: FrequentGroup
-  x: number
-  y: number
-  onClose: () => void
-  onLogOpen: () => void
-  onEndAll: (group: FrequentGroup) => void
-  onCloseAll: (group: FrequentGroup) => void
-}) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose()
-    }
-    window.addEventListener("keydown", onKey)
-    return () => window.removeEventListener("keydown", onKey)
-  }, [onClose])
-
-  const n = group.ongoingCount
-  const vw = typeof window !== "undefined" ? window.innerWidth : 9999
-  const vh = typeof window !== "undefined" ? window.innerHeight : 9999
-
-  const item =
-    "w-full rounded px-2 py-1 text-left transition-colors hover:bg-foreground hover:text-background disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-muted-foreground"
-
-  return (
-    <>
-      <div
-        className="fixed inset-0 z-40"
-        onClick={onClose}
-        onContextMenu={(e) => {
-          e.preventDefault()
-          onClose()
-        }}
-      />
-      <div
-        role="menu"
-        aria-label={`${group.title} — options`}
-        className="fixed z-50 flex w-44 flex-col gap-0.5 rounded-md border border-border bg-background p-1 text-[11px] text-muted-foreground shadow-md"
-        style={{ left: Math.min(x, vw - 190), top: Math.min(y, vh - 120) }}
-      >
-        <div className="truncate px-2 py-1 text-foreground">{group.title}</div>
-        <button type="button" role="menuitem" onClick={onLogOpen} className={item}>
-          Log…
-        </button>
-        <button
-          type="button"
-          role="menuitem"
-          disabled={n === 0}
-          onClick={() => {
-            onEndAll(group)
-            onClose()
-          }}
-          className={item}
-          title={n === 0 ? "Nothing ongoing" : `End all ${n} ongoing ${group.title}`}
-        >
-          End all ongoing{n > 0 ? ` (${n})` : ""}
-        </button>
-        <button
-          type="button"
-          role="menuitem"
-          disabled={n === 0}
-          onClick={() => {
-            onCloseAll(group)
-            onClose()
-          }}
-          className={item}
-          title={n === 0 ? "Nothing ongoing" : `Close all ${n} ongoing ${group.title}`}
-        >
-          Close all ongoing{n > 0 ? ` (${n})` : ""}
-        </button>
-      </div>
-    </>
   )
 }
 
@@ -454,15 +356,18 @@ function InstanceRow({
 }
 
 /**
- * The right-click LOG form (reached via the tile menu's "Log…"): a START time, a DURATION,
- * and a binary "ended: yes/no" toggle. Renders as a fixed popover behind a dismissing
- * backdrop.
+ * The right-click TILE POPOVER: a BULK-ACTION row (End all / Close all ongoing) on top, then
+ * the block LOG form directly below — no intermediate menu step. Fixed at the cursor behind a
+ * dismissing backdrop.
  *
- * The toggle defaults to NO — i.e. the activity is about to START now and run ongoing. Flip
- * it to YES and the block is treated as one that JUST ENDED after lasting `duration`: the
- * start is recalculated back by the duration so the END lands at the moment you flipped it
- * (never a future-dated block). The commit button therefore reads "Start" when no (opens an
- * ongoing occurrence) and "Log" when yes (files a completed block).
+ * BULK ROW (both disabled when nothing is ongoing): "End all" punches every ongoing occurrence
+ * out (→ COMPLETE, tz-stable midnight close); "Close all" force-closes every one now.
+ *
+ * LOG FORM — a START time, a DURATION, and a binary "ended: yes/no" toggle defaulting to NO
+ * (the activity is about to START now and run ongoing). Flip to YES and the block becomes one
+ * that JUST ENDED after lasting `duration`: the start is recalculated back by the duration so
+ * the END lands at the flip moment (never future-dated). The commit button reads "Start Now"
+ * when no (opens an ongoing occurrence) and "Log" + the span when yes (files a completed block).
  *
  *   • ended = NO  → onLog(start, null)              → ongoing, starting at `start` (now).
  *   • ended = YES → onLog(start, start + duration)  → completed block [start, start+dur].
@@ -470,18 +375,22 @@ function InstanceRow({
  * While ended, changing the duration keeps the END anchored (start shifts) so it stays a
  * "just finished" block. Duration chips only SET the duration; the button is the sole commit.
  */
-function LogForm({
+function TilePopover({
   group,
   x,
   y,
   onClose,
   onLog,
+  onEndAll,
+  onCloseAll,
 }: {
   group: FrequentGroup
   x: number
   y: number
   onClose: () => void
   onLog: (group: FrequentGroup, startAt: number, endAt: number | null) => void
+  onEndAll: (group: FrequentGroup) => void
+  onCloseAll: (group: FrequentGroup) => void
 }) {
   const [ended, setEnded] = useState(false)
   const [startAt, setStartAt] = useState(() => Date.now())
@@ -524,6 +433,7 @@ function LogForm({
     onClose()
   }, [group, startAt, ended, durationMin, onLog, onClose])
 
+  const n = group.ongoingCount
   const vw = typeof window !== "undefined" ? window.innerWidth : 9999
   const vh = typeof window !== "undefined" ? window.innerHeight : 9999
 
@@ -539,10 +449,37 @@ function LogForm({
       />
       <div
         role="menu"
-        aria-label={`Log a ${group.title} block`}
+        aria-label={`${group.title} — actions & log`}
         className="fixed z-50 flex w-52 flex-col gap-2 rounded-md border border-border bg-background p-2 text-[11px] shadow-md"
-        style={{ left: Math.min(x, vw - 220), top: Math.min(y, vh - 190) }}
+        style={{ left: Math.min(x, vw - 220), top: Math.min(y, vh - 240) }}
       >
+        {/* BULK ACTIONS — end/close EVERY ongoing occurrence at once. Same row, on top. */}
+        <div className="flex gap-1">
+          {(
+            [
+              { label: "End all", run: onEndAll, hint: "punch every ongoing out → complete" },
+              { label: "Close all", run: onCloseAll, hint: "force-close every ongoing now" },
+            ] as const
+          ).map((b) => (
+            <button
+              key={b.label}
+              type="button"
+              disabled={n === 0}
+              onClick={() => {
+                b.run(group)
+                onClose()
+              }}
+              className="flex-1 rounded border border-border px-1.5 py-1 text-muted-foreground transition-colors hover:bg-foreground hover:text-background disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-muted-foreground"
+              title={n === 0 ? "Nothing ongoing" : `${b.label} — ${b.hint} (${n})`}
+            >
+              {b.label}
+              {n > 0 ? ` (${n})` : ""}
+            </button>
+          ))}
+        </div>
+
+        <div className="border-t border-border" />
+
         {/* Title + the binary "ended: yes/no" toggle. */}
         <div className="flex items-center justify-between gap-2">
           <span className="truncate text-foreground">{group.title}</span>
@@ -618,9 +555,7 @@ function LogForm({
           onClick={commit}
           className="rounded bg-foreground px-1.5 py-1 text-background transition-opacity hover:opacity-80"
         >
-          {ended
-            ? `Log · ${msToTimeInput(startAt)}–${msToTimeInput(endMs)}`
-            : `Start · ${msToTimeInput(startAt)}`}
+          {ended ? `Log · ${msToTimeInput(startAt)}–${msToTimeInput(endMs)}` : "Start Now"}
         </button>
       </div>
     </>
