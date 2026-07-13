@@ -288,13 +288,16 @@ export function Zero0Frequent({
 
                     {/* PER-TILE LIST — animated grid-rows collapse (fluid height). When
                         collapsed, `max-w-0` clips it to zero width too so an ongoing tile no
-                        longer inflates to its (wide) list width. Row clicks stop propagation so
-                        they don't trigger the frame's start/open. */}
+                        longer inflates to its (wide) list width, AND `pointer-events-none` lets
+                        clicks fall THROUGH to the frame beneath (the collapsed wrapper still
+                        occupies part of the tile, so without this it silently ate frame clicks
+                        in its zone). Expanded: row clicks stop propagation so they don't trigger
+                        the frame's toggle. */}
                     <div
                       onClick={(e) => e.stopPropagation()}
                       className={
                         "grid overflow-hidden transition-[grid-template-rows] duration-300 ease-out motion-reduce:transition-none " +
-                        (expanded ? "" : "max-w-0")
+                        (expanded ? "pointer-events-auto" : "pointer-events-none max-w-0")
                       }
                       style={{ gridTemplateRows: expanded ? "1fr" : "0fr" }}
                       inert={!expanded}

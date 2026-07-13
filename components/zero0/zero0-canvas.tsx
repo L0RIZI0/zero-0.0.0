@@ -362,13 +362,12 @@ export function Zero0Canvas() {
 
   const contextId = path[path.length - 1]
 
-  // DAYLINE HIGHLIGHT — the entity whose dayline tick(s) should light up (grow + go fully
-  // opaque). Driven by hovering an ENTITY CONTENT row (transient) and, when nothing is
-  // hovered, the OPEN context itself (a persistent "you are here" cue). Root is excluded as
-  // the open-context source — its id matches every root presence tick, which would light the
-  // whole lane. Threaded into both daylines (TODAY combined + ACTIVITY presence).
+  // DAYLINE HIGHLIGHT — the entity whose dayline tick(s) should light up (grow to 26px + go
+  // fully opaque). Driven PURELY by HOVERING an ENTITY CONTENT row — a transient "this is the
+  // row you're pointing at" echo. We deliberately do NOT light the open context; a persistent
+  // pin made the lane feel stuck. Threaded into both daylines (TODAY combined + ACTIVITY).
   const [hoveredRowId, setHoveredRowId] = useState<string | null>(null)
-  const highlightId = hoveredRowId ?? (contextId !== ROOT_ID ? contextId : null)
+  const highlightId = hoveredRowId
 
   // PRESENCE: log WHERE the user is — the current drilled-in context. Fires on every
   // context change (and initial mount) so the activity tracker records the trail through
