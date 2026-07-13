@@ -8,6 +8,7 @@ import { Zero0Agenda, Zero0Activity } from "./zero0-activity"
 import { recordPresence } from "@/lib/zero/activity-log"
 import { Zero0Glyph } from "./zero0-glyph"
 import { Zero0DomMenu, type Zero0DomMenuState } from "./zero0-dom-menu"
+import { cssColorToHex } from "./zero0-menu-list"
 import { buildEntityMenuItems, applyEntityMenuAction, type MenuItem } from "@/lib/zero/menu-model"
 import { Zero0FrameMenu, type Zero0FrameMenuAnchor } from "./zero0-frame-menu"
 import {
@@ -1494,6 +1495,19 @@ export function Zero0Canvas() {
                 style={{ backgroundColor: hex }}
               />
             ))}
+            {/* FREE-TEXT entry — a hex ("#8b5a2b") OR a CSS name ("brown", "grey"). Resolves
+                to a hex via the browser's parser and fills the draft, exactly like a swatch. */}
+            <input
+              type="text"
+              aria-label="Custom color (hex or CSS name)"
+              placeholder="hex / name…"
+              onMouseDown={(ev) => ev.stopPropagation()}
+              onChange={(ev) => {
+                const hex = cssColorToHex(ev.target.value)
+                if (hex) setDraft(`--color:${hex.replace(/^#/, "")}`)
+              }}
+              className="ml-1 w-20 rounded-sm border border-border bg-background px-1 py-0.5 text-[10px] text-foreground placeholder:text-muted-foreground/60 focus:outline-none"
+            />
           </div>
         )}
         {/* Terminal talk-back: one transient line confirming a `:field:` set or

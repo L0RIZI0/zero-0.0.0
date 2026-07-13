@@ -127,14 +127,22 @@ export function Zero0Frequent({
         {groups.length === 0 ? (
           <p className="mt-0.5 text-muted-foreground">— nothing frequent yet —</p>
         ) : (
-          <div className="flex min-w-0 flex-1 items-start gap-6 overflow-x-auto pb-0.5">
+          <div
+            className={
+              "flex min-w-0 flex-1 pb-0.5 " +
+              // COLLAPSED: a compact horizontal palette that WRAPS so every tile stays
+              // visible. EXPANDED: a vertical stack so each tile's wide list sits full-width
+              // beneath its header (no horizontal overflow — every tile + list is visible).
+              (expanded ? "flex-col gap-2" : "flex-wrap items-start gap-x-5 gap-y-1.5")
+            }
+          >
             {groups.map((g) => {
               // DOT color: the activity's own accent, else the bluey Sleep default, else grey.
               const dot = g.accent ?? (isSleepTitle(g.title) ? sleepDotColor : undefined)
               const n = g.ongoingCount
               const running = n > 0
               return (
-                <div key={g.key} className="flex shrink-0 flex-col gap-1">
+                <div key={g.key} className={"flex flex-col gap-1 " + (expanded ? "w-full" : "shrink-0")}>
                   {/* TILE HEADER — dot · glyph · title · (n) */}
                   <div className="flex items-center gap-1.5">
                     {/* DOT — pure color indicator (decorative). */}

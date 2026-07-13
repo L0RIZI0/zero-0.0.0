@@ -37,7 +37,7 @@ function rowKey(item: MenuItem, i: number): string {
  * "grey") — to a normalized "#rrggbb" hex, using the browser's own parser. Returns null
  * for anything the browser rejects, so an invalid entry simply can't be committed.
  */
-function cssColorToHex(input: string): string | null {
+export function cssColorToHex(input: string): string | null {
   const s = input.trim()
   if (!s || typeof document === "undefined") return null
   const el = document.createElement("span")
