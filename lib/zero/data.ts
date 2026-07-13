@@ -2280,6 +2280,27 @@ export function setEntityClosePolicy(id: string, policy: "auto" | "manual" | nul
   }
 
 /**
+ * Set (or clear) an entity's MANUAL `hidden` flag (right-click ▸ Hide / Unhide), in place.
+ * Works on any kind. Hiding only removes the entity from its parent's ENTITY CONTENT
+ * listing (see the canvas child filter) — relationships, counts, and the timeline are
+ * untouched. Logs the change to the unified lifecycle log and mirrors `setEntityAccent`'s
+ * seeded-override handling so it survives refreshes.
+ */
+export function setEntityHidden(id: string, hidden: boolean): boolean {
+  const stored = byId.get(id)
+  if (!stored) return false
+  const entity = mutable(stored)
+  if (hidden) entity.hidden = true
+  else delete entity.hidden
+  logSet(entity, "hidden", hidden)
+  if (!userEntityIds.has(id)) {
+    seededOverrides.set(id, { ...seededOverrides.get(id), hidden: hidden || undefined } as Partial<Entity>)
+  }
+  persist()
+  return true
+}
+
+/**
  * Low-level removal of a single entity from the in-memory store + indexes, plus
  * any pin references to it. Does NOT recurse or persist — callers handle that.
  * Returns true if the entity existed.

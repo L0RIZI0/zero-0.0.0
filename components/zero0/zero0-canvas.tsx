@@ -311,6 +311,14 @@ export function Zero0Canvas() {
     recordPresence(contextId)
   }, [mounted, contextId])
   const context = mounted ? getEntity(contextId) : undefined
+  // SHOW HIDDEN — a per-context VIEW toggle (right-click ▸ Show hidden). When off, hidden
+  // children (manual `hidden` flag OR auto-hidden-because-closed-before-today) collapse out
+  // of ENTITY CONTENT; when on, they're revealed with a "(hidden)" title prefix. Session-
+  // only and RESET on navigation so drilling into a new context starts clean.
+  const [showHidden, setShowHidden] = useState(false)
+  useEffect(() => {
+    setShowHidden(false)
+  }, [contextId])
   // eslint-disable-next-line react-hooks/exhaustive-deps -- rev/contextId are the intended re-read triggers
   const children = useMemo(() => (mounted ? getChildren(contextId) : []), [mounted, rev, contextId])
   // SIBLINGS: the children of the open node's PARENT — i.e. entities at the same depth on
@@ -344,6 +352,32 @@ export function Zero0Canvas() {
     }
     return { open, done, complete, total: children.length }
   }, [children])
+
+  // HIDE MODEL — decorate each child with whether it's hidden and (when not collapsed) its
+  // display number. A child is hidden if EITHER:
+  //   • it carries the manual `hidden` flag (right-click ▸ Hide), or
+  //   • AUTO: it is closed and was closed BEFORE today's logical 5am day-start (i.e. "closed
+  //     since the previous day") — a derived, non-destructive rule computed here from the
+  //     stamped close time, never stored.
+  // Collapsed = hidden AND not currently revealed by `showHidden`. Display numbers count
+  // only the VISIBLE rows so the list never shows gaps. Rows stay MOUNTED (collapsed via a
+  // grid-rows animation) so hide/show is smooth in both directions.
+  const childRows = useMemo(() => {
+    const now = Date.now()
+    const d = new Date(now)
+    d.setHours(5, 0, 0, 0)
+    let dayStart = d.getTime()
+    if (now < dayStart) dayStart -= 86_400_000 // before 5am → the logical day opened yesterday
+    let n = 0
+    return children.map((e) => {
+      const closedAt = e.closeAt ?? e.closedOn ?? e.cancelledOn ?? e.completeOn
+      const autoHidden = isClosed(e) && closedAt != null && closedAt < dayStart
+      const hidden = !!e.hidden || autoHidden
+      const collapsed = hidden && !showHidden
+      return { e, hidden, collapsed, num: collapsed ? null : ++n }
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- rev re-reads after mutations
+  }, [children, showHidden, rev])
   // Resolve each crumb to a display label (fall back to the user name at the root).
   const crumbs = useMemo(
     () =>
@@ -679,16 +713,26 @@ export function Zero0Canvas() {
   // breadcrumb crumb, a sibling shortcut, the open node's header, or the empty content
   // frame (which targets the current context). `stopPropagation` so an inner target that
   // handled the event (a row) doesn't ALSO bubble up to a container handler.
+  // Run a chosen entity-menu action. "show-hidden" / "hide-hidden" are VIEW toggles (not
+  // data mutations), so they flip local state here; everything else delegates to the shared
+  // dispatcher. Shared by the DOM menu and the native overlay so both behave identically.
+  const runEntityAction = useCallback(
+    (e: Entity, id: string) => {
+      if (id === "show-hidden") return setShowHidden(true)
+      if (id === "hide-hidden") return setShowHidden(false)
+      applyEntityMenuAction(e, id)
+      bump()
+    },
+    [bump],
+  )
+
   const openMenu = useCallback(
     (e: Entity, ev: React.MouseEvent) => {
       ev.preventDefault()
       ev.stopPropagation()
-      showMenu(buildEntityMenuItems(e), ev.clientX, ev.clientY, (id) => {
-        applyEntityMenuAction(e, id)
-        bump()
-      })
+      showMenu(buildEntityMenuItems(e, { showHidden }), ev.clientX, ev.clientY, (id) => runEntityAction(e, id))
     },
-    [showMenu, bump],
+    [showMenu, showHidden, runEntityAction],
   )
 
   // Right-click by ENTITY ID — used by the ACTIVITY rows and the dayline ticks, which
@@ -759,12 +803,9 @@ export function Zero0Canvas() {
     return window.zero.resource.onContextMenu(({ id, x, y }) => {
       const ent = getEntity(id) ?? (contextId ? getEntity(contextId) : undefined)
       if (!ent) return
-      showMenu(buildEntityMenuItems(ent), x, y, (actionId) => {
-        applyEntityMenuAction(ent, actionId)
-        bump()
-      })
+      showMenu(buildEntityMenuItems(ent, { showHidden }), x, y, (actionId) => runEntityAction(ent, actionId))
     })
-  }, [contextId, showMenu, bump])
+  }, [contextId, showMenu, showHidden, runEntityAction])
 
   // Meta rows for the CURRENT open node ������� raw lifecycle data, kind-aware. Recomputed
   // per render (cheap) rather than memoised, so it always mirrors `rev`.
@@ -1192,7 +1233,7 @@ export function Zero0Canvas() {
           )}
           {mounted && children.length > 0 && (
             <ul className="text-[11px] tabular-nums">
-              {children.map((e, i) => {
+              {childRows.map(({ e, hidden, collapsed, num }) => {
                 const km = KIND_META[e.kind]
                 const state = getState(e) // the single lifecycle position (STATE axis)
                 const done = isDone(e) // soft DONE marker (Task only), orthogonal to STATE
@@ -1208,17 +1249,27 @@ export function Zero0Canvas() {
                 const stateLabel =
                   `${done ? "done, " : ""}${lifeLabel}${requested ? ", requested" : ""}`
                 return (
+                  // COLLAPSE WRAPPER — a hidden-and-not-revealed row animates to 0fr height +
+                  // 0 opacity via the dep-free grid-rows trick (one compositor-friendly layout
+                  // transition), staying MOUNTED so hide AND show both animate. `inert` drops a
+                  // collapsed row from tab/hit-testing. The real row lives in the inner div.
                   <li
                     key={e.id}
-                    onContextMenu={(ev) => openMenu(e, ev)}
-                    className={
-                      "group flex items-baseline gap-3 border-b border-border/60 py-1.5 " +
-                      // CLOSED (complete / plain-close / cancel / terminal) fades the row.
-                      (closed ? "opacity-60" : "")
-                    }
+                    className="grid transition-[grid-template-rows,opacity] duration-300 ease-out motion-reduce:transition-none"
+                    style={{ gridTemplateRows: collapsed ? "0fr" : "1fr", opacity: collapsed ? 0 : 1 }}
+                    inert={collapsed || undefined}
                   >
+                    <div className="overflow-hidden">
+                      <div
+                        onContextMenu={(ev) => openMenu(e, ev)}
+                        className={
+                          "group flex items-baseline gap-3 border-b border-border/60 py-1.5 " +
+                          // CLOSED (complete / plain-close / cancel / terminal) fades the row.
+                          (closed ? "opacity-60" : "")
+                        }
+                      >
                     <span className="w-6 shrink-0 text-right text-muted-foreground">
-                      {String(i + 1).padStart(2, "0")}
+                      {num != null ? String(num).padStart(2, "0") : ""}
                     </span>
                     {/* Glyph column: fill = closed (fillable kinds), check = done,
                         bar = cancelled, "sent" flap = requested. For a TASK the glyph
@@ -1284,7 +1335,9 @@ export function Zero0Canvas() {
                       }
                       title="Open"
                     >
-                      {e.title}
+                      {/* Revealed hidden rows carry a "(hidden)" prefix so it's clear they're
+                          only visible because Show hidden is on. */}
+                      {hidden ? `(hidden) ${e.title}` : e.title}
                     </button>
                     {/* Inline DONE toggle (soft marker) — only kinds WITH a done axis
                         (Task / Moment / Instant). Others show a muted placeholder. */}
@@ -1312,6 +1365,8 @@ export function Zero0Canvas() {
                     >
                       ×
                     </button>
+                      </div>
+                    </div>
                   </li>
                 )
               })}

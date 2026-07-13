@@ -110,7 +110,7 @@ export function Zero0Agenda({
         onOpen={onOpen}
         onContextMenuEntity={onContextMenuEntity}
         dataRev={dataRev}
-        tracks="planned"
+        tracks="both"
         minimized={minimized}
         hideBottomBorder={hideBottomBorder}
       />

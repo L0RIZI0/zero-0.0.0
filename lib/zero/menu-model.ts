@@ -21,6 +21,7 @@ import {
   setEntityRequested,
   setEntityScheduleField,
   setEntityAccent,
+  setEntityHidden,
   reopenEntity,
   changeEntityKind,
 } from "@/lib/zero/data"
@@ -84,7 +85,7 @@ const CHANGE_KINDS: EntityKind[] = ["task", "space", "resource", "moment", "inst
  * individuals) when live; Reopen when ended; Send/Unsend request (tasks); Change into…;
  * Delete. Action ids are resolved by {@link applyEntityMenuAction}.
  */
-export function buildEntityMenuItems(entity: Entity): MenuItem[] {
+export function buildEntityMenuItems(entity: Entity, opts?: { showHidden?: boolean }): MenuItem[] {
   const meta = KIND_META[entity.kind]
   const closeable = meta.fillsWhenClosed || meta.terminal != null
   const ended = isClosed(entity)
@@ -144,6 +145,16 @@ export function buildEntityMenuItems(entity: Entity): MenuItem[] {
   items.push(buildColorSubmenu(entity))
 
   items.push({ type: "divider" })
+  // HIDE / SHOW HIDDEN. "Hide" drops THIS entity from its parent's ENTITY CONTENT (a stored
+  // display flag). "Show hidden" is a VIEW toggle on the current list (revealing both
+  // manually-hidden and auto-hidden-closed children with a "(hidden)" prefix); it is NOT a
+  // data mutation, so `applyEntityMenuAction` returns false for it and the canvas handles it.
+  items.push({ type: "item", id: entity.hidden ? "unhide" : "hide", label: entity.hidden ? "Unhide" : "Hide" })
+  items.push({
+    type: "item",
+    id: opts?.showHidden ? "hide-hidden" : "show-hidden",
+    label: opts?.showHidden ? "Hide hidden" : "Show hidden",
+  })
   items.push({ type: "item", id: "delete", label: "Delete", danger: true })
 
   return items
@@ -196,9 +207,17 @@ export function applyEntityMenuAction(entity: Entity, actionId: string): boolean
     case "unrequest":
       setEntityRequested(id, false)
       return true
+    case "hide":
+      setEntityHidden(id, true)
+      return true
+    case "unhide":
+      setEntityHidden(id, false)
+      return true
     case "delete":
       deleteEntity(id)
       return true
+    // "show-hidden" / "hide-hidden" are VIEW toggles, not data mutations — the canvas
+    // intercepts them before delegating here, so we intentionally fall through to false.
     default:
       return false
   }

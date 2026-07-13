@@ -47,6 +47,17 @@ const NEUTRAL = "oklch(0.72 0.004 75)"
 // transparent tick + grey hairline (a quiet outline). Kept distinct so render detects it.
 const DEFAULT_PRESENCE = "#ffffff"
 
+// Two-row vertical placement (px from the lane's top) for the combined TODAY lane
+// (`tracks="both"`). The lane is 28px tall (`h-7`) with 9px ticks: the UPPER row holds
+// elapsed planned ticks (4–13px), the LOWER row holds presence + not-yet-elapsed planned
+// (15–24px), so a past-planned and a past-presence tick never stack. A planned tick
+// animates between the two as `now` crosses its end.
+const ROW_TOP_PX = 4
+const ROW_BOTTOM_PX = 15
+// Elevation glide — long + eased so the rise reads as a deliberate "filed for the day"
+// motion, while hover height/opacity stays snappy.
+const ROW_TRANSITION = "top 480ms cubic-bezier(0.22, 1, 0.36, 1), height 150ms ease, opacity 150ms ease"
+
 /**
  * Resolve the two colors a dayline tick paints, shared by BOTH tracks (planned +
  * presence):
@@ -141,6 +152,14 @@ interface DaylineBar {
   /** A single-point occurrence (instant / zero-length) renders as a thin tick. */
   point: boolean
   /**
+   * PLANNED-only: the occurrence's end has passed `now` (and it isn't ongoing) — i.e. it
+   * is DONE FOR THE DAY. In the combined TODAY lane (`tracks="both"`) an elapsed planned
+   * tick RISES to the upper row so it never sits on top of a presence tick (both are in
+   * the past). Recomputed each minute as `now` advances, so a tick animates up smoothly
+   * the moment the NOW marker crosses its end. Absent/false = stays on the lower row.
+   */
+  elapsed?: boolean
+  /**
    * A presence segment that is still OPEN (`leftAt === null`) — its right edge IS
    * "now". Rendered anchored to its right edge (growing leftward) so its min-width
    * never spills a tick PAST the NOW marker.
@@ -175,10 +194,11 @@ export function Zero0Dayline({
    *  the dayline stays usable standalone; wired from the canvas via the frames. */
   onContextMenuEntity?: (id: string, ev: React.MouseEvent) => void
   dataRev: number
-  /** Which lane this instance paints. The main "dayline · today" shows PLANNED
-   *  (scheduled occurrences); the presence lane ("where I was") is split off into its
-   *  own instance inside the Activity frame so the two no longer share a band. */
-  tracks?: "planned" | "presence"
+  /** Which lane this instance paints. `"planned"` = scheduled occurrences only;
+   *  `"presence"` = the tracked "where I was" band (Activity frame); `"both"` = the TODAY
+   *  lane, which overlays BOTH on one band in two rows — elapsed planned ticks ride the
+   *  UPPER row, presence + not-yet-elapsed planned ride the LOWER row (see `elapsed`). */
+  tracks?: "planned" | "presence" | "both"
   /** Optional node rendered in the header next to the label (e.g. the presence lane's
    *  "3h 56m tracked" total). */
   trailing?: ReactNode
@@ -193,6 +213,9 @@ export function Zero0Dayline({
   hideBottomBorder?: boolean
 }) {
   const isPresence = tracks === "presence"
+  // TODAY's combined lane: paint planned + presence together, split across two rows so a
+  // past planned tick and a past presence tick never overlap (see the tick render).
+  const twoRow = tracks === "both"
   const now = useNow()
   const [mounted, setMounted] = useState(false)
   // `viewStart` is the left edge of the shown 24h window. Panning moves it directly;
@@ -284,6 +307,9 @@ export function Zero0Dayline({
         range: ongoing ? `${rangeText(st, en, s.repeat)} · ongoing` : rangeText(st, en, s.repeat),
         track: "planned",
         point: en <= st,
+        // Done for the day → rises to the upper row in the combined TODAY lane. Ongoing
+        // (no end yet) stays low: it's still happening, its right edge IS now.
+        elapsed: !ongoing && en <= now,
         // An ongoing bar's right edge IS "now" — flag it so it renders anchored (never
         // spilling a min-width tick PAST the now marker), same as an open presence segment.
         openEnded: ongoing,
@@ -876,8 +902,11 @@ export function Zero0Dayline({
                   The ONLY per-track difference is vertical alignment: PLANNED rides the
                   TOP of the lane, TRACKED is vertically CENTERED. */}
               {mounted &&
-                (isPresence ? presence : planned).map((p) => {
+                (twoRow ? [...planned, ...presence] : isPresence ? presence : planned).map((p) => {
                   const isHot = hoveredKey === p.key
+                  // Combined TODAY lane: elapsed planned rises to the upper row; presence
+                  // and not-yet-elapsed planned stay on the lower row.
+                  const elevated = twoRow && p.track === "planned" && !!p.elapsed
                   return (
                     <div
                       key={p.key}
@@ -908,17 +937,19 @@ export function Zero0Dayline({
                           onContextMenuEntity ? (ev) => onContextMenuEntity(p.id, ev) : undefined
                         }
                         className={cn(
-                          "pointer-events-auto absolute cursor-default transition-[height,opacity] duration-150",
-                          // ALL ticks are vertically CENTERED in the lane (top-1/2 + the
-                          // -translate-y-1/2 below), planned and tracked alike — they read as
-                          // one centered band rather than planned-hugs-top / tracked-centered.
-                          "top-1/2",
+                          "pointer-events-auto absolute cursor-default",
+                          // SINGLE-track lanes keep the CSS transition + centered placement
+                          // (top-1/2 + -translate-y-1/2). The two-row lane drives `top` and
+                          // its own transition via inline style instead (see below), so those
+                          // classes are dropped there.
+                          !twoRow && "transition-[height,opacity] duration-150",
+                          !twoRow && "top-1/2",
                           p.point ? "rounded-full" : "rounded-[2px]",
                           // Translate composes on separate axes: X for a point / open-ended
                           // segment, Y to center every tick. Tailwind's translate utils stack.
                           p.point && "-translate-x-1/2",
                           p.openEnded && "-translate-x-full",
-                          "-translate-y-1/2",
+                          !twoRow && "-translate-y-1/2",
                         )}
                         style={{
                           left: p.openEnded ? `${p.leftPct + p.widthPct}%` : `${p.leftPct}%`,
@@ -926,6 +957,11 @@ export function Zero0Dayline({
                           // longer grow taller — the starfield fills the standard band.
                           width: p.point ? 2 : `max(3px, ${p.widthPct}%)`,
                           height: isHot ? 13 : 9,
+                          // Two-row lane: place by explicit `top` (upper row for elapsed
+                          // planned, lower row otherwise) and animate the rise inline.
+                          ...(twoRow
+                            ? { top: elevated ? ROW_TOP_PX : ROW_BOTTOM_PX, transition: ROW_TRANSITION }
+                            : null),
                           // FILL = entity color (sleep → night sky; root sentinel →
                           // transparent). HAIRLINE = parent color, only inside a Space.
                           background: p.color === DEFAULT_PRESENCE ? "transparent" : (p.sky ?? p.color),

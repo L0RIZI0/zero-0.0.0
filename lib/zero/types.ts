@@ -419,6 +419,14 @@ export interface EntityBase {
   schedule?: Schedule
   /** Free-text labels. */
   tags?: string[]
+  /**
+   * MANUAL "Hide" flag — the entity is dropped from its parent's ENTITY CONTENT listing
+   * (right-click ▸ Hide). Purely a display filter: relationships, counts, siblings, and
+   * the timeline are untouched; "Show hidden" reveals it again with a "(hidden)" prefix.
+   * Distinct from the DERIVED auto-hide (children closed before today), which is computed
+   * at render from `closeAt`/close time and never stored. Absent = shown.
+   */
+  hidden?: boolean
 
   /**
    * WEB SURFACE binding (Zero as a contextual browser). When set, opening this
