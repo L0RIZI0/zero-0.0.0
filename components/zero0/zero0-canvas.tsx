@@ -737,11 +737,14 @@ export function Zero0Canvas() {
     [bump],
   )
 
-  // FREQUENT (§4) CLOSE ALL — force-CLOSE every ongoing occurrence now (the entity-menu
-  // "Close" action applied in bulk: stamps the close immediately rather than at midnight).
-  const closeAllOngoingFrequent = useCallback(
+  // FREQUENT (§4) CLOSE ALL — force-CLOSE every LISTED occurrence now (both ONGOING and
+  // COMPLETE-not-yet-closed): the entity-menu "Close" action in bulk, stamping the close
+  // immediately rather than waiting for the day boundary. This clears the whole tile list —
+  // an ongoing block is ended+closed in one step, and a complete block is filed early. (End
+  // all, by contrast, only punches out the ongoing ones and leaves them as complete.)
+  const closeAllFrequent = useCallback(
     (g: FrequentGroup) => {
-      for (const inst of g.instances) if (inst.state === "ongoing") setEntityClosed(inst.id, true)
+      for (const inst of g.instances) setEntityClosed(inst.id, true)
       bump()
     },
     [bump],
@@ -1052,7 +1055,7 @@ export function Zero0Canvas() {
               onPunchOut={punchOutFrequent}
               onLog={logFrequent}
               onEndAll={endAllOngoingFrequent}
-              onCloseAll={closeAllOngoingFrequent}
+              onCloseAll={closeAllFrequent}
               onOpen={navigateTo}
             />
           </div>

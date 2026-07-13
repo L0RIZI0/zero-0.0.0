@@ -124,7 +124,7 @@ export function Zero0Frequent({
   onLog: (group: FrequentGroup, startAt: number, endAt: number | null) => void
   /** End (punch out) EVERY ongoing occurrence of this activity now. */
   onEndAll: (group: FrequentGroup) => void
-  /** Close EVERY ongoing occurrence of this activity now. */
+  /** Close EVERY listed occurrence (ongoing + complete) of this activity now. */
   onCloseAll: (group: FrequentGroup) => void
   /** Open (drill into) an existing occurrence by id. */
   onOpen: (id: string) => void
@@ -360,8 +360,10 @@ function InstanceRow({
  * the block LOG form directly below — no intermediate menu step. Fixed at the cursor behind a
  * dismissing backdrop.
  *
- * BULK ROW (both disabled when nothing is ongoing): "End all" punches every ongoing occurrence
- * out (→ COMPLETE, tz-stable midnight close); "Close all" force-closes every one now.
+ * BULK ROW: "End all" punches every ONGOING occurrence out (→ COMPLETE, tz-stable midnight
+ * close; disabled when none are ongoing). "Close all" files every LISTED occurrence now — both
+ * ongoing AND complete-not-yet-closed — clearing the tile list (disabled only when the list is
+ * empty, so it can still sweep away complete rows that End all leaves behind).
  *
  * LOG FORM — a START time, a DURATION, and a binary "ended: yes/no" toggle defaulting to NO
  * (the activity is about to START now and run ongoing). Flip to YES and the block becomes one
@@ -433,7 +435,8 @@ function TilePopover({
     onClose()
   }, [group, startAt, ended, durationMin, onLog, onClose])
 
-  const n = group.ongoingCount
+  const ongoing = group.ongoingCount // End all only touches these
+  const listed = group.instances.length // Close all clears the whole list (ongoing + complete)
   const vw = typeof window !== "undefined" ? window.innerWidth : 9999
   const vh = typeof window !== "undefined" ? window.innerHeight : 9999
 
@@ -453,27 +456,42 @@ function TilePopover({
         className="fixed z-50 flex w-52 flex-col gap-2 rounded-md border border-border bg-background p-2 text-[11px] shadow-md"
         style={{ left: Math.min(x, vw - 220), top: Math.min(y, vh - 240) }}
       >
-        {/* BULK ACTIONS — end/close EVERY ongoing occurrence at once. Same row, on top. */}
+        {/* BULK ACTIONS, same row on top. END ALL punches every ONGOING occurrence out (→
+            complete; disabled when none ongoing). CLOSE ALL files every LISTED occurrence now
+            — ongoing AND complete — clearing the tile list (disabled only when the list is
+            empty). */}
         <div className="flex gap-1">
           {(
             [
-              { label: "End all", run: onEndAll, hint: "punch every ongoing out → complete" },
-              { label: "Close all", run: onCloseAll, hint: "force-close every ongoing now" },
+              {
+                label: "End all",
+                run: onEndAll,
+                count: ongoing,
+                disabledHint: "Nothing ongoing",
+                hint: "punch every ongoing out → complete",
+              },
+              {
+                label: "Close all",
+                run: onCloseAll,
+                count: listed,
+                disabledHint: "Nothing to close",
+                hint: "close every listed occurrence now (ongoing + complete)",
+              },
             ] as const
           ).map((b) => (
             <button
               key={b.label}
               type="button"
-              disabled={n === 0}
+              disabled={b.count === 0}
               onClick={() => {
                 b.run(group)
                 onClose()
               }}
               className="flex-1 rounded border border-border px-1.5 py-1 text-muted-foreground transition-colors hover:bg-foreground hover:text-background disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-muted-foreground"
-              title={n === 0 ? "Nothing ongoing" : `${b.label} — ${b.hint} (${n})`}
+              title={b.count === 0 ? b.disabledHint : `${b.label} — ${b.hint} (${b.count})`}
             >
               {b.label}
-              {n > 0 ? ` (${n})` : ""}
+              {b.count > 0 ? ` (${b.count})` : ""}
             </button>
           ))}
         </div>
