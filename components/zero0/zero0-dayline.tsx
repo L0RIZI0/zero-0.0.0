@@ -58,6 +58,13 @@ const DEFAULT_PRESENCE = "#ffffff"
 const PLANNED_HEIGHT_PX = 20
 const PRESENCE_HEIGHT_PX = 10
 
+// When an entity is FOCUSED from elsewhere in the canvas — its ENTITY CONTENT row is
+// hovered, or it's the currently-open context — every tick that belongs to it grows to
+// this height and snaps fully opaque, so the dayline echoes "this is the thing you're
+// looking at". Taller than any resting tick (20px planned / 10px presence) so a lit tick
+// clearly pops above the lane. Animated via the tick's height/opacity transition.
+const HIGHLIGHT_HEIGHT_PX = 26
+
 // A PAST planned tick's opacity reflects how much its window was actually HONORED by
 // recorded presence (fraction covered → these floor/ceiling stops, mapped linearly):
 // an un-honored plan sits at the floor, a fully-honored one at the ceiling. Kept below a
@@ -197,6 +204,7 @@ export function Zero0Dayline({
   trailing,
   minimized = false,
   hideBottomBorder = false,
+  highlightId = null,
 }: {
   onOpen: (id: string) => void
   /** Right-click a tick → open the entity menu for that occurrence's entity. Optional so
@@ -220,6 +228,10 @@ export function Zero0Dayline({
    *  also a minimized band, so two adjacent minimized frames merge into one grouped strip
    *  with a single balanced gap between them (no divider). */
   hideBottomBorder?: boolean
+  /** The entity id currently FOCUSED elsewhere on the canvas (a hovered ENTITY CONTENT
+   *  row, or the open context). Every tick whose `id` matches grows + goes fully opaque —
+   *  a cross-component "this is what you're looking at" echo. `null` = nothing focused. */
+  highlightId?: string | null
 }) {
   const isPresence = tracks === "presence"
   // TODAY's combined lane: paint planned + presence together on one centered band,
@@ -942,25 +954,31 @@ export function Zero0Dayline({
               {mounted &&
                 (combined ? [...planned, ...presence] : isPresence ? presence : planned).map((p) => {
                   const isHot = hoveredKey === p.key
+                  // LIT — this tick's entity is the one being focused elsewhere on the canvas
+                  // (a hovered ENTITY CONTENT row, or the open context). Grows + fully opaque.
+                  const lit = highlightId != null && p.id === highlightId
                   const isPresenceTick = combined ? p.track === "presence" : isPresence
-                  // Height. PRESENCE = a fixed 10px (always, hover-independent — its solid
-                  // record height). PLANNED on the combined lane = a fixed 20px (the taller
-                  // "intent"); a planned-only lane uses the base 9px (13 when hovered).
+                  // Height. A LIT tick pops to 26px. Otherwise: PRESENCE = a fixed 10px
+                  // (always, hover-independent — its solid record height); PLANNED on the
+                  // combined lane = a fixed 20px (the taller "intent"); a planned-only lane
+                  // uses the base 9px (13 when hovered).
                   const baseH = isHot ? 13 : 9
-                  const tickH = isPresenceTick
-                    ? PRESENCE_HEIGHT_PX
-                    : combined
-                      ? PLANNED_HEIGHT_PX
-                      : baseH
+                  const tickH = lit
+                    ? HIGHLIGHT_HEIGHT_PX
+                    : isPresenceTick
+                      ? PRESENCE_HEIGHT_PX
+                      : combined
+                        ? PLANNED_HEIGHT_PX
+                        : baseH
                   // COLORS. Fill = entity color (sleep → night sky); the root sentinel paints
                   // the THEME BACKGROUND (near-black in dark, near-white in light) instead of
                   // going transparent, so a root presence tick reads as a solid outlined chip.
                   const fill = p.color === DEFAULT_PRESENCE ? "var(--background)" : (p.sky ?? p.color)
-                  // OPACITY. Hover always snaps to full. PRESENCE is solid at all times. A PAST
-                  // planned tick with a coverage score maps it LINEARLY between the floor and
-                  // ceiling (the more it was honored, the more solid). Every other planned tick
-                  // (future / ongoing / point) stays a flat faint layer.
-                  const tickOpacity = isHot
+                  // OPACITY. A LIT tick and hover both snap to full. PRESENCE is solid at all
+                  // times. A PAST planned tick with a coverage score maps it LINEARLY between
+                  // the floor and ceiling (the more it was honored, the more solid). Every
+                  // other planned tick (future / ongoing / point) stays a flat faint layer.
+                  const tickOpacity = lit || isHot
                     ? 1
                     : isPresenceTick
                       ? 1
@@ -1014,7 +1032,7 @@ export function Zero0Dayline({
                           background: fill,
                           border: p.stroke ? `1px solid ${p.stroke}` : "none",
                           opacity: tickOpacity,
-                          zIndex: isHot ? 16 : 8,
+                          zIndex: lit || isHot ? 16 : 8,
                         }}
                       />
                     </div>

@@ -91,11 +91,13 @@ function Chevron({ expanded }: { expanded: boolean }) {
  * §4 is EXPANDED BY DEFAULT and never auto-collapses; a CHEVRON (or a tile's `(n)` counter)
  * toggles it manually. The height change animates fluidly (per-tile grid-rows collapse).
  *
- * A tile allows only ONE occurrence running at a time (enforced in the canvas punch-in/log
- * paths: starting a fresh one first punches out any current ongoing).
+ * A tile allows only ONE occurrence running at a time: the FRAME click is a pure TOGGLE
+ * (start↔end), and the canvas punch-in/log paths also punch out any current ongoing before
+ * starting a fresh one, so accumulation is impossible from either route.
  *
- *   • CLICK the whole TILE FRAME → when idle, start a fresh occurrence and DRILL into it;
- *     when one is already ongoing, just OPEN that occurrence (no second start).
+ *   • CLICK the whole TILE FRAME → a TOGGLE: when idle, start a fresh occurrence and DRILL
+ *     into it (create + open + ongoing); when one is already ongoing, END it and STAY where
+ *     you are (no navigation). Clicking the same tile again from anywhere punches it out.
  *   • CLICK the GLYPH → when idle, start a fresh occurrence and STAY on the canvas; when
  *     ongoing, punch it OUT (end it) — it never starts a second. The glyph spins (as an
  *     OUTLINE, matching the entity header) while ongoing.
@@ -195,14 +197,12 @@ export function Zero0Frequent({
                 const running = n > 0
                 const soleOngoing = n === 1 ? g.instances.find((i) => i.state === "ongoing") : undefined
                 const soleMeta = soleOngoing ? ongoingHeaderMeta(soleOngoing, nowTick) : undefined
-                // FRAME click = the primary "enter the activity" gesture: when idle, START a
-                // fresh occurrence and DRILL into it; when one is already running (single-
-                // instance rule), just OPEN that ongoing occurrence (no second start).
-                const openOngoing = () => {
-                  const o = g.instances.find((i) => i.state === "ongoing")
-                  if (o) onOpen(o.id)
-                }
-                const onFrame = () => (running ? openOngoing() : onPunchIn(g, { stay: false }))
+                // FRAME click = a pure TOGGLE of the activity (single-instance rule): when
+                // idle, START a fresh occurrence and DRILL into it (create + open + ongoing);
+                // when one is already running, END that ongoing occurrence and STAY where you
+                // are (no navigation). So clicking the same tile again from anywhere just
+                // punches the activity out.
+                const onFrame = () => (running ? onEndAll(g) : onPunchIn(g, { stay: false }))
                 return (
                   <div
                     key={g.key}
@@ -222,7 +222,7 @@ export function Zero0Frequent({
                     className="flex cursor-pointer flex-col gap-1 rounded-md border border-border px-2 py-1.5 transition-colors hover:border-foreground/40"
                     title={
                       running
-                        ? `Open ongoing ${g.title} · right-click for options`
+                        ? `End ${g.title} now — stay here · right-click for options`
                         : `Start ${g.title} now — open it · right-click for options`
                     }
                   >

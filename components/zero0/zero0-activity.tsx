@@ -76,6 +76,7 @@ export function Zero0Agenda({
   minimized = false,
   hideBottomBorder = false,
   dataRev,
+  highlightId = null,
 }: {
   onOpen: (id: string) => void
   /** Right-click a planned tick → the entity menu for that occurrence. */
@@ -89,6 +90,8 @@ export function Zero0Agenda({
    *  so the two merge into one grouped strip. */
   hideBottomBorder?: boolean
   dataRev: number
+  /** Entity focused elsewhere on the canvas — its ticks light up. Passed to the dayline. */
+  highlightId?: string | null
 }) {
   return (
     <section
@@ -113,6 +116,7 @@ export function Zero0Agenda({
         tracks="both"
         minimized={minimized}
         hideBottomBorder={hideBottomBorder}
+        highlightId={highlightId}
       />
       {/* The §x corner affordance is chrome — hide it on a minimized band (which is meant
           to be nothing but the dayline). Re-show via the § chord or the footer link. */}
@@ -135,6 +139,7 @@ export function Zero0Activity({
   minimized = false,
   dataRev,
   currentContextId,
+  highlightId = null,
 }: {
   onOpen: (id: string) => void
   /** Right-click a rollup/feed row OR a presence tick → the entity menu for that place. */
@@ -148,6 +153,8 @@ export function Zero0Activity({
   /** The canvas's current place — re-seeded into the log right after a clear, so the
    *  tracker keeps recording (a bare `clearActivityLog` would leave it idle). */
   currentContextId: string
+  /** Entity focused elsewhere on the canvas — its presence ticks light up. */
+  highlightId?: string | null
 }) {
   // Time formatting is client-only; gate to avoid an SSR/static-export hydration trap.
   const [mounted, setMounted] = useState(false)
@@ -201,6 +208,7 @@ export function Zero0Activity({
         dataRev={dataRev}
         showDetails={detailsVisible}
         minimized={minimized}
+        highlightId={highlightId}
       />
       {/* §x corner affordance hidden on a minimized band (chrome-free). */}
       {!minimized && <Zero0FrameMarker flag="activity" label="the activity frame" />}
@@ -264,6 +272,7 @@ function ActivityBody({
   dataRev,
   showDetails,
   minimized = false,
+  highlightId = null,
 }: {
   onOpen: (id: string) => void
   /** Right-click a rollup/feed row → the entity menu for that place. */
@@ -275,6 +284,8 @@ function ActivityBody({
   /** When minimized, render ONLY the presence dayline (keeping the live "x tracked"
    *  total) — no details, no toggle, no bottom border. */
   minimized?: boolean
+  /** Entity focused elsewhere on the canvas — its presence ticks light up. */
+  highlightId?: string | null
 }) {
   const listRef = useRef<HTMLDListElement>(null)
   useFlipList(listRef)
@@ -313,6 +324,7 @@ function ActivityBody({
         tracks="presence"
         trailing={`${dur(trackedMs)} tracked`}
         minimized={minimized}
+        highlightId={highlightId}
       />
 
       {/* Presence tracker DETAILS — per-place rollup + recent-segments feed. Gated by

@@ -362,6 +362,14 @@ export function Zero0Canvas() {
 
   const contextId = path[path.length - 1]
 
+  // DAYLINE HIGHLIGHT — the entity whose dayline tick(s) should light up (grow + go fully
+  // opaque). Driven by hovering an ENTITY CONTENT row (transient) and, when nothing is
+  // hovered, the OPEN context itself (a persistent "you are here" cue). Root is excluded as
+  // the open-context source — its id matches every root presence tick, which would light the
+  // whole lane. Threaded into both daylines (TODAY combined + ACTIVITY presence).
+  const [hoveredRowId, setHoveredRowId] = useState<string | null>(null)
+  const highlightId = hoveredRowId ?? (contextId !== ROOT_ID ? contextId : null)
+
   // PRESENCE: log WHERE the user is — the current drilled-in context. Fires on every
   // context change (and initial mount) so the activity tracker records the trail through
   // the graph, exactly as the old shell did on `activeId`. `recordPresence` no-ops on a
@@ -1148,6 +1156,7 @@ export function Zero0Canvas() {
               // then TODAY drops its divider so the two minimized bands group together.
               hideBottomBorder={minimized.agenda && minimized.activity && showActivity}
               dataRev={rev}
+              highlightId={highlightId}
             />
           </div>
         </div>
@@ -1171,6 +1180,7 @@ export function Zero0Canvas() {
               minimized={minimized.activity}
               dataRev={rev}
               currentContextId={contextId}
+              highlightId={highlightId}
             />
           </div>
         </div>
@@ -1426,6 +1436,10 @@ export function Zero0Canvas() {
                     <div className="overflow-hidden">
                       <div
                         onContextMenu={(ev) => openMenu(e, ev)}
+                        // Hovering a row LIGHTS its matching tick(s) in the dayline (grow +
+                        // opaque). Cleared on leave, falling back to the open-context highlight.
+                        onMouseEnter={() => setHoveredRowId(e.id)}
+                        onMouseLeave={() => setHoveredRowId((h) => (h === e.id ? null : h))}
                         className={
                           "group flex items-baseline gap-3 border-b border-border/60 py-1.5 " +
                           // CLOSED (complete / plain-close / cancel / terminal) fades the row.
