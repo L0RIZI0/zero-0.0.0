@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { createPortal } from "react-dom"
 import { getSegments, useActivityRevision } from "@/lib/zero/activity-log"
-import { ROOT_ID, getEntity, getInheritedAccent, getTimelineOccurrences } from "@/lib/zero/data"
+import { ROOT_ID, collectDescendants, getEntity, getInheritedAccent, getTimelineOccurrences } from "@/lib/zero/data"
 import { titleAt } from "@/lib/zero/entity-log"
 import { rangeText, NOW_COLOR } from "@/lib/zero/timeline-format"
 import { isSleepTitle, sleepSkyBackground } from "@/lib/zero/sleep-sky"
@@ -57,6 +57,14 @@ const DEFAULT_PRESENCE = "#ffffff"
 // actually was), while planned stays faint until hovered.
 const PLANNED_HEIGHT_PX = 20
 const PRESENCE_HEIGHT_PX = 10
+
+// A PAST planned tick's opacity reflects how much its window was actually HONORED by
+// recorded presence (fraction covered → these floor/ceiling stops, mapped linearly):
+// an un-honored plan sits at the floor, a fully-honored one at the ceiling. Kept below a
+// hard 1.0 so an honored plan still reads as "intent" (fainter than solid presence), and
+// above 0 so even a totally-missed past plan stays legible as a ghost of what I meant to do.
+const COVERAGE_OPACITY_MIN = 0.15
+const COVERAGE_OPACITY_MAX = 0.9
 
 /**
  * Resolve the two colors a dayline tick paints, shared by BOTH tracks (planned +
@@ -163,6 +171,15 @@ interface DaylineBar {
    * a night's sleep reads as a tiny starfield. Absent for every other bar.
    */
   sky?: string
+  /**
+   * PLANNED bars only, and only once fully in the PAST (end < now) with a real
+   * duration: the FRACTION [0,1] of the planned window actually covered by recorded
+   * PRESENCE at this occurrence's entity or any DESCENDANT of it. Drives the tick's
+   * opacity — the more the plan was honored, the more solid it reads (see the
+   * COVERAGE_MIN/MAX ceilings in the render). `undefined` for future/ongoing/point
+   * planned bars and for every presence bar (those keep the flat faint/solid rule).
+   */
+  coverage?: number
 }
 
 /**
@@ -264,8 +281,24 @@ export function Zero0Dayline({
   // entity's own `accent` (set via `:color:`), else an inherited space accent, else
   // neutral. `dataRev` re-derives after a create / `:color:` / `:start:` edit; `now`
   // is only a dep so a point exactly at "now" stays consistent with the marker.
+  // One activity-log revision counter, shared by BOTH the planned (for coverage) and the
+  // presence memos — bumps whenever a segment is logged/edited so both re-derive.
+  const activityRevision = useActivityRevision()
   const planned = useMemo<DaylineBar[]>(() => {
     if (!mounted) return []
+    // Recorded presence segments + a per-entity descendant-set cache, used to score how
+    // much each PAST planned tick was actually honored (see `coverage` below).
+    const segs = getSegments()
+    const descCache = new Map<string, Set<string>>()
+    const inSubtree = (nodeId: string, ctxId: string): boolean => {
+      if (nodeId === ROOT_ID) return true
+      let set = descCache.get(nodeId)
+      if (!set) {
+        set = collectDescendants(nodeId)
+        descCache.set(nodeId, set)
+      }
+      return set.has(ctxId)
+    }
     const out: DaylineBar[] = []
     for (const occ of getTimelineOccurrences(ROOT_ID, lo, hi)) {
       const s = occ.schedule
@@ -287,6 +320,22 @@ export function Zero0Dayline({
       const isSleepSpan = en > st && occ.kind === "moment" && isSleepTitle(occ.title)
       // fill = the occurrence's own color; stroke = its parent's color (only inside a Space).
       const { fill, stroke } = paintFor(occ.id)
+      // COVERAGE — only for a real-duration plan that has fully ended (a past window): what
+      // fraction of [st,en] overlaps recorded presence at this entity or a descendant. You're
+      // only ever in one place at a time, so segments don't double-count; still clamp to [0,1].
+      let coverage: number | undefined
+      if (!ongoing && en > st && en <= now) {
+        const total = en - st
+        let overlap = 0
+        for (const seg of segs) {
+          const segEn = seg.leftAt ?? now
+          if (segEn <= st || seg.enteredAt >= en) continue // no time overlap
+          if (!inSubtree(occ.id, seg.entityId)) continue // wrong place
+          overlap += Math.min(en, segEn) - Math.max(st, seg.enteredAt)
+        }
+        coverage = Math.max(0, Math.min(1, overlap / total))
+        console.log("[v0] coverage", occ.title, { coverage, overlap, total, segs: segs.length })
+      }
       out.push({
         key: `plan:${occ.occKey}`,
         id: occ.id,
@@ -303,16 +352,17 @@ export function Zero0Dayline({
         // spilling a min-width tick PAST the now marker), same as an open presence segment.
         openEnded: ongoing,
         sky: isSleepSpan ? sleepSkyBackground(occ.occKey) : undefined,
+        coverage,
       })
     }
     return out
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [winStart, lo, hi, now, mounted, dataRev])
+  }, [winStart, lo, hi, now, mounted, dataRev, activityRevision])
 
   // PRESENCE bars — tracked activity ("where I was"). Titles fold `titleAt` so a past
-  // segment reads with the name the place had THEN. `useActivityRevision()` re-derives
-  // on any log change; `now` grows the open segment + keeps it in step with the marker.
-  const activityRevision = useActivityRevision()
+  // segment reads with the name the place had THEN. `activityRevision` (shared above)
+  // re-derives on any log change; `now` grows the open segment + keeps it in step with
+  // the marker.
   const presence = useMemo<DaylineBar[]>(() => {
     if (!mounted) return []
     const nowMs = now
@@ -907,6 +957,17 @@ export function Zero0Dayline({
                   // the THEME BACKGROUND (near-black in dark, near-white in light) instead of
                   // going transparent, so a root presence tick reads as a solid outlined chip.
                   const fill = p.color === DEFAULT_PRESENCE ? "var(--background)" : (p.sky ?? p.color)
+                  // OPACITY. Hover always snaps to full. PRESENCE is solid at all times. A PAST
+                  // planned tick with a coverage score maps it LINEARLY between the floor and
+                  // ceiling (the more it was honored, the more solid). Every other planned tick
+                  // (future / ongoing / point) stays a flat faint layer.
+                  const tickOpacity = isHot
+                    ? 1
+                    : isPresenceTick
+                      ? 1
+                      : p.coverage != null
+                        ? COVERAGE_OPACITY_MIN + p.coverage * (COVERAGE_OPACITY_MAX - COVERAGE_OPACITY_MIN)
+                        : 0.4
                   return (
                     <div
                       key={p.key}
@@ -953,9 +1014,7 @@ export function Zero0Dayline({
                           // FILL = entity color; HAIRLINE = parent color, only inside a Space.
                           background: fill,
                           border: p.stroke ? `1px solid ${p.stroke}` : "none",
-                          // PRESENCE is fully opaque at all times (the solid record); PLANNED
-                          // reads as a faint layer until hovered.
-                          opacity: isPresenceTick || isHot ? 1 : 0.4,
+                          opacity: tickOpacity,
                           zIndex: isHot ? 16 : 8,
                         }}
                       />

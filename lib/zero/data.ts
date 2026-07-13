@@ -689,7 +689,7 @@ export function getChildSpaceCount(contextId: string): number {
 // ----------------------------------------------------------------------------
 
 /** Set of space ids in `contextId`'s structural subtree, including itself. */
-function collectDescendants(contextId: string): Set<string> {
+export function collectDescendants(contextId: string): Set<string> {
   const set = new Set<string>([contextId])
   let grew = true
   while (grew) {
