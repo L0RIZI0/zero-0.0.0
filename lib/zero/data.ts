@@ -370,7 +370,12 @@ export const entities: Entity[] = [
   // list); Edan has ONE ongoing WITH a future end (→ a live down-counter); Sleep has ONE
   // open-ended ongoing (→ elapsed count-up); W has NONE (no counter, but its list still shows
   // when §4 is expanded — the "show all lists" behaviour).
-  ...((): Entity[] => {
+  //
+  // WEB-PREVIEW ONLY: excluded from the packaged DESKTOP export (same build-time flag as the
+  // `/matrix-interactions` resource below) so dogfooding on the Surface app starts from a
+  // clean tree — these are demo fixtures, not real life data.
+  ...(process.env.NEXT_PUBLIC_ZERO_ELECTRON !== "1"
+    ? ((): Entity[] => {
     const t0 = Date.now()
     const ago = (min: number) => t0 - min * 60_000
     const mk = (id: string, title: string, accent: string, startAgo: number, endAgo: number | null): Entity => ({
@@ -398,7 +403,8 @@ export const entities: Entity[] = [
       mk("fd_sleep_1", "Sleep", SLEEP, 30, null), // ongoing
       mk("fd_sleep_2", "Sleep", SLEEP, 600, 120), // complete
     ]
-  })(),
+  })()
+    : []),
   // WEB-PREVIEW-ONLY convenience: a Resource pointing at the internal `/matrix-interactions`
   // doc viewer, seeded under the Individual so Loris can open the interaction matrix in one
   // click. Excluded from the packaged DESKTOP export (its shell only mounts `/`, so the route

@@ -186,6 +186,52 @@ function formatState(state: EntityState, format: (e?: number) => string, isLivin
   }
 }
 
+// A COMPACT when-label for inline ROW meta: time-of-day only when the instant falls on the
+// same calendar day as `now` (rows are mostly today-scoped), else a short "MMM D, h:mm AM"
+// so an off-day anchor (e.g. a task due next week) never reads misleadingly as today.
+function fmtShort(epoch: number, now: number): string {
+  const d = new Date(epoch)
+  const sameDay = d.toDateString() === new Date(now).toDateString()
+  return d.toLocaleString(
+    formatLocale(),
+    sameDay
+      ? { hour: "numeric", minute: "2-digit" }
+      : { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" },
+  )
+}
+
+// The kind-relevant METAFIELD summary shown inline on each ENTITY CONTENT row — a condensed
+// echo of the header meta, surfacing only the field(s) that define the kind:
+//   • moment    → its span "start–end · dur", or "since start · dur" while ongoing (live), or
+//                 a lone point "at"; nothing when unscheduled.
+//   • instant   → its point time.
+//   • task      → its due time (only when set).
+//   • individual→ sex glyph · age (elapsed since birth/createdAt).
+// Everything else (space/community/organism/resource/soul) stays quiet — the row's kind +
+// title + state already say it all. `now` drives the live ongoing count-up.
+function rowMeta(e: Entity, now: number): string {
+  const s = e.schedule
+  switch (e.kind) {
+    case "moment":
+      if (s?.startAt != null && s?.endAt != null)
+        return `${fmtShort(s.startAt, now)}–${fmtShort(s.endAt, now)} · ${formatDuration(Math.max(0, s.endAt - s.startAt))}`
+      if (s?.startAt != null) return `since ${fmtShort(s.startAt, now)} · ${formatDuration(Math.max(0, now - s.startAt))}`
+      if (s?.at != null) return fmtShort(s.at, now)
+      return ""
+    case "instant":
+      return s?.at != null ? fmtShort(s.at, now) : ""
+    case "task":
+      return s?.dueAt != null ? `due ${fmtShort(s.dueAt, now)}` : ""
+    case "individual": {
+      const created = getCreatedAt(e)
+      const age = created != null ? formatDuration(Math.max(0, now - created)) : ""
+      return e.sex ? (age ? `${sexSymbol(e.sex)} · ${age}` : sexSymbol(e.sex)) : age
+    }
+    default:
+      return ""
+  }
+}
+
 /**
  * Root `/` canvas — the stripped, "seemingly blank" slate for the next iteration
  * of Zero, wired to the REAL backbone (`lib/zero`): the same ontology, entity
@@ -1355,6 +1401,8 @@ export function Zero0Canvas() {
                 const lifeLabel = state.word
                 const stateLabel =
                   `${done ? "done, " : ""}${lifeLabel}${requested ? ", requested" : ""}`
+                // Kind-relevant metafield echo (schedule/duration/identity), shown inline.
+                const meta = rowMeta(e, nowSec)
                 return (
                   // COLLAPSE WRAPPER — a hidden-and-not-revealed row animates to 0fr height +
                   // 0 opacity via the dep-free grid-rows trick, staying MOUNTED so hide AND
@@ -1447,6 +1495,17 @@ export function Zero0Canvas() {
                           only visible because Show hidden is on. */}
                       {hidden ? `(hidden) ${e.title}` : e.title}
                     </button>
+                    {/* Kind-relevant METAFIELD echo — the schedule/duration/identity that
+                        defines this kind, condensed from the header meta. Hidden (no gap
+                        cost) for kinds with nothing temporal to show. */}
+                    {meta && (
+                      <span
+                        className="hidden shrink-0 truncate text-right tabular-nums text-muted-foreground/70 sm:block sm:max-w-[16rem]"
+                        title={meta}
+                      >
+                        {meta}
+                      </span>
+                    )}
                     {/* Inline DONE toggle (soft marker) — only kinds WITH a done axis
                         (Task / Moment / Instant). Others show a muted placeholder. */}
                     <button
