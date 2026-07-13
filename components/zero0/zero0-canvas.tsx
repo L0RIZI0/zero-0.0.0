@@ -1099,7 +1099,7 @@ export function Zero0Canvas() {
       className="relative flex h-screen flex-col bg-background text-foreground"
       style={{ fontFamily: "var(--font-zero0-mono), ui-monospace, monospace" }}
     >
-      {/* ── GLUED TOP: live clock ──────────────────���───────────────────────────
+      {/* ── GLUED TOP: live clock ──────────────────���─��─────────────────────────
           Permanent top chrome (mirrors the footer's glued-bottom role): the live full
           date + time WITH seconds, top-left. Always present �� for any open entity, and
           regardless of which frames are toggled below. `min-h` reserves its row so the
@@ -1661,7 +1661,7 @@ export function Zero0Canvas() {
               : "text-muted-foreground transition-colors hover:text-foreground"
           }
         >
-          frequent
+          starters
         </button>
         <button
           type="button"

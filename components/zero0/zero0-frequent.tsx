@@ -84,9 +84,12 @@ function Chevron({ expanded }: { expanded: boolean }) {
 }
 
 /**
- * FREQUENT (§4) — the topmost band, a quick-LOG palette of the activities the user repeats
- * most (Sleep, Walk the dog, Eat, Cook…). A horizontal row of bordered TILES, each headed
- * by `[dot] [glyph] [title] [(n) | live-meta]` with its own vertical list beneath it.
+ * STARTERS (§4) — the topmost band, a quick-LOG palette of the activities the user repeats
+ * most (Sleep, Walk the dog, Eat, Cook…). Renamed from FREQUENT (Jul 2026): the DISPLAY name
+ * is now "starters" (it starts sessions); the persisted flag key, the `getFrequentEntities`
+ * data source, and the `Frequent*` code identifiers stay until §4 becomes real pinned Spaces
+ * (see /excerpts, step b). A horizontal row of bordered TILES, each headed by
+ * `[dot] [glyph] [title] [(n) | live-meta]` with its own vertical list beneath it.
  *
  * §4 is EXPANDED BY DEFAULT and never auto-collapses; a CHEVRON (or a tile's `(n)` counter)
  * toggles it manually. The height change animates fluidly (per-tile grid-rows collapse).
@@ -164,8 +167,8 @@ export function Zero0Frequent({
         {/* FRAME TITLE — a "plus without center" mark: the quick-create affordance this band is. */}
         <span
           className="mt-0.5 shrink-0 text-muted-foreground"
-          aria-label="frequent"
-          title="frequent — quick-log recurring activities"
+          aria-label="starters"
+          title="starters — quick-log the activities you clock in and out of"
         >
           <svg viewBox="0 0 16 16" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={1.5} aria-hidden>
             <path d="M8 2.5V6M8 10v3.5M2.5 8H6M10 8h3.5" strokeLinecap="round" />
@@ -173,7 +176,7 @@ export function Zero0Frequent({
         </span>
 
         {groups.length === 0 ? (
-          <p className="mt-0.5 text-muted-foreground">— nothing frequent yet —</p>
+          <p className="mt-0.5 text-muted-foreground">— nothing to start yet —</p>
         ) : (
           <>
             {/* CHEVRON — manual expand/collapse of every tile's list at once. */}
@@ -182,7 +185,7 @@ export function Zero0Frequent({
               onClick={toggle}
               className="mt-0.5 shrink-0 text-muted-foreground transition-colors hover:text-foreground"
               aria-expanded={expanded}
-              aria-label={expanded ? "Collapse frequent lists" : "Expand frequent lists"}
+              aria-label={expanded ? "Collapse starter lists" : "Expand starter lists"}
               title={expanded ? "Collapse the lists" : "Expand the lists"}
             >
               <Chevron expanded={expanded} />
@@ -327,7 +330,7 @@ export function Zero0Frequent({
           </>
         )}
 
-        <Zero0FrameMarker flag="frequent" label="the frequent band" />
+        <Zero0FrameMarker flag="frequent" label="the starters band" />
       </div>
 
       {/* RIGHT-CLICK POPOVER — bulk actions above the block log form. */}
