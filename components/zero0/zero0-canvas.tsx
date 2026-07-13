@@ -53,6 +53,8 @@ import { ZERO_VERSION } from "@/lib/zero/version"
 import { formatLocale } from "@/lib/zero/format-locale"
 import { Zero0ResourceCanvas } from "./zero0-resource-canvas"
 import { Zero0Frequent } from "./zero0-frequent"
+import { Zero0Face } from "./zero0-face"
+import { fmt, fmtLogValue, sexSymbol, getFaceMetaRows } from "@/lib/zero/face-model"
 import type { Entity } from "@/lib/zero/types"
 
 // The `--color` swatch palette — a small curated ramp shown when the create field
@@ -68,177 +70,10 @@ const COLOR_SWATCHES = [
 // picker hides instantly as the user keeps writing (e.g. a hand-typed hex).
 const isColorPickerTrigger = (draft: string) => /^--color:?\s*$/i.test(draft)
 
-// Format an epoch (ms) for the meta readout. Only ever called under the `mounted`
-// gate, so it's client-only — no SSR/static-export time-freeze hydration trap.
-function fmt(epoch?: number): string {
-  if (!epoch) return "—"
-  return new Date(epoch).toLocaleString(formatLocale())
-}
-
-// A COMPACT when-label for an entity, used to distinguish multiple back-references that
-// share a title (e.g. several "Work on Zero" sessions): its span → its point → else the
-// date it was created. Under the `mounted` gate like `fmt`.
-function rangeLabel(e: Entity): string {
-  const s = e.schedule
-  if (s?.startAt != null || s?.endAt != null) return `${fmt(s?.startAt)} → ${fmt(s?.endAt)}`
-  if (s?.at != null) return fmt(s.at)
-  return fmt(getCreatedAt(e))
-}
-
-// DERIVED duration of an entity, in ms, from its schedule (never stored):
-//   • instant            → 0 (a point has no length)
-//   • span start+end     → end − start
-//   • ONGOING start-only → elapsed so far (now − start), so a running moment shows live
-//   • else, has a start  → its AGE: now − createdAt (an Individual/Space has a beginning
-//                          even with no schedule, so this reads as "3d" / "34y", never a dash)
-//   • otherwise          → null (nothing to show)
-// `now` is passed so a live/ongoing value updates as the canvas re-renders.
-function getDurationMs(e: Entity, now: number): number | null {
-  const s = e.schedule
-  if (e.kind === "instant") return 0
-  if (s?.startAt != null && s?.endAt != null) return Math.max(0, s.endAt - s.startAt)
-  if (s?.at != null) return 0
-  if (s?.startAt != null) return Math.max(0, now - s.startAt) // ongoing (explicit start)
-  const created = getCreatedAt(e)
-  if (created != null) return Math.max(0, now - created) // age from creation
-  return null
-}
-
-// Human-readable duration: up to THREE adjacent units, from the largest non-zero unit
-// down — "0s", "45s", "5m 12s", "1h 30m 5s", "2d 3h 40m", "35y 1mo 24d". Scales to years
-// so an Individual's age reads cleanly. Uses average month/year lengths (30.44d / 365.25d)
-// — display-only, not for exact arithmetic. Trailing zero units are dropped, but a zero
-// BETWEEN two shown units is kept (e.g. "1y 0mo 5d") so the tiers stay positionally clear.
-const MIN = 60000
-const HOUR = 60 * MIN
-const DAY = 24 * HOUR
-const MONTH = 30.44 * DAY
-const YEAR = 365.25 * DAY
-function formatDuration(ms: number): string {
-  if (ms < 1000) return "0s"
-  let rem = ms
-  const y = Math.floor(rem / YEAR)
-  rem -= y * YEAR
-  const mo = Math.floor(rem / MONTH)
-  rem -= mo * MONTH
-  const d = Math.floor(rem / DAY)
-  rem -= d * DAY
-  const h = Math.floor(rem / HOUR)
-  rem -= h * HOUR
-  const m = Math.floor(rem / MIN)
-  rem -= m * MIN
-  const s = Math.floor(rem / 1000)
-  const parts: [number, string][] = [
-    [y, "y"],
-    [mo, "mo"],
-    [d, "d"],
-    [h, "h"],
-    [m, "m"],
-    [s, "s"],
-  ]
-  const first = parts.findIndex(([v]) => v > 0)
-  if (first === -1) return "0s"
-  const shown = parts.slice(first, first + 3)
-  while (shown.length > 1 && shown[shown.length - 1][0] === 0) shown.pop()
-  return shown.map(([v, u]) => `${v}${u}`).join(" ")
-}
-
-// Schedule `set` entries carry an epoch NUMBER as their value; render it as a date rather
-// than a raw millisecond count in the life-log history. Everything else prints as-is.
-const TIME_LOG_FIELDS = new Set(["startAt", "endAt", "at", "dueAt"])
-function fmtLogValue(field: string, value: string | number | boolean): string {
-  if (TIME_LOG_FIELDS.has(field) && typeof value === "number") return fmt(value)
-  if (field === "sex" && typeof value === "string") return sexSymbol(value)
-  return String(value)
-}
-
-// Render an Individual's sex as the Unicode gender GLYPH. "man"/"woman" stay the stored
-// model values; ♂/♀ is purely the display form (falls back to the raw word if unknown).
-function sexSymbol(sex: string): string {
-  return sex === "man" ? "♂" : sex === "woman" ? "♀" : sex
-}
-
-// Render an {@link EntityState} as one stable STATE-row string. `open` shows no date
-// (CREATED already carries "since when"); every other position carries its own instant,
-// which lives nowhere else. `complete` also shows WHEN it will auto-close at midnight.
-// `isLiving` (a death-terminal kind — an Individual/Organism) reads its `open` state as
-// "alive" (lowercase, like every other state word), the natural antonym of `dead`.
-function formatState(state: EntityState, format: (e?: number) => string, isLiving = false): string {
-  switch (state.word) {
-    case "open":
-      if (isLiving) return state.reopenedAt ? `alive · reopened ${format(state.reopenedAt)}` : "alive"
-      return state.reopenedAt ? `open · reopened ${format(state.reopenedAt)}` : "open"
-    case "ongoing":
-      // A live span in progress — `at` is when it STARTED. No auto-close yet (no end set).
-      return `ongoing · since ${format(state.at)}`
-    case "complete":
-      return state.willCloseAt ? `complete · closes ${format(state.willCloseAt)} (auto)` : "complete"
-    case "dead":
-      // Age already carries its unit (e.g. "35 years"), so no ambiguity in the lifespan.
-      return state.age != null ? `dead · ${format(state.at)} (${state.age})` : `dead · ${format(state.at)}`
-    case "retired":
-      return `retired · ${format(state.at)}`
-    case "cancelled":
-      return `cancelled · ${format(state.at)}`
-    case "closed":
-    default:
-      return `closed · ${format(state.at)}`
-  }
-}
-
-// A COMPACT when-label for inline ROW meta: time-of-day only when the instant falls on the
-// same calendar day as `now` (rows are mostly today-scoped), else a short "MMM D, h:mm AM"
-// so an off-day anchor (e.g. a task due next week) never reads misleadingly as today.
-function fmtShort(epoch: number, now: number): string {
-  const d = new Date(epoch)
-  const sameDay = d.toDateString() === new Date(now).toDateString()
-  return d.toLocaleString(
-    formatLocale(),
-    sameDay
-      ? { hour: "numeric", minute: "2-digit" }
-      : { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" },
-  )
-}
-
-// The kind-relevant METAFIELD summary shown inline on each ENTITY CONTENT row — a condensed
-// echo of the header meta, surfacing only the field(s) that define the kind:
-//   • moment    → its span "start–end · dur", or "since start · dur" while ongoing (live), or
-//                 a lone point "at"; nothing when unscheduled.
-//   • instant   → its point time.
-//   • task      → its due time; OR a scheduled span "start–end · dur" / ongoing "since start ·
-//                 dur" / lone "at" (a task can carry start/end/duration too, not just a due).
-//                 Due takes precedence when both are set.
-//   • individual→ sex glyph · age (elapsed since birth/createdAt).
-// Everything else (space/community/organism/resource/soul) stays quiet — the row's kind +
-// title + state already say it all. `now` drives the live ongoing count-up.
-function rowMeta(e: Entity, now: number): string {
-  const s = e.schedule
-  // A start/end/at span shared by moments AND scheduled tasks.
-  const span = (): string => {
-    if (s?.startAt != null && s?.endAt != null)
-      return `${fmtShort(s.startAt, now)}–${fmtShort(s.endAt, now)} · ${formatDuration(Math.max(0, s.endAt - s.startAt))}`
-    if (s?.startAt != null) return `since ${fmtShort(s.startAt, now)} · ${formatDuration(Math.max(0, now - s.startAt))}`
-    if (s?.at != null) return fmtShort(s.at, now)
-    return ""
-  }
-  switch (e.kind) {
-    case "moment":
-      return span()
-    case "instant":
-      return s?.at != null ? fmtShort(s.at, now) : ""
-    case "task": {
-      if (s?.dueAt != null) return `due ${fmtShort(s.dueAt, now)}`
-      return span() // start/end/duration when no due is set
-    }
-    case "individual": {
-      const created = getCreatedAt(e)
-      const age = created != null ? formatDuration(Math.max(0, now - created)) : ""
-      return e.sex ? (age ? `${sexSymbol(e.sex)} · ${age}` : sexSymbol(e.sex)) : age
-    }
-    default:
-      return ""
-  }
-}
+// The Face-model formatters (`fmt`, `sexSymbol`, `fmtLogValue`, …) + the presentation
+// model (`getFaceModel`) + the §0 meta rows (`getFaceMetaRows`) live in `lib/zero/
+// face-model` now — one source shared by <Zero0Face> and the canvas's own log / create
+// notice. Imported at the top of this file.
 
 /**
  * Root `/` canvas — the stripped, "seemingly blank" slate for the next iteration
@@ -951,90 +786,12 @@ export function Zero0Canvas() {
     })
   }, [contextId, showMenu, showHidden, runEntityAction])
 
-  // Meta rows for the CURRENT open node ������� raw lifecycle data, kind-aware. Recomputed
-  // per render (cheap) rather than memoised, so it always mirrors `rev`.
+  // Meta rows for the CURRENT open node — the Full face's exhaustive lifecycle readout,
+  // now sourced from the shared face-model (`getFaceMetaRows`). `meta` is kept only as the
+  // render guard (a valid kind always has KIND_META). Recomputed per render (cheap) so it
+  // mirrors `rev`; the <Zero0Face size="full"> below recomputes the same rows internally.
   const meta = context ? KIND_META[context.kind] : undefined
-  const metaRows: [string, string][] = []
-  if (context && meta) {
-    metaRows.push(["id", context.id])
-    metaRows.push(["kind", context.kind])
-    metaRows.push(["created", fmt(getCreatedAt(context))])
-    // PROVENANCE — who made it, who governs its lifecycle. Single-user: both resolve to
-    // "Loris". Ids resolve to titles; an unknown id shows raw (e.g. a future remote actor).
-    const nameOf = (uid: string) => getEntity(uid)?.title ?? uid
-    metaRows.push(["creator", nameOf(getCreator(context))])
-    metaRows.push(["owner", nameOf(getOwner(context))])
-    // TITLE HISTORY — only when the entity has actually been renamed (>1 entry). Shows
-    // the full chain oldest→newest with the time each name took effect, so the raw-data
-    // view exposes what `titleAt(entity, t)` folds for the activity tracker.
-    if (context.titleLog && context.titleLog.length > 1) {
-      metaRows.push(["titles", context.titleLog.map((t) => `${t.title} (${fmt(t.at)})`).join("  →  ")])
-    }
-    // DONE — its own orthogonal row, TASKS only (the soft "I did this" marker).
-    if (meta.hasDoneState) {
-      const done = isDone(context)
-      metaRows.push(["done", done ? `yes · ${fmt(getCompletedOn(context))}` : "no"])
-    }
-    // STATE — the single mutually-exclusive lifecycle row (open / complete / closed /
-    // cancelled / dead / retired), replacing the old CLOSED + CANCELLED booleans. `open`
-    // carries no date (CREATED above already says since when); other states carry theirs.
-    if (meta.fillsWhenClosed || meta.terminal) {
-      metaRows.push(["state", formatState(getState(context), fmt, meta.terminal === "death")])
-    }
-    // CLOSE POLICY — only when MANUAL (auto is the silent default). Signals this entity
-    // won't roll to closed at midnight; it waits for a hand Close/Cancel.
-    if (context.closePolicy === "manual") metaRows.push(["close", "manual"])
-    if (context.kind === "task" && context.requested) metaRows.push(["requested", "yes"])
-    // TEMPORAL slots — a kind's defining time dimension is ALWAYS shown (as "—" when
-    // unset), the same way DONE/CLOSED always render. A Moment IS a span, an Instant
-    // IS a point, so hiding those rows when empty would hide the kind's essence.
-    const s = context.schedule
-    if (context.kind === "moment") {
-      metaRows.push(["start", s?.startAt ? fmt(s.startAt) : "—"])
-      metaRows.push(["end", s?.endAt ? fmt(s.endAt) : "—"])
-      // A Moment is conceptually a SPAN (start→end), but it can carry a lone POINT anchor
-      // (`schedule.at`) — e.g. when a `:mome` prefix is combined with a single-time token,
-      // or an Instant is later changed INTO a moment. The lifecycle machine reads that point
-      // (`getState` → `completeSince` uses `endAt ?? at`), so a past `at` silently drives the
-      // moment to COMPLETE + stamps its auto-close. Surface it here (was hidden, which made
-      // such a moment read as unscheduled — START —, END — — yet mysteriously "complete").
-      if (s?.at != null) metaRows.push(["at", fmt(s.at)])
-    } else if (context.kind === "instant") {
-      metaRows.push(["at", s?.at ? fmt(s.at) : "—"])
-    } else if (s?.dueAt) {
-      // Tasks (and other kinds) only surface a schedule row when one is actually set.
-      metaRows.push(["due", fmt(s.dueAt)])
-    } else if (s && (s.startAt || s.endAt || s.at)) {
-      metaRows.push(["scheduled", s.at ? fmt(s.at) : `${fmt(s.startAt)} → ${fmt(s.endAt)}`])
-    }
-    // DURATION / AGE — DERIVED length, shown for every entity: an instant is always 0s; a
-    // start+end span is its width; a start-only (ONGOING) entity counts up live from `now`;
-    // with no schedule start it falls back to the age since `createdAt`. For an Individual
-    // (whose createdAt IS a birth) the label reads AGE — the elapsed-since-birth framing —
-    // rather than DURATION. Never stored — always computed.
-    const durMs = getDurationMs(context, nowSec)
-    const durLabel = context.kind === "individual" ? "age" : "duration"
-    metaRows.push([durLabel, durMs == null ? "—" : formatDuration(durMs)])
-    // ACCENT — only when set (via `:color:`). The value is the raw hex; the dt cell
-    // paints a matching swatch so the raw-data view still shows the color itself.
-    if (context.accent) metaRows.push(["color", context.accent])
-  // SEX — an Individual's defining identity field, always shown (— when unset), the
-  // same way a Moment always shows its span. Individual-only.
-  if (context.kind === "individual") metaRows.push(["sex", context.sex ? sexSymbol(context.sex) : "—"])
-    // TAG LINKS — the recursive "also shows up in" web, both directions:
-    //   • tags      = this entity's own outbound links (the contexts it plugs into).
-    //   • tagged by = the DERIVED reverse — entities that name/reference THIS one, each with a
-    //     when-label so multiple same-titled sessions ("Work on Zero") stay distinguishable.
-    // Only shown when non-empty (a leaf with no links stays quiet).
-    const forwardTags = getForwardTags(context)
-    if (forwardTags.length > 0) {
-      metaRows.push(["tags", forwardTags.map((t) => t.title).join(", ")])
-    }
-    const backRefs = getBackReferences(context.id)
-    if (backRefs.length > 0) {
-      metaRows.push(["tagged by", backRefs.map((b) => `${b.title} (${rangeLabel(b)})`).join(", ")])
-    }
-  }
+  const metaRows: [string, string][] = context ? getFaceMetaRows(context, nowSec) : []
 
   // ── Shared ZERO HEADER elements (reused by the full + minimized layouts) ──────
   // The ACCESS PATH breadcrumb — the trail to the open node; each crumb climbs back
@@ -1099,7 +856,7 @@ export function Zero0Canvas() {
       className="relative flex h-screen flex-col bg-background text-foreground"
       style={{ fontFamily: "var(--font-zero0-mono), ui-monospace, monospace" }}
     >
-      {/* ── GLUED TOP: live clock ──────────────────���─��─────────────────────────
+      {/* ── GLUED TOP: live clock ──────────────────���─���─────────────────────────
           Permanent top chrome (mirrors the footer's glued-bottom role): the live full
           date + time WITH seconds, top-left. Always present �� for any open entity, and
           regardless of which frames are toggled below. `min-h` reserves its row so the
@@ -1304,7 +1061,7 @@ export function Zero0Canvas() {
         {/* ENTITY HEADER (§0) — the open node's raw-data block (glyph/title/kind, meta
             rows, life log). Toggled with §0 / the corner marker; the children list below
             slides up/down with the same grid-rows collapse animation as every frame. */}
-        {mounted && context && meta && (
+        {mounted && context && (
           <div
             className="grid transition-[grid-template-rows] duration-300 ease-out motion-reduce:transition-none"
             style={{ gridTemplateRows: showEntityHeader ? "1fr" : "0fr" }}
@@ -1312,68 +1069,22 @@ export function Zero0Canvas() {
           >
             <div className="overflow-hidden">
           <section className="relative border-b border-border px-4 py-3">
-            {/* Node header line: glyph + title + kind. Fill = closed (fillable kinds),
-                bar = cancelled, fade+strike follow the same rules as the child rows.
-                Right-clicking it opens the same per-entity menu as the node's own row. */}
-            <div
-              className={"flex items-center gap-2 text-[12px] " + (isClosed(context) ? "opacity-60" : "")}
-              onContextMenu={(ev) => openMenu(context, ev)}
-            >
-              {meta.hasDoneState ? (
-                <button
-                  type="button"
-                  onClick={() => toggleDone(context)}
-                  className="cursor-pointer text-foreground transition-opacity hover:opacity-70"
-                  aria-label={isDone(context) ? "Mark undone" : "Mark done"}
-                  title={isDone(context) ? "Mark undone" : "Mark done"}
-                >
-                  <Zero0Glyph
-                    kind={context.kind}
-                    filled={fillsGlyph(context)}
-                    done={isDone(context)}
-                    cancelled={isCancelled(context)}
-                    requested={context.kind === "task" && !!context.requested}
-                    className="h-4 w-4"
-                  />
-                </button>
-              ) : (
-                <Zero0Glyph
-                  kind={context.kind}
-                  filled={fillsGlyph(context)}
-                  done={meta.hasDoneState && isDone(context)}
-                  cancelled={isCancelled(context)}
-                  requested={context.kind === "task" && !!context.requested}
-                  ongoing={getState(context).word === "ongoing"}
-                  className="h-4 w-4 text-foreground"
-                />
-              )}
-              <span className={"text-foreground " + (isCancelled(context) ? "line-through" : "")}>
-                {context.title}
-              </span>
-              <span className="text-[10px] uppercase tracking-wider text-muted-foreground">{meta.label}</span>
-              {/* CLOSE — top-right, same line as glyph+title. Shown once you've drilled
-                  in (never at the root). Here in §0 it's the close for a NON-web entity
-                  (a web resource hides §0 and gets its own × in the zero header below). */}
-              {path.length > 1 && <Zero0CloseButton className="ml-auto" onClick={() => closeContext(context)} />}
-            </div>
-            {/* Raw meta key/values. */}
-            <dl className="mt-2 grid grid-cols-[6rem_1fr] gap-x-4 gap-y-0.5 text-[10px] tabular-nums">
-              {metaRows.map(([k, v]) => (
-                <div key={k} className="contents">
-                  <dt className="uppercase tracking-widest text-muted-foreground">{k}</dt>
-                  <dd className="flex items-center gap-1.5 truncate text-foreground" title={v}>
-                    {k === "color" && (
-                      <span
-                        aria-hidden
-                        className="h-2.5 w-2.5 shrink-0 rounded-sm border border-border"
-                        style={{ backgroundColor: v }}
-                      />
-                    )}
-                    <span className="truncate">{v}</span>
-                  </dd>
-                </div>
-              ))}
-            </dl>
+            {/* The open node as a FULL Face (§0) — glyph/title/kind identity line + the
+                exhaustive meta dl. The close button (drilled-in, non-web) rides the
+                identity line via `trailing`; right-click opens the node's own menu. The
+                life log + frame marker below stay Content-side (canvas). */}
+            <Zero0Face
+              entity={context}
+              size="full"
+              now={nowSec}
+              onToggleDone={toggleDone}
+              onContextMenu={openMenu}
+              trailing={
+                path.length > 1 ? (
+                  <Zero0CloseButton className="ml-auto" onClick={() => closeContext(context)} />
+                ) : undefined
+              }
+            />
             {/* LIFE LOG — the whole append-only history (lifecycle transitions AND field
                 sets), oldest→newest, so the entity's entire life is retraceable. Every
                 setter dual-writes here; a per-field history is just this list filtered. */}
