@@ -6,7 +6,6 @@ import { Zero0ThemeToggle } from "./zero0-theme-toggle"
 import { Zero0UpdateIndicator } from "./zero0-update-indicator"
 import { Zero0Agenda, Zero0Activity } from "./zero0-activity"
 import { recordPresence } from "@/lib/zero/activity-log"
-import { Zero0Glyph } from "./zero0-glyph"
 import { Zero0DomMenu, type Zero0DomMenuState } from "./zero0-dom-menu"
 import { cssColorToHex } from "./zero0-menu-list"
 import { buildEntityMenuItems, applyEntityMenuAction, type MenuItem } from "@/lib/zero/menu-model"
@@ -29,14 +28,10 @@ import {
   changeEntityKind,
   deleteEntity,
   autoTagByTitle,
-  getForwardTags,
-  getBackReferences,
-  getCreator,
-  getOwner,
   type FrequentGroup,
 } from "@/lib/zero/data"
-  import { KIND_META, isClosed, fillsGlyph, getState, type EntityState } from "@/lib/zero/kinds"
-  import { isDone, isCancelled, getCreatedAt, getCompletedOn, describeLogEntry } from "@/lib/zero/entity-log"
+  import { KIND_META, isClosed, getState } from "@/lib/zero/kinds"
+  import { isDone, describeLogEntry } from "@/lib/zero/entity-log"
 import {
   parseEntry,
   inferKind,
@@ -54,7 +49,7 @@ import { formatLocale } from "@/lib/zero/format-locale"
 import { Zero0ResourceCanvas } from "./zero0-resource-canvas"
 import { Zero0Frequent } from "./zero0-frequent"
 import { Zero0Face } from "./zero0-face"
-import { fmt, fmtLogValue, sexSymbol, getFaceMetaRows } from "@/lib/zero/face-model"
+import { fmt, fmtLogValue, sexSymbol } from "@/lib/zero/face-model"
 import type { Entity } from "@/lib/zero/types"
 
 // The `--color` swatch palette — a small curated ramp shown when the create field
@@ -786,13 +781,6 @@ export function Zero0Canvas() {
     })
   }, [contextId, showMenu, showHidden, runEntityAction])
 
-  // Meta rows for the CURRENT open node — the Full face's exhaustive lifecycle readout,
-  // now sourced from the shared face-model (`getFaceMetaRows`). `meta` is kept only as the
-  // render guard (a valid kind always has KIND_META). Recomputed per render (cheap) so it
-  // mirrors `rev`; the <Zero0Face size="full"> below recomputes the same rows internally.
-  const meta = context ? KIND_META[context.kind] : undefined
-  const metaRows: [string, string][] = context ? getFaceMetaRows(context, nowSec) : []
-
   // ── Shared ZERO HEADER elements (reused by the full + minimized layouts) ──────
   // The ACCESS PATH breadcrumb — the trail to the open node; each crumb climbs back
   // to that depth, right-click targets that entity. In the full layout it's the value
@@ -1115,22 +1103,9 @@ export function Zero0Canvas() {
           {mounted && children.length > 0 && (
             <ul className="text-[11px] tabular-nums">
               {childRows.map(({ e, hidden, collapsed, num }) => {
-                const km = KIND_META[e.kind]
-                const state = getState(e) // the single lifecycle position (STATE axis)
-                const done = isDone(e) // soft DONE marker (Task only), orthogonal to STATE
-                const cancelled = state.word === "cancelled" // bar + strike
-                const closed = isClosed(e) // ENDED (closed/dead/retired/cancelled) ⇒ fade — NOT complete
-                const filled = fillsGlyph(e) // fill on complete AND closed (fillable kinds)
-                const showCheck = done && km.hasDoneState
-                const requested = e.kind === "task" && !!e.requested
-                const ongoing = state.word === "ongoing" // live span ⇒ glyph rotates
-                // Read-only lifecycle token — one word straight off the STATE axis
-                // (open / ongoing / complete / closed / cancelled / dead / retired).
-                const lifeLabel = state.word
-                const stateLabel =
-                  `${done ? "done, " : ""}${lifeLabel}${requested ? ", requested" : ""}`
-                // Kind-relevant metafield echo (schedule/duration/identity), shown inline.
-                const meta = rowMeta(e, nowSec)
+                // ENDED (closed/dead/retired/cancelled) fades the whole row — a Content-side
+                // decision (the row's opacity), so it stays here rather than in the Face.
+                const closed = isClosed(e)
                 return (
                   // COLLAPSE WRAPPER — a hidden-and-not-revealed row animates to 0fr height +
                   // 0 opacity via the dep-free grid-rows trick, staying MOUNTED so hide AND
@@ -1152,118 +1127,32 @@ export function Zero0Canvas() {
                         onMouseLeave={() => setHoveredRowId((h) => (h === e.id ? null : h))}
                         className={
                           "group flex items-baseline gap-3 border-b border-border/60 py-1.5 " +
-                          // CLOSED (complete / plain-close / cancel / terminal) fades the row.
                           (closed ? "opacity-60" : "")
                         }
                       >
-                    <span className="w-6 shrink-0 text-right text-muted-foreground">
-                      {num != null ? String(num).padStart(2, "0") : ""}
-                    </span>
-                    {/* Glyph column: fill = closed (fillable kinds), check = done,
-                        bar = cancelled, "sent" flap = requested. For a TASK the glyph
-                        is a BUTTON — clicking it toggles Done (same as the text toggle);
-                        other kinds render a static span. */}
-                    {km.hasDoneState ? (
-                      <button
-                        type="button"
-                        onClick={() => toggleDone(e)}
-                        className="flex w-6 shrink-0 cursor-pointer justify-center self-center text-foreground transition-opacity hover:opacity-70"
-                        aria-label={`${done ? "Mark undone" : "Mark done"} · ${stateLabel}`}
-                        title={done ? "Mark undone" : "Mark done"}
-                      >
-                        <Zero0Glyph
-                          kind={e.kind}
-                          filled={filled}
-                          done={showCheck}
-                          cancelled={cancelled}
-                          requested={requested}
-                          ongoing={ongoing}
-                          className="h-3.5 w-3.5"
+                        {/* Row index — Content-side chrome (position in the arrangement). */}
+                        <span className="w-6 shrink-0 text-right text-muted-foreground">
+                          {num != null ? String(num).padStart(2, "0") : ""}
+                        </span>
+                        {/* The entity as an M-size Face — glyph · kind · accent · title ·
+                            meta echo · done toggle · state token, all from the shared model. */}
+                        <Zero0Face
+                          entity={e}
+                          size="m"
+                          now={nowSec}
+                          onToggleDone={toggleDone}
+                          onOpen={openEntity}
+                          hiddenPrefix={hidden}
                         />
-                      </button>
-                    ) : (
-                      <span
-                        className="flex w-6 shrink-0 justify-center self-center text-foreground"
-                        aria-label={stateLabel}
-                        title={stateLabel}
-                      >
-                        <Zero0Glyph
-                          kind={e.kind}
-                          filled={filled}
-                          done={showCheck}
-                          cancelled={cancelled}
-                          requested={requested}
-                          ongoing={ongoing}
-                          className="h-3.5 w-3.5"
-                        />
-                      </span>
-                    )}
-                    {/* Kind label — STATIC text. */}
-                    <span className="w-16 shrink-0 uppercase tracking-wider text-muted-foreground">
-                      {km.label}
-                    </span>
-                    {/* MANUAL color marker — a small dot when THIS entity has an explicitly
-                        set accent (via the menu or `--color`). Inherited/ancestor colors are
-                        deliberately NOT shown, so a dot always means "I tagged this one". */}
-                    {e.accent && (
-                      <span
-                        aria-hidden
-                        className="h-2 w-2 shrink-0 self-center rounded-full"
-                        style={{ backgroundColor: e.accent }}
-                      />
-                    )}
-                    {/* Title — click to DRILL IN. Strikethrough only when CANCELLED
-                        (plain closed just fades via the row). */}
-                    <button
-                      type="button"
-                      onClick={() => openEntity(e)}
-                      className={
-                        "flex-1 truncate text-left text-foreground underline-offset-2 hover:underline " +
-                        (cancelled ? "line-through" : "")
-                      }
-                      title="Open"
-                    >
-                      {/* Revealed hidden rows carry a "(hidden)" prefix so it's clear they're
-                          only visible because Show hidden is on. */}
-                      {hidden ? `(hidden) ${e.title}` : e.title}
-                    </button>
-                    {/* Kind-relevant METAFIELD echo — the schedule/duration/identity that
-                        defines this kind, condensed from the header meta. Hidden (no gap
-                        cost) for kinds with nothing temporal to show. */}
-                    {meta && (
-                      <span
-                        className="hidden shrink-0 truncate text-right tabular-nums text-muted-foreground/70 sm:block sm:max-w-[16rem]"
-                        title={meta}
-                      >
-                        {meta}
-                      </span>
-                    )}
-                    {/* Inline DONE toggle (soft marker) — only kinds WITH a done axis
-                        (Task / Moment / Instant). Others show a muted placeholder. */}
-                    <button
-                      type="button"
-                      onClick={() => toggleDone(e)}
-                      disabled={!km.hasDoneState}
-                      className={
-                        "w-16 shrink-0 text-right " +
-                        (km.hasDoneState
-                          ? "text-muted-foreground hover:text-foreground"
-                          : "text-transparent")
-                      }
-                      title={km.hasDoneState ? "Toggle done" : "No done state"}
-                    >
-                      {km.hasDoneState ? (done ? "done" : "undone") : "—"}
-                    </button>
-                    {/* Read-only LIFECYCLE state token (Complete/Close/Cancel via menu). */}
-                    <span className="w-20 shrink-0 text-right text-muted-foreground/60">{lifeLabel}</span>
-                    <button
-                      type="button"
-                      onClick={() => remove(e)}
-                      className="w-4 shrink-0 text-right text-transparent group-hover:text-muted-foreground hover:!text-foreground"
-                      aria-label={`Delete ${e.title}`}
-                    >
-                      ×
-                    </button>
+                        {/* Delete × — Content-side chrome (remove from the arrangement). */}
+                        <button
+                          type="button"
+                          onClick={() => remove(e)}
+                          className="w-4 shrink-0 text-right text-transparent group-hover:text-muted-foreground hover:!text-foreground"
+                          aria-label={`Delete ${e.title}`}
+                        >
+                          ×
+                        </button>
                       </div>
                     </div>
                   </li>
