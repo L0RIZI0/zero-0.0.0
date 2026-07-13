@@ -5,7 +5,7 @@ import { ArrowLeft } from "lucide-react"
 export const metadata: Metadata = {
   title: "Zero — Excerpts",
   description:
-    "One idea: an entity has two faces — its Face (an excerpt at some size) and its Content (its children). A row in a list is a Face; flip it and it becomes Content; each item inside is another Face. From XS (glyph + title) up to Full (§0, the whole meta), every surface is the same object at a different resolution.",
+    "One idea: an entity has two sides — its Face (an excerpt at some size) and its Content (its children). A row in a list is a Face; flip it and it becomes Content; each item inside is another Face. From XS (glyph + title) up to Full (§0, the whole meta), every surface is the same object at a different resolution.",
 }
 
 // A small monospace kicker that labels each section — mirrors the shell's own
@@ -160,7 +160,7 @@ export default function ExcerptsPage() {
             <span className="text-muted-foreground">Every size.</span>
           </h1>
           <p className="mt-8 max-w-prose text-pretty text-lg leading-relaxed text-muted-foreground md:text-xl">
-            An entity has two faces: its <span className="text-foreground">Face</span>{" "}
+            An entity has two sides: its <span className="text-foreground">Face</span>{" "}
             — an excerpt at some size — and its <span className="text-foreground">Content</span> —
             its children. A row in a list is a Face excerpted down to what fits; flip
             it and it becomes Content; each item inside is another Face. From a glyph
@@ -197,13 +197,13 @@ export default function ExcerptsPage() {
 
         {/* The two primitives. */}
         <section className="mb-20 flex flex-col border-t border-border pt-10">
-          <Kicker>Two faces</Kicker>
+          <Kicker>Two sides</Kicker>
           <h2 className="mb-8 text-pretty text-3xl font-semibold leading-tight md:text-4xl">
             Face and Content, all the way down.
           </h2>
           <div className="flex flex-col gap-6 text-pretty text-base leading-relaxed text-muted-foreground md:text-lg">
             <p>
-              An entity has two faces. Its <span className="text-foreground">Face</span>{" "}
+              An entity has two sides, like a coin. Its <span className="text-foreground">Face</span>{" "}
               is the excerpt — the thing itself at some size. Its{" "}
               <span className="text-foreground">Content</span> is its children. That is
               the whole vocabulary: <span className="text-foreground">Face(entity,
