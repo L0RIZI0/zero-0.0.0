@@ -43,20 +43,17 @@ const DAY_MS = 86_400_000
 const DAY_START_HOUR = 5
 const NEUTRAL = "oklch(0.72 0.004 75)"
 // Sentinel color marking the COLORLESS ROOT place (the root Individual with no accent
-// and no colored ancestor). It's never painted as a fill — at render it maps to a
-// transparent tick + grey hairline (a quiet outline). Kept distinct so render detects it.
+// and no colored ancestor). At render it maps to a THEME-BACKGROUND fill (near-black in
+// dark, near-white in light) + grey hairline — a solid outlined chip. Kept distinct so
+// render detects it (rather than tinting it like a real accent).
 const DEFAULT_PRESENCE = "#ffffff"
 
-// Two-row vertical placement (px from the lane's top) for the combined TODAY lane
-// (`tracks="both"`). The lane is 28px tall (`h-7`) with 9px ticks: the UPPER row holds
-// elapsed planned ticks (4–13px), the LOWER row holds presence + not-yet-elapsed planned
-// (15–24px), so a past-planned and a past-presence tick never stack. A planned tick
-// animates between the two as `now` crosses its end.
-const ROW_TOP_PX = 4
-const ROW_BOTTOM_PX = 15
-// Elevation glide — long + eased so the rise reads as a deliberate "filed for the day"
-// motion, while hover height/opacity stays snappy.
-const ROW_TRANSITION = "top 480ms cubic-bezier(0.22, 1, 0.36, 1), height 150ms ease, opacity 150ms ease"
+// On the COMBINED TODAY lane (`tracks="both"`) planned + presence share one centered
+// band, so they're told apart by HEIGHT instead of by row: planned ticks render 50%
+// TALLER (the "intent", emphasised) and presence ticks 20% SHORTER (the quieter "what
+// actually happened"). Applied uniformly, independent of the now marker.
+const PLANNED_HEIGHT_SCALE = 1.5
+const PRESENCE_HEIGHT_SCALE = 0.8
 
 /**
  * Resolve the two colors a dayline tick paints, shared by BOTH tracks (planned +
@@ -152,14 +149,6 @@ interface DaylineBar {
   /** A single-point occurrence (instant / zero-length) renders as a thin tick. */
   point: boolean
   /**
-   * PLANNED-only: the occurrence's end has passed `now` (and it isn't ongoing) — i.e. it
-   * is DONE FOR THE DAY. In the combined TODAY lane (`tracks="both"`) an elapsed planned
-   * tick RISES to the upper row so it never sits on top of a presence tick (both are in
-   * the past). Recomputed each minute as `now` advances, so a tick animates up smoothly
-   * the moment the NOW marker crosses its end. Absent/false = stays on the lower row.
-   */
-  elapsed?: boolean
-  /**
    * A presence segment that is still OPEN (`leftAt === null`) — its right edge IS
    * "now". Rendered anchored to its right edge (growing leftward) so its min-width
    * never spills a tick PAST the NOW marker.
@@ -196,8 +185,8 @@ export function Zero0Dayline({
   dataRev: number
   /** Which lane this instance paints. `"planned"` = scheduled occurrences only;
    *  `"presence"` = the tracked "where I was" band (Activity frame); `"both"` = the TODAY
-   *  lane, which overlays BOTH on one band in two rows — elapsed planned ticks ride the
-   *  UPPER row, presence + not-yet-elapsed planned ride the LOWER row (see `elapsed`). */
+   *  lane, which overlays BOTH on one centered band, telling them apart by HEIGHT —
+   *  planned ticks 50% taller, presence ticks 20% shorter (see the height scales). */
   tracks?: "planned" | "presence" | "both"
   /** Optional node rendered in the header next to the label (e.g. the presence lane's
    *  "3h 56m tracked" total). */
@@ -213,9 +202,9 @@ export function Zero0Dayline({
   hideBottomBorder?: boolean
 }) {
   const isPresence = tracks === "presence"
-  // TODAY's combined lane: paint planned + presence together, split across two rows so a
-  // past planned tick and a past presence tick never overlap (see the tick render).
-  const twoRow = tracks === "both"
+  // TODAY's combined lane: paint planned + presence together on one centered band,
+  // distinguished by height (taller planned, shorter presence — see the tick render).
+  const combined = tracks === "both"
   const now = useNow()
   const [mounted, setMounted] = useState(false)
   // `viewStart` is the left edge of the shown 24h window. Panning moves it directly;
@@ -307,9 +296,6 @@ export function Zero0Dayline({
         range: ongoing ? `${rangeText(st, en, s.repeat)} · ongoing` : rangeText(st, en, s.repeat),
         track: "planned",
         point: en <= st,
-        // Done for the day → rises to the upper row in the combined TODAY lane. Ongoing
-        // (no end yet) stays low: it's still happening, its right edge IS now.
-        elapsed: !ongoing && en <= now,
         // An ongoing bar's right edge IS "now" — flag it so it renders anchored (never
         // spilling a min-width tick PAST the now marker), same as an open presence segment.
         openEnded: ongoing,
@@ -861,7 +847,7 @@ export function Zero0Dayline({
                   aria-hidden
                   className="h-2 w-2 shrink-0 rounded-full border"
                   style={{
-                    backgroundColor: hovered.color === DEFAULT_PRESENCE ? "transparent" : hovered.color,
+                          backgroundColor: hovered.color === DEFAULT_PRESENCE ? "var(--background)" : hovered.color,
                     borderColor: hovered.stroke ?? "var(--border)",
                   }}
                 />
@@ -895,18 +881,35 @@ export function Zero0Dayline({
                 </div>
               ))}
               {/* TICK BAND — ONE generic loop for BOTH tracks. Each instance paints its
-                  own list (`planned` scheduled occurrences OR `presence` tracked segments),
-                  but the rendering is identical: a rounded chip (or a thin point for a
+                  own list (`planned` scheduled occurrences OR `presence` tracked segments);
+                  the COMBINED TODAY lane paints both. A rounded chip (or a thin point for a
                   zero-length occurrence) whose FILL is the entity color (sleep paints a
-                  night-sky, root → transparent) and whose HAIRLINE is the parent color.
-                  The ONLY per-track difference is vertical alignment: PLANNED rides the
-                  TOP of the lane, TRACKED is vertically CENTERED. */}
+                  night-sky, root → theme background) and whose HAIRLINE is the parent color.
+                  All ticks are vertically CENTERED; on the combined lane the tracks are
+                  told apart by HEIGHT (planned taller, presence shorter). */}
               {mounted &&
-                (twoRow ? [...planned, ...presence] : isPresence ? presence : planned).map((p) => {
+                (combined ? [...presence, ...planned] : isPresence ? presence : planned).map((p) => {
                   const isHot = hoveredKey === p.key
-                  // Combined TODAY lane: elapsed planned rises to the upper row; presence
-                  // and not-yet-elapsed planned stay on the lower row.
-                  const elevated = twoRow && p.track === "planned" && !!p.elapsed
+                  // Height. Base is 9px (13 when hovered). On the COMBINED TODAY lane the two
+                  // tracks are told apart by size instead of by row: planned +50%, presence
+                  // −20%. Elsewhere every tick shares the base height.
+                  const baseH = isHot ? 13 : 9
+                  const tickH = combined
+                    ? Math.round(baseH * (p.track === "planned" ? PLANNED_HEIGHT_SCALE : PRESENCE_HEIGHT_SCALE))
+                    : baseH
+                  // COLORS. Fill = entity color; the root sentinel now paints the THEME
+                  // BACKGROUND (near-black in dark, near-white in light) instead of going
+                  // transparent, so a root presence tick reads as a solid outlined chip.
+                  // Un-hovered ticks stay FULLY OPAQUE but with slightly muted colors (mixed
+                  // toward the background) rather than a lowered element opacity — hovering
+                  // restores the true color. Sleep spans paint their night-sky fill as-is.
+                  const fillBase = p.color === DEFAULT_PRESENCE ? "var(--background)" : (p.sky ?? p.color)
+                  const fill = isHot ? fillBase : `color-mix(in srgb, ${fillBase} 82%, var(--background))`
+                  const strokeCol = p.stroke
+                    ? isHot
+                      ? p.stroke
+                      : `color-mix(in srgb, ${p.stroke} 72%, var(--background))`
+                    : null
                   return (
                     <div
                       key={p.key}
@@ -917,7 +920,7 @@ export function Zero0Dayline({
                       <button
                         type="button"
                         data-barkey={p.key}
-                        aria-label={isPresence ? `Was in ${p.title}, ${p.range}` : `${p.title}, ${p.range}`}
+                        aria-label={p.track === "presence" ? `Was in ${p.title}, ${p.range}` : `${p.title}, ${p.range}`}
                         onMouseEnter={(ev) => {
                           setHoveredKey(p.key)
                           // Capture the tick's on-screen midpoint for the minimized band's
@@ -937,37 +940,23 @@ export function Zero0Dayline({
                           onContextMenuEntity ? (ev) => onContextMenuEntity(p.id, ev) : undefined
                         }
                         className={cn(
-                          "pointer-events-auto absolute cursor-default",
-                          // SINGLE-track lanes keep the CSS transition + centered placement
-                          // (top-1/2 + -translate-y-1/2). The two-row lane drives `top` and
-                          // its own transition via inline style instead (see below), so those
-                          // classes are dropped there.
-                          !twoRow && "transition-[height,opacity] duration-150",
-                          !twoRow && "top-1/2",
+                          // Every tick is vertically CENTERED (top-1/2 + -translate-y-1/2)
+                          // across all lanes, and animates height/color changes smoothly.
+                          "pointer-events-auto absolute cursor-default top-1/2 -translate-y-1/2 transition-[height,background-color,border-color] duration-200",
                           p.point ? "rounded-full" : "rounded-[2px]",
                           // Translate composes on separate axes: X for a point / open-ended
                           // segment, Y to center every tick. Tailwind's translate utils stack.
                           p.point && "-translate-x-1/2",
                           p.openEnded && "-translate-x-full",
-                          !twoRow && "-translate-y-1/2",
                         )}
                         style={{
                           left: p.openEnded ? `${p.leftPct + p.widthPct}%` : `${p.leftPct}%`,
-                          // All ticks share ONE height across both tracks; sleep spans no
-                          // longer grow taller — the starfield fills the standard band.
                           width: p.point ? 2 : `max(3px, ${p.widthPct}%)`,
-                          height: isHot ? 13 : 9,
-                          // Two-row lane: place by explicit `top` (upper row for elapsed
-                          // planned, lower row otherwise) and animate the rise inline.
-                          ...(twoRow
-                            ? { top: elevated ? ROW_TOP_PX : ROW_BOTTOM_PX, transition: ROW_TRANSITION }
-                            : null),
-                          // FILL = entity color (sleep → night sky; root sentinel →
-                          // transparent). HAIRLINE = parent color, only inside a Space.
-                          background: p.color === DEFAULT_PRESENCE ? "transparent" : (p.sky ?? p.color),
-                          border: p.stroke ? `1px solid ${p.stroke}` : "none",
-                          // Both tracks read as a faint layer; hovering one snaps to full.
-                          opacity: isHot ? 1 : 0.4,
+                          height: tickH,
+                          // Fully opaque; the muting lives in the mixed colors (see above).
+                          background: fill,
+                          border: strokeCol ? `1px solid ${strokeCol}` : "none",
+                          opacity: 1,
                           zIndex: isHot ? 16 : 8,
                         }}
                       />
@@ -1041,7 +1030,7 @@ export function Zero0Dayline({
                     aria-hidden
             className="h-2 w-2 shrink-0 rounded-full border"
             style={{
-              backgroundColor: hovered.color === DEFAULT_PRESENCE ? "transparent" : hovered.color,
+              backgroundColor: hovered.color === DEFAULT_PRESENCE ? "var(--background)" : hovered.color,
               borderColor: hovered.stroke ?? "var(--border)",
             }}
                   />

@@ -1250,12 +1250,13 @@ export function Zero0Canvas() {
                   `${done ? "done, " : ""}${lifeLabel}${requested ? ", requested" : ""}`
                 return (
                   // COLLAPSE WRAPPER — a hidden-and-not-revealed row animates to 0fr height +
-                  // 0 opacity via the dep-free grid-rows trick (one compositor-friendly layout
-                  // transition), staying MOUNTED so hide AND show both animate. `inert` drops a
-                  // collapsed row from tab/hit-testing. The real row lives in the inner div.
+                  // 0 opacity via the dep-free grid-rows trick, staying MOUNTED so hide AND
+                  // show both animate. A long (650ms) eased slide+fade so rows glide away/in
+                  // gently rather than snapping. `inert` drops a collapsed row from tab/hit-
+                  // testing. The real row lives in the inner div.
                   <li
                     key={e.id}
-                    className="grid transition-[grid-template-rows,opacity] duration-300 ease-out motion-reduce:transition-none"
+                    className="grid transition-[grid-template-rows,opacity] duration-[650ms] ease-[cubic-bezier(0.33,1,0.68,1)] motion-reduce:transition-none"
                     style={{ gridTemplateRows: collapsed ? "0fr" : "1fr", opacity: collapsed ? 0 : 1 }}
                     inert={collapsed || undefined}
                   >
