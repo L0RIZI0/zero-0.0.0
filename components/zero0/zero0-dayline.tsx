@@ -206,7 +206,7 @@ export function Zero0Dayline({
   /** Which lane this instance paints. `"planned"` = scheduled occurrences only;
    *  `"presence"` = the tracked "where I was" band (Activity frame); `"both"` = the TODAY
    *  lane, which overlays BOTH on one centered band, telling them apart by HEIGHT —
-   *  planned ticks 50% taller, presence ticks 20% shorter (see the height scales). */
+   *  planned ticks a fixed 20px, presence a fixed 10px (see the height constants). */
   tracks?: "planned" | "presence" | "both"
   /** Optional node rendered in the header next to the label (e.g. the presence lane's
    *  "3h 56m tracked" total). */
@@ -334,7 +334,6 @@ export function Zero0Dayline({
           overlap += Math.min(en, segEn) - Math.max(st, seg.enteredAt)
         }
         coverage = Math.max(0, Math.min(1, overlap / total))
-        console.log("[v0] coverage", occ.title, { coverage, overlap, total, segs: segs.length })
       }
       out.push({
         key: `plan:${occ.occKey}`,
