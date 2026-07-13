@@ -38,9 +38,12 @@ Status tags: **[CUR]** = built + verified today · **[PART]** = partially built 
 | Presence on the TODAY dayline | any visited entity | drill-in presence segments paint ticks on the TODAY lane (`tracks="both"`); tooltip = title, click opens it | — | [CUR] |
 | Planned vs presence on the TODAY lane | scheduled occurrence vs presence segment | one centered band; planned ticks a fixed 20px TALL, presence 20% SHORTER; presence painted last so it stacks IN FRONT | applies before AND after the now marker | [CUR] |
 | Tick color (any dayline) | any tick | un-hovered ticks at 0.4 opacity with true colors (hover → full opacity). Root presence = solid theme-bg chip (near-black dark / near-white light) + grey hairline | root fill themed; no color-muting | [CUR] |
-| Click a FREQUENT tile (§4) | recurring activity (kind+title, ≥2 in last 30d) | creates a NEW occurrence: same kind+title, `startAt`=now, under the activity's USUAL (modal) parent; drills into it | Moment ⇒ lands ongoing (spinning); band shown by default, toggle §4 / footer "frequent" | [CUR] |
+| Left-click a FREQUENT tile (§4) — punch | recurring activity (kind+title, ≥2 in last 30d), NOT ongoing | punch IN: create a same-kind+title occurrence `startAt`=now under the activity's USUAL (modal) parent; drills into it | Moment ⇒ lands ongoing (spinning); band shown by default, toggle §4 / footer "frequent" | [CUR] |
+| Left-click a FREQUENT tile (§4) — punch | activity WITH an ongoing member | punch OUT: stamp the latest ongoing member's `endAt`=now (re-stamps tz-stable close); stays on canvas | tile shows a ring + reads "End …" while running | [CUR] |
+| Alt/Option-click a FREQUENT tile | activity not ongoing | punch IN without drilling (stay at root) — for starting several in a row | Ctrl-click avoided (= macOS right-click) | [CUR] |
+| Right-click a FREQUENT tile → duration chip | recurring activity | log a fixed block (15m/30m/45m/1h/1h30m/2h); ongoing/ended toggle: "ended"=[now−D, now] complete, "ongoing"=started D ago, no end | stays on canvas; Escape/backdrop dismiss | [CUR] |
 | Click an ONGOING glyph (§4 tile) | a currently-ongoing member of that activity | opens (drills into) that live occurrence | only Moments can be ongoing, so only they list | [CUR] |
-| FREQUENT tile dot color | frequent activity | own `accent`, else the bluey Sleep default (`#5566d8`) for sleep-titled, else grey | — | [CUR] |
+| FREQUENT tile dot color | frequent activity | own `accent`, else the bluey Sleep default (`#5566d8`) for sleep-titled, else grey; ongoing → currentColor ring | — | [CUR] |
 | Being the focused context | any kind | (today) no state change | — | [CUR] |
 | Enter a Task with empty `startAt` | task/open | SHOULD read `ongoing` + glyph spins while inside; revert on exit | all-children-open ⇒ back to open, else ongoing no-spin | [TODO] |
 | Focused-context spin scope | task only (proposed) | only Tasks spin while focused | — | [TODO] |

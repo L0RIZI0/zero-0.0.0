@@ -50,7 +50,7 @@ import { Zero0FrameMarker } from "./zero0-frame-marker"
 import { ZERO_VERSION } from "@/lib/zero/version"
 import { formatLocale } from "@/lib/zero/format-locale"
 import { Zero0ResourceCanvas } from "./zero0-resource-canvas"
-import { Zero0Frequent } from "./zero0-frequent"
+import { Zero0Frequent, type FrequentLogMode } from "./zero0-frequent"
 import type { Entity } from "@/lib/zero/types"
 
 // The `--color` swatch palette — a small curated ramp shown when the create field
@@ -696,22 +696,50 @@ export function Zero0Canvas() {
     setPath([ROOT_ID, ...chain])
   }, [])
 
-  // FREQUENT (§4) quick-create — spawn a fresh occurrence of a recurring activity: the
-  // SAME kind + title, starting NOW, under the activity's USUAL parent (its modal
-  // parentId). For a Moment that lands it "ongoing" (spinning glyph). Then drill straight
-  // into the new entity so it becomes the current context.
-  const createFromFrequent = useCallback(
-    (g: FrequentGroup) => {
+  // FREQUENT (§4) live PUNCH TOGGLE — one button for in AND out:
+  //   • already ongoing → punch OUT: stamp the most-recent ongoing member's end = now
+  //     (which tz-stably re-stamps its close). Stay put.
+  //   • nothing ongoing → punch IN: create a same-kind+title occurrence starting NOW under
+  //     the activity's USUAL (modal) parent. A Moment lands "ongoing" (spinning glyph).
+  //     Drill into it (sets current context) UNLESS `stay` (alt-click) — for starting a few
+  //     activities in a row without climbing back.
+  const punchFrequent = useCallback(
+    (g: FrequentGroup, opts: { stay: boolean }) => {
+      if (g.ongoing.length > 0) {
+        const latest = g.ongoing[g.ongoing.length - 1]
+        setEntityScheduleField(latest.id, "endAt", Date.now())
+        bump()
+        return
+      }
       const created = addParsedEntity({
         title: g.title,
         contextId: g.parentId,
         kind: g.kind,
         schedule: { startAt: Date.now() },
       })
-      navigateTo(created.id)
+      if (!opts.stay) navigateTo(created.id)
       bump()
     },
     [navigateTo, bump],
+  )
+
+  // FREQUENT (§4) retroactive DURATION log — file a fixed-length block without leaving the
+  // canvas (you often log several). `mode` decides how it's filed:
+  //   • "ended"   → a COMPLETE block [now−D, now] (glyph fills; time-closes at midnight).
+  //   • "ongoing" → started D ago, NO end (still running → spinning glyph).
+  const logFrequent = useCallback(
+    (g: FrequentGroup, minutes: number, mode: FrequentLogMode) => {
+      const now = Date.now()
+      const startAt = now - minutes * 60_000
+      addParsedEntity({
+        title: g.title,
+        contextId: g.parentId,
+        kind: g.kind,
+        schedule: mode === "ended" ? { startAt, endAt: now } : { startAt },
+      })
+      bump()
+    },
+    [bump],
   )
 
   // Show a menu at CLIENT coords (x,y). Over a native web Resource on desktop the DOM is
@@ -997,7 +1025,7 @@ export function Zero0Canvas() {
           inert={!showFrequent}
         >
           <div className="overflow-hidden">
-            <Zero0Frequent dataRev={rev} onCreate={createFromFrequent} onOpen={navigateTo} />
+            <Zero0Frequent dataRev={rev} onPunch={punchFrequent} onLog={logFrequent} onOpen={navigateTo} />
           </div>
         </div>
       )}
