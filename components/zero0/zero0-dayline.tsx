@@ -49,10 +49,11 @@ const NEUTRAL = "oklch(0.72 0.004 75)"
 const DEFAULT_PRESENCE = "#ffffff"
 
 // On the COMBINED TODAY lane (`tracks="both"`) planned + presence share one centered
-// band, so they're told apart by HEIGHT instead of by row: planned ticks render 50%
-// TALLER (the "intent", emphasised) and presence ticks 20% SHORTER (the quieter "what
-// actually happened"). Applied uniformly, independent of the now marker.
-const PLANNED_HEIGHT_SCALE = 1.5
+// band, so they're told apart by HEIGHT instead of by row: planned ticks render TALL at a
+// fixed 20px (the "intent", emphasised) while presence ticks render 20% SHORTER than the
+// base height (the quieter "what actually happened"). Applied uniformly, independent of
+// the now marker. Presence is painted AFTER planned so it stacks IN FRONT.
+const PLANNED_HEIGHT_PX = 20
 const PRESENCE_HEIGHT_SCALE = 0.8
 
 /**
@@ -888,28 +889,21 @@ export function Zero0Dayline({
                   All ticks are vertically CENTERED; on the combined lane the tracks are
                   told apart by HEIGHT (planned taller, presence shorter). */}
               {mounted &&
-                (combined ? [...presence, ...planned] : isPresence ? presence : planned).map((p) => {
+                (combined ? [...planned, ...presence] : isPresence ? presence : planned).map((p) => {
                   const isHot = hoveredKey === p.key
                   // Height. Base is 9px (13 when hovered). On the COMBINED TODAY lane the two
-                  // tracks are told apart by size instead of by row: planned +50%, presence
-                  // −20%. Elsewhere every tick shares the base height.
+                  // tracks are told apart by size instead of by row: planned = a fixed 20px
+                  // tall, presence = 20% shorter than base. Elsewhere every tick is the base.
                   const baseH = isHot ? 13 : 9
                   const tickH = combined
-                    ? Math.round(baseH * (p.track === "planned" ? PLANNED_HEIGHT_SCALE : PRESENCE_HEIGHT_SCALE))
+                    ? p.track === "planned"
+                      ? PLANNED_HEIGHT_PX
+                      : Math.round(baseH * PRESENCE_HEIGHT_SCALE)
                     : baseH
-                  // COLORS. Fill = entity color; the root sentinel now paints the THEME
-                  // BACKGROUND (near-black in dark, near-white in light) instead of going
-                  // transparent, so a root presence tick reads as a solid outlined chip.
-                  // Un-hovered ticks stay FULLY OPAQUE but with slightly muted colors (mixed
-                  // toward the background) rather than a lowered element opacity — hovering
-                  // restores the true color. Sleep spans paint their night-sky fill as-is.
-                  const fillBase = p.color === DEFAULT_PRESENCE ? "var(--background)" : (p.sky ?? p.color)
-                  const fill = isHot ? fillBase : `color-mix(in srgb, ${fillBase} 82%, var(--background))`
-                  const strokeCol = p.stroke
-                    ? isHot
-                      ? p.stroke
-                      : `color-mix(in srgb, ${p.stroke} 72%, var(--background))`
-                    : null
+                  // COLORS. Fill = entity color (sleep → night sky); the root sentinel paints
+                  // the THEME BACKGROUND (near-black in dark, near-white in light) instead of
+                  // going transparent, so a root presence tick reads as a solid outlined chip.
+                  const fill = p.color === DEFAULT_PRESENCE ? "var(--background)" : (p.sky ?? p.color)
                   return (
                     <div
                       key={p.key}
@@ -941,8 +935,8 @@ export function Zero0Dayline({
                         }
                         className={cn(
                           // Every tick is vertically CENTERED (top-1/2 + -translate-y-1/2)
-                          // across all lanes, and animates height/color changes smoothly.
-                          "pointer-events-auto absolute cursor-default top-1/2 -translate-y-1/2 transition-[height,background-color,border-color] duration-200",
+                          // across all lanes, and animates height changes smoothly.
+                          "pointer-events-auto absolute cursor-default top-1/2 -translate-y-1/2 transition-[height,opacity] duration-200",
                           p.point ? "rounded-full" : "rounded-[2px]",
                           // Translate composes on separate axes: X for a point / open-ended
                           // segment, Y to center every tick. Tailwind's translate utils stack.
@@ -953,10 +947,11 @@ export function Zero0Dayline({
                           left: p.openEnded ? `${p.leftPct + p.widthPct}%` : `${p.leftPct}%`,
                           width: p.point ? 2 : `max(3px, ${p.widthPct}%)`,
                           height: tickH,
-                          // Fully opaque; the muting lives in the mixed colors (see above).
+                          // FILL = entity color; HAIRLINE = parent color, only inside a Space.
                           background: fill,
-                          border: strokeCol ? `1px solid ${strokeCol}` : "none",
-                          opacity: 1,
+                          border: p.stroke ? `1px solid ${p.stroke}` : "none",
+                          // Both tracks read as a faint layer; hovering one snaps to full.
+                          opacity: isHot ? 1 : 0.4,
                           zIndex: isHot ? 16 : 8,
                         }}
                       />

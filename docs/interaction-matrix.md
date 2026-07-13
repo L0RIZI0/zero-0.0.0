@@ -36,8 +36,8 @@ Status tags: **[CUR]** = built + verified today · **[PART]** = partially built 
 | Right-click ▸ Show hidden / Hide hidden | current context | VIEW toggle (session-only, resets on nav): reveals hidden + auto-hidden children with a `(hidden)` prefix | not a data mutation | [CUR] |
 | Auto-hide (derived) | closed child | a child closed BEFORE today's 5am day-start collapses from ENTITY CONTENT | computed from `closeAt`, never stored; revealed by Show hidden | [CUR] |
 | Presence on the TODAY dayline | any visited entity | drill-in presence segments paint ticks on the TODAY lane (`tracks="both"`); tooltip = title, click opens it | — | [CUR] |
-| Planned vs presence on the TODAY lane | scheduled occurrence vs presence segment | one centered band; planned ticks 50% TALLER, presence 20% SHORTER (no row-lift) | applies before AND after the now marker | [CUR] |
-| Tick color (any dayline) | any tick | fully opaque; un-hovered = true color mixed 82% toward the theme bg (hover restores it). Root presence = solid theme-bg chip (near-black dark / near-white light) + grey hairline | replaces the old opacity-0.4 + transparent-root fill | [CUR] |
+| Planned vs presence on the TODAY lane | scheduled occurrence vs presence segment | one centered band; planned ticks a fixed 20px TALL, presence 20% SHORTER; presence painted last so it stacks IN FRONT | applies before AND after the now marker | [CUR] |
+| Tick color (any dayline) | any tick | un-hovered ticks at 0.4 opacity with true colors (hover → full opacity). Root presence = solid theme-bg chip (near-black dark / near-white light) + grey hairline | root fill themed; no color-muting | [CUR] |
 | Being the focused context | any kind | (today) no state change | — | [CUR] |
 | Enter a Task with empty `startAt` | task/open | SHOULD read `ongoing` + glyph spins while inside; revert on exit | all-children-open ⇒ back to open, else ongoing no-spin | [TODO] |
 | Focused-context spin scope | task only (proposed) | only Tasks spin while focused | — | [TODO] |
