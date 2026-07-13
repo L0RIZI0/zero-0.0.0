@@ -33,41 +33,80 @@ function timeInputToMs(value: string, baseMs: number): number {
   d.setHours(Number.isFinite(hh) ? hh : 0, Number.isFinite(mm) ? mm : 0, 0, 0)
   return d.getTime()
 }
-/** A span of ms → a compact duration WITH seconds: "1h 05m 03s" / "12m 34s" / "45s". */
-function fmtDur(ms: number): string {
+/**
+ * A span of ms → a compact duration. `withSeconds` adds the seconds unit — used ONLY for
+ * ONGOING occurrences (a live, second-ticking timer); COMPLETE spans read to the minute.
+ *   withSeconds:  "1h 05m 03s" / "12m 34s" / "45s"
+ *   without:      "1h 05m"     / "12m"     / "<1m"
+ */
+function fmtDur(ms: number, withSeconds: boolean): string {
   const total = Math.max(0, Math.floor(ms / 1000))
   const h = Math.floor(total / 3600)
   const m = Math.floor((total % 3600) / 60)
   const s = total % 60
-  if (h > 0) return `${h}h ${String(m).padStart(2, "0")}m ${String(s).padStart(2, "0")}s`
-  if (m > 0) return `${m}m ${String(s).padStart(2, "0")}s`
-  return `${s}s`
+  if (withSeconds) {
+    if (h > 0) return `${h}h ${String(m).padStart(2, "0")}m ${String(s).padStart(2, "0")}s`
+    if (m > 0) return `${m}m ${String(s).padStart(2, "0")}s`
+    return `${s}s`
+  }
+  if (h > 0) return `${h}h ${String(m).padStart(2, "0")}m`
+  if (m > 0) return `${m}m`
+  return "<1m"
 }
 /** ms → a short local clock time ("13:30"). */
 function fmtClock(ms: number): string {
   return new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
 }
 
+/** The live meta shown in the header's counter slot when EXACTLY ONE occurrence is ongoing:
+ *  a down-counter of time remaining if the occurrence has a future end, else the elapsed
+ *  time since it started. Always second-resolved (it's an ongoing timer). */
+function ongoingHeaderMeta(inst: FrequentInstance, now: number): { text: string; title: string } {
+  if (inst.endAt != null && inst.endAt > now) {
+    return { text: `${fmtDur(inst.endAt - now, true)} left`, title: `${inst.title} — time remaining until end` }
+  }
+  return { text: fmtDur(now - inst.startAt, true), title: `${inst.title} — running for` }
+}
+
+/** A chevron that points down when collapsed and up when expanded (rotates with a transition). */
+function Chevron({ expanded }: { expanded: boolean }) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      className={"h-3.5 w-3.5 transition-transform duration-300 ease-out " + (expanded ? "rotate-180" : "")}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.6}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M4 6 L8 10 L12 6" />
+    </svg>
+  )
+}
+
 /**
  * FREQUENT (§4) — the topmost band, a quick-LOG palette of the activities the user repeats
- * most (Sleep, Walk the dog, Eat, Cook, Clean…). A horizontal row of minimal TILES, each a
- * COLUMN headed by `[dot] [glyph] [title] (n)` with its own vertical list beneath it:
+ * most (Sleep, Walk the dog, Eat, Cook…). A horizontal row of bordered TILES, each headed
+ * by `[dot] [glyph] [title] [(n) | live-meta]` with its own vertical list beneath it.
+ *
+ * §4 is EXPANDED BY DEFAULT and never auto-collapses; a CHEVRON (or a tile's `(n)` counter)
+ * toggles it manually. The height change animates fluidly (per-tile grid-rows collapse).
  *
  *   • CLICK the TITLE/body → punch IN (start now) and DRILL into the new occurrence.
  *   • CLICK the GLYPH      → punch IN and STAY on the canvas — UNLESS more than one
- *     occurrence is already ongoing, in which case the spinning glyph EXPANDS §4 (like the
- *     counter) so you can end a specific one. The glyph spins whenever anything is ongoing,
- *     so the tile reads its own live state — no "End…" label needed.
- *   • CLICK the (n) COUNTER (shown only when n>0) → EXPAND/collapse §4. When expanded, EVERY
- *     tile shows its list at once. Each list row is an ONGOING or COMPLETE-not-closed
- *     occurrence, with live meta (start · state · duration incl. seconds). The next click
- *     inside a list COLLAPSES §4: a row's GLYPH punches an ongoing occurrence OUT (stays); a
- *     row's TITLE/meta OPENS it (no punch-out); a complete row opens either way.
- *   • RIGHT-CLICK a tile → a small form to log a fixed block: START time, DURATION (chips or
- *     a number), and an ongoing/ended toggle that auto-flips to "ended" if the end is past.
+ *     occurrence is already ongoing, in which case it EXPANDS §4 so you can end a specific
+ *     one. The glyph spins (as an OUTLINE, matching the entity header) whenever anything is
+ *     ongoing.
+ *   • The COUNTER SLOT (after the title) shows nothing when nothing runs; a LIVE meta
+ *     (elapsed, or a down-counter to the end) when exactly ONE occurrence is ongoing; and
+ *     `(n)` (a toggle) when more than one is.
+ *   • Each list row is an ONGOING or COMPLETE-not-closed occurrence with live meta. A row's
+ *     GLYPH punches an ongoing occurrence OUT; its TITLE/meta OPENS it. Neither collapses §4.
+ *   • RIGHT-CLICK a tile → a small form to log a fixed block.
  *
- * Data (ranking, usual parent, ongoing/complete instances) comes from
- * {@link getFrequentEntities}; `dataRev` is the parent's mutation counter (re-read trigger).
+ * Data comes from {@link getFrequentEntities}; `dataRev` is the parent's mutation counter.
  */
 export function Zero0Frequent({
   dataRev,
@@ -89,26 +128,24 @@ export function Zero0Frequent({
   // eslint-disable-next-line react-hooks/exhaustive-deps -- dataRev is the intended re-read trigger
   const groups = useMemo(() => getFrequentEntities(), [dataRev])
 
-  // §4's ONE expand state: collapsed shows only the tile headers; expanded reveals EVERY
-  // tile's vertical list at once (per Loris — "display all of them any time §4 is expanded").
-  const [expanded, setExpanded] = useState(false)
+  // §4's ONE expand state — EXPANDED BY DEFAULT (per Loris), toggled only manually via the
+  // chevron or a tile's `(n)`. It never auto-collapses on a list interaction.
+  const [expanded, setExpanded] = useState(true)
+  const toggle = useCallback(() => setExpanded((v) => !v), [])
 
-  // Right-click log form: which group + where.
+  // A 1-second clock powering every live readout (header metas, list durations, the log
+  // form auto-flip). It runs whenever ANYTHING is ongoing (so collapsed header timers still
+  // tick) or the log form is open — idle otherwise.
+  const anyOngoing = groups.some((g) => g.ongoingCount > 0)
   const [menu, setMenu] = useState<{ key: string; x: number; y: number } | null>(null)
   const menuGroup = menu ? groups.find((g) => g.key === menu.key) : undefined
-
-  // A 1-second clock, live only while §4 is expanded or the form is open — powers the live
-  // "duration so far" (incl. seconds) and the ongoing/ended auto-flip, idle otherwise.
   const [nowTick, setNowTick] = useState(() => Date.now())
   useEffect(() => {
-    if (!menu && !expanded) return
+    if (!menu && !anyOngoing) return
     setNowTick(Date.now())
     const t = setInterval(() => setNowTick(Date.now()), 1000)
     return () => clearInterval(t)
-  }, [menu, expanded])
-
-  const collapse = useCallback(() => setExpanded(false), [])
-  const toggle = useCallback(() => setExpanded((v) => !v), [])
+  }, [menu, anyOngoing])
 
   return (
     <section className="relative flex flex-col border-b border-border px-4 py-3 text-[11px] text-muted-foreground">
@@ -127,111 +164,124 @@ export function Zero0Frequent({
         {groups.length === 0 ? (
           <p className="mt-0.5 text-muted-foreground">— nothing frequent yet —</p>
         ) : (
-          <div
-            className={
-              "flex min-w-0 flex-1 pb-0.5 " +
-              // COLLAPSED: a compact horizontal palette that WRAPS so every tile stays
-              // visible. EXPANDED: a vertical stack so each tile's wide list sits full-width
-              // beneath its header (no horizontal overflow — every tile + list is visible).
-              (expanded ? "flex-col gap-2" : "flex-wrap items-start gap-x-5 gap-y-1.5")
-            }
-          >
-            {groups.map((g) => {
-              // DOT color: the activity's own accent, else the bluey Sleep default, else grey.
-              const dot = g.accent ?? (isSleepTitle(g.title) ? sleepDotColor : undefined)
-              const n = g.ongoingCount
-              const running = n > 0
-              return (
-                <div key={g.key} className={"flex flex-col gap-1 " + (expanded ? "w-full" : "shrink-0")}>
-                  {/* TILE HEADER — dot · glyph · title · (n) */}
-                  <div className="flex items-center gap-1.5">
-                    {/* DOT — pure color indicator (decorative). */}
-                    <span
-                      aria-hidden
-                      className="h-2 w-2 shrink-0 rounded-full"
-                      style={{ backgroundColor: dot ?? "var(--muted-foreground)" }}
-                    />
-                    {/* GLYPH — punch IN + STAY, or (with >1 ongoing) expand the lists. */}
-                    <button
-                      type="button"
-                      onClick={() => (n > 1 ? toggle() : onPunchIn(g, { stay: true }))}
-                      className={
-                        "shrink-0 transition-opacity hover:opacity-70 " +
-                        (running ? "text-foreground" : "text-muted-foreground")
-                      }
-                      title={n > 1 ? `${n} ${g.title} ongoing — show the list` : `Start ${g.title} now — stay here`}
-                      aria-label={n > 1 ? `Show ongoing ${g.title}` : `Start ${g.title} now, stay on canvas`}
-                    >
-                      <Zero0Glyph kind={g.kind} ongoing={running} filled={running} className="h-3.5 w-3.5" />
-                    </button>
-                    {/* TITLE — punch IN + DRILL into the new occurrence. */}
-                    <button
-                      type="button"
-                      onClick={() => onPunchIn(g, { stay: false })}
-                      onContextMenu={(e) => {
-                        e.preventDefault()
-                        setMenu({ key: g.key, x: e.clientX, y: e.clientY })
-                      }}
-                      className={
-                        "max-w-[10rem] truncate transition-opacity hover:opacity-70 " +
-                        (running ? "text-foreground" : "text-muted-foreground")
-                      }
-                      title={`Start ${g.title} now — open it · right-click to log a block`}
-                    >
-                      {g.title}
-                    </button>
-                    {/* (n) COUNTER — expand/collapse the lists. Only when something is ongoing. */}
-                    {running && (
+          <>
+            {/* CHEVRON — manual expand/collapse of every tile's list at once. */}
+            <button
+              type="button"
+              onClick={toggle}
+              className="mt-0.5 shrink-0 text-muted-foreground transition-colors hover:text-foreground"
+              aria-expanded={expanded}
+              aria-label={expanded ? "Collapse frequent lists" : "Expand frequent lists"}
+              title={expanded ? "Collapse the lists" : "Expand the lists"}
+            >
+              <Chevron expanded={expanded} />
+            </button>
+
+            {/* TILES — a horizontal, wrapping row of bordered cards, each its natural width. */}
+            <div className="flex min-w-0 flex-1 flex-wrap items-start gap-2">
+              {groups.map((g) => {
+                // DOT color: the activity's own accent, else the bluey Sleep default, else grey.
+                const dot = g.accent ?? (isSleepTitle(g.title) ? sleepDotColor : undefined)
+                const n = g.ongoingCount
+                const running = n > 0
+                const soleOngoing = n === 1 ? g.instances.find((i) => i.state === "ongoing") : undefined
+                const soleMeta = soleOngoing ? ongoingHeaderMeta(soleOngoing, nowTick) : undefined
+                return (
+                  <div
+                    key={g.key}
+                    className="flex flex-col gap-1 rounded-md border border-border px-2 py-1.5"
+                  >
+                    {/* TILE HEADER — dot · glyph · title · (n)/meta */}
+                    <div className="flex items-center gap-1.5">
+                      {/* DOT — pure color indicator (decorative). */}
+                      <span
+                        aria-hidden
+                        className="h-2 w-2 shrink-0 rounded-full"
+                        style={{ backgroundColor: dot ?? "var(--muted-foreground)" }}
+                      />
+                      {/* GLYPH — punch IN + STAY, or (with >1 ongoing) reveal the lists. An
+                          ongoing activity spins as an OUTLINE (never filled), matching the
+                          entity header's state-driven glyph. */}
                       <button
                         type="button"
-                        onClick={toggle}
+                        onClick={() => (n > 1 ? setExpanded(true) : onPunchIn(g, { stay: true }))}
                         className={
-                          "shrink-0 tabular-nums transition-colors " +
-                          (expanded ? "text-foreground" : "text-muted-foreground hover:text-foreground")
+                          "shrink-0 transition-opacity hover:opacity-70 " +
+                          (running ? "text-foreground" : "text-muted-foreground")
                         }
-                        aria-expanded={expanded}
-                        title={`${n} ongoing — ${expanded ? "hide" : "show"} the list`}
+                        title={n > 1 ? `${n} ${g.title} ongoing — show the list` : `Start ${g.title} now — stay here`}
+                        aria-label={n > 1 ? `Show ongoing ${g.title}` : `Start ${g.title} now, stay on canvas`}
                       >
-                        ({n})
+                        <Zero0Glyph kind={g.kind} ongoing={running} filled={false} className="h-3.5 w-3.5" />
                       </button>
-                    )}
-                  </div>
-
-                  {/* PER-TILE LIST — animated grid-rows collapse; shown for every tile when
-                      §4 is expanded (Walk Daiko, W with only complete rows, etc.). */}
-                  <div
-                    className="grid transition-[grid-template-rows] duration-300 ease-out motion-reduce:transition-none"
-                    style={{ gridTemplateRows: expanded ? "1fr" : "0fr" }}
-                    inert={!expanded}
-                  >
-                    <div className="overflow-hidden">
-                      {g.instances.length === 0 ? (
-                        <p className="py-1 pl-5 text-muted-foreground/60">— none active —</p>
-                      ) : (
-                        <ul className="flex flex-col gap-1 py-1 pl-5">
-                          {g.instances.map((inst) => (
-                            <InstanceRow
-                              key={inst.id}
-                              inst={inst}
-                              nowTick={nowTick}
-                              onPunchOut={(id) => {
-                                onPunchOut(id)
-                                collapse()
-                              }}
-                              onOpen={(id) => {
-                                onOpen(id)
-                                collapse()
-                              }}
-                            />
-                          ))}
-                        </ul>
+                      {/* TITLE — punch IN + DRILL into the new occurrence. */}
+                      <button
+                        type="button"
+                        onClick={() => onPunchIn(g, { stay: false })}
+                        onContextMenu={(e) => {
+                          e.preventDefault()
+                          setMenu({ key: g.key, x: e.clientX, y: e.clientY })
+                        }}
+                        className={
+                          "max-w-[10rem] truncate transition-opacity hover:opacity-70 " +
+                          (running ? "text-foreground" : "text-muted-foreground")
+                        }
+                        title={`Start ${g.title} now — open it · right-click to log a block`}
+                      >
+                        {g.title}
+                      </button>
+                      {/* COUNTER SLOT — the single ongoing's live meta, or `(n)` to toggle. */}
+                      {n === 1 && soleMeta && (
+                        <span className="shrink-0 tabular-nums text-muted-foreground" title={soleMeta.title}>
+                          {soleMeta.text}
+                        </span>
+                      )}
+                      {n > 1 && (
+                        <button
+                          type="button"
+                          onClick={toggle}
+                          className={
+                            "shrink-0 tabular-nums transition-colors " +
+                            (expanded ? "text-foreground" : "text-muted-foreground hover:text-foreground")
+                          }
+                          aria-expanded={expanded}
+                          title={`${n} ongoing — ${expanded ? "hide" : "show"} the list`}
+                        >
+                          ({n})
+                        </button>
                       )}
                     </div>
+
+                    {/* PER-TILE LIST — animated grid-rows collapse (fluid height). Shown for
+                        every tile when §4 is expanded. */}
+                    <div
+                      className="grid transition-[grid-template-rows] duration-300 ease-out motion-reduce:transition-none"
+                      style={{ gridTemplateRows: expanded ? "1fr" : "0fr" }}
+                      inert={!expanded}
+                    >
+                      <div className="overflow-hidden">
+                        {g.instances.length === 0 ? (
+                          <p className="py-1 text-muted-foreground/60">— none active —</p>
+                        ) : (
+                          <ul className="flex flex-col gap-1 py-1">
+                            {g.instances.map((inst) => (
+                              <InstanceRow
+                                key={inst.id}
+                                inst={inst}
+                                nowTick={nowTick}
+                                onPunchOut={onPunchOut}
+                                onOpen={onOpen}
+                              />
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    </div>
                   </div>
-                </div>
-              )
-            })}
-          </div>
+                )
+              })}
+            </div>
+          </>
         )}
 
         <Zero0FrameMarker flag="frequent" label="the frequent band" />
@@ -253,8 +303,9 @@ export function Zero0Frequent({
 }
 
 /** One expanded-list row: an ONGOING or COMPLETE occurrence. The glyph punches an ongoing
- *  one OUT; the title/meta opens it. A complete row opens from either target (nothing to
- *  punch out). Meta reads `start · state · duration` with a live, second-resolved duration. */
+ *  one OUT; the title/meta opens it. A complete row opens from either target. The glyph fill
+ *  is CANONICAL (`inst.filled` from `fillsGlyph`) so it matches the entity header exactly —
+ *  ongoing outlines + spins, complete fills. Duration shows seconds ONLY while ongoing. */
 function InstanceRow({
   inst,
   nowTick,
@@ -269,8 +320,8 @@ function InstanceRow({
   const ongoing = inst.state === "ongoing"
   const durMs = ongoing ? nowTick - inst.startAt : (inst.endAt ?? inst.startAt) - inst.startAt
   const meta = ongoing
-    ? `${fmtClock(inst.startAt)} · ongoing · ${fmtDur(durMs)}`
-    : `${fmtClock(inst.startAt)}–${fmtClock(inst.endAt ?? inst.startAt)} · complete · ${fmtDur(durMs)}`
+    ? `${fmtClock(inst.startAt)} · ongoing · ${fmtDur(durMs, true)}`
+    : `${fmtClock(inst.startAt)}–${fmtClock(inst.endAt ?? inst.startAt)} · complete · ${fmtDur(durMs, false)}`
   return (
     <li className="flex items-center gap-2">
       {/* GLYPH — punch OUT if ongoing, else open. */}
@@ -281,7 +332,7 @@ function InstanceRow({
         title={ongoing ? `Punch out ${inst.title} now` : `Open ${inst.title}`}
         aria-label={ongoing ? `Punch out ${inst.title} now` : `Open ${inst.title}`}
       >
-        <Zero0Glyph kind={inst.kind} ongoing={ongoing} filled className="h-3.5 w-3.5" />
+        <Zero0Glyph kind={inst.kind} ongoing={ongoing} filled={inst.filled} className="h-3.5 w-3.5" />
       </button>
       {/* TITLE + META — open it (no punch-out). */}
       <button

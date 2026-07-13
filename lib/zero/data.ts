@@ -1,5 +1,5 @@
 import type { Asset, Entity, EntityKind, IndividualEntity, Instant, Recurrence, Schedule, Resource, EntityBase, Sex, TaskPriority, TitleEntry, User } from "./types"
-  import { hasDoneState, isClosed, computeCloseAt, getState } from "./kinds"
+  import { hasDoneState, isClosed, computeCloseAt, getState, fillsGlyph } from "./kinds"
 import {
   isDone,
   isCancelled,
@@ -365,9 +365,11 @@ export const entities: Entity[] = [
   // Recurring life-activity Moments so the FREQUENT band has real content to exercise: a
   // spread of ONGOING (spinning) + COMPLETE-not-closed occurrences, each with a distinct
   // accent. Timestamps are relative to LOAD (so they stay ongoing/complete across reloads)
-  // and never persist — seeds live in code, only user mutations hit localStorage. Walk Daiko
-  // has TWO ongoing (so its tile glyph opens the list, per the >1 rule); W has none (its
-  // list still appears when §4 is expanded, exercising the "show all lists" behaviour).
+  // and never persist — seeds live in code, only user mutations hit localStorage. The mix
+  // exercises each header-slot case: Walk Daiko has TWO ongoing (→ `(2)`, glyph opens the
+  // list); Edan has ONE ongoing WITH a future end (→ a live down-counter); Sleep has ONE
+  // open-ended ongoing (→ elapsed count-up); W has NONE (no counter, but its list still shows
+  // when §4 is expanded — the "show all lists" behaviour).
   ...((): Entity[] => {
     const t0 = Date.now()
     const ago = (min: number) => t0 - min * 60_000
@@ -389,7 +391,7 @@ export const entities: Entity[] = [
       mk("fd_walk_1", "Walk Daiko", GREY, 95, null), // ongoing
       mk("fd_walk_2", "Walk Daiko", GREY, 20, null), // ongoing (→ 2 ongoing, glyph opens list)
       mk("fd_walk_3", "Walk Daiko", GREY, 300, 280), // complete
-      mk("fd_edan_1", "Edan", AMBER, 50, null), // ongoing
+      mk("fd_edan_1", "Edan", AMBER, 50, -40), // ongoing WITH a future end → header shows a down-counter
       mk("fd_edan_2", "Edan", AMBER, 420, 360), // complete
       mk("fd_w_1", "W", BROWN, 500, 470), // complete (no ongoing → no counter)
       mk("fd_w_2", "W", BROWN, 200, 150), // complete
@@ -800,9 +802,14 @@ export interface FrequentInstance {
   kind: EntityKind
   title: string
   startAt: number
-  /** The span end (ms) for a COMPLETE occurrence; null while still ONGOING. */
+  /** The scheduled span end (ms) if any — present for a COMPLETE occurrence, and also for
+   *  an ONGOING one that carries a FUTURE end (which powers the down-counter). null when
+   *  the occurrence has no end at all (open-ended ongoing → elapsed count-up). */
   endAt: number | null
   state: "ongoing" | "complete"
+  /** Canonical glyph fill from {@link fillsGlyph} — so the list glyph matches the entity
+   *  header exactly (COMPLETE fills; ONGOING stays an outline that spins). */
+  filled: boolean
 }
 
 /** Kinds that count as repeatable "activities" for the FREQUENT band. Structural kinds
@@ -881,15 +888,22 @@ export function getFrequentEntities(opts?: {
         startAt: x.m.schedule?.startAt ?? now,
         endAt: x.m.schedule?.endAt ?? null,
         state: x.word as "ongoing" | "complete",
+        filled: fillsGlyph(x.m),
       }))
     const ongoingCount = instances.reduce((n, i) => n + (i.state === "ongoing" ? 1 : 0), 0)
+    // ACCENT: the newest member that ACTUALLY carries one — NOT strictly `b.latest`, whose
+    // accent may be undefined (a punched-in occurrence is created without a color, and being
+    // newest would otherwise blank the tile dot). Falls back to any accented member.
+    const accent = b.members
+      .filter((m) => !!m.accent)
+      .sort((a, c) => (c.createdAt ?? 0) - (a.createdAt ?? 0))[0]?.accent
     groups.push({
       key,
       kind: b.kind,
       title: b.latest.title,
       count: b.windowCount,
       parentId,
-      accent: b.latest.accent,
+      accent,
       ongoingCount,
       instances,
     })
