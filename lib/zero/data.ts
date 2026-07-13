@@ -750,8 +750,9 @@ export interface FrequentGroup {
    *  (the tile falls back to grey, or the sleep default for sleep-titled rows). */
   accent?: string
   /** Members whose STATE is currently "ongoing" (started, unended → spinning glyph).
-   *  In practice only Moments can be ongoing, so non-moment rows carry an empty list. */
-  ongoing: { id: string; kind: EntityKind; title: string }[]
+   *  In practice only Moments can be ongoing, so non-moment rows carry an empty list.
+   *  Sorted by start (oldest first); `startAt` lets the expanded list show live meta. */
+  ongoing: { id: string; kind: EntityKind; title: string; startAt: number }[]
 }
 
 /** Kinds that count as repeatable "activities" for the FREQUENT band. Structural kinds
@@ -820,7 +821,7 @@ export function getFrequentEntities(opts?: {
     const ongoing = b.members
       .filter((m) => getState(m, now).word === "ongoing")
       .sort((a, c) => (a.schedule?.startAt ?? 0) - (c.schedule?.startAt ?? 0))
-      .map((m) => ({ id: m.id, kind: m.kind, title: m.title }))
+      .map((m) => ({ id: m.id, kind: m.kind, title: m.title, startAt: m.schedule?.startAt ?? now }))
     groups.push({
       key,
       kind: b.kind,
