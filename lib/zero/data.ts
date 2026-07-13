@@ -361,6 +361,42 @@ export const entities: Entity[] = [
   // has no space/task children. Everything below is grown by the user at runtime.
   assignedResourceIds: [],
   },
+  // --- FREQUENT (§4) TEST SEEDS --------------------------------------------
+  // Recurring life-activity Moments so the FREQUENT band has real content to exercise: a
+  // spread of ONGOING (spinning) + COMPLETE-not-closed occurrences, each with a distinct
+  // accent. Timestamps are relative to LOAD (so they stay ongoing/complete across reloads)
+  // and never persist — seeds live in code, only user mutations hit localStorage. Walk Daiko
+  // has TWO ongoing (so its tile glyph opens the list, per the >1 rule); W has none (its
+  // list still appears when §4 is expanded, exercising the "show all lists" behaviour).
+  ...((): Entity[] => {
+    const t0 = Date.now()
+    const ago = (min: number) => t0 - min * 60_000
+    const mk = (id: string, title: string, accent: string, startAgo: number, endAgo: number | null): Entity => ({
+      id,
+      kind: "moment",
+      title,
+      parentId: ROOT_ID,
+      taggedContextIds: [],
+      accent,
+      createdAt: ago(startAgo),
+      schedule: endAgo == null ? { startAt: ago(startAgo) } : { startAt: ago(startAgo), endAt: ago(endAgo) },
+    })
+    const GREY = "#8A8F98"
+    const AMBER = "#F5A623"
+    const BROWN = "#8B5A2B"
+    const SLEEP = "#5566D8"
+    return [
+      mk("fd_walk_1", "Walk Daiko", GREY, 95, null), // ongoing
+      mk("fd_walk_2", "Walk Daiko", GREY, 20, null), // ongoing (→ 2 ongoing, glyph opens list)
+      mk("fd_walk_3", "Walk Daiko", GREY, 300, 280), // complete
+      mk("fd_edan_1", "Edan", AMBER, 50, null), // ongoing
+      mk("fd_edan_2", "Edan", AMBER, 420, 360), // complete
+      mk("fd_w_1", "W", BROWN, 500, 470), // complete (no ongoing → no counter)
+      mk("fd_w_2", "W", BROWN, 200, 150), // complete
+      mk("fd_sleep_1", "Sleep", SLEEP, 30, null), // ongoing
+      mk("fd_sleep_2", "Sleep", SLEEP, 600, 120), // complete
+    ]
+  })(),
   // WEB-PREVIEW-ONLY convenience: a Resource pointing at the internal `/matrix-interactions`
   // doc viewer, seeded under the Individual so Loris can open the interaction matrix in one
   // click. Excluded from the packaged DESKTOP export (its shell only mounts `/`, so the route
@@ -749,10 +785,24 @@ export interface FrequentGroup {
   /** The representative occurrence's OWN accent (`:color:`), if any — else undefined
    *  (the tile falls back to grey, or the sleep default for sleep-titled rows). */
   accent?: string
-  /** Members whose STATE is currently "ongoing" (started, unended → spinning glyph).
-   *  In practice only Moments can be ongoing, so non-moment rows carry an empty list.
-   *  Sorted by start (oldest first); `startAt` lets the expanded list show live meta. */
-  ongoing: { id: string; kind: EntityKind; title: string; startAt: number }[]
+  /** How many members are currently ONGOING (started, unended → spinning). Drives the
+   *  `(n)` counter + the "spin the tile glyph" state. Moment-only in practice. */
+  ongoingCount: number
+  /** Members shown in the expanded vertical list: everything currently ONGOING **or**
+   *  COMPLETE-but-not-closed (a finished span still awaiting its overnight filing).
+   *  Sorted by start (oldest first). Ended (closed/cancelled) members are excluded. */
+  instances: FrequentInstance[]
+}
+
+/** One row of a FREQUENT group's expanded list — an ongoing or complete occurrence. */
+export interface FrequentInstance {
+  id: string
+  kind: EntityKind
+  title: string
+  startAt: number
+  /** The span end (ms) for a COMPLETE occurrence; null while still ONGOING. */
+  endAt: number | null
+  state: "ongoing" | "complete"
 }
 
 /** Kinds that count as repeatable "activities" for the FREQUENT band. Structural kinds
@@ -818,10 +868,21 @@ export function getFrequentEntities(opts?: {
         parentId = pid
       }
     }
-    const ongoing = b.members
-      .filter((m) => getState(m, now).word === "ongoing")
-      .sort((a, c) => (a.schedule?.startAt ?? 0) - (c.schedule?.startAt ?? 0))
-      .map((m) => ({ id: m.id, kind: m.kind, title: m.title, startAt: m.schedule?.startAt ?? now }))
+    // The expanded-list members: ONGOING (live) + COMPLETE (finished, not yet closed),
+    // oldest first. Ended members (closed/cancelled/…) drop out.
+    const instances: FrequentInstance[] = b.members
+      .map((m) => ({ m, word: getState(m, now).word }))
+      .filter((x) => x.word === "ongoing" || x.word === "complete")
+      .sort((a, c) => (a.m.schedule?.startAt ?? 0) - (c.m.schedule?.startAt ?? 0))
+      .map((x) => ({
+        id: x.m.id,
+        kind: x.m.kind,
+        title: x.m.title,
+        startAt: x.m.schedule?.startAt ?? now,
+        endAt: x.m.schedule?.endAt ?? null,
+        state: x.word as "ongoing" | "complete",
+      }))
+    const ongoingCount = instances.reduce((n, i) => n + (i.state === "ongoing" ? 1 : 0), 0)
     groups.push({
       key,
       kind: b.kind,
@@ -829,7 +890,8 @@ export function getFrequentEntities(opts?: {
       count: b.windowCount,
       parentId,
       accent: b.latest.accent,
-      ongoing,
+      ongoingCount,
+      instances,
     })
   }
 
@@ -1958,7 +2020,7 @@ export function setEntityCompleted(id: string, completed: boolean): void {
   entity.completed = completed
   // Track WHEN it was completed (cleared when un-checked) — part of every space's meta.
   entity.completedOn = completed ? now : undefined
-  // DONE is the soft "I did this" checkmark — its OWN axis. For a Task it DERIVES the
+  // DONE is the soft "I did this" checkmark ��� its OWN axis. For a Task it DERIVES the
   // interim COMPLETE state (see getState/completeSince) and STAMPS the absolute midnight
   // close (`closeAt`) in the actor's local day, so the task files itself at the same real
   // instant for every viewer. Undone clears the stamped close.

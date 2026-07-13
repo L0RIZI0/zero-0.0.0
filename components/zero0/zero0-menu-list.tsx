@@ -28,7 +28,37 @@ export function Zero0MenuList({
 function rowKey(item: MenuItem, i: number): string {
   if (item.type === "item") return item.id
   if (item.type === "submenu") return `sub:${item.label}`
+  if (item.type === "colorInput") return "colorinput"
   return `div:${i}`
+}
+
+/**
+ * Resolve a user-typed color — a hex ("#8b5a2b", "#abc") OR a CSS color name ("brown",
+ * "grey") — to a normalized "#rrggbb" hex, using the browser's own parser. Returns null
+ * for anything the browser rejects, so an invalid entry simply can't be committed.
+ */
+function cssColorToHex(input: string): string | null {
+  const s = input.trim()
+  if (!s || typeof document === "undefined") return null
+  const el = document.createElement("span")
+  el.style.color = ""
+  el.style.color = s // invalid values are ignored, leaving color === ""
+  if (!el.style.color) return null
+  el.style.position = "absolute"
+  el.style.opacity = "0"
+  el.style.pointerEvents = "none"
+  document.body.appendChild(el)
+  const rgb = getComputedStyle(el).color
+  el.remove()
+  const m = rgb.match(/\d+(?:\.\d+)?/g)
+  if (!m || m.length < 3) return null
+  return (
+    "#" +
+    m
+      .slice(0, 3)
+      .map((n) => Math.round(Number(n)).toString(16).padStart(2, "0"))
+      .join("")
+  )
 }
 
 function MenuRow({ item, onSelect }: { item: Indentable; onSelect: (id: string) => void }) {
@@ -36,6 +66,10 @@ function MenuRow({ item, onSelect }: { item: Indentable; onSelect: (id: string) 
 
   if (item.type === "divider") {
     return <div className="my-1 border-t border-border/60" />
+  }
+
+  if (item.type === "colorInput") {
+    return <ColorInputRow onSelect={onSelect} />
   }
 
   if (item.type === "submenu") {
@@ -98,4 +132,41 @@ function MenuRow({ item, onSelect }: { item: Indentable; onSelect: (id: string) 
 type Indentable = MenuItem & { _indent?: boolean }
 function indent(item: MenuItem): Indentable {
   return item.type === "item" ? { ...item, _indent: true } : item
+}
+
+// The free-text color entry (hex or CSS name). Live-resolves to a hex — the leading dot
+// previews it, and Enter (or clicking the dot) commits it through `color:<hex>`. Invalid
+// text simply can't commit. Enter is guarded against IME composition.
+function ColorInputRow({ onSelect }: { onSelect: (id: string) => void }) {
+  const [text, setText] = useState("")
+  const hex = cssColorToHex(text)
+  const commit = () => {
+    if (hex) onSelect(`color:${hex}`)
+  }
+  return (
+    <div className="flex items-center gap-2 py-1 pl-5 pr-3">
+      <button
+        type="button"
+        aria-label="Apply typed color"
+        disabled={!hex}
+        onClick={commit}
+        className="h-2.5 w-2.5 shrink-0 rounded-full border border-border/60 disabled:opacity-40"
+        style={{ backgroundColor: hex ?? "transparent" }}
+      />
+      <input
+        type="text"
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && !e.nativeEvent.isComposing && e.keyCode !== 229) {
+            e.preventDefault()
+            commit()
+          }
+        }}
+        placeholder="hex or name…"
+        aria-label="Custom color (hex or CSS name)"
+        className="w-24 rounded border border-border bg-background px-1 py-0.5 text-foreground placeholder:text-muted-foreground/60"
+      />
+    </div>
+  )
 }

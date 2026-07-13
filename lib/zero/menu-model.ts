@@ -44,6 +44,10 @@ export type MenuItem =
       swatch?: string
     }
   | { type: "submenu"; label: string; items: MenuItem[] }
+  // A free-text color entry: the renderer draws a small input that accepts a hex value
+  // ("#8b5a2b") or a CSS color name ("brown", "grey"), resolves it to a hex, and reports
+  // it back through the SAME `color:<hex>` action id the swatch rows use.
+  | { type: "colorInput" }
 
 // The entity-accent color picker choices (the "Set color…" submenu). A small, distinct
 // hue set; ids are `color:<hex>`, resolved by {@link applyEntityMenuAction} via
@@ -69,6 +73,8 @@ function buildColorSubmenu(entity: Entity): MenuItem {
     swatch: c.hex,
     current: current === c.hex,
   }))
+  // A free-text row for any other color (hex or CSS name), then Clear.
+  items.push({ type: "colorInput" })
   items.push({ type: "divider" })
   items.push({ type: "item", id: "color:clear", label: "Clear color", current: !current })
   return { type: "submenu", label: "Set color", items }
