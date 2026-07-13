@@ -5,7 +5,7 @@ import { ArrowLeft } from "lucide-react"
 export const metadata: Metadata = {
   title: "Zero — Excerpts",
   description:
-    "One idea: there is only one thing Zero ever draws — an entity's header — rendered at different sizes. A row in a list is an excerpt of that header. From XS (glyph + title) up to Complete (§0, the whole meta), every surface is the same component at a different resolution.",
+    "One idea: Zero draws two faces of the same entity — its header (an excerpt at some size) and its content (its children). A row in a list is a header; flip it and it becomes content; each item inside is another header. From XS (glyph + title) up to Full (§0, the whole meta), every surface is the same object at a different resolution.",
 }
 
 // A small monospace kicker that labels each section — mirrors the shell's own
@@ -20,9 +20,12 @@ function Kicker({ children }: { children: React.ReactNode }) {
 }
 
 // THE LADDER — the size scale from the smallest legible excerpt of a header up to
-// the whole thing (§0). XS and Complete are the fixed ends; the middle rungs are
+// the whole thing (§0). XS and Full are the fixed ends; the middle rungs are
 // pragmatic presets, deliberately NOT frozen yet (see the open questions). Each rung
 // says what it ADDS to the one before, and where that resolution already lives today.
+// NOTE: the top size is "Full", NOT "Complete" — "Complete" is already an entity
+// LIFECYCLE state (a done Task, a past Moment), so reusing it for a header size would
+// collide. Full = the whole header; Complete = a thing's verdict. Different axes.
 const SIZES: { size: string; adds: string; livesToday: string }[] = [
   {
     size: "XS",
@@ -50,9 +53,9 @@ const SIZES: { size: string; adds: string; livesToday: string }[] = [
     livesToday: "§0 in its minimized state",
   },
   {
-    size: "Complete",
+    size: "Full",
     adds: "the exhaustive meta — id, kind, done, state, created, tags, every link",
-    livesToday: "§0, the full entity header",
+    livesToday: "§0, the whole entity header",
   },
 ]
 
@@ -91,8 +94,8 @@ const VERBS: { name: string; emits: string; forWhat: string; status: string }[] 
 const STAGES: { tag: string; title: string; body: string }[] = [
   {
     tag: "a",
-    title: "Unify the header into one size-parametrized component.",
-    body: "Pure refactor, no data change. Every list row, tile, and §0 becomes one <EntityHeader size=…>. If this feels clean, the thesis is real; if it fights us, the thesis is wrong. This step is the honesty test.",
+    title: "Build the two primitives: Header and Content.",
+    body: "Pure refactor, no data change. Every list row, tile, and §0 becomes Header(entity, size, mode); every children view — the canvas, an expanded tile — becomes Content(entity, axis), rendering Headers that can flip to their own Content. The create bar folds in as a Full header in write mode. If this feels clean, the thesis is real; if it fights us, the thesis is wrong. This step is the honesty test.",
   },
   {
     tag: "b",
@@ -110,6 +113,11 @@ const STAGES: { tag: string; title: string; body: string }[] = [
 // the conversations to have before building, not gaps to paper over.
 const OPEN: { q: string; lean: string }[] = [
   {
+    q: "Is the dayline really content on a time axis?",
+    lean:
+      "Held, not decided. It is tempting: the list is a spatial container, the dayline a temporal one, over the same children — and an untimed child is simply out of the time axis's domain. But this is the least-proven leg of the model, so it stays a hypothesis until a real screen forces the answer.",
+  },
+  {
     q: "Do §4 (STARTERS) and §2 (ACTIVITY) converge?",
     lean:
       "They rhyme — both are lists of activity headers. But they may answer different questions: ACTIVITY is the implicit record of where you were (auto-logged from navigation); STARTERS is the explicit set of areas you clock in and out of by hand. Worth a dedicated conversation before merging them.",
@@ -122,12 +130,12 @@ const OPEN: { q: string; lean: string }[] = [
   {
     q: "One Sessions sub-space, or two?",
     lean:
-      "One. It holds both Moments (durations) and Instants (points) — the kind already tells duration from point, so a second container earns nothing.",
+      "Decided: one. It holds both Moments (durations) and Instants (points) — the kind already tells duration from point, so a second container earns nothing.",
   },
   {
     q: "How many middle rungs, exactly?",
     lean:
-      "Unknown, and that is fine. XS and Complete are fixed; the rest are presets we will settle once real screens ask for them. The scale is a continuum — you can always insert a size between two.",
+      "Unknown, and that is fine. XS and Full are fixed; the rest are presets we will settle once real screens ask for them. The scale is a continuum — you can always insert a size between two.",
   },
 ]
 
@@ -152,10 +160,12 @@ export default function ExcerptsPage() {
             <span className="text-muted-foreground">Every size.</span>
           </h1>
           <p className="mt-8 max-w-prose text-pretty text-lg leading-relaxed text-muted-foreground md:text-xl">
-            Zero only ever draws one thing: an entity&apos;s header. A row in a list
-            is not a different component — it is that same header, excerpted down to
-            what fits. From a glyph and a title all the way up to the complete §0
-            meta, everything on screen is the same object at a different resolution.
+            Zero draws two faces of the same entity: its <span className="text-foreground">header</span>{" "}
+            — an excerpt at some size — and its <span className="text-foreground">content</span> —
+            its children. A row in a list is a header excerpted down to what fits; flip
+            it and it becomes content; each item inside is another header. From a glyph
+            and a title up to the full §0 meta, everything on screen is the same object
+            at a different resolution.
           </p>
         </header>
 
@@ -185,16 +195,83 @@ export default function ExcerptsPage() {
           </div>
         </section>
 
+        {/* The two primitives. */}
+        <section className="mb-20 flex flex-col border-t border-border pt-10">
+          <Kicker>Two faces</Kicker>
+          <h2 className="mb-8 text-pretty text-3xl font-semibold leading-tight md:text-4xl">
+            Header and content, all the way down.
+          </h2>
+          <div className="flex flex-col gap-6 text-pretty text-base leading-relaxed text-muted-foreground md:text-lg">
+            <p>
+              An entity has two faces. Its <span className="text-foreground">header</span>{" "}
+              is the excerpt — the thing itself at some size. Its{" "}
+              <span className="text-foreground">content</span> is its children. That is
+              the whole vocabulary: <span className="text-foreground">Header(entity,
+              size)</span> and <span className="text-foreground">Content(entity, axis)</span>.
+            </p>
+            <p>
+              And they <span className="text-foreground">nest without end</span>. A
+              content view is a column of headers. Right-click any header and ask for its
+              content, and that row blooms into its own children — each of which is a
+              header that can bloom again. The canvas is not &ldquo;a header on top, a
+              list below.&rdquo; It is one entity shown as content, recursively.
+              Drilling in is just promoting a child from header to content and making it
+              the root of the view.
+            </p>
+            <p>
+              An <span className="text-foreground">axis</span> is more than an
+              arrangement — it also decides <span className="text-foreground">who
+              belongs</span>. The <span className="font-mono text-sm">list</span> axis
+              admits every child and arranges them spatially. Other axes carry a
+              membership test: a child appears only if it has the attribute that axis is
+              about. A Space that only gathers resources has no times, so on a{" "}
+              <span className="font-mono text-sm">time</span> axis its children simply
+              are not members — they are not missing, they are out of that axis&apos;s
+              domain. Same content, seen through a lens that shows only what it can place.
+            </p>
+          </div>
+        </section>
+
+        {/* Create = a header being born. */}
+        <section className="mb-20 flex flex-col border-t border-border pt-10">
+          <Kicker>Creation</Kicker>
+          <h2 className="mb-8 text-pretty text-3xl font-semibold leading-tight md:text-4xl">
+            To create is to fill a header that has no id yet.
+          </h2>
+          <div className="flex flex-col gap-6 text-pretty text-base leading-relaxed text-muted-foreground md:text-lg">
+            <p>
+              The create bar is not a separate tool. It is a{" "}
+              <span className="text-foreground">Full header in write mode</span>, for an
+              entity that does not exist yet. You are filling in fields; submitting
+              commits — the entity gets an id and drops into the tree. Reading §0,
+              editing §0, and composing a new entity are one component across a small
+              matrix: <span className="text-foreground">nascent or committed</span>,
+              times <span className="text-foreground">read or write</span>.
+            </p>
+            <p>
+              Seen that way, everything that makes an entity is the{" "}
+              <span className="text-foreground">same act at different ceremony</span>.
+              Auto: the system emits a presence segment as you move. Verb: one click on a
+              STARTERS tile emits a pre-filled session. Manual: you type the whole thing
+              into the create bar. Automatic, templated, or hand-written — each is a
+              header being born, differing only in how much was filled in for you.
+            </p>
+          </div>
+        </section>
+
         {/* The ladder. */}
         <section className="mb-20 flex flex-col border-t border-border pt-10">
           <Kicker>The ladder</Kicker>
           <h2 className="mb-8 text-pretty text-3xl font-semibold leading-tight md:text-4xl">
-            From XS to Complete.
+            From XS to Full.
           </h2>
           <p className="mb-8 max-w-prose text-pretty text-base leading-relaxed text-muted-foreground md:text-lg">
             Each rung says what it adds to the one below, and where that resolution
-            already lives in the shell today. XS and Complete are the fixed ends; the
-            middle is not frozen.
+            already lives in the shell today. XS and Full are the fixed ends; the
+            middle is not frozen.{" "}
+            <span className="text-foreground">Full</span>, not &ldquo;Complete&rdquo; —
+            that word already names a thing&apos;s lifecycle verdict, so the biggest
+            size borrows a different one.
           </p>
           <div className="overflow-hidden rounded-md border border-border">
             <table className="w-full border-collapse text-left text-sm">
