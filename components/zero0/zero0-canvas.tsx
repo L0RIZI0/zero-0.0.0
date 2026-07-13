@@ -698,17 +698,20 @@ export function Zero0Canvas() {
     setPath([ROOT_ID, ...chain])
   }, [])
 
-  // FREQUENT (§4) PUNCH IN — always START a fresh occurrence NOW (never a toggle; punch-OUT
-  // lives in the expanded ongoing list). Same kind + title under the activity's USUAL (modal)
-  // parent; a Moment lands "ongoing" (spinning glyph). Drills into it UNLESS `stay` (glyph
-  // click) — for starting several without climbing back.
+  // FREQUENT (§4) PUNCH IN — START a fresh occurrence NOW. A tile allows only ONE instance
+  // running at a time, so any currently-ongoing occurrence is punched OUT first (stamp its
+  // `endAt`=now → complete). Same kind + title under the activity's USUAL (modal) parent; a
+  // Moment lands "ongoing" (spinning glyph). Drills into it UNLESS `stay` (glyph click) — for
+  // starting a fresh one without climbing back.
   const punchInFrequent = useCallback(
     (g: FrequentGroup, opts: { stay: boolean }) => {
+      const now = Date.now()
+      for (const inst of g.instances) if (inst.state === "ongoing") setEntityScheduleField(inst.id, "endAt", now)
       const created = addParsedEntity({
         title: g.title,
         contextId: g.parentId,
         kind: g.kind,
-        schedule: { startAt: Date.now() },
+        schedule: { startAt: now },
       })
       if (!opts.stay) navigateTo(created.id)
       bump()
@@ -752,9 +755,15 @@ export function Zero0Canvas() {
 
   // FREQUENT (§4) DURATION log — file a block from the right-click form (stays on canvas).
   // The form computes an absolute `startAt` and either an explicit `endAt` (a COMPLETE block:
-  // glyph fills, time-closes at midnight) or `null` (still running → ongoing/spinning).
+  // glyph fills, time-closes at midnight) or `null` (still running → ongoing/spinning). When
+  // filing a new ONGOING block (endAt null), any current ongoing occurrence is punched out
+  // first — a tile allows only one instance running at a time.
   const logFrequent = useCallback(
     (g: FrequentGroup, startAt: number, endAt: number | null) => {
+      if (endAt == null) {
+        const now = Date.now()
+        for (const inst of g.instances) if (inst.state === "ongoing") setEntityScheduleField(inst.id, "endAt", now)
+      }
       addParsedEntity({
         title: g.title,
         contextId: g.parentId,

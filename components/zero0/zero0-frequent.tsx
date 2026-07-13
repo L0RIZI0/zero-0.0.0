@@ -91,11 +91,14 @@ function Chevron({ expanded }: { expanded: boolean }) {
  * §4 is EXPANDED BY DEFAULT and never auto-collapses; a CHEVRON (or a tile's `(n)` counter)
  * toggles it manually. The height change animates fluidly (per-tile grid-rows collapse).
  *
- *   • CLICK the TITLE/body → punch IN (start now) and DRILL into the new occurrence.
- *   • CLICK the GLYPH      → punch IN and STAY on the canvas — UNLESS more than one
- *     occurrence is already ongoing, in which case it EXPANDS §4 so you can end a specific
- *     one. The glyph spins (as an OUTLINE, matching the entity header) whenever anything is
- *     ongoing.
+ * A tile allows only ONE occurrence running at a time (enforced in the canvas punch-in/log
+ * paths: starting a fresh one first punches out any current ongoing).
+ *
+ *   • CLICK the whole TILE FRAME → when idle, start a fresh occurrence and DRILL into it;
+ *     when one is already ongoing, just OPEN that occurrence (no second start).
+ *   • CLICK the GLYPH → when idle, start a fresh occurrence and STAY on the canvas; when
+ *     ongoing, punch it OUT (end it) — it never starts a second. The glyph spins (as an
+ *     OUTLINE, matching the entity header) while ongoing.
  *   • The COUNTER SLOT (after the title) shows nothing when nothing runs; a LIVE meta
  *     (elapsed, or a down-counter to the end) when exactly ONE occurrence is ongoing; and
  *     `(n)` (a toggle) when more than one is.
@@ -192,10 +195,36 @@ export function Zero0Frequent({
                 const running = n > 0
                 const soleOngoing = n === 1 ? g.instances.find((i) => i.state === "ongoing") : undefined
                 const soleMeta = soleOngoing ? ongoingHeaderMeta(soleOngoing, nowTick) : undefined
+                // FRAME click = the primary "enter the activity" gesture: when idle, START a
+                // fresh occurrence and DRILL into it; when one is already running (single-
+                // instance rule), just OPEN that ongoing occurrence (no second start).
+                const openOngoing = () => {
+                  const o = g.instances.find((i) => i.state === "ongoing")
+                  if (o) onOpen(o.id)
+                }
+                const onFrame = () => (running ? openOngoing() : onPunchIn(g, { stay: false }))
                 return (
                   <div
                     key={g.key}
-                    className="flex flex-col gap-1 rounded-md border border-border px-2 py-1.5"
+                    role="button"
+                    tabIndex={0}
+                    onClick={onFrame}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault()
+                        onFrame()
+                      }
+                    }}
+                    onContextMenu={(e) => {
+                      e.preventDefault()
+                      setMenu({ key: g.key, x: e.clientX, y: e.clientY })
+                    }}
+                    className="flex cursor-pointer flex-col gap-1 rounded-md border border-border px-2 py-1.5 transition-colors hover:border-foreground/40"
+                    title={
+                      running
+                        ? `Open ongoing ${g.title} · right-click for options`
+                        : `Start ${g.title} now — open it · right-click for options`
+                    }
                   >
                     {/* TILE HEADER — dot · glyph · title · (n)/meta */}
                     <div className="flex items-center gap-1.5">
@@ -205,37 +234,33 @@ export function Zero0Frequent({
                         className="h-2 w-2 shrink-0 rounded-full"
                         style={{ backgroundColor: dot ?? "var(--muted-foreground)" }}
                       />
-                      {/* GLYPH — punch IN + STAY, or (with >1 ongoing) reveal the lists. An
-                          ongoing activity spins as an OUTLINE (never filled), matching the
-                          entity header's state-driven glyph. */}
+                      {/* GLYPH — the STAY-here control: punch OUT the ongoing occurrence when
+                          running, else START a fresh one without drilling in. Spins as an
+                          OUTLINE (never filled) while ongoing, matching the entity header. */}
                       <button
                         type="button"
-                        onClick={() => (n > 1 ? setExpanded(true) : onPunchIn(g, { stay: true }))}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          if (running) onEndAll(g)
+                          else onPunchIn(g, { stay: true })
+                        }}
                         className={
                           "shrink-0 transition-opacity hover:opacity-70 " +
                           (running ? "text-foreground" : "text-muted-foreground")
                         }
-                        title={n > 1 ? `${n} ${g.title} ongoing — show the list` : `Start ${g.title} now — stay here`}
-                        aria-label={n > 1 ? `Show ongoing ${g.title}` : `Start ${g.title} now, stay on canvas`}
+                        title={running ? `End ${g.title} now — stay here` : `Start ${g.title} now — stay here`}
+                        aria-label={running ? `End ongoing ${g.title}` : `Start ${g.title} now, stay on canvas`}
                       >
                         <Zero0Glyph kind={g.kind} ongoing={running} filled={false} className="h-3.5 w-3.5" />
                       </button>
-                      {/* TITLE — punch IN + DRILL into the new occurrence. */}
-                      <button
-                        type="button"
-                        onClick={() => onPunchIn(g, { stay: false })}
-                        onContextMenu={(e) => {
-                          e.preventDefault()
-                          setMenu({ key: g.key, x: e.clientX, y: e.clientY })
-                        }}
+                      {/* TITLE — plain text; the whole frame carries the click. */}
+                      <span
                         className={
-                          "max-w-[10rem] truncate transition-opacity hover:opacity-70 " +
-                          (running ? "text-foreground" : "text-muted-foreground")
+                          "max-w-[10rem] truncate " + (running ? "text-foreground" : "text-muted-foreground")
                         }
-                        title={`Start ${g.title} now — open it · right-click for options`}
                       >
                         {g.title}
-                      </button>
+                      </span>
                       {/* COUNTER SLOT — the single ongoing's live meta, or `(n)` to toggle. */}
                       {n === 1 && soleMeta && (
                         <span className="shrink-0 tabular-nums text-muted-foreground" title={soleMeta.title}>
@@ -245,7 +270,10 @@ export function Zero0Frequent({
                       {n > 1 && (
                         <button
                           type="button"
-                          onClick={toggle}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            toggle()
+                          }}
                           className={
                             "shrink-0 tabular-nums transition-colors " +
                             (expanded ? "text-foreground" : "text-muted-foreground hover:text-foreground")
@@ -258,10 +286,16 @@ export function Zero0Frequent({
                       )}
                     </div>
 
-                    {/* PER-TILE LIST — animated grid-rows collapse (fluid height). Shown for
-                        every tile when §4 is expanded. */}
+                    {/* PER-TILE LIST — animated grid-rows collapse (fluid height). When
+                        collapsed, `max-w-0` clips it to zero width too so an ongoing tile no
+                        longer inflates to its (wide) list width. Row clicks stop propagation so
+                        they don't trigger the frame's start/open. */}
                     <div
-                      className="grid transition-[grid-template-rows] duration-300 ease-out motion-reduce:transition-none"
+                      onClick={(e) => e.stopPropagation()}
+                      className={
+                        "grid overflow-hidden transition-[grid-template-rows] duration-300 ease-out motion-reduce:transition-none " +
+                        (expanded ? "" : "max-w-0")
+                      }
                       style={{ gridTemplateRows: expanded ? "1fr" : "0fr" }}
                       inert={!expanded}
                     >
