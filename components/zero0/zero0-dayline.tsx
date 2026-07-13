@@ -50,11 +50,13 @@ const DEFAULT_PRESENCE = "#ffffff"
 
 // On the COMBINED TODAY lane (`tracks="both"`) planned + presence share one centered
 // band, so they're told apart by HEIGHT instead of by row: planned ticks render TALL at a
-// fixed 20px (the "intent", emphasised) while presence ticks render 20% SHORTER than the
-// base height (the quieter "what actually happened"). Applied uniformly, independent of
-// the now marker. Presence is painted AFTER planned so it stacks IN FRONT.
+// fixed 20px (the "intent", emphasised) while presence ticks render at a fixed 10px (the
+// quieter "what actually happened"). Both are applied uniformly, independent of hover and
+// the now marker. Presence is painted AFTER planned so it stacks IN FRONT — and, unlike
+// planned, presence is drawn fully OPAQUE at all times (it's the solid record of where I
+// actually was), while planned stays faint until hovered.
 const PLANNED_HEIGHT_PX = 20
-const PRESENCE_HEIGHT_SCALE = 0.8
+const PRESENCE_HEIGHT_PX = 10
 
 /**
  * Resolve the two colors a dayline tick paints, shared by BOTH tracks (planned +
@@ -891,15 +893,16 @@ export function Zero0Dayline({
               {mounted &&
                 (combined ? [...planned, ...presence] : isPresence ? presence : planned).map((p) => {
                   const isHot = hoveredKey === p.key
-                  // Height. Base is 9px (13 when hovered). On the COMBINED TODAY lane the two
-                  // tracks are told apart by size instead of by row: planned = a fixed 20px
-                  // tall, presence = 20% shorter than base. Elsewhere every tick is the base.
+                  const isPresenceTick = combined ? p.track === "presence" : isPresence
+                  // Height. PRESENCE = a fixed 10px (always, hover-independent — its solid
+                  // record height). PLANNED on the combined lane = a fixed 20px (the taller
+                  // "intent"); a planned-only lane uses the base 9px (13 when hovered).
                   const baseH = isHot ? 13 : 9
-                  const tickH = combined
-                    ? p.track === "planned"
+                  const tickH = isPresenceTick
+                    ? PRESENCE_HEIGHT_PX
+                    : combined
                       ? PLANNED_HEIGHT_PX
-                      : Math.round(baseH * PRESENCE_HEIGHT_SCALE)
-                    : baseH
+                      : baseH
                   // COLORS. Fill = entity color (sleep → night sky); the root sentinel paints
                   // the THEME BACKGROUND (near-black in dark, near-white in light) instead of
                   // going transparent, so a root presence tick reads as a solid outlined chip.
@@ -950,8 +953,9 @@ export function Zero0Dayline({
                           // FILL = entity color; HAIRLINE = parent color, only inside a Space.
                           background: fill,
                           border: p.stroke ? `1px solid ${p.stroke}` : "none",
-                          // Both tracks read as a faint layer; hovering one snaps to full.
-                          opacity: isHot ? 1 : 0.4,
+                          // PRESENCE is fully opaque at all times (the solid record); PLANNED
+                          // reads as a faint layer until hovered.
+                          opacity: isPresenceTick || isHot ? 1 : 0.4,
                           zIndex: isHot ? 16 : 8,
                         }}
                       />
