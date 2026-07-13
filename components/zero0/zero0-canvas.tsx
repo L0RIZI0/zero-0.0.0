@@ -21,6 +21,7 @@ import {
   addWebResource,
   setEntityCompleted,
   setEntityScheduleField,
+  setEntityClosed,
   setEntityAccent,
   setEntitySex,
   setEntityClosePolicy,
@@ -725,6 +726,27 @@ export function Zero0Canvas() {
     [bump],
   )
 
+  // FREQUENT (§4) END ALL — punch OUT every currently-ongoing occurrence of an activity at
+  // once (stamp each `endAt`=now → they become COMPLETE, tz-stably closing at midnight).
+  const endAllOngoingFrequent = useCallback(
+    (g: FrequentGroup) => {
+      const now = Date.now()
+      for (const inst of g.instances) if (inst.state === "ongoing") setEntityScheduleField(inst.id, "endAt", now)
+      bump()
+    },
+    [bump],
+  )
+
+  // FREQUENT (§4) CLOSE ALL — force-CLOSE every ongoing occurrence now (the entity-menu
+  // "Close" action applied in bulk: stamps the close immediately rather than at midnight).
+  const closeAllOngoingFrequent = useCallback(
+    (g: FrequentGroup) => {
+      for (const inst of g.instances) if (inst.state === "ongoing") setEntityClosed(inst.id, true)
+      bump()
+    },
+    [bump],
+  )
+
   // FREQUENT (§4) DURATION log — file a block from the right-click form (stays on canvas).
   // The form computes an absolute `startAt` and either an explicit `endAt` (a COMPLETE block:
   // glyph fills, time-closes at midnight) or `null` (still running → ongoing/spinning).
@@ -1029,6 +1051,8 @@ export function Zero0Canvas() {
               onPunchIn={punchInFrequent}
               onPunchOut={punchOutFrequent}
               onLog={logFrequent}
+              onEndAll={endAllOngoingFrequent}
+              onCloseAll={closeAllOngoingFrequent}
               onOpen={navigateTo}
             />
           </div>

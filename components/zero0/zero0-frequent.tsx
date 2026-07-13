@@ -6,9 +6,6 @@ import { isSleepTitle, sleepDotColor } from "@/lib/zero/sleep-sky"
 import { Zero0Glyph } from "@/components/zero0/zero0-glyph"
 import { Zero0FrameMarker } from "@/components/zero0/zero0-frame-marker"
 
-/** How a right-click block is filed: as already finished, or still going. */
-export type FrequentLogMode = "ended" | "ongoing"
-
 /** Quick-duration presets offered in the right-click log form (minutes). */
 const DURATIONS: { label: string; minutes: number }[] = [
   { label: "15m", minutes: 15 },
@@ -104,7 +101,8 @@ function Chevron({ expanded }: { expanded: boolean }) {
  *     `(n)` (a toggle) when more than one is.
  *   • Each list row is an ONGOING or COMPLETE-not-closed occurrence with live meta. A row's
  *     GLYPH punches an ongoing occurrence OUT; its TITLE/meta OPENS it. Neither collapses §4.
- *   • RIGHT-CLICK a tile → a small form to log a fixed block.
+ *   • RIGHT-CLICK a tile → a small MENU: "Log…" (opens the block form), plus "End all
+ *     ongoing" / "Close all ongoing" when any occurrence is running.
  *
  * Data comes from {@link getFrequentEntities}; `dataRev` is the parent's mutation counter.
  */
@@ -113,6 +111,8 @@ export function Zero0Frequent({
   onPunchIn,
   onPunchOut,
   onLog,
+  onEndAll,
+  onCloseAll,
   onOpen,
 }: {
   dataRev: number
@@ -122,6 +122,10 @@ export function Zero0Frequent({
   onPunchOut: (id: string) => void
   /** Log a block: absolute `startAt`, and `endAt` (complete) or `null` (still ongoing). */
   onLog: (group: FrequentGroup, startAt: number, endAt: number | null) => void
+  /** End (punch out) EVERY ongoing occurrence of this activity now. */
+  onEndAll: (group: FrequentGroup) => void
+  /** Close EVERY ongoing occurrence of this activity now. */
+  onCloseAll: (group: FrequentGroup) => void
   /** Open (drill into) an existing occurrence by id. */
   onOpen: (id: string) => void
 }) {
@@ -137,7 +141,9 @@ export function Zero0Frequent({
   // form auto-flip). It runs whenever ANYTHING is ongoing (so collapsed header timers still
   // tick) or the log form is open — idle otherwise.
   const anyOngoing = groups.some((g) => g.ongoingCount > 0)
-  const [menu, setMenu] = useState<{ key: string; x: number; y: number } | null>(null)
+  // The right-click popover: first a small MENU, then (via "Log…") the block FORM. `key`
+  // pins it to a tile; `view` swaps content in place at the same cursor anchor.
+  const [menu, setMenu] = useState<{ key: string; x: number; y: number; view: "menu" | "form" } | null>(null)
   const menuGroup = menu ? groups.find((g) => g.key === menu.key) : undefined
   const [nowTick, setNowTick] = useState(() => Date.now())
   useEffect(() => {
@@ -220,13 +226,13 @@ export function Zero0Frequent({
                         onClick={() => onPunchIn(g, { stay: false })}
                         onContextMenu={(e) => {
                           e.preventDefault()
-                          setMenu({ key: g.key, x: e.clientX, y: e.clientY })
+                          setMenu({ key: g.key, x: e.clientX, y: e.clientY, view: "menu" })
                         }}
                         className={
                           "max-w-[10rem] truncate transition-opacity hover:opacity-70 " +
                           (running ? "text-foreground" : "text-muted-foreground")
                         }
-                        title={`Start ${g.title} now — open it · right-click to log a block`}
+                        title={`Start ${g.title} now — open it · right-click for options`}
                       >
                         {g.title}
                       </button>
@@ -287,18 +293,117 @@ export function Zero0Frequent({
         <Zero0FrameMarker flag="frequent" label="the frequent band" />
       </div>
 
-      {/* RIGHT-CLICK LOG FORM */}
-      {menu && menuGroup && (
+      {/* RIGHT-CLICK POPOVER — the small menu, or (via "Log…") the block form. */}
+      {menu && menuGroup && menu.view === "menu" && (
+        <TileMenu
+          group={menuGroup}
+          x={menu.x}
+          y={menu.y}
+          onClose={() => setMenu(null)}
+          onLogOpen={() => setMenu((m) => (m ? { ...m, view: "form" } : m))}
+          onEndAll={onEndAll}
+          onCloseAll={onCloseAll}
+        />
+      )}
+      {menu && menuGroup && menu.view === "form" && (
         <LogForm
           group={menuGroup}
           x={menu.x}
           y={menu.y}
-          nowTick={nowTick}
           onClose={() => setMenu(null)}
           onLog={onLog}
         />
       )}
     </section>
+  )
+}
+
+/**
+ * The right-click TILE MENU — a compact command list for one activity. Always offers "Log…"
+ * (which swaps this popover to the block form); when the activity has any ongoing occurrence
+ * it also offers "End all ongoing" (punch every one out → COMPLETE) and "Close all ongoing"
+ * (force-close every one now). Fixed popover at the cursor behind a dismissing backdrop.
+ */
+function TileMenu({
+  group,
+  x,
+  y,
+  onClose,
+  onLogOpen,
+  onEndAll,
+  onCloseAll,
+}: {
+  group: FrequentGroup
+  x: number
+  y: number
+  onClose: () => void
+  onLogOpen: () => void
+  onEndAll: (group: FrequentGroup) => void
+  onCloseAll: (group: FrequentGroup) => void
+}) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose()
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [onClose])
+
+  const n = group.ongoingCount
+  const vw = typeof window !== "undefined" ? window.innerWidth : 9999
+  const vh = typeof window !== "undefined" ? window.innerHeight : 9999
+
+  const item =
+    "w-full rounded px-2 py-1 text-left transition-colors hover:bg-foreground hover:text-background disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-muted-foreground"
+
+  return (
+    <>
+      <div
+        className="fixed inset-0 z-40"
+        onClick={onClose}
+        onContextMenu={(e) => {
+          e.preventDefault()
+          onClose()
+        }}
+      />
+      <div
+        role="menu"
+        aria-label={`${group.title} — options`}
+        className="fixed z-50 flex w-44 flex-col gap-0.5 rounded-md border border-border bg-background p-1 text-[11px] text-muted-foreground shadow-md"
+        style={{ left: Math.min(x, vw - 190), top: Math.min(y, vh - 120) }}
+      >
+        <div className="truncate px-2 py-1 text-foreground">{group.title}</div>
+        <button type="button" role="menuitem" onClick={onLogOpen} className={item}>
+          Log…
+        </button>
+        <button
+          type="button"
+          role="menuitem"
+          disabled={n === 0}
+          onClick={() => {
+            onEndAll(group)
+            onClose()
+          }}
+          className={item}
+          title={n === 0 ? "Nothing ongoing" : `End all ${n} ongoing ${group.title}`}
+        >
+          End all ongoing{n > 0 ? ` (${n})` : ""}
+        </button>
+        <button
+          type="button"
+          role="menuitem"
+          disabled={n === 0}
+          onClick={() => {
+            onCloseAll(group)
+            onClose()
+          }}
+          className={item}
+          title={n === 0 ? "Nothing ongoing" : `Close all ${n} ongoing ${group.title}`}
+        >
+          Close all ongoing{n > 0 ? ` (${n})` : ""}
+        </button>
+      </div>
+    </>
   )
 }
 
@@ -349,43 +454,61 @@ function InstanceRow({
 }
 
 /**
- * The right-click LOG form: a START time, a DURATION, and an ongoing/ended toggle. Renders
- * as a fixed popover at the cursor behind a dismissing backdrop. Commit paths:
- *   • a duration CHIP commits immediately with the current start + mode (the fast path);
- *   • the number field + "log" button commits an arbitrary duration.
- * The ongoing/ended toggle auto-flips to "ended" whenever start+duration lands in the past.
+ * The right-click LOG form (reached via the tile menu's "Log…"): a START time, a DURATION,
+ * and a binary "ended: yes/no" toggle. Renders as a fixed popover behind a dismissing
+ * backdrop.
+ *
+ * The toggle defaults to NO — i.e. the activity is about to START now and run ongoing. Flip
+ * it to YES and the block is treated as one that JUST ENDED after lasting `duration`: the
+ * start is recalculated back by the duration so the END lands at the moment you flipped it
+ * (never a future-dated block). The commit button therefore reads "Start" when no (opens an
+ * ongoing occurrence) and "Log" when yes (files a completed block).
+ *
+ *   • ended = NO  → onLog(start, null)              → ongoing, starting at `start` (now).
+ *   • ended = YES → onLog(start, start + duration)  → completed block [start, start+dur].
+ *
+ * While ended, changing the duration keeps the END anchored (start shifts) so it stays a
+ * "just finished" block. Duration chips only SET the duration; the button is the sole commit.
  */
 function LogForm({
   group,
   x,
   y,
-  nowTick,
   onClose,
   onLog,
 }: {
   group: FrequentGroup
   x: number
   y: number
-  nowTick: number
   onClose: () => void
   onLog: (group: FrequentGroup, startAt: number, endAt: number | null) => void
 }) {
-  const [mode, setMode] = useState<FrequentLogMode>("ended")
+  const [ended, setEnded] = useState(false)
   const [startAt, setStartAt] = useState(() => Date.now())
   const [durationMin, setDurationMin] = useState(30)
-  const [durationTouched, setDurationTouched] = useState(false)
+  const endMs = startAt + durationMin * MIN
 
-  // While "ongoing" and untouched, the duration shows live elapsed (now − start).
-  const effectiveMin =
-    mode === "ongoing" && !durationTouched ? Math.max(0, Math.round((nowTick - startAt) / MIN)) : durationMin
-  const endCandidate = startAt + effectiveMin * MIN
+  // Toggling recalculates the start so the END stays put: switching to "ended" pulls start
+  // back by the duration (end = the flip moment ≈ now); switching back pushes it forward.
+  const toggleEnded = useCallback(
+    (next: boolean) => {
+      if (next === ended) return
+      setStartAt((s) => s + (next ? -1 : 1) * durationMin * MIN)
+      setEnded(next)
+    },
+    [ended, durationMin],
+  )
 
-  // Auto-flip: if an ongoing block's end has already passed, it isn't ongoing — it ended.
-  useEffect(() => {
-    if (mode === "ongoing" && durationTouched && startAt + durationMin * MIN < nowTick - 1000) {
-      setMode("ended")
-    }
-  }, [mode, durationTouched, durationMin, startAt, nowTick])
+  // Changing the duration while "ended" keeps the END anchored (start absorbs the delta), so
+  // it remains a block that finished at the same moment. While ongoing, start stays put.
+  const changeDuration = useCallback(
+    (next: number) => {
+      const n = Math.max(0, next)
+      setStartAt((s) => (ended ? s + (durationMin - n) * MIN : s))
+      setDurationMin(n)
+    },
+    [ended, durationMin],
+  )
 
   // Dismiss on Escape.
   useEffect(() => {
@@ -396,15 +519,10 @@ function LogForm({
     return () => window.removeEventListener("keydown", onKey)
   }, [onClose])
 
-  const commit = useCallback(
-    (minutes: number, forceMode?: FrequentLogMode) => {
-      const end = startAt + minutes * MIN
-      const m = forceMode ?? (mode === "ongoing" && end < nowTick - 1000 ? "ended" : mode)
-      onLog(group, startAt, m === "ended" ? end : null)
-      onClose()
-    },
-    [group, startAt, mode, nowTick, onLog, onClose],
-  )
+  const commit = useCallback(() => {
+    onLog(group, startAt, ended ? startAt + durationMin * MIN : null)
+    onClose()
+  }, [group, startAt, ended, durationMin, onLog, onClose])
 
   const vw = typeof window !== "undefined" ? window.innerWidth : 9999
   const vh = typeof window !== "undefined" ? window.innerHeight : 9999
@@ -423,24 +541,31 @@ function LogForm({
         role="menu"
         aria-label={`Log a ${group.title} block`}
         className="fixed z-50 flex w-52 flex-col gap-2 rounded-md border border-border bg-background p-2 text-[11px] shadow-md"
-        style={{ left: Math.min(x, vw - 220), top: Math.min(y, vh - 170) }}
+        style={{ left: Math.min(x, vw - 220), top: Math.min(y, vh - 190) }}
       >
+        {/* Title + the binary "ended: yes/no" toggle. */}
         <div className="flex items-center justify-between gap-2">
           <span className="truncate text-foreground">{group.title}</span>
-          <div className="flex shrink-0 overflow-hidden rounded border border-border">
-            {(["ended", "ongoing"] as const).map((m) => (
-              <button
-                key={m}
-                type="button"
-                onClick={() => setMode(m)}
-                className={
-                  "px-1.5 py-0.5 transition-colors " +
-                  (mode === m ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground")
-                }
-              >
-                {m}
-              </button>
-            ))}
+          <div className="flex shrink-0 items-center gap-1">
+            <span className="text-muted-foreground">ended</span>
+            <div className="flex overflow-hidden rounded border border-border">
+              {([
+                { on: false, label: "no" },
+                { on: true, label: "yes" },
+              ] as const).map((o) => (
+                <button
+                  key={o.label}
+                  type="button"
+                  onClick={() => toggleEnded(o.on)}
+                  className={
+                    "px-1.5 py-0.5 transition-colors " +
+                    (ended === o.on ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground")
+                  }
+                >
+                  {o.label}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
 
@@ -459,45 +584,43 @@ function LogForm({
             <input
               type="number"
               min={0}
-              value={effectiveMin}
-              onChange={(e) => {
-                setDurationTouched(true)
-                setDurationMin(Math.max(0, Number.parseInt(e.target.value, 10) || 0))
-              }}
+              value={durationMin}
+              onChange={(e) => changeDuration(Number.parseInt(e.target.value, 10) || 0)}
               className="w-12 rounded border border-border bg-background px-1 py-0.5 text-right text-foreground tabular-nums"
             />
             min
           </label>
         </div>
 
-        {/* Quick-duration chips — commit immediately with the current start + mode. */}
+        {/* Quick-duration chips — set the duration (the button commits). */}
         <div className="flex flex-wrap gap-1">
           {DURATIONS.map((d) => (
             <button
               key={d.minutes}
               type="button"
-              onClick={() => commit(d.minutes)}
-              className="rounded border border-border px-1.5 py-1 text-muted-foreground transition-colors hover:bg-foreground hover:text-background"
-              title={
-                mode === "ended"
-                  ? `Log ${group.title} for ${d.label} from ${msToTimeInput(startAt)}`
-                  : `Log ${group.title} started ${d.label} ago (ongoing)`
+              onClick={() => changeDuration(d.minutes)}
+              className={
+                "rounded border px-1.5 py-1 transition-colors hover:bg-foreground hover:text-background " +
+                (durationMin === d.minutes
+                  ? "border-foreground text-foreground"
+                  : "border-border text-muted-foreground")
               }
+              title={`Set duration to ${d.label}`}
             >
               {d.label}
             </button>
           ))}
         </div>
 
-        {/* Commit the number field. Shows the resolved span / ongoing state. */}
+        {/* Commit — "Start" (ongoing) or "Log" (completed block), with the resolved span. */}
         <button
           type="button"
-          onClick={() => commit(effectiveMin)}
+          onClick={commit}
           className="rounded bg-foreground px-1.5 py-1 text-background transition-opacity hover:opacity-80"
         >
-          {mode === "ongoing" && endCandidate >= nowTick - 1000
-            ? `log · ongoing since ${msToTimeInput(startAt)}`
-            : `log · ${msToTimeInput(startAt)}–${msToTimeInput(endCandidate)}`}
+          {ended
+            ? `Log · ${msToTimeInput(startAt)}–${msToTimeInput(endMs)}`
+            : `Start · ${msToTimeInput(startAt)}`}
         </button>
       </div>
     </>
