@@ -205,23 +205,31 @@ function fmtShort(epoch: number, now: number): string {
 //   • moment    → its span "start–end · dur", or "since start · dur" while ongoing (live), or
 //                 a lone point "at"; nothing when unscheduled.
 //   • instant   → its point time.
-//   • task      → its due time (only when set).
+//   • task      → its due time; OR a scheduled span "start–end · dur" / ongoing "since start ·
+//                 dur" / lone "at" (a task can carry start/end/duration too, not just a due).
+//                 Due takes precedence when both are set.
 //   • individual→ sex glyph · age (elapsed since birth/createdAt).
 // Everything else (space/community/organism/resource/soul) stays quiet — the row's kind +
 // title + state already say it all. `now` drives the live ongoing count-up.
 function rowMeta(e: Entity, now: number): string {
   const s = e.schedule
+  // A start/end/at span shared by moments AND scheduled tasks.
+  const span = (): string => {
+    if (s?.startAt != null && s?.endAt != null)
+      return `${fmtShort(s.startAt, now)}–${fmtShort(s.endAt, now)} · ${formatDuration(Math.max(0, s.endAt - s.startAt))}`
+    if (s?.startAt != null) return `since ${fmtShort(s.startAt, now)} · ${formatDuration(Math.max(0, now - s.startAt))}`
+    if (s?.at != null) return fmtShort(s.at, now)
+    return ""
+  }
   switch (e.kind) {
     case "moment":
-      if (s?.startAt != null && s?.endAt != null)
-        return `${fmtShort(s.startAt, now)}–${fmtShort(s.endAt, now)} · ${formatDuration(Math.max(0, s.endAt - s.startAt))}`
-      if (s?.startAt != null) return `since ${fmtShort(s.startAt, now)} · ${formatDuration(Math.max(0, now - s.startAt))}`
-      if (s?.at != null) return fmtShort(s.at, now)
-      return ""
+      return span()
     case "instant":
       return s?.at != null ? fmtShort(s.at, now) : ""
-    case "task":
-      return s?.dueAt != null ? `due ${fmtShort(s.dueAt, now)}` : ""
+    case "task": {
+      if (s?.dueAt != null) return `due ${fmtShort(s.dueAt, now)}`
+      return span() // start/end/duration when no due is set
+    }
     case "individual": {
       const created = getCreatedAt(e)
       const age = created != null ? formatDuration(Math.max(0, now - created)) : ""
