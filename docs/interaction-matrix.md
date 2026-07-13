@@ -32,6 +32,11 @@ Status tags: **[CUR]** = built + verified today · **[PART]** = partially built 
 | Drill INTO a web resource | resource w/ `webUrl` (desktop) | mounts a native tab; if already warm/parked ⇒ instant reveal (no reload) | web preview iframes internal `/…`; native only in Electron | [CUR] |
 | Drill AWAY from a web resource | resource w/ `webUrl` (desktop) | PARKS the tab: hidden + background-throttled, kept resident (warm) for instant re-open | LRU pool cap 4 ⇒ oldest parked tab destroyed | [CUR] |
 | Close button (§0/§1 header ×) | any drilled-in entity (`path>1`) | climbs out to parent; for a `webUrl` resource also DESTROYS its tab for good | root has no × | [CUR] |
+| Right-click ▸ Hide / Unhide | any child in ENTITY CONTENT | toggles stored `hidden`; row collapses (grid-rows anim) out of the list, siblings renumber | counts/timeline/siblings untouched | [CUR] |
+| Right-click ▸ Show hidden / Hide hidden | current context | VIEW toggle (session-only, resets on nav): reveals hidden + auto-hidden children with a `(hidden)` prefix | not a data mutation | [CUR] |
+| Auto-hide (derived) | closed child | a child closed BEFORE today's 5am day-start collapses from ENTITY CONTENT | computed from `closeAt`, never stored; revealed by Show hidden | [CUR] |
+| Presence on the TODAY dayline | any visited entity | drill-in presence segments paint ticks on the TODAY lane (`tracks="both"`); tooltip = title, click opens it | — | [CUR] |
+| Planned tick elapses (NOW crosses its end) | scheduled occurrence | tick RISES to the upper row (smooth 480ms glide) so past-planned never overlaps past-presence | ongoing (no end) stays on the lower row | [CUR] |
 | Being the focused context | any kind | (today) no state change | — | [CUR] |
 | Enter a Task with empty `startAt` | task/open | SHOULD read `ongoing` + glyph spins while inside; revert on exit | all-children-open ⇒ back to open, else ongoing no-spin | [TODO] |
 | Focused-context spin scope | task only (proposed) | only Tasks spin while focused | — | [TODO] |
