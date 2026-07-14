@@ -2,7 +2,14 @@
 
 import type React from "react"
 import { Zero0Glyph } from "./zero0-glyph"
-import { getFaceModel, getFaceMetaRows, type FaceModel, type FaceSize } from "@/lib/zero/face-model"
+import {
+  getFaceModel,
+  getFaceMetaRows,
+  faceModelFromLike,
+  type FaceModel,
+  type FaceLike,
+  type FaceSize,
+} from "@/lib/zero/face-model"
 import type { Entity } from "@/lib/zero/types"
 
 /**
@@ -18,8 +25,14 @@ import type { Entity } from "@/lib/zero/types"
  *     drift (§0 omitted `ongoing`, read `isCancelled()` directly); now unified.
  *
  * What varies by size is only the ARRANGEMENT — which fields, in what order, at what
- * scale — because "a size is a curated projection." Only `m` (the content row) and
- * `full` (§0) are implemented; the other rungs are named but not yet drawn.
+ * scale — because "a size is a curated projection." `full` (§0) and `m` (the content
+ * row) are entity rungs; `xs` is the smallest rung and is PROJECTION-friendly (it renders
+ * from a lightweight `FaceLike`, not a live Entity), which is what lets ACTIVITY presence
+ * (and, next, STARTERS groups) render as real Faces. `s`/`l`/`xl` are named but not drawn.
+ *
+ * A Face renders from ONE resolved `FaceModel`, sourced from an `entity` (full lifecycle),
+ * a `faceLike` projection (inert lifecycle), or an explicit `model`. The entity rungs
+ * (`m`/`full`) require an entity; the projection rung (`xs`) does not.
  *
  * Content-side chrome stays in the canvas: the `<li>`/collapse wrapper, the row index,
  * the delete ×, hover-to-highlight, the §0 collapse + life log + frame marker. The Face
@@ -77,12 +90,19 @@ function FaceGlyph({
 }
 
 export interface Zero0FaceProps {
-  entity: Entity
   size: FaceSize
-  /** Epoch (ms) driving live duration/ongoing readouts. */
-  now: number
-  /** Toggle the soft DONE marker (glyph + done cell). */
-  onToggleDone: (e: Entity) => void
+  /** The entity to present. Required for the `m`/`full` rungs (they read lifecycle +
+      toggle done). Omitted for a PROJECTION rung (`xs`), which renders from `faceLike`. */
+  entity?: Entity
+  /** A non-entity PROJECTION (STARTERS group / ACTIVITY presence) — used by `xs` when
+      there is no live entity. Resolved into the same FaceModel via `faceModelFromLike`. */
+  faceLike?: FaceLike
+  /** An already-built model (escape hatch); wins over `entity`/`faceLike` when provided. */
+  model?: FaceModel
+  /** Epoch (ms) driving live duration/ongoing readouts (entity rungs). */
+  now?: number
+  /** Toggle the soft DONE marker (glyph + done cell) — entity rungs. */
+  onToggleDone?: (e: Entity) => void
   /** `m`: clicking the title drills INTO the entity. */
   onOpen?: (e: Entity) => void
   /** `m`: prefix the title with "(hidden)" (only shown when Show hidden is on). */
@@ -91,15 +111,46 @@ export interface Zero0FaceProps {
   onContextMenu?: (e: Entity, ev: React.MouseEvent) => void
   /** `full`: trailing slot on the identity line (the canvas's close button when drilled in). */
   trailing?: React.ReactNode
+  /** `xs`: activate the title (the caller closes over its id — e.g. open the place). */
+  onActivate?: () => void
+  /** `xs`: right-click the title (the caller closes over its id → the entity menu). */
+  onActivateContextMenu?: (ev: React.MouseEvent) => void
+  /** `xs`: override the title button's width/flex class (rollup `w-24` vs feed `flex-1`). */
+  titleClassName?: string
 }
 
-export function Zero0Face({ entity, size, now, onToggleDone, onOpen, hiddenPrefix, onContextMenu, trailing }: Zero0FaceProps) {
-  const model = getFaceModel(entity, now)
+export function Zero0Face({
+  size,
+  entity,
+  faceLike,
+  model: modelProp,
+  now,
+  onToggleDone,
+  onOpen,
+  hiddenPrefix,
+  onContextMenu,
+  trailing,
+  onActivate,
+  onActivateContextMenu,
+  titleClassName,
+}: Zero0FaceProps) {
+  // Resolve ONE model, from whichever input was given: an explicit model wins, else a
+  // live entity (full lifecycle), else a projection (inert lifecycle).
+  const model: FaceModel | null = modelProp
+    ? modelProp
+    : entity
+      ? getFaceModel(entity, now ?? Date.now())
+      : faceLike
+        ? faceModelFromLike(faceLike)
+        : null
+  if (!model) return null
 
   // ── FULL (§0) ── identity line + exhaustive meta dl. The life log + frame marker +
-  // collapse wrapper stay in the canvas around this.
+  // collapse wrapper stay in the canvas around this. Entity-only rung.
   if (size === "full") {
-    const rows = getFaceMetaRows(entity, now)
+    if (!entity) return null
+    const toggle = onToggleDone ?? (() => {})
+    const rows = getFaceMetaRows(entity, now ?? Date.now())
     return (
       <>
         {/* Node header line: glyph + title + kind (+ trailing close). Fill = closed
@@ -108,7 +159,7 @@ export function Zero0Face({ entity, size, now, onToggleDone, onOpen, hiddenPrefi
           className={"flex items-center gap-2 text-[12px] " + (model.closed ? "opacity-60" : "")}
           onContextMenu={onContextMenu ? (ev) => onContextMenu(entity, ev) : undefined}
         >
-          <FaceGlyph entity={entity} model={model} size="full" onToggleDone={onToggleDone} />
+          <FaceGlyph entity={entity} model={model} size="full" onToggleDone={toggle} />
           <span className={"text-foreground " + (model.cancelled ? "line-through" : "")}>{model.title}</span>
           <span className="text-[10px] uppercase tracking-wider text-muted-foreground">{model.kindLabel}</span>
           {trailing}
@@ -136,13 +187,15 @@ export function Zero0Face({ entity, size, now, onToggleDone, onOpen, hiddenPrefi
   }
 
   // ── M (ENTITY CONTENT row) ── a fragment of the row's flex columns. The <li>/collapse,
-  // row index, delete ×, and hover handlers stay in the canvas.
+  // row index, delete ×, and hover handlers stay in the canvas. Entity-only rung.
   if (size === "m") {
+    if (!entity) return null
+    const toggle = onToggleDone ?? (() => {})
     return (
       <>
         {/* Glyph column: fill = closed (fillable kinds), check = done, bar = cancelled,
             "sent" flap = requested. Task glyph is a button (toggles Done); else static. */}
-        <FaceGlyph entity={entity} model={model} size="m" onToggleDone={onToggleDone} />
+        <FaceGlyph entity={entity} model={model} size="m" onToggleDone={toggle} />
         {/* Kind label — STATIC text. */}
         <span className="w-16 shrink-0 uppercase tracking-wider text-muted-foreground">{model.kindLabel}</span>
         {/* MANUAL color marker — a small dot when THIS entity has an explicitly set accent.
@@ -179,7 +232,7 @@ export function Zero0Face({ entity, size, now, onToggleDone, onOpen, hiddenPrefi
         {/* Inline DONE toggle (soft marker) — only kinds WITH a done axis. Others: muted placeholder. */}
         <button
           type="button"
-          onClick={() => onToggleDone(entity)}
+          onClick={() => toggle(entity)}
           disabled={!model.hasDoneState}
           className={
             "w-16 shrink-0 text-right " +
@@ -195,6 +248,38 @@ export function Zero0Face({ entity, size, now, onToggleDone, onOpen, hiddenPrefi
     )
   }
 
-  // xs / s / l / xl — not yet drawn (see /excerpts: middle rungs aren't frozen).
+  // ── XS ── the smallest rung: a neutral KIND glyph + a title button, nothing else. Used
+  // for PROJECTIONS (ACTIVITY presence rollups/segments today; STARTERS groups next) where
+  // there's no lifecycle to show — just "which kind, called what, click to go there." The
+  // glyph is muted + stateless (no fill/done/cancel), because a projection isn't the
+  // entity's own lifecycle. The title's width/flex is caller-controlled (`titleClassName`),
+  // and the caller keeps any aggregate meta (durations, bars, clock) as its own chrome
+  // AROUND this fragment. An optional `metaEcho` on the model renders as a trailing note.
+  if (size === "xs") {
+    return (
+      <>
+        <Zero0Glyph kind={model.kind} className="h-3 w-3 shrink-0 text-muted-foreground" />
+        <button
+          type="button"
+          onClick={onActivate}
+          onContextMenu={onActivateContextMenu}
+          className={
+            (titleClassName ?? "flex-1") +
+            " truncate text-left text-foreground transition-colors hover:text-muted-foreground"
+          }
+          title={model.title}
+        >
+          {model.title}
+        </button>
+        {model.metaEcho && (
+          <span className="shrink-0 whitespace-nowrap text-muted-foreground" title={model.metaEcho}>
+            {model.metaEcho}
+          </span>
+        )}
+      </>
+    )
+  }
+
+  // s / l / xl — not yet drawn (see /excerpts: middle rungs aren't frozen).
   return null
 }

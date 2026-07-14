@@ -12,7 +12,7 @@ import {
   type DaySegment,
   type SpaceRollup,
 } from "@/lib/zero/activity-log"
-import { Zero0Glyph } from "@/components/zero0/zero0-glyph"
+import { Zero0Face } from "@/components/zero0/zero0-face"
 import { Zero0Dayline } from "@/components/zero0/zero0-dayline"
 import { Zero0FrameMarker } from "@/components/zero0/zero0-frame-marker"
 import { useZero0Readout, toggleZero0Readout } from "@/lib/zero/zero0-chord"
@@ -347,18 +347,18 @@ function ActivityBody({
               const accent = accentOf(r.entityId)
               return (
                 <div key={r.entityId} data-flip-id={r.entityId} className="flex items-center gap-2">
-                  <Zero0Glyph kind={kindOf(r.entityId)} className="h-3 w-3 shrink-0 text-muted-foreground" />
-                  <button
-                    type="button"
-                    onClick={() => onOpen(r.entityId)}
-                    onContextMenu={
+                  {/* The place as an XS Face — a neutral kind glyph + its (current) title.
+                      A rollup is PRESENCE, not the entity's lifecycle, so the Face is a
+                      projection (faceLike); the bar + duration below stay Content-side. */}
+                  <Zero0Face
+                    size="xs"
+                    faceLike={{ kind: kindOf(r.entityId), title: titleForAt(r.entityId, Date.now()) }}
+                    onActivate={() => onOpen(r.entityId)}
+                    onActivateContextMenu={
                       onContextMenuEntity ? (ev) => onContextMenuEntity(r.entityId, ev) : undefined
                     }
-                    className="w-24 shrink-0 truncate text-left text-foreground transition-colors hover:text-muted-foreground"
-                    title={titleForAt(r.entityId, Date.now())}
-                  >
-                    {titleForAt(r.entityId, Date.now())}
-                  </button>
+                    titleClassName="w-24 shrink-0"
+                  />
                   {/* Live proportional bar — the open place's fill grows each second.
                       Tinted to the user-chosen color if any, else plain foreground. */}
                   <span className="relative h-1.5 flex-1 overflow-hidden rounded-[2px] bg-muted">
@@ -402,18 +402,17 @@ function ActivityBody({
                     aria-hidden
                   />
                   <span className="shrink-0 text-muted-foreground/50">{clock(s.startAt)}</span>
-                  <Zero0Glyph kind={kindOf(s.entityId)} className="h-3 w-3 shrink-0 text-muted-foreground" />
-                  <button
-                    type="button"
-                    onClick={() => onOpen(s.entityId)}
-                    onContextMenu={
+                  {/* The visited place as an XS Face — using the AS-OF title (its name at
+                      the time of the visit, resolved by titleForAt). Projection, like the
+                      rollup; the leading dot + clock and trailing duration stay Content-side. */}
+                  <Zero0Face
+                    size="xs"
+                    faceLike={{ kind: kindOf(s.entityId), title: titleForAt(s.entityId, s.startAt) }}
+                    onActivate={() => onOpen(s.entityId)}
+                    onActivateContextMenu={
                       onContextMenuEntity ? (ev) => onContextMenuEntity(s.entityId, ev) : undefined
                     }
-                    className="flex-1 truncate text-left text-foreground transition-colors hover:text-muted-foreground"
-                    title={titleForAt(s.entityId, s.startAt)}
-                  >
-                    {titleForAt(s.entityId, s.startAt)}
-                  </button>
+                  />
                   <span className="shrink-0 whitespace-nowrap text-muted-foreground">
                     {dur(s.durationMs)}
                     {isOpen ? " ·" : ""}

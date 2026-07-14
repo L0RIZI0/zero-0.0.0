@@ -17,7 +17,7 @@
 // a Face at any resolution. Kept free of React on purpose.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import type { Entity } from "./types"
+import type { Entity, EntityKind } from "./types"
 import { KIND_META, isClosed, fillsGlyph, getState, type EntityState } from "./kinds"
 import { isDone, getCreatedAt, getCompletedOn } from "./entity-log"
 import { getEntity, getCreator, getOwner, getForwardTags, getBackReferences } from "./data"
@@ -209,6 +209,9 @@ export function metaEcho(e: Entity, now: number): string {
 // each content row — glyph fill, the done checkmark, cancel bar, ongoing rotation,
 // the state word, and the inline meta echo now have a SINGLE definition.
 export interface FaceModel {
+  /** The entity/projection KIND — drives the glyph shape (so a Face can render its
+      glyph from the model alone, without an Entity in hand). */
+  kind: EntityKind
   title: string
   /** UPPERCASE kind label (e.g. "TASK", "MOMENT"). */
   kindLabel: string
@@ -246,6 +249,7 @@ export function getFaceModel(e: Entity, now: number): FaceModel {
   const requested = e.kind === "task" && !!e.requested
   const lifeLabel = state.word
   return {
+    kind: e.kind,
     title: e.title,
     kindLabel: km.label,
     hasDoneState: km.hasDoneState,
@@ -262,6 +266,54 @@ export function getFaceModel(e: Entity, now: number): FaceModel {
     stateLabel: `${done ? "done, " : ""}${lifeLabel}${requested ? ", requested" : ""}`,
     metaEcho: metaEcho(e, now),
     accent: e.accent,
+  }
+}
+
+// ── FACES OF NON-ENTITIES (projections) ───────────────────────────────────────
+// Not everything a Face shows is a live Entity. A STARTERS group aggregates many
+// instances under one title; an ACTIVITY rollup/segment is PRESENCE (time in a place),
+// and may even point at a since-deleted entity. These are PROJECTIONS — they have no
+// lifecycle of their own, so they present only their kind (glyph shape) + a title (+ an
+// optional aggregate echo the caller computes: "3 sessions", "1h 20m"). By resolving a
+// projection into the SAME FaceModel an entity produces, a projection becomes a first-
+// class Face — which is exactly what lets STARTERS/ACTIVITY render through <Zero0Face>.
+//
+// The caller is responsible for resolving the messy bits into a clean FaceLike: the
+// AS-OF title (the name a place had back then, via titleAt), the deleted-entity/ROOT
+// fallbacks, etc. The model layer stays pure and unaware of those concerns.
+export interface FaceLike {
+  /** Drives the glyph shape (defaults handled by the caller, e.g. a deleted place ⇒ space). */
+  kind: EntityKind
+  /** The title to show — already resolved by the caller (as-of, fallback, etc.). */
+  title: string
+  /** Optional own-accent (a projection rarely sets this; the glyph stays neutral if absent). */
+  accent?: string
+  /** Optional aggregate echo the caller computes (e.g. "3 sessions", "1h 20m tracked"). */
+  metaEcho?: string
+}
+
+// Resolve a projection into a FaceModel. A projection has NO lifecycle, so every state
+// flag is inert (no fill, no done, no cancel, no ongoing) — it presents just its kind +
+// title (+ optional aggregate echo). `stateLabel` falls back to the title so tooltips/
+// aria still read sensibly.
+export function faceModelFromLike(like: FaceLike): FaceModel {
+  const km = KIND_META[like.kind]
+  return {
+    kind: like.kind,
+    title: like.title,
+    kindLabel: km?.label ?? like.kind.toUpperCase(),
+    hasDoneState: false,
+    filled: false,
+    done: false,
+    showCheck: false,
+    cancelled: false,
+    requested: false,
+    ongoing: false,
+    closed: false,
+    lifeLabel: "",
+    stateLabel: like.title,
+    metaEcho: like.metaEcho ?? "",
+    accent: like.accent,
   }
 }
 
