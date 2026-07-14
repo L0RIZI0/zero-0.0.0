@@ -596,6 +596,28 @@ ipcMain.handle("zero:resource:mount", async (_e, args) => {
     })
   })
 
+  // ZOOM — let the user scale the rendered site. A trackpad pinch and a ctrl/⌘+scroll are
+  // both routed by Chromium to `zoom-changed`; we step the view's own zoom factor and clamp
+  // it. ⌘/Ctrl + = / - / 0 (keyboard) do the same, with 0 resetting to 100%. Zoom is
+  // per-WebContentsView, so each resource tab keeps its own scale.
+  const ZOOM_MIN = 0.3
+  const ZOOM_MAX = 5
+  const ZOOM_STEP = 0.1
+  const applyZoom = (next) => {
+    view.webContents.setZoomFactor(Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, next)))
+  }
+  view.webContents.on("zoom-changed", (_ez, zoomDirection) => {
+    const cur = view.webContents.getZoomFactor()
+    applyZoom(zoomDirection === "in" ? cur + ZOOM_STEP : cur - ZOOM_STEP)
+  })
+  view.webContents.on("before-input-event", (_ek, input) => {
+    if (input.type !== "keyDown" || !(input.control || input.meta)) return
+    const cur = view.webContents.getZoomFactor()
+    if (input.key === "0") applyZoom(1)
+    else if (input.key === "=" || input.key === "+") applyZoom(cur + ZOOM_STEP)
+    else if (input.key === "-") applyZoom(cur - ZOOM_STEP)
+  })
+
   // Links that try to open a new window (e.g. OAuth popups) open a real child
   // browser window rather than being denied, so sign-in flows work.
   view.webContents.setWindowOpenHandler(({ url: openUrl }) => {

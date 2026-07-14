@@ -48,15 +48,16 @@ const NEUTRAL = "oklch(0.72 0.004 75)"
 // render detects it (rather than tinting it like a real accent).
 const DEFAULT_PRESENCE = "#ffffff"
 
-// On the COMBINED TODAY lane (`tracks="both"`) planned + presence share one centered
-// band, so they're told apart by HEIGHT instead of by row: planned ticks render TALL at a
-// fixed 20px (the "intent", emphasised) while presence ticks render at a fixed 10px (the
-// quieter "what actually happened"). Both are applied uniformly, independent of hover and
-// the now marker. Presence is painted AFTER planned so it stacks IN FRONT — and, unlike
-// planned, presence is drawn fully OPAQUE at all times (it's the solid record of where I
-// actually was), while planned stays faint until hovered.
-const PLANNED_HEIGHT_PX = 20
+// On the COMBINED TODAY lane (`tracks="both"`) the band splits into TWO STACKED RAILS: the
+// TOP rail holds planned/logged occurrences (anything with a concrete start/at/due — past OR
+// future), the BOTTOM rail holds recorded presence (past only). Each tick centers on its
+// rail mid-line (see `railTop` in the render). Presence is painted AFTER planned so it stacks
+// IN FRONT — and, unlike planned, presence is drawn fully OPAQUE at all times (it's the solid
+// record of where I actually was), while planned stays faint until hovered.
 const PRESENCE_HEIGHT_PX = 10
+// On the COMBINED lane the planned rail shares the band with the presence rail below it
+// (two stacked ~14px rails), so its ticks are a compact 11px.
+const PLANNED_COMBINED_HEIGHT_PX = 11
 
 // When an entity is FOCUSED from elsewhere in the canvas — its ENTITY CONTENT row is
 // hovered, or it's the currently-open context — every tick that belongs to it grows to
@@ -187,6 +188,15 @@ interface DaylineBar {
    * planned bars and for every presence bar (those keep the flat faint/solid rule).
    */
   coverage?: number
+  /**
+   * PRESENCE bars only. A "session of using Zero" is a RUN of contiguous presence
+   * segments (leaving one place enters the next at the same instant; a gap only opens
+   * when the app was backgrounded). `roundLeft` marks the FIRST tick of such a run (its
+   * left corners round); `roundRight` marks the LAST (its right corners round). Ticks in
+   * the MIDDLE of a run stay fully square, so a session reads as one continuous pill.
+   */
+  roundLeft?: boolean
+  roundRight?: boolean
 }
 
 /**
@@ -381,11 +391,22 @@ export function Zero0Dayline({
     if (!mounted) return []
     const nowMs = now
     const out: DaylineBar[] = []
-    for (const s of getSegments()) {
+    // Raw ordered segments (oldest → newest). Adjacency is computed on the FULL sequence
+    // (not the windowed subset) so a session's rounded ends survive panning/clipping.
+    const segs = getSegments()
+    for (let i = 0; i < segs.length; i++) {
+      const s = segs[i]
       const st = s.enteredAt
       const en = s.leftAt ?? nowMs
       if (en <= st) continue // zero/negative width — skip
       if (en < lo || st > hi) continue // fully outside the buffered window
+      // SESSION ENDS — a tick starts a run when there's no contiguous predecessor (gap /
+      // first ever), and ends a run when it's still open (its end is "now") or the next
+      // segment didn't start exactly where this one left off.
+      const prev = segs[i - 1]
+      const next = segs[i + 1]
+      const roundLeft = !prev || prev.leftAt == null || prev.leftAt !== s.enteredAt
+      const roundRight = s.leftAt == null || !next || next.enteredAt !== s.leftAt
       const leftPct = ((st - winStart) / DAY_MS) * 100
       const widthPct = ((en - st) / DAY_MS) * 100
       const entity = getEntity(s.entityId)
@@ -406,6 +427,8 @@ export function Zero0Dayline({
         track: "presence",
         point: false,
         openEnded: s.leftAt == null,
+        roundLeft,
+        roundRight,
       })
     }
     return out
@@ -962,18 +985,45 @@ export function Zero0Dayline({
                   // Grows + fully opaque.
                   const lit = highlightId != null && p.id === highlightId
                   const isPresenceTick = combined ? p.track === "presence" : isPresence
-                  // Height. A LIT tick pops to 26px. Otherwise: PRESENCE = a fixed 10px
-                  // (always, hover-independent — its solid record height); PLANNED on the
-                  // combined lane = a fixed 20px (the taller "intent"); a planned-only lane
-                  // uses the base 9px (13 when hovered).
+                  // TWO RAILS (combined TODAY lane only): the band splits into a TOP rail of
+                  // planned/logged occurrences (past OR future) and a BOTTOM rail of presence
+                  // (past only). Each tick is centered on its rail's mid-line; a non-combined
+                  // lane keeps one centered band. `railTop` is the vertical anchor (percent of
+                  // the band) that `-translate-y-1/2` then centers the tick on.
+                  const railTop = combined ? (isPresenceTick ? "72%" : "28%") : "50%"
+                  // Height. A LIT tick pops (capped shorter on the combined lane so a hover
+                  // doesn't spill across the two rails). PRESENCE = its solid record height;
+                  // PLANNED on the combined lane = the shorter rail "intent"; a planned-only
+                  // lane uses the base 9px (13 when hovered).
                   const baseH = isHot ? 13 : 9
-                  const tickH = lit
-                    ? HIGHLIGHT_HEIGHT_PX
-                    : isPresenceTick
-                      ? PRESENCE_HEIGHT_PX
-                      : combined
-                        ? PLANNED_HEIGHT_PX
+                  const tickH = combined
+                    ? isPresenceTick
+                      ? lit || isHot
+                        ? 12
+                        : PRESENCE_HEIGHT_PX
+                      : lit || isHot
+                        ? 13
+                        : PLANNED_COMBINED_HEIGHT_PX
+                    : lit
+                      ? HIGHLIGHT_HEIGHT_PX
+                      : isPresenceTick
+                        ? PRESENCE_HEIGHT_PX
                         : baseH
+                  // ROUNDING. A point stays a dot. A PLANNED bar keeps all four corners soft.
+                  // A PRESENCE bar rounds ONLY the ends of its session run: left corners on the
+                  // first tick, right corners on the last; interior ticks are fully square so a
+                  // run reads as one pill. An isolated tick (both flags) is fully rounded.
+                  const roundCls = p.point
+                    ? "rounded-full"
+                    : p.track === "presence"
+                      ? p.roundLeft && p.roundRight
+                        ? "rounded-[2px]"
+                        : p.roundLeft
+                          ? "rounded-l-[2px] rounded-r-none"
+                          : p.roundRight
+                            ? "rounded-r-[2px] rounded-l-none"
+                            : "rounded-none"
+                      : "rounded-[2px]"
                   // COLORS. Fill = entity color (sleep → night sky); the root sentinel paints
                   // the THEME BACKGROUND (near-black in dark, near-white in light) instead of
                   // going transparent, so a root presence tick reads as a solid outlined chip.
@@ -1019,16 +1069,18 @@ export function Zero0Dayline({
                           onContextMenuEntity ? (ev) => onContextMenuEntity(p.id, ev) : undefined
                         }
                         className={cn(
-                          // Every tick is vertically CENTERED (top-1/2 + -translate-y-1/2)
-                          // across all lanes, and animates height changes smoothly.
-                          "pointer-events-auto absolute cursor-default top-1/2 -translate-y-1/2 transition-[height,opacity] duration-200",
-                          p.point ? "rounded-full" : "rounded-[2px]",
+                          // Every tick is vertically centered on its rail mid-line via
+                          // `-translate-y-1/2` (the anchor is `top: railTop` in the style),
+                          // and animates height changes smoothly.
+                          "pointer-events-auto absolute cursor-default -translate-y-1/2 transition-[height,opacity] duration-200",
+                          roundCls,
                           // Translate composes on separate axes: X for a point / open-ended
                           // segment, Y to center every tick. Tailwind's translate utils stack.
                           p.point && "-translate-x-1/2",
                           p.openEnded && "-translate-x-full",
                         )}
                         style={{
+                          top: railTop,
                           left: p.openEnded ? `${p.leftPct + p.widthPct}%` : `${p.leftPct}%`,
                           width: p.point ? 2 : `max(3px, ${p.widthPct}%)`,
                           height: tickH,
