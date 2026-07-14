@@ -59,11 +59,14 @@ function FaceGlyph({
   model,
   size,
   onToggleDone,
+  onTogglePlay,
 }: {
   entity: Entity
   model: FaceModel
   size: "m" | "full"
   onToggleDone: (e: Entity) => void
+  /** Play/Stop toggle for a `playable` ("whenever") moment/space. */
+  onTogglePlay?: (e: Entity) => void
 }) {
   const glyphClass = size === "full" ? "h-4 w-4" : "h-3.5 w-3.5"
   // Full sits on a `gap-2` line (no fixed column); a row glyph occupies the `w-6` column.
@@ -93,6 +96,22 @@ function FaceGlyph({
       </button>
     )
   }
+  // PLAYABLE ("whenever" moment/space): the glyph is a Play/Stop toggle that opens/closes a
+  // background session. `model.ongoing` (an open session) drives the label + the spinning glyph.
+  if (model.playable && onTogglePlay) {
+    const running = model.ongoing
+    return (
+      <button
+        type="button"
+        onClick={() => onTogglePlay(entity)}
+        className={wrapperBase + " cursor-pointer transition-opacity hover:opacity-70"}
+        aria-label={running ? "Stop" : "Play"}
+        title={running ? "Stop" : "Play"}
+      >
+        {glyph}
+      </button>
+    )
+  }
   return (
     <span className={wrapperBase} aria-label={model.stateLabel} title={model.stateLabel}>
       {glyph}
@@ -112,6 +131,7 @@ function FaceBlock({
   now,
   size,
   onToggleDone,
+  onTogglePlay,
   onOpen,
   onContextMenu,
   trailing,
@@ -123,6 +143,7 @@ function FaceBlock({
   now: number
   size: "l" | "xl" | "full"
   onToggleDone: (e: Entity) => void
+  onTogglePlay?: (e: Entity) => void
   onOpen?: (e: Entity) => void
   onContextMenu?: (e: Entity, ev: React.MouseEvent) => void
   trailing?: React.ReactNode
@@ -141,7 +162,7 @@ function FaceBlock({
         className={"flex items-center gap-2 text-[12px] " + (model.closed ? "opacity-60" : "")}
         onContextMenu={onContextMenu ? (ev) => onContextMenu(entity, ev) : undefined}
       >
-        <FaceGlyph entity={entity} model={model} size="full" onToggleDone={onToggleDone} />
+        <FaceGlyph entity={entity} model={model} size="full" onToggleDone={onToggleDone} onTogglePlay={onTogglePlay} />
         {onOpen ? (
           <button
             type="button"
@@ -214,6 +235,8 @@ export interface Zero0FaceProps {
   /** The MAKE — how this Face READS (orthogonal to size). `starter` shows the entity as an
       aggregator of its Content (rollup meta) instead of its own meta; defaults to `default`. */
   make?: FaceMake
+  /** Play/Stop toggle for a `playable` ("whenever") moment/space glyph. */
+  onTogglePlay?: (e: Entity) => void
 }
 
 export function Zero0Face({
@@ -231,6 +254,7 @@ export function Zero0Face({
   onActivateContextMenu,
   titleClassName,
   make = "default",
+  onTogglePlay,
 }: Zero0FaceProps) {
   // Resolve ONE model, from whichever input was given: an explicit model wins, else a
   // live entity (full lifecycle), else a projection (inert lifecycle).
@@ -267,6 +291,7 @@ export function Zero0Face({
         now={now ?? Date.now()}
         size={size}
         onToggleDone={toggle}
+        onTogglePlay={onTogglePlay}
         onOpen={onOpen}
         onContextMenu={onContextMenu}
         trailing={trailing}
@@ -285,7 +310,7 @@ export function Zero0Face({
       <>
         {/* Glyph column: fill = closed (fillable kinds), check = done, bar = cancelled,
             "sent" flap = requested. Task glyph is a button (toggles Done); else static. */}
-        <FaceGlyph entity={entity} model={model} size="m" onToggleDone={toggle} />
+        <FaceGlyph entity={entity} model={model} size="m" onToggleDone={toggle} onTogglePlay={onTogglePlay} />
         {/* Kind label — STATIC text. */}
         <span className="w-16 shrink-0 uppercase tracking-wider text-muted-foreground">{model.kindLabel}</span>
         {/* MANUAL color marker — a small dot when THIS entity has an explicitly set accent.
@@ -348,7 +373,7 @@ export function Zero0Face({
     const toggle = onToggleDone ?? (() => {})
     return (
       <>
-        <FaceGlyph entity={entity} model={model} size="m" onToggleDone={toggle} />
+        <FaceGlyph entity={entity} model={model} size="m" onToggleDone={toggle} onTogglePlay={onTogglePlay} />
         <button
           type="button"
           onClick={() => onOpen?.(entity)}

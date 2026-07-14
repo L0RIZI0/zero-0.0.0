@@ -56,6 +56,7 @@ import { Zero0Face } from "./zero0-face"
 import { Zero0Content, type Zero0ContentCtx } from "./zero0-content"
 import { fmt, fmtLogValue, sexSymbol, type FaceSize, type FaceMake } from "@/lib/zero/face-model"
 import type { Entity } from "@/lib/zero/types"
+import { WHENEVER } from "@/lib/zero/types"
 
 // The `--color` swatch palette — a small curated ramp shown when the create field
 // reads exactly "--color" / "--color:". Clicking one fills the draft with "--color:<hex>";
@@ -418,6 +419,19 @@ export function Zero0Canvas() {
           // A single time on a moment sets its START ⇒ ONGOING (never auto-completes); only
           // an END completes/closes it. This is the whole point-vs-start fix.
           const key = ({ start: "startAt", end: "endAt", at: "at", due: "dueAt" } as const)[attr.field]
+          // `--start:whenever` — mark the entity PLAYABLE (a trackable thing with no fixed
+          // time; its glyph offers Play/Stop). Only valid on `start`.
+          if (val.toLowerCase() === "whenever") {
+            if (attr.field !== "start") {
+              setNotice({ tone: "err", text: "whenever only applies to --start" })
+              return null
+            }
+            if (!setEntityScheduleField(id, "startAt", WHENEVER)) {
+              setNotice({ tone: "err", text: `can't set start on a ${KIND_META[ent.kind].label}` })
+              return null
+            }
+            return "start whenever (playable)"
+          }
           let epoch: number | null = null
           if (val.toLowerCase() === "now") {
             // `--start:now` / `--end:now` / `--at:now` — stamp the current instant.
@@ -425,7 +439,7 @@ export function Zero0Canvas() {
           } else if (val !== "") {
             epoch = parseDateToken(val)
             if (epoch == null) {
-              setNotice({ tone: "err", text: `invalid time "${val}" — use HHMM, YYMMDD, YYMMDDHHMM, or now` })
+              setNotice({ tone: "err", text: `invalid time "${val}" — use HHMM, YYMMDD, YYMMDDHHMM, now, or whenever` })
               return null
             }
           }
@@ -582,6 +596,17 @@ export function Zero0Canvas() {
         closeSession(e.id)
         focusOpenRef.current.delete(e.id)
       }
+      bump()
+    },
+    [bump],
+  )
+
+  // PLAY/STOP on a PLAYABLE ("whenever") moment/space glyph — opens/closes a background
+  // "play" session without navigating. Guarded by isPlayable so it never fires elsewhere.
+  const togglePlay = useCallback(
+    (e: Entity) => {
+      if (!isPlayable(e)) return
+      toggleSession(e.id, "play")
       bump()
     },
     [bump],
@@ -761,6 +786,7 @@ export function Zero0Canvas() {
   const contentCtx: Zero0ContentCtx = useMemo(
     () => ({
       toggleDone,
+      togglePlay,
       openEntity,
       remove,
       openMenu,
@@ -773,7 +799,7 @@ export function Zero0Canvas() {
       expandedIds,
       toggleExpand,
     }),
-    [toggleDone, openEntity, remove, openMenu, sizeOf, makeOf, showHidden, nowSec, rev, expandedIds, toggleExpand],
+    [toggleDone, togglePlay, openEntity, remove, openMenu, sizeOf, makeOf, showHidden, nowSec, rev, expandedIds, toggleExpand],
   )
 
   // The drill path as a Set — the top-level Content's ancestry. Seeds the cycle guard so a
@@ -1160,6 +1186,7 @@ export function Zero0Canvas() {
               size="full"
               now={nowSec}
               onToggleDone={toggleDone}
+              onTogglePlay={togglePlay}
               onContextMenu={openMenu}
               trailing={
                 path.length > 1 ? (

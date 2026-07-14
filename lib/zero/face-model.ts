@@ -19,7 +19,7 @@
 
 import type { Entity, EntityKind, Whenever } from "./types"
 import { WHENEVER } from "./types"
-import { KIND_META, isClosed, fillsGlyph, getState, concreteStart, type EntityState } from "./kinds"
+import { KIND_META, isClosed, fillsGlyph, getState, concreteStart, isPlayable, type EntityState } from "./kinds"
 import { isDone, getCreatedAt, getCompletedOn } from "./entity-log"
 import { getEntity, getCreator, getOwner, getForwardTags, getBackReferences, getChildren } from "./data"
 import { formatLocale } from "./format-locale"
@@ -456,6 +456,7 @@ export function faceModelFromLike(like: FaceLike): FaceModel {
     cancelled: false,
     requested: false,
     ongoing: false,
+    playable: false, // a projection is inert — never a live playable entity
     closed: false,
     lifeLabel: "",
     stateLabel: like.title,

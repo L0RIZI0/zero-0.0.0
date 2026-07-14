@@ -1,4 +1,5 @@
 import type { Asset, Entity, EntityKind, IndividualEntity, Instant, Recurrence, Schedule, Resource, EntityBase, Session, Sex, TaskPriority, TitleEntry, User } from "./types"
+import { WHENEVER } from "./types"
   import { hasDoneState, isClosed, computeCloseAt, getState, fillsGlyph, hasOpenSession, getOpenSession, setChildrenResolver, isConcreteStart, concreteStart } from "./kinds"
 import {
   isDone,
@@ -2430,16 +2431,19 @@ export function setEntityRequested(id: string, requested: boolean): void {
 export function setEntityScheduleField(
   id: string,
   field: "startAt" | "endAt" | "at" | "dueAt",
-  epoch: number | null,
-): boolean {
+  epoch: number | null | typeof WHENEVER,
+  ): boolean {
   const stored = byId.get(id)
   if (!stored) return false
+  // Only `startAt` accepts the "whenever" sentinel (a playable, timeless start).
+  if (epoch === WHENEVER && field !== "startAt") return false
   const entity = mutable(stored)
   const sched: NonNullable<Entity["schedule"]> = { ...(entity.schedule ?? {}) }
   if (epoch == null) delete sched[field]
-  else sched[field] = epoch
+  else if (field === "startAt") sched.startAt = epoch
+  else if (epoch !== WHENEVER) sched[field] = epoch
   entity.schedule = sched
-  logSet(entity, field, epoch)
+  logSet(entity, field, epoch === WHENEVER ? WHENEVER : epoch)
   // Re-stamp the absolute midnight close whenever a MOMENT/INSTANT's end (or point)
   // changes, so its time-close stays tz-stable and in sync with the new schedule. Tasks
   // stamp on Done instead, not from `dueAt`, so they're unaffected here.
