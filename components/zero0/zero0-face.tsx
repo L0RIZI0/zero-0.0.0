@@ -5,6 +5,7 @@ import { Zero0Glyph } from "./zero0-glyph"
 import {
   getFaceModel,
   getFaceMetaRows,
+  filterMetaRows,
   faceModelFromLike,
   type FaceModel,
   type FaceLike,
@@ -25,10 +26,15 @@ import type { Entity } from "@/lib/zero/types"
  *     drift (§0 omitted `ongoing`, read `isCancelled()` directly); now unified.
  *
  * What varies by size is only the ARRANGEMENT — which fields, in what order, at what
- * scale — because "a size is a curated projection." `full` (§0) and `m` (the content
- * row) are entity rungs; `xs` is the smallest rung and is PROJECTION-friendly (it renders
- * from a lightweight `FaceLike`, not a live Entity), which is what lets ACTIVITY presence
- * (and, next, STARTERS groups) render as real Faces. `s`/`l`/`xl` are named but not drawn.
+ * scale — because "a size is a curated projection." The full ladder is drawn:
+ *   • `xs`   — glyph + title only. PROJECTION-friendly (renders from a `FaceLike`, no
+ *              live Entity needed), which is what lets ACTIVITY presence render as Faces.
+ *   • `s`    — one line: glyph + title + state word.
+ *   • `m`    — the standard ENTITY CONTENT row (kind · accent · title · echo · done · state).
+ *   • `l`/`xl`/`full` — BLOCK cards (identity line + a meta dl), via the shared FaceBlock.
+ *              `l` = temporal essentials, `xl` = all but raw provenance, `full` = §0's
+ *              complete record. The block rungs FILTER the same §0 rows, so they can never
+ *              drift from §0 — a row can literally grow into the full face (the recursion).
  *
  * A Face renders from ONE resolved `FaceModel`, sourced from an `entity` (full lifecycle),
  * a `faceLike` projection (inert lifecycle), or an explicit `model`. The entity rungs
@@ -89,6 +95,85 @@ function FaceGlyph({
   )
 }
 
+// The shared BLOCK body — an identity line (glyph · title · kind [· trailing]) above a
+// meta dl. This is the ONE implementation behind every block rung: `full` (§0, all rows),
+// `xl` (all but raw provenance), and `l` (temporal essentials). The rungs differ ONLY by
+// which meta rows `filterMetaRows` keeps, so a smaller block can never drift from §0 — it
+// only hides rows. The title is a plain span when `onOpen` is absent (that's §0, whose
+// title isn't a drill target) and a drill-in button when present (a row grown into a card).
+function FaceBlock({
+  entity,
+  model,
+  now,
+  size,
+  onToggleDone,
+  onOpen,
+  onContextMenu,
+  trailing,
+  hiddenPrefix,
+}: {
+  entity: Entity
+  model: FaceModel
+  now: number
+  size: "l" | "xl" | "full"
+  onToggleDone: (e: Entity) => void
+  onOpen?: (e: Entity) => void
+  onContextMenu?: (e: Entity, ev: React.MouseEvent) => void
+  trailing?: React.ReactNode
+  hiddenPrefix?: boolean
+}) {
+  const rows = filterMetaRows(getFaceMetaRows(entity, now), size)
+  const titleText = hiddenPrefix ? `(hidden) ${model.title}` : model.title
+  return (
+    <>
+      {/* Identity line: glyph + title + kind (+ trailing). Fill = closed (fillable kinds),
+          bar = cancelled, fade follows the same rules as the row/§0. */}
+      <div
+        className={"flex items-center gap-2 text-[12px] " + (model.closed ? "opacity-60" : "")}
+        onContextMenu={onContextMenu ? (ev) => onContextMenu(entity, ev) : undefined}
+      >
+        <FaceGlyph entity={entity} model={model} size="full" onToggleDone={onToggleDone} />
+        {onOpen ? (
+          <button
+            type="button"
+            onClick={() => onOpen(entity)}
+            className={
+              "text-foreground underline-offset-2 hover:underline " + (model.cancelled ? "line-through" : "")
+            }
+            title="Open"
+          >
+            {titleText}
+          </button>
+        ) : (
+          <span className={"text-foreground " + (model.cancelled ? "line-through" : "")}>{titleText}</span>
+        )}
+        <span className="text-[10px] uppercase tracking-wider text-muted-foreground">{model.kindLabel}</span>
+        {trailing}
+      </div>
+      {/* Raw meta key/values (filtered by rung). */}
+      {rows.length > 0 && (
+        <dl className="mt-2 grid grid-cols-[6rem_1fr] gap-x-4 gap-y-0.5 text-[10px] tabular-nums">
+          {rows.map(([k, v]) => (
+            <div key={k} className="contents">
+              <dt className="uppercase tracking-widest text-muted-foreground">{k}</dt>
+              <dd className="flex items-center gap-1.5 truncate text-foreground" title={v}>
+                {k === "color" && (
+                  <span
+                    aria-hidden
+                    className="h-2.5 w-2.5 shrink-0 rounded-sm border border-border"
+                    style={{ backgroundColor: v }}
+                  />
+                )}
+                <span className="truncate">{v}</span>
+              </dd>
+            </div>
+          ))}
+        </dl>
+      )}
+    </>
+  )
+}
+
 export interface Zero0FaceProps {
   size: FaceSize
   /** The entity to present. Required for the `m`/`full` rungs (they read lifecycle +
@@ -145,44 +230,25 @@ export function Zero0Face({
         : null
   if (!model) return null
 
-  // ── FULL (§0) ── identity line + exhaustive meta dl. The life log + frame marker +
-  // collapse wrapper stay in the canvas around this. Entity-only rung.
-  if (size === "full") {
+  // ── BLOCK RUNGS (l / xl / full) ── identity line + a (filtered) meta dl, rendered by
+  // the shared FaceBlock. `full` is §0 (all rows, title as a plain span); `l`/`xl` are a
+  // row grown into a card (fewer rows, title drills in via `onOpen`). The life log + frame
+  // marker + collapse wrapper (§0) and the <li>/num/× strip (rows) stay in the canvas.
+  if (size === "l" || size === "xl" || size === "full") {
     if (!entity) return null
     const toggle = onToggleDone ?? (() => {})
-    const rows = getFaceMetaRows(entity, now ?? Date.now())
     return (
-      <>
-        {/* Node header line: glyph + title + kind (+ trailing close). Fill = closed
-            (fillable kinds), bar = cancelled, fade follows the same rules as rows. */}
-        <div
-          className={"flex items-center gap-2 text-[12px] " + (model.closed ? "opacity-60" : "")}
-          onContextMenu={onContextMenu ? (ev) => onContextMenu(entity, ev) : undefined}
-        >
-          <FaceGlyph entity={entity} model={model} size="full" onToggleDone={toggle} />
-          <span className={"text-foreground " + (model.cancelled ? "line-through" : "")}>{model.title}</span>
-          <span className="text-[10px] uppercase tracking-wider text-muted-foreground">{model.kindLabel}</span>
-          {trailing}
-        </div>
-        {/* Raw meta key/values. */}
-        <dl className="mt-2 grid grid-cols-[6rem_1fr] gap-x-4 gap-y-0.5 text-[10px] tabular-nums">
-          {rows.map(([k, v]) => (
-            <div key={k} className="contents">
-              <dt className="uppercase tracking-widest text-muted-foreground">{k}</dt>
-              <dd className="flex items-center gap-1.5 truncate text-foreground" title={v}>
-                {k === "color" && (
-                  <span
-                    aria-hidden
-                    className="h-2.5 w-2.5 shrink-0 rounded-sm border border-border"
-                    style={{ backgroundColor: v }}
-                  />
-                )}
-                <span className="truncate">{v}</span>
-              </dd>
-            </div>
-          ))}
-        </dl>
-      </>
+      <FaceBlock
+        entity={entity}
+        model={model}
+        now={now ?? Date.now()}
+        size={size}
+        onToggleDone={toggle}
+        onOpen={onOpen}
+        onContextMenu={onContextMenu}
+        trailing={trailing}
+        hiddenPrefix={hiddenPrefix}
+      />
     )
   }
 
@@ -248,6 +314,34 @@ export function Zero0Face({
     )
   }
 
+  // ── S ── one compact line: glyph + title + state word. A step up from `xs` (it carries
+  // the lifecycle glyph + state, so it's a live entity view, not a bare projection) and a
+  // step down from `m` (no kind column, no meta echo, no done cell). Entity-only; the title
+  // drills in via `onOpen`.
+  if (size === "s") {
+    if (!entity) return null
+    const toggle = onToggleDone ?? (() => {})
+    return (
+      <>
+        <FaceGlyph entity={entity} model={model} size="m" onToggleDone={toggle} />
+        <button
+          type="button"
+          onClick={() => onOpen?.(entity)}
+          className={
+            "flex-1 truncate text-left text-foreground underline-offset-2 hover:underline " +
+            (model.cancelled ? "line-through" : "")
+          }
+          title="Open"
+        >
+          {hiddenPrefix ? `(hidden) ${model.title}` : model.title}
+        </button>
+        {model.lifeLabel && (
+          <span className="shrink-0 text-right text-muted-foreground/60">{model.lifeLabel}</span>
+        )}
+      </>
+    )
+  }
+
   // ── XS ── the smallest rung: a neutral KIND glyph + a title button, nothing else. Used
   // for PROJECTIONS (ACTIVITY presence rollups/segments today; STARTERS groups next) where
   // there's no lifecycle to show — just "which kind, called what, click to go there." The
@@ -280,6 +374,7 @@ export function Zero0Face({
     )
   }
 
-  // s / l / xl — not yet drawn (see /excerpts: middle rungs aren't frozen).
+  // Every rung (xs · s · m · l · xl · full) is handled above; this is unreachable but
+  // keeps the function total for the FaceSize union.
   return null
 }

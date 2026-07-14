@@ -49,7 +49,7 @@ import { formatLocale } from "@/lib/zero/format-locale"
 import { Zero0ResourceCanvas } from "./zero0-resource-canvas"
 import { Zero0Frequent } from "./zero0-frequent"
 import { Zero0Face } from "./zero0-face"
-import { fmt, fmtLogValue, sexSymbol } from "@/lib/zero/face-model"
+import { fmt, fmtLogValue, sexSymbol, type FaceSize } from "@/lib/zero/face-model"
 import type { Entity } from "@/lib/zero/types"
 
 // The `--color` swatch palette — a small curated ramp shown when the create field
@@ -216,6 +216,12 @@ export function Zero0Canvas() {
   useEffect(() => {
     setShowHidden(false)
   }, [contextId])
+  // PER-ROW FACE SIZE — the rung each ENTITY CONTENT row is shown at (right-click ▸ Size).
+  // A VIEW override, not stored data ("a size is a curated projection" — a way of LOOKING,
+  // not a property of the entity), so it lives in session state keyed by entity id: kept as
+  // you navigate, reset on app restart. Same spirit as `showHidden`/collapse/minimized.
+  const [rowSizes, setRowSizes] = useState<Record<string, FaceSize>>({})
+  const sizeOf = useCallback((id: string): FaceSize => rowSizes[id] ?? "m", [rowSizes])
   // eslint-disable-next-line react-hooks/exhaustive-deps -- rev/contextId are the intended re-read triggers
   const children = useMemo(() => (mounted ? getChildren(contextId) : []), [mounted, rev, contextId])
   // SIBLINGS: the children of the open node's PARENT — i.e. entities at the same depth on
@@ -694,17 +700,37 @@ export function Zero0Canvas() {
     (e: Entity, id: string) => {
       if (id === "show-hidden") return setShowHidden(true)
       if (id === "hide-hidden") return setShowHidden(false)
+      // SIZE — a VIEW override (see `rowSizes`), not a data mutation, so it's handled here
+      // rather than delegated to `applyEntityMenuAction`. Choosing "m" (the default) clears
+      // the override to keep the map tidy.
+      if (id.startsWith("size:")) {
+        const next = id.slice("size:".length) as FaceSize
+        return setRowSizes((m) => {
+          const copy = { ...m }
+          if (next === "m") delete copy[e.id]
+          else copy[e.id] = next
+          return copy
+        })
+      }
       applyEntityMenuAction(e, id)
       bump()
     },
     [bump],
   )
 
+  // Open the entity menu. `opts.size` (passed by the ENTITY CONTENT rows) adds the Size
+  // submenu with the row's current rung ticked; surfaces without a per-entity size (the
+  // breadcrumb, siblings, §0 header, activity) omit it.
   const openMenu = useCallback(
-    (e: Entity, ev: React.MouseEvent) => {
+    (e: Entity, ev: React.MouseEvent, opts?: { size?: FaceSize }) => {
       ev.preventDefault()
       ev.stopPropagation()
-      showMenu(buildEntityMenuItems(e, { showHidden }), ev.clientX, ev.clientY, (id) => runEntityAction(e, id))
+      showMenu(
+        buildEntityMenuItems(e, { showHidden, currentSize: opts?.size }),
+        ev.clientX,
+        ev.clientY,
+        (id) => runEntityAction(e, id),
+      )
     },
     [showMenu, showHidden, runEntityAction],
   )
@@ -1106,6 +1132,41 @@ export function Zero0Canvas() {
                 // ENDED (closed/dead/retired/cancelled) fades the whole row — a Content-side
                 // decision (the row's opacity), so it stays here rather than in the Face.
                 const closed = isClosed(e)
+                // The rung this row is shown at (right-click ▸ Size). `l`/`xl`/`full` are
+                // BLOCK cards (identity line + a meta dl) that grow the row VERTICALLY; the
+                // smaller rungs stay a single inline line.
+                const size = sizeOf(e.id)
+                const isBlock = size === "l" || size === "xl" || size === "full"
+                // The Face fragment — one call for every rung. xs is a projection rung, so
+                // it drills in via `onActivate`; the entity rungs use `onOpen`. Passing both
+                // is harmless (each rung reads only what it needs).
+                const face = (
+                  <Zero0Face
+                    entity={e}
+                    size={size}
+                    now={nowSec}
+                    onToggleDone={toggleDone}
+                    onOpen={openEntity}
+                    onActivate={() => openEntity(e)}
+                    onActivateContextMenu={(ev) => openMenu(e, ev, { size })}
+                    hiddenPrefix={hidden}
+                  />
+                )
+                // Content-side chrome shared by both layouts: the row index + the delete ×.
+                const num2 = num != null ? String(num).padStart(2, "0") : ""
+                const indexCell = (
+                  <span className="w-6 shrink-0 text-right text-muted-foreground">{num2}</span>
+                )
+                const deleteCell = (
+                  <button
+                    type="button"
+                    onClick={() => remove(e)}
+                    className="w-4 shrink-0 text-right text-transparent group-hover:text-muted-foreground hover:!text-foreground"
+                    aria-label={`Delete ${e.title}`}
+                  >
+                    ×
+                  </button>
+                )
                 return (
                   // COLLAPSE WRAPPER — a hidden-and-not-revealed row animates to 0fr height +
                   // 0 opacity via the dep-free grid-rows trick, staying MOUNTED so hide AND
@@ -1120,39 +1181,34 @@ export function Zero0Canvas() {
                   >
                     <div className="overflow-hidden">
                       <div
-                        onContextMenu={(ev) => openMenu(e, ev)}
+                        onContextMenu={(ev) => openMenu(e, ev, { size })}
                         // Hovering a row LIGHTS its matching tick(s) in the dayline (grow +
                         // opaque). Cleared on leave, falling back to the open-context highlight.
                         onMouseEnter={() => setHoveredRowId(e.id)}
                         onMouseLeave={() => setHoveredRowId((h) => (h === e.id ? null : h))}
                         className={
-                          "group flex items-baseline gap-3 border-b border-border/60 py-1.5 " +
-                          (closed ? "opacity-60" : "")
+                          "group border-b border-border/60 py-1.5 " +
+                          (closed ? "opacity-60 " : "") +
+                          // Inline rungs lay the columns out on a single baseline; block
+                          // rungs stack the index/× strip above the card body.
+                          (isBlock ? "" : "flex items-baseline gap-3")
                         }
                       >
-                        {/* Row index — Content-side chrome (position in the arrangement). */}
-                        <span className="w-6 shrink-0 text-right text-muted-foreground">
-                          {num != null ? String(num).padStart(2, "0") : ""}
-                        </span>
-                        {/* The entity as an M-size Face — glyph · kind · accent · title ·
-                            meta echo · done toggle · state token, all from the shared model. */}
-                        <Zero0Face
-                          entity={e}
-                          size="m"
-                          now={nowSec}
-                          onToggleDone={toggleDone}
-                          onOpen={openEntity}
-                          hiddenPrefix={hidden}
-                        />
-                        {/* Delete × — Content-side chrome (remove from the arrangement). */}
-                        <button
-                          type="button"
-                          onClick={() => remove(e)}
-                          className="w-4 shrink-0 text-right text-transparent group-hover:text-muted-foreground hover:!text-foreground"
-                          aria-label={`Delete ${e.title}`}
-                        >
-                          ×
-                        </button>
+                        {isBlock ? (
+                          <div className="flex items-baseline gap-3">
+                            {indexCell}
+                            {/* The Face card takes the remaining width; its identity line +
+                                meta dl stack inside. */}
+                            <div className="min-w-0 flex-1">{face}</div>
+                            {deleteCell}
+                          </div>
+                        ) : (
+                          <>
+                            {indexCell}
+                            {face}
+                            {deleteCell}
+                          </>
+                        )}
                       </div>
                     </div>
                   </li>

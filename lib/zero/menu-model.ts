@@ -27,6 +27,7 @@ import {
 } from "@/lib/zero/data"
 import { isClosed, KIND_META } from "@/lib/zero/kinds"
 import { isDone } from "@/lib/zero/entity-log"
+import { FACE_SIZES, faceSizeLabel, type FaceSize } from "@/lib/zero/face-model"
 import type { Entity, EntityKind } from "@/lib/zero/types"
 
 // A generic, serialisable menu tree. `submenu` is an inline expander (the overlay and
@@ -91,7 +92,10 @@ const CHANGE_KINDS: EntityKind[] = ["task", "space", "resource", "moment", "inst
  * individuals) when live; Reopen when ended; Send/Unsend request (tasks); Change into…;
  * Delete. Action ids are resolved by {@link applyEntityMenuAction}.
  */
-export function buildEntityMenuItems(entity: Entity, opts?: { showHidden?: boolean }): MenuItem[] {
+export function buildEntityMenuItems(
+  entity: Entity,
+  opts?: { showHidden?: boolean; currentSize?: FaceSize },
+): MenuItem[] {
   const meta = KIND_META[entity.kind]
   const closeable = meta.fillsWhenClosed || meta.terminal != null
   const ended = isClosed(entity)
@@ -134,6 +138,23 @@ export function buildEntityMenuItems(entity: Entity, opts?: { showHidden?: boole
     } else if (entity.kind === "instant") {
       items.push({ type: "item", id: "set-now", label: "Set to now" })
     }
+  }
+
+  // SIZE — the rung this entity is shown at HERE (a VIEW override, not stored data). Only
+  // offered when the caller passes `currentSize` (i.e. a surface that actually tracks per-
+  // entity size, like the ENTITY CONTENT rows); `size:<value>` ids are handled by that
+  // caller, not `applyEntityMenuAction` (which returns false for them, like the view toggles).
+  if (opts?.currentSize) {
+    items.push({
+      type: "submenu",
+      label: "Size",
+      items: FACE_SIZES.map((s) => ({
+        type: "item" as const,
+        id: `size:${s}`,
+        label: faceSizeLabel(s),
+        current: s === opts.currentSize,
+      })),
+    })
   }
 
   items.push({
@@ -222,8 +243,9 @@ export function applyEntityMenuAction(entity: Entity, actionId: string): boolean
     case "delete":
       deleteEntity(id)
       return true
-    // "show-hidden" / "hide-hidden" are VIEW toggles, not data mutations — the canvas
-    // intercepts them before delegating here, so we intentionally fall through to false.
+    // "show-hidden" / "hide-hidden" and "size:<value>" are VIEW actions, not data
+    // mutations — the canvas intercepts them before delegating here, so they fall
+    // through to false.
     default:
       return false
   }

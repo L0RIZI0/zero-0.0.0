@@ -25,9 +25,45 @@ import { formatLocale } from "./format-locale"
 
 // ── THE SIZE LADDER ──────────────────────────────────────────────────────────
 // XS and Full are the FIXED ends; the middle rungs are pragmatic presets, not
-// frozen (see /excerpts). Only `m` (the ENTITY CONTENT row) and `full` (§0) are
-// implemented today; the rest are named so call sites can already refer to them.
+// frozen (see /excerpts). A SIZE is a curated projection — "how much of the entity
+// you're looking at" — never a stored property; it's chosen per view.
 export type FaceSize = "xs" | "s" | "m" | "l" | "xl" | "full"
+
+// The ladder in ascending order — the single source the Size right-click submenu
+// iterates. Order matters (the menu reads top→bottom, small→large).
+export const FACE_SIZES: FaceSize[] = ["xs", "s", "m", "l", "xl", "full"]
+
+// A human label for a rung, shown in the Size submenu. The two ends and the default
+// carry a hint of their canonical role (`m` is the standard content row, `full` is §0).
+export function faceSizeLabel(size: FaceSize): string {
+  switch (size) {
+    case "xs":
+      return "XS · glyph + title"
+    case "s":
+      return "S · + state"
+    case "m":
+      return "M · row"
+    case "l":
+      return "L · essentials"
+    case "xl":
+      return "XL · detailed"
+    case "full":
+      return "Full · §0"
+  }
+}
+
+// Which §0 meta keys the BLOCK rungs surface. `full` shows everything; `l` and `xl`
+// are SUBSETS of the very same `getFaceMetaRows` output, so a block rung can never
+// drift from §0 — it only ever hides rows, never invents them.
+//   • L  = the temporal essentials: done + lifecycle state + schedule + duration/age.
+//   • XL = everything EXCEPT raw provenance plumbing (id / creator / owner).
+const L_META_KEYS = new Set(["done", "state", "start", "end", "at", "due", "scheduled", "duration", "age"])
+const XL_OMIT_KEYS = new Set(["id", "creator", "owner"])
+export function filterMetaRows(rows: [string, string][], size: "l" | "xl" | "full"): [string, string][] {
+  if (size === "full") return rows
+  if (size === "xl") return rows.filter(([k]) => !XL_OMIT_KEYS.has(k))
+  return rows.filter(([k]) => L_META_KEYS.has(k)) // l
+}
 
 // ── FORMATTERS (moved verbatim from zero0-canvas) ─────────────────────────────
 
