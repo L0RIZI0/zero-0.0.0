@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { VersionSwitcher } from "@/components/version-switcher"
 import { Zero0ThemeToggle } from "./zero0-theme-toggle"
 import { Zero0UpdateIndicator } from "./zero0-update-indicator"
+import { Zero0WindowControls } from "./zero0-window-controls"
 import { Zero0Agenda, Zero0Activity } from "./zero0-activity"
 import { recordPresence } from "@/lib/zero/activity-log"
 import { Zero0DomMenu, type Zero0DomMenuState } from "./zero0-dom-menu"
@@ -863,8 +864,16 @@ export function Zero0Canvas() {
           date + time WITH seconds, top-left. Always present �� for any open entity, and
           regardless of which frames are toggled below. `min-h` reserves its row so the
           layout doesn't jump between the SSR blank and the first mounted tick. */}
-      <div className="flex min-h-[41px] shrink-0 items-center border-b border-border px-4 py-3 text-[10px] font-medium uppercase tracking-wider leading-none tabular-nums text-foreground">
-        {topClock}
+      {/* The band doubles as the DESKTOP TITLE BAR: `-webkit-app-region: drag` lets you
+          click-and-drag it to MOVE the frameless window (Windows/Linux; a no-op on the web
+          and under macOS's native title bar). The window controls opt back out via `no-drag`.
+          `justify-between` keeps the live clock left and the min/max/close cluster top-right. */}
+      <div
+        className="flex min-h-[41px] shrink-0 items-center justify-between gap-3 border-b border-border px-4 py-3 text-[10px] font-medium uppercase tracking-wider leading-none tabular-nums text-foreground"
+        style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
+      >
+        <span>{topClock}</span>
+        <Zero0WindowControls />
       </div>
 
       {/* ── PINNED BAND (§4, topmost — just under the clock) ────────────────────
