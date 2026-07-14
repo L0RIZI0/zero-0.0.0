@@ -19,7 +19,7 @@
 
 import type { Entity, EntityKind, Whenever } from "./types"
 import { WHENEVER } from "./types"
-import { KIND_META, isClosed, fillsGlyph, getState, concreteStart, isPlayable, type EntityState } from "./kinds"
+import { KIND_META, isClosed, fillsGlyph, getState, concreteStart, isPlayable, getSessions, type EntityState } from "./kinds"
 import { isDone, getCreatedAt, getCompletedOn } from "./entity-log"
 import { getEntity, getCreator, getOwner, getForwardTags, getBackReferences, getChildren } from "./data"
 import { formatLocale } from "./format-locale"
@@ -189,21 +189,38 @@ export function rangeLabel(e: Entity): string {
 
 // DERIVED duration of an entity, in ms, from its schedule (never stored):
 //   • instant            → 0 (a point has no length)
+//   • has SESSIONS       → accumulated tracked time: Σ each session span, the single OPEN
+//                          one counting LIVE to `now`. This is the real "how long I've spent"
+//                          for a playable "whenever" thing or anything punched into.
 //   • span start+end     → end − start
 //   • ONGOING start-only → elapsed so far (now − start), so a running moment shows live
-//   • else, has a start  → its AGE: now − createdAt (an Individual/Space has a beginning
-//                          even with no schedule, so this reads as "3d" / "34y", never a dash)
-//   • otherwise          → null (nothing to show)
+//   • BEING w/ no span   → its AGE: now − createdAt (an Individual/Organism's createdAt is a
+//                          genuine birth, so this reads "3d" / "34y")
+//   • otherwise          → null → "—" (a moment/space/task with no concrete start AND no
+//                          sessions has accrued NO length; it must NOT count up from creation —
+//                          that made a merely-open "whenever" moment/space appear to run live)
 // `now` is passed so a live/ongoing value updates as the canvas re-renders.
 export function getDurationMs(e: Entity, now: number): number | null {
   const s = e.schedule
   const cs = concreteStart(e) // null when "whenever" / unset
   if (e.kind === "instant") return 0
+  // Accumulated session time takes precedence — a playable thing's "duration" IS its tracked
+  // time, whether or not it also carries a concrete clock span.
+  const sessions = getSessions(e)
+  if (sessions.length > 0) {
+    let total = 0
+    for (const sess of sessions) total += Math.max(0, (sess.endAt ?? now) - sess.startAt)
+    return total
+  }
   if (cs != null && s?.endAt != null) return Math.max(0, s.endAt - cs)
   if (s?.at != null) return 0
   if (cs != null) return Math.max(0, now - cs) // ongoing (explicit concrete start)
-  const created = getCreatedAt(e)
-  if (created != null) return Math.max(0, now - created) // age from creation
+  // AGE fallback — beings only (death-terminal kinds). Everything else with no span/sessions
+  // has no length yet ⇒ "—".
+  if (e.kind === "individual" || e.kind === "organism") {
+    const created = getCreatedAt(e)
+    if (created != null) return Math.max(0, now - created)
+  }
   return null
 }
 
@@ -307,12 +324,14 @@ export function fmtShort(epoch: number, now: number): string {
 // echo of the Full face's meta, surfacing only the field(s) that define the kind:
 //   • moment    → its span "start–end · dur", or "since start · dur" while ongoing (live), or
 //                 a lone point "at"; nothing when unscheduled.
+//   • space     → same span echo as a moment (a Space is span-bearing: "whenever" when
+//                 playable, a concrete span, or ongoing "since …"); nothing when unscheduled.
 //   • instant   → its point time.
 //   • task      → its due time; OR a scheduled span "start–end · dur" / ongoing "since start ·
 //                 dur" / lone "at" (a task can carry start/end/duration too, not just a due).
 //                 Due takes precedence when both are set.
 //   • individual→ sex glyph · age (elapsed since birth/createdAt).
-// Everything else (space/community/organism/resource/soul) stays quiet — the row's kind +
+// Everything else (community/organism/resource/soul) stays quiet — the row's kind +
 // title + state already say it all. `now` drives the live ongoing count-up.
 export function metaEcho(e: Entity, now: number): string {
   const s = e.schedule
@@ -329,6 +348,7 @@ export function metaEcho(e: Entity, now: number): string {
   }
   switch (e.kind) {
     case "moment":
+    case "space":
       return span()
     case "instant":
       return s?.at != null ? fmtShort(s.at, now) : ""
@@ -506,7 +526,10 @@ export function getFaceMetaRows(e: Entity, now: number): [string, string][] {
   // unset), the same way DONE/CLOSED always render. A Moment IS a span, an Instant
   // IS a point, so hiding those rows when empty would hide the kind's essence.
   const s = e.schedule
-  if (e.kind === "moment") {
+  // MOMENT and SPACE both read as SPANS (a Space is a live, session-bearing container that
+  // joined Moment in the session model), so both ALWAYS surface start/end (— when unset,
+  // "whenever" when playable). Previously a Space only got a condensed "scheduled" row.
+  if (e.kind === "moment" || e.kind === "space") {
     rows.push(["start", s?.startAt ? fmt(s.startAt) : "—"])
     rows.push(["end", s?.endAt ? fmt(s.endAt) : "—"])
     // A Moment is conceptually a SPAN (start→end), but it can carry a lone POINT anchor
@@ -530,7 +553,9 @@ export function getFaceMetaRows(e: Entity, now: number): [string, string][] {
   // (whose createdAt IS a birth) the label reads AGE — the elapsed-since-birth framing —
   // rather than DURATION. Never stored — always computed.
   const durMs = getDurationMs(e, now)
-  const durLabel = e.kind === "individual" ? "age" : "duration"
+  // BEINGS read "age" (elapsed since birth); everything else reads "duration" (its span /
+  // accumulated session time).
+  const durLabel = e.kind === "individual" || e.kind === "organism" ? "age" : "duration"
   rows.push([durLabel, durMs == null ? "—" : formatDuration(durMs)])
   // ACCENT — only when set (via `:color:`). The value is the raw hex; the dt cell
   // paints a matching swatch so the raw-data view still shows the color itself.
