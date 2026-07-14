@@ -348,9 +348,6 @@ function createWindow() {
     const survivors = BrowserWindow.getAllWindows().filter((w) => w !== win && !w.isDestroyed())
     if (survivors.length === 0) {
       resourceViews.clear()
-      menuView = null
-      menuReady = false
-      menuAttached = false
       mainWindow = null
     } else if (mainWindow === win || mainWindow?.isDestroyed()) {
       mainWindow = survivors[0]
@@ -734,112 +731,81 @@ ipcMain.on("zero:update:install", () => {
   }
 })
 
-// ── Branded context-menu overlay ─────────────────────────────────────────────
-// The menu is a transparent WebContentsView LAYERED ON TOP of the resource views —
-// NOT a separate BrowserWindow. A `WebContentsView` (the open website) lives in
-// Chromium's native view hierarchy and paints above the host window's own DOM, so no
-// DOM z-index — and no sibling child *window* on Windows — can reliably cover it. The
-// documented way to float custom HTML over a web view is to add ANOTHER WebContentsView
-// AFTER it (stacking order = add order). So the menu is a full-content-area, transparent
-// view: only the menu card paints, and the rest of the view swallows the next click to
-// dismiss. It loads /desktop/context-menu, receives a GENERIC menu-item tree + the click
-// coords from the main renderer (which owns the live entity data), self-positions the
-// card, echoes the chosen action id back, and detaches on action / backdrop / Escape.
-// The website underneath is never moved or hidden.
+// ── Context menu over an open website: NATIVE OS menu ─────────────────────────
+// Hard-won lesson (v0.3.76→.78): you CANNOT float custom HTML over a native
+// `WebContentsView`. The site lives in Chromium's native view tree above the host
+// window's DOM; a separate transparent child `BrowserWindow` won't composite over it
+// on Windows 11 (v0.3.77), and a sibling overlay `WebContentsView` captures ALL input
+// and can lock the window if dismissal misfires (v0.3.78). The ONE mechanism that
+// reliably renders above a web view AND manages its own dismissal is the native OS menu
+// (`Menu.popup()`), so that's what we use whenever a menu is requested over a site. The
+// renderer still uses its OWN styled DOM menu when NO site is open (that path can't be
+// occluded), so the only place we trade Zero's look for native chrome is over a website.
+//
+// The renderer sends the SAME serialisable `MenuItem[]` it feeds the DOM menu; we convert
+// it to an Electron template here. Swatches/colour-input/glyphs degrade to plain labels
+// (native menus can't draw them); `current` becomes a checkbox; submenus + dividers map
+// 1:1. A click sends the chosen action id back via `zero:menu:selected` — the exact same
+// contract the DOM menu uses — so the main renderer runs it through `applyEntityMenuAction`
+// (or intercepts the view/curation ids) with no other change.
 
-/** @type {import('electron').WebContentsView | null} */
-let menuView = null
-let menuReady = false
-let menuAttached = false
-
-function menuURL() {
-  return isDev ? `${DEV_URL}/desktop/context-menu` : "app://local/desktop/context-menu/"
-}
-
-function ensureMenuView() {
-  if (menuView) return menuView
-  menuReady = false
-  menuView = new WebContentsView({
-    webPreferences: {
-      preload: path.join(__dirname, "menu-preload.cjs"),
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
-      transparent: true,
-    },
-  })
-  // Transparent so only the menu card paints; the site + DOM show through the rest.
-  try {
-    menuView.setBackgroundColor("#00000000")
-  } catch {}
-  menuView.webContents.loadURL(menuURL())
-  menuView.webContents.once("did-finish-load", () => {
-    menuReady = true
-  })
-  return menuView
-}
-
-// Detach the overlay entirely (not just hide) so the DOM + site regain input; then
-// re-focus the main contents so the app stays interactive.
-function hideMenu() {
-  if (menuView && menuAttached && mainWindow && !mainWindow.isDestroyed()) {
-    try {
-      mainWindow.contentView.removeChildView(menuView)
-    } catch {}
+/** Convert a serialised MenuItem[] (from lib/zero/menu-model) into an Electron menu
+ *  template. `onPick(id)` is invoked with the chosen leaf action id. */
+function toMenuTemplate(items, onPick) {
+  const out = []
+  for (const it of items || []) {
+    if (!it || typeof it !== "object") continue
+    if (it.type === "divider") {
+      out.push({ type: "separator" })
+    } else if (it.type === "submenu") {
+      out.push({ label: it.label || "", submenu: toMenuTemplate(it.items, onPick) })
+    } else if (it.type === "item") {
+      const entry = {
+        label: it.label || "",
+        click: () => onPick(it.id),
+      }
+      // `current` → a ticked checkbox (Size/Make/color selection, current sibling, etc.).
+      if (it.current) {
+        entry.type = "checkbox"
+        entry.checked = true
+      }
+      out.push(entry)
+    }
+    // `colorInput` (free-text hex/name row) has no native equivalent — omitted over a site;
+    // the swatch rows still cover the common colours, and the DOM menu keeps the input.
   }
-  menuAttached = false
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    try {
-      mainWindow.webContents.focus()
-    } catch {}
-  }
+  return out
 }
 
-// Show a generic, renderer-built menu in the overlay view. `x`/`y` are CLIENT coords
-// relative to the main window's content area (forwarded to the renderer, which positions
-// + clamps the card itself); `items` is the serialised MenuItem tree. The chosen action
-// id echoes back via `zero:menu:action` → forwarded to the main renderer as
-// `zero:menu:selected`.
+// Show a native OS context menu built from the renderer's MenuItem[] tree. `x`/`y` are
+// CLIENT coords relative to the main window's content area (native popup coords are in the
+// same space). Electron renders + dismisses it itself, so there is no overlay window/view
+// to leak or lock.
 function showMenu({ x, y, items }) {
   if (!mainWindow || mainWindow.isDestroyed()) return
-  const view = ensureMenuView()
-
-  // Cover the whole content area so the card can sit anywhere and the transparent
-  // remainder catches the outside-click that dismisses. Bounds are relative to the
-  // window's content area (origin 0,0).
-  const content = mainWindow.getContentBounds()
-  view.setBounds({ x: 0, y: 0, width: content.width, height: content.height })
-
-  // Re-add LAST so it stacks above every resource view (and grabs input focus, which we
-  // want — the menu needs clicks + Escape). Remove-then-add if already attached to force
-  // it back to the top.
-  try {
-    if (menuAttached) mainWindow.contentView.removeChildView(view)
-    mainWindow.contentView.addChildView(view)
-    menuAttached = true
-  } catch (err) {
-    console.log("[v0] menu: addChildView failed", err?.message || err)
+  const template = toMenuTemplate(items, (id) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("zero:menu:selected", id)
+    }
+  })
+  if (template.length === 0) return
+  const menu = Menu.buildFromTemplate(template)
+  const opts = { window: mainWindow }
+  if (Number.isFinite(x) && Number.isFinite(y)) {
+    opts.x = Math.round(x)
+    opts.y = Math.round(y)
   }
-
-  const send = () => view.webContents.send("zero:menu:show", { items: items || [], x, y })
-  if (menuReady) send()
-  else view.webContents.once("did-finish-load", send)
-
-  try {
-    view.webContents.focus()
-  } catch {}
+  menu.popup(opts)
 }
 
 ipcMain.on("zero:menu:open", (_e, payload) => showMenu(payload || {}))
 
-// Renderer self-positions now, so resize is a no-op kept only for bridge back-compat.
+// Legacy overlay IPCs — the old transparent-overlay renderer sent these. The native menu
+// needs none of them; kept as no-ops so any older preload/route in flight can't throw.
 ipcMain.on("zero:menu:resize", () => {})
-
 ipcMain.on("zero:menu:action", (_e, actionId) => {
-  hideMenu()
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send("zero:menu:selected", actionId)
   }
 })
-
-ipcMain.on("zero:menu:dismiss", () => hideMenu())
+ipcMain.on("zero:menu:dismiss", () => {})

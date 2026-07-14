@@ -67,13 +67,13 @@ contextBridge.exposeInMainWorld("zero", {
     },
   },
 
-  /** Native context-menu OVERLAY — a transparent child window drawn ABOVE the native
-   *  web views (which no DOM z-index can beat). The renderer builds a generic MenuItem
-   *  tree + a client-space anchor; main positions the overlay and echoes the chosen
-   *  action id back via `onSelected`. Used only when a web Resource is open; otherwise
-   *  the in-DOM menu is fine. */
+  /** Context menu over an open website → a NATIVE OS menu (`Menu.popup()` in main). You
+   *  cannot float custom HTML over a native WebContentsView, so over a site we hand main a
+   *  generic MenuItem tree + a client-space anchor and it pops a native menu, echoing the
+   *  chosen action id back via `onSelected`. Used only when a web Resource is open;
+   *  otherwise the renderer draws its own styled in-DOM menu. */
   menu: {
-    /** Open the overlay at { x, y } (client coords) rendering { items }. */
+    /** Pop a native menu at { x, y } (client coords) from { items }. */
     open: (payload) => ipcRenderer.send("zero:menu:open", payload),
     /** The chosen action id (or a "sibling:<id>" / "crumb:<id>" nav id). */
     onSelected: (cb) => {
