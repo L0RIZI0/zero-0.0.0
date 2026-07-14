@@ -20,7 +20,7 @@
 import type { Entity, EntityKind } from "./types"
 import { KIND_META, isClosed, fillsGlyph, getState, type EntityState } from "./kinds"
 import { isDone, getCreatedAt, getCompletedOn } from "./entity-log"
-import { getEntity, getCreator, getOwner, getForwardTags, getBackReferences } from "./data"
+import { getEntity, getCreator, getOwner, getForwardTags, getBackReferences, getChildren } from "./data"
 import { formatLocale } from "./format-locale"
 
 // ── THE SIZE LADDER ──────────────────────────────────────────────────────────
@@ -63,6 +63,105 @@ export function filterMetaRows(rows: [string, string][], size: "l" | "xl" | "ful
   if (size === "full") return rows
   if (size === "xl") return rows.filter(([k]) => !XL_OMIT_KEYS.has(k))
   return rows.filter(([k]) => L_META_KEYS.has(k)) // l
+}
+
+// ── THE MAKE AXIS ──────────────────────────────────────────────────────────────
+// MAKE is ORTHOGONAL to SIZE. Where SIZE says HOW MUCH of a Face you see, MAKE says
+// WHAT IT READS AS — how the same entity is interpreted:
+//   • default — the entity showing ITSELF: its own lifecycle glyph + own meta (§0).
+//   • starter — the entity as an AGGREGATOR of what it contains: the glyph + title
+//               stay, but the meta becomes a ROLLUP of its children (count, open,
+//               total time, latest). The ▸ caret still drills into the real Content.
+//   • counter/rater/opener — further verb-modes (a tally, a score, a quick-open).
+//     NAMED now so the axis reads as complete, but they fall back to the `default`
+//     render until their live behaviour lands (render-model first).
+// A MAKE, like a SIZE, is a VIEW choice — never a stored property of the entity.
+export type FaceMake = "default" | "starter" | "counter" | "rater" | "opener"
+
+// The axis in canonical order — the single source the Make right-click submenu iterates.
+export const FACE_MAKES: FaceMake[] = ["default", "starter", "counter", "rater", "opener"]
+
+// A human label for a make, shown in the Make submenu.
+export function faceMakeLabel(make: FaceMake): string {
+  switch (make) {
+    case "default":
+      return "Default · itself"
+    case "starter":
+      return "Starter · aggregate"
+    case "counter":
+      return "Counter · tally"
+    case "rater":
+      return "Rater · score"
+    case "opener":
+      return "Opener · quick-open"
+  }
+}
+
+// Only these makes have a distinct render this stage; the rest fall back to `default`.
+export function makeRendersDistinctly(make: FaceMake): boolean {
+  return make === "starter"
+}
+
+// The rolled-up read of an entity's CONTENT (its children), computed for the `starter`
+// make. Pure: derived from `getChildren` + the same STATE model every Face uses, never
+// stored. `total` counts direct children; `open`/`complete` use the state word; `ongoing`
+// is the live-moment subset; `duration` sums finite child spans; `latest` is the most
+// recent child start/point (for the "last …" echo).
+export interface FaceAggregate {
+  total: number
+  open: number
+  complete: number
+  ongoing: number
+  durationMs: number
+  latest: number | null
+}
+export function getAggregate(entity: Entity, now: number): FaceAggregate {
+  const kids = getChildren(entity.id)
+  let open = 0
+  let complete = 0
+  let ongoing = 0
+  let durationMs = 0
+  let latest: number | null = null
+  for (const k of kids) {
+    const st = getState(k, now)
+    if (st.word === "open") open++
+    else if (st.word === "complete") complete++
+    if (st.word === "ongoing") ongoing++
+    // Sum only FINITE spans (a span with both ends, or a point/instant = 0), so an
+    // open-ended running moment doesn't inflate the rollup with live-elapsed time.
+    const s = k.schedule
+    if (s?.startAt != null && s?.endAt != null) durationMs += Math.max(0, s.endAt - s.startAt)
+    // Most-recent anchor: the child's start / point, falling back to when it was created.
+    const point = s?.startAt ?? s?.at ?? getCreatedAt(k) ?? null
+    if (point != null && (latest == null || point > latest)) latest = point
+  }
+  return { total: kids.length, open, complete, ongoing, durationMs, latest }
+}
+
+// The one-line aggregate ECHO for the small rungs (xs/s/m) of a `starter`, standing in
+// for the default per-entity meta echo. E.g. "12 · 3 open · 4h 10m".
+export function aggregateEcho(agg: FaceAggregate): string {
+  if (agg.total === 0) return "empty"
+  const parts: string[] = [String(agg.total)]
+  if (agg.ongoing > 0) parts.push(`${agg.ongoing} ongoing`)
+  else if (agg.open > 0) parts.push(`${agg.open} open`)
+  if (agg.durationMs > 0) parts.push(formatDuration(agg.durationMs))
+  return parts.join(" · ")
+}
+
+// The aggregate META ROWS for the block rungs (l/xl/full) of a `starter` — the rollup
+// as a key/value list, mirroring how the default block lists §0 rows. `full` gets all;
+// `l`/`xl` are trimmed the same nested way (l = the essentials).
+export function aggregateMetaRows(agg: FaceAggregate, now: number, size: "l" | "xl" | "full"): [string, string][] {
+  const rows: [string, string][] = []
+  rows.push(["contains", String(agg.total)])
+  if (agg.open > 0) rows.push(["open", String(agg.open)])
+  if (agg.ongoing > 0) rows.push(["ongoing", String(agg.ongoing)])
+  if (agg.complete > 0) rows.push(["complete", String(agg.complete)])
+  if (agg.durationMs > 0) rows.push(["duration", formatDuration(agg.durationMs)])
+  if (agg.latest != null) rows.push(["latest", fmt(agg.latest)])
+  if (size === "l") return rows.filter(([k]) => k === "contains" || k === "open" || k === "ongoing" || k === "duration")
+  return rows // xl + full show the whole rollup
 }
 
 // ── FORMATTERS (moved verbatim from zero0-canvas) ─────────────────────────────

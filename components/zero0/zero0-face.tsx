@@ -7,9 +7,14 @@ import {
   getFaceMetaRows,
   filterMetaRows,
   faceModelFromLike,
+  getAggregate,
+  aggregateEcho,
+  aggregateMetaRows,
+  makeRendersDistinctly,
   type FaceModel,
   type FaceLike,
   type FaceSize,
+  type FaceMake,
 } from "@/lib/zero/face-model"
 import type { Entity } from "@/lib/zero/types"
 
@@ -111,6 +116,7 @@ function FaceBlock({
   onContextMenu,
   trailing,
   hiddenPrefix,
+  rowsOverride,
 }: {
   entity: Entity
   model: FaceModel
@@ -121,8 +127,11 @@ function FaceBlock({
   onContextMenu?: (e: Entity, ev: React.MouseEvent) => void
   trailing?: React.ReactNode
   hiddenPrefix?: boolean
+  /** When set (the `starter` make), the dl lists these ROLLUP rows instead of §0's. The
+      identity line (glyph + title + kind) is unchanged — only the meta reading differs. */
+  rowsOverride?: [string, string][]
 }) {
-  const rows = filterMetaRows(getFaceMetaRows(entity, now), size)
+  const rows = rowsOverride ?? filterMetaRows(getFaceMetaRows(entity, now), size)
   const titleText = hiddenPrefix ? `(hidden) ${model.title}` : model.title
   return (
     <>
@@ -202,6 +211,9 @@ export interface Zero0FaceProps {
   onActivateContextMenu?: (ev: React.MouseEvent) => void
   /** `xs`: override the title button's width/flex class (rollup `w-24` vs feed `flex-1`). */
   titleClassName?: string
+  /** The MAKE — how this Face READS (orthogonal to size). `starter` shows the entity as an
+      aggregator of its Content (rollup meta) instead of its own meta; defaults to `default`. */
+  make?: FaceMake
 }
 
 export function Zero0Face({
@@ -218,6 +230,7 @@ export function Zero0Face({
   onActivate,
   onActivateContextMenu,
   titleClassName,
+  make = "default",
 }: Zero0FaceProps) {
   // Resolve ONE model, from whichever input was given: an explicit model wins, else a
   // live entity (full lifecycle), else a projection (inert lifecycle).
@@ -229,6 +242,16 @@ export function Zero0Face({
         ? faceModelFromLike(faceLike)
         : null
   if (!model) return null
+
+  // STARTER make — read this entity as an AGGREGATOR of its Content. Only when the make
+  // renders distinctly AND we have a live entity to aggregate over; otherwise the render
+  // falls through to the default (counter/rater/opener land later). The rollup is pure
+  // (getChildren + the shared state model), so it substitutes the meta at every rung
+  // WITHOUT changing the glyph, title, or the ▸ caret that drills into the real Content.
+  const nowMs = now ?? Date.now()
+  const isStarter = makeRendersDistinctly(make) && !!entity
+  const agg = isStarter && entity ? getAggregate(entity, nowMs) : null
+  const starterEcho = agg ? aggregateEcho(agg) : null
 
   // ── BLOCK RUNGS (l / xl / full) ── identity line + a (filtered) meta dl, rendered by
   // the shared FaceBlock. `full` is §0 (all rows, title as a plain span); `l`/`xl` are a
@@ -248,6 +271,7 @@ export function Zero0Face({
         onContextMenu={onContextMenu}
         trailing={trailing}
         hiddenPrefix={hiddenPrefix}
+        rowsOverride={agg ? aggregateMetaRows(agg, nowMs, size) : undefined}
       />
     )
   }
@@ -285,14 +309,15 @@ export function Zero0Face({
         >
           {hiddenPrefix ? `(hidden) ${model.title}` : model.title}
         </button>
-        {/* Kind-relevant METAFIELD echo — schedule/duration/identity. Hidden (no gap cost)
-            for kinds with nothing temporal to show. */}
-        {model.metaEcho && (
+        {/* Kind-relevant METAFIELD echo — schedule/duration/identity. For a `starter` this
+            is REPLACED by the Content rollup ("12 · 3 open · 4h"). Hidden (no gap cost) when
+            there's nothing to show. */}
+        {(starterEcho ?? model.metaEcho) && (
           <span
             className="hidden shrink-0 truncate text-right tabular-nums text-muted-foreground/70 sm:block sm:max-w-[16rem]"
-            title={model.metaEcho}
+            title={starterEcho ?? model.metaEcho}
           >
-            {model.metaEcho}
+            {starterEcho ?? model.metaEcho}
           </span>
         )}
         {/* Inline DONE toggle (soft marker) — only kinds WITH a done axis. Others: muted placeholder. */}
@@ -335,8 +360,11 @@ export function Zero0Face({
         >
           {hiddenPrefix ? `(hidden) ${model.title}` : model.title}
         </button>
-        {model.lifeLabel && (
-          <span className="shrink-0 text-right text-muted-foreground/60">{model.lifeLabel}</span>
+        {/* A `starter` trades the lifecycle word for the Content rollup. */}
+        {(starterEcho ?? model.lifeLabel) && (
+          <span className="shrink-0 text-right text-muted-foreground/60">
+            {starterEcho ?? model.lifeLabel}
+          </span>
         )}
       </>
     )
@@ -365,9 +393,12 @@ export function Zero0Face({
         >
           {model.title}
         </button>
-        {model.metaEcho && (
-          <span className="shrink-0 whitespace-nowrap text-muted-foreground" title={model.metaEcho}>
-            {model.metaEcho}
+        {(starterEcho ?? model.metaEcho) && (
+          <span
+            className="shrink-0 whitespace-nowrap text-muted-foreground"
+            title={starterEcho ?? model.metaEcho}
+          >
+            {starterEcho ?? model.metaEcho}
           </span>
         )}
       </>

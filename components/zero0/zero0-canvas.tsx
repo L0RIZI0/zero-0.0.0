@@ -50,7 +50,7 @@ import { Zero0ResourceCanvas } from "./zero0-resource-canvas"
 import { Zero0Frequent } from "./zero0-frequent"
 import { Zero0Face } from "./zero0-face"
 import { Zero0Content, type Zero0ContentCtx } from "./zero0-content"
-import { fmt, fmtLogValue, sexSymbol, type FaceSize } from "@/lib/zero/face-model"
+import { fmt, fmtLogValue, sexSymbol, type FaceSize, type FaceMake } from "@/lib/zero/face-model"
 import type { Entity } from "@/lib/zero/types"
 
 // The `--color` swatch palette — a small curated ramp shown when the create field
@@ -223,6 +223,10 @@ export function Zero0Canvas() {
   // you navigate, reset on app restart. Same spirit as `showHidden`/collapse/minimized.
   const [rowSizes, setRowSizes] = useState<Record<string, FaceSize>>({})
   const sizeOf = useCallback((id: string): FaceSize => rowSizes[id] ?? "m", [rowSizes])
+  // PER-ROW FACE MAKE — how each row READS (right-click ▸ Make), orthogonal to size. Same
+  // view-override contract as `rowSizes`: session-only, keyed by entity id, reset on reload.
+  const [rowMakes, setRowMakes] = useState<Record<string, FaceMake>>({})
+  const makeOf = useCallback((id: string): FaceMake => rowMakes[id] ?? "default", [rowMakes])
   // PER-ROW INLINE EXPANSION — which rows are opened into their own nested Content (the
   // recursion). A VIEW state like `rowSizes`: session-only, kept while navigating, reset on
   // reload. Keyed by entity id (an entity expands consistently wherever it appears).
@@ -696,6 +700,16 @@ export function Zero0Canvas() {
           return copy
         })
       }
+      // MAKE — a VIEW override too (see `rowMakes`). Choosing "default" clears the entry.
+      if (id.startsWith("make:")) {
+        const next = id.slice("make:".length) as FaceMake
+        return setRowMakes((m) => {
+          const copy = { ...m }
+          if (next === "default") delete copy[e.id]
+          else copy[e.id] = next
+          return copy
+        })
+      }
       applyEntityMenuAction(e, id)
       bump()
     },
@@ -706,11 +720,11 @@ export function Zero0Canvas() {
   // submenu with the row's current rung ticked; surfaces without a per-entity size (the
   // breadcrumb, siblings, §0 header, activity) omit it.
   const openMenu = useCallback(
-    (e: Entity, ev: React.MouseEvent, opts?: { size?: FaceSize }) => {
+    (e: Entity, ev: React.MouseEvent, opts?: { size?: FaceSize; make?: FaceMake }) => {
       ev.preventDefault()
       ev.stopPropagation()
       showMenu(
-        buildEntityMenuItems(e, { showHidden, currentSize: opts?.size }),
+        buildEntityMenuItems(e, { showHidden, currentSize: opts?.size, currentMake: opts?.make }),
         ev.clientX,
         ev.clientY,
         (id) => runEntityAction(e, id),
@@ -729,6 +743,7 @@ export function Zero0Canvas() {
       remove,
       openMenu,
       sizeOf,
+      makeOf,
       setHoveredRowId,
       showHidden,
       nowSec,
@@ -736,7 +751,7 @@ export function Zero0Canvas() {
       expandedIds,
       toggleExpand,
     }),
-    [toggleDone, openEntity, remove, openMenu, sizeOf, showHidden, nowSec, rev, expandedIds, toggleExpand],
+    [toggleDone, openEntity, remove, openMenu, sizeOf, makeOf, showHidden, nowSec, rev, expandedIds, toggleExpand],
   )
 
   // The drill path as a Set — the top-level Content's ancestry. Seeds the cycle guard so a

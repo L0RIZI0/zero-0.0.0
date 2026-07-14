@@ -27,7 +27,7 @@ import {
 } from "@/lib/zero/data"
 import { isClosed, KIND_META } from "@/lib/zero/kinds"
 import { isDone } from "@/lib/zero/entity-log"
-import { FACE_SIZES, faceSizeLabel, type FaceSize } from "@/lib/zero/face-model"
+import { FACE_SIZES, faceSizeLabel, FACE_MAKES, faceMakeLabel, type FaceSize, type FaceMake } from "@/lib/zero/face-model"
 import type { Entity, EntityKind } from "@/lib/zero/types"
 
 // A generic, serialisable menu tree. `submenu` is an inline expander (the overlay and
@@ -94,7 +94,7 @@ const CHANGE_KINDS: EntityKind[] = ["task", "space", "resource", "moment", "inst
  */
 export function buildEntityMenuItems(
   entity: Entity,
-  opts?: { showHidden?: boolean; currentSize?: FaceSize },
+  opts?: { showHidden?: boolean; currentSize?: FaceSize; currentMake?: FaceMake },
 ): MenuItem[] {
   const meta = KIND_META[entity.kind]
   const closeable = meta.fillsWhenClosed || meta.terminal != null
@@ -153,6 +153,22 @@ export function buildEntityMenuItems(
         id: `size:${s}`,
         label: faceSizeLabel(s),
         current: s === opts.currentSize,
+      })),
+    })
+  }
+
+  // MAKE — the axis orthogonal to Size: how this Face READS (itself vs an aggregator of
+  // its content). Same view-override contract as Size: only offered when the caller tracks
+  // a per-entity make, and `make:<value>` is handled by that caller, not applyEntityMenuAction.
+  if (opts?.currentMake) {
+    items.push({
+      type: "submenu",
+      label: "Make",
+      items: FACE_MAKES.map((m) => ({
+        type: "item" as const,
+        id: `make:${m}`,
+        label: faceMakeLabel(m),
+        current: m === opts.currentMake,
       })),
     })
   }
@@ -243,9 +259,9 @@ export function applyEntityMenuAction(entity: Entity, actionId: string): boolean
     case "delete":
       deleteEntity(id)
       return true
-    // "show-hidden" / "hide-hidden" and "size:<value>" are VIEW actions, not data
-    // mutations — the canvas intercepts them before delegating here, so they fall
-    // through to false.
+    // "show-hidden" / "hide-hidden", "size:<value>" and "make:<value>" are VIEW actions,
+    // not data mutations — the canvas intercepts them before delegating here, so they
+    // fall through to false.
     default:
       return false
   }

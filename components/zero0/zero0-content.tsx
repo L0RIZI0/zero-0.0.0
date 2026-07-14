@@ -4,7 +4,7 @@ import { useMemo } from "react"
 import { getChildren } from "@/lib/zero/data"
 import { isClosed } from "@/lib/zero/kinds"
 import { Zero0Face } from "./zero0-face"
-import type { FaceSize } from "@/lib/zero/face-model"
+import type { FaceSize, FaceMake } from "@/lib/zero/face-model"
 import type { Entity } from "@/lib/zero/types"
 
 // ── CONTENT — the SECOND primitive (see /excerpts) ─────────────────────────────
@@ -29,10 +29,12 @@ export interface Zero0ContentCtx {
   openEntity: (e: Entity) => void
   /** Delete an entity (remove from its arrangement). */
   remove: (e: Entity) => void
-  /** Open the entity right-click menu; `size` adds the Size submenu with the row's rung. */
-  openMenu: (e: Entity, ev: React.MouseEvent, opts?: { size?: FaceSize }) => void
+  /** Open the entity right-click menu; `size`/`make` add the Size/Make submenus for the row. */
+  openMenu: (e: Entity, ev: React.MouseEvent, opts?: { size?: FaceSize; make?: FaceMake }) => void
   /** The per-row Face rung (right-click ▸ Size), defaulting to `m`. */
   sizeOf: (id: string) => FaceSize
+  /** The per-row Face make (right-click ▸ Make), defaulting to `default`. */
+  makeOf: (id: string) => FaceMake
   /** Light this row's matching tick(s) in the dayline on hover. */
   setHoveredRowId: (id: string | null) => void
   /** Whether hidden (auto/manual) rows are currently revealed. */
@@ -72,7 +74,7 @@ export interface Zero0ContentProps {
 }
 
 export function Zero0Content({ entity, axis, depth, ancestry, ctx, isRoot, mounted = true }: Zero0ContentProps) {
-  const { showHidden, rev, nowSec, sizeOf, expandedIds } = ctx
+  const { showHidden, rev, nowSec, sizeOf, makeOf, expandedIds } = ctx
 
   const children = useMemo(
     () => getChildren(entity.id),
@@ -123,6 +125,8 @@ export function Zero0Content({ entity, axis, depth, ancestry, ctx, isRoot, mount
         // stay a single inline line.
         const size = sizeOf(e.id)
         const isBlock = size === "l" || size === "xl" || size === "full"
+        // The make this row READS as (right-click ▸ Make), orthogonal to size.
+        const make = makeOf(e.id)
 
         // RECURSION — a row may open into its OWN Content. Offered only when the child
         // actually has children, we're under the depth cap, and expanding wouldn't re-enter
@@ -138,11 +142,12 @@ export function Zero0Content({ entity, axis, depth, ancestry, ctx, isRoot, mount
           <Zero0Face
             entity={e}
             size={size}
+            make={make}
             now={nowSec}
             onToggleDone={ctx.toggleDone}
             onOpen={ctx.openEntity}
             onActivate={() => ctx.openEntity(e)}
-            onActivateContextMenu={(ev) => ctx.openMenu(e, ev, { size })}
+            onActivateContextMenu={(ev) => ctx.openMenu(e, ev, { size, make })}
             hiddenPrefix={hidden}
           />
         )
@@ -187,7 +192,7 @@ export function Zero0Content({ entity, axis, depth, ancestry, ctx, isRoot, mount
           >
             <div className="overflow-hidden">
               <div
-                onContextMenu={(ev) => ctx.openMenu(e, ev, { size })}
+                onContextMenu={(ev) => ctx.openMenu(e, ev, { size, make })}
                 // Hovering a row LIGHTS its matching tick(s) in the dayline (grow + opaque).
                 // Cleared on leave, falling back to the open-context highlight.
                 onMouseEnter={() => ctx.setHoveredRowId(e.id)}
