@@ -48,6 +48,13 @@ export interface UserItems {
    * hydrate. User-created entities carry their full state in `entities`.
    */
   overrides: Record<string, Partial<Entity>>
+  /**
+   * GLOBAL, ordered list of entity ids the user has PINNED as starters — the
+   * curated contents of the §4 PINNED frame. Distinct from `pins` (which is the
+   * per-context Space dock): this is a single flat list, order = pin order.
+   * Additive + fully back-compat (a missing key hydrates to []).
+   */
+  starterPins: string[]
 }
 
 export const emptyUserItems = (): UserItems => ({
@@ -56,6 +63,7 @@ export const emptyUserItems = (): UserItems => ({
   order: {},
   deletedIds: [],
   overrides: {},
+  starterPins: [],
 })
 
 export function readUserItems(): UserItems {
@@ -71,6 +79,7 @@ export function readUserItems(): UserItems {
       deletedIds: Array.isArray(parsed.deletedIds) ? parsed.deletedIds : [],
       overrides:
         parsed.overrides && typeof parsed.overrides === "object" ? parsed.overrides : {},
+      starterPins: Array.isArray(parsed.starterPins) ? parsed.starterPins : [],
     }
   } catch {
     return emptyUserItems()

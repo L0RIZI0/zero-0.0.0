@@ -1253,6 +1253,97 @@ export function reorderPins(contextId: string, orderedIds: string[]): void {
 }
 
 // ----------------------------------------------------------------------------
+// STARTER PINS — the curated GLOBAL list behind the §4 PINNED frame. Distinct
+// from `pinnedByContext` (the per-context Space dock): this is ONE flat, ordered
+// list of entity ids the user chose to keep at hand as "starters". Clicking a
+// starter drills into it and spins a fresh SESSION (see the Sessions layer below).
+// Restored from storage in hydrate; persisted on every toggle.
+// ----------------------------------------------------------------------------
+
+let starterPins: string[] = []
+
+/** True if this entity is currently pinned as a starter. */
+export function isStarterPinned(id: string): boolean {
+  return starterPins.includes(id)
+}
+
+/** The pinned starter entities, resolved and in pin order (unresolvable ids dropped). */
+export function getStarterPinnedEntities(): Entity[] {
+  return starterPins.map((id) => byId.get(id)).filter(Boolean) as Entity[]
+}
+
+/** Toggle an entity's starter-pin membership. Returns the new pinned state. */
+export function toggleStarterPin(id: string): boolean {
+  const i = starterPins.indexOf(id)
+  if (i >= 0) {
+    starterPins.splice(i, 1)
+    persist()
+    return false
+  }
+  starterPins.push(id)
+  persist()
+  return true
+}
+
+// ----------------------------------------------------------------------------
+// SESSIONS — a starter's "clock". Each pinned entity gets, on demand, a child
+// Space titled "Sessions" holding one Moment per session. A session is an ONGOING
+// moment (startAt set, no endAt → getState reads "ongoing", glyph spins). The
+// single-instance invariant: starting a session first punches out any session
+// still ongoing in that Sessions space, so at most one runs at a time.
+// Sessions are identified purely by CONVENTION (a child Space named "Sessions"),
+// so nothing new is added to the Entity/persistence shape.
+// ----------------------------------------------------------------------------
+
+const SESSIONS_TITLE = "Sessions"
+
+/** The entity's Sessions sub-Space if it already exists, else null (no side effects). */
+export function getSessionsSpace(entityId: string): Entity | null {
+  return (
+    getChildren(entityId).find((c) => c.kind === "space" && c.title === SESSIONS_TITLE) ?? null
+  )
+}
+
+/** The entity's Sessions sub-Space, CREATING it on first use. */
+export function ensureSessionsSpace(entityId: string): Entity {
+  return getSessionsSpace(entityId) ?? addSpace({ name: SESSIONS_TITLE, parentId: entityId })
+}
+
+/** The currently-ongoing session moment in this entity's Sessions space, or null. */
+export function getOngoingSession(entityId: string): Entity | null {
+  const space = getSessionsSpace(entityId)
+  if (!space) return null
+  const now = Date.now()
+  return (
+    getChildren(space.id).find((c) => c.kind === "moment" && getState(c, now).word === "ongoing") ??
+    null
+  )
+}
+
+/**
+ * START a session for a pinned entity: ensure its Sessions space, punch OUT any
+ * still-ongoing session there (≤1-ongoing invariant), then spin a fresh ongoing
+ * Moment titled after the entity. Returns the new session moment.
+ */
+export function startSession(entityId: string): Entity {
+  const space = ensureSessionsSpace(entityId)
+  const now = Date.now()
+  for (const c of getChildren(space.id)) {
+    if (c.kind === "moment" && getState(c, now).word === "ongoing") {
+      setEntityScheduleField(c.id, "endAt", now)
+    }
+  }
+  const title = byId.get(entityId)?.title ?? "Session"
+  return addParsedEntity({ title, contextId: space.id, kind: "moment", schedule: { startAt: now } })
+}
+
+/** STOP the ongoing session for a pinned entity (punch out → complete). No-op if none. */
+export function stopSession(entityId: string): void {
+  const ongoing = getOngoingSession(entityId)
+  if (ongoing) setEntityScheduleField(ongoing.id, "endAt", Date.now())
+}
+
+// ----------------------------------------------------------------------------
 // Per-context ORDER — the user's drag-and-drop sibling order for a do-list.
 // Scoped per context (like pins): `contextId` → the ordered child ids. A context
 // with no entry uses natural creation order; ids missing from an entry fall to
@@ -1319,6 +1410,7 @@ function persist() {
     order: orderByContext,
     deletedIds: [...deletedSeededIds],
     overrides: Object.fromEntries(seededOverrides),
+    starterPins: [...starterPins],
   })
 }
 
@@ -1508,6 +1600,14 @@ export function hydrateFromStorage(): boolean {
   for (const [contextId, ids] of Object.entries(stored.order)) {
     if (!Array.isArray(ids) || ids.length === 0) continue
     orderByContext[contextId] = [...ids]
+    added = true
+  }
+
+  // Restore the global starter-pin list (the curated §4 PINNED frame). Ids may
+  // reference seeded or user entities; unresolvable ones are filtered lazily by
+  // getStarterPinnedEntities, so we keep the list verbatim here.
+  if (Array.isArray(stored.starterPins) && stored.starterPins.length > 0) {
+    starterPins = [...stored.starterPins]
     added = true
   }
 

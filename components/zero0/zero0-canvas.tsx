@@ -28,7 +28,11 @@ import {
   changeEntityKind,
   deleteEntity,
   autoTagByTitle,
-  type FrequentGroup,
+  isStarterPinned,
+  toggleStarterPin,
+  startSession,
+  stopSession,
+  getOngoingSession,
 } from "@/lib/zero/data"
   import { KIND_META, isClosed, getState } from "@/lib/zero/kinds"
   import { isDone, describeLogEntry } from "@/lib/zero/entity-log"
@@ -47,7 +51,7 @@ import { Zero0FrameMarker } from "./zero0-frame-marker"
 import { ZERO_VERSION } from "@/lib/zero/version"
 import { formatLocale } from "@/lib/zero/format-locale"
 import { Zero0ResourceCanvas } from "./zero0-resource-canvas"
-import { Zero0Frequent } from "./zero0-frequent"
+import { Zero0Pinned } from "./zero0-pinned"
 import { Zero0Face } from "./zero0-face"
 import { Zero0Content, type Zero0ContentCtx } from "./zero0-content"
 import { fmt, fmtLogValue, sexSymbol, type FaceSize, type FaceMake } from "@/lib/zero/face-model"
@@ -583,78 +587,25 @@ export function Zero0Canvas() {
     setPath([ROOT_ID, ...chain])
   }, [])
 
-  // FREQUENT (§4) PUNCH IN — START a fresh occurrence NOW. A tile allows only ONE instance
-  // running at a time, so any currently-ongoing occurrence is punched OUT first (stamp its
-  // `endAt`=now → complete). Same kind + title under the activity's USUAL (modal) parent; a
-  // Moment lands "ongoing" (spinning glyph). Drills into it UNLESS `stay` (glyph click) — for
-  // starting a fresh one without climbing back.
-  const punchInFrequent = useCallback(
-    (g: FrequentGroup, opts: { stay: boolean }) => {
-      const now = Date.now()
-      for (const inst of g.instances) if (inst.state === "ongoing") setEntityScheduleField(inst.id, "endAt", now)
-      const created = addParsedEntity({
-        title: g.title,
-        contextId: g.parentId,
-        kind: g.kind,
-        schedule: { startAt: now },
-      })
-      if (!opts.stay) navigateTo(created.id)
+  // PINNED (§4) OPEN — the frame/title click on a pinned starter: DRILL into the entity AND
+  // spin a fresh session in its Sessions sub-Space (startSession enforces the ≤1-ongoing
+  // rule + creates the Sessions space on first use). You land inside the entity; the session
+  // records in the background.
+  const openPinned = useCallback(
+    (id: string) => {
+      startSession(id)
+      navigateTo(id)
       bump()
     },
     [navigateTo, bump],
   )
 
-  // FREQUENT (§4) PUNCH OUT — end a SPECIFIC ongoing occurrence now (from the expanded list):
-  // stamp its `endAt`=now, which tz-stably re-stamps its close. Always stays on the canvas.
-  const punchOutFrequent = useCallback(
+  // PINNED (§4) SESSION TOGGLE — the glyph click (STAY here): stop the running session if one
+  // is ongoing, else start one. No navigation — just clock in/out from the shelf.
+  const togglePinnedSession = useCallback(
     (id: string) => {
-      setEntityScheduleField(id, "endAt", Date.now())
-      bump()
-    },
-    [bump],
-  )
-
-  // FREQUENT (§4) END ALL — punch OUT every currently-ongoing occurrence of an activity at
-  // once (stamp each `endAt`=now → they become COMPLETE, tz-stably closing at midnight).
-  const endAllOngoingFrequent = useCallback(
-    (g: FrequentGroup) => {
-      const now = Date.now()
-      for (const inst of g.instances) if (inst.state === "ongoing") setEntityScheduleField(inst.id, "endAt", now)
-      bump()
-    },
-    [bump],
-  )
-
-  // FREQUENT (§4) CLOSE ALL — force-CLOSE every LISTED occurrence now (both ONGOING and
-  // COMPLETE-not-yet-closed): the entity-menu "Close" action in bulk, stamping the close
-  // immediately rather than waiting for the day boundary. This clears the whole tile list —
-  // an ongoing block is ended+closed in one step, and a complete block is filed early. (End
-  // all, by contrast, only punches out the ongoing ones and leaves them as complete.)
-  const closeAllFrequent = useCallback(
-    (g: FrequentGroup) => {
-      for (const inst of g.instances) setEntityClosed(inst.id, true)
-      bump()
-    },
-    [bump],
-  )
-
-  // FREQUENT (§4) DURATION log — file a block from the right-click form (stays on canvas).
-  // The form computes an absolute `startAt` and either an explicit `endAt` (a COMPLETE block:
-  // glyph fills, time-closes at midnight) or `null` (still running → ongoing/spinning). When
-  // filing a new ONGOING block (endAt null), any current ongoing occurrence is punched out
-  // first — a tile allows only one instance running at a time.
-  const logFrequent = useCallback(
-    (g: FrequentGroup, startAt: number, endAt: number | null) => {
-      if (endAt == null) {
-        const now = Date.now()
-        for (const inst of g.instances) if (inst.state === "ongoing") setEntityScheduleField(inst.id, "endAt", now)
-      }
-      addParsedEntity({
-        title: g.title,
-        contextId: g.parentId,
-        kind: g.kind,
-        schedule: endAt == null ? { startAt } : { startAt, endAt },
-      })
+      if (getOngoingSession(id)) stopSession(id)
+      else startSession(id)
       bump()
     },
     [bump],
@@ -710,6 +661,12 @@ export function Zero0Canvas() {
           return copy
         })
       }
+      // STARTER PIN — curation, not entity data: add/remove from the global §4 PINNED list.
+      // Handled here (like the view toggles) rather than via `applyEntityMenuAction`.
+      if (id === "starter-pin" || id === "starter-unpin") {
+        toggleStarterPin(e.id)
+        return bump()
+      }
       applyEntityMenuAction(e, id)
       bump()
     },
@@ -724,7 +681,14 @@ export function Zero0Canvas() {
       ev.preventDefault()
       ev.stopPropagation()
       showMenu(
-        buildEntityMenuItems(e, { showHidden, currentSize: opts?.size, currentMake: opts?.make }),
+        buildEntityMenuItems(e, {
+          showHidden,
+          currentSize: opts?.size,
+          currentMake: opts?.make,
+          // The pin toggle appears on EVERY entity menu (content rows, tiles, header) with
+          // its label reflecting current membership — computed live so it always matches.
+          starterPinned: isStarterPinned(e.id),
+        }),
         ev.clientX,
         ev.clientY,
         (id) => runEntityAction(e, id),
@@ -903,10 +867,12 @@ export function Zero0Canvas() {
         {topClock}
       </div>
 
-      {/* ── FREQUENT BAND (§4, topmost — just under the clock) ──────────────────
-          A quick-create palette of the user's most-repeated activities. Shown by
-          default. Same dep-free grid-rows collapse animation as every frame; kept
-          MOUNTED while hidden so both directions animate, `inert` when collapsed. */}
+      {/* ── PINNED BAND (§4, topmost — just under the clock) ────────────────────
+          The user's curated shelf of "starters": entities pinned via the ENTITY
+          CONTENT right-click. Clicking one drills in + starts a session; the glyph
+          clocks in/out without navigating. Shown by default. Same dep-free grid-rows
+          collapse animation as every frame; kept MOUNTED while hidden so both
+          directions animate, `inert` when collapsed. */}
       {mounted && (
         <div
           className="grid transition-[grid-template-rows] duration-300 ease-out motion-reduce:transition-none"
@@ -914,14 +880,11 @@ export function Zero0Canvas() {
           inert={!showFrequent}
         >
           <div className="overflow-hidden">
-            <Zero0Frequent
+            <Zero0Pinned
               dataRev={rev}
-              onPunchIn={punchInFrequent}
-              onPunchOut={punchOutFrequent}
-              onLog={logFrequent}
-              onEndAll={endAllOngoingFrequent}
-              onCloseAll={closeAllFrequent}
-              onOpen={navigateTo}
+              onOpen={openPinned}
+              onToggleSession={togglePinnedSession}
+              onContextMenu={(e, ev) => openMenu(e, ev)}
             />
           </div>
         </div>
@@ -1248,8 +1211,9 @@ export function Zero0Canvas() {
         <span className="text-border" aria-hidden>
           |
         </span>
-        {/* FREQUENT (§4) + AGENDA (§3) + ACTIVITY (§2) frame toggles, in top-to-bottom
-            order. These flip the SAME chord flags as the § keybindings and "§x" markers. */}
+        {/* PINNED (§4) + AGENDA (§3) + ACTIVITY (§2) frame toggles, in top-to-bottom
+            order. These flip the SAME chord flags as the § keybindings and "§x" markers.
+            (The flag key stays "frequent" for back-compat with stored chord state.) */}
         <button
           type="button"
           onClick={() => toggleZero0Flag("frequent")}
@@ -1260,7 +1224,7 @@ export function Zero0Canvas() {
               : "text-muted-foreground transition-colors hover:text-foreground"
           }
         >
-          starters
+          pinned
         </button>
         <button
           type="button"

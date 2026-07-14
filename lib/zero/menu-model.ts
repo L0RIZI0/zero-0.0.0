@@ -94,7 +94,7 @@ const CHANGE_KINDS: EntityKind[] = ["task", "space", "resource", "moment", "inst
  */
 export function buildEntityMenuItems(
   entity: Entity,
-  opts?: { showHidden?: boolean; currentSize?: FaceSize; currentMake?: FaceMake },
+  opts?: { showHidden?: boolean; currentSize?: FaceSize; currentMake?: FaceMake; starterPinned?: boolean },
 ): MenuItem[] {
   const meta = KIND_META[entity.kind]
   const closeable = meta.fillsWhenClosed || meta.terminal != null
@@ -104,6 +104,20 @@ export function buildEntityMenuItems(
   const closeLabel = meta.terminal === "retire" ? "Retire" : meta.terminal === "death" ? "End" : "Close"
 
   const items: MenuItem[] = []
+
+  // PIN AS STARTER — a top-level toggle adding/removing this entity from the global §4
+  // PINNED frame. Only offered when the caller tracks pin state (`starterPinned` passed);
+  // `starter-pin` / `starter-unpin` are VIEW-ish actions handled by that caller, not
+  // `applyEntityMenuAction` (which returns false for them). A divider separates it from
+  // the lifecycle actions below.
+  if (opts?.starterPinned !== undefined) {
+    items.push({
+      type: "item",
+      id: opts.starterPinned ? "starter-unpin" : "starter-pin",
+      label: opts.starterPinned ? "Unpin starter" : "Pin as starter",
+    })
+    items.push({ type: "divider" })
+  }
 
   if (closeable) {
     if (ended) {
@@ -259,9 +273,10 @@ export function applyEntityMenuAction(entity: Entity, actionId: string): boolean
     case "delete":
       deleteEntity(id)
       return true
-    // "show-hidden" / "hide-hidden", "size:<value>" and "make:<value>" are VIEW actions,
-    // not data mutations — the canvas intercepts them before delegating here, so they
-    // fall through to false.
+    // "show-hidden" / "hide-hidden", "size:<value>", "make:<value>" and the starter-pin
+    // toggle ("starter-pin" / "starter-unpin") are VIEW/curation actions, not entity data
+    // mutations — the canvas intercepts them before delegating here, so they fall through
+    // to false.
     default:
       return false
   }
