@@ -24,8 +24,10 @@ import {
   setEntityHidden,
   reopenEntity,
   changeEntityKind,
+  openSession,
+  closeSession,
 } from "@/lib/zero/data"
-import { isClosed, KIND_META } from "@/lib/zero/kinds"
+import { isClosed, KIND_META, isPlayable, hasOpenSession } from "@/lib/zero/kinds"
 import { isDone } from "@/lib/zero/entity-log"
 import { FACE_SIZES, faceSizeLabel, FACE_MAKES, faceMakeLabel, type FaceSize, type FaceMake } from "@/lib/zero/face-model"
 import type { Entity, EntityKind } from "@/lib/zero/types"
@@ -146,7 +148,12 @@ export function buildEntityMenuItems(
   // while live (an ended entity's times are historical). Simple: stamps `Date.now()` with no
   // cross-midnight adjustment (the create bar's `--start:now` etc. is the fuller path).
   if (!ended) {
-    if (entity.kind === "moment") {
+    // PLAYABLE ("whenever" moment/space): Play/Stop toggles a background session — the same
+    // action as clicking its glyph. Shown INSTEAD of the now-stamps (a whenever entity has no
+    // fixed clock time to stamp). `play` / `stop` are resolved by applyEntityMenuAction below.
+    if (isPlayable(entity)) {
+      items.push({ type: "item", id: hasOpenSession(entity) ? "stop" : "play", label: hasOpenSession(entity) ? "Stop" : "Play" })
+    } else if (entity.kind === "moment") {
       items.push({ type: "item", id: "start-now", label: "Start now" })
       items.push({ type: "item", id: "end-now", label: "End now" })
     } else if (entity.kind === "instant") {
@@ -257,6 +264,12 @@ export function applyEntityMenuAction(entity: Entity, actionId: string): boolean
       return true
     case "set-now":
       setEntityScheduleField(id, "at", Date.now())
+      return true
+    case "play":
+      openSession(id, "play")
+      return true
+    case "stop":
+      closeSession(id)
       return true
     case "request":
       setEntityRequested(id, true)
