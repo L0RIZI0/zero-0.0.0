@@ -228,9 +228,10 @@ export function Zero0Dayline({
    *  also a minimized band, so two adjacent minimized frames merge into one grouped strip
    *  with a single balanced gap between them (no divider). */
   hideBottomBorder?: boolean
-  /** The entity id currently FOCUSED elsewhere on the canvas (a hovered ENTITY CONTENT
-   *  row, or the open context). Every tick whose `id` matches grows + goes fully opaque —
-   *  a cross-component "this is what you're looking at" echo. `null` = nothing focused. */
+  /** The entity id currently HOVERED in ENTITY CONTENT (hover-only — NOT the open context;
+   *  the canvas clears this on navigation so drilling in never leaves a tick lit). Every tick
+   *  whose `id` matches grows + goes fully opaque — a cross-component "this is the row you're
+   *  pointing at" echo. `null` = nothing hovered. */
   highlightId?: string | null
 }) {
   const isPresence = tracks === "presence"
@@ -954,8 +955,9 @@ export function Zero0Dayline({
               {mounted &&
                 (combined ? [...planned, ...presence] : isPresence ? presence : planned).map((p) => {
                   const isHot = hoveredKey === p.key
-                  // LIT — this tick's entity is the one being focused elsewhere on the canvas
-                  // (a hovered ENTITY CONTENT row, or the open context). Grows + fully opaque.
+                  // LIT — this tick's entity is the one being HOVERED in ENTITY CONTENT
+                  // (hover-only; cleared on navigation, so never lit merely for being open).
+                  // Grows + fully opaque.
                   const lit = highlightId != null && p.id === highlightId
                   const isPresenceTick = combined ? p.track === "presence" : isPresence
                   // Height. A LIT tick pops to 26px. Otherwise: PRESENCE = a fixed 10px
