@@ -1,5 +1,5 @@
-import type { Asset, Entity, EntityKind, IndividualEntity, Instant, Recurrence, Schedule, Resource, EntityBase, Sex, TaskPriority, TitleEntry, User } from "./types"
-  import { hasDoneState, isClosed, computeCloseAt, getState, fillsGlyph } from "./kinds"
+import type { Asset, Entity, EntityKind, IndividualEntity, Instant, Recurrence, Schedule, Resource, EntityBase, Session, Sex, TaskPriority, TitleEntry, User } from "./types"
+  import { hasDoneState, isClosed, computeCloseAt, getState, fillsGlyph, hasOpenSession, getOpenSession, setChildrenResolver, isConcreteStart, concreteStart } from "./kinds"
 import {
   isDone,
   isCancelled,
@@ -598,6 +598,11 @@ export function getChildren(contextId: string): Entity[] {
     .map((x) => x.e)
 }
 
+// Wire getChildren into kinds.ts so child-gated Task completion (a Done task isn't
+// COMPLETE until all its `kind==="task"` children are) can resolve children without a
+// circular import (kinds is the lower module). One-time, at module load.
+setChildrenResolver(getChildren)
+
 /**
  * Whether `childId` has an IN-PLACE owning node inside `hostId` — i.e. it would
  * render in `host`'s DO-LIST (structural parent or tagged space) OR in `host`'s
@@ -886,12 +891,12 @@ export function getFrequentEntities(opts?: {
     const instances: FrequentInstance[] = b.members
       .map((m) => ({ m, word: getState(m, now).word }))
       .filter((x) => x.word === "ongoing" || x.word === "complete")
-      .sort((a, c) => (a.m.schedule?.startAt ?? 0) - (c.m.schedule?.startAt ?? 0))
+      .sort((a, c) => (concreteStart(a.m) ?? 0) - (concreteStart(c.m) ?? 0))
       .map((x) => ({
         id: x.m.id,
         kind: x.m.kind,
         title: x.m.title,
-        startAt: x.m.schedule?.startAt ?? now,
+        startAt: concreteStart(x.m) ?? now,
         endAt: x.m.schedule?.endAt ?? null,
         state: x.word as "ongoing" | "complete",
         filled: fillsGlyph(x.m),
@@ -1091,7 +1096,8 @@ export function getTimelineOccurrences(
     // A point (`at`), a span start, or — for a due-only entity like a Task deadline —
     // the `dueAt` all serve as the timeline anchor, so a task with just a due date still
     // places a marker.
-    const anchor = s.at ?? s.startAt ?? s.dueAt
+    // "whenever" is not a fixed time, so it can't anchor a timeline occurrence.
+    const anchor = s.at ?? (isConcreteStart(s.startAt) ? s.startAt : undefined) ?? s.dueAt
     if (anchor == null) continue
 
     if (!s.repeat) {
@@ -1100,7 +1106,7 @@ export function getTimelineOccurrences(
       continue
     }
 
-    const duration = s.startAt != null && s.endAt != null ? s.endAt - s.startAt : 0
+    const duration = isConcreteStart(s.startAt) && s.endAt != null ? s.endAt - s.startAt : 0
     const anchorDate = new Date(anchor)
     // Walk each local day in range; emit an occurrence on matching days. Using a
     // Date stepper (setDate) keeps midnights correct across DST boundaries.
@@ -1256,8 +1262,8 @@ export function reorderPins(contextId: string, orderedIds: string[]): void {
 // STARTER PINS — the curated GLOBAL list behind the §4 PINNED frame. Distinct
 // from `pinnedByContext` (the per-context Space dock): this is ONE flat, ordered
 // list of entity ids the user chose to keep at hand as "starters". Clicking a
-// starter drills into it and spins a fresh SESSION (see the Sessions layer below).
-// Restored from storage in hydrate; persisted on every toggle.
+// starter drills into it (which, if it's a Task, punches in a focus session via the
+// nav layer — see the Sessions block below). Restored from storage; persisted on toggle.
 // ----------------------------------------------------------------------------
 
 let starterPins: string[] = []
@@ -1286,61 +1292,88 @@ export function toggleStarterPin(id: string): boolean {
 }
 
 // ----------------------------------------------------------------------------
-// SESSIONS — a starter's "clock". Each pinned entity gets, on demand, a child
-// Space titled "Sessions" holding one Moment per session. A session is an ONGOING
-// moment (startAt set, no endAt → getState reads "ongoing", glyph spins). The
-// single-instance invariant: starting a session first punches out any session
-// still ongoing in that Sessions space, so at most one runs at a time.
-// Sessions are identified purely by CONVENTION (a child Space named "Sessions"),
-// so nothing new is added to the Entity/persistence shape.
+// SESSIONS — tracked work punch-ins/outs, stored as a PAIRS ARRAY on the entity
+// (`schedule.sessions`; see types.ts). The last entry lacking `endAt` is the ONE
+// open session, and that alone is what makes getState read the entity `ongoing`
+// EVERYWHERE it appears. Two writers open sessions: FOCUS (drilling into a Task past
+// a dwell threshold — see zero0-canvas) and PLAY (the glyph on a "whenever"
+// moment/space). Deliberately NOT mirrored into scalar startAt/endAt: sessions are a
+// tracking layer OVER the declared schedule; mirroring would clobber the "whenever"
+// sentinel and trip a moment's midnight auto-close. Pure reads (getSessions/
+// getOpenSession/hasOpenSession) live in kinds.ts; the WRITES are here.
 // ----------------------------------------------------------------------------
 
-const SESSIONS_TITLE = "Sessions"
+/**
+ * Sessions this short (ms) are treated as pass-through NOISE and DROPPED on close, so
+ * transiting A→B→C to reach C leaves no trace on A/B. The nav layer also gates opening
+ * behind a longer dwell; this floor additionally guards play/programmatic closes.
+ */
+export const MIN_SESSION_MS = 1500
 
-/** The entity's Sessions sub-Space if it already exists, else null (no side effects). */
-export function getSessionsSpace(entityId: string): Entity | null {
-  return (
-    getChildren(entityId).find((c) => c.kind === "space" && c.title === SESSIONS_TITLE) ?? null
-  )
-}
-
-/** The entity's Sessions sub-Space, CREATING it on first use. */
-export function ensureSessionsSpace(entityId: string): Entity {
-  return getSessionsSpace(entityId) ?? addSpace({ name: SESSIONS_TITLE, parentId: entityId })
-}
-
-/** The currently-ongoing session moment in this entity's Sessions space, or null. */
-export function getOngoingSession(entityId: string): Entity | null {
-  const space = getSessionsSpace(entityId)
-  if (!space) return null
-  const now = Date.now()
-  return (
-    getChildren(space.id).find((c) => c.kind === "moment" && getState(c, now).word === "ongoing") ??
-    null
-  )
+/** Persist a session mutation, mirroring setEntityScheduleField's seeded-override path. */
+function persistSessionMutation(id: string, entity: LooseEntity, sched: Schedule): void {
+  entity.schedule = sched
+  if (!userEntityIds.has(id)) {
+    seededOverrides.set(id, { ...seededOverrides.get(id), schedule: sched })
+  }
+  persist()
 }
 
 /**
- * START a session for a pinned entity: ensure its Sessions space, punch OUT any
- * still-ongoing session there (≤1-ongoing invariant), then spin a fresh ongoing
- * Moment titled after the entity. Returns the new session moment.
+ * OPEN a session on an entity if none is already open (idempotent). `kind` marks focus
+ * punch-ins vs play stopwatches so hydrate-cleanup can close dangling focus sessions
+ * while leaving play stopwatches running. Returns true if a session is now open.
  */
-export function startSession(entityId: string): Entity {
-  const space = ensureSessionsSpace(entityId)
-  const now = Date.now()
-  for (const c of getChildren(space.id)) {
-    if (c.kind === "moment" && getState(c, now).word === "ongoing") {
-      setEntityScheduleField(c.id, "endAt", now)
-    }
-  }
-  const title = byId.get(entityId)?.title ?? "Session"
-  return addParsedEntity({ title, contextId: space.id, kind: "moment", schedule: { startAt: now } })
+export function openSession(id: string, kind: Session["kind"] = "focus", at = Date.now()): boolean {
+  const stored = byId.get(id)
+  if (!stored) return false
+  if (hasOpenSession(stored)) return true // already running — no-op
+  const entity = mutable(stored)
+  const sched: Schedule = { ...(entity.schedule ?? {}) }
+  sched.sessions = [...(sched.sessions ?? []), { startAt: at, kind }]
+  const log = ensureEntityLog(entity)
+  entity.log = appendInstant(log, makeInstant("session-open", at))
+  persistSessionMutation(id, entity, sched)
+  return true
 }
 
-/** STOP the ongoing session for a pinned entity (punch out → complete). No-op if none. */
-export function stopSession(entityId: string): void {
-  const ongoing = getOngoingSession(entityId)
-  if (ongoing) setEntityScheduleField(ongoing.id, "endAt", Date.now())
+/**
+ * CLOSE the open session on an entity. If the resulting span ≤ MIN_SESSION_MS it is
+ * DROPPED entirely (discard-short). No-op if nothing is open. Returns true if a session
+ * was closed (or dropped).
+ */
+export function closeSession(id: string, at = Date.now()): boolean {
+  const stored = byId.get(id)
+  if (!stored) return false
+  const open = getOpenSession(stored)
+  if (!open) return false
+  const entity = mutable(stored)
+  const sched: Schedule = { ...(entity.schedule ?? {}) }
+  const sessions = [...(sched.sessions ?? [])]
+  const last = sessions[sessions.length - 1]
+  if (last && at - last.startAt <= MIN_SESSION_MS) {
+    sessions.pop() // too short → discard the whole entry
+  } else if (last) {
+    sessions[sessions.length - 1] = { ...last, endAt: at }
+  }
+  sched.sessions = sessions
+  const log = ensureEntityLog(entity)
+  entity.log = appendInstant(log, makeInstant("session-close", at))
+  persistSessionMutation(id, entity, sched)
+  return true
+}
+
+/** Toggle the open/closed state of an entity's session (Play ⇄ Stop). Returns the new
+ *  open state. Used by the glyph play/pause on a "whenever" moment/space. */
+export function toggleSession(id: string, kind: Session["kind"] = "play"): boolean {
+  const stored = byId.get(id)
+  if (!stored) return false
+  if (hasOpenSession(stored)) {
+    closeSession(id)
+    return false
+  }
+  openSession(id, kind)
+  return true
 }
 
 // ----------------------------------------------------------------------------
@@ -1629,6 +1662,26 @@ export function hydrateFromStorage(): boolean {
     }
   }
 
+  // Hydrate-cleanup: close any DANGLING focus session a previous run left open (e.g.
+  // the app closed while inside a Task). Focus-time must NOT accrue while the app is
+  // shut, so we close each at the entity's last known activity and DROP spans that end
+  // up ≤ MIN_SESSION_MS. PLAY stopwatches (`kind === "play"`, on moment/space) are LEFT
+  // RUNNING on purpose. [DECISION BAKED — easy to flip: delete this loop to keep focus
+  // timers running across reloads.]
+  for (const entity of entities) {
+    if (entity.kind !== "task") continue
+    const sessions = entity.schedule?.sessions
+    if (!sessions || sessions.length === 0) continue
+    const last = sessions[sessions.length - 1]
+    if (last.endAt != null || last.kind === "play") continue
+    const closeAt = lastLogAt(entity) ?? last.startAt
+    const next = [...sessions]
+    if (closeAt - last.startAt <= MIN_SESSION_MS) next.pop()
+    else next[next.length - 1] = { ...last, endAt: closeAt }
+    entity.schedule = { ...entity.schedule, sessions: next }
+    // In-memory only (like the id/tagged migrations); persists on the next mutation.
+  }
+
   // DEV-only: surface any log↔scalar drift found above. A clean load (no warning)
   // across normal dogfooding is the green light to retire the scalar backups.
   if (process.env.NODE_ENV !== "production" && logAudit.length > 0) {
@@ -1639,6 +1692,15 @@ export function hydrateFromStorage(): boolean {
   }
 
   return added
+}
+
+/** The latest timestamp in an entity's lifecycle log, or null if it has no log. */
+function lastLogAt(entity: Entity): number | null {
+  const log = entity.log
+  if (!log || log.length === 0) return null
+  let max = log[0].at
+  for (const e of log) if (e.at > max) max = e.at
+  return max
 }
 
 /**
@@ -1880,7 +1942,7 @@ function resolveOccurrenceSchedule(s: Schedule | undefined, dayStart: number): S
   const occ = new Date(dayStart)
   occ.setHours(a.getHours(), a.getMinutes(), a.getSeconds(), 0)
   const occStart = occ.getTime()
-  const duration = s.startAt != null && s.endAt != null ? s.endAt - s.startAt : 0
+  const duration = isConcreteStart(s.startAt) && s.endAt != null ? s.endAt - s.startAt : 0
   if (s.at != null) {
     resolved.at = occStart
   } else {

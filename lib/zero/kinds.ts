@@ -1,4 +1,5 @@
-import type { Entity, EntityKind } from "./types"
+import type { Entity, EntityKind, Session } from "./types"
+import { WHENEVER } from "./types"
 import {
   isDone,
   getCompletedOn,
@@ -231,6 +232,103 @@ export interface EntityState {
   age?: string
 }
 
+// ── "Whenever" sentinel guards ────────────────────────────────────────────────
+// A `startAt` may be a concrete epoch, the `"whenever"` sentinel (playable, no fixed
+// time), or undefined. EVERY comparison (`now >= startAt`, sorting, arithmetic) must
+// go through these so the sentinel is never treated as a number. `isConcreteStart` is
+// a type guard that narrows to `number` for the compiler.
+
+/** True (and narrows to `number`) when a startAt value is a concrete epoch. */
+export function isConcreteStart(v: number | typeof WHENEVER | undefined): v is number {
+  return typeof v === "number"
+}
+
+/** True when a startAt value is the `"whenever"` sentinel (a playable, timeless thing). */
+export function isWheneverStart(v: number | typeof WHENEVER | undefined): boolean {
+  return v === WHENEVER
+}
+
+/** An entity's concrete startAt epoch, or null if it is "whenever" / unset. */
+export function concreteStart(entity: Entity): number | null {
+  const v = entity.schedule?.startAt
+  return isConcreteStart(v) ? v : null
+}
+
+/** True when the entity is PLAYABLE — a Moment/Space declared `startAt: "whenever"`. */
+export function isPlayable(entity: Entity): boolean {
+  return (
+    (entity.kind === "moment" || entity.kind === "space") &&
+    isWheneverStart(entity.schedule?.startAt)
+  )
+}
+
+// ── Session reads (pure — sessions live ON the entity) ─────────────────────────
+// The CANONICAL store of punch-ins/outs is `schedule.sessions` (see types.ts). These
+// pure reads let getState derive "ongoing" with zero dependency on the current view,
+// which is what makes a Task read ongoing EVERYWHERE it appears. Write helpers
+// (openSession/closeSession) live in data.ts.
+
+/** All of an entity's tracked sessions (oldest first); [] if none. */
+export function getSessions(entity: Entity): Session[] {
+  return entity.schedule?.sessions ?? []
+}
+
+/** The single OPEN session (last entry lacking `endAt`), or null. */
+export function getOpenSession(entity: Entity): Session | null {
+  const s = getSessions(entity)
+  const last = s[s.length - 1]
+  return last && last.endAt == null ? last : null
+}
+
+/** Whether the entity has an open (ongoing) session right now. */
+export function hasOpenSession(entity: Entity): boolean {
+  return getOpenSession(entity) != null
+}
+
+// ── Child-gated Task completion (resolver injection) ───────────────────────────
+// A Task marked Done isn't COMPLETE until every child of `kind === "task"` is complete
+// (non-task children never gate). `completeSince` needs the child list, but kinds.ts is
+// a LOWER module than data.ts (data imports kinds), so we can't import getChildren here.
+// data.ts injects it once at init via `setChildrenResolver`. If unset (shouldn't happen
+// at runtime), completion is NOT gated — the pre-existing "Done ⇒ complete" behavior.
+
+type ChildrenResolver = (id: string) => Entity[]
+let _childrenResolver: ChildrenResolver | null = null
+
+/** Wire the child lookup used by child-gated Task completion (called by data.ts init). */
+export function setChildrenResolver(fn: ChildrenResolver): void {
+  _childrenResolver = fn
+}
+
+/**
+ * Whether every `kind === "task"` descendant that gates completion is itself complete
+ * (or closed/cancelled — i.e. no longer pending). Recurses so a whole subtree must be
+ * done; `seen` guards `taggedContextIds` cycles. Non-task children are ignored.
+ */
+function allTaskChildrenComplete(entity: Entity, now: number, seen = new Set<string>()): boolean {
+  if (!_childrenResolver) return true
+  if (seen.has(entity.id)) return true
+  seen.add(entity.id)
+  for (const child of _childrenResolver(entity.id)) {
+    if (child.kind !== "task") continue
+    const w = stateWordFor(child, now, seen)
+    // Pending (still to do) → blocks the parent. Complete/closed/cancelled → doesn't.
+    if (w !== "complete" && w !== "closed" && w !== "cancelled" && w !== "dead" && w !== "retired") {
+      return false
+    }
+  }
+  return true
+}
+
+/**
+ * The state word of `child`, threading the cycle-guard `seen` set so nested child-gated
+ * completion checks can't infinitely recurse. Thin wrapper over getState used only by
+ * allTaskChildrenComplete (getState itself stays the public, seed-set-free entry point).
+ */
+function stateWordFor(child: Entity, now: number, seen: Set<string>): StateWord {
+  return getStateInner(child, now, seen).word
+}
+
 /**
  * The stamped ABSOLUTE close instant an entity SHOULD carry given its current terminal
  * event — computed once, in the caller's local day, and frozen by the write paths onto
@@ -268,9 +366,14 @@ export function computeCloseAt(entity: Entity, now: number = Date.now()): number
  *   - MOMENT/INSTANT: complete once its end/point is in the past. That end epoch.
  *   - LEGACY: a persisted explicit `complete` verdict from old data.
  */
-function completeSince(entity: Entity, now: number): number | null {
+function completeSince(entity: Entity, now: number, seen?: Set<string>): number | null {
   if (entity.kind === "task") {
-    return isDone(entity) ? getCompletedOn(entity) ?? getCreatedAt(entity) ?? now : null
+    // Done is necessary but NOT sufficient: a Done task with any still-pending
+    // `kind === "task"` child reads "done but open" (returns null here → not complete)
+    // and AUTOCOMPLETES once every task child is complete. Non-task children never gate.
+    if (!isDone(entity)) return null
+    if (!allTaskChildrenComplete(entity, now, seen ?? new Set<string>())) return null
+    return getCompletedOn(entity) ?? getCreatedAt(entity) ?? now
   }
   if (entity.kind === "moment") {
     // END only (see computeCloseAt): a moment completes when its span ENDS. With no end
@@ -293,6 +396,15 @@ function completeSince(entity: Entity, now: number): number | null {
  * (interim) > open. `now` is injectable for testing.
  */
 export function getState(entity: Entity, now: number = Date.now()): EntityState {
+  return getStateInner(entity, now, new Set<string>())
+}
+
+/**
+ * The real getState body, threading a `seen` set so the child-gated Task-completion
+ * check (see allTaskChildrenComplete) can't infinitely recurse through
+ * `taggedContextIds` cycles. Public callers use {@link getState}.
+ */
+function getStateInner(entity: Entity, now: number, seen: Set<string>): EntityState {
   const meta = KIND_META[entity.kind]
   if (isCancelled(entity)) return { word: "cancelled", at: entity.cancelledOn }
 
@@ -321,16 +433,24 @@ export function getState(entity: Entity, now: number = Date.now()): EntityState 
 
   if (closeState === "reopened") return { word: "open", reopenedAt: entity.reopenedOn }
 
-  const c = completeSince(entity, now)
+  const c = completeSince(entity, now, seen)
   if (c != null) return { word: "complete", at: c, willCloseAt: entity.closeAt }
 
-  // ONGOING — a Moment that has STARTED (past start) but carries no end: a live span in
-  // progress, awaiting the end that will complete + close it. Distinct from a not-yet-
-  // started moment (still "open"). Currently Moment-only; the concept (an entity that is
-  // more than merely open — e.g. one with active children) may extend elsewhere later.
-  if (entity.kind === "moment") {
-    const start = entity.schedule?.startAt
-    if (start != null && now >= start) return { word: "ongoing", at: start }
+  // ONGOING — three sources, in priority:
+  //  (1) an OPEN SESSION (kind-agnostic): a Task being worked on (focus punch-in) OR a
+  //      Whenever moment/space with a running Play stopwatch. This is what makes a Task
+  //      read ongoing EVERYWHERE it appears, purely from its own data.
+  const open = getOpenSession(entity)
+  if (open) return { word: "ongoing", at: open.startAt }
+  //  (2) a MOMENT or SPACE with a CONCRETE started span still in progress (started, not
+  //      yet ended). Space joins Moment here (a live container). "whenever" is NOT
+  //      concrete, so a playable-but-idle entity is "open", not ongoing.
+  if (entity.kind === "moment" || entity.kind === "space") {
+    const start = concreteStart(entity)
+    if (start != null && now >= start) {
+      const end = entity.schedule?.endAt
+      if (end == null || now < end) return { word: "ongoing", at: start }
+    }
   }
 
   return { word: "open" }

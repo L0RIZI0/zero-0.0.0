@@ -137,6 +137,8 @@ export type LogType =
   | "retired"
   | "died"
   | "accessed"
+  | "session-open"
+  | "session-close"
   | "set"
 
 /**
@@ -196,9 +198,43 @@ export interface Recurrence {
  *     many separate sessions (e.g. "spend 5h on this over the week"), so it is
  *     independent of any single start/end.
  */
+/**
+ * The special `startAt` value **"whenever"** — a first-class sentinel meaning
+ * "a real, trackable thing that has NO fixed clock time." It is deliberately
+ * distinct from BOTH `undefined` (genuinely unscheduled) AND a concrete epoch
+ * (a fixed time): an entity whose `startAt === "whenever"` is PLAYABLE — its glyph
+ * offers Play/Stop to open/close a background session on demand (see `Session`).
+ * Every `startAt` comparison (`now >= startAt`, arithmetic, etc.) MUST guard this
+ * sentinel first via `isWheneverStart` / `concreteStart` in kinds.ts.
+ */
+export const WHENEVER = "whenever" as const
+export type Whenever = typeof WHENEVER
+
+/**
+ * One tracked work SESSION: a punch-in (`startAt`) and, once closed, a punch-out
+ * (`endAt`). The LAST session missing `endAt` is the single OPEN/ongoing session.
+ * Two sources open sessions:
+ *   - FOCUS (tasks): drilling into a Task past a dwell threshold opens one; leaving
+ *     the active path closes it. So a Task reads `ongoing` everywhere purely from
+ *     "has an open session", with no dependency on the current view.
+ *   - PLAY (whenever-valued moments/spaces): the glyph Play/Stop toggles one.
+ */
+export interface Session {
+  /** Punch-in, epoch ms. */
+  startAt: Epoch
+  /** Punch-out, epoch ms. Absent ⇒ this session is still OPEN (ongoing). */
+  endAt?: Epoch
+  /** How the session was opened — lets hydrate-cleanup close dangling FOCUS
+   *  sessions on reload while leaving PLAY stopwatches running. Absent ⇒ "focus". */
+  kind?: "focus" | "play"
+}
+
 export interface Schedule {
-  /** Contiguous span start (moments, timed blocks). */
-  startAt?: Epoch
+  /**
+   * Contiguous span start (moments, timed blocks), OR the `"whenever"` sentinel
+   * (a playable thing with no fixed time — see {@link WHENEVER}).
+   */
+  startAt?: Epoch | Whenever
   /** Contiguous span end. */
   endAt?: Epoch
   /** A single point in time (instants). */
@@ -218,6 +254,14 @@ export interface Schedule {
    * (duration, sorting, bounds) keep working without knowing about blocks.
    */
   blocks?: { startAt: Epoch; endAt: Epoch }[]
+  /**
+   * Tracked work sessions — the CANONICAL store of punch-ins/outs (see {@link Session}).
+   * The last entry missing `endAt` is the one OPEN session. Mirrors the `blocks`
+   * convention: when present, scalar `startAt`/`endAt` mirror the FIRST session's start
+   * and the LAST session's end so existing single-span readers keep working. The
+   * append-only log is a SECONDARY audit trail, never the source of truth.
+   */
+  sessions?: Session[]
   /** Recurrence; absent = one-off. */
   repeat?: Recurrence
 }
