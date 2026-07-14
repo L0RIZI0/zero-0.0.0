@@ -4,9 +4,9 @@ import { useEffect, useMemo, useState } from "react"
 import type React from "react"
 import {
   getStarterPinnedEntities,
-  getOngoingSession,
   getInheritedAccent,
 } from "@/lib/zero/data"
+import { getOpenSession } from "@/lib/zero/kinds"
 import type { Entity } from "@/lib/zero/types"
 import { isSleepTitle, sleepDotColor } from "@/lib/zero/sleep-sky"
 import { Zero0Glyph } from "@/components/zero0/zero0-glyph"
@@ -51,10 +51,10 @@ export function Zero0Pinned({
   // eslint-disable-next-line react-hooks/exhaustive-deps -- dataRev is the intended re-read trigger
   const pinned = useMemo(() => getStarterPinnedEntities(), [dataRev])
 
-  // The live ongoing session per pinned entity, recomputed on every data change. A pinned
+  // The live OPEN session pair per pinned entity, recomputed on every data change. A pinned
   // entity with a running session spins its glyph + shows an elapsed timer.
   // eslint-disable-next-line react-hooks/exhaustive-deps -- dataRev re-read trigger
-  const sessions = useMemo(() => pinned.map((e) => getOngoingSession(e.id)), [pinned, dataRev])
+  const sessions = useMemo(() => pinned.map((e) => getOpenSession(e)), [pinned, dataRev])
   const anyOngoing = sessions.some(Boolean)
 
   // A 1s clock powering the elapsed timers — only ticks while something is running.
@@ -89,7 +89,7 @@ export function Zero0Pinned({
             {pinned.map((e, i) => {
               const session = sessions[i]
               const running = !!session
-              const startAt = session?.schedule?.startAt ?? null
+              const startAt = session?.startAt ?? null
               const dot = e.accent ?? getInheritedAccent(e.parentId) ?? (isSleepTitle(e.title) ? sleepDotColor : undefined)
               const meta =
                 running && startAt != null

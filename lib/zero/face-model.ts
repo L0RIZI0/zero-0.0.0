@@ -17,8 +17,9 @@
 // a Face at any resolution. Kept free of React on purpose.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import type { Entity, EntityKind } from "./types"
-import { KIND_META, isClosed, fillsGlyph, getState, type EntityState } from "./kinds"
+import type { Entity, EntityKind, Whenever } from "./types"
+import { WHENEVER } from "./types"
+import { KIND_META, isClosed, fillsGlyph, getState, concreteStart, type EntityState } from "./kinds"
 import { isDone, getCreatedAt, getCompletedOn } from "./entity-log"
 import { getEntity, getCreator, getOwner, getForwardTags, getBackReferences, getChildren } from "./data"
 import { formatLocale } from "./format-locale"
@@ -130,9 +131,11 @@ export function getAggregate(entity: Entity, now: number): FaceAggregate {
     // Sum only FINITE spans (a span with both ends, or a point/instant = 0), so an
     // open-ended running moment doesn't inflate the rollup with live-elapsed time.
     const s = k.schedule
-    if (s?.startAt != null && s?.endAt != null) durationMs += Math.max(0, s.endAt - s.startAt)
+    const cs = concreteStart(k)
+    if (cs != null && s?.endAt != null) durationMs += Math.max(0, s.endAt - cs)
     // Most-recent anchor: the child's start / point, falling back to when it was created.
-    const point = s?.startAt ?? s?.at ?? getCreatedAt(k) ?? null
+    // "whenever" isn't a time, so fall through to the point / creation stamp.
+    const point = cs ?? s?.at ?? getCreatedAt(k) ?? null
     if (point != null && (latest == null || point > latest)) latest = point
   }
   return { total: kids.length, open, complete, ongoing, durationMs, latest }
@@ -168,10 +171,11 @@ export function aggregateMetaRows(agg: FaceAggregate, now: number, size: "l" | "
 
 // Format an epoch (ms) for the meta readout. Only ever called under the `mounted`
 // gate, so it's client-only — no SSR/static-export time-freeze hydration trap.
-export function fmt(epoch?: number): string {
+export function fmt(epoch?: number | Whenever): string {
+  if (epoch === WHENEVER) return "whenever"
   if (!epoch) return "—"
   return new Date(epoch).toLocaleString(formatLocale())
-}
+  }
 
 // A COMPACT when-label for an entity, used to distinguish multiple back-references that
 // share a title (e.g. several "Work on Zero" sessions): its span → its point → else the
@@ -193,10 +197,11 @@ export function rangeLabel(e: Entity): string {
 // `now` is passed so a live/ongoing value updates as the canvas re-renders.
 export function getDurationMs(e: Entity, now: number): number | null {
   const s = e.schedule
+  const cs = concreteStart(e) // null when "whenever" / unset
   if (e.kind === "instant") return 0
-  if (s?.startAt != null && s?.endAt != null) return Math.max(0, s.endAt - s.startAt)
+  if (cs != null && s?.endAt != null) return Math.max(0, s.endAt - cs)
   if (s?.at != null) return 0
-  if (s?.startAt != null) return Math.max(0, now - s.startAt) // ongoing (explicit start)
+  if (cs != null) return Math.max(0, now - cs) // ongoing (explicit concrete start)
   const created = getCreatedAt(e)
   if (created != null) return Math.max(0, now - created) // age from creation
   return null
@@ -311,11 +316,14 @@ export function fmtShort(epoch: number, now: number): string {
 // title + state already say it all. `now` drives the live ongoing count-up.
 export function metaEcho(e: Entity, now: number): string {
   const s = e.schedule
-  // A start/end/at span shared by moments AND scheduled tasks.
+  // A start/end/at span shared by moments AND scheduled tasks. "whenever" has no clock
+  // time, so it reads as the word (its live time, if any, comes from an open session).
   const span = (): string => {
-    if (s?.startAt != null && s?.endAt != null)
-      return `${fmtShort(s.startAt, now)}–${fmtShort(s.endAt, now)} · ${formatDuration(Math.max(0, s.endAt - s.startAt))}`
-    if (s?.startAt != null) return `since ${fmtShort(s.startAt, now)} · ${formatDuration(Math.max(0, now - s.startAt))}`
+    const cs = concreteStart(e)
+    if (s?.startAt === WHENEVER) return "whenever"
+    if (cs != null && s?.endAt != null)
+      return `${fmtShort(cs, now)}–${fmtShort(s.endAt, now)} · ${formatDuration(Math.max(0, s.endAt - cs))}`
+    if (cs != null) return `since ${fmtShort(cs, now)} · ${formatDuration(Math.max(0, now - cs))}`
     if (s?.at != null) return fmtShort(s.at, now)
     return ""
   }
@@ -364,6 +372,9 @@ export interface FaceModel {
   requested: boolean
   /** A live span in progress — the glyph rotates. */
   ongoing: boolean
+  /** PLAYABLE — a `startAt: "whenever"` moment/space whose glyph offers Play/Stop to
+      open/close a background session on demand (mutually exclusive with hasDoneState). */
+  playable: boolean
   /** ENDED (closed / dead / retired / cancelled) ⇒ the row/section fades. */
   closed: boolean
   /** The single lifecycle word straight off the STATE axis. */
@@ -396,6 +407,7 @@ export function getFaceModel(e: Entity, now: number): FaceModel {
     cancelled: state.word === "cancelled",
     requested,
     ongoing: state.word === "ongoing", // live span ⇒ glyph rotates
+    playable: isPlayable(e), // "whenever" moment/space ⇒ glyph is Play/Stop
     closed: isClosed(e), // ENDED ⇒ fade — NOT complete
     lifeLabel,
     stateLabel: `${done ? "done, " : ""}${lifeLabel}${requested ? ", requested" : ""}`,

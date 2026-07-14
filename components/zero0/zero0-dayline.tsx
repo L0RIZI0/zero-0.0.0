@@ -316,14 +316,16 @@ export function Zero0Dayline({
     for (const occ of getTimelineOccurrences(ROOT_ID, lo, hi)) {
       const s = occ.schedule
       if (!s) continue
+      // "whenever" has no fixed clock time, so it never anchors a planned dayline bar.
+      const startNum = typeof s.startAt === "number" ? s.startAt : undefined
       // start / point / due — a due-only task anchors on its deadline and paints a point.
-      const st = s.startAt ?? s.at ?? s.dueAt
+      const st = startNum ?? s.at ?? s.dueAt
       if (st == null) continue
       // ONGOING — an entity with a real start (in the past) but no end yet reads as still
       // running, so its tick GROWS from start to NOW, as if `:end:` were live-set to now. It
       // keeps extending each render until a real end is stamped. Only when the start is a
       // genuine `startAt` (not a due/at point) and it's already begun.
-      const ongoing = s.endAt == null && s.startAt != null && s.startAt <= now
+      const ongoing = s.endAt == null && startNum != null && startNum <= now
       const en = s.endAt ?? (ongoing ? now : st) // else a point (instant/due/no end) = zero span
       if (en < lo || st > hi) continue
       const leftPct = ((st - winStart) / DAY_MS) * 100

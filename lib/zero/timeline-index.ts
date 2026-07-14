@@ -62,7 +62,8 @@ export function entityInterval(e: Entity): [number, number] {
     const a = s?.at ?? 0
     return [a, a]
   }
-  const st = s?.startAt ?? 0
+  // "whenever" isn't a fixed time, so it has no lifeline interval → zero-width at 0.
+  const st = typeof s?.startAt === "number" ? s.startAt : 0
   return [st, s?.endAt ?? st]
 }
 
@@ -170,7 +171,8 @@ export function queryTimeline(
   for (const e of getTimedDescendants(contextId)) {
     const s = e.schedule
     if (!s) continue
-    const anchor = s.at ?? s.startAt
+    // "whenever" can't anchor a timeline occurrence (no fixed time).
+    const anchor = s.at ?? (typeof s.startAt === "number" ? s.startAt : undefined)
     if (anchor == null) continue
     const color = getInheritedAccent(e.parentId ?? ROOT_ID) ?? NEUTRAL
 

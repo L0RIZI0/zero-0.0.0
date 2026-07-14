@@ -1796,7 +1796,7 @@ export function EntityNode({
               )}
               {hasRange && (
                 <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground/70">
-                  {fmtTime(sched!.startAt!)}
+                  {fmtTime(typeof sched!.startAt === "number" ? sched!.startAt : 0)}
                   {"\u2013"}
                   {fmtTime(sched!.endAt!)}
                 </span>

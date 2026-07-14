@@ -30,11 +30,11 @@ import {
   autoTagByTitle,
   isStarterPinned,
   toggleStarterPin,
-  startSession,
-  stopSession,
-  getOngoingSession,
+  openSession,
+  closeSession,
+  toggleSession,
 } from "@/lib/zero/data"
-  import { KIND_META, isClosed, getState } from "@/lib/zero/kinds"
+  import { KIND_META, isClosed, getState, hasOpenSession, isPlayable } from "@/lib/zero/kinds"
   import { isDone, describeLogEntry } from "@/lib/zero/entity-log"
 import {
   parseEntry,
@@ -117,6 +117,12 @@ function Zero0CloseButton({ onClick, className = "" }: { onClick: () => void; cl
     </button>
   )
 }
+
+// How long you must STAY inside a Task before a focus session opens on it (and its
+// ancestor Tasks). Passing A→B→C to reach C fires nothing on A/B because each quick
+// navigation clears the prior timer. [DECISION BAKED — tune freely; the data layer also
+// discards any session shorter than MIN_SESSION_MS as a second guard.]
+const DWELL_MS = 3000
 
 export function Zero0Canvas() {
   // All reads/writes touch localStorage-backed module state, so gate behind mount
@@ -219,6 +225,45 @@ export function Zero0Canvas() {
     if (!mounted) return
     recordPresence(contextId)
   }, [mounted, contextId])
+
+  // FOCUS SESSIONS — being inside a Task records real work time (see zero-todos). The
+  // WHOLE ACTIVE PATH is ongoing: every Task from the root down to the current context
+  // holds an open session, so working a subtask counts as working each ancestor Task.
+  //   • Punch OUT (immediate): any Task we opened that's no longer on the path.
+  //   • Punch IN (after DWELL_MS): every UNDONE Task on the path lacking an open session,
+  //     so merely passing through to reach a deeper context leaves no trace.
+  // `focusOpenRef` tracks what WE opened, so punch-out never has to scan the whole store.
+  const focusOpenRef = useRef<Set<string>>(new Set())
+  const dwellRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => {
+    if (!mounted) return
+    const pathSet = new Set(path)
+    let changed = false
+    for (const id of Array.from(focusOpenRef.current)) {
+      if (!pathSet.has(id)) {
+        if (closeSession(id)) changed = true
+        focusOpenRef.current.delete(id)
+      }
+    }
+    if (changed) bump()
+    if (dwellRef.current) clearTimeout(dwellRef.current)
+    dwellRef.current = setTimeout(() => {
+      let opened = false
+      for (const id of path) {
+        const e = getEntity(id)
+        if (e?.kind !== "task" || isDone(e)) continue
+        if (openSession(id, "focus")) {
+          focusOpenRef.current.add(id)
+          opened = true
+        }
+      }
+      if (opened) bump()
+    }, DWELL_MS)
+    return () => {
+      if (dwellRef.current) clearTimeout(dwellRef.current)
+    }
+  }, [mounted, path, bump])
+
   const context = mounted ? getEntity(contextId) : undefined
   // SHOW HIDDEN — a per-context VIEW toggle (right-click ▸ Show hidden). When off, hidden
   // children (manual `hidden` flag OR auto-hidden-because-closed-before-today) collapse out
@@ -504,7 +549,8 @@ export function Zero0Canvas() {
     if (fresh && fresh.kind === "moment") {
       const st = fresh.schedule?.startAt
       const en = fresh.schedule?.endAt
-      if (st != null && en != null && en <= st) {
+      // Only a CONCRETE start can form a cross-midnight span ("whenever" has no time).
+      if (typeof st === "number" && en != null && en <= st) {
         setEntityScheduleField(created.id, "endAt", en + 86_400_000)
       }
     }
@@ -528,7 +574,14 @@ export function Zero0Canvas() {
   const toggleDone = useCallback(
     (e: Entity) => {
       if (!KIND_META[e.kind].hasDoneState) return
-      setEntityCompleted(e.id, !isDone(e))
+      const nowDone = !isDone(e)
+      setEntityCompleted(e.id, nowDone)
+      // A Task is ongoing only while UNDONE, so marking it done punches out its focus
+      // session (if any); it stops accruing work time even if it stays on the path.
+      if (nowDone && e.kind === "task" && hasOpenSession(e)) {
+        closeSession(e.id)
+        focusOpenRef.current.delete(e.id)
+      }
       bump()
     },
     [bump],
@@ -594,25 +647,23 @@ export function Zero0Canvas() {
     setPath([ROOT_ID, ...chain])
   }, [])
 
-  // PINNED (§4) OPEN — the frame/title click on a pinned starter: DRILL into the entity AND
-  // spin a fresh session in its Sessions sub-Space (startSession enforces the ≤1-ongoing
-  // rule + creates the Sessions space on first use). You land inside the entity; the session
-  // records in the background.
+  // PINNED (§4) OPEN — the frame/title click on a pinned starter: DRILL into the entity.
+  // If it's a Task, the focus-session effect punches it in once you dwell (see above); no
+  // separate session write needed here anymore.
   const openPinned = useCallback(
     (id: string) => {
-      startSession(id)
       navigateTo(id)
       bump()
     },
     [navigateTo, bump],
   )
 
-  // PINNED (§4) SESSION TOGGLE — the glyph click (STAY here): stop the running session if one
-  // is ongoing, else start one. No navigation — just clock in/out from the shelf.
+  // PINNED (§4) SESSION TOGGLE — the glyph click (STAY here): explicit clock in/out from the
+  // shelf, no navigation. Uses a "play" session (persists across reload, like the glyph
+  // stopwatch on a Whenever moment/space — an intentional timer, not auto focus-tracking).
   const togglePinnedSession = useCallback(
     (id: string) => {
-      if (getOngoingSession(id)) stopSession(id)
-      else startSession(id)
+      toggleSession(id, "play")
       bump()
     },
     [bump],
