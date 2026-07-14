@@ -49,6 +49,7 @@ import { formatLocale } from "@/lib/zero/format-locale"
 import { Zero0ResourceCanvas } from "./zero0-resource-canvas"
 import { Zero0Frequent } from "./zero0-frequent"
 import { Zero0Face } from "./zero0-face"
+import { Zero0Content, type Zero0ContentCtx } from "./zero0-content"
 import { fmt, fmtLogValue, sexSymbol, type FaceSize } from "@/lib/zero/face-model"
 import type { Entity } from "@/lib/zero/types"
 
@@ -222,6 +223,14 @@ export function Zero0Canvas() {
   // you navigate, reset on app restart. Same spirit as `showHidden`/collapse/minimized.
   const [rowSizes, setRowSizes] = useState<Record<string, FaceSize>>({})
   const sizeOf = useCallback((id: string): FaceSize => rowSizes[id] ?? "m", [rowSizes])
+  // PER-ROW INLINE EXPANSION — which rows are opened into their own nested Content (the
+  // recursion). A VIEW state like `rowSizes`: session-only, kept while navigating, reset on
+  // reload. Keyed by entity id (an entity expands consistently wherever it appears).
+  const [expandedIds, setExpandedIds] = useState<Record<string, boolean>>({})
+  const toggleExpand = useCallback(
+    (id: string) => setExpandedIds((m) => ({ ...m, [id]: !m[id] })),
+    [],
+  )
   // eslint-disable-next-line react-hooks/exhaustive-deps -- rev/contextId are the intended re-read triggers
   const children = useMemo(() => (mounted ? getChildren(contextId) : []), [mounted, rev, contextId])
   // SIBLINGS: the children of the open node's PARENT — i.e. entities at the same depth on
@@ -256,31 +265,6 @@ export function Zero0Canvas() {
     return { open, done, complete, total: children.length }
   }, [children])
 
-  // HIDE MODEL — decorate each child with whether it's hidden and (when not collapsed) its
-  // display number. A child is hidden if EITHER:
-  //   • it carries the manual `hidden` flag (right-click ▸ Hide), or
-  //   • AUTO: it is closed and was closed BEFORE today's logical 5am day-start (i.e. "closed
-  //     since the previous day") — a derived, non-destructive rule computed here from the
-  //     stamped close time, never stored.
-  // Collapsed = hidden AND not currently revealed by `showHidden`. Display numbers count
-  // only the VISIBLE rows so the list never shows gaps. Rows stay MOUNTED (collapsed via a
-  // grid-rows animation) so hide/show is smooth in both directions.
-  const childRows = useMemo(() => {
-    const now = Date.now()
-    const d = new Date(now)
-    d.setHours(5, 0, 0, 0)
-    let dayStart = d.getTime()
-    if (now < dayStart) dayStart -= 86_400_000 // before 5am → the logical day opened yesterday
-    let n = 0
-    return children.map((e) => {
-      const closedAt = e.closeAt ?? e.closedOn ?? e.cancelledOn ?? e.completeOn
-      const autoHidden = isClosed(e) && closedAt != null && closedAt < dayStart
-      const hidden = !!e.hidden || autoHidden
-      const collapsed = hidden && !showHidden
-      return { e, hidden, collapsed, num: collapsed ? null : ++n }
-    })
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- rev re-reads after mutations
-  }, [children, showHidden, rev])
   // Resolve each crumb to a display label (fall back to the user name at the root).
   const crumbs = useMemo(
     () =>
@@ -735,6 +719,31 @@ export function Zero0Canvas() {
     [showMenu, showHidden, runEntityAction],
   )
 
+  // The bundle of actions + view accessors that <Zero0Content> threads down through its
+  // recursion, so every nested Content shares ONE set of handlers (no prop-drilling per
+  // level). Memoized so the recursive tree doesn't re-render on unrelated canvas changes.
+  const contentCtx: Zero0ContentCtx = useMemo(
+    () => ({
+      toggleDone,
+      openEntity,
+      remove,
+      openMenu,
+      sizeOf,
+      setHoveredRowId,
+      showHidden,
+      nowSec,
+      rev,
+      expandedIds,
+      toggleExpand,
+    }),
+    [toggleDone, openEntity, remove, openMenu, sizeOf, showHidden, nowSec, rev, expandedIds, toggleExpand],
+  )
+
+  // The drill path as a Set — the top-level Content's ancestry. Seeds the cycle guard so a
+  // row can't expand into an entity that's already an ancestor on the breadcrumb (a
+  // `taggedContextIds` loop). `contextId` itself is added inside Content as it recurses.
+  const contentAncestry = useMemo(() => new Set(path), [path])
+
   // Right-click by ENTITY ID — used by the ACTIVITY rows and the dayline ticks, which
   // only carry ids. Resolves to the live entity (skipping deleted / sentinel ids so no
   // empty menu appears) and defers to `openMenu`. `stopPropagation` there also stops the
@@ -1121,100 +1130,19 @@ export function Zero0Canvas() {
           </div>
         )}
 
-        {/* Children listing. Empty until you create something. */}
+        {/* ENTITY CONTENT — the container's INSIDE, via the recursive Content primitive.
+            A row can expand (▸) into its own nested Content. Empty until you create. */}
         <div className="px-4 py-3">
-          {mounted && children.length === 0 && (
-            <p className="text-[11px] text-muted-foreground">— empty — create below</p>
-          )}
-          {mounted && children.length > 0 && (
-            <ul className="text-[11px] tabular-nums">
-              {childRows.map(({ e, hidden, collapsed, num }) => {
-                // ENDED (closed/dead/retired/cancelled) fades the whole row — a Content-side
-                // decision (the row's opacity), so it stays here rather than in the Face.
-                const closed = isClosed(e)
-                // The rung this row is shown at (right-click ▸ Size). `l`/`xl`/`full` are
-                // BLOCK cards (identity line + a meta dl) that grow the row VERTICALLY; the
-                // smaller rungs stay a single inline line.
-                const size = sizeOf(e.id)
-                const isBlock = size === "l" || size === "xl" || size === "full"
-                // The Face fragment — one call for every rung. xs is a projection rung, so
-                // it drills in via `onActivate`; the entity rungs use `onOpen`. Passing both
-                // is harmless (each rung reads only what it needs).
-                const face = (
-                  <Zero0Face
-                    entity={e}
-                    size={size}
-                    now={nowSec}
-                    onToggleDone={toggleDone}
-                    onOpen={openEntity}
-                    onActivate={() => openEntity(e)}
-                    onActivateContextMenu={(ev) => openMenu(e, ev, { size })}
-                    hiddenPrefix={hidden}
-                  />
-                )
-                // Content-side chrome shared by both layouts: the row index + the delete ×.
-                const num2 = num != null ? String(num).padStart(2, "0") : ""
-                const indexCell = (
-                  <span className="w-6 shrink-0 text-right text-muted-foreground">{num2}</span>
-                )
-                const deleteCell = (
-                  <button
-                    type="button"
-                    onClick={() => remove(e)}
-                    className="w-4 shrink-0 text-right text-transparent group-hover:text-muted-foreground hover:!text-foreground"
-                    aria-label={`Delete ${e.title}`}
-                  >
-                    ×
-                  </button>
-                )
-                return (
-                  // COLLAPSE WRAPPER — a hidden-and-not-revealed row animates to 0fr height +
-                  // 0 opacity via the dep-free grid-rows trick, staying MOUNTED so hide AND
-                  // show both animate. A long (650ms) eased slide+fade so rows glide away/in
-                  // gently rather than snapping. `inert` drops a collapsed row from tab/hit-
-                  // testing. The real row lives in the inner div.
-                  <li
-                    key={e.id}
-                    className="grid transition-[grid-template-rows,opacity] duration-[650ms] ease-[cubic-bezier(0.33,1,0.68,1)] motion-reduce:transition-none"
-                    style={{ gridTemplateRows: collapsed ? "0fr" : "1fr", opacity: collapsed ? 0 : 1 }}
-                    inert={collapsed || undefined}
-                  >
-                    <div className="overflow-hidden">
-                      <div
-                        onContextMenu={(ev) => openMenu(e, ev, { size })}
-                        // Hovering a row LIGHTS its matching tick(s) in the dayline (grow +
-                        // opaque). Cleared on leave, falling back to the open-context highlight.
-                        onMouseEnter={() => setHoveredRowId(e.id)}
-                        onMouseLeave={() => setHoveredRowId((h) => (h === e.id ? null : h))}
-                        className={
-                          "group border-b border-border/60 py-1.5 " +
-                          (closed ? "opacity-60 " : "") +
-                          // Inline rungs lay the columns out on a single baseline; block
-                          // rungs stack the index/× strip above the card body.
-                          (isBlock ? "" : "flex items-baseline gap-3")
-                        }
-                      >
-                        {isBlock ? (
-                          <div className="flex items-baseline gap-3">
-                            {indexCell}
-                            {/* The Face card takes the remaining width; its identity line +
-                                meta dl stack inside. */}
-                            <div className="min-w-0 flex-1">{face}</div>
-                            {deleteCell}
-                          </div>
-                        ) : (
-                          <>
-                            {indexCell}
-                            {face}
-                            {deleteCell}
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  </li>
-                )
-              })}
-            </ul>
+          {context && (
+            <Zero0Content
+              entity={context}
+              axis="list"
+              depth={0}
+              ancestry={contentAncestry}
+              ctx={contentCtx}
+              isRoot
+              mounted={mounted}
+            />
           )}
         </div>
       </div>
