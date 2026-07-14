@@ -52,6 +52,10 @@ export interface ZeroDesktopBridge {
 
 export interface ZeroMenuShowPayload {
   items: import("@/lib/zero/menu-model").MenuItem[]
+  /** Click coords in CSS px relative to the window content area; the overlay renderer
+   *  positions the menu card here (then clamps it on-screen). */
+  x?: number
+  y?: number
 }
 
 export interface ZeroMenuBridge {

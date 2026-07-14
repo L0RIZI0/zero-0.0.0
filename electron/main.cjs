@@ -8,7 +8,7 @@
 // ResourceCanvas) is STEP 2 and is intentionally not here yet — see the IPC stub
 // in preload.cjs and the comments at the bottom of this file for where it slots in.
 
-const { app, BrowserWindow, WebContentsView, protocol, net, shell, session, ipcMain, screen, Menu } = require("electron")
+  const { app, BrowserWindow, WebContentsView, protocol, net, shell, session, ipcMain, Menu } = require("electron")
 const path = require("node:path")
 const { pathToFileURL } = require("node:url")
 const { autoUpdater } = require("electron-updater")
@@ -348,6 +348,9 @@ function createWindow() {
     const survivors = BrowserWindow.getAllWindows().filter((w) => w !== win && !w.isDestroyed())
     if (survivors.length === 0) {
       resourceViews.clear()
+      menuView = null
+      menuReady = false
+      menuAttached = false
       mainWindow = null
     } else if (mainWindow === win || mainWindow?.isDestroyed()) {
       mainWindow = survivors[0]
@@ -582,11 +585,10 @@ ipcMain.handle("zero:resource:mount", async (_e, args) => {
   enforceWarmLimit()
 
   // Right-click anywhere in the resource → notify the renderer, which owns the live
-  // entity data and builds the menu spec, then draws it via the transparent overlay
-  // window stacked ABOVE this native view (a DOM menu can't paint over a native
-  // WebContentsView, so the menu is itself native). Translate the click (relative to
-  // the view's web contents) into main-window CLIENT coords the renderer can pass
-  // straight back to `zero:menu:open`.
+  // entity data and builds the menu spec, then draws it via the transparent menu
+  // WebContentsView stacked ABOVE this native view (a DOM menu can't paint over a native
+  // WebContentsView). Translate the click (relative to the view's web contents) into
+  // main-window CLIENT coords the renderer can pass straight back to `zero:menu:open`.
   view.webContents.on("context-menu", (_e2, params) => {
     if (!mainWindow || mainWindow.isDestroyed()) return
     const vb = view.getBounds()
@@ -733,129 +735,105 @@ ipcMain.on("zero:update:install", () => {
 })
 
 // ── Branded context-menu overlay ─────────────────────────────────────────────
-// The menu is a transparent, frameless child window (so it floats above the native
-// resource views — no DOM z-index can beat a WebContentsView — and shows Zero's own
-// themed UI with real corners + shadow). It loads the /desktop/context-menu route,
-// receives a GENERIC menu-item tree built by the main renderer (which owns the live
-// entity data), reports its measured size, echoes the chosen action id back for the
-// main renderer to execute, and dismisses on blur / action / Escape. The website
-// underneath is never moved or hidden.
+// The menu is a transparent WebContentsView LAYERED ON TOP of the resource views —
+// NOT a separate BrowserWindow. A `WebContentsView` (the open website) lives in
+// Chromium's native view hierarchy and paints above the host window's own DOM, so no
+// DOM z-index — and no sibling child *window* on Windows — can reliably cover it. The
+// documented way to float custom HTML over a web view is to add ANOTHER WebContentsView
+// AFTER it (stacking order = add order). So the menu is a full-content-area, transparent
+// view: only the menu card paints, and the rest of the view swallows the next click to
+// dismiss. It loads /desktop/context-menu, receives a GENERIC menu-item tree + the click
+// coords from the main renderer (which owns the live entity data), self-positions the
+// card, echoes the chosen action id back, and detaches on action / backdrop / Escape.
+// The website underneath is never moved or hidden.
 
-/** @type {BrowserWindow | null} */
-let menuWin = null
+/** @type {import('electron').WebContentsView | null} */
+let menuView = null
 let menuReady = false
-// Where the click happened, in screen px; the menu's top-left anchors here.
-let menuAnchor = { x: 0, y: 0 }
-// Timestamp of the last show. A focused WebContentsView (an open website) grabs OS focus
-// back the instant we surface the overlay, firing a SPURIOUS `blur` that would hide the
-// menu before it ever paints — the "menus do nothing while a site is open" bug. We ignore
-// blur events within this grace window after showing, but honour later ones (genuine
-// outside-clicks) so dismissal still works normally.
-let menuShownAt = 0
-const MENU_BLUR_GRACE_MS = 400
+let menuAttached = false
 
 function menuURL() {
   return isDev ? `${DEV_URL}/desktop/context-menu` : "app://local/desktop/context-menu/"
 }
 
-function ensureMenuWin() {
-  if (menuWin && !menuWin.isDestroyed()) return menuWin
+function ensureMenuView() {
+  if (menuView) return menuView
   menuReady = false
-  menuWin = new BrowserWindow({
-    parent: mainWindow ?? undefined,
-    width: 280,
-    height: 380,
-    show: false,
-    frame: false,
-    transparent: true,
-    resizable: false,
-    movable: false,
-    minimizable: false,
-    maximizable: false,
-    fullscreenable: false,
-    skipTaskbar: true,
-    hasShadow: false, // we draw our own shadow in CSS so rounded corners read right
-    backgroundColor: "#00000000",
+  menuView = new WebContentsView({
     webPreferences: {
       preload: path.join(__dirname, "menu-preload.cjs"),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      transparent: true,
     },
   })
-  menuWin.setMenuBarVisibility(false)
-  menuWin.loadURL(menuURL())
-  menuWin.webContents.once("did-finish-load", () => {
+  // Transparent so only the menu card paints; the site + DOM show through the rest.
+  try {
+    menuView.setBackgroundColor("#00000000")
+  } catch {}
+  menuView.webContents.loadURL(menuURL())
+  menuView.webContents.once("did-finish-load", () => {
     menuReady = true
   })
-  // Click outside → lose focus → dismiss. But swallow the spurious blur that a focused
-  // website's WebContentsView fires the instant the overlay appears (see menuShownAt).
-  menuWin.on("blur", () => {
-    if (Date.now() - menuShownAt < MENU_BLUR_GRACE_MS) return
-    hideMenu()
-  })
-  menuWin.on("closed", () => {
-    menuWin = null
-    menuReady = false
-  })
-  return menuWin
+  return menuView
 }
 
+// Detach the overlay entirely (not just hide) so the DOM + site regain input; then
+// re-focus the main contents so the app stays interactive.
 function hideMenu() {
-  if (menuWin && !menuWin.isDestroyed() && menuWin.isVisible()) menuWin.hide()
+  if (menuView && menuAttached && mainWindow && !mainWindow.isDestroyed()) {
+    try {
+      mainWindow.contentView.removeChildView(menuView)
+    } catch {}
+  }
+  menuAttached = false
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    try {
+      mainWindow.webContents.focus()
+    } catch {}
+  }
 }
 
-// Show a generic, renderer-built menu in the overlay window. `x`/`y` are CLIENT coords
-// relative to the main window's content area; `items` is the serialised MenuItem tree.
-// The overlay renders the items and reports the chosen action id back via
-// `zero:menu:action` → forwarded to the main renderer as `zero:menu:selected`.
+// Show a generic, renderer-built menu in the overlay view. `x`/`y` are CLIENT coords
+// relative to the main window's content area (forwarded to the renderer, which positions
+// + clamps the card itself); `items` is the serialised MenuItem tree. The chosen action
+// id echoes back via `zero:menu:action` → forwarded to the main renderer as
+// `zero:menu:selected`.
 function showMenu({ x, y, items }) {
   if (!mainWindow || mainWindow.isDestroyed()) return
-  const win = ensureMenuWin()
+  const view = ensureMenuView()
 
+  // Cover the whole content area so the card can sit anywhere and the transparent
+  // remainder catches the outside-click that dismisses. Bounds are relative to the
+  // window's content area (origin 0,0).
   const content = mainWindow.getContentBounds()
-  menuAnchor = { x: Math.round(content.x + x), y: Math.round(content.y + y) }
-  win.setPosition(menuAnchor.x, menuAnchor.y)
+  view.setBounds({ x: 0, y: 0, width: content.width, height: content.height })
 
-  const send = () => win.webContents.send("zero:menu:show", { items: items || [] })
+  // Re-add LAST so it stacks above every resource view (and grabs input focus, which we
+  // want — the menu needs clicks + Escape). Remove-then-add if already attached to force
+  // it back to the top.
+  try {
+    if (menuAttached) mainWindow.contentView.removeChildView(view)
+    mainWindow.contentView.addChildView(view)
+    menuAttached = true
+  } catch (err) {
+    console.log("[v0] menu: addChildView failed", err?.message || err)
+  }
+
+  const send = () => view.webContents.send("zero:menu:show", { items: items || [], x, y })
   if (menuReady) send()
-  else win.webContents.once("did-finish-load", send)
+  else view.webContents.once("did-finish-load", send)
 
-  // Stamp BEFORE showing so the blur guard covers the focus-steal that follows immediately.
-  menuShownAt = Date.now()
-  // A separate top-level child window renders above the parent's WebContentsViews; always-on-top
-  // makes that ordering explicit so the menu can't hide behind an open site.
-  win.setAlwaysOnTop(true)
-  win.showInactive()
-  win.focus()
-  // A focused website steals focus on this tick; re-assert it on the next so the overlay can
-  // still receive Escape / outside-click blur once it has painted. Re-stamp the grace too.
-  setTimeout(() => {
-    if (!menuWin || menuWin.isDestroyed() || !menuWin.isVisible()) return
-    menuShownAt = Date.now()
-    menuWin.focus()
-  }, 60)
+  try {
+    view.webContents.focus()
+  } catch {}
 }
 
 ipcMain.on("zero:menu:open", (_e, payload) => showMenu(payload || {}))
 
-// The menu route reports its rendered size (including a transparent margin for the
-// shadow); place + size the overlay, clamped to the current display's work area.
-ipcMain.on("zero:menu:resize", (_e, { width, height, anchorOffsetX = 0, anchorOffsetY = 0 }) => {
-  if (!menuWin || menuWin.isDestroyed()) return
-  const w = Math.max(1, Math.ceil(width))
-  const h = Math.max(1, Math.ceil(height))
-  const disp = screen.getDisplayNearestPoint(menuAnchor)
-  const wa = disp.workArea
-  let x = menuAnchor.x - Math.round(anchorOffsetX)
-  let y = menuAnchor.y - Math.round(anchorOffsetY)
-  // Keep fully on-screen; if it would overflow, shift back (and flip up if needed).
-  if (x + w > wa.x + wa.width) x = wa.x + wa.width - w
-  if (y + h > wa.y + wa.height) y = Math.max(wa.y, menuAnchor.y - h + Math.round(anchorOffsetY))
-  x = Math.max(wa.x, x)
-  y = Math.max(wa.y, y)
-  menuWin.setBounds({ x: Math.round(x), y: Math.round(y), width: w, height: h })
-})
+// Renderer self-positions now, so resize is a no-op kept only for bridge back-compat.
+ipcMain.on("zero:menu:resize", () => {})
 
 ipcMain.on("zero:menu:action", (_e, actionId) => {
   hideMenu()
