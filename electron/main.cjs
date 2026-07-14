@@ -746,6 +746,13 @@ let menuWin = null
 let menuReady = false
 // Where the click happened, in screen px; the menu's top-left anchors here.
 let menuAnchor = { x: 0, y: 0 }
+// Timestamp of the last show. A focused WebContentsView (an open website) grabs OS focus
+// back the instant we surface the overlay, firing a SPURIOUS `blur` that would hide the
+// menu before it ever paints — the "menus do nothing while a site is open" bug. We ignore
+// blur events within this grace window after showing, but honour later ones (genuine
+// outside-clicks) so dismissal still works normally.
+let menuShownAt = 0
+const MENU_BLUR_GRACE_MS = 400
 
 function menuURL() {
   return isDev ? `${DEV_URL}/desktop/context-menu` : "app://local/desktop/context-menu/"
@@ -781,8 +788,12 @@ function ensureMenuWin() {
   menuWin.webContents.once("did-finish-load", () => {
     menuReady = true
   })
-  // Click outside → lose focus → dismiss.
-  menuWin.on("blur", () => hideMenu())
+  // Click outside → lose focus → dismiss. But swallow the spurious blur that a focused
+  // website's WebContentsView fires the instant the overlay appears (see menuShownAt).
+  menuWin.on("blur", () => {
+    if (Date.now() - menuShownAt < MENU_BLUR_GRACE_MS) return
+    hideMenu()
+  })
   menuWin.on("closed", () => {
     menuWin = null
     menuReady = false
@@ -810,8 +821,20 @@ function showMenu({ x, y, items }) {
   if (menuReady) send()
   else win.webContents.once("did-finish-load", send)
 
+  // Stamp BEFORE showing so the blur guard covers the focus-steal that follows immediately.
+  menuShownAt = Date.now()
+  // A separate top-level child window renders above the parent's WebContentsViews; always-on-top
+  // makes that ordering explicit so the menu can't hide behind an open site.
+  win.setAlwaysOnTop(true)
   win.showInactive()
   win.focus()
+  // A focused website steals focus on this tick; re-assert it on the next so the overlay can
+  // still receive Escape / outside-click blur once it has painted. Re-stamp the grace too.
+  setTimeout(() => {
+    if (!menuWin || menuWin.isDestroyed() || !menuWin.isVisible()) return
+    menuShownAt = Date.now()
+    menuWin.focus()
+  }, 60)
 }
 
 ipcMain.on("zero:menu:open", (_e, payload) => showMenu(payload || {}))

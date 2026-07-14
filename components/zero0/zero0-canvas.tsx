@@ -10,7 +10,6 @@ import { recordPresence } from "@/lib/zero/activity-log"
 import { Zero0DomMenu, type Zero0DomMenuState } from "./zero0-dom-menu"
 import { cssColorToHex } from "./zero0-menu-list"
 import { buildEntityMenuItems, applyEntityMenuAction, type MenuItem } from "@/lib/zero/menu-model"
-import { Zero0FrameMenu, type Zero0FrameMenuAnchor } from "./zero0-frame-menu"
 import {
   ROOT_ID,
   currentUser,
@@ -142,8 +141,6 @@ export function Zero0Canvas() {
   // the chosen action id back through a single persistent IPC listener, which dispatches
   // to whatever this points at (entity action, or a sibling-nav closure).
   const nativeSelectRef = useRef<((id: string) => void) | null>(null)
-  // Frame right-click menu anchor (null = closed) — minimize/maximize a time frame.
-  const [frameMenu, setFrameMenu] = useState<Zero0FrameMenuAnchor | null>(null)
   // Which time frames are MINIMIZED (collapsed to just their dayline band). Session-only,
   // a separate axis from § visibility: a shown frame can be full or minimized.
   const [minimized, setMinimized] = useState<{ agenda: boolean; activity: boolean; zeroHeader: boolean }>({
@@ -204,6 +201,15 @@ export function Zero0Canvas() {
   // pin made the lane feel stuck. Threaded into both daylines (TODAY combined + ACTIVITY).
   const [hoveredRowId, setHoveredRowId] = useState<string | null>(null)
   const highlightId = hoveredRowId
+
+  // Clear any stale row-hover whenever the context changes. Drilling into a row via a click
+  // leaves that row's `onMouseEnter`-set hover behind — React fires NO `onMouseLeave` when the
+  // row unmounts on navigation — so `hoveredRowId` would otherwise stay pinned to the entity
+  // you just entered, keeping ITS dayline tick lit at 26px "while inside it" (the reported bug).
+  // Resetting on navigation keeps the highlight strictly hover-driven.
+  useEffect(() => {
+    setHoveredRowId(null)
+  }, [contextId])
 
   // PRESENCE: log WHERE the user is — the current drilled-in context. Fires on every
   // context change (and initial mount) so the activity tracker records the trail through
@@ -737,12 +743,27 @@ export function Zero0Canvas() {
     [openMenu],
   )
 
-  // Right-click the FRAME chrome (header or empty area) → the minimize/maximize menu.
-  const openFrameMenu = useCallback((frame: "agenda" | "activity" | "zeroHeader", ev: React.MouseEvent) => {
-    ev.preventDefault()
-    ev.stopPropagation()
-    setFrameMenu({ frame, x: ev.clientX, y: ev.clientY })
-  }, [])
+  // Right-click the FRAME chrome (header or empty area) → the minimize/maximize toggle.
+  // Routed through the unified `showMenu` (like the entity + siblings menus) so that over an
+  // open web Resource it draws in the NATIVE overlay instead of an in-DOM popup that the
+  // WebContentsView would paint on top of — the "frame menu renders behind the site" bug.
+  const openFrameMenu = useCallback(
+    (frame: "agenda" | "activity" | "zeroHeader", ev: React.MouseEvent) => {
+      ev.preventDefault()
+      ev.stopPropagation()
+      const items: MenuItem[] = [
+        {
+          type: "item",
+          id: "toggle-frame",
+          label: minimized[frame] ? "Maximize the frame" : "Minimize the frame",
+        },
+      ]
+      showMenu(items, ev.clientX, ev.clientY, () =>
+        setMinimized((m) => ({ ...m, [frame]: !m[frame] })),
+      )
+    },
+    [minimized, showMenu],
+  )
 
   // SIBLINGS dropdown — opened from the chevron beside the breadcrumb. Lists ALL of the
   // open node's same-parent children (INCLUDING the current one, marked), in their stable
@@ -1266,15 +1287,9 @@ export function Zero0Canvas() {
         </span>
       </footer>
 
+      {/* Both the entity menu and the frame toggle now flow through this ONE in-DOM popup
+          (or the native overlay when a site is open — see showMenu). */}
       {menu && <Zero0DomMenu menu={menu} onClose={() => setMenu(null)} />}
-      {frameMenu && (
-        <Zero0FrameMenu
-          anchor={frameMenu}
-          minimized={minimized[frameMenu.frame]}
-          onToggle={() => setMinimized((m) => ({ ...m, [frameMenu.frame]: !m[frameMenu.frame] }))}
-          onClose={() => setFrameMenu(null)}
-        />
-      )}
     </main>
   )
 }
