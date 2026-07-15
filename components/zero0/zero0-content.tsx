@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo } from "react"
+import { useMemo, useState } from "react"
 import { getChildren } from "@/lib/zero/data"
 import { isClosed } from "@/lib/zero/kinds"
 import { Zero0Face } from "./zero0-face"
@@ -49,6 +49,10 @@ export interface Zero0ContentCtx {
   expandedIds: Record<string, boolean>
   /** Toggle a row's inline expansion. */
   toggleExpand: (id: string) => void
+  /** Create a child under `contextId` from a raw create-field line (full grammar). */
+  createChild: (contextId: string, raw: string) => void
+  /** Persist a drag-and-drop sibling order for `contextId` (full visible order). */
+  reorder: (contextId: string, orderedIds: string[]) => void
 }
 
 // Cap pathological trees. `getChildren` follows `taggedContextIds` (multi-parent), so a
@@ -77,6 +81,13 @@ export interface Zero0ContentProps {
 
 export function Zero0Content({ entity, axis, depth, ancestry, ctx, isRoot, mounted = true }: Zero0ContentProps) {
   const { showHidden, rev, nowSec, sizeOf, makeOf, expandedIds } = ctx
+
+  // DRAG-AND-DROP reorder state (this Content instance only — a row can only be dragged
+  // among its own siblings). `dragId` = the row being dragged; `overId` = the row it's
+  // hovering over (drawn with a drop indicator). Session-only; the committed order persists
+  // via `ctx.reorder`.
+  const [dragId, setDragId] = useState<string | null>(null)
+  const [overId, setOverId] = useState<string | null>(null)
 
   const children = useMemo(
     () => getChildren(entity.id),
@@ -107,13 +118,34 @@ export function Zero0Content({ entity, axis, depth, ancestry, ctx, isRoot, mount
     // eslint-disable-next-line react-hooks/exhaustive-deps -- rev re-reads after mutations
   }, [children, showHidden, rev])
 
+  // Commit a drag: drop `dragId` immediately BEFORE `targetId` in the full child order and
+  // persist. Dropping onto itself is a no-op. Operates on the whole child id list (including
+  // collapsed rows) so hidden rows keep their slots.
+  const commitDrop = (targetId: string) => {
+    if (!dragId || dragId === targetId) return
+    const ids = children.map((c) => c.id)
+    const next = ids.filter((id) => id !== dragId)
+    const at = next.indexOf(targetId)
+    if (at < 0) return
+    next.splice(at, 0, dragId)
+    ctx.reorder(entity.id, next)
+  }
+
   if (!mounted) return null
 
+  // A NESTED content always ends with an inline create row so you can populate ANY entity
+  // in place (item: "create-entity row in content for each"). The top-level content leaves
+  // creation to the canvas's own field, so it keeps the plain empty hint.
+  const createRow = !isRoot ? (
+    <ContentCreateRow contextId={entity.id} onCreate={(raw) => ctx.createChild(entity.id, raw)} />
+  ) : null
+
   if (children.length === 0) {
-    // Only the top-level content shows the create hint; a nested empty just reads "— empty —".
-    return (
-      <p className="text-[11px] text-muted-foreground">{isRoot ? "— empty — create below" : "— empty —"}</p>
-    )
+    if (isRoot) {
+      return <p className="text-[11px] text-muted-foreground">— empty — create below</p>
+    }
+    // A nested empty entity: no children yet, but offer the create row so it can be filled.
+    return <ul className="text-[11px] tabular-nums">{createRow}</ul>
   }
 
   return (
@@ -130,12 +162,12 @@ export function Zero0Content({ entity, axis, depth, ancestry, ctx, isRoot, mount
         // The make this row READS as (right-click ▸ Make), orthogonal to size.
         const make = makeOf(e.id)
 
-        // RECURSION — a row may open into its OWN Content. Offered only when the child
-        // actually has children, we're under the depth cap, and expanding wouldn't re-enter
-        // an ancestor (a `taggedContextIds` cycle). This is the Face(outside)/Content(inside)
+        // RECURSION — a row may open into its OWN Content. Offered for EVERY row (even a
+        // childless one, so you can expand + create children inline via the nested create
+        // row), as long as we're under the depth cap and expanding wouldn't re-enter an
+        // ancestor (a `taggedContextIds` cycle). This is the Face(outside)/Content(inside)
         // nesting made literal.
-        const hasChildren = getChildren(e.id).length > 0
-        const canExpand = hasChildren && depth + 1 < MAX_CONTENT_DEPTH && !ancestry.has(e.id)
+        const canExpand = depth + 1 < MAX_CONTENT_DEPTH && !ancestry.has(e.id)
         const expanded = canExpand && !!expandedIds[e.id]
 
         // The Face fragment — one call for every rung. xs is a projection rung, so it drills
@@ -154,8 +186,43 @@ export function Zero0Content({ entity, axis, depth, ancestry, ctx, isRoot, mount
             hiddenPrefix={hidden}
           />
         )
-        // Content-side chrome shared by both layouts: expand caret + row index + delete ×.
+        // Content-side chrome shared by both layouts: drag grip + expand caret + row index
+        // + delete ×.
         const num2 = num != null ? String(num).padStart(2, "0") : ""
+        // Drag HANDLE — the only draggable element (so the title/glyph stay clickable). Shows
+        // on row hover; picking it up starts the reorder for this row among its siblings.
+        const isDragging = dragId === e.id
+        const isOver = !!dragId && dragId !== e.id && overId === e.id
+        const gripCell = (
+          <span
+            draggable
+            onDragStart={(ev) => {
+              setDragId(e.id)
+              ev.dataTransfer.effectAllowed = "move"
+              try {
+                ev.dataTransfer.setData("text/plain", e.id)
+              } catch {
+                /* some browsers restrict setData; the ref state is enough */
+              }
+            }}
+            onDragEnd={() => {
+              setDragId(null)
+              setOverId(null)
+            }}
+            className="flex w-3 shrink-0 cursor-grab items-center justify-center self-center text-transparent transition-colors group-hover:text-muted-foreground hover:!text-foreground active:cursor-grabbing"
+            aria-label={`Reorder ${e.title}`}
+            title="Drag to reorder"
+          >
+            <svg viewBox="0 0 6 10" className="h-2.5 w-1.5" fill="currentColor" aria-hidden>
+              <circle cx="1.5" cy="1.5" r="1" />
+              <circle cx="4.5" cy="1.5" r="1" />
+              <circle cx="1.5" cy="5" r="1" />
+              <circle cx="4.5" cy="5" r="1" />
+              <circle cx="1.5" cy="8.5" r="1" />
+              <circle cx="4.5" cy="8.5" r="1" />
+            </svg>
+          </span>
+        )
         // Caret column holds the ▸/▾ toggle when expandable, else an empty spacer so the
         // index column stays aligned across rows with and without children.
         const caretCell = canExpand ? (
@@ -200,9 +267,26 @@ export function Zero0Content({ entity, axis, depth, ancestry, ctx, isRoot, mount
                 // Cleared on leave, falling back to the open-context highlight.
                 onMouseEnter={() => ctx.setHoveredRowId(e.id)}
                 onMouseLeave={() => ctx.setHoveredRowId(null)}
+                // DROP TARGET — while a sibling is being dragged, allow dropping onto this row
+                // (dropping inserts the dragged row immediately BEFORE it). The top inset
+                // shadow marks where it will land.
+                onDragOver={(ev) => {
+                  if (!dragId || dragId === e.id) return
+                  ev.preventDefault()
+                  ev.dataTransfer.dropEffect = "move"
+                  if (overId !== e.id) setOverId(e.id)
+                }}
+                onDrop={(ev) => {
+                  ev.preventDefault()
+                  commitDrop(e.id)
+                  setDragId(null)
+                  setOverId(null)
+                }}
                 className={
-                  "group border-b border-border/60 py-1.5 " +
+                  "group border-b border-border/60 py-1.5 transition-[box-shadow,opacity] " +
                   (closed ? "opacity-60 " : "") +
+                  (isDragging ? "opacity-40 " : "") +
+                  (isOver ? "shadow-[inset_0_2px_0_0_var(--foreground)] " : "") +
                   // Inline rungs lay the columns out on a single baseline; block rungs stack
                   // the caret/index/× strip above the card body.
                   (isBlock ? "" : "flex items-baseline gap-3")
@@ -210,6 +294,7 @@ export function Zero0Content({ entity, axis, depth, ancestry, ctx, isRoot, mount
               >
                 {isBlock ? (
                   <div className="flex items-baseline gap-3">
+                    {gripCell}
                     {caretCell}
                     {indexCell}
                     {/* The Face card takes the remaining width; its identity line + meta dl
@@ -219,6 +304,7 @@ export function Zero0Content({ entity, axis, depth, ancestry, ctx, isRoot, mount
                   </div>
                 ) : (
                   <>
+                    {gripCell}
                     {caretCell}
                     {indexCell}
                     {face}

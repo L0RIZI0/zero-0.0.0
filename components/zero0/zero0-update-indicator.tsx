@@ -40,12 +40,17 @@ export function Zero0UpdateIndicator() {
 
   if (!staged) return null
 
+  // Normalise the staged version to a leading-"v" tag form so the pill reads like the rest
+  // of Zero's version chrome (e.g. "v0.3.88"). electron-updater reports a bare "0.3.88".
+  const ver = staged.version ? (staged.version.startsWith("v") ? staged.version : `v${staged.version}`) : null
+  const label = ver ? `restart for ${ver}` : "restart to update"
+
   return (
     <button
       type="button"
       onClick={() => getUpdatesApi()?.restartToApply()}
-      title={staged.version ? `Restart to update to ${staged.version}` : "Restart to update"}
-      aria-label={staged.version ? `Restart to update to ${staged.version}` : "Restart to update"}
+      title={ver ? `Restart to update to ${ver}` : "Restart to update"}
+      aria-label={ver ? `Restart to update to ${ver}` : "Restart to update"}
       className="inline-flex items-center gap-1.5 rounded-sm border border-border px-1.5 py-0.5 text-muted-foreground transition-colors hover:text-foreground"
     >
       <svg
@@ -62,7 +67,9 @@ export function Zero0UpdateIndicator() {
         <path d="M21 12a9 9 0 1 1-2.64-6.36" />
         <path d="M21 3v5h-5" />
       </svg>
-      <span className="tabular-nums">restart to update</span>
+      {/* Show the TARGET version in the pill itself (was tooltip-only) so you know what
+          you'll land on after the restart. */}
+      <span className="tabular-nums">{label}</span>
     </button>
   )
 }

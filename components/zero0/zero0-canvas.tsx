@@ -33,6 +33,7 @@ import {
   openSession,
   closeSession,
   toggleSession,
+  reorderContextItems,
 } from "@/lib/zero/data"
   import { KIND_META, isClosed, getState, hasOpenSession, isPlayable } from "@/lib/zero/kinds"
   import { isDone, describeLogEntry } from "@/lib/zero/entity-log"
@@ -339,9 +340,16 @@ export function Zero0Canvas() {
     [path, mounted, rev],
   )
 
-  const create = useCallback(() => {
-    const raw = draft.trim()
+  // `create()` with no args = submit the main create field against the OPEN context (the
+  // original behaviour). `create(rawArg, targetArg)` = create under an ARBITRARY context
+  // (used by the inline create row inside an expanded Content row). When a `rawArg` is
+  // given we never touch the shared `draft`/notice chrome, so a nested create can't clobber
+  // the main field.
+  const create = useCallback((rawArg?: string, targetArg?: string) => {
+    const inline = rawArg !== undefined
+    const raw = (rawArg ?? draft).trim()
     if (!raw) return
+    const target = targetArg ?? contextId
 
     // TWO-SIGIL GRAMMAR (v0.3.34): one line → a KIND directive + ACTION flags +
     // ATTRIBUTES + a TITLE. `:word` = a kind (`:mome`) or an action (`:done`);
@@ -478,10 +486,10 @@ export function Zero0Canvas() {
 
     const hasTitle = entry.title !== ""
 
-    // ── COMMAND MODE — no title ⇒ act on the currently OPEN entity. ─────────────────
+    // ── COMMAND MODE — no title ⇒ act on the TARGET entity. ─────────────────────────
     if (!hasTitle) {
-      const target = getEntity(contextId)
-      if (!target) {
+      const targetEnt = getEntity(target)
+      if (!targetEnt) {
         setNotice({ tone: "err", text: "no open entity" })
         return
       }
@@ -489,23 +497,23 @@ export function Zero0Canvas() {
 
       // `:kind` with no title turns THIS entity into that kind (the menu's "Change into…").
       if (entry.kind) {
-        if (entry.kind === target.kind) {
+        if (entry.kind === targetEnt.kind) {
           setNotice({ tone: "err", text: `already a ${KIND_META[entry.kind].label}` })
           return
         }
-        changeEntityKind(contextId, entry.kind)
+        changeEntityKind(target, entry.kind)
         done.push(`kind ${KIND_META[entry.kind].label}`)
       }
 
       for (const attr of entry.attrs) {
-        const msg = applyAttr(contextId, attr)
+        const msg = applyAttr(target, attr)
         if (msg == null) return // applyAttr already showed the error
         done.push(msg)
       }
 
       let deletedSelf = false
       for (const action of entry.actions) {
-        const ent = getEntity(contextId)
+        const ent = getEntity(target)
         if (!ent) break
         // `applyEntityMenuAction` is the SAME dispatcher the right-click menu uses.
         if (!applyEntityMenuAction(ent, action)) {
@@ -517,7 +525,7 @@ export function Zero0Canvas() {
       }
 
       if (done.length === 0) return
-      setDraft("")
+      if (!inline) setDraft("")
       // Deleting the open entity: climb out of it (mirrors the row delete).
       if (deletedSelf) setPath((p) => (p.length > 1 ? p.slice(0, -1) : p))
       setNotice({ tone: "ok", text: done.join(" · ") })
@@ -535,10 +543,10 @@ export function Zero0Canvas() {
       addWebResource({
         title: webDisplayName(url, resource?.id),
         url,
-        contextId,
+        contextId: target,
         resourceId: resource?.id,
       })
-      setDraft("")
+      if (!inline) setDraft("")
       bump()
       return
     }
@@ -546,7 +554,7 @@ export function Zero0Canvas() {
     // Kind = explicit `:kind`, else deterministically inferred from the scheduling fields
     // (default MOMENT — most logged things happen in time).
     const kind = entry.kind ?? inferKind(entry.title, entry.attrs)
-    const created = addParsedEntity({ title: entry.title, contextId, kind })
+    const created = addParsedEntity({ title: entry.title, contextId: target, kind })
 
     // Configure the new child: apply every attribute (skip --title — the free text already
     // named it), then any :action flags (e.g. `:done` logs it already-done / cancelled).
@@ -577,7 +585,7 @@ export function Zero0Canvas() {
     const explicitColor = entry.attrs.some((a) => a.field === "color" && a.value !== "")
     const tagged = autoTagByTitle(created.id, { inheritAccent: !explicitColor })
 
-    setDraft("")
+    if (!inline) setDraft("")
     if (tagged.length > 0) {
       setNotice({ tone: "ok", text: `tagged: ${tagged.map((t) => t.title).join(", ")}` })
     }
@@ -790,6 +798,26 @@ export function Zero0Canvas() {
   // The bundle of actions + view accessors that <Zero0Content> threads down through its
   // recursion, so every nested Content shares ONE set of handlers (no prop-drilling per
   // level). Memoized so the recursive tree doesn't re-render on unrelated canvas changes.
+  // Create a child under an ARBITRARY context (the inline create row inside an expanded
+  // Content row). Reuses the full create grammar via the parameterised `create`.
+  const createChild = useCallback(
+    (targetContextId: string, raw: string) => {
+      const text = raw.trim()
+      if (text) create(text, targetContextId)
+    },
+    [create],
+  )
+
+  // Persist a drag-and-drop sibling order for a context, then re-render (getChildren reads
+  // the saved order). `orderedIds` is the full visible order the user arranged.
+  const reorder = useCallback(
+    (targetContextId: string, orderedIds: string[]) => {
+      reorderContextItems(targetContextId, orderedIds)
+      bump()
+    },
+    [bump],
+  )
+
   const contentCtx: Zero0ContentCtx = useMemo(
     () => ({
       toggleDone,
@@ -805,8 +833,10 @@ export function Zero0Canvas() {
       rev,
       expandedIds,
       toggleExpand,
+      createChild,
+      reorder,
     }),
-    [toggleDone, togglePlay, openEntity, remove, openMenu, sizeOf, makeOf, showHidden, nowSec, rev, expandedIds, toggleExpand],
+    [toggleDone, togglePlay, openEntity, remove, openMenu, sizeOf, makeOf, showHidden, nowSec, rev, expandedIds, toggleExpand, createChild, reorder],
   )
 
   // The drill path as a Set — the top-level Content's ancestry. Seeds the cycle guard so a
