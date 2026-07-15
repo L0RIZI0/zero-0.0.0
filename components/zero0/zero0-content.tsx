@@ -255,8 +255,11 @@ export function Zero0Content({ entity, axis, depth, ancestry, ctx, isRoot, mount
             }}
             onDragEnd={() => endDrag(true)}
             className={
-              "flex w-4 shrink-0 cursor-grab items-center justify-center self-center text-muted-foreground transition-opacity duration-150 hover:!text-foreground active:cursor-grabbing group-hover:opacity-100 motion-reduce:transition-none " +
-              (isDragging ? "opacity-100" : "opacity-0")
+              // Reveal-on-hover via TEXT COLOR (same proven pattern as the delete ×) rather
+              // than opacity — the opacity variant wasn't taking on hover. transition-colors
+              // gives the smooth fade in/out; stays lit while THIS row is being dragged.
+              "flex w-4 shrink-0 cursor-grab items-center justify-center self-center transition-colors duration-150 hover:!text-foreground active:cursor-grabbing motion-reduce:transition-none " +
+              (isDragging ? "text-muted-foreground" : "text-transparent group-hover:text-muted-foreground")
             }
             aria-label={`Reorder ${e.title}`}
             title="Drag to reorder"

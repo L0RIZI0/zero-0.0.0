@@ -35,7 +35,7 @@ import type { Entity } from "@/lib/zero/types"
  *   • `xs`   — glyph + title only. PROJECTION-friendly (renders from a `FaceLike`, no
  *              live Entity needed), which is what lets ACTIVITY presence render as Faces.
  *   • `s`    — one line: glyph + title + state word.
- *   • `m`    — the standard ENTITY CONTENT row (kind · accent · title · echo · done · state).
+ *   • `m`    — the standard ENTITY CONTENT row (glyph · accent · title · echo · state).
  *   • `l`/`xl`/`full` — BLOCK cards (identity line + a meta dl), via the shared FaceBlock.
  *              `l` = temporal essentials, `xl` = all but raw provenance, `full` = §0's
  *              complete record. The block rungs FILTER the same §0 rows, so they can never
@@ -311,8 +311,7 @@ export function Zero0Face({
         {/* Glyph column: fill = closed (fillable kinds), check = done, bar = cancelled,
             "sent" flap = requested. Task glyph is a button (toggles Done); else static. */}
         <FaceGlyph entity={entity} model={model} size="m" onToggleDone={toggle} onTogglePlay={onTogglePlay} />
-        {/* Kind label — STATIC text. */}
-        <span className="w-16 shrink-0 uppercase tracking-wider text-muted-foreground">{model.kindLabel}</span>
+        {/* (Kind label column removed on ENTITY CONTENT rows — the glyph already conveys kind.) */}
         {/* MANUAL color marker — a small dot when THIS entity has an explicitly set accent.
             Inherited/ancestor colors are deliberately NOT shown. */}
         {model.accent && (
