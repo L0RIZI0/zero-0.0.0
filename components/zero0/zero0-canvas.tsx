@@ -451,7 +451,7 @@ export function Zero0Canvas() {
           } else if (val !== "") {
             epoch = parseDateToken(val)
             if (epoch == null) {
-              setNotice({ tone: "err", text: `invalid time "${val}" — use HHMM, YYMMDD, YYMMDDHHMM, now, or whenever` })
+              setNotice({ tone: "err", text: `invalid time "${val}" — use HHMM, YYMMDD, YYMMDDHHMM, now, "5min ago", "in 2h", or whenever` })
               return null
             }
           }
@@ -1031,7 +1031,7 @@ export function Zero0Canvas() {
         <Zero0WindowControls />
       </div>
 
-      {/* ── PINNED BAND (§4, topmost — just under the clock) ────────────────────
+      {/* ── PINNED BAND (§4, topmost — just under the clock) ───────────���────────
           The user's curated shelf of "starters": entities pinned via the ENTITY
           CONTENT right-click. Clicking one drills in + starts a session; the glyph
           clocks in/out without navigating. Shown by default. Same dep-free grid-rows

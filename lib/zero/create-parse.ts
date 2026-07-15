@@ -240,6 +240,20 @@ export function parseKindPrefix(raw: string): KindPrefixParse | null {
  */
 export function parseDateToken(raw: string, now: number = Date.now()): number | null {
   const s = raw.trim()
+
+  // RELATIVE offsets from `now`: "<dur> ago" (past) or "in <dur>" (future), where <dur>
+  // uses the full duration grammar (word units + chaining), e.g. "5min ago", "2h ago",
+  // "1h30m ago", "in 10m". Resolved first so it never collides with the digit shapes below.
+  const lower = s.toLowerCase()
+  if (lower.endsWith(" ago")) {
+    const mins = parseDurationToMinutes(lower.slice(0, -4))
+    return mins == null ? null : now - mins * 60000
+  }
+  if (lower.startsWith("in ")) {
+    const mins = parseDurationToMinutes(lower.slice(3))
+    return mins == null ? null : now + mins * 60000
+  }
+
   if (!/^\d+$/.test(s)) return null
   const n = (a: number, b: number) => parseInt(s.slice(a, b), 10)
 
@@ -268,9 +282,27 @@ export function parseDateToken(raw: string, now: number = Date.now()): number | 
 }
 
 /**
+ * Normalize spelled-out DURATION units + spaces down to the compact single-letter grammar
+ * so `parseDurationToMinutes` (and the relative-time parser) accept natural phrasing:
+ *   "5 min" / "5min" / "5 minutes" → "5m"; "2 hours" / "2 hrs" → "2h"; "30 sec" → "30s";
+ *   "3 days" → "3d"; "1 hour 30 minutes" → "1h30m". Longest words are matched first so
+ *   "minutes" isn't clipped by the "min" alternative. Leaves digits/`:` untouched.
+ */
+function normalizeDurationWords(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(/minutes?|mins?/g, "m")
+    .replace(/seconds?|secs?/g, "s")
+    .replace(/hours?|hrs?/g, "h")
+    .replace(/days?/g, "d")
+    .replace(/\s+/g, "")
+}
+
+/**
  * Parse a human DURATION token into MINUTES (the unit `Schedule.duration` stores).
  * Independent of any start time — it's a pure length. Accepts, case-insensitively:
- *   - unit tokens, optionally chained: `2d`, `3h`, `30m`, `45s`, `1h30m`, `2d3h15m`
+ *   - unit tokens, optionally chained + spelled-out: `2d`, `3h`, `30m`, `45s`, `1h30m`,
+ *     `2d3h15m`, `5 min`, `2 hours`, `1 hour 30 minutes`
  *     (units: d=days, h=hours, m=minutes, s=seconds; decimals ok, e.g. `1.5h`)
  *   - clock form `H:MM` → hours:minutes (`1:30` → 90)
  *   - a bare number → MINUTES (`90` → 90)
@@ -278,7 +310,7 @@ export function parseDateToken(raw: string, now: number = Date.now()): number | 
  * when the token is empty / unparseable / not strictly positive.
  */
 export function parseDurationToMinutes(raw: string): number | null {
-  const s = raw.trim().toLowerCase()
+  const s = normalizeDurationWords(raw.trim())
   if (s === "") return null
 
   // Clock form H:MM (minutes 0–59).
@@ -517,6 +549,23 @@ export function parseEntry(raw: string): EntryParse {
     if (!ok(a) || !ok(b)) return m // not a valid span token — leave the text untouched
     attrs.push({ field: "start", value: a })
     attrs.push({ field: "end", value: endOfDayIfDateOnly(b) })
+    return " "
+  })
+
+  // 1.6) RELATIVE-TIME phrases on SCHEDULING fields (start/end/at/due + s/e aliases).
+  //      Unlike the single-token step 2 below, these allow SPACES so natural phrasing like
+  //      "--end: 5min ago" / "--start: in 2h" is captured WHOLE (otherwise the value would
+  //      truncate at the first space, dropping "ago"/the units into the title). The <dur>
+  //      body is limited to duration-ish chars (digits, dot, letters, spaces) and matched
+  //      lazily so it can't swallow a following "--" param or arbitrary title text.
+  //      parseDateToken resolves "<dur> ago" / "in <dur>" against `now` at apply time.
+  const relFields = "(start|end|at|due|s|e)"
+  s = s.replace(new RegExp(`--${relFields}\\s*:\\s*([\\d.]+[\\d.a-z ]*?)\\s+ago\\b`, "gi"), (_m, f: string, dur: string) => {
+    attrs.push({ field: FIELD_ALIASES[f.toLowerCase()] ?? f.toLowerCase(), value: `${dur.trim()} ago` })
+    return " "
+  })
+  s = s.replace(new RegExp(`--${relFields}\\s*:\\s*in\\s+([\\d.]+[\\d.a-z ]*?)(?=\\s*(?:--|$))`, "gi"), (_m, f: string, dur: string) => {
+    attrs.push({ field: FIELD_ALIASES[f.toLowerCase()] ?? f.toLowerCase(), value: `in ${dur.trim()}` })
     return " "
   })
 

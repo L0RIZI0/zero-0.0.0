@@ -79,6 +79,15 @@ const COVERAGE_OPACITY_MAX = 0.9
 // MIN/MAX stops) is kept intact so this can be flipped back on. Currently OFF by request.
 const DYNAMIC_PLANNED_OPACITY = false
 
+// PRESENCE BLEED — on the combined lane, a presence tick whose time window has NO planned
+// occurrence overlapping it (nothing was planned/logged at that moment) is allowed to GROW
+// UP out of the bottom presence rail into the empty planned rail above, claiming the full
+// band. It recenters to the band middle (from the 72% presence rail) and paints at this
+// taller height. When ANY plan overlaps, the tick stays put in its rail so both read
+// clearly. Flag lets this be flipped off; the eligibility memo is cheap so it stays.
+const PRESENCE_BLEED = true
+const PRESENCE_SPAN_HEIGHT_PX = 22
+
 /**
  * Resolve the two colors a dayline tick paints, shared by BOTH tracks (planned +
  * presence):
@@ -149,7 +158,7 @@ function dayWindow(now: number): [number, number] {
 }
 
 // A bar on the lane. Two TRACKS share one geometry/hover model:
-//  • "planned"  — a SCHEDULED occurrence (moment/instant/scheduled space) from the
+//  ��� "planned"  — a SCHEDULED occurrence (moment/instant/scheduled space) from the
 //    real entity graph, COLORED by the entity's `accent` (set via `:color:`), else an
 //    inherited space accent, else neutral. This is the "intent".
 //  • "presence" — a TRACKED activity segment ("where I actually was"), drawn as a
@@ -446,6 +455,26 @@ export function Zero0Dayline({
     for (const b of planned) m.set(b.key, b)
     for (const b of presence) m.set(b.key, b)
     return m
+  }, [planned, presence])
+
+  // Presence ticks eligible to BLEED up into the empty planned rail: those whose time
+  // window has NO planned occurrence overlapping it. Overlap is tested on the linear pct
+  // geometry ([leftPct, leftPct+widthPct]) shared by both tracks; a zero-width planned
+  // point only blocks when strictly inside the presence window.
+  const presenceSpanKeys = useMemo(() => {
+    const keys = new Set<string>()
+    if (!PRESENCE_BLEED) return keys
+    for (const pr of presence) {
+      const a0 = pr.leftPct
+      const a1 = pr.leftPct + pr.widthPct
+      const blocked = planned.some((pl) => {
+        const b0 = pl.leftPct
+        const b1 = pl.leftPct + Math.max(pl.widthPct, 0)
+        return b0 < a1 && b1 > a0
+      })
+      if (!blocked) keys.add(pr.key)
+    }
+    return keys
   }, [planned, presence])
   const hovered = hoveredKey ? byKey.get(hoveredKey) ?? null : null
 
@@ -990,22 +1019,29 @@ export function Zero0Dayline({
                   // Grows + fully opaque.
                   const lit = highlightId != null && p.id === highlightId
                   const isPresenceTick = combined ? p.track === "presence" : isPresence
+                  // BLEED — a combined-lane presence tick with nothing planned overlapping it
+                  // grows out of its rail into the empty planned rail above (unless it's
+                  // already lit/hovered, which have their own heights).
+                  const spanUp = combined && isPresenceTick && !(lit || isHot) && presenceSpanKeys.has(p.key)
                   // TWO RAILS (combined TODAY lane only): the band splits into a TOP rail of
                   // planned/logged occurrences (past OR future) and a BOTTOM rail of presence
                   // (past only). Each tick is centered on its rail's mid-line; a non-combined
                   // lane keeps one centered band. `railTop` is the vertical anchor (percent of
-                  // the band) that `-translate-y-1/2` then centers the tick on.
-                  const railTop = combined ? (isPresenceTick ? "72%" : "28%") : "50%"
+                  // the band) that `-translate-y-1/2` then centers the tick on. A bleeding
+                  // presence tick recenters to the band middle so it spans both rails.
+                  const railTop = combined ? (isPresenceTick ? (spanUp ? "50%" : "72%") : "28%") : "50%"
                   // Height. A LIT tick pops (capped shorter on the combined lane so a hover
-                  // doesn't spill across the two rails). PRESENCE = its solid record height;
-                  // PLANNED on the combined lane = the shorter rail "intent"; a planned-only
-                  // lane uses the base 9px (13 when hovered).
+                  // doesn't spill across the two rails). PRESENCE = its solid record height (or
+                  // the taller span height when bleeding up); PLANNED on the combined lane =
+                  // the shorter rail "intent"; a planned-only lane uses the base 9px (13 hover).
                   const baseH = isHot ? 13 : 9
                   const tickH = combined
                     ? isPresenceTick
                       ? lit || isHot
                         ? 12
-                        : PRESENCE_HEIGHT_PX
+                        : spanUp
+                          ? PRESENCE_SPAN_HEIGHT_PX
+                          : PRESENCE_HEIGHT_PX
                       : lit || isHot
                         ? 13
                         : PLANNED_COMBINED_HEIGHT_PX
@@ -1079,8 +1115,10 @@ export function Zero0Dayline({
                         className={cn(
                           // Every tick is vertically centered on its rail mid-line via
                           // `-translate-y-1/2` (the anchor is `top: railTop` in the style),
-                          // and animates height changes smoothly.
-                          "pointer-events-auto absolute cursor-default -translate-y-1/2 transition-[height,opacity] duration-200",
+                          // and animates height + rail (top) changes smoothly (the latter so a
+                          // presence tick bleeding up into the planned rail slides rather than
+                          // jumps).
+                          "pointer-events-auto absolute cursor-default -translate-y-1/2 transition-[height,opacity,top] duration-200",
                           roundCls,
                           // Translate composes on separate axes: X for a point / open-ended
                           // segment, Y to center every tick. Tailwind's translate utils stack.
