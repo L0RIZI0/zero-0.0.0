@@ -318,6 +318,8 @@ export function Zero0Canvas() {
       const w = getState(c).word
       // open + ongoing are both "active / not yet done" for the tally.
       if (w === "open" || w === "ongoing") open++
+      // "done" = a Task marked Done but still gated (not yet complete) — count as done.
+      else if (w === "done") done++
       else if (w === "complete") {
         if (isDone(c)) done++
         else complete++
@@ -1031,7 +1033,7 @@ export function Zero0Canvas() {
         </div>
       )}
 
-      {/* ── ACTIVITY BAND (below AGENDA, above the header) ─────────────������───────
+      {/* ── ACTIVITY BAND (below AGENDA, above the header) ───────────��─������───────
           The BACKWARD-looking frame — WHERE the user has been today (presence dayline
           + details). Hidden by default, toggled from the footer, same grid-rows
           collapse animation as AGENDA. Clicking a place drills the canvas into it. */}

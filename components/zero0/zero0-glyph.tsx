@@ -1,4 +1,14 @@
+"use client"
+
+import { useEffect, useRef } from "react"
 import type { EntityKind } from "@/lib/zero/types"
+
+// ONGOING spin cadence. SPIN_MS = one full turn (calm, ambient). EASE_MS = how long the
+// angular velocity takes to ramp IN at start and to settle OUT (decelerate to upright) at
+// stop, so the motion never snaps on or off.
+const SPIN_MS = 10000
+const EASE_MS = 650
+const easeOutCubic = (p: number) => 1 - Math.pow(1 - p, 3)
 
 // Self-contained, static SVG glyph per entity kind — the ontology's geometry drawn
 // with plain SVG primitives so it renders identically on every platform/font (unlike
@@ -79,10 +89,10 @@ export function Zero0Glyph({
   /**
    * ONGOING ⇒ the glyph SLOWLY ROTATES clockwise — the "live span in progress" signal
    * for a started-but-unended Moment/Space or any entity with an open session (see
-   * `getState` → "ongoing"). Uses the `.zero-glyph-spin` class (globals.css): a calm 14s
-   * linear turn plus a one-shot opacity onset so the motion EASES IN rather than snapping
-   * to full speed. Gated on `motion-safe` so reduced-motion users see a still outline.
-   * The only motion in the otherwise-static zero0 glyph set.
+   * `getState` → "ongoing"). Driven by the Web Animations API (see the effect below): a
+   * calm 10s/turn whose angular velocity EASES IN at start (playbackRate ramp 0→1) and
+   * decelerates OUT to the nearest upright at stop, so it never snaps on/off. Skipped
+   * entirely under `prefers-reduced-motion`. The only motion in the zero0 glyph set.
    */
   ongoing?: boolean
   /**
@@ -107,13 +117,66 @@ export function Zero0Glyph({
   // triangle's centroid sits 1/3 up from its base, so the moment's TRIANGLE_UP centres at
   // y=14 (58.33%), not 12 — spinning about the box centre made it visibly wobble. Map only
   // the kinds whose centroid differs from the box centre; everything else stays 50% 50%.
+  // Set ALWAYS (not just while ongoing) so the deceleration landing also pivots correctly.
   const spinOrigin = kind === "moment" ? "50% 58.33%" : kind === "instant" ? "50% 41.67%" : "50% 50%"
+
+  const svgRef = useRef<SVGSVGElement | null>(null)
+  const landingRef = useRef<Animation | null>(null)
+  const rafRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    const el = svgRef.current
+    if (!el || typeof el.animate !== "function") return
+    if (typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return
+    if (!ongoing) return
+
+    // A just-prior STOP may still be decelerating — cancel it so the fresh spin wins.
+    landingRef.current?.cancel()
+    landingRef.current = null
+
+    // START — a persistent infinite linear rotation whose angular velocity EASES IN by
+    // ramping the animation's playbackRate from 0 → 1 over EASE_MS (a smooth spin-up).
+    const spin = el.animate([{ transform: "rotate(0deg)" }, { transform: "rotate(360deg)" }], {
+      duration: SPIN_MS,
+      iterations: Number.POSITIVE_INFINITY,
+      easing: "linear",
+    })
+    spin.playbackRate = 0
+    const t0 = performance.now()
+    const rampUp = (t: number) => {
+      spin.playbackRate = easeOutCubic(Math.min(1, (t - t0) / EASE_MS))
+      if (t - t0 < EASE_MS) rafRef.current = requestAnimationFrame(rampUp)
+    }
+    rafRef.current = requestAnimationFrame(rampUp)
+
+    // STOP — capture the current angle, cancel the infinite spin, then ease OUT to the
+    // nearest upright (next 360°) so it decelerates to a clean rest instead of snapping.
+    return () => {
+      if (rafRef.current != null) cancelAnimationFrame(rafRef.current)
+      const ct = Number(spin.currentTime ?? 0)
+      const fromDeg = ((ct % SPIN_MS) / SPIN_MS) * 360
+      spin.cancel()
+      const landing = el.animate([{ transform: `rotate(${fromDeg}deg)` }, { transform: "rotate(360deg)" }], {
+        duration: EASE_MS,
+        easing: "cubic-bezier(0.22, 1, 0.36, 1)",
+        fill: "forwards",
+      })
+      landingRef.current = landing
+      // rotate(360°) === upright, so cancelling on finish reverts to the static glyph with
+      // no visual jump.
+      landing.onfinish = () => {
+        landing.cancel()
+        if (landingRef.current === landing) landingRef.current = null
+      }
+    }
+  }, [ongoing, kind])
 
   return (
     <svg
+      ref={svgRef}
       viewBox="0 0 24 24"
-      className={`${className ?? ""}${ongoing ? " zero-glyph-spin" : ""}`}
-      style={ongoing ? { transformOrigin: spinOrigin } : undefined}
+      className={className ?? ""}
+      style={{ transformOrigin: spinOrigin }}
       fill={filled ? "currentColor" : "none"}
       stroke="currentColor"
       strokeWidth={filled ? 0 : 1.6}

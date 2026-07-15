@@ -194,31 +194,6 @@
   }
 }
 
-/* ONGOING glyph rotation — the "live span in progress" signal (a started-but-unended
-   Moment/Space, or any entity with an open session). Two animations compose:
-     • `zero-glyph-spin` — a slow, calm 14s linear turn (was a busier 9s), so it reads
-       as ambient rather than frantic; it loops forever.
-     • `zero-glyph-spin-onset` — a ONE-SHOT opacity ramp as the spin begins, so motion
-       fades IN gently instead of snapping to full speed. Applied to the SAME SVG as the
-       rotation (opacity + transform don't conflict), so no wrapper element is needed.
-   Both gated on motion-safe (reduced-motion → a still outline). */
-@keyframes zero-glyph-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-@keyframes zero-glyph-spin-onset {
-  from {
-    opacity: 0.3;
-  }
-  to {
-    opacity: 1;
-  }
-}
-@media (prefers-reduced-motion: no-preference) {
-  .zero-glyph-spin {
-    animation:
-      zero-glyph-spin 14s linear infinite,
-      zero-glyph-spin-onset 1100ms cubic-bezier(0.16, 1, 0.3, 1);
-  }
-}
+/* NOTE: the ONGOING glyph rotation is no longer a CSS animation — it moved to the Web
+   Animations API in zero0-glyph.tsx so the spin can ease IN on start and decelerate OUT
+   to upright on stop (a class toggle can only snap off). */

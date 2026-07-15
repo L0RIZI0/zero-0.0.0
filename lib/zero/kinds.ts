@@ -210,7 +210,7 @@ export function formatAge(from: number, to: number): string {
 }
 
 /** The mutually-exclusive lifecycle positions (see {@link getState}). */
-export type StateWord = "open" | "ongoing" | "complete" | "closed" | "cancelled" | "dead" | "retired"
+export type StateWord = "open" | "ongoing" | "done" | "complete" | "closed" | "cancelled" | "dead" | "retired"
 
 /**
  * An entity's current lifecycle STATE — one position on the STATE axis, plus the
@@ -435,6 +435,13 @@ function getStateInner(entity: Entity, now: number, seen: Set<string>): EntitySt
 
   const c = completeSince(entity, now, seen)
   if (c != null) return { word: "complete", at: c, willCloseAt: entity.closeAt }
+
+  // DONE-but-not-complete: a Task explicitly marked Done whose completion is still GATED
+  // (an incomplete `kind === "task"` child, see completeSince). It isn't "complete" yet,
+  // but it shouldn't read as a plain "open" to-do either — surface "done" so the word
+  // agrees with the checkmark on its glyph. Ranked above ongoing: a Done task is done, not
+  // "in progress", even if a stray session lingered.
+  if (entity.kind === "task" && isDone(entity)) return { word: "done", at: getCompletedOn(entity) }
 
   // ONGOING — three sources, in priority:
   //  (1) an OPEN SESSION (kind-agnostic): a Task being worked on (focus punch-in) OR a

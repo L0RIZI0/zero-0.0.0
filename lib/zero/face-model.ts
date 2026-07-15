@@ -291,6 +291,10 @@ export function formatState(state: EntityState, format: (e?: number) => string, 
     case "ongoing":
       // A live span in progress — `at` is when it STARTED. No auto-close yet (no end set).
       return `ongoing · since ${format(state.at)}`
+    case "done":
+      // A Task marked Done but still GATED by an incomplete task child — done, not yet
+      // complete. `at` is when it was marked done.
+      return state.at != null ? `done · ${format(state.at)}` : "done"
     case "complete":
       return state.willCloseAt ? `complete · closes ${format(state.willCloseAt)} (auto)` : "complete"
     case "dead":
@@ -502,7 +506,7 @@ export function getFaceMetaRows(e: Entity, now: number): [string, string][] {
   rows.push(["creator", nameOf(getCreator(e))])
   rows.push(["owner", nameOf(getOwner(e))])
   // TITLE HISTORY — only when the entity has actually been renamed (>1 entry). Shows
-  // the full chain oldest→newest with the time each name took effect, so the raw-data
+  // the full chain oldest���newest with the time each name took effect, so the raw-data
   // view exposes what `titleAt(entity, t)` folds for the activity tracker.
   if (e.titleLog && e.titleLog.length > 1) {
     rows.push(["titles", e.titleLog.map((t) => `${t.title} (${fmt(t.at)})`).join("  →  ")])
