@@ -48,16 +48,30 @@ const NEUTRAL = "oklch(0.72 0.004 75)"
 // render detects it (rather than tinting it like a real accent).
 const DEFAULT_PRESENCE = "#ffffff"
 
-// On the COMBINED TODAY lane (`tracks="both"`) the band splits into TWO STACKED RAILS: the
-// TOP rail holds planned/logged occurrences (anything with a concrete start/at/due — past OR
-// future), the BOTTOM rail holds recorded presence (past only). Each tick centers on its
-// rail mid-line (see `railTop` in the render). Presence is painted AFTER planned so it stacks
-// IN FRONT — and, unlike planned, presence is drawn fully OPAQUE at all times (it's the solid
-// record of where I actually was), while planned stays faint until hovered.
+// On the COMBINED TODAY lane (`tracks="both"`) the band splits into TWO STACKED, TOUCHING
+// RAILS (no gap between them):
+//   • the ACTIVITY RAIL (top) — everything with a concrete moment on the clock: planned
+//     (future), logged (past), and ONGOING occurrences (a real past start, no end yet).
+//   • the PRESENCE RAIL (bottom) — recorded presence ("where I was"), past only, and NOTHING
+//     else. Presence ticks sit flush at the band's bottom edge and never leave this rail.
+// Activity ticks sit flush ABOVE the presence rail so the two rails touch. Presence is painted
+// after activity so it stacks IN FRONT, and is drawn fully OPAQUE at all times (the solid
+// record of where I was).
+const BAND_H = 28 // matches the `h-7` band container; combined-lane rails are laid out in px
 const PRESENCE_HEIGHT_PX = 10
-// On the COMBINED lane the planned rail shares the band with the presence rail below it
-// (two stacked ~14px rails), so its ticks are a compact 11px.
+// The seam between the two rails: presence occupies the bottom `PRESENCE_HEIGHT_PX`, so the
+// activity rail is everything above this y. Activity ticks rest their BOTTOM on this line so
+// the rails touch with no gap.
+const RAIL_SEAM_PX = BAND_H - PRESENCE_HEIGHT_PX // 18
+// On the COMBINED lane a normal (non-ongoing) activity tick is a compact 11px, resting on the
+// seam.
 const PLANNED_COMBINED_HEIGHT_PX = 11
+// ONGOING STACK — simultaneously-ongoing entities (all share the live "now" edge, so they
+// always overlap) are stacked vertically within the activity rail, LONGEST at the top. Each
+// occupies a lane of this height, laid contiguously UP from the seam; when there are too many
+// to fit the rail at full height, the lane height shrinks to share the space (down to a floor).
+const ONGOING_LANE_H = 5
+const ONGOING_LANE_MIN_H = 3
 
 // When an entity is FOCUSED from elsewhere in the canvas — its ENTITY CONTENT row is
 // hovered, or it's the currently-open context — every tick that belongs to it grows to
@@ -78,15 +92,6 @@ const COVERAGE_OPACITY_MAX = 0.9
 // and paint at FULL opacity (100%) like presence. The coverage machinery (`coverage`, the
 // MIN/MAX stops) is kept intact so this can be flipped back on. Currently OFF by request.
 const DYNAMIC_PLANNED_OPACITY = false
-
-// PRESENCE BLEED — on the combined lane, a presence tick whose time window has NO planned
-// occurrence overlapping it (nothing was planned/logged at that moment) is allowed to GROW
-// UP out of the bottom presence rail into the empty planned rail above, claiming the full
-// band. It recenters to the band middle (from the 72% presence rail) and paints at this
-// taller height. When ANY plan overlaps, the tick stays put in its rail so both read
-// clearly. Flag lets this be flipped off; the eligibility memo is cheap so it stays.
-const PRESENCE_BLEED = true
-const PRESENCE_SPAN_HEIGHT_PX = 22
 
 /**
  * Resolve the two colors a dayline tick paints, shared by BOTH tracks (planned +
@@ -457,25 +462,26 @@ export function Zero0Dayline({
     return m
   }, [planned, presence])
 
-  // Presence ticks eligible to BLEED up into the empty planned rail: those whose time
-  // window has NO planned occurrence overlapping it. Overlap is tested on the linear pct
-  // geometry ([leftPct, leftPct+widthPct]) shared by both tracks; a zero-width planned
-  // point only blocks when strictly inside the presence window.
-  const presenceSpanKeys = useMemo(() => {
-    const keys = new Set<string>()
-    if (!PRESENCE_BLEED) return keys
-    for (const pr of presence) {
-      const a0 = pr.leftPct
-      const a1 = pr.leftPct + pr.widthPct
-      const blocked = planned.some((pl) => {
-        const b0 = pl.leftPct
-        const b1 = pl.leftPct + Math.max(pl.widthPct, 0)
-        return b0 < a1 && b1 > a0
-      })
-      if (!blocked) keys.add(pr.key)
-    }
-    return keys
-  }, [planned, presence])
+  // ONGOING LANES — vertical stack slots for the currently-ongoing activity bars (those whose
+  // right edge is the live "now", `openEnded`). They all share the now edge so they always
+  // overlap; we stack them within the activity rail, LONGEST at the top. Map each ongoing
+  // bar's key → its lane { height, center } in band-pixels: shortest rests on the seam,
+  // longer ones stack contiguously above it (so the longest ends up on top). Lane height
+  // shrinks to fit when there are more ongoing bars than the rail can hold at full height.
+  const ongoingLanes = useMemo(() => {
+    const map = new Map<string, { height: number; center: number }>()
+    // Sort SHORTEST → longest so index 0 hugs the seam and the longest lands topmost.
+    const ong = planned.filter((b) => b.openEnded).sort((a, b) => a.widthPct - b.widthPct)
+    const n = ong.length
+    if (!n) return map
+    const laneH = Math.max(ONGOING_LANE_MIN_H, Math.min(ONGOING_LANE_H, RAIL_SEAM_PX / n))
+    ong.forEach((b, r) => {
+      // bottom of lane r sits `r` lanes above the seam; center is half a lane higher.
+      const center = RAIL_SEAM_PX - r * laneH - laneH / 2
+      map.set(b.key, { height: laneH, center })
+    })
+    return map
+  }, [planned])
   const hovered = hoveredKey ? byKey.get(hoveredKey) ?? null : null
 
   // NOW marker position within the shown window; off-screen (outside 0–100) when panned.
@@ -1019,37 +1025,42 @@ export function Zero0Dayline({
                   // Grows + fully opaque.
                   const lit = highlightId != null && p.id === highlightId
                   const isPresenceTick = combined ? p.track === "presence" : isPresence
-                  // BLEED — a combined-lane presence tick with nothing planned overlapping it
-                  // grows out of its rail into the empty planned rail above (unless it's
-                  // already lit/hovered, which have their own heights).
-                  const spanUp = combined && isPresenceTick && !(lit || isHot) && presenceSpanKeys.has(p.key)
-                  // TWO RAILS (combined TODAY lane only): the band splits into a TOP rail of
-                  // planned/logged occurrences (past OR future) and a BOTTOM rail of presence
-                  // (past only). Each tick is centered on its rail's mid-line; a non-combined
-                  // lane keeps one centered band. `railTop` is the vertical anchor (percent of
-                  // the band) that `-translate-y-1/2` then centers the tick on. A bleeding
-                  // presence tick recenters to the band middle so it spans both rails.
-                  const railTop = combined ? (isPresenceTick ? (spanUp ? "50%" : "72%") : "28%") : "50%"
-                  // Height. A LIT tick pops (capped shorter on the combined lane so a hover
-                  // doesn't spill across the two rails). PRESENCE = its solid record height (or
-                  // the taller span height when bleeding up); PLANNED on the combined lane =
-                  // the shorter rail "intent"; a planned-only lane uses the base 9px (13 hover).
+                  // Is this an ONGOING activity bar (right edge = live now)? Only these get a
+                  // vertical stack lane in the activity rail.
+                  const lane = combined && !isPresenceTick ? ongoingLanes.get(p.key) : undefined
+                  // HEIGHT. A LIT/hovered tick pops. On the combined lane: PRESENCE = its solid
+                  // record height; an ONGOING bar = its (possibly shrunk) lane height; a normal
+                  // activity bar = the compact rail height. A single-track lane uses the base.
                   const baseH = isHot ? 13 : 9
                   const tickH = combined
                     ? isPresenceTick
                       ? lit || isHot
                         ? 12
-                        : spanUp
-                          ? PRESENCE_SPAN_HEIGHT_PX
-                          : PRESENCE_HEIGHT_PX
+                        : PRESENCE_HEIGHT_PX
                       : lit || isHot
                         ? 13
-                        : PLANNED_COMBINED_HEIGHT_PX
+                        : lane
+                          ? lane.height
+                          : PLANNED_COMBINED_HEIGHT_PX
                     : lit
                       ? HIGHLIGHT_HEIGHT_PX
                       : isPresenceTick
                         ? PRESENCE_HEIGHT_PX
                         : baseH
+                  // VERTICAL ANCHOR (`top`, the center the `-translate-y-1/2` pins the tick on).
+                  // Combined lane is laid out in BAND PIXELS so the two rails TOUCH with no gap:
+                  //   • presence — flush at the band's BOTTOM edge (center = BAND_H − h/2), and
+                  //     it never leaves this rail.
+                  //   • ongoing  — its stacked lane center (longest ends up on top).
+                  //   • other activity — rests its bottom on the seam (center = seam − h/2).
+                  // A non-combined lane keeps a single centered band ("50%").
+                  const railTop: string | number = !combined
+                    ? "50%"
+                    : isPresenceTick
+                      ? BAND_H - tickH / 2
+                      : lane
+                        ? lane.center
+                        : RAIL_SEAM_PX - tickH / 2
                   // ROUNDING. A point stays a dot. A PLANNED bar keeps all four corners soft.
                   // A PRESENCE bar rounds ONLY the ends of its session run: left corners on the
                   // first tick, right corners on the last; interior ticks are fully square so a
@@ -1113,11 +1124,10 @@ export function Zero0Dayline({
                           onContextMenuEntity ? (ev) => onContextMenuEntity(p.id, ev) : undefined
                         }
                         className={cn(
-                          // Every tick is vertically centered on its rail mid-line via
+                          // Every tick is vertically centered on its anchor via
                           // `-translate-y-1/2` (the anchor is `top: railTop` in the style),
-                          // and animates height + rail (top) changes smoothly (the latter so a
-                          // presence tick bleeding up into the planned rail slides rather than
-                          // jumps).
+                          // and animates height + anchor (top) changes smoothly (so an ongoing
+                          // bar re-stacking as siblings start/stop slides rather than jumps).
                           "pointer-events-auto absolute cursor-default -translate-y-1/2 transition-[height,opacity,top] duration-200",
                           roundCls,
                           // Translate composes on separate axes: X for a point / open-ended
