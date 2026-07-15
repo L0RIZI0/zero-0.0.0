@@ -657,6 +657,12 @@ ipcMain.handle("zero:resource:mount", async (_e, args) => {
   // heavy sites like Figma snap in seconds earlier.
   view.webContents.once("dom-ready", () => {
     console.log(`[v0] resource:dom-ready id=${id}`)
+    // PINCH ZOOM: a macOS trackpad pinch is delivered to Chromium as a VISUAL (pinch)
+    // zoom gesture, which Electron disables by default — so pinching over a resource did
+    // nothing (only ⌘/ctrl+scroll, handled via "zoom-changed", worked). Enabling visual
+    // zoom limits lets the pinch gesture scale the page. Kept in sync with the ⌘-scroll
+    // ZOOM_MIN/ZOOM_MAX range so both paths feel consistent.
+    view.webContents.setVisualZoomLevelLimits?.(1, ZOOM_MAX).catch?.(() => {})
     view.__zeroLoaded = true // mark resident-and-ready so a later re-open reveals instantly
     report(true)
   })
