@@ -345,19 +345,8 @@ export function Zero0Face({
             {starterEcho ?? model.metaEcho}
           </span>
         )}
-        {/* Inline DONE toggle (soft marker) — only kinds WITH a done axis. Others: muted placeholder. */}
-        <button
-          type="button"
-          onClick={() => toggle(entity)}
-          disabled={!model.hasDoneState}
-          className={
-            "w-16 shrink-0 text-right " +
-            (model.hasDoneState ? "text-muted-foreground hover:text-foreground" : "text-transparent")
-          }
-          title={model.hasDoneState ? "Toggle done" : "No done state"}
-        >
-          {model.hasDoneState ? (model.done ? "done" : "undone") : "—"}
-        </button>
+        {/* (The old inline done/undone toggle column was removed — the GLYPH already toggles
+            Done for done-able kinds, so the text column was redundant chrome.) */}
         {/* Read-only LIFECYCLE state token (Complete/Close/Cancel via menu). */}
         <span className="w-20 shrink-0 text-right text-muted-foreground/60">{model.lifeLabel}</span>
       </>

@@ -362,67 +362,44 @@ export const entities: Entity[] = [
   // has no space/task children. Everything below is grown by the user at runtime.
   assignedResourceIds: [],
   },
-  // --- FREQUENT (§4) TEST SEEDS --------------------------------------------
-  // Recurring life-activity Moments so the FREQUENT band has real content to exercise: a
-  // spread of ONGOING (spinning) + COMPLETE-not-closed occurrences, each with a distinct
-  // accent. Timestamps are relative to LOAD (so they stay ongoing/complete across reloads)
-  // and never persist — seeds live in code, only user mutations hit localStorage. The mix
-  // exercises each header-slot case: Walk Daiko has TWO ongoing (→ `(2)`, glyph opens the
-  // list); Edan has ONE ongoing WITH a future end (→ a live down-counter); Sleep has ONE
-  // open-ended ongoing (→ elapsed count-up); W has NONE (no counter, but its list still shows
-  // when §4 is expanded — the "show all lists" behaviour).
+  // --- WEB-PREVIEW SAMPLE SET ----------------------------------------------
+  // A minimal, legible sample under the Individual: ONE of each core kind so the web
+  // preview has something to interact with, plus a second Space "Edan" whose start is
+  // WHENEVER (a playable one — its glyph offers Play/Stop). Accents per Loris's spec:
+  // blue space · purple moment · pink instant · green resource · amber Edan; the Task is
+  // left uncoloured. The green Resource points at the internal `/matrix-interactions`
+  // doc viewer, so it doubles as the one-click matrix link the preview used to carry.
   //
-  // WEB-PREVIEW ONLY: excluded from the packaged DESKTOP export (same build-time flag as the
-  // `/matrix-interactions` resource below) so dogfooding on the Surface app starts from a
-  // clean tree — these are demo fixtures, not real life data.
+  // These are demo fixtures (they never persist — only user mutations hit localStorage)
+  // and are EXCLUDED from the packaged DESKTOP export via NEXT_PUBLIC_ZERO_ELECTRON, so
+  // dogfooding on the Surface app still starts from a clean tree.
   ...(process.env.NEXT_PUBLIC_ZERO_ELECTRON !== "1"
-    ? ((): Entity[] => {
-    const t0 = Date.now()
-    const ago = (min: number) => t0 - min * 60_000
-    const mk = (id: string, title: string, accent: string, startAgo: number, endAgo: number | null): Entity => ({
-      id,
-      kind: "moment",
-      title,
-      parentId: ROOT_ID,
-      taggedContextIds: [],
-      accent,
-      createdAt: ago(startAgo),
-      schedule: endAgo == null ? { startAt: ago(startAgo) } : { startAt: ago(startAgo), endAt: ago(endAgo) },
-    })
-    const GREY = "#8A8F98"
-    const AMBER = "#F5A623"
-    const BROWN = "#8B5A2B"
-    const SLEEP = "#5566D8"
-    return [
-      mk("fd_walk_1", "Walk Daiko", GREY, 95, null), // ongoing
-      mk("fd_walk_2", "Walk Daiko", GREY, 20, null), // ongoing (→ 2 ongoing, glyph opens list)
-      mk("fd_walk_3", "Walk Daiko", GREY, 300, 280), // complete
-      mk("fd_edan_1", "Edan", AMBER, 50, -40), // ongoing WITH a future end → header shows a down-counter
-      mk("fd_edan_2", "Edan", AMBER, 420, 360), // complete
-      mk("fd_w_1", "W", BROWN, 500, 470), // complete (no ongoing → no counter)
-      mk("fd_w_2", "W", BROWN, 200, 150), // complete
-      mk("fd_sleep_1", "Sleep", SLEEP, 30, null), // ongoing
-      mk("fd_sleep_2", "Sleep", SLEEP, 600, 120), // complete
-    ]
-  })()
-    : []),
-  // WEB-PREVIEW-ONLY convenience: a Resource pointing at the internal `/matrix-interactions`
-  // doc viewer, seeded under the Individual so Loris can open the interaction matrix in one
-  // click. Excluded from the packaged DESKTOP export (its shell only mounts `/`, so the route
-  // wouldn't resolve) via the build-time NEXT_PUBLIC_ZERO_ELECTRON flag.
-  ...(process.env.NEXT_PUBLIC_ZERO_ELECTRON !== "1"
-    ? [
+    ? ([
+        { id: "seed_space", kind: "space", title: "Space", parentId: ROOT_ID, taggedContextIds: [], accent: "#4A90E2" },
+        { id: "seed_task", kind: "task", title: "Task", parentId: ROOT_ID, taggedContextIds: [], completed: false },
+        { id: "seed_moment", kind: "moment", title: "Moment", parentId: ROOT_ID, taggedContextIds: [], accent: "#A855F7" },
+        { id: "seed_instant", kind: "instant", title: "Instant", parentId: ROOT_ID, taggedContextIds: [], accent: "#EC4899" },
+        {
+          id: "seed_edan",
+          kind: "space",
+          title: "Edan",
+          parentId: ROOT_ID,
+          taggedContextIds: [],
+          accent: "#F5A623",
+          schedule: { startAt: WHENEVER },
+        },
         {
           id: "r_matrix",
           kind: "resource",
           title: "Interaction Matrix",
           parentId: ROOT_ID,
           taggedContextIds: [],
+          accent: "#2ECC71",
           completed: false,
           tags: [],
           webUrl: "/matrix-interactions",
-        } as Entity,
-      ]
+        },
+      ] as Entity[])
     : []),
   ]
 

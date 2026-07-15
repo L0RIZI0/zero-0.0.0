@@ -595,10 +595,15 @@ export function Zero0Canvas() {
       if (nowDone && e.kind === "task" && hasOpenSession(e)) {
         closeSession(e.id)
         focusOpenRef.current.delete(e.id)
+      } else if (!nowDone && e.kind === "task" && path.includes(e.id) && !hasOpenSession(e)) {
+        // Reopened IN PLACE while still inside it. The dwell effect won't re-fire (the
+        // `path` didn't change), so punch a focus session back in NOW — otherwise the
+        // glyph stayed a static square until you navigated away and back (the bug Loris hit).
+        if (openSession(e.id, "focus")) focusOpenRef.current.add(e.id)
       }
       bump()
     },
-    [bump],
+    [bump, path],
   )
 
   // PLAY/STOP on a PLAYABLE ("whenever") moment/space glyph — opens/closes a background

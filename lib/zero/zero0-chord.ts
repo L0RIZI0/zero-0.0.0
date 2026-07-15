@@ -27,7 +27,7 @@ import { useSyncExternalStore } from "react"
 // ============================================================================
 
 /** The visibility flags. Chrome headers + AGENDA default to shown (AGENDA as a minimized
- *  band); only ACTIVITY defaults to HIDDEN until summoned. */
+ *  band); ACTIVITY and FREQUENT default to HIDDEN until summoned. */
 export type Zero0Flag = "entityHeader" | "zeroHeader" | "activity" | "agenda" | "frequent" | "readout"
 
 // Which digit (pressed after §) toggles which frame. `readout` is intentionally absent.
@@ -52,8 +52,9 @@ const visible: Record<Zero0Flag, boolean> = {
   zeroHeader: true,
   activity: false,
   agenda: true,
-  // FREQUENT (§4) — the quick-create tile band. Shown by default for now (per request).
-  frequent: true,
+  // FREQUENT (§4) — the PINNED tile band. HIDDEN by default (per request); summon with §4
+  // or the footer "pinned" link.
+  frequent: false,
   readout: true,
 }
 
