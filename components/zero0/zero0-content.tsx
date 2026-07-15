@@ -137,7 +137,7 @@ export function Zero0Content({ entity, axis, depth, ancestry, ctx, isRoot, mount
   // in place (item: "create-entity row in content for each"). The top-level content leaves
   // creation to the canvas's own field, so it keeps the plain empty hint.
   const createRow = !isRoot ? (
-    <ContentCreateRow contextId={entity.id} onCreate={(raw) => ctx.createChild(entity.id, raw)} />
+    <ContentCreateRow onCreate={(raw) => ctx.createChild(entity.id, raw)} />
   ) : null
 
   if (children.length === 0) {
@@ -225,11 +225,17 @@ export function Zero0Content({ entity, axis, depth, ancestry, ctx, isRoot, mount
         )
         // Caret column holds the ▸/▾ toggle when expandable, else an empty spacer so the
         // index column stays aligned across rows with and without children.
+        // A childless row still gets a caret (expand to reveal its inline create row), but
+        // it's drawn dimmer so a glance still tells apart "has content" from "empty".
+        const hasChildren = getChildren(e.id).length > 0
         const caretCell = canExpand ? (
           <button
             type="button"
             onClick={() => ctx.toggleExpand(e.id)}
-            className="w-3 shrink-0 text-left text-muted-foreground transition-colors hover:text-foreground"
+            className={
+              "w-3 shrink-0 text-left transition-colors hover:text-foreground " +
+              (hasChildren ? "text-muted-foreground" : "text-muted-foreground/40")
+            }
             aria-label={expanded ? `Collapse ${e.title}` : `Expand ${e.title}`}
             aria-expanded={expanded}
           >
@@ -342,6 +348,43 @@ export function Zero0Content({ entity, axis, depth, ancestry, ctx, isRoot, mount
           </li>
         )
       })}
+      {/* Inline create row so a non-empty nested entity can also gain more children in
+          place. (Top-level uses the canvas's own create field.) */}
+      {createRow}
     </ul>
+  )
+}
+
+/** A minimal inline create field for the bottom of a nested Content list. Enter submits the
+ *  raw line through the full create grammar (parsed by the canvas); CJK IME composition is
+ *  respected so Enter confirming a composition doesn't create. Kept local + uncontrolled-ish
+ *  via a tiny state so it never touches the canvas's main draft. */
+function ContentCreateRow({ onCreate }: { onCreate: (raw: string) => void }) {
+  const [value, setValue] = useState("")
+  return (
+    <li className="flex items-baseline gap-3 py-1.5 text-muted-foreground">
+      {/* Spacers align the field with the row title column (grip + caret + index widths). */}
+      <span className="w-3 shrink-0" aria-hidden />
+      <span className="w-3 shrink-0 text-center" aria-hidden>
+        +
+      </span>
+      <input
+        type="text"
+        value={value}
+        onChange={(ev) => setValue(ev.target.value)}
+        onKeyDown={(ev) => {
+          if (ev.key !== "Enter") return
+          // Don't submit mid-IME-composition (CJK) — see coding guidelines.
+          if (ev.nativeEvent.isComposing || ev.keyCode === 229) return
+          const raw = value.trim()
+          if (!raw) return
+          onCreate(raw)
+          setValue("")
+        }}
+        placeholder="create here…"
+        className="min-w-0 flex-1 bg-transparent text-[11px] text-foreground placeholder:text-muted-foreground/60 focus:outline-none"
+        aria-label="Create entity here"
+      />
+    </li>
   )
 }

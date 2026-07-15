@@ -29,6 +29,10 @@ function getUpdatesApi(): ZeroUpdatesApi | null {
 
 export function Zero0UpdateIndicator() {
   const [staged, setStaged] = useState<{ version?: string } | null>(null)
+  // Once clicked, the main process hides windows + silently installs, but that takes a
+  // beat — flip to a "restarting…" state IMMEDIATELY so the click feels responsive rather
+  // than dead (the perceived-speed half of the Figma-like restart).
+  const [restarting, setRestarting] = useState(false)
 
   useEffect(() => {
     const api = getUpdatesApi()
@@ -43,20 +47,24 @@ export function Zero0UpdateIndicator() {
   // Normalise the staged version to a leading-"v" tag form so the pill reads like the rest
   // of Zero's version chrome (e.g. "v0.3.88"). electron-updater reports a bare "0.3.88".
   const ver = staged.version ? (staged.version.startsWith("v") ? staged.version : `v${staged.version}`) : null
-  const label = ver ? `restart for ${ver}` : "restart to update"
+  const label = restarting ? "restarting…" : ver ? `restart for ${ver}` : "restart to update"
 
   return (
     <button
       type="button"
-      onClick={() => getUpdatesApi()?.restartToApply()}
+      disabled={restarting}
+      onClick={() => {
+        setRestarting(true)
+        getUpdatesApi()?.restartToApply()
+      }}
       title={ver ? `Restart to update to ${ver}` : "Restart to update"}
       aria-label={ver ? `Restart to update to ${ver}` : "Restart to update"}
-      className="inline-flex items-center gap-1.5 rounded-sm border border-border px-1.5 py-0.5 text-muted-foreground transition-colors hover:text-foreground"
+      className="inline-flex items-center gap-1.5 rounded-sm border border-border px-1.5 py-0.5 text-muted-foreground transition-colors hover:text-foreground disabled:opacity-70"
     >
       <svg
         aria-hidden
         viewBox="0 0 24 24"
-        className="h-3 w-3"
+        className={"h-3 w-3" + (restarting ? " motion-safe:animate-spin" : "")}
         fill="none"
         stroke="currentColor"
         strokeWidth={2}
