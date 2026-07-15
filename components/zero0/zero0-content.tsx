@@ -235,10 +235,10 @@ export function Zero0Content({ entity, axis, depth, ancestry, ctx, isRoot, mount
         // Content-side chrome shared by both layouts: drag grip + expand caret + row index
         // + delete ×.
         const num2 = num != null ? String(num).padStart(2, "0") : ""
-        // Drag HANDLE — the only draggable element (so the title/glyph stay clickable). It's
-        // ALWAYS faintly visible (was hover-only + near-invisible, so it hid under the cursor)
-        // and brightens on row hover / while grabbing. Wider hit area so the cursor doesn't
-        // fully cover it.
+        // Drag HANDLE — the only draggable element (so the title/glyph stay clickable). Hidden
+        // by default; fades IN on row hover (and stays visible while THIS row is being dragged,
+        // so it doesn't vanish mid-drag when the cursor leaves the row). Wide hit area so the
+        // cursor doesn't fully cover it.
         const isDragging = dragId === e.id
         const gripCell = (
           <span
@@ -254,7 +254,10 @@ export function Zero0Content({ entity, axis, depth, ancestry, ctx, isRoot, mount
               }
             }}
             onDragEnd={() => endDrag(true)}
-            className="flex w-4 shrink-0 cursor-grab items-center justify-center self-center text-muted-foreground/40 transition-colors group-hover:text-muted-foreground hover:!text-foreground active:cursor-grabbing"
+            className={
+              "flex w-4 shrink-0 cursor-grab items-center justify-center self-center text-muted-foreground transition-opacity duration-150 hover:!text-foreground active:cursor-grabbing group-hover:opacity-100 motion-reduce:transition-none " +
+              (isDragging ? "opacity-100" : "opacity-0")
+            }
             aria-label={`Reorder ${e.title}`}
             title="Drag to reorder"
           >
@@ -278,7 +281,7 @@ export function Zero0Content({ entity, axis, depth, ancestry, ctx, isRoot, mount
             type="button"
             onClick={() => ctx.toggleExpand(e.id)}
             className={
-              "w-3 shrink-0 text-left transition-colors hover:text-foreground " +
+              "w-4 shrink-0 text-left text-sm leading-none transition-colors hover:text-foreground " +
               (hasChildren ? "text-muted-foreground" : "text-muted-foreground/40")
             }
             aria-label={expanded ? `Collapse ${e.title}` : `Expand ${e.title}`}
@@ -287,7 +290,7 @@ export function Zero0Content({ entity, axis, depth, ancestry, ctx, isRoot, mount
             {expanded ? "▾" : "▸"}
           </button>
         ) : (
-          <span className="w-3 shrink-0" aria-hidden />
+          <span className="w-4 shrink-0" aria-hidden />
         )
         const indexCell = <span className="w-6 shrink-0 text-right text-muted-foreground">{num2}</span>
         const deleteCell = (
