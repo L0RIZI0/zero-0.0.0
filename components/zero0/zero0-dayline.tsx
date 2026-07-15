@@ -48,30 +48,66 @@ const NEUTRAL = "oklch(0.72 0.004 75)"
 // render detects it (rather than tinting it like a real accent).
 const DEFAULT_PRESENCE = "#ffffff"
 
-// On the COMBINED TODAY lane (`tracks="both"`) the band splits into TWO STACKED, TOUCHING
-// RAILS (no gap between them):
-//   • the ACTIVITY RAIL (top) — everything with a concrete moment on the clock: planned
-//     (future), logged (past), and ONGOING occurrences (a real past start, no end yet).
-//   • the PRESENCE RAIL (bottom) — recorded presence ("where I was"), past only, and NOTHING
-//     else. Presence ticks sit flush at the band's bottom edge and never leave this rail.
-// Activity ticks sit flush ABOVE the presence rail so the two rails touch. Presence is painted
-// after activity so it stacks IN FRONT, and is drawn fully OPAQUE at all times (the solid
-// record of where I was).
+// OPTION A — on the COMBINED TODAY lane (`tracks="both"`) the band splits at the SEAM into two
+// TOUCHING rails, framed as PLAN vs REALITY:
+//   • the PLANNED rail (TOP) — DECLARED/planned spans only (the plan): scheduled occurrences,
+//     past or future, incl. an ongoing declared span (clock inside a declared start→end).
+//   • the RECORDED rail (BOTTOM) — RECORDED engagements of the viewed entity (what actually
+//     happened): closed engagement spans + running (open) ones.
+// PRESENCE is NOT on this lane — it lives on the standalone ACTIVITY dayline (`tracks="presence"`).
+// While viewing ROOT, the recorded rail == presence (presence = root's own engagements).
+// Within EACH rail, OVERLAPPING spans PACK into sub-lanes (see `packLanes`); overflow policy is
+// (1) SHRINK-TO-FIT — lane height shrinks toward `LANE_MIN_H` as lanes multiply.
 const BAND_H = 28 // matches the `h-7` band container; combined-lane rails are laid out in px
+// Equal split so plan and reality get the same room. Planned rail = [0, SEAM]; recorded rail =
+// [SEAM, BAND_H]. Sub-lanes grow AWAY from the seam (planned upward, recorded downward).
+const RAIL_SEAM_PX = 14
+// Base (single-lane) tick heights per rail; packing shrinks these when spans overlap.
+const PLANNED_LANE_H = 11
+const RECORDED_LANE_H = 10
+const LANE_MIN_H = 3 // floor for shrink-to-fit
+// Height of a presence tick on the STANDALONE ACTIVITY dayline (`tracks="presence"`).
 const PRESENCE_HEIGHT_PX = 10
-// The seam between the two rails: presence occupies the bottom `PRESENCE_HEIGHT_PX`, so the
-// activity rail is everything above this y. Activity ticks rest their BOTTOM on this line so
-// the rails touch with no gap.
-const RAIL_SEAM_PX = BAND_H - PRESENCE_HEIGHT_PX // 18
-// On the COMBINED lane a normal (non-ongoing) activity tick is a compact 11px, resting on the
-// seam.
-const PLANNED_COMBINED_HEIGHT_PX = 11
-// ONGOING STACK — simultaneously-ongoing entities (all share the live "now" edge, so they
-// always overlap) are stacked vertically within the activity rail, LONGEST at the top. Each
-// occupies a lane of this height, laid contiguously UP from the seam; when there are too many
-// to fit the rail at full height, the lane height shrinks to share the space (down to a floor).
-const ONGOING_LANE_H = 5
-const ONGOING_LANE_MIN_H = 3
+
+// Greedy interval LANE-PACKING (generalizes the old ongoing stack). Assigns each bar to the
+// lowest lane whose last-placed bar ends at/before this bar's start (no overlap); opens a new
+// lane when none is free. `compare` sets placement order: planned packs by START (minimal lanes,
+// tiling spans share lane 0); recorded packs LONGEST-FIRST so the longest engagement hugs the
+// seam. All bars share the [leftPct, leftPct+widthPct] x-range (openEnded bars included, since
+// they extend left from the now-edge). Returns each key's lane index + the total lane count.
+type LanePack = { laneOf: Map<string, number>; laneCount: number }
+function packLanes(
+  bars: { key: string; leftPct: number; widthPct: number }[],
+  compare: (a: { leftPct: number; widthPct: number }, b: { leftPct: number; widthPct: number }) => number,
+): LanePack {
+  const laneOf = new Map<string, number>()
+  const laneEnds: number[] = [] // rightPct of the last bar placed in each lane
+  const EPS = 0.001
+  for (const b of [...bars].sort(compare)) {
+    const left = b.leftPct
+    const right = b.leftPct + Math.max(b.widthPct, 0)
+    let placed = laneEnds.findIndex((end) => end <= left + EPS)
+    if (placed === -1) {
+      placed = laneEnds.length
+      laneEnds.push(right)
+    } else {
+      laneEnds[placed] = right
+    }
+    laneOf.set(b.key, placed)
+  }
+  return { laneOf, laneCount: laneEnds.length }
+}
+// Geometry for a bar in a rail's sub-lane. `rail` picks direction: "planned" grows UP from the
+// seam (lane 0 rests on the seam), "recorded" grows DOWN from the seam (lane 0 hangs off it).
+function laneGeom(rail: "planned" | "recorded", laneIndex: number, laneCount: number) {
+  const railH = rail === "planned" ? RAIL_SEAM_PX : BAND_H - RAIL_SEAM_PX
+  const base = rail === "planned" ? PLANNED_LANE_H : RECORDED_LANE_H
+  const laneH = Math.max(LANE_MIN_H, Math.min(base, railH / Math.max(laneCount, 1)))
+  // Distance of this lane's CENTER from the seam (both rails measured outward).
+  const offset = laneIndex * laneH + laneH / 2
+  const center = rail === "planned" ? RAIL_SEAM_PX - offset : RAIL_SEAM_PX + offset
+  return { height: laneH, center }
+}
 
 // When an entity is FOCUSED from elsewhere in the canvas — its ENTITY CONTENT row is
 // hovered, or it's the currently-open context — every tick that belongs to it grows to
@@ -506,39 +542,28 @@ export function Zero0Dayline({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [winStart, lo, hi, now, mounted, activityRevision])
 
-  // ACTIVITY rail contents = scheduled/logged/ongoing PLANNED occurrences + tracked SESSION
-  // spans. Merged so both feed the rail, the ongoing stack, and hover lookup identically.
-  const activity = useMemo<DaylineBar[]>(() => [...planned, ...sessions], [planned, sessions])
-
-  // One lookup for the hovered bar's tooltip, across both tracks.
+  // One lookup for the hovered bar's tooltip, across every list that can render.
   const byKey = useMemo(() => {
     const m = new Map<string, DaylineBar>()
-    for (const b of activity) m.set(b.key, b)
+    for (const b of planned) m.set(b.key, b)
+    for (const b of sessions) m.set(b.key, b)
     for (const b of presence) m.set(b.key, b)
     return m
-  }, [activity, presence])
+  }, [planned, sessions, presence])
 
-  // ONGOING LANES — vertical stack slots for the currently-ongoing activity bars (those whose
-  // right edge is the live "now", `openEnded` — an ongoing plan OR an open session). They all
-  // share the now edge so they always overlap; we stack them within the activity rail, LONGEST
-  // at the top. Map each ongoing bar's key → its lane { height, center } in band-pixels:
-  // shortest rests on the seam, longer ones stack contiguously above it (so the longest ends
-  // up on top). Lane height shrinks to fit when there are more ongoing bars than the rail can
-  // hold at full height.
-  const ongoingLanes = useMemo(() => {
-    const map = new Map<string, { height: number; center: number }>()
-    // Sort SHORTEST → longest so index 0 hugs the seam and the longest lands topmost.
-    const ong = activity.filter((b) => b.openEnded).sort((a, b) => a.widthPct - b.widthPct)
-    const n = ong.length
-    if (!n) return map
-    const laneH = Math.max(ONGOING_LANE_MIN_H, Math.min(ONGOING_LANE_H, RAIL_SEAM_PX / n))
-    ong.forEach((b, r) => {
-      // bottom of lane r sits `r` lanes above the seam; center is half a lane higher.
-      const center = RAIL_SEAM_PX - r * laneH - laneH / 2
-      map.set(b.key, { height: laneH, center })
-    })
-    return map
-  }, [activity])
+  // LANE PACKING per rail (OPTION A). TOP (planned) packs by START so tiling declared spans
+  // share lane 0 and only genuine overlaps open new lanes. BOTTOM (recorded) packs LONGEST-
+  // FIRST so the longest engagement hugs the seam and shorter/overlapping ones stack away from
+  // it — this subsumes the old "ongoing stack" (all running engagements share the now-edge, so
+  // they fully overlap and each lands in its own lane, longest nearest the seam).
+  const plannedLanes = useMemo(
+    () => packLanes(planned, (a, b) => a.leftPct - b.leftPct || b.widthPct - a.widthPct),
+    [planned],
+  )
+  const recordedLanes = useMemo(
+    () => packLanes(sessions, (a, b) => b.widthPct - a.widthPct || a.leftPct - b.leftPct),
+    [sessions],
+  )
   const hovered = hoveredKey ? byKey.get(hoveredKey) ?? null : null
 
   // NOW marker position within the shown window; off-screen (outside 0–100) when panned.
@@ -1075,49 +1100,41 @@ export function Zero0Dayline({
                   All ticks are vertically CENTERED; on the combined lane the tracks are
                   told apart by HEIGHT (planned taller, presence shorter). */}
               {mounted &&
-                (combined ? [...activity, ...presence] : isPresence ? presence : activity).map((p) => {
+                (combined ? [...planned, ...sessions] : isPresence ? presence : planned).map((p) => {
                   const isHot = hoveredKey === p.key
                   // LIT — this tick's entity is the one being HOVERED in ENTITY CONTENT
                   // (hover-only; cleared on navigation, so never lit merely for being open).
                   // Grows + fully opaque.
                   const lit = highlightId != null && p.id === highlightId
-                  const isPresenceTick = combined ? p.track === "presence" : isPresence
-                  // Is this an ONGOING activity bar (right edge = live now)? Only these get a
-                  // vertical stack lane in the activity rail.
-                  const lane = combined && !isPresenceTick ? ongoingLanes.get(p.key) : undefined
-                  // HEIGHT. A LIT/hovered tick pops. On the combined lane: PRESENCE = its solid
-                  // record height; an ONGOING bar = its (possibly shrunk) lane height; a normal
-                  // activity bar = the compact rail height. A single-track lane uses the base.
+                  const isPresenceTick = !combined && isPresence
+                  // OPTION A rail assignment on the combined lane: a SESSION bar (track ==
+                  // "planned" but sourced from the engagements memo) lives on the RECORDED
+                  // (bottom) rail; everything else (declared occurrences) on the PLANNED (top)
+                  // rail. We tell them apart by key prefix (`sess:` from the sessions memo).
+                  const isRecorded = combined && p.key.startsWith("sess:")
+                  const lane = combined
+                    ? isRecorded
+                      ? laneGeom("recorded", recordedLanes.laneOf.get(p.key) ?? 0, recordedLanes.laneCount)
+                      : laneGeom("planned", plannedLanes.laneOf.get(p.key) ?? 0, plannedLanes.laneCount)
+                    : undefined
+                  // HEIGHT. A LIT/hovered tick pops (capped so it doesn't spill the rail). On
+                  // the combined lane every tick uses its packed lane height. A standalone lane
+                  // uses the presence/highlight/base heights.
                   const baseH = isHot ? 13 : 9
                   const tickH = combined
-                    ? isPresenceTick
-                      ? lit || isHot
-                        ? 12
-                        : PRESENCE_HEIGHT_PX
-                      : lit || isHot
-                        ? 13
-                        : lane
-                          ? lane.height
-                          : PLANNED_COMBINED_HEIGHT_PX
+                    ? lit || isHot
+                      ? Math.max(lane?.height ?? 0, isRecorded ? 12 : 13)
+                      : lane?.height ?? PLANNED_LANE_H
                     : lit
                       ? HIGHLIGHT_HEIGHT_PX
                       : isPresenceTick
                         ? PRESENCE_HEIGHT_PX
                         : baseH
                   // VERTICAL ANCHOR (`top`, the center the `-translate-y-1/2` pins the tick on).
-                  // Combined lane is laid out in BAND PIXELS so the two rails TOUCH with no gap:
-                  //   • presence — flush at the band's BOTTOM edge (center = BAND_H − h/2), and
-                  //     it never leaves this rail.
-                  //   • ongoing  — its stacked lane center (longest ends up on top).
-                  //   • other activity — rests its bottom on the seam (center = seam − h/2).
-                  // A non-combined lane keeps a single centered band ("50%").
-                  const railTop: string | number = !combined
-                    ? "50%"
-                    : isPresenceTick
-                      ? BAND_H - tickH / 2
-                      : lane
-                        ? lane.center
-                        : RAIL_SEAM_PX - tickH / 2
+                  // Combined lane is laid out in BAND PIXELS so the two rails TOUCH at the seam:
+                  // each tick centers on its packed lane center (planned above the seam, recorded
+                  // below). A non-combined lane keeps a single centered band ("50%").
+                  const railTop: string | number = !combined ? "50%" : lane?.center ?? RAIL_SEAM_PX - tickH / 2
                   // ROUNDING. A point stays a dot. A PLANNED bar keeps all four corners soft.
                   // A PRESENCE bar rounds ONLY the ends of its session run: left corners on the
                   // first tick, right corners on the last; interior ticks are fully square so a
