@@ -402,6 +402,58 @@ export function Zero0Dayline({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [winStart, lo, hi, now, mounted, dataRev, activityRevision])
 
+  // SESSION bars — tracked work SESSIONS (`schedule.sessions`), the punch-in/out log behind
+  // Play/Stop and dwell-focus. These are what make a "whenever" (no fixed clock time) entity
+  // read `ongoing`, so they belong on the ACTIVITY rail even though they never anchor a
+  // planned occurrence. We walk the WHOLE subtree (not just timed descendants, since the
+  // whole point is un-clocked playables) and emit one bar per session touching the day:
+  //   - OPEN session (no endAt) ⇒ an `openEnded` ongoing bar (right edge = now) that joins
+  //     the vertical ongoing stack.
+  //   - CLOSED session ⇒ a completed logged span.
+  // Both PLAY and FOCUS sessions are shown (per product decision). Bars are clipped to the
+  // day window so a session spanning midnight paints only today's slice.
+  const sessions = useMemo<DaylineBar[]>(() => {
+    if (!mounted) return []
+    const out: DaylineBar[] = []
+    for (const id of collectDescendants(ROOT_ID)) {
+      const e = getEntity(id)
+      const list = e?.schedule?.sessions
+      if (!e || !list || list.length === 0) continue
+      const { fill, stroke } = paintFor(e.id)
+      list.forEach((sess, i) => {
+        const rawStart = sess.startAt
+        const open = sess.endAt == null
+        const rawEnd = sess.endAt ?? now
+        if (rawEnd < lo || rawStart > hi) return // not in today's window
+        // Clip to the visible day so a cross-midnight session shows only today's slice.
+        const st = Math.max(rawStart, lo)
+        const en = Math.min(rawEnd, hi)
+        const leftPct = ((st - winStart) / DAY_MS) * 100
+        const widthPct = Math.max(0, ((en - st) / DAY_MS) * 100)
+        const kindLabel = sess.kind === "play" ? "play" : "focus"
+        out.push({
+          key: `sess:${e.id}:${i}`,
+          id: e.id,
+          title: e.title,
+          color: fill,
+          stroke,
+          leftPct,
+          widthPct,
+          centerPct: leftPct + widthPct / 2,
+          range: open
+            ? `${rangeText(rawStart, rawEnd)} · ${kindLabel} · ongoing`
+            : `${rangeText(rawStart, rawEnd)} · ${kindLabel}`,
+          track: "planned", // activity rail
+          point: en <= st,
+          // Open session's right edge IS now → anchored + joins the ongoing stack.
+          openEnded: open,
+        })
+      })
+    }
+    return out
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [winStart, lo, hi, now, mounted, dataRev, activityRevision])
+
   // PRESENCE bars — tracked activity ("where I was"). Titles fold `titleAt` so a past
   // segment reads with the name the place had THEN. `activityRevision` (shared above)
   // re-derives on any log change; `now` grows the open segment + keeps it in step with
@@ -454,24 +506,29 @@ export function Zero0Dayline({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [winStart, lo, hi, now, mounted, activityRevision])
 
+  // ACTIVITY rail contents = scheduled/logged/ongoing PLANNED occurrences + tracked SESSION
+  // spans. Merged so both feed the rail, the ongoing stack, and hover lookup identically.
+  const activity = useMemo<DaylineBar[]>(() => [...planned, ...sessions], [planned, sessions])
+
   // One lookup for the hovered bar's tooltip, across both tracks.
   const byKey = useMemo(() => {
     const m = new Map<string, DaylineBar>()
-    for (const b of planned) m.set(b.key, b)
+    for (const b of activity) m.set(b.key, b)
     for (const b of presence) m.set(b.key, b)
     return m
-  }, [planned, presence])
+  }, [activity, presence])
 
   // ONGOING LANES — vertical stack slots for the currently-ongoing activity bars (those whose
-  // right edge is the live "now", `openEnded`). They all share the now edge so they always
-  // overlap; we stack them within the activity rail, LONGEST at the top. Map each ongoing
-  // bar's key → its lane { height, center } in band-pixels: shortest rests on the seam,
-  // longer ones stack contiguously above it (so the longest ends up on top). Lane height
-  // shrinks to fit when there are more ongoing bars than the rail can hold at full height.
+  // right edge is the live "now", `openEnded` — an ongoing plan OR an open session). They all
+  // share the now edge so they always overlap; we stack them within the activity rail, LONGEST
+  // at the top. Map each ongoing bar's key → its lane { height, center } in band-pixels:
+  // shortest rests on the seam, longer ones stack contiguously above it (so the longest ends
+  // up on top). Lane height shrinks to fit when there are more ongoing bars than the rail can
+  // hold at full height.
   const ongoingLanes = useMemo(() => {
     const map = new Map<string, { height: number; center: number }>()
     // Sort SHORTEST → longest so index 0 hugs the seam and the longest lands topmost.
-    const ong = planned.filter((b) => b.openEnded).sort((a, b) => a.widthPct - b.widthPct)
+    const ong = activity.filter((b) => b.openEnded).sort((a, b) => a.widthPct - b.widthPct)
     const n = ong.length
     if (!n) return map
     const laneH = Math.max(ONGOING_LANE_MIN_H, Math.min(ONGOING_LANE_H, RAIL_SEAM_PX / n))
@@ -481,7 +538,7 @@ export function Zero0Dayline({
       map.set(b.key, { height: laneH, center })
     })
     return map
-  }, [planned])
+  }, [activity])
   const hovered = hoveredKey ? byKey.get(hoveredKey) ?? null : null
 
   // NOW marker position within the shown window; off-screen (outside 0–100) when panned.
@@ -1018,7 +1075,7 @@ export function Zero0Dayline({
                   All ticks are vertically CENTERED; on the combined lane the tracks are
                   told apart by HEIGHT (planned taller, presence shorter). */}
               {mounted &&
-                (combined ? [...planned, ...presence] : isPresence ? presence : planned).map((p) => {
+                (combined ? [...activity, ...presence] : isPresence ? presence : activity).map((p) => {
                   const isHot = hoveredKey === p.key
                   // LIT — this tick's entity is the one being HOVERED in ENTITY CONTENT
                   // (hover-only; cleared on navigation, so never lit merely for being open).
