@@ -89,6 +89,10 @@ export function Zero0Content({ entity, axis, depth, ancestry, ctx, isRoot, mount
   // on drop. Session-only; the committed order persists via `ctx.reorder`.
   const [dragId, setDragId] = useState<string | null>(null)
   const [previewOrder, setPreviewOrder] = useState<string[] | null>(null)
+  // Which row the cursor is over — drives the reveal of the drag grip + delete ×. We track
+  // it in REACT state (set from the row's mouse handlers) instead of relying on the CSS
+  // `group-hover:` variant, which wasn't firing reliably on these rows.
+  const [hoverId, setHoverId] = useState<string | null>(null)
 
   const children = useMemo(
     () => getChildren(entity.id),
@@ -240,6 +244,9 @@ export function Zero0Content({ entity, axis, depth, ancestry, ctx, isRoot, mount
         // so it doesn't vanish mid-drag when the cursor leaves the row). Wide hit area so the
         // cursor doesn't fully cover it.
         const isDragging = dragId === e.id
+        // Reveal the grip + delete × when the cursor is over THIS row (React state, not CSS
+        // group-hover) — and keep the grip lit while its row is being dragged.
+        const revealed = hoverId === e.id || isDragging
         const gripCell = (
           <span
             draggable
@@ -255,11 +262,9 @@ export function Zero0Content({ entity, axis, depth, ancestry, ctx, isRoot, mount
             }}
             onDragEnd={() => endDrag(true)}
             className={
-              // Reveal-on-hover via TEXT COLOR (same proven pattern as the delete ×) rather
-              // than opacity — the opacity variant wasn't taking on hover. transition-colors
-              // gives the smooth fade in/out; stays lit while THIS row is being dragged.
-              "flex w-4 shrink-0 cursor-grab items-center justify-center self-center transition-colors duration-150 hover:!text-foreground active:cursor-grabbing motion-reduce:transition-none " +
-              (isDragging ? "text-muted-foreground" : "text-transparent group-hover:text-muted-foreground")
+              // Smooth opacity fade in/out driven by the row's hover state.
+              "flex w-4 shrink-0 cursor-grab items-center justify-center self-center text-muted-foreground transition-opacity duration-150 hover:text-foreground active:cursor-grabbing motion-reduce:transition-none " +
+              (revealed ? "opacity-100" : "opacity-0")
             }
             aria-label={`Reorder ${e.title}`}
             title="Drag to reorder"
@@ -300,7 +305,11 @@ export function Zero0Content({ entity, axis, depth, ancestry, ctx, isRoot, mount
           <button
             type="button"
             onClick={() => ctx.remove(e)}
-            className="w-4 shrink-0 text-right text-transparent group-hover:text-muted-foreground hover:!text-foreground"
+            className={
+              // Same hover-state reveal + opacity fade as the grip.
+              "w-4 shrink-0 text-right text-muted-foreground transition-opacity duration-150 hover:text-foreground " +
+              (revealed ? "opacity-100" : "opacity-0")
+            }
             aria-label={`Delete ${e.title}`}
           >
             ×
@@ -326,8 +335,14 @@ export function Zero0Content({ entity, axis, depth, ancestry, ctx, isRoot, mount
                 onContextMenu={(ev) => ctx.openMenu(e, ev, { size, make })}
                 // Hovering a row LIGHTS its matching tick(s) in the dayline (grow + opaque).
                 // Cleared on leave, falling back to the open-context highlight.
-                onMouseEnter={() => ctx.setHoveredRowId(e.id)}
-                onMouseLeave={() => ctx.setHoveredRowId(null)}
+                onMouseEnter={() => {
+                  setHoverId(e.id)
+                  ctx.setHoveredRowId(e.id)
+                }}
+                onMouseLeave={() => {
+                  setHoverId((cur) => (cur === e.id ? null : cur))
+                  ctx.setHoveredRowId(null)
+                }}
                 // DROP TARGET — while a sibling is being dragged, live-reorder the list so the
                 // dragged row lands here (before/after depending on the cursor half). The rows
                 // physically slide via the FLIP effect; drop commits the arrangement.
