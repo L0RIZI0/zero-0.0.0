@@ -74,6 +74,11 @@ const HIGHLIGHT_HEIGHT_PX = 26
 const COVERAGE_OPACITY_MIN = 0.15
 const COVERAGE_OPACITY_MAX = 0.9
 
+// FEATURE FLAG — when false, planned ticks ignore the dynamic coverage/faint opacity above
+// and paint at FULL opacity (100%) like presence. The coverage machinery (`coverage`, the
+// MIN/MAX stops) is kept intact so this can be flipped back on. Currently OFF by request.
+const DYNAMIC_PLANNED_OPACITY = false
+
 /**
  * Resolve the two colors a dayline tick paints, shared by BOTH tracks (planned +
  * presence):
@@ -1029,16 +1034,19 @@ export function Zero0Dayline({
                   // going transparent, so a root presence tick reads as a solid outlined chip.
                   const fill = p.color === DEFAULT_PRESENCE ? "var(--background)" : (p.sky ?? p.color)
                   // OPACITY. A LIT tick and hover both snap to full. PRESENCE is solid at all
-                  // times. A PAST planned tick with a coverage score maps it LINEARLY between
-                  // the floor and ceiling (the more it was honored, the more solid). Every
-                  // other planned tick (future / ongoing / point) stays a flat faint layer.
+                  // times. When DYNAMIC_PLANNED_OPACITY is ON, a PAST planned tick with a
+                  // coverage score maps it LINEARLY between the floor and ceiling (the more it
+                  // was honored, the more solid) and every other planned tick stays a flat
+                  // faint layer. When OFF (current default), all planned ticks paint at full.
                   const tickOpacity = lit || isHot
                     ? 1
                     : isPresenceTick
                       ? 1
-                      : p.coverage != null
-                        ? COVERAGE_OPACITY_MIN + p.coverage * (COVERAGE_OPACITY_MAX - COVERAGE_OPACITY_MIN)
-                        : 0.4
+                      : !DYNAMIC_PLANNED_OPACITY
+                        ? 1
+                        : p.coverage != null
+                          ? COVERAGE_OPACITY_MIN + p.coverage * (COVERAGE_OPACITY_MAX - COVERAGE_OPACITY_MIN)
+                          : 0.4
                   return (
                     <div
                       key={p.key}
