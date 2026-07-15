@@ -6,7 +6,7 @@ import type { EntityKind } from "@/lib/zero/types"
 // ONGOING spin cadence. SPIN_MS = one full turn (calm, ambient). EASE_MS = how long the
 // angular velocity takes to ramp IN at start and to settle OUT (decelerate to upright) at
 // stop, so the motion never snaps on or off.
-const SPIN_MS = 4000
+const SPIN_MS = 2000
 const EASE_MS = 650
 const easeOutCubic = (p: number) => 1 - Math.pow(1 - p, 3)
 
@@ -90,7 +90,7 @@ export function Zero0Glyph({
    * ONGOING ⇒ the glyph SLOWLY ROTATES clockwise — the "live span in progress" signal
    * for a started-but-unended Moment/Space or any entity with an open session (see
    * `getState` → "ongoing"). Driven by the Web Animations API (see the effect below): a
-   * calm 4s/turn whose angular velocity EASES IN at start (playbackRate ramp 0→1) and
+   * calm 2s/turn whose angular velocity EASES IN at start (playbackRate ramp 0→1) and
    * decelerates OUT to the nearest upright at stop, so it never snaps on/off. Skipped
    * entirely under `prefers-reduced-motion`. The only motion in the zero0 glyph set.
    */
