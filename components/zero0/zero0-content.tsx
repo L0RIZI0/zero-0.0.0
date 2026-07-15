@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useLayoutEffect, useMemo, useRef, useState } from "react"
 import { getChildren } from "@/lib/zero/data"
 import { isClosed } from "@/lib/zero/kinds"
 import { Zero0Face } from "./zero0-face"
@@ -83,17 +83,44 @@ export function Zero0Content({ entity, axis, depth, ancestry, ctx, isRoot, mount
   const { showHidden, rev, nowSec, sizeOf, makeOf, expandedIds } = ctx
 
   // DRAG-AND-DROP reorder state (this Content instance only — a row can only be dragged
-  // among its own siblings). `dragId` = the row being dragged; `overId` = the row it's
-  // hovering over (drawn with a drop indicator). Session-only; the committed order persists
-  // via `ctx.reorder`.
+  // among its own siblings). `dragId` = the row being dragged. `previewOrder` = the LIVE
+  // reordered id list while dragging: the list physically rearranges under the cursor (the
+  // rows slide via the FLIP effect below), and the arrangement is committed to persistence
+  // on drop. Session-only; the committed order persists via `ctx.reorder`.
   const [dragId, setDragId] = useState<string | null>(null)
-  const [overId, setOverId] = useState<string | null>(null)
+  const [previewOrder, setPreviewOrder] = useState<string[] | null>(null)
 
   const children = useMemo(
     () => getChildren(entity.id),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- rev re-reads after mutations
     [entity.id, rev],
   )
+
+  // FLIP animation — record each row's top before every render, and when the order changes
+  // MID-DRAG animate each moved row from its old position to its new one (a smooth slide
+  // instead of a snap). Refs, not state, so measuring never triggers a re-render. Gated on
+  // an active drag so it never fights the collapse (grid-rows) animation.
+  const rowEls = useRef(new Map<string, HTMLLIElement>())
+  const prevTops = useRef(new Map<string, number>())
+  useLayoutEffect(() => {
+    const next = new Map<string, number>()
+    rowEls.current.forEach((el, id) => next.set(id, el.getBoundingClientRect().top))
+    if (dragId) {
+      next.forEach((top, id) => {
+        if (id === dragId) return // the dragged row follows the OS cursor, don't animate it
+        const prev = prevTops.current.get(id)
+        if (prev != null && Math.abs(prev - top) > 0.5) {
+          rowEls.current
+            .get(id)
+            ?.animate([{ transform: `translateY(${prev - top}px)` }, { transform: "translateY(0)" }], {
+              duration: 180,
+              easing: "cubic-bezier(0.22, 1, 0.36, 1)",
+            })
+        }
+      })
+    }
+    prevTops.current = next
+  })
 
   // HIDE MODEL — decorate each child with whether it's hidden and (when not collapsed) its
   // display number. A child is hidden if EITHER the manual `hidden` flag is set (right-click
@@ -107,8 +134,19 @@ export function Zero0Content({ entity, axis, depth, ancestry, ctx, isRoot, mount
     d.setHours(5, 0, 0, 0)
     let dayStart = d.getTime()
     if (now < dayStart) dayStart -= 86_400_000 // before 5am → the logical day opened yesterday
+    // Apply the live drag ORDER (falls back to natural order). Any preview id that no longer
+    // exists is dropped; any real child missing from the preview is appended, so the list is
+    // always exactly the current children, just reordered.
+    let ordered = children
+    if (previewOrder) {
+      const byId = new Map(children.map((c) => [c.id, c]))
+      const seen = new Set<string>()
+      const front = previewOrder.map((id) => byId.get(id)).filter((c): c is (typeof children)[number] => !!c)
+      front.forEach((c) => seen.add(c.id))
+      ordered = [...front, ...children.filter((c) => !seen.has(c.id))]
+    }
     let n = 0
-    return children.map((e) => {
+    return ordered.map((e) => {
       const closedAt = e.closeAt ?? e.closedOn ?? e.cancelledOn ?? e.completeOn
       const autoHidden = isClosed(e) && closedAt != null && closedAt < dayStart
       const hidden = !!e.hidden || autoHidden
@@ -116,19 +154,27 @@ export function Zero0Content({ entity, axis, depth, ancestry, ctx, isRoot, mount
       return { e, hidden, collapsed, num: collapsed ? null : ++n }
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps -- rev re-reads after mutations
-  }, [children, showHidden, rev])
+  }, [children, showHidden, rev, previewOrder])
 
-  // Commit a drag: drop `dragId` immediately BEFORE `targetId` in the full child order and
-  // persist. Dropping onto itself is a no-op. Operates on the whole child id list (including
-  // collapsed rows) so hidden rows keep their slots.
-  const commitDrop = (targetId: string) => {
+  // While dragging, live-reorder the preview so `dragId` sits before/after `targetId`
+  // depending on which half of the target the cursor is over. Operates on the FULL child id
+  // list (incl. collapsed) so hidden rows keep their slots.
+  const dragOverRow = (targetId: string, clientY: number, rect: DOMRect) => {
     if (!dragId || dragId === targetId) return
-    const ids = children.map((c) => c.id)
-    const next = ids.filter((id) => id !== dragId)
-    const at = next.indexOf(targetId)
-    if (at < 0) return
-    next.splice(at, 0, dragId)
-    ctx.reorder(entity.id, next)
+    const base = previewOrder ?? children.map((c) => c.id)
+    const without = base.filter((id) => id !== dragId)
+    let idx = without.indexOf(targetId)
+    if (idx < 0) return
+    if (clientY > rect.top + rect.height / 2) idx += 1 // past the midpoint ⇒ drop AFTER
+    without.splice(idx, 0, dragId)
+    setPreviewOrder((cur) => (cur && cur.join("\u0000") === without.join("\u0000") ? cur : without))
+  }
+
+  // Commit the live preview order to persistence (or just clear if nothing moved).
+  const endDrag = (commit: boolean) => {
+    if (commit && previewOrder && dragId) ctx.reorder(entity.id, previewOrder)
+    setDragId(null)
+    setPreviewOrder(null)
   }
 
   if (!mounted) return null
@@ -189,15 +235,17 @@ export function Zero0Content({ entity, axis, depth, ancestry, ctx, isRoot, mount
         // Content-side chrome shared by both layouts: drag grip + expand caret + row index
         // + delete ×.
         const num2 = num != null ? String(num).padStart(2, "0") : ""
-        // Drag HANDLE — the only draggable element (so the title/glyph stay clickable). Shows
-        // on row hover; picking it up starts the reorder for this row among its siblings.
+        // Drag HANDLE — the only draggable element (so the title/glyph stay clickable). It's
+        // ALWAYS faintly visible (was hover-only + near-invisible, so it hid under the cursor)
+        // and brightens on row hover / while grabbing. Wider hit area so the cursor doesn't
+        // fully cover it.
         const isDragging = dragId === e.id
-        const isOver = !!dragId && dragId !== e.id && overId === e.id
         const gripCell = (
           <span
             draggable
             onDragStart={(ev) => {
               setDragId(e.id)
+              setPreviewOrder(children.map((c) => c.id))
               ev.dataTransfer.effectAllowed = "move"
               try {
                 ev.dataTransfer.setData("text/plain", e.id)
@@ -205,15 +253,12 @@ export function Zero0Content({ entity, axis, depth, ancestry, ctx, isRoot, mount
                 /* some browsers restrict setData; the ref state is enough */
               }
             }}
-            onDragEnd={() => {
-              setDragId(null)
-              setOverId(null)
-            }}
-            className="flex w-3 shrink-0 cursor-grab items-center justify-center self-center text-transparent transition-colors group-hover:text-muted-foreground hover:!text-foreground active:cursor-grabbing"
+            onDragEnd={() => endDrag(true)}
+            className="flex w-4 shrink-0 cursor-grab items-center justify-center self-center text-muted-foreground/40 transition-colors group-hover:text-muted-foreground hover:!text-foreground active:cursor-grabbing"
             aria-label={`Reorder ${e.title}`}
             title="Drag to reorder"
           >
-            <svg viewBox="0 0 6 10" className="h-2.5 w-1.5" fill="currentColor" aria-hidden>
+            <svg viewBox="0 0 6 10" className="h-3.5 w-2" fill="currentColor" aria-hidden>
               <circle cx="1.5" cy="1.5" r="1" />
               <circle cx="4.5" cy="1.5" r="1" />
               <circle cx="1.5" cy="5" r="1" />
@@ -262,6 +307,10 @@ export function Zero0Content({ entity, axis, depth, ancestry, ctx, isRoot, mount
           // snapping. `inert` drops a collapsed row from tab/hit-testing.
           <li
             key={e.id}
+            ref={(el) => {
+              if (el) rowEls.current.set(e.id, el)
+              else rowEls.current.delete(e.id)
+            }}
             className="grid transition-[grid-template-rows,opacity] duration-[650ms] ease-[cubic-bezier(0.33,1,0.68,1)] motion-reduce:transition-none"
             style={{ gridTemplateRows: collapsed ? "0fr" : "1fr", opacity: collapsed ? 0 : 1 }}
             inert={collapsed || undefined}
@@ -273,26 +322,23 @@ export function Zero0Content({ entity, axis, depth, ancestry, ctx, isRoot, mount
                 // Cleared on leave, falling back to the open-context highlight.
                 onMouseEnter={() => ctx.setHoveredRowId(e.id)}
                 onMouseLeave={() => ctx.setHoveredRowId(null)}
-                // DROP TARGET — while a sibling is being dragged, allow dropping onto this row
-                // (dropping inserts the dragged row immediately BEFORE it). The top inset
-                // shadow marks where it will land.
+                // DROP TARGET — while a sibling is being dragged, live-reorder the list so the
+                // dragged row lands here (before/after depending on the cursor half). The rows
+                // physically slide via the FLIP effect; drop commits the arrangement.
                 onDragOver={(ev) => {
                   if (!dragId || dragId === e.id) return
                   ev.preventDefault()
                   ev.dataTransfer.dropEffect = "move"
-                  if (overId !== e.id) setOverId(e.id)
+                  dragOverRow(e.id, ev.clientY, ev.currentTarget.getBoundingClientRect())
                 }}
                 onDrop={(ev) => {
                   ev.preventDefault()
-                  commitDrop(e.id)
-                  setDragId(null)
-                  setOverId(null)
+                  endDrag(true)
                 }}
                 className={
-                  "group border-b border-border/60 py-1.5 transition-[box-shadow,opacity] " +
+                  "group border-b border-border/60 py-1.5 transition-opacity " +
                   (closed ? "opacity-60 " : "") +
                   (isDragging ? "opacity-40 " : "") +
-                  (isOver ? "shadow-[inset_0_2px_0_0_var(--foreground)] " : "") +
                   // Inline rungs lay the columns out on a single baseline; block rungs stack
                   // the caret/index/× strip above the card body.
                   (isBlock ? "" : "flex items-baseline gap-3")
