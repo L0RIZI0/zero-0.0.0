@@ -97,11 +97,12 @@ Status tags: **[CUR]** = built + verified today · **[PART]** = partially built 
 | cross-midnight span | moment `endAt<=startAt` ⇒ end +24h | [CUR] |
 | title contains another entity's title | auto-tag via `taggedContextIds` (+inherit its accent unless `--color`) | [CUR] |
 | `--close:manual\|auto` | sets `closePolicy` (owner-only) | [CUR] |
+| `--duration:<len>` | sets explicit `schedule.duration` (MINUTES) on ANY kind, independent of start. Accepts `1h30m` / `90` (bare = min) / `2h` / `45s` / `2d` / `1:30`; empty clears. Does NOT change inferred kind | [CUR] |
 
 ### Display / derived (not stored)
 | Field | Rule | Status |
 |---|---|---|
-| DURATION / AGE (§0 row) | instant ⇒ 0s; HAS SESSIONS ⇒ Σ session spans (open one live to now) — this is the tracked-time source for a "whenever" playable thing; start+end ⇒ span; ongoing (concrete start, no end) ⇒ now−start (live); BEING (individual/organism) with no span/sessions ⇒ now−`createdAt` (AGE); ELSE ⇒ "—". A merely-open "whenever" moment/space with NO session reads "—" (was WRONGLY counting up from createdAt). Label = **AGE for individual/organism**, else DURATION. Up to THREE adjacent units incl. mo/y | [CUR] |
+| DURATION / AGE (§0 row) | EXPLICIT `schedule.duration` (via `--duration`) wins for ANY kind regardless of start; ELSE: instant ⇒ 0s; HAS SESSIONS ⇒ Σ session spans (open one live to now) — the tracked-time source for a "whenever" playable thing; start+end ⇒ span; ongoing (concrete start, no end) ⇒ now−start (live); BEING (individual/organism) with no span/sessions ⇒ now−`createdAt` (AGE); ELSE ⇒ "—". A merely-open "whenever" moment/space with NO session reads "—". Label = **AGE for individual/organism**, else DURATION. Up to THREE adjacent units incl. mo/y | [CUR] |
 | START / END rows (§0) | shown ALWAYS (— when unset, "whenever" when playable) for MOMENT and SPACE (both span-bearing); instant shows "at"; task shows "due"/condensed "scheduled"; other kinds only surface a schedule row when set | [CUR] |
 | Dayline planned tick | ongoing entity (startAt, no endAt) draws start→now (openEnded, as if end=now) until a real end exists; label "· ongoing" | [CUR] |
 | Dayline tick vertical align | single-track lane ⇒ ticks centered (top:50%). COMBINED lane ⇒ two rails, planned centered on 28%, presence on 72% (each via `-translate-y-1/2` off `railTop`) | [CUR] |

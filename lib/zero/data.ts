@@ -2436,6 +2436,29 @@ export function setEntityScheduleField(
   }
 
   /**
+   * Set (or clear) an entity's explicit DURATION, in MINUTES (`Schedule.duration`).
+   * Kind-agnostic and INDEPENDENT of any start — a pure planned/actual length that
+   * displays regardless of whether `startAt` is unset, "whenever", or a concrete time.
+   * `minutes == null` clears it (falls back to derived span/session/age length).
+   * Mirrors `setEntityScheduleField`'s seeded-override handling so it survives refreshes.
+   */
+  export function setEntityDuration(id: string, minutes: number | null): boolean {
+  const stored = byId.get(id)
+  if (!stored) return false
+  const entity = mutable(stored)
+  const sched: NonNullable<Entity["schedule"]> = { ...(entity.schedule ?? {}) }
+  if (minutes == null) delete sched.duration
+  else sched.duration = minutes
+  entity.schedule = sched
+  logSet(entity, "duration", minutes)
+  if (!userEntityIds.has(id)) {
+  seededOverrides.set(id, { ...seededOverrides.get(id), schedule: sched })
+  }
+  persist()
+  return true
+  }
+
+  /**
    * Set (or clear) an entity's ACCENT color — the kind-agnostic display color used
    * on the dayline ticks and anywhere an entity paints itself. `hex` is a normalized
    * `#rrggbb` string (see `parseHexColor`); `null` clears it back to inherited/neutral.

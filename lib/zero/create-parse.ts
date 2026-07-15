@@ -267,6 +267,45 @@ export function parseDateToken(raw: string, now: number = Date.now()): number | 
   return null
 }
 
+/**
+ * Parse a human DURATION token into MINUTES (the unit `Schedule.duration` stores).
+ * Independent of any start time — it's a pure length. Accepts, case-insensitively:
+ *   - unit tokens, optionally chained: `2d`, `3h`, `30m`, `45s`, `1h30m`, `2d3h15m`
+ *     (units: d=days, h=hours, m=minutes, s=seconds; decimals ok, e.g. `1.5h`)
+ *   - clock form `H:MM` → hours:minutes (`1:30` → 90)
+ *   - a bare number → MINUTES (`90` → 90)
+ * Returns minutes (fractional preserved so seconds survive, e.g. `45s` → 0.75), or null
+ * when the token is empty / unparseable / not strictly positive.
+ */
+export function parseDurationToMinutes(raw: string): number | null {
+  const s = raw.trim().toLowerCase()
+  if (s === "") return null
+
+  // Clock form H:MM (minutes 0–59).
+  const clock = s.match(/^(\d+):(\d{1,2})$/)
+  if (clock) {
+    const min = parseInt(clock[2], 10)
+    if (min > 59) return null
+    const total = parseInt(clock[1], 10) * 60 + min
+    return total > 0 ? total : null
+  }
+
+  // Bare number ⇒ minutes.
+  if (/^\d+(?:\.\d+)?$/.test(s)) {
+    const min = parseFloat(s)
+    return min > 0 ? min : null
+  }
+
+  // Unit-chained form: one or more `<number><d|h|m|s>` tokens, nothing else.
+  if (!/^(?:\d+(?:\.\d+)?[dhms])+$/.test(s)) return null
+  const UNIT_MIN: Record<string, number> = { d: 1440, h: 60, m: 1, s: 1 / 60 }
+  let total = 0
+  for (const m of s.matchAll(/(\d+(?:\.\d+)?)([dhms])/g)) {
+    total += parseFloat(m[1]) * UNIT_MIN[m[2]]
+  }
+  return total > 0 ? total : null
+}
+
 export interface FieldSetterParse {
   /** Self-field name, lowercased, colons stripped (e.g. "start"). */
   field: string

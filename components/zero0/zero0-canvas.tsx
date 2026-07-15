@@ -20,6 +20,7 @@ import {
   addWebResource,
   setEntityCompleted,
   setEntityScheduleField,
+  setEntityDuration,
   setEntityClosed,
   setEntityAccent,
   setEntitySex,
@@ -41,6 +42,7 @@ import {
   parseEntry,
   inferKind,
   parseDateToken,
+  parseDurationToMinutes,
   parseHexColor,
   type EntryAttr,
 } from "@/lib/zero/create-parse"
@@ -55,7 +57,7 @@ import { Zero0ResourceCanvas } from "./zero0-resource-canvas"
 import { Zero0Pinned } from "./zero0-pinned"
 import { Zero0Face } from "./zero0-face"
 import { Zero0Content, type Zero0ContentCtx } from "./zero0-content"
-import { fmt, fmtLogValue, sexSymbol, type FaceSize, type FaceMake } from "@/lib/zero/face-model"
+  import { fmt, fmtLogValue, sexSymbol, formatDuration, type FaceSize, type FaceMake } from "@/lib/zero/face-model"
 import type { Entity } from "@/lib/zero/types"
 import { WHENEVER } from "@/lib/zero/types"
 
@@ -459,6 +461,24 @@ export function Zero0Canvas() {
           }
           return epoch == null ? `${attr.field} cleared` : `${attr.field} ${fmt(epoch)}`
         }
+        case "duration": {
+          // Explicit LENGTH (`--duration:1h30m`, `--duration:90`, `--duration:2d`), kind-
+          // agnostic + independent of start. Empty clears it (back to derived length).
+          if (val === "") {
+            setEntityDuration(id, null)
+            return "duration cleared"
+          }
+          const minutes = parseDurationToMinutes(val)
+          if (minutes == null) {
+            setNotice({ tone: "err", text: `invalid duration "${val}" — try 1h30m, 90, 2h, 45s, 2d` })
+            return null
+          }
+          if (!setEntityDuration(id, minutes)) {
+            setNotice({ tone: "err", text: `can't set duration on a ${KIND_META[ent.kind].label}` })
+            return null
+          }
+          return `duration ${formatDuration(minutes * 60000)}`
+        }
         case "close": {
           // CLOSE POLICY (owner-only): `--close:manual` opts out of the automatic midnight
           // close (rests at Complete/Ongoing until closed by hand); `--close:auto` (or empty)
@@ -478,7 +498,7 @@ export function Zero0Canvas() {
         default:
           setNotice({
             tone: "err",
-            text: `unknown --${attr.field} — try --start --end --at --due --close --color --sex --title`,
+            text: `unknown --${attr.field} — try --start --end --at --due --duration --close --color --sex --title`,
           })
           return null
       }

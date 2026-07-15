@@ -203,6 +203,9 @@ export function rangeLabel(e: Entity): string {
 export function getDurationMs(e: Entity, now: number): number | null {
   const s = e.schedule
   const cs = concreteStart(e) // null when "whenever" / unset
+  // EXPLICIT duration (set via `--duration`, in minutes) wins over everything and is shown
+  // for ANY kind regardless of start — it's a deliberately-set length, not a derived one.
+  if (s?.duration != null) return s.duration * 60000
   if (e.kind === "instant") return 0
   // Accumulated session time takes precedence — a playable thing's "duration" IS its tracked
   // time, whether or not it also carries a concrete clock span.
