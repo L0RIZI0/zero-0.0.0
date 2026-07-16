@@ -61,30 +61,27 @@ const DEFAULT_PRESENCE = "#ffffff"
 // the BAND GROWS TALLER rather than shrinking ticks — every sub-lane keeps its full fixed
 // height, and the band's total height = (planned sub-lanes + recorded sub-lanes) laid out at
 // full size. So a busy day makes a taller band, not thinner ticks.
-const RAIL_PAD = 3 // breathing room at the band's very top (above planned) and very bottom (below recorded)
+const RAIL_PAD = 4 // breathing room in EACH half (above the planned ticks / below the recorded ticks)
 // FIXED per-lane tick heights (never shrink). One sub-lane per rail = the resting band.
 const PLANNED_LANE_H = 11
 const RECORDED_LANE_H = 10
-// Extra height added to the PLANNED rail (pushes the seam ~2px lower) so the day label, when
-// centered across the whole planned rail region [0, seam], has SYMMETRIC top/bottom margins
-// between the band top and the seam. Purely a label-breathing tweak; tick geometry unchanged.
-const PLANNED_RAIL_EXTRA = 2
 // Height of a presence tick on the STANDALONE ACTIVITY dayline (`tracks="presence"`).
 const PRESENCE_HEIGHT_PX = 10
 
-// Band metrics for the COMBINED lane given how many sub-lanes each rail needs. The PLANNED
-// rail sits at the TOP (grows downward as sub-lanes are added); the SEAM is its lower edge;
-// the RECORDED rail hangs below the seam. Band height = both rails at full lane height + pad.
-// With one sub-lane each the seam lands at 14px (RAIL_PAD + PLANNED_LANE_H) — matching the
-// prior fixed layout — so the resting band is unchanged.
+// Band metrics for the COMBINED lane. The SEAM sits at the VERTICAL CENTER of the band (equal
+// halves) and the WHOLE band grows as either rail gains sub-lanes: each half is sized to the
+// TALLER rail's content plus `RAIL_PAD`, so the seam stays centered no matter the lane counts.
+// PLANNED ticks stack UPWARD from the seam (bottom-aligned, hugging it); RECORDED ticks stack
+// DOWNWARD from the seam (top-aligned, hugging it). Resting (1 sub-lane each): half = 11+4 = 15,
+// so seam = 15, band = 30.
 function bandMetrics(plannedCount: number, recordedCount: number) {
-  const seam = RAIL_PAD + Math.max(1, plannedCount) * PLANNED_LANE_H + PLANNED_RAIL_EXTRA
-  const bandH = seam + Math.max(1, recordedCount) * RECORDED_LANE_H + RAIL_PAD
-  return { seam, bandH }
+  const plannedH = Math.max(1, plannedCount) * PLANNED_LANE_H
+  const recordedH = Math.max(1, recordedCount) * RECORDED_LANE_H
+  const half = Math.max(plannedH, recordedH) + RAIL_PAD
+  return { seam: half, bandH: half * 2 }
 }
-// NOTE: the day label pins to the FIRST planned sub-lane (top:RAIL_PAD, height:PLANNED_LANE_H,
-// flex-centered) so it reads as "centered on the planned rail" with one sub-lane and STAYS put
-// as more sub-lanes grow the rail downward — see its render below.
+// NOTE: the day label centers across the WHOLE top half [0, seam] (flex-centered) so it has
+// SYMMETRIC top/bottom margins between the band top and the (centered) seam — see its render below.
 
 // Greedy interval LANE-PACKING (generalizes the old ongoing stack). Assigns each bar to the
 // lowest lane whose last-placed bar ends at/before this bar's start (no overlap); opens a new
@@ -114,13 +111,13 @@ function packLanes(
   }
   return { laneOf, laneCount: laneEnds.length }
 }
-// Geometry (fixed height + band-pixel center) for a bar in a rail's sub-lane, given the
-// current `seam`. PLANNED lanes stack DOWNWARD from the band top: lane 0 is the topmost row,
-// higher indices sit closer to the seam. RECORDED lanes stack DOWNWARD from the seam: lane 0
-// hangs just below it. Heights are FIXED (no shrink) — the band grows instead (see bandMetrics).
+// Geometry (fixed height + band-pixel center) for a bar in a rail's sub-lane, given the current
+// `seam`. Ticks HUG THE SEAM: PLANNED lane 0 sits bottom-aligned just ABOVE the seam and higher
+// lanes stack UPWARD; RECORDED lane 0 sits top-aligned just BELOW the seam and higher lanes stack
+// DOWNWARD. Heights are FIXED (no shrink) — the band grows instead (see bandMetrics).
 function laneGeom(rail: "planned" | "recorded", laneIndex: number, seam: number) {
   if (rail === "planned") {
-    return { height: PLANNED_LANE_H, center: RAIL_PAD + laneIndex * PLANNED_LANE_H + PLANNED_LANE_H / 2 }
+    return { height: PLANNED_LANE_H, center: seam - (laneIndex * PLANNED_LANE_H + PLANNED_LANE_H / 2) }
   }
   return { height: RECORDED_LANE_H, center: seam + laneIndex * RECORDED_LANE_H + RECORDED_LANE_H / 2 }
 }
