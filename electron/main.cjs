@@ -178,11 +178,24 @@ function setupAutoUpdate() {
     if (!app.isPackaged || downloadingVersion) return
     downloadingVersion = "pending"
     console.log("[v0] update: download requested")
-    autoUpdater.downloadUpdate().catch((err) => {
-      downloadingVersion = null
-      console.log("[v0] update: download failed", err?.message || err)
-      notify("zero:update:error", { message: err?.message || String(err) })
-    })
+    // RE-CHECK the feed FIRST, then download. The pill's version comes from whichever
+    // `update-available` last fired, which can be STALE: our release pipeline prunes every
+    // version except the newest from the feed to stay under the Blob quota, so a build
+    // published after the last check has already DELETED the older installer the cached
+    // updateInfo points at. Downloading that cached target 404s instantly ("download vX" →
+    // flashes "downloading…" → reverts) — the bug Loris hit. `checkForUpdates()` refreshes
+    // updateInfo to the CURRENT feed entry (which always exists), so the following
+    // `downloadUpdate()` fetches a live artifact. The re-fired `update-available` is
+    // harmless here — its handler bails while `downloadingVersion` is set — and the correct
+    // version is reported on `update-downloaded`.
+    autoUpdater
+      .checkForUpdates()
+      .then(() => autoUpdater.downloadUpdate())
+      .catch((err) => {
+        downloadingVersion = null
+        console.log("[v0] update: download failed", err?.message || err)
+        notify("zero:update:error", { message: err?.message || String(err) })
+      })
   })
 
   // Single reusable checker. Guarded so overlapping triggers (interval + focus) don't

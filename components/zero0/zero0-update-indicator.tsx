@@ -38,7 +38,7 @@ function getUpdatesApi(): ZeroUpdatesApi | null {
   return z?.updates ?? null
 }
 
-type Phase = "idle" | "available" | "downloading" | "downloaded" | "restarting"
+type Phase = "idle" | "available" | "downloading" | "downloaded" | "restarting" | "error"
 
 // Normalise a bare electron-updater version ("0.4.7") to Zero's leading-"v" tag form.
 function tag(version?: string | null): string | null {
@@ -50,6 +50,7 @@ export function Zero0UpdateIndicator() {
   const [phase, setPhase] = useState<Phase>("idle")
   const [version, setVersion] = useState<string | null>(null)
   const [percent, setPercent] = useState(0)
+  const [errorMsg, setErrorMsg] = useState<string | null>(null)
 
   useEffect(() => {
     const api = getUpdatesApi()
@@ -57,9 +58,11 @@ export function Zero0UpdateIndicator() {
 
     const offAvailable = api.onAvailable((p) => {
       // A newer build is offered for download. Don't clobber an in-flight download or the
-      // "restarting" beat; otherwise (idle / superseding an older downloaded build) show it.
+      // "restarting" beat; otherwise (idle / error / superseding an older downloaded build)
+      // show it — a fresh availability clears any prior error.
       setPhase((cur) => (cur === "downloading" || cur === "restarting" ? cur : "available"))
       setVersion(p?.version ?? null)
+      setErrorMsg(null)
     })
     const offProgress = api.onProgress((p) => {
       setPercent(p?.percent ?? 0)
@@ -69,10 +72,16 @@ export function Zero0UpdateIndicator() {
     const offDownloaded = api.onDownloaded((p) => {
       setPhase("downloaded")
       if (p?.version) setVersion(p.version)
+      setErrorMsg(null)
     })
-    const offError = api.onError(() => {
-      // Download/check failed — fall back to "available" so the user can retry the download.
-      setPhase((cur) => (cur === "downloading" ? "available" : cur))
+    const offError = api.onError((p) => {
+      // Download/check failed. Surface it as a distinct, clickable RETRY state instead of
+      // silently snapping back to "download" (which read as a no-op "click → flash → nothing"
+      // loop). The main process now re-checks the feed before each download, so a retry
+      // targets the live latest artifact and generally succeeds. A later `update-available`
+      // or `update-downloaded` supersedes this state on its own.
+      setPhase((cur) => (cur === "downloading" || cur === "error" ? "error" : cur))
+      setErrorMsg(p?.message ?? null)
     })
 
     return () => {
@@ -118,6 +127,18 @@ export function Zero0UpdateIndicator() {
       disabled = true
       spinning = true
       break
+    case "error":
+      // Clickable retry. The main process re-checks the feed before downloading, so the retry
+      // re-syncs to the live latest artifact (the usual cause of failure is a superseded/pruned
+      // target) and typically succeeds.
+      label = "update failed — retry"
+      onClick = () => {
+        setPhase("downloading")
+        setPercent(0)
+        setErrorMsg(null)
+        getUpdatesApi()?.startDownload()
+      }
+      break
     default:
       label = ""
   }
@@ -129,7 +150,9 @@ export function Zero0UpdateIndicator() {
         ? `Downloading${ver ? ` ${ver}` : ""} — ${percent}%`
         : phase === "downloaded" || phase === "restarting"
           ? `Restart to update${ver ? ` to ${ver}` : ""}`
-          : label
+          : phase === "error"
+            ? `Update failed${errorMsg ? `: ${errorMsg}` : ""} — click to retry`
+            : label
 
   return (
     <button
@@ -140,7 +163,7 @@ export function Zero0UpdateIndicator() {
       aria-label={title}
       className="inline-flex items-center gap-1.5 rounded-sm border border-border px-1.5 py-0.5 text-muted-foreground transition-colors hover:text-foreground disabled:opacity-70"
     >
-      {phase === "available" ? <DownloadGlyph /> : <RestartGlyph spinning={spinning} />}
+      {phase === "available" || phase === "error" ? <DownloadGlyph /> : <RestartGlyph spinning={spinning} />}
       <span className="tabular-nums">{label}</span>
     </button>
   )
