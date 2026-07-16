@@ -561,6 +561,11 @@ export function Zero0Dayline({
           point: en <= st,
           // Open run's right edge IS now → anchored + joins the ongoing stack.
           openEnded: open,
+          // An OPEN session run is "happening now, end unknown" — trail the same rightward
+          // fade as an open-ended planned bar (e.g. Cook). Closed runs (open===false) stay
+          // crisp fixed-length spans. This is what makes `startAt:"whenever"` entities
+          // (Zero/Edan), which appear on the dayline ONLY via this session path, read like Cook.
+          unknownEnd: open,
         })
       })
     }
