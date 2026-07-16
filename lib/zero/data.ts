@@ -1381,6 +1381,34 @@ export function closeEngagement(id: string, at = Date.now()): boolean {
 }
 
 /**
+ * Backdate/adjust the START of an entity's OPEN engagement — the running session's punch-in
+ * moment. This is what `--start:<time>` targets when the entity is ONGOING: rather than moving
+ * the declared schedule anchor, it corrects WHEN the current session actually began (e.g.
+ * `--start:5min ago` on a running stopwatch). Clamped to `≤ now` (a live session can't start in
+ * the future) and, when a previous session exists, to `> that session's end` (no overlap).
+ * Logs an `engagementStart = <time>` set. No-op if nothing is open. Returns true if it moved.
+ */
+export function setOpenEngagementStart(id: string, at: number, now = Date.now()): boolean {
+  const stored = byId.get(id)
+  if (!stored) return false
+  if (!hasOpenEngagement(stored)) return false
+  const entity = mutable(stored)
+  const sched: Schedule = { ...(entity.schedule ?? {}) }
+  const engagements = [...(sched.engagements ?? [])]
+  const idx = engagements.findIndex((e) => e.endAt == null)
+  if (idx < 0) return false
+  // Clamp: not in the future, and after the previous (closed) session's end if there is one.
+  const prevEnd = idx > 0 ? engagements[idx - 1].endAt ?? engagements[idx - 1].startAt : undefined
+  let start = Math.min(at, now)
+  if (prevEnd != null && start <= prevEnd) start = prevEnd + 1
+  engagements[idx] = { ...engagements[idx], startAt: start }
+  sched.engagements = engagements
+  logSet(entity, "engagementStart", start)
+  persistEngagementMutation(id, entity, sched)
+  return true
+}
+
+/**
  * END whatever makes an entity OWN-ongoing (see `isOwnOngoing`) — the one action behind
  * the §4 PINS glyph. Precedence:
  *   - an OPEN ENGAGEMENT (focus/play) ⇒ close it (`closeEngagement`), OR

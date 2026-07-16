@@ -325,20 +325,25 @@ export function Zero0Pins({
     pinnedRender.map((i) => i.entity.id).join(",") + "|" + ongoingRender.map((i) => i.entity.id).join(",")
   const setNode = useFlipRow(layoutSig)
 
+  // Present (excluding fading-out) vs everything rendered (incl. leaving chips).
+  const presentTotal = pinnedIdle.length + ongoing.length
   const total = pinnedRender.length + ongoingRender.length
+  // The FRAME is open whenever something is present, or §4 forces the empty hint. When it goes
+  // false the frame plays its close sequence (below) while any leaving chips fade inside it.
+  const visible = presentTotal > 0 || forceShow
+  // Show the muted empty hint only when truly empty (nothing present AND nothing still fading).
+  const showHint = total === 0 && forceShow
 
-  // Empty: hidden by default, but §4 (`forceShow`) reveals the frame with a muted hint.
-  if (total === 0) {
-    if (!forceShow) return null
-    return (
-      <div
-        className="flex shrink-0 items-center gap-1.5 border-b border-border px-4 py-2 text-[11px] italic text-muted-foreground/60"
-        aria-label="pinned and ongoing entities"
-      >
-        nothing pinned or ongoing
-      </div>
-    )
-  }
+  // Honor reduced-motion: skip the frame open/close choreography (render it statically present).
+  const [reduce, setReduce] = useState(false)
+  useEffect(() => {
+    const m = window.matchMedia?.("(prefers-reduced-motion: reduce)")
+    if (!m) return
+    const sync = () => setReduce(m.matches)
+    sync()
+    m.addEventListener?.("change", sync)
+    return () => m.removeEventListener?.("change", sync)
+  }, [])
 
   const renderChip = (item: PinItem) => (
     <div
@@ -351,26 +356,62 @@ export function Zero0Pins({
     </div>
   )
 
+  // ── TWO-PHASE FRAME OPEN / CLOSE (1.2s total) ─────────────────────────────────────────────
+  // The §4 band appears/disappears in two sequenced phases, direction-dependent via flipped
+  // transition DELAYS:
+  //   • APPEAR  — the frame's HEIGHT opens first (0–0.8s ease-in-out, pushing the stack below
+  //     down), THEN its content FADES IN (0.8–1.2s). [delays: height 0ms, opacity 800ms]
+  //   • DISAPPEAR — content FADES OUT first (0–0.4s), THEN the height COLLAPSES (0.4–1.2s,
+  //     letting the stack slide back up). [delays: opacity 0ms, height 400ms]
+  // Height uses the dep-free grid-rows 0fr↔1fr trick (same as the other frames) so the frames
+  // below move naturally; opacity is a nested layer so the two phases never fight each other.
   return (
     <div
-      className="flex shrink-0 items-center gap-1.5 overflow-x-auto border-b border-border px-4 py-2"
-      aria-label="pinned and ongoing entities"
+      className="grid shrink-0"
+      style={{
+        gridTemplateRows: visible ? "1fr" : "0fr",
+        transition: reduce ? "none" : `grid-template-rows 800ms ease-in-out ${visible ? "0ms" : "400ms"}`,
+      }}
+      inert={!visible}
     >
-      {pinnedRender.map(renderChip)}
-      {/* DIVIDER — a full-height hairline separating the pinned list from the ongoing list.
-          Only when BOTH sides exist (nothing to separate otherwise). `-my-2` cancels the
-          band's py-2 so it spans the whole frame height, edge to edge. */}
-      {pinnedRender.length > 0 && ongoingRender.length > 0 && (
-        <div className="-my-2 w-px shrink-0 self-stretch bg-border" aria-hidden />
-      )}
-      {/* ONGOING label — sits at the far LEFT of the ongoing list (pinned-idle chips to its
-          left). Shown only when something is ongoing; otherwise the band is just the pins. */}
-      {ongoingRender.length > 0 && (
-        <span className="shrink-0 select-none px-1 text-[10px] font-medium uppercase tracking-wider tabular-nums text-muted-foreground/70">
-          ongoing
-        </span>
-      )}
-      {ongoingRender.map(renderChip)}
+      <div className="overflow-hidden">
+        <div
+          style={{
+            opacity: visible ? 1 : 0,
+            transition: reduce ? "none" : `opacity 400ms ease ${visible ? "800ms" : "0ms"}`,
+          }}
+        >
+          {showHint ? (
+            <div
+              className="flex shrink-0 items-center gap-1.5 border-b border-border px-4 py-2 text-[11px] italic text-muted-foreground/60"
+              aria-label="pinned and ongoing entities"
+            >
+              nothing pinned or ongoing
+            </div>
+          ) : (
+            <div
+              className="flex shrink-0 items-center gap-1.5 overflow-x-auto border-b border-border px-4 py-2"
+              aria-label="pinned and ongoing entities"
+            >
+              {pinnedRender.map(renderChip)}
+              {/* DIVIDER — a full-height hairline separating the pinned list from the ongoing
+                  list. Only when BOTH sides exist. `-my-2` cancels the band's py-2 so it spans
+                  the whole frame height, edge to edge. */}
+              {pinnedRender.length > 0 && ongoingRender.length > 0 && (
+                <div className="-my-2 w-px shrink-0 self-stretch bg-border" aria-hidden />
+              )}
+              {/* ONGOING label — far LEFT of the ongoing list (pinned-idle chips to its left).
+                  Shown only when something is ongoing; otherwise the band is just the pins. */}
+              {ongoingRender.length > 0 && (
+                <span className="shrink-0 select-none px-1 text-[10px] font-medium uppercase tracking-wider tabular-nums text-muted-foreground/70">
+                  ongoing
+                </span>
+              )}
+              {ongoingRender.map(renderChip)}
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   )
 }

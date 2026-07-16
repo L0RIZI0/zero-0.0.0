@@ -34,6 +34,7 @@ import {
   openEngagement,
   closeEngagement,
   toggleEngagement,
+  setOpenEngagementStart,
   markInstant,
   endOngoing,
   reorderContextItems,
@@ -493,6 +494,16 @@ export function Zero0Canvas() {
               setNotice({ tone: "err", text: `invalid time "${val}" — use HHMM, YYMMDD, YYMMDDHHMM, now, "5min ago", "in 2h", or whenever` })
               return null
             }
+          }
+          // `--start:<time>` on an ONGOING entity corrects WHEN the current session began
+          // (backdates the running stopwatch), NOT the declared schedule anchor. Only for a
+          // concrete start (not clearing); end/at/due still target the schedule as usual.
+          if (attr.field === "start" && epoch != null && hasOpenEngagement(ent)) {
+            if (!setOpenEngagementStart(id, epoch)) {
+              setNotice({ tone: "err", text: "couldn't adjust the running session start" })
+              return null
+            }
+            return `session start ${fmt(epoch)}`
           }
           if (!setEntityScheduleField(id, key, epoch)) {
             setNotice({ tone: "err", text: `can't set ${attr.field} on a ${KIND_META[ent.kind].label}` })
