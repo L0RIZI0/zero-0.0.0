@@ -57,18 +57,32 @@ const DEFAULT_PRESENCE = "#ffffff"
 //     happened): closed engagement spans + running (open) ones.
 // PRESENCE is NOT on this lane — it lives on the standalone ACTIVITY dayline (`tracks="presence"`).
 // While viewing ROOT, the recorded rail == presence (presence = root's own engagements).
-// Within EACH rail, OVERLAPPING spans PACK into sub-lanes (see `packLanes`); overflow policy is
-// (1) SHRINK-TO-FIT — lane height shrinks toward `LANE_MIN_H` as lanes multiply.
-const BAND_H = 28 // matches the `h-7` band container; combined-lane rails are laid out in px
-// Equal split so plan and reality get the same room. Planned rail = [0, SEAM]; recorded rail =
-// [SEAM, BAND_H]. Sub-lanes grow AWAY from the seam (planned upward, recorded downward).
-const RAIL_SEAM_PX = 14
-// Base (single-lane) tick heights per rail; packing shrinks these when spans overlap.
+// Within EACH rail, OVERLAPPING spans PACK into sub-lanes (see `packLanes`). Overflow policy:
+// the BAND GROWS TALLER rather than shrinking ticks — every sub-lane keeps its full fixed
+// height, and the band's total height = (planned sub-lanes + recorded sub-lanes) laid out at
+// full size. So a busy day makes a taller band, not thinner ticks.
+const RAIL_PAD = 3 // breathing room at the band's very top (above planned) and very bottom (below recorded)
+// FIXED per-lane tick heights (never shrink). One sub-lane per rail = the resting band.
 const PLANNED_LANE_H = 11
 const RECORDED_LANE_H = 10
-const LANE_MIN_H = 3 // floor for shrink-to-fit
 // Height of a presence tick on the STANDALONE ACTIVITY dayline (`tracks="presence"`).
 const PRESENCE_HEIGHT_PX = 10
+
+// Band metrics for the COMBINED lane given how many sub-lanes each rail needs. The PLANNED
+// rail sits at the TOP (grows downward as sub-lanes are added); the SEAM is its lower edge;
+// the RECORDED rail hangs below the seam. Band height = both rails at full lane height + pad.
+// With one sub-lane each the seam lands at 14px (RAIL_PAD + PLANNED_LANE_H) — matching the
+// prior fixed layout — so the resting band is unchanged.
+function bandMetrics(plannedCount: number, recordedCount: number) {
+  const seam = RAIL_PAD + Math.max(1, plannedCount) * PLANNED_LANE_H
+  const bandH = seam + Math.max(1, recordedCount) * RECORDED_LANE_H + RAIL_PAD
+  return { seam, bandH }
+}
+// The day label's fixed vertical center on the combined lane: the middle of the FIRST planned
+// sub-lane (top of the planned rail). Pinned here so it reads as "centered on the planned rail"
+// when there's a single sub-lane, and STAYS put (just above the seam) as more sub-lanes grow
+// the rail downward.
+const DAY_LABEL_CENTER_PX = RAIL_PAD + PLANNED_LANE_H / 2
 
 // Greedy interval LANE-PACKING (generalizes the old ongoing stack). Assigns each bar to the
 // lowest lane whose last-placed bar ends at/before this bar's start (no overlap); opens a new
@@ -98,16 +112,15 @@ function packLanes(
   }
   return { laneOf, laneCount: laneEnds.length }
 }
-// Geometry for a bar in a rail's sub-lane. `rail` picks direction: "planned" grows UP from the
-// seam (lane 0 rests on the seam), "recorded" grows DOWN from the seam (lane 0 hangs off it).
-function laneGeom(rail: "planned" | "recorded", laneIndex: number, laneCount: number) {
-  const railH = rail === "planned" ? RAIL_SEAM_PX : BAND_H - RAIL_SEAM_PX
-  const base = rail === "planned" ? PLANNED_LANE_H : RECORDED_LANE_H
-  const laneH = Math.max(LANE_MIN_H, Math.min(base, railH / Math.max(laneCount, 1)))
-  // Distance of this lane's CENTER from the seam (both rails measured outward).
-  const offset = laneIndex * laneH + laneH / 2
-  const center = rail === "planned" ? RAIL_SEAM_PX - offset : RAIL_SEAM_PX + offset
-  return { height: laneH, center }
+// Geometry (fixed height + band-pixel center) for a bar in a rail's sub-lane, given the
+// current `seam`. PLANNED lanes stack DOWNWARD from the band top: lane 0 is the topmost row,
+// higher indices sit closer to the seam. RECORDED lanes stack DOWNWARD from the seam: lane 0
+// hangs just below it. Heights are FIXED (no shrink) — the band grows instead (see bandMetrics).
+function laneGeom(rail: "planned" | "recorded", laneIndex: number, seam: number) {
+  if (rail === "planned") {
+    return { height: PLANNED_LANE_H, center: RAIL_PAD + laneIndex * PLANNED_LANE_H + PLANNED_LANE_H / 2 }
+  }
+  return { height: RECORDED_LANE_H, center: seam + laneIndex * RECORDED_LANE_H + RECORDED_LANE_H / 2 }
 }
 
 // When an entity is FOCUSED from elsewhere in the canvas — its ENTITY CONTENT row is
@@ -573,6 +586,13 @@ export function Zero0Dayline({
     () => packLanes(sessions, (a, b) => b.widthPct - a.widthPct || a.leftPct - b.leftPct),
     [sessions],
   )
+  // Combined-lane band geometry: the SEAM and total BAND HEIGHT grow with the busier rail's
+  // sub-lane count (ticks keep full height; the band gets taller). Non-combined lanes keep the
+  // resting single-lane height so the standalone ACTIVITY/PRESENCE band is unchanged.
+  const { seam, bandH } = useMemo(
+    () => (combined ? bandMetrics(plannedLanes.laneCount, recordedLanes.laneCount) : bandMetrics(1, 1)),
+    [combined, plannedLanes.laneCount, recordedLanes.laneCount],
+  )
   const hovered = hoveredKey ? byKey.get(hoveredKey) ?? null : null
 
   // NOW marker position within the shown window; off-screen (outside 0–100) when panned.
@@ -978,7 +998,11 @@ export function Zero0Dayline({
         key={dm.key}
         ref={registerDayLabel(dm.key)}
         data-left={dm.leftPct}
-        className="absolute inset-y-0 left-0 flex items-center whitespace-nowrap leading-none will-change-transform"
+        className="absolute left-0 flex items-center whitespace-nowrap leading-none will-change-transform"
+        // On the COMBINED lane, pin the label to the FIRST planned sub-lane (top of the planned
+        // rail, just above the seam) and keep it there as the rail grows — instead of centering
+        // in the whole (growing) band. Other lanes center in the full height as before.
+        style={combined ? { top: RAIL_PAD, height: PLANNED_LANE_H } : { top: 0, bottom: 0 }}
       >
         {dm.label}
       </span>
@@ -1030,7 +1054,10 @@ export function Zero0Dayline({
           onMouseEnter={() => (pointerInsideRef.current = true)}
           onMouseLeave={() => (pointerInsideRef.current = false)}
           onDoubleClick={recenter}
-          className="relative h-7 w-full cursor-default select-none overflow-visible rounded-md border border-border/60 bg-card/40 [touch-action:none]"
+          className="relative w-full cursor-default select-none overflow-visible rounded-md border border-border/60 bg-card/40 [touch-action:none]"
+          // Combined lane GROWS with its busiest rail (band height from bandMetrics); other
+          // lanes keep the resting single-lane band height (was the fixed `h-7` = 28px).
+          style={{ height: bandH }}
         >
           {/* IN-BAND HEADER OVERLAY (minimized only) — the same faded header content that
               normally sits ABOVE the band is overlaid INSIDE it, vertically CENTERED
@@ -1090,7 +1117,7 @@ export function Zero0Dayline({
             {combined && (
               <div
                 className="pointer-events-none absolute inset-x-0 h-px bg-muted-foreground/10"
-                style={{ top: RAIL_SEAM_PX, zIndex: 0 }}
+                style={{ top: seam, zIndex: 0 }}
                 aria-hidden
               />
             )}
@@ -1134,8 +1161,8 @@ export function Zero0Dayline({
                   const isRecorded = combined && p.key.startsWith("sess:")
                   const lane = combined
                     ? isRecorded
-                      ? laneGeom("recorded", recordedLanes.laneOf.get(p.key) ?? 0, recordedLanes.laneCount)
-                      : laneGeom("planned", plannedLanes.laneOf.get(p.key) ?? 0, plannedLanes.laneCount)
+                      ? laneGeom("recorded", recordedLanes.laneOf.get(p.key) ?? 0, seam)
+                      : laneGeom("planned", plannedLanes.laneOf.get(p.key) ?? 0, seam)
                     : undefined
                   // HEIGHT. A LIT/hovered tick pops (capped so it doesn't spill the rail). On
                   // the combined lane every tick uses its packed lane height. A standalone lane
@@ -1154,7 +1181,7 @@ export function Zero0Dayline({
                   // Combined lane is laid out in BAND PIXELS so the two rails TOUCH at the seam:
                   // each tick centers on its packed lane center (planned above the seam, recorded
                   // below). A non-combined lane keeps a single centered band ("50%").
-                  const railTop: string | number = !combined ? "50%" : lane?.center ?? RAIL_SEAM_PX - tickH / 2
+                  const railTop: string | number = !combined ? "50%" : lane?.center ?? seam - tickH / 2
                   // ROUNDING. A point stays a dot. A PLANNED bar keeps all four corners soft.
                   // A PRESENCE bar rounds ONLY the ends of its session run: left corners on the
                   // first tick, right corners on the last; interior ticks are fully square so a

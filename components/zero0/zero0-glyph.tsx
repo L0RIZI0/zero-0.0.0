@@ -23,7 +23,11 @@ const easeOutCubic = (p: number) => 1 - Math.pow(1 - p, 3)
 // row fades instead) — fill is reserved for complete.
 
 // Polygon vertex strings (precomputed on a 24-unit box, pointy-top where relevant).
-const HEXAGON = "12,3 19.8,7.5 19.8,16.5 12,21 4.2,16.5 4.2,7.5"
+// HEXAGON is drawn LARGER than its bounding-box-equal peers (circumradius ~10.4 vs the
+// square's 7.5 half-width): a regular hexagon reads optically SMALLER than a square of the
+// same width because its corners are cut, so it's scaled up ~15% to appear at least as big
+// as the Task square in the ENTITY CONTENT row grid.
+const HEXAGON = "12,1.6 21.01,6.8 21.01,17.2 12,22.4 2.99,17.2 2.99,6.8"
 const PENTAGON = "12,3 20.6,9.2 17.3,19.3 6.7,19.3 3.4,9.2"
 const DIAMOND = "12,3 21,12 12,21 3,12"
 const TRIANGLE_UP = "12,4 20,19 4,19"
