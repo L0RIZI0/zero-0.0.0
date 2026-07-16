@@ -4,7 +4,8 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { createPortal } from "react-dom"
 import { getSegments, useActivityRevision } from "@/lib/zero/activity-log"
 import { ROOT_ID, collectDescendants, getEntity, getInheritedAccent, getTimelineOccurrences } from "@/lib/zero/data"
-import { titleAt } from "@/lib/zero/entity-log"
+ import { titleAt } from "@/lib/zero/entity-log"
+ import { isClosed, computeCloseAt } from "@/lib/zero/kinds"
 import { rangeText, NOW_COLOR } from "@/lib/zero/timeline-format"
 import { isSleepTitle, sleepSkyBackground } from "@/lib/zero/sleep-sky"
 import { DAYLINE_ROW_H } from "@/lib/zero/layout"
@@ -386,12 +387,20 @@ export function Zero0Dayline({
       // start / point / due — a due-only task anchors on its deadline and paints a point.
       const st = startNum ?? s.at ?? s.dueAt
       if (st == null) continue
+      // CLOSED occurrences are NOT ongoing, even without a declared `endAt`: a closed entity
+      // can't still be running. If it lacks an `endAt`, terminate its bar at its actual close
+      // time (`computeCloseAt`, the RECORD of when it ended) rather than letting it stretch to
+      // now as an eternal ghost. (Covers a closed Moment/Space that had a start but no end and
+      // no engagement — the case `closeSession`-on-close can't reach since there's no session.)
+      const closed = isClosed(occ, now)
+      const closeAt = closed && s.endAt == null ? computeCloseAt(occ, now) : undefined
       // ONGOING — an entity with a real start (in the past) but no end yet reads as still
       // running, so its tick GROWS from start to NOW, as if `:end:` were live-set to now. It
       // keeps extending each render until a real end is stamped. Only when the start is a
-      // genuine `startAt` (not a due/at point) and it's already begun.
-      const ongoing = s.endAt == null && startNum != null && startNum <= now
-      const en = s.endAt ?? (ongoing ? now : st) // else a point (instant/due/no end) = zero span
+      // genuine `startAt` (not a due/at point), it's already begun, AND it isn't closed.
+      const ongoing = !closed && s.endAt == null && startNum != null && startNum <= now
+      // end = declared end, else the record close time (closed), else now (ongoing), else a point.
+      const en = s.endAt ?? closeAt ?? (ongoing ? now : st)
       if (en < lo || st > hi) continue
       const leftPct = ((st - winStart) / DAY_MS) * 100
       const widthPct = ((en - st) / DAY_MS) * 100
