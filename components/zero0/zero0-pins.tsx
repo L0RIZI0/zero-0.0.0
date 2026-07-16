@@ -74,23 +74,39 @@ type PinItem = { entity: Entity; ongoing: boolean; pinned: boolean; focused: boo
  * position → invert with a transform → play back to zero with a transition. Position-only
  * (translate) on a WRAPPER element, so each chip keeps its own bg/border color transitions.
  */
-function useFlipRow(revision: unknown) {
+function useFlipRow(sig: string) {
   const nodes = useRef(new Map<string, HTMLElement>())
   const cbs = useRef(new Map<string, (el: HTMLElement | null) => void>())
   const prevRects = useRef(new Map<string, DOMRect>())
+  const prevSig = useRef<string | null>(null)
 
   useLayoutEffect(() => {
+    // ONLY react to STRUCTURAL layout changes — a chip crossing lists, or the order/membership
+    // shifting (that's exactly what `sig` encodes). Pure re-renders (the 1s timer tick, a focus
+    // change) leave `sig` unchanged, so we bail out. This is the fix for the "chip bounces right
+    // a little every second, decaying" bug: previously this effect ran on EVERY render and, when
+    // a tick landed while a move's CSS transition was still settling, `getBoundingClientRect()`
+    // returned the mid-flight (interpolated) position, which got stored as the new baseline and
+    // then re-animated as a residual on the next tick — a self-feeding decaying oscillation.
+    if (sig === prevSig.current) return
+    const firstRun = prevSig.current === null
+    prevSig.current = sig
+
     const prev = prevRects.current
     const next = new Map<string, DOMRect>()
     nodes.current.forEach((node, id) => {
+      // Clear any in-flight transform/transition FIRST so we measure the true settled LAST
+      // position (not a mid-animation one). An interrupted move still animates smoothly below,
+      // re-inverting from its stored FIRST rect.
+      node.style.transition = "none"
+      node.style.transform = ""
       const nb = node.getBoundingClientRect()
       next.set(id, nb)
       const ob = prev.get(id)
-      if (ob) {
+      if (!firstRun && ob) {
         const dx = ob.left - nb.left
         const dy = ob.top - nb.top
         if (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5) {
-          node.style.transition = "none"
           node.style.transform = `translate(${dx}px, ${dy}px)`
           // Force a reflow so the browser registers the inverted start position…
           void node.getBoundingClientRect()
@@ -116,9 +132,6 @@ function useFlipRow(revision: unknown) {
     return cb
   }
 
-  // `revision` is only here to make the linter happy that the effect re-reads on data change;
-  // useLayoutEffect already runs after every render.
-  void revision
   return setNode
 }
 
@@ -203,7 +216,12 @@ export function Zero0Pins({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- dataRev + nowTick are the intended re-read triggers
   }, [dataRev, nowTick, focusId])
 
-  const setNode = useFlipRow(dataRev + nowTick)
+  // The FLIP signature = the ORDERED ids in each list (with a `|` list boundary). It changes
+  // ONLY on a structural layout change (a chip crossing lists, reorder, or membership change) —
+  // NOT on the 1s timer tick or a focus change — so FLIP fires exactly when a chip should slide.
+  const layoutSig =
+    pinnedIdle.map((i) => i.entity.id).join(",") + "|" + ongoing.map((i) => i.entity.id).join(",")
+  const setNode = useFlipRow(layoutSig)
 
   const total = pinnedIdle.length + ongoing.length
 
