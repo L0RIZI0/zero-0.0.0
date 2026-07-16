@@ -7,6 +7,7 @@ import {
   getFaceModel,
   getFaceMetaRows,
   getScheduleCells,
+  getDurationCells,
   filterMetaRows,
   faceModelFromLike,
   getAggregate,
@@ -190,6 +191,13 @@ function FaceBlock({
     () => (rowsOverride ? null : getScheduleCells(entity, now)),
     [entity, now, rowsOverride],
   )
+  // RICH duration: the total followed by a per-engagement breakdown ("<durX> (<whenX>)"), each
+  // hoverable for its full start–end. Null unless there are 2+ sessions (then the meta string is
+  // a plain total, which we render as-is). Matches the schedule cells' faint/pulse language.
+  const duration = useMemo(
+    () => (rowsOverride ? null : getDurationCells(entity, now)),
+    [entity, now, rowsOverride],
+  )
   const startScrollRef = useRef<HTMLDivElement>(null)
   const endScrollRef = useRef<HTMLDivElement>(null)
   const syncLock = useRef(false)
@@ -234,6 +242,29 @@ function FaceBlock({
   // the universal live/active indicator, NOT a rotating ring which reads as "loading") + the
   // pulsing `ongoing` word, then the rest (" · since …") plain. Detected by the "ongoing" prefix
   // that `formatState` emits. Any other state renders as the normal string row.
+  // DURATION row with a per-engagement breakdown: "[total] · <dur1> (<when1>) · <dur2> …". The
+  // total is foreground; each segment is a faint token hoverable for its full start–end (the live
+  // segment pulses). Horizontally scrollable like the schedule rows.
+  const renderDurationRow = (cells: NonNullable<typeof duration>) => (
+    <dd className="min-w-0 text-foreground">
+      <div className="no-scrollbar overflow-x-auto whitespace-pre">
+        <span className="text-foreground" title="total duration">
+          {cells.total}
+        </span>
+        {cells.segments.map((c, i) => (
+          <span key={i}>
+            <span className="text-muted-foreground opacity-70">{" · "}</span>
+            <span
+              className={"text-muted-foreground opacity-70" + (c.pulse ? " zero0-pulse" : "")}
+              title={c.full}
+            >
+              {c.text}
+            </span>
+          </span>
+        ))}
+      </div>
+    </dd>
+  )
   const renderOngoingState = (v: string) => {
     const rest = v.slice("ongoing".length) // " · since …"
     return (
@@ -280,6 +311,8 @@ function FaceBlock({
               <dt className="uppercase tracking-widest text-muted-foreground">{k}</dt>
               {schedule && (k === "start" || k === "end") ? (
                 renderScheduleRow(k)
+              ) : duration && (k === "duration" || k === "age") ? (
+                renderDurationRow(duration)
               ) : k === "state" && v.startsWith("ongoing") ? (
                 renderOngoingState(v)
               ) : (
