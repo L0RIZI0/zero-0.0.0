@@ -105,12 +105,17 @@ const easeInOut = (p: number) => (p < 0.5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2,
 
 // One full morph turn for the SPACE periodic hexagon→square→hexagon flourish, and how long a turn.
 const MORPH_MS = 380 // one-shot kind-change morph duration
-const SPACE_MORPH_PERIOD_MS = 1800 // gap between space flourishes (v0.6.4: shorter again ⇒ more frequent)
+const SPACE_MORPH_PERIOD_MS = 1550 // gap between space flourishes (v0.6.6: shorter again ⇒ more frequent)
 // Fraction of the period in the there-and-back dip. The dip is a symmetric `sin(x·π)` pulse, so
-// hex→square and square→hex take EXACTLY equal time (each half the dip). v0.6.4 keeps the dip
-// duration steady (~924ms → 0.51 of the shorter period) rather than letting the faster period
-// speed the morph up too.
-const SPACE_MORPH_PULSE = 0.51
+// hex→square and square→hex take EXACTLY equal time (each half the dip). v0.6.6 raises the fraction
+// so the dip duration holds ~steady (~915ms) despite the shorter period.
+const SPACE_MORPH_PULSE = 0.59
+// The peak of the SPACE flourish morphs toward a SMALLER square than the real task-square (v0.6.6):
+// scale the square's radii about the box centre so the flourish briefly "pinches in" rather than
+// hitting the full-size square. Only used for the periodic space dip — the crisp task glyph and
+// kind-change morphs still use the true SQUARE_RADII.
+const SPACE_MORPH_SQUARE_SCALE = 0.68
+const SPACE_MORPH_SQUARE_RADII = SQUARE_RADII.map((r) => r * SPACE_MORPH_SQUARE_SCALE)
 
 /** Draw the kind's outline shape. Fill/stroke are set by the caller via props. */
 function KindShape({ kind, requested }: { kind: EntityKind; requested?: boolean }) {
@@ -299,7 +304,7 @@ export function Zero0Glyph({
         const phase = (now % SPACE_MORPH_PERIOD_MS) / SPACE_MORPH_PERIOD_MS
         const inPulse = phase > 1 - SPACE_MORPH_PULSE
         const f = inPulse ? Math.sin(((phase - (1 - SPACE_MORPH_PULSE)) / SPACE_MORPH_PULSE) * Math.PI) : 0
-        el.setAttribute("points", buildPoints(f === 0 ? (toR as number[]) : lerpRadii(toR as number[], SQUARE_RADII, f)))
+        el.setAttribute("points", buildPoints(f === 0 ? (toR as number[]) : lerpRadii(toR as number[], SPACE_MORPH_SQUARE_RADII, f)))
         morphRafRef.current = requestAnimationFrame(tick)
       } else {
         // Entry morph done and nothing periodic ⇒ settle back to the crisp KindShape.
