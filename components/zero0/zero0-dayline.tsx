@@ -1112,11 +1112,12 @@ export function Zero0Dayline({
             {headerContent}
           </div>
         ))}
-      {/* Lane row. Full mode reserves the constant DAYLINE_ROW_H (34px) so the band sits
-          at a stable height; minimized lets the row wrap the lane exactly (h-7 = 28px) so
-          there's no dead space below the band making the bottom margin look bigger than
-          the top. */}
-      <div className="relative" style={minimized ? undefined : { height: DAYLINE_ROW_H }}>
+      {/* Lane row. Full mode reserves at LEAST the constant DAYLINE_ROW_H (34px) so the resting
+          single-lane band sits at a stable height — but when the COMBINED band grows past that
+          (multi sub-lane packing, `bandH` from bandMetrics), the row reserves the FULL band height
+          so the maximized frame expands with it instead of clipping the extra lanes. Minimized
+          lets the row wrap the lane exactly so there's no dead space below the band. */}
+      <div className="relative" style={minimized ? undefined : { height: Math.max(DAYLINE_ROW_H, bandH) }}>
         <div
           ref={laneRef}
           onPointerDown={onPointerDown}
