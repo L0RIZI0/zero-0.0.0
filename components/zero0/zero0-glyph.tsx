@@ -8,6 +8,9 @@ import type { EntityKind } from "@/lib/zero/types"
 // stop, so the motion never snaps on or off.
 const SPIN_MS = 2345
 const EASE_MS = 650
+/** Standalone fill-flash duration (no rotation) — a brief "state just switched" pulse where the
+ *  glyph fills to 100% then relaxes back to outline. Used by the §4 notification chip on entry. */
+const FLASH_MS = 720
 const easeOutCubic = (p: number) => 1 - Math.pow(1 - p, 3)
 
 // Self-contained, static SVG glyph per entity kind — the ontology's geometry drawn
@@ -167,6 +170,8 @@ export function Zero0Glyph({
   requested,
   ongoing,
   spinOnce,
+  flashFill,
+  pulse,
   className,
 }: {
   kind: EntityKind
@@ -192,6 +197,19 @@ export function Zero0Glyph({
    * upright. Skipped under `prefers-reduced-motion`. Ignored while `ongoing` (already spinning).
    */
   spinOnce?: number
+  /**
+   * FLASH-FILL trigger — a monotonically increasing counter, like `spinOnce` but with NO
+   * rotation. Whenever it INCREASES the glyph fills to 100% then relaxes back to its base
+   * (outline) over {@link FLASH_MS}. The "state just switched" acknowledgement used when a §4
+   * chip becomes a notification (an ongoing entity stopped, or an instant was marked). Skipped
+   * under `prefers-reduced-motion`.
+   */
+  flashFill?: number
+  /**
+   * PULSE — while true, the whole glyph breathes gently (a slow opacity pulse) to mark a
+   * lingering NOTIFICATION chip. Purely decorative; independent of the ongoing rotation.
+   */
+  pulse?: boolean
   /**
    * DONE mark — overlay a check on the shape. Drawn whether the shape is outline or
    * filled: on a filled shape the check strokes in the BACKGROUND colour so it stays
@@ -284,6 +302,22 @@ export function Zero0Glyph({
   const spinOnceRef = useRef<number | undefined>(spinOnce)
   const onceAnimRef = useRef<Animation | null>(null)
   const flashRef = useRef<SVGGElement | null>(null)
+
+  // Play the overlay fill-flash (0 → 100% → 0 opacity) over `duration`. Shared by the mark
+  // spin (SPIN_MS) and the standalone notification flash (FLASH_MS). No-op under reduced-motion
+  // or before the overlay mounts. Returns the Animation so callers can cancel on cleanup.
+  const playFlash = (duration: number): Animation | null => {
+    const flash = flashRef.current
+    if (!flash || typeof flash.animate !== "function") return null
+    if (typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return null
+    const a = flash.animate([{ opacity: 0 }, { opacity: 1 }, { opacity: 0 }], {
+      duration,
+      easing: "ease-in-out",
+      fill: "forwards",
+    })
+    a.onfinish = () => a.cancel()
+    return a
+  }
   useEffect(() => {
     const prev = spinOnceRef.current
     spinOnceRef.current = spinOnce
@@ -305,22 +339,10 @@ export function Zero0Glyph({
       if (onceAnimRef.current === once) onceAnimRef.current = null
     }
 
-    // FILL FLASH — an overlay silhouette that ramps 0 → 100% opacity at EXACTLY the spin's
-    // midpoint, then back to 0 (empty/outline) by the end. This is the "occurrence passed but
-    // didn't complete" pulse: the instant briefly reads full then relaxes to outline. When the
-    // mark DOES complete the instant, the base `filled` prop takes over and it stays full — the
-    // flash just blends into that. Driven independently of the base fill so an outline glyph
-    // still flashes.
-    const flash = flashRef.current
-    let flashAnim: Animation | null = null
-    if (flash && typeof flash.animate === "function") {
-      flashAnim = flash.animate([{ opacity: 0 }, { opacity: 1 }, { opacity: 0 }], {
-        duration: SPIN_MS,
-        easing: "ease-in-out",
-        fill: "forwards",
-      })
-      flashAnim.onfinish = () => flashAnim?.cancel()
-    }
+    // FILL FLASH — an overlay silhouette that ramps 0 → 100% opacity at the spin's midpoint,
+    // then back to 0 (empty/outline). The instant briefly reads full then relaxes to outline;
+    // when the mark DOES complete it, the base `filled` prop takes over and it stays full.
+    const flashAnim = playFlash(SPIN_MS)
 
     return () => {
       once.cancel()
@@ -328,6 +350,19 @@ export function Zero0Glyph({
       if (onceAnimRef.current === once) onceAnimRef.current = null
     }
   }, [spinOnce, ongoing])
+
+  // ── STANDALONE FILL FLASH (no rotation) ────────────────────────────────────────────────────
+  // When `flashFill` INCREASES, play ONLY the overlay fill flash (no spin) over FLASH_MS. This is
+  // the notification chip's "state just switched" acknowledgement — a brief fill that relaxes back
+  // to the glyph's actual (outline) state.
+  const flashFillRef = useRef<number | undefined>(flashFill)
+  useEffect(() => {
+    const prev = flashFillRef.current
+    flashFillRef.current = flashFill
+    if (flashFill == null || prev == null || flashFill <= prev) return
+    const a = playFlash(FLASH_MS)
+    return () => a?.cancel()
+  }, [flashFill])
 
   // ── MORPH driver (kind-change one-shot + space-ongoing periodic flourish) ──────────────────
   useEffect(() => {
@@ -384,7 +419,7 @@ export function Zero0Glyph({
     <svg
       ref={svgRef}
       viewBox="0 0 24 24"
-      className={className ?? ""}
+      className={(className ?? "") + (pulse ? " zero0-glyph-pulse" : "")}
       style={{ transformOrigin: spinOrigin }}
       fill={filled ? "currentColor" : "none"}
       stroke="currentColor"

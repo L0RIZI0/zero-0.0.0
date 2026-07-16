@@ -548,6 +548,35 @@ export function getScheduleCells(e: Entity, now: number): { start: ScheduleCell[
   return { start, end }
 }
 
+/**
+ * Structured DURATION row for an entity whose length is the SUM of several tracked engagements
+ * (2+ sessions). Returns the grand `total` plus one segment PER engagement — each reads
+ * `<duration> (<when>)` (e.g. `1h 04m (7:00 PM)`) with a `full` hover of the engagement's whole
+ * `start – end`, so §0 can render the total followed by a per-session breakdown you can hover to
+ * see each span. Returns `null` when there's nothing to break down: an explicit `--duration`
+ * override, an instant (a point), or fewer than two engagements (the plain total already says it
+ * all). Newest engagement first, matching {@link getScheduleCells}.
+ */
+export function getDurationCells(e: Entity, now: number): { total: string; segments: ScheduleCell[] } | null {
+  if (e.kind === "instant") return null
+  if (e.schedule?.duration != null) return null // explicit override — no per-session breakdown
+  const engs = [...getEngagements(e)].sort((a, b) => b.startAt - a.startAt)
+  if (engs.length < 2) return null
+  const totalMs = getDurationMs(e, now)
+  const total = totalMs == null ? "—" : formatDuration(totalMs)
+  const segments: ScheduleCell[] = engs.map((se) => {
+    const open = se.endAt == null
+    const ms = Math.max(0, (se.endAt ?? now) - se.startAt)
+    const when = fmtShort(se.startAt, now)
+    return {
+      text: `${formatDuration(ms)} (${when})`,
+      full: `${fmt(se.startAt)} – ${open ? "ongoing" : fmt(se.endAt as number)}`,
+      pulse: open, // the live engagement's segment breathes, like its schedule cells
+    }
+  })
+  return { total, segments }
+}
+
 export function getFaceMetaRows(e: Entity, now: number): [string, string][] {
   const meta = KIND_META[e.kind]
   const rows: [string, string][] = []
@@ -631,7 +660,14 @@ export function getFaceMetaRows(e: Entity, now: number): [string, string][] {
     // BEINGS read "age" (elapsed since birth); everything else reads "duration" (its span /
     // accumulated session time).
     const durLabel = e.kind === "individual" || e.kind === "organism" ? "age" : "duration"
-    rows.push([durLabel, durMs == null ? "—" : formatDuration(durMs)])
+    // When the duration is the SUM of 2+ engagements, the plain string reads
+    // "<total> · <dur1> (<when1>) · <dur2> (<when2>) …" (the FULL §0 face renders the same
+    // segments richly, with a per-engagement start–end hover — see getDurationCells).
+    const cells = getDurationCells(e, now)
+    rows.push([
+      durLabel,
+      cells ? [cells.total, ...cells.segments.map((c) => c.text)].join(" · ") : durMs == null ? "—" : formatDuration(durMs),
+    ])
   }
   // ACCENT — only when set (via `:color:`). The value is the raw hex; the dt cell
   // paints a matching swatch so the raw-data view still shows the color itself.

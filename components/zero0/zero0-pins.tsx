@@ -2,8 +2,9 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import type React from "react"
-import { getInheritedAccent, getStarterPinnedEntities, getOwnOngoingEntities, getRecentlyMarkedInstants } from "@/lib/zero/data"
-import { isOwnOngoing, getOpenEngagement, concreteStart, effectiveEndAt } from "@/lib/zero/kinds"
+import { getInheritedAccent, getStarterPinnedEntities, getOwnOngoingEntities, getRecentlyMarkedInstants, getRecentlyEndedEntities } from "@/lib/zero/data"
+import { isOwnOngoing, getOpenEngagement, concreteStart, effectiveEndAt, getEngagements } from "@/lib/zero/kinds"
+import { getFaceModel } from "@/lib/zero/face-model"
 import type { Entity } from "@/lib/zero/types"
 import { isSleepTitle, sleepDotColor } from "@/lib/zero/sleep-sky"
 import { Zero0Glyph } from "@/components/zero0/zero0-glyph"
@@ -78,11 +79,15 @@ type PinItem = {
   /** Which §4 list this chip renders in — drives the split (and keeps a fading-out chip on the
    *  side it was on when it left). */
   side: "pinned" | "ongoing"
-  /** A RECENTLY-MARKED instant chip — transient "just happened" acknowledgement (not ongoing).
-   *  Shows `agoText` instead of a live timer and fades away after RECENT_MARK_MS. */
-  mark?: boolean
-  /** "2s ago" — elapsed since the instant's latest mark. Only set for `mark` chips. */
-  agoText?: string
+  /** A NOTIFICATION chip — the universal transient acknowledgement that lingers on the ongoing
+   *  side after an entity STOPPED being ongoing (10s) or an INSTANT was marked (30s), before
+   *  fading away. Its glyph is NON-interactive and reflects the entity's ACTUAL state (it flashes
+   *  filled on entry + pulses gently); only the chip body opens the entity. Shows `notifyText`
+   *  (a frozen final duration, or "Ns ago") instead of a live timer. */
+  notify?: boolean
+  /** The muted trailing text on a notification chip — the just-ended session's final duration,
+   *  or "Ns ago" for a marked instant. Only set when `notify`. */
+  notifyText?: string
 }
 
 /**
@@ -232,12 +237,37 @@ export function Zero0Pins({
       if (pinnedIds.has(e.id)) continue // already handled in the pinned pass
       ongoing.push(mk(e, true, false))
     }
-    // RECENTLY-MARKED INSTANTS — transient chips on the ONGOING side that acknowledge a just-
-    // recorded occurrence ("2s ago") and fade away after RECENT_MARK_MS. An instant is never
-    // ongoing, so these are their own flavor. Skip any already shown (pinned/ongoing) to dedupe.
+    // NOTIFICATION CHIPS — the universal transient band on the ONGOING side. Two feeders, both
+    // lingering then fading: (a) any entity that JUST STOPPED being ongoing (10s), showing its
+    // frozen final session duration; (b) a RECENTLY-MARKED instant (30s), showing "Ns ago". A
+    // PINNED entity that stops is already in `pinnedIdle` (it simply slides left), so `shownIds`
+    // excludes it — notifications are for the NON-pinned stops only. Dedupe against everything
+    // already placed.
     const shownIds = new Set([...pinnedIdle, ...ongoing].map((i) => i.entity.id))
+    // (a) recently STOPPED (any kind but instant) — frozen final duration.
+    for (const { entity: e, endedAt } of getRecentlyEndedEntities(now)) {
+      if (shownIds.has(e.id)) continue
+      shownIds.add(e.id)
+      // The just-ended session's length — the stopwatch, frozen at its final value.
+      let lastMs = 0
+      for (const se of getEngagements(e)) {
+        if (se.endAt === endedAt && se.endAt != null) lastMs = Math.max(0, se.endAt - se.startAt)
+      }
+      ongoing.push({
+        entity: e,
+        ongoing: false,
+        pinned: pinnedIds.has(e.id),
+        focused: e.id === focusId,
+        timer: null,
+        side: "ongoing",
+        notify: true,
+        notifyText: lastMs > 0 ? formatTimer(lastMs) : `${Math.max(0, Math.floor((now - endedAt) / 1000))}s ago`,
+      })
+    }
+    // (b) recently-MARKED instants — "Ns ago" since the latest occurrence.
     for (const { entity: e, markedAt } of getRecentlyMarkedInstants(now)) {
       if (shownIds.has(e.id)) continue
+      shownIds.add(e.id)
       const secs = Math.max(0, Math.floor((now - markedAt) / 1000))
       ongoing.push({
         entity: e,
@@ -246,8 +276,8 @@ export function Zero0Pins({
         focused: e.id === focusId,
         timer: null,
         side: "ongoing",
-        mark: true,
-        agoText: `${secs}s ago`,
+        notify: true,
+        notifyText: `${secs}s ago`,
       })
     }
     return { pinnedIdle, ongoing }
@@ -397,18 +427,28 @@ function PinChip({
   onStart: (id: string, focus: boolean) => void
   onContextMenu: (entity: Entity, ev: React.MouseEvent) => void
 }) {
-  const { entity: e, ongoing, focused, timer, mark, agoText } = item
+  const { entity: e, ongoing, focused, timer, notify, notifyText } = item
   const accent = e.accent ?? getInheritedAccent(e.parentId) ?? (isSleepTitle(e.title) ? sleepDotColor : undefined)
   const tint = accent ?? "var(--muted-foreground)"
   // Faint accent WASH behind every chip; a touch STRONGER when FOCUSED (the entity that IS the
   // current canvas context — the one you're drilled into), so it reads as "the one you're in"
   // without shouting. Deliberately gentle — no ring.
   const fillPct = focused ? 26 : 10
+  // FLASH-ON-ENTRY — when this chip BECOMES a notification (an ongoing entity stopped, or an
+  // instant was marked), bump a counter so the glyph flashes filled once ("state just switched").
+  // `prevNotify` starts false so a chip that mounts already-notifying (e.g. a fresh mark) flashes
+  // on its first commit too.
+  const [flashN, setFlashN] = useState(0)
+  const prevNotify = useRef(false)
+  useEffect(() => {
+    if (notify && !prevNotify.current) setFlashN((n) => n + 1)
+    prevNotify.current = !!notify
+  }, [notify])
   // Plain body click: ongoing ⇒ just focus; idle ⇒ start AND focus. Any modifier ⇒ start in
   // the background (parallel), staying put; skip if already ongoing.
   const bodyClick = (ev: React.MouseEvent | React.KeyboardEvent) => {
-    // A MARK chip is an instant (never ongoing) — body click just drills in.
-    if (mark) {
+    // A NOTIFICATION chip (stopped/marked) is not interactive beyond opening — body click drills in.
+    if (notify) {
       onOpen(e.id)
       return
     }
@@ -440,30 +480,47 @@ function PinChip({
         backgroundColor: `color-mix(in oklab, ${tint} ${fillPct}%, transparent)`,
       }}
       title={
-        mark
-          ? `${e.title} — just occurred · click to open · right-click for menu`
+        notify
+          ? `${e.title} — just happened · click to open · right-click for menu`
           : ongoing
             ? `${e.title} — click to focus · alt-click to start another in parallel · glyph to stop · right-click for menu`
             : `${e.title} — click to start & focus · alt-click to start in background · glyph to start in background · right-click for menu`
       }
     >
-      {/* GLYPH — a MARK chip's glyph is a STATIC FILLED triangle (a past/complete occurrence) and
-          is NOT interactive: only the chip body opens the entity. Otherwise the glyph is a button
-          that spins while ongoing and STOPS (ongoing) / STARTS in the background (idle). */}
-      {mark ? (
-        <span className="shrink-0" style={{ color: tint }} aria-hidden="true">
-          <Zero0Glyph kind={e.kind} filled className="h-3.5 w-3.5" />
-        </span>
+      {/* GLYPH — a NOTIFICATION chip's glyph reflects the entity's ACTUAL state (filled when
+          complete/closed, checked when done, barred when cancelled), flashes filled once on entry,
+          and pulses gently while it lingers; it is NOT interactive (only the chip body opens).
+          Otherwise the glyph is a button that spins while ongoing and STOPS (ongoing) / STARTS in
+          the background (idle). */}
+      {notify ? (
+        (() => {
+          const gm = getFaceModel(e, Date.now())
+          return (
+            <span className="shrink-0" style={{ color: tint }} aria-hidden="true">
+              <Zero0Glyph
+                kind={e.kind}
+                filled={gm.filled}
+                done={gm.done}
+                cancelled={gm.cancelled}
+                requested={gm.requested}
+                flashFill={flashN}
+                pulse
+                className="h-3.5 w-3.5"
+              />
+            </span>
+          )
+        })()
       ) : (
         <MarkableChipGlyph e={e} tint={tint} ongoing={ongoing} onEnd={onEnd} onStart={onStart} />
       )}
       {/* TITLE — the chip body carries the drill-in click. */}
       <span className="max-w-[10rem] truncate">{e.title}</span>
       {/* LIVE TIMER (ongoing) — elapsed-so-far or countdown, ticking each second. Muted +
-          tabular so the chip width never jitters. A MARK chip instead shows "Ns ago". */}
-      {mark ? (
-        <span className="shrink-0 tabular-nums text-[10px] text-muted-foreground" title="time since this occurrence">
-          {agoText}
+          tabular so the chip width never jitters. A NOTIFICATION chip instead shows its frozen
+          final duration (a stopped session) or "Ns ago" (a marked instant). */}
+      {notify ? (
+        <span className="shrink-0 tabular-nums text-[10px] text-muted-foreground" title="just happened">
+          {notifyText}
         </span>
       ) : (
         timer && (

@@ -1,6 +1,6 @@
 import type { Asset, Entity, EntityKind, IndividualEntity, Instant, Recurrence, Schedule, Resource, EntityBase, Engagement, Sex, TaskPriority, TitleEntry, User } from "./types"
 import { WHENEVER } from "./types"
-  import { hasDoneState, isClosed, computeCloseAt, getState, fillsGlyph, hasOpenEngagement, getOpenEngagement, setChildrenResolver, setContainedResolver, isConcreteStart, concreteStart, isOwnOngoing, effectiveScheduleEnd, getMarks, isMarkable } from "./kinds"
+  import { hasDoneState, isClosed, computeCloseAt, getState, fillsGlyph, hasOpenEngagement, getOpenEngagement, setChildrenResolver, setContainedResolver, isConcreteStart, concreteStart, isOwnOngoing, effectiveScheduleEnd, getMarks, isMarkable, getEngagements } from "./kinds"
 import {
   isDone,
   isCancelled,
@@ -1323,6 +1323,35 @@ export function getStarterPinnedEntities(): Entity[] {
   if (last != null && now - last <= RECENT_MARK_MS) out.push({ entity: e, markedAt: last })
   }
   return out.sort((a, b) => b.markedAt - a.markedAt)
+  }
+
+  /** How long ANY entity that just STOPPED being ongoing lingers in the §4 band as a
+   *  NOTIFICATION chip (ms) before it fades away. Shorter than an instant's mark window
+   *  ({@link RECENT_MARK_MS}) — a stopped session is a quicker acknowledgement than a logged
+   *  occurrence. See {@link getRecentlyEndedEntities}. */
+  export const NOTIFY_LINGER_MS = 10_000
+
+  /**
+   * Entities that RECENTLY STOPPED being ongoing — their most recent engagement closed within
+   * the last {@link NOTIFY_LINGER_MS} AND they are not ongoing now. These become transient §4
+   * NOTIFICATION chips (the universal "it just stopped, here's a moment to notice" band), the
+   * general-kind analogue of {@link getRecentlyMarkedInstants}. INSTANTS are excluded (they use
+   * the mark path). Each carries `endedAt` (the close time) so the chip can read "ended Ns ago".
+   * Newest first. Bounded scan over all entities (tiny).
+   */
+  export function getRecentlyEndedEntities(now: number = Date.now()): { entity: Entity; endedAt: number }[] {
+  const out: { entity: Entity; endedAt: number }[] = []
+  for (const e of entities) {
+  if (e.kind === "soul" || e.kind === "instant" || e.seriesId != null) continue
+  if (isOwnOngoing(e, now)) continue // still ongoing ⇒ the ongoing list owns it
+  // The most recent CLOSED engagement's end — the moment it last stopped.
+  let endedAt: number | undefined
+  for (const se of getEngagements(e)) {
+  if (se.endAt != null && (endedAt == null || se.endAt > endedAt)) endedAt = se.endAt
+  }
+  if (endedAt != null && now - endedAt <= NOTIFY_LINGER_MS) out.push({ entity: e, endedAt })
+  }
+  return out.sort((a, b) => b.endedAt - a.endedAt)
   }
 
 /** Toggle an entity's starter-pin membership. Returns the new pinned state. */
@@ -2867,7 +2896,7 @@ export function autoTagByTitle(
  * owner, or the id is unknown). `"manual"` opts out of the automatic midnight time-close
  * and clears any stamped `closeAt`; `"auto"` (or `null` to clear the field) restores it,
  * re-stamping `closeAt` from the schedule/done state via {@link computeCloseAt}. A manual
- * Close/Cancel still applies under either policy — this only governs the AUTOMATIC path.
+ * Close/Cancel still applies under either policy ��� this only governs the AUTOMATIC path.
  */
 export function setEntityClosePolicy(id: string, policy: "auto" | "manual" | null): boolean {
   const stored = byId.get(id)

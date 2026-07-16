@@ -216,6 +216,27 @@
   }
 }
 
+/* GENTLE glyph breathing for a lingering §4 NOTIFICATION chip — a slow, shallow opacity pulse
+   (never fully dims, unlike the sharper zero0-pulse) so a just-stopped/just-marked entity reads
+   as "recently happened, settling" without shouting. */
+@keyframes zero0-glyph-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.6;
+  }
+}
+.zero0-glyph-pulse {
+  animation: zero0-glyph-pulse 1800ms ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .zero0-glyph-pulse {
+    animation: none;
+  }
+}
+
 /* §4 chip ENTER / EXIT — a smooth 1.2s opacity fade for any chip appearing in or leaving a
    §4 list (ongoing punch-in/out, a marked instant's transient "just happened" chip, etc.).
    Opacity-only so it never fights the FLIP transform on the same wrapper node. */
