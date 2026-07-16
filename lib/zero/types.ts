@@ -266,6 +266,19 @@ export interface Schedule {
    * append-only log is a SECONDARY audit trail, never the source of truth.
    */
   engagements?: Engagement[]
+  /**
+   * INSTANT max authorized OCCURRENCES before it COMPLETES (fills its glyph). Default 1 (an
+   * instant is a UNIQUE occurrence — completes the moment its scheduled `at` passes, or on its
+   * first mark). `--maxnb:3` means three occurrences (marks + a passed scheduled `at`) are
+   * required. Only meaningful for instants; absent ⇒ 1.
+   */
+  maxNb?: number
+  /**
+   * When true, `maxNb` is a HARD cap: once the instant is complete, NO further marks are
+   * accepted (`--maxnbhard`). When false/absent, extra marks beyond `maxNb` are still recorded
+   * (the instant just stays complete). Only meaningful for instants.
+   */
+  maxNbHard?: boolean
   /** Recurrence; absent = one-off. */
   repeat?: Recurrence
 }

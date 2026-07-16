@@ -1,6 +1,6 @@
 import type { Asset, Entity, EntityKind, IndividualEntity, Instant, Recurrence, Schedule, Resource, EntityBase, Engagement, Sex, TaskPriority, TitleEntry, User } from "./types"
 import { WHENEVER } from "./types"
-  import { hasDoneState, isClosed, computeCloseAt, getState, fillsGlyph, hasOpenEngagement, getOpenEngagement, setChildrenResolver, setContainedResolver, isConcreteStart, concreteStart, isOwnOngoing, effectiveScheduleEnd, getMarks } from "./kinds"
+  import { hasDoneState, isClosed, computeCloseAt, getState, fillsGlyph, hasOpenEngagement, getOpenEngagement, setChildrenResolver, setContainedResolver, isConcreteStart, concreteStart, isOwnOngoing, effectiveScheduleEnd, getMarks, isMarkable } from "./kinds"
 import {
   isDone,
   isCancelled,
@@ -1391,18 +1391,37 @@ export function closeEngagement(id: string, at = Date.now()): boolean {
 export function setOpenEngagementStart(id: string, at: number, now = Date.now()): boolean {
   const stored = byId.get(id)
   if (!stored) return false
-  if (!hasOpenEngagement(stored)) return false
+  const open = getOpenEngagement(stored)
+  if (!open) return false
   const entity = mutable(stored)
   const sched: Schedule = { ...(entity.schedule ?? {}) }
-  const engagements = [...(sched.engagements ?? [])]
-  const idx = engagements.findIndex((e) => e.endAt == null)
-  if (idx < 0) return false
-  // Clamp: not in the future, and after the previous (closed) session's end if there is one.
-  const prevEnd = idx > 0 ? engagements[idx - 1].endAt ?? engagements[idx - 1].startAt : undefined
-  let start = Math.min(at, now)
-  if (prevEnd != null && start <= prevEnd) start = prevEnd + 1
-  engagements[idx] = { ...engagements[idx], startAt: start }
-  sched.engagements = engagements
+  const all = [...(sched.engagements ?? [])]
+  let start = Math.min(at, now) // a live session can't have started in the future
+
+  // SWALLOW the sessions covered by the new [start, now] span into the ONE extended open
+  // session (Loris' model): backdating to 7:00 PM turns a fragmented dwell history into a
+  // single honest session, rather than clamping forward past the last punch-out. A closed
+  // session lying at/after `start` is CONSUMED (dropped); one that STRADDLES `start` (began
+  // earlier) is MERGED by pulling `start` back to its own start so its earlier portion isn't
+  // lost. Sessions entirely before the span, and instant marks, are left untouched. Sessions
+  // are non-overlapping + ordered, so a later straddler can't invalidate an earlier keep.
+  const kept: Engagement[] = []
+  for (const e of all) {
+    if (e === open) continue // re-appended (last) with the new start
+    if (e.via === "mark") {
+      kept.push(e)
+      continue
+    }
+    const eEnd = e.endAt ?? e.startAt
+    if (eEnd < start) {
+      kept.push(e) // entirely before the new span — untouched
+      continue
+    }
+    if (e.startAt < start) start = e.startAt // straddles → extend the span back to cover it
+    // else: fully inside [start, now] ⇒ swallowed (not kept)
+  }
+  kept.push({ ...open, startAt: start })
+  sched.engagements = kept
   logSet(entity, "engagementStart", start)
   persistEngagementMutation(id, entity, sched)
   return true
@@ -1442,11 +1461,39 @@ export function endOngoing(id: string, at = Date.now()): boolean {
 export function markInstant(id: string, at = Date.now()): boolean {
   const stored = byId.get(id)
   if (!stored || stored.kind !== "instant") return false
+  // Respect a HARD maxNb cap: once complete, a hard-capped instant accepts no more marks.
+  if (!isMarkable(stored, at)) return false
   const entity = mutable(stored)
   const sched: Schedule = { ...(entity.schedule ?? {}) }
   sched.engagements = [...(sched.engagements ?? []), { startAt: at, endAt: at, via: "mark" }]
   const log = ensureEntityLog(entity)
   entity.log = appendInstant(log, makeInstant("mark", at))
+  entity.schedule = sched
+  // Like a Moment, an instant files at the next local midnight — anchored on this latest
+  // occurrence (unless --close:manual). Stamped so every viewer flips at the same instant.
+  entity.closeAt = computeCloseAt(entity, at)
+  persistEngagementMutation(id, entity, sched)
+  return true
+}
+
+/**
+ * Set an INSTANT's max authorized OCCURRENCES (`--maxnb:3`) and whether that cap is HARD
+ * (`--maxnbhard` ⇒ no marks past complete). `maxNb <= 1` clears back to the default (a unique
+ * occurrence); `hard === false` clears the hard flag. Re-stamps `closeAt` since the occurrence
+ * requirement can change whether/when it completes. Instants only.
+ */
+export function setInstantMax(id: string, maxNb: number, hard: boolean): boolean {
+  const stored = byId.get(id)
+  if (!stored || stored.kind !== "instant") return false
+  const entity = mutable(stored)
+  const sched: Schedule = { ...(entity.schedule ?? {}) }
+  if (maxNb <= 1) delete sched.maxNb
+  else sched.maxNb = Math.floor(maxNb)
+  if (hard) sched.maxNbHard = true
+  else delete sched.maxNbHard
+  entity.schedule = sched
+  logSet(entity, "maxNb", sched.maxNb ?? 1)
+  entity.closeAt = computeCloseAt(entity)
   persistEngagementMutation(id, entity, sched)
   return true
 }

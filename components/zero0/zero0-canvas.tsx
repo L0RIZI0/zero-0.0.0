@@ -36,10 +36,11 @@ import {
   toggleEngagement,
   setOpenEngagementStart,
   markInstant,
+  setInstantMax,
   endOngoing,
   reorderContextItems,
 } from "@/lib/zero/data"
-  import { KIND_META, isClosed, getState, hasOpenEngagement, isPlayable, isMarkable } from "@/lib/zero/kinds"
+  import { KIND_META, isClosed, getState, hasOpenEngagement, isPlayable, isMarkable, getInstantMaxNb } from "@/lib/zero/kinds"
   import { isDone, describeLogEntry } from "@/lib/zero/entity-log"
 import {
   parseEntry,
@@ -545,10 +546,36 @@ export function Zero0Canvas() {
           }
           return `close ${policy}`
         }
+        case "maxnb":
+        case "maxnbhard": {
+          // INSTANT max OCCURRENCES before it completes. `--maxnb:3` (soft — extra marks still
+          // recorded) vs `--maxnbhard:3` (hard — no marks past complete). Bare `--maxnbhard`
+          // hardens the current count; empty `--maxnb` resets to the default unique occurrence.
+          if (ent.kind !== "instant") {
+            setNotice({ tone: "err", text: "only instants have a max occurrence count" })
+            return null
+          }
+          const hard = attr.field === "maxnbhard"
+          if (val === "") {
+            if (hard) {
+              setInstantMax(id, getInstantMaxNb(ent), true)
+              return "maxnb hard"
+            }
+            setInstantMax(id, 1, false)
+            return "maxnb reset (unique)"
+          }
+          const n = Number.parseInt(val, 10)
+          if (!Number.isFinite(n) || n < 1) {
+            setNotice({ tone: "err", text: `use --${attr.field}:<n≥1> (got "${val}")` })
+            return null
+          }
+          setInstantMax(id, n, hard)
+          return `maxnb ${n}${hard ? " hard" : ""}`
+        }
         default:
           setNotice({
             tone: "err",
-            text: `unknown --${attr.field} — try --start --end --at --due --duration --close --color --sex --title`,
+            text: `unknown --${attr.field} — try --start --end --at --due --duration --maxnb --maxnbhard --close --color --sex --title`,
           })
           return null
       }

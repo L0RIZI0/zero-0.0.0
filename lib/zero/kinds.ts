@@ -220,8 +220,11 @@ export function formatAge(from: number, to: number): string {
   return unit(Math.floor(ms / 60_000), "minute")
 }
 
-/** The mutually-exclusive lifecycle positions (see {@link getState}). */
-export type StateWord = "open" | "ongoing" | "done" | "complete" | "closed" | "cancelled" | "dead" | "retired"
+/** The mutually-exclusive lifecycle positions (see {@link getState}).
+ *  `scheduled` = a not-yet-terminal INSTANT that carries a concrete `at` anchor (planned, but
+ *  its occurrence(s) haven't completed it): open (no schedule) · scheduled · complete · closed
+ *  · cancelled are the instant's positions (an instant is a point, so never `ongoing`). */
+export type StateWord = "open" | "scheduled" | "ongoing" | "done" | "complete" | "closed" | "cancelled" | "dead" | "retired"
 
 /**
  * An entity's current lifecycle STATE — one position on the STATE axis, plus the
@@ -309,8 +312,15 @@ export function isPlayable(entity: Entity): boolean {
  * via `"mark"`) appended to `schedule.engagements` — a growing tally of timestamps.
  * Ended instants aren't markable (their occurrences are historical).
  */
-export function isMarkable(entity: Entity): boolean {
-  return entity.kind === "instant" && !isClosed(entity)
+export function isMarkable(entity: Entity, now: number = Date.now()): boolean {
+  if (entity.kind !== "instant") return false
+  if (isClosed(entity, now)) return false
+  // A HARD maxNb cap stops accepting marks once the required occurrences are reached (complete).
+  // A soft cap (default) still lets you mark beyond max — the instant just stays complete.
+  if (isInstantMaxNbHard(entity) && getInstantOccurrenceCount(entity, now) >= getInstantMaxNb(entity)) {
+    return false
+  }
+  return true
 }
 
 /** The OCCURRENCE marks tallied on an instant (zero-length `via:"mark"` engagements), newest
@@ -320,6 +330,39 @@ export function getMarks(entity: Entity): Engagement[] {
   return getEngagements(entity)
     .filter((e) => e.via === "mark")
     .sort((a, b) => b.startAt - a.startAt)
+}
+
+/**
+ * MAX authorized OCCURRENCES an INSTANT needs before it COMPLETES. Default 1 (a unique
+ * occurrence). `--maxnb:3` requires three. Only meaningful for instants.
+ */
+export function getInstantMaxNb(entity: Entity): number {
+  const n = entity.schedule?.maxNb
+  return typeof n === "number" && n >= 1 ? Math.floor(n) : 1
+}
+
+/** True when `maxNb` is a HARD cap: once complete, NO further marks are accepted (`--maxnbhard`). */
+export function isInstantMaxNbHard(entity: Entity): boolean {
+  return entity.schedule?.maxNbHard === true
+}
+
+/**
+ * An instant's OCCURRENCE timestamps, ASCENDING. Each mark is one occurrence, AND a scheduled
+ * `at` counts as one automatic occurrence once it has passed (`now >= at`). This is the single
+ * definition of "how many times has this happened" that completion, close-timing, and the §0
+ * readout all share. [] for non-instants.
+ */
+export function getInstantOccurrences(entity: Entity, now: number = Date.now()): number[] {
+  if (entity.kind !== "instant") return []
+  const times = getMarks(entity).map((m) => m.startAt)
+  const at = entity.schedule?.at
+  if (at != null && now >= at) times.push(at)
+  return times.sort((a, b) => a - b)
+}
+
+/** How many occurrences an instant has accumulated (marks + a passed scheduled `at`). */
+export function getInstantOccurrenceCount(entity: Entity, now: number = Date.now()): number {
+  return getInstantOccurrences(entity, now).length
 }
 
 // ── Engagement reads (pure — engagements live ON the entity) ─────────────────────────
@@ -462,8 +505,12 @@ export function computeCloseAt(entity: Entity, now: number = Date.now()): number
     return end != null ? nextLocalMidnight(end) : undefined
   }
   if (entity.kind === "instant") {
-    const at = entity.schedule?.at ?? entity.schedule?.endAt
-    return at != null ? nextLocalMidnight(at) : undefined
+    // Like a Moment, an instant FILES at the next local midnight — anchored on its LATEST
+    // occurrence (its most recent mark, or a scheduled `at`), so a marked-today instant closes
+    // tonight. No occurrence and no scheduled anchor ⇒ nothing to close on (stays open).
+    const occ = getInstantOccurrences(entity, now)
+    const anchor = occ.length ? occ[occ.length - 1] : entity.schedule?.at ?? entity.schedule?.endAt
+    return anchor != null ? nextLocalMidnight(anchor) : undefined
   }
   return undefined
 }
@@ -492,8 +539,13 @@ function completeSince(entity: Entity, now: number, seen?: Set<string>): number 
     return end != null && now >= end ? end : null
   }
   if (entity.kind === "instant") {
-    const at = entity.schedule?.at ?? entity.schedule?.endAt
-    return at != null && now >= at ? at : null
+    // COMPLETE once the instant has accumulated its MAX authorized occurrences (marks + a
+    // passed scheduled `at`). Default maxNb 1 ⇒ a unique occurrence: completes the moment its
+    // scheduled `at` passes, or on its first mark. complete-at = the time the Nth occurrence
+    // landed (the instant the requirement was met).
+    const times = getInstantOccurrences(entity, now)
+    const need = getInstantMaxNb(entity)
+    return times.length >= need ? times[need - 1] : null
   }
   if (getExplicitComplete(entity) === true) return getCompleteOn(entity) ?? getCreatedAt(entity) ?? now
   return null
@@ -582,6 +634,13 @@ function getStateInner(entity: Entity, now: number, seen: Set<string>): EntitySt
   if (!isBeing(entity.kind)) {
     const rolled = containedOngoingSince(entity, now, seen)
     if (rolled != null) return { word: "ongoing", at: rolled }
+  }
+
+  // SCHEDULED — a not-yet-terminal INSTANT that carries a concrete `at` anchor reads
+  // "scheduled" rather than a bare "open": it's planned, its occurrence(s) just haven't
+  // completed it yet. Instant-scoped (moments keep their open→ongoing→complete arc).
+  if (entity.kind === "instant" && entity.schedule?.at != null) {
+    return { word: "scheduled", at: entity.schedule.at }
   }
 
   return { word: "open" }
