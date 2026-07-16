@@ -2,17 +2,41 @@
 
 import { useEffect, useMemo, useState } from "react"
 import type React from "react"
-import { ROOT_ID, collectDescendants, getEntity, getInheritedAccent, getStarterPinnedEntities } from "@/lib/zero/data"
-import { isOwnOngoing } from "@/lib/zero/kinds"
+import { getInheritedAccent, getStarterPinnedEntities, getOwnOngoingEntities } from "@/lib/zero/data"
+import { isOwnOngoing, getOpenEngagement, concreteStart, effectiveEndAt } from "@/lib/zero/kinds"
+import { formatDuration } from "@/lib/zero/face-model"
 import type { Entity } from "@/lib/zero/types"
 import { isSleepTitle, sleepDotColor } from "@/lib/zero/sleep-sky"
 import { Zero0Glyph } from "@/components/zero0/zero0-glyph"
 import { cn } from "@/lib/utils"
 
-/** How often to re-scan for ongoing entities so time-crossing spans (a Moment span that
- *  just ended, a scheduled one that just started) appear/disappear without a data mutation.
- *  Engagement toggles (focus/play) already bump `dataRev` for an instant refresh. */
-const RESCAN_MS = 10000
+/** Tick cadence. 1s so each chip's live timer (elapsed / countdown) advances smoothly AND
+ *  so time-crossing spans (a Moment that just ended or just started) appear/disappear without
+ *  a data mutation. The scanned set is tiny (ongoing ∪ pinned), so a 1s re-scan is cheap.
+ *  Engagement toggles (focus/play) also bump `dataRev` for an instant refresh. */
+const TICK_MS = 1000
+
+/**
+ * The live timer shown on an ONGOING chip. Two flavors, mirroring how the entity is ongoing:
+ *   - a KNOWN end (declared `endAt`, or a concrete start + duration) ⇒ COUNTDOWN "-Nm Ss"
+ *     (time remaining until it ends), so a timed span reads like a stopwatch winding down.
+ *   - no known end (an open engagement, or an open-ended running span) ⇒ ELAPSED so far,
+ *     counting UP from whichever "since" anchor applies (the open engagement's punch-in if
+ *     there is one, else the concrete span start).
+ * Returns null when there's nothing sensible to show.
+ */
+function ongoingTimer(e: Entity, now: number): { text: string; countdown: boolean } | null {
+  const end = effectiveEndAt(e)
+  if (end != null && end > now) {
+    return { text: `-${formatDuration(end - now)}`, countdown: true }
+  }
+  const open = getOpenEngagement(e)
+  const since = open?.startAt ?? concreteStart(e)
+  if (since != null && now > since) {
+    return { text: formatDuration(now - since), countdown: false }
+  }
+  return null
+}
 
 /**
  * §4 PINS — the ONGOING + PINNED band. A horizontal row of colored chips. Membership is the
@@ -50,28 +74,29 @@ export function Zero0Pins({
   /** Right-click a chip — open the unified entity menu. */
   onContextMenu: (entity: Entity, ev: React.MouseEvent) => void
 }) {
-  // A coarse tick so spans that cross `now` re-evaluate even without a data mutation.
+  // A 1s tick driving both the live per-chip timer and re-scans across `now`.
   const [nowTick, setNowTick] = useState(() => Date.now())
   useEffect(() => {
-    const t = setInterval(() => setNowTick(Date.now()), RESCAN_MS)
+    const t = setInterval(() => setNowTick(Date.now()), TICK_MS)
     return () => clearInterval(t)
   }, [])
 
   // The chip list = PINNED (in pin order) ∪ own-ONGOING (unpinned, appended after). Each
-  // item carries its live `ongoing` + `pinned` flags for rendering.
+  // item carries its live `ongoing` + `pinned` flags plus a live `timer` label.
   const items = useMemo(() => {
     const now = Date.now()
     const pinned = getStarterPinnedEntities()
     const pinnedIds = new Set(pinned.map((e) => e.id))
-    const out: { entity: Entity; ongoing: boolean; pinned: boolean }[] = pinned.map((e) => ({
+    const mk = (e: Entity, ongoing: boolean, isPinned: boolean) => ({
       entity: e,
-      ongoing: isOwnOngoing(e, now),
-      pinned: true,
-    }))
-    for (const id of collectDescendants(ROOT_ID)) {
-      if (pinnedIds.has(id)) continue
-      const e = getEntity(id)
-      if (e && isOwnOngoing(e, now)) out.push({ entity: e, ongoing: true, pinned: false })
+      ongoing,
+      pinned: isPinned,
+      timer: ongoing ? ongoingTimer(e, now) : null,
+    })
+    const out = pinned.map((e) => mk(e, isOwnOngoing(e, now), true))
+    for (const e of getOwnOngoingEntities(now)) {
+      if (pinnedIds.has(e.id)) continue // already covered by the pinned pass
+      out.push(mk(e, true, false))
     }
     return out
     // eslint-disable-next-line react-hooks/exhaustive-deps -- dataRev + nowTick are the intended re-read triggers
@@ -96,7 +121,7 @@ export function Zero0Pins({
       className="flex shrink-0 items-center gap-1.5 overflow-x-auto border-b border-border px-4 py-2"
       aria-label="pinned and ongoing entities"
     >
-      {items.map(({ entity: e, ongoing, pinned }) => {
+      {items.map(({ entity: e, ongoing, pinned, timer }) => {
         const accent =
           e.accent ?? getInheritedAccent(e.parentId) ?? (isSleepTitle(e.title) ? sleepDotColor : undefined)
         const tint = accent ?? "var(--muted-foreground)"
@@ -142,6 +167,16 @@ export function Zero0Pins({
             </button>
             {/* TITLE — the chip body carries the drill-in click. */}
             <span className="max-w-[10rem] truncate">{e.title}</span>
+            {/* LIVE TIMER — elapsed-so-far (counts up) or countdown-to-end ("-…"), ticking
+                each second. Muted + tabular so digits don't jitter the chip width. */}
+            {timer && (
+              <span
+                className="shrink-0 tabular-nums text-[10px] text-muted-foreground"
+                title={timer.countdown ? "time remaining" : "elapsed so far"}
+              >
+                {timer.text}
+              </span>
+            )}
           </div>
         )
       })}

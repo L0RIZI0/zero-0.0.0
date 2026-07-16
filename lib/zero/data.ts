@@ -1261,6 +1261,18 @@ export function getStarterPinnedEntities(): Entity[] {
   return starterPins.map((id) => byId.get(id)).filter(Boolean) as Entity[]
 }
 
+/**
+ * Every entity that is OWN-ongoing right now (see `isOwnOngoing`) — the GLOBAL set the §4
+ * PINS band lists, regardless of where the entity lives in the tree. Iterates ALL entities
+ * rather than `collectDescendants` (which walks Space containment ONLY and so would MISS an
+ * ongoing Moment / Task / any non-Space leaf — the bug that hid an ongoing Moment from §4).
+ * Excludes the structural Soul and materialized recurrence occurrences, matching what is
+ * ever surfaced as browsable content elsewhere.
+ */
+export function getOwnOngoingEntities(now: number = Date.now()): Entity[] {
+  return entities.filter((e) => e.kind !== "soul" && e.seriesId == null && isOwnOngoing(e, now))
+}
+
 /** Toggle an entity's starter-pin membership. Returns the new pinned state. */
 export function toggleStarterPin(id: string): boolean {
   const i = starterPins.indexOf(id)
