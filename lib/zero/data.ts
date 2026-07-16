@@ -1665,6 +1665,26 @@ export function hydrateFromStorage(): boolean {
     // In-memory only (like the id/tagged migrations); persists on the next mutation.
   }
 
+  // Close any DANGLING engagement on an entity that is ALREADY CLOSED (cancelled / completed
+  // / closed / retired / dead). A closed entity can't still be running, so its open
+  // engagement is an ORPHAN punch-in that never got punched out — otherwise it prints as an
+  // eternal ongoing bar on the dayline. Stamp its end at the entity's last logged activity
+  // (`lastLogAt`) so the bar terminates AND the record shows WHEN it ended (openable). Unlike
+  // the focus-cleanup above (which keeps a `play` stopwatch running while the ENTITY is still
+  // OPEN), this fires for ANY kind + ANY engagement kind precisely because the entity is closed.
+  for (const entity of entities) {
+    const sessions = entity.schedule?.sessions
+    if (!sessions || sessions.length === 0) continue
+    const last = sessions[sessions.length - 1]
+    if (last.endAt != null) continue // already closed
+    if (!isClosed(entity)) continue // still open ⇒ legitimately running, leave it
+    const endAt = lastLogAt(entity) ?? last.startAt
+    const next = [...sessions]
+    if (endAt - last.startAt <= MIN_SESSION_MS) next.pop()
+    else next[next.length - 1] = { ...last, endAt }
+    entity.schedule = { ...entity.schedule, sessions: next }
+  }
+
   // DEV-only: surface any log↔scalar drift found above. A clean load (no warning)
   // across normal dogfooding is the green light to retire the scalar backups.
   if (process.env.NODE_ENV !== "production" && logAudit.length > 0) {
@@ -2216,6 +2236,10 @@ export function setEntityCompleted(id: string, completed: boolean): void {
       closeAt: entity.closeAt,
     })
   }
+  // Closing an entity ENDS any open engagement at the close moment (a Done task's focus
+  // stopwatch, a Play'd space, …) so it stops printing as ongoing and the record shows when
+  // it ended. Skipped on un-check (completed=false) — a reopened entity may run again.
+  if (completed) closeSession(id, now)
   persist()
 }
 
@@ -2731,6 +2755,8 @@ export function setEntityCancelled(id: string, cancelled: boolean): void {
     // Seeded entity — track as an override patch (log rebuilt from these on reload).
     seededOverrides.set(id, { ...seededOverrides.get(id), cancelled, cancelledOn: now })
   }
+  // Cancelling ENDS any open engagement at the cancel moment (see setEntityCompleted). Not on restore.
+  if (cancelled) closeSession(id, now)
   persist()
 }
 
@@ -2767,6 +2793,8 @@ export function setEntityClosed(id: string, closed: boolean): void {
     // Seeded entity — track as an override patch.
     seededOverrides.set(id, { ...seededOverrides.get(id), closed, closedOn, reopened, reopenedOn })
   }
+  // A manual Close ENDS any open engagement at the close moment (see setEntityCompleted). Not on reopen.
+  if (closed) closeSession(id, now)
   persist()
 }
 
