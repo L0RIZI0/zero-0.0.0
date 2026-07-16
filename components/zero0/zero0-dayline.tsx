@@ -129,6 +129,14 @@ function laneGeom(rail: "planned" | "recorded", laneIndex: number, seam: number)
 // clearly pops above the lane. Animated via the tick's height/opacity transition.
 const HIGHLIGHT_HEIGHT_PX = 26
 
+// UNKNOWN-END FADE — a planned tick whose end is genuinely unknown (a concrete start with
+// no declared/implied end, not yet closed) doesn't just stop: it FADES OUT rightward from
+// its right edge to signal "still going, end unknown." For an ONGOING tick that right edge
+// IS the now marker, so the fade trails PAST now into the future; for a FUTURE open-ended
+// start it trails rightward from the start point. Fixed pixel length (zoom-independent, a
+// qualitative "continues" cue, not a measured duration).
+const UNKNOWN_END_FADE_PX = 44
+
 // A PAST planned tick's opacity reflects how much its window was actually HONORED by
 // recorded presence (fraction covered → these floor/ceiling stops, mapped linearly):
 // an un-honored plan sits at the floor, a fully-honored one at the ceiling. Kept below a
@@ -241,6 +249,14 @@ interface DaylineBar {
    * never spills a tick PAST the NOW marker.
    */
   openEnded?: boolean
+  /**
+   * PLANNED bars: the tick's end is genuinely UNKNOWN — a concrete start with no
+   * declared/implied end that hasn't closed (covers BOTH an ongoing tick, whose right
+   * edge is the now marker, and a still-future open-ended start). Renders a rightward
+   * fade off the tick's right edge (see {@link UNKNOWN_END_FADE_PX}). A closed tick, a
+   * point with a known instant, and any bar with an effective end never set this.
+   */
+  unknownEnd?: boolean
   /**
    * For a sleep-titled planned Moment: a procedural night-sky CSS `background`
    * string (see {@link sleepSkyBackground}) painted INSTEAD of the flat accent, so
@@ -417,6 +433,11 @@ export function Zero0Dayline({
       // genuine `startAt` (not a due/at point), it's already begun, AND it isn't closed. A
       // start+duration has a known end (endNum) so it's NOT ongoing.
       const ongoing = !closed && endNum == null && startNum != null && startNum <= now
+      // UNKNOWN END — a concrete start (real `startAt`) with no declared/implied end that
+      // hasn't closed. Superset of `ongoing`: it ALSO covers a still-FUTURE open-ended start
+      // (startNum > now), which paints as a start point with a rightward fade. Drives the
+      // "continues, end unknown" fade in the render.
+      const unknownEnd = !closed && endNum == null && startNum != null
       // end = effective end (declared/implied), else the record close time (closed), else now
       // (ongoing), else a point.
       const en = endNum ?? closeAt ?? (ongoing ? now : st)
@@ -458,6 +479,9 @@ export function Zero0Dayline({
         // An ongoing bar's right edge IS "now" — flag it so it renders anchored (never
         // spilling a min-width tick PAST the now marker), same as an open presence segment.
         openEnded: ongoing,
+        // Fade rightward off the right edge when the end is unknown (ongoing → past now;
+        // future open-ended → past the start point).
+        unknownEnd,
         sky: isSleepSpan ? sleepSkyBackground(occ.occKey) : undefined,
         coverage,
       })
@@ -1274,6 +1298,27 @@ export function Zero0Dayline({
                           zIndex: lit || isHot ? 16 : 8,
                         }}
                       />
+                      {/* UNKNOWN-END FADE — trails rightward off the tick's right edge to say
+                          "continues, end unknown." Right edge = leftPct+widthPct, which is the
+                          now marker for an ongoing tick (so the fade spills past now) or the
+                          start point for a future open-ended tick. Fixed px length, flat accent
+                          (never the sky gradient), non-interactive so it never steals the tick's
+                          hover. Re-anchors its top with the tick as lanes restack. */}
+                      {p.unknownEnd && (
+                        <div
+                          aria-hidden
+                          className="pointer-events-none absolute -translate-y-1/2 transition-[top] duration-200"
+                          style={{
+                            top: railTop,
+                            left: `${p.leftPct + p.widthPct}%`,
+                            width: UNKNOWN_END_FADE_PX,
+                            height: tickH,
+                            background: `linear-gradient(to right, ${p.color === DEFAULT_PRESENCE ? "var(--background)" : p.color}, transparent)`,
+                            opacity: tickOpacity,
+                            zIndex: lit || isHot ? 15 : 7,
+                          }}
+                        />
+                      )}
                     </div>
                   )
                 })}

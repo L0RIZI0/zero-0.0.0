@@ -107,16 +107,17 @@ export function buildEntityMenuItems(
 
   const items: MenuItem[] = []
 
-  // PIN AS STARTER — a top-level toggle adding/removing this entity from the global §4
-  // PINNED frame. Only offered when the caller tracks pin state (`starterPinned` passed);
-  // `starter-pin` / `starter-unpin` are VIEW-ish actions handled by that caller, not
-  // `applyEntityMenuAction` (which returns false for them). A divider separates it from
-  // the lifecycle actions below.
+  // PIN — a top-level toggle adding/removing this entity from the §4 PINS band, so its chip
+  // stays listed there even when it isn't ongoing. Only offered when the caller tracks pin
+  // state (`starterPinned` passed); `starter-pin` / `starter-unpin` are VIEW-ish actions
+  // handled by that caller, not `applyEntityMenuAction` (which returns false for them). A
+  // divider separates it from the lifecycle actions below. (Action ids keep the legacy
+  // `starter-` prefix for stored/back-compat; the label is just "Pin"/"Unpin" now.)
   if (opts?.starterPinned !== undefined) {
     items.push({
       type: "item",
       id: opts.starterPinned ? "starter-unpin" : "starter-pin",
-      label: opts.starterPinned ? "Unpin starter" : "Pin as starter",
+      label: opts.starterPinned ? "Unpin" : "Pin",
     })
     items.push({ type: "divider" })
   }

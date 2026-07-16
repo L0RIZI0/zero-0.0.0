@@ -766,6 +766,16 @@ export function Zero0Canvas() {
     [bump],
   )
 
+  // PINS (§4) START — the glyph click on an IDLE pinned chip (STAY here): open a `play`
+  // engagement so it becomes ongoing (its glyph starts spinning), symmetric with endPin.
+  const startPin = useCallback(
+    (id: string) => {
+      toggleEngagement(id, "play")
+      bump()
+    },
+    [bump],
+  )
+
   // Show a menu at CLIENT coords (x,y). Over a native web Resource on desktop the DOM is
   // occluded by the live site (no z-index can beat a WebContentsView), so the menu is
   // drawn in the transparent overlay window ABOVE the site — the site stays put, no
@@ -1081,6 +1091,7 @@ export function Zero0Canvas() {
           forceShow={showFrequent}
           onOpen={openPin}
           onEnd={endPin}
+          onStart={startPin}
           onContextMenu={(e, ev) => openMenu(e, ev)}
         />
       )}
