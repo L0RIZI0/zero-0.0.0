@@ -64,14 +64,6 @@ function ongoingTimer(e: Entity, now: number): { text: string; countdown: boolea
   return null
 }
 
-/** Whether an ongoing entity is being FOCUSED — i.e. its open engagement was opened by
- *  dwelling (via "focus", or absent which defaults to focus), as opposed to a "play"
- *  stopwatch or a bare running concrete span. Drives the stronger accent fill + ring. */
-function isFocused(e: Entity): boolean {
-  const open = getOpenEngagement(e)
-  return open != null && (open.via ?? "focus") === "focus"
-}
-
 type PinItem = { entity: Entity; ongoing: boolean; pinned: boolean; focused: boolean; timer: { text: string; countdown: boolean } | null }
 
 /**
@@ -147,6 +139,7 @@ function useFlipRow(revision: unknown) {
  */
 export function Zero0Pins({
   dataRev,
+  focusId,
   forceShow = false,
   onOpen,
   onEnd,
@@ -154,6 +147,9 @@ export function Zero0Pins({
   onContextMenu,
 }: {
   dataRev: number
+  /** The current canvas context (the entity you're drilled into). Its chip reads as FOCUSED
+   *  — a hot fill + ring — so the thing you're actually looking at stands out in the band. */
+  focusId?: string
   /** §4 override — reveal the (otherwise auto-hidden) EMPTY band. */
   forceShow?: boolean
   /** Chip/title click — drill INTO the entity. */
@@ -182,7 +178,7 @@ export function Zero0Pins({
       entity: e,
       ongoing: on,
       pinned: isPinned,
-      focused: on && isFocused(e),
+      focused: e.id === focusId,
       timer: on ? ongoingTimer(e, now) : null,
     })
     const pinnedIdle: PinItem[] = []
@@ -197,7 +193,7 @@ export function Zero0Pins({
     }
     return { pinnedIdle, ongoing }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- dataRev + nowTick are the intended re-read triggers
-  }, [dataRev, nowTick])
+  }, [dataRev, nowTick, focusId])
 
   const setNode = useFlipRow(dataRev + nowTick)
 
@@ -258,8 +254,9 @@ function PinChip({
   const { entity: e, ongoing, focused, timer } = item
   const accent = e.accent ?? getInheritedAccent(e.parentId) ?? (isSleepTitle(e.title) ? sleepDotColor : undefined)
   const tint = accent ?? "var(--muted-foreground)"
-  // Accent WASH behind the chip. FOCUSED (the entity you're actually dwelling in) reads much
-  // hotter — a strong fill + an accent ring — vs the faint wash on merely-ongoing/pinned chips.
+  // Accent WASH behind the chip. FOCUSED (the entity that IS the current canvas context —
+  // the one you're drilled into) reads much hotter — a strong fill + an accent ring — vs the
+  // faint wash on the other chips, so the thing you're looking at is obvious in the band.
   const fillPct = focused ? 42 : 8
   return (
     <div

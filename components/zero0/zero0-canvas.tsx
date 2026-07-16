@@ -1088,6 +1088,7 @@ export function Zero0Canvas() {
       {mounted && (
         <Zero0Pins
           dataRev={rev}
+          focusId={contextId}
           forceShow={showFrequent}
           onOpen={openPin}
           onEnd={endPin}
