@@ -1,6 +1,6 @@
-import type { Asset, Entity, EntityKind, IndividualEntity, Instant, Recurrence, Schedule, Resource, EntityBase, Session, Sex, TaskPriority, TitleEntry, User } from "./types"
+import type { Asset, Entity, EntityKind, IndividualEntity, Instant, Recurrence, Schedule, Resource, EntityBase, Engagement, Sex, TaskPriority, TitleEntry, User } from "./types"
 import { WHENEVER } from "./types"
-  import { hasDoneState, isClosed, computeCloseAt, getState, fillsGlyph, hasOpenSession, getOpenSession, setChildrenResolver, setContainedResolver, isConcreteStart, concreteStart } from "./kinds"
+  import { hasDoneState, isClosed, computeCloseAt, getState, fillsGlyph, hasOpenEngagement, getOpenEngagement, setChildrenResolver, setContainedResolver, isConcreteStart, concreteStart } from "./kinds"
 import {
   isDone,
   isCancelled,
@@ -1276,14 +1276,14 @@ export function toggleStarterPin(id: string): boolean {
 
 // ----------------------------------------------------------------------------
 // SESSIONS — tracked work punch-ins/outs, stored as a PAIRS ARRAY on the entity
-// (`schedule.sessions`; see types.ts). The last entry lacking `endAt` is the ONE
+// (`schedule.engagements`; see types.ts). The last entry lacking `endAt` is the ONE
 // open session, and that alone is what makes getState read the entity `ongoing`
-// EVERYWHERE it appears. Two writers open sessions: FOCUS (drilling into a Task past
+// EVERYWHERE it appears. Two writers open engagements: FOCUS (drilling into a Task past
 // a dwell threshold — see zero0-canvas) and PLAY (the glyph on a "whenever"
-// moment/space). Deliberately NOT mirrored into scalar startAt/endAt: sessions are a
+// moment/space). Deliberately NOT mirrored into scalar startAt/endAt: engagements are a
 // tracking layer OVER the declared schedule; mirroring would clobber the "whenever"
-// sentinel and trip a moment's midnight auto-close. Pure reads (getSessions/
-// getOpenSession/hasOpenSession) live in kinds.ts; the WRITES are here.
+// sentinel and trip a moment's midnight auto-close. Pure reads (getEngagements/
+// getOpenEngagement/hasOpenEngagement) live in kinds.ts; the WRITES are here.
 // ----------------------------------------------------------------------------
 
 /**
@@ -1294,7 +1294,7 @@ export function toggleStarterPin(id: string): boolean {
 export const MIN_SESSION_MS = 1500
 
 /** Persist a session mutation, mirroring setEntityScheduleField's seeded-override path. */
-function persistSessionMutation(id: string, entity: LooseEntity, sched: Schedule): void {
+function persistEngagementMutation(id: string, entity: LooseEntity, sched: Schedule): void {
   entity.schedule = sched
   if (!userEntityIds.has(id)) {
     seededOverrides.set(id, { ...seededOverrides.get(id), schedule: sched })
@@ -1303,20 +1303,20 @@ function persistSessionMutation(id: string, entity: LooseEntity, sched: Schedule
 }
 
 /**
- * OPEN a session on an entity if none is already open (idempotent). `kind` marks focus
- * punch-ins vs play stopwatches so hydrate-cleanup can close dangling focus sessions
- * while leaving play stopwatches running. Returns true if a session is now open.
+ * OPEN an engagement on an entity if none is already open (idempotent). `via` marks focus
+ * punch-ins vs play stopwatches so hydrate-cleanup can close dangling focus engagements
+ * while leaving play stopwatches running. Returns true if an engagement is now open.
  */
-export function openSession(id: string, kind: Session["kind"] = "focus", at = Date.now()): boolean {
+export function openEngagement(id: string, via: Engagement["via"] = "focus", at = Date.now()): boolean {
   const stored = byId.get(id)
   if (!stored) return false
-  if (hasOpenSession(stored)) return true // already running — no-op
+  if (hasOpenEngagement(stored)) return true // already running — no-op
   const entity = mutable(stored)
   const sched: Schedule = { ...(entity.schedule ?? {}) }
-  sched.sessions = [...(sched.sessions ?? []), { startAt: at, kind }]
+  sched.engagements = [...(sched.engagements ?? []), { startAt: at, via }]
   const log = ensureEntityLog(entity)
   entity.log = appendInstant(log, makeInstant("session-open", at))
-  persistSessionMutation(id, entity, sched)
+  persistEngagementMutation(id, entity, sched)
   return true
 }
 
@@ -1325,37 +1325,37 @@ export function openSession(id: string, kind: Session["kind"] = "focus", at = Da
  * DROPPED entirely (discard-short). No-op if nothing is open. Returns true if a session
  * was closed (or dropped).
  */
-export function closeSession(id: string, at = Date.now()): boolean {
+export function closeEngagement(id: string, at = Date.now()): boolean {
   const stored = byId.get(id)
   if (!stored) return false
-  const open = getOpenSession(stored)
+  const open = getOpenEngagement(stored)
   if (!open) return false
   const entity = mutable(stored)
   const sched: Schedule = { ...(entity.schedule ?? {}) }
-  const sessions = [...(sched.sessions ?? [])]
-  const last = sessions[sessions.length - 1]
+  const engagements = [...(sched.engagements ?? [])]
+  const last = engagements[engagements.length - 1]
   if (last && at - last.startAt <= MIN_SESSION_MS) {
-    sessions.pop() // too short → discard the whole entry
+    engagements.pop() // too short → discard the whole entry
   } else if (last) {
-    sessions[sessions.length - 1] = { ...last, endAt: at }
+    engagements[engagements.length - 1] = { ...last, endAt: at }
   }
-  sched.sessions = sessions
+  sched.engagements = engagements
   const log = ensureEntityLog(entity)
   entity.log = appendInstant(log, makeInstant("session-close", at))
-  persistSessionMutation(id, entity, sched)
+  persistEngagementMutation(id, entity, sched)
   return true
 }
 
 /** Toggle the open/closed state of an entity's session (Play ⇄ Stop). Returns the new
  *  open state. Used by the glyph play/pause on a "whenever" moment/space. */
-export function toggleSession(id: string, kind: Session["kind"] = "play"): boolean {
+export function toggleEngagement(id: string, via: Engagement["via"] = "play"): boolean {
   const stored = byId.get(id)
   if (!stored) return false
-  if (hasOpenSession(stored)) {
-    closeSession(id)
+  if (hasOpenEngagement(stored)) {
+    closeEngagement(id)
     return false
   }
-  openSession(id, kind)
+  openEngagement(id, via)
   return true
 }
 
@@ -1567,6 +1567,42 @@ function migrateStoredRootId(stored: UserItems): void {
   stored.deletedIds = stored.deletedIds.map(swap)
 }
 
+const LEGACY_ENGAGEMENTS_KEY = "sessions"
+const LEGACY_ENGAGEMENT_VIA_KEY = "kind"
+/**
+ * Normalize the v0.4.7-era rename SESSION → ENGAGEMENT on persisted schedules: the
+ * `schedule.sessions` array key → `schedule.engagements`, and each entry's `kind`
+ * discriminator → `via`. Both live inside `entity.schedule`, which persists on every
+ * stored entity AND any seeded-entity `overrides` patch that captured a schedule.
+ * In-memory only (like the tagged/root migrations); localStorage rewrites on the next
+ * mutation. Idempotent: absent legacy keys ⇒ no-op.
+ */
+function migrateStoredEngagementsKey(stored: UserItems): void {
+  const fix = (sched: unknown) => {
+    if (!sched || typeof sched !== "object") return
+    const s = sched as Record<string, unknown>
+    let list = s[LEGACY_ENGAGEMENTS_KEY]
+    if (Array.isArray(list) && s.engagements === undefined) {
+      s.engagements = list
+      delete s[LEGACY_ENGAGEMENTS_KEY]
+    }
+    list = s.engagements
+    if (Array.isArray(list)) {
+      for (const entry of list) {
+        if (entry && typeof entry === "object") {
+          const e = entry as Record<string, unknown>
+          if (e[LEGACY_ENGAGEMENT_VIA_KEY] !== undefined && e.via === undefined) {
+            e.via = e[LEGACY_ENGAGEMENT_VIA_KEY]
+          }
+          delete e[LEGACY_ENGAGEMENT_VIA_KEY]
+        }
+      }
+    }
+  }
+  for (const e of stored.entities) fix((e as { schedule?: unknown }).schedule)
+  for (const patch of Object.values(stored.overrides)) fix((patch as { schedule?: unknown }).schedule)
+}
+
 let _hydrated = false
 
 /**
@@ -1583,6 +1619,8 @@ export function hydrateFromStorage(): boolean {
   migrateStoredTaggedKey(stored)
   // Reattach any data persisted under the old space-era root id before merging.
   migrateStoredRootId(stored)
+  // Normalize the session→engagement rename on persisted schedules (key + `via`).
+  migrateStoredEngagementsKey(stored)
   let added = false
   // DEV-only: collect log↔scalar disagreements to prove out dual-write before the
   // scalars are retired (Phase 3). Reported once after the loop; never in prod.
@@ -1648,20 +1686,20 @@ export function hydrateFromStorage(): boolean {
   // Hydrate-cleanup: close any DANGLING focus session a previous run left open (e.g.
   // the app closed while inside a Task). Focus-time must NOT accrue while the app is
   // shut, so we close each at the entity's last known activity and DROP spans that end
-  // up ≤ MIN_SESSION_MS. PLAY stopwatches (`kind === "play"`, on moment/space) are LEFT
+  // up ≤ MIN_SESSION_MS. PLAY stopwatches (`via === "play"`, on moment/space) are LEFT
   // RUNNING on purpose. [DECISION BAKED — easy to flip: delete this loop to keep focus
   // timers running across reloads.]
   for (const entity of entities) {
     if (entity.kind !== "task") continue
-    const sessions = entity.schedule?.sessions
-    if (!sessions || sessions.length === 0) continue
-    const last = sessions[sessions.length - 1]
-    if (last.endAt != null || last.kind === "play") continue
+    const engagements = entity.schedule?.engagements
+    if (!engagements || engagements.length === 0) continue
+    const last = engagements[engagements.length - 1]
+    if (last.endAt != null || last.via === "play") continue
     const closeAt = lastLogAt(entity) ?? last.startAt
-    const next = [...sessions]
+    const next = [...engagements]
     if (closeAt - last.startAt <= MIN_SESSION_MS) next.pop()
     else next[next.length - 1] = { ...last, endAt: closeAt }
-    entity.schedule = { ...entity.schedule, sessions: next }
+    entity.schedule = { ...entity.schedule, engagements: next }
     // In-memory only (like the id/tagged migrations); persists on the next mutation.
   }
 
@@ -1673,16 +1711,16 @@ export function hydrateFromStorage(): boolean {
   // the focus-cleanup above (which keeps a `play` stopwatch running while the ENTITY is still
   // OPEN), this fires for ANY kind + ANY engagement kind precisely because the entity is closed.
   for (const entity of entities) {
-    const sessions = entity.schedule?.sessions
-    if (!sessions || sessions.length === 0) continue
-    const last = sessions[sessions.length - 1]
+    const engagements = entity.schedule?.engagements
+    if (!engagements || engagements.length === 0) continue
+    const last = engagements[engagements.length - 1]
     if (last.endAt != null) continue // already closed
     if (!isClosed(entity)) continue // still open ⇒ legitimately running, leave it
     const endAt = lastLogAt(entity) ?? last.startAt
-    const next = [...sessions]
+    const next = [...engagements]
     if (endAt - last.startAt <= MIN_SESSION_MS) next.pop()
     else next[next.length - 1] = { ...last, endAt }
-    entity.schedule = { ...entity.schedule, sessions: next }
+    entity.schedule = { ...entity.schedule, engagements: next }
   }
 
   // DEV-only: surface any log↔scalar drift found above. A clean load (no warning)
@@ -2239,7 +2277,7 @@ export function setEntityCompleted(id: string, completed: boolean): void {
   // Closing an entity ENDS any open engagement at the close moment (a Done task's focus
   // stopwatch, a Play'd space, …) so it stops printing as ongoing and the record shows when
   // it ended. Skipped on un-check (completed=false) — a reopened entity may run again.
-  if (completed) closeSession(id, now)
+  if (completed) closeEngagement(id, now)
   persist()
 }
 
@@ -2756,7 +2794,7 @@ export function setEntityCancelled(id: string, cancelled: boolean): void {
     seededOverrides.set(id, { ...seededOverrides.get(id), cancelled, cancelledOn: now })
   }
   // Cancelling ENDS any open engagement at the cancel moment (see setEntityCompleted). Not on restore.
-  if (cancelled) closeSession(id, now)
+  if (cancelled) closeEngagement(id, now)
   persist()
 }
 
@@ -2794,7 +2832,7 @@ export function setEntityClosed(id: string, closed: boolean): void {
     seededOverrides.set(id, { ...seededOverrides.get(id), closed, closedOn, reopened, reopenedOn })
   }
   // A manual Close ENDS any open engagement at the close moment (see setEntityCompleted). Not on reopen.
-  if (closed) closeSession(id, now)
+  if (closed) closeEngagement(id, now)
   persist()
 }
 

@@ -19,7 +19,7 @@
 
 import type { Entity, EntityKind, Whenever } from "./types"
 import { WHENEVER } from "./types"
-import { KIND_META, isClosed, fillsGlyph, getState, concreteStart, isPlayable, getSessions, type EntityState } from "./kinds"
+import { KIND_META, isClosed, fillsGlyph, getState, concreteStart, isPlayable, getEngagements, type EntityState } from "./kinds"
 import { isDone, getCreatedAt, getCompletedOn } from "./entity-log"
 import { getEntity, getCreator, getOwner, getForwardTags, getBackReferences, getChildren } from "./data"
 import { formatLocale } from "./format-locale"
@@ -178,7 +178,7 @@ export function fmt(epoch?: number | Whenever): string {
   }
 
 // A COMPACT when-label for an entity, used to distinguish multiple back-references that
-// share a title (e.g. several "Work on Zero" sessions): its span → its point → else the
+// share a title (e.g. several "Work on Zero" engagements): its span → its point → else the
 // date it was created. Under the `mounted` gate like `fmt`.
 export function rangeLabel(e: Entity): string {
   const s = e.schedule
@@ -197,7 +197,7 @@ export function rangeLabel(e: Entity): string {
 //   • BEING w/ no span   → its AGE: now − createdAt (an Individual/Organism's createdAt is a
 //                          genuine birth, so this reads "3d" / "34y")
 //   • otherwise          → null → "—" (a moment/space/task with no concrete start AND no
-//                          sessions has accrued NO length; it must NOT count up from creation —
+//                          engagements has accrued NO length; it must NOT count up from creation —
 //                          that made a merely-open "whenever" moment/space appear to run live)
 // `now` is passed so a live/ongoing value updates as the canvas re-renders.
 export function getDurationMs(e: Entity, now: number): number | null {
@@ -209,16 +209,16 @@ export function getDurationMs(e: Entity, now: number): number | null {
   if (e.kind === "instant") return 0
   // Accumulated session time takes precedence — a playable thing's "duration" IS its tracked
   // time, whether or not it also carries a concrete clock span.
-  const sessions = getSessions(e)
-  if (sessions.length > 0) {
+  const engagements = getEngagements(e)
+  if (engagements.length > 0) {
     let total = 0
-    for (const sess of sessions) total += Math.max(0, (sess.endAt ?? now) - sess.startAt)
+    for (const sess of engagements) total += Math.max(0, (sess.endAt ?? now) - sess.startAt)
     return total
   }
   if (cs != null && s?.endAt != null) return Math.max(0, s.endAt - cs)
   if (s?.at != null) return 0
   if (cs != null) return Math.max(0, now - cs) // ongoing (explicit concrete start)
-  // AGE fallback — beings only (death-terminal kinds). Everything else with no span/sessions
+  // AGE fallback — beings only (death-terminal kinds). Everything else with no span/engagements
   // has no length yet ⇒ "—".
   if (e.kind === "individual" || e.kind === "organism") {
     const created = getCreatedAt(e)
@@ -448,7 +448,7 @@ export function getFaceModel(e: Entity, now: number): FaceModel {
 // instances under one title; an ACTIVITY rollup/segment is PRESENCE (time in a place),
 // and may even point at a since-deleted entity. These are PROJECTIONS — they have no
 // lifecycle of their own, so they present only their kind (glyph shape) + a title (+ an
-// optional aggregate echo the caller computes: "3 sessions", "1h 20m"). By resolving a
+// optional aggregate echo the caller computes: "3 engagements", "1h 20m"). By resolving a
 // projection into the SAME FaceModel an entity produces, a projection becomes a first-
 // class Face — which is exactly what lets STARTERS/ACTIVITY render through <Zero0Face>.
 //
@@ -462,7 +462,7 @@ export interface FaceLike {
   title: string
   /** Optional own-accent (a projection rarely sets this; the glyph stays neutral if absent). */
   accent?: string
-  /** Optional aggregate echo the caller computes (e.g. "3 sessions", "1h 20m tracked"). */
+  /** Optional aggregate echo the caller computes (e.g. "3 engagements", "1h 20m tracked"). */
   metaEcho?: string
 }
 
@@ -573,7 +573,7 @@ export function getFaceMetaRows(e: Entity, now: number): [string, string][] {
   // TAG LINKS — the recursive "also shows up in" web, both directions:
   //   • tags      = this entity's own outbound links (the contexts it plugs into).
   //   • tagged by = the DERIVED reverse — entities that name/reference THIS one, each with a
-  //     when-label so multiple same-titled sessions ("Work on Zero") stay distinguishable.
+  //     when-label so multiple same-titled engagements ("Work on Zero") stay distinguishable.
   // Only shown when non-empty (a leaf with no links stays quiet).
   const forwardTags = getForwardTags(e)
   if (forwardTags.length > 0) {

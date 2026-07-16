@@ -86,7 +86,7 @@ export function Zero0Content({ entity, axis, depth, ancestry, ctx, isRoot, mount
   // among its own siblings). `dragId` = the row being dragged. `previewOrder` = the LIVE
   // reordered id list while dragging: the list physically rearranges under the cursor (the
   // rows slide via the FLIP effect below), and the arrangement is committed to persistence
-  // on drop. Session-only; the committed order persists via `ctx.reorder`.
+  // on drop. Engagement-only; the committed order persists via `ctx.reorder`.
   const [dragId, setDragId] = useState<string | null>(null)
   const [previewOrder, setPreviewOrder] = useState<string[] | null>(null)
   // Which row the cursor is over — drives the reveal of the drag grip + delete ×. We track

@@ -6,7 +6,7 @@ import {
   getStarterPinnedEntities,
   getInheritedAccent,
 } from "@/lib/zero/data"
-import { getOpenSession } from "@/lib/zero/kinds"
+import { getOpenEngagement } from "@/lib/zero/kinds"
 import type { Entity } from "@/lib/zero/types"
 import { isSleepTitle, sleepDotColor } from "@/lib/zero/sleep-sky"
 import { Zero0Glyph } from "@/components/zero0/zero0-glyph"
@@ -37,14 +37,14 @@ function fmtClock(ms: number): string {
 export function Zero0Pinned({
   dataRev,
   onOpen,
-  onToggleSession,
+  onToggleEngagement,
   onContextMenu,
 }: {
   dataRev: number
   /** Frame/title click — drill INTO the entity and start a session. */
   onOpen: (id: string) => void
   /** Glyph click — start/stop the session WITHOUT navigating (stay on canvas). */
-  onToggleSession: (id: string) => void
+  onToggleEngagement: (id: string) => void
   /** Right-click a tile — open the unified entity menu (carries "Unpin starter"). */
   onContextMenu: (entity: Entity, ev: React.MouseEvent) => void
 }) {
@@ -54,8 +54,8 @@ export function Zero0Pinned({
   // The live OPEN session pair per pinned entity, recomputed on every data change. A pinned
   // entity with a running session spins its glyph + shows an elapsed timer.
   // eslint-disable-next-line react-hooks/exhaustive-deps -- dataRev re-read trigger
-  const sessions = useMemo(() => pinned.map((e) => getOpenSession(e)), [pinned, dataRev])
-  const anyOngoing = sessions.some(Boolean)
+  const engagements = useMemo(() => pinned.map((e) => getOpenEngagement(e)), [pinned, dataRev])
+  const anyOngoing = engagements.some(Boolean)
 
   // A 1s clock powering the elapsed timers — only ticks while something is running.
   const [nowTick, setNowTick] = useState(() => Date.now())
@@ -87,7 +87,7 @@ export function Zero0Pinned({
         ) : (
           <div className="flex min-w-0 flex-1 flex-wrap items-start gap-2">
             {pinned.map((e, i) => {
-              const session = sessions[i]
+              const session = engagements[i]
               const running = !!session
               const startAt = session?.startAt ?? null
               const dot = e.accent ?? getInheritedAccent(e.parentId) ?? (isSleepTitle(e.title) ? sleepDotColor : undefined)
@@ -130,7 +130,7 @@ export function Zero0Pinned({
                     type="button"
                     onClick={(ev) => {
                       ev.stopPropagation()
-                      onToggleSession(e.id)
+                      onToggleEngagement(e.id)
                     }}
                     className={
                       "shrink-0 transition-opacity hover:opacity-70 " +

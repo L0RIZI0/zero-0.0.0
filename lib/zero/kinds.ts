@@ -1,4 +1,4 @@
-import type { Entity, EntityKind, Session } from "./types"
+import type { Entity, EntityKind, Engagement, Schedule } from "./types"
 import { WHENEVER } from "./types"
 import {
   isDone,
@@ -254,6 +254,27 @@ export function concreteStart(entity: Entity): number | null {
   return isConcreteStart(v) ? v : null
 }
 
+/**
+ * The EFFECTIVE end of a schedule's span: the declared `endAt` if present, ELSE a
+ * concrete `startAt` + `duration` (minutes) treated as an IMPLIED end. This is the one
+ * place the "start + duration ⇒ end" rule lives, so state transitions, close timing,
+ * bounds/sorting, and the dayline paint all agree that a start-plus-duration span ends
+ * at `start + duration`. Returns null when there's no way to know an end (no declared
+ * end, and no concrete-start+duration pair — e.g. a "whenever" or open-ended thing).
+ */
+export function effectiveScheduleEnd(s: Schedule | undefined): number | null {
+  if (!s) return null
+  if (s.endAt != null) return s.endAt
+  const start = typeof s.startAt === "number" ? s.startAt : null
+  if (start != null && s.duration != null && s.duration > 0) return start + s.duration * 60000
+  return null
+}
+
+/** Entity-level convenience over {@link effectiveScheduleEnd}. */
+export function effectiveEndAt(entity: Entity): number | null {
+  return effectiveScheduleEnd(entity.schedule)
+}
+
 /** True when the entity is PLAYABLE — a Moment/Space declared `startAt: "whenever"`. */
 export function isPlayable(entity: Entity): boolean {
   return (
@@ -262,27 +283,27 @@ export function isPlayable(entity: Entity): boolean {
   )
 }
 
-// ── Session reads (pure — sessions live ON the entity) ─────────────────────────
-// The CANONICAL store of punch-ins/outs is `schedule.sessions` (see types.ts). These
+// ── Engagement reads (pure — engagements live ON the entity) ─────────────────────────
+// The CANONICAL store of punch-ins/outs is `schedule.engagements` (see types.ts). These
 // pure reads let getState derive "ongoing" with zero dependency on the current view,
 // which is what makes a Task read ongoing EVERYWHERE it appears. Write helpers
-// (openSession/closeSession) live in data.ts.
+// (openEngagement/closeEngagement) live in data.ts.
 
-/** All of an entity's tracked sessions (oldest first); [] if none. */
-export function getSessions(entity: Entity): Session[] {
-  return entity.schedule?.sessions ?? []
+/** All of an entity's tracked engagements (oldest first); [] if none. */
+export function getEngagements(entity: Entity): Engagement[] {
+  return entity.schedule?.engagements ?? []
 }
 
 /** The single OPEN session (last entry lacking `endAt`), or null. */
-export function getOpenSession(entity: Entity): Session | null {
-  const s = getSessions(entity)
+export function getOpenEngagement(entity: Entity): Engagement | null {
+  const s = getEngagements(entity)
   const last = s[s.length - 1]
   return last && last.endAt == null ? last : null
 }
 
 /** Whether the entity has an open (ongoing) session right now. */
-export function hasOpenSession(entity: Entity): boolean {
-  return getOpenSession(entity) != null
+export function hasOpenEngagement(entity: Entity): boolean {
+  return getOpenEngagement(entity) != null
 }
 
 // ── Child-gated Task completion (resolver injection) ───────────────────────────
@@ -377,7 +398,8 @@ export function computeCloseAt(entity: Entity, now: number = Date.now()): number
     // END only — a Moment is a SPAN, and only its END closes it. A lone point anchor
     // (`schedule.at`) is NO LONGER treated as an end: a started-but-unended moment stays
     // ONGOING (see getState) until an end is set. (Instants keep their point semantics.)
-    const end = entity.schedule?.endAt
+    // A start+duration counts as an implied end (effectiveScheduleEnd).
+    const end = effectiveScheduleEnd(entity.schedule)
     return end != null ? nextLocalMidnight(end) : undefined
   }
   if (entity.kind === "instant") {
@@ -405,8 +427,9 @@ function completeSince(entity: Entity, now: number, seen?: Set<string>): number 
   }
   if (entity.kind === "moment") {
     // END only (see computeCloseAt): a moment completes when its span ENDS. With no end
-    // set, it never auto-completes — a past start makes it ONGOING, not complete.
-    const end = entity.schedule?.endAt
+    // set, it never auto-completes — a past start makes it ONGOING, not complete. A
+    // start+duration counts as an implied end (effectiveScheduleEnd).
+    const end = effectiveScheduleEnd(entity.schedule)
     return end != null && now >= end ? end : null
   }
   if (entity.kind === "instant") {
@@ -475,7 +498,7 @@ function getStateInner(entity: Entity, now: number, seen: Set<string>): EntitySt
   //  (1) an OPEN SESSION (kind-agnostic): a Task being worked on (focus punch-in) OR a
   //      Whenever moment/space with a running Play stopwatch. This is what makes a Task
   //      read ongoing EVERYWHERE it appears, purely from its own data.
-  const open = getOpenSession(entity)
+  const open = getOpenEngagement(entity)
   if (open) return { word: "ongoing", at: open.startAt }
   //  (2) a MOMENT or SPACE with a CONCRETE started span still in progress (started, not
   //      yet ended). Space joins Moment here (a live container). "whenever" is NOT
@@ -483,7 +506,9 @@ function getStateInner(entity: Entity, now: number, seen: Set<string>): EntitySt
   if (entity.kind === "moment" || entity.kind === "space") {
     const start = concreteStart(entity)
     if (start != null && now >= start) {
-      const end = entity.schedule?.endAt
+      // A start+duration implies an end (effectiveScheduleEnd): once now passes it, the
+      // span is over and it's no longer ongoing — same as a declared end.
+      const end = effectiveScheduleEnd(entity.schedule)
       if (end == null || now < end) return { word: "ongoing", at: start }
     }
   }

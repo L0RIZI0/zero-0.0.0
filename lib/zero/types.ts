@@ -195,7 +195,7 @@ export interface Recurrence {
  * `duration` vs `timebox` are intentionally distinct:
  *   - `duration` is the length of a CONTIGUOUS block (usually `endAt - startAt`).
  *   - `timebox` is a planned EFFORT BUDGET in minutes that may be spread across
- *     many separate sessions (e.g. "spend 5h on this over the week"), so it is
+ *     many separate engagements (e.g. "spend 5h on this over the week"), so it is
  *     independent of any single start/end.
  */
 /**
@@ -203,7 +203,7 @@ export interface Recurrence {
  * "a real, trackable thing that has NO fixed clock time." It is deliberately
  * distinct from BOTH `undefined` (genuinely unscheduled) AND a concrete epoch
  * (a fixed time): an entity whose `startAt === "whenever"` is PLAYABLE — its glyph
- * offers Play/Stop to open/close a background session on demand (see `Session`).
+ * offers Play/Stop to open/close a background session on demand (see `Engagement`).
  * Every `startAt` comparison (`now >= startAt`, arithmetic, etc.) MUST guard this
  * sentinel first via `isWheneverStart` / `concreteStart` in kinds.ts.
  */
@@ -213,20 +213,21 @@ export type Whenever = typeof WHENEVER
 /**
  * One tracked work SESSION: a punch-in (`startAt`) and, once closed, a punch-out
  * (`endAt`). The LAST session missing `endAt` is the single OPEN/ongoing session.
- * Two sources open sessions:
+ * Two sources open engagements:
  *   - FOCUS (tasks): drilling into a Task past a dwell threshold opens one; leaving
  *     the active path closes it. So a Task reads `ongoing` everywhere purely from
  *     "has an open session", with no dependency on the current view.
  *   - PLAY (whenever-valued moments/spaces): the glyph Play/Stop toggles one.
  */
-export interface Session {
+export interface Engagement {
   /** Punch-in, epoch ms. */
   startAt: Epoch
-  /** Punch-out, epoch ms. Absent ⇒ this session is still OPEN (ongoing). */
+  /** Punch-out, epoch ms. Absent ⇒ this engagement is still OPEN (ongoing). */
   endAt?: Epoch
-  /** How the session was opened — lets hydrate-cleanup close dangling FOCUS
-   *  sessions on reload while leaving PLAY stopwatches running. Absent ⇒ "focus". */
-  kind?: "focus" | "play"
+  /** VIA — how the engagement was opened ("focus" = dwelling in a Task, "play" = a
+   *  whenever stopwatch). Lets hydrate-cleanup close dangling FOCUS engagements on
+   *  reload while leaving PLAY stopwatches running. Absent ⇒ "focus". */
+  via?: "focus" | "play"
 }
 
 export interface Schedule {
@@ -243,7 +244,7 @@ export interface Schedule {
   dueAt?: Epoch
   /** Length of a contiguous block, in MINUTES. */
   duration?: number
-  /** Effort budget in MINUTES, independent of when it happens (may span sessions). */
+  /** Effort budget in MINUTES, independent of when it happens (may span engagements). */
   timebox?: number
   /**
    * MULTI-BLOCK days (D4): more than one within-day span, e.g. Day Job 8:00–11:30
@@ -255,13 +256,13 @@ export interface Schedule {
    */
   blocks?: { startAt: Epoch; endAt: Epoch }[]
   /**
-   * Tracked work sessions — the CANONICAL store of punch-ins/outs (see {@link Session}).
+   * Tracked work engagements — the CANONICAL store of punch-ins/outs (see {@link Engagement}).
    * The last entry missing `endAt` is the one OPEN session. Mirrors the `blocks`
    * convention: when present, scalar `startAt`/`endAt` mirror the FIRST session's start
    * and the LAST session's end so existing single-span readers keep working. The
    * append-only log is a SECONDARY audit trail, never the source of truth.
    */
-  sessions?: Session[]
+  engagements?: Engagement[]
   /** Recurrence; absent = one-off. */
   repeat?: Recurrence
 }

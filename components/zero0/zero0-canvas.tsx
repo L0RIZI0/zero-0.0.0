@@ -31,12 +31,12 @@ import {
   autoTagByTitle,
   isStarterPinned,
   toggleStarterPin,
-  openSession,
-  closeSession,
-  toggleSession,
+  openEngagement,
+  closeEngagement,
+  toggleEngagement,
   reorderContextItems,
 } from "@/lib/zero/data"
-  import { KIND_META, isClosed, getState, hasOpenSession, isPlayable } from "@/lib/zero/kinds"
+  import { KIND_META, isClosed, getState, hasOpenEngagement, isPlayable } from "@/lib/zero/kinds"
   import { isDone, describeLogEntry } from "@/lib/zero/entity-log"
 import {
   parseEntry,
@@ -156,7 +156,7 @@ export function Zero0Canvas() {
   // the chosen action id back through a single persistent IPC listener, which dispatches
   // to whatever this points at (entity action, or a sibling-nav closure).
   const nativeSelectRef = useRef<((id: string) => void) | null>(null)
-  // Which time frames are MINIMIZED (collapsed to just their dayline band). Session-only,
+  // Which time frames are MINIMIZED (collapsed to just their dayline band). Engagement-only,
   // a separate axis from § visibility: a shown frame can be full or minimized.
   const [minimized, setMinimized] = useState<{ agenda: boolean; activity: boolean; zeroHeader: boolean }>({
     // Agenda + the §1 ZERO HEADER open in their MINIMIZED form by default — a single
@@ -281,7 +281,7 @@ export function Zero0Canvas() {
     let changed = false
     for (const id of Array.from(focusOpenRef.current)) {
       if (!pathSet.has(id)) {
-        if (closeSession(id)) changed = true
+        if (closeEngagement(id)) changed = true
         focusOpenRef.current.delete(id)
       }
     }
@@ -292,7 +292,7 @@ export function Zero0Canvas() {
       for (const id of path) {
         const e = getEntity(id)
         if (e?.kind !== "task" || isDone(e)) continue
-        if (openSession(id, "focus")) {
+        if (openEngagement(id, "focus")) {
           focusOpenRef.current.add(id)
           opened = true
         }
@@ -307,7 +307,7 @@ export function Zero0Canvas() {
   const context = mounted ? getEntity(contextId) : undefined
   // SHOW HIDDEN — a per-context VIEW toggle (right-click ▸ Show hidden). When off, hidden
   // children (manual `hidden` flag OR auto-hidden-because-closed-before-today) collapse out
-  // of ENTITY CONTENT; when on, they're revealed with a "(hidden)" title prefix. Session-
+  // of ENTITY CONTENT; when on, they're revealed with a "(hidden)" title prefix. Engagement-
   // only and RESET on navigation so drilling into a new context starts clean.
   const [showHidden, setShowHidden] = useState(false)
   useEffect(() => {
@@ -658,14 +658,14 @@ export function Zero0Canvas() {
       setEntityCompleted(e.id, nowDone)
       // A Task is ongoing only while UNDONE, so marking it done punches out its focus
       // session (if any); it stops accruing work time even if it stays on the path.
-      if (nowDone && e.kind === "task" && hasOpenSession(e)) {
-        closeSession(e.id)
+      if (nowDone && e.kind === "task" && hasOpenEngagement(e)) {
+        closeEngagement(e.id)
         focusOpenRef.current.delete(e.id)
-      } else if (!nowDone && e.kind === "task" && path.includes(e.id) && !hasOpenSession(e)) {
+      } else if (!nowDone && e.kind === "task" && path.includes(e.id) && !hasOpenEngagement(e)) {
         // Reopened IN PLACE while still inside it. The dwell effect won't re-fire (the
         // `path` didn't change), so punch a focus session back in NOW — otherwise the
         // glyph stayed a static square until you navigated away and back (the bug Loris hit).
-        if (openSession(e.id, "focus")) focusOpenRef.current.add(e.id)
+        if (openEngagement(e.id, "focus")) focusOpenRef.current.add(e.id)
       }
       bump()
     },
@@ -677,7 +677,7 @@ export function Zero0Canvas() {
   const togglePlay = useCallback(
     (e: Entity) => {
       if (!isPlayable(e)) return
-      toggleSession(e.id, "play")
+      toggleEngagement(e.id, "play")
       bump()
     },
     [bump],
@@ -757,9 +757,9 @@ export function Zero0Canvas() {
   // PINNED (§4) SESSION TOGGLE — the glyph click (STAY here): explicit clock in/out from the
   // shelf, no navigation. Uses a "play" session (persists across reload, like the glyph
   // stopwatch on a Whenever moment/space — an intentional timer, not auto focus-tracking).
-  const togglePinnedSession = useCallback(
+  const togglePinnedEngagement = useCallback(
     (id: string) => {
-      toggleSession(id, "play")
+      toggleEngagement(id, "play")
       bump()
     },
     [bump],
@@ -1083,7 +1083,7 @@ export function Zero0Canvas() {
             <Zero0Pinned
               dataRev={rev}
               onOpen={openPinned}
-              onToggleSession={togglePinnedSession}
+              onToggleEngagement={togglePinnedEngagement}
               onContextMenu={(e, ev) => openMenu(e, ev)}
             />
           </div>

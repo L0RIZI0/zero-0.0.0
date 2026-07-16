@@ -1,7 +1,7 @@
 import { generateObject } from "ai"
 import { scheduleParseSchema } from "@/lib/zero/schedule-parse"
 
-// NL → schedule parser. Takes a free-text phrase ("Plan 1h Workout sessions for every
+// NL → schedule parser. Takes a free-text phrase ("Plan 1h Workout engagements for every
 // weekday except weekends indefinitely") and returns the normalized, timezone-free
 // ScheduleParse the client store turns into a Zero entity + Recurrence rule.
 //
