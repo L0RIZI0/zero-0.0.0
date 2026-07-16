@@ -2062,7 +2062,11 @@ function resolveOccurrenceSchedule(s: Schedule | undefined, dayStart: number): S
   const occStart = occ.getTime()
   const duration = isConcreteStart(s.startAt) && s.endAt != null ? s.endAt - s.startAt : 0
   if (s.at != null) {
+    // Instant (point): collapse start/end onto the same shifted instant so a materialized
+    // occurrence never inherits the anchor day's stale startAt/endAt (which would misplace it).
     resolved.at = occStart
+    resolved.startAt = occStart
+    resolved.endAt = occStart
   } else {
     resolved.startAt = occStart
     resolved.endAt = occStart + duration
@@ -2487,7 +2491,9 @@ export function applyParsedSchedule(id: string, plan: ScheduleParse): boolean {
       : undefined
 
   if (plan.kind === "instant") {
-    entity.schedule = { at: startAt, ...(repeat ? { repeat } : {}) }
+    // Zero-duration point: at === startAt === endAt (uniform with setEntityScheduleField's
+    // instant normalization), so it renders as a dayline point and never reads ongoing.
+    entity.schedule = { at: startAt, startAt, endAt: startAt, ...(repeat ? { repeat } : {}) }
   } else if (plan.kind === "moment" || plan.kind === "space") {
     if (plan.kind === "space") {
       entity.description = entity.description ?? ""
@@ -2560,11 +2566,33 @@ export function setEntityScheduleField(
   if (epoch === WHENEVER && field !== "startAt") return false
   const entity = mutable(stored)
   const sched: NonNullable<Entity["schedule"]> = { ...(entity.schedule ?? {}) }
-  if (epoch == null) delete sched[field]
+  // An INSTANT is a ZERO-DURATION POINT — its start and end coincide. ANY concrete time set on
+  // start/end/at collapses all three to that one epoch, so it can never carry a dangling
+  // `startAt` with no `endAt` (which the dayline would paint as an open-ended ONGOING span — the
+  // v0.6.9 regression). Clearing removes all three. `at` stays the canonical anchor.
+  const isInstant = entity.kind === "instant"
+  if (isInstant) {
+  if (epoch == null) {
+  delete sched.startAt
+  delete sched.endAt
+  delete sched.at
+  } else if (epoch !== WHENEVER) {
+  sched.startAt = epoch
+  sched.endAt = epoch
+  sched.at = epoch
+  }
+  } else if (epoch == null) delete sched[field]
   else if (field === "startAt") sched.startAt = epoch
   else if (epoch !== WHENEVER) sched[field] = epoch
   entity.schedule = sched
+  // Instant logs the COINCIDENT open + close as a pair (start, then its matching end) so its
+  // life log reads a close right after the start. Other kinds log the single field set.
+  if (isInstant && epoch !== WHENEVER) {
+  logSet(entity, "startAt", epoch)
+  logSet(entity, "endAt", epoch)
+  } else {
   logSet(entity, field, epoch === WHENEVER ? WHENEVER : epoch)
+  }
   // Re-stamp the absolute midnight close whenever a MOMENT/INSTANT's end (or point)
   // changes, so its time-close stays tz-stable and in sync with the new schedule. Tasks
   // stamp on Done instead, not from `dueAt`, so they're unaffected here.

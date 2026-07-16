@@ -216,6 +216,38 @@
   }
 }
 
+/* §4 chip ENTER / EXIT — a smooth 1.2s opacity fade for any chip appearing in or leaving a
+   §4 list (ongoing punch-in/out, a marked instant's transient "just happened" chip, etc.).
+   Opacity-only so it never fights the FLIP transform on the same wrapper node. */
+@keyframes zero0-chip-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes zero0-chip-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+.zero0-chip-in {
+  animation: zero0-chip-in 1200ms ease both;
+}
+.zero0-chip-out {
+  animation: zero0-chip-out 1200ms ease forwards;
+}
+@media (prefers-reduced-motion: reduce) {
+  .zero0-chip-in,
+  .zero0-chip-out {
+    animation: none;
+  }
+}
+
 /* NOTE: the ONGOING glyph rotation is no longer a CSS animation — it moved to the Web
    Animations API in zero0-glyph.tsx so the spin can ease IN on start and decelerate OUT
    to upright on stop (a class toggle can only snap off). */

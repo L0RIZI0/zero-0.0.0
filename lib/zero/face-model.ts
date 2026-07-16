@@ -505,7 +505,7 @@ export function faceModelFromLike(like: FaceLike): FaceModel {
   }
 }
 
-// ── THE FULL FACE'S META ROWS (§0) ─────────────────────────────────────────────
+// ── THE FULL FACE'S META ROWS (§0) ──────────────────��──────────────────────────
 // The exhaustive key/value list shown at the `full` rung — raw lifecycle data,
 // kind-aware. Moved verbatim from the canvas so the §0 dl has a single source.
 // `now` drives the live DURATION/AGE count-up.
@@ -618,16 +618,19 @@ export function getFaceMetaRows(e: Entity, now: number): [string, string][] {
   } else if (s && (s.startAt || s.endAt || s.at)) {
     rows.push(["scheduled", s.at ? fmt(s.at) : `${fmt(s.startAt)} → ${fmt(s.endAt)}`])
   }
-  // DURATION / AGE — DERIVED length, shown for every entity: an instant is always 0s; a
-  // start+end span is its width; a start-only (ONGOING) entity counts up live from `now`;
-  // with no schedule start it falls back to the age since `createdAt`. For an Individual
-  // (whose createdAt IS a birth) the label reads AGE — the elapsed-since-birth framing —
-  // rather than DURATION. Never stored — always computed.
-  const durMs = getDurationMs(e, now)
-  // BEINGS read "age" (elapsed since birth); everything else reads "duration" (its span /
-  // accumulated session time).
-  const durLabel = e.kind === "individual" || e.kind === "organism" ? "age" : "duration"
-  rows.push([durLabel, durMs == null ? "—" : formatDuration(durMs)])
+  // DURATION / AGE — DERIVED length: a start+end span is its width; a start-only (ONGOING)
+  // entity counts up live from `now`; with no schedule start it falls back to the age since
+  // `createdAt`. For an Individual (whose createdAt IS a birth) the label reads AGE — the
+  // elapsed-since-birth framing. Never stored — always computed. SKIPPED for an INSTANT: it's a
+  // zero-duration point, so a "0s" duration is meaningless noise (its OCCURRENCES row is what
+  // matters instead).
+  if (e.kind !== "instant") {
+    const durMs = getDurationMs(e, now)
+    // BEINGS read "age" (elapsed since birth); everything else reads "duration" (its span /
+    // accumulated session time).
+    const durLabel = e.kind === "individual" || e.kind === "organism" ? "age" : "duration"
+    rows.push([durLabel, durMs == null ? "—" : formatDuration(durMs)])
+  }
   // ACCENT — only when set (via `:color:`). The value is the raw hex; the dt cell
   // paints a matching swatch so the raw-data view still shows the color itself.
   if (e.accent) rows.push(["color", e.accent])

@@ -2,7 +2,7 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import type React from "react"
-import { getInheritedAccent, getStarterPinnedEntities, getOwnOngoingEntities } from "@/lib/zero/data"
+import { getInheritedAccent, getStarterPinnedEntities, getOwnOngoingEntities, getRecentlyMarkedInstants } from "@/lib/zero/data"
 import { isOwnOngoing, getOpenEngagement, concreteStart, effectiveEndAt } from "@/lib/zero/kinds"
 import type { Entity } from "@/lib/zero/types"
 import { isSleepTitle, sleepDotColor } from "@/lib/zero/sleep-sky"
@@ -18,6 +18,10 @@ const TICK_MS = 1000
  *  the pinned and ongoing lists reads as a smooth, noticeable trip, not a snap. */
 const FLIP_MS = 480
 const FLIP_EASE = "cubic-bezier(0.22, 1, 0.36, 1)"
+
+/** §4 chip enter/exit fade duration — MUST match the `.zero0-chip-out` CSS animation so a
+ *  leaving chip is unmounted exactly when its fade-out finishes. */
+const CHIP_FADE_MS = 1200
 
 const pad2 = (n: number) => String(n).padStart(2, "0")
 
@@ -64,7 +68,21 @@ function ongoingTimer(e: Entity, now: number): { text: string; countdown: boolea
   return null
 }
 
-type PinItem = { entity: Entity; ongoing: boolean; pinned: boolean; focused: boolean; timer: { text: string; countdown: boolean } | null }
+type PinItem = {
+  entity: Entity
+  ongoing: boolean
+  pinned: boolean
+  focused: boolean
+  timer: { text: string; countdown: boolean } | null
+  /** Which §4 list this chip renders in — drives the split (and keeps a fading-out chip on the
+   *  side it was on when it left). */
+  side: "pinned" | "ongoing"
+  /** A RECENTLY-MARKED instant chip — transient "just happened" acknowledgement (not ongoing).
+   *  Shows `agoText` instead of a live timer and fades away after RECENT_MARK_MS. */
+  mark?: boolean
+  /** "2s ago" — elapsed since the instant's latest mark. Only set for `mark` chips. */
+  agoText?: string
+}
 
 /**
  * Dep-free FLIP: animates chips as they change layout position between renders — most
@@ -150,7 +168,7 @@ function useFlipRow(sig: string) {
  *   - ALT/⌘/CTRL-CLICK the chip body → START in the BACKGROUND (parallel; stay on the current
  *     canvas). No-op if it's already ongoing. (Alt is the safe modifier — ⌘/Ctrl+click is a
  *     right-click on some platforms; we accept all three.)
- *   - CLICK the GLYPH → ongoing ⇒ STOP it; idle ⇒ START in the background. Stays here.
+ *   - CLICK the GLYPH → ongoing ��� STOP it; idle ⇒ START in the background. Stays here.
  *   - RIGHT-CLICK → the unified entity menu (Pin / Unpin at the top).
  * The band renders NOTHING when both lists are empty (⇒ hidden), unless `forceShow` (the §4
  * keybinding) reveals the empty frame with a muted placeholder.
@@ -201,6 +219,7 @@ export function Zero0Pins({
       pinned: isPinned,
       focused: e.id === focusId,
       timer: on ? ongoingTimer(e, now) : null,
+      side: on ? "ongoing" : "pinned",
     })
     const pinnedIdle: PinItem[] = []
     const ongoing: PinItem[] = []
@@ -212,6 +231,24 @@ export function Zero0Pins({
       if (pinnedIds.has(e.id)) continue // already handled in the pinned pass
       ongoing.push(mk(e, true, false))
     }
+    // RECENTLY-MARKED INSTANTS — transient chips on the ONGOING side that acknowledge a just-
+    // recorded occurrence ("2s ago") and fade away after RECENT_MARK_MS. An instant is never
+    // ongoing, so these are their own flavor. Skip any already shown (pinned/ongoing) to dedupe.
+    const shownIds = new Set([...pinnedIdle, ...ongoing].map((i) => i.entity.id))
+    for (const { entity: e, markedAt } of getRecentlyMarkedInstants(now)) {
+      if (shownIds.has(e.id)) continue
+      const secs = Math.max(0, Math.floor((now - markedAt) / 1000))
+      ongoing.push({
+        entity: e,
+        ongoing: false,
+        pinned: pinnedIds.has(e.id),
+        focused: e.id === focusId,
+        timer: null,
+        side: "ongoing",
+        mark: true,
+        agoText: `${secs}s ago`,
+      })
+    }
     return { pinnedIdle, ongoing }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- dataRev + nowTick are the intended re-read triggers
   }, [dataRev, nowTick, focusId])
@@ -219,11 +256,73 @@ export function Zero0Pins({
   // The FLIP signature = the ORDERED ids in each list (with a `|` list boundary). It changes
   // ONLY on a structural layout change (a chip crossing lists, reorder, or membership change) —
   // NOT on the 1s timer tick or a focus change — so FLIP fires exactly when a chip should slide.
-  const layoutSig =
+  // ── PRESENCE (enter/exit fade) ──────────────────────────────────────────────────────────
+  // Keep a chip mounted for CHIP_FADE_MS after it leaves the computed set, so it can fade OUT
+  // (a bare unmount would just pop). Entering chips fade IN via the `.zero0-chip-in` class on
+  // mount. We snapshot each item by id so a leaving chip still renders (with its last-known
+  // side/label) while it fades. A chip that reappears mid-fade is revived (its timer cancelled).
+  const snapshots = useRef(new Map<string, PinItem>())
+  const prevIds = useRef<Set<string>>(new Set())
+  const leaveTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>())
+  const [leaving, setLeaving] = useState<PinItem[]>([])
+  const memoSig =
     pinnedIdle.map((i) => i.entity.id).join(",") + "|" + ongoing.map((i) => i.entity.id).join(",")
+
+  useEffect(() => {
+    const current = [...pinnedIdle, ...ongoing]
+    const currentIds = new Set(current.map((i) => i.entity.id))
+    for (const it of current) snapshots.current.set(it.entity.id, it)
+    // Revive any currently-fading chip that came back.
+    let revived = false
+    currentIds.forEach((id) => {
+      const t = leaveTimers.current.get(id)
+      if (t) {
+        clearTimeout(t)
+        leaveTimers.current.delete(id)
+        revived = true
+      }
+    })
+    if (revived) setLeaving((prev) => prev.filter((li) => !currentIds.has(li.entity.id)))
+    // Newly gone (present last render, absent now) → start fading + schedule unmount.
+    const gone: PinItem[] = []
+    prevIds.current.forEach((id) => {
+      if (!currentIds.has(id) && !leaveTimers.current.has(id)) {
+        const snap = snapshots.current.get(id)
+        if (snap) {
+          gone.push(snap)
+          const timer = setTimeout(() => {
+            leaveTimers.current.delete(id)
+            snapshots.current.delete(id)
+            setLeaving((cur) => cur.filter((x) => x.entity.id !== id))
+          }, CHIP_FADE_MS)
+          leaveTimers.current.set(id, timer)
+        }
+      }
+    })
+    if (gone.length) setLeaving((cur) => [...cur, ...gone])
+    prevIds.current = currentIds
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- memoSig captures the membership change
+  }, [memoSig])
+
+  // Clear any pending fade timers on unmount.
+  useEffect(() => () => leaveTimers.current.forEach((t) => clearTimeout(t)), [])
+
+  // Merge present chips with the fading-out ones, each staying on the side it left from.
+  const leavingIds = new Set(leaving.map((i) => i.entity.id))
+  const pinnedRender = [
+    ...pinnedIdle,
+    ...leaving.filter((i) => i.side === "pinned" && !pinnedIdle.some((p) => p.entity.id === i.entity.id)),
+  ]
+  const ongoingRender = [
+    ...ongoing,
+    ...leaving.filter((i) => i.side === "ongoing" && !ongoing.some((o) => o.entity.id === i.entity.id)),
+  ]
+
+  const layoutSig =
+    pinnedRender.map((i) => i.entity.id).join(",") + "|" + ongoingRender.map((i) => i.entity.id).join(",")
   const setNode = useFlipRow(layoutSig)
 
-  const total = pinnedIdle.length + ongoing.length
+  const total = pinnedRender.length + ongoingRender.length
 
   // Empty: hidden by default, but §4 (`forceShow`) reveals the frame with a muted hint.
   if (total === 0) {

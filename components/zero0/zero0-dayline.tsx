@@ -251,6 +251,12 @@ interface DaylineBar {
   /** A single-point occurrence (instant / zero-length) renders as a thin tick. */
   point: boolean
   /**
+   * An INSTANT occurrence MARK — a zero-length `via:"mark"` engagement. Renders as a small
+   * downward-triangle instant glyph (not a bare 2px tick) so an occurrence reads as "an
+   * Instant on the dayline" rather than an easy-to-miss sliver.
+   */
+  markGlyph?: boolean
+  /**
    * A presence segment that is still OPEN (`leftAt === null`) — its right edge IS
    * "now". Rendered anchored to its right edge (growing leftward) so its min-width
    * never spills a tick PAST the NOW marker.
@@ -563,6 +569,7 @@ export function Zero0Dayline({
             : `${rangeText(rawStart, rawEnd)} · ${kindLabel}${merged}`,
           track: "planned", // activity rail
           point: en <= st,
+          markGlyph: run.via === "mark", // occurrence ⇒ draw a small instant glyph
           // Open run's right edge IS now → anchored + joins the ongoing stack.
           openEnded: open,
           // An OPEN session run is "happening now, end unknown" — trail the same rightward
@@ -1324,11 +1331,15 @@ export function Zero0Dayline({
                         style={{
                           top: railTop,
                           left: p.openEnded ? `${p.leftPct + p.widthPct}%` : `${p.leftPct}%`,
-                          width: p.point ? 2 : `max(3px, ${p.widthPct}%)`,
-                          height: tickH,
+                          // A MARK renders as a small downward-triangle instant glyph (clip-path);
+                          // a plain point is a 2px tick; a span fills its width.
+                          width: p.markGlyph ? 9 : p.point ? 2 : `max(3px, ${p.widthPct}%)`,
+                          height: p.markGlyph ? 9 : tickH,
                           // FILL = entity color; HAIRLINE = parent color, only inside a Space.
                           background: fill,
-                          border: p.stroke ? `1px solid ${p.stroke}` : "none",
+                          // The triangle carries no hairline (a border on a clipped shape looks broken).
+                          border: p.markGlyph ? "none" : p.stroke ? `1px solid ${p.stroke}` : "none",
+                          clipPath: p.markGlyph ? "polygon(0 0, 100% 0, 50% 100%)" : undefined,
                           opacity: tickOpacity,
                           zIndex: lit || isHot ? 16 : 8,
                         }}
