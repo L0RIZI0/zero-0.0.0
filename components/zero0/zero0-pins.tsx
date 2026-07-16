@@ -180,6 +180,7 @@ export function Zero0Pins({
   onOpen,
   onEnd,
   onStart,
+  onMark,
   onContextMenu,
 }: {
   dataRev: number
@@ -197,6 +198,8 @@ export function Zero0Pins({
    *  click on a pinned-idle chip); `focus:false` ⇒ start in the BACKGROUND, staying on the
    *  current canvas (the glyph on an idle chip, or an Alt/modifier click on any chip). */
   onStart: (id: string, focus: boolean) => void
+  /** Glyph click on a MARK chip (recently-marked instant) — record ANOTHER occurrence. */
+  onMark: (id: string) => void
   /** Right-click a chip — open the unified entity menu. */
   onContextMenu: (entity: Entity, ev: React.MouseEvent) => void
 }) {
@@ -338,8 +341,13 @@ export function Zero0Pins({
   }
 
   const renderChip = (item: PinItem) => (
-    <div key={item.entity.id} ref={setNode(item.entity.id)} className="shrink-0" style={{ willChange: "transform" }}>
-      <PinChip item={item} onOpen={onOpen} onEnd={onEnd} onStart={onStart} onContextMenu={onContextMenu} />
+    <div
+      key={item.entity.id}
+      ref={setNode(item.entity.id)}
+      className={"shrink-0 " + (leavingIds.has(item.entity.id) ? "zero0-chip-out" : "zero0-chip-in")}
+      style={{ willChange: "transform" }}
+    >
+      <PinChip item={item} onOpen={onOpen} onEnd={onEnd} onStart={onStart} onMark={onMark} onContextMenu={onContextMenu} />
     </div>
   )
 
@@ -348,21 +356,21 @@ export function Zero0Pins({
       className="flex shrink-0 items-center gap-1.5 overflow-x-auto border-b border-border px-4 py-2"
       aria-label="pinned and ongoing entities"
     >
-      {pinnedIdle.map(renderChip)}
+      {pinnedRender.map(renderChip)}
       {/* DIVIDER — a full-height hairline separating the pinned list from the ongoing list.
           Only when BOTH sides exist (nothing to separate otherwise). `-my-2` cancels the
           band's py-2 so it spans the whole frame height, edge to edge. */}
-      {pinnedIdle.length > 0 && ongoing.length > 0 && (
+      {pinnedRender.length > 0 && ongoingRender.length > 0 && (
         <div className="-my-2 w-px shrink-0 self-stretch bg-border" aria-hidden />
       )}
       {/* ONGOING label — sits at the far LEFT of the ongoing list (pinned-idle chips to its
           left). Shown only when something is ongoing; otherwise the band is just the pins. */}
-      {ongoing.length > 0 && (
+      {ongoingRender.length > 0 && (
         <span className="shrink-0 select-none px-1 text-[10px] font-medium uppercase tracking-wider tabular-nums text-muted-foreground/70">
           ongoing
         </span>
       )}
-      {ongoing.map(renderChip)}
+      {ongoingRender.map(renderChip)}
     </div>
   )
 }
@@ -374,15 +382,17 @@ function PinChip({
   onOpen,
   onEnd,
   onStart,
+  onMark,
   onContextMenu,
 }: {
   item: PinItem
   onOpen: (id: string) => void
   onEnd: (id: string) => void
   onStart: (id: string, focus: boolean) => void
+  onMark: (id: string) => void
   onContextMenu: (entity: Entity, ev: React.MouseEvent) => void
 }) {
-  const { entity: e, ongoing, focused, timer } = item
+  const { entity: e, ongoing, focused, timer, mark, agoText } = item
   const accent = e.accent ?? getInheritedAccent(e.parentId) ?? (isSleepTitle(e.title) ? sleepDotColor : undefined)
   const tint = accent ?? "var(--muted-foreground)"
   // Faint accent WASH behind every chip; a touch STRONGER when FOCUSED (the entity that IS the
@@ -392,6 +402,11 @@ function PinChip({
   // Plain body click: ongoing ⇒ just focus; idle ⇒ start AND focus. Any modifier ⇒ start in
   // the background (parallel), staying put; skip if already ongoing.
   const bodyClick = (ev: React.MouseEvent | React.KeyboardEvent) => {
+    // A MARK chip is an instant (never ongoing) — body click just drills in.
+    if (mark) {
+      onOpen(e.id)
+      return
+    }
     if ("altKey" in ev && (ev.altKey || ev.metaKey || ev.ctrlKey)) {
       if (!ongoing) onStart(e.id, false)
       return
@@ -420,39 +435,85 @@ function PinChip({
         backgroundColor: `color-mix(in oklab, ${tint} ${fillPct}%, transparent)`,
       }}
       title={
-        ongoing
-          ? `${e.title} — click to focus · alt-click to start another in parallel · glyph to stop · right-click for menu`
-          : `${e.title} — click to start & focus · alt-click to start in background · glyph to start in background · right-click for menu`
+        mark
+          ? `${e.title} — just marked · click to open · glyph to mark again · right-click for menu`
+          : ongoing
+            ? `${e.title} — click to focus · alt-click to start another in parallel · glyph to stop · right-click for menu`
+            : `${e.title} — click to start & focus · alt-click to start in background · glyph to start in background · right-click for menu`
       }
     >
-      {/* GLYPH — spins while ongoing; the button STOPS (ongoing) or STARTS in the background
-          (idle). Never navigates. */}
-      <button
-        type="button"
-        onClick={(ev) => {
-          ev.stopPropagation()
-          if (ongoing) onEnd(e.id)
-          else onStart(e.id, false)
-        }}
-        className="shrink-0 transition-opacity hover:opacity-60"
-        style={{ color: tint }}
-        title={ongoing ? `Stop ${e.title}` : `Start ${e.title} in background`}
-        aria-label={ongoing ? `Stop ${e.title}` : `Start ${e.title} in background`}
-      >
-        <Zero0Glyph kind={e.kind} ongoing={ongoing} filled={false} className="h-3.5 w-3.5" />
-      </button>
+      {/* GLYPH — a MARK chip's glyph records ANOTHER occurrence (one-shot spin via markSpin);
+          otherwise it spins while ongoing and the button STOPS (ongoing) or STARTS in the
+          background (idle). Never navigates. */}
+      <MarkableChipGlyph
+        e={e}
+        tint={tint}
+        ongoing={ongoing}
+        mark={mark}
+        onEnd={onEnd}
+        onStart={onStart}
+        onMark={onMark}
+      />
       {/* TITLE — the chip body carries the drill-in click. */}
       <span className="max-w-[10rem] truncate">{e.title}</span>
-      {/* LIVE TIMER — elapsed-so-far (counts up) or countdown-to-end ("-…"), ticking each
-          second. Muted + tabular + zero-padded so the chip width never jitters. */}
-      {timer && (
-        <span
-          className="shrink-0 tabular-nums text-[10px] text-muted-foreground"
-          title={timer.countdown ? "time remaining" : "elapsed so far"}
-        >
-          {timer.text}
+      {/* LIVE TIMER (ongoing) — elapsed-so-far or countdown, ticking each second. Muted +
+          tabular so the chip width never jitters. A MARK chip instead shows "Ns ago". */}
+      {mark ? (
+        <span className="shrink-0 tabular-nums text-[10px] text-muted-foreground" title="time since this occurrence">
+          {agoText}
         </span>
+      ) : (
+        timer && (
+          <span
+            className="shrink-0 tabular-nums text-[10px] text-muted-foreground"
+            title={timer.countdown ? "time remaining" : "elapsed so far"}
+          >
+            {timer.text}
+          </span>
+        )
       )}
     </div>
+  )
+}
+
+/** The glyph button inside a §4 chip. A MARK chip records another occurrence on click (one-shot
+ *  spin via `spinOnce`); an ongoing/idle chip stops/starts as before. Split out so the mark
+ *  chip can own its local spin counter. */
+function MarkableChipGlyph({
+  e,
+  tint,
+  ongoing,
+  mark,
+  onEnd,
+  onStart,
+  onMark,
+}: {
+  e: Entity
+  tint: string
+  ongoing: boolean
+  mark?: boolean
+  onEnd: (id: string) => void
+  onStart: (id: string, focus: boolean) => void
+  onMark: (id: string) => void
+}) {
+  const [spin, setSpin] = useState(0)
+  return (
+    <button
+      type="button"
+      onClick={(ev) => {
+        ev.stopPropagation()
+        if (mark) {
+          onMark(e.id)
+          setSpin((n) => n + 1)
+        } else if (ongoing) onEnd(e.id)
+        else onStart(e.id, false)
+      }}
+      className="shrink-0 transition-opacity hover:opacity-60"
+      style={{ color: tint }}
+      title={mark ? `Mark ${e.title} again` : ongoing ? `Stop ${e.title}` : `Start ${e.title} in background`}
+      aria-label={mark ? `Mark ${e.title} again` : ongoing ? `Stop ${e.title}` : `Start ${e.title} in background`}
+    >
+      <Zero0Glyph kind={e.kind} ongoing={ongoing} spinOnce={spin} filled={false} className="h-3.5 w-3.5" />
+    </button>
   )
 }

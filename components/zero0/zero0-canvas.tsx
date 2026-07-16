@@ -1108,11 +1108,15 @@ export function Zero0Canvas() {
           dataRev={rev}
           focusId={contextId}
           forceShow={showFrequent}
-          onOpen={openPin}
-          onEnd={endPin}
-          onStart={startPin}
-          onContextMenu={(e, ev) => openMenu(e, ev)}
-        />
+  onOpen={openPin}
+  onEnd={endPin}
+  onStart={startPin}
+  onMark={(id) => {
+    markInstant(id)
+    bump()
+  }}
+  onContextMenu={(e, ev) => openMenu(e, ev)}
+  />
       )}
 
       {/* ── AGENDA BAND (topmost, "TODAY") ──────────────────────────────────────
