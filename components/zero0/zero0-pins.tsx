@@ -16,9 +16,9 @@ const RESCAN_MS = 10000
 /**
  * §4 PINS — the ONGOING band. A horizontal row of colored chips, one per entity that is
  * ongoing BY ITSELF (open engagement or a running concrete span — see `isOwnOngoing`;
- * rollup-only containers are excluded since you can't END them here). Rendered inline at
- * the very top, to the RIGHT of the live clock. Each chip is the entity's accent color and
- * carries its GLYPH (spinning) + TITLE:
+ * rollup-only containers are excluded since you can't END them here). Rendered as its own
+ * BAND (the repurposed §4 frame) directly under the clock. Each chip is the entity's accent
+ * color and carries its GLYPH (spinning) + TITLE:
  *   - CLICK the chip/title → drill INTO the entity.
  *   - CLICK the spinning GLYPH → END the ongoing entity (close its engagement, or end its
  *     running span) without navigating.
@@ -64,9 +64,8 @@ export function Zero0Pins({
 
   return (
     <div
-      className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto normal-case tracking-normal"
-      aria-label="ongoing"
-      style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
+      className="flex shrink-0 items-center gap-1.5 overflow-x-auto border-b border-border px-4 py-2"
+      aria-label="ongoing entities"
     >
       {ongoing.map((e) => {
         const accent =

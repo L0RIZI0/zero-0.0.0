@@ -1057,23 +1057,24 @@ export function Zero0Canvas() {
           click-and-drag it to MOVE the frameless window (Windows/Linux; a no-op on the web
           and under macOS's native title bar). The window controls opt back out via `no-drag`.
           `justify-between` keeps the live clock left and the min/max/close cluster top-right. */}
-      {/* ── §4 PINS live inline here, to the RIGHT of the clock ─────────────────
-          The clock stays left; the ongoing-entity chips fill the space between it and
-          the window controls. `Zero0Pins` renders NOTHING when nothing is ongoing, so
-          this row is just the clock + controls until an entity starts running. The band
-          opts out of the title-bar drag region itself (its chips are clickable). */}
       <div
-        className="flex min-h-[41px] shrink-0 items-center gap-3 border-b border-border px-4 py-3 text-[10px] font-medium uppercase tracking-wider leading-none tabular-nums text-foreground"
+        className="flex min-h-[41px] shrink-0 items-center justify-between gap-3 border-b border-border px-4 py-3 text-[10px] font-medium uppercase tracking-wider leading-none tabular-nums text-foreground"
         style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
       >
-        <span className="shrink-0">{topClock}</span>
-        {mounted && (
-          <Zero0Pins dataRev={rev} onOpen={openPin} onEnd={endPin} onContextMenu={(e, ev) => openMenu(e, ev)} />
-        )}
-        <div className="ml-auto shrink-0">
-          <Zero0WindowControls />
-        </div>
+        <span>{topClock}</span>
+        <Zero0WindowControls />
       </div>
+
+      {/* ── §4 PINS BAND (topmost, just under the clock) ────────────────────────
+          The repurposed §4 frame: a horizontal row of colored chips for every ONGOING
+          entity (glyph + title). Click a chip to drill in; click its spinning glyph to
+          END it. UNLIKE the other frames this has NO footer toggle — it is purely
+          AUTOMATIC: `Zero0Pins` renders nothing (→ the band collapses) whenever nothing
+          is ongoing, and appears the moment something starts. (Named "PINS" because the
+          plan is to let you pin a chip so it lingers here after it stops being ongoing.) */}
+      {mounted && (
+        <Zero0Pins dataRev={rev} onOpen={openPin} onEnd={endPin} onContextMenu={(e, ev) => openMenu(e, ev)} />
+      )}
 
       {/* ── AGENDA BAND (topmost, "TODAY") ──────────────────────────────────────
           The FORWARD-looking frame — what's PLANNED today (the planned dayline).
