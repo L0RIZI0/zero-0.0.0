@@ -283,6 +283,7 @@ export function Zero0Glyph({
   // and under reduced-motion. Uses its own animation slot so it never fights the ongoing spin.
   const spinOnceRef = useRef<number | undefined>(spinOnce)
   const onceAnimRef = useRef<Animation | null>(null)
+  const flashRef = useRef<SVGGElement | null>(null)
   useEffect(() => {
     const prev = spinOnceRef.current
     spinOnceRef.current = spinOnce
@@ -303,8 +304,27 @@ export function Zero0Glyph({
       once.cancel() // rotate(360°) === upright ⇒ revert to static with no jump
       if (onceAnimRef.current === once) onceAnimRef.current = null
     }
+
+    // FILL FLASH — an overlay silhouette that ramps 0 → 100% opacity at EXACTLY the spin's
+    // midpoint, then back to 0 (empty/outline) by the end. This is the "occurrence passed but
+    // didn't complete" pulse: the instant briefly reads full then relaxes to outline. When the
+    // mark DOES complete the instant, the base `filled` prop takes over and it stays full — the
+    // flash just blends into that. Driven independently of the base fill so an outline glyph
+    // still flashes.
+    const flash = flashRef.current
+    let flashAnim: Animation | null = null
+    if (flash && typeof flash.animate === "function") {
+      flashAnim = flash.animate([{ opacity: 0 }, { opacity: 1 }, { opacity: 0 }], {
+        duration: SPIN_MS,
+        easing: "ease-in-out",
+        fill: "forwards",
+      })
+      flashAnim.onfinish = () => flashAnim?.cancel()
+    }
+
     return () => {
       once.cancel()
+      flashAnim?.cancel()
       if (onceAnimRef.current === once) onceAnimRef.current = null
     }
   }, [spinOnce, ongoing])
@@ -381,6 +401,12 @@ export function Zero0Glyph({
       ) : (
         <KindShape kind={kind} requested={requested && kind === "task"} />
       )}
+      {/* FILL-FLASH overlay — a filled copy of the shape, hidden (opacity 0) until a mark spin
+          ramps it to full at the spin midpoint then back to 0. Explicit fill/stroke so it
+          flashes even when the base glyph is an outline. */}
+      <g ref={flashRef} fill="currentColor" stroke="none" style={{ opacity: 0 }} aria-hidden="true">
+        <KindShape kind={kind} requested={requested && kind === "task"} />
+      </g>
       {done && (
         <path
           d="M7.5 12.5 L10.5 15.5 L16.5 8.5"

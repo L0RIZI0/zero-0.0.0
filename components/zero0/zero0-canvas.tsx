@@ -59,6 +59,7 @@ import { ZERO_VERSION } from "@/lib/zero/version"
 import { formatLocale } from "@/lib/zero/format-locale"
 import { Zero0ResourceCanvas } from "./zero0-resource-canvas"
 import { Zero0Pins } from "./zero0-pins"
+import { Zero0Frame } from "./zero0-frame"
 import { Zero0Face } from "./zero0-face"
 import { Zero0Content, type Zero0ContentCtx } from "./zero0-content"
   import { fmt, fmtLogValue, sexSymbol, formatDuration, type FaceSize, type FaceMake } from "@/lib/zero/face-model"
@@ -1149,10 +1150,6 @@ export function Zero0Canvas() {
   onOpen={openPin}
   onEnd={endPin}
   onStart={startPin}
-  onMark={(id) => {
-    markInstant(id)
-    bump()
-  }}
   onContextMenu={(e, ev) => openMenu(e, ev)}
   />
       )}
@@ -1165,26 +1162,20 @@ export function Zero0Canvas() {
           transition, no per-frame JS). Kept MOUNTED while collapsed so BOTH directions
           animate; `inert` drops it from tab/hit-testing when hidden. */}
       {mounted && (
-        <div
-          className="grid transition-[grid-template-rows] duration-300 ease-out motion-reduce:transition-none"
-          style={{ gridTemplateRows: showAgenda ? "1fr" : "0fr" }}
-          inert={!showAgenda}
-        >
-          <div className="overflow-hidden">
-            <Zero0Agenda
-              onOpen={navigateTo}
-              onContextMenuEntity={openMenuById}
-              onFrameMenu={openFrameMenu}
-              onToggleMinimize={() => setMinimized((m) => ({ ...m, agenda: !m.agenda }))}
-              minimized={minimized.agenda}
-              // Merge with ACTIVITY below when BOTH are minimized AND ACTIVITY is shown —
-              // then TODAY drops its divider so the two minimized bands group together.
-              hideBottomBorder={minimized.agenda && minimized.activity && showActivity}
-              dataRev={rev}
-              highlightId={highlightId}
-            />
-          </div>
-        </div>
+        <Zero0Frame open={showAgenda}>
+          <Zero0Agenda
+            onOpen={navigateTo}
+            onContextMenuEntity={openMenuById}
+            onFrameMenu={openFrameMenu}
+            onToggleMinimize={() => setMinimized((m) => ({ ...m, agenda: !m.agenda }))}
+            minimized={minimized.agenda}
+            // Merge with ACTIVITY below when BOTH are minimized AND ACTIVITY is shown —
+            // then TODAY drops its divider so the two minimized bands group together.
+            hideBottomBorder={minimized.agenda && minimized.activity && showActivity}
+            dataRev={rev}
+            highlightId={highlightId}
+          />
+        </Zero0Frame>
       )}
 
       {/* ── ACTIVITY BAND (below AGENDA, above the header) ───────────��─������───────
@@ -1192,37 +1183,26 @@ export function Zero0Canvas() {
           + details). Hidden by default, toggled from the footer, same grid-rows
           collapse animation as AGENDA. Clicking a place drills the canvas into it. */}
       {mounted && (
-        <div
-          className="grid transition-[grid-template-rows] duration-300 ease-out motion-reduce:transition-none"
-          style={{ gridTemplateRows: showActivity ? "1fr" : "0fr" }}
-          inert={!showActivity}
-        >
-          <div className="overflow-hidden">
-            <Zero0Activity
-              onOpen={navigateTo}
-              onContextMenuEntity={openMenuById}
-              onFrameMenu={openFrameMenu}
-              minimized={minimized.activity}
-              dataRev={rev}
-              currentContextId={contextId}
-              highlightId={highlightId}
-            />
-          </div>
-        </div>
+        <Zero0Frame open={showActivity}>
+          <Zero0Activity
+            onOpen={navigateTo}
+            onContextMenuEntity={openMenuById}
+            onFrameMenu={openFrameMenu}
+            minimized={minimized.activity}
+            dataRev={rev}
+            currentContextId={contextId}
+            highlightId={highlightId}
+          />
+        </Zero0Frame>
       )}
 
-      {/* ── ZERO HEADER (§1) ───────────────────────────────────────────────────
+      {/* ── ZERO HEADER (§1) ─────────���─────────────────────────────────────────
           Zero-UX chrome: the mark, the access path (breadcrumb), and a session
           readout. Not part of the node's own data. Toggled by §1 / the corner marker,
           and — like every frame in the stack — collapses with the dep-free grid-rows
           0fr↔1fr animation so the frames below slide up/down. Kept mounted so BOTH
           directions animate; `inert` drops it from tab/hit-testing when hidden. */}
-      <div
-        className="grid transition-[grid-template-rows] duration-300 ease-out motion-reduce:transition-none"
-        style={{ gridTemplateRows: showZeroHeader ? "1fr" : "0fr" }}
-        inert={!showZeroHeader}
-      >
-        <div className="overflow-hidden">
+      <Zero0Frame open={showZeroHeader}>
       <header
         className="relative border-b border-border p-4 text-[10px] leading-relaxed text-muted-foreground tabular-nums"
         // Right-click the header chrome → minimize/maximize this frame (same frame menu as
@@ -1295,8 +1275,7 @@ export function Zero0Canvas() {
         )}
         <Zero0FrameMarker flag="zeroHeader" label="the zero header" />
       </header>
-        </div>
-      </div>
+      </Zero0Frame>
 
       {/* ── ENTITY CONTENT ────────────────────────────────────────────────��────
           The open node as raw data: META, then CHILDREN. Recursive — the root

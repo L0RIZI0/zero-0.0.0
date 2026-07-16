@@ -19,7 +19,7 @@
 
 import type { Entity, EntityKind, Whenever } from "./types"
 import { WHENEVER } from "./types"
-import { KIND_META, isClosed, fillsGlyph, getState, concreteStart, isPlayable, isMarkable, getMarks, getEngagements, type EntityState } from "./kinds"
+  import { KIND_META, isClosed, fillsGlyph, getState, concreteStart, isPlayable, isMarkable, getMarks, getEngagements, getInstantMaxNb, isInstantMaxNbHard, getInstantOccurrenceCount, type EntityState } from "./kinds"
 import { isDone, getCreatedAt, getCompletedOn } from "./entity-log"
 import { getEntity, getCreator, getOwner, getForwardTags, getBackReferences, getChildren } from "./data"
 import { formatLocale } from "./format-locale"
@@ -505,7 +505,7 @@ export function faceModelFromLike(like: FaceLike): FaceModel {
   }
 }
 
-// ── THE FULL FACE'S META ROWS (§0) ──────────────────��──────────────────────────
+// ── THE FULL FACE'S META ROWS (§0) ──────────────────���──────────────────────────
 // The exhaustive key/value list shown at the `full` rung — raw lifecycle data,
 // kind-aware. Moved verbatim from the canvas so the §0 dl has a single source.
 // `now` drives the live DURATION/AGE count-up.
@@ -604,13 +604,15 @@ export function getFaceMetaRows(e: Entity, now: number): [string, string][] {
     // such a moment read as unscheduled — START —, END — — yet mysteriously "complete").
     if (s?.at != null) rows.push(["at", fmt(s.at)])
   } else if (e.kind === "instant") {
-    // An instant is a TALLY of occurrences (marks) — a series of timestamps, not a span.
-    // OCCURRENCES lists them newest-first ("N · t1 · t2 · …"); the lone scheduled `at`
-    // (a pre-placed instant) is still shown when present.
+    // An instant is a TALLY of occurrences (marks + a passed scheduled `at`), not a span. The
+    // OCCURRENCES row reads "<count> / <maxNb>" (the progress toward completion; maxNb omitted
+    // when it's the default 1) followed by the individual mark timestamps newest-first.
+    const count = getInstantOccurrenceCount(e, now)
+    const max = getInstantMaxNb(e)
     const marks = getMarks(e)
-    if (marks.length > 0) {
-      rows.push(["occurrences", `${marks.length} · ${marks.map((m) => fmt(m.startAt)).join(" · ")}`])
-    }
+    const tally = max > 1 ? `${count} / ${max}` : `${count}`
+    const stamps = marks.length > 0 ? ` · ${marks.map((m) => fmt(m.startAt)).join(" · ")}` : ""
+    rows.push(["occurrences", `${tally}${stamps}${isInstantMaxNbHard(e) ? " · hard cap" : ""}`])
     rows.push(["at", s?.at ? fmt(s.at) : "—"])
   } else if (s?.dueAt) {
     // Tasks (and other kinds) only surface a schedule row when one is actually set.
