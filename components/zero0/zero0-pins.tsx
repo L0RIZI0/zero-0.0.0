@@ -3,7 +3,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import type React from "react"
 import { getInheritedAccent, getStarterPinnedEntities, getOwnOngoingEntities, getRecentlyMarkedInstants, getRecentlyEndedEntities } from "@/lib/zero/data"
-import { isOwnOngoing, getOpenEngagement, concreteStart, effectiveEndAt, getEngagements } from "@/lib/zero/kinds"
+ import { isOwnOngoing, getOpenEngagement, concreteStart, effectiveEndAt } from "@/lib/zero/kinds"
 import { getFaceModel } from "@/lib/zero/face-model"
 import type { Entity } from "@/lib/zero/types"
 import { isSleepTitle, sleepDotColor } from "@/lib/zero/sleep-sky"
@@ -227,32 +227,35 @@ export function Zero0Pins({
       timer: on ? ongoingTimer(e, now) : null,
       side: on ? "ongoing" : "pinned",
     })
+    // NOTIFICATION CHIPS — the universal transient band on the ONGOING side. Two feeders, both
+    // lingering: (a) any entity that JUST STOPPED being ongoing (10s), showing its FROZEN final
+    // session duration; (b) a RECENTLY-MARKED instant (30s), showing "Ns ago". These are read
+    // FIRST so the pinned/ongoing passes can defer to them: a recently-ended entity — pinned OR
+    // not — becomes a notification chip during its linger, then transitions to its resting place.
+    const ended = getRecentlyEndedEntities(now) // [{entity, endedAt, lastMs}]
+    const marked = getRecentlyMarkedInstants(now) // [{entity, markedAt}]
+    const notifyIds = new Set<string>([...ended.map((x) => x.entity.id), ...marked.map((x) => x.entity.id)])
+
     const pinnedIdle: PinItem[] = []
     const ongoing: PinItem[] = []
+    // PINNED pass: ongoing ⇒ ongoing side; recently-ended/marked ⇒ DEFER to the notify pass
+    // (so a pinned entity MORPHS into a notification chip in place, THEN slides to the pins —
+    // it never leaves the memo, so the move is a pure FLIP slide with NO fade); else ⇒ pinned.
     for (const e of pinned) {
-      const on = isOwnOngoing(e, now)
-      ;(on ? ongoing : pinnedIdle).push(mk(e, on, true))
+      if (isOwnOngoing(e, now)) ongoing.push(mk(e, true, true))
+      else if (notifyIds.has(e.id)) continue // notify pass places it
+      else pinnedIdle.push(mk(e, false, true))
     }
     for (const e of getOwnOngoingEntities(now)) {
       if (pinnedIds.has(e.id)) continue // already handled in the pinned pass
       ongoing.push(mk(e, true, false))
     }
-    // NOTIFICATION CHIPS — the universal transient band on the ONGOING side. Two feeders, both
-    // lingering then fading: (a) any entity that JUST STOPPED being ongoing (10s), showing its
-    // frozen final session duration; (b) a RECENTLY-MARKED instant (30s), showing "Ns ago". A
-    // PINNED entity that stops is already in `pinnedIdle` (it simply slides left), so `shownIds`
-    // excludes it — notifications are for the NON-pinned stops only. Dedupe against everything
-    // already placed.
-    const shownIds = new Set([...pinnedIdle, ...ongoing].map((i) => i.entity.id))
-    // (a) recently STOPPED (any kind but instant) — frozen final duration.
-    for (const { entity: e, endedAt } of getRecentlyEndedEntities(now)) {
-      if (shownIds.has(e.id)) continue
+    // Dedupe the notify pass against anything already ONGOING (a recently-ended entity is not
+    // ongoing, so this only guards against odd overlaps).
+    const shownIds = new Set(ongoing.map((i) => i.entity.id))
+    const pushNotify = (e: Entity, notifyText: string) => {
+      if (shownIds.has(e.id)) return
       shownIds.add(e.id)
-      // The just-ended session's length — the stopwatch, frozen at its final value.
-      let lastMs = 0
-      for (const se of getEngagements(e)) {
-        if (se.endAt === endedAt && se.endAt != null) lastMs = Math.max(0, se.endAt - se.startAt)
-      }
       ongoing.push({
         entity: e,
         ongoing: false,
@@ -261,24 +264,15 @@ export function Zero0Pins({
         timer: null,
         side: "ongoing",
         notify: true,
-        notifyText: lastMs > 0 ? formatTimer(lastMs) : `${Math.max(0, Math.floor((now - endedAt) / 1000))}s ago`,
+        notifyText,
       })
     }
+    // (a) recently STOPPED — FROZEN final session duration (never a `now`-relative string, so it
+    //     can't flicker to "00s" as the chip fades).
+    for (const { entity: e, lastMs } of ended) pushNotify(e, formatTimer(lastMs))
     // (b) recently-MARKED instants — "Ns ago" since the latest occurrence.
-    for (const { entity: e, markedAt } of getRecentlyMarkedInstants(now)) {
-      if (shownIds.has(e.id)) continue
-      shownIds.add(e.id)
-      const secs = Math.max(0, Math.floor((now - markedAt) / 1000))
-      ongoing.push({
-        entity: e,
-        ongoing: false,
-        pinned: pinnedIds.has(e.id),
-        focused: e.id === focusId,
-        timer: null,
-        side: "ongoing",
-        notify: true,
-        notifyText: `${secs}s ago`,
-      })
+    for (const { entity: e, markedAt } of marked) {
+      pushNotify(e, `${Math.max(0, Math.floor((now - markedAt) / 1000))}s ago`)
     }
     return { pinnedIdle, ongoing }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- dataRev + nowTick are the intended re-read triggers
@@ -489,27 +483,13 @@ function PinChip({
     >
       {/* GLYPH — a NOTIFICATION chip's glyph reflects the entity's ACTUAL state (filled when
           complete/closed, checked when done, barred when cancelled), flashes filled once on entry,
-          and pulses gently while it lingers; it is NOT interactive (only the chip body opens).
-          Otherwise the glyph is a button that spins while ongoing and STOPS (ongoing) / STARTS in
-          the background (idle). */}
+          and pulses gently while it lingers. For a startable kind (moment/space/task/…) it is
+          INTERACTIVE during the linger — clicking RESUMES the entity (starts it in the background),
+          which lifts it back into the ongoing list. An instant's mark glyph stays static (a past
+          occurrence isn't resumable). Otherwise (live chip) the glyph spins while ongoing and
+          STOPS (ongoing) / STARTS in the background (idle). */}
       {notify ? (
-        (() => {
-          const gm = getFaceModel(e, Date.now())
-          return (
-            <span className="shrink-0" style={{ color: tint }} aria-hidden="true">
-              <Zero0Glyph
-                kind={e.kind}
-                filled={gm.filled}
-                done={gm.done}
-                cancelled={gm.cancelled}
-                requested={gm.requested}
-                flashFill={flashN}
-                pulse
-                className="h-3.5 w-3.5"
-              />
-            </span>
-          )
-        })()
+        <NotifyChipGlyph e={e} tint={tint} flashN={flashN} onStart={onStart} />
       ) : (
         <MarkableChipGlyph e={e} tint={tint} ongoing={ongoing} onEnd={onEnd} onStart={onStart} />
       )}
@@ -533,6 +513,59 @@ function PinChip({
         )
       )}
     </div>
+  )
+}
+
+/** The glyph inside a §4 NOTIFICATION chip. Always reflects the entity's ACTUAL state (via
+ *  getFaceModel), FLASHES filled once on entry (`flashN`), and PULSES gently while it lingers.
+ *  For a startable kind it is a BUTTON that RESUMES the entity (starts it in the background) —
+ *  clicking lifts it back into the ongoing list; an instant (a past occurrence) is static. */
+function NotifyChipGlyph({
+  e,
+  tint,
+  flashN,
+  onStart,
+}: {
+  e: Entity
+  tint: string
+  flashN: number
+  onStart: (id: string, focus: boolean) => void
+}) {
+  const gm = getFaceModel(e, Date.now())
+  const glyph = (
+    <Zero0Glyph
+      kind={e.kind}
+      filled={gm.filled}
+      done={gm.done}
+      cancelled={gm.cancelled}
+      requested={gm.requested}
+      flashFill={flashN}
+      pulse
+      className="h-3.5 w-3.5"
+    />
+  )
+  // Instants aren't resumable (a mark is a finished point) — render a static, non-interactive glyph.
+  if (e.kind === "instant") {
+    return (
+      <span className="shrink-0" style={{ color: tint }} aria-hidden="true">
+        {glyph}
+      </span>
+    )
+  }
+  return (
+    <button
+      type="button"
+      onClick={(ev) => {
+        ev.stopPropagation()
+        onStart(e.id, false)
+      }}
+      className="shrink-0 transition-opacity hover:opacity-60"
+      style={{ color: tint }}
+      title={`Resume ${e.title} in background`}
+      aria-label={`Resume ${e.title} in background`}
+    >
+      {glyph}
+    </button>
   )
 }
 

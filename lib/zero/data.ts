@@ -617,7 +617,7 @@ setChildrenResolver(getChildren)
 setContainedResolver((contextId) => entities.filter((e) => e.parentId === contextId && e.seriesId == null))
 
 /**
- * Whether `childId` has an IN-PLACE owning node inside `hostId` — i.e. it would
+ * Whether `childId` has an IN-PLACE owning node inside `hostId` ��� i.e. it would
  * render in `host`'s DO-LIST (structural parent or tagged space) OR in `host`'s
  * DOCK (pinned there). Either gives the entity a row/card to morph out of and
  * back into, so it is NOT detached. (A pinned space, e.g. Health on home, is a
@@ -1336,20 +1336,27 @@ export function getStarterPinnedEntities(): Entity[] {
    * the last {@link NOTIFY_LINGER_MS} AND they are not ongoing now. These become transient §4
    * NOTIFICATION chips (the universal "it just stopped, here's a moment to notice" band), the
    * general-kind analogue of {@link getRecentlyMarkedInstants}. INSTANTS are excluded (they use
-   * the mark path). Each carries `endedAt` (the close time) so the chip can read "ended Ns ago".
-   * Newest first. Bounded scan over all entities (tiny).
+   * the mark path). Each carries `endedAt` (the close time) AND `lastMs` — the FROZEN length of
+   * the session that just closed (its `endAt − startAt`), so the chip can show a stable final
+   * duration that never re-derives (and never flickers to 0). Newest first. Bounded scan over all
+   * entities (tiny).
    */
-  export function getRecentlyEndedEntities(now: number = Date.now()): { entity: Entity; endedAt: number }[] {
-  const out: { entity: Entity; endedAt: number }[] = []
+  export function getRecentlyEndedEntities(now: number = Date.now()): { entity: Entity; endedAt: number; lastMs: number }[] {
+  const out: { entity: Entity; endedAt: number; lastMs: number }[] = []
   for (const e of entities) {
   if (e.kind === "soul" || e.kind === "instant" || e.seriesId != null) continue
   if (isOwnOngoing(e, now)) continue // still ongoing ⇒ the ongoing list owns it
-  // The most recent CLOSED engagement's end — the moment it last stopped.
+  // The most recent CLOSED engagement — its end is the moment it last stopped, its span is the
+  // final session length we freeze onto the chip.
   let endedAt: number | undefined
+  let lastMs = 0
   for (const se of getEngagements(e)) {
-  if (se.endAt != null && (endedAt == null || se.endAt > endedAt)) endedAt = se.endAt
+  if (se.endAt != null && (endedAt == null || se.endAt > endedAt)) {
+  endedAt = se.endAt
+  lastMs = Math.max(0, se.endAt - se.startAt)
   }
-  if (endedAt != null && now - endedAt <= NOTIFY_LINGER_MS) out.push({ entity: e, endedAt })
+  }
+  if (endedAt != null && now - endedAt <= NOTIFY_LINGER_MS) out.push({ entity: e, endedAt, lastMs })
   }
   return out.sort((a, b) => b.endedAt - a.endedAt)
   }
