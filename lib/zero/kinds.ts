@@ -317,6 +317,26 @@ export function hasOpenEngagement(entity: Entity): boolean {
   return getOpenEngagement(entity) != null
 }
 
+/**
+ * OWN ongoing — is this entity ongoing BY ITSELF (not merely by rollup from a contained
+ * descendant)? Mirrors getState sources (1) + (2), deliberately EXCLUDING (3) the rollup:
+ *   (1) an open ENGAGEMENT (Task focus / Whenever play), or
+ *   (2) a Moment/Space with a CONCRETE started span still in progress.
+ * This is the set the §4 PINS band lists — the entities you can directly END (a container
+ * that only spins by rollup can't be ended here; you'd end its running child instead).
+ */
+export function isOwnOngoing(entity: Entity, now: number = Date.now()): boolean {
+  if (hasOpenEngagement(entity)) return true
+  if (entity.kind === "moment" || entity.kind === "space") {
+    const start = concreteStart(entity)
+    if (start != null && now >= start) {
+      const end = effectiveScheduleEnd(entity.schedule)
+      if (end == null || now < end) return true
+    }
+  }
+  return false
+}
+
 // ── Child-gated Task completion (resolver injection) ───────────────────────────
 // A Task marked Done isn't COMPLETE until every child of `kind === "task"` is complete
 // (non-task children never gate). `completeSince` needs the child list, but kinds.ts is

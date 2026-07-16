@@ -22,8 +22,16 @@ import { NodeGlyph, type NodeKind } from "@/components/zero/node-glyph"
  *
  * GLYPH STATES are RENDERED, not described: each card shows a little row of the
  * actual silhouettes via <NodeGlyph>, so the page reads its own glyphs instead of
- * narrating them. The model has TWO stored axes — CLOSE (every kind) and DONE (Task/
- * Moment/Instant only); "complete" is just the human name for a closed FILLABLE kind.
+ * narrating them.
+ *
+ * STATE MODEL (current): every entity resolves to ONE computed STATE word via
+ * getState(), layered by priority: cancelled → closed/dead/retired (a terminal close)
+ * → complete → done → ongoing → open. "complete" is the resting word for a FILLABLE
+ * kind whose time/verdict has passed (filled + faded); "ongoing" SPINS the glyph.
+ * Under the words sit two mechanics: CLOSE (open → closed, every kind, always fades)
+ * and DONE (a soft checkmark that does NOT close — Task ONLY now). BEINGS
+ * (soul/individual/organism/community) rest at their own presence ("alive"/"open"),
+ * never made "ongoing" by what they contain (see the ONGOING + rollup note below).
  */
 
 /** A glyph is either a real runtime kind (drawn by NodeGlyph) or one of the two
@@ -84,8 +92,10 @@ const FOUNDATIONS: EntityRow[] = [
     lifecycle: "Some kinds open / closed",
     fields: [
       "The base every kind extends: all kinds inherit the shared Meta below.",
-      "TWO lifecycle axes. CLOSE (open \u2192 closed) belongs to every kind and always FADES the row. Fillable kinds (Task, Space, Resource, Moment, Instant) also FILL their glyph when closed \u2014 that filled+faded state is what we call \u201Ccomplete.\u201D Terminal kinds (Community, Organism, Individual) just fade on close, keeping their outline (retire / die).",
-      "DONE (done \u2192 undone) is a SECOND, softer axis \u2014 a checkmark that does NOT close \u2014 carried only by Task, Moment, and Instant.",
+      "STATE: every entity resolves to ONE computed word \u2014 open, ongoing, done, complete, closed, cancelled, dead, or retired \u2014 read live by getState() and shown on the glyph.",
+      "CLOSE (open \u2192 closed) belongs to every kind and always FADES the row. Fillable kinds (Task, Space, Resource, Moment, Instant) also FILL their glyph when closed \u2014 that filled+faded state is what we call \u201Ccomplete.\u201D Terminal kinds (Community, Organism, Individual) just fade on close, keeping their outline (retire / die).",
+      "DONE (done \u2192 undone) is a SECOND, softer mechanic \u2014 a checkmark that does NOT close \u2014 carried only by Task now (Moment/Instant dropped it; they auto-close when their time passes).",
+      "ONGOING spins the glyph. Sources: an open ENGAGEMENT (a Task being worked on, or a \u201Cwhenever\u201D Moment/Space playing), a Moment/Space with a concrete started span still running, or ROLLUP \u2014 a container spins while anything CONTAINED inside it runs. Rollup STOPS at the first BEING (a person isn\u2019t \u201Congoing,\u201D just alive).",
       "Any entity can be CANCELLED (called off): a bar is laid over its glyph and its title is struck through. Cancel also closes.",
       "Entities keep a record of who has access to them, who accessed them, and when (gathered in an auto-created Community).",
     ],
@@ -122,11 +132,14 @@ const KINDS: EntityRow[] = [
     glyphDesc: "A rotated \u201Cz\u201D",
     desc: "The Space of an Individual — a human being.",
     creatable: "yes",
-    lifecycle: "Open / closed (fades)",
-    fields: ["Same Meta as Entity, plus residence (geographical position)."],
+    lifecycle: "Alive / dead (fades)",
+    fields: [
+      "Same Meta as Entity, plus residence (geographical position).",
+      "A BEING: its open state reads \u201Calive,\u201D and it is NEVER made \u201Congoing\u201D by what it contains \u2014 the ongoing rollup stops here (so the root Individual stays \u201Calive\u201D while its Spaces spin).",
+    ],
     states: [
-      { label: "Open" },
-      { label: "Closed — faded", faded: true },
+      { label: "Alive — outline" },
+      { label: "Dead — faded, outline kept", faded: true },
     ],
     special:
       "The glyph gains a dot for Zero Citizens (Conscious Individuals). None exist yet except uzer0 (userID 0), which has privileged access to everything; uzer1 (userID 1) is Loris, a regular user.",
@@ -138,10 +151,14 @@ const KINDS: EntityRow[] = [
     glyphDesc: "A regular hexagon",
     desc: "Something that contains.",
     creatable: "yes",
-    lifecycle: "Open / closed",
-    fields: ["No DONE axis \u2014 a Space has no checkmark. It simply closes; closing fills its glyph and fades the row (\u201Ccomplete\u201D)."],
+    lifecycle: "Open / ongoing / closed",
+    fields: [
+      "No DONE checkmark \u2014 a Space simply closes; closing fills its glyph and fades the row (\u201Ccomplete\u201D).",
+      "ONGOING (glyph spins) when it has a concrete started span still running, OR by ROLLUP while anything CONTAINED inside it is ongoing.",
+    ],
     states: [
       { label: "Open" },
+      { label: "Ongoing — outline spins" },
       { label: "Closed (complete) — filled + faded", filled: true, faded: true },
       { label: "Cancelled — barred", struck: true, faded: true },
     ],
@@ -153,13 +170,16 @@ const KINDS: EntityRow[] = [
     glyphDesc: "A square",
     desc: "Something to do.",
     creatable: "yes",
-    lifecycle: "Open / done / closed",
+    lifecycle: "Open / ongoing / done / closed",
     fields: [
-      "DONE (a checkmark) says the work happened; it does NOT close the task on its own.",
+      "The only kind that still carries DONE (a checkmark). Done says the work happened; it does NOT close the task on its own.",
+      "ONGOING (glyph spins) while the task is being worked on \u2014 an open focus ENGAGEMENT, opened when you dwell inside it and closed when you leave.",
+      "Marking Done while a child task is still incomplete reads \u201Cdone\u201D (checkmark, not yet complete); it auto-completes once every task-child completes.",
       "CLOSING the task fills its glyph and fades the row \u2014 that filled+faded state is \u201Ccomplete.\u201D A done task auto-closes at the next local midnight (filed overnight).",
     ],
     states: [
       { label: "Open" },
+      { label: "Ongoing — outline spins" },
       { label: "Done — check, stays open", showCheck: true },
       { label: "Closed (complete) — filled + faded", filled: true, faded: true },
       { label: "Cancelled — barred + struck", struck: true, faded: true },
@@ -187,11 +207,14 @@ const KINDS: EntityRow[] = [
     glyphDesc: "An equilateral triangle pointing up",
     desc: "A span in time — usually two Instants defining that span.",
     creatable: "yes",
-    lifecycle: "Open / done / closed",
-    fields: ["A Moment auto-CLOSES (fills + fades) once its span has passed, even if never marked done."],
+    lifecycle: "Open / ongoing / closed",
+    fields: [
+      "No DONE checkmark anymore \u2014 a Moment auto-CLOSES (fills + fades) once its span has passed.",
+      "ONGOING (glyph spins) while its concrete span is in progress (started, not yet ended), or while a \u201Cwhenever\u201D Moment is being played (an open engagement).",
+    ],
     states: [
       { label: "Open" },
-      { label: "Done — check, stays open", showCheck: true },
+      { label: "Ongoing — outline spins" },
       { label: "Closed (complete) — filled + faded", filled: true, faded: true },
       { label: "Cancelled — barred + struck", struck: true, faded: true },
     ],
@@ -203,11 +226,10 @@ const KINDS: EntityRow[] = [
     glyphDesc: "An equilateral triangle pointing down",
     desc: "A point in time — a single Instant, possibly recurrent.",
     creatable: "yes",
-    lifecycle: "Open / done / closed",
-    fields: ["An Instant auto-CLOSES (fills + fades) once its moment has passed, even if never marked done."],
+    lifecycle: "Open / closed",
+    fields: ["No DONE checkmark anymore \u2014 an Instant auto-CLOSES (fills + fades) once its point has passed."],
     states: [
       { label: "Open" },
-      { label: "Done — check, stays open", showCheck: true },
       { label: "Closed (complete) — filled + faded", filled: true, faded: true },
       { label: "Cancelled — barred + struck", struck: true, faded: true },
     ],
@@ -281,6 +303,25 @@ const LENSES: { name: string; formula: string; blurb: string }[] = [
     formula: "Individuals + Organisms + Law + Art",
     blurb: "Society plus the rules it lives by and the artifacts it makes — artworks, urbanism, and the rest.",
   },
+]
+
+// The STATE words getState() can resolve to, in the priority order it checks them.
+// This mirrors lib/zero/kinds.ts (StateWord + getStateInner) and face-model formatState.
+const STATE_WORDS: { word: string; blurb: string }[] = [
+  { word: "cancelled", blurb: "Called off — a bar over the glyph, title struck; also closes. Highest priority." },
+  {
+    word: "closed / dead / retired",
+    blurb:
+      "The lifecycle ended (manually or when a stamped time passed). Death-terminal beings read \u201Cdead\u201D (with age), Communities \u201Cretired,\u201D everything else \u201Cclosed.\u201D Always fades.",
+  },
+  { word: "complete", blurb: "A fillable kind whose time/verdict has passed — filled + faded. May still auto-close later." },
+  { word: "done", blurb: "A Task marked Done but still gated by an incomplete task-child. Checkmark, not yet complete." },
+  {
+    word: "ongoing",
+    blurb:
+      "Glyph SPINS. An open engagement, a running concrete span, or rollup from a contained descendant (stopping at the first being).",
+  },
+  { word: "open", blurb: "The resting default. Death-terminal beings render this as \u201Calive.\u201D" },
 ]
 
 /** The two document-only glyphs (no NodeGlyph entry). Drawn to sit in a 24-box,
@@ -458,11 +499,13 @@ export default function ZeroEntitiesPage() {
         <section className="mt-10">
           <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Glyph states</h2>
           <p className="mt-3 max-w-prose text-pretty text-sm leading-relaxed text-muted-foreground">
-            A glyph is an <strong className="font-medium text-foreground">outline</strong> while open. There are two
-            independent axes. <strong className="font-medium text-foreground">Done</strong> is a soft marker — a{" "}
-            <strong className="font-medium text-foreground">checkmark</strong> over the outline, carried only by Task,
-            Moment, and Instant — and does <em>not</em> close the entity.{" "}
-            <strong className="font-medium text-foreground">Close</strong> ends the lifecycle and always{" "}
+            A glyph is an <strong className="font-medium text-foreground">outline</strong> while open, and{" "}
+            <strong className="font-medium text-foreground">spins</strong> while{" "}
+            <strong className="font-medium text-foreground">ongoing</strong> (being worked on, a running span, or a
+            container with something ongoing inside). <strong className="font-medium text-foreground">Done</strong> is a
+            soft marker — a <strong className="font-medium text-foreground">checkmark</strong> over the outline, carried
+            only by <strong className="font-medium text-foreground">Task</strong> now — and does <em>not</em> close the
+            entity. <strong className="font-medium text-foreground">Close</strong> ends the lifecycle and always{" "}
             <strong className="font-medium text-foreground">fades</strong> the row. A{" "}
             <strong className="font-medium text-foreground">fillable</strong> kind (Task, Space, Resource, Moment,
             Instant) also <strong className="font-medium text-foreground">fills</strong> its glyph when closed — that
@@ -473,13 +516,40 @@ export default function ZeroEntitiesPage() {
             <strong className="font-medium text-foreground">bar</strong> over the glyph and strikes the title through;
             it also closes. Soul&apos;s closed glyph carries a small bar over it. Each kind below shows its own states.
           </p>
-          <ul className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-5">
+          <ul className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-6">
             <GlyphState kind="task" label="Open — outline" />
+            <GlyphState kind="task" label="Ongoing — outline spins" />
             <GlyphState kind="task" showCheck label="Done — check, stays open" />
             <GlyphState kind="task" filled faded label="Closed (complete) — filled + faded" />
             <GlyphState kind="community" faded label="Terminal close — faded, outline kept" />
             <GlyphState kind="task" struck faded label="Cancelled — barred + struck" />
           </ul>
+        </section>
+
+        {/* State words — the computed word getState() resolves to, in priority order. */}
+        <section className="mt-10">
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">State words</h2>
+          <p className="mt-3 max-w-prose text-pretty text-sm leading-relaxed text-muted-foreground">
+            Every entity resolves to exactly one <strong className="font-medium text-foreground">state</strong>, checked
+            in this priority order (the first that matches wins). This is what the glyph and the inline{" "}
+            <code className="rounded bg-muted px-1 py-0.5 text-[10px]">state</code> row read.
+          </p>
+          <ol className="mt-4 space-y-2">
+            {STATE_WORDS.map((s, i) => (
+              <li
+                key={s.word}
+                className="flex items-start gap-3 rounded-lg border border-border bg-card p-3 text-card-foreground"
+              >
+                <code className="mt-0.5 rounded bg-muted px-1.5 py-0.5 text-[10px] tabular-nums text-muted-foreground">
+                  {i + 1}
+                </code>
+                <div className="min-w-0">
+                  <span className="text-xs font-medium">{s.word}</span>
+                  <span className="ml-2 text-pretty text-[11px] leading-relaxed text-muted-foreground">{s.blurb}</span>
+                </div>
+              </li>
+            ))}
+          </ol>
         </section>
 
         {/* The essence & the roots. */}
