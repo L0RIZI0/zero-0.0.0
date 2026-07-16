@@ -78,11 +78,9 @@ function bandMetrics(plannedCount: number, recordedCount: number) {
   const bandH = seam + Math.max(1, recordedCount) * RECORDED_LANE_H + RAIL_PAD
   return { seam, bandH }
 }
-// The day label's fixed vertical center on the combined lane: the middle of the FIRST planned
-// sub-lane (top of the planned rail). Pinned here so it reads as "centered on the planned rail"
-// when there's a single sub-lane, and STAYS put (just above the seam) as more sub-lanes grow
-// the rail downward.
-const DAY_LABEL_CENTER_PX = RAIL_PAD + PLANNED_LANE_H / 2
+// NOTE: the day label pins to the FIRST planned sub-lane (top:RAIL_PAD, height:PLANNED_LANE_H,
+// flex-centered) so it reads as "centered on the planned rail" with one sub-lane and STAYS put
+// as more sub-lanes grow the rail downward — see its render below.
 
 // Greedy interval LANE-PACKING (generalizes the old ongoing stack). Assigns each bar to the
 // lowest lane whose last-placed bar ends at/before this bar's start (no overlap); opens a new
