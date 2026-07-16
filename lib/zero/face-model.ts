@@ -537,26 +537,31 @@ export function getFaceMetaRows(e: Entity, now: number): [string, string][] {
   // joined Moment in the session model), so both ALWAYS surface start/end (— when unset,
   // "whenever" when playable). Previously a Space only got a condensed "scheduled" row.
   if (e.kind === "moment" || e.kind === "space") {
-    // HYBRID INLINE start/end: the row leads with the SCHEDULED value (or "— (none scheduled)"
-    // — the annotation differentiates the row's meaning as PLANNED intent), then folds in the
-    // TRACKED session times, newest→oldest, `·`-joined. This surfaces the engagements you
-    // create by start/stopping the chip WITHOUT collapsing planned-vs-actual: START gets the
-    // session PUNCH-INS (the OPEN one marked "(ongoing)"), END the PUNCH-OUTS (the open one has
-    // none yet, so it's absent there). Session stamps use the compact `fmtShort` (time-only
-    // today) since a busy list of full timestamps would be unreadable.
-    const engs = getEngagements(e)
-    const startScheduled = s?.startAt ? fmt(s.startAt) : "— (none scheduled)"
-    const sessionStarts = [...engs]
-      .sort((a, b) => b.startAt - a.startAt)
-      .map((se) => (se.endAt == null ? `${fmtShort(se.startAt, now)} (ongoing)` : fmtShort(se.startAt, now)))
-    rows.push(["start", sessionStarts.length ? `${startScheduled}  ·  ${sessionStarts.join(" · ")}` : startScheduled])
-    const endScheduled = s?.endAt ? fmt(s.endAt) : "— (none scheduled)"
-    const sessionEnds = engs
-      .filter((se) => se.endAt != null)
-      .map((se) => se.endAt as number)
-      .sort((a, b) => b - a)
-      .map((t) => fmtShort(t, now))
-    rows.push(["end", sessionEnds.length ? `${endScheduled}  ·  ${sessionEnds.join(" · ")}` : endScheduled])
+    // HYBRID INLINE start/end, COLUMN-PAIRED: both rows lead with the SCHEDULED value (or
+    // "— (none scheduled)" — the annotation keeps the row's PLANNED-intent meaning), then fold
+    // in the TRACKED sessions newest→oldest. Crucially the two rows are built as ALIGNED COLUMNS
+    // so the Nth start sits directly above the Nth end (same engagement) — you read a session by
+    // scanning one column. The OPEN session's END cell shows "ongoing" (rather than tacking
+    // "(ongoing)" onto its START, which is what threw the columns out of line). Cells are padded
+    // to a common per-column width with NON-BREAKING spaces (`\u00A0`) so the monospace §0 grid
+    // aligns AND the pad survives the dd's `nowrap` (which collapses runs of normal spaces).
+    const NB = "\u00A0"
+    const engs = [...getEngagements(e)].sort((a, b) => b.startAt - a.startAt)
+    const startCells: string[] = [s?.startAt ? fmt(s.startAt) : "— (none scheduled)"]
+    const endCells: string[] = [s?.endAt ? fmt(s.endAt) : "— (none scheduled)"]
+    // Pad the scheduled prefix so the FIRST session column starts at the same x in both rows.
+    const schedW = Math.max(startCells[0].length, endCells[0].length)
+    startCells[0] = startCells[0].padEnd(schedW, NB)
+    endCells[0] = endCells[0].padEnd(schedW, NB)
+    for (const se of engs) {
+      const sCell = fmtShort(se.startAt, now)
+      const eCell = se.endAt != null ? fmtShort(se.endAt, now) : "ongoing"
+      const w = Math.max(sCell.length, eCell.length)
+      startCells.push(sCell.padStart(w, NB))
+      endCells.push(eCell.padStart(w, NB))
+    }
+    rows.push(["start", startCells.join(" · ")])
+    rows.push(["end", endCells.join(" · ")])
     // A Moment is conceptually a SPAN (start→end), but it can carry a lone POINT anchor
     // (`schedule.at`) — e.g. when a `:mome` prefix is combined with a single-time token,
     // or an Instant is later changed INTO a moment. The lifecycle machine reads that point

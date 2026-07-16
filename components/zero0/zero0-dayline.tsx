@@ -67,6 +67,12 @@ const PLANNED_LANE_H = 11
 const RECORDED_LANE_H = 10
 // Height of a presence tick on the STANDALONE ACTIVITY dayline (`tracks="presence"`).
 const PRESENCE_HEIGHT_PX = 10
+// DISPLAY-ONLY session coalescing: consecutive engagement sessions separated by a gap no larger
+// than this collapse into ONE rendered bar. Its purpose is to keep a burst of quick stop→restart
+// toggles (typically tests / mis-clicks, a few seconds apart) reading as a single continuous
+// block instead of fragmenting the recorded rail into extra sub-lanes. The STORED engagements are
+// never touched (§0 still lists them all) — this only affects the dayline.
+const SESSION_MERGE_GAP_MS = 60_000
 
 // Band metrics for the COMBINED lane. The SEAM sits at the VERTICAL CENTER of the band (equal
 // halves) and the WHOLE band grows as either rail gains sub-lanes: each half is sized to the
@@ -509,17 +515,36 @@ export function Zero0Dayline({
       const list = e?.schedule?.engagements
       if (!e || !list || list.length === 0) continue
       const { fill, stroke } = paintFor(e.id)
-      list.forEach((sess, i) => {
-        const rawStart = sess.startAt
-        const open = sess.endAt == null
-        const rawEnd = sess.endAt ?? now
+      // COALESCE into runs (display only — see SESSION_MERGE_GAP_MS): walk sessions oldest→newest
+      // and merge any whose gap from the current run's end is ≤ the threshold into one span. An
+      // OPEN session extends the run to `now` and seals it (can't merge past a still-running one).
+      type Run = { start: number; end: number; open: boolean; via?: string; count: number }
+      const runs: Run[] = []
+      for (const sess of [...list].sort((a, b) => a.startAt - b.startAt)) {
+        const sOpen = sess.endAt == null
+        const sEnd = sess.endAt ?? now
+        const cur = runs[runs.length - 1]
+        if (cur && !cur.open && sess.startAt - cur.end <= SESSION_MERGE_GAP_MS) {
+          cur.end = Math.max(cur.end, sEnd)
+          cur.open = cur.open || sOpen
+          cur.via = sess.via
+          cur.count += 1
+        } else {
+          runs.push({ start: sess.startAt, end: sEnd, open: sOpen, via: sess.via, count: 1 })
+        }
+      }
+      runs.forEach((run, i) => {
+        const rawStart = run.start
+        const open = run.open
+        const rawEnd = open ? now : run.end
         if (rawEnd < lo || rawStart > hi) return // not in today's window
         // Clip to the visible day so a cross-midnight session shows only today's slice.
         const st = Math.max(rawStart, lo)
         const en = Math.min(rawEnd, hi)
         const leftPct = ((st - winStart) / DAY_MS) * 100
         const widthPct = Math.max(0, ((en - st) / DAY_MS) * 100)
-        const kindLabel = sess.via === "play" ? "play" : "focus"
+        const kindLabel = run.via === "play" ? "play" : "focus"
+        const merged = run.count > 1 ? ` · ${run.count} sessions` : ""
         out.push({
           key: `sess:${e.id}:${i}`,
           id: e.id,
@@ -530,11 +555,11 @@ export function Zero0Dayline({
           widthPct,
           centerPct: leftPct + widthPct / 2,
           range: open
-            ? `${rangeText(rawStart, rawEnd)} · ${kindLabel} · ongoing`
-            : `${rangeText(rawStart, rawEnd)} · ${kindLabel}`,
+            ? `${rangeText(rawStart, rawEnd)} · ${kindLabel} · ongoing${merged}`
+            : `${rangeText(rawStart, rawEnd)} · ${kindLabel}${merged}`,
           track: "planned", // activity rail
           point: en <= st,
-          // Open session's right edge IS now → anchored + joins the ongoing stack.
+          // Open run's right edge IS now → anchored + joins the ongoing stack.
           openEnded: open,
         })
       })
