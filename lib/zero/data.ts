@@ -1,6 +1,6 @@
 import type { Asset, Entity, EntityKind, IndividualEntity, Instant, Recurrence, Schedule, Resource, EntityBase, Engagement, Sex, TaskPriority, TitleEntry, User } from "./types"
 import { WHENEVER } from "./types"
-  import { hasDoneState, isClosed, computeCloseAt, getState, fillsGlyph, hasOpenEngagement, getOpenEngagement, setChildrenResolver, setContainedResolver, isConcreteStart, concreteStart, isOwnOngoing, effectiveScheduleEnd } from "./kinds"
+  import { hasDoneState, isClosed, computeCloseAt, getState, fillsGlyph, hasOpenEngagement, getOpenEngagement, setChildrenResolver, setContainedResolver, isConcreteStart, concreteStart, isOwnOngoing, effectiveScheduleEnd, getMarks } from "./kinds"
 import {
   isDone,
   isCancelled,
@@ -1269,9 +1269,31 @@ export function getStarterPinnedEntities(): Entity[] {
  * Excludes the structural Soul and materialized recurrence occurrences, matching what is
  * ever surfaced as browsable content elsewhere.
  */
-export function getOwnOngoingEntities(now: number = Date.now()): Entity[] {
+  export function getOwnOngoingEntities(now: number = Date.now()): Entity[] {
   return entities.filter((e) => e.kind !== "soul" && e.seriesId == null && isOwnOngoing(e, now))
-}
+  }
+
+  /** How long a just-marked INSTANT lingers in the §4 band as a full chip (ms). After this
+   *  window its chip fades away entirely (an instant is never ongoing, so it doesn't belong in
+   *  the band beyond this brief "just happened" acknowledgement). See {@link getRecentlyMarkedInstants}. */
+  export const RECENT_MARK_MS = 30_000
+
+  /**
+   * INSTANTS marked within the last {@link RECENT_MARK_MS} — the transient "just happened" set the
+   * §4 band shows AS WELL AS the ongoing entities. Each carries the timestamp of its MOST RECENT
+   * mark (`markedAt`) so the chip can render "Ns ago". Newest mark first. An instant with no mark
+   * in the window is absent (its chip has already faded). Bounded scan over all entities (tiny).
+   */
+  export function getRecentlyMarkedInstants(now: number = Date.now()): { entity: Entity; markedAt: number }[] {
+  const out: { entity: Entity; markedAt: number }[] = []
+  for (const e of entities) {
+  if (e.kind !== "instant" || e.seriesId != null) continue
+  const marks = getMarks(e) // newest-first
+  const last = marks[0]?.startAt
+  if (last != null && now - last <= RECENT_MARK_MS) out.push({ entity: e, markedAt: last })
+  }
+  return out.sort((a, b) => b.markedAt - a.markedAt)
+  }
 
 /** Toggle an entity's starter-pin membership. Returns the new pinned state. */
 export function toggleStarterPin(id: string): boolean {

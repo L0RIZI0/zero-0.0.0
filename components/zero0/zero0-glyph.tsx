@@ -166,6 +166,7 @@ export function Zero0Glyph({
   cancelled,
   requested,
   ongoing,
+  spinOnce,
   className,
 }: {
   kind: EntityKind
@@ -184,6 +185,13 @@ export function Zero0Glyph({
    * entirely under `prefers-reduced-motion`. The only motion in the zero0 glyph set.
    */
   ongoing?: boolean
+  /**
+   * SPIN-ONCE trigger — a monotonically increasing counter. Whenever it INCREASES, the glyph
+   * performs ONE full clockwise turn (a "written" acknowledgement, used when an INSTANT records
+   * a mark). Independent of `ongoing` (which is a continuous spin); a one-shot lands back
+   * upright. Skipped under `prefers-reduced-motion`. Ignored while `ongoing` (already spinning).
+   */
+  spinOnce?: number
   /**
    * DONE mark — overlay a check on the shape. Drawn whether the shape is outline or
    * filled: on a filled shape the check strokes in the BACKGROUND colour so it stays
@@ -268,6 +276,38 @@ export function Zero0Glyph({
       }
     }
   }, [ongoing, kind])
+
+  // ── ONE-SHOT SPIN (mark "written" acknowledgement) ─────────────────────────────────────────
+  // When `spinOnce` INCREASES, play a single 360° turn and land upright. Skipped on the initial
+  // mount (no spin until an actual mark), while `ongoing` (the continuous spin owns rotation),
+  // and under reduced-motion. Uses its own animation slot so it never fights the ongoing spin.
+  const spinOnceRef = useRef<number | undefined>(spinOnce)
+  const onceAnimRef = useRef<Animation | null>(null)
+  useEffect(() => {
+    const prev = spinOnceRef.current
+    spinOnceRef.current = spinOnce
+    if (spinOnce == null || prev == null || spinOnce <= prev) return // no increase ⇒ nothing
+    if (ongoing) return // already spinning continuously
+    const el = svgRef.current
+    if (!el || typeof el.animate !== "function") return
+    if (typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return
+
+    onceAnimRef.current?.cancel()
+    const once = el.animate([{ transform: "rotate(0deg)" }, { transform: "rotate(360deg)" }], {
+      duration: SPIN_MS,
+      easing: "cubic-bezier(0.22, 1, 0.36, 1)", // ease-out: a lively kick that settles upright
+      fill: "forwards",
+    })
+    onceAnimRef.current = once
+    once.onfinish = () => {
+      once.cancel() // rotate(360°) === upright ⇒ revert to static with no jump
+      if (onceAnimRef.current === once) onceAnimRef.current = null
+    }
+    return () => {
+      once.cancel()
+      if (onceAnimRef.current === once) onceAnimRef.current = null
+    }
+  }, [spinOnce, ongoing])
 
   // ── MORPH driver (kind-change one-shot + space-ongoing periodic flourish) ──────────────────
   useEffect(() => {

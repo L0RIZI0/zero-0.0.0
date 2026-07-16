@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-import { useMemo, useRef } from "react"
+import { useMemo, useRef, useState } from "react"
 import { Zero0Glyph } from "./zero0-glyph"
 import {
   getFaceModel,
@@ -77,6 +77,8 @@ function FaceGlyph({
   // Full sits on a `gap-2` line (no fixed column); a row glyph occupies the `w-6` column.
   const wrapperBase =
     size === "full" ? "text-foreground" : "flex w-6 shrink-0 justify-center self-center text-foreground"
+  // A local counter bumped on each MARK click → drives the glyph's one-shot "written" spin.
+  const [markSpin, setMarkSpin] = useState(0)
   const glyph = (
     <Zero0Glyph
       kind={entity.kind}
@@ -85,6 +87,7 @@ function FaceGlyph({
       cancelled={model.cancelled}
       requested={model.requested}
       ongoing={model.ongoing}
+      spinOnce={markSpin}
       className={glyphClass}
     />
   )
@@ -123,7 +126,10 @@ function FaceGlyph({
     return (
       <button
         type="button"
-        onClick={() => onMark(entity)}
+        onClick={() => {
+          onMark(entity)
+          setMarkSpin((n) => n + 1) // one-shot "written" spin
+        }}
         className={wrapperBase + " cursor-pointer transition-opacity hover:opacity-70"}
         aria-label="Mark occurrence"
         title="Mark occurrence"
