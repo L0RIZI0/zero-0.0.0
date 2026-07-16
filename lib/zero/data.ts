@@ -1,6 +1,6 @@
 import type { Asset, Entity, EntityKind, IndividualEntity, Instant, Recurrence, Schedule, Resource, EntityBase, Engagement, Sex, TaskPriority, TitleEntry, User } from "./types"
 import { WHENEVER } from "./types"
-  import { hasDoneState, isClosed, computeCloseAt, getState, fillsGlyph, hasOpenEngagement, getOpenEngagement, setChildrenResolver, setContainedResolver, isConcreteStart, concreteStart } from "./kinds"
+  import { hasDoneState, isClosed, computeCloseAt, getState, fillsGlyph, hasOpenEngagement, getOpenEngagement, setChildrenResolver, setContainedResolver, isConcreteStart, concreteStart, isOwnOngoing, effectiveScheduleEnd } from "./kinds"
 import {
   isDone,
   isCancelled,
@@ -1344,6 +1344,29 @@ export function closeEngagement(id: string, at = Date.now()): boolean {
   entity.log = appendInstant(log, makeInstant("session-close", at))
   persistEngagementMutation(id, entity, sched)
   return true
+}
+
+/**
+ * END whatever makes an entity OWN-ongoing (see `isOwnOngoing`) — the one action behind
+ * the §4 PINS glyph. Precedence:
+ *   - an OPEN ENGAGEMENT (focus/play) ⇒ close it (`closeEngagement`), OR
+ *   - a running CONCRETE span (Moment/Space started, no end yet) ⇒ stamp `endAt = now`
+ *     so the span closes right here.
+ * Returns true if it ended something. A rollup-only container (spinning only because a
+ * descendant runs) is NOT own-ongoing, so this is a no-op on it — you end its child instead.
+ */
+export function endOngoing(id: string, at = Date.now()): boolean {
+  const stored = byId.get(id)
+  if (!stored) return false
+  if (hasOpenEngagement(stored)) return closeEngagement(id, at)
+  if ((stored.kind === "moment" || stored.kind === "space") && isOwnOngoing(stored, at)) {
+    // Running concrete span with no known end → cap it at now via the schedule field setter
+    // (which also stamps closeAt / logs the set), matching a manual `--end:now`.
+    if (effectiveScheduleEnd(stored.schedule) == null) {
+      return setEntityScheduleField(id, "endAt", at)
+    }
+  }
+  return false
 }
 
 /** Toggle the open/closed state of an entity's session (Play ⇄ Stop). Returns the new

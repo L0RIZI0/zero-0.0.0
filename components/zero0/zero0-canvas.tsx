@@ -34,6 +34,7 @@ import {
   openEngagement,
   closeEngagement,
   toggleEngagement,
+  endOngoing,
   reorderContextItems,
 } from "@/lib/zero/data"
   import { KIND_META, isClosed, getState, hasOpenEngagement, isPlayable } from "@/lib/zero/kinds"
@@ -54,7 +55,7 @@ import { Zero0FrameMarker } from "./zero0-frame-marker"
 import { ZERO_VERSION } from "@/lib/zero/version"
 import { formatLocale } from "@/lib/zero/format-locale"
 import { Zero0ResourceCanvas } from "./zero0-resource-canvas"
-import { Zero0Pinned } from "./zero0-pinned"
+import { Zero0Pins } from "./zero0-pins"
 import { Zero0Face } from "./zero0-face"
 import { Zero0Content, type Zero0ContentCtx } from "./zero0-content"
   import { fmt, fmtLogValue, sexSymbol, formatDuration, type FaceSize, type FaceMake } from "@/lib/zero/face-model"
@@ -743,10 +744,9 @@ export function Zero0Canvas() {
     setPath([ROOT_ID, ...chain])
   }, [])
 
-  // PINNED (§4) OPEN — the frame/title click on a pinned starter: DRILL into the entity.
-  // If it's a Task, the focus-session effect punches it in once you dwell (see above); no
-  // separate session write needed here anymore.
-  const openPinned = useCallback(
+  // PINS (§4) OPEN — the chip/title click: DRILL into the ongoing entity. If it's a Task,
+  // the focus-session effect punches it in once you dwell (see above); no session write here.
+  const openPin = useCallback(
     (id: string) => {
       navigateTo(id)
       bump()
@@ -754,12 +754,12 @@ export function Zero0Canvas() {
     [navigateTo, bump],
   )
 
-  // PINNED (§4) SESSION TOGGLE — the glyph click (STAY here): explicit clock in/out from the
-  // shelf, no navigation. Uses a "play" session (persists across reload, like the glyph
-  // stopwatch on a Whenever moment/space — an intentional timer, not auto focus-tracking).
-  const togglePinnedEngagement = useCallback(
+  // PINS (§4) END — the spinning-glyph click (STAY here): end whatever makes the chip
+  // ongoing (close its open engagement, or cap its running span at now — see `endOngoing`).
+  // The chip then drops out of the band on the next scan (it's no longer own-ongoing).
+  const endPin = useCallback(
     (id: string) => {
-      toggleEngagement(id, "play")
+      endOngoing(id)
       bump()
     },
     [bump],
@@ -1059,36 +1059,23 @@ export function Zero0Canvas() {
           click-and-drag it to MOVE the frameless window (Windows/Linux; a no-op on the web
           and under macOS's native title bar). The window controls opt back out via `no-drag`.
           `justify-between` keeps the live clock left and the min/max/close cluster top-right. */}
+      {/* ── §4 PINS live inline here, to the RIGHT of the clock ─────────────────
+          The clock stays left; the ongoing-entity chips fill the space between it and
+          the window controls. `Zero0Pins` renders NOTHING when nothing is ongoing, so
+          this row is just the clock + controls until an entity starts running. The band
+          opts out of the title-bar drag region itself (its chips are clickable). */}
       <div
-        className="flex min-h-[41px] shrink-0 items-center justify-between gap-3 border-b border-border px-4 py-3 text-[10px] font-medium uppercase tracking-wider leading-none tabular-nums text-foreground"
+        className="flex min-h-[41px] shrink-0 items-center gap-3 border-b border-border px-4 py-3 text-[10px] font-medium uppercase tracking-wider leading-none tabular-nums text-foreground"
         style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
       >
-        <span>{topClock}</span>
-        <Zero0WindowControls />
-      </div>
-
-      {/* ── PINNED BAND (§4, topmost — just under the clock) ───────────���────────
-          The user's curated shelf of "starters": entities pinned via the ENTITY
-          CONTENT right-click. Clicking one drills in + starts a session; the glyph
-          clocks in/out without navigating. Shown by default. Same dep-free grid-rows
-          collapse animation as every frame; kept MOUNTED while hidden so both
-          directions animate, `inert` when collapsed. */}
-      {mounted && (
-        <div
-          className="grid transition-[grid-template-rows] duration-300 ease-out motion-reduce:transition-none"
-          style={{ gridTemplateRows: showFrequent ? "1fr" : "0fr" }}
-          inert={!showFrequent}
-        >
-          <div className="overflow-hidden">
-            <Zero0Pinned
-              dataRev={rev}
-              onOpen={openPinned}
-              onToggleEngagement={togglePinnedEngagement}
-              onContextMenu={(e, ev) => openMenu(e, ev)}
-            />
-          </div>
+        <span className="shrink-0">{topClock}</span>
+        {mounted && (
+          <Zero0Pins dataRev={rev} onOpen={openPin} onEnd={endPin} onContextMenu={(e, ev) => openMenu(e, ev)} />
+        )}
+        <div className="ml-auto shrink-0">
+          <Zero0WindowControls />
         </div>
-      )}
+      </div>
 
       {/* ── AGENDA BAND (topmost, "TODAY") ──────────────────────────────────────
           The FORWARD-looking frame — what's PLANNED today (the planned dayline).
