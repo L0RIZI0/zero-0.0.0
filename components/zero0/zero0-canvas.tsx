@@ -361,8 +361,8 @@ export function Zero0Canvas() {
     let complete = 0
     for (const c of children) {
       const w = getState(c).word
-      // open + ongoing are both "active / not yet done" for the tally.
-      if (w === "open" || w === "ongoing") open++
+      // open + ongoing + scheduled are all "active / not yet done" for the tally.
+      if (w === "open" || w === "ongoing" || w === "scheduled") open++
       // "done" = a Task marked Done but still gated (not yet complete) — count as done.
       else if (w === "done") done++
       else if (w === "complete") {
@@ -1487,6 +1487,17 @@ export function Zero0Canvas() {
         >
           activity
         </button>
+        <span className="text-border" aria-hidden>
+          |
+        </span>
+        {/* Doc link — the create-bar grammar reference (also reachable via the seeded
+            "Zero" docs Space). A plain anchor, not a frame toggle. */}
+        <a
+          href="/sugars"
+          className="text-muted-foreground transition-colors hover:text-foreground"
+        >
+          sugars
+        </a>
         {/* Surface-only "restart to update" affordance. Renders null on the web and
             whenever no background update is staged, so it adds no chrome by default. */}
         <span className="ml-auto">

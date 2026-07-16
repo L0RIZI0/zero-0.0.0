@@ -399,6 +399,36 @@ export const entities: Entity[] = [
           tags: [],
           webUrl: "/matrix-interactions",
         },
+        // --- ZERO — the docs Space -------------------------------------------
+        // A magenta Space under the Individual whose children are the in-app doc
+        // pages, each a Resource pointing at its route (webUrl). This is the
+        // dogfooding HOME for Zero's own documentation: drill into "Zero" and every
+        // doc reads as a normal entity you can open, pin, or right-click.
+        { id: "s_zero", kind: "space", title: "Zero", parentId: ROOT_ID, taggedContextIds: [], accent: ACCENT.zero },
+        ...(
+          [
+            ["Sugars", "/sugars"],
+            ["Excerpts", "/excerpts"],
+            ["Vision", "/vision"],
+            ["Zero Laws", "/zero-laws"],
+            ["Zero Entities", "/zero-entities"],
+            ["Entity Kinds", "/entity-kinds"],
+            ["Interaction Matrix", "/matrix-interactions"],
+          ] as const
+        ).map(
+          ([title, url]) =>
+            ({
+              id: `r_doc_${url.slice(1)}`,
+              kind: "resource",
+              title,
+              parentId: "s_zero",
+              taggedContextIds: [],
+              accent: ACCENT.zero,
+              completed: false,
+              tags: [],
+              webUrl: url,
+            }) as Entity,
+        ),
       ] as Entity[])
     : []),
   ]
@@ -1512,7 +1542,7 @@ export function toggleEngagement(id: string, via: Engagement["via"] = "play"): b
 }
 
 // ----------------------------------------------------------------------------
-// Per-context ORDER — the user's drag-and-drop sibling order for a do-list.
+// Per-context ORDER �� the user's drag-and-drop sibling order for a do-list.
 // Scoped per context (like pins): `contextId` → the ordered child ids. A context
 // with no entry uses natural creation order; ids missing from an entry fall to
 // the end in creation order, so newly created items keep appending at the bottom.
