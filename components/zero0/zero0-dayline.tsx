@@ -1080,8 +1080,8 @@ export function Zero0Dayline({
                 full-width and doesn't slide with the timeline. */}
             {combined && (
               <div
-                className="pointer-events-none absolute inset-x-0 h-px bg-muted-foreground/20"
-                style={{ top: RAIL_SEAM_PX, zIndex: 1 }}
+                className="pointer-events-none absolute inset-x-0 h-px bg-muted-foreground/10"
+                style={{ top: RAIL_SEAM_PX, zIndex: 0 }}
                 aria-hidden
               />
             )}
