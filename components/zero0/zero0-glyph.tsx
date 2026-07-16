@@ -105,8 +105,12 @@ const easeInOut = (p: number) => (p < 0.5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2,
 
 // One full morph turn for the SPACE periodic hexagon→square→hexagon flourish, and how long a turn.
 const MORPH_MS = 380 // one-shot kind-change morph duration
-const SPACE_MORPH_PERIOD_MS = 2200 // gap between space flourishes (v0.6.3: shorter ⇒ slightly more frequent)
-const SPACE_MORPH_PULSE = 0.42 // fraction of the period in the there-and-back dip (v0.6.3: longer ⇒ slower morph, ~924ms vs 572ms)
+const SPACE_MORPH_PERIOD_MS = 1800 // gap between space flourishes (v0.6.4: shorter again ⇒ more frequent)
+// Fraction of the period in the there-and-back dip. The dip is a symmetric `sin(x·π)` pulse, so
+// hex→square and square→hex take EXACTLY equal time (each half the dip). v0.6.4 keeps the dip
+// duration steady (~924ms → 0.51 of the shorter period) rather than letting the faster period
+// speed the morph up too.
+const SPACE_MORPH_PULSE = 0.51
 
 /** Draw the kind's outline shape. Fill/stroke are set by the caller via props. */
 function KindShape({ kind, requested }: { kind: EntityKind; requested?: boolean }) {
