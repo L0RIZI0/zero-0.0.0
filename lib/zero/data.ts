@@ -1,6 +1,6 @@
 import type { Asset, Entity, EntityKind, IndividualEntity, Instant, Recurrence, Schedule, Resource, EntityBase, Session, Sex, TaskPriority, TitleEntry, User } from "./types"
 import { WHENEVER } from "./types"
-  import { hasDoneState, isClosed, computeCloseAt, getState, fillsGlyph, hasOpenSession, getOpenSession, setChildrenResolver, isConcreteStart, concreteStart } from "./kinds"
+  import { hasDoneState, isClosed, computeCloseAt, getState, fillsGlyph, hasOpenSession, getOpenSession, setChildrenResolver, setContainedResolver, isConcreteStart, concreteStart } from "./kinds"
 import {
   isDone,
   isCancelled,
@@ -580,6 +580,11 @@ export function getChildren(contextId: string): Entity[] {
 // COMPLETE until all its `kind==="task"` children are) can resolve children without a
 // circular import (kinds is the lower module). One-time, at module load.
 setChildrenResolver(getChildren)
+
+// Wire a CONTAINMENT-ONLY resolver (parentId links, NEVER taggedContextIds, and NEVER
+// materialized recurrence occurrences) for the ongoing ROLLUP: a Space is ongoing while a
+// CONTAINED descendant runs, but a merely tagged-in ongoing entity must NOT light it up.
+setContainedResolver((contextId) => entities.filter((e) => e.parentId === contextId && e.seriesId == null))
 
 /**
  * Whether `childId` has an IN-PLACE owning node inside `hostId` — i.e. it would

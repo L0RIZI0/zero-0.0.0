@@ -1074,6 +1074,17 @@ export function Zero0Dayline({
             {/* CONTENT PAN — the in-progress wheel pan is applied here as an imperative
                 translateX; the bars slide within the fixed clip window. PLANNED bars
                 (colored) sit in the main body; PRESENCE (white ticks) lines the bottom. */}
+            {/* RAIL SEAM — a faint 1px hairline at the seam between the PLANNED rail (above)
+                and the RECORDED rail (below), spanning the full band width. Combined TODAY lane
+                only; painted as a STATIC overlay (outside the panning container) so it stays
+                full-width and doesn't slide with the timeline. */}
+            {combined && (
+              <div
+                className="pointer-events-none absolute inset-x-0 h-px bg-muted-foreground/20"
+                style={{ top: RAIL_SEAM_PX, zIndex: 1 }}
+                aria-hidden
+              />
+            )}
             <div ref={contentPanRef} className="pointer-events-none absolute inset-0 will-change-transform">
               {/* DAY-BOUNDARY LINES (planned lane) — painted BEHIND the ticks. Each is a
                   ripple node (data-left + registerRipple) so the 1px faded midnight line

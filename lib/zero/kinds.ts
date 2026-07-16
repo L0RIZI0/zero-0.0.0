@@ -300,6 +300,34 @@ export function setChildrenResolver(fn: ChildrenResolver): void {
   _childrenResolver = fn
 }
 
+// CONTAINMENT-only children (parentId links ONLY, NEVER taggedContextIds). Used by the
+// ongoing ROLLUP, which must follow CONTAINMENT and never tag references — otherwise a
+// tagged-in ongoing entity would wrongly light up the entity it's tagged into. This is a
+// SEPARATE resolver from `_childrenResolver` (which is `getChildren`, mixing parent + tags).
+let _containedResolver: ChildrenResolver | null = null
+
+/** Wire the containment-only child lookup used by the ongoing rollup (called by data.ts init). */
+export function setContainedResolver(fn: ChildrenResolver): void {
+  _containedResolver = fn
+}
+
+/**
+ * ONGOING ROLLUP — is any CONTAINED descendant of `entity` ongoing? Follows `parentId`
+ * containment only (never tags). Recurses through the subtree, short-circuiting on the
+ * first ongoing descendant; `seen` guards against cycles. Returns the ongoing descendant's
+ * start instant (for the `at`) or null if none.
+ */
+function containedOngoingSince(entity: Entity, now: number, seen: Set<string>): number | null {
+  if (!_containedResolver) return null
+  if (seen.has(entity.id)) return null
+  seen.add(entity.id)
+  for (const child of _containedResolver(entity.id)) {
+    const s = getStateInner(child, now, seen)
+    if (s.word === "ongoing") return s.at ?? now
+  }
+  return null
+}
+
 /**
  * Whether every `kind === "task"` descendant that gates completion is itself complete
  * (or closed/cancelled — i.e. no longer pending). Recurses so a whole subtree must be
@@ -458,6 +486,14 @@ function getStateInner(entity: Entity, now: number, seen: Set<string>): EntitySt
       const end = entity.schedule?.endAt
       if (end == null || now < end) return { word: "ongoing", at: start }
     }
+  }
+  //  (3) ROLLUP — any CONTAINED descendant is ongoing (containment only, never tags). A
+  //      Space spins while anything inside it runs. UNBOUNDED UP but STOPS BELOW ROOT: the
+  //      root Individual (parentId === null) does NOT gain ongoing from rollup (else it'd
+  //      always spin) — its own liveness is its own presence engagement, tracked separately.
+  if (entity.parentId !== null) {
+    const rolled = containedOngoingSince(entity, now, seen)
+    if (rolled != null) return { word: "ongoing", at: rolled }
   }
 
   return { word: "open" }
