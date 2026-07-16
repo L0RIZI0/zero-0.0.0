@@ -113,9 +113,9 @@ const SPACE_MORPH_PULSE = 0.68
 // The peak of the SPACE flourish morphs toward a SUBTLY smaller square than the real task-square
 // (v0.6.6): scale the square's radii about the box centre so the flourish "pinches in" just a touch
 // rather than hitting the full-size square. Only used for the periodic space dip — the crisp task
-// glyph and kind-change morphs still use the true SQUARE_RADII. (0.9 = barely smaller; the earlier
-// 0.68 read as far too small.)
-const SPACE_MORPH_SQUARE_SCALE = 0.9
+// glyph and kind-change morphs still use the true SQUARE_RADII. (0.95 = barely smaller than full;
+// 0.9 was ~2px too small, 0.68 read as far too small.)
+const SPACE_MORPH_SQUARE_SCALE = 0.95
 const SPACE_MORPH_SQUARE_RADII = SQUARE_RADII.map((r) => r * SPACE_MORPH_SQUARE_SCALE)
 
 /** Draw the kind's outline shape. Fill/stroke are set by the caller via props. */
