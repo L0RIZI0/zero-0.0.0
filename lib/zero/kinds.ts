@@ -674,6 +674,10 @@ export function isComplete(entity: Entity, now: number = Date.now()): boolean {
  * Cancelled shows a bar; terminal kinds never fill.
  */
 export function fillsGlyph(entity: Entity, now: number = Date.now()): boolean {
+  // A WEBSITE resource (a resource with a webUrl) ALWAYS reads as filled — a live reachable page
+  // is a "present, complete" thing, not an open to-do. (Ideal future refinement: only when the
+  // site is actually live / not a 404 — deferred for now.) Independent of lifecycle state.
+  if (entity.kind === "resource" && !!entity.webUrl) return true
   if (!KIND_META[entity.kind].fillsWhenClosed) return false
   const w = getState(entity, now).word
   if (w === "closed") return true
