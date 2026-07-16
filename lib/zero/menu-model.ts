@@ -26,6 +26,7 @@ import {
   changeEntityKind,
   openEngagement,
   closeEngagement,
+  markInstant,
 } from "@/lib/zero/data"
 import { isClosed, KIND_META, isPlayable, hasOpenEngagement } from "@/lib/zero/kinds"
 import { isDone } from "@/lib/zero/entity-log"
@@ -158,6 +159,9 @@ export function buildEntityMenuItems(
       items.push({ type: "item", id: "start-now", label: "Start now" })
       items.push({ type: "item", id: "end-now", label: "End now" })
     } else if (entity.kind === "instant") {
+      // MARKABLE instant: Mark records an OCCURRENCE (a timestamp) — the same action as clicking
+      // its glyph. `set-now` (re-place the lone scheduled point) stays as a secondary.
+      items.push({ type: "item", id: "mark", label: "Mark" })
       items.push({ type: "item", id: "set-now", label: "Set to now" })
     }
   }
@@ -271,6 +275,9 @@ export function applyEntityMenuAction(entity: Entity, actionId: string): boolean
       return true
     case "stop":
       closeEngagement(id)
+      return true
+    case "mark":
+      markInstant(id)
       return true
     case "request":
       setEntityRequested(id, true)

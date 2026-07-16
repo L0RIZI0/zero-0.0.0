@@ -524,7 +524,11 @@ export function Zero0Dayline({
         const sOpen = sess.endAt == null
         const sEnd = sess.endAt ?? now
         const cur = runs[runs.length - 1]
-        if (cur && !cur.open && sess.startAt - cur.end <= SESSION_MERGE_GAP_MS) {
+        // A MARK (instant occurrence) is a discrete point in a tally — never coalesce it (nor
+        // coalesce anything INTO it), so each mark stays its own dot on the dayline (Loris:
+        // "each mark should give an Instant on the dayline"). Only session runs merge.
+        const mergeable = cur && !cur.open && cur.via !== "mark" && sess.via !== "mark"
+        if (mergeable && sess.startAt - cur.end <= SESSION_MERGE_GAP_MS) {
           cur.end = Math.max(cur.end, sEnd)
           cur.open = cur.open || sOpen
           cur.via = sess.via
@@ -543,7 +547,7 @@ export function Zero0Dayline({
         const en = Math.min(rawEnd, hi)
         const leftPct = ((st - winStart) / DAY_MS) * 100
         const widthPct = Math.max(0, ((en - st) / DAY_MS) * 100)
-        const kindLabel = run.via === "play" ? "play" : "focus"
+        const kindLabel = run.via === "play" ? "play" : run.via === "mark" ? "occurrence" : "focus"
         const merged = run.count > 1 ? ` · ${run.count} sessions` : ""
         out.push({
           key: `sess:${e.id}:${i}`,

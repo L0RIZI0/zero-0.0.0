@@ -62,13 +62,16 @@ function FaceGlyph({
   size,
   onToggleDone,
   onTogglePlay,
+  onMark,
 }: {
   entity: Entity
   model: FaceModel
   size: "m" | "full"
   onToggleDone: (e: Entity) => void
-  /** Play/Stop toggle for a `playable` ("whenever") moment/space. */
+  /** Play/Stop toggle for a `playable` ("whenever"/unscheduled) moment/space. */
   onTogglePlay?: (e: Entity) => void
+  /** Record an occurrence for a `markable` instant. */
+  onMark?: (e: Entity) => void
 }) {
   const glyphClass = size === "full" ? "h-4 w-4" : "h-3.5 w-3.5"
   // Full sits on a `gap-2` line (no fixed column); a row glyph occupies the `w-6` column.
@@ -114,6 +117,21 @@ function FaceGlyph({
       </button>
     )
   }
+  // MARKABLE (live instant): clicking the glyph records an OCCURRENCE (a timestamp). An instant
+  // is a point — it never runs — so there's no toggle, just a tally append.
+  if (model.markable && onMark) {
+    return (
+      <button
+        type="button"
+        onClick={() => onMark(entity)}
+        className={wrapperBase + " cursor-pointer transition-opacity hover:opacity-70"}
+        aria-label="Mark occurrence"
+        title="Mark occurrence"
+      >
+        {glyph}
+      </button>
+    )
+  }
   return (
     <span className={wrapperBase} aria-label={model.stateLabel} title={model.stateLabel}>
       {glyph}
@@ -134,6 +152,7 @@ function FaceBlock({
   size,
   onToggleDone,
   onTogglePlay,
+  onMark,
   onOpen,
   onContextMenu,
   trailing,
@@ -146,6 +165,7 @@ function FaceBlock({
   size: "l" | "xl" | "full"
   onToggleDone: (e: Entity) => void
   onTogglePlay?: (e: Entity) => void
+  onMark?: (e: Entity) => void
   onOpen?: (e: Entity) => void
   onContextMenu?: (e: Entity, ev: React.MouseEvent) => void
   trailing?: React.ReactNode
@@ -228,7 +248,7 @@ function FaceBlock({
         className={"flex items-center gap-2 text-[12px] " + (model.closed ? "opacity-60" : "")}
         onContextMenu={onContextMenu ? (ev) => onContextMenu(entity, ev) : undefined}
       >
-        <FaceGlyph entity={entity} model={model} size="full" onToggleDone={onToggleDone} onTogglePlay={onTogglePlay} />
+        <FaceGlyph entity={entity} model={model} size="full" onToggleDone={onToggleDone} onTogglePlay={onTogglePlay} onMark={onMark} />
         {onOpen ? (
           <button
             type="button"
@@ -307,8 +327,10 @@ export interface Zero0FaceProps {
   /** The MAKE — how this Face READS (orthogonal to size). `starter` shows the entity as an
       aggregator of its Content (rollup meta) instead of its own meta; defaults to `default`. */
   make?: FaceMake
-  /** Play/Stop toggle for a `playable` ("whenever") moment/space glyph. */
+  /** Play/Stop toggle for a `playable` ("whenever"/unscheduled) moment/space glyph. */
   onTogglePlay?: (e: Entity) => void
+  /** Record an occurrence for a `markable` instant glyph. */
+  onMark?: (e: Entity) => void
 }
 
 export function Zero0Face({
@@ -327,6 +349,7 @@ export function Zero0Face({
   titleClassName,
   make = "default",
   onTogglePlay,
+  onMark,
 }: Zero0FaceProps) {
   // Resolve ONE model, from whichever input was given: an explicit model wins, else a
   // live entity (full lifecycle), else a projection (inert lifecycle).
@@ -364,6 +387,7 @@ export function Zero0Face({
         size={size}
         onToggleDone={toggle}
         onTogglePlay={onTogglePlay}
+        onMark={onMark}
         onOpen={onOpen}
         onContextMenu={onContextMenu}
         trailing={trailing}
@@ -382,7 +406,7 @@ export function Zero0Face({
       <>
         {/* Glyph column: fill = closed (fillable kinds), check = done, bar = cancelled,
             "sent" flap = requested. Task glyph is a button (toggles Done); else static. */}
-        <FaceGlyph entity={entity} model={model} size="m" onToggleDone={toggle} onTogglePlay={onTogglePlay} />
+        <FaceGlyph entity={entity} model={model} size="m" onToggleDone={toggle} onTogglePlay={onTogglePlay} onMark={onMark} />
         {/* (Kind label column removed on ENTITY CONTENT rows — the glyph already conveys kind.) */}
         {/* MANUAL color marker — a small dot when THIS entity has an explicitly set accent.
             Inherited/ancestor colors are deliberately NOT shown. */}
@@ -433,7 +457,7 @@ export function Zero0Face({
     const toggle = onToggleDone ?? (() => {})
     return (
       <>
-        <FaceGlyph entity={entity} model={model} size="m" onToggleDone={toggle} onTogglePlay={onTogglePlay} />
+        <FaceGlyph entity={entity} model={model} size="m" onToggleDone={toggle} onTogglePlay={onTogglePlay} onMark={onMark} />
         <button
           type="button"
           onClick={() => onOpen?.(entity)}

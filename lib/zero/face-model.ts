@@ -357,8 +357,16 @@ export function metaEcho(e: Entity, now: number): string {
     case "moment":
     case "space":
       return span()
-    case "instant":
+    case "instant": {
+      // An instant is a TALLY of occurrences (marks), not a span. Echo the count + latest
+      // mark; fall back to a lone scheduled `at` (a pre-placed instant with no marks yet).
+      const marks = getMarks(e)
+      if (marks.length > 0) {
+        const n = marks.length
+        return `${n} occurrence${n === 1 ? "" : "s"} · ${fmtShort(marks[0].startAt, now)}`
+      }
       return s?.at != null ? fmtShort(s.at, now) : ""
+    }
     case "task": {
       if (s?.dueAt != null) return `due ${fmtShort(s.dueAt, now)}`
       return span() // start/end/duration when no due is set
@@ -399,9 +407,12 @@ export interface FaceModel {
   requested: boolean
   /** A live span in progress — the glyph rotates. */
   ongoing: boolean
-  /** PLAYABLE — a `startAt: "whenever"` moment/space whose glyph offers Play/Stop to
-      open/close a background session on demand (mutually exclusive with hasDoneState). */
+  /** PLAYABLE — a `startAt: "whenever"`/unscheduled moment/space whose glyph offers Play/Stop
+      to open/close a background session on demand (mutually exclusive with hasDoneState). */
   playable: boolean
+  /** MARKABLE — a live INSTANT whose glyph records an OCCURRENCE (a timestamp) on each click.
+      A point, never a running span, so it never reads ongoing (mutually exclusive with playable). */
+  markable: boolean
   /** ENDED (closed / dead / retired / cancelled) ⇒ the row/section fades. */
   closed: boolean
   /** The single lifecycle word straight off the STATE axis. */
@@ -434,7 +445,8 @@ export function getFaceModel(e: Entity, now: number): FaceModel {
     cancelled: state.word === "cancelled",
     requested,
     ongoing: state.word === "ongoing", // live span ⇒ glyph rotates
-    playable: isPlayable(e), // "whenever" moment/space ⇒ glyph is Play/Stop
+    playable: isPlayable(e), // "whenever"/unscheduled moment/space ⇒ glyph is Play/Stop
+    markable: isMarkable(e), // live instant ⇒ glyph records an occurrence on click
     closed: isClosed(e), // ENDED ⇒ fade — NOT complete
     lifeLabel,
     stateLabel: `${done ? "done, " : ""}${lifeLabel}${requested ? ", requested" : ""}`,
@@ -484,6 +496,7 @@ export function faceModelFromLike(like: FaceLike): FaceModel {
     requested: false,
     ongoing: false,
     playable: false, // a projection is inert — never a live playable entity
+    markable: false, // a projection is inert — never a live markable instant
     closed: false,
     lifeLabel: "",
     stateLabel: like.title,
@@ -591,6 +604,13 @@ export function getFaceMetaRows(e: Entity, now: number): [string, string][] {
     // such a moment read as unscheduled — START —, END — — yet mysteriously "complete").
     if (s?.at != null) rows.push(["at", fmt(s.at)])
   } else if (e.kind === "instant") {
+    // An instant is a TALLY of occurrences (marks) — a series of timestamps, not a span.
+    // OCCURRENCES lists them newest-first ("N · t1 · t2 · …"); the lone scheduled `at`
+    // (a pre-placed instant) is still shown when present.
+    const marks = getMarks(e)
+    if (marks.length > 0) {
+      rows.push(["occurrences", `${marks.length} · ${marks.map((m) => fmt(m.startAt)).join(" · ")}`])
+    }
     rows.push(["at", s?.at ? fmt(s.at) : "—"])
   } else if (s?.dueAt) {
     // Tasks (and other kinds) only surface a schedule row when one is actually set.

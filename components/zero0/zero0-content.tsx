@@ -25,8 +25,10 @@ import type { Entity } from "@/lib/zero/types"
 export interface Zero0ContentCtx {
   /** Toggle a task's soft DONE marker. */
   toggleDone: (e: Entity) => void
-  /** Play/Stop a playable ("whenever") moment/space's background session. */
+  /** Play/Stop a playable ("whenever"/unscheduled) moment/space's background session. */
   togglePlay: (e: Entity) => void
+  /** Record an occurrence on a markable instant. */
+  mark: (e: Entity) => void
   /** Drill INTO an entity (push it onto the breadcrumb path). */
   openEntity: (e: Entity) => void
   /** Delete an entity (remove from its arrangement). */
@@ -230,6 +232,7 @@ export function Zero0Content({ entity, axis, depth, ancestry, ctx, isRoot, mount
             now={nowSec}
             onToggleDone={ctx.toggleDone}
             onTogglePlay={ctx.togglePlay}
+            onMark={ctx.mark}
             onOpen={ctx.openEntity}
             onActivate={() => ctx.openEntity(e)}
             onActivateContextMenu={(ev) => ctx.openMenu(e, ev, { size, make })}

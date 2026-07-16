@@ -34,10 +34,11 @@ import {
   openEngagement,
   closeEngagement,
   toggleEngagement,
+  markInstant,
   endOngoing,
   reorderContextItems,
 } from "@/lib/zero/data"
-  import { KIND_META, isClosed, getState, hasOpenEngagement, isPlayable } from "@/lib/zero/kinds"
+  import { KIND_META, isClosed, getState, hasOpenEngagement, isPlayable, isMarkable } from "@/lib/zero/kinds"
   import { isDone, describeLogEntry } from "@/lib/zero/entity-log"
 import {
   parseEntry,
@@ -685,6 +686,17 @@ export function Zero0Canvas() {
     [bump],
   )
 
+  // MARK an occurrence on a MARKABLE (live) instant glyph — appends a zero-length timestamp
+  // to its tally without navigating. Guarded by isMarkable so it never fires elsewhere.
+  const mark = useCallback(
+    (e: Entity) => {
+      if (!isMarkable(e)) return
+      markInstant(e.id)
+      bump()
+    },
+    [bump],
+  )
+
   const remove = useCallback(
     (e: Entity) => {
       deleteEntity(e.id)
@@ -894,6 +906,7 @@ export function Zero0Canvas() {
     () => ({
       toggleDone,
       togglePlay,
+      mark,
       openEntity,
       remove,
       openMenu,
@@ -908,7 +921,7 @@ export function Zero0Canvas() {
       createChild,
       reorder,
     }),
-    [toggleDone, togglePlay, openEntity, remove, openMenu, sizeOf, makeOf, showHidden, nowSec, rev, expandedIds, toggleExpand, createChild, reorder],
+    [toggleDone, togglePlay, mark, openEntity, remove, openMenu, sizeOf, makeOf, showHidden, nowSec, rev, expandedIds, toggleExpand, createChild, reorder],
   )
 
   // The drill path as a Set — the top-level Content's ancestry. Seeds the cycle guard so a
@@ -1293,6 +1306,7 @@ export function Zero0Canvas() {
               now={nowSec}
               onToggleDone={toggleDone}
               onTogglePlay={togglePlay}
+              onMark={mark}
               onContextMenu={openMenu}
               trailing={
                 path.length > 1 ? (
