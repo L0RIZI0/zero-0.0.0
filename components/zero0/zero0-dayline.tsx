@@ -134,8 +134,9 @@ const HIGHLIGHT_HEIGHT_PX = 26
 // its right edge to signal "still going, end unknown." For an ONGOING tick that right edge
 // IS the now marker, so the fade trails PAST now into the future; for a FUTURE open-ended
 // start it trails rightward from the start point. Fixed pixel length (zoom-independent, a
-// qualitative "continues" cue, not a measured duration).
-const UNKNOWN_END_FADE_PX = 44
+// qualitative "continues" cue, not a measured duration). Kept SHORT + a clean linear ramp
+// (0%→100%) so it reads as a quick blend, not a second solid block.
+const UNKNOWN_END_FADE_PX = 20
 
 // A PAST planned tick's opacity reflects how much its window was actually HONORED by
 // recorded presence (fraction covered → these floor/ceiling stops, mapped linearly):
@@ -1313,7 +1314,7 @@ export function Zero0Dayline({
                             left: `${p.leftPct + p.widthPct}%`,
                             width: UNKNOWN_END_FADE_PX,
                             height: tickH,
-                            background: `linear-gradient(to right, ${p.color === DEFAULT_PRESENCE ? "var(--background)" : p.color}, transparent)`,
+                            background: `linear-gradient(to right, ${p.color === DEFAULT_PRESENCE ? "var(--background)" : p.color} 0%, transparent 100%)`,
                             opacity: tickOpacity,
                             zIndex: lit || isHot ? 15 : 7,
                           }}

@@ -4,17 +4,34 @@ import { useEffect, useMemo, useState } from "react"
 import type React from "react"
 import { getInheritedAccent, getStarterPinnedEntities, getOwnOngoingEntities } from "@/lib/zero/data"
 import { isOwnOngoing, getOpenEngagement, concreteStart, effectiveEndAt } from "@/lib/zero/kinds"
-import { formatDuration } from "@/lib/zero/face-model"
 import type { Entity } from "@/lib/zero/types"
 import { isSleepTitle, sleepDotColor } from "@/lib/zero/sleep-sky"
 import { Zero0Glyph } from "@/components/zero0/zero0-glyph"
-import { cn } from "@/lib/utils"
 
 /** Tick cadence. 1s so each chip's live timer (elapsed / countdown) advances smoothly AND
  *  so time-crossing spans (a Moment that just ended or just started) appear/disappear without
  *  a data mutation. The scanned set is tiny (ongoing ∪ pinned), so a 1s re-scan is cheap.
  *  Engagement toggles (focus/play) also bump `dataRev` for an instant refresh. */
 const TICK_MS = 1000
+
+/**
+ * Live-timer duration format for a chip. UNLIKE the shared `formatDuration` (which trims a
+ * trailing `0s`, so a ticking clock jumps `2h 4m 59s → 2h 5m → 2h 5m 1s` and the chip width
+ * jitters), this ALWAYS keeps the seconds slot for sub-day durations — the whole point is a
+ * stable-width second-by-second readout. At day-scale seconds stop mattering (and would tick
+ * invisibly), so it drops to `Nd Nh Nm`. Negative clamps to 0.
+ */
+function formatTimer(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000))
+  const s = total % 60
+  const m = Math.floor(total / 60) % 60
+  const h = Math.floor(total / 3600) % 24
+  const d = Math.floor(total / 86400)
+  if (d > 0) return `${d}d ${h}h ${m}m`
+  if (h > 0) return `${h}h ${m}m ${s}s`
+  if (m > 0) return `${m}m ${s}s`
+  return `${s}s`
+}
 
 /**
  * The live timer shown on an ONGOING chip. Two flavors, mirroring how the entity is ongoing:
@@ -28,14 +45,22 @@ const TICK_MS = 1000
 function ongoingTimer(e: Entity, now: number): { text: string; countdown: boolean } | null {
   const end = effectiveEndAt(e)
   if (end != null && end > now) {
-    return { text: `-${formatDuration(end - now)}`, countdown: true }
+    return { text: `-${formatTimer(end - now)}`, countdown: true }
   }
   const open = getOpenEngagement(e)
   const since = open?.startAt ?? concreteStart(e)
   if (since != null && now > since) {
-    return { text: formatDuration(now - since), countdown: false }
+    return { text: formatTimer(now - since), countdown: false }
   }
   return null
+}
+
+/** Whether an ongoing entity is being FOCUSED — i.e. its open engagement was opened by
+ *  dwelling (via "focus", or absent which defaults to focus), as opposed to a "play"
+ *  stopwatch or a bare running concrete span. Drives the stronger accent fill. */
+function isFocused(e: Entity): boolean {
+  const open = getOpenEngagement(e)
+  return open != null && (open.via ?? "focus") === "focus"
 }
 
 /**
@@ -91,6 +116,7 @@ export function Zero0Pins({
       entity: e,
       ongoing,
       pinned: isPinned,
+      focused: ongoing && isFocused(e),
       timer: ongoing ? ongoingTimer(e, now) : null,
     })
     const out = pinned.map((e) => mk(e, isOwnOngoing(e, now), true))
@@ -121,10 +147,13 @@ export function Zero0Pins({
       className="flex shrink-0 items-center gap-1.5 overflow-x-auto border-b border-border px-4 py-2"
       aria-label="pinned and ongoing entities"
     >
-      {items.map(({ entity: e, ongoing, pinned, timer }) => {
+      {items.map(({ entity: e, ongoing, focused, timer }) => {
         const accent =
           e.accent ?? getInheritedAccent(e.parentId) ?? (isSleepTitle(e.title) ? sleepDotColor : undefined)
         const tint = accent ?? "var(--muted-foreground)"
+        // Faint accent WASH behind every chip; STRONGER when the entity is being focused
+        // (dwell engagement), so the one you're actually "in" reads hotter than the rest.
+        const fillPct = focused ? 26 : 10
         return (
           <div
             key={e.id}
@@ -141,13 +170,11 @@ export function Zero0Pins({
               ev.preventDefault()
               onContextMenu(e, ev)
             }}
-            className={cn(
-              "flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] leading-none text-foreground transition-colors hover:bg-foreground/5",
-              // A PINNED chip reads as "stuck" with a subtle filled bg; a transient
-              // ongoing-only chip is outline-only.
-              pinned && "bg-foreground/[0.06]",
-            )}
-            style={{ borderColor: tint }}
+            className="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] leading-none text-foreground transition-[background-color,border-color]"
+            style={{
+              borderColor: tint,
+              backgroundColor: `color-mix(in oklab, ${tint} ${fillPct}%, transparent)`,
+            }}
             title={`${e.title} — click to open · click the glyph to ${ongoing ? "end" : "start"} · right-click for menu`}
           >
             {/* GLYPH — spins while ongoing; the button STARTS (idle) or ENDS (ongoing). */}
