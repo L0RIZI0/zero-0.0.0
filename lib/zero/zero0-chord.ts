@@ -52,8 +52,9 @@ const visible: Record<Zero0Flag, boolean> = {
   zeroHeader: true,
   activity: false,
   agenda: true,
-  // FREQUENT (§4) — the PINNED tile band. HIDDEN by default (per request); summon with §4
-  // or the footer "pinned" link.
+  // FREQUENT (§4) — the PINS band. It auto-shows on its own whenever an entity is ongoing;
+  // this flag is the MANUAL override that force-reveals the (otherwise hidden) EMPTY frame,
+  // toggled only by §4. HIDDEN by default, so an empty band stays collapsed until summoned.
   frequent: false,
   readout: true,
 }

@@ -178,6 +178,9 @@ export function Zero0Canvas() {
   const showActivity = useZero0Flag("activity")
   const showEntityHeader = useZero0Flag("entityHeader")
   const showZeroHeader = useZero0Flag("zeroHeader")
+  // §4 PINS — the band auto-shows whenever an entity is ongoing. This flag is the MANUAL
+  // override (toggled by §4) that force-reveals the EMPTY frame when nothing is ongoing.
+  const showFrequent = useZero0Flag("frequent")
 
   useEffect(() => {
     hydrateFromStorage()
@@ -1073,7 +1076,13 @@ export function Zero0Canvas() {
           is ongoing, and appears the moment something starts. (Named "PINS" because the
           plan is to let you pin a chip so it lingers here after it stops being ongoing.) */}
       {mounted && (
-        <Zero0Pins dataRev={rev} onOpen={openPin} onEnd={endPin} onContextMenu={(e, ev) => openMenu(e, ev)} />
+        <Zero0Pins
+          dataRev={rev}
+          forceShow={showFrequent}
+          onOpen={openPin}
+          onEnd={endPin}
+          onContextMenu={(e, ev) => openMenu(e, ev)}
+        />
       )}
 
       {/* ── AGENDA BAND (topmost, "TODAY") ──────────────────────────────────────

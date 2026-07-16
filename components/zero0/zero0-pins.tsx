@@ -23,18 +23,23 @@ const RESCAN_MS = 10000
  *   - CLICK the spinning GLYPH → END the ongoing entity (close its engagement, or end its
  *     running span) without navigating.
  *   - RIGHT-CLICK → the unified entity menu.
- * The whole band renders NOTHING when nothing is ongoing (empty ⇒ hidden).
+ * By default the whole band renders NOTHING when nothing is ongoing (empty ⇒ hidden), so it
+ * appears on its own the moment something starts. The `forceShow` flag (the §4 keybinding)
+ * overrides that: it force-reveals the frame even while EMPTY, showing a muted placeholder.
  *
  * NAME: called PINS (not "pinned") as a placeholder — the eventual goal is to let the user
  * PIN an ongoing entity so its chip stays listed here even after it stops being ongoing.
  */
 export function Zero0Pins({
   dataRev,
+  forceShow = false,
   onOpen,
   onEnd,
   onContextMenu,
 }: {
   dataRev: number
+  /** §4 override — reveal the (otherwise auto-hidden) EMPTY band. */
+  forceShow?: boolean
   /** Chip/title click — drill INTO the entity. */
   onOpen: (id: string) => void
   /** Glyph click — END the ongoing entity (stay on canvas). */
@@ -60,7 +65,19 @@ export function Zero0Pins({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- dataRev + nowTick are the intended re-read triggers
   }, [dataRev, nowTick])
 
-  if (ongoing.length === 0) return null
+  // Empty: hidden by default, but §4 (`forceShow`) reveals the frame with a muted hint so
+  // you can confirm the band exists / is toggled on even with nothing ongoing.
+  if (ongoing.length === 0) {
+    if (!forceShow) return null
+    return (
+      <div
+        className="flex shrink-0 items-center gap-1.5 border-b border-border px-4 py-2 text-[11px] italic text-muted-foreground/60"
+        aria-label="ongoing entities"
+      >
+        nothing ongoing
+      </div>
+    )
+  }
 
   return (
     <div
