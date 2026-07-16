@@ -139,6 +139,7 @@ export type LogType =
   | "accessed"
   | "session-open"
   | "session-close"
+  | "mark"
   | "set"
 
 /**
@@ -225,9 +226,11 @@ export interface Engagement {
   /** Punch-out, epoch ms. Absent ⇒ this engagement is still OPEN (ongoing). */
   endAt?: Epoch
   /** VIA — how the engagement was opened ("focus" = dwelling in a Task, "play" = a
-   *  whenever stopwatch). Lets hydrate-cleanup close dangling FOCUS engagements on
-   *  reload while leaving PLAY stopwatches running. Absent ⇒ "focus". */
-  via?: "focus" | "play"
+   *  whenever stopwatch, "mark" = an INSTANT occurrence tally — a zero-length entry where
+   *  `endAt === startAt`, never open). Lets hydrate-cleanup close dangling FOCUS engagements
+   *  on reload while leaving PLAY stopwatches running (marks are always closed, so untouched).
+   *  Absent ⇒ "focus". */
+  via?: "focus" | "play" | "mark"
 }
 
 export interface Schedule {

@@ -19,7 +19,7 @@
 
 import type { Entity, EntityKind, Whenever } from "./types"
 import { WHENEVER } from "./types"
-import { KIND_META, isClosed, fillsGlyph, getState, concreteStart, isPlayable, getEngagements, type EntityState } from "./kinds"
+import { KIND_META, isClosed, fillsGlyph, getState, concreteStart, isPlayable, isMarkable, getMarks, getEngagements, type EntityState } from "./kinds"
 import { isDone, getCreatedAt, getCompletedOn } from "./entity-log"
 import { getEntity, getCreator, getOwner, getForwardTags, getBackReferences, getChildren } from "./data"
 import { formatLocale } from "./format-locale"

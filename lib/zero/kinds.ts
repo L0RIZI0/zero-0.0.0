@@ -286,12 +286,40 @@ export function effectiveEndAt(entity: Entity): number | null {
   return effectiveScheduleEnd(entity.schedule)
 }
 
-/** True when the entity is PLAYABLE — a Moment/Space declared `startAt: "whenever"`. */
+/**
+ * True when the entity is PLAYABLE — a live Moment/Space with NO fixed clock anchor, so its
+ * glyph offers Play/Stop to open/close a background session on demand. "No fixed anchor" =
+ * `startAt` is the `"whenever"` sentinel OR simply UNSET (v0.6.9: null starts joined whenever —
+ * there was never a reason to exclude them; both mean "a real trackable thing with no time").
+ * A CONCRETE start is deliberately excluded: a past one is already ongoing by its own span
+ * (End it, don't Stop a session on top), and a future one arrives on its own. ENDED entities
+ * aren't playable either (their times are historical) — this matches the menu's `!ended` guard.
+ */
 export function isPlayable(entity: Entity): boolean {
-  return (
-    (entity.kind === "moment" || entity.kind === "space") &&
-    isWheneverStart(entity.schedule?.startAt)
-  )
+  if (entity.kind !== "moment" && entity.kind !== "space") return false
+  if (isClosed(entity)) return false
+  const start = entity.schedule?.startAt
+  return isWheneverStart(start) || start == null
+}
+
+/**
+ * True when the entity is MARKABLE — a live INSTANT whose glyph records an OCCURRENCE (a
+ * point in time) on each click. An instant is a POINT, not a span, so it never opens a
+ * running session; instead each mark is a zero-length engagement (`endAt === startAt`,
+ * via `"mark"`) appended to `schedule.engagements` — a growing tally of timestamps.
+ * Ended instants aren't markable (their occurrences are historical).
+ */
+export function isMarkable(entity: Entity): boolean {
+  return entity.kind === "instant" && !isClosed(entity)
+}
+
+/** The OCCURRENCE marks tallied on an instant (zero-length `via:"mark"` engagements), newest
+ *  first. [] for any non-instant or an instant with no marks yet. */
+export function getMarks(entity: Entity): Engagement[] {
+  if (entity.kind !== "instant") return []
+  return getEngagements(entity)
+    .filter((e) => e.via === "mark")
+    .sort((a, b) => b.startAt - a.startAt)
 }
 
 // ── Engagement reads (pure — engagements live ON the entity) ─────────────────────────

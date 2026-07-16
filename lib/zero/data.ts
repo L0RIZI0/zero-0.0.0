@@ -1381,6 +1381,26 @@ export function endOngoing(id: string, at = Date.now()): boolean {
   return false
 }
 
+/**
+ * MARK an occurrence on an INSTANT — append a ZERO-LENGTH engagement (`endAt === startAt`,
+ * via `"mark"`) to `schedule.engagements`, i.e. a single timestamp in a growing tally. Unlike
+ * open/close this is a ONE-SHOT append, so it deliberately BYPASSES the MIN_SESSION_MS
+ * discard-short floor (a mark is meant to be zero-length; it must never be dropped). No-op on
+ * a non-instant. Returns true if a mark was recorded. Each mark also surfaces as a point on
+ * the dayline's recorded rail (see zero0-dayline: `point: en <= st`, marks kept un-coalesced).
+ */
+export function markInstant(id: string, at = Date.now()): boolean {
+  const stored = byId.get(id)
+  if (!stored || stored.kind !== "instant") return false
+  const entity = mutable(stored)
+  const sched: Schedule = { ...(entity.schedule ?? {}) }
+  sched.engagements = [...(sched.engagements ?? []), { startAt: at, endAt: at, via: "mark" }]
+  const log = ensureEntityLog(entity)
+  entity.log = appendInstant(log, makeInstant("mark", at))
+  persistEngagementMutation(id, entity, sched)
+  return true
+}
+
 /** Toggle the open/closed state of an entity's session (Play ⇄ Stop). Returns the new
  *  open state. Used by the glyph play/pause on a "whenever" moment/space. */
 export function toggleEngagement(id: string, via: Engagement["via"] = "play"): boolean {
