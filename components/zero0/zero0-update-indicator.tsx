@@ -3,21 +3,32 @@
 import { useEffect, useState } from "react"
 
 /**
- * Minimal, dependency-free "update ready" affordance for the root `/0` footer.
+ * Minimal, dependency-free update affordance for the root `/0` footer.
  *
  * WHY THIS EXISTS: the Surface (Electron) loads `app://local/index.html` = the root
  * route = `/0`, but the original "Restart to update" pill lives in the OLD SHELL
- * (`components/zero/update-indicator.tsx`), which `/0` never renders. So on the Surface
- * a background update would download + stage silently with no in-app signal. This ports
- * the affordance into the zero0 footer.
+ * (`components/zero/update-indicator.tsx`), which `/0` never renders. This ports the
+ * affordance into the zero0 footer.
  *
- * It feature-detects `window.zero.updates` (only present inside the Electron preload),
- * so on the web it renders NOTHING and adds no deps. Uses an inline SVG glyph to stay
- * consistent with the rest of the dep-free zero0 tree (no lucide-react).
+ * MANUAL DOWNLOAD FLOW (v0.4.7) — three states, each a single click:
+ *   1. available   → "↓ download <latest>"    click ⇒ start the download
+ *   2. downloading → "⟳ downloading <version>"  (spinner; disabled)
+ *   3. downloaded  → "⟳ restart for <version>"  click ⇒ quit + install + relaunch
+ * The pill always tracks the LATEST version the feed offers: nothing is fetched behind
+ * your back, so a stalled build is never auto-installed and a newer one always supersedes
+ * an older download in the label.
+ *
+ * Feature-detects `window.zero.updates` (only present inside the Electron preload), so on
+ * the web it renders NOTHING and adds no deps. Inline SVG glyphs keep the zero0 tree
+ * dependency-free (no lucide-react).
  */
 
 interface ZeroUpdatesApi {
+  onAvailable: (cb: (p: { version?: string }) => void) => () => void
+  onProgress: (cb: (p: { percent: number }) => void) => () => void
   onDownloaded: (cb: (p: { version?: string }) => void) => () => void
+  onError: (cb: (p: { message?: string }) => void) => () => void
+  startDownload: () => void
   restartToApply: () => void
 }
 
@@ -27,57 +38,149 @@ function getUpdatesApi(): ZeroUpdatesApi | null {
   return z?.updates ?? null
 }
 
+type Phase = "idle" | "available" | "downloading" | "downloaded" | "restarting"
+
+// Normalise a bare electron-updater version ("0.4.7") to Zero's leading-"v" tag form.
+function tag(version?: string | null): string | null {
+  if (!version) return null
+  return version.startsWith("v") ? version : `v${version}`
+}
+
 export function Zero0UpdateIndicator() {
-  const [staged, setStaged] = useState<{ version?: string } | null>(null)
-  // Once clicked, the main process hides windows + silently installs, but that takes a
-  // beat — flip to a "restarting…" state IMMEDIATELY so the click feels responsive rather
-  // than dead (the perceived-speed half of the Figma-like restart).
-  const [restarting, setRestarting] = useState(false)
+  const [phase, setPhase] = useState<Phase>("idle")
+  const [version, setVersion] = useState<string | null>(null)
+  const [percent, setPercent] = useState(0)
 
   useEffect(() => {
     const api = getUpdatesApi()
     if (!api) return
-    // An update finished downloading and is staged for the next restart.
-    const off = api.onDownloaded((payload) => setStaged(payload ?? {}))
-    return off
+
+    const offAvailable = api.onAvailable((p) => {
+      // A newer build is offered for download. Don't clobber an in-flight download or the
+      // "restarting" beat; otherwise (idle / superseding an older downloaded build) show it.
+      setPhase((cur) => (cur === "downloading" || cur === "restarting" ? cur : "available"))
+      setVersion(p?.version ?? null)
+    })
+    const offProgress = api.onProgress((p) => {
+      setPercent(p?.percent ?? 0)
+      // Progress can arrive a tick before our optimistic click state; make sure we reflect it.
+      setPhase((cur) => (cur === "downloaded" || cur === "restarting" ? cur : "downloading"))
+    })
+    const offDownloaded = api.onDownloaded((p) => {
+      setPhase("downloaded")
+      if (p?.version) setVersion(p.version)
+    })
+    const offError = api.onError(() => {
+      // Download/check failed — fall back to "available" so the user can retry the download.
+      setPhase((cur) => (cur === "downloading" ? "available" : cur))
+    })
+
+    return () => {
+      offAvailable()
+      offProgress()
+      offDownloaded()
+      offError()
+    }
   }, [])
 
-  if (!staged) return null
+  if (phase === "idle") return null
 
-  // Normalise the staged version to a leading-"v" tag form so the pill reads like the rest
-  // of Zero's version chrome (e.g. "v0.3.88"). electron-updater reports a bare "0.3.88".
-  const ver = staged.version ? (staged.version.startsWith("v") ? staged.version : `v${staged.version}`) : null
-  const label = restarting ? "restarting…" : ver ? `restart for ${ver}` : "restart to update"
+  const ver = tag(version)
+
+  let label: string
+  let onClick: (() => void) | undefined
+  let disabled = false
+  let spinning = false
+
+  switch (phase) {
+    case "available":
+      label = ver ? `download ${ver}` : "download update"
+      onClick = () => {
+        setPhase("downloading")
+        setPercent(0)
+        getUpdatesApi()?.startDownload()
+      }
+      break
+    case "downloading":
+      label = ver ? `downloading ${ver}` : "downloading…"
+      disabled = true
+      spinning = true
+      break
+    case "downloaded":
+      label = ver ? `restart for ${ver}` : "restart to update"
+      onClick = () => {
+        setPhase("restarting")
+        getUpdatesApi()?.restartToApply()
+      }
+      break
+    case "restarting":
+      label = "restarting…"
+      disabled = true
+      spinning = true
+      break
+    default:
+      label = ""
+  }
+
+  const title =
+    phase === "available"
+      ? `Download update${ver ? ` ${ver}` : ""}`
+      : phase === "downloading"
+        ? `Downloading${ver ? ` ${ver}` : ""} — ${percent}%`
+        : phase === "downloaded" || phase === "restarting"
+          ? `Restart to update${ver ? ` to ${ver}` : ""}`
+          : label
 
   return (
     <button
       type="button"
-      disabled={restarting}
-      onClick={() => {
-        setRestarting(true)
-        getUpdatesApi()?.restartToApply()
-      }}
-      title={ver ? `Restart to update to ${ver}` : "Restart to update"}
-      aria-label={ver ? `Restart to update to ${ver}` : "Restart to update"}
+      disabled={disabled}
+      onClick={onClick}
+      title={title}
+      aria-label={title}
       className="inline-flex items-center gap-1.5 rounded-sm border border-border px-1.5 py-0.5 text-muted-foreground transition-colors hover:text-foreground disabled:opacity-70"
     >
-      <svg
-        aria-hidden
-        viewBox="0 0 24 24"
-        className={"h-3 w-3" + (restarting ? " motion-safe:animate-spin" : "")}
-        fill="none"
-        stroke="currentColor"
-        strokeWidth={2}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        {/* A simple refresh/restart arc — signals "relaunch to apply". */}
-        <path d="M21 12a9 9 0 1 1-2.64-6.36" />
-        <path d="M21 3v5h-5" />
-      </svg>
-      {/* Show the TARGET version in the pill itself (was tooltip-only) so you know what
-          you'll land on after the restart. */}
+      {phase === "available" ? <DownloadGlyph /> : <RestartGlyph spinning={spinning} />}
       <span className="tabular-nums">{label}</span>
     </button>
+  )
+}
+
+/** Download arrow (available state) — arrow into a tray. */
+function DownloadGlyph() {
+  return (
+    <svg
+      aria-hidden
+      viewBox="0 0 24 24"
+      className="h-3 w-3"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M12 3v12" />
+      <path d="M7 10l5 5 5-5" />
+      <path d="M5 21h14" />
+    </svg>
+  )
+}
+
+/** Refresh/restart arc — used while downloading (spins) and for the restart state. */
+function RestartGlyph({ spinning }: { spinning: boolean }) {
+  return (
+    <svg
+      aria-hidden
+      viewBox="0 0 24 24"
+      className={"h-3 w-3" + (spinning ? " motion-safe:animate-spin" : "")}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+      <path d="M21 3v5h-5" />
+    </svg>
   )
 }

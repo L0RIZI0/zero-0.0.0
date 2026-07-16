@@ -39,6 +39,8 @@ export interface ZeroDesktopBridge {
     onAvailable: (cb: (payload: { version?: string }) => void) => () => void
     onProgress: (cb: (payload: { percent: number }) => void) => () => void
     onDownloaded: (cb: (payload: { version?: string }) => void) => () => void
+    onError: (cb: (payload: { message?: string }) => void) => () => void
+    startDownload: () => void
     restartToApply: () => void
   }
   win: {

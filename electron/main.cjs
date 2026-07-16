@@ -119,8 +119,14 @@ function setupAutoUpdate() {
   if (!app.isPackaged) return
 
   autoUpdater.logger = console
-  autoUpdater.autoDownload = true // pull the delta as soon as one is found
-  autoUpdater.autoInstallOnAppQuit = true // apply on the next restart, never mid-session
+  // MANUAL download (v0.4.7): do NOT auto-pull the delta. The old auto-download had a
+  // trap — if a build downloaded but you never restarted, the pill was PINNED to that
+  // staged version ("restart for v0.4.2") and polling STOPPED, so a newer v0.4.5 sitting
+  // in the feed was never picked up and you were effectively forced to install the stale
+  // one to move on. Now the pill shows "download <latest>" and YOU trigger the download,
+  // so a stalled build is never fetched behind your back.
+  autoUpdater.autoDownload = false
+  autoUpdater.autoInstallOnAppQuit = true // an update you DID download still applies on quit
 
   const notify = (channel, payload) => {
     if (mainWindow && !mainWindow.isDestroyed()) {
@@ -128,28 +134,55 @@ function setupAutoUpdate() {
     }
   }
 
+  // Track the latest version the feed is offering and what's actually been downloaded, so
+  // repeated checks can re-surface a NEWER-than-downloaded build as a fresh "download".
+  let downloadingVersion = null
+  let downloadedVersion = null
+
   autoUpdater.on("checking-for-update", () => console.log("[v0] update: checking"))
   autoUpdater.on("update-available", (info) => {
-    console.log("[v0] update: available", info?.version)
-    notify("zero:update:available", { version: info?.version })
+    const version = info?.version
+    console.log("[v0] update: available", version)
+    // If the newest available build is the one we've already downloaded, keep the
+    // "restart" state; otherwise offer it for download (covers a newer build superseding
+    // a previously-downloaded one). Never interrupt an in-flight download.
+    if (version && version === downloadedVersion) return
+    if (downloadingVersion) return
+    notify("zero:update:available", { version })
   })
   autoUpdater.on("update-not-available", () => console.log("[v0] update: up to date"))
   autoUpdater.on("download-progress", (p) => {
     notify("zero:update:progress", { percent: Math.round(p?.percent || 0) })
   })
-  // Once a build is staged we stop polling — nothing new to find until it's applied.
-  let updateDownloaded = false
   autoUpdater.on("update-downloaded", (info) => {
-    console.log("[v0] update: downloaded", info?.version, "— will install on quit")
-    // Do NOT quitAndInstall() here: per the plan, restarting to apply is fine and we
-    // never want to interrupt a dogfooding session. It installs on the next quit.
-    updateDownloaded = true
+    console.log("[v0] update: downloaded", info?.version, "— restart to apply")
+    // Do NOT quitAndInstall() here: restarting to apply is fine and we never want to
+    // interrupt a dogfooding session. It installs on the next quit or on explicit restart.
+    downloadedVersion = info?.version ?? null
+    downloadingVersion = null
     notify("zero:update:downloaded", { version: info?.version })
   })
   autoUpdater.on("error", (err) => {
     // A missing/unreachable feed (offline, feed not yet provisioned) must never crash
-    // or nag — auto-update is best-effort. Just log it.
+    // or nag — auto-update is best-effort. Just log it, and clear any download-in-flight
+    // flag so a failed download can be retried.
+    downloadingVersion = null
     console.log("[v0] update: error", err?.message || err)
+    notify("zero:update:error", { message: err?.message || String(err) })
+  })
+
+  // Triggered by the in-app "download <version>" pill. Kicks off the actual delta
+  // download; progress + completion flow back via the events above. Guarded so a
+  // double-click doesn't start two downloads.
+  ipcMain.on("zero:update:download", () => {
+    if (!app.isPackaged || downloadingVersion) return
+    downloadingVersion = "pending"
+    console.log("[v0] update: download requested")
+    autoUpdater.downloadUpdate().catch((err) => {
+      downloadingVersion = null
+      console.log("[v0] update: download failed", err?.message || err)
+      notify("zero:update:error", { message: err?.message || String(err) })
+    })
   })
 
   // Single reusable checker. Guarded so overlapping triggers (interval + focus) don't
@@ -157,7 +190,10 @@ function setupAutoUpdate() {
   let checking = false
   let lastCheck = 0
   const runUpdateCheck = (reason) => {
-    if (updateDownloaded || checking) return
+    // Keep checking even AFTER a build is downloaded — that's how a newer build (published
+    // while you sat on a staged one) gets discovered and re-offered. With autoDownload off
+    // a check just re-fires `update-available`; it won't fetch anything on its own.
+    if (checking) return
     checking = true
     lastCheck = Date.now()
     console.log(`[v0] update: check (${reason})`)

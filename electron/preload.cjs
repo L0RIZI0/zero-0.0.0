@@ -85,11 +85,11 @@ contextBridge.exposeInMainWorld("zero", {
   /** Open a URL in the user's real external browser (graceful fallback). */
   openExternal: (url) => ipcRenderer.send("zero:open-external", url),
 
-  /** Background auto-update lifecycle (see setupAutoUpdate in main.cjs). All are
-   *  best-effort notifications for a future "Update ready — restart to apply" UI;
-   *  the update itself downloads + installs on quit without any renderer action. */
+  /** MANUAL background-update lifecycle (see setupAutoUpdate in main.cjs). A newer build
+   *  is ANNOUNCED (onAvailable) but NOT fetched until you call startDownload(); progress
+   *  streams via onProgress, completion via onDownloaded, then restartToApply() applies it. */
   updates: {
-    /** A newer version was found and is downloading. cb({ version }). */
+    /** A newer version is available to download (not yet fetched). cb({ version }). */
     onAvailable: (cb) => {
       const handler = (_e, payload) => cb(payload)
       ipcRenderer.on("zero:update:available", handler)
@@ -107,6 +107,14 @@ contextBridge.exposeInMainWorld("zero", {
       ipcRenderer.on("zero:update:downloaded", handler)
       return () => ipcRenderer.removeListener("zero:update:downloaded", handler)
     },
+    /** A check/download error occurred (best-effort; lets the UI drop back). cb({ message }). */
+    onError: (cb) => {
+      const handler = (_e, payload) => cb(payload)
+      ipcRenderer.on("zero:update:error", handler)
+      return () => ipcRenderer.removeListener("zero:update:error", handler)
+    },
+    /** Begin downloading the available update. No-op if none available or already downloading. */
+    startDownload: () => ipcRenderer.send("zero:update:download"),
     /** Quit + install the staged update now, then relaunch. No-op if none staged. */
     restartToApply: () => ipcRenderer.send("zero:update:install"),
   },
