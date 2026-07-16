@@ -178,8 +178,6 @@ export function Zero0Canvas() {
   const showActivity = useZero0Flag("activity")
   const showEntityHeader = useZero0Flag("entityHeader")
   const showZeroHeader = useZero0Flag("zeroHeader")
-  // §4 FREQUENT — the topmost quick-create band; shown by default (see the chord store).
-  const showFrequent = useZero0Flag("frequent")
 
   useEffect(() => {
     hydrateFromStorage()
@@ -1050,7 +1048,7 @@ export function Zero0Canvas() {
       className="relative flex h-screen flex-col bg-background text-foreground"
       style={{ fontFamily: "var(--font-zero0-mono), ui-monospace, monospace" }}
     >
-      {/* ── GLUED TOP: live clock ──────────────────���─���─────────────────────────
+      {/* ── GLUED TOP: live clock ──────────��───────���─���─────────────────────────
           Permanent top chrome (mirrors the footer's glued-bottom role): the live full
           date + time WITH seconds, top-left. Always present �� for any open entity, and
           regardless of which frames are toggled below. `min-h` reserves its row so the
@@ -1400,21 +1398,9 @@ export function Zero0Canvas() {
         <span className="text-border" aria-hidden>
           |
         </span>
-        {/* PINNED (§4) + AGENDA (§3) + ACTIVITY (§2) frame toggles, in top-to-bottom
-            order. These flip the SAME chord flags as the § keybindings and "§x" markers.
-            (The flag key stays "frequent" for back-compat with stored chord state.) */}
-        <button
-          type="button"
-          onClick={() => toggleZero0Flag("frequent")}
-          aria-pressed={showFrequent}
-          className={
-            showFrequent
-              ? "text-foreground transition-colors"
-              : "text-muted-foreground transition-colors hover:text-foreground"
-          }
-        >
-          pinned
-        </button>
+        {/* AGENDA (§3) + ACTIVITY (§2) frame toggles, in top-to-bottom order. These flip
+            the SAME chord flags as the § keybindings and "§x" markers. (§4 PINS has no
+            toggle — it auto-shows only while something is ongoing.) */}
         <button
           type="button"
           onClick={() => toggleZero0Flag("agenda")}
