@@ -499,8 +499,8 @@ export function faceModelFromLike(like: FaceLike): FaceModel {
 /** One segment of a rich START/END row: `text` is the padded display token (nbsp-padded so
  *  the monospace columns align between the two rows), `full` is the seconds-precision timestamp
  *  for a per-cell hover tooltip, `faint` dims a cell (the CLOSED tracked-session cells; the
- *  scheduled prefix and the live `ongoing` cell are NOT faint), and `pulse` marks the single
- *  OPEN session's END cell (renders `ongoing`, full-opacity + breathing). */
+ *  scheduled prefix and BOTH cells of the live OPEN session are NOT faint), and `pulse` marks the
+ *  single OPEN session's END cell (renders `ongoing`, full-opacity + breathing). */
 export type ScheduleCell = { text: string; full?: string; faint?: boolean; pulse?: boolean }
 
 /** Structured START/END rows for a span-bearing entity (moment/space), or `null` for others.
@@ -524,9 +524,10 @@ export function getScheduleCells(e: Entity, now: number): { start: ScheduleCell[
     const sTxt = fmtShort(se.startAt, now)
     const eTxt = open ? "ongoing" : fmtShort(se.endAt as number, now)
     const w = Math.max(sTxt.length, eTxt.length)
-    start.push({ text: sTxt.padStart(w, NB), full: fmt(se.startAt), faint: true })
-    // The OPEN session's END cell ("ongoing") is the ONE live value — NOT faint (full-opacity
-    // foreground) and PULSING; every other tracked cell stays faint.
+    // The OPEN session is the ONE live engagement — BOTH its START and END cells are NOT faint
+    // (full-opacity foreground), so the whole live pair reads as active; only its END cell
+    // ("ongoing") also PULSES. Every CLOSED session's cells stay faint.
+    start.push({ text: sTxt.padStart(w, NB), full: fmt(se.startAt), faint: !open })
     end.push({ text: eTxt.padStart(w, NB), full: open ? undefined : fmt(se.endAt as number), faint: !open, pulse: open })
   }
   return { start, end }

@@ -204,26 +204,15 @@ function FaceBlock({
       </dd>
     )
   }
-  // STATE row when the entity is ONGOING: a small rotating spinner + the pulsing `ongoing` word,
-  // then the rest of the string (" · since …") plain. Detected by the "ongoing" prefix that
-  // `formatState` emits. Any other state renders as the normal string row.
+  // STATE row when the entity is ONGOING: a small PULSING "live" dot (a solid filled circle —
+  // the universal live/active indicator, NOT a rotating ring which reads as "loading") + the
+  // pulsing `ongoing` word, then the rest (" · since …") plain. Detected by the "ongoing" prefix
+  // that `formatState` emits. Any other state renders as the normal string row.
   const renderOngoingState = (v: string) => {
     const rest = v.slice("ongoing".length) // " · since …"
     return (
       <dd className="flex items-center gap-1.5 truncate text-foreground" title={v}>
-        <svg viewBox="0 0 16 16" aria-hidden className="h-3 w-3 shrink-0 animate-spin text-foreground">
-          <circle
-            cx="8"
-            cy="8"
-            r="6"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeDasharray="28"
-            strokeDashoffset="9"
-          />
-        </svg>
+        <span aria-hidden className="zero0-pulse h-2 w-2 shrink-0 rounded-full bg-foreground" />
         <span className="truncate">
           <span className="zero0-pulse">ongoing</span>
           {rest}

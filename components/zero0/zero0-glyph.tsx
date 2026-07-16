@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef } from "react"
+import { useEffect, useRef, useState } from "react"
 import type { EntityKind } from "@/lib/zero/types"
 
 // ONGOING spin cadence. SPIN_MS = one full turn (calm, ambient). EASE_MS = how long the
@@ -32,6 +32,81 @@ const PENTAGON = "12,3 20.6,9.2 17.3,19.3 6.7,19.3 3.4,9.2"
 const DIAMOND = "12,3 21,12 12,21 3,12"
 const TRIANGLE_UP = "12,4 20,19 4,19"
 const TRIANGLE_DOWN = "12,20 20,5 4,5"
+const SQUARE = "4.5,4.5 19.5,4.5 19.5,19.5 4.5,19.5"
+
+// ── GLYPH MORPHING (dep-free) ────────────────────────────────────────────────────────────────
+// We morph one convex kind-shape into another WITHOUT a tweening lib by sampling each silhouette
+// as a RADIAL signature: for N equally-spaced angles (from 12-o'clock, clockwise) we cast a ray
+// from the box centre (12,12) and record the distance to the boundary. Morphing is then a plain
+// element-wise lerp of two radius arrays — always TOP-ALIGNED (index 0 = straight up for every
+// shape) so a hexagon melts into a square without spinning to realign. Corners are approximated
+// (a vertex between two angular samples is slightly cut), so this sampled polygon is used ONLY
+// while a morph is ACTIVE — the static glyph still renders the crisp `KindShape`, pixel-identical.
+const MORPH_N = 48
+const CX = 12
+const CY = 12
+
+// Distance from (CX,CY) along unit dir (dx,dy) to the first edge of a convex vertex loop.
+function rayHit(verts: number[][], dx: number, dy: number): number {
+  let best = Number.POSITIVE_INFINITY
+  for (let i = 0; i < verts.length; i++) {
+    const [x1, y1] = verts[i]
+    const [x2, y2] = verts[(i + 1) % verts.length]
+    const ex = x2 - x1
+    const ey = y2 - y1
+    const det = dx * -ey - -ex * dy // = ex*dy - ey*dx
+    if (Math.abs(det) < 1e-9) continue
+    const rx = x1 - CX
+    const ry = y1 - CY
+    const t = (rx * -ey - -ex * ry) / det // ray distance
+    const s = (dx * ry - dy * rx) / det // segment param
+    if (t > 1e-6 && s >= -1e-9 && s <= 1 + 1e-9) best = Math.min(best, t)
+  }
+  return best === Number.POSITIVE_INFINITY ? 0 : best
+}
+
+function radiiFromVerts(verts: number[][]): number[] {
+  const out: number[] = []
+  for (let i = 0; i < MORPH_N; i++) {
+    const th = (i / MORPH_N) * Math.PI * 2
+    out.push(rayHit(verts, Math.sin(th), -Math.cos(th)))
+  }
+  return out
+}
+
+const parseVerts = (pts: string): number[][] => pts.trim().split(/\s+/).map((p) => p.split(",").map(Number))
+
+// The MORPHABLE kinds map to a radial signature; others (individual "Z" open stroke, soul dot,
+// requested-task pennant) have no clean radial form and simply SWAP without a morph.
+const RADII: Partial<Record<EntityKind, number[]>> = {
+  task: radiiFromVerts(parseVerts(SQUARE)),
+  space: radiiFromVerts(parseVerts(HEXAGON)),
+  resource: radiiFromVerts(parseVerts(DIAMOND)),
+  moment: radiiFromVerts(parseVerts(TRIANGLE_UP)),
+  instant: radiiFromVerts(parseVerts(TRIANGLE_DOWN)),
+  community: radiiFromVerts(parseVerts(PENTAGON)),
+  organism: Array.from({ length: MORPH_N }, () => 9), // circle ⇒ constant radius
+}
+const SQUARE_RADII = RADII.task as number[]
+
+function buildPoints(radii: number[]): string {
+  let s = ""
+  for (let i = 0; i < radii.length; i++) {
+    const th = (i / radii.length) * Math.PI * 2
+    const x = CX + Math.sin(th) * radii[i]
+    const y = CY - Math.cos(th) * radii[i]
+    s += `${x.toFixed(2)},${y.toFixed(2)} `
+  }
+  return s.trim()
+}
+
+const lerpRadii = (a: number[], b: number[], f: number): number[] => a.map((v, i) => v + (b[i] - v) * f)
+const easeInOut = (p: number) => (p < 0.5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2)
+
+// One full morph turn for the SPACE periodic hexagon→square→hexagon flourish, and how long a turn.
+const MORPH_MS = 380 // one-shot kind-change morph duration
+const SPACE_MORPH_PERIOD_MS = 2600 // gap between space flourishes
+const SPACE_MORPH_PULSE = 0.22 // fraction of the period spent in the brief there-and-back dip
 
 /** Draw the kind's outline shape. Fill/stroke are set by the caller via props. */
 function KindShape({ kind, requested }: { kind: EntityKind; requested?: boolean }) {
@@ -128,6 +203,15 @@ export function Zero0Glyph({
   const landingRef = useRef<Animation | null>(null)
   const rafRef = useRef<number | null>(null)
 
+  // MORPH: while `morphing`, the crisp KindShape is swapped for a sampled `<polygon ref={polyRef}>`
+  // whose `points` are written directly by rAF (no per-frame React state → no re-render storm).
+  // Driven by two triggers: (a) a one-shot morph when `kind` changes between two morphable kinds,
+  // and (b) a periodic hexagon→square→hexagon flourish while a SPACE is ongoing (spinning).
+  const [morphing, setMorphing] = useState(false)
+  const polyRef = useRef<SVGPolygonElement | null>(null)
+  const morphRafRef = useRef<number | null>(null)
+  const prevKindRef = useRef<EntityKind>(kind)
+
   useEffect(() => {
     const el = svgRef.current
     if (!el || typeof el.animate !== "function") return
@@ -175,6 +259,57 @@ export function Zero0Glyph({
     }
   }, [ongoing, kind])
 
+  // ── MORPH driver (kind-change one-shot + space-ongoing periodic flourish) ──────────────────
+  useEffect(() => {
+    const prev = prevKindRef.current
+    prevKindRef.current = kind
+    const reduce =
+      typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
+
+    const toR = RADII[kind]
+    const fromR = RADII[prev]
+    const entry = !reduce && !!toR && !!fromR && prev !== kind // morph between two morphable kinds
+    const periodic = !reduce && !!toR && kind === "space" && !!ongoing // spinning-space flourish
+
+    if (!entry && !periodic) {
+      setMorphing(false)
+      return
+    }
+    setMorphing(true)
+    const t0 = performance.now()
+
+    const tick = (now: number) => {
+      const el = polyRef.current
+      if (!el) {
+        morphRafRef.current = requestAnimationFrame(tick)
+        return
+      }
+      const t = now - t0
+      if (entry && t < MORPH_MS) {
+        // One-shot: ease from the PREVIOUS shape into the new one.
+        el.setAttribute("points", buildPoints(lerpRadii(fromR as number[], toR as number[], easeInOut(t / MORPH_MS))))
+        morphRafRef.current = requestAnimationFrame(tick)
+      } else if (periodic) {
+        // Continuous: rest at hexagon, then a brief there-and-back dip toward the square near the
+        // end of each period (no dwell on the square — a quick 0→1→0 sine pulse).
+        const phase = (now % SPACE_MORPH_PERIOD_MS) / SPACE_MORPH_PERIOD_MS
+        const inPulse = phase > 1 - SPACE_MORPH_PULSE
+        const f = inPulse ? Math.sin(((phase - (1 - SPACE_MORPH_PULSE)) / SPACE_MORPH_PULSE) * Math.PI) : 0
+        el.setAttribute("points", buildPoints(f === 0 ? (toR as number[]) : lerpRadii(toR as number[], SQUARE_RADII, f)))
+        morphRafRef.current = requestAnimationFrame(tick)
+      } else {
+        // Entry morph done and nothing periodic ⇒ settle back to the crisp KindShape.
+        setMorphing(false)
+      }
+    }
+    morphRafRef.current = requestAnimationFrame(tick)
+
+    return () => {
+      if (morphRafRef.current != null) cancelAnimationFrame(morphRafRef.current)
+      morphRafRef.current = null
+    }
+  }, [kind, ongoing])
+
   return (
     <svg
       ref={svgRef}
@@ -189,7 +324,13 @@ export function Zero0Glyph({
       aria-hidden="true"
       focusable="false"
     >
-      <KindShape kind={kind} requested={requested && kind === "task"} />
+      {morphing && RADII[kind] ? (
+        // Sampled silhouette, driven by the morph rAF. Initial points = the current kind so the
+        // very first paint matches before the effect's first frame runs.
+        <polygon ref={polyRef} points={buildPoints(RADII[kind] as number[])} />
+      ) : (
+        <KindShape kind={kind} requested={requested && kind === "task"} />
+      )}
       {done && (
         <path
           d="M7.5 12.5 L10.5 15.5 L16.5 8.5"
