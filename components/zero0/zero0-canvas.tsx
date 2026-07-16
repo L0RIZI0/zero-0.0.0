@@ -128,6 +128,11 @@ function Zero0CloseButton({ onClick, className = "" }: { onClick: () => void; cl
 // discards any session shorter than MIN_SESSION_MS as a second guard.]
 const DWELL_MS = 3000
 
+// LAST FOCUS — the drill-in `path` is persisted here so closing + reopening Zero (Electron
+// OR the web app, both via renderer localStorage) restores the exact context you left off at.
+// Own key, isolated from the entity store (`zero:root-items:v1`) and the activity log.
+const PATH_STORAGE_KEY = "zero:root-path:v1"
+
 export function Zero0Canvas() {
   // All reads/writes touch localStorage-backed module state, so gate behind mount
   // to avoid SSR/hydration mismatch. `rev` is a manual re-render bump after every
@@ -177,8 +182,39 @@ export function Zero0Canvas() {
 
   useEffect(() => {
     hydrateFromStorage()
+    // Restore the LAST FOCUS (drill-in path) so you resume where you left off. Validate the
+    // stored chain against the freshly-hydrated store: keep ROOT then each id that still
+    // resolves to a live entity, stopping at the first that was deleted while away.
+    try {
+      const raw = localStorage.getItem(PATH_STORAGE_KEY)
+      if (raw) {
+        const stored: unknown = JSON.parse(raw)
+        if (Array.isArray(stored) && stored[0] === ROOT_ID) {
+          const valid: string[] = [ROOT_ID]
+          for (let i = 1; i < stored.length; i++) {
+            const id = stored[i]
+            if (typeof id === "string" && getEntity(id)) valid.push(id)
+            else break
+          }
+          if (valid.length > 1) setPath(valid)
+        }
+      }
+    } catch {
+      // ignore malformed/absent storage — fall back to root
+    }
     setMounted(true)
   }, [])
+
+  // Persist the LAST FOCUS on every path change (post-mount, so the SSR default `[ROOT_ID]`
+  // never clobbers a stored deeper focus before it's restored above).
+  useEffect(() => {
+    if (!mounted) return
+    try {
+      localStorage.setItem(PATH_STORAGE_KEY, JSON.stringify(path))
+    } catch {
+      // ignore quota / private-mode failures
+    }
+  }, [mounted, path])
 
   const bump = useCallback(() => setRev((r) => r + 1), [])
 
@@ -1072,6 +1108,7 @@ export function Zero0Canvas() {
               onOpen={navigateTo}
               onContextMenuEntity={openMenuById}
               onFrameMenu={openFrameMenu}
+              onToggleMinimize={() => setMinimized((m) => ({ ...m, agenda: !m.agenda }))}
               minimized={minimized.agenda}
               // Merge with ACTIVITY below when BOTH are minimized AND ACTIVITY is shown —
               // then TODAY drops its divider so the two minimized bands group together.

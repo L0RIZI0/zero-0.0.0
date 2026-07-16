@@ -73,6 +73,7 @@ export function Zero0Agenda({
   onOpen,
   onContextMenuEntity,
   onFrameMenu,
+  onToggleMinimize,
   minimized = false,
   hideBottomBorder = false,
   dataRev,
@@ -83,8 +84,11 @@ export function Zero0Agenda({
   onContextMenuEntity?: (id: string, ev: React.MouseEvent) => void
   /** Right-click the frame chrome (header / empty area) → the frame menu (minimize). */
   onFrameMenu?: (frame: "agenda" | "activity", ev: React.MouseEvent) => void
+  /** Toggle minimize/maximize directly (LEFT-click): the chevron in the maximized title,
+   *  and a click on the minimized band's empty area (not a tick). */
+  onToggleMinimize?: () => void
   /** When minimized, render ONLY the dayline band (with its day-label header) — no frame
-   *  title, no border, tight margins. Right-click → maximize. */
+   *  title, no border, tight margins. Click empty area (or right-click) → maximize. */
   minimized?: boolean
   /** Drop the bottom separator when the frame below (ACTIVITY) is ALSO a minimized band,
    *  so the two merge into one grouped strip. */
@@ -102,26 +106,67 @@ export function Zero0Agenda({
       {/* Frame TITLE — this frame is named TODAY (dropped the "agenda ·" prefix Jul 2026;
           the footer toggle link stays labelled "agenda"). Its divider is INSET (inset-x-4)
           and lighter (border/50) so a within-frame division reads differently from the
-          full-bleed `border-border` separators that mark FRAME boundaries. Hidden while
-          minimized — the compact render is just the dayline. */}
-      {!minimized && (
-        <div className="relative flex items-center justify-between px-4 py-2 text-[11px] uppercase tracking-wider text-muted-foreground after:absolute after:inset-x-4 after:bottom-0 after:h-px after:bg-border/50 after:content-['']">
-          <span>today</span>
+          full-bleed `border-border` separators that mark FRAME boundaries. ALWAYS MOUNTED —
+          it COLLAPSES (grid-rows 0fr↔1fr) when minimized so the title glides in/out smoothly
+          in both directions rather than popping. The chevron (right) minimizes on click. */}
+      <div
+        className="grid transition-[grid-template-rows] duration-300 ease-out motion-reduce:transition-none"
+        style={{ gridTemplateRows: minimized ? "0fr" : "1fr" }}
+        inert={minimized}
+      >
+        <div className="overflow-hidden">
+          <div className="relative flex items-center justify-between px-4 py-2 text-[11px] uppercase tracking-wider text-muted-foreground after:absolute after:inset-x-4 after:bottom-0 after:h-px after:bg-border/50 after:content-['']">
+            <span>today</span>
+            {onToggleMinimize && (
+              <button
+                type="button"
+                onClick={onToggleMinimize}
+                aria-label="Minimize today"
+                className="-my-1 -mr-1 rounded p-1 text-muted-foreground/60 transition-colors hover:text-foreground"
+              >
+                <ChevronCollapse />
+              </button>
+            )}
+          </div>
         </div>
-      )}
-      <Zero0Dayline
-        onOpen={onOpen}
-        onContextMenuEntity={onContextMenuEntity}
-        dataRev={dataRev}
-        tracks="both"
-        minimized={minimized}
-        hideBottomBorder={hideBottomBorder}
-        highlightId={highlightId}
-      />
+      </div>
+      {/* The dayline band. When minimized, a LEFT-click on empty area (anywhere that isn't a
+          tick button) maximizes the frame — a big, forgiving hit target. Tick clicks still
+          open their entity (guarded by the `[data-barkey]` closest check). */}
+      <div
+        className={minimized ? "cursor-pointer" : undefined}
+        onClick={
+          minimized && onToggleMinimize
+            ? (ev) => {
+                if (!(ev.target as HTMLElement).closest("[data-barkey]")) onToggleMinimize()
+              }
+            : undefined
+        }
+      >
+        <Zero0Dayline
+          onOpen={onOpen}
+          onContextMenuEntity={onContextMenuEntity}
+          dataRev={dataRev}
+          tracks="both"
+          minimized={minimized}
+          hideBottomBorder={hideBottomBorder}
+          highlightId={highlightId}
+        />
+      </div>
       {/* The §x corner affordance is chrome — hide it on a minimized band (which is meant
           to be nothing but the dayline). Re-show via the § chord or the footer link. */}
       {!minimized && <Zero0FrameMarker flag="agenda" label="the agenda" />}
     </section>
+  )
+}
+
+/** A small chevron-up used as the "minimize" affordance in the TODAY title. Inline SVG so
+ *  zero0 stays free of an icon dependency (matches the dep-free glyph approach). */
+function ChevronCollapse() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M18 15l-6-6-6 6" />
+    </svg>
   )
 }
 
