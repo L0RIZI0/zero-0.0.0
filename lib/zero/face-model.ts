@@ -537,8 +537,26 @@ export function getFaceMetaRows(e: Entity, now: number): [string, string][] {
   // joined Moment in the session model), so both ALWAYS surface start/end (— when unset,
   // "whenever" when playable). Previously a Space only got a condensed "scheduled" row.
   if (e.kind === "moment" || e.kind === "space") {
-    rows.push(["start", s?.startAt ? fmt(s.startAt) : "—"])
-    rows.push(["end", s?.endAt ? fmt(s.endAt) : "—"])
+    // HYBRID INLINE start/end: the row leads with the SCHEDULED value (or "— (none scheduled)"
+    // — the annotation differentiates the row's meaning as PLANNED intent), then folds in the
+    // TRACKED session times, newest→oldest, `·`-joined. This surfaces the engagements you
+    // create by start/stopping the chip WITHOUT collapsing planned-vs-actual: START gets the
+    // session PUNCH-INS (the OPEN one marked "(ongoing)"), END the PUNCH-OUTS (the open one has
+    // none yet, so it's absent there). Session stamps use the compact `fmtShort` (time-only
+    // today) since a busy list of full timestamps would be unreadable.
+    const engs = getEngagements(e)
+    const startScheduled = s?.startAt ? fmt(s.startAt) : "— (none scheduled)"
+    const sessionStarts = [...engs]
+      .sort((a, b) => b.startAt - a.startAt)
+      .map((se) => (se.endAt == null ? `${fmtShort(se.startAt, now)} (ongoing)` : fmtShort(se.startAt, now)))
+    rows.push(["start", sessionStarts.length ? `${startScheduled}  ·  ${sessionStarts.join(" · ")}` : startScheduled])
+    const endScheduled = s?.endAt ? fmt(s.endAt) : "— (none scheduled)"
+    const sessionEnds = engs
+      .filter((se) => se.endAt != null)
+      .map((se) => se.endAt as number)
+      .sort((a, b) => b - a)
+      .map((t) => fmtShort(t, now))
+    rows.push(["end", sessionEnds.length ? `${endScheduled}  ·  ${sessionEnds.join(" · ")}` : endScheduled])
     // A Moment is conceptually a SPAN (start→end), but it can carry a lone POINT anchor
     // (`schedule.at`) — e.g. when a `:mome` prefix is combined with a single-time token,
     // or an Instant is later changed INTO a moment. The lifecycle machine reads that point

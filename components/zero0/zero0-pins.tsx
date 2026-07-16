@@ -250,6 +250,12 @@ export function Zero0Pins({
       aria-label="pinned and ongoing entities"
     >
       {pinnedIdle.map(renderChip)}
+      {/* DIVIDER — a full-height hairline separating the pinned list from the ongoing list.
+          Only when BOTH sides exist (nothing to separate otherwise). `-my-2` cancels the
+          band's py-2 so it spans the whole frame height, edge to edge. */}
+      {pinnedIdle.length > 0 && ongoing.length > 0 && (
+        <div className="-my-2 w-px shrink-0 self-stretch bg-border" aria-hidden />
+      )}
       {/* ONGOING label — sits at the far LEFT of the ongoing list (pinned-idle chips to its
           left). Shown only when something is ongoing; otherwise the band is just the pins. */}
       {ongoing.length > 0 && (
