@@ -65,6 +65,10 @@ const RAIL_PAD = 3 // breathing room at the band's very top (above planned) and 
 // FIXED per-lane tick heights (never shrink). One sub-lane per rail = the resting band.
 const PLANNED_LANE_H = 11
 const RECORDED_LANE_H = 10
+// Extra height added to the PLANNED rail (pushes the seam ~2px lower) so the day label, when
+// centered across the whole planned rail region [0, seam], has SYMMETRIC top/bottom margins
+// between the band top and the seam. Purely a label-breathing tweak; tick geometry unchanged.
+const PLANNED_RAIL_EXTRA = 2
 // Height of a presence tick on the STANDALONE ACTIVITY dayline (`tracks="presence"`).
 const PRESENCE_HEIGHT_PX = 10
 
@@ -74,7 +78,7 @@ const PRESENCE_HEIGHT_PX = 10
 // With one sub-lane each the seam lands at 14px (RAIL_PAD + PLANNED_LANE_H) — matching the
 // prior fixed layout — so the resting band is unchanged.
 function bandMetrics(plannedCount: number, recordedCount: number) {
-  const seam = RAIL_PAD + Math.max(1, plannedCount) * PLANNED_LANE_H
+  const seam = RAIL_PAD + Math.max(1, plannedCount) * PLANNED_LANE_H + PLANNED_RAIL_EXTRA
   const bandH = seam + Math.max(1, recordedCount) * RECORDED_LANE_H + RAIL_PAD
   return { seam, bandH }
 }
@@ -997,10 +1001,10 @@ export function Zero0Dayline({
         ref={registerDayLabel(dm.key)}
         data-left={dm.leftPct}
         className="absolute left-0 flex items-center whitespace-nowrap leading-none will-change-transform"
-        // On the COMBINED lane, pin the label to the FIRST planned sub-lane (top of the planned
-        // rail, just above the seam) and keep it there as the rail grows — instead of centering
-        // in the whole (growing) band. Other lanes center in the full height as before.
-        style={combined ? { top: RAIL_PAD, height: PLANNED_LANE_H } : { top: 0, bottom: 0 }}
+        // On the COMBINED lane, center the label across the WHOLE planned rail region [0, seam]
+        // (band top → seam) so it has symmetric top/bottom margins, and it STAYS anchored to the
+        // planned rail as more sub-lanes grow the band downward. Other lanes center in full height.
+        style={combined ? { top: 0, height: seam } : { top: 0, bottom: 0 }}
       >
         {dm.label}
       </span>
