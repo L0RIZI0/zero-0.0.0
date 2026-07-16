@@ -150,6 +150,17 @@ export function fillsWhenClosed(kind: EntityKind): boolean {
 }
 
 /**
+ * A "BEING" — the WHO kinds (soul / individual / organism / community), as opposed to the
+ * WHAT/WHEN containers (task / space / moment / instant). A being's resting state is its
+ * OWN presence (alive / present), never "in progress": it is NEVER made "ongoing" by the
+ * containment rollup (a person isn't "ongoing" just because something inside them runs —
+ * they're ALIVE). So the ongoing rollup STOPS at the first being ancestor. See getState (3).
+ */
+export function isBeing(kind: EntityKind): boolean {
+  return kind === "soul" || kind === "individual" || kind === "organism" || kind === "community"
+}
+
+/**
  * Whether `entity` is in its TERMINAL end-state (retired / dead). Inert today —
  * nothing sets `retiredOn`/`diedOn` yet — but wires the model so the glyph can
  * render a terminal mark for community/organism/individual.
@@ -513,10 +524,14 @@ function getStateInner(entity: Entity, now: number, seen: Set<string>): EntitySt
     }
   }
   //  (3) ROLLUP — any CONTAINED descendant is ongoing (containment only, never tags). A
-  //      Space spins while anything inside it runs. UNBOUNDED UP but STOPS BELOW ROOT: the
-  //      root Individual (parentId === null) does NOT gain ongoing from rollup (else it'd
-  //      always spin) — its own liveness is its own presence engagement, tracked separately.
-  if (entity.parentId !== null) {
+  //      Space spins while anything inside it runs. UNBOUNDED UP among CONTAINERS but STOPS
+  //      AT THE FIRST BEING: a being (soul/individual/organism/community) is never made
+  //      "ongoing" by what it contains — it's ALIVE/present, not "in progress" (see isBeing).
+  //      This is what keeps the root Individual reading "alive" while its Spaces spin, and
+  //      why the rollup halts at the Space directly under a person rather than climbing into
+  //      them. (The old `parentId !== null` guard was wrong: the root Individual's parent is
+  //      the Soul, so it wasn't excluded and wrongly span whenever any descendant ran.)
+  if (!isBeing(entity.kind)) {
     const rolled = containedOngoingSince(entity, now, seen)
     if (rolled != null) return { word: "ongoing", at: rolled }
   }

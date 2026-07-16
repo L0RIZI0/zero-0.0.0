@@ -6,7 +6,7 @@ import type { EntityKind } from "@/lib/zero/types"
 // ONGOING spin cadence. SPIN_MS = one full turn (calm, ambient). EASE_MS = how long the
 // angular velocity takes to ramp IN at start and to settle OUT (decelerate to upright) at
 // stop, so the motion never snaps on or off.
-const SPIN_MS = 2340
+const SPIN_MS = 2345
 const EASE_MS = 650
 const easeOutCubic = (p: number) => 1 - Math.pow(1 - p, 3)
 
