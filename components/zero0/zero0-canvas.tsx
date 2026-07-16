@@ -766,14 +766,19 @@ export function Zero0Canvas() {
     [bump],
   )
 
-  // PINS (§4) START — the glyph click on an IDLE pinned chip (STAY here): open a `play`
-  // engagement so it becomes ongoing (its glyph starts spinning), symmetric with endPin.
+  // PINS (§4) START — deliberately open an engagement on a pinned/idle entity. `via:"play"`
+  // (NOT "focus") so it's a DELIBERATE, PERSISTENT start: unlike a dwell focus session it is
+  // not tracked in `focusOpenRef`, so navigating away never punches it out, and hydrate keeps
+  // it running on reload. Idempotent (openEngagement no-ops if one is already open). `focus`
+  // ⇒ also navigate the canvas onto it (a plain click on a pinned chip); otherwise it starts
+  // in the BACKGROUND in parallel, staying on the current canvas.
   const startPin = useCallback(
-    (id: string) => {
-      toggleEngagement(id, "play")
+    (id: string, focus: boolean) => {
+      openEngagement(id, "play")
+      if (focus) navigateTo(id)
       bump()
     },
-    [bump],
+    [navigateTo, bump],
   )
 
   // Show a menu at CLIENT coords (x,y). Over a native web Resource on desktop the DOM is

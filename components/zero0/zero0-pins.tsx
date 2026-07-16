@@ -130,9 +130,14 @@ function useFlipRow(revision: unknown) {
  * — they linger here as quick-start shortcuts. Right of the label: everything OWN-ongoing
  * (`isOwnOngoing`; pinned-and-ongoing counts as ongoing and sits on the right). A chip that
  * starts/stops crosses the label and is FLIP-animated between the two lists (see `useFlipRow`).
- * Each chip = accent color + GLYPH + TITLE + (when ongoing) a live TIMER:
- *   - CLICK the chip/title → drill INTO the entity.
- *   - CLICK the GLYPH → ongoing ⇒ END it (stop); idle pinned ⇒ START it (play). Stays here.
+ * Each chip = accent color + GLYPH + TITLE + (when ongoing) a live TIMER. Interaction:
+ *   - CLICK the chip body:
+ *       · ONGOING       → FOCUS it (navigate the canvas onto it).
+ *       · pinned-IDLE   → START an engagement AND focus it.
+ *   - ALT/⌘/CTRL-CLICK the chip body → START in the BACKGROUND (parallel; stay on the current
+ *     canvas). No-op if it's already ongoing. (Alt is the safe modifier — ⌘/Ctrl+click is a
+ *     right-click on some platforms; we accept all three.)
+ *   - CLICK the GLYPH → ongoing ⇒ STOP it; idle ⇒ START in the background. Stays here.
  *   - RIGHT-CLICK → the unified entity menu (Pin / Unpin at the top).
  * The band renders NOTHING when both lists are empty (⇒ hidden), unless `forceShow` (the §4
  * keybinding) reveals the empty frame with a muted placeholder.
@@ -152,12 +157,15 @@ export function Zero0Pins({
   focusId?: string
   /** §4 override — reveal the (otherwise auto-hidden) EMPTY band. */
   forceShow?: boolean
-  /** Chip/title click — drill INTO the entity. */
+  /** Focus the canvas ON the entity (navigate) without starting anything. Used by a plain
+   *  click on an already-ONGOING chip. */
   onOpen: (id: string) => void
   /** Glyph click on an ONGOING chip — END it (stay on canvas). */
   onEnd: (id: string) => void
-  /** Glyph click on an IDLE pinned chip — START it (play engagement; stay on canvas). */
-  onStart: (id: string) => void
+  /** START an engagement on the entity. `focus` ⇒ ALSO navigate the canvas onto it (a plain
+   *  click on a pinned-idle chip); `focus:false` ⇒ start in the BACKGROUND, staying on the
+   *  current canvas (the glyph on an idle chip, or an Alt/modifier click on any chip). */
+  onStart: (id: string, focus: boolean) => void
   /** Right-click a chip — open the unified entity menu. */
   onContextMenu: (entity: Entity, ev: React.MouseEvent) => void
 }) {
@@ -248,51 +256,65 @@ function PinChip({
   item: PinItem
   onOpen: (id: string) => void
   onEnd: (id: string) => void
-  onStart: (id: string) => void
+  onStart: (id: string, focus: boolean) => void
   onContextMenu: (entity: Entity, ev: React.MouseEvent) => void
 }) {
   const { entity: e, ongoing, focused, timer } = item
   const accent = e.accent ?? getInheritedAccent(e.parentId) ?? (isSleepTitle(e.title) ? sleepDotColor : undefined)
   const tint = accent ?? "var(--muted-foreground)"
-  // Accent WASH behind the chip. FOCUSED (the entity that IS the current canvas context —
-  // the one you're drilled into) reads much hotter — a strong fill + an accent ring — vs the
-  // faint wash on the other chips, so the thing you're looking at is obvious in the band.
-  const fillPct = focused ? 42 : 8
+  // Faint accent WASH behind every chip; a touch STRONGER when FOCUSED (the entity that IS the
+  // current canvas context — the one you're drilled into), so it reads as "the one you're in"
+  // without shouting. Deliberately gentle — no ring.
+  const fillPct = focused ? 26 : 10
+  // Plain body click: ongoing ⇒ just focus; idle ⇒ start AND focus. Any modifier ⇒ start in
+  // the background (parallel), staying put; skip if already ongoing.
+  const bodyClick = (ev: React.MouseEvent | React.KeyboardEvent) => {
+    if ("altKey" in ev && (ev.altKey || ev.metaKey || ev.ctrlKey)) {
+      if (!ongoing) onStart(e.id, false)
+      return
+    }
+    if (ongoing) onOpen(e.id)
+    else onStart(e.id, true)
+  }
   return (
     <div
       role="button"
       tabIndex={0}
-      onClick={() => onOpen(e.id)}
+      onClick={bodyClick}
       onKeyDown={(ev) => {
         if (ev.key === "Enter" || ev.key === " ") {
           ev.preventDefault()
-          onOpen(e.id)
+          bodyClick(ev)
         }
       }}
       onContextMenu={(ev) => {
         ev.preventDefault()
         onContextMenu(e, ev)
       }}
-      className="flex cursor-pointer items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] leading-none text-foreground transition-[background-color,border-color,box-shadow]"
+      className="flex cursor-pointer items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] leading-none text-foreground transition-[background-color,border-color]"
       style={{
         borderColor: tint,
         backgroundColor: `color-mix(in oklab, ${tint} ${fillPct}%, transparent)`,
-        boxShadow: focused ? `0 0 0 2px color-mix(in oklab, ${tint} 45%, transparent)` : undefined,
       }}
-      title={`${e.title} — click to open · click the glyph to ${ongoing ? "end" : "start"} · right-click for menu`}
+      title={
+        ongoing
+          ? `${e.title} — click to focus · alt-click to start another in parallel · glyph to stop · right-click for menu`
+          : `${e.title} — click to start & focus · alt-click to start in background · glyph to start in background · right-click for menu`
+      }
     >
-      {/* GLYPH — spins while ongoing; the button STARTS (idle) or ENDS (ongoing). */}
+      {/* GLYPH — spins while ongoing; the button STOPS (ongoing) or STARTS in the background
+          (idle). Never navigates. */}
       <button
         type="button"
         onClick={(ev) => {
           ev.stopPropagation()
           if (ongoing) onEnd(e.id)
-          else onStart(e.id)
+          else onStart(e.id, false)
         }}
         className="shrink-0 transition-opacity hover:opacity-60"
         style={{ color: tint }}
-        title={ongoing ? `End ${e.title} — stay here` : `Start ${e.title} — stay here`}
-        aria-label={ongoing ? `End ${e.title}` : `Start ${e.title}`}
+        title={ongoing ? `Stop ${e.title}` : `Start ${e.title} in background`}
+        aria-label={ongoing ? `Stop ${e.title}` : `Start ${e.title} in background`}
       >
         <Zero0Glyph kind={e.kind} ongoing={ongoing} filled={false} className="h-3.5 w-3.5" />
       </button>
