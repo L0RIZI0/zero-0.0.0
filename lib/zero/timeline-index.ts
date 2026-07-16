@@ -30,6 +30,7 @@ import {
   type TimelineOccurrence,
 } from "./data"
 import type { Entity, Recurrence } from "./types"
+import { effectiveScheduleEnd } from "./kinds"
 import type { Grain, TimelineScale } from "./timeline-scale"
 
 const DAY_MS = 86_400_000
@@ -64,7 +65,9 @@ export function entityInterval(e: Entity): [number, number] {
   }
   // "whenever" isn't a fixed time, so it has no lifeline interval → zero-width at 0.
   const st = typeof s?.startAt === "number" ? s.startAt : 0
-  return [st, s?.endAt ?? st]
+  // start+duration implies an end (effectiveScheduleEnd), so a duration-only span gets a
+  // real width on the lifeline / in sort bounds — not collapsed to a point at its start.
+  return [st, effectiveScheduleEnd(s) ?? st]
 }
 
 /** Approximate ms between consecutive occurrences of a recurrence — used only to
