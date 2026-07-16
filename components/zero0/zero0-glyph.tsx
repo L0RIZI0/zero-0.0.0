@@ -105,16 +105,17 @@ const easeInOut = (p: number) => (p < 0.5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2,
 
 // One full morph turn for the SPACE periodic hexagon→square→hexagon flourish, and how long a turn.
 const MORPH_MS = 380 // one-shot kind-change morph duration
-const SPACE_MORPH_PERIOD_MS = 1550 // gap between space flourishes (v0.6.6: shorter again ⇒ more frequent)
+const SPACE_MORPH_PERIOD_MS = 1345 // gap between space flourishes (v0.6.6: one flourish every 1.345s)
 // Fraction of the period in the there-and-back dip. The dip is a symmetric `sin(x·π)` pulse, so
-// hex→square and square→hex take EXACTLY equal time (each half the dip). v0.6.6 raises the fraction
-// so the dip duration holds ~steady (~915ms) despite the shorter period.
-const SPACE_MORPH_PULSE = 0.59
-// The peak of the SPACE flourish morphs toward a SMALLER square than the real task-square (v0.6.6):
-// scale the square's radii about the box centre so the flourish briefly "pinches in" rather than
-// hitting the full-size square. Only used for the periodic space dip — the crisp task glyph and
-// kind-change morphs still use the true SQUARE_RADII.
-const SPACE_MORPH_SQUARE_SCALE = 0.68
+// hex→square and square→hex take EXACTLY equal time (each half the dip). Tuned so the dip duration
+// holds ~steady (~915ms) despite the shorter period.
+const SPACE_MORPH_PULSE = 0.68
+// The peak of the SPACE flourish morphs toward a SUBTLY smaller square than the real task-square
+// (v0.6.6): scale the square's radii about the box centre so the flourish "pinches in" just a touch
+// rather than hitting the full-size square. Only used for the periodic space dip — the crisp task
+// glyph and kind-change morphs still use the true SQUARE_RADII. (0.9 = barely smaller; the earlier
+// 0.68 read as far too small.)
+const SPACE_MORPH_SQUARE_SCALE = 0.9
 const SPACE_MORPH_SQUARE_RADII = SQUARE_RADII.map((r) => r * SPACE_MORPH_SQUARE_SCALE)
 
 /** Draw the kind's outline shape. Fill/stroke are set by the caller via props. */
