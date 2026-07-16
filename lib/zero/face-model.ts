@@ -496,6 +496,39 @@ export function faceModelFromLike(like: FaceLike): FaceModel {
 // The exhaustive key/value list shown at the `full` rung — raw lifecycle data,
 // kind-aware. Moved verbatim from the canvas so the §0 dl has a single source.
 // `now` drives the live DURATION/AGE count-up.
+/** One segment of a rich START/END row: `text` is the padded display token (nbsp-padded so
+ *  the monospace columns align between the two rows), `full` is the seconds-precision timestamp
+ *  for a per-cell hover tooltip, `faint` marks the tracked-session cells (vs the scheduled
+ *  prefix), and `pulse` marks the single OPEN session's END cell (renders `ongoing`, breathing). */
+export type ScheduleCell = { text: string; full?: string; faint?: boolean; pulse?: boolean }
+
+/** Structured START/END rows for a span-bearing entity (moment/space), or `null` for others.
+ *  The FULL §0 face renders from this so each session token can be styled/hovered/scrolled;
+ *  `getFaceMetaRows` flattens the same cells to a plain string for every other consumer. Cell 0
+ *  is the SCHEDULED value (planned intent, not faint); the rest are tracked sessions newest→oldest,
+ *  padded per-column so the Nth start sits directly above the Nth end. */
+export function getScheduleCells(e: Entity, now: number): { start: ScheduleCell[]; end: ScheduleCell[] } | null {
+  if (e.kind !== "moment" && e.kind !== "space") return null
+  const NB = "\u00A0"
+  const s = e.schedule
+  const engs = [...getEngagements(e)].sort((a, b) => b.startAt - a.startAt)
+  const startText0 = s?.startAt ? fmt(s.startAt) : "— (none scheduled)"
+  const endText0 = s?.endAt ? fmt(s.endAt) : "— (none scheduled)"
+  // Pad the scheduled prefix so the FIRST session column starts at the same x in both rows.
+  const schedW = Math.max(startText0.length, endText0.length)
+  const start: ScheduleCell[] = [{ text: startText0.padEnd(schedW, NB), full: s?.startAt ? fmt(s.startAt) : undefined }]
+  const end: ScheduleCell[] = [{ text: endText0.padEnd(schedW, NB), full: s?.endAt ? fmt(s.endAt) : undefined }]
+  for (const se of engs) {
+    const open = se.endAt == null
+    const sTxt = fmtShort(se.startAt, now)
+    const eTxt = open ? "ongoing" : fmtShort(se.endAt as number, now)
+    const w = Math.max(sTxt.length, eTxt.length)
+    start.push({ text: sTxt.padStart(w, NB), full: fmt(se.startAt), faint: true })
+    end.push({ text: eTxt.padStart(w, NB), full: open ? undefined : fmt(se.endAt as number), faint: true, pulse: open })
+  }
+  return { start, end }
+}
+
 export function getFaceMetaRows(e: Entity, now: number): [string, string][] {
   const meta = KIND_META[e.kind]
   const rows: [string, string][] = []
@@ -537,31 +570,13 @@ export function getFaceMetaRows(e: Entity, now: number): [string, string][] {
   // joined Moment in the session model), so both ALWAYS surface start/end (— when unset,
   // "whenever" when playable). Previously a Space only got a condensed "scheduled" row.
   if (e.kind === "moment" || e.kind === "space") {
-    // HYBRID INLINE start/end, COLUMN-PAIRED: both rows lead with the SCHEDULED value (or
-    // "— (none scheduled)" — the annotation keeps the row's PLANNED-intent meaning), then fold
-    // in the TRACKED sessions newest→oldest. Crucially the two rows are built as ALIGNED COLUMNS
-    // so the Nth start sits directly above the Nth end (same engagement) — you read a session by
-    // scanning one column. The OPEN session's END cell shows "ongoing" (rather than tacking
-    // "(ongoing)" onto its START, which is what threw the columns out of line). Cells are padded
-    // to a common per-column width with NON-BREAKING spaces (`\u00A0`) so the monospace §0 grid
-    // aligns AND the pad survives the dd's `nowrap` (which collapses runs of normal spaces).
-    const NB = "\u00A0"
-    const engs = [...getEngagements(e)].sort((a, b) => b.startAt - a.startAt)
-    const startCells: string[] = [s?.startAt ? fmt(s.startAt) : "— (none scheduled)"]
-    const endCells: string[] = [s?.endAt ? fmt(s.endAt) : "— (none scheduled)"]
-    // Pad the scheduled prefix so the FIRST session column starts at the same x in both rows.
-    const schedW = Math.max(startCells[0].length, endCells[0].length)
-    startCells[0] = startCells[0].padEnd(schedW, NB)
-    endCells[0] = endCells[0].padEnd(schedW, NB)
-    for (const se of engs) {
-      const sCell = fmtShort(se.startAt, now)
-      const eCell = se.endAt != null ? fmtShort(se.endAt, now) : "ongoing"
-      const w = Math.max(sCell.length, eCell.length)
-      startCells.push(sCell.padStart(w, NB))
-      endCells.push(eCell.padStart(w, NB))
-    }
-    rows.push(["start", startCells.join(" · ")])
-    rows.push(["end", endCells.join(" · ")])
+    // Plain-string fallback (used by block-rung subsets, the whole-row `title`, and any
+    // non-rich consumer). The FULL §0 face renders these two rows RICHLY instead — from the
+    // same structured `getScheduleCells` — so the segments can be faint / pulsing / individually
+    // hoverable / horizontally scrollable. Both derive from ONE source, so they never diverge.
+    const cells = getScheduleCells(e, now)!
+    rows.push(["start", cells.start.map((c) => c.text).join(" · ")])
+    rows.push(["end", cells.end.map((c) => c.text).join(" · ")])
     // A Moment is conceptually a SPAN (start→end), but it can carry a lone POINT anchor
     // (`schedule.at`) — e.g. when a `:mome` prefix is combined with a single-time token,
     // or an Instant is later changed INTO a moment. The lifecycle machine reads that point

@@ -1,10 +1,12 @@
 "use client"
 
 import type React from "react"
+import { useMemo, useRef } from "react"
 import { Zero0Glyph } from "./zero0-glyph"
 import {
   getFaceModel,
   getFaceMetaRows,
+  getScheduleCells,
   filterMetaRows,
   faceModelFromLike,
   getAggregate,
@@ -154,6 +156,52 @@ function FaceBlock({
 }) {
   const rows = rowsOverride ?? filterMetaRows(getFaceMetaRows(entity, now), size)
   const titleText = hiddenPrefix ? `(hidden) ${model.title}` : model.title
+  // RICH start/end: when these rows aren't an aggregate override, render the schedule cells
+  // (faint sessions, pulsing "ongoing", per-cell hover, horizontal scroll) instead of the flat
+  // string. The two rows share a synced horizontal scroll so their columns stay paired as you
+  // scroll into older sessions. Built once here; keyed by the entity + `now` tick.
+  const schedule = useMemo(
+    () => (rowsOverride ? null : getScheduleCells(entity, now)),
+    [entity, now, rowsOverride],
+  )
+  const startScrollRef = useRef<HTMLDivElement>(null)
+  const endScrollRef = useRef<HTMLDivElement>(null)
+  const syncLock = useRef(false)
+  const syncScroll = (from: HTMLDivElement, to: HTMLDivElement | null) => {
+    if (!to || syncLock.current) return
+    syncLock.current = true
+    to.scrollLeft = from.scrollLeft
+    // Release after this frame so the mirrored scroll event doesn't ping-pong back.
+    requestAnimationFrame(() => {
+      syncLock.current = false
+    })
+  }
+  const renderScheduleRow = (which: "start" | "end") => {
+    const cells = schedule![which]
+    const ref = which === "start" ? startScrollRef : endScrollRef
+    const other = which === "start" ? endScrollRef : startScrollRef
+    return (
+      <dd className="min-w-0 text-foreground">
+        <div
+          ref={ref}
+          onScroll={() => ref.current && syncScroll(ref.current, other.current)}
+          className="no-scrollbar overflow-x-auto whitespace-pre"
+        >
+          {cells.map((c, i) => (
+            <span key={i}>
+              {i > 0 && <span className="text-muted-foreground">{" · "}</span>}
+              <span
+                className={(c.faint ? "text-muted-foreground" : "") + (c.pulse ? " zero0-pulse" : "")}
+                title={c.full}
+              >
+                {c.text}
+              </span>
+            </span>
+          ))}
+        </div>
+      </dd>
+    )
+  }
   return (
     <>
       {/* Identity line: glyph + title + kind (+ trailing). Fill = closed (fillable kinds),
@@ -186,16 +234,20 @@ function FaceBlock({
           {rows.map(([k, v]) => (
             <div key={k} className="contents">
               <dt className="uppercase tracking-widest text-muted-foreground">{k}</dt>
-              <dd className="flex items-center gap-1.5 truncate text-foreground" title={v}>
-                {k === "color" && (
-                  <span
-                    aria-hidden
-                    className="h-2.5 w-2.5 shrink-0 rounded-sm border border-border"
-                    style={{ backgroundColor: v }}
-                  />
-                )}
-                <span className="truncate">{v}</span>
-              </dd>
+              {schedule && (k === "start" || k === "end") ? (
+                renderScheduleRow(k)
+              ) : (
+                <dd className="flex items-center gap-1.5 truncate text-foreground" title={v}>
+                  {k === "color" && (
+                    <span
+                      aria-hidden
+                      className="h-2.5 w-2.5 shrink-0 rounded-sm border border-border"
+                      style={{ backgroundColor: v }}
+                    />
+                  )}
+                  <span className="truncate">{v}</span>
+                </dd>
+              )}
             </div>
           ))}
         </dl>

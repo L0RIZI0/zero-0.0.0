@@ -166,6 +166,18 @@
   .zero-caret-blink {
     animation: zero-caret-blink 1.4s linear infinite;
   }
+
+  /* OPACITY-only pulse for the currently-ongoing session cell in the §0 START/END rows.
+     A slow, calm breathe (ease-in-out both ways) so the live "ongoing" reads as alive
+     without drawing the eye like a hard blink. Motion-safe: respects reduced-motion. */
+  .zero0-pulse {
+    animation: zero0-pulse 1.8s ease-in-out infinite;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .zero0-pulse {
+      animation: none;
+    }
+  }
 }
 
 /* Keyframes MUST live at the top level — defining them inside `@layer utilities`
@@ -191,6 +203,16 @@
   }
   to {
     opacity: 1;
+  }
+}
+
+@keyframes zero0-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
   }
 }
 
