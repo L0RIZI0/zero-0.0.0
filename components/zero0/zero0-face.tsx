@@ -189,9 +189,11 @@ function FaceBlock({
         >
           {cells.map((c, i) => (
             <span key={i}>
-              {i > 0 && <span className="text-muted-foreground">{" · "}</span>}
+              {i > 0 && <span className="text-muted-foreground opacity-70">{" · "}</span>}
               <span
-                className={(c.faint ? "text-muted-foreground" : "") + (c.pulse ? " zero0-pulse" : "")}
+                // Closed session cells are faint (a touch deeper than the plain muted token via
+                // opacity-70); the live `ongoing` cell keeps full foreground opacity and pulses.
+                className={(c.faint ? "text-muted-foreground opacity-70" : "text-foreground") + (c.pulse ? " zero0-pulse" : "")}
                 title={c.full}
               >
                 {c.text}
@@ -199,6 +201,33 @@ function FaceBlock({
             </span>
           ))}
         </div>
+      </dd>
+    )
+  }
+  // STATE row when the entity is ONGOING: a small rotating spinner + the pulsing `ongoing` word,
+  // then the rest of the string (" · since …") plain. Detected by the "ongoing" prefix that
+  // `formatState` emits. Any other state renders as the normal string row.
+  const renderOngoingState = (v: string) => {
+    const rest = v.slice("ongoing".length) // " · since …"
+    return (
+      <dd className="flex items-center gap-1.5 truncate text-foreground" title={v}>
+        <svg viewBox="0 0 16 16" aria-hidden className="h-3 w-3 shrink-0 animate-spin text-foreground">
+          <circle
+            cx="8"
+            cy="8"
+            r="6"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeDasharray="28"
+            strokeDashoffset="9"
+          />
+        </svg>
+        <span className="truncate">
+          <span className="zero0-pulse">ongoing</span>
+          {rest}
+        </span>
       </dd>
     )
   }
@@ -236,6 +265,8 @@ function FaceBlock({
               <dt className="uppercase tracking-widest text-muted-foreground">{k}</dt>
               {schedule && (k === "start" || k === "end") ? (
                 renderScheduleRow(k)
+              ) : k === "state" && v.startsWith("ongoing") ? (
+                renderOngoingState(v)
               ) : (
                 <dd className="flex items-center gap-1.5 truncate text-foreground" title={v}>
                   {k === "color" && (
