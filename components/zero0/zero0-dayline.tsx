@@ -622,18 +622,25 @@ export function Zero0Dayline({
   // (§2), spine = the correctable ACCESS record. Only rendered on the combined lane.
   const spine = useMemo<DaylineBar[]>(() => {
     if (!mounted || !combined) return []
-    // 1) Collect focus intervals (end = now while open) across the whole tree.
+    // 1) Collect focus intervals (end = now while open) across EVERY entity with engagements.
+    //    v0.6.22: was `collectDescendants(ROOT_ID)` which walks SPACES only, so a focused
+    //    Resource/Task/Moment LEAF (e.g. the v0.app web resource) was invisible and the spine drew
+    //    its parent Space instead of the true current leaf. `liveEdge` = the freshest possible NOW
+    //    for an OPEN interval: `useNow` is per-minute, so a just-punched session can have
+    //    `start > now` — clamp so the live edge never precedes the start (bug: tick took ~a minute
+    //    to appear on a leaf switch).
+    const liveEdge = Math.max(now, Date.now())
     type Iv = { id: string; start: number; end: number; open: boolean }
     const ivs: Iv[] = []
-    for (const id of collectDescendants(ROOT_ID)) {
-      const list = getEntity(id)?.schedule?.engagements
+    for (const e of getEntitiesWithEngagements()) {
+      const list = e.schedule?.engagements
       if (!list) continue
       for (const s of list) {
         if (s.via === "play" || s.via === "mark") continue // manual → bottom rail
         const open = s.endAt == null
-        const end = s.endAt ?? now
+        const end = s.endAt ?? Math.max(liveEdge, s.startAt)
         if (end <= s.startAt) continue
-        ivs.push({ id, start: s.startAt, end, open })
+        ivs.push({ id: e.id, start: s.startAt, end, open })
       }
     }
     if (ivs.length === 0) return []
@@ -664,16 +671,19 @@ export function Zero0Dayline({
     const out: DaylineBar[] = []
     for (let i = 0; i < flat.length; i++) {
       const seg = flat[i]
-      if (seg.end < lo || seg.start > hi) continue
+      const segEnd = seg.open ? Math.max(liveEdge, seg.start) : seg.end
+      if (segEnd < lo || seg.start > hi) continue
       const st = Math.max(seg.start, lo)
-      const en = Math.min(seg.open ? now : seg.end, hi)
-      if (en <= st) continue
+      const en = Math.min(segEnd, hi)
+      // Keep an OPEN live segment even at ~0 width (renders as the min-width tick) so a
+      // just-switched leaf shows instantly; only drop CLOSED zero-width slivers.
+      if (en < st || (en === st && !seg.open)) continue
       const leftPct = ((st - winStart) / DAY_MS) * 100
       const widthPct = Math.max(0, ((en - st) / DAY_MS) * 100)
       const entity = getEntity(seg.id)
       const { fill, stroke } = paintFor(seg.id)
-      // A run is open-ended only if it's the LAST segment and still running (right edge = now).
-      const openEnded = seg.open && i === flat.length - 1
+      // v0.6.22: the middle spine does NOT trail the unknown-end fade — it's always "up to now"
+      // by construction, so a crisp right edge reads correctly and avoids the fade's cost/lag.
       out.push({
         key: `spine:${seg.id}:${seg.start}`,
         id: seg.id,
@@ -683,11 +693,11 @@ export function Zero0Dayline({
         leftPct,
         widthPct,
         centerPct: leftPct + widthPct / 2,
-        range: `${rangeText(seg.start, seg.open ? now : seg.end)} · access${seg.open ? " · ongoing" : ""}`,
+        range: `${rangeText(seg.start, seg.open ? segEnd : seg.end)} · access${seg.open ? " · ongoing" : ""}`,
         track: "middle",
         point: false,
-        openEnded,
-        unknownEnd: openEnded,
+        openEnded: false,
+        unknownEnd: false,
       })
     }
     return out
