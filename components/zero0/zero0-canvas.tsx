@@ -309,9 +309,14 @@ export function Zero0Canvas() {
       for (const id of path) {
         const e = getEntity(id)
         if (!e) continue
-        // EVERY kind accrues presence on the activity rail (moments/instants included — see the
-        // header comment; a focus session there is recorded activity but doesn't flip STATE). Skip
-        // only done Tasks and already-closed entities (a finished thing shouldn't silently re-open
+        // ROOT is EXEMPT (v0.6.19): you're ALWAYS on the root path, so a focus session on it would
+        // never close — "Loris" would read ongoing forever + accrue meaningless whole-life presence.
+        // Root is the zero-point you always stand on, not a thing you're "in". (Rollup already
+        // stops at beings, so root never spins from its children either.)
+        if (id === ROOT_ID) continue
+        // EVERY other kind accrues presence on the activity rail (moments/instants included — see
+        // the header comment; a focus session there is recorded activity but doesn't flip STATE).
+        // Skip done Tasks and already-closed entities (a finished thing shouldn't silently re-open
         // just because you glanced at it).
         if (isDone(e) || isClosed(e)) continue
         if (openEngagement(id, "focus")) {
