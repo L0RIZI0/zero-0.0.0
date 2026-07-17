@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { createPortal } from "react-dom"
 import { getSegments, useActivityRevision } from "@/lib/zero/activity-log"
-import { ROOT_ID, collectDescendants, getEntity, getInheritedAccent, getTimelineOccurrences } from "@/lib/zero/data"
+import { ROOT_ID, collectDescendants, getEntitiesWithEngagements, getEntity, getInheritedAccent, getTimelineOccurrences } from "@/lib/zero/data"
  import { titleAt } from "@/lib/zero/entity-log"
  import { isClosed, computeCloseAt, effectiveScheduleEnd } from "@/lib/zero/kinds"
 import { rangeText, NOW_COLOR } from "@/lib/zero/timeline-format"
@@ -539,10 +539,11 @@ export function Zero0Dayline({
   const engagements = useMemo<DaylineBar[]>(() => {
     if (!mounted) return []
     const out: DaylineBar[] = []
-    for (const id of collectDescendants(ROOT_ID)) {
-      const e = getEntity(id)
-      const list = e?.schedule?.engagements
-      if (!e || !list || list.length === 0) continue
+    // v0.6.22: iterate EVERY entity with engagements (not `collectDescendants`, which walks spaces
+    // only and hid Resource/Task/Moment leaves from the recorded rail).
+    for (const e of getEntitiesWithEngagements()) {
+      const list = e.schedule?.engagements
+      if (!list || list.length === 0) continue
       const { fill, stroke } = paintFor(e.id)
       // COALESCE into runs (display only — see SESSION_MERGE_GAP_MS): walk sessions oldest→newest
       // and merge any whose gap from the current run's end is ≤ the threshold into one span. An

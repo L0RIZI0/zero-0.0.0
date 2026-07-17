@@ -703,6 +703,17 @@ export function getChildSpaceCount(contextId: string): number {
   return getChildren(contextId).filter((e) => e.kind === "space").length
 }
 
+/**
+ * Every entity that has at least one session in `schedule.engagements`, regardless of kind or
+ * position in the tree. Needed by the dayline's spine (middle rail) + recorded (bottom) rail:
+ * `collectDescendants` only walks SPACES, so a Resource/Task/Moment leaf (e.g. a web resource you
+ * were focused on) would be invisible to those rails — the v0.6.21 bug where the spine showed the
+ * parent Space instead of the current leaf. Read-only snapshot (a fresh array).
+ */
+export function getEntitiesWithEngagements(): Entity[] {
+  return entities.filter((e) => (e.schedule?.engagements?.length ?? 0) > 0)
+}
+
 // ----------------------------------------------------------------------------
 // Subtree helpers (structural origin tree) — drive timeline focus + dimming
 // ----------------------------------------------------------------------------
@@ -2262,7 +2273,7 @@ export function addParsedEntity(input: {
   const now = Date.now()
   const entity = makeEntity({
     // Kind-correct id prefix (matches the dedicated add* fns): task→t, moment→m,
-    // instant→i, resource→r, space→s, community→c, organism→o, individual→n, soul→l.
+    // instant→i, resource→r, space→s, community→c, organism→o, individual��n, soul→l.
     // Defaults to "t" for any kind without a dedicated prefix.
     id: uid(ID_PREFIX[input.kind] ?? "t"),
     kind: input.kind,
