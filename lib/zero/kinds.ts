@@ -323,6 +323,30 @@ export function isMarkable(entity: Entity, now: number = Date.now()): boolean {
   return true
 }
 
+/**
+ * The OCCURRENCE affordance a Moment/Space glyph offers right now (v0.6.18). The top-rail
+ * lifecycle: `play` → start an occurrence, `stop` → end the running one, `reopen` → archive the
+ * finished span and go playable again. `null` for kinds that don't have an occurrence lifecycle
+ * (task/resource/beings/instant — instants use marks instead).
+ *   • not-started (whenever, or a future-scheduled start) → "play"
+ *   • running (concrete start in the past, not yet ended) → "stop"
+ *   • complete (a finished/closed occurrence) → "reopen"
+ */
+export function occurrenceAction(
+  entity: Entity,
+  now: number = Date.now(),
+): "play" | "stop" | "reopen" | null {
+  if (entity.kind !== "moment" && entity.kind !== "space") return null
+  const st = entity.schedule?.startAt
+  const started = isConcreteStart(st) && (st as number) <= now
+  if (started) {
+    // Running until it has an endAt in the past (or is otherwise closed) → then it's complete.
+    return isClosed(entity, now) ? "reopen" : "stop"
+  }
+  // Not yet started. If it's somehow already closed (e.g. cancelled), offer reopen; else play.
+  return isClosed(entity, now) ? "reopen" : "play"
+}
+
 /** The OCCURRENCE marks tallied on an instant (zero-length `via:"mark"` engagements), newest
  *  first. [] for any non-instant or an instant with no marks yet. */
 export function getMarks(entity: Entity): Engagement[] {
@@ -668,7 +692,7 @@ function getStateInner(entity: Entity, now: number, seen: Set<string>): EntitySt
 
 /**
  * Whether `entity`'s lifecycle has ENDED (its row FADES): closed / dead / retired /
- * cancelled. COMPLETE is deliberately NOT closed — it is the live interim state.
+ * cancelled. COMPLETE is deliberately NOT closed ��� it is the live interim state.
  * Thin wrapper over {@link getState} kept for the many existing call sites.
  */
 export function isClosed(entity: Entity, now: number = Date.now()): boolean {

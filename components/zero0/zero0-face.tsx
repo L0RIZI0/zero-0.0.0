@@ -105,17 +105,18 @@ function FaceGlyph({
       </button>
     )
   }
-  // PLAYABLE ("whenever" moment/space): the glyph is a Play/Stop toggle that opens/closes a
-  // background session. `model.ongoing` (an open session) drives the label + the spinning glyph.
-  if (model.playable && onTogglePlay) {
-    const running = model.ongoing
+  // OCCURRENCE control (moment/space): the glyph drives the top-rail lifecycle — Play starts an
+  // occurrence, Stop ends the running one (glyph spins while running), Reopen archives a finished
+  // span and returns it to playable. `model.occAction` says which.
+  if (model.playable && model.occAction && onTogglePlay) {
+    const label = model.occAction === "stop" ? "Stop" : model.occAction === "reopen" ? "Reopen" : "Play"
     return (
       <button
         type="button"
         onClick={() => onTogglePlay(entity)}
         className={wrapperBase + " cursor-pointer transition-opacity hover:opacity-70"}
-        aria-label={running ? "Stop" : "Play"}
-        title={running ? "Stop" : "Play"}
+        aria-label={label}
+        title={label}
       >
         {glyph}
       </button>

@@ -29,7 +29,7 @@ import {
   endOccurrence,
   reopenOccurrence,
 } from "@/lib/zero/data"
-import { isClosed, KIND_META, isConcreteStart } from "@/lib/zero/kinds"
+import { isClosed, KIND_META, occurrenceAction } from "@/lib/zero/kinds"
 import { isDone } from "@/lib/zero/entity-log"
 import { FACE_SIZES, faceSizeLabel, FACE_MAKES, faceMakeLabel, type FaceSize, type FaceMake } from "@/lib/zero/face-model"
 import type { Entity, EntityKind } from "@/lib/zero/types"
@@ -155,10 +155,9 @@ export function buildEntityMenuItems(
     // Play starts an occurrence now (startOccurrence); Stop ends the running one (endOccurrence).
     // "Running" = a concrete start already in the past (a future-scheduled start still shows Play,
     // which starts it now). This is the same action as clicking the glyph.
-    if (entity.kind === "moment" || entity.kind === "space") {
-      const st = entity.schedule?.startAt
-      const running = isConcreteStart(st) && st <= Date.now()
-      items.push({ type: "item", id: running ? "stop" : "play", label: running ? "Stop" : "Play" })
+    const occ = occurrenceAction(entity)
+    if (occ === "play" || occ === "stop") {
+      items.push({ type: "item", id: occ, label: occ === "stop" ? "Stop" : "Play" })
     } else if (entity.kind === "instant") {
       // MARKABLE instant: Mark records an OCCURRENCE (a timestamp) — the same action as clicking
       // its glyph. `set-now` (re-place the lone scheduled point) stays as a secondary.

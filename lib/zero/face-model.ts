@@ -19,7 +19,7 @@
 
 import type { Entity, EntityKind, Whenever } from "./types"
 import { WHENEVER } from "./types"
-  import { KIND_META, isClosed, fillsGlyph, getState, concreteStart, isPlayable, isMarkable, getMarks, getEngagements, getInstantMaxNb, isInstantMaxNbHard, getInstantOccurrenceCount, type EntityState } from "./kinds"
+  import { KIND_META, isClosed, fillsGlyph, getState, concreteStart, occurrenceAction, isMarkable, getMarks, getEngagements, getInstantMaxNb, isInstantMaxNbHard, getInstantOccurrenceCount, type EntityState } from "./kinds"
 import { isDone, getCreatedAt, getCompletedOn } from "./entity-log"
 import { getEntity, getCreator, getOwner, getForwardTags, getBackReferences, getChildren } from "./data"
 import { formatLocale } from "./format-locale"
@@ -407,9 +407,13 @@ export interface FaceModel {
   requested: boolean
   /** A live span in progress — the glyph rotates. */
   ongoing: boolean
-  /** PLAYABLE — a `startAt: "whenever"`/unscheduled moment/space whose glyph offers Play/Stop
-      to open/close a background session on demand (mutually exclusive with hasDoneState). */
+  /** PLAYABLE — a moment/space whose glyph drives its OCCURRENCE lifecycle (top rail). True for
+      any of play/stop/reopen; see `occAction` for which one. Mutually exclusive with hasDoneState. */
   playable: boolean
+  /** The specific occurrence affordance the glyph performs on click: "play" (start), "stop" (end
+      the running one), or "reopen" (archive the finished span → playable again). null when the
+      glyph isn't an occurrence control. */
+  occAction: "play" | "stop" | "reopen" | null
   /** MARKABLE — a live INSTANT whose glyph records an OCCURRENCE (a timestamp) on each click.
       A point, never a running span, so it never reads ongoing (mutually exclusive with playable). */
   markable: boolean
@@ -432,6 +436,7 @@ export function getFaceModel(e: Entity, now: number): FaceModel {
   const done = isDone(e) // soft DONE marker (Task only), orthogonal to STATE
   const requested = e.kind === "task" && !!e.requested
   const lifeLabel = state.word
+  const occAction = occurrenceAction(e, now) // moment/space glyph: play / stop / reopen / null
   return {
     kind: e.kind,
     title: e.title,
@@ -445,7 +450,8 @@ export function getFaceModel(e: Entity, now: number): FaceModel {
     cancelled: state.word === "cancelled",
     requested,
     ongoing: state.word === "ongoing", // live span ⇒ glyph rotates
-    playable: isPlayable(e), // "whenever"/unscheduled moment/space ⇒ glyph is Play/Stop
+    playable: occAction != null, // moment/space glyph drives its occurrence lifecycle
+    occAction, // which one: play / stop / reopen
     markable: isMarkable(e), // live instant ⇒ glyph records an occurrence on click
     closed: isClosed(e), // ENDED ⇒ fade — NOT complete
     lifeLabel,
@@ -496,6 +502,7 @@ export function faceModelFromLike(like: FaceLike): FaceModel {
     requested: false,
     ongoing: false,
     playable: false, // a projection is inert — never a live playable entity
+    occAction: null, // inert projection — no occurrence control
     markable: false, // a projection is inert — never a live markable instant
     closed: false,
     lifeLabel: "",

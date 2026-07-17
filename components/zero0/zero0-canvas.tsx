@@ -33,14 +33,16 @@ import {
   toggleStarterPin,
   openEngagement,
   closeEngagement,
-  toggleEngagement,
+  startOccurrence,
+  endOccurrence,
+  reopenOccurrence,
   setOpenEngagementStart,
   markInstant,
   setInstantMax,
   endOngoing,
   reorderContextItems,
 } from "@/lib/zero/data"
-  import { KIND_META, isClosed, getState, hasOpenEngagement, isPlayable, isMarkable, getInstantMaxNb } from "@/lib/zero/kinds"
+  import { KIND_META, isClosed, getState, hasOpenEngagement, occurrenceAction, isMarkable, getInstantMaxNb } from "@/lib/zero/kinds"
   import { isDone, describeLogEntry } from "@/lib/zero/entity-log"
 import {
   parseEntry,
@@ -728,12 +730,17 @@ export function Zero0Canvas() {
     [bump, path],
   )
 
-  // PLAY/STOP on a PLAYABLE ("whenever") moment/space glyph — opens/closes a background
-  // "play" session without navigating. Guarded by isPlayable so it never fires elsewhere.
+  // PLAY / STOP / REOPEN on a MOMENT/SPACE glyph — drives the OCCURRENCE (top rail), NOT a
+  // bottom-rail engagement (v0.6.18). Play starts an occurrence now, Stop ends the running one,
+  // Reopen archives the finished span into occurrences[] and returns it to playable. Guarded by
+  // occurrenceAction so it never fires on a kind without an occurrence lifecycle.
   const togglePlay = useCallback(
     (e: Entity) => {
-      if (!isPlayable(e)) return
-      toggleEngagement(e.id, "play")
+      const action = occurrenceAction(e)
+      if (action === "play") startOccurrence(e.id)
+      else if (action === "stop") endOccurrence(e.id)
+      else if (action === "reopen") reopenOccurrence(e.id)
+      else return
       bump()
     },
     [bump],
@@ -839,7 +846,11 @@ export function Zero0Canvas() {
   // in the BACKGROUND in parallel, staying on the current canvas.
   const startPin = useCallback(
     (id: string, focus: boolean) => {
-      openEngagement(id, "play")
+      // A MOMENT/SPACE starts its OCCURRENCE (top rail), consistent with the glyph Play; every
+      // other kind opens a deliberate `play` ENGAGEMENT (bottom-rail work session).
+      const e = getEntity(id)
+      if (e && (e.kind === "moment" || e.kind === "space")) startOccurrence(id)
+      else openEngagement(id, "play")
       if (focus) navigateTo(id)
       bump()
     },
@@ -1193,7 +1204,7 @@ export function Zero0Canvas() {
       )}
 
       {/* ── ACTIVITY BAND (below AGENDA, above the header) ───────────��─������───────
-          The BACKWARD-looking frame — WHERE the user has been today (presence dayline
+          The BACKWARD-looking frame ��� WHERE the user has been today (presence dayline
           + details). Hidden by default, toggled from the footer, same grid-rows
           collapse animation as AGENDA. Clicking a place drills the canvas into it. */}
       {mounted && (
