@@ -485,10 +485,13 @@ export function Zero0Canvas() {
         }
         case "sessionstart":
         case "sessionend": {
-          // ACCESS-SESSION sugar (v0.6.19) — the deliberate counterpart to the occurrence
-          // --start/--end above. Lets you correct the RECORDED presence span: "I opened Cooking
-          // just now but I've actually been cooking 30min" ⇒ `--sessionStart:30min ago`. Targets
-          // the OPEN engagement (bottom/activity rail), never the top-rail schedule.
+          // ACCESS-SESSION sugar (v0.6.19; retargeted v0.6.20) — the deliberate counterpart to the
+          // occurrence --start/--end above. Corrects the current entity's OPEN ACCESS session (its
+          // focus engagement): "I opened Cooking just now but I've actually been cooking 30min" ⇒
+          // `--sessionStart:30min ago`. This is the MIDDLE (collapsed-ACCESS leaf-spine) rail, so
+          // the edit slides the middle tick. It NEVER touches the top-rail schedule NOR the pure
+          // PRESENCE truth rail (§2). NOTE: play-vs-focus precedence when a PLAY session is also
+          // open is deferred open-item #2 — today it hits whatever `getOpenEngagement` returns.
           const when = val.toLowerCase() === "now" ? Date.now() : val === "" ? null : parseDateToken(val)
           if (val !== "" && when == null) {
             setNotice({ tone: "err", text: `invalid time "${val}" — use HHMM, "30min ago", "in 2h", or now` })

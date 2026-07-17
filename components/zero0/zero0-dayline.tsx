@@ -65,6 +65,10 @@ const RAIL_PAD = 4 // breathing room in EACH half (above the planned ticks / bel
 // FIXED per-lane tick heights (never shrink). One sub-lane per rail = the resting band.
 const PLANNED_LANE_H = 11
 const RECORDED_LANE_H = 10
+// MIDDLE rail (v0.6.21 THREE-RAIL model) = the collapsed-ACCESS leaf-spine, ONE non-overlapping
+// lane sitting ON the seam (the band's axis). PLANNED stacks UP from just above it, PLAYED stacks
+// DOWN from just below it. Its height is the band's fixed center strip.
+const MIDDLE_LANE_H = 10
 // Height of a presence tick on the STANDALONE ACTIVITY dayline (`tracks="presence"`).
 const PRESENCE_HEIGHT_PX = 10
 // DISPLAY-ONLY session coalescing: consecutive engagement sessions separated by a gap no larger
@@ -80,11 +84,16 @@ const SESSION_MERGE_GAP_MS = 60_000
 // PLANNED ticks stack UPWARD from the seam (bottom-aligned, hugging it); RECORDED ticks stack
 // DOWNWARD from the seam (top-aligned, hugging it). Resting (1 sub-lane each): half = 11+4 = 15,
 // so seam = 15, band = 30.
-function bandMetrics(plannedCount: number, recordedCount: number) {
+// v0.6.21: a MIDDLE leaf-spine strip (MIDDLE_LANE_H) now sits centered on the seam. Each half is
+// sized to the taller of its rail's content + RAIL_PAD, and the middle strip is inserted between
+// them, so the seam (spine center) = topHalf + MIDDLE_LANE_H/2. `middle=false` (legacy / non-
+// combined) collapses to the original two-rail band with no center strip.
+function bandMetrics(plannedCount: number, recordedCount: number, middle = false) {
   const plannedH = Math.max(1, plannedCount) * PLANNED_LANE_H
   const recordedH = Math.max(1, recordedCount) * RECORDED_LANE_H
   const half = Math.max(plannedH, recordedH) + RAIL_PAD
-  return { seam: half, bandH: half * 2 }
+  const mid = middle ? MIDDLE_LANE_H : 0
+  return { seam: half + mid / 2, bandH: half * 2 + mid, half, mid }
 }
 // NOTE: the day label centers across the WHOLE top half [0, seam] (flex-centered) so it has
 // SYMMETRIC top/bottom margins between the band top and the (centered) seam — see its render below.
@@ -121,11 +130,19 @@ function packLanes(
 // `seam`. Ticks HUG THE SEAM: PLANNED lane 0 sits bottom-aligned just ABOVE the seam and higher
 // lanes stack UPWARD; RECORDED lane 0 sits top-aligned just BELOW the seam and higher lanes stack
 // DOWNWARD. Heights are FIXED (no shrink) — the band grows instead (see bandMetrics).
-function laneGeom(rail: "planned" | "recorded", laneIndex: number, seam: number) {
-  if (rail === "planned") {
-    return { height: PLANNED_LANE_H, center: seam - (laneIndex * PLANNED_LANE_H + PLANNED_LANE_H / 2) }
+// v0.6.21: `mid` = the middle strip's height (0 when there's no middle rail). PLANNED lane 0 hugs
+// just ABOVE the strip (its band edge = seam - mid/2); RECORDED lane 0 hugs just BELOW it
+// (seam + mid/2); MIDDLE is the single spine lane centered ON the seam.
+function laneGeom(rail: "planned" | "recorded" | "middle", laneIndex: number, seam: number, mid = 0) {
+  if (rail === "middle") {
+    return { height: MIDDLE_LANE_H, center: seam }
   }
-  return { height: RECORDED_LANE_H, center: seam + laneIndex * RECORDED_LANE_H + RECORDED_LANE_H / 2 }
+  if (rail === "planned") {
+    const edge = seam - mid / 2
+    return { height: PLANNED_LANE_H, center: edge - (laneIndex * PLANNED_LANE_H + PLANNED_LANE_H / 2) }
+  }
+  const edge = seam + mid / 2
+  return { height: RECORDED_LANE_H, center: edge + laneIndex * RECORDED_LANE_H + RECORDED_LANE_H / 2 }
 }
 
 // When an entity is FOCUSED from elsewhere in the canvas — its ENTITY CONTENT row is
@@ -247,7 +264,7 @@ interface DaylineBar {
   widthPct: number
   centerPct: number
   range: string
-  track: "planned" | "presence"
+  track: "planned" | "presence" | "middle"
   /** A single-point occurrence (instant / zero-length) renders as a thin tick. */
   point: boolean
   /**
@@ -544,6 +561,11 @@ export function Zero0Dayline({
         }
       }
       runs.forEach((run, i) => {
+        // v0.6.20 THREE-RAIL: the BOTTOM (recorded) rail is now MANUAL activity only — PLAY
+        // stopwatches + instant MARKS. FOCUS sessions (auto entry→exit / dwell, `via` focus or
+        // legacy undefined) are the ACCESS record and render as the collapsed leaf-spine on the
+        // MIDDLE rail (see the `spine` memo below), so they're skipped here.
+        if (run.via !== "play" && run.via !== "mark") return
         const rawStart = run.start
         const open = run.open
         const rawEnd = open ? now : run.end
@@ -583,6 +605,87 @@ export function Zero0Dayline({
     return out
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [winStart, lo, hi, now, mounted, dataRev, activityRevision])
+
+  // SPINE bars — the MIDDLE rail (v0.6.20): the COLLAPSED-ACCESS leaf-spine. Focus engagements
+  // (`via` focus / legacy undefined) are punched on EVERY entity on the path, so at any instant
+  // the covering focus intervals are exactly root→leaf and the DEEPEST (latest-started) is the
+  // current leaf. We FLATTEN all focus intervals so only the deepest shows at each moment — a
+  // single continuous, non-overlapping line, the ACCESS (declarable, `--sessionStart/End`-editable)
+  // twin of the pure PRESENCE rail. Distinct from presence by design: presence = machine truth
+  // (§2), spine = the correctable ACCESS record. Only rendered on the combined lane.
+  const spine = useMemo<DaylineBar[]>(() => {
+    if (!mounted || !combined) return []
+    // 1) Collect focus intervals (end = now while open) across the whole tree.
+    type Iv = { id: string; start: number; end: number; open: boolean }
+    const ivs: Iv[] = []
+    for (const id of collectDescendants(ROOT_ID)) {
+      const list = getEntity(id)?.schedule?.engagements
+      if (!list) continue
+      for (const s of list) {
+        if (s.via === "play" || s.via === "mark") continue // manual → bottom rail
+        const open = s.endAt == null
+        const end = s.endAt ?? now
+        if (end <= s.startAt) continue
+        ivs.push({ id, start: s.startAt, end, open })
+      }
+    }
+    if (ivs.length === 0) return []
+    // 2) FLATTEN by max-start-wins: sweep the sorted boundaries; in each gap the visible owner is
+    //    the active interval with the greatest start (the deepest / most-recently-entered leaf).
+    const bounds = Array.from(new Set(ivs.flatMap((v) => [v.start, v.end]))).sort((a, b) => a - b)
+    type Seg = { id: string; start: number; end: number; open: boolean }
+    const flat: Seg[] = []
+    for (let i = 0; i < bounds.length - 1; i++) {
+      const a = bounds[i]
+      const b = bounds[i + 1]
+      if (b <= a) continue
+      let win: Iv | null = null
+      for (const v of ivs) {
+        if (v.start <= a && v.end >= b && (win == null || v.start > win.start)) win = v
+      }
+      if (!win) continue
+      const prev = flat[flat.length - 1]
+      // 3) Coalesce consecutive same-owner slivers into one segment.
+      if (prev && prev.id === win.id && prev.end === a) {
+        prev.end = b
+        prev.open = win.open && win.end === b
+      } else {
+        flat.push({ id: win.id, start: a, end: b, open: win.open && win.end === b })
+      }
+    }
+    // 4) Emit bars, clipped to the visible day window.
+    const out: DaylineBar[] = []
+    for (let i = 0; i < flat.length; i++) {
+      const seg = flat[i]
+      if (seg.end < lo || seg.start > hi) continue
+      const st = Math.max(seg.start, lo)
+      const en = Math.min(seg.open ? now : seg.end, hi)
+      if (en <= st) continue
+      const leftPct = ((st - winStart) / DAY_MS) * 100
+      const widthPct = Math.max(0, ((en - st) / DAY_MS) * 100)
+      const entity = getEntity(seg.id)
+      const { fill, stroke } = paintFor(seg.id)
+      // A run is open-ended only if it's the LAST segment and still running (right edge = now).
+      const openEnded = seg.open && i === flat.length - 1
+      out.push({
+        key: `spine:${seg.id}:${seg.start}`,
+        id: seg.id,
+        title: entity ? titleAt(entity, st) : seg.id === ROOT_ID ? "Home" : "Elsewhere",
+        color: fill,
+        stroke,
+        leftPct,
+        widthPct,
+        centerPct: leftPct + widthPct / 2,
+        range: `${rangeText(seg.start, seg.open ? now : seg.end)} · access${seg.open ? " · ongoing" : ""}`,
+        track: "middle",
+        point: false,
+        openEnded,
+        unknownEnd: openEnded,
+      })
+    }
+    return out
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [winStart, lo, hi, now, mounted, combined, dataRev, activityRevision])
 
   // PRESENCE bars — tracked activity ("where I was"). Titles fold `titleAt` so a past
   // segment reads with the name the place had THEN. `activityRevision` (shared above)
@@ -641,9 +744,10 @@ export function Zero0Dayline({
     const m = new Map<string, DaylineBar>()
     for (const b of planned) m.set(b.key, b)
     for (const b of engagements) m.set(b.key, b)
+    for (const b of spine) m.set(b.key, b)
     for (const b of presence) m.set(b.key, b)
     return m
-  }, [planned, engagements, presence])
+  }, [planned, engagements, spine, presence])
 
   // LANE PACKING per rail (OPTION A). TOP (planned) packs by START so tiling declared spans
   // share lane 0 and only genuine overlaps open new lanes. BOTTOM (recorded) packs LONGEST-
@@ -661,8 +765,11 @@ export function Zero0Dayline({
   // Combined-lane band geometry: the SEAM and total BAND HEIGHT grow with the busier rail's
   // sub-lane count (ticks keep full height; the band gets taller). Non-combined lanes keep the
   // resting single-lane height so the standalone ACTIVITY/PRESENCE band is unchanged.
-  const { seam, bandH } = useMemo(
-    () => (combined ? bandMetrics(plannedLanes.laneCount, recordedLanes.laneCount) : bandMetrics(1, 1)),
+  const { seam, bandH, mid } = useMemo(
+    () =>
+      combined
+        ? bandMetrics(plannedLanes.laneCount, recordedLanes.laneCount, true)
+        : bandMetrics(1, 1),
     [combined, plannedLanes.laneCount, recordedLanes.laneCount],
   )
   const hovered = hoveredKey ? byKey.get(hoveredKey) ?? null : null
@@ -1220,22 +1327,25 @@ export function Zero0Dayline({
                   All ticks are vertically CENTERED; on the combined lane the tracks are
                   told apart by HEIGHT (planned taller, presence shorter). */}
               {mounted &&
-                (combined ? [...planned, ...engagements] : isPresence ? presence : planned).map((p) => {
+                (combined ? [...planned, ...engagements, ...spine] : isPresence ? presence : planned).map((p) => {
                   const isHot = hoveredKey === p.key
                   // LIT — this tick's entity is the one being HOVERED in ENTITY CONTENT
                   // (hover-only; cleared on navigation, so never lit merely for being open).
                   // Grows + fully opaque.
                   const lit = highlightId != null && p.id === highlightId
                   const isPresenceTick = !combined && isPresence
-                  // OPTION A rail assignment on the combined lane: a SESSION bar (track ==
-                  // "planned" but sourced from the engagements memo) lives on the RECORDED
-                  // (bottom) rail; everything else (declared occurrences) on the PLANNED (top)
-                  // rail. We tell them apart by key prefix (`sess:` from the engagements memo).
+                  // THREE-RAIL assignment on the combined lane (v0.6.20): MIDDLE = the collapsed-
+                  // ACCESS leaf-spine (`spine:` keys, track "middle"), centered on the seam; BOTTOM
+                  // (recorded) = manual PLAY + MARK sessions (`sess:` keys from the engagements
+                  // memo); TOP (planned) = everything else (declared occurrences).
+                  const isMiddle = combined && p.track === "middle"
                   const isRecorded = combined && p.key.startsWith("sess:")
                   const lane = combined
-                    ? isRecorded
-                      ? laneGeom("recorded", recordedLanes.laneOf.get(p.key) ?? 0, seam)
-                      : laneGeom("planned", plannedLanes.laneOf.get(p.key) ?? 0, seam)
+                    ? isMiddle
+                      ? laneGeom("middle", 0, seam, mid)
+                      : isRecorded
+                        ? laneGeom("recorded", recordedLanes.laneOf.get(p.key) ?? 0, seam, mid)
+                        : laneGeom("planned", plannedLanes.laneOf.get(p.key) ?? 0, seam, mid)
                     : undefined
                   // HEIGHT. A LIT/hovered tick pops (capped so it doesn't spill the rail). On
                   // the combined lane every tick uses its packed lane height. A standalone lane
