@@ -28,8 +28,10 @@ import {
   startOccurrence,
   endOccurrence,
   reopenOccurrence,
+  openEngagement,
+  closeEngagement,
 } from "@/lib/zero/data"
-import { isClosed, KIND_META, occurrenceAction } from "@/lib/zero/kinds"
+import { isClosed, KIND_META, occurrenceAction, hasOpenEngagement } from "@/lib/zero/kinds"
 import { isDone } from "@/lib/zero/entity-log"
 import { FACE_SIZES, faceSizeLabel, FACE_MAKES, faceMakeLabel, type FaceSize, type FaceMake } from "@/lib/zero/face-model"
 import type { Entity, EntityKind } from "@/lib/zero/types"
@@ -151,14 +153,22 @@ export function buildEntityMenuItems(
   // while live (an ended entity's times are historical). Simple: stamps `Date.now()` with no
   // cross-midnight adjustment (the create bar's `--start:now` etc. is the fuller path).
   if (!ended) {
-    // MOMENT / SPACE — Play/Stop drive the OCCURRENCE (top rail), NOT a bottom-rail engagement.
-    // Play starts an occurrence now (startOccurrence); Stop ends the running one (endOccurrence).
-    // "Running" = a concrete start already in the past (a future-scheduled start still shows Play,
-    // which starts it now). This is the same action as clicking the glyph.
-    const occ = occurrenceAction(entity)
-    if (occ === "play" || occ === "stop") {
-      items.push({ type: "item", id: occ, label: occ === "stop" ? "Stop" : "Play" })
-    } else if (entity.kind === "instant") {
+    if (entity.kind === "space") {
+      // SPACE (v0.6.23 MERGE) — Play/Stop toggle the space's OWN focus/access engagement (the
+      // middle spine), NOT a top-rail occurrence. "Playing a space" == "being there": Stop while
+      // open, Play while idle. Label reflects the live engagement, not `occurrenceAction` (which
+      // is occurrence-based and would always say "Play" now that Play never sets `startAt`).
+      items.push({ type: "item", id: hasOpenEngagement(entity) ? "stop" : "play", label: hasOpenEngagement(entity) ? "Stop" : "Play" })
+    } else {
+      // MOMENT — Play/Stop still drive the OCCURRENCE (a moment IS its occurrence). Play starts an
+      // occurrence now (startOccurrence); Stop ends the running one. "Running" = a concrete start
+      // already in the past (a future-scheduled start still shows Play, which starts it now).
+      const occ = occurrenceAction(entity)
+      if (occ === "play" || occ === "stop") {
+        items.push({ type: "item", id: occ, label: occ === "stop" ? "Stop" : "Play" })
+      }
+    }
+    if (entity.kind === "instant") {
       // MARKABLE instant: Mark records an OCCURRENCE (a timestamp) — the same action as clicking
       // its glyph. `set-now` (re-place the lone scheduled point) stays as a secondary.
       items.push({ type: "item", id: "mark", label: "Mark" })
@@ -268,10 +278,16 @@ export function applyEntityMenuAction(entity: Entity, actionId: string): boolean
       setEntityScheduleField(id, "at", Date.now())
       return true
     case "play":
-      startOccurrence(id)
+      // SPACE (v0.6.23): Play OPENS a focus engagement (→ middle spine + ongoing state), never a
+      // top-rail occurrence. MOMENT: Play still starts its occurrence. NOTE: the canvas intercepts
+      // space play/stop BEFORE this dispatcher so it can also sync `focusOpenRef` (punch-out
+      // tracking); this branch is the leak-safe fallback for any non-canvas caller.
+      if (entity.kind === "space") openEngagement(id, "focus")
+      else startOccurrence(id)
       return true
     case "stop":
-      endOccurrence(id)
+      if (entity.kind === "space") closeEngagement(id)
+      else endOccurrence(id)
       return true
     case "mark":
       markInstant(id)

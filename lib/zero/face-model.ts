@@ -219,6 +219,17 @@ export function getOccurrenceDurationMs(e: Entity, now: number): number | null {
     any = true // a lone point anchor is a zero-length occurrence
   }
   if (any) return total
+  // SPACE (v0.6.23 MERGE) — a played space has NO occurrence (Play opens a focus engagement, not
+  // `startAt`), so DURATION derives from its CURRENT engagement SESSION: the open one live-counting
+  // to `now`, else the most-recent span. Reads as "how long this session" — deliberately distinct
+  // from the ACCESS row, which is the lifetime Σ of ALL sessions. `null` (⇒ "—") when never engaged.
+  if (e.kind === "space") {
+    const engagements = getEngagements(e)
+    if (engagements.length > 0) {
+      const latest = engagements.reduce((a, b) => (b.startAt > a.startAt ? b : a))
+      return Math.max(0, (latest.endAt ?? now) - latest.startAt)
+    }
+  }
   // AGE fallback — beings only (death-terminal kinds).
   if (e.kind === "individual" || e.kind === "organism") {
     const created = getCreatedAt(e)

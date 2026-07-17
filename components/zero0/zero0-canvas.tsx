@@ -328,6 +328,24 @@ export function Zero0Canvas() {
     }
   }, [mounted, path, bump])
 
+  // SPACE Play/Stop (v0.6.23 MERGE) — "playing a space" == "being there", so it toggles the
+  // space's OWN focus/access engagement (→ middle spine + ongoing state), NOT a top-rail
+  // occurrence. Kept as a standalone helper (declared BEFORE the create handler that also needs
+  // it) so every entry point routes through the SAME `focusOpenRef` sync: a manually-opened
+  // session is tracked for auto punch-out, and a manual Stop while sitting on the space stays
+  // stopped until you navigate (entering a child re-punches it via the dwell effect above).
+  const toggleSpacePlay = useCallback(
+    (e: Entity) => {
+      if (hasOpenEngagement(e)) {
+        if (closeEngagement(e.id)) focusOpenRef.current.delete(e.id)
+      } else if (openEngagement(e.id, "focus")) {
+        focusOpenRef.current.add(e.id)
+      }
+      bump()
+    },
+    [bump],
+  )
+
   const context = mounted ? getEntity(contextId) : undefined
   // SHOW HIDDEN — a per-context VIEW toggle (right-click ▸ Show hidden). When off, hidden
   // children (manual `hidden` flag OR auto-hidden-because-closed-before-today) collapse out
@@ -667,7 +685,8 @@ export function Zero0Canvas() {
       for (const action of entry.actions) {
         const ent = getEntity(target)
         if (!ent) break
-        // `applyEntityMenuAction` is the SAME dispatcher the right-click menu uses.
+        // `applyEntityMenuAction` is the SAME dispatcher the right-click menu uses. (Create-field
+        // actions can't be play/stop — EntryActionId excludes them — so no space-toggle guard here.)
         if (!applyEntityMenuAction(ent, action)) {
           setNotice({ tone: "err", text: `can't ${action} this ${KIND_META[ent.kind].label}` })
           return
@@ -768,12 +787,16 @@ export function Zero0Canvas() {
     [bump, path],
   )
 
-  // PLAY / STOP / REOPEN on a MOMENT/SPACE glyph — drives the OCCURRENCE (top rail), NOT a
-  // bottom-rail engagement (v0.6.18). Play starts an occurrence now, Stop ends the running one,
-  // Reopen archives the finished span into occurrences[] and returns it to playable. Guarded by
-  // occurrenceAction so it never fires on a kind without an occurrence lifecycle.
+  // PLAY / STOP on the glyph.
+  //   • SPACE (v0.6.23 MERGE): "playing a space" == "being there", so Play/Stop toggle the space's
+  //     OWN focus/access engagement (→ middle spine + ongoing), NOT a top-rail occurrence. This is
+  //     the same shape as toggleDone's reopen-in-place: we sync `focusOpenRef` so the auto punch-
+  //     out still tracks a manually-opened session, and a manual Stop while sitting on the space
+  //     stays stopped until you navigate (entering a child re-punches it via the dwell effect).
+  //   • MOMENT: unchanged — Play/Stop/Reopen drive the OCCURRENCE (a moment IS its occurrence).
   const togglePlay = useCallback(
     (e: Entity) => {
+      if (e.kind === "space") return toggleSpacePlay(e)
       const action = occurrenceAction(e)
       if (action === "play") startOccurrence(e.id)
       else if (action === "stop") endOccurrence(e.id)
@@ -781,7 +804,7 @@ export function Zero0Canvas() {
       else return
       bump()
     },
-    [bump],
+    [bump, toggleSpacePlay],
   )
 
   // MARK an occurrence on a MARKABLE (live) instant glyph — appends a zero-length timestamp
@@ -951,10 +974,13 @@ export function Zero0Canvas() {
         toggleStarterPin(e.id)
         return bump()
       }
+      // SPACE play/stop routes through toggleSpacePlay (v0.6.23) so it syncs `focusOpenRef`;
+      // applyEntityMenuAction would do the same engagement toggle but without punch-out tracking.
+      if (e.kind === "space" && (id === "play" || id === "stop")) return toggleSpacePlay(e)
       applyEntityMenuAction(e, id)
       bump()
     },
-    [bump],
+    [bump, toggleSpacePlay],
   )
 
   // Open the entity menu. `opts.size` (passed by the ENTITY CONTENT rows) adds the Size
