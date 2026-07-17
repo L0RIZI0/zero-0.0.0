@@ -274,13 +274,15 @@ export function Zero0Canvas() {
   }, [mounted, contextId])
 
   // FOCUS SESSIONS — being inside a context records real presence time (see zero-todos). The
-  // WHOLE ACTIVE PATH is ongoing: every DWELLABLE entity (Task / Space / Resource) from the root
-  // down to the current context holds an open session, so being in a subtask/resource counts as
-  // being in each ancestor Task or Space (and the ancestor also reads ongoing via rollup).
+  // WHOLE ACTIVE PATH is ongoing: EVERY entity (any kind — task/space/resource/moment/instant AND
+  // beings incl. the root, per Loris v0.6.18) from the root down to the current context holds an
+  // open session, so being in a subtask/resource/moment counts as being in each ancestor. Its
+  // ticks land on the RECORDED (activity) rail = "what I was working on", distinct from the
+  // PLANNED rail = a scheduled occurrence. A moment/instant thus reads `ongoing` while you view it.
   //   • Punch OUT (immediate): anything we opened that's no longer on the path.
-  //   • Punch IN (after DWELL_MS, now 0): every not-closed Task/Space/Resource on the path
-  //     lacking an open session, so merely passing through to reach a deeper context leaves no
-  //     trace (MIN_SESSION_MS discards the sub-threshold blip).
+  //   • Punch IN (after DWELL_MS, now 0): every not-closed entity on the path lacking an open
+  //     session, so merely passing through to reach a deeper context leaves no trace
+  //     (MIN_SESSION_MS discards the sub-threshold blip).
   // `focusOpenRef` tracks what WE opened, so punch-out never has to scan the whole store.
   const focusOpenRef = useRef<Set<string>>(new Set())
   const dwellRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -300,9 +302,9 @@ export function Zero0Canvas() {
       let opened = false
       for (const id of path) {
         const e = getEntity(id)
-        // Dwellable kinds only — a Task/Space/Resource accrues presence time; skip done Tasks and
-        // any already-closed entity (a finished thing shouldn't silently re-open on a visit).
-        if (!e || (e.kind !== "task" && e.kind !== "space" && e.kind !== "resource")) continue
+        // Every kind accrues presence time — but skip done Tasks and any already-closed entity
+        // (a finished thing shouldn't silently re-open just because you glanced at it).
+        if (!e) continue
         if (isDone(e) || isClosed(e)) continue
         if (openEngagement(id, "focus")) {
           focusOpenRef.current.add(id)
