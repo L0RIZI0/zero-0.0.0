@@ -127,11 +127,12 @@ function Zero0CloseButton({ onClick, className = "" }: { onClick: () => void; cl
   )
 }
 
-// How long you must STAY inside a Task before a focus session opens on it (and its
-// ancestor Tasks). Passing A→B→C to reach C fires nothing on A/B because each quick
-// navigation clears the prior timer. [DECISION BAKED — tune freely; the data layer also
-// discards any session shorter than MIN_SESSION_MS as a second guard.]
-const DWELL_MS = 3000
+// How long you must STAY inside a context before a focus session opens on it (and its
+// dwellable ancestors). Passing A→B→C to reach C fires nothing on A/B because each quick
+// navigation clears the prior timer. [Set to 0 WHILE BUILDING ZERO — Loris: presence should
+// count immediately, no waiting; the data layer still discards any session shorter than
+// MIN_SESSION_MS as a second guard, so a fast pass-through leaves no trace. Tune freely.]
+const DWELL_MS = 0
 
 // LAST FOCUS — the drill-in `path` is persisted here so closing + reopening Zero (Electron
 // OR the web app, both via renderer localStorage) restores the exact context you left off at.
@@ -272,12 +273,14 @@ export function Zero0Canvas() {
     recordPresence(contextId)
   }, [mounted, contextId])
 
-  // FOCUS SESSIONS — being inside a Task records real work time (see zero-todos). The
-  // WHOLE ACTIVE PATH is ongoing: every Task from the root down to the current context
-  // holds an open session, so working a subtask counts as working each ancestor Task.
-  //   • Punch OUT (immediate): any Task we opened that's no longer on the path.
-  //   • Punch IN (after DWELL_MS): every UNDONE Task on the path lacking an open session,
-  //     so merely passing through to reach a deeper context leaves no trace.
+  // FOCUS SESSIONS — being inside a context records real presence time (see zero-todos). The
+  // WHOLE ACTIVE PATH is ongoing: every DWELLABLE entity (Task / Space / Resource) from the root
+  // down to the current context holds an open session, so being in a subtask/resource counts as
+  // being in each ancestor Task or Space (and the ancestor also reads ongoing via rollup).
+  //   • Punch OUT (immediate): anything we opened that's no longer on the path.
+  //   • Punch IN (after DWELL_MS, now 0): every not-closed Task/Space/Resource on the path
+  //     lacking an open session, so merely passing through to reach a deeper context leaves no
+  //     trace (MIN_SESSION_MS discards the sub-threshold blip).
   // `focusOpenRef` tracks what WE opened, so punch-out never has to scan the whole store.
   const focusOpenRef = useRef<Set<string>>(new Set())
   const dwellRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -297,7 +300,10 @@ export function Zero0Canvas() {
       let opened = false
       for (const id of path) {
         const e = getEntity(id)
-        if (e?.kind !== "task" || isDone(e)) continue
+        // Dwellable kinds only — a Task/Space/Resource accrues presence time; skip done Tasks and
+        // any already-closed entity (a finished thing shouldn't silently re-open on a visit).
+        if (!e || (e.kind !== "task" && e.kind !== "space" && e.kind !== "resource")) continue
+        if (isDone(e) || isClosed(e)) continue
         if (openEngagement(id, "focus")) {
           focusOpenRef.current.add(id)
           opened = true
@@ -1135,7 +1141,7 @@ export function Zero0Canvas() {
         <Zero0WindowControls />
       </div>
 
-      {/* ── §4 PINS BAND (topmost, just under the clock) ────────────────────────
+      {/* ── §4 PINS BAND (topmost, just under the clock) ───────────────────��────
           The repurposed §4 frame: a horizontal row of colored chips for every ONGOING
           entity (glyph + title). Click a chip to drill in; click its spinning glyph to
           END it. UNLIKE the other frames this has NO footer toggle — it is purely

@@ -617,7 +617,7 @@ setChildrenResolver(getChildren)
 setContainedResolver((contextId) => entities.filter((e) => e.parentId === contextId && e.seriesId == null))
 
 /**
- * Whether `childId` has an IN-PLACE owning node inside `hostId` ��� i.e. it would
+ * Whether `childId` has an IN-PLACE owning node inside `hostId` ����� i.e. it would
  * render in `host`'s DO-LIST (structural parent or tagged space) OR in `host`'s
  * DOCK (pinned there). Either gives the entity a row/card to morph out of and
  * back into, so it is NOT detached. (A pinned space, e.g. Health on home, is a
@@ -1902,13 +1902,13 @@ export function hydrateFromStorage(): boolean {
   }
 
   // Hydrate-cleanup: close any DANGLING focus session a previous run left open (e.g.
-  // the app closed while inside a Task). Focus-time must NOT accrue while the app is
-  // shut, so we close each at the entity's last known activity and DROP spans that end
-  // up ≤ MIN_SESSION_MS. PLAY stopwatches (`via === "play"`, on moment/space) are LEFT
-  // RUNNING on purpose. [DECISION BAKED — easy to flip: delete this loop to keep focus
-  // timers running across reloads.]
+  // the app closed while inside a Task / Space / Resource — the DWELLABLE kinds that get
+  // focus punch-ins). Focus-time must NOT accrue while the app is shut, so we close each at
+  // the entity's last known activity and DROP spans that end up ≤ MIN_SESSION_MS. PLAY
+  // stopwatches (`via === "play"`, on moment/space) are LEFT RUNNING on purpose. [DECISION
+  // BAKED — easy to flip: delete this loop to keep focus timers running across reloads.]
   for (const entity of entities) {
-    if (entity.kind !== "task") continue
+    if (entity.kind !== "task" && entity.kind !== "space" && entity.kind !== "resource") continue
     const engagements = entity.schedule?.engagements
     if (!engagements || engagements.length === 0) continue
     const last = engagements[engagements.length - 1]
