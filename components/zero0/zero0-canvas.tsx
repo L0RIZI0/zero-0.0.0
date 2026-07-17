@@ -36,7 +36,6 @@ import {
   startOccurrence,
   endOccurrence,
   reopenOccurrence,
-  setOpenEngagementStart,
   markInstant,
   setInstantMax,
   endOngoing,
@@ -518,16 +517,12 @@ export function Zero0Canvas() {
               return null
             }
           }
-          // `--start:<time>` on an ONGOING entity corrects WHEN the current session began
-          // (backdates the running stopwatch), NOT the declared schedule anchor. Only for a
-          // concrete start (not clearing); end/at/due still target the schedule as usual.
-          if (attr.field === "start" && epoch != null && hasOpenEngagement(ent)) {
-            if (!setOpenEngagementStart(id, epoch)) {
-              setNotice({ tone: "err", text: "couldn't adjust the running session start" })
-              return null
-            }
-            return `session start ${fmt(epoch)}`
-          }
+          // `--start`/`--end`/`--at`/`--due` ALWAYS target the OCCURRENCE (top-rail schedule),
+          // NOT any running access session (v0.6.19 — the two are decoupled, and since every
+          // viewed entity now holds a focus session, the old "backdate the running stopwatch"
+          // shortcut would hijack --start on everything). So `--start:1600` schedules the
+          // occurrence for 4pm — a top-rail tick, faded-right while it has no end yet. Adjusting a
+          // session's start is a separate deliberate action, not what --start means.
           if (!setEntityScheduleField(id, key, epoch)) {
             setNotice({ tone: "err", text: `can't set ${attr.field} on a ${KIND_META[ent.kind].label}` })
             return null

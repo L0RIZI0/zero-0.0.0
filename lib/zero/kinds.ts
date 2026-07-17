@@ -419,7 +419,13 @@ export function getOpenEngagement(entity: Entity): Engagement | null {
 export function ongoingOpenEngagement(entity: Entity): Engagement | null {
   const open = getOpenEngagement(entity)
   if (!open) return null
-  if ((entity.kind === "moment" || entity.kind === "instant") && open.via === "focus") return null
+  // A FOCUS (viewing / presence) session records ACTIVITY but must NOT flip STATE to ongoing for:
+  //   • moment / instant — their ongoing is the OCCURRENCE, not being looked at;
+  //   • any BEING (soul/individual/organism/community) — a being is ALIVE / present, not "in
+  //     progress" (mirrors the rollup that stops at beings; v0.6.19).
+  // A deliberate `play` engagement still counts everywhere.
+  if (open.via === "focus" && (entity.kind === "moment" || entity.kind === "instant" || isBeing(entity.kind)))
+    return null
   return open
 }
 
