@@ -49,15 +49,21 @@ const NEUTRAL = "oklch(0.72 0.004 75)"
 // render detects it (rather than tinting it like a real accent).
 const DEFAULT_PRESENCE = "#ffffff"
 
-// OPTION A — on the COMBINED TODAY lane (`tracks="both"`) the band splits at the SEAM into two
-// TOUCHING rails, framed as PLAN vs REALITY:
+// THREE-RAIL model (v0.6.21) — on the COMBINED TODAY lane (`tracks="both"`) the band is a MIDDLE
+// spine flanked by two rails, framed as FUTURE · PRESENT · MANUAL-HISTORY:
 //   • the PLANNED rail (TOP) — DECLARED/planned spans only (the plan): scheduled occurrences,
 //     past or future, incl. an ongoing declared span (clock inside a declared start→end).
-//   • the RECORDED rail (BOTTOM) — RECORDED engagements of the viewed entity (what actually
-//     happened): closed engagement spans + running (open) ones.
-// PRESENCE is NOT on this lane — it lives on the standalone ACTIVITY dayline (`tracks="presence"`).
-// While viewing ROOT, the recorded rail == presence (presence = root's own engagements).
-// Within EACH rail, OVERLAPPING spans PACK into sub-lanes (see `packLanes`). Overflow policy:
+//   • the MIDDLE spine — the COLLAPSED-ACCESS leaf-spine: at each instant, the DEEPEST open focus
+//     session (the current leaf). One continuous, non-overlapping line — the declarable/correctable
+//     ACCESS record (`--sessionStart/End` slides it). Ancestor focus sessions still exist for state
+//     + rollup but are NOT drawn (killing the old A>B>C>D overlap mud). See the `spine` memo.
+//   • the RECORDED rail (BOTTOM) — MANUAL activity only: PLAY stopwatches + instant MARKS. Auto
+//     focus sessions are NOT here (they're the middle spine).
+// The pure PRESENCE truth rail (machine-observed, unmodifiable) is NOT on this lane — it lives on
+// the standalone ACTIVITY dayline (`tracks="presence"`), untouched, and is a SEPARATE record from
+// the correctable ACCESS spine by design.
+// Within the TOP + BOTTOM rails, OVERLAPPING spans PACK into sub-lanes (see `packLanes`); the middle
+// spine is single-lane by construction. Overflow policy:
 // the BAND GROWS TALLER rather than shrinking ticks — every sub-lane keeps its full fixed
 // height, and the band's total height = (planned sub-lanes + recorded sub-lanes) laid out at
 // full size. So a busy day makes a taller band, not thinner ticks.
@@ -561,7 +567,7 @@ export function Zero0Dayline({
         }
       }
       runs.forEach((run, i) => {
-        // v0.6.20 THREE-RAIL: the BOTTOM (recorded) rail is now MANUAL activity only — PLAY
+        // v0.6.21 THREE-RAIL: the BOTTOM (recorded) rail is now MANUAL activity only — PLAY
         // stopwatches + instant MARKS. FOCUS sessions (auto entry→exit / dwell, `via` focus or
         // legacy undefined) are the ACCESS record and render as the collapsed leaf-spine on the
         // MIDDLE rail (see the `spine` memo below), so they're skipped here.
@@ -606,7 +612,7 @@ export function Zero0Dayline({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [winStart, lo, hi, now, mounted, dataRev, activityRevision])
 
-  // SPINE bars — the MIDDLE rail (v0.6.20): the COLLAPSED-ACCESS leaf-spine. Focus engagements
+  // SPINE bars — the MIDDLE rail (v0.6.21): the COLLAPSED-ACCESS leaf-spine. Focus engagements
   // (`via` focus / legacy undefined) are punched on EVERY entity on the path, so at any instant
   // the covering focus intervals are exactly root→leaf and the DEEPEST (latest-started) is the
   // current leaf. We FLATTEN all focus intervals so only the deepest shows at each moment — a
@@ -1334,7 +1340,7 @@ export function Zero0Dayline({
                   // Grows + fully opaque.
                   const lit = highlightId != null && p.id === highlightId
                   const isPresenceTick = !combined && isPresence
-                  // THREE-RAIL assignment on the combined lane (v0.6.20): MIDDLE = the collapsed-
+                  // THREE-RAIL assignment on the combined lane (v0.6.21): MIDDLE = the collapsed-
                   // ACCESS leaf-spine (`spine:` keys, track "middle"), centered on the seam; BOTTOM
                   // (recorded) = manual PLAY + MARK sessions (`sess:` keys from the engagements
                   // memo); TOP (planned) = everything else (declared occurrences).
