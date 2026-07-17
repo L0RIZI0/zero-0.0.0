@@ -213,6 +213,26 @@ export function getSegmentsForDay(
   return out
 }
 
+/**
+ * The most recent moment we have EVIDENCE the app was alive: the max `leftAt` across
+ * the presence log (the visibility/pagehide flush stamps this on EVERY hide/reload —
+ * see installVisibility), falling back to the max `enteredAt`. `null` when there's no
+ * log yet. This is the NO-HEARTBEAT liveness signal: the entity-store hydrate cleanup
+ * uses it to tell a genuine shutdown (close the dangling focus session at this moment)
+ * from a mere reload while still present (keep it running). Reads storage directly when
+ * not yet hydrated, so it's safe to call from the entity store's own hydrate path.
+ */
+export function getLastKnownAlive(): number | null {
+  if (typeof window === "undefined") return null
+  const source = hydrated ? segments : read()
+  let max: number | null = null
+  for (const s of source) {
+    const t = s.leftAt ?? s.enteredAt
+    if (max == null || t > max) max = t
+  }
+  return max
+}
+
 export interface SpaceRollup {
   entityId: string
   totalMs: number

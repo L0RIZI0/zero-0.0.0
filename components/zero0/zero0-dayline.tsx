@@ -754,7 +754,7 @@ export function Zero0Dayline({
   }, [])
 
   // STICKY-PUSH day labels (above-band strip). Every frame we compute each boundary's
-  // real on-screen X — one formula covers BOTH pan paths: `leftPct/100·w − wheelCommit`
+  // real on-screen X — one formula covers BOTH pan paths: `leftPct/100·w ��� wheelCommit`
   // (drag re-anchors `winStart`, so `leftPct` is already fresh and wheelCommit is 0;
   // wheel keeps `winStart` fixed and slides via wheelCommit). Then, sorted left→right,
   // each label is clamped to `[0, nextBoundaryX − ownWidth]`:
@@ -1274,6 +1274,9 @@ export function Zero0Dayline({
                   // the THEME BACKGROUND (near-black in dark, near-white in light) instead of
                   // going transparent, so a root presence tick reads as a solid outlined chip.
                   const fill = p.color === DEFAULT_PRESENCE ? "var(--background)" : (p.sky ?? p.color)
+                  // FADING = an unknown-end (ongoing / future-open) span → render as ONE element
+                  // with a masked tail (below), never a point or an instant mark.
+                  const fading = p.unknownEnd && !p.point && !p.markGlyph
                   // OPACITY. A LIT tick and hover both snap to full. PRESENCE is solid at all
                   // times. When DYNAMIC_PLANNED_OPACITY is ON, a PAST planned tick with a
                   // coverage score maps it LINEARLY between the floor and ceiling (the more it
@@ -1323,49 +1326,56 @@ export function Zero0Dayline({
                           // and animates height + anchor (top) changes smoothly (so an ongoing
                           // bar re-stacking as siblings start/stop slides rather than jumps).
                           "pointer-events-auto absolute cursor-default -translate-y-1/2 transition-[height,opacity,top] duration-200",
-                          roundCls,
-                          // Translate composes on separate axes: X for a point / open-ended
-                          // segment, Y to center every tick. Tailwind's translate utils stack.
+                          // A FADING (unknown-end) tick is ONE element (see below): the tail is a
+                          // mask, not a sibling, so it rounds ONLY on the start (left) edge — the
+                          // "continues" edge stays open. Otherwise use the normal per-end rounding.
+                          fading ? "rounded-l-[2px] rounded-r-none" : roundCls,
+                          // Translate composes on separate axes: X for a point / right-anchored
+                          // open-ended segment, Y to center every tick. A fading tick is LEFT-
+                          // anchored (its start is fixed; the tail grows right past now), so it
+                          // must NOT also translate-x-full.
                           p.point && "-translate-x-1/2",
-                          p.openEnded && "-translate-x-full",
+                          p.openEnded && !fading && "-translate-x-full",
                         )}
                         style={{
                           top: railTop,
-                          left: p.openEnded ? `${p.leftPct + p.widthPct}%` : `${p.leftPct}%`,
+                          // Fading + non-open-ended ticks anchor by their LEFT (start) edge; a
+                          // right-anchored open-ended tick (e.g. open presence, no fade) keeps
+                          // its right edge pinned to now.
+                          left: p.openEnded && !fading ? `${p.leftPct + p.widthPct}%` : `${p.leftPct}%`,
                           // A MARK renders as a small downward-triangle instant glyph (clip-path);
-                          // a plain point is a 2px tick; a span fills its width.
-                          width: p.markGlyph ? 9 : p.point ? 2 : `max(3px, ${p.widthPct}%)`,
+                          // a plain point is a 2px tick; a FADING tick spans start→now PLUS the
+                          // fade tail (so the solid/fade boundary lands exactly on now, with no
+                          // min-width nub spilling past it); a plain span fills its width.
+                          width: p.markGlyph
+                            ? 9
+                            : p.point
+                              ? 2
+                              : fading
+                                ? `calc(${p.widthPct}% + ${UNKNOWN_END_FADE_PX}px)`
+                                : `max(3px, ${p.widthPct}%)`,
                           height: p.markGlyph ? 9 : tickH,
                           // FILL = entity color; HAIRLINE = parent color, only inside a Space.
                           background: fill,
                           // The triangle carries no hairline (a border on a clipped shape looks broken).
                           border: p.markGlyph ? "none" : p.stroke ? `1px solid ${p.stroke}` : "none",
                           clipPath: p.markGlyph ? "polygon(0 0, 100% 0, 50% 100%)" : undefined,
+                          // UNKNOWN-END FADE (v0.6.20) — the tail is now a MASK on this ONE element,
+                          // not a separate sibling div. The last UNKNOWN_END_FADE_PX fade to
+                          // transparent, taking the fill AND the hairline border with them (so
+                          // there's no crisp border box or rounded seam around the tail). One
+                          // element = one hover target + one transition (fixes the old two-piece
+                          // mismatch). The boundary sits at `100% - FADE`, which is exactly now.
+                          maskImage: fading
+                            ? `linear-gradient(to right, #000 calc(100% - ${UNKNOWN_END_FADE_PX}px), transparent 100%)`
+                            : undefined,
+                          WebkitMaskImage: fading
+                            ? `linear-gradient(to right, #000 calc(100% - ${UNKNOWN_END_FADE_PX}px), transparent 100%)`
+                            : undefined,
                           opacity: tickOpacity,
                           zIndex: lit || isHot ? 16 : 8,
                         }}
                       />
-                      {/* UNKNOWN-END FADE — trails rightward off the tick's right edge to say
-                          "continues, end unknown." Right edge = leftPct+widthPct, which is the
-                          now marker for an ongoing tick (so the fade spills past now) or the
-                          start point for a future open-ended tick. Fixed px length, flat accent
-                          (never the sky gradient), non-interactive so it never steals the tick's
-                          hover. Re-anchors its top with the tick as lanes restack. */}
-                      {p.unknownEnd && (
-                        <div
-                          aria-hidden
-                          className="pointer-events-none absolute -translate-y-1/2 transition-[top] duration-200"
-                          style={{
-                            top: railTop,
-                            left: `${p.leftPct + p.widthPct}%`,
-                            width: UNKNOWN_END_FADE_PX,
-                            height: tickH,
-                            background: `linear-gradient(to right, ${p.color === DEFAULT_PRESENCE ? "var(--background)" : p.color} 0%, transparent 100%)`,
-                            opacity: tickOpacity,
-                            zIndex: lit || isHot ? 15 : 7,
-                          }}
-                        />
-                      )}
                     </div>
                   )
                 })}

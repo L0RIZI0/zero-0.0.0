@@ -13,6 +13,7 @@ import {
 import type { LogScalarMismatch } from "./entity-log"
 import { readUserItems, writeUserItems } from "./persistence"
 import type { UserItems } from "./persistence"
+import { getLastKnownAlive } from "./activity-log"
 import type { ScheduleParse } from "./schedule-parse"
 
 /**
@@ -617,7 +618,7 @@ setChildrenResolver(getChildren)
 setContainedResolver((contextId) => entities.filter((e) => e.parentId === contextId && e.seriesId == null))
 
 /**
- * Whether `childId` has an IN-PLACE owning node inside `hostId` ����������� i.e. it would
+ * Whether `childId` has an IN-PLACE owning node inside `hostId` ������������� i.e. it would
  * render in `host`'s DO-LIST (structural parent or tagged space) OR in `host`'s
  * DOCK (pinned there). Either gives the entity a row/card to morph out of and
  * back into, so it is NOT detached. (A pinned space, e.g. Health on home, is a
@@ -1414,6 +1415,14 @@ export function toggleStarterPin(id: string): boolean {
  */
 export const MIN_SESSION_MS = 1500
 
+/**
+ * Reload grace (ms) for the hydrate liveness check: if the app was known-alive within this window
+ * of the new load, a dangling focus session is treated as CONTINUOUS across a reload/deploy and
+ * left running (rather than closed as a shutdown). A reload re-hydrates in seconds, so 60s is a
+ * comfortable margin. [OPEN ITEM #4 — Loris to tune while dogfooding.]
+ */
+export const ALIVE_GRACE_MS = 60_000
+
 /** Persist a session mutation, mirroring setEntityScheduleField's seeded-override path. */
 function persistEngagementMutation(id: string, entity: LooseEntity, sched: Schedule): void {
   entity.schedule = sched
@@ -1994,19 +2003,31 @@ export function hydrateFromStorage(): boolean {
     }
   }
 
-  // Hydrate-cleanup: close any DANGLING focus session a previous run left open (e.g. the app
-  // closed while inside a context). Focus punch-ins now open on EVERY kind (moments/instants
-  // included — a focus session there is recorded ACTIVITY, even though it doesn't flip STATE), so
-  // this scans ALL kinds. The `via === "play"` guard below leaves a manual PLAY stopwatch running
-  // (that IS the occurrence for a moment/instant). Focus-time must NOT accrue while the app is
-  // shut, so we close each dangling focus span at the entity's last known activity and DROP spans
-  // ≤ MIN_SESSION_MS. [DECISION BAKED — delete this loop to keep focus timers running across reloads.]
+  // Hydrate-cleanup: reconcile any DANGLING focus session a previous run left open. Focus
+  // punch-ins open on EVERY kind (moment/instant included — recorded ACTIVITY, doesn't flip STATE),
+  // so this scans ALL kinds; the `via === "play"` guard leaves manual PLAY stopwatches running.
+  //
+  // LIVENESS (v0.6.20, NO heartbeat): `getLastKnownAlive()` is the newest moment we have evidence
+  // the app was alive — the presence log's last flush stamp (written on every hide/reload). Two
+  // cases:
+  //   • alive-RECENTLY (now − alive ≤ ALIVE_GRACE_MS) ⇒ this was a mere RELOAD/deploy while you
+  //     were still present, NOT a shutdown. LEAVE the focus session OPEN so it stays continuous
+  //     (openEngagement is idempotent, so the canvas re-uses it) — one long ongoing bar, matching
+  //     "I never ended it". (The OLD bug closed it at lastLogAt≈startAt → span≈0 → dropped.)
+  //   • genuine GAP ⇒ the app really was shut. Close the span at the LAST-KNOWN-ALIVE moment (the
+  //     truthful "when I was last here"), NOT lastLogAt (≈0 for an idle session), and DROP spans
+  //     ≤ MIN_SESSION_MS. We never fabricate an end beyond what we can prove.
+  const aliveAt = getLastKnownAlive()
+  const nowAt = Date.now()
+  const aliveRecently = aliveAt != null && nowAt - aliveAt <= ALIVE_GRACE_MS
   for (const entity of entities) {
     const engagements = entity.schedule?.engagements
     if (!engagements || engagements.length === 0) continue
     const last = engagements[engagements.length - 1]
     if (last.endAt != null || last.via === "play") continue
-    const closeAt = lastLogAt(entity) ?? last.startAt
+    if (aliveRecently) continue // continuous across the reload — keep it running
+    // Close at last-known-alive, but never before the session's own start.
+    const closeAt = Math.max(aliveAt ?? lastLogAt(entity) ?? last.startAt, last.startAt)
     const next = [...engagements]
     if (closeAt - last.startAt <= MIN_SESSION_MS) next.pop()
     else next[next.length - 1] = { ...last, endAt: closeAt }
