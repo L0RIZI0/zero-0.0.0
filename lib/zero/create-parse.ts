@@ -559,7 +559,7 @@ export function parseEntry(raw: string): EntryParse {
   //      body is limited to duration-ish chars (digits, dot, letters, spaces) and matched
   //      lazily so it can't swallow a following "--" param or arbitrary title text.
   //      parseDateToken resolves "<dur> ago" / "in <dur>" against `now` at apply time.
-  const relFields = "(start|end|at|due|s|e)"
+  const relFields = "(sessionstart|sessionend|start|end|at|due|s|e)"
   s = s.replace(new RegExp(`--${relFields}\\s*:\\s*([\\d.]+[\\d.a-z ]*?)\\s+ago\\b`, "gi"), (_m, f: string, dur: string) => {
     attrs.push({ field: FIELD_ALIASES[f.toLowerCase()] ?? f.toLowerCase(), value: `${dur.trim()} ago` })
     return " "

@@ -33,6 +33,7 @@ import {
   toggleStarterPin,
   openEngagement,
   closeEngagement,
+  setOpenEngagementStart,
   startOccurrence,
   endOccurrence,
   reopenOccurrence,
@@ -308,15 +309,12 @@ export function Zero0Canvas() {
       for (const id of path) {
         const e = getEntity(id)
         if (!e) continue
-        // ROOT is EXEMPT (v0.6.19): you're ALWAYS on the root path, so a focus session on it would
-        // never close — "Loris" would read ongoing forever + accrue meaningless whole-life presence.
-        // Root is the zero-point you always stand on, not a thing you're "in". (Rollup already
-        // stops at beings, so root never spins from its children either.)
-        if (id === ROOT_ID) continue
-        // EVERY other kind accrues presence on the activity rail (moments/instants included — see
-        // the header comment; a focus session there is recorded activity but doesn't flip STATE).
-        // Skip done Tasks and already-closed entities (a finished thing shouldn't silently re-open
-        // just because you glanced at it).
+        // EVERY kind accrues presence on the activity rail — INCLUDING root: a focus session on
+        // root IS your overall Zero user session (one open span until you leave/reload), recorded
+        // on the activity rail. It never reads "ongoing" because a BEING's focus session is
+        // STATE-exempt (ongoingOpenEngagement) and the rollup stops at beings — so root records
+        // its span WITHOUT spinning. Skip done Tasks and already-closed entities (a finished thing
+        // shouldn't silently re-open just because you glanced at it).
         if (isDone(e) || isClosed(e)) continue
         if (openEngagement(id, "focus")) {
           focusOpenRef.current.add(id)
@@ -484,6 +482,43 @@ export function Zero0Canvas() {
           }
           setEntitySex(id, sex)
           return `sex ${sexSymbol(sex)}`
+        }
+        case "sessionstart":
+        case "sessionend": {
+          // ACCESS-SESSION sugar (v0.6.19) — the deliberate counterpart to the occurrence
+          // --start/--end above. Lets you correct the RECORDED presence span: "I opened Cooking
+          // just now but I've actually been cooking 30min" ⇒ `--sessionStart:30min ago`. Targets
+          // the OPEN engagement (bottom/activity rail), never the top-rail schedule.
+          const when = val.toLowerCase() === "now" ? Date.now() : val === "" ? null : parseDateToken(val)
+          if (val !== "" && when == null) {
+            setNotice({ tone: "err", text: `invalid time "${val}" — use HHMM, "30min ago", "in 2h", or now` })
+            return null
+          }
+          if (attr.field === "sessionstart") {
+            if (when == null) {
+              setNotice({ tone: "err", text: "--sessionStart needs a time (e.g. 30min ago)" })
+              return null
+            }
+            if (!hasOpenEngagement(ent)) {
+              setNotice({ tone: "err", text: "no running session here to backdate" })
+              return null
+            }
+            if (!setOpenEngagementStart(id, when)) {
+              setNotice({ tone: "err", text: "couldn't adjust the running session start" })
+              return null
+            }
+            return `session start ${fmt(when)}`
+          }
+          // sessionend — close the running session (optionally at a past/`now` moment). Empty ⇒ now.
+          if (!hasOpenEngagement(ent)) {
+            setNotice({ tone: "err", text: "no running session here to end" })
+            return null
+          }
+          if (!closeEngagement(id, when ?? Date.now())) {
+            setNotice({ tone: "err", text: "couldn't end the running session" })
+            return null
+          }
+          return `session ended ${fmt(when ?? Date.now())}`
         }
         case "start":
         case "end":
