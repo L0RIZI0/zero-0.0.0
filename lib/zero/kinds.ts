@@ -383,6 +383,22 @@ export function getOpenEngagement(entity: Entity): Engagement | null {
   return last && last.endAt == null ? last : null
 }
 
+/**
+ * The open engagement that makes THIS entity read `ongoing` — kind-agnostic EXCEPT the
+ * time-based essences (Moment / Instant). For those, a `focus` (viewing / presence) session
+ * does NOT count: their `ongoing` is reserved for the actual OCCURRENCE — a concrete scheduled
+ * start that has arrived, or a manual `play` punch-in. A focus session on a moment/instant still
+ * EXISTS (it accrues recorded presence on the activity rail = "how long I worked on it") but it
+ * must not flip the state, because viewing a wedding's detail isn't the wedding happening.
+ * Non-time kinds: any open session (focus or play) counts, exactly as before.
+ */
+export function ongoingOpenEngagement(entity: Entity): Engagement | null {
+  const open = getOpenEngagement(entity)
+  if (!open) return null
+  if ((entity.kind === "moment" || entity.kind === "instant") && open.via === "focus") return null
+  return open
+}
+
 /** Whether the entity has an open (ongoing) session right now. */
 export function hasOpenEngagement(entity: Entity): boolean {
   return getOpenEngagement(entity) != null
@@ -397,7 +413,8 @@ export function hasOpenEngagement(entity: Entity): boolean {
  * that only spins by rollup can't be ended here; you'd end its running child instead).
  */
 export function isOwnOngoing(entity: Entity, now: number = Date.now()): boolean {
-  if (hasOpenEngagement(entity)) return true
+  // State-relevant open session (a focus/viewing session on a moment/instant does NOT count).
+  if (ongoingOpenEngagement(entity) != null) return true
   if (entity.kind === "moment" || entity.kind === "space") {
     const start = concreteStart(entity)
     if (start != null && now >= start) {
@@ -606,10 +623,13 @@ function getStateInner(entity: Entity, now: number, seen: Set<string>): EntitySt
   if (entity.kind === "task" && isDone(entity)) return { word: "done", at: getCompletedOn(entity) }
 
   // ONGOING — three sources, in priority:
-  //  (1) an OPEN SESSION (kind-agnostic): a Task being worked on (focus punch-in) OR a
-  //      Whenever moment/space with a running Play stopwatch. This is what makes a Task
-  //      read ongoing EVERYWHERE it appears, purely from its own data.
-  const open = getOpenEngagement(entity)
+  //  (1) an OPEN SESSION: a Task/Space/Resource/being being worked on (focus punch-in) OR any
+  //      entity with a running Play stopwatch. This is what makes a Task read ongoing EVERYWHERE
+  //      it appears, purely from its own data. EXCEPTION: a Moment/Instant is a time-based
+  //      essence — a mere FOCUS (viewing) session does NOT make it ongoing (its ongoing means the
+  //      occurrence is actually happening: a concrete start or a manual Play). The focus session
+  //      still accrues on the activity rail; it just doesn't flip the state. (See ongoingOpenEngagement.)
+  const open = ongoingOpenEngagement(entity)
   if (open) return { word: "ongoing", at: open.startAt }
   //  (2) a MOMENT or SPACE with a CONCRETE started span still in progress (started, not
   //      yet ended). Space joins Moment here (a live container). "whenever" is NOT

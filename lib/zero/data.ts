@@ -617,7 +617,7 @@ setChildrenResolver(getChildren)
 setContainedResolver((contextId) => entities.filter((e) => e.parentId === contextId && e.seriesId == null))
 
 /**
- * Whether `childId` has an IN-PLACE owning node inside `hostId` ������� i.e. it would
+ * Whether `childId` has an IN-PLACE owning node inside `hostId` ��������� i.e. it would
  * render in `host`'s DO-LIST (structural parent or tagged space) OR in `host`'s
  * DOCK (pinned there). Either gives the entity a row/card to morph out of and
  * back into, so it is NOT detached. (A pinned space, e.g. Health on home, is a
@@ -1505,7 +1505,14 @@ export function setOpenEngagementStart(id: string, at: number, now = Date.now())
 export function endOngoing(id: string, at = Date.now()): boolean {
   const stored = byId.get(id)
   if (!stored) return false
-  if (hasOpenEngagement(stored)) return closeEngagement(id, at)
+  // Close the STATE-RELEVANT open session. For a Moment/Instant a `focus` (viewing) session
+  // isn't what makes it ongoing, so we skip it here — otherwise ending a genuinely-happening
+  // moment would just close the viewing session and leave the occurrence running. A `play`
+  // stopwatch (the real punch-in) still closes normally.
+  const open = getOpenEngagement(stored)
+  if (open && !((stored.kind === "moment" || stored.kind === "instant") && open.via === "focus")) {
+    return closeEngagement(id, at)
+  }
   if ((stored.kind === "moment" || stored.kind === "space") && isOwnOngoing(stored, at)) {
     // Running concrete span with no known end → cap it at now via the schedule field setter
     // (which also stamps closeAt / logs the set), matching a manual `--end:now`.
@@ -1902,15 +1909,13 @@ export function hydrateFromStorage(): boolean {
   }
 
   // Hydrate-cleanup: close any DANGLING focus session a previous run left open (e.g. the app
-  // closed while inside a context). Focus punch-ins now open on EVERY kind EXCEPT the time-based
-  // essences (Moment / Instant), whose only open trailing engagement is a PLAY stopwatch — and
-  // the `via === "play"` guard below already leaves those running. So we scan all kinds and skip
-  // moment/instant explicitly for clarity. Focus-time must NOT accrue while the app is shut, so we
-  // close each at the entity's last known activity and DROP spans ≤ MIN_SESSION_MS. PLAY
-  // stopwatches are LEFT RUNNING on purpose. [DECISION BAKED — delete this loop to keep focus
-  // timers running across reloads.]
+  // closed while inside a context). Focus punch-ins now open on EVERY kind (moments/instants
+  // included — a focus session there is recorded ACTIVITY, even though it doesn't flip STATE), so
+  // this scans ALL kinds. The `via === "play"` guard below leaves a manual PLAY stopwatch running
+  // (that IS the occurrence for a moment/instant). Focus-time must NOT accrue while the app is
+  // shut, so we close each dangling focus span at the entity's last known activity and DROP spans
+  // ≤ MIN_SESSION_MS. [DECISION BAKED — delete this loop to keep focus timers running across reloads.]
   for (const entity of entities) {
-    if (entity.kind === "moment" || entity.kind === "instant") continue
     const engagements = entity.schedule?.engagements
     if (!engagements || engagements.length === 0) continue
     const last = engagements[engagements.length - 1]

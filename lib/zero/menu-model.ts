@@ -28,7 +28,7 @@ import {
   closeEngagement,
   markInstant,
 } from "@/lib/zero/data"
-import { isClosed, KIND_META, isPlayable, hasOpenEngagement } from "@/lib/zero/kinds"
+import { isClosed, KIND_META, isPlayable, ongoingOpenEngagement } from "@/lib/zero/kinds"
 import { isDone } from "@/lib/zero/entity-log"
 import { FACE_SIZES, faceSizeLabel, FACE_MAKES, faceMakeLabel, type FaceSize, type FaceMake } from "@/lib/zero/face-model"
 import type { Entity, EntityKind } from "@/lib/zero/types"
@@ -154,7 +154,10 @@ export function buildEntityMenuItems(
     // action as clicking its glyph. Shown INSTEAD of the now-stamps (a whenever entity has no
     // fixed clock time to stamp). `play` / `stop` are resolved by applyEntityMenuAction below.
     if (isPlayable(entity)) {
-      items.push({ type: "item", id: hasOpenEngagement(entity) ? "stop" : "play", label: hasOpenEngagement(entity) ? "Stop" : "Play" })
+      // Reflect whether a STATE-relevant session is running — a `focus` (viewing) session on a
+      // moment/instant is NOT a Play, so a merely-viewed whenever entity still shows "Play".
+      const running = ongoingOpenEngagement(entity) != null
+      items.push({ type: "item", id: running ? "stop" : "play", label: running ? "Stop" : "Play" })
     } else if (entity.kind === "moment") {
       items.push({ type: "item", id: "start-now", label: "Start now" })
       items.push({ type: "item", id: "end-now", label: "End now" })

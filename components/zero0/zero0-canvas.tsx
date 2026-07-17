@@ -273,21 +273,20 @@ export function Zero0Canvas() {
     recordPresence(contextId)
   }, [mounted, contextId])
 
-  // FOCUS SESSIONS — being inside a context records real presence time (see zero-todos). The
-  // WHOLE ACTIVE PATH is ongoing: every entity on the path EXCEPT time-based essences (Moment /
-  // Instant) holds an open focus session while you're in it — task/space/resource AND beings incl.
-  // the root (per Loris v0.6.18). Its ticks land on the RECORDED (activity) rail = "what I was
-  // working on".
-  //   MOMENT/INSTANT are the EXCEPTION (Loris): their `ongoing` means the occurrence is ACTUALLY
-  //   HAPPENING — a concrete scheduled start has arrived, or you manually punched it in (Play via
-  //   the glyph) — NOT merely that you opened its detail view. So we never punch a focus session on
-  //   them; `getState` already reads them ongoing via concreteStart / an open PLAY session. (Wedding
-  //   invitation = a Task with recorded work-time on the activity rail; the WEDDING = a Moment whose
-  //   scheduled Aug-14 span sits on the PLANNED rail — two entities, two rails.)
+  // FOCUS SESSIONS — being inside a context records real presence time on the RECORDED (activity)
+  // rail = "how long I worked on this", for EVERY kind (per Loris v0.6.18): task/space/resource,
+  // beings incl. the root, AND moments/instants. The WHOLE ACTIVE PATH gets a focus session, so
+  // being in a subtask/resource counts as being in each ancestor too.
+  //   TWO RAILS, cleanly split: a focus session is RECORDED ACTIVITY (bottom rail), NEVER the same
+  //   thing as the STATE `ongoing`. For a Moment/Instant these DIVERGE — a focus (viewing) session
+  //   accrues activity but does NOT make it read `ongoing` (that's gated in getState via
+  //   `ongoingOpenEngagement`; their ongoing is reserved for the actual occurrence — a concrete
+  //   scheduled start or a manual Play punch-in). Wedding invitation = a Task with recorded
+  //   work-time; the WEDDING = a Moment whose scheduled Aug-14 span sits on the PLANNED rail.
   //   • Punch OUT (immediate): anything we opened that's no longer on the path.
-  //   • Punch IN (after DWELL_MS, now 0): every not-closed NON-moment/instant entity on the path
-  //     lacking an open session, so merely passing through to a deeper context leaves no trace
-  //     (MIN_SESSION_MS discards the sub-threshold blip).
+  //   • Punch IN (after DWELL_MS, now 0): every not-closed entity on the path lacking an open
+  //     session, so merely passing through to a deeper context leaves no trace (MIN_SESSION_MS
+  //     discards the sub-threshold blip).
   // `focusOpenRef` tracks what WE opened, so punch-out never has to scan the whole store.
   const focusOpenRef = useRef<Set<string>>(new Set())
   const dwellRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -308,11 +307,10 @@ export function Zero0Canvas() {
       for (const id of path) {
         const e = getEntity(id)
         if (!e) continue
-        // Time-based essences (Moment / Instant) NEVER accrue presence — their `ongoing` is
-        // reserved for the actual occurrence (scheduled start / manual Play), not for viewing.
-        if (e.kind === "moment" || e.kind === "instant") continue
-        // Skip done Tasks and any already-closed entity (a finished thing shouldn't silently
-        // re-open just because you glanced at it).
+        // EVERY kind accrues presence on the activity rail (moments/instants included — see the
+        // header comment; a focus session there is recorded activity but doesn't flip STATE). Skip
+        // only done Tasks and already-closed entities (a finished thing shouldn't silently re-open
+        // just because you glanced at it).
         if (isDone(e) || isClosed(e)) continue
         if (openEngagement(id, "focus")) {
           focusOpenRef.current.add(id)
