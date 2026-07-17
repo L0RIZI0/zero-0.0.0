@@ -187,44 +187,56 @@ export function rangeLabel(e: Entity): string {
   return fmt(getCreatedAt(e))
 }
 
-// DERIVED duration of an entity, in ms, from its schedule (never stored):
-//   • instant            → 0 (a point has no length)
-//   • has SESSIONS       → accumulated tracked time: Σ each session span, the single OPEN
-//                          one counting LIVE to `now`. This is the real "how long I've spent"
-//                          for a playable "whenever" thing or anything punched into.
-//   • span start+end     → end − start
-//   • ONGOING start-only → elapsed so far (now − start), so a running moment shows live
-//   • BEING w/ no span   → its AGE: now − createdAt (an Individual/Organism's createdAt is a
-//                          genuine birth, so this reads "3d" / "34y")
-//   • otherwise          → null → "—" (a moment/space/task with no concrete start AND no
-//                          engagements has accrued NO length; it must NOT count up from creation —
-//                          that made a merely-open "whenever" moment/space appear to run live)
-// `now` is passed so a live/ongoing value updates as the canvas re-renders.
-export function getDurationMs(e: Entity, now: number): number | null {
+// OCCURRENCE duration of an entity, in ms — the length of when this thing HAPPENED / will
+// happen (TOP rail), DECOUPLED from access/engagement time (v0.6.18). Never stored — derived:
+//   • explicit --duration → that (a deliberately-set occurrence length, any kind)
+//   • instant             → 0 (a point has no length)
+//   • archived occurrences[] → Σ each finite past span (the happened-history)
+//   • current live span    → concreteStart→endAt, or (ongoing, no end) count up to `now`
+//   • BEING w/ no span     → its AGE: now − createdAt (an Individual/Organism's createdAt is a
+//                            genuine birth, so this reads "3d" / "34y")
+//   • otherwise            → null → "—" (a merely-open "whenever" moment/space that was never
+//                            started has accrued NO occurrence length; access time lives on its
+//                            OWN row now, so this must NOT borrow it)
+// `now` drives a live/ongoing value as the canvas re-renders.
+export function getOccurrenceDurationMs(e: Entity, now: number): number | null {
   const s = e.schedule
-  const cs = concreteStart(e) // null when "whenever" / unset
-  // EXPLICIT duration (set via `--duration`, in minutes) wins over everything and is shown
-  // for ANY kind regardless of start — it's a deliberately-set length, not a derived one.
   if (s?.duration != null) return s.duration * 60000
   if (e.kind === "instant") return 0
-  // Accumulated session time takes precedence — a playable thing's "duration" IS its tracked
-  // time, whether or not it also carries a concrete clock span.
-  const engagements = getEngagements(e)
-  if (engagements.length > 0) {
-    let total = 0
-    for (const sess of engagements) total += Math.max(0, (sess.endAt ?? now) - sess.startAt)
-    return total
+  let total = 0
+  let any = false
+  for (const occ of s?.occurrences ?? []) {
+    if (occ.endAt != null) {
+      total += Math.max(0, occ.endAt - occ.startAt)
+      any = true
+    }
   }
-  if (cs != null && s?.endAt != null) return Math.max(0, s.endAt - cs)
-  if (s?.at != null) return 0
-  if (cs != null) return Math.max(0, now - cs) // ongoing (explicit concrete start)
-  // AGE fallback — beings only (death-terminal kinds). Everything else with no span/engagements
-  // has no length yet ⇒ "—".
+  const cs = concreteStart(e) // null when "whenever" / unset
+  if (cs != null) {
+    any = true
+    total += s?.endAt != null ? Math.max(0, s.endAt - cs) : Math.max(0, now - cs) // live when ongoing
+  } else if (s?.at != null) {
+    any = true // a lone point anchor is a zero-length occurrence
+  }
+  if (any) return total
+  // AGE fallback — beings only (death-terminal kinds).
   if (e.kind === "individual" || e.kind === "organism") {
     const created = getCreatedAt(e)
     if (created != null) return Math.max(0, now - created)
   }
   return null
+}
+
+// ACCESS duration of an entity, in ms — accumulated PRESENCE/engagement time (BOTTOM rail =
+// "how long I've been on / worked on this"), Σ each engagement span with the single OPEN one
+// counting LIVE to `now`. `null` when there are no engagements (⇒ no ACCESS row). This is the
+// deliberate counterpart to getOccurrenceDurationMs: two clocks, never merged.
+export function getAccessMs(e: Entity, now: number): number | null {
+  const engagements = getEngagements(e)
+  if (engagements.length === 0) return null
+  let total = 0
+  for (const sess of engagements) total += Math.max(0, (sess.endAt ?? now) - sess.startAt)
+  return total
 }
 
 // Human-readable duration: up to THREE adjacent units, from the largest non-zero unit
@@ -525,51 +537,53 @@ export function faceModelFromLike(like: FaceLike): FaceModel {
 export type ScheduleCell = { text: string; full?: string; faint?: boolean; pulse?: boolean }
 
 /** Structured START/END rows for a span-bearing entity (moment/space), or `null` for others.
- *  The FULL §0 face renders from this so each session token can be styled/hovered/scrolled;
- *  `getFaceMetaRows` flattens the same cells to a plain string for every other consumer. Cell 0
- *  is the SCHEDULED value (planned intent, not faint); the rest are tracked sessions newest→oldest,
- *  padded per-column so the Nth start sits directly above the Nth end. */
+ *  OCCURRENCE-ONLY (v0.6.18) — the TOP-rail lifecycle, fully decoupled from access/engagement
+ *  time (which now lives on the ACCESS row). Cell 0 is the CURRENT occurrence: the scheduled
+ *  `startAt`/`endAt` (planned intent, not faint), with the END reading a pulsing `ongoing` when
+ *  the occurrence is started-but-not-ended. The rest are ARCHIVED past occurrences (newest→oldest,
+ *  faint), padded per-column so the Nth start sits directly above the Nth end. `getFaceMetaRows`
+ *  flattens the same cells to a plain string for every other consumer. */
 export function getScheduleCells(e: Entity, now: number): { start: ScheduleCell[]; end: ScheduleCell[] } | null {
   if (e.kind !== "moment" && e.kind !== "space") return null
   const NB = "\u00A0"
   const s = e.schedule
-  const engs = [...getEngagements(e)].sort((a, b) => b.startAt - a.startAt)
+  const cs = concreteStart(e) // concrete started moment, else null ("whenever"/unset)
+  const liveOngoing = cs != null && s?.endAt == null // started, not yet ended → END pulses "ongoing"
   const startText0 = s?.startAt ? fmt(s.startAt) : "— (none scheduled)"
-  const endText0 = s?.endAt ? fmt(s.endAt) : "— (none scheduled)"
-  // Pad the scheduled prefix so the FIRST session column starts at the same x in both rows.
+  const endText0 = liveOngoing ? "ongoing" : s?.endAt ? fmt(s.endAt) : "— (none scheduled)"
+  // Pad the scheduled prefix so the FIRST archived column starts at the same x in both rows.
   const schedW = Math.max(startText0.length, endText0.length)
-  const start: ScheduleCell[] = [{ text: startText0.padEnd(schedW, NB), full: s?.startAt ? fmt(s.startAt) : undefined }]
-  const end: ScheduleCell[] = [{ text: endText0.padEnd(schedW, NB), full: s?.endAt ? fmt(s.endAt) : undefined }]
-  for (const se of engs) {
-    const open = se.endAt == null
-    const sTxt = fmtShort(se.startAt, now)
-    const eTxt = open ? "ongoing" : fmtShort(se.endAt as number, now)
+  const start: ScheduleCell[] = [
+    { text: startText0.padEnd(schedW, NB), full: s?.startAt ? fmt(s.startAt) : undefined, pulse: liveOngoing },
+  ]
+  const end: ScheduleCell[] = [
+    { text: endText0.padEnd(schedW, NB), full: !liveOngoing && s?.endAt ? fmt(s.endAt) : undefined, pulse: liveOngoing },
+  ]
+  // ARCHIVED occurrences — fixed past ticks (faint), newest first. These are the happened-history
+  // accumulated by Reopen; they never pulse (they're done) and never merge with access sessions.
+  const occs = [...(s?.occurrences ?? [])].sort((a, b) => b.startAt - a.startAt)
+  for (const occ of occs) {
+    const sTxt = fmtShort(occ.startAt, now)
+    const eTxt = occ.endAt != null ? fmtShort(occ.endAt, now) : "—"
     const w = Math.max(sTxt.length, eTxt.length)
-    // The OPEN session is the ONE live engagement — BOTH its START and END cells are NOT faint
-    // (full-opacity foreground) AND both PULSE (v0.6.8), so the whole live pair breathes together:
-    // its start timestamp and its `ongoing` end read as one active engagement. Every CLOSED
-    // session's cells stay faint and still.
-    start.push({ text: sTxt.padStart(w, NB), full: fmt(se.startAt), faint: !open, pulse: open })
-    end.push({ text: eTxt.padStart(w, NB), full: open ? undefined : fmt(se.endAt as number), faint: !open, pulse: open })
+    start.push({ text: sTxt.padStart(w, NB), full: fmt(occ.startAt), faint: true })
+    end.push({ text: eTxt.padStart(w, NB), full: occ.endAt != null ? fmt(occ.endAt) : undefined, faint: true })
   }
   return { start, end }
 }
 
 /**
- * Structured DURATION row for an entity whose length is the SUM of several tracked engagements
- * (2+ sessions). Returns the grand `total` plus one segment PER engagement — each reads
- * `<duration> (<when>)` (e.g. `1h 04m (7:00 PM)`) with a `full` hover of the engagement's whole
- * `start – end`, so §0 can render the total followed by a per-session breakdown you can hover to
- * see each span. Returns `null` when there's nothing to break down: an explicit `--duration`
- * override, an instant (a point), or fewer than two engagements (the plain total already says it
- * all). Newest engagement first, matching {@link getScheduleCells}.
+ * Structured ACCESS row (v0.6.18, was the duration breakdown) — the accumulated PRESENCE time
+ * broken down per engagement. Returns the grand `total` (Σ all sessions, live-counting the open
+ * one) plus one segment PER engagement — each reads `<duration> (<when>)` (e.g. `1h 04m (7:00 PM)`)
+ * with a `full` hover of the whole `start – end`, so §0 renders the total followed by a per-session
+ * breakdown. `null` when there are NO engagements (⇒ no ACCESS row). One session still returns a
+ * (single-segment) breakdown so the "when" is visible. Newest engagement first.
  */
-export function getDurationCells(e: Entity, now: number): { total: string; segments: ScheduleCell[] } | null {
-  if (e.kind === "instant") return null
-  if (e.schedule?.duration != null) return null // explicit override — no per-session breakdown
+export function getAccessCells(e: Entity, now: number): { total: string; segments: ScheduleCell[] } | null {
   const engs = [...getEngagements(e)].sort((a, b) => b.startAt - a.startAt)
-  if (engs.length < 2) return null
-  const totalMs = getDurationMs(e, now)
+  if (engs.length === 0) return null
+  const totalMs = getAccessMs(e, now)
   const total = totalMs == null ? "—" : formatDuration(totalMs)
   const segments: ScheduleCell[] = engs.map((se) => {
     const open = se.endAt == null
@@ -578,7 +592,7 @@ export function getDurationCells(e: Entity, now: number): { total: string; segme
     return {
       text: `${formatDuration(ms)} (${when})`,
       full: `${fmt(se.startAt)} – ${open ? "ongoing" : fmt(se.endAt as number)}`,
-      pulse: open, // the live engagement's segment breathes, like its schedule cells
+      pulse: open, // the live engagement's segment breathes
     }
   })
   return { total, segments }
@@ -656,26 +670,22 @@ export function getFaceMetaRows(e: Entity, now: number): [string, string][] {
   } else if (s && (s.startAt || s.endAt || s.at)) {
     rows.push(["scheduled", s.at ? fmt(s.at) : `${fmt(s.startAt)} → ${fmt(s.endAt)}`])
   }
-  // DURATION / AGE — DERIVED length: a start+end span is its width; a start-only (ONGOING)
-  // entity counts up live from `now`; with no schedule start it falls back to the age since
-  // `createdAt`. For an Individual (whose createdAt IS a birth) the label reads AGE — the
-  // elapsed-since-birth framing. Never stored — always computed. SKIPPED for an INSTANT: it's a
-  // zero-duration point, so a "0s" duration is meaningless noise (its OCCURRENCES row is what
-  // matters instead).
+  // DURATION / AGE — the OCCURRENCE length (TOP rail): a start+end span's width, a live ongoing
+  // occurrence counting up from `now`, the sum of archived occurrences[], or a being's age since
+  // birth. DECOUPLED from access time (v0.6.18) — a merely-open "whenever" moment reads "—" here
+  // even if you've spent time ON it (that shows on ACCESS below). SKIPPED for an INSTANT (a
+  // zero-length point; its OCCURRENCES row is what matters).
   if (e.kind !== "instant") {
-    const durMs = getDurationMs(e, now)
-    // BEINGS read "age" (elapsed since birth); everything else reads "duration" (its span /
-    // accumulated session time).
+    const durMs = getOccurrenceDurationMs(e, now)
     const durLabel = e.kind === "individual" || e.kind === "organism" ? "age" : "duration"
-    // When the duration is the SUM of 2+ engagements, the plain string reads
-    // "<total> · <dur1> (<when1>) · <dur2> (<when2>) …" (the FULL §0 face renders the same
-    // segments richly, with a per-engagement start–end hover — see getDurationCells).
-    const cells = getDurationCells(e, now)
-    rows.push([
-      durLabel,
-      cells ? [cells.total, ...cells.segments.map((c) => c.text)].join(" · ") : durMs == null ? "—" : formatDuration(durMs),
-    ])
+    rows.push([durLabel, durMs == null ? "—" : formatDuration(durMs)])
   }
+  // ACCESS — accumulated PRESENCE time (BOTTOM rail = "how long I've been on / worked on this"),
+  // its own row for ANY kind that's been engaged, DECOUPLED from the occurrence duration above.
+  // Plain string reads "<total> · <dur1> (<when1>) · <dur2> …"; the FULL §0 face renders the same
+  // segments richly (per-session hover, the live one pulsing) — see getAccessCells.
+  const access = getAccessCells(e, now)
+  if (access) rows.push(["access", [access.total, ...access.segments.map((c) => c.text)].join(" · ")])
   // ACCENT — only when set (via `:color:`). The value is the raw hex; the dt cell
   // paints a matching swatch so the raw-data view still shows the color itself.
   if (e.accent) rows.push(["color", e.accent])

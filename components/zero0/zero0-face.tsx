@@ -7,7 +7,7 @@ import {
   getFaceModel,
   getFaceMetaRows,
   getScheduleCells,
-  getDurationCells,
+  getAccessCells,
   filterMetaRows,
   faceModelFromLike,
   getAggregate,
@@ -192,11 +192,11 @@ function FaceBlock({
     () => (rowsOverride ? null : getScheduleCells(entity, now)),
     [entity, now, rowsOverride],
   )
-  // RICH duration: the total followed by a per-engagement breakdown ("<durX> (<whenX>)"), each
-  // hoverable for its full start–end. Null unless there are 2+ sessions (then the meta string is
-  // a plain total, which we render as-is). Matches the schedule cells' faint/pulse language.
-  const duration = useMemo(
-    () => (rowsOverride ? null : getDurationCells(entity, now)),
+  // RICH access: the total PRESENCE time followed by a per-session breakdown ("<durX> (<whenX>)"),
+  // each hoverable for its full start–end (the live session pulses). Null when there are no
+  // engagements. DECOUPLED from the plain DURATION row (which is now the occurrence length).
+  const access = useMemo(
+    () => (rowsOverride ? null : getAccessCells(entity, now)),
     [entity, now, rowsOverride],
   )
   const startScrollRef = useRef<HTMLDivElement>(null)
@@ -243,10 +243,10 @@ function FaceBlock({
   // the universal live/active indicator, NOT a rotating ring which reads as "loading") + the
   // pulsing `ongoing` word, then the rest (" · since …") plain. Detected by the "ongoing" prefix
   // that `formatState` emits. Any other state renders as the normal string row.
-  // DURATION row with a per-engagement breakdown: "[total] · <dur1> (<when1>) · <dur2> …". The
-  // total is foreground; each segment is a faint token hoverable for its full start–end (the live
-  // segment pulses). Horizontally scrollable like the schedule rows.
-  const renderDurationRow = (cells: NonNullable<typeof duration>) => (
+  // ACCESS row with a per-session breakdown: "[total] · <dur1> (<when1>) · <dur2> …". The total
+  // is foreground; each segment is a faint token hoverable for its full start–end (the live
+  // session pulses). Horizontally scrollable like the schedule rows.
+  const renderAccessRow = (cells: NonNullable<typeof access>) => (
     <dd className="min-w-0 text-foreground">
       <div className="no-scrollbar overflow-x-auto whitespace-pre">
         <span className="text-foreground" title="total duration">
@@ -312,8 +312,8 @@ function FaceBlock({
               <dt className="uppercase tracking-widest text-muted-foreground">{k}</dt>
               {schedule && (k === "start" || k === "end") ? (
                 renderScheduleRow(k)
-              ) : duration && (k === "duration" || k === "age") ? (
-                renderDurationRow(duration)
+              ) : access && k === "access" ? (
+                renderAccessRow(access)
               ) : k === "state" && v.startsWith("ongoing") ? (
                 renderOngoingState(v)
               ) : (
