@@ -267,6 +267,15 @@ export interface Schedule {
    */
   engagements?: Engagement[]
   /**
+   * ARCHIVED OCCURRENCES — the history of when this thing actually HAPPENED (top rail), distinct
+   * from `engagements` (how long I WORKED on it, bottom rail). A moment/space accumulates one span
+   * here each time it is Reopened: the live `{startAt,endAt}` is pushed in and the scalar
+   * start/end are cleared (back to open). Past spans paint as FIXED top-rail ticks, untouched by
+   * the current live state. `duration` is preserved on reopen as the default length for the next
+   * Play. Non-recurring only (a recurring schedule already yields multiple points via the expander).
+   */
+  occurrences?: { startAt: Epoch; endAt?: Epoch }[]
+  /**
    * INSTANT max authorized OCCURRENCES before it COMPLETES (fills its glyph). Default 1 (an
    * instant is a UNIQUE occurrence — completes the moment its scheduled `at` passes, or on its
    * first mark). `--maxnb:3` means three occurrences (marks + a passed scheduled `at`) are

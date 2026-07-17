@@ -617,7 +617,7 @@ setChildrenResolver(getChildren)
 setContainedResolver((contextId) => entities.filter((e) => e.parentId === contextId && e.seriesId == null))
 
 /**
- * Whether `childId` has an IN-PLACE owning node inside `hostId` ��������� i.e. it would
+ * Whether `childId` has an IN-PLACE owning node inside `hostId` ����������� i.e. it would
  * render in `host`'s DO-LIST (structural parent or tagged space) OR in `host`'s
  * DOCK (pinned there). Either gives the entity a row/card to morph out of and
  * back into, so it is NOT detached. (A pinned space, e.g. Health on home, is a
@@ -999,7 +999,14 @@ export function getTimedDescendants(contextId: string): Entity[] {
   // rows are per-day occurrence OVERRIDES (materialized from a recurring mother), which
   // getTimelineOccurrences emits itself, so they're excluded here to avoid duplicates.
   const hasScheduledTime = (s: Entity["schedule"]) =>
-    !!s && (s.startAt != null || s.endAt != null || s.at != null || s.dueAt != null)
+    !!s &&
+    (s.startAt != null ||
+      s.endAt != null ||
+      s.at != null ||
+      s.dueAt != null ||
+      // A reopened entity has a null live start/end but keeps its HISTORY — its archived
+      // occurrences must still place it on the lifeline so past ticks keep rendering.
+      (s.occurrences != null && s.occurrences.length > 0))
   const isTimed = (e: Entity) => e.seriesId == null && hasScheduledTime(e.schedule)
   if (contextId === ROOT_ID) return entities.filter(isTimed)
   const descendants = collectDescendants(contextId)
@@ -1106,6 +1113,20 @@ export function getTimelineOccurrences(
   for (const e of getTimedDescendants(contextId)) {
     const s = e.schedule
     if (!s) continue
+
+    // ARCHIVED OCCURRENCES — each Reopen archives the previous live span here. They paint as
+    // FIXED top-rail ticks (their own start/end schedule), independent of the current live
+    // state and independent of the live anchor below. Non-recurring history only.
+    if (s.occurrences && s.occurrences.length > 0) {
+      s.occurrences.forEach((occ, i) => {
+        out.push({
+          ...e,
+          schedule: { ...s, startAt: occ.startAt, endAt: occ.endAt, occurrences: undefined, repeat: undefined },
+          occKey: `${e.id}#occ${i}`,
+        })
+      })
+    }
+
     // A point (`at`), a span start, or — for a due-only entity like a Task deadline —
     // the `dueAt` all serve as the timeline anchor, so a task with just a due date still
     // places a marker.
@@ -1581,6 +1602,71 @@ export function toggleEngagement(id: string, via: Engagement["via"] = "play"): b
     return false
   }
   openEngagement(id, via)
+  return true
+}
+
+// ----------------------------------------------------------------------------
+// OCCURRENCES — the top-rail lifecycle of a Moment / Space (v0.6.18). Distinct from
+// ENGAGEMENTS (bottom rail = presence/work time). Play STARTS an occurrence, Stop ENDS it,
+// Reopen ARCHIVES the finished span into `occurrences[]` and returns the entity to open —
+// preserving the span's length as the default duration for the next Play. Non-recurring only.
+// ----------------------------------------------------------------------------
+
+const isOccurrenceKind = (e: Entity) => e.kind === "moment" || e.kind === "space"
+
+/**
+ * PLAY — start an occurrence NOW (top rail). Sets `startAt = at`; if a `duration` is known
+ * (e.g. preserved from a prior span), stamps `endAt = at + duration` so the span is pre-sized;
+ * otherwise leaves it open-ended (ongoing until Stop). Reuses `setEntityScheduleField` so the
+ * closeAt re-stamp / logging / seeded-override / persist all happen. Moment/Space only.
+ */
+export function startOccurrence(id: string, at = Date.now()): boolean {
+  const stored = byId.get(id)
+  if (!stored || !isOccurrenceKind(stored)) return false
+  const dur = stored.schedule?.duration
+  setEntityScheduleField(id, "startAt", at)
+  setEntityScheduleField(id, "endAt", dur != null ? at + dur * 60000 : null)
+  return true
+}
+
+/**
+ * STOP — end the running occurrence early by stamping `endAt = at` (updates the top-rail tick
+ * length). No-op if there's no concrete running start. Moment/Space only.
+ */
+export function endOccurrence(id: string, at = Date.now()): boolean {
+  const stored = byId.get(id)
+  if (!stored || !isOccurrenceKind(stored)) return false
+  if (!isConcreteStart(stored.schedule?.startAt)) return false
+  return setEntityScheduleField(id, "endAt", at)
+}
+
+/**
+ * REOPEN — click a COMPLETE moment/space glyph. Archives the finished live span into
+ * `occurrences[]` (so it stays as a fixed past tick on the top rail), preserves its length as
+ * the default `duration` for the next Play, then clears the live start/end + completion close
+ * and returns `startAt` to the WHENEVER sentinel (playable again → outline glyph). Moment/Space
+ * only; requires a concrete finished start to archive.
+ */
+export function reopenOccurrence(id: string): boolean {
+  const stored = byId.get(id)
+  if (!stored || !isOccurrenceKind(stored)) return false
+  const sched: Schedule = { ...(stored.schedule ?? {}) }
+  if (!isConcreteStart(sched.startAt)) return false
+  const startAt = sched.startAt
+  const endAt = sched.endAt
+  const entity = mutable(stored)
+  // Preserve the just-finished length as the default duration for the next Play (if not already set).
+  if (sched.duration == null && endAt != null) sched.duration = Math.round((endAt - startAt) / 60000)
+  sched.occurrences = [...(sched.occurrences ?? []), { startAt, endAt }]
+  sched.startAt = WHENEVER
+  delete sched.endAt
+  entity.schedule = sched
+  delete entity.closeAt // reopened → no longer completed/closed
+  logSet(entity, "startAt", WHENEVER)
+  if (!userEntityIds.has(id)) {
+    seededOverrides.set(id, { ...seededOverrides.get(id), schedule: sched, closeAt: undefined })
+  }
+  persist()
   return true
 }
 
