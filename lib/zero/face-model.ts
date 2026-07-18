@@ -219,22 +219,29 @@ export function getOccurrenceDurationMs(e: Entity, now: number): number | null {
     any = true // a lone point anchor is a zero-length occurrence
   }
   if (any) return total
-  // SPACE (v0.6.23 MERGE) — a played space has NO occurrence (Play opens a focus engagement, not
-  // `startAt`), so DURATION derives from its CURRENT engagement SESSION: the open one live-counting
-  // to `now`, else the most-recent span. Reads as "how long this session" — deliberately distinct
-  // from the ACCESS row, which is the lifetime Σ of ALL sessions. `null` (⇒ "—") when never engaged.
-  if (e.kind === "space") {
-    const engagements = getEngagements(e)
-    if (engagements.length > 0) {
-      const latest = engagements.reduce((a, b) => (b.startAt > a.startAt ? b : a))
-      return Math.max(0, (latest.endAt ?? now) - latest.startAt)
-    }
-  }
   // AGE fallback — beings only (death-terminal kinds).
+  // v0.6.26: the SPACE-session fallback was REMOVED. A played space/moment's actual time is ACCESS
+  // (focus) + PLAYED (play), its own rows — DURATION must NOT borrow session time (that was the
+  // v0.6.23 double-duty). Moment/space no longer call this fn at all (they use getPlannedDurationMs).
   if (e.kind === "individual" || e.kind === "organism") {
     const created = getCreatedAt(e)
     if (created != null) return Math.max(0, now - created)
   }
+  return null
+}
+
+// PLANNED DURATION of a moment/space (v0.6.26) — the width of its PLANNED span, derived PURELY from
+// the plan, never from actual/session time:
+//   • explicit `schedule.duration` (minutes) if set, else
+//   • plannedEnd − plannedStart when BOTH are concrete (a real start epoch + a real end), else
+//   • null ⇒ "—". A merely-ongoing or open-ended thing (started, no planned end, no duration) has
+//     NO inferable planned duration — we deliberately do NOT fall back to elapsed/session time
+//     (that's ACCESS/PLAYED). A lone point anchor (`at`) likewise has no span ⇒ "—".
+export function getPlannedDurationMs(e: Entity): number | null {
+  const s = e.schedule
+  if (s?.duration != null && s.duration > 0) return s.duration * 60000
+  const start = concreteStart(e) // planned start epoch, excluding "whenever"/unset
+  if (start != null && s?.endAt != null) return Math.max(0, s.endAt - start)
   return null
 }
 
@@ -715,15 +722,15 @@ export function getFaceMetaRows(e: Entity, now: number): [string, string][] {
   // even if you've spent time ON it (that shows on ACCESS below). SKIPPED for an INSTANT (a
   // zero-length point; its OCCURRENCES row is what matters).
   if (e.kind !== "instant") {
-    const durMs = getOccurrenceDurationMs(e, now)
-    // v0.6.26: for a moment/space the span width is PLANNED (from the planned start/end scalars);
-    // beings read "age" (since birth); everything else keeps a plain "duration".
-    const durLabel =
-      e.kind === "individual" || e.kind === "organism"
-        ? "age"
-        : e.kind === "moment" || e.kind === "space"
-          ? "planned duration"
-          : "duration"
+    // v0.6.26: three honest sources by kind, never crossing plan/actual —
+    //   • moment/space → PLANNED DURATION: the plan span width ONLY (getPlannedDurationMs); "—"
+    //     when nothing's planned (NOT the elapsed/session time — the bug this fixes).
+    //   • beings        → AGE: now − birth.
+    //   • everything else → DURATION: its occurrence length (getOccurrenceDurationMs).
+    const isBeingKind = e.kind === "individual" || e.kind === "organism"
+    const isPlanned = e.kind === "moment" || e.kind === "space"
+    const durLabel = isBeingKind ? "age" : isPlanned ? "planned duration" : "duration"
+    const durMs = isPlanned ? getPlannedDurationMs(e) : getOccurrenceDurationMs(e, now)
     rows.push([durLabel, durMs == null ? "—" : formatDuration(durMs)])
   }
   // ACCESS — accumulated PRESENCE time (BOTTOM rail = "how long I've been on / worked on this"),
