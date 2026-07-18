@@ -200,10 +200,11 @@ function FaceBlock({
     () => (rowsOverride ? null : getAccessCells(entity, now)),
     [entity, now, rowsOverride],
   )
-  // RICH played: same shape as access, but the MANUAL-PLAY clock (`via:"play"` sessions, bottom
-  // rail). Null when nothing's been played. Rendered with the same per-session breakdown row.
+  // RICH occurrences (v0.6.28): the ACTUAL-happening clock = `via:"play"` sessions, same shape as
+  // access. Null when nothing's played. SKIPPED for instant (its "occurrences" row is the plain
+  // mark-tally string — must not be hijacked by this rich renderer). Matches face-model's guard.
   const played = useMemo(
-    () => (rowsOverride ? null : getPlayedCells(entity, now)),
+    () => (rowsOverride || entity.kind === "instant" ? null : getPlayedCells(entity, now)),
     [entity, now, rowsOverride],
   )
   const startScrollRef = useRef<HTMLDivElement>(null)
@@ -321,7 +322,7 @@ function FaceBlock({
                 renderScheduleRow(k === "planned start" ? "start" : "end")
               ) : access && k === "access" ? (
                 renderAccessRow(access)
-              ) : played && k === "played" ? (
+              ) : played && k === "occurrences" ? (
                 renderAccessRow(played)
               ) : k === "state" && v.startsWith("ongoing") ? (
                 renderOngoingState(v)

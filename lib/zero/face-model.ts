@@ -19,7 +19,7 @@
 
 import type { Entity, EntityKind, Whenever } from "./types"
 import { WHENEVER } from "./types"
-  import { KIND_META, isClosed, fillsGlyph, getState, concreteStart, occurrenceAction, isMarkable, getMarks, getEngagements, getInstantMaxNb, isInstantMaxNbHard, getInstantOccurrenceCount, type EntityState } from "./kinds"
+  import { KIND_META, isClosed, fillsGlyph, getState, concreteStart, occurrenceAction, isPlannedKind, isMarkable, getMarks, getEngagements, getInstantMaxNb, isInstantMaxNbHard, getInstantOccurrenceCount, type EntityState } from "./kinds"
 import { isDone, getCreatedAt, getCompletedOn } from "./entity-log"
 import { getEntity, getCreator, getOwner, getForwardTags, getBackReferences, getChildren } from "./data"
 import { formatLocale } from "./format-locale"
@@ -573,7 +573,8 @@ export type ScheduleCell = { text: string; full?: string; faint?: boolean; pulse
  *  faint), padded per-column so the Nth start sits directly above the Nth end. `getFaceMetaRows`
  *  flattens the same cells to a plain string for every other consumer. */
 export function getScheduleCells(e: Entity, now: number): { start: ScheduleCell[]; end: ScheduleCell[] } | null {
-  if (e.kind !== "moment" && e.kind !== "space") return null
+  // v0.6.28: PLANNED span cells for any planned kind (task/moment/space/resource), not just spans.
+  if (!isPlannedKind(e.kind)) return null
   const NB = "\u00A0"
   const s = e.schedule
   const cs = concreteStart(e) // concrete started moment, else null ("whenever"/unset)
@@ -679,26 +680,28 @@ export function getFaceMetaRows(e: Entity, now: number): [string, string][] {
   // unset), the same way DONE/CLOSED always render. A Moment IS a span, an Instant
   // IS a point, so hiding those rows when empty would hide the kind's essence.
   const s = e.schedule
-  // MOMENT and SPACE both read as SPANS (a Space is a live, session-bearing container that
-  // joined Moment in the session model), so both ALWAYS surface start/end (— when unset,
-  // "whenever" when playable). Previously a Space only got a condensed "scheduled" row.
-  if (e.kind === "moment" || e.kind === "space") {
-    // Plain-string fallback (used by block-rung subsets, the whole-row `title`, and any
-    // non-rich consumer). The FULL §0 face renders these two rows RICHLY instead — from the
-    // same structured `getScheduleCells` — so the segments can be faint / pulsing / individually
-    // hoverable / horizontally scrollable. Both derive from ONE source, so they never diverge.
-    const cells = getScheduleCells(e, now)!
-    // v0.6.26: PLANNED start/end — these scalars are now PURE PLANNING (user-set, never written by
-    // Play/punch). Actual tracked time lives on ACCESS/PLAYED below (sessions), never here.
-    rows.push(["planned start", cells.start.map((c) => c.text).join(" · ")])
-    rows.push(["planned end", cells.end.map((c) => c.text).join(" · ")])
-    // A Moment is conceptually a SPAN (start→end), but it can carry a lone POINT anchor
-    // (`schedule.at`) — e.g. when a `:mome` prefix is combined with a single-time token,
-    // or an Instant is later changed INTO a moment. The lifecycle machine reads that point
-    // (`getState` → `completeSince` uses `endAt ?? at`), so a past `at` silently drives the
-    // moment to COMPLETE + stamps its auto-close. Surface it here (was hidden, which made
-    // such a moment read as unscheduled — START —, END — — yet mysteriously "complete").
+  // PLANNED span rows (v0.6.28) — every PLANNED kind (task/moment/space/resource) can carry a
+  // planned start/end. moment/space read as SPANS so they ALWAYS surface the rows (— when unset);
+  // task/resource surface them only when a planning field is actually set (planning is optional
+  // for them, so we don't clutter every to-do with empty slots). These scalars are PURE PLANNING
+  // (user-set, never written by Play/punch — v0.6.26); actual time lives on ACCESS/OCCURRENCES.
+  if (isPlannedKind(e.kind)) {
+    const alwaysSpan = e.kind === "moment" || e.kind === "space"
+    const hasPlan = s?.startAt != null || s?.endAt != null || concreteStart(e) != null
+    if (alwaysSpan || hasPlan) {
+      // Plain-string fallback (block-rung subsets / `title` / non-rich consumers). The FULL §0 face
+      // renders these RICHLY from the same `getScheduleCells`, so they never diverge.
+      const cells = getScheduleCells(e, now)!
+      rows.push(["planned start", cells.start.map((c) => c.text).join(" · ")])
+      rows.push(["planned end", cells.end.map((c) => c.text).join(" · ")])
+    }
+    // A lone POINT anchor (`schedule.at`) — e.g. a `:mome` + single-time token, or an Instant
+    // changed INTO a moment. The lifecycle reads it (`completeSince` uses `endAt ?? at`), so a past
+    // `at` silently drives COMPLETE; surface it so such an entity doesn't read as unscheduled.
     if (s?.at != null) rows.push(["at", fmt(s.at)])
+    // DUE — a task/resource deadline (distinct from a planned END: a due date is "must be done BY",
+    // not "the span stops at"). Shown when set.
+    if (s?.dueAt != null) rows.push(["due", fmt(s.dueAt)])
   } else if (e.kind === "instant") {
     // An instant is a TALLY of occurrences (marks + a passed scheduled `at`), not a span. The
     // OCCURRENCES row reads "<count> / <maxNb>" (the progress toward completion; maxNb omitted
@@ -728,7 +731,7 @@ export function getFaceMetaRows(e: Entity, now: number): [string, string][] {
     //   • beings        → AGE: now − birth.
     //   • everything else → DURATION: its occurrence length (getOccurrenceDurationMs).
     const isBeingKind = e.kind === "individual" || e.kind === "organism"
-    const isPlanned = e.kind === "moment" || e.kind === "space"
+    const isPlanned = isPlannedKind(e.kind)
     const durLabel = isBeingKind ? "age" : isPlanned ? "planned duration" : "duration"
     const durMs = isPlanned ? getPlannedDurationMs(e) : getOccurrenceDurationMs(e, now)
     rows.push([durLabel, durMs == null ? "—" : formatDuration(durMs)])
@@ -739,11 +742,15 @@ export function getFaceMetaRows(e: Entity, now: number): [string, string][] {
   // segments richly (per-session hover, the live one pulsing) — see getAccessCells.
   const access = getAccessCells(e, now)
   if (access) rows.push(["access", [access.total, ...access.segments.map((c) => c.text)].join(" · ")])
-  // PLAYED — accumulated MANUAL-PLAY time (`via:"play"` sessions, BOTTOM rail = "how long I've
-  // actually played/worked this"), its own clock DECOUPLED from ACCESS (presence) and from PLANNED
-  // (the top-rail scalars). Only shown once a play session exists.
-  const played = getPlayedCells(e, now)
-  if (played) rows.push(["played", [played.total, ...played.segments.map((c) => c.text)].join(" · ")])
+  // OCCURRENCES (v0.6.28, renamed from PLAYED) — "the times this ACTUALLY happened": the total +
+  // per-session breakdown of `via:"play"` sessions (BOTTOM rail). Its own clock, DECOUPLED from
+  // ACCESS (presence/focus — being here ≠ it happening) and from PLANNED (the top-rail scalars).
+  // Matches the vocabulary an INSTANT already uses (its occurrences = marks). Only shown when a
+  // play session exists; SKIPPED for instant (its own occurrences row above is the mark tally).
+  // Stage B will weave PLANNED occurrences (fulfilled/missed/upcoming) into this row as tagged
+  // items + a rich summary — for now it's the actual (played) side only.
+  const occ = e.kind === "instant" ? null : getPlayedCells(e, now)
+  if (occ) rows.push(["occurrences", [occ.total, ...occ.segments.map((c) => c.text)].join(" · ")])
   // ACCENT — only when set (via `:color:`). The value is the raw hex; the dt cell
   // paints a matching swatch so the raw-data view still shows the color itself.
   if (e.accent) rows.push(["color", e.accent])

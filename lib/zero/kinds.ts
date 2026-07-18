@@ -161,6 +161,18 @@ export function isBeing(kind: EntityKind): boolean {
 }
 
 /**
+ * A "PLANNED" kind (v0.6.28) — an actionable/schedulable thing that can carry a PLANNED span
+ * (planned start / end / duration): task · moment · space · resource. Generalizes the planning
+ * affordance beyond the moment/space span-essence: a Task is just as plannable (start it Monday,
+ * due Friday, budget 2h). EXCLUDES beings (they persist → AGE, not a plan) and instants (a POINT +
+ * a mark tally, not a span). moment/space still surface the planned rows ALWAYS (a span is their
+ * essence); task/resource surface them when actually set.
+ */
+export function isPlannedKind(kind: EntityKind): boolean {
+  return kind === "task" || kind === "moment" || kind === "space" || kind === "resource"
+}
+
+/**
  * Whether `entity` is in its TERMINAL end-state (retired / dead). Inert today —
  * nothing sets `retiredOn`/`diedOn` yet — but wires the model so the glyph can
  * render a terminal mark for community/organism/individual.
