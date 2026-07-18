@@ -58,7 +58,7 @@ export function faceSizeLabel(size: FaceSize): string {
 // drift from §0 — it only ever hides rows, never invents them.
 //   • L  = the temporal essentials: done + lifecycle state + schedule + duration/age.
 //   • XL = everything EXCEPT raw provenance plumbing (id / creator / owner).
-const L_META_KEYS = new Set(["done", "state", "start", "end", "at", "due", "scheduled", "duration", "age"])
+  const L_META_KEYS = new Set(["done", "state", "planned start", "planned end", "at", "due", "scheduled", "planned duration", "duration", "age"])
 const XL_OMIT_KEYS = new Set(["id", "creator", "owner"])
 export function filterMetaRows(rows: [string, string][], size: "l" | "xl" | "full"): [string, string][] {
   if (size === "full") return rows
@@ -243,7 +243,7 @@ export function getOccurrenceDurationMs(e: Entity, now: number): number | null {
 // `via` so the two clocks stay separate (v0.6.26): ACCESS = `focus` (presence / "being there",
 // middle rail), PLAYED = `play` (manual stopwatch, bottom rail). Unfiltered = every session.
 // The deliberate counterpart to getOccurrenceDurationMs: never merged with planned time.
-export function getSessionMs(e: Entity, now: number, via?: Engagement["via"]): number | null {
+export function getSessionMs(e: Entity, now: number, via?: "focus" | "play" | "mark"): number | null {
   const sessions = getEngagements(e).filter((s) => (via ? s.via === via : true))
   if (sessions.length === 0) return null
   let total = 0
@@ -595,17 +595,22 @@ export function getScheduleCells(e: Entity, now: number): { start: ScheduleCell[
 }
 
 /**
- * Structured ACCESS row (v0.6.18, was the duration breakdown) — the accumulated PRESENCE time
- * broken down per engagement. Returns the grand `total` (Σ all sessions, live-counting the open
- * one) plus one segment PER engagement — each reads `<duration> (<when>)` (e.g. `1h 04m (7:00 PM)`)
- * with a `full` hover of the whole `start – end`, so §0 renders the total followed by a per-session
- * breakdown. `null` when there are NO engagements (⇒ no ACCESS row). One session still returns a
- * (single-segment) breakdown so the "when" is visible. Newest engagement first.
+ * Structured SESSION row — accumulated tracking time broken down per session. Returns the grand
+ * `total` (Σ matching sessions, live-counting the open one) plus one segment PER session — each
+ * reads `<duration> (<when>)` (e.g. `1h 04m (7:00 PM)`) with a `full` hover of the whole
+ * `start – end`. `null` when there are NO matching sessions. Newest first. Filtered by `via`
+ * (v0.6.26) so the two clocks render separately: ACCESS = `focus` (presence), PLAYED = `play`.
  */
-export function getAccessCells(e: Entity, now: number): { total: string; segments: ScheduleCell[] } | null {
-  const engs = [...getEngagements(e)].sort((a, b) => b.startAt - a.startAt)
+export function getSessionCells(
+  e: Entity,
+  now: number,
+  via?: "focus" | "play" | "mark",
+): { total: string; segments: ScheduleCell[] } | null {
+  const engs = getEngagements(e)
+    .filter((s) => (via ? s.via === via : true))
+    .sort((a, b) => b.startAt - a.startAt)
   if (engs.length === 0) return null
-  const totalMs = getAccessMs(e, now)
+  const totalMs = getSessionMs(e, now, via)
   const total = totalMs == null ? "—" : formatDuration(totalMs)
   const segments: ScheduleCell[] = engs.map((se) => {
     const open = se.endAt == null
@@ -614,10 +619,20 @@ export function getAccessCells(e: Entity, now: number): { total: string; segment
     return {
       text: `${formatDuration(ms)} (${when})`,
       full: `${fmt(se.startAt)} – ${open ? "ongoing" : fmt(se.endAt as number)}`,
-      pulse: open, // the live engagement's segment breathes
+      pulse: open, // the live session's segment breathes
     }
   })
   return { total, segments }
+}
+
+/** ACCESS = per-session PRESENCE breakdown (focus sessions, middle rail). */
+export function getAccessCells(e: Entity, now: number) {
+  return getSessionCells(e, now, "focus")
+}
+
+/** PLAYED = per-session MANUAL-PLAY breakdown (play sessions, bottom rail). */
+export function getPlayedCells(e: Entity, now: number) {
+  return getSessionCells(e, now, "play")
 }
 
 export function getFaceMetaRows(e: Entity, now: number): [string, string][] {
@@ -666,8 +681,10 @@ export function getFaceMetaRows(e: Entity, now: number): [string, string][] {
     // same structured `getScheduleCells` — so the segments can be faint / pulsing / individually
     // hoverable / horizontally scrollable. Both derive from ONE source, so they never diverge.
     const cells = getScheduleCells(e, now)!
-    rows.push(["start", cells.start.map((c) => c.text).join(" · ")])
-    rows.push(["end", cells.end.map((c) => c.text).join(" · ")])
+    // v0.6.26: PLANNED start/end — these scalars are now PURE PLANNING (user-set, never written by
+    // Play/punch). Actual tracked time lives on ACCESS/PLAYED below (sessions), never here.
+    rows.push(["planned start", cells.start.map((c) => c.text).join(" · ")])
+    rows.push(["planned end", cells.end.map((c) => c.text).join(" · ")])
     // A Moment is conceptually a SPAN (start→end), but it can carry a lone POINT anchor
     // (`schedule.at`) — e.g. when a `:mome` prefix is combined with a single-time token,
     // or an Instant is later changed INTO a moment. The lifecycle machine reads that point
@@ -699,7 +716,14 @@ export function getFaceMetaRows(e: Entity, now: number): [string, string][] {
   // zero-length point; its OCCURRENCES row is what matters).
   if (e.kind !== "instant") {
     const durMs = getOccurrenceDurationMs(e, now)
-    const durLabel = e.kind === "individual" || e.kind === "organism" ? "age" : "duration"
+    // v0.6.26: for a moment/space the span width is PLANNED (from the planned start/end scalars);
+    // beings read "age" (since birth); everything else keeps a plain "duration".
+    const durLabel =
+      e.kind === "individual" || e.kind === "organism"
+        ? "age"
+        : e.kind === "moment" || e.kind === "space"
+          ? "planned duration"
+          : "duration"
     rows.push([durLabel, durMs == null ? "—" : formatDuration(durMs)])
   }
   // ACCESS — accumulated PRESENCE time (BOTTOM rail = "how long I've been on / worked on this"),
@@ -708,6 +732,11 @@ export function getFaceMetaRows(e: Entity, now: number): [string, string][] {
   // segments richly (per-session hover, the live one pulsing) — see getAccessCells.
   const access = getAccessCells(e, now)
   if (access) rows.push(["access", [access.total, ...access.segments.map((c) => c.text)].join(" · ")])
+  // PLAYED — accumulated MANUAL-PLAY time (`via:"play"` sessions, BOTTOM rail = "how long I've
+  // actually played/worked this"), its own clock DECOUPLED from ACCESS (presence) and from PLANNED
+  // (the top-rail scalars). Only shown once a play session exists.
+  const played = getPlayedCells(e, now)
+  if (played) rows.push(["played", [played.total, ...played.segments.map((c) => c.text)].join(" · ")])
   // ACCENT — only when set (via `:color:`). The value is the raw hex; the dt cell
   // paints a matching swatch so the raw-data view still shows the color itself.
   if (e.accent) rows.push(["color", e.accent])

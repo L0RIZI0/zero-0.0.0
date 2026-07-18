@@ -579,12 +579,10 @@ export function Zero0Canvas() {
               return null
             }
           }
-          // `--start`/`--end`/`--at`/`--due` ALWAYS target the OCCURRENCE (top-rail schedule),
-          // NOT any running access session (v0.6.19 — the two are decoupled, and since every
-          // viewed entity now holds a focus session, the old "backdate the running stopwatch"
-          // shortcut would hijack --start on everything). So `--start:1600` schedules the
-          // occurrence for 4pm — a top-rail tick, faded-right while it has no end yet. Adjusting a
-          // session's start is a separate deliberate action, not what --start means.
+          // `--start`/`--end`/`--at`/`--due` ALWAYS target the PLANNED schedule (top-rail scalars),
+          // NOT any running session (v0.6.26 — these are pure PLANNING, user-set only; Play never
+          // writes them anymore). So `--start:1600` PLANS the entity for 4pm — a top-rail tick.
+          // Adjusting a live SESSION's start is the separate `--sessionStart` action above.
           if (!setEntityScheduleField(id, key, epoch)) {
             setNotice({ tone: "err", text: `can't set ${attr.field} on a ${KIND_META[ent.kind].label}` })
             return null

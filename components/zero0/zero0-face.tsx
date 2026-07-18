@@ -8,6 +8,7 @@ import {
   getFaceMetaRows,
   getScheduleCells,
   getAccessCells,
+  getPlayedCells,
   filterMetaRows,
   faceModelFromLike,
   getAggregate,
@@ -199,6 +200,12 @@ function FaceBlock({
     () => (rowsOverride ? null : getAccessCells(entity, now)),
     [entity, now, rowsOverride],
   )
+  // RICH played: same shape as access, but the MANUAL-PLAY clock (`via:"play"` sessions, bottom
+  // rail). Null when nothing's been played. Rendered with the same per-session breakdown row.
+  const played = useMemo(
+    () => (rowsOverride ? null : getPlayedCells(entity, now)),
+    [entity, now, rowsOverride],
+  )
   const startScrollRef = useRef<HTMLDivElement>(null)
   const endScrollRef = useRef<HTMLDivElement>(null)
   const syncLock = useRef(false)
@@ -310,10 +317,12 @@ function FaceBlock({
           {rows.map(([k, v]) => (
             <div key={k} className="contents">
               <dt className="uppercase tracking-widest text-muted-foreground">{k}</dt>
-              {schedule && (k === "start" || k === "end") ? (
-                renderScheduleRow(k)
+              {schedule && (k === "planned start" || k === "planned end") ? (
+                renderScheduleRow(k === "planned start" ? "start" : "end")
               ) : access && k === "access" ? (
                 renderAccessRow(access)
+              ) : played && k === "played" ? (
+                renderAccessRow(played)
               ) : k === "state" && v.startsWith("ongoing") ? (
                 renderOngoingState(v)
               ) : (
