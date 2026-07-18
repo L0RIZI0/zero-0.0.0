@@ -456,7 +456,11 @@ export function Zero0Canvas() {
     // Apply ONE `--field:value` attribute to `id`, reusing the same mutators + validation
     // whether the target is a brand-new child or the open entity. Returns a short success
     // fragment for the notice, or null after setting its OWN error notice.
-    const applyAttr = (id: string, attr: EntryAttr): string | null => {
+    // `batchNow` anchors ALL relative/`now` tokens in ONE create/edit to a SINGLE instant, so a
+    // pair like `--start:now --end:in 2h` spans EXACTLY 2h (v0.6.29). Previously "now" read
+    // Date.now() here while "in 2h" read its own Date.now() inside parseDateToken — a few-ms gap
+    // that, floored by formatDuration, surfaced as "1h 59m 59s".
+    const applyAttr = (id: string, attr: EntryAttr, batchNow: number = Date.now()): string | null => {
       const ent = getEntity(id)
       if (!ent) {
         setNotice({ tone: "err", text: "no target entity" })
@@ -516,7 +520,7 @@ export function Zero0Canvas() {
           // the edit slides the middle tick. It NEVER touches the top-rail schedule NOR the pure
           // PRESENCE truth rail (§2). NOTE: play-vs-focus precedence when a PLAY session is also
           // open is deferred open-item #2 — today it hits whatever `getOpenEngagement` returns.
-          const when = val.toLowerCase() === "now" ? Date.now() : val === "" ? null : parseDateToken(val)
+          const when = val.toLowerCase() === "now" ? batchNow : val === "" ? null : parseDateToken(val, batchNow)
           if (val !== "" && when == null) {
             setNotice({ tone: "err", text: `invalid time "${val}" — use HHMM, "30min ago", "in 2h", or now` })
             return null
@@ -570,10 +574,10 @@ export function Zero0Canvas() {
           }
           let epoch: number | null = null
           if (val.toLowerCase() === "now") {
-            // `--start:now` / `--end:now` / `--at:now` — stamp the current instant.
-            epoch = Date.now()
+            // `--start:now` / `--end:now` / `--at:now` — stamp the shared batch instant.
+            epoch = batchNow
           } else if (val !== "") {
-            epoch = parseDateToken(val)
+            epoch = parseDateToken(val, batchNow)
             if (epoch == null) {
               setNotice({ tone: "err", text: `invalid time "${val}" — use HHMM, YYMMDD, YYMMDDHHMM, now, "5min ago", "in 2h", or whenever` })
               return null
@@ -679,8 +683,9 @@ export function Zero0Canvas() {
         done.push(`kind ${KIND_META[entry.kind].label}`)
       }
 
+      const editNow = Date.now() // one instant for the whole batch (see applyAttr / batchNow)
       for (const attr of entry.attrs) {
-        const msg = applyAttr(target, attr)
+        const msg = applyAttr(target, attr, editNow)
         if (msg == null) return // applyAttr already showed the error
         done.push(msg)
       }
@@ -733,9 +738,10 @@ export function Zero0Canvas() {
 
     // Configure the new child: apply every attribute (skip --title — the free text already
     // named it), then any :action flags (e.g. `:done` logs it already-done / cancelled).
+    const createNow = Date.now() // one instant for the whole batch (see applyAttr / batchNow)
     for (const attr of entry.attrs) {
       if (attr.field === "title") continue
-      applyAttr(created.id, attr) // best-effort; a bad token shows a notice but keeps the entity
+      applyAttr(created.id, attr, createNow) // best-effort; a bad token shows a notice but keeps the entity
     }
     for (const action of entry.actions) {
       const ent = getEntity(created.id)
