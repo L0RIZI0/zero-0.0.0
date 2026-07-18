@@ -9,7 +9,7 @@ import { ROOT_ID, collectDescendants, getEntitiesWithEngagements, getEntity, get
 import { rangeText, NOW_COLOR } from "@/lib/zero/timeline-format"
 import { isSleepTitle, sleepSkyBackground } from "@/lib/zero/sleep-sky"
 import { DAYLINE_ROW_H } from "@/lib/zero/layout"
-import { useNow } from "@/lib/zero/use-now"
+import { useNowSeconds } from "@/lib/zero/use-now"
 import { formatLocale } from "@/lib/zero/format-locale"
 import { cn } from "@/lib/utils"
 
@@ -368,7 +368,14 @@ export function Zero0Dayline({
   // TODAY's combined lane: paint planned + presence together on one centered band,
   // distinguished by height (taller planned, shorter presence — see the tick render).
   const combined = tracks === "both"
-  const now = useNow()
+  // v0.6.24: the dayline runs on the PER-SECOND clock (was per-minute `useNow`). Two reasons:
+  //   • LAG — with a per-minute clock the ongoing bars + spine only advanced/recomputed once a
+  //     minute, so a just-punched leaf's tick appeared "a couple seconds late" (whenever the memo
+  //     next happened to re-run). Per-second = smooth, ≤1s to appear.
+  //   • MARKER SYNC — the now marker and every open-segment right edge now read the SAME `now`, so
+  //     an open tick can never render to the RIGHT of the marker (the old bug came from the spine
+  //     using real `Date.now()` while the marker used the stale per-minute value).
+  const now = useNowSeconds()
   const [mounted, setMounted] = useState(false)
   // `viewStart` is the left edge of the shown 24h window. Panning moves it directly;
   // the auto-shift advances it on a time boundary. Independent of `now`.
@@ -577,8 +584,10 @@ export function Zero0Dayline({
         const open = run.open
         const rawEnd = open ? now : run.end
         if (rawEnd < lo || rawStart > hi) return // not in today's window
-        // Clip to the visible day so a cross-midnight session shows only today's slice.
-        const st = Math.max(rawStart, lo)
+        // Clip to the visible day so a cross-midnight session shows only today's slice. v0.6.24:
+        // `Math.min(rawStart, rawEnd)` guards the ≤1s window where a just-started play's start is a
+        // hair ahead of the now marker, so the tick sits AT the marker, not a few px to its right.
+        const st = Math.max(Math.min(rawStart, rawEnd), lo)
         const en = Math.min(rawEnd, hi)
         const leftPct = ((st - winStart) / DAY_MS) * 100
         const widthPct = Math.max(0, ((en - st) / DAY_MS) * 100)
@@ -625,11 +634,10 @@ export function Zero0Dayline({
     // 1) Collect focus intervals (end = now while open) across EVERY entity with engagements.
     //    v0.6.22: was `collectDescendants(ROOT_ID)` which walks SPACES only, so a focused
     //    Resource/Task/Moment LEAF (e.g. the v0.app web resource) was invisible and the spine drew
-    //    its parent Space instead of the true current leaf. `liveEdge` = the freshest possible NOW
-    //    for an OPEN interval: `useNow` is per-minute, so a just-punched session can have
-    //    `start > now` — clamp so the live edge never precedes the start (bug: tick took ~a minute
-    //    to appear on a leaf switch).
-    const liveEdge = Math.max(now, Date.now())
+    //    its parent Space instead of the true current leaf. v0.6.24: `end` uses the shared
+    //    per-second `now` (same value the marker reads). `Math.max(now, startAt)` guards the ≤1s
+    //    window where a just-punched session's start is a hair AHEAD of the last `now` tick, so the
+    //    interval still survives (its right edge is clamped back to the marker at emit time).
     type Iv = { id: string; start: number; end: number; open: boolean }
     const ivs: Iv[] = []
     for (const e of getEntitiesWithEngagements()) {
@@ -638,8 +646,8 @@ export function Zero0Dayline({
       for (const s of list) {
         if (s.via === "play" || s.via === "mark") continue // manual → bottom rail
         const open = s.endAt == null
-        const end = s.endAt ?? Math.max(liveEdge, s.startAt)
-        if (end <= s.startAt) continue
+        const end = s.endAt ?? Math.max(now, s.startAt)
+        if (end < s.startAt) continue
         ivs.push({ id: e.id, start: s.startAt, end, open })
       }
     }
@@ -671,10 +679,14 @@ export function Zero0Dayline({
     const out: DaylineBar[] = []
     for (let i = 0; i < flat.length; i++) {
       const seg = flat[i]
-      const segEnd = seg.open ? Math.max(liveEdge, seg.start) : seg.end
-      if (segEnd < lo || seg.start > hi) continue
-      const st = Math.max(seg.start, lo)
-      const en = Math.min(segEnd, hi)
+      // An OPEN segment's right edge IS the now marker (`now`); a CLOSED one ends at its real end.
+      const rightEdge = seg.open ? now : seg.end
+      if (rightEdge < lo || seg.start > hi) continue
+      // v0.6.24: clamp the visible start to `rightEdge` too, so in the ≤1s window where a just-
+      // punched session's start is a hair ahead of the marker the tick sits AT the marker instead
+      // of a few px to its RIGHT (the reported bug).
+      const st = Math.max(Math.min(seg.start, rightEdge), lo)
+      const en = Math.min(rightEdge, hi)
       // Keep an OPEN live segment even at ~0 width (renders as the min-width tick) so a
       // just-switched leaf shows instantly; only drop CLOSED zero-width slivers.
       if (en < st || (en === st && !seg.open)) continue
@@ -693,7 +705,7 @@ export function Zero0Dayline({
         leftPct,
         widthPct,
         centerPct: leftPct + widthPct / 2,
-        range: `${rangeText(seg.start, seg.open ? segEnd : seg.end)} · access${seg.open ? " · ongoing" : ""}`,
+        range: `${rangeText(seg.start, rightEdge)} · access${seg.open ? " · ongoing" : ""}`,
         track: "middle",
         point: false,
         openEnded: false,
