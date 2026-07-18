@@ -238,16 +238,27 @@ export function getOccurrenceDurationMs(e: Entity, now: number): number | null {
   return null
 }
 
-// ACCESS duration of an entity, in ms — accumulated PRESENCE/engagement time (BOTTOM rail =
-// "how long I've been on / worked on this"), Σ each engagement span with the single OPEN one
-// counting LIVE to `now`. `null` when there are no engagements (⇒ no ACCESS row). This is the
-// deliberate counterpart to getOccurrenceDurationMs: two clocks, never merged.
-export function getAccessMs(e: Entity, now: number): number | null {
-  const engagements = getEngagements(e)
-  if (engagements.length === 0) return null
+// Accumulated SESSION time of an entity, in ms — Σ each session span with the single OPEN one
+// counting LIVE to `now`. `null` when there are no matching sessions. Optionally filtered by
+// `via` so the two clocks stay separate (v0.6.26): ACCESS = `focus` (presence / "being there",
+// middle rail), PLAYED = `play` (manual stopwatch, bottom rail). Unfiltered = every session.
+// The deliberate counterpart to getOccurrenceDurationMs: never merged with planned time.
+export function getSessionMs(e: Entity, now: number, via?: Engagement["via"]): number | null {
+  const sessions = getEngagements(e).filter((s) => (via ? s.via === via : true))
+  if (sessions.length === 0) return null
   let total = 0
-  for (const sess of engagements) total += Math.max(0, (sess.endAt ?? now) - sess.startAt)
+  for (const sess of sessions) total += Math.max(0, (sess.endAt ?? now) - sess.startAt)
   return total
+}
+
+/** ACCESS = accumulated PRESENCE (focus sessions). Back-compat name; now focus-only. */
+export function getAccessMs(e: Entity, now: number): number | null {
+  return getSessionMs(e, now, "focus")
+}
+
+/** PLAYED = accumulated MANUAL PLAY (play sessions). */
+export function getPlayedMs(e: Entity, now: number): number | null {
+  return getSessionMs(e, now, "play")
 }
 
 // Human-readable duration: up to THREE adjacent units, from the largest non-zero unit
