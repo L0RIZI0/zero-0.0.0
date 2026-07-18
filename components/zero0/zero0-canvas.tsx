@@ -42,7 +42,7 @@ import {
   endOngoing,
   reorderContextItems,
 } from "@/lib/zero/data"
-  import { KIND_META, isClosed, getState, hasOpenEngagement, occurrenceAction, isMarkable, getInstantMaxNb } from "@/lib/zero/kinds"
+  import { KIND_META, isClosed, getState, hasOpenEngagement, getOpenEngagement, occurrenceAction, isMarkable, getInstantMaxNb } from "@/lib/zero/kinds"
   import { isDone, describeLogEntry } from "@/lib/zero/entity-log"
 import {
   parseEntry,
@@ -316,6 +316,16 @@ export function Zero0Canvas() {
         // its span WITHOUT spinning. Skip done Tasks and already-closed entities (a finished thing
         // shouldn't silently re-open just because you glanced at it).
         if (isDone(e) || isClosed(e)) continue
+        // v0.6.25: an entity may already have an open MANUAL PLAY (via:"play") — e.g. a Space you
+        // Play'd from afar and then navigated into. Don't punch a focus session on top of it and,
+        // crucially, don't register it in `focusOpenRef` (that ref drives auto punch-OUT on
+        // navigation — registering a play there would STOP the stopwatch the moment you leave).
+        // Only NEWLY-opened focus, or an already-open FOCUS (reload continuity), belongs in the ref.
+        const existing = getOpenEngagement(e)
+        if (existing) {
+          if (existing.via === "focus") focusOpenRef.current.add(id) // re-register focus for punch-out
+          continue // leave a manual play running; single slot means no focus atop it
+        }
         if (openEngagement(id, "focus")) {
           focusOpenRef.current.add(id)
           opened = true
@@ -328,19 +338,19 @@ export function Zero0Canvas() {
     }
   }, [mounted, path, bump])
 
-  // SPACE Play/Stop (v0.6.23 MERGE) — "playing a space" == "being there", so it toggles the
-  // space's OWN focus/access engagement (→ middle spine + ongoing state), NOT a top-rail
-  // occurrence. Kept as a standalone helper (declared BEFORE the create handler that also needs
-  // it) so every entry point routes through the SAME `focusOpenRef` sync: a manually-opened
-  // session is tracked for auto punch-out, and a manual Stop while sitting on the space stays
-  // stopped until you navigate (entering a child re-punches it via the dwell effect above).
+  // SPACE Play/Stop (v0.6.25 — corrects the v0.6.23 "merge"). A deliberate glyph/menu Play is a
+  // MANUAL PLAY — a `via:"play"` engagement on the BOTTOM (recorded) rail, exactly like Playing a
+  // whenever/pinned entity — NOT the auto focus/presence that draws the MIDDLE spine. So it is
+  // fully DECOUPLED from `focusOpenRef` (a manual play is a stopwatch: it survives navigation and
+  // runs until you Stop it; it is never auto-punched-out). "Being there" (the middle spine) is
+  // handled independently by the dwell effect. Single slot per entity: if a FOCUS session is
+  // already open (you're viewing the space) a manual play is a no-op — you're already present, so
+  // presence already tracks it (two simultaneous focus+play sessions = deferred, see todos).
   const toggleSpacePlay = useCallback(
     (e: Entity) => {
-      if (hasOpenEngagement(e)) {
-        if (closeEngagement(e.id)) focusOpenRef.current.delete(e.id)
-      } else if (openEngagement(e.id, "focus")) {
-        focusOpenRef.current.add(e.id)
-      }
+      const open = getOpenEngagement(e)
+      if (open?.via === "play") closeEngagement(e.id) // Stop the running manual play
+      else if (!open) openEngagement(e.id, "play") // Start one (nothing else running)
       bump()
     },
     [bump],

@@ -31,7 +31,7 @@ import {
   openEngagement,
   closeEngagement,
 } from "@/lib/zero/data"
-import { isClosed, KIND_META, occurrenceAction, hasOpenEngagement } from "@/lib/zero/kinds"
+import { isClosed, KIND_META, occurrenceAction, getOpenEngagement } from "@/lib/zero/kinds"
 import { isDone } from "@/lib/zero/entity-log"
 import { FACE_SIZES, faceSizeLabel, FACE_MAKES, faceMakeLabel, type FaceSize, type FaceMake } from "@/lib/zero/face-model"
 import type { Entity, EntityKind } from "@/lib/zero/types"
@@ -154,11 +154,13 @@ export function buildEntityMenuItems(
   // cross-midnight adjustment (the create bar's `--start:now` etc. is the fuller path).
   if (!ended) {
     if (entity.kind === "space") {
-      // SPACE (v0.6.23 MERGE) — Play/Stop toggle the space's OWN focus/access engagement (the
-      // middle spine), NOT a top-rail occurrence. "Playing a space" == "being there": Stop while
-      // open, Play while idle. Label reflects the live engagement, not `occurrenceAction` (which
-      // is occurrence-based and would always say "Play" now that Play never sets `startAt`).
-      items.push({ type: "item", id: hasOpenEngagement(entity) ? "stop" : "play", label: hasOpenEngagement(entity) ? "Stop" : "Play" })
+      // SPACE (v0.6.25) — Play/Stop is a MANUAL PLAY: a `via:"play"` engagement on the BOTTOM
+      // (recorded) rail, NOT a top-rail occurrence and NOT the auto focus/presence spine. Label
+      // reflects the running MANUAL PLAY specifically (`via==="play"`), not any open engagement —
+      // so merely VIEWING the space (which opens a focus session) still reads "Play", and Stop only
+      // appears when a manual play is actually running.
+      const playing = getOpenEngagement(entity)?.via === "play"
+      items.push({ type: "item", id: playing ? "stop" : "play", label: playing ? "Stop" : "Play" })
     } else {
       // MOMENT — Play/Stop still drive the OCCURRENCE (a moment IS its occurrence). Play starts an
       // occurrence now (startOccurrence); Stop ends the running one. "Running" = a concrete start
@@ -278,11 +280,11 @@ export function applyEntityMenuAction(entity: Entity, actionId: string): boolean
       setEntityScheduleField(id, "at", Date.now())
       return true
     case "play":
-      // SPACE (v0.6.23): Play OPENS a focus engagement (→ middle spine + ongoing state), never a
-      // top-rail occurrence. MOMENT: Play still starts its occurrence. NOTE: the canvas intercepts
-      // space play/stop BEFORE this dispatcher so it can also sync `focusOpenRef` (punch-out
-      // tracking); this branch is the leak-safe fallback for any non-canvas caller.
-      if (entity.kind === "space") openEngagement(id, "focus")
+      // SPACE (v0.6.25): Play OPENS a MANUAL PLAY engagement (`via:"play"` → BOTTOM rail), never a
+      // top-rail occurrence and never the auto focus/presence spine. MOMENT: Play still starts its
+      // occurrence. NOTE: the canvas intercepts space play/stop BEFORE this dispatcher (routes to
+      // toggleSpacePlay); this branch is the fallback for any non-canvas caller.
+      if (entity.kind === "space") openEngagement(id, "play")
       else startOccurrence(id)
       return true
     case "stop":
