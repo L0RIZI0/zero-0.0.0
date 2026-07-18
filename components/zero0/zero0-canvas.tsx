@@ -34,15 +34,12 @@ import {
   openEngagement,
   closeEngagement,
   setOpenEngagementStart,
-  startOccurrence,
-  endOccurrence,
-  reopenOccurrence,
   markInstant,
   setInstantMax,
   endOngoing,
   reorderContextItems,
 } from "@/lib/zero/data"
-  import { KIND_META, isClosed, getState, hasOpenEngagement, getOpenEngagement, occurrenceAction, isMarkable, getInstantMaxNb } from "@/lib/zero/kinds"
+  import { KIND_META, isClosed, getState, hasOpenEngagement, getOpenEngagement, isMarkable, getInstantMaxNb } from "@/lib/zero/kinds"
   import { isDone, describeLogEntry } from "@/lib/zero/entity-log"
 import {
   parseEntry,
@@ -338,15 +335,14 @@ export function Zero0Canvas() {
     }
   }, [mounted, path, bump])
 
-  // SPACE Play/Stop (v0.6.25 — corrects the v0.6.23 "merge"). A deliberate glyph/menu Play is a
-  // MANUAL PLAY — a `via:"play"` engagement on the BOTTOM (recorded) rail, exactly like Playing a
-  // whenever/pinned entity — NOT the auto focus/presence that draws the MIDDLE spine. So it is
-  // fully DECOUPLED from `focusOpenRef` (a manual play is a stopwatch: it survives navigation and
-  // runs until you Stop it; it is never auto-punched-out). "Being there" (the middle spine) is
-  // handled independently by the dwell effect. Single slot per entity: if a FOCUS session is
-  // already open (you're viewing the space) a manual play is a no-op — you're already present, so
-  // presence already tracks it (two simultaneous focus+play sessions = deferred, see todos).
-  const toggleSpacePlay = useCallback(
+  // MOMENT/SPACE Play/Stop (v0.6.26 — Play ALWAYS opens a SESSION, moments included). A deliberate
+  // glyph/menu Play is a MANUAL PLAY: a `via:"play"` session on the BOTTOM (recorded) rail. It NEVER
+  // writes the scalar startAt/endAt (those are now PLANNED-only, top rail) — killing the phantom
+  // top-rail tick + fake countdown. Fully DECOUPLED from `focusOpenRef` (a manual play is a
+  // stopwatch: it survives navigation and runs until you Stop it; never auto-punched-out). Single
+  // slot per entity: if a FOCUS session is already open (you're viewing it) a manual play is a
+  // no-op — presence already tracks you (two simultaneous focus+play sessions = deferred, see todos).
+  const togglePlaySession = useCallback(
     (e: Entity) => {
       const open = getOpenEngagement(e)
       if (open?.via === "play") closeEngagement(e.id) // Stop the running manual play
@@ -797,24 +793,16 @@ export function Zero0Canvas() {
     [bump, path],
   )
 
-  // PLAY / STOP on the glyph.
-  //   • SPACE (v0.6.23 MERGE): "playing a space" == "being there", so Play/Stop toggle the space's
-  //     OWN focus/access engagement (→ middle spine + ongoing), NOT a top-rail occurrence. This is
-  //     the same shape as toggleDone's reopen-in-place: we sync `focusOpenRef` so the auto punch-
-  //     out still tracks a manually-opened session, and a manual Stop while sitting on the space
-  //     stays stopped until you navigate (entering a child re-punches it via the dwell effect).
-  //   • MOMENT: unchanged — Play/Stop/Reopen drive the OCCURRENCE (a moment IS its occurrence).
+  // PLAY / STOP on a MOMENT/SPACE glyph (v0.6.26) — both open/close a `via:"play"` SESSION (bottom
+  // rail). A moment is no longer "its own occurrence": its SCHEDULED time is PLANNED-only (top rail,
+  // user-set), and PLAYING it records actual time on the bottom rail — the same as a space. This
+  // retires the startOccurrence/endOccurrence/reopenOccurrence Play mechanism (which stamped scalar
+  // startAt/endAt behind the user's back and caused the phantom top-rail tick + countdown).
   const togglePlay = useCallback(
     (e: Entity) => {
-      if (e.kind === "space") return toggleSpacePlay(e)
-      const action = occurrenceAction(e)
-      if (action === "play") startOccurrence(e.id)
-      else if (action === "stop") endOccurrence(e.id)
-      else if (action === "reopen") reopenOccurrence(e.id)
-      else return
-      bump()
+      if (e.kind === "space" || e.kind === "moment") togglePlaySession(e)
     },
-    [bump, toggleSpacePlay],
+    [togglePlaySession],
   )
 
   // MARK an occurrence on a MARKABLE (live) instant glyph — appends a zero-length timestamp
@@ -917,11 +905,12 @@ export function Zero0Canvas() {
   // in the BACKGROUND in parallel, staying on the current canvas.
   const startPin = useCallback(
     (id: string, focus: boolean) => {
-      // A MOMENT/SPACE starts its OCCURRENCE (top rail), consistent with the glyph Play; every
-      // other kind opens a deliberate `play` ENGAGEMENT (bottom-rail work session).
-      const e = getEntity(id)
-      if (e && (e.kind === "moment" || e.kind === "space")) startOccurrence(id)
-      else openEngagement(id, "play")
+      // v0.6.26: EVERY kind (moments/spaces included) opens a deliberate `via:"play"` SESSION
+      // (bottom-rail work session). Previously moment/space went through startOccurrence, which
+      // stamped scalar startAt/endAt — the phantom top-rail tick + countdown, and worse, endPin
+      // (endOngoing) then couldn't stop it (a stamped future endAt made effectiveScheduleEnd
+      // non-null). A play session is closed cleanly by endOngoing → the chip drops out.
+      openEngagement(id, "play")
       if (focus) navigateTo(id)
       bump()
     },
@@ -984,13 +973,14 @@ export function Zero0Canvas() {
         toggleStarterPin(e.id)
         return bump()
       }
-      // SPACE play/stop routes through toggleSpacePlay (v0.6.23) so it syncs `focusOpenRef`;
-      // applyEntityMenuAction would do the same engagement toggle but without punch-out tracking.
-      if (e.kind === "space" && (id === "play" || id === "stop")) return toggleSpacePlay(e)
+      // MOMENT/SPACE play/stop routes through togglePlaySession (v0.6.26) — a `via:"play"` session,
+      // never the scalar occurrence. (applyEntityMenuAction does the same toggle as a fallback.)
+      if ((e.kind === "space" || e.kind === "moment") && (id === "play" || id === "stop"))
+        return togglePlaySession(e)
       applyEntityMenuAction(e, id)
       bump()
     },
-    [bump, toggleSpacePlay],
+    [bump, togglePlaySession],
   )
 
   // Open the entity menu. `opts.size` (passed by the ENTITY CONTENT rows) adds the Size

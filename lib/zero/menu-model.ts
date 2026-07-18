@@ -25,13 +25,10 @@ import {
   reopenEntity,
   changeEntityKind,
   markInstant,
-  startOccurrence,
-  endOccurrence,
-  reopenOccurrence,
   openEngagement,
   closeEngagement,
 } from "@/lib/zero/data"
-import { isClosed, KIND_META, occurrenceAction, getOpenEngagement } from "@/lib/zero/kinds"
+import { isClosed, KIND_META, getOpenEngagement } from "@/lib/zero/kinds"
 import { isDone } from "@/lib/zero/entity-log"
 import { FACE_SIZES, faceSizeLabel, FACE_MAKES, faceMakeLabel, type FaceSize, type FaceMake } from "@/lib/zero/face-model"
 import type { Entity, EntityKind } from "@/lib/zero/types"
@@ -153,22 +150,14 @@ export function buildEntityMenuItems(
   // while live (an ended entity's times are historical). Simple: stamps `Date.now()` with no
   // cross-midnight adjustment (the create bar's `--start:now` etc. is the fuller path).
   if (!ended) {
-    if (entity.kind === "space") {
-      // SPACE (v0.6.25) — Play/Stop is a MANUAL PLAY: a `via:"play"` engagement on the BOTTOM
-      // (recorded) rail, NOT a top-rail occurrence and NOT the auto focus/presence spine. Label
-      // reflects the running MANUAL PLAY specifically (`via==="play"`), not any open engagement —
-      // so merely VIEWING the space (which opens a focus session) still reads "Play", and Stop only
-      // appears when a manual play is actually running.
+    if (entity.kind === "space" || entity.kind === "moment") {
+      // MOMENT/SPACE (v0.6.26) — Play/Stop is a MANUAL PLAY: a `via:"play"` session on the BOTTOM
+      // (recorded) rail, NOT a top-rail occurrence (the scalar start/end is now PLANNED-only) and
+      // NOT the auto focus/presence spine. Label reflects the running MANUAL PLAY specifically
+      // (`via==="play"`), so merely VIEWING (which opens a focus session) still reads "Play", and
+      // Stop only appears when a manual play is actually running.
       const playing = getOpenEngagement(entity)?.via === "play"
       items.push({ type: "item", id: playing ? "stop" : "play", label: playing ? "Stop" : "Play" })
-    } else {
-      // MOMENT — Play/Stop still drive the OCCURRENCE (a moment IS its occurrence). Play starts an
-      // occurrence now (startOccurrence); Stop ends the running one. "Running" = a concrete start
-      // already in the past (a future-scheduled start still shows Play, which starts it now).
-      const occ = occurrenceAction(entity)
-      if (occ === "play" || occ === "stop") {
-        items.push({ type: "item", id: occ, label: occ === "stop" ? "Stop" : "Play" })
-      }
     }
     if (entity.kind === "instant") {
       // MARKABLE instant: Mark records an OCCURRENCE (a timestamp) — the same action as clicking
@@ -271,25 +260,23 @@ export function applyEntityMenuAction(entity: Entity, actionId: string): boolean
       setEntityCancelled(id, true)
       return true
     case "reopen":
-      // For a MOMENT/SPACE, Reopen archives the finished span into occurrences[] and returns it
-      // to a playable (whenever) state; other kinds just un-close.
-      if (entity.kind === "moment" || entity.kind === "space") reopenOccurrence(id)
-      else reopenEntity(id)
+      // v0.6.26: Reopen just UN-CLOSES, for every kind (a moment/space is no longer "complete" via
+      // an elapsed occurrence — Play never sets the scalar start/end anymore, so there's nothing to
+      // archive). PLANNED start/end are left intact (they're pure planning).
+      reopenEntity(id)
       return true
     case "set-now":
       setEntityScheduleField(id, "at", Date.now())
       return true
     case "play":
-      // SPACE (v0.6.25): Play OPENS a MANUAL PLAY engagement (`via:"play"` → BOTTOM rail), never a
-      // top-rail occurrence and never the auto focus/presence spine. MOMENT: Play still starts its
-      // occurrence. NOTE: the canvas intercepts space play/stop BEFORE this dispatcher (routes to
-      // toggleSpacePlay); this branch is the fallback for any non-canvas caller.
-      if (entity.kind === "space") openEngagement(id, "play")
-      else startOccurrence(id)
+      // MOMENT/SPACE (v0.6.26): Play OPENS a MANUAL PLAY session (`via:"play"` → BOTTOM rail), never
+      // a top-rail occurrence and never the auto focus/presence spine. NOTE: the canvas intercepts
+      // moment/space play/stop BEFORE this dispatcher (routes to togglePlaySession); this branch is
+      // the fallback for any non-canvas caller.
+      openEngagement(id, "play")
       return true
     case "stop":
-      if (entity.kind === "space") closeEngagement(id)
-      else endOccurrence(id)
+      closeEngagement(id)
       return true
     case "mark":
       markInstant(id)
