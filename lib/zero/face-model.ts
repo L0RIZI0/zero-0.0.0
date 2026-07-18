@@ -643,6 +643,121 @@ export function getPlayedCells(e: Entity, now: number) {
   return getSessionCells(e, now, "play")
 }
 
+// ─── PLANNED OCCURRENCES model (v0.6.30, Stage B slice 2) ──────────────────────
+// A PLANNED occurrence = one intended span of "this should happen". Sources, unified:
+//   • the PRIMARY scalar span (`schedule.startAt`/`endAt`) — the main planned occurrence, and
+//   • each entry in `schedule.occurrences[]` — ADDITIONAL planned spans ("also Friday").
+// Its STATUS is derived (never stored, except `cancelled`) so it can't rot: see occurrenceStatus.
+
+export type OccurrenceStatus = "cancelled" | "fulfilled" | "missed" | "upcoming"
+
+export interface PlannedOccurrence {
+  startAt?: number // concrete epoch, or undefined ("whenever"/open)
+  endAt?: number
+  whenever?: boolean // startAt is the WHENEVER sentinel (playable, no fixed time)
+  cancelled?: boolean
+  primary?: boolean // the scalar span (vs an occurrences[] entry)
+}
+
+/** Does a session span overlap a planned occurrence's window? Open-ended occ ⇒ [start, ∞). */
+function sessionOverlapsOccurrence(
+  se: { startAt: number; endAt?: number },
+  occStart: number | undefined,
+  occEnd: number | undefined,
+  now: number,
+): boolean {
+  if (occStart == null && occEnd == null) return false // nothing to overlap
+  const seEnd = se.endAt ?? now // an open session counts live to now
+  const lo = occStart ?? -Infinity
+  const hi = occEnd ?? Infinity
+  return se.startAt < hi && seEnd > lo
+}
+
+/**
+ * PURE status of a planned occurrence — ORDER-INDEPENDENT (the `!fulfilled` guard on `missed` is
+ * explicit, so re-ordering the cases can't change the result):
+ *   • cancelled — the stored intent (the user struck it out).
+ *   • fulfilled — ∃ a session (focus OR play) overlapping its window (it was honored — being
+ *                 present during the planned time counts, not just a manual Play).
+ *   • missed    — fully elapsed (`now > end`) AND not fulfilled (nothing happened in the window).
+ *   • upcoming  — everything else (future, whenever/playable, or in-progress with no session yet).
+ * An occurrence with no end can never be "missed" (we can't say the window has passed).
+ */
+export function occurrenceStatus(
+  occ: PlannedOccurrence,
+  sessions: { startAt: number; endAt?: number }[],
+  now: number,
+): OccurrenceStatus {
+  if (occ.cancelled) return "cancelled"
+  const fulfilled = sessions.some((se) => sessionOverlapsOccurrence(se, occ.startAt, occ.endAt, now))
+  if (fulfilled) return "fulfilled"
+  const missed = occ.endAt != null && now > occ.endAt && !fulfilled
+  if (missed) return "missed"
+  return "upcoming"
+}
+
+/** The unified list of planned occurrences (primary scalar span first, then occurrences[]). */
+export function getPlannedOccurrences(e: Entity): PlannedOccurrence[] {
+  const s = e.schedule
+  const list: PlannedOccurrence[] = []
+  const cs = concreteStart(e) // concrete epoch, else null ("whenever"/unset)
+  const isWhenever = s?.startAt === WHENEVER
+  if (cs != null || s?.endAt != null || isWhenever) {
+    list.push({ startAt: cs ?? undefined, endAt: s?.endAt, whenever: isWhenever, primary: true })
+  }
+  for (const occ of s?.occurrences ?? []) {
+    list.push({ startAt: occ.startAt, endAt: occ.endAt, cancelled: occ.cancelled })
+  }
+  return list
+}
+
+/** One planned occurrence rendered as `<when>[–<end>] (<status>)`; sentinel/open handled. */
+function formatPlannedOccurrence(occ: PlannedOccurrence, status: OccurrenceStatus, now: number): string {
+  const when = occ.whenever
+    ? "whenever"
+    : occ.startAt != null
+      ? fmtShort(occ.startAt, now)
+      : occ.endAt != null
+        ? `by ${fmtShort(occ.endAt, now)}`
+        : "—"
+  const span = occ.startAt != null && occ.endAt != null ? `${when}–${fmtShort(occ.endAt, now)}` : when
+  return `${span} (${status})`
+}
+
+/**
+ * The PLANNED OCCURRENCES §0 value (v0.6.30) — a status COUNT prefix + the tagged list, e.g.
+ * `1 done · 2 ahead · 1 missed — Mon 1:00 PM–2:00 PM (missed) · Fri (upcoming) · …`. `null` when
+ * there's nothing worth a dedicated row (no planned occurrences, or a single still-upcoming span
+ * that PLANNED START/END already shows). Each COUNT is sourced from exactly one layer (the planned
+ * status resolver); the actual "N times · last" lives on the separate OCCURRENCES row.
+ */
+export function getPlannedOccurrenceRow(e: Entity, now: number): string | null {
+  const planned = getPlannedOccurrences(e)
+  if (planned.length === 0) return null
+  const sessions = getEngagements(e) // focus OR play both fulfil a planned occurrence
+  const tagged = planned.map((o) => [o, occurrenceStatus(o, sessions, now)] as const)
+  // Skip the row when it adds nothing over PLANNED START/END: a lone, still-upcoming primary span.
+  const worth = tagged.length > 1 || tagged.some(([, st]) => st !== "upcoming")
+  if (!worth) return null
+  let done = 0
+  let ahead = 0
+  let missed = 0
+  let cancelled = 0
+  for (const [, st] of tagged) {
+    if (st === "fulfilled") done++
+    else if (st === "upcoming") ahead++
+    else if (st === "missed") missed++
+    else cancelled++
+  }
+  const counts: string[] = []
+  if (done) counts.push(`${done} done`)
+  if (ahead) counts.push(`${ahead} ahead`)
+  if (missed) counts.push(`${missed} missed`)
+  if (cancelled) counts.push(`${cancelled} cancelled`)
+  const list = tagged.map(([o, st]) => formatPlannedOccurrence(o, st, now)).join(" · ")
+  return `${counts.join(" · ")} — ${list}`
+}
+
 export function getFaceMetaRows(e: Entity, now: number): [string, string][] {
   const meta = KIND_META[e.kind]
   const rows: [string, string][] = []
@@ -735,6 +850,14 @@ export function getFaceMetaRows(e: Entity, now: number): [string, string][] {
     const durLabel = isBeingKind ? "age" : isPlanned ? "planned duration" : "duration"
     const durMs = isPlanned ? getPlannedDurationMs(e) : getOccurrenceDurationMs(e, now)
     rows.push([durLabel, durMs == null ? "—" : formatDuration(durMs)])
+  }
+  // PLANNED OCCURRENCES (v0.6.30) — the plan's intended spans (primary scalar span ∪ occurrences[]),
+  // each tagged with a DERIVED status (done / ahead / missed / cancelled), led by the counts. The
+  // PLAN side; kept separate from the actual OCCURRENCES row below (never merged). Shown only when
+  // it adds info over PLANNED START/END (multi-span, or any non-upcoming status).
+  if (isPlannedKind(e.kind)) {
+    const plannedRow = getPlannedOccurrenceRow(e, now)
+    if (plannedRow) rows.push(["planned occurrences", plannedRow])
   }
   // ACCESS — accumulated PRESENCE time (BOTTOM rail = "how long I've been on / worked on this"),
   // its own row for ANY kind that's been engaged, DECOUPLED from the occurrence duration above.

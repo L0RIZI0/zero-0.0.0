@@ -1690,6 +1690,28 @@ export function reopenOccurrence(id: string): boolean {
   return true
 }
 
+/**
+ * CANCEL (or un-cancel) a planned occurrence (v0.6.30) — mark an `occurrences[]` entry as
+ * `cancelled` (or clear it). `index` targets the entry in `schedule.occurrences[]`. Cancellation
+ * is the ONE stored occurrence status (intent, unobservable from data); the entry STAYS in the
+ * list as a struck-out recorded attempt. `cancelled` defaults to true (the common call). Returns
+ * false when there's no such entry.
+ */
+export function setOccurrenceCancelled(id: string, index: number, cancelled = true): boolean {
+  const stored = byId.get(id)
+  const occs = stored?.schedule?.occurrences
+  if (!stored || !occs || index < 0 || index >= occs.length) return false
+  const sched: Schedule = { ...(stored.schedule ?? {}) }
+  sched.occurrences = occs.map((o, i) => (i === index ? { ...o, cancelled } : o))
+  const entity = mutable(stored)
+  entity.schedule = sched
+  if (!userEntityIds.has(id)) {
+    seededOverrides.set(id, { ...seededOverrides.get(id), schedule: sched })
+  }
+  persist()
+  return true
+}
+
 // ----------------------------------------------------------------------------
 // Per-context ORDER �� the user's drag-and-drop sibling order for a do-list.
 // Scoped per context (like pins): `contextId` → the ordered child ids. A context

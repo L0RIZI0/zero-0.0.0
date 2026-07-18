@@ -274,7 +274,7 @@ export interface Schedule {
    * the current live state. `duration` is preserved on reopen as the default length for the next
    * Play. Non-recurring only (a recurring schedule already yields multiple points via the expander).
    */
-  occurrences?: { startAt: Epoch; endAt?: Epoch }[]
+  occurrences?: { startAt: Epoch; endAt?: Epoch; cancelled?: boolean }[]
   /**
    * INSTANT max authorized OCCURRENCES before it COMPLETES (fills its glyph). Default 1 (an
    * instant is a UNIQUE occurrence — completes the moment its scheduled `at` passes, or on its
