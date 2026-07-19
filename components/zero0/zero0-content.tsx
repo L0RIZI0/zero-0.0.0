@@ -360,7 +360,10 @@ export function Zero0Content({ entity, axis, depth, ancestry, ctx, isRoot, mount
                   endDrag(true)
                 }}
                 className={
-                  "group border-b border-border/60 py-1.5 transition-opacity " +
+                  // Subtle row hover tint (v0.2.151) — a faint muted band on hover so the row
+                  // under the cursor reads as a unit. Interaction is still title-only (the tint
+                  // is purely visual; the title button owns the drill).
+                  "group border-b border-border/60 py-1.5 transition-[opacity,background-color] hover:bg-muted/40 " +
                   (closed ? "opacity-60 " : "") +
                   (isDragging ? "opacity-40 " : "") +
                   // Inline rungs lay the columns out on a single baseline; block rungs stack

@@ -473,18 +473,23 @@ export function Zero0Face({
             style={{ backgroundColor: model.accent }}
           />
         )}
-        {/* Title — click to DRILL IN. Strikethrough only when CANCELLED (plain closed just fades). */}
+        {/* Title — click to DRILL IN. Only the TITLE TEXT is the drill target (v0.2.151): the
+            button shrinks to its content (no longer flex-1), so clicking empty row space does
+            nothing. Strikethrough only when CANCELLED (plain closed just fades). */}
         <button
           type="button"
           onClick={() => onOpen?.(entity)}
           className={
-            "flex-1 truncate text-left text-foreground underline-offset-2 hover:underline " +
+            "min-w-0 shrink truncate text-left text-foreground underline-offset-2 hover:underline " +
             (model.cancelled ? "line-through" : "")
           }
           title="Open"
         >
           {hiddenPrefix ? `(hidden) ${model.title}` : model.title}
         </button>
+        {/* Inert spacer — absorbs the free width the title used to eat, keeping the meta echo /
+            lifecycle token flush right while leaving this gap NON-interactive (no drill). */}
+        <span aria-hidden className="flex-1" />
         {/* Kind-relevant METAFIELD echo — schedule/duration/identity. For a `starter` this
             is REPLACED by the Content rollup ("12 · 3 open · 4h"). Hidden (no gap cost) when
             there's nothing to show. */}
@@ -514,17 +519,19 @@ export function Zero0Face({
     return (
       <>
         <FaceGlyph entity={entity} model={model} size="m" onToggleDone={toggle} onTogglePlay={onTogglePlay} onMark={onMark} />
+        {/* Title-only drill (v0.2.151): shrinks to its text, inert spacer takes the rest. */}
         <button
           type="button"
           onClick={() => onOpen?.(entity)}
           className={
-            "flex-1 truncate text-left text-foreground underline-offset-2 hover:underline " +
+            "min-w-0 shrink truncate text-left text-foreground underline-offset-2 hover:underline " +
             (model.cancelled ? "line-through" : "")
           }
           title="Open"
         >
           {hiddenPrefix ? `(hidden) ${model.title}` : model.title}
         </button>
+        <span aria-hidden className="flex-1" />
         {/* A `starter` trades the lifecycle word for the Content rollup. */}
         {(starterEcho ?? model.lifeLabel) && (
           <span className="shrink-0 text-right text-muted-foreground/60">

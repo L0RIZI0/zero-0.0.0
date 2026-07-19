@@ -35,7 +35,7 @@ import type { EntityKind } from "@/lib/zero/types"
  * never made "ongoing" by what they contain (see the ONGOING + rollup note below).
  */
 
-/** A glyph is either a real runtime kind (drawn by NodeGlyph) or one of the two
+/** A glyph is either a real runtime kind (drawn by Zero0Glyph) or one of the two
  *  document-only abstractions drawn inline here. */
 type GlyphKey = EntityKind | "entity" | "everything"
 
@@ -48,7 +48,7 @@ type GlyphKey = EntityKind | "entity" | "everything"
  *   - `faded`     → CLOSED (the row fades). Alone = a terminal close (retire/die) that
  *                   keeps its outline; with `filled` = a fillable kind's complete;
  *   - `struck`    → CANCELLED (a bar over the glyph + strikethrough — also closes).
- * `filled`/`showCheck`/`struck` are drawn by NodeGlyph; `faded` is applied as opacity
+ * `filled`/`showCheck`/`struck` are drawn by Zero0Glyph; `faded` is applied as opacity
  * at the chip level.
  */
 type GlyphStateSpec = {
@@ -325,8 +325,8 @@ const STATE_WORDS: { word: string; blurb: string }[] = [
   { word: "open", blurb: "The resting default. Death-terminal beings render this as \u201Calive.\u201D" },
 ]
 
-/** The two document-only glyphs (no NodeGlyph entry). Drawn to sit in a 24-box,
- *  inheriting the current text color like NodeGlyph does. */
+/** The two document-only glyphs (no Zero0Glyph entry). Drawn to sit in a 24-box,
+ *  inheriting the current text color like Zero0Glyph does. */
 function EntityGlyph() {
   // A plus sign with a MISSING CENTER — four bars pointing in from the edges,
   // leaving a gap in the middle.
@@ -350,7 +350,7 @@ function EverythingGlyph() {
   )
 }
 
-/** Renders a row's glyph — a real kind via NodeGlyph, or a document-only inline glyph. */
+/** Renders a row's glyph — a real kind via Zero0Glyph, or a document-only inline glyph. */
 function RowGlyph({ glyph }: { glyph: GlyphKey }) {
   if (glyph === "entity") return <EntityGlyph />
   if (glyph === "everything") return <EverythingGlyph />
@@ -610,7 +610,7 @@ function GlyphState({
   faded = false,
   label,
 }: {
-  kind: NodeKind
+  kind: EntityKind
   filled?: boolean
   showCheck?: boolean
   struck?: boolean
@@ -624,7 +624,7 @@ function GlyphState({
         className="inline-flex h-8 w-8 items-center justify-center text-foreground"
         style={faded ? { opacity: 0.5 } : undefined}
       >
-        <NodeGlyph kind={kind} filled={filled} showCheck={showCheck} struck={struck} />
+        <Zero0Glyph kind={kind} filled={filled} done={showCheck} cancelled={struck} />
       </span>
       <span className="text-pretty text-[11px] leading-relaxed text-muted-foreground">{label}</span>
     </li>
