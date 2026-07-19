@@ -555,9 +555,12 @@ export function Zero0Dayline({
       // COALESCE into runs (display only — see SESSION_MERGE_GAP_MS): walk sessions oldest→newest
       // and merge any whose gap from the current run's end is ≤ the threshold into one span. An
       // OPEN session extends the run to `now` and seals it (can't merge past a still-running one).
-      type Run = { start: number; end: number; open: boolean; via?: string; count: number }
+      type Run = { start: number; end: number; open: boolean; via?: string; auto?: boolean; count: number }
       const runs: Run[] = []
       for (const sess of [...list].sort((a, b) => a.startAt - b.startAt)) {
+        // v0.6.34: an AUTO play (ongoing-on-enter) is presence-like — it belongs to the MIDDLE
+        // access spine via its twin focus session, NOT the recorded (manual) rail. Skip it here.
+        if (sess.via === "play" && sess.auto) continue
         const sOpen = sess.endAt == null
         const sEnd = sess.endAt ?? now
         const cur = runs[runs.length - 1]

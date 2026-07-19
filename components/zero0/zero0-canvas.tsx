@@ -351,7 +351,9 @@ export function Zero0Canvas() {
         if (canAutoPlay(e)) {
           if (hasOpenEngagement(e, "play")) {
             playOpenRef.current.add(id)
-          } else if (openEngagement(id, "play")) {
+          } else if (openEngagement(id, "play", Date.now(), { auto: true })) {
+            // v0.6.34: {auto:true} → this ongoing-on-enter play spins/counts DURATION but is kept
+            // OFF the recorded rail + OCCURRENCES tally (it's presence-like, not deliberate activity).
             playOpenRef.current.add(id)
             opened = true
           }
@@ -832,8 +834,9 @@ export function Zero0Canvas() {
       const nowDone = !isDone(e)
       setEntityCompleted(e.id, nowDone)
       if (!nowDone && canAutoPlay(e) && path.includes(e.id)) {
-        // Un-done in place while still viewing it → resume ongoing now.
-        if (openEngagement(e.id, "play")) playOpenRef.current.add(e.id)
+        // Un-done in place while still viewing it → resume ongoing now (auto, like enter — keeps it
+        // off the recorded rail + OCCURRENCES tally).
+        if (openEngagement(e.id, "play", Date.now(), { auto: true })) playOpenRef.current.add(e.id)
       }
       bump()
     },

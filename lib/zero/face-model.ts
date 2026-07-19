@@ -945,7 +945,9 @@ export function getFaceMetaRows(e: Entity, now: number): [string, string][] {
   // (getPlannedOccurrenceRow — the old standalone "planned occurrences" row, now MERGED in here).
   // Shown when either side has something. SKIPPED for instant (its mark-tally occurrences row above).
   if (e.kind !== "instant") {
-    const playCount = getEngagements(e).filter((s) => s.via === "play" && s.endAt !== s.startAt).length
+    // v0.6.34: count DELIBERATE plays only — an AUTO play (ongoing-on-enter) is presence, not a
+    // deliberate occurrence ("I entered it" ≠ "it happened N times").
+    const playCount = getEngagements(e).filter((s) => s.via === "play" && !s.auto && s.endAt !== s.startAt).length
     const plannedList = isPlannedKind(e.kind) ? getPlannedOccurrenceRow(e, now) : null
     const parts: string[] = []
     if (playCount > 0) parts.push(`${playCount} ${playCount === 1 ? "time" : "times"}`)

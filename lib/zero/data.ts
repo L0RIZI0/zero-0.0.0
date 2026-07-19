@@ -1448,14 +1448,23 @@ function persistEngagementMutation(id: string, entity: LooseEntity, sched: Sched
  * punch-ins vs play stopwatches so hydrate-cleanup can close dangling focus engagements
  * while leaving play stopwatches running. Returns true if an engagement is now open.
  */
-export function openEngagement(id: string, via: Engagement["via"] = "focus", at = Date.now()): boolean {
+export function openEngagement(
+  id: string,
+  via: Engagement["via"] = "focus",
+  at = Date.now(),
+  opts?: { auto?: boolean },
+): boolean {
   const stored = byId.get(id)
   if (!stored) return false
   if (hasOpenEngagement(stored, via)) return true // this rail already running — no-op (v0.6.32:
   // per-via, so an open `focus` doesn't block opening `play` and vice versa — the two run concurrently)
   const entity = mutable(stored)
   const sched: Schedule = { ...(entity.schedule ?? {}) }
-  sched.engagements = [...(sched.engagements ?? []), { startAt: at, via }]
+  // v0.6.34: tag an AUTO play (ongoing-on-enter) so it spins/counts DURATION but stays off the
+  // recorded rail + OCCURRENCES tally. Only stamped on play; focus/mark never carry `auto`.
+  const session: Engagement = { startAt: at, via }
+  if (opts?.auto && via === "play") session.auto = true
+  sched.engagements = [...(sched.engagements ?? []), session]
   const log = ensureEntityLog(entity)
   entity.log = appendInstant(log, makeInstant("session-open", at))
   persistEngagementMutation(id, entity, sched)

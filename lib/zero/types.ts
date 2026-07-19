@@ -231,6 +231,13 @@ export interface Engagement {
    *  on reload while leaving PLAY stopwatches running (marks are always closed, so untouched).
    *  Absent ⇒ "focus". */
   via?: "focus" | "play" | "mark"
+  /**
+   * AUTO (v0.6.34) — true for a `play` session opened AUTOMATICALLY by ONGOING-ON-ENTER (drilling
+   * into a task/resource/space), vs a DELIBERATE Play. Both spin the glyph and count toward
+   * DURATION (ongoing time), but an AUTO play is presence-like: EXCLUDED from the dayline's
+   * RECORDED (bottom) rail — deliberate activity only — and from the OCCURRENCES "N times" tally
+   * (entering ≠ a deliberate occurrence). Absent ⇒ deliberate. Only meaningful on `play` sessions. */
+  auto?: boolean
 }
 
 export interface Schedule {
