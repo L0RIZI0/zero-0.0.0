@@ -511,7 +511,7 @@ function ContentRow({
       onClick={() => ctx.toggleExpand(e.id)}
       onPointerDown={(ev) => ev.stopPropagation()}
       className={
-        "w-4 shrink-0 text-left text-sm leading-none transition-colors hover:text-foreground " +
+        "w-4 shrink-0 text-center text-sm leading-none transition-colors hover:text-foreground " +
         (hasChildren ? "text-muted-foreground" : "text-muted-foreground/40")
       }
       aria-label={expanded ? `Collapse ${e.title}` : `Expand ${e.title}`}
@@ -522,7 +522,16 @@ function ContentRow({
   ) : (
     <span className="w-4 shrink-0" aria-hidden />
   )
-  const indexCell = <span className="w-6 shrink-0 text-right text-muted-foreground">{num2}</span>
+  const indexCell = <span className="w-6 shrink-0 text-left text-muted-foreground">{num2}</span>
+  // Caret + index are ONE tight group so the row's `gap-3` sits between this lead and the face
+  // — not between the chevron and the number (which produced a big empty gap when the caret was
+  // left-aligned and the number right-aligned). Internal `gap-1` keeps them visually paired.
+  const leadCell = (
+    <span className="flex shrink-0 items-baseline gap-1">
+      {caretCell}
+      {indexCell}
+    </span>
+  )
   const deleteCell = (
     <button
       type="button"
@@ -593,15 +602,13 @@ function ContentRow({
           >
             {isBlock ? (
               <div className="flex items-baseline gap-3">
-                {caretCell}
-                {indexCell}
+                {leadCell}
                 <div className="min-w-0 flex-1">{face}</div>
                 {deleteCell}
               </div>
             ) : (
               <>
-                {caretCell}
-                {indexCell}
+                {leadCell}
                 {face}
                 {deleteCell}
               </>

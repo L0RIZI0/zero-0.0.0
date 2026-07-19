@@ -605,18 +605,19 @@ export function parseEntry(raw: string): EntryParse {
  *   - `--due`               ⇒ task (a deadline is a task thing)
  *   - `--start` / `--end`   ⇒ moment (a span)
  *   - `--at`                ⇒ instant (a point)
- *   - else                  ⇒ MOMENT (the neutral default)
- * The default is MOMENT (was `task`): most of what a person logs on their canvas is
- * something that HAPPENS in time, and a Moment is the most general timed thing (a Task is
- * the special case that adds a deadline + done-state). Verb-based inference was DROPPED —
- * titles are now kept verbatim (see the deferred past→present note in zero-create-field.md)
- * and the kind no longer depends on guessing a leading verb. Deterministic; the fields (not
- * the words) decide point-vs-span, and only when the user states them.
+ *   - else                  ⇒ TASK (the neutral default)
+ * The default is TASK (by request, Jul 2026 — was `moment`): a bare entry with no scheduling
+ * fields is most often something the user intends to DO, so a Task (with its done-state) is
+ * the friendlier default. The FIELD-based inference is unchanged: stating `--start/--end`
+ * still makes a Moment (a span), `--at` an Instant, `--due` a Task. Verb-based inference was
+ * DROPPED — titles are kept verbatim (see the deferred past→present note in
+ * zero-create-field.md). Deterministic; the fields (not the words) decide, and only when the
+ * user states them.
  */
 export function inferKind(_title: string, attrs: EntryAttr[]): EntityKind {
   const has = (f: string) => attrs.some((a) => a.field === f && a.value !== "")
   if (has("due")) return "task"
   if (has("start") || has("end")) return "moment"
   if (has("at")) return "instant"
-  return "moment"
+  return "task"
 }

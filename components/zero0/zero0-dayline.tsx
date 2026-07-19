@@ -1212,8 +1212,11 @@ export function Zero0Dayline({
         className="absolute left-0 flex items-center whitespace-nowrap leading-none will-change-transform"
         // On the COMBINED lane, center the label across the WHOLE planned rail region [0, seam]
         // (band top → seam) so it has symmetric top/bottom margins, and it STAYS anchored to the
-        // planned rail as more sub-lanes grow the band downward. Other lanes center in full height.
-        style={combined ? { top: 0, height: seam } : { top: 0, bottom: 0 }}
+        // planned rail as more sub-lanes grow the band downward. This `height: seam` anchoring is
+        // ONLY meaningful for the MINIMIZED in-band overlay; in MAXIMIZED mode these labels sit in
+        // a separate `h-3` strip ABOVE the band, so anchoring to `seam` (~20px in the three-rail
+        // lane) overflowed the 12px strip and clipped the text. Maximized just fills the strip.
+        style={combined && minimized ? { top: 0, height: seam } : { top: 0, bottom: 0 }}
       >
         {dm.label}
       </span>
