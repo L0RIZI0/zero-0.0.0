@@ -135,13 +135,13 @@ export function Zero0Content({ entity, axis, depth, ancestry, ctx, isRoot, mount
   // The id being dragged (for the DragOverlay clone) and where it will land.
   const [activeId, setActiveId] = useState<string | null>(null)
   const [dropIntent, setDropIntent] = useState<DropIntent | null>(null)
-  // The cursor's Y at drag start — combined with dnd-kit's live `delta.y` (from onDragMove,
-  // which fires on EVERY pointer move) this reconstructs the real-time pointer Y. We then
-  // hit-test our OWN row rects against it rather than trusting dnd-kit's `over` (which lagged
-  // the cursor by a row or two). See onDragMove.
-  const pointerStartYRef = useRef(0)
   // The <ul> holding this level's rows — used to read the direct-child row rects live.
   const listRef = useRef<HTMLUListElement>(null)
+  // While dragging we listen to the REAL cursor via a window `pointermove` (e.clientY is
+  // always accurate — no reliance on dnd-kit geometry, delta math, or a stored drag-start Y,
+  // all of which produced a lagging / "snap to top" indicator). Kept in a ref so we can
+  // detach it on drop/cancel.
+  const moveHandlerRef = useRef<((e: PointerEvent) => void) | null>(null)
 
   // A plain click must still drill (title) / toggle (glyph) even though the whole row is a
   // drag source: a 6px activation distance means the drag only begins once the pointer
