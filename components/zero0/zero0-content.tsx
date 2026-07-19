@@ -9,7 +9,7 @@ import {
   useSensors,
   pointerWithin,
   type DragStartEvent,
-  type DragOverEvent,
+  type DragMoveEvent,
   type DragEndEvent,
 } from "@dnd-kit/core"
 import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable"
@@ -37,12 +37,14 @@ import type { Entity } from "@/lib/zero/types"
 // chrome, but every ACTION and every cross-cutting VIEW accessor is threaded in via `ctx`
 // (memoized once in the canvas) so the whole recursive tree shares one set of handlers.
 //
-// DRAG-AND-DROP (v0.2.152): powered by @dnd-kit (sortable + nestable) with motion for a
-// buttery lift/settle — deliberately RICHER than the /0 minimal aesthetic, since this is an
+// DRAG-AND-DROP (v0.2.152, reworked v0.2.154): powered by @dnd-kit with motion for a buttery
+// lift/settle — deliberately RICHER than the /0 minimal aesthetic, since this is an
 // interaction surface. The WHOLE ROW is draggable (a 6px activation distance means a plain
-// click still drills via the title); dropping on a row's TOP/BOTTOM edge REORDERS
-// before/after it, dropping on its MIDDLE BAND NESTS the dragged entity INTO it (reparent).
-// Each Content level owns its own DndContext, so a drag is scoped to one level's siblings.
+// click still drills via the title). SIBLING REORDER ONLY: dropping above/below a row's
+// midpoint places the dragged row before/after it. Drop position is decided by hit-testing
+// the LIVE cursor Y (onDragMove) against this level's own row rects — NOT dnd-kit's `over`,
+// which lagged. Each Content level owns its own DndContext (drag scoped to that level).
+// NEST-into is deferred to a future dwell-to-expand gesture (see DropMode note below).
 
 export interface Zero0ContentCtx {
   /** Toggle a task's soft DONE marker. */
@@ -90,8 +92,11 @@ export type ContentAxis = "list"
 
 // Where a drop will land relative to the row under the cursor.
 //   before/after → REORDER (sit above/below the target sibling)
-//   inside       → NEST (become a child of the target)
-type DropMode = "before" | "after" | "inside"
+// NOTE (v0.2.154): NEST-into ("inside") is intentionally DROPPED for now — sibling reorder
+// only. The future nesting gesture is dwell-to-expand (hover a target long enough → it
+// auto-expands so you can drop the row precisely into its child list). The `reparent` ctx
+// action + `moveEntityToContext` data helper stay in place for that.
+type DropMode = "before" | "after"
 interface DropIntent {
   overId: string
   mode: DropMode
@@ -130,10 +135,13 @@ export function Zero0Content({ entity, axis, depth, ancestry, ctx, isRoot, mount
   // The id being dragged (for the DragOverlay clone) and where it will land.
   const [activeId, setActiveId] = useState<string | null>(null)
   const [dropIntent, setDropIntent] = useState<DropIntent | null>(null)
-  // The cursor's Y at drag start — combined with dnd-kit's live `delta.y` this gives the
-  // real-time pointer Y, so the before/after/inside decision follows the actual CURSOR
-  // rather than the dragged row's geometric center (which drifts for tall rows).
+  // The cursor's Y at drag start — combined with dnd-kit's live `delta.y` (from onDragMove,
+  // which fires on EVERY pointer move) this reconstructs the real-time pointer Y. We then
+  // hit-test our OWN row rects against it rather than trusting dnd-kit's `over` (which lagged
+  // the cursor by a row or two). See onDragMove.
   const pointerStartYRef = useRef(0)
+  // The <ul> holding this level's rows — used to read the direct-child row rects live.
+  const listRef = useRef<HTMLUListElement>(null)
 
   // A plain click must still drill (title) / toggle (glyph) even though the whole row is a
   // drag source: a 6px activation distance means the drag only begins once the pointer
@@ -171,23 +179,41 @@ export function Zero0Content({ entity, axis, depth, ancestry, ctx, isRoot, mount
 
   const sortableIds = useMemo(() => childRows.map((r) => r.e.id), [childRows])
 
-  // Given the row under the cursor, decide before / after / inside from which third of the
-  // row the dragged item's CENTER sits in. Uses dnd-kit's translated active rect (which
-  // tracks the pointer delta even with a DragOverlay) against the over row's rect.
-  const onDragOver = (event: DragOverEvent) => {
-    const { active, over, delta } = event
-    if (!over || over.id === active.id) {
+  // Decide before/after by hit-testing the LIVE cursor Y against this level's own row rects.
+  // onDragMove fires on every pointer move (unlike onDragOver, which only fires when dnd-kit's
+  // `over` changes), and we ignore `over` entirely — the earlier lag came from trusting it.
+  const onDragMove = (event: DragMoveEvent) => {
+    const draggedId = String(event.active.id)
+    const pointerY = pointerStartYRef.current + event.delta.y
+    const list = listRef.current
+    if (!list) return
+    // Direct-child rows only (`:scope >`), so a nested Content's rows don't leak into this
+    // level's hit-test. Exclude the dragged row itself.
+    const rows = Array.from(list.querySelectorAll<HTMLElement>(":scope > [data-drag-id]")).filter(
+      (el) => el.dataset.dragId !== draggedId,
+    )
+    if (rows.length === 0) {
       setDropIntent(null)
       return
     }
-    const overRect = over.rect
-    // Live cursor Y = where the pointer started + how far dnd-kit says it has moved.
-    const pointerY = pointerStartYRef.current + delta.y
-    const ratio = (pointerY - overRect.top) / overRect.height
-    const mode: DropMode = ratio < 0.3 ? "before" : ratio > 0.7 ? "after" : "inside"
-    setDropIntent((cur) =>
-      cur && cur.overId === String(over.id) && cur.mode === mode ? cur : { overId: String(over.id), mode },
-    )
+    let next: DropIntent | null = null
+    for (const el of rows) {
+      const r = el.getBoundingClientRect()
+      if (pointerY >= r.top && pointerY <= r.bottom) {
+        next = { overId: el.dataset.dragId!, mode: pointerY < r.top + r.height / 2 ? "before" : "after" }
+        break
+      }
+    }
+    // Cursor above the first row → drop before it; below the last → drop after it.
+    if (!next) {
+      const first = rows[0].getBoundingClientRect()
+      if (pointerY < first.top) next = { overId: rows[0].dataset.dragId!, mode: "before" }
+      else {
+        const last = rows[rows.length - 1]
+        next = { overId: last.dataset.dragId!, mode: "after" }
+      }
+    }
+    setDropIntent((cur) => (cur && cur.overId === next!.overId && cur.mode === next!.mode ? cur : next))
   }
 
   const onDragStart = (event: DragStartEvent) => {
@@ -209,11 +235,6 @@ export function Zero0Content({ entity, axis, depth, ancestry, ctx, isRoot, mount
     const intent = dropIntent
     clearDrag()
     if (!intent || intent.overId === draggedId) return
-    if (intent.mode === "inside") {
-      // NEST — the dragged entity becomes a child of the target row.
-      ctx.reparent(draggedId, intent.overId)
-      return
-    }
     // REORDER — rebuild the full visible sibling order with the dragged id removed then
     // re-inserted before/after the target.
     const ids = sortableIds.filter((id) => id !== draggedId)
@@ -245,12 +266,12 @@ export function Zero0Content({ entity, axis, depth, ancestry, ctx, isRoot, mount
       collisionDetection={pointerWithin}
       modifiers={[restrictToVerticalAxis]}
       onDragStart={onDragStart}
-      onDragOver={onDragOver}
+      onDragMove={onDragMove}
       onDragEnd={onDragEnd}
       onDragCancel={clearDrag}
     >
       <SortableContext items={sortableIds} strategy={verticalListSortingStrategy}>
-        <ul className="text-[11px] tabular-nums">
+        <ul ref={listRef} className="text-[11px] tabular-nums">
           {childRows.map((row) => (
             <ContentRow
               key={row.e.id}
@@ -394,6 +415,7 @@ function ContentRow({
     // (which owns height). The collapse wrapper stays MOUNTED so hide + show both animate.
     <motion.li
       ref={setNodeRef}
+      data-drag-id={e.id}
       layout="position"
       transition={{ type: "spring", stiffness: 600, damping: 40 }}
       className="grid transition-[grid-template-rows,opacity] duration-[650ms] ease-[cubic-bezier(0.33,1,0.68,1)] motion-reduce:transition-none"
@@ -422,12 +444,8 @@ function ContentRow({
               ctx.setHoveredRowId(null)
             }}
             className={
-              // Whole row is the drag handle; grab cursor hints it. Subtle hover tint; a NEST
-              // (inside) target gets a ring + tint so it reads as "drop in here".
-              "group cursor-grab touch-none rounded-sm border-b border-border/60 py-1.5 transition-[opacity,background-color,box-shadow] active:cursor-grabbing motion-reduce:transition-none " +
-              (intentHere === "inside"
-                ? "bg-primary/10 ring-1 ring-inset ring-primary/60 "
-                : "hover:bg-muted/40 ") +
+              // Whole row is the drag handle; grab cursor hints it. Subtle hover tint.
+              "group cursor-grab touch-none rounded-sm border-b border-border/60 py-1.5 transition-[opacity,background-color] hover:bg-muted/40 active:cursor-grabbing motion-reduce:transition-none " +
               (closed ? "opacity-60 " : "") +
               // Source row while it's being dragged: SLIGHTLY translucent (a ghost left in
               // place) — the lifted DragOverlay clone is what reads as fully opaque.
