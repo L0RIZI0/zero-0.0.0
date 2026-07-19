@@ -38,6 +38,7 @@ import {
   setInstantMax,
   endOngoing,
   reorderContextItems,
+  moveEntityToContext,
 } from "@/lib/zero/data"
   import { KIND_META, getState, isClosed, hasOpenEngagement, getOpenEngagement, isMarkable, getInstantMaxNb } from "@/lib/zero/kinds"
   import { isDone, describeLogEntry } from "@/lib/zero/entity-log"
@@ -1088,6 +1089,15 @@ export function Zero0Canvas() {
     [bump],
   )
 
+  // Drop-INTO-nest: move an entity so it becomes a child of another (drag a row onto the
+  // middle of another row). No-op on self/cycle (guarded in moveEntityToContext).
+  const reparent = useCallback(
+    (entityId: string, newContextId: string) => {
+      if (moveEntityToContext(entityId, newContextId)) bump()
+    },
+    [bump],
+  )
+
   const contentCtx: Zero0ContentCtx = useMemo(
     () => ({
       toggleDone,
@@ -1106,8 +1116,9 @@ export function Zero0Canvas() {
       toggleExpand,
       createChild,
       reorder,
+      reparent,
     }),
-    [toggleDone, togglePlay, mark, openEntity, remove, openMenu, sizeOf, makeOf, showHidden, nowSec, rev, expandedIds, toggleExpand, createChild, reorder],
+    [toggleDone, togglePlay, mark, openEntity, remove, openMenu, sizeOf, makeOf, showHidden, nowSec, rev, expandedIds, toggleExpand, createChild, reorder, reparent],
   )
 
   // The drill path as a Set — the top-level Content's ancestry. Seeds the cycle guard so a
@@ -1301,7 +1312,7 @@ export function Zero0Canvas() {
   />
       )}
 
-      {/* ── AGENDA BAND (topmost, "TODAY") ───────────────────────��──────────────
+      {/* ── AGENDA BAND (topmost, "TODAY") ─────────────────���─────��──────────────
           The FORWARD-looking frame — what's PLANNED today (the planned dayline).
           Hidden by default (toggled from the footer) so the canvas stays blank; when
           shown it sits at the very top, above ACTIVITY. Show/hide is animated with the
@@ -1343,7 +1354,7 @@ export function Zero0Canvas() {
         </Zero0Frame>
       )}
 
-      {/* ── ZERO HEADER (§1) ─────────���─────────────────��───────────────────────
+      {/* ── ZERO HEADER (§1) ─────────�����────────────────��───────────────────────
           Zero-UX chrome: the mark, the access path (breadcrumb), and a session
           readout. Not part of the node's own data. Toggled by §1 / the corner marker,
           and — like every frame in the stack — collapses with the dep-free grid-rows

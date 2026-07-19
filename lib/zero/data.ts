@@ -1770,6 +1770,50 @@ export function reorderContextItems(contextId: string, orderedIds: string[]): vo
   persist()
 }
 
+/**
+ * REPARENT — move an entity so it lives INSIDE `newContextId` (drag-and-drop nest-into).
+ * Changes the entity's primary `parentId` (leaving any `taggedContextIds` cross-links alone).
+ * Returns false (a no-op) when the move is meaningless or illegal:
+ *   - the entity doesn't exist,
+ *   - dropping onto itself,
+ *   - it's already a direct child of the target,
+ *   - the target is the entity itself or one of its DESCENDANTS (would make a cycle / orphan
+ *     the moved subtree) — guarded by walking parentId up from the target.
+ * On success it also fixes up the saved sibling ORDER: the id is appended to the new context's
+ * order (so it lands last) and removed from the old one. Seeded entities record a `parentId`
+ * override so the move survives reloads (same pattern as setEntityAccent/Cancelled).
+ */
+export function moveEntityToContext(entityId: string, newContextId: string): boolean {
+  const entity = byId.get(entityId)
+  if (!entity) return false
+  if (entityId === newContextId) return false
+  if (entity.parentId === newContextId) return false
+  // CYCLE GUARD: refuse if newContextId is entityId or sits under it. Walk parentId upward
+  // from the target; if we reach entityId, the target is a descendant. (Own general walk —
+  // collectDescendants only follows spaces, so it can't be reused for arbitrary kinds.)
+  let cursor: string | null = newContextId
+  const guard = new Set<string>()
+  while (cursor && !guard.has(cursor)) {
+    if (cursor === entityId) return false
+    guard.add(cursor)
+    cursor = byId.get(cursor)?.parentId ?? null
+  }
+  const oldParent = entity.parentId
+  entity.parentId = newContextId
+  if (!userEntityIds.has(entityId)) {
+    seededOverrides.set(entityId, { ...seededOverrides.get(entityId), parentId: newContextId })
+  }
+  // Land it LAST in the new context's saved order (if that context has one).
+  const destOrder = orderByContext[newContextId]
+  if (destOrder) orderByContext[newContextId] = [...destOrder.filter((id) => id !== entityId), entityId]
+  // Drop it from the old context's saved order so it doesn't linger as a ghost slot.
+  if (oldParent && orderByContext[oldParent]) {
+    orderByContext[oldParent] = orderByContext[oldParent].filter((id) => id !== entityId)
+  }
+  persist()
+  return true
+}
+
 // ----------------------------------------------------------------------------
 // Mutations — user-created entities. Persisted to localStorage so created
 // items survive refreshes. They push into the same `entities` array/index the

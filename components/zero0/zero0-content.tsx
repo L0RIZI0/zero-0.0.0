@@ -1,9 +1,24 @@
 "use client"
 
-import { useLayoutEffect, useMemo, useRef, useState } from "react"
+import { useMemo, useState } from "react"
+import {
+  DndContext,
+  DragOverlay,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  closestCenter,
+  type DragStartEvent,
+  type DragOverEvent,
+  type DragEndEvent,
+} from "@dnd-kit/core"
+import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable"
+import { restrictToVerticalAxis } from "@dnd-kit/modifiers"
+import { motion } from "motion/react"
 import { getChildren } from "@/lib/zero/data"
 import { isClosed } from "@/lib/zero/kinds"
 import { Zero0Face } from "./zero0-face"
+import { Zero0Glyph } from "./zero0-glyph"
 import type { FaceSize, FaceMake } from "@/lib/zero/face-model"
 import type { Entity } from "@/lib/zero/types"
 
@@ -21,6 +36,13 @@ import type { Entity } from "@/lib/zero/types"
 // Content is presentational: it fetches its children and owns the hide-model + expand
 // chrome, but every ACTION and every cross-cutting VIEW accessor is threaded in via `ctx`
 // (memoized once in the canvas) so the whole recursive tree shares one set of handlers.
+//
+// DRAG-AND-DROP (v0.2.152): powered by @dnd-kit (sortable + nestable) with motion for a
+// buttery lift/settle — deliberately RICHER than the /0 minimal aesthetic, since this is an
+// interaction surface. The WHOLE ROW is draggable (a 6px activation distance means a plain
+// click still drills via the title); dropping on a row's TOP/BOTTOM edge REORDERS
+// before/after it, dropping on its MIDDLE BAND NESTS the dragged entity INTO it (reparent).
+// Each Content level owns its own DndContext, so a drag is scoped to one level's siblings.
 
 export interface Zero0ContentCtx {
   /** Toggle a task's soft DONE marker. */
@@ -55,6 +77,8 @@ export interface Zero0ContentCtx {
   createChild: (contextId: string, raw: string) => void
   /** Persist a drag-and-drop sibling order for `contextId` (full visible order). */
   reorder: (contextId: string, orderedIds: string[]) => void
+  /** Move an entity INTO another context (nest it as a child). No-op on cycle/self. */
+  reparent: (entityId: string, newContextId: string) => void
 }
 
 // Cap pathological trees. `getChildren` follows `taggedContextIds` (multi-parent), so a
@@ -63,6 +87,15 @@ export interface Zero0ContentCtx {
 const MAX_CONTENT_DEPTH = 8
 
 export type ContentAxis = "list"
+
+// Where a drop will land relative to the row under the cursor.
+//   before/after → REORDER (sit above/below the target sibling)
+//   inside       → NEST (become a child of the target)
+type DropMode = "before" | "after" | "inside"
+interface DropIntent {
+  overId: string
+  mode: DropMode
+}
 
 export interface Zero0ContentProps {
   /** The container whose INSIDE we're showing. */
@@ -81,20 +114,27 @@ export interface Zero0ContentProps {
   mounted?: boolean
 }
 
-export function Zero0Content({ entity, axis, depth, ancestry, ctx, isRoot, mounted = true }: Zero0ContentProps) {
-  const { showHidden, rev, nowSec, sizeOf, makeOf, expandedIds } = ctx
+// A single decorated child row (hide model applied).
+interface ChildRow {
+  e: Entity
+  hidden: boolean
+  collapsed: boolean
+  num: number | null
+}
 
-  // DRAG-AND-DROP reorder state (this Content instance only — a row can only be dragged
-  // among its own siblings). `dragId` = the row being dragged. `previewOrder` = the LIVE
-  // reordered id list while dragging: the list physically rearranges under the cursor (the
-  // rows slide via the FLIP effect below), and the arrangement is committed to persistence
-  // on drop. Engagement-only; the committed order persists via `ctx.reorder`.
-  const [dragId, setDragId] = useState<string | null>(null)
-  const [previewOrder, setPreviewOrder] = useState<string[] | null>(null)
-  // Which row the cursor is over — drives the reveal of the drag grip + delete ×. We track
-  // it in REACT state (set from the row's mouse handlers) instead of relying on the CSS
-  // `group-hover:` variant, which wasn't firing reliably on these rows.
+export function Zero0Content({ entity, axis, depth, ancestry, ctx, isRoot, mounted = true }: Zero0ContentProps) {
+  const { showHidden, rev } = ctx
+
+  // Which row the cursor is over — drives the reveal of the drag grip hint + delete ×.
   const [hoverId, setHoverId] = useState<string | null>(null)
+  // The id being dragged (for the DragOverlay clone) and where it will land.
+  const [activeId, setActiveId] = useState<string | null>(null)
+  const [dropIntent, setDropIntent] = useState<DropIntent | null>(null)
+
+  // A plain click must still drill (title) / toggle (glyph) even though the whole row is a
+  // drag source: a 6px activation distance means the drag only begins once the pointer
+  // actually moves, so click-through is preserved.
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }))
 
   const children = useMemo(
     () => getChildren(entity.id),
@@ -102,57 +142,20 @@ export function Zero0Content({ entity, axis, depth, ancestry, ctx, isRoot, mount
     [entity.id, rev],
   )
 
-  // FLIP animation — record each row's top before every render, and when the order changes
-  // MID-DRAG animate each moved row from its old position to its new one (a smooth slide
-  // instead of a snap). Refs, not state, so measuring never triggers a re-render. Gated on
-  // an active drag so it never fights the collapse (grid-rows) animation.
-  const rowEls = useRef(new Map<string, HTMLLIElement>())
-  const prevTops = useRef(new Map<string, number>())
-  useLayoutEffect(() => {
-    const next = new Map<string, number>()
-    rowEls.current.forEach((el, id) => next.set(id, el.getBoundingClientRect().top))
-    if (dragId) {
-      next.forEach((top, id) => {
-        if (id === dragId) return // the dragged row follows the OS cursor, don't animate it
-        const prev = prevTops.current.get(id)
-        if (prev != null && Math.abs(prev - top) > 0.5) {
-          rowEls.current
-            .get(id)
-            ?.animate([{ transform: `translateY(${prev - top}px)` }, { transform: "translateY(0)" }], {
-              duration: 180,
-              easing: "cubic-bezier(0.22, 1, 0.36, 1)",
-            })
-        }
-      })
-    }
-    prevTops.current = next
-  })
-
   // HIDE MODEL — decorate each child with whether it's hidden and (when not collapsed) its
   // display number. A child is hidden if EITHER the manual `hidden` flag is set (right-click
   // ▸ Hide) OR it is closed and was closed BEFORE today's logical 5am day-start (a derived,
   // non-destructive rule computed from the stamped close time, never stored). Collapsed =
   // hidden AND not currently revealed by `showHidden`. Display numbers count only VISIBLE
-  // rows so the list never shows gaps. (Moved verbatim from the canvas.)
-  const childRows = useMemo(() => {
+  // rows so the list never shows gaps.
+  const childRows: ChildRow[] = useMemo(() => {
     const now = Date.now()
     const d = new Date(now)
     d.setHours(5, 0, 0, 0)
     let dayStart = d.getTime()
     if (now < dayStart) dayStart -= 86_400_000 // before 5am → the logical day opened yesterday
-    // Apply the live drag ORDER (falls back to natural order). Any preview id that no longer
-    // exists is dropped; any real child missing from the preview is appended, so the list is
-    // always exactly the current children, just reordered.
-    let ordered = children
-    if (previewOrder) {
-      const byId = new Map(children.map((c) => [c.id, c]))
-      const seen = new Set<string>()
-      const front = previewOrder.map((id) => byId.get(id)).filter((c): c is (typeof children)[number] => !!c)
-      front.forEach((c) => seen.add(c.id))
-      ordered = [...front, ...children.filter((c) => !seen.has(c.id))]
-    }
     let n = 0
-    return ordered.map((e) => {
+    return children.map((e) => {
       const closedAt = e.closeAt ?? e.closedOn ?? e.cancelledOn ?? e.completeOn
       const autoHidden = isClosed(e) && closedAt != null && closedAt < dayStart
       const hidden = !!e.hidden || autoHidden
@@ -160,271 +163,327 @@ export function Zero0Content({ entity, axis, depth, ancestry, ctx, isRoot, mount
       return { e, hidden, collapsed, num: collapsed ? null : ++n }
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps -- rev re-reads after mutations
-  }, [children, showHidden, rev, previewOrder])
+  }, [children, showHidden, rev])
 
-  // While dragging, live-reorder the preview so `dragId` sits before/after `targetId`
-  // depending on which half of the target the cursor is over. Operates on the FULL child id
-  // list (incl. collapsed) so hidden rows keep their slots.
-  const dragOverRow = (targetId: string, clientY: number, rect: DOMRect) => {
-    if (!dragId || dragId === targetId) return
-    const base = previewOrder ?? children.map((c) => c.id)
-    const without = base.filter((id) => id !== dragId)
-    let idx = without.indexOf(targetId)
-    if (idx < 0) return
-    if (clientY > rect.top + rect.height / 2) idx += 1 // past the midpoint ⇒ drop AFTER
-    without.splice(idx, 0, dragId)
-    setPreviewOrder((cur) => (cur && cur.join("\u0000") === without.join("\u0000") ? cur : without))
+  const sortableIds = useMemo(() => childRows.map((r) => r.e.id), [childRows])
+
+  // Given the row under the cursor, decide before / after / inside from which third of the
+  // row the dragged item's CENTER sits in. Uses dnd-kit's translated active rect (which
+  // tracks the pointer delta even with a DragOverlay) against the over row's rect.
+  const onDragOver = (event: DragOverEvent) => {
+    const { active, over } = event
+    if (!over || over.id === active.id) {
+      setDropIntent(null)
+      return
+    }
+    const activeRect = active.rect.current.translated
+    const overRect = over.rect
+    if (!activeRect) return
+    const activeCenterY = activeRect.top + activeRect.height / 2
+    const ratio = (activeCenterY - overRect.top) / overRect.height
+    const mode: DropMode = ratio < 0.3 ? "before" : ratio > 0.7 ? "after" : "inside"
+    setDropIntent((cur) =>
+      cur && cur.overId === String(over.id) && cur.mode === mode ? cur : { overId: String(over.id), mode },
+    )
   }
 
-  // Commit the live preview order to persistence (or just clear if nothing moved).
-  const endDrag = (commit: boolean) => {
-    if (commit && previewOrder && dragId) ctx.reorder(entity.id, previewOrder)
-    setDragId(null)
-    setPreviewOrder(null)
+  const onDragStart = (event: DragStartEvent) => {
+    setActiveId(String(event.active.id))
+  }
+
+  const clearDrag = () => {
+    setActiveId(null)
+    setDropIntent(null)
+  }
+
+  const onDragEnd = (event: DragEndEvent) => {
+    const draggedId = String(event.active.id)
+    const intent = dropIntent
+    clearDrag()
+    if (!intent || intent.overId === draggedId) return
+    if (intent.mode === "inside") {
+      // NEST — the dragged entity becomes a child of the target row.
+      ctx.reparent(draggedId, intent.overId)
+      return
+    }
+    // REORDER — rebuild the full visible sibling order with the dragged id removed then
+    // re-inserted before/after the target.
+    const ids = sortableIds.filter((id) => id !== draggedId)
+    const targetIdx = ids.indexOf(intent.overId)
+    if (targetIdx < 0) return
+    const insertAt = intent.mode === "after" ? targetIdx + 1 : targetIdx
+    ids.splice(insertAt, 0, draggedId)
+    ctx.reorder(entity.id, ids)
   }
 
   if (!mounted) return null
 
   // A NESTED content always ends with an inline create row so you can populate ANY entity
-  // in place (item: "create-entity row in content for each"). The top-level content leaves
-  // creation to the canvas's own field, so it keeps the plain empty hint.
-  const createRow = !isRoot ? (
-    <ContentCreateRow onCreate={(raw) => ctx.createChild(entity.id, raw)} />
-  ) : null
+  // in place. The top-level content leaves creation to the canvas's own field.
+  const createRow = !isRoot ? <ContentCreateRow onCreate={(raw) => ctx.createChild(entity.id, raw)} /> : null
 
   if (children.length === 0) {
     if (isRoot) {
       return <p className="text-[11px] text-muted-foreground">— empty — create below</p>
     }
-    // A nested empty entity: no children yet, but offer the create row so it can be filled.
     return <ul className="text-[11px] tabular-nums">{createRow}</ul>
   }
 
+  const activeEntity = activeId ? children.find((c) => c.id === activeId) ?? null : null
+
   return (
-    <ul className="text-[11px] tabular-nums">
-      {childRows.map(({ e, hidden, collapsed, num }) => {
-        // ENDED (closed/dead/retired/cancelled) fades the whole row — a Content-side
-        // decision (the row's opacity), so it lives here rather than in the Face.
-        const closed = isClosed(e)
-        // The rung this row is shown at (right-click ▸ Size). `l`/`xl`/`full` are BLOCK
-        // cards (identity line + a meta dl) that grow the row VERTICALLY; the smaller rungs
-        // stay a single inline line.
-        const size = sizeOf(e.id)
-        const isBlock = size === "l" || size === "xl" || size === "full"
-        // The make this row READS as (right-click ▸ Make), orthogonal to size.
-        const make = makeOf(e.id)
+    <DndContext
+      sensors={sensors}
+      collisionDetection={closestCenter}
+      modifiers={[restrictToVerticalAxis]}
+      onDragStart={onDragStart}
+      onDragOver={onDragOver}
+      onDragEnd={onDragEnd}
+      onDragCancel={clearDrag}
+    >
+      <SortableContext items={sortableIds} strategy={verticalListSortingStrategy}>
+        <ul className="text-[11px] tabular-nums">
+          {childRows.map((row) => (
+            <ContentRow
+              key={row.e.id}
+              row={row}
+              axis={axis}
+              depth={depth}
+              ancestry={ancestry}
+              ctx={ctx}
+              hoverId={hoverId}
+              setHoverId={setHoverId}
+              dropIntent={dropIntent}
+              isAnyDragging={activeId != null}
+            />
+          ))}
+          {createRow}
+        </ul>
+      </SortableContext>
 
-        // RECURSION — a row may open into its OWN Content. Offered for EVERY row (even a
-        // childless one, so you can expand + create children inline via the nested create
-        // row), as long as we're under the depth cap and expanding wouldn't re-enter an
-        // ancestor (a `taggedContextIds` cycle). This is the Face(outside)/Content(inside)
-        // nesting made literal.
-        const canExpand = depth + 1 < MAX_CONTENT_DEPTH && !ancestry.has(e.id)
-        const expanded = canExpand && !!expandedIds[e.id]
+      {/* The floating clone that follows the cursor — a lifted card with a spring pop. */}
+      <DragOverlay dropAnimation={{ duration: 180, easing: "cubic-bezier(0.22, 1, 0.36, 1)" }}>
+        {activeEntity ? (
+          <motion.div
+            initial={{ scale: 1 }}
+            animate={{ scale: 1.03 }}
+            transition={{ type: "spring", stiffness: 500, damping: 30 }}
+            className="flex items-center gap-2 rounded-md border border-border bg-card px-3 py-1.5 text-[11px] text-card-foreground shadow-lg"
+          >
+            <Zero0Glyph kind={activeEntity.kind} filled={isClosed(activeEntity)} />
+            <span className="truncate">{activeEntity.title}</span>
+          </motion.div>
+        ) : null}
+      </DragOverlay>
+    </DndContext>
+  )
+}
 
-        // The Face fragment — one call for every rung. xs is a projection rung, so it drills
-        // in via `onActivate`; the entity rungs use `onOpen`. Passing both is harmless.
-        const face = (
-          <Zero0Face
-            entity={e}
-            size={size}
-            make={make}
-            now={nowSec}
-            onToggleDone={ctx.toggleDone}
-            onTogglePlay={ctx.togglePlay}
-            onMark={ctx.mark}
-            onOpen={ctx.openEntity}
-            onActivate={() => ctx.openEntity(e)}
-            onActivateContextMenu={(ev) => ctx.openMenu(e, ev, { size, make })}
-            hiddenPrefix={hidden}
-          />
-        )
-        // Content-side chrome shared by both layouts: drag grip + expand caret + row index
-        // + delete ×.
-        const num2 = num != null ? String(num).padStart(2, "0") : ""
-        // Drag HANDLE — the only draggable element (so the title/glyph stay clickable). Hidden
-        // by default; fades IN on row hover (and stays visible while THIS row is being dragged,
-        // so it doesn't vanish mid-drag when the cursor leaves the row). Wide hit area so the
-        // cursor doesn't fully cover it.
-        const isDragging = dragId === e.id
-        // Reveal the grip + delete × when the cursor is over THIS row (React state, not CSS
-        // group-hover) — and keep the grip lit while its row is being dragged.
-        const revealed = hoverId === e.id || isDragging
-        const gripCell = (
-          <span
-            draggable
-            onDragStart={(ev) => {
-              setDragId(e.id)
-              setPreviewOrder(children.map((c) => c.id))
-              ev.dataTransfer.effectAllowed = "move"
-              try {
-                ev.dataTransfer.setData("text/plain", e.id)
-              } catch {
-                /* some browsers restrict setData; the ref state is enough */
-              }
+// ── A single ENTITY CONTENT row ────────────────────────────────────────────────
+// Extracted so it can own its `useSortable` hook (one draggable+droppable per row). The
+// whole row body is the drag handle; inner buttons (title/glyph/caret/×) still receive
+// clicks thanks to the DndContext activation distance.
+function ContentRow({
+  row,
+  axis,
+  depth,
+  ancestry,
+  ctx,
+  hoverId,
+  setHoverId,
+  dropIntent,
+  isAnyDragging,
+}: {
+  row: ChildRow
+  axis: ContentAxis
+  depth: number
+  ancestry: ReadonlySet<string>
+  ctx: Zero0ContentCtx
+  hoverId: string | null
+  setHoverId: (id: string | null) => void
+  dropIntent: DropIntent | null
+  isAnyDragging: boolean
+}) {
+  const { e, hidden, collapsed, num } = row
+  const { nowSec, sizeOf, makeOf, expandedIds } = ctx
+
+  const { attributes, listeners, setNodeRef, isDragging } = useSortable({ id: e.id })
+
+  // ENDED (closed/dead/retired/cancelled) fades the whole row.
+  const closed = isClosed(e)
+  const size = sizeOf(e.id)
+  const isBlock = size === "l" || size === "xl" || size === "full"
+  const make = makeOf(e.id)
+
+  // RECURSION — a row may open into its OWN Content (see MAX_CONTENT_DEPTH + ancestry guard).
+  const canExpand = depth + 1 < MAX_CONTENT_DEPTH && !ancestry.has(e.id)
+  const expanded = canExpand && !!expandedIds[e.id]
+
+  // This row's live drop decoration (only when it's the target of the current drag).
+  const intentHere = dropIntent && dropIntent.overId === e.id ? dropIntent.mode : null
+  const revealed = hoverId === e.id || isDragging
+
+  const face = (
+    <Zero0Face
+      entity={e}
+      size={size}
+      make={make}
+      now={nowSec}
+      onToggleDone={ctx.toggleDone}
+      onTogglePlay={ctx.togglePlay}
+      onMark={ctx.mark}
+      onOpen={ctx.openEntity}
+      onActivate={() => ctx.openEntity(e)}
+      onActivateContextMenu={(ev) => ctx.openMenu(e, ev, { size, make })}
+      hiddenPrefix={hidden}
+    />
+  )
+
+  const num2 = num != null ? String(num).padStart(2, "0") : ""
+
+  // Grip is now just a VISUAL HINT (the whole row drags) — fades in on hover, stays lit while
+  // this row is the drag source.
+  const gripCell = (
+    <span
+      className={
+        "flex w-4 shrink-0 items-center justify-center self-center text-muted-foreground transition-opacity duration-150 motion-reduce:transition-none " +
+        (revealed ? "opacity-100" : "opacity-0")
+      }
+      aria-hidden
+    >
+      <svg viewBox="0 0 6 10" className="h-3.5 w-2" fill="currentColor">
+        <circle cx="1.5" cy="1.5" r="1" />
+        <circle cx="4.5" cy="1.5" r="1" />
+        <circle cx="1.5" cy="5" r="1" />
+        <circle cx="4.5" cy="5" r="1" />
+        <circle cx="1.5" cy="8.5" r="1" />
+        <circle cx="4.5" cy="8.5" r="1" />
+      </svg>
+    </span>
+  )
+
+  const hasChildren = getChildren(e.id).length > 0
+  const caretCell = canExpand ? (
+    <button
+      type="button"
+      onClick={() => ctx.toggleExpand(e.id)}
+      onPointerDown={(ev) => ev.stopPropagation()}
+      className={
+        "w-4 shrink-0 text-left text-sm leading-none transition-colors hover:text-foreground " +
+        (hasChildren ? "text-muted-foreground" : "text-muted-foreground/40")
+      }
+      aria-label={expanded ? `Collapse ${e.title}` : `Expand ${e.title}`}
+      aria-expanded={expanded}
+    >
+      {expanded ? "▾" : "▸"}
+    </button>
+  ) : (
+    <span className="w-4 shrink-0" aria-hidden />
+  )
+  const indexCell = <span className="w-6 shrink-0 text-right text-muted-foreground">{num2}</span>
+  const deleteCell = (
+    <button
+      type="button"
+      onClick={() => ctx.remove(e)}
+      onPointerDown={(ev) => ev.stopPropagation()}
+      className={
+        "w-4 shrink-0 text-right text-muted-foreground transition-opacity duration-150 hover:text-foreground " +
+        (revealed ? "opacity-100" : "opacity-0")
+      }
+      aria-label={`Delete ${e.title}`}
+    >
+      ×
+    </button>
+  )
+
+  return (
+    // motion.li with layout="position" gives a smooth spring SETTLE when the list reorders
+    // (rows glide to their new spots) without fighting the grid-rows collapse animation
+    // (which owns height). The collapse wrapper stays MOUNTED so hide + show both animate.
+    <motion.li
+      ref={setNodeRef}
+      layout="position"
+      transition={{ type: "spring", stiffness: 600, damping: 40 }}
+      className="grid transition-[grid-template-rows,opacity] duration-[650ms] ease-[cubic-bezier(0.33,1,0.68,1)] motion-reduce:transition-none"
+      style={{ gridTemplateRows: collapsed ? "0fr" : "1fr", opacity: collapsed ? 0 : 1 }}
+      inert={collapsed || undefined}
+    >
+      <div className="overflow-hidden">
+        {/* Relative wrapper hosts the before/after REORDER indicator bars. */}
+        <div className="relative">
+          {intentHere === "before" && (
+            <span aria-hidden className="pointer-events-none absolute inset-x-0 -top-px z-10 h-0.5 rounded bg-primary" />
+          )}
+          {intentHere === "after" && (
+            <span aria-hidden className="pointer-events-none absolute inset-x-0 -bottom-px z-10 h-0.5 rounded bg-primary" />
+          )}
+          <div
+            {...attributes}
+            {...listeners}
+            onContextMenu={(ev) => ctx.openMenu(e, ev, { size, make })}
+            onMouseEnter={() => {
+              setHoverId(e.id)
+              ctx.setHoveredRowId(e.id)
             }}
-            onDragEnd={() => endDrag(true)}
-            className={
-              // Smooth opacity fade in/out driven by the row's hover state.
-              "flex w-4 shrink-0 cursor-grab items-center justify-center self-center text-muted-foreground transition-opacity duration-150 hover:text-foreground active:cursor-grabbing motion-reduce:transition-none " +
-              (revealed ? "opacity-100" : "opacity-0")
-            }
-            aria-label={`Reorder ${e.title}`}
-            title="Drag to reorder"
-          >
-            <svg viewBox="0 0 6 10" className="h-3.5 w-2" fill="currentColor" aria-hidden>
-              <circle cx="1.5" cy="1.5" r="1" />
-              <circle cx="4.5" cy="1.5" r="1" />
-              <circle cx="1.5" cy="5" r="1" />
-              <circle cx="4.5" cy="5" r="1" />
-              <circle cx="1.5" cy="8.5" r="1" />
-              <circle cx="4.5" cy="8.5" r="1" />
-            </svg>
-          </span>
-        )
-        // Caret column holds the ▸/▾ toggle when expandable, else an empty spacer so the
-        // index column stays aligned across rows with and without children.
-        // A childless row still gets a caret (expand to reveal its inline create row), but
-        // it's drawn dimmer so a glance still tells apart "has content" from "empty".
-        const hasChildren = getChildren(e.id).length > 0
-        const caretCell = canExpand ? (
-          <button
-            type="button"
-            onClick={() => ctx.toggleExpand(e.id)}
-            className={
-              "w-4 shrink-0 text-left text-sm leading-none transition-colors hover:text-foreground " +
-              (hasChildren ? "text-muted-foreground" : "text-muted-foreground/40")
-            }
-            aria-label={expanded ? `Collapse ${e.title}` : `Expand ${e.title}`}
-            aria-expanded={expanded}
-          >
-            {expanded ? "▾" : "▸"}
-          </button>
-        ) : (
-          <span className="w-4 shrink-0" aria-hidden />
-        )
-        const indexCell = <span className="w-6 shrink-0 text-right text-muted-foreground">{num2}</span>
-        const deleteCell = (
-          <button
-            type="button"
-            onClick={() => ctx.remove(e)}
-            className={
-              // Same hover-state reveal + opacity fade as the grip.
-              "w-4 shrink-0 text-right text-muted-foreground transition-opacity duration-150 hover:text-foreground " +
-              (revealed ? "opacity-100" : "opacity-0")
-            }
-            aria-label={`Delete ${e.title}`}
-          >
-            ×
-          </button>
-        )
-        return (
-          // COLLAPSE WRAPPER — a hidden-and-not-revealed row animates to 0fr height + 0
-          // opacity via the dep-free grid-rows trick, staying MOUNTED so hide AND show both
-          // animate. A long (650ms) eased slide+fade so rows glide away/in gently rather than
-          // snapping. `inert` drops a collapsed row from tab/hit-testing.
-          <li
-            key={e.id}
-            ref={(el) => {
-              if (el) rowEls.current.set(e.id, el)
-              else rowEls.current.delete(e.id)
+            onMouseLeave={() => {
+              setHoverId(hoverId === e.id ? null : hoverId)
+              ctx.setHoveredRowId(null)
             }}
-            className="grid transition-[grid-template-rows,opacity] duration-[650ms] ease-[cubic-bezier(0.33,1,0.68,1)] motion-reduce:transition-none"
-            style={{ gridTemplateRows: collapsed ? "0fr" : "1fr", opacity: collapsed ? 0 : 1 }}
-            inert={collapsed || undefined}
+            className={
+              // Whole row is the drag handle; grab cursor hints it. Subtle hover tint; a NEST
+              // (inside) target gets a ring + tint so it reads as "drop in here".
+              "group cursor-grab touch-none rounded-sm border-b border-border/60 py-1.5 transition-[opacity,background-color,box-shadow] active:cursor-grabbing motion-reduce:transition-none " +
+              (intentHere === "inside"
+                ? "bg-primary/10 ring-1 ring-inset ring-primary/60 "
+                : "hover:bg-muted/40 ") +
+              (closed ? "opacity-60 " : "") +
+              (isDragging ? "opacity-40 " : "") +
+              (isBlock ? "" : "flex items-baseline gap-3")
+            }
+          >
+            {isBlock ? (
+              <div className="flex items-baseline gap-3">
+                {gripCell}
+                {caretCell}
+                {indexCell}
+                <div className="min-w-0 flex-1">{face}</div>
+                {deleteCell}
+              </div>
+            ) : (
+              <>
+                {gripCell}
+                {caretCell}
+                {indexCell}
+                {face}
+                {deleteCell}
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* NESTED CONTENT — the row's own inside, indented, sliding open/closed. */}
+        {canExpand && (
+          <div
+            className="grid transition-[grid-template-rows] duration-300 ease-out motion-reduce:transition-none"
+            style={{ gridTemplateRows: expanded ? "1fr" : "0fr" }}
           >
             <div className="overflow-hidden">
-              <div
-                onContextMenu={(ev) => ctx.openMenu(e, ev, { size, make })}
-                // Hovering a row LIGHTS its matching tick(s) in the dayline (grow + opaque).
-                // Cleared on leave, falling back to the open-context highlight.
-                onMouseEnter={() => {
-                  setHoverId(e.id)
-                  ctx.setHoveredRowId(e.id)
-                }}
-                onMouseLeave={() => {
-                  setHoverId((cur) => (cur === e.id ? null : cur))
-                  ctx.setHoveredRowId(null)
-                }}
-                // DROP TARGET — while a sibling is being dragged, live-reorder the list so the
-                // dragged row lands here (before/after depending on the cursor half). The rows
-                // physically slide via the FLIP effect; drop commits the arrangement.
-                onDragOver={(ev) => {
-                  if (!dragId || dragId === e.id) return
-                  ev.preventDefault()
-                  ev.dataTransfer.dropEffect = "move"
-                  dragOverRow(e.id, ev.clientY, ev.currentTarget.getBoundingClientRect())
-                }}
-                onDrop={(ev) => {
-                  ev.preventDefault()
-                  endDrag(true)
-                }}
-                className={
-                  // Subtle row hover tint (v0.2.151) — a faint muted band on hover so the row
-                  // under the cursor reads as a unit. Interaction is still title-only (the tint
-                  // is purely visual; the title button owns the drill).
-                  "group border-b border-border/60 py-1.5 transition-[opacity,background-color] hover:bg-muted/40 " +
-                  (closed ? "opacity-60 " : "") +
-                  (isDragging ? "opacity-40 " : "") +
-                  // Inline rungs lay the columns out on a single baseline; block rungs stack
-                  // the caret/index/× strip above the card body.
-                  (isBlock ? "" : "flex items-baseline gap-3")
-                }
-              >
-                {isBlock ? (
-                  <div className="flex items-baseline gap-3">
-                    {gripCell}
-                    {caretCell}
-                    {indexCell}
-                    {/* The Face card takes the remaining width; its identity line + meta dl
-                        stack inside. */}
-                    <div className="min-w-0 flex-1">{face}</div>
-                    {deleteCell}
-                  </div>
-                ) : (
-                  <>
-                    {gripCell}
-                    {caretCell}
-                    {indexCell}
-                    {face}
-                    {deleteCell}
-                  </>
-                )}
-              </div>
-
-              {/* NESTED CONTENT — the row's own inside, indented, sliding open/closed with
-                  the same grid-rows trick. Kept MOUNTED while expanded so a data change
-                  inside it stays live; unmounted when collapsed to keep deep trees cheap. */}
-              {canExpand && (
-                <div
-                  className="grid transition-[grid-template-rows] duration-300 ease-out motion-reduce:transition-none"
-                  style={{ gridTemplateRows: expanded ? "1fr" : "0fr" }}
-                >
-                  <div className="overflow-hidden">
-                    {expanded && (
-                      <div className="ml-3 border-l border-border/40 pl-3">
-                        <Zero0Content
-                          entity={e}
-                          axis={axis}
-                          depth={depth + 1}
-                          // Extend the ancestry with the CHILD (the new container), so a
-                          // deeper descendant that points back at `e` is blocked too.
-                          ancestry={new Set(ancestry).add(e.id)}
-                          ctx={ctx}
-                        />
-                      </div>
-                    )}
-                  </div>
+              {expanded && (
+                <div className="ml-3 border-l border-border/40 pl-3">
+                  <Zero0Content
+                    entity={e}
+                    axis={axis}
+                    depth={depth + 1}
+                    ancestry={new Set(ancestry).add(e.id)}
+                    ctx={ctx}
+                  />
                 </div>
               )}
             </div>
-          </li>
-        )
-      })}
-      {/* Inline create row so a non-empty nested entity can also gain more children in
-          place. (Top-level uses the canvas's own create field.) */}
-      {createRow}
-    </ul>
+          </div>
+        )}
+      </div>
+    </motion.li>
   )
 }
 
