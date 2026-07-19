@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useMemo, useRef, useState } from "react"
 import {
   DndContext,
   DragOverlay,
@@ -130,6 +130,10 @@ export function Zero0Content({ entity, axis, depth, ancestry, ctx, isRoot, mount
   // The id being dragged (for the DragOverlay clone) and where it will land.
   const [activeId, setActiveId] = useState<string | null>(null)
   const [dropIntent, setDropIntent] = useState<DropIntent | null>(null)
+  // The cursor's Y at drag start — combined with dnd-kit's live `delta.y` this gives the
+  // real-time pointer Y, so the before/after/inside decision follows the actual CURSOR
+  // rather than the dragged row's geometric center (which drifts for tall rows).
+  const pointerStartYRef = useRef(0)
 
   // A plain click must still drill (title) / toggle (glyph) even though the whole row is a
   // drag source: a 6px activation distance means the drag only begins once the pointer
@@ -171,16 +175,15 @@ export function Zero0Content({ entity, axis, depth, ancestry, ctx, isRoot, mount
   // row the dragged item's CENTER sits in. Uses dnd-kit's translated active rect (which
   // tracks the pointer delta even with a DragOverlay) against the over row's rect.
   const onDragOver = (event: DragOverEvent) => {
-    const { active, over } = event
+    const { active, over, delta } = event
     if (!over || over.id === active.id) {
       setDropIntent(null)
       return
     }
-    const activeRect = active.rect.current.translated
     const overRect = over.rect
-    if (!activeRect) return
-    const activeCenterY = activeRect.top + activeRect.height / 2
-    const ratio = (activeCenterY - overRect.top) / overRect.height
+    // Live cursor Y = where the pointer started + how far dnd-kit says it has moved.
+    const pointerY = pointerStartYRef.current + delta.y
+    const ratio = (pointerY - overRect.top) / overRect.height
     const mode: DropMode = ratio < 0.3 ? "before" : ratio > 0.7 ? "after" : "inside"
     setDropIntent((cur) =>
       cur && cur.overId === String(over.id) && cur.mode === mode ? cur : { overId: String(over.id), mode },
@@ -188,6 +191,11 @@ export function Zero0Content({ entity, axis, depth, ancestry, ctx, isRoot, mount
   }
 
   const onDragStart = (event: DragStartEvent) => {
+    // PointerEvent extends MouseEvent, so this covers the PointerSensor's pointerdown too.
+    const activator = event.activatorEvent
+    if (activator instanceof MouseEvent) pointerStartYRef.current = activator.clientY
+    else if (typeof TouchEvent !== "undefined" && activator instanceof TouchEvent)
+      pointerStartYRef.current = activator.touches[0]?.clientY ?? 0
     setActiveId(String(event.active.id))
   }
 
@@ -270,7 +278,12 @@ export function Zero0Content({ entity, axis, depth, ancestry, ctx, isRoot, mount
             transition={{ type: "spring", stiffness: 500, damping: 30 }}
             className="flex items-center gap-2 rounded-md border border-border bg-card px-3 py-1.5 text-[11px] text-card-foreground shadow-lg"
           >
-            <Zero0Glyph kind={activeEntity.kind} filled={isClosed(activeEntity)} />
+            {/* Explicit box: the glyph SVG has a viewBox but NO intrinsic width/height, so
+                inside the portaled overlay (no width constraint) it would balloon to fill the
+                screen without this size class. */}
+            <span className="flex h-4 w-4 shrink-0 items-center justify-center text-foreground">
+              <Zero0Glyph kind={activeEntity.kind} filled={isClosed(activeEntity)} className="h-4 w-4" />
+            </span>
             <span className="truncate">{activeEntity.title}</span>
           </motion.div>
         ) : null}
@@ -340,27 +353,6 @@ function ContentRow({
   )
 
   const num2 = num != null ? String(num).padStart(2, "0") : ""
-
-  // Grip is now just a VISUAL HINT (the whole row drags) — fades in on hover, stays lit while
-  // this row is the drag source.
-  const gripCell = (
-    <span
-      className={
-        "flex w-4 shrink-0 items-center justify-center self-center text-muted-foreground transition-opacity duration-150 motion-reduce:transition-none " +
-        (revealed ? "opacity-100" : "opacity-0")
-      }
-      aria-hidden
-    >
-      <svg viewBox="0 0 6 10" className="h-3.5 w-2" fill="currentColor">
-        <circle cx="1.5" cy="1.5" r="1" />
-        <circle cx="4.5" cy="1.5" r="1" />
-        <circle cx="1.5" cy="5" r="1" />
-        <circle cx="4.5" cy="5" r="1" />
-        <circle cx="1.5" cy="8.5" r="1" />
-        <circle cx="4.5" cy="8.5" r="1" />
-      </svg>
-    </span>
-  )
 
   const hasChildren = getChildren(e.id).length > 0
   const caretCell = canExpand ? (
@@ -443,7 +435,6 @@ function ContentRow({
           >
             {isBlock ? (
               <div className="flex items-baseline gap-3">
-                {gripCell}
                 {caretCell}
                 {indexCell}
                 <div className="min-w-0 flex-1">{face}</div>
@@ -451,7 +442,6 @@ function ContentRow({
               </div>
             ) : (
               <>
-                {gripCell}
                 {caretCell}
                 {indexCell}
                 {face}
