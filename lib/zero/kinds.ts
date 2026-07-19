@@ -412,38 +412,37 @@ export function getEngagements(entity: Entity): Engagement[] {
   return entity.schedule?.engagements ?? []
 }
 
-/** The single OPEN session (last entry lacking `endAt`), or null. */
-export function getOpenEngagement(entity: Entity): Engagement | null {
+/**
+ * The OPEN session (lacking `endAt`), or null. With `via` given, the last open session OF THAT
+ * VIA; without it, the last open session of ANY via. v0.6.32: presence (`focus`) and ongoing
+ * (`play`) can now be open CONCURRENTLY on the same entity, so callers that mean one specific
+ * rail must pass `via`. Marks (`endAt === startAt`) are never "open". Scans from the end so the
+ * MOST-RECENT matching open session wins.
+ */
+export function getOpenEngagement(entity: Entity, via?: Engagement["via"]): Engagement | null {
   const s = getEngagements(entity)
-  const last = s[s.length - 1]
-  return last && last.endAt == null ? last : null
+  for (let i = s.length - 1; i >= 0; i--) {
+    const e = s[i]
+    if (e.endAt == null && (via == null || e.via === via)) return e
+  }
+  return null
 }
 
 /**
- * The open engagement that makes THIS entity read `ongoing` — kind-agnostic EXCEPT the
- * time-based essences (Moment / Instant). For those, a `focus` (viewing / presence) session
- * does NOT count: their `ongoing` is reserved for the actual OCCURRENCE — a concrete scheduled
- * start that has arrived, or a manual `play` punch-in. A focus session on a moment/instant still
- * EXISTS (it accrues recorded presence on the activity rail = "how long I worked on it") but it
- * must not flip the state, because viewing a wedding's detail isn't the wedding happening.
- * Non-time kinds: any open session (focus or play) counts, exactly as before.
+ * The open engagement that makes THIS entity read `ongoing` (v0.6.32: PLAY-ONLY). Ongoing is now
+ * driven exclusively by an open `play` session — `focus` (presence/viewing) NEVER flips state for
+ * ANY kind. This replaces the old per-kind special-casing (moment/instant/being) with a single
+ * rule: play spins the glyph, focus only accrues ACCESS. task/resource/space auto-open a `play`
+ * on enter (see canvas), so they still spin on enter; beings never do; a moment/space also spins
+ * from a concrete in-progress occurrence (handled separately in getStateInner).
  */
 export function ongoingOpenEngagement(entity: Entity): Engagement | null {
-  const open = getOpenEngagement(entity)
-  if (!open) return null
-  // A FOCUS (viewing / presence) session records ACTIVITY but must NOT flip STATE to ongoing for:
-  //   • moment / instant — their ongoing is the OCCURRENCE, not being looked at;
-  //   • any BEING (soul/individual/organism/community) — a being is ALIVE / present, not "in
-  //     progress" (mirrors the rollup that stops at beings; v0.6.19).
-  // A deliberate `play` engagement still counts everywhere.
-  if (open.via === "focus" && (entity.kind === "moment" || entity.kind === "instant" || isBeing(entity.kind)))
-    return null
-  return open
+  return getOpenEngagement(entity, "play")
 }
 
-/** Whether the entity has an open (ongoing) session right now. */
-export function hasOpenEngagement(entity: Entity): boolean {
-  return getOpenEngagement(entity) != null
+/** Whether the entity has an open session right now (optionally of a specific `via`). */
+export function hasOpenEngagement(entity: Entity, via?: Engagement["via"]): boolean {
+  return getOpenEngagement(entity, via) != null
 }
 
 /**

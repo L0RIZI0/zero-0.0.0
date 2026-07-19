@@ -1451,7 +1451,8 @@ function persistEngagementMutation(id: string, entity: LooseEntity, sched: Sched
 export function openEngagement(id: string, via: Engagement["via"] = "focus", at = Date.now()): boolean {
   const stored = byId.get(id)
   if (!stored) return false
-  if (hasOpenEngagement(stored)) return true // already running — no-op
+  if (hasOpenEngagement(stored, via)) return true // this rail already running — no-op (v0.6.32:
+  // per-via, so an open `focus` doesn't block opening `play` and vice versa — the two run concurrently)
   const entity = mutable(stored)
   const sched: Schedule = { ...(entity.schedule ?? {}) }
   sched.engagements = [...(sched.engagements ?? []), { startAt: at, via }]
@@ -1466,19 +1467,30 @@ export function openEngagement(id: string, via: Engagement["via"] = "focus", at 
  * DROPPED entirely (discard-short). No-op if nothing is open. Returns true if a session
  * was closed (or dropped).
  */
-export function closeEngagement(id: string, at = Date.now()): boolean {
+export function closeEngagement(id: string, via?: Engagement["via"], at = Date.now()): boolean {
   const stored = byId.get(id)
   if (!stored) return false
-  const open = getOpenEngagement(stored)
+  const open = getOpenEngagement(stored, via)
   if (!open) return false
   const entity = mutable(stored)
   const sched: Schedule = { ...(entity.schedule ?? {}) }
   const engagements = [...(sched.engagements ?? [])]
-  const last = engagements[engagements.length - 1]
-  if (last && at - last.startAt <= MIN_SESSION_MS) {
-    engagements.pop() // too short → discard the whole entry
-  } else if (last) {
-    engagements[engagements.length - 1] = { ...last, endAt: at }
+  // v0.6.32: the target open session (matching `via`) is NOT necessarily the LAST entry anymore
+  // (a `focus` and a `play` can be open at once) — find it by scanning from the end.
+  let idx = -1
+  for (let i = engagements.length - 1; i >= 0; i--) {
+    const e = engagements[i]
+    if (e.endAt == null && (via == null || e.via === via)) {
+      idx = i
+      break
+    }
+  }
+  if (idx === -1) return false
+  const target = engagements[idx]
+  if (at - target.startAt <= MIN_SESSION_MS) {
+    engagements.splice(idx, 1) // too short → discard the whole entry
+  } else {
+    engagements[idx] = { ...target, endAt: at }
   }
   sched.engagements = engagements
   const log = ensureEntityLog(entity)
@@ -1498,7 +1510,9 @@ export function closeEngagement(id: string, at = Date.now()): boolean {
 export function setOpenEngagementStart(id: string, at: number, now = Date.now()): boolean {
   const stored = byId.get(id)
   if (!stored) return false
-  const open = getOpenEngagement(stored)
+  // v0.6.32: `--start` on an ONGOING entity adjusts the PLAY (ongoing) session — that's the one
+  // whose start "when did this begin" means. Fall back to any open session for non-play kinds.
+  const open = getOpenEngagement(stored, "play") ?? getOpenEngagement(stored)
   if (!open) return false
   const entity = mutable(stored)
   const sched: Schedule = { ...(entity.schedule ?? {}) }
@@ -1515,6 +1529,13 @@ export function setOpenEngagementStart(id: string, at: number, now = Date.now())
   const kept: Engagement[] = []
   for (const e of all) {
     if (e === open) continue // re-appended (last) with the new start
+    // v0.6.32: only sessions of the SAME rail (`via`) are swallowed/merged. A concurrent session on
+    // another rail (e.g. the open `focus` presence session while we backdate `play`) is left intact —
+    // otherwise backdating ongoing would silently eat your presence session.
+    if (e.via !== open.via) {
+      kept.push(e)
+      continue
+    }
     if (e.via === "mark") {
       kept.push(e)
       continue
@@ -1546,13 +1567,12 @@ export function setOpenEngagementStart(id: string, at: number, now = Date.now())
 export function endOngoing(id: string, at = Date.now()): boolean {
   const stored = byId.get(id)
   if (!stored) return false
-  // Close the STATE-RELEVANT open session. For a Moment/Instant a `focus` (viewing) session
-  // isn't what makes it ongoing, so we skip it here — otherwise ending a genuinely-happening
-  // moment would just close the viewing session and leave the occurrence running. A `play`
-  // stopwatch (the real punch-in) still closes normally.
-  const open = getOpenEngagement(stored)
-  if (open && !((stored.kind === "moment" || stored.kind === "instant") && open.via === "focus")) {
-    return closeEngagement(id, at)
+  // Close the STATE-RELEVANT open session = the PLAY session (v0.6.32: ongoing is play-only, so
+  // this is simply "stop the ongoing stopwatch"). A `focus` (presence) session is deliberately
+  // left running — ending an entity's ongoing shouldn't kick you out of viewing it (ACCESS keeps
+  // ticking). The old moment/instant focus special-case is gone: focus never flips state now.
+  if (getOpenEngagement(stored, "play")) {
+    return closeEngagement(id, "play", at)
   }
   if ((stored.kind === "moment" || stored.kind === "space") && isOwnOngoing(stored, at)) {
     // Running concrete span with no known end → cap it at now via the schedule field setter
@@ -1617,8 +1637,10 @@ export function setInstantMax(id: string, maxNb: number, hard: boolean): boolean
 export function toggleEngagement(id: string, via: Engagement["via"] = "play"): boolean {
   const stored = byId.get(id)
   if (!stored) return false
-  if (hasOpenEngagement(stored)) {
-    closeEngagement(id)
+  // v0.6.32: toggle THIS rail specifically — a running `play` stops without touching an open
+  // `focus`, and vice versa. (Was: any open session, which conflated the two now-concurrent rails.)
+  if (hasOpenEngagement(stored, via)) {
+    closeEngagement(id, via)
     return false
   }
   openEngagement(id, via)
@@ -2056,15 +2078,23 @@ export function hydrateFromStorage(): boolean {
   for (const entity of entities) {
     const engagements = entity.schedule?.engagements
     if (!engagements || engagements.length === 0) continue
-    const last = engagements[engagements.length - 1]
-    if (last.endAt != null || last.via === "play") continue
-    if (aliveRecently) continue // continuous across the reload — keep it running
-    // Close at last-known-alive, but never before the session's own start.
-    const closeAt = Math.max(aliveAt ?? lastLogAt(entity) ?? last.startAt, last.startAt)
-    const next = [...engagements]
-    if (closeAt - last.startAt <= MIN_SESSION_MS) next.pop()
-    else next[next.length - 1] = { ...last, endAt: closeAt }
-    entity.schedule = { ...entity.schedule, engagements: next }
+    if (aliveRecently) continue // continuous across the reload — keep every session running
+    // v0.6.32: reconcile EVERY dangling focus session, not just the last entry — a `focus` and a
+    // `play` can now be open concurrently, so the open focus may sit BEFORE an open play. Leave all
+    // `play` stopwatches running; close each open focus at last-known-alive (dropping sub-floor spans).
+    let changed = false
+    const next: Engagement[] = []
+    for (const e of engagements) {
+      if (e.endAt != null || e.via === "play") {
+        next.push(e) // already closed, or a play stopwatch → leave running
+        continue
+      }
+      changed = true
+      const closeAt = Math.max(aliveAt ?? lastLogAt(entity) ?? e.startAt, e.startAt)
+      if (closeAt - e.startAt <= MIN_SESSION_MS) continue // too short → drop
+      next.push({ ...e, endAt: closeAt })
+    }
+    if (changed) entity.schedule = { ...entity.schedule, engagements: next }
     // In-memory only (like the id/tagged migrations); persists on the next mutation.
   }
 
@@ -2078,14 +2108,21 @@ export function hydrateFromStorage(): boolean {
   for (const entity of entities) {
     const engagements = entity.schedule?.engagements
     if (!engagements || engagements.length === 0) continue
-    const last = engagements[engagements.length - 1]
-    if (last.endAt != null) continue // already closed
     if (!isClosed(entity)) continue // still open ⇒ legitimately running, leave it
-    const endAt = lastLogAt(entity) ?? last.startAt
-    const next = [...engagements]
-    if (endAt - last.startAt <= MIN_SESSION_MS) next.pop()
-    else next[next.length - 1] = { ...last, endAt }
-    entity.schedule = { ...entity.schedule, engagements: next }
+    // v0.6.32: cap EVERY open session (focus AND play) — a closed entity can hold both now.
+    let changed = false
+    const next: Engagement[] = []
+    for (const e of engagements) {
+      if (e.endAt != null) {
+        next.push(e)
+        continue
+      }
+      changed = true
+      const endAt = lastLogAt(entity) ?? e.startAt
+      if (endAt - e.startAt <= MIN_SESSION_MS) continue // too short → drop
+      next.push({ ...e, endAt })
+    }
+    if (changed) entity.schedule = { ...entity.schedule, engagements: next }
   }
 
   // DEV-only: surface any log↔scalar drift found above. A clean load (no warning)
@@ -2643,10 +2680,11 @@ export function setEntityCompleted(id: string, completed: boolean): void {
       closeAt: entity.closeAt,
     })
   }
-  // Closing an entity ENDS any open engagement at the close moment (a Done task's focus
-  // stopwatch, a Play'd space, …) so it stops printing as ongoing and the record shows when
-  // it ended. Skipped on un-check (completed=false) — a reopened entity may run again.
-  if (completed) closeEngagement(id, now)
+  // Marking DONE ends the entity's ONGOING (its `play` session) at the close moment so it stops
+  // printing/spinning as ongoing — but KEEPS the `focus` presence session open (v0.6.32 fix): a
+  // done task you're still looking at keeps accruing ACCESS. Skipped on un-check (completed=false)
+  // — a reopened entity resumes ongoing on the next enter/dwell.
+  if (completed) closeEngagement(id, "play", now)
   persist()
 }
 
@@ -3186,8 +3224,9 @@ export function setEntityCancelled(id: string, cancelled: boolean): void {
     // Seeded entity — track as an override patch (log rebuilt from these on reload).
     seededOverrides.set(id, { ...seededOverrides.get(id), cancelled, cancelledOn: now })
   }
-  // Cancelling ENDS any open engagement at the cancel moment (see setEntityCompleted). Not on restore.
-  if (cancelled) closeEngagement(id, now)
+  // Cancelling ENDS the ongoing (`play`) session, keeping `focus`/presence (see setEntityCompleted;
+  // v0.6.32). Not on restore.
+  if (cancelled) closeEngagement(id, "play", now)
   persist()
 }
 
@@ -3224,8 +3263,9 @@ export function setEntityClosed(id: string, closed: boolean): void {
     // Seeded entity — track as an override patch.
     seededOverrides.set(id, { ...seededOverrides.get(id), closed, closedOn, reopened, reopenedOn })
   }
-  // A manual Close ENDS any open engagement at the close moment (see setEntityCompleted). Not on reopen.
-  if (closed) closeEngagement(id, now)
+  // A manual Close ENDS the ongoing (`play`) session, keeping `focus`/presence (see
+  // setEntityCompleted; v0.6.32). Not on reopen.
+  if (closed) closeEngagement(id, "play", now)
   persist()
 }
 

@@ -28,7 +28,7 @@ import {
   openEngagement,
   closeEngagement,
 } from "@/lib/zero/data"
-import { isClosed, KIND_META, getOpenEngagement } from "@/lib/zero/kinds"
+import { isClosed, KIND_META, hasOpenEngagement } from "@/lib/zero/kinds"
 import { isDone } from "@/lib/zero/entity-log"
 import { FACE_SIZES, faceSizeLabel, FACE_MAKES, faceMakeLabel, type FaceSize, type FaceMake } from "@/lib/zero/face-model"
 import type { Entity, EntityKind } from "@/lib/zero/types"
@@ -156,7 +156,8 @@ export function buildEntityMenuItems(
       // NOT the auto focus/presence spine. Label reflects the running MANUAL PLAY specifically
       // (`via==="play"`), so merely VIEWING (which opens a focus session) still reads "Play", and
       // Stop only appears when a manual play is actually running.
-      const playing = getOpenEngagement(entity)?.via === "play"
+      const playing = hasOpenEngagement(entity, "play") // v0.6.32: play-specific (a `focus`
+      // presence session no longer masquerades as "playing" now that both rails can be open at once)
       items.push({ type: "item", id: playing ? "stop" : "play", label: playing ? "Stop" : "Play" })
     }
     if (entity.kind === "instant") {
@@ -276,7 +277,7 @@ export function applyEntityMenuAction(entity: Entity, actionId: string): boolean
       openEngagement(id, "play")
       return true
     case "stop":
-      closeEngagement(id)
+      closeEngagement(id, "play") // v0.6.32: Stop ends the PLAY (ongoing) session, keeps focus/presence
       return true
     case "mark":
       markInstant(id)
