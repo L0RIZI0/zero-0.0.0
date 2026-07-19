@@ -544,9 +544,6 @@ function ContentRow({
     // (which owns height). The collapse wrapper stays MOUNTED so hide + show both animate.
     <motion.li
       ref={setNodeRef}
-      data-drag-id={e.id}
-      data-parent-id={parentId}
-      data-haschildren={hasChildren ? "1" : "0"}
       layout="position"
       transition={{ type: "spring", stiffness: 600, damping: 40 }}
       className="grid transition-[grid-template-rows,opacity] duration-[650ms] ease-[cubic-bezier(0.33,1,0.68,1)] motion-reduce:transition-none"
@@ -554,8 +551,16 @@ function ContentRow({
       inert={collapsed || undefined}
     >
       <div className="overflow-hidden">
-        {/* Relative wrapper hosts the before/after REORDER indicator bars + the nest ring. */}
-        <div className="relative">
+        {/* Relative wrapper hosts the before/after REORDER indicator bars + the nest ring.
+            The drop-measurement data-* live HERE (the header BAND) — NOT on the motion.li,
+            which also wraps the nested children and whose rect would therefore span the whole
+            subtree, so the hit-test always matched the ancestor and never the hovered child. */}
+        <div
+          className="relative"
+          data-drag-id={e.id}
+          data-parent-id={parentId}
+          data-haschildren={hasChildren ? "1" : "0"}
+        >
           {intentHere === "before" && (
             <span aria-hidden className="pointer-events-none absolute inset-x-0 -top-px z-10 h-0.5 rounded bg-primary" />
           )}
