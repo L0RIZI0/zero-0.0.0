@@ -24,11 +24,15 @@ export function Zero0ColorPicker({
   onChange,
   onCommit,
   className,
+  showHexField = false,
 }: {
   value?: string | null
   onChange?: (hex: string) => void
   onCommit?: (hex: string) => void
   className?: string
+  /** v0.2.148: both callers now own an EXTERNAL hex/name field that the picker feeds, so the
+   *  picker's own hex row is hidden by default (square + slider only). Set true for standalone use. */
+  showHexField?: boolean
 }) {
   const [hsv, setHsvState] = useState<Hsv>(() => {
     const rgb = value ? hexToRgb(value) : null
@@ -157,7 +161,7 @@ export function Zero0ColorPicker({
           dragging.current = false
           hueFromEvent(e.clientX, true)
         }}
-        className="relative mt-2 h-3 w-full cursor-ew-resize rounded-full border border-border"
+        className="relative mt-1.5 h-1.5 w-full cursor-ew-resize rounded-full"
         style={{
           background:
             "linear-gradient(to right, #f00 0%, #ff0 17%, #0f0 33%, #0ff 50%, #00f 67%, #f0f 83%, #f00 100%)",
@@ -165,12 +169,14 @@ export function Zero0ColorPicker({
       >
         <span
           aria-hidden
-          className="pointer-events-none absolute top-1/2 h-4 w-2 -translate-x-1/2 -translate-y-1/2 rounded-sm border-2 border-white shadow-[0_0_0_1px_rgba(0,0,0,0.5)]"
+          className="pointer-events-none absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white shadow-[0_0_0_1px_rgba(0,0,0,0.5)]"
           style={{ left: `${(hsv.h / 360) * 100}%`, backgroundColor: hueColor }}
         />
       </div>
 
-      {/* Hex field + live preview dot. */}
+      {/* Hex field + live preview dot — hidden by default; the caller's external field is the
+          single source of truth (it receives our onChange). Shown only for standalone use. */}
+      {showHexField && (
       <div className="mt-2 flex items-center gap-1.5">
         <span
           aria-hidden
@@ -214,6 +220,7 @@ export function Zero0ColorPicker({
           className="w-20 rounded-sm border border-border bg-background px-1 py-0.5 text-[11px] tabular-nums uppercase text-foreground focus:outline-none"
         />
       </div>
+      )}
     </div>
   )
 }

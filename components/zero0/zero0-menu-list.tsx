@@ -135,10 +135,11 @@ function indent(item: MenuItem): Indentable {
   return item.type === "item" ? { ...item, _indent: true } : item
 }
 
-// The free-text color entry (hex or CSS name). Live-resolves to a hex — the leading dot
-// previews it, and Enter (or clicking the dot) commits it through `color:<hex>`. Invalid
-// text simply can't commit. Enter is guarded against IME composition. A palette toggle (◧)
-// reveals the visual HSV picker for colors that are easier to dial in than to name/type.
+// The free-text color entry (hex or CSS name) — the SINGLE color field. Live-resolves to a hex:
+// the leading dot previews it, Enter (or clicking the dot) commits it through `color:<hex>`.
+// Invalid text can't commit. Enter is IME-guarded. v0.2.148: FOCUSING the field reveals the visual
+// HSV picker inline (no separate toggle button); dragging the picker feeds this field + its dot,
+// and the field's own Enter/dot stays the single commit path (the picker never auto-commits).
 function ColorInputRow({ onSelect }: { onSelect: (id: string) => void }) {
   const [text, setText] = useState("")
   const [pickerOpen, setPickerOpen] = useState(false)
@@ -160,6 +161,7 @@ function ColorInputRow({ onSelect }: { onSelect: (id: string) => void }) {
         <input
           type="text"
           value={text}
+          onFocus={() => setPickerOpen(true)}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.nativeEvent.isComposing && e.keyCode !== 229) {
@@ -169,32 +171,15 @@ function ColorInputRow({ onSelect }: { onSelect: (id: string) => void }) {
           }}
           placeholder="hex or name…"
           aria-label="Custom color (hex or CSS name)"
-          className="w-24 rounded border border-border bg-background px-1 py-0.5 text-foreground placeholder:text-muted-foreground/60"
+          className="w-40 rounded border border-border bg-background px-1 py-0.5 text-foreground placeholder:text-muted-foreground/60"
         />
-        <button
-          type="button"
-          aria-expanded={pickerOpen}
-          aria-label="Toggle visual color picker"
-          title="Pick visually"
-          onClick={() => setPickerOpen((o) => !o)}
-          className={
-            "ml-auto rounded border border-border px-1 py-0.5 text-[10px] leading-none hover:bg-muted hover:text-foreground " +
-            (pickerOpen ? "text-foreground" : "text-muted-foreground")
-          }
-        >
-          {"\u25E7"}
-        </button>
       </div>
       {pickerOpen && (
         <div className="mt-2">
-          {/* Live drag updates the preview text; releasing / Enter commits + closes the menu
-              (same terminal action a swatch fires). Seeds from whatever hex the text field
-              currently resolves to, so it opens on the in-progress color. */}
-          <Zero0ColorPicker
-            value={hex ?? undefined}
-            onChange={(picked) => setText(picked)}
-            onCommit={(picked) => onSelect(`color:${picked}`)}
-          />
+          {/* Feeds this field live as you drag (onChange → setText); the field's Enter/dot is the
+              single commit path (no onCommit, so dragging never fires the terminal action). Seeds
+              from whatever hex the field currently resolves to. */}
+          <Zero0ColorPicker value={hex ?? undefined} onChange={(picked) => setText(picked)} />
         </div>
       )}
     </div>

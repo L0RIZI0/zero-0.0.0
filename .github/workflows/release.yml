@@ -21,6 +21,16 @@ on:
 permissions:
   contents: read
 
+# Only ONE release build may run at a time. The feed (latest.yml + installer) is a single
+# shared Blob folder that each run prunes-then-writes; two overlapping runs can interleave a
+# prune with the other's put and corrupt/empty the feed. A mass tag push (e.g. the v0.2.NNN
+# re-versioning, which fired ~145 builds) would otherwise stampede it. Serialize on the workflow
+# so builds queue instead of racing; do NOT cancel-in-progress (a half-finished upload left the
+# feed mid-write is worse than waiting).
+concurrency:
+  group: release-desktop
+  cancel-in-progress: false
+
 jobs:
   windows:
     runs-on: windows-latest
