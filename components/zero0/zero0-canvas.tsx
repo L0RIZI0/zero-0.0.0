@@ -401,6 +401,14 @@ export function Zero0Canvas() {
   useEffect(() => {
     setShowHidden(false)
   }, [contextId])
+  // LOG COLLAPSE — the §0 LIFE LOG is COLLAPSED by default (v0.2.150). It's an ever-growing list of
+  // session-open/close ticks that pushed the children below the fold on every open while dogfooding.
+  // A per-context VIEW toggle (a chevron on the LOG header), engagement-only, RESET on navigation so
+  // each entity you open starts collapsed — same contract as showHidden.
+  const [logExpanded, setLogExpanded] = useState(false)
+  useEffect(() => {
+    setLogExpanded(false)
+  }, [contextId])
   // PER-ROW FACE SIZE — the rung each ENTITY CONTENT row is shown at (right-click ▸ Size).
   // A VIEW override, not stored data ("a size is a curated projection" — a way of LOOKING,
   // not a property of the entity), so it lives in session state keyed by entity id: kept as
@@ -1480,15 +1488,28 @@ export function Zero0Canvas() {
                 setter dual-writes here; a per-field history is just this list filtered. */}
             {mounted && context.log && context.log.length > 0 && (
               <div className="mt-3 border-t border-border pt-2">
-                <p className="text-[10px] uppercase tracking-widest text-muted-foreground">log</p>
-                <ol className="mt-1 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-[10px] tabular-nums">
-                  {context.log.map((entry, i) => (
-                    <li key={i} className="contents">
-                      <span className="shrink-0 text-muted-foreground">{fmt(entry.at)}</span>
-                      <span className="truncate text-foreground">{describeLogEntry(entry, fmtLogValue)}</span>
-                    </li>
-                  ))}
-                </ol>
+                {/* COLLAPSED BY DEFAULT (v0.2.150): the header is a toggle — a chevron + "log" + the
+                    entry count — so the ever-growing tick list no longer buries the children. */}
+                <button
+                  type="button"
+                  onClick={() => setLogExpanded((v) => !v)}
+                  aria-expanded={logExpanded}
+                  className="flex items-center gap-1.5 text-[10px] uppercase tracking-widest text-muted-foreground hover:text-foreground"
+                >
+                  <span aria-hidden className="inline-block w-2 text-center">{logExpanded ? "▾" : "▸"}</span>
+                  <span>log</span>
+                  <span className="tracking-normal normal-case opacity-70">{`(${context.log.length})`}</span>
+                </button>
+                {logExpanded && (
+                  <ol className="mt-1 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-[10px] tabular-nums">
+                    {context.log.map((entry, i) => (
+                      <li key={i} className="contents">
+                        <span className="shrink-0 text-muted-foreground">{fmt(entry.at)}</span>
+                        <span className="truncate text-foreground">{describeLogEntry(entry, fmtLogValue)}</span>
+                      </li>
+                    ))}
+                  </ol>
+                )}
               </div>
             )}
             <Zero0FrameMarker flag="entityHeader" label="the entity header" />

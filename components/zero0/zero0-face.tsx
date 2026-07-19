@@ -255,17 +255,22 @@ function FaceBlock({
   // ACCESS row with a per-session breakdown: "[total] · <dur1> (<when1>) · <dur2> …". The total
   // is foreground; each segment is a faint token hoverable for its full start–end (the live
   // session pulses). Horizontally scrollable like the schedule rows.
-  const renderAccessRow = (cells: NonNullable<typeof access>) => (
+  // Shared renderer for the DURATION + ACCESS rows: "Total <total> · <seg1> (<when1>) · …". The
+  // total is now prefixed with a faint "Total" label (v0.2.150). `pulse` gates the live-session
+  // breathing per row — DURATION (the ongoing clock) still pulses; ACCESS does NOT (presence is a
+  // passive tally, no need to draw the eye to it).
+  const renderAccessRow = (cells: NonNullable<typeof access>, pulse = true) => (
     <dd className="min-w-0 text-foreground">
       <div className="no-scrollbar overflow-x-auto whitespace-pre">
         <span className="text-foreground" title="total duration">
+          <span className="text-muted-foreground opacity-70">{"Total "}</span>
           {cells.total}
         </span>
         {cells.segments.map((c, i) => (
           <span key={i}>
             <span className="text-muted-foreground opacity-70">{" · "}</span>
             <span
-              className={"text-muted-foreground opacity-70" + (c.pulse ? " zero0-pulse" : "")}
+              className={"text-muted-foreground opacity-70" + (pulse && c.pulse ? " zero0-pulse" : "")}
               title={c.full}
             >
               {c.text}
@@ -322,7 +327,7 @@ function FaceBlock({
               {schedule && (k === "planned start" || k === "planned end") ? (
                 renderScheduleRow(k === "planned start" ? "start" : "end")
               ) : access && k === "access" ? (
-                renderAccessRow(access)
+                renderAccessRow(access, false)
               ) : duration && k === "duration" ? (
                 renderAccessRow(duration)
               ) : k === "state" && v.startsWith("ongoing") ? (

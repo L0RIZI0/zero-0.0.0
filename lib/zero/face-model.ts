@@ -944,7 +944,11 @@ export function getFaceMetaRows(e: Entity, now: number): [string, string][] {
   // sessions = times it happened) then the planned-occurrence list with matched/missed status
   // (getPlannedOccurrenceRow — the old standalone "planned occurrences" row, now MERGED in here).
   // Shown when either side has something. SKIPPED for instant (its mark-tally occurrences row above).
-  if (e.kind !== "instant") {
+  // v0.2.150: also HIDDEN for space / task / resource — for these the count is noise (a Space's
+  // "N times" duplicates its session activity, a Task is a one-shot, a Resource isn't "occurred"),
+  // so OCCURRENCES is reserved for the kinds where a recurrence count is meaningful (moment, etc.).
+  const OCCURRENCES_HIDDEN_KINDS = new Set(["instant", "space", "task", "resource"])
+  if (!OCCURRENCES_HIDDEN_KINDS.has(e.kind)) {
     // v0.6.34: count DELIBERATE plays only — an AUTO play (ongoing-on-enter) is presence, not a
     // deliberate occurrence ("I entered it" ≠ "it happened N times").
     const playCount = getEngagements(e).filter((s) => s.via === "play" && !s.auto && s.endAt !== s.startAt).length
