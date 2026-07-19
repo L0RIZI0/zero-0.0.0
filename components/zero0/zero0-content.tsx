@@ -429,7 +429,9 @@ function ContentRow({
                 ? "bg-primary/10 ring-1 ring-inset ring-primary/60 "
                 : "hover:bg-muted/40 ") +
               (closed ? "opacity-60 " : "") +
-              (isDragging ? "opacity-40 " : "") +
+              // Source row while it's being dragged: SLIGHTLY translucent (a ghost left in
+              // place) — the lifted DragOverlay clone is what reads as fully opaque.
+              (isDragging ? "opacity-70 " : "") +
               (isBlock ? "" : "flex items-baseline gap-3")
             }
           >
