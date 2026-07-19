@@ -9,7 +9,6 @@ import {
   useSensors,
   pointerWithin,
   type DragStartEvent,
-  type DragMoveEvent,
   type DragEndEvent,
 } from "@dnd-kit/core"
 import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable"
@@ -179,53 +178,61 @@ export function Zero0Content({ entity, axis, depth, ancestry, ctx, isRoot, mount
 
   const sortableIds = useMemo(() => childRows.map((r) => r.e.id), [childRows])
 
-  // Decide before/after by hit-testing the LIVE cursor Y against this level's own row rects.
-  // onDragMove fires on every pointer move (unlike onDragOver, which only fires when dnd-kit's
-  // `over` changes), and we ignore `over` entirely — the earlier lag came from trusting it.
-  const onDragMove = (event: DragMoveEvent) => {
-    const draggedId = String(event.active.id)
-    const pointerY = pointerStartYRef.current + event.delta.y
+  // Decide before/after from a KNOWN-good cursor Y, using a GAP-FREE midpoint scan over ALL
+  // this level's rows (the dragged row INCLUDED). Every Y maps to exactly one insertion slot:
+  // we find the first row whose MIDPOINT is below the cursor and insert BEFORE it; past the
+  // last midpoint we insert after the last row. Because the dragged row participates, there's
+  // no uncovered band over its own area (the old bug: the cursor there fell through to a
+  // "below-last → after-last" fallback, so the indicator jumped to the very bottom).
+  const computeIntent = (draggedId: string, cursorY: number) => {
     const list = listRef.current
     if (!list) return
-    // Direct-child rows only (`:scope >`), so a nested Content's rows don't leak into this
-    // level's hit-test. Exclude the dragged row itself.
-    const rows = Array.from(list.querySelectorAll<HTMLElement>(":scope > [data-drag-id]")).filter(
-      (el) => el.dataset.dragId !== draggedId,
-    )
+    // Direct-child rows only (`:scope >`) so a nested Content's rows don't leak in.
+    const rows = Array.from(list.querySelectorAll<HTMLElement>(":scope > [data-drag-id]"))
     if (rows.length === 0) {
       setDropIntent(null)
       return
     }
-    let next: DropIntent | null = null
-    for (const el of rows) {
-      const r = el.getBoundingClientRect()
-      if (pointerY >= r.top && pointerY <= r.bottom) {
-        next = { overId: el.dataset.dragId!, mode: pointerY < r.top + r.height / 2 ? "before" : "after" }
+    // Build the insertion slot as an index into the row list, then translate to overId+mode
+    // against a NON-dragged anchor so the accent bar never renders on the (hidden) dragged row.
+    let slot = rows.length
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i].getBoundingClientRect()
+      if (cursorY < r.top + r.height / 2) {
+        slot = i
         break
       }
     }
-    // Cursor above the first row → drop before it; below the last → drop after it.
-    if (!next) {
-      const first = rows[0].getBoundingClientRect()
-      if (pointerY < first.top) next = { overId: rows[0].dataset.dragId!, mode: "before" }
-      else {
-        const last = rows[rows.length - 1]
-        next = { overId: last.dataset.dragId!, mode: "after" }
-      }
+    let next: DropIntent | null = null
+    if (slot < rows.length && rows[slot].dataset.dragId !== draggedId) {
+      next = { overId: rows[slot].dataset.dragId!, mode: "before" }
+    } else {
+      // Anchor on the row just before the slot; if that's the dragged row, step back once more.
+      let anchor = slot - 1
+      if (anchor >= 0 && rows[anchor].dataset.dragId === draggedId) anchor -= 1
+      next = anchor >= 0 ? { overId: rows[anchor].dataset.dragId!, mode: "after" } : null
     }
-    setDropIntent((cur) => (cur && cur.overId === next!.overId && cur.mode === next!.mode ? cur : next))
+    setDropIntent((cur) => (cur && next && cur.overId === next.overId && cur.mode === next.mode ? cur : next))
   }
 
   const onDragStart = (event: DragStartEvent) => {
-    // PointerEvent extends MouseEvent, so this covers the PointerSensor's pointerdown too.
+    const draggedId = String(event.active.id)
+    setActiveId(draggedId)
+    // Track the REAL cursor for the life of the drag. e.clientY is always correct — no dnd-kit
+    // geometry, delta math, or stored drag-start Y (all of which produced lag / snap-to-edge).
+    const handler = (e: PointerEvent) => computeIntent(draggedId, e.clientY)
+    moveHandlerRef.current = handler
+    window.addEventListener("pointermove", handler)
+    // Seed once from the activator so the bar shows immediately, before the first move.
     const activator = event.activatorEvent
-    if (activator instanceof MouseEvent) pointerStartYRef.current = activator.clientY
-    else if (typeof TouchEvent !== "undefined" && activator instanceof TouchEvent)
-      pointerStartYRef.current = activator.touches[0]?.clientY ?? 0
-    setActiveId(String(event.active.id))
+    if (activator instanceof MouseEvent) computeIntent(draggedId, activator.clientY)
   }
 
   const clearDrag = () => {
+    if (moveHandlerRef.current) {
+      window.removeEventListener("pointermove", moveHandlerRef.current)
+      moveHandlerRef.current = null
+    }
     setActiveId(null)
     setDropIntent(null)
   }
@@ -266,7 +273,6 @@ export function Zero0Content({ entity, axis, depth, ancestry, ctx, isRoot, mount
       collisionDetection={pointerWithin}
       modifiers={[restrictToVerticalAxis]}
       onDragStart={onDragStart}
-      onDragMove={onDragMove}
       onDragEnd={onDragEnd}
       onDragCancel={clearDrag}
     >
