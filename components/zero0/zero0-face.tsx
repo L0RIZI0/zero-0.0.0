@@ -8,7 +8,7 @@ import {
   getFaceMetaRows,
   getScheduleCells,
   getAccessCells,
-  getPlayedCells,
+  getOngoingDurationCells,
   filterMetaRows,
   faceModelFromLike,
   getAggregate,
@@ -200,11 +200,12 @@ function FaceBlock({
     () => (rowsOverride ? null : getAccessCells(entity, now)),
     [entity, now, rowsOverride],
   )
-  // RICH occurrences (v0.6.28): the ACTUAL-happening clock = `via:"play"` sessions, same shape as
-  // access. Null when nothing's played. SKIPPED for instant (its "occurrences" row is the plain
-  // mark-tally string — must not be hijacked by this rich renderer). Matches face-model's guard.
-  const played = useMemo(
-    () => (rowsOverride || entity.kind === "instant" ? null : getPlayedCells(entity, now)),
+  // RICH duration (v0.6.33): the ONGOING-time clock = union of play sessions + in-progress
+  // occurrence, same shape as access (total + per-span breakdown, live span pulsing). Null when the
+  // entity has never been ongoing. Replaces the old rich "occurrences/played" renderer — OCCURRENCES
+  // is now a plain COUNT + planned-list string (see face-model), so it needs no rich branch.
+  const duration = useMemo(
+    () => (rowsOverride ? null : getOngoingDurationCells(entity, now)),
     [entity, now, rowsOverride],
   )
   const startScrollRef = useRef<HTMLDivElement>(null)
@@ -322,8 +323,8 @@ function FaceBlock({
                 renderScheduleRow(k === "planned start" ? "start" : "end")
               ) : access && k === "access" ? (
                 renderAccessRow(access)
-              ) : played && k === "occurrences" ? (
-                renderAccessRow(played)
+              ) : duration && k === "duration" ? (
+                renderAccessRow(duration)
               ) : k === "state" && v.startsWith("ongoing") ? (
                 renderOngoingState(v)
               ) : (

@@ -19,7 +19,7 @@
 
 import type { Entity, EntityKind, Whenever } from "./types"
 import { WHENEVER } from "./types"
-  import { KIND_META, isClosed, fillsGlyph, getState, concreteStart, occurrenceAction, isPlannedKind, isMarkable, getMarks, getEngagements, getInstantMaxNb, isInstantMaxNbHard, getInstantOccurrenceCount, type EntityState } from "./kinds"
+  import { KIND_META, isClosed, fillsGlyph, getState, concreteStart, effectiveScheduleEnd, ongoingOpenEngagement, occurrenceAction, isPlannedKind, isMarkable, getMarks, getEngagements, getInstantMaxNb, isInstantMaxNbHard, getInstantOccurrenceCount, type EntityState } from "./kinds"
 import { isDone, getCreatedAt, getCompletedOn } from "./entity-log"
 import { getEntity, getCreator, getOwner, getForwardTags, getBackReferences, getChildren } from "./data"
 import { formatLocale } from "./format-locale"
@@ -262,11 +262,8 @@ export function getSessionMs(e: Entity, now: number, via?: "focus" | "play" | "m
 export function getAccessMs(e: Entity, now: number): number | null {
   return getSessionMs(e, now, "focus")
 }
-
-/** PLAYED = accumulated MANUAL PLAY (play sessions). */
-export function getPlayedMs(e: Entity, now: number): number | null {
-  return getSessionMs(e, now, "play")
-}
+// (v0.6.33) getPlayedMs/getPlayedCells removed — the play-time SUM is no longer a §0 row; ongoing
+// time lives on DURATION (getOngoingDurationMs/Cells, a union) and OCCURRENCES is now a count+list.
 
 // Human-readable duration: up to THREE adjacent units, from the largest non-zero unit
 // down — "0s", "45s", "5m 12s", "1h 30m 5s", "2d 3h 40m", "35y 1mo 24d". Scales to years
@@ -638,9 +635,83 @@ export function getAccessCells(e: Entity, now: number) {
   return getSessionCells(e, now, "focus")
 }
 
-/** PLAYED = per-session MANUAL-PLAY breakdown (play sessions, bottom rail). */
-export function getPlayedCells(e: Entity, now: number) {
-  return getSessionCells(e, now, "play")
+// ─── DURATION = ongoing time (v0.6.33) ─────────────────────────────────────────
+// The "how long the glyph was SPINNING" clock — the UNION of every interval during which the
+// entity read `ongoing`. That is: each `play` session `[start, end||now]` PLUS, for moment/space,
+// the concrete in-progress occurrence span (a moment happening spins even without a play session).
+// UNION (merge overlapping intervals), not a naive sum, so a concurrent focus+play — or a play that
+// overlaps its occurrence — is counted ONCE. Distinct from ACCESS (presence/focus, which can tick
+// while NOT ongoing — a done task you're viewing) and from the OCCURRENCES count. OWN-ongoing only
+// (a container's spinning-by-child rollup is deferred — see the plan's "Deferred").
+
+/** Collect the raw ongoing intervals `[start, end]` (end clamped to `now` when live). */
+function ongoingIntervals(e: Entity, now: number): Array<[number, number]> {
+  const out: Array<[number, number]> = []
+  for (const se of getEngagements(e)) {
+    if (se.via !== "play") continue // ongoing is play-driven (v0.6.32)
+    out.push([se.startAt, se.endAt ?? now])
+  }
+  // A moment/space that is concretely started-and-not-ended is ongoing FROM its occurrence, even
+  // with no play session (mirrors getStateInner's concrete-start ⇒ ongoing rule).
+  if (e.kind === "moment" || e.kind === "space") {
+    const cs = concreteStart(e)
+    if (cs != null) {
+      const end = effectiveScheduleEnd(e.schedule)
+      out.push([cs, end != null ? Math.min(end, now) : now])
+    }
+  }
+  return out.filter(([lo, hi]) => hi > lo)
+}
+
+/** Merge overlapping/touching intervals; returns total covered ms + the merged spans (sorted). */
+function mergeIntervals(intervals: Array<[number, number]>): { totalMs: number; merged: Array<[number, number]> } {
+  if (intervals.length === 0) return { totalMs: 0, merged: [] }
+  const sorted = [...intervals].sort((a, b) => a[0] - b[0])
+  const merged: Array<[number, number]> = [sorted[0]]
+  for (let i = 1; i < sorted.length; i++) {
+    const cur = sorted[i]
+    const last = merged[merged.length - 1]
+    if (cur[0] <= last[1]) last[1] = Math.max(last[1], cur[1]) // overlap/touch → extend
+    else merged.push(cur)
+  }
+  const totalMs = merged.reduce((sum, [lo, hi]) => sum + (hi - lo), 0)
+  return { totalMs, merged }
+}
+
+/** DURATION total = union of ongoing intervals, live-counting an open play. `null` when never ongoing. */
+export function getOngoingDurationMs(e: Entity, now: number): number | null {
+  const iv = ongoingIntervals(e, now)
+  if (iv.length === 0) return null
+  return mergeIntervals(iv).totalMs
+}
+
+/**
+ * Structured DURATION row (parallels getSessionCells): grand `total` = union ms, plus one segment
+ * per MERGED ongoing span reading `<duration> (<when>)`, newest first, the live span pulsing.
+ * `null` when the entity has never been ongoing.
+ */
+export function getOngoingDurationCells(
+  e: Entity,
+  now: number,
+): { total: string; segments: ScheduleCell[] } | null {
+  const iv = ongoingIntervals(e, now)
+  if (iv.length === 0) return null
+  const { totalMs, merged } = mergeIntervals(iv)
+  // The merged span that reaches `now` is the LIVE one (it was extended by an open play / in-progress
+  // occurrence). Only that top span pulses + reads "ongoing".
+  const liveHi = Math.max(...merged.map(([, hi]) => hi))
+  const isOngoing = ongoingOpenEngagement(e) != null || ((e.kind === "moment" || e.kind === "space") && concreteStart(e) != null)
+  const segments: ScheduleCell[] = [...merged]
+    .sort((a, b) => b[0] - a[0]) // newest first
+    .map(([lo, hi]) => {
+      const live = isOngoing && hi === liveHi
+      return {
+        text: `${formatDuration(hi - lo)} (${fmtShort(lo, now)})`,
+        full: `${fmt(lo)} – ${live ? "ongoing" : fmt(hi)}`,
+        pulse: live,
+      }
+    })
+  return { total: formatDuration(totalMs), segments }
 }
 
 // ─── PLANNED OCCURRENCES model (v0.6.30, Stage B slice 2) ──────────────────────
@@ -852,29 +923,35 @@ export function getFaceMetaRows(e: Entity, now: number): [string, string][] {
     const durMs = isPlanned ? getPlannedDurationMs(e) : getOccurrenceDurationMs(e, now)
     rows.push([durLabel, durMs == null ? "—" : formatDuration(durMs)])
   }
-  // PLANNED OCCURRENCES (v0.6.30) — the plan's intended spans (primary scalar span ∪ occurrences[]),
-  // each tagged with a DERIVED status (done / ahead / missed / cancelled), led by the counts. The
-  // PLAN side; kept separate from the actual OCCURRENCES row below (never merged). Shown only when
-  // it adds info over PLANNED START/END (multi-span, or any non-upcoming status).
+  // DURATION (v0.6.33) — the ACTUAL "how long the glyph was SPINNING" clock: the UNION of ongoing
+  // intervals (play sessions + a moment/space's in-progress occurrence), live-counting an open play.
+  // Distinct from PLANNED DURATION (the plan-span above), from ACCESS (presence — can tick while NOT
+  // ongoing, e.g. a done task you're viewing), and from the OCCURRENCES count below. Shown for any
+  // planned kind that has ever been ongoing; the FULL §0 face renders the segments richly (see
+  // getOngoingDurationCells), the live span pulsing. Beings never spin (AGE covers them).
   if (isPlannedKind(e.kind)) {
-    const plannedRow = getPlannedOccurrenceRow(e, now)
-    if (plannedRow) rows.push(["planned occurrences", plannedRow])
+    const dur = getOngoingDurationCells(e, now)
+    if (dur) rows.push(["duration", [dur.total, ...dur.segments.map((c) => c.text)].join(" · ")])
   }
-  // ACCESS — accumulated PRESENCE time (BOTTOM rail = "how long I've been on / worked on this"),
-  // its own row for ANY kind that's been engaged, DECOUPLED from the occurrence duration above.
-  // Plain string reads "<total> · <dur1> (<when1>) · <dur2> …"; the FULL §0 face renders the same
-  // segments richly (per-session hover, the live one pulsing) — see getAccessCells.
+  // ACCESS — accumulated PRESENCE time (middle rail = "how long I've been on / looking at this"),
+  // its own row for ANY kind that's been engaged, DECOUPLED from the durations above and from
+  // ongoing (v0.6.32: presence ≠ ongoing — a done task you view still accrues ACCESS). Plain string
+  // reads "<total> · <dur1> (<when1>) · …"; the FULL §0 face renders the segments richly.
   const access = getAccessCells(e, now)
   if (access) rows.push(["access", [access.total, ...access.segments.map((c) => c.text)].join(" · ")])
-  // OCCURRENCES (v0.6.28, renamed from PLAYED) — "the times this ACTUALLY happened": the total +
-  // per-session breakdown of `via:"play"` sessions (BOTTOM rail). Its own clock, DECOUPLED from
-  // ACCESS (presence/focus — being here ≠ it happening) and from PLANNED (the top-rail scalars).
-  // Matches the vocabulary an INSTANT already uses (its occurrences = marks). Only shown when a
-  // play session exists; SKIPPED for instant (its own occurrences row above is the mark tally).
-  // Stage B will weave PLANNED occurrences (fulfilled/missed/upcoming) into this row as tagged
-  // items + a rich summary — for now it's the actual (played) side only.
-  const occ = e.kind === "instant" ? null : getPlayedCells(e, now)
-  if (occ) rows.push(["occurrences", [occ.total, ...occ.segments.map((c) => c.text)].join(" · ")])
+  // OCCURRENCES (v0.6.33) — now the COUNT + PLANNED-LIST row ("how many / which"), NOT a time sum
+  // (the ongoing-time clock moved to DURATION above). It reads: `<N> times` (count of actual play
+  // sessions = times it happened) then the planned-occurrence list with matched/missed status
+  // (getPlannedOccurrenceRow — the old standalone "planned occurrences" row, now MERGED in here).
+  // Shown when either side has something. SKIPPED for instant (its mark-tally occurrences row above).
+  if (e.kind !== "instant") {
+    const playCount = getEngagements(e).filter((s) => s.via === "play" && s.endAt !== s.startAt).length
+    const plannedList = isPlannedKind(e.kind) ? getPlannedOccurrenceRow(e, now) : null
+    const parts: string[] = []
+    if (playCount > 0) parts.push(`${playCount} ${playCount === 1 ? "time" : "times"}`)
+    if (plannedList) parts.push(plannedList)
+    if (parts.length > 0) rows.push(["occurrences", parts.join(" — ")])
+  }
   // ACCENT — only when set (via `:color:`). The value is the raw hex; the dt cell
   // paints a matching swatch so the raw-data view still shows the color itself.
   if (e.accent) rows.push(["color", e.accent])
