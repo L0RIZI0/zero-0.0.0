@@ -711,7 +711,20 @@ export function getPlannedOccurrences(e: Entity): PlannedOccurrence[] {
   return list
 }
 
-/** One planned occurrence rendered as `<when>[–<end>] (<status>)`; sentinel/open handled. */
+/**
+ * DISPLAY word for an occurrence status (v0.6.31) — deliberately NOT "done"/"fulfilled":
+ *   • matched — a session (presence OR play) coincided with the planned window. Chosen over
+ *     "done" (which collides with a Task's DONE checkmark) and "fulfilled": the question this row
+ *     answers is "did REALITY (a session) MATCH the PLAN (this scheduled span)?" — matched / missed
+ *     is the natural pair for that.
+ *   • missed — the window fully elapsed with no session in it.
+ *   • upcoming / cancelled — self-explanatory.
+ */
+export function occurrenceStatusWord(status: OccurrenceStatus): string {
+  return status === "fulfilled" ? "matched" : status // missed | upcoming | cancelled
+}
+
+/** One planned occurrence rendered as `<when>[–<end>] (<matched|missed|…>)`; sentinel/open handled. */
 function formatPlannedOccurrence(occ: PlannedOccurrence, status: OccurrenceStatus, now: number): string {
   const when = occ.whenever
     ? "whenever"
@@ -721,41 +734,29 @@ function formatPlannedOccurrence(occ: PlannedOccurrence, status: OccurrenceStatu
         ? `by ${fmtShort(occ.endAt, now)}`
         : "—"
   const span = occ.startAt != null && occ.endAt != null ? `${when}–${fmtShort(occ.endAt, now)}` : when
-  return `${span} (${status})`
+  return `${span} (${occurrenceStatusWord(status)})`
 }
 
 /**
- * The PLANNED OCCURRENCES §0 value (v0.6.30) — a status COUNT prefix + the tagged list, e.g.
- * `1 done · 2 ahead · 1 missed — Mon 1:00 PM–2:00 PM (missed) · Fri (upcoming) · …`. `null` when
- * there's nothing worth a dedicated row (no planned occurrences, or a single still-upcoming span
- * that PLANNED START/END already shows). Each COUNT is sourced from exactly one layer (the planned
- * status resolver); the actual "N times · last" lives on the separate OCCURRENCES row.
+ * The PLANNED OCCURRENCES §0 value (v0.6.31) — the tagged list itself, occurrence-led (NO leading
+ * count summary): `Mon 1:00 PM–2:00 PM (matched) · Fri (upcoming) · Sat (missed)`. Reads left-to-
+ * right as "each thing I planned, and whether reality matched it".
+ *
+ * `null` when the row adds nothing over PLANNED START/END — i.e. a single PRIMARY span that is
+ * merely `matched` or `upcoming` (v0.6.31: a freshly-created+opened task auto-gets a session that
+ * trivially "matches" its primary window, which made the old `1 done` prefix always-on noise). The
+ * row earns its place only for MULTIPLE occurrences, or a `missed`/`cancelled` — the genuinely
+ * informative cases. Fulfilment counts a focus OR play session (being present during the planned
+ * window honours the plan); the separate OCCURRENCES row is the actual play-time clock.
  */
 export function getPlannedOccurrenceRow(e: Entity, now: number): string | null {
   const planned = getPlannedOccurrences(e)
   if (planned.length === 0) return null
-  const sessions = getEngagements(e) // focus OR play both fulfil a planned occurrence
+  const sessions = getEngagements(e) // focus OR play both match a planned occurrence
   const tagged = planned.map((o) => [o, occurrenceStatus(o, sessions, now)] as const)
-  // Skip the row when it adds nothing over PLANNED START/END: a lone, still-upcoming primary span.
-  const worth = tagged.length > 1 || tagged.some(([, st]) => st !== "upcoming")
+  const worth = tagged.length > 1 || tagged.some(([, st]) => st === "missed" || st === "cancelled")
   if (!worth) return null
-  let done = 0
-  let ahead = 0
-  let missed = 0
-  let cancelled = 0
-  for (const [, st] of tagged) {
-    if (st === "fulfilled") done++
-    else if (st === "upcoming") ahead++
-    else if (st === "missed") missed++
-    else cancelled++
-  }
-  const counts: string[] = []
-  if (done) counts.push(`${done} done`)
-  if (ahead) counts.push(`${ahead} ahead`)
-  if (missed) counts.push(`${missed} missed`)
-  if (cancelled) counts.push(`${cancelled} cancelled`)
-  const list = tagged.map(([o, st]) => formatPlannedOccurrence(o, st, now)).join(" · ")
-  return `${counts.join(" · ")} — ${list}`
+  return tagged.map(([o, st]) => formatPlannedOccurrence(o, st, now)).join(" · ")
 }
 
 export function getFaceMetaRows(e: Entity, now: number): [string, string][] {
@@ -795,15 +796,15 @@ export function getFaceMetaRows(e: Entity, now: number): [string, string][] {
   // unset), the same way DONE/CLOSED always render. A Moment IS a span, an Instant
   // IS a point, so hiding those rows when empty would hide the kind's essence.
   const s = e.schedule
-  // PLANNED span rows (v0.6.28) — every PLANNED kind (task/moment/space/resource) can carry a
-  // planned start/end. moment/space read as SPANS so they ALWAYS surface the rows (— when unset);
-  // task/resource surface them only when a planning field is actually set (planning is optional
-  // for them, so we don't clutter every to-do with empty slots). These scalars are PURE PLANNING
-  // (user-set, never written by Play/punch — v0.6.26); actual time lives on ACCESS/OCCURRENCES.
+  // PLANNED span rows (v0.6.28; ALWAYS-shown v0.6.31) — every PLANNED kind (task/moment/space/
+  // resource) can carry a planned start/end, and the slots are now ALWAYS surfaced (— when unset),
+  // exactly like DONE/STATE/PLANNED DURATION. Rationale (Loris, v0.6.31): the plan fields are a
+  // MINIMUM affordance — once §0 is directly editable, an empty "planned start —" is the tap target
+  // to plan on the current entity; hiding it until a `--field:value` was typed made planning
+  // undiscoverable. These scalars are PURE PLANNING (user-set, never written by Play/punch —
+  // v0.6.26); actual time lives on ACCESS/OCCURRENCES.
   if (isPlannedKind(e.kind)) {
-    const alwaysSpan = e.kind === "moment" || e.kind === "space"
-    const hasPlan = s?.startAt != null || s?.endAt != null || concreteStart(e) != null
-    if (alwaysSpan || hasPlan) {
+    {
       // Plain-string fallback (block-rung subsets / `title` / non-rich consumers). The FULL §0 face
       // renders these RICHLY from the same `getScheduleCells`, so they never diverge.
       const cells = getScheduleCells(e, now)!

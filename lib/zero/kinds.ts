@@ -455,6 +455,13 @@ export function hasOpenEngagement(entity: Entity): boolean {
  * that only spins by rollup can't be ended here; you'd end its running child instead).
  */
 export function isOwnOngoing(entity: Entity, now: number = Date.now()): boolean {
+  // v0.6.31: a TERMINAL / done / complete entity is NEVER ongoing — mirror getState's precedence
+  // (cancelled > closed > complete > done > ongoing). Presence (focus) is now lifecycle-independent
+  // (a done task can hold a LIVE focus session so ACCESS keeps counting while you view it), so we
+  // must NOT let that session make the done task read own-ongoing / endable in the PINS band. If
+  // getState isn't "ongoing", it isn't ongoing at all; if it IS, the own-checks below tell whether
+  // that's by its OWN session/span (true) or merely a contained descendant's rollup (false).
+  if (getState(entity, now).word !== "ongoing") return false
   // State-relevant open session (a focus/viewing session on a moment/instant does NOT count).
   if (ongoingOpenEngagement(entity) != null) return true
   if (entity.kind === "moment" || entity.kind === "space") {

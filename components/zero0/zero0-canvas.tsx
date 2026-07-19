@@ -39,7 +39,7 @@ import {
   endOngoing,
   reorderContextItems,
 } from "@/lib/zero/data"
-  import { KIND_META, isClosed, getState, hasOpenEngagement, getOpenEngagement, isMarkable, getInstantMaxNb } from "@/lib/zero/kinds"
+  import { KIND_META, getState, hasOpenEngagement, getOpenEngagement, isMarkable, getInstantMaxNb } from "@/lib/zero/kinds"
   import { isDone, describeLogEntry } from "@/lib/zero/entity-log"
 import {
   parseEntry,
@@ -310,9 +310,11 @@ export function Zero0Canvas() {
         // root IS your overall Zero user session (one open span until you leave/reload), recorded
         // on the activity rail. It never reads "ongoing" because a BEING's focus session is
         // STATE-exempt (ongoingOpenEngagement) and the rollup stops at beings — so root records
-        // its span WITHOUT spinning. Skip done Tasks and already-closed entities (a finished thing
-        // shouldn't silently re-open just because you glanced at it).
-        if (isDone(e) || isClosed(e)) continue
+        // its span WITHOUT spinning. v0.6.31: presence is LIFECYCLE-INDEPENDENT — we NO LONGER skip
+        // done / closed entities. ACCESS = pure presence ("I'm here looking at this"), so viewing a
+        // finished task keeps its ACCESS counting; getState ranks complete/done/closed ABOVE the
+        // session-based ongoing, so this can't silently re-open a finished thing (its state word is
+        // unchanged; only its presence clock ticks). See getStateInner precedence + isOwnOngoing.
         // v0.6.25: an entity may already have an open MANUAL PLAY (via:"play") — e.g. a Space you
         // Play'd from afar and then navigated into. Don't punch a focus session on top of it and,
         // crucially, don't register it in `focusOpenRef` (that ref drives auto punch-OUT on
@@ -779,22 +781,15 @@ export function Zero0Canvas() {
   const toggleDone = useCallback(
     (e: Entity) => {
       if (!KIND_META[e.kind].hasDoneState) return
-      const nowDone = !isDone(e)
-      setEntityCompleted(e.id, nowDone)
-      // A Task is ongoing only while UNDONE, so marking it done punches out its focus
-      // session (if any); it stops accruing work time even if it stays on the path.
-      if (nowDone && e.kind === "task" && hasOpenEngagement(e)) {
-        closeEngagement(e.id)
-        focusOpenRef.current.delete(e.id)
-      } else if (!nowDone && e.kind === "task" && path.includes(e.id) && !hasOpenEngagement(e)) {
-        // Reopened IN PLACE while still inside it. The dwell effect won't re-fire (the
-        // `path` didn't change), so punch a focus session back in NOW — otherwise the
-        // glyph stayed a static square until you navigated away and back (the bug Loris hit).
-        if (openEngagement(e.id, "focus")) focusOpenRef.current.add(e.id)
-      }
+      setEntityCompleted(e.id, !isDone(e))
+      // v0.6.31: DONE no longer touches sessions. Presence (focus) is lifecycle-independent, so
+      // marking done keeps the focus session OPEN (ACCESS keeps counting while you view it) and
+      // un-doning needs no manual re-open (it was never closed). The glyph stops / re-starts
+      // spinning purely from the DERIVED state: getState ranks complete/done ABOVE the session-
+      // based ongoing, so a lingering focus session can't resurrect a done task to "ongoing".
       bump()
     },
-    [bump, path],
+    [bump],
   )
 
   // PLAY / STOP on a MOMENT/SPACE glyph (v0.6.26) — both open/close a `via:"play"` SESSION (bottom
