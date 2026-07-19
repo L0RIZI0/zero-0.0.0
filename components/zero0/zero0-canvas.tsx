@@ -1093,7 +1093,9 @@ export function Zero0Canvas() {
   // middle of another row). No-op on self/cycle (guarded in moveEntityToContext).
   const reparent = useCallback(
     (entityId: string, newContextId: string) => {
-      if (moveEntityToContext(entityId, newContextId)) bump()
+      const ok = moveEntityToContext(entityId, newContextId)
+      if (ok) bump()
+      return ok
     },
     [bump],
   )

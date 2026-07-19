@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useRef, useState } from "react"
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react"
 import {
   DndContext,
   DragOverlay,
@@ -14,7 +14,7 @@ import {
 import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable"
 import { restrictToVerticalAxis } from "@dnd-kit/modifiers"
 import { motion } from "motion/react"
-import { getChildren } from "@/lib/zero/data"
+import { getChildren, getEntity } from "@/lib/zero/data"
 import { isClosed } from "@/lib/zero/kinds"
 import { Zero0Face } from "./zero0-face"
 import { Zero0Glyph } from "./zero0-glyph"
@@ -36,14 +36,16 @@ import type { Entity } from "@/lib/zero/types"
 // chrome, but every ACTION and every cross-cutting VIEW accessor is threaded in via `ctx`
 // (memoized once in the canvas) so the whole recursive tree shares one set of handlers.
 //
-// DRAG-AND-DROP (v0.2.152, reworked v0.2.154): powered by @dnd-kit with motion for a buttery
-// lift/settle — deliberately RICHER than the /0 minimal aesthetic, since this is an
-// interaction surface. The WHOLE ROW is draggable (a 6px activation distance means a plain
-// click still drills via the title). SIBLING REORDER ONLY: dropping above/below a row's
-// midpoint places the dragged row before/after it. Drop position is decided by hit-testing
-// the LIVE cursor Y (onDragMove) against this level's own row rects — NOT dnd-kit's `over`,
-// which lagged. Each Content level owns its own DndContext (drag scoped to that level).
-// NEST-into is deferred to a future dwell-to-expand gesture (see DropMode note below).
+// DRAG-AND-DROP (v0.2.152 … reworked v0.2.157 for TREE drag): powered by @dnd-kit with
+// motion for a buttery lift/settle — deliberately RICHER than the /0 minimal aesthetic. The
+// WHOLE ROW is draggable (a 6px activation distance means a plain click still drills). ONE
+// DndContext lives at the ROOT (depth 0) and spans the ENTIRE visible tree, so a drag can
+// cross levels. Three drop zones per row: TOP third = before it, BOTTOM third = after it
+// (both reorder within THAT row's own parent — unambiguous, no depth projection), MIDDLE
+// third = NEST inside it. DWELL-TO-EXPAND: holding the cursor over a collapsed row that has
+// children auto-expands it (after DWELL_MS) so you can then drop precisely among its kids.
+// Drop position is decided by hit-testing the LIVE cursor against every visible row's rect
+// (window `pointermove`, NOT dnd-kit's `over`, which lagged).
 
 export interface Zero0ContentCtx {
   /** Toggle a task's soft DONE marker. */
@@ -78,8 +80,9 @@ export interface Zero0ContentCtx {
   createChild: (contextId: string, raw: string) => void
   /** Persist a drag-and-drop sibling order for `contextId` (full visible order). */
   reorder: (contextId: string, orderedIds: string[]) => void
-  /** Move an entity INTO another context (nest it as a child). No-op on cycle/self. */
-  reparent: (entityId: string, newContextId: string) => void
+  /** Move an entity INTO another context (nest it as a child). Returns false (no-op) on
+      cycle/self so callers can abort a follow-up reorder. */
+  reparent: (entityId: string, newContextId: string) => boolean
 }
 
 // Cap pathological trees. `getChildren` follows `taggedContextIds` (multi-parent), so a
@@ -87,19 +90,29 @@ export interface Zero0ContentCtx {
 // and this caps everything else so a deep chain can't lock the UI.
 const MAX_CONTENT_DEPTH = 8
 
+// How long the cursor must rest over a collapsed row (with children) before it auto-expands.
+const DWELL_MS = 550
+
 export type ContentAxis = "list"
 
 // Where a drop will land relative to the row under the cursor.
-//   before/after → REORDER (sit above/below the target sibling)
-// NOTE (v0.2.154): NEST-into ("inside") is intentionally DROPPED for now — sibling reorder
-// only. The future nesting gesture is dwell-to-expand (hover a target long enough → it
-// auto-expands so you can drop the row precisely into its child list). The `reparent` ctx
-// action + `moveEntityToContext` data helper stay in place for that.
-type DropMode = "before" | "after"
+//   before/after → REORDER as a sibling of the target, within the target's OWN parent
+//   inside       → NEST as a child of the target
+type DropMode = "before" | "after" | "inside"
 interface DropIntent {
+  /** The row the cursor is acting on. */
   overId: string
   mode: DropMode
+  /** The target row's container (for before/after placement). Null for inside (overId IS
+      the new parent). */
+  parentId: string | null
 }
+
+// ── Shared drag state, provided ONCE at the root and read by every row in the tree ──
+// Only the drop INTENT crosses component boundaries (to draw the indicator/nest ring on the
+// right row). It updates only when the target changes (guarded), so consumers re-render
+// rarely despite the drag firing on every pixel.
+const ContentDragContext = createContext<{ dropIntent: DropIntent | null }>({ dropIntent: null })
 
 export interface Zero0ContentProps {
   /** The container whose INSIDE we're showing. */
@@ -126,26 +139,246 @@ interface ChildRow {
   num: number | null
 }
 
-export function Zero0Content({ entity, axis, depth, ancestry, ctx, isRoot, mounted = true }: Zero0ContentProps) {
-  const { showHidden, rev } = ctx
+// Build the full ordered id list for `parentId` with `draggedId` placed before/after
+// `targetId` among its (current) children. Reads live data, so call AFTER any reparent.
+function placeRelative(parentId: string, draggedId: string, targetId: string, mode: "before" | "after"): string[] {
+  const ids = getChildren(parentId)
+    .map((c) => c.id)
+    .filter((id) => id !== draggedId)
+  const ti = ids.indexOf(targetId)
+  if (ti < 0) return [...ids, draggedId] // fallback: append
+  ids.splice(mode === "after" ? ti + 1 : ti, 0, draggedId)
+  return ids
+}
 
-  // Which row the cursor is over — drives the reveal of the drag grip hint + delete ×.
-  const [hoverId, setHoverId] = useState<string | null>(null)
-  // The id being dragged (for the DragOverlay clone) and where it will land.
+// ── Public entry: at depth 0 install the single DndContext + drag controller; deeper levels
+// render only their body (they share the root's context). ───────────────────────────────
+export function Zero0Content(props: Zero0ContentProps) {
+  if (props.mounted === false) return null
+  if (props.depth === 0) return <ContentDragRoot {...props} />
+  return <ContentBody {...props} />
+}
+
+// ── The ROOT drag controller — owns all drag state + the one DndContext + the overlay. ──
+function ContentDragRoot(props: Zero0ContentProps) {
+  const { entity, ctx } = props
+
   const [activeId, setActiveId] = useState<string | null>(null)
-  const [dropIntent, setDropIntent] = useState<DropIntent | null>(null)
-  // The <ul> holding this level's rows — used to read the direct-child row rects live.
-  const listRef = useRef<HTMLUListElement>(null)
-  // While dragging we listen to the REAL cursor via a window `pointermove` (e.clientY is
-  // always accurate — no reliance on dnd-kit geometry, delta math, or a stored drag-start Y,
-  // all of which produced a lagging / "snap to top" indicator). Kept in a ref so we can
-  // detach it on drop/cancel.
+  const [dropIntent, setDropIntentState] = useState<DropIntent | null>(null)
+  // Mirror the intent in a ref so onDragEnd (and the equality guard) always see the latest,
+  // never a stale closure.
+  const dropIntentRef = useRef<DropIntent | null>(null)
+  // The top <ul> — its subtree contains EVERY visible row (nested lists render inside rows),
+  // so one query gets the whole tree.
+  const rootRef = useRef<HTMLUListElement>(null)
   const moveHandlerRef = useRef<((e: PointerEvent) => void) | null>(null)
+  // Latest computeIntent, so the window listener (bound once at drag start) always runs the
+  // current closure (fresh expandedIds, etc.).
+  const computeIntentRef = useRef<(draggedId: string, cursorY: number) => void>(() => {})
+  // Pending dwell-to-expand timer for the row currently under the cursor's middle band.
+  const dwellRef = useRef<{ id: string; timer: number } | null>(null)
+
+  const clearDwell = () => {
+    if (dwellRef.current) {
+      clearTimeout(dwellRef.current.timer)
+      dwellRef.current = null
+    }
+  }
+
+  const setDropIntent = (next: DropIntent | null) => {
+    const cur = dropIntentRef.current
+    if (cur && next && cur.overId === next.overId && cur.mode === next.mode && cur.parentId === next.parentId) return
+    if (!cur && !next) return
+    dropIntentRef.current = next
+    setDropIntentState(next)
+  }
 
   // A plain click must still drill (title) / toggle (glyph) even though the whole row is a
   // drag source: a 6px activation distance means the drag only begins once the pointer
   // actually moves, so click-through is preserved.
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }))
+
+  // Hit-test the LIVE cursor against every visible row in the tree and derive a drop intent.
+  // Three zones per row (top/middle/bottom); the dragged row itself yields no intent so it
+  // never targets itself. Dwelling over a collapsed row-with-children arms auto-expand.
+  const computeIntent = (draggedId: string, cursorY: number) => {
+    const root = rootRef.current
+    if (!root) return
+    const rows = Array.from(root.querySelectorAll<HTMLElement>("[data-drag-id]"))
+    if (rows.length === 0) {
+      setDropIntent(null)
+      clearDwell()
+      return
+    }
+    // Find the row whose vertical band contains the cursor.
+    let hit: HTMLElement | null = null
+    let rect: DOMRect | null = null
+    for (const el of rows) {
+      const r = el.getBoundingClientRect()
+      if (cursorY >= r.top && cursorY <= r.bottom) {
+        hit = el
+        rect = r
+        break
+      }
+    }
+    // Above the first / below the last visible row → clamp to that edge row.
+    if (!hit) {
+      const firstR = rows[0].getBoundingClientRect()
+      if (cursorY < firstR.top) {
+        hit = rows[0]
+        rect = firstR
+      } else {
+        hit = rows[rows.length - 1]
+        rect = hit.getBoundingClientRect()
+      }
+    }
+    const overId = hit.dataset.dragId!
+    // Never target the dragged row itself — leave the last good intent's shape but blank it.
+    if (overId === draggedId) {
+      setDropIntent(null)
+      clearDwell()
+      return
+    }
+    const parentId = hit.dataset.parentId || null
+    const ratio = (cursorY - rect!.top) / rect!.height
+    let mode: DropMode
+    if (ratio < 0.3) mode = "before"
+    else if (ratio > 0.7) mode = "after"
+    else mode = "inside"
+    setDropIntent({ overId, mode, parentId })
+
+    // Dwell-to-expand only in the middle (nest) zone, on a collapsed row that has children.
+    if (mode === "inside" && hit.dataset.haschildren === "1" && !ctx.expandedIds[overId]) {
+      if (!dwellRef.current || dwellRef.current.id !== overId) {
+        clearDwell()
+        const id = overId
+        dwellRef.current = { id, timer: window.setTimeout(() => ctx.toggleExpand(id), DWELL_MS) }
+      }
+    } else {
+      clearDwell()
+    }
+  }
+  useEffect(() => {
+    computeIntentRef.current = computeIntent
+  })
+
+  const onDragStart = (event: DragStartEvent) => {
+    const draggedId = String(event.active.id)
+    setActiveId(draggedId)
+    const handler = (e: PointerEvent) => computeIntentRef.current(draggedId, e.clientY)
+    moveHandlerRef.current = handler
+    window.addEventListener("pointermove", handler)
+    const activator = event.activatorEvent
+    if (activator instanceof MouseEvent) computeIntentRef.current(draggedId, activator.clientY)
+  }
+
+  const clearDrag = () => {
+    if (moveHandlerRef.current) {
+      window.removeEventListener("pointermove", moveHandlerRef.current)
+      moveHandlerRef.current = null
+    }
+    clearDwell()
+    setActiveId(null)
+    setDropIntent(null)
+  }
+
+  const onDragEnd = (event: DragEndEvent) => {
+    const draggedId = String(event.active.id)
+    const intent = dropIntentRef.current
+    clearDrag()
+    if (!intent || intent.overId === draggedId) return
+    if (!getEntity(draggedId)) return
+
+    if (intent.mode === "inside") {
+      // NEST — the dragged entity becomes a child of the target (appended last).
+      ctx.reparent(draggedId, intent.overId)
+      return
+    }
+
+    // REORDER as a sibling of the target, within the target's own parent.
+    const parentId = intent.parentId
+    if (!parentId) return
+    const dragged = getEntity(draggedId)!
+    if (dragged.parentId === parentId) {
+      ctx.reorder(parentId, placeRelative(parentId, draggedId, intent.overId, intent.mode))
+    } else {
+      // Cross-parent: move in first (guards cycles), then order within the new parent.
+      if (!ctx.reparent(draggedId, parentId)) return
+      ctx.reorder(parentId, placeRelative(parentId, draggedId, intent.overId, intent.mode))
+    }
+  }
+
+  const activeEntity = activeId ? getEntity(activeId) ?? null : null
+
+  return (
+    <ContentDragContext.Provider value={{ dropIntent }}>
+      <DndContext
+        sensors={sensors}
+        collisionDetection={pointerWithin}
+        modifiers={[restrictToVerticalAxis]}
+        onDragStart={onDragStart}
+        onDragEnd={onDragEnd}
+        onDragCancel={clearDrag}
+      >
+        <ContentBody {...props} listRef={rootRef} />
+
+        {/* The floating clone that follows the cursor — a lifted card with a spring pop.
+            On drop, `keyframes` animates it from its lifted state (opacity 0.85) TO the
+            settled destination transform at opacity 0, so it DISSOLVES into place instead of
+            blinking out. Transform strings are built inline to avoid a phantom
+            `@dnd-kit/utilities` dep. */}
+        <DragOverlay
+          dropAnimation={{
+            duration: 240,
+            easing: "cubic-bezier(0.22, 1, 0.36, 1)",
+            keyframes: ({ transform }) => {
+              const t = (x: number, y: number, sx: number, sy: number) =>
+                `translate3d(${x}px, ${y}px, 0) scaleX(${sx}) scaleY(${sy})`
+              const { initial, final } = transform
+              return [
+                { opacity: 0.85, transform: t(initial.x, initial.y, initial.scaleX, initial.scaleY) },
+                { opacity: 0, transform: t(final.x, final.y, final.scaleX, final.scaleY) },
+              ]
+            },
+          }}
+        >
+          {activeEntity ? (
+            <motion.div
+              initial={{ scale: 1, opacity: 1 }}
+              animate={{ scale: 1.03, opacity: 0.85 }}
+              transition={{ type: "spring", stiffness: 500, damping: 30 }}
+              className="flex items-center gap-2 rounded-md border border-border bg-card px-3 py-1.5 text-[11px] text-card-foreground shadow-lg"
+            >
+              {/* Explicit box: the glyph SVG has a viewBox but NO intrinsic width/height, so
+                  inside the portaled overlay (no width constraint) it would balloon to fill
+                  the screen without this size class. */}
+              <span className="flex h-4 w-4 shrink-0 items-center justify-center text-foreground">
+                <Zero0Glyph kind={activeEntity.kind} filled={isClosed(activeEntity)} className="h-4 w-4" />
+              </span>
+              <span className="truncate">{activeEntity.title}</span>
+            </motion.div>
+          ) : null}
+        </DragOverlay>
+      </DndContext>
+    </ContentDragContext.Provider>
+  )
+}
+
+// ── The recursive body: this level's children as a SortableContext + <ul> of rows. Rendered
+// at every depth; only the root passes a `listRef` (for whole-tree hit-testing). ─────────
+function ContentBody({
+  entity,
+  axis,
+  depth,
+  ancestry,
+  ctx,
+  isRoot,
+  listRef,
+}: Zero0ContentProps & { listRef?: React.Ref<HTMLUListElement> }) {
+  const { showHidden, rev } = ctx
+
+  // Which row the cursor is over — drives the reveal of the delete ×. Local per level.
+  const [hoverId, setHoverId] = useState<string | null>(null)
 
   const children = useMemo(
     () => getChildren(entity.id),
@@ -178,82 +411,6 @@ export function Zero0Content({ entity, axis, depth, ancestry, ctx, isRoot, mount
 
   const sortableIds = useMemo(() => childRows.map((r) => r.e.id), [childRows])
 
-  // Decide before/after from a KNOWN-good cursor Y, using a GAP-FREE midpoint scan over ALL
-  // this level's rows (the dragged row INCLUDED). Every Y maps to exactly one insertion slot:
-  // we find the first row whose MIDPOINT is below the cursor and insert BEFORE it; past the
-  // last midpoint we insert after the last row. Because the dragged row participates, there's
-  // no uncovered band over its own area (the old bug: the cursor there fell through to a
-  // "below-last → after-last" fallback, so the indicator jumped to the very bottom).
-  const computeIntent = (draggedId: string, cursorY: number) => {
-    const list = listRef.current
-    if (!list) return
-    // Direct-child rows only (`:scope >`) so a nested Content's rows don't leak in.
-    const rows = Array.from(list.querySelectorAll<HTMLElement>(":scope > [data-drag-id]"))
-    if (rows.length === 0) {
-      setDropIntent(null)
-      return
-    }
-    // Build the insertion slot as an index into the row list, then translate to overId+mode
-    // against a NON-dragged anchor so the accent bar never renders on the (hidden) dragged row.
-    let slot = rows.length
-    for (let i = 0; i < rows.length; i++) {
-      const r = rows[i].getBoundingClientRect()
-      if (cursorY < r.top + r.height / 2) {
-        slot = i
-        break
-      }
-    }
-    let next: DropIntent | null = null
-    if (slot < rows.length && rows[slot].dataset.dragId !== draggedId) {
-      next = { overId: rows[slot].dataset.dragId!, mode: "before" }
-    } else {
-      // Anchor on the row just before the slot; if that's the dragged row, step back once more.
-      let anchor = slot - 1
-      if (anchor >= 0 && rows[anchor].dataset.dragId === draggedId) anchor -= 1
-      next = anchor >= 0 ? { overId: rows[anchor].dataset.dragId!, mode: "after" } : null
-    }
-    setDropIntent((cur) => (cur && next && cur.overId === next.overId && cur.mode === next.mode ? cur : next))
-  }
-
-  const onDragStart = (event: DragStartEvent) => {
-    const draggedId = String(event.active.id)
-    setActiveId(draggedId)
-    // Track the REAL cursor for the life of the drag. e.clientY is always correct — no dnd-kit
-    // geometry, delta math, or stored drag-start Y (all of which produced lag / snap-to-edge).
-    const handler = (e: PointerEvent) => computeIntent(draggedId, e.clientY)
-    moveHandlerRef.current = handler
-    window.addEventListener("pointermove", handler)
-    // Seed once from the activator so the bar shows immediately, before the first move.
-    const activator = event.activatorEvent
-    if (activator instanceof MouseEvent) computeIntent(draggedId, activator.clientY)
-  }
-
-  const clearDrag = () => {
-    if (moveHandlerRef.current) {
-      window.removeEventListener("pointermove", moveHandlerRef.current)
-      moveHandlerRef.current = null
-    }
-    setActiveId(null)
-    setDropIntent(null)
-  }
-
-  const onDragEnd = (event: DragEndEvent) => {
-    const draggedId = String(event.active.id)
-    const intent = dropIntent
-    clearDrag()
-    if (!intent || intent.overId === draggedId) return
-    // REORDER — rebuild the full visible sibling order with the dragged id removed then
-    // re-inserted before/after the target.
-    const ids = sortableIds.filter((id) => id !== draggedId)
-    const targetIdx = ids.indexOf(intent.overId)
-    if (targetIdx < 0) return
-    const insertAt = intent.mode === "after" ? targetIdx + 1 : targetIdx
-    ids.splice(insertAt, 0, draggedId)
-    ctx.reorder(entity.id, ids)
-  }
-
-  if (!mounted) return null
-
   // A NESTED content always ends with an inline create row so you can populate ANY entity
   // in place. The top-level content leaves creation to the canvas's own field.
   const createRow = !isRoot ? <ContentCreateRow onCreate={(raw) => ctx.createChild(entity.id, raw)} /> : null
@@ -265,104 +422,53 @@ export function Zero0Content({ entity, axis, depth, ancestry, ctx, isRoot, mount
     return <ul className="text-[11px] tabular-nums">{createRow}</ul>
   }
 
-  const activeEntity = activeId ? children.find((c) => c.id === activeId) ?? null : null
-
   return (
-    <DndContext
-      sensors={sensors}
-      collisionDetection={pointerWithin}
-      modifiers={[restrictToVerticalAxis]}
-      onDragStart={onDragStart}
-      onDragEnd={onDragEnd}
-      onDragCancel={clearDrag}
-    >
-      <SortableContext items={sortableIds} strategy={verticalListSortingStrategy}>
-        <ul ref={listRef} className="text-[11px] tabular-nums">
-          {childRows.map((row) => (
-            <ContentRow
-              key={row.e.id}
-              row={row}
-              axis={axis}
-              depth={depth}
-              ancestry={ancestry}
-              ctx={ctx}
-              hoverId={hoverId}
-              setHoverId={setHoverId}
-              dropIntent={dropIntent}
-              isAnyDragging={activeId != null}
-            />
-          ))}
-          {createRow}
-        </ul>
-      </SortableContext>
-
-      {/* The floating clone that follows the cursor — a lifted card with a spring pop.
-          On drop, `keyframes` animates it from its lifted state (opacity 0.85) TO the settled
-          destination transform at opacity 0, so it DISSOLVES into place instead of blinking
-          out. Transform strings are built inline to avoid a phantom `@dnd-kit/utilities` dep. */}
-      <DragOverlay
-        dropAnimation={{
-          duration: 240,
-          easing: "cubic-bezier(0.22, 1, 0.36, 1)",
-          keyframes: ({ transform }) => {
-            const t = (x: number, y: number, sx: number, sy: number) =>
-              `translate3d(${x}px, ${y}px, 0) scaleX(${sx}) scaleY(${sy})`
-            const { initial, final } = transform
-            return [
-              { opacity: 0.85, transform: t(initial.x, initial.y, initial.scaleX, initial.scaleY) },
-              { opacity: 0, transform: t(final.x, final.y, final.scaleX, final.scaleY) },
-            ]
-          },
-        }}
-      >
-        {activeEntity ? (
-          <motion.div
-            initial={{ scale: 1, opacity: 1 }}
-            animate={{ scale: 1.03, opacity: 0.85 }}
-            transition={{ type: "spring", stiffness: 500, damping: 30 }}
-            className="flex items-center gap-2 rounded-md border border-border bg-card px-3 py-1.5 text-[11px] text-card-foreground shadow-lg"
-          >
-            {/* Explicit box: the glyph SVG has a viewBox but NO intrinsic width/height, so
-                inside the portaled overlay (no width constraint) it would balloon to fill the
-                screen without this size class. */}
-            <span className="flex h-4 w-4 shrink-0 items-center justify-center text-foreground">
-              <Zero0Glyph kind={activeEntity.kind} filled={isClosed(activeEntity)} className="h-4 w-4" />
-            </span>
-            <span className="truncate">{activeEntity.title}</span>
-          </motion.div>
-        ) : null}
-      </DragOverlay>
-    </DndContext>
+    <SortableContext items={sortableIds} strategy={verticalListSortingStrategy}>
+      <ul ref={listRef} className="text-[11px] tabular-nums">
+        {childRows.map((row) => (
+          <ContentRow
+            key={row.e.id}
+            row={row}
+            parentId={entity.id}
+            axis={axis}
+            depth={depth}
+            ancestry={ancestry}
+            ctx={ctx}
+            hoverId={hoverId}
+            setHoverId={setHoverId}
+          />
+        ))}
+        {createRow}
+      </ul>
+    </SortableContext>
   )
 }
 
 // ── A single ENTITY CONTENT row ────────────────────────────────────────────────
-// Extracted so it can own its `useSortable` hook (one draggable+droppable per row). The
-// whole row body is the drag handle; inner buttons (title/glyph/caret/×) still receive
-// clicks thanks to the DndContext activation distance.
+// Owns its `useSortable` (drag handle + isDragging). The whole row body is the drag handle;
+// inner buttons (title/glyph/caret/×) still receive clicks thanks to the activation distance.
 function ContentRow({
   row,
+  parentId,
   axis,
   depth,
   ancestry,
   ctx,
   hoverId,
   setHoverId,
-  dropIntent,
-  isAnyDragging,
 }: {
   row: ChildRow
+  parentId: string
   axis: ContentAxis
   depth: number
   ancestry: ReadonlySet<string>
   ctx: Zero0ContentCtx
   hoverId: string | null
   setHoverId: (id: string | null) => void
-  dropIntent: DropIntent | null
-  isAnyDragging: boolean
 }) {
   const { e, hidden, collapsed, num } = row
   const { nowSec, sizeOf, makeOf, expandedIds } = ctx
+  const { dropIntent } = useContext(ContentDragContext)
 
   const { attributes, listeners, setNodeRef, isDragging } = useSortable({ id: e.id })
 
@@ -375,6 +481,7 @@ function ContentRow({
   // RECURSION — a row may open into its OWN Content (see MAX_CONTENT_DEPTH + ancestry guard).
   const canExpand = depth + 1 < MAX_CONTENT_DEPTH && !ancestry.has(e.id)
   const expanded = canExpand && !!expandedIds[e.id]
+  const hasChildren = getChildren(e.id).length > 0
 
   // This row's live drop decoration (only when it's the target of the current drag).
   const intentHere = dropIntent && dropIntent.overId === e.id ? dropIntent.mode : null
@@ -398,7 +505,6 @@ function ContentRow({
 
   const num2 = num != null ? String(num).padStart(2, "0") : ""
 
-  const hasChildren = getChildren(e.id).length > 0
   const caretCell = canExpand ? (
     <button
       type="button"
@@ -439,6 +545,8 @@ function ContentRow({
     <motion.li
       ref={setNodeRef}
       data-drag-id={e.id}
+      data-parent-id={parentId}
+      data-haschildren={hasChildren ? "1" : "0"}
       layout="position"
       transition={{ type: "spring", stiffness: 600, damping: 40 }}
       className="grid transition-[grid-template-rows,opacity] duration-[650ms] ease-[cubic-bezier(0.33,1,0.68,1)] motion-reduce:transition-none"
@@ -446,7 +554,7 @@ function ContentRow({
       inert={collapsed || undefined}
     >
       <div className="overflow-hidden">
-        {/* Relative wrapper hosts the before/after REORDER indicator bars. */}
+        {/* Relative wrapper hosts the before/after REORDER indicator bars + the nest ring. */}
         <div className="relative">
           {intentHere === "before" && (
             <span aria-hidden className="pointer-events-none absolute inset-x-0 -top-px z-10 h-0.5 rounded bg-primary" />
@@ -467,8 +575,10 @@ function ContentRow({
               ctx.setHoveredRowId(null)
             }}
             className={
-              // Whole row is the drag handle; grab cursor hints it. Subtle hover tint.
-              "group cursor-grab touch-none rounded-sm border-b border-border/60 py-1.5 transition-[opacity,background-color] hover:bg-muted/40 active:cursor-grabbing motion-reduce:transition-none " +
+              // Whole row is the drag handle; grab cursor hints it. Subtle hover tint; a NEST
+              // (inside) target gets a ring + tint so it reads as "drop in here".
+              "group cursor-grab touch-none rounded-sm border-b border-border/60 py-1.5 transition-[opacity,background-color,box-shadow] active:cursor-grabbing motion-reduce:transition-none " +
+              (intentHere === "inside" ? "bg-primary/10 ring-1 ring-inset ring-primary/60 " : "hover:bg-muted/40 ") +
               (closed ? "opacity-60 " : "") +
               // Source row while it's being dragged: SLIGHTLY translucent (a ghost left in
               // place) — the lifted DragOverlay clone is what reads as fully opaque.
