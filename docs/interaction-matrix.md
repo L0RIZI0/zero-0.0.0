@@ -127,8 +127,8 @@ Status tags: **[CUR]** = built + verified today · **[PART]** = partially built 
 ### Create-bar grammar (see zero-create-field.md for full detail)
 | Trigger | Effect | Status |
 |---|---|---|
-| No `--`/kind hint | default kind = **moment**; title verbatim (no verb inference) | [CUR] |
-| `--due` / `--start`/`--end` / `--at` | kind ⇒ task / moment / instant | [CUR] |
+| No explicit `:kind` | default kind = **TASK, always** (v0.2.160 — field inference dropped; any kind can be planned so flags don't flip the kind); title verbatim (no verb inference) | [CUR] |
+| `--due` / `--start`/`--end` / `--at` | do NOT change the kind — they populate the schedule of whatever you're making (default Task): `--start`→startAt, `--end`→endAt, `--due`→dueAt, `--at`→**startAt** (instants still collapse start=end=at). State `:mome`/`:inst` explicitly for those kinds | [CUR] |
 | `--start:now` etc. | stamps Date.now() | [CUR] |
 | `--end: 5min ago` / `--start: in 2h` | RELATIVE offset from now — `<dur> ago` (past) / `in <dur>` (future); `<dur>` = full duration grammar incl. word units (`5min`, `2 hours`, `1h30m`). Captured WHOLE despite the space (dedicated parseEntry passes before the single-token pass). E.g. ends an ongoing entity at now−5min | [CUR] |
 | `--start:whenever` | marks the entity PLAYABLE — `startAt: "whenever"` (a trackable thing with no fixed clock time; glyph/menu offer Play/Stop). Only valid on `--start` | [CUR] |

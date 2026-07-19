@@ -608,7 +608,10 @@ export function Zero0Canvas() {
           // A compact date token (HHMM today / YYMMDD / YYMMDDHHMM); empty clears the slot.
           // A single time on a moment sets its START ⇒ ONGOING (never auto-completes); only
           // an END completes/closes it. This is the whole point-vs-start fix.
-          const key = ({ start: "startAt", end: "endAt", at: "at", due: "dueAt" } as const)[attr.field]
+          // `--at` maps to startAt (not the `at` point anchor): any kind can be planned, so
+          // `--at` plans the entity's START. On an INSTANT, setEntityScheduleField still
+          // collapses startAt/endAt/at to the one epoch, so a point is unaffected.
+          const key = ({ start: "startAt", end: "endAt", at: "startAt", due: "dueAt" } as const)[attr.field]
           // `--start:whenever` — mark the entity PLAYABLE (a trackable thing with no fixed
           // time; its glyph offers Play/Stop). Only valid on `start`.
           if (val.toLowerCase() === "whenever") {
@@ -781,8 +784,8 @@ export function Zero0Canvas() {
       return
     }
 
-    // Kind = explicit `:kind`, else deterministically inferred from the scheduling fields
-    // (default MOMENT — most logged things happen in time).
+    // Kind = explicit `:kind`, else the default (always TASK — scheduling flags no longer
+    // flip the kind; any kind can be planned).
     const kind = entry.kind ?? inferKind(entry.title, entry.attrs)
     const created = addParsedEntity({ title: entry.title, contextId: target, kind })
 
@@ -1600,7 +1603,7 @@ export function Zero0Canvas() {
         )}
       </div>
 
-      {/* ── BOTTOM HELPER ──────────────────────────────────────────────────────
+      {/* ── BOTTOM HELPER ────────────────────────────────────────────────────��─
           Zero-UX chrome: version switch + theme toggle. */}
       <footer className="flex items-center gap-3 border-t border-border p-4 text-[10px] leading-none text-muted-foreground">
         <VersionSwitcher />

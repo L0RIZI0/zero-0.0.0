@@ -600,24 +600,14 @@ export function parseEntry(raw: string): EntryParse {
 }
 
 /**
- * Infer a creatable {@link EntityKind} for a NEW entity that carried no explicit `:kind`
- * directive, from its EXPLICIT scheduling fields alone:
- *   - `--due`               ⇒ task (a deadline is a task thing)
- *   - `--start` / `--end`   ⇒ moment (a span)
- *   - `--at`                ⇒ instant (a point)
- *   - else                  ⇒ TASK (the neutral default)
- * The default is TASK (by request, Jul 2026 — was `moment`): a bare entry with no scheduling
- * fields is most often something the user intends to DO, so a Task (with its done-state) is
- * the friendlier default. The FIELD-based inference is unchanged: stating `--start/--end`
- * still makes a Moment (a span), `--at` an Instant, `--due` a Task. Verb-based inference was
- * DROPPED — titles are kept verbatim (see the deferred past→present note in
- * zero-create-field.md). Deterministic; the fields (not the words) decide, and only when the
- * user states them.
+ * The creatable {@link EntityKind} for a NEW entity that carried no explicit `:kind` directive.
+ * ALWAYS **task** (Jul 2026, by request). FIELD-based kind inference was DROPPED: scheduling
+ * flags NO LONGER flip the kind, because ANY kind can be planned — a Task with `--start/--end`
+ * is a planned task, not a Moment; `--at` sets the task's `startAt`; `--due` its `dueAt`. The
+ * flags just populate the schedule of whatever you're making (default Task); to make another
+ * kind, state it explicitly (`:mome`, `:inst`, …). Verb-based inference was already dropped
+ * (titles kept verbatim). `attrs` is now unused but kept for signature stability / callers.
  */
-export function inferKind(_title: string, attrs: EntryAttr[]): EntityKind {
-  const has = (f: string) => attrs.some((a) => a.field === f && a.value !== "")
-  if (has("due")) return "task"
-  if (has("start") || has("end")) return "moment"
-  if (has("at")) return "instant"
+export function inferKind(_title: string, _attrs: EntryAttr[]): EntityKind {
   return "task"
 }
