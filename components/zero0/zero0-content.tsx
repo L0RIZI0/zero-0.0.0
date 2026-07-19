@@ -7,7 +7,7 @@ import {
   PointerSensor,
   useSensor,
   useSensors,
-  closestCenter,
+  pointerWithin,
   type DragStartEvent,
   type DragOverEvent,
   type DragEndEvent,
@@ -242,7 +242,7 @@ export function Zero0Content({ entity, axis, depth, ancestry, ctx, isRoot, mount
   return (
     <DndContext
       sensors={sensors}
-      collisionDetection={closestCenter}
+      collisionDetection={pointerWithin}
       modifiers={[restrictToVerticalAxis]}
       onDragStart={onDragStart}
       onDragOver={onDragOver}
