@@ -225,6 +225,143 @@ export function Zero0ColorPicker({
   )
 }
 
+/**
+ * Resolve a user-typed color — a hex ("#8b5a2b", "#abc") OR a CSS color name ("brown", "grey")
+ * — to a normalized "#rrggbb", using the browser's own parser. Returns null for anything the
+ * browser rejects, so an invalid entry simply can't be committed. (Lives here, next to the
+ * picker/field, so both the menu and the create-field share ONE resolver with no import cycle.)
+ */
+export function cssColorToHex(input: string): string | null {
+  const s = input.trim()
+  if (!s || typeof document === "undefined") return null
+  const el = document.createElement("span")
+  el.style.color = ""
+  el.style.color = s // invalid values are ignored, leaving color === ""
+  if (!el.style.color) return null
+  el.style.position = "absolute"
+  el.style.opacity = "0"
+  el.style.pointerEvents = "none"
+  document.body.appendChild(el)
+  const rgb = getComputedStyle(el).color
+  el.remove()
+  const m = rgb.match(/\d+(?:\.\d+)?/g)
+  if (!m || m.length < 3) return null
+  return (
+    "#" +
+    m
+      .slice(0, 3)
+      .map((n) => Math.round(Number(n)).toString(16).padStart(2, "0"))
+      .join("")
+  )
+}
+
+// The curated preset ramp — a short, legible hue set plus a light + a grey. Shared by BOTH color
+// entry points (menu "Set color" + create-field "--color") so they show the exact same swatches.
+export const COLOR_SWATCHES = [
+  "#ef4444", "#f97316", "#eab308", "#22c55e", "#14b8a6",
+  "#3b82f6", "#8b5cf6", "#ec4899", "#f5f5f5", "#71717a",
+]
+
+/**
+ * Zero0ColorField — the UNIFIED color entry shared by the right-click "Set color" menu and the
+ * `--color` create-field block, so both look + behave identically:
+ *
+ *     [ swatch · swatch · … ]   [ ● hex or name… ]
+ *
+ * and FOCUSING the "hex or name…" field reveals the finalized HSV picker inline. Two callbacks:
+ *   - onApply(hex)  — fires on every pick/preview (swatch click, valid typed hex/name, HSV drag).
+ *                     Use it to fill a draft / live-preview. Optional (the field also self-previews
+ *                     via its own dot).
+ *   - onCommit(hex) — OPTIONAL terminal action (swatch click + Enter in the field). The MENU passes
+ *                     it (apply + close); the CREATE FIELD omits it — a swatch there only fills the
+ *                     draft and the create input's own Enter commits the whole command.
+ *
+ * keepFocusOnSwatch — when true (create field) swatch mousedown is prevented so focus stays on the
+ * parent create input; the menu leaves it false (a click there commits + closes anyway).
+ */
+export function Zero0ColorField({
+  seedHex,
+  onApply,
+  onCommit,
+  keepFocusOnSwatch = false,
+}: {
+  seedHex?: string | null
+  onApply?: (hex: string) => void
+  onCommit?: (hex: string) => void
+  keepFocusOnSwatch?: boolean
+}) {
+  const [text, setText] = useState(seedHex ? seedHex.replace(/^#/, "") : "")
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const hex = cssColorToHex(text)
+
+  // Fill from a swatch / the HSV picker: mirror the hex into the field text (so the dot + field
+  // agree) AND report it up. Typing is handled inline below (keeps the raw text the user typed).
+  const fill = (h: string) => {
+    setText(h.replace(/^#/, ""))
+    onApply?.(h)
+  }
+
+  return (
+    <div>
+      <div className="flex flex-wrap items-center gap-1.5" role="listbox" aria-label="Pick a color">
+        {COLOR_SWATCHES.map((sw) => (
+          <button
+            key={sw}
+            type="button"
+            role="option"
+            aria-selected={false}
+            aria-label={sw}
+            title={sw}
+            onMouseDown={keepFocusOnSwatch ? (e) => e.preventDefault() : undefined}
+            onClick={() => {
+              fill(sw)
+              onCommit?.(sw)
+            }}
+            className="h-4 w-4 rounded-sm border border-border transition-transform hover:scale-125"
+            style={{ backgroundColor: sw }}
+          />
+        ))}
+        {/* the SINGLE text field — hex ("#8b5a2b") or CSS name ("brown"). Its leading dot previews
+            the resolved color; FOCUS reveals the HSV picker. */}
+        <span className="ml-1 flex items-center gap-1">
+          <span
+            aria-hidden
+            className="h-2.5 w-2.5 shrink-0 rounded-full border border-border/60"
+            style={{ backgroundColor: hex ?? "transparent" }}
+          />
+          <input
+            type="text"
+            value={text}
+            onFocus={() => setPickerOpen(true)}
+            onMouseDown={(e) => e.stopPropagation()}
+            onChange={(e) => {
+              setText(e.target.value)
+              const h = cssColorToHex(e.target.value)
+              if (h) onApply?.(h)
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.nativeEvent.isComposing && e.keyCode !== 229) {
+                e.preventDefault()
+                if (hex) onCommit?.(hex)
+              }
+            }}
+            placeholder="hex or name…"
+            aria-label="Custom color (hex or CSS name)"
+            className="w-24 rounded-sm border border-border bg-background px-1 py-0.5 text-[10px] text-foreground placeholder:text-muted-foreground/60 focus:outline-none"
+          />
+        </span>
+      </div>
+      {pickerOpen && (
+        <div className="mt-2">
+          {/* Live drag/type feeds the field (fill) but never commits — the swatch/Enter is the
+              single commit path. Seeds from whatever the field currently resolves to. */}
+          <Zero0ColorPicker value={hex ?? undefined} onChange={(picked) => fill(picked)} />
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── color math (dep-free) ──────────────────────────────────────────────────────────────────
 type Hsv = { h: number; s: number; v: number }
 

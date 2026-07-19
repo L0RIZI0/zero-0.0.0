@@ -8,8 +8,7 @@ import { Zero0WindowControls } from "./zero0-window-controls"
 import { Zero0Agenda, Zero0Activity } from "./zero0-activity"
 import { recordPresence } from "@/lib/zero/activity-log"
 import { Zero0DomMenu, type Zero0DomMenuState } from "./zero0-dom-menu"
-import { cssColorToHex } from "./zero0-menu-list"
-import { Zero0ColorPicker } from "./zero0-color-picker"
+import { Zero0ColorField } from "./zero0-color-picker"
 import { buildEntityMenuItems, applyEntityMenuAction, type MenuItem } from "@/lib/zero/menu-model"
 import {
   ROOT_ID,
@@ -80,14 +79,6 @@ const ONGOING_ON_ENTER = new Set(["task", "resource", "space"])
 function canAutoPlay(e: Entity): boolean {
   return ONGOING_ON_ENTER.has(e.kind) && !isDone(e) && !isClosed(e)
 }
-
-// The `--color` swatch palette — a small curated ramp shown when the create field
-// reads exactly "--color" / "--color:". Clicking one fills the draft with "--color:<hex>";
-// geeks can skip the picker and type the hex directly. Kept short + legible on dark.
-const COLOR_SWATCHES = [
-  "#ef4444", "#f97316", "#eab308", "#22c55e", "#14b8a6",
-  "#3b82f6", "#8b5cf6", "#ec4899", "#f5f5f5", "#71717a",
-]
 
 // True when the draft is a "--color" command whose value is empty OR a (possibly partial)
 // HEX — the trigger to reveal the swatch row + visual picker. v0.2.147: broadened from the
@@ -1302,7 +1293,7 @@ export function Zero0Canvas() {
   />
       )}
 
-      {/* ── AGENDA BAND (topmost, "TODAY") ──────────────────────────────────────
+      {/* ── AGENDA BAND (topmost, "TODAY") ───────────────────────��──────────────
           The FORWARD-looking frame — what's PLANNED today (the planned dayline).
           Hidden by default (toggled from the footer) so the canvas stays blank; when
           shown it sits at the very top, above ACTIVITY. Show/hide is animated with the
@@ -1344,7 +1335,7 @@ export function Zero0Canvas() {
         </Zero0Frame>
       )}
 
-      {/* ── ZERO HEADER (§1) ─────────���─────────────────────────────────────────
+      {/* ── ZERO HEADER (§1) ─────────���─────────────────��───────────────────────
           Zero-UX chrome: the mark, the access path (breadcrumb), and a session
           readout. Not part of the node's own data. Toggled by §1 / the corner marker,
           and — like every frame in the stack — collapses with the dep-free grid-rows
@@ -1548,53 +1539,18 @@ export function Zero0Canvas() {
             aria-label="Create entity"
           />
         </div>
-        {/* --color SWATCH PICKER — surfaces only while the draft is a bare "--color".
-            Clicking a swatch fills the field with "--color:<hex>", which no longer matches
-            the trigger so the picker vanishes instantly; Enter then commits. Geeks can
-            ignore this and type the hex straight after the colon. */}
+        {/* --color PICKER — the SHARED Zero0ColorField (swatch ramp + "hex or name…" field that
+            reveals the HSV picker on focus), identical to the right-click "Set color" menu (v0.2.149).
+            Surfaces while the draft reads "--color[:<hex>]". A swatch/typed/picked color fills the
+            draft ("--color:<hex>") — which still matches the (broadened) trigger, so it stays open;
+            the create input's own Enter commits the whole command (so NO onCommit here, and
+            keepFocusOnSwatch keeps the create field focused so that Enter still fires). */}
         {isColorPickerTrigger(draft) && (
-          <div className="mt-1.5 flex flex-wrap items-center gap-1.5 pl-4" role="listbox" aria-label="Pick a color">
-            {COLOR_SWATCHES.map((hex) => (
-              <button
-                key={hex}
-                type="button"
-                role="option"
-                aria-selected={false}
-                aria-label={hex}
-                title={hex}
-                // Keep focus on the create input: preventing mousedown's default stops
-                // the button from stealing focus, so the field stays focused and Enter
-                // fires the command right after picking (no manual re-click needed).
-                onMouseDown={(ev) => ev.preventDefault()}
-                onClick={() => setDraft(`--color:${hex.replace(/^#/, "")}`)}
-                className="h-4 w-4 rounded-sm border border-border transition-transform hover:scale-125"
-                style={{ backgroundColor: hex }}
-              />
-            ))}
-            {/* FREE-TEXT entry — a hex ("#8b5a2b") OR a CSS name ("brown", "grey"). Resolves
-                to a hex via the browser's parser and fills the draft, exactly like a swatch. */}
-            <input
-              type="text"
-              aria-label="Custom color (hex or CSS name)"
-              placeholder="hex / name…"
-              onMouseDown={(ev) => ev.stopPropagation()}
-              onChange={(ev) => {
-                const hex = cssColorToHex(ev.target.value)
-                if (hex) setDraft(`--color:${hex.replace(/^#/, "")}`)
-              }}
-              className="ml-1 w-20 rounded-sm border border-border bg-background px-1 py-0.5 text-[10px] text-foreground placeholder:text-muted-foreground/60 focus:outline-none"
-            />
-          </div>
-        )}
-        {/* VISUAL PICKER (v0.2.147) — the full HSV picker for a color that's neither on the ramp
-            nor easy to name. Dragging writes the live hex into the draft ("--color:<hex>"), which
-            still matches the (broadened) trigger so this stays open; Enter in the create field
-            then commits the create/attribute command as usual. */}
-        {isColorPickerTrigger(draft) && (
-          <div className="mt-2 pl-4">
-            <Zero0ColorPicker
-              value={draftColorHex(draft) ?? undefined}
-              onChange={(hex) => setDraft(`--color:${hex.replace(/^#/, "")}`)}
+          <div className="mt-1.5 pl-4">
+            <Zero0ColorField
+              keepFocusOnSwatch
+              seedHex={draftColorHex(draft)}
+              onApply={(hex) => setDraft(`--color:${hex.replace(/^#/, "")}`)}
             />
           </div>
         )}

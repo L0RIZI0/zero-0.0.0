@@ -48,39 +48,23 @@ export type MenuItem =
       swatch?: string
     }
   | { type: "submenu"; label: string; items: MenuItem[] }
-  // A free-text color entry: the renderer draws a small input that accepts a hex value
-  // ("#8b5a2b") or a CSS color name ("brown", "grey"), resolves it to a hex, and reports
-  // it back through the SAME `color:<hex>` action id the swatch rows use.
-  | { type: "colorInput" }
+  // The unified color entry: the renderer draws the shared swatch ramp + a "hex or name…" input
+  // (which reveals the HSV picker on focus). All paths report back through the `color:<hex>`
+  // action id. `current` seeds the field/dot with the entity's existing accent, if any.
+  | { type: "colorInput"; current?: string }
 
-// The entity-accent color picker choices (the "Set color…" submenu). A small, distinct
-// hue set; ids are `color:<hex>`, resolved by {@link applyEntityMenuAction} via
-// `setEntityAccent`. `color:clear` removes the accent (back to inherited/neutral).
-const COLOR_CHOICES: { label: string; hex: string }[] = [
-  { label: "Blue", hex: "#2f6fed" },
-  { label: "Teal", hex: "#12a594" },
-  { label: "Green", hex: "#15a36b" },
-  { label: "Amber", hex: "#f5a623" },
-  { label: "Orange", hex: "#e8810c" },
-  { label: "Red", hex: "#e5484d" },
-  { label: "Pink", hex: "#d6209a" },
-]
-
-/** Build the "Set color…" submenu for an entity — a swatch row per choice, the current
- *  one marked, plus a Clear row. Kept here so the DOM menu + native overlay share it. */
+/** Build the "Set color…" submenu for an entity. v0.2.149: unified with the create-field picker
+ *  — a SINGLE `colorInput` row renders the shared swatch ramp + "hex or name…" field (focus opens
+ *  the HSV picker), seeded with the current accent; then a Clear row. All paths resolve to the
+ *  `color:<hex>` action id via {@link applyEntityMenuAction} (`setEntityAccent`); `color:clear`
+ *  removes the accent. Kept here so the DOM menu + native overlay share it. */
 function buildColorSubmenu(entity: Entity): MenuItem {
   const current = entity.accent?.toLowerCase()
-  const items: MenuItem[] = COLOR_CHOICES.map((c) => ({
-    type: "item" as const,
-    id: `color:${c.hex}`,
-    label: c.label,
-    swatch: c.hex,
-    current: current === c.hex,
-  }))
-  // A free-text row for any other color (hex or CSS name), then Clear.
-  items.push({ type: "colorInput" })
-  items.push({ type: "divider" })
-  items.push({ type: "item", id: "color:clear", label: "Clear color", current: !current })
+  const items: MenuItem[] = [
+    { type: "colorInput", current },
+    { type: "divider" },
+    { type: "item", id: "color:clear", label: "Clear color", current: !current },
+  ]
   return { type: "submenu", label: "Set color", items }
 }
 

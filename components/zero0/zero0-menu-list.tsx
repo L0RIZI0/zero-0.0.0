@@ -3,7 +3,11 @@
 import { useState } from "react"
 import type { MenuItem } from "@/lib/zero/menu-model"
 import { Zero0Glyph } from "./zero0-glyph"
-import { Zero0ColorPicker } from "./zero0-color-picker"
+import { Zero0ColorField } from "./zero0-color-picker"
+
+// Re-exported for back-compat: `cssColorToHex` used to live here. Its canonical home is now
+// zero0-color-picker (next to the field/picker that use it), but other modules import it from here.
+export { cssColorToHex } from "./zero0-color-picker"
 
 // Presentational renderer for a generic MenuItem tree. Positioning-agnostic (the DOM
 // menu wraps it in a fixed/clamped container; the native overlay window wraps it in a
@@ -33,35 +37,6 @@ function rowKey(item: MenuItem, i: number): string {
   return `div:${i}`
 }
 
-/**
- * Resolve a user-typed color — a hex ("#8b5a2b", "#abc") OR a CSS color name ("brown",
- * "grey") — to a normalized "#rrggbb" hex, using the browser's own parser. Returns null
- * for anything the browser rejects, so an invalid entry simply can't be committed.
- */
-export function cssColorToHex(input: string): string | null {
-  const s = input.trim()
-  if (!s || typeof document === "undefined") return null
-  const el = document.createElement("span")
-  el.style.color = ""
-  el.style.color = s // invalid values are ignored, leaving color === ""
-  if (!el.style.color) return null
-  el.style.position = "absolute"
-  el.style.opacity = "0"
-  el.style.pointerEvents = "none"
-  document.body.appendChild(el)
-  const rgb = getComputedStyle(el).color
-  el.remove()
-  const m = rgb.match(/\d+(?:\.\d+)?/g)
-  if (!m || m.length < 3) return null
-  return (
-    "#" +
-    m
-      .slice(0, 3)
-      .map((n) => Math.round(Number(n)).toString(16).padStart(2, "0"))
-      .join("")
-  )
-}
-
 function MenuRow({ item, onSelect }: { item: Indentable; onSelect: (id: string) => void }) {
   const [open, setOpen] = useState(false)
 
@@ -70,7 +45,7 @@ function MenuRow({ item, onSelect }: { item: Indentable; onSelect: (id: string) 
   }
 
   if (item.type === "colorInput") {
-    return <ColorInputRow onSelect={onSelect} />
+    return <ColorInputRow onSelect={onSelect} seed={item.current} />
   }
 
   if (item.type === "submenu") {
@@ -135,53 +110,14 @@ function indent(item: MenuItem): Indentable {
   return item.type === "item" ? { ...item, _indent: true } : item
 }
 
-// The free-text color entry (hex or CSS name) — the SINGLE color field. Live-resolves to a hex:
-// the leading dot previews it, Enter (or clicking the dot) commits it through `color:<hex>`.
-// Invalid text can't commit. Enter is IME-guarded. v0.2.148: FOCUSING the field reveals the visual
-// HSV picker inline (no separate toggle button); dragging the picker feeds this field + its dot,
-// and the field's own Enter/dot stays the single commit path (the picker never auto-commits).
-function ColorInputRow({ onSelect }: { onSelect: (id: string) => void }) {
-  const [text, setText] = useState("")
-  const [pickerOpen, setPickerOpen] = useState(false)
-  const hex = cssColorToHex(text)
-  const commit = () => {
-    if (hex) onSelect(`color:${hex}`)
-  }
+// The color entry row — now the shared Zero0ColorField (swatch ramp + "hex or name…" field that
+// reveals the HSV picker on focus), identical to the create-field picker (v0.2.149). Here a swatch
+// click OR Enter in the field commits through the `color:<hex>` action id (apply + close the menu);
+// `seed` prefills from the entity's current accent.
+function ColorInputRow({ onSelect, seed }: { onSelect: (id: string) => void; seed?: string }) {
   return (
     <div className="py-1 pl-5 pr-3">
-      <div className="flex items-center gap-2">
-        <button
-          type="button"
-          aria-label="Apply typed color"
-          disabled={!hex}
-          onClick={commit}
-          className="h-2.5 w-2.5 shrink-0 rounded-full border border-border/60 disabled:opacity-40"
-          style={{ backgroundColor: hex ?? "transparent" }}
-        />
-        <input
-          type="text"
-          value={text}
-          onFocus={() => setPickerOpen(true)}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.nativeEvent.isComposing && e.keyCode !== 229) {
-              e.preventDefault()
-              commit()
-            }
-          }}
-          placeholder="hex or name…"
-          aria-label="Custom color (hex or CSS name)"
-          className="w-40 rounded border border-border bg-background px-1 py-0.5 text-foreground placeholder:text-muted-foreground/60"
-        />
-      </div>
-      {pickerOpen && (
-        <div className="mt-2">
-          {/* Feeds this field live as you drag (onChange → setText); the field's Enter/dot is the
-              single commit path (no onCommit, so dragging never fires the terminal action). Seeds
-              from whatever hex the field currently resolves to. */}
-          <Zero0ColorPicker value={hex ?? undefined} onChange={(picked) => setText(picked)} />
-        </div>
-      )}
+      <Zero0ColorField seedHex={seed} onCommit={(hex) => onSelect(`color:${hex}`)} />
     </div>
   )
 }
