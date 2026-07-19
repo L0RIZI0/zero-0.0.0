@@ -511,7 +511,7 @@ function ContentRow({
       onClick={() => ctx.toggleExpand(e.id)}
       onPointerDown={(ev) => ev.stopPropagation()}
       className={
-        "w-4 shrink-0 text-center text-sm leading-none transition-colors hover:text-foreground " +
+        "w-4 shrink-0 text-right text-sm leading-none transition-colors hover:text-foreground " +
         (hasChildren ? "text-muted-foreground" : "text-muted-foreground/40")
       }
       aria-label={expanded ? `Collapse ${e.title}` : `Expand ${e.title}`}
