@@ -39,7 +39,7 @@ import {
   endOngoing,
   reorderContextItems,
 } from "@/lib/zero/data"
-  import { KIND_META, getState, hasOpenEngagement, getOpenEngagement, isMarkable, getInstantMaxNb } from "@/lib/zero/kinds"
+  import { KIND_META, getState, isClosed, hasOpenEngagement, getOpenEngagement, isMarkable, getInstantMaxNb } from "@/lib/zero/kinds"
   import { isDone, describeLogEntry } from "@/lib/zero/entity-log"
 import {
   parseEntry,
@@ -64,6 +64,21 @@ import { Zero0Content, type Zero0ContentCtx } from "./zero0-content"
   import { fmt, fmtLogValue, sexSymbol, formatDuration, type FaceSize, type FaceMake } from "@/lib/zero/face-model"
 import type { Entity } from "@/lib/zero/types"
 import { WHENEVER } from "@/lib/zero/types"
+
+// ONGOING-ON-ENTER kinds (v0.6.32): entities that are "in progress" simply by being entered —
+// drilling in auto-opens a `play` (ongoing) session, leaving closes it. {task, resource, space}
+// are DOING-kinds; moments/instants/beings are not (a moment is its occurrence, a being is alive).
+const ONGOING_ON_ENTER = new Set(["task", "resource", "space"])
+
+/**
+ * Whether entering `e` should AUTO-open a `play` (ongoing) session. True for the doing-kinds while
+ * still LIVE — a done / closed / cancelled entity is presence-only (ACCESS ticks, but it must not
+ * resume ongoing on enter; see zero-session-model). Shared by the initial punch-in AND re-entry so
+ * the two can't diverge.
+ */
+function canAutoPlay(e: Entity): boolean {
+  return ONGOING_ON_ENTER.has(e.kind) && !isDone(e) && !isClosed(e)
+}
 
 // The `--color` swatch palette — a small curated ramp shown when the create field
 // reads exactly "--color" / "--color:". Clicking one fills the draft with "--color:<hex>";
@@ -288,15 +303,26 @@ export function Zero0Canvas() {
   //     discards the sub-threshold blip).
   // `focusOpenRef` tracks what WE opened, so punch-out never has to scan the whole store.
   const focusOpenRef = useRef<Set<string>>(new Set())
+  // v0.6.32: the OTHER rail. `playOpenRef` tracks the AUTO-PLAY (ongoing-on-enter) sessions WE
+  // opened, so leaving punches them out (freezing DURATION) exactly like focus. A MANUAL play
+  // (Space Play'd from afar) is NOT in this ref → it survives navigation.
+  const playOpenRef = useRef<Set<string>>(new Set())
   const dwellRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   useEffect(() => {
     if (!mounted) return
     const pathSet = new Set(path)
     let changed = false
+    // Punch OUT the entities we auto-opened but have now left — BOTH rails independently.
     for (const id of Array.from(focusOpenRef.current)) {
       if (!pathSet.has(id)) {
-        if (closeEngagement(id)) changed = true
+        if (closeEngagement(id, "focus")) changed = true
         focusOpenRef.current.delete(id)
+      }
+    }
+    for (const id of Array.from(playOpenRef.current)) {
+      if (!pathSet.has(id)) {
+        if (closeEngagement(id, "play")) changed = true // leaving stops ongoing (DURATION freezes)
+        playOpenRef.current.delete(id)
       }
     }
     if (changed) bump()
@@ -306,28 +332,29 @@ export function Zero0Canvas() {
       for (const id of path) {
         const e = getEntity(id)
         if (!e) continue
-        // EVERY kind accrues presence on the activity rail — INCLUDING root: a focus session on
-        // root IS your overall Zero user session (one open span until you leave/reload), recorded
-        // on the activity rail. It never reads "ongoing" because a BEING's focus session is
-        // STATE-exempt (ongoingOpenEngagement) and the rollup stops at beings — so root records
-        // its span WITHOUT spinning. v0.6.31: presence is LIFECYCLE-INDEPENDENT — we NO LONGER skip
-        // done / closed entities. ACCESS = pure presence ("I'm here looking at this"), so viewing a
-        // finished task keeps its ACCESS counting; getState ranks complete/done/closed ABOVE the
-        // session-based ongoing, so this can't silently re-open a finished thing (its state word is
-        // unchanged; only its presence clock ticks). See getStateInner precedence + isOwnOngoing.
-        // v0.6.25: an entity may already have an open MANUAL PLAY (via:"play") — e.g. a Space you
-        // Play'd from afar and then navigated into. Don't punch a focus session on top of it and,
-        // crucially, don't register it in `focusOpenRef` (that ref drives auto punch-OUT on
-        // navigation — registering a play there would STOP the stopwatch the moment you leave).
-        // Only NEWLY-opened focus, or an already-open FOCUS (reload continuity), belongs in the ref.
-        const existing = getOpenEngagement(e)
-        if (existing) {
-          if (existing.via === "focus") focusOpenRef.current.add(id) // re-register focus for punch-out
-          continue // leave a manual play running; single slot means no focus atop it
-        }
-        if (openEngagement(id, "focus")) {
+        // ── PRESENCE rail (focus): EVERY kind accrues presence — INCLUDING root (your overall Zero
+        // session) and done/closed entities (v0.6.31: presence is lifecycle-independent; getState
+        // ranks complete/done/closed ABOVE session-ongoing so this never resurrects a finished
+        // thing). We ensure exactly one open FOCUS; re-register an already-open one for punch-out
+        // (reload continuity). Focus alone never spins the glyph (ongoing = play-only, v0.6.32).
+        if (hasOpenEngagement(e, "focus")) {
+          focusOpenRef.current.add(id) // re-register for punch-out
+        } else if (openEngagement(id, "focus")) {
           focusOpenRef.current.add(id)
           opened = true
+        }
+        // ── ONGOING rail (play): {task, resource, space} are ONGOING-ON-ENTER while not done/closed
+        // — auto-open a `play` session so the glyph spins and DURATION counts. A play already open
+        // (manual Play from afar, or reload continuity) is left running; we register it for
+        // punch-out ONLY for these auto-play kinds so leaving stops the ongoing (a done task is
+        // presence-only — canAutoPlay is false — so it accrues ACCESS but never resumes ongoing).
+        if (canAutoPlay(e)) {
+          if (hasOpenEngagement(e, "play")) {
+            playOpenRef.current.add(id)
+          } else if (openEngagement(id, "play")) {
+            playOpenRef.current.add(id)
+            opened = true
+          }
         }
       }
       if (opened) bump()
@@ -346,9 +373,18 @@ export function Zero0Canvas() {
   // no-op — presence already tracks you (two simultaneous focus+play sessions = deferred, see todos).
   const togglePlaySession = useCallback(
     (e: Entity) => {
-      const open = getOpenEngagement(e)
-      if (open?.via === "play") closeEngagement(e.id) // Stop the running manual play
-      else if (!open) openEngagement(e.id, "play") // Start one (nothing else running)
+      // v0.6.32: via-aware. A `focus` (presence) session may be open CONCURRENTLY — Play/Stop only
+      // touches the `play` (ongoing) rail. Stopping also drops it from playOpenRef so the dwell
+      // effect won't think it still owns an auto-play to punch out.
+      if (hasOpenEngagement(e, "play")) {
+        closeEngagement(e.id, "play") // Stop the running play (ongoing) — presence keeps ticking
+        playOpenRef.current.delete(e.id)
+      } else {
+        // A DELIBERATE Play is a stopwatch that SURVIVES navigation — so we do NOT register it in
+        // playOpenRef (the auto-punch-out set). If/when you drill INTO this entity, the dwell effect
+        // adopts it (registers it) so ongoing-on-enter parity resumes from there. (Play-from-afar.)
+        openEngagement(e.id, "play")
+      }
       bump()
     },
     [bump],
@@ -547,7 +583,8 @@ export function Zero0Canvas() {
             setNotice({ tone: "err", text: "no running session here to end" })
             return null
           }
-          if (!closeEngagement(id, when ?? Date.now())) {
+          if (!closeEngagement(id, undefined, when ?? Date.now())) {
+            // v0.6.32: via undefined ⇒ end the last-open session of any rail (manual --sessionend debug cmd)
             setNotice({ tone: "err", text: "couldn't end the running session" })
             return null
           }
@@ -775,21 +812,32 @@ export function Zero0Canvas() {
     bump()
   }, [draft, bump, contextId])
 
-  // The one quick INLINE toggle: the soft DONE marker (done ⟷ undone), for kinds
-  // that HAVE a done axis (Task / Moment / Instant). The lifecycle actions — Close /
-  // Cancel / Reopen — live in the right-click menu.
+  // The TASK glyph click tree (v0.6.32). One button, STATE-DEPENDENT — Loris's model:
+  //   • SPINNING (an open `play` = ongoing) ⇒ STOP it. Presence/focus keeps ticking (ACCESS runs),
+  //     so DURATION freezes while you stay and look. Drops it from playOpenRef.
+  //   • RESTING + not done ⇒ mark DONE. (A stopped-but-undone task; clicking commits it.)
+  //   • DONE ⇒ un-done. If you're still INSIDE it and it's now auto-play-eligible, resume ongoing
+  //     immediately (the dwell effect won't re-fire on an unchanged path — this avoids the static-
+  //     glyph bug where an in-place un-done stayed at rest until you navigated away and back).
+  // Wired as `onToggleDone` (FaceGlyph routes hasDoneState kinds here). Non-task done-kinds, if any
+  // ever exist, just fall through to the done toggle.
   const toggleDone = useCallback(
     (e: Entity) => {
       if (!KIND_META[e.kind].hasDoneState) return
-      setEntityCompleted(e.id, !isDone(e))
-      // v0.6.31: DONE no longer touches sessions. Presence (focus) is lifecycle-independent, so
-      // marking done keeps the focus session OPEN (ACCESS keeps counting while you view it) and
-      // un-doning needs no manual re-open (it was never closed). The glyph stops / re-starts
-      // spinning purely from the DERIVED state: getState ranks complete/done ABOVE the session-
-      // based ongoing, so a lingering focus session can't resurrect a done task to "ongoing".
+      if (hasOpenEngagement(e, "play")) {
+        closeEngagement(e.id, "play") // STOP ongoing; keep focus/presence
+        playOpenRef.current.delete(e.id)
+        return bump()
+      }
+      const nowDone = !isDone(e)
+      setEntityCompleted(e.id, nowDone)
+      if (!nowDone && canAutoPlay(e) && path.includes(e.id)) {
+        // Un-done in place while still viewing it → resume ongoing now.
+        if (openEngagement(e.id, "play")) playOpenRef.current.add(e.id)
+      }
       bump()
     },
-    [bump],
+    [bump, path],
   )
 
   // PLAY / STOP on a MOMENT/SPACE glyph (v0.6.26) — both open/close a `via:"play"` SESSION (bottom

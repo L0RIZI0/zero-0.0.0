@@ -62,7 +62,9 @@ function ongoingTimer(e: Entity, now: number): { text: string; countdown: boolea
   if (end != null && end > now) {
     return { text: `-${formatTimer(end - now)}`, countdown: true }
   }
-  const open = getOpenEngagement(e)
+  // v0.6.32: the ONGOING timer tracks the PLAY (ongoing) session — not a `focus` presence session,
+  // which can now be open concurrently (e.g. on a done task you're viewing) without meaning ongoing.
+  const open = getOpenEngagement(e, "play")
   const since = open?.startAt ?? concreteStart(e)
   if (since != null && now > since) {
     return { text: formatTimer(now - since), countdown: false }
