@@ -296,8 +296,25 @@ export function Zero0Content({ entity, axis, depth, ancestry, ctx, isRoot, mount
         </ul>
       </SortableContext>
 
-      {/* The floating clone that follows the cursor — a lifted card with a spring pop. */}
-      <DragOverlay dropAnimation={{ duration: 180, easing: "cubic-bezier(0.22, 1, 0.36, 1)" }}>
+      {/* The floating clone that follows the cursor — a lifted card with a spring pop.
+          On drop, `keyframes` animates it from its lifted state (opacity 0.85) TO the settled
+          destination transform at opacity 0, so it DISSOLVES into place instead of blinking
+          out. Transform strings are built inline to avoid a phantom `@dnd-kit/utilities` dep. */}
+      <DragOverlay
+        dropAnimation={{
+          duration: 240,
+          easing: "cubic-bezier(0.22, 1, 0.36, 1)",
+          keyframes: ({ transform }) => {
+            const t = (x: number, y: number, sx: number, sy: number) =>
+              `translate3d(${x}px, ${y}px, 0) scaleX(${sx}) scaleY(${sy})`
+            const { initial, final } = transform
+            return [
+              { opacity: 0.85, transform: t(initial.x, initial.y, initial.scaleX, initial.scaleY) },
+              { opacity: 0, transform: t(final.x, final.y, final.scaleX, final.scaleY) },
+            ]
+          },
+        }}
+      >
         {activeEntity ? (
           <motion.div
             initial={{ scale: 1, opacity: 1 }}
