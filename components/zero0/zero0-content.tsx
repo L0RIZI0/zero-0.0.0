@@ -273,8 +273,8 @@ export function Zero0Content({ entity, axis, depth, ancestry, ctx, isRoot, mount
       <DragOverlay dropAnimation={{ duration: 180, easing: "cubic-bezier(0.22, 1, 0.36, 1)" }}>
         {activeEntity ? (
           <motion.div
-            initial={{ scale: 1 }}
-            animate={{ scale: 1.03 }}
+            initial={{ scale: 1, opacity: 1 }}
+            animate={{ scale: 1.03, opacity: 0.85 }}
             transition={{ type: "spring", stiffness: 500, damping: 30 }}
             className="flex items-center gap-2 rounded-md border border-border bg-card px-3 py-1.5 text-[11px] text-card-foreground shadow-lg"
           >
