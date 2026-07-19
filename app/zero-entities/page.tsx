@@ -3,7 +3,8 @@
 import type { ReactNode } from "react"
 import Link from "next/link"
 import { ArrowLeft } from "lucide-react"
-import { NodeGlyph, type NodeKind } from "@/components/zero/node-glyph"
+import { Zero0Glyph } from "@/components/zero0/zero0-glyph"
+import type { EntityKind } from "@/lib/zero/types"
 
 /**
  * ZERO ENTITIES — the ontology reference ("the bible of Zero entities").
@@ -13,7 +14,7 @@ import { NodeGlyph, type NodeKind } from "@/components/zero/node-glyph"
  * documents things the model doesn't encode yet:
  *   - ENTITY and EVERYTHING are ABSTRACTIONS, not runtime kinds — shown here as
  *     document-only rows (their glyphs are drawn inline below, since they have no
- *     entry in NodeGlyph).
+ *     entry in Zero0Glyph).
  *   - the shared Meta (the cascaded fields every entity carries), including the
  *     children/tagged REFERENCES that groundwork the reference-based future.
  *
@@ -21,7 +22,7 @@ import { NodeGlyph, type NodeKind } from "@/components/zero/node-glyph"
  * one that contains). Not every entity is a Space, but every Space is an Entity.
  *
  * GLYPH STATES are RENDERED, not described: each card shows a little row of the
- * actual silhouettes via <NodeGlyph>, so the page reads its own glyphs instead of
+ * actual silhouettes via <Zero0Glyph>, so the page reads its own glyphs instead of
  * narrating them.
  *
  * STATE MODEL (current): every entity resolves to ONE computed STATE word via
@@ -36,7 +37,7 @@ import { NodeGlyph, type NodeKind } from "@/components/zero/node-glyph"
 
 /** A glyph is either a real runtime kind (drawn by NodeGlyph) or one of the two
  *  document-only abstractions drawn inline here. */
-type GlyphKey = NodeKind | "entity" | "everything"
+type GlyphKey = EntityKind | "entity" | "everything"
 
 /**
  * One rendered glyph-state chip within a card. The visual axes map onto the two-axis
@@ -353,7 +354,7 @@ function EverythingGlyph() {
 function RowGlyph({ glyph }: { glyph: GlyphKey }) {
   if (glyph === "entity") return <EntityGlyph />
   if (glyph === "everything") return <EverythingGlyph />
-  return <NodeGlyph kind={glyph} />
+  return <Zero0Glyph kind={glyph} />
 }
 
 /** Creatable pill. */
@@ -372,7 +373,7 @@ function CreatableTag({ creatable }: { creatable: EntityRow["creatable"] }) {
 /** A row of RENDERED glyph states for a kind: each chip draws the real silhouette
  *  in the given state (open / done / complete / closed / cancelled) with a caption
  *  below. A plain-`closed` chip fades (opacity) since the silhouette is unchanged. */
-function GlyphStates({ kind, states }: { kind: NodeKind; states: GlyphStateSpec[] }) {
+function GlyphStates({ kind, states }: { kind: EntityKind; states: GlyphStateSpec[] }) {
   return (
     <ul className="mt-3 flex flex-wrap gap-3">
       {states.map((s) => (
@@ -384,7 +385,7 @@ function GlyphStates({ kind, states }: { kind: NodeKind; states: GlyphStateSpec[
             className="inline-flex h-6 w-6 items-center justify-center text-foreground"
             style={s.faded ? { opacity: 0.5 } : undefined}
           >
-            <NodeGlyph kind={kind} filled={s.filled} showCheck={s.showCheck} struck={s.struck} />
+            <Zero0Glyph kind={kind} filled={s.filled} done={s.showCheck} cancelled={s.struck} />
           </span>
           <span className="text-pretty text-[10px] leading-tight text-muted-foreground">{s.label}</span>
         </li>
@@ -431,7 +432,7 @@ function EntityCard({ row }: { row: EntityRow }) {
             ))}
           </ul>
         )}
-        {row.states && <GlyphStates kind={row.glyph as NodeKind} states={row.states} />}
+        {row.states && <GlyphStates kind={row.glyph as EntityKind} states={row.states} />}
         {row.special && (
           <p className="mt-2 text-pretty text-[11px] leading-relaxed text-muted-foreground">{row.special}</p>
         )}
