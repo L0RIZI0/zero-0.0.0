@@ -9,6 +9,7 @@ import { Zero0Agenda, Zero0Activity } from "./zero0-activity"
 import { recordPresence } from "@/lib/zero/activity-log"
 import { Zero0DomMenu, type Zero0DomMenuState } from "./zero0-dom-menu"
 import { cssColorToHex } from "./zero0-menu-list"
+import { Zero0ColorPicker } from "./zero0-color-picker"
 import { buildEntityMenuItems, applyEntityMenuAction, type MenuItem } from "@/lib/zero/menu-model"
 import {
   ROOT_ID,
@@ -88,10 +89,18 @@ const COLOR_SWATCHES = [
   "#3b82f6", "#8b5cf6", "#ec4899", "#f5f5f5", "#71717a",
 ]
 
-// True when the draft is a bare "--color" / "--color:" (empty value) — the trigger to
-// reveal the swatch picker. Any character typed after the colon no longer matches, so the
-// picker hides instantly as the user keeps writing (e.g. a hand-typed hex).
-const isColorPickerTrigger = (draft: string) => /^--color:?\s*$/i.test(draft)
+// True when the draft is a "--color" command whose value is empty OR a (possibly partial)
+// HEX — the trigger to reveal the swatch row + visual picker. v0.2.147: broadened from the
+// bare-"--color" form to also match "--color:<hex>" so DRAGGING the visual picker (which writes
+// the live hex back into the draft) keeps the picker mounted instead of unmounting mid-drag.
+// A non-hex value (e.g. a typed CSS name "--color:red") still unmatches ⇒ picker hides.
+const isColorPickerTrigger = (draft: string) => /^--color:?#?[0-9a-f]{0,6}\s*$/i.test(draft)
+// Pull the "#rrggbb" out of a "--color:<hex>" draft (for seeding the visual picker); null when
+// the value isn't yet a full 6-digit hex.
+const draftColorHex = (draft: string): string | null => {
+  const m = draft.match(/^--color:?#?([0-9a-f]{6})\s*$/i)
+  return m ? `#${m[1]}` : null
+}
 
 // The Face-model formatters (`fmt`, `sexSymbol`, `fmtLogValue`, …) + the presentation
 // model (`getFaceModel`) + the §0 meta rows (`getFaceMetaRows`) live in `lib/zero/
@@ -1378,13 +1387,14 @@ export function Zero0Canvas() {
         {/* FULL — the session readout as a labelled meta block. CONTEXT is the breadcrumb
             itself (the crumb trail IS the context, and its trailing chevron opens the
             SIBLINGS dropdown — so there's no separate reshuffling siblings row), then
-            STORE/ENTITIES. Matches the ENTITY HEADER meta exactly (tight `6rem` label col +
-            left-packed values) so the two blocks align as one column. Over a web surface
-            only CONTEXT shows (STORE/ENTITIES are session/debug detail that would overcrowd
-            the clean breadcrumb-over-site view); the header sits ABOVE the web-view holder,
-            so its rows naturally push the tracked surface rect down. */}
+            STORE/ENTITIES. Matches the ENTITY HEADER meta exactly (`7.5rem` label col +
+            left-packed values) so the two blocks align as one column. The 7.5rem width (up
+            from 6rem, v0.2.147) lets the longest §0 label — "PLANNED DURATION" — sit on one
+            line instead of wrapping. Over a web surface only CONTEXT shows (STORE/ENTITIES are
+            session/debug detail that would overcrowd the clean breadcrumb-over-site view); the
+            header sits ABOVE the web-view holder, so its rows push the tracked surface down. */}
         {mounted && !minimized.zeroHeader && (
-          <dl className="mt-2 grid grid-cols-[6rem_1fr] gap-x-4 gap-y-0.5">
+          <dl className="mt-2 grid grid-cols-[7.5rem_1fr] gap-x-4 gap-y-0.5">
             <dt className="uppercase tracking-widest">context</dt>
             <dd className="flex min-w-0 items-center">
               {breadcrumb}
@@ -1573,6 +1583,18 @@ export function Zero0Canvas() {
                 if (hex) setDraft(`--color:${hex.replace(/^#/, "")}`)
               }}
               className="ml-1 w-20 rounded-sm border border-border bg-background px-1 py-0.5 text-[10px] text-foreground placeholder:text-muted-foreground/60 focus:outline-none"
+            />
+          </div>
+        )}
+        {/* VISUAL PICKER (v0.2.147) — the full HSV picker for a color that's neither on the ramp
+            nor easy to name. Dragging writes the live hex into the draft ("--color:<hex>"), which
+            still matches the (broadened) trigger so this stays open; Enter in the create field
+            then commits the create/attribute command as usual. */}
+        {isColorPickerTrigger(draft) && (
+          <div className="mt-2 pl-4">
+            <Zero0ColorPicker
+              value={draftColorHex(draft) ?? undefined}
+              onChange={(hex) => setDraft(`--color:${hex.replace(/^#/, "")}`)}
             />
           </div>
         )}

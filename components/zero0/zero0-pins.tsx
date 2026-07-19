@@ -426,6 +426,14 @@ function PinChip({
   const { entity: e, ongoing, focused, timer, notify, notifyText } = item
   const accent = e.accent ?? getInheritedAccent(e.parentId) ?? (isSleepTitle(e.title) ? sleepDotColor : undefined)
   const tint = accent ?? "var(--muted-foreground)"
+  // GLYPH readability (v0.2.147) — an accent picked for its HUE can sit too close to the
+  // background lightness (a dark purple on dark mode, a pale color on light mode), so the small
+  // animated glyph nearly vanishes. Nudge ONLY the glyph color toward `--foreground` (theme-aware:
+  // near-white in dark, near-black in light) via an oklab mix — this LIFTS a dark accent and DARKENS
+  // a light one while keeping its hue, "just enough" to read. The border + bg wash keep the pure
+  // accent (they read fine as a thin line / faint fill). No adjustment when there's no accent (the
+  // muted-foreground default is already legible).
+  const glyphTint = accent ? `color-mix(in oklab, ${accent} 62%, var(--foreground))` : tint
   // Faint accent WASH behind every chip; a touch STRONGER when FOCUSED (the entity that IS the
   // current canvas context — the one you're drilled into), so it reads as "the one you're in"
   // without shouting. Deliberately gentle — no ring.
@@ -491,9 +499,9 @@ function PinChip({
           occurrence isn't resumable). Otherwise (live chip) the glyph spins while ongoing and
           STOPS (ongoing) / STARTS in the background (idle). */}
       {notify ? (
-        <NotifyChipGlyph e={e} tint={tint} flashN={flashN} onStart={onStart} />
+        <NotifyChipGlyph e={e} tint={glyphTint} flashN={flashN} onStart={onStart} />
       ) : (
-        <MarkableChipGlyph e={e} tint={tint} ongoing={ongoing} onEnd={onEnd} onStart={onStart} />
+        <MarkableChipGlyph e={e} tint={glyphTint} ongoing={ongoing} onEnd={onEnd} onStart={onStart} />
       )}
       {/* TITLE — the chip body carries the drill-in click. */}
       <span className="max-w-[10rem] truncate">{e.title}</span>

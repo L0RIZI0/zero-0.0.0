@@ -315,7 +315,7 @@ function FaceBlock({
       </div>
       {/* Raw meta key/values (filtered by rung). */}
       {rows.length > 0 && (
-        <dl className="mt-2 grid grid-cols-[6rem_1fr] gap-x-4 gap-y-0.5 text-[10px] tabular-nums">
+        <dl className="mt-2 grid grid-cols-[7.5rem_1fr] gap-x-4 gap-y-0.5 text-[10px] tabular-nums">
           {rows.map(([k, v]) => (
             <div key={k} className="contents">
               <dt className="uppercase tracking-widest text-muted-foreground">{k}</dt>

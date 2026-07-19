@@ -3,6 +3,7 @@
 import { useState } from "react"
 import type { MenuItem } from "@/lib/zero/menu-model"
 import { Zero0Glyph } from "./zero0-glyph"
+import { Zero0ColorPicker } from "./zero0-color-picker"
 
 // Presentational renderer for a generic MenuItem tree. Positioning-agnostic (the DOM
 // menu wraps it in a fixed/clamped container; the native overlay window wraps it in a
@@ -136,37 +137,66 @@ function indent(item: MenuItem): Indentable {
 
 // The free-text color entry (hex or CSS name). Live-resolves to a hex — the leading dot
 // previews it, and Enter (or clicking the dot) commits it through `color:<hex>`. Invalid
-// text simply can't commit. Enter is guarded against IME composition.
+// text simply can't commit. Enter is guarded against IME composition. A palette toggle (◧)
+// reveals the visual HSV picker for colors that are easier to dial in than to name/type.
 function ColorInputRow({ onSelect }: { onSelect: (id: string) => void }) {
   const [text, setText] = useState("")
+  const [pickerOpen, setPickerOpen] = useState(false)
   const hex = cssColorToHex(text)
   const commit = () => {
     if (hex) onSelect(`color:${hex}`)
   }
   return (
-    <div className="flex items-center gap-2 py-1 pl-5 pr-3">
-      <button
-        type="button"
-        aria-label="Apply typed color"
-        disabled={!hex}
-        onClick={commit}
-        className="h-2.5 w-2.5 shrink-0 rounded-full border border-border/60 disabled:opacity-40"
-        style={{ backgroundColor: hex ?? "transparent" }}
-      />
-      <input
-        type="text"
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" && !e.nativeEvent.isComposing && e.keyCode !== 229) {
-            e.preventDefault()
-            commit()
+    <div className="py-1 pl-5 pr-3">
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          aria-label="Apply typed color"
+          disabled={!hex}
+          onClick={commit}
+          className="h-2.5 w-2.5 shrink-0 rounded-full border border-border/60 disabled:opacity-40"
+          style={{ backgroundColor: hex ?? "transparent" }}
+        />
+        <input
+          type="text"
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.nativeEvent.isComposing && e.keyCode !== 229) {
+              e.preventDefault()
+              commit()
+            }
+          }}
+          placeholder="hex or name…"
+          aria-label="Custom color (hex or CSS name)"
+          className="w-24 rounded border border-border bg-background px-1 py-0.5 text-foreground placeholder:text-muted-foreground/60"
+        />
+        <button
+          type="button"
+          aria-expanded={pickerOpen}
+          aria-label="Toggle visual color picker"
+          title="Pick visually"
+          onClick={() => setPickerOpen((o) => !o)}
+          className={
+            "ml-auto rounded border border-border px-1 py-0.5 text-[10px] leading-none hover:bg-muted hover:text-foreground " +
+            (pickerOpen ? "text-foreground" : "text-muted-foreground")
           }
-        }}
-        placeholder="hex or name…"
-        aria-label="Custom color (hex or CSS name)"
-        className="w-24 rounded border border-border bg-background px-1 py-0.5 text-foreground placeholder:text-muted-foreground/60"
-      />
+        >
+          {"\u25E7"}
+        </button>
+      </div>
+      {pickerOpen && (
+        <div className="mt-2">
+          {/* Live drag updates the preview text; releasing / Enter commits + closes the menu
+              (same terminal action a swatch fires). Seeds from whatever hex the text field
+              currently resolves to, so it opens on the in-progress color. */}
+          <Zero0ColorPicker
+            value={hex ?? undefined}
+            onChange={(picked) => setText(picked)}
+            onCommit={(picked) => onSelect(`color:${picked}`)}
+          />
+        </div>
+      )}
     </div>
   )
 }
