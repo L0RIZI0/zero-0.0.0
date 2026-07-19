@@ -511,13 +511,31 @@ function ContentRow({
       onClick={() => ctx.toggleExpand(e.id)}
       onPointerDown={(ev) => ev.stopPropagation()}
       className={
-        "w-4 shrink-0 text-right text-sm leading-none transition-colors hover:text-foreground " +
+        "flex w-4 shrink-0 items-center justify-end leading-none transition-colors hover:text-foreground " +
         (hasChildren ? "text-muted-foreground" : "text-muted-foreground/40")
       }
       aria-label={expanded ? `Collapse ${e.title}` : `Expand ${e.title}`}
       aria-expanded={expanded}
     >
-      {expanded ? "▾" : "▸"}
+      {/* A single chevron-right SVG that rotates 90° to point down when expanded — crisper
+          than the old ▸/▾ triangle glyphs and it animates the open/close transition. */}
+      <svg
+        viewBox="0 0 16 16"
+        aria-hidden
+        className={
+          "h-3 w-3 transition-transform duration-150 motion-reduce:transition-none " +
+          (expanded ? "rotate-90" : "")
+        }
+      >
+        <path
+          d="M6 4l4 4-4 4"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
     </button>
   ) : (
     <span className="w-4 shrink-0" aria-hidden />
