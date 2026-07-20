@@ -23,7 +23,10 @@ import type { EntityKind } from "@/lib/zero/types"
 // column, and the kind names live in the "Name" row, exactly like Loris's OneNote draft.
 //
 //   • Cells are RICH TEXT (contentEditable) — bold / italic / bullet list / clear, via the toolbar.
-//   • Rows and columns can be ADDED, REMOVED, and MOVED (up/down, left/right).
+//   • Cells size to their CONTENT (a real <table>, auto layout) — no forced min column widths and
+//     no always-on control gutters bloating them.
+//   • Row/column ops (move · insert · delete) live in a RIGHT-CLICK menu on any cell, which also
+//     shows that cell's row/col NUMBER.
 //   • The "Glyph" row seeds the REAL ontology glyph for each kind (via <Zero0Glyph>), display-only.
 //   • State persists to localStorage (`zero:entities-bible:v1`) — this is a local-first doc we build
 //     up over time, so edits must survive reloads (matches the app's `zero:*` storage convention).
@@ -51,6 +54,11 @@ type Grid = {
 
 const cellKey = (rowId: string, colId: string) => `${rowId}::${colId}`
 
+// The field-label column and the "Name" row have stable ids so cell-specific styling (e.g. the
+// centered kind names) survives row/column reordering.
+const FIELD_COL = "c-field"
+const NAME_ROW = "r-name"
+
 // The eight creatable kinds in Loris's draft column order (matches the ID row 1–8).
 const KIND_COLS: EntityKind[] = [
   "space",
@@ -66,10 +74,10 @@ const KIND_COLS: EntityKind[] = [
 // Build the seed grid from the draft: a field-label column + one column per kind, and the rows
 // Glyph / Name / ID / Usecase / State:open / State:ongoing, plus a couple of empty rows to grow into.
 function seedGrid(): Grid {
-  const colIds = ["c-field", ...KIND_COLS.map((_, i) => `c-${i}`)]
+  const colIds = [FIELD_COL, ...KIND_COLS.map((_, i) => `c-${i}`)]
   const rowDefs: { id: string; label: string; fill?: (kind: EntityKind, i: number) => Cell }[] = [
     { id: "r-glyph", label: "Glyph", fill: (kind) => ({ glyph: kind }) },
-    { id: "r-name", label: "Name", fill: (kind) => ({ html: cap(kind) }) },
+    { id: NAME_ROW, label: "Name", fill: (kind) => ({ html: cap(kind) }) },
     { id: "r-id", label: "ID", fill: (_k, i) => ({ html: String(i + 1) }) },
     { id: "r-usecase", label: "Usecase" },
     { id: "r-state-open", label: "State:open" },
@@ -78,7 +86,7 @@ function seedGrid(): Grid {
   ]
   const cells: Record<string, Cell> = {}
   for (const row of rowDefs) {
-    cells[cellKey(row.id, "c-field")] = { html: row.label }
+    cells[cellKey(row.id, FIELD_COL)] = { html: row.label }
     KIND_COLS.forEach((kind, i) => {
       cells[cellKey(row.id, `c-${i}`)] = row.fill ? row.fill(kind, i) : { html: "" }
     })
@@ -105,12 +113,14 @@ function EditableCell({
   cellId,
   initialHtml,
   active,
+  centered,
   onFocus,
   onCommit,
 }: {
   cellId: string
   initialHtml: string
   active: boolean
+  centered?: boolean
   onFocus: (cellId: string, el: HTMLDivElement) => void
   onCommit: (cellId: string, html: string) => void
 }) {
@@ -131,14 +141,15 @@ function EditableCell({
       onFocus={() => ref.current && onFocus(cellId, ref.current)}
       onBlur={() => ref.current && onCommit(cellId, ref.current.innerHTML)}
       className={
-        "min-h-[2.5rem] w-full px-3 py-2 text-sm leading-relaxed text-foreground outline-none [&_ul]:list-disc [&_ul]:pl-5 " +
+        "h-full min-w-[3rem] px-3 py-1.5 text-sm leading-relaxed text-foreground outline-none [&_ul]:my-0 [&_ul]:list-disc [&_ul]:pl-5 " +
+        (centered ? "text-center " : "") +
         (active ? "bg-primary/5 ring-1 ring-inset ring-primary/40" : "")
       }
     />
   )
 }
 
-// A tiny square control button used by the row/column gutters + toolbar.
+// A tiny square control button used by the toolbar.
 function IconBtn({
   title,
   onClick,
@@ -166,10 +177,46 @@ function IconBtn({
   )
 }
 
+// One row in the right-click context menu.
+function MenuItem({
+  onSelect,
+  disabled,
+  danger,
+  icon,
+  children,
+}: {
+  onSelect: () => void
+  disabled?: boolean
+  danger?: boolean
+  icon: React.ReactNode
+  children: React.ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onMouseDown={(e) => e.preventDefault()}
+      onClick={onSelect}
+      className={
+        "flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs transition-colors disabled:pointer-events-none disabled:opacity-30 " +
+        (danger
+          ? "text-destructive hover:bg-destructive/10"
+          : "text-foreground hover:bg-muted")
+      }
+    >
+      <span className="flex h-3.5 w-3.5 items-center justify-center text-muted-foreground">{icon}</span>
+      {children}
+    </button>
+  )
+}
+
+type Menu = { x: number; y: number; ri: number; ci: number }
+
 export function Zero0EntitiesBible() {
   const [grid, setGrid] = useState<Grid>(seedGrid)
   const [hydrated, setHydrated] = useState(false)
   const [activeCell, setActiveCell] = useState<string | null>(null)
+  const [menu, setMenu] = useState<Menu | null>(null)
   const activeElRef = useRef<HTMLDivElement | null>(null)
 
   // Hydrate from localStorage after mount (SSR-safe: server + first client render both show the
@@ -197,6 +244,21 @@ export function Zero0EntitiesBible() {
       /* quota / private mode — non-fatal */
     }
   }, [grid, hydrated])
+
+  // Dismiss the context menu on any outside click, scroll, or Escape.
+  useEffect(() => {
+    if (!menu) return
+    const close = () => setMenu(null)
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setMenu(null)
+    window.addEventListener("click", close)
+    window.addEventListener("scroll", close, true)
+    window.addEventListener("keydown", onKey)
+    return () => {
+      window.removeEventListener("click", close)
+      window.removeEventListener("scroll", close, true)
+      window.removeEventListener("keydown", onKey)
+    }
+  }, [menu])
 
   const handleFocus = useCallback((cellId: string, el: HTMLDivElement) => {
     activeElRef.current = el
@@ -282,8 +344,15 @@ export function Zero0EntitiesBible() {
     setActiveCell(null)
   }, [])
 
-  // Column-width template: an auto row-gutter, then equal min-width columns.
-  const gridTemplate = `2rem repeat(${grid.colIds.length}, minmax(9rem, 1fr))`
+  // Open the row/col context menu at the cursor, clamped to the viewport.
+  const openMenu = useCallback((e: React.MouseEvent, ri: number, ci: number) => {
+    e.preventDefault()
+    const MENU_W = 176
+    const MENU_H = 380
+    const x = Math.min(e.clientX, window.innerWidth - MENU_W - 8)
+    const y = Math.min(e.clientY, window.innerHeight - MENU_H - 8)
+    setMenu({ x: Math.max(8, x), y: Math.max(8, y), ri, ci })
+  }, [])
 
   // Skeleton (pre-hydration) — same on server + first client paint to avoid mismatch.
   if (!hydrated) {
@@ -293,6 +362,9 @@ export function Zero0EntitiesBible() {
       </div>
     )
   }
+
+  const rowCount = grid.rowIds.length
+  const colCount = grid.colIds.length
 
   return (
     <div className="flex flex-col gap-3">
@@ -311,12 +383,12 @@ export function Zero0EntitiesBible() {
           <RemoveFormatting className="h-4 w-4" />
         </IconBtn>
         <span className="mx-1 h-5 w-px bg-border" aria-hidden />
-        <IconBtn title="Add row" onClick={() => addRow()}>
+        <IconBtn title="Add row (at end)" onClick={() => addRow()}>
           <span className="flex items-center text-[10px] font-medium">
             <Plus className="h-3.5 w-3.5" />R
           </span>
         </IconBtn>
-        <IconBtn title="Add column" onClick={() => addColumn()}>
+        <IconBtn title="Add column (at end)" onClick={() => addColumn()}>
           <span className="flex items-center text-[10px] font-medium">
             <Plus className="h-3.5 w-3.5" />C
           </span>
@@ -331,100 +403,170 @@ export function Zero0EntitiesBible() {
         </button>
       </div>
 
-      {/* The grid. Horizontal scroll on overflow so many columns stay usable. */}
+      {/* The grid — a real table so cells size to content. Horizontal scroll on overflow. */}
       <div className="overflow-x-auto rounded-md border border-border">
-        <div style={{ minWidth: "max-content" }}>
-          {/* Column control gutter. */}
-          <div className="grid border-b border-border bg-muted/30" style={{ gridTemplateColumns: gridTemplate }}>
-            <div className="border-r border-border" aria-hidden />
-            {grid.colIds.map((colId, ci) => (
-              <div
-                key={colId}
-                className="flex items-center justify-center gap-0.5 border-r border-border py-1 last:border-r-0"
-              >
-                <IconBtn title="Move column left" onClick={() => moveColumn(ci, -1)} disabled={ci === 0}>
-                  <ArrowLeft className="h-3.5 w-3.5" />
-                </IconBtn>
-                <IconBtn title="Insert column right" onClick={() => addColumn(ci)}>
-                  <Plus className="h-3.5 w-3.5" />
-                </IconBtn>
-                <IconBtn
-                  title="Delete column"
-                  onClick={() => removeColumn(ci)}
-                  disabled={grid.colIds.length <= 1}
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </IconBtn>
-                <IconBtn
-                  title="Move column right"
-                  onClick={() => moveColumn(ci, 1)}
-                  disabled={ci === grid.colIds.length - 1}
-                >
-                  <ArrowRight className="h-3.5 w-3.5" />
-                </IconBtn>
-              </div>
-            ))}
-          </div>
-
-          {/* Data rows, each with a left row-control gutter. */}
-          {grid.rowIds.map((rowId, ri) => (
-            <div
-              key={rowId}
-              className="group grid border-b border-border last:border-b-0"
-              style={{ gridTemplateColumns: gridTemplate }}
-            >
-              {/* Row controls — revealed on row hover. */}
-              <div className="flex flex-col items-center justify-center gap-0.5 border-r border-border bg-muted/20 py-1 opacity-30 transition-opacity group-hover:opacity-100">
-                <IconBtn title="Move row up" onClick={() => moveRow(ri, -1)} disabled={ri === 0}>
-                  <ArrowUp className="h-3.5 w-3.5" />
-                </IconBtn>
-                <IconBtn title="Insert row below" onClick={() => addRow(ri)}>
-                  <Plus className="h-3.5 w-3.5" />
-                </IconBtn>
-                <IconBtn title="Delete row" onClick={() => removeRow(ri)} disabled={grid.rowIds.length <= 1}>
-                  <Trash2 className="h-3.5 w-3.5" />
-                </IconBtn>
-                <IconBtn title="Move row down" onClick={() => moveRow(ri, 1)} disabled={ri === grid.rowIds.length - 1}>
-                  <ArrowDown className="h-3.5 w-3.5" />
-                </IconBtn>
-              </div>
-
-              {grid.colIds.map((colId) => {
-                const key = cellKey(rowId, colId)
-                const cell = grid.cells[key] ?? { html: "" }
-                if (cell.glyph) {
+        <table className="border-collapse">
+          <tbody>
+            {grid.rowIds.map((rowId, ri) => (
+              <tr key={rowId}>
+                {grid.colIds.map((colId, ci) => {
+                  const key = cellKey(rowId, colId)
+                  const cell = grid.cells[key] ?? { html: "" }
+                  const border =
+                    "border border-border align-top" + (ci === 0 ? " bg-muted/20" : "")
+                  if (cell.glyph) {
+                    return (
+                      <td
+                        key={colId}
+                        onContextMenu={(e) => openMenu(e, ri, ci)}
+                        className={border + " p-2 text-center"}
+                        title={cap(cell.glyph)}
+                      >
+                        <Zero0Glyph kind={cell.glyph} className="mx-auto h-6 w-6 text-foreground" />
+                      </td>
+                    )
+                  }
+                  const centered = rowId === NAME_ROW && colId !== FIELD_COL
                   return (
-                    <div
-                      key={colId}
-                      className="flex items-center justify-center border-r border-border last:border-r-0"
-                      title={cap(cell.glyph)}
-                    >
-                      <Zero0Glyph kind={cell.glyph} className="h-6 w-6 text-foreground" />
-                    </div>
+                    <td key={colId} onContextMenu={(e) => openMenu(e, ri, ci)} className={border + " p-0"}>
+                      <EditableCell
+                        cellId={key}
+                        initialHtml={cell.html ?? ""}
+                        active={activeCell === key}
+                        centered={centered}
+                        onFocus={handleFocus}
+                        onCommit={handleCommit}
+                      />
+                    </td>
                   )
-                }
-                return (
-                  <div key={colId} className="border-r border-border last:border-r-0">
-                    <EditableCell
-                      cellId={key}
-                      initialHtml={cell.html ?? ""}
-                      active={activeCell === key}
-                      onFocus={handleFocus}
-                      onCommit={handleCommit}
-                    />
-                  </div>
-                )
-              })}
-            </div>
-          ))}
-        </div>
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
 
       <p className="text-xs leading-relaxed text-muted-foreground">
         Click a cell to edit. Use the toolbar for <strong className="text-foreground">bold</strong>,{" "}
-        <em className="text-foreground">italic</em>, and bulleted lists. Hover a row or column edge to
-        move, insert, or delete it. Everything you type is saved locally in this browser.
+        <em className="text-foreground">italic</em>, and bulleted lists.{" "}
+        <span className="text-foreground">Right-click a cell</span> to move, insert, or delete its row
+        or column. Everything you type is saved locally in this browser.
       </p>
+
+      {/* Right-click row/column menu. */}
+      {menu && (
+        <div
+          role="menu"
+          onClick={(e) => e.stopPropagation()}
+          onContextMenu={(e) => e.preventDefault()}
+          style={{ left: menu.x, top: menu.y }}
+          className="fixed z-50 w-44 rounded-md border border-border bg-popover p-1 shadow-md"
+        >
+          <div className="px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+            Row {menu.ri} · Col {menu.ci}
+          </div>
+          <div className="my-1 h-px bg-border" aria-hidden />
+          <MenuItem
+            icon={<ArrowUp className="h-3.5 w-3.5" />}
+            disabled={menu.ri === 0}
+            onSelect={() => {
+              moveRow(menu.ri, -1)
+              setMenu(null)
+            }}
+          >
+            Move row up
+          </MenuItem>
+          <MenuItem
+            icon={<ArrowDown className="h-3.5 w-3.5" />}
+            disabled={menu.ri === rowCount - 1}
+            onSelect={() => {
+              moveRow(menu.ri, 1)
+              setMenu(null)
+            }}
+          >
+            Move row down
+          </MenuItem>
+          <MenuItem
+            icon={<Plus className="h-3.5 w-3.5" />}
+            onSelect={() => {
+              addRow(menu.ri - 1)
+              setMenu(null)
+            }}
+          >
+            Insert row above
+          </MenuItem>
+          <MenuItem
+            icon={<Plus className="h-3.5 w-3.5" />}
+            onSelect={() => {
+              addRow(menu.ri)
+              setMenu(null)
+            }}
+          >
+            Insert row below
+          </MenuItem>
+          <MenuItem
+            icon={<Trash2 className="h-3.5 w-3.5" />}
+            danger
+            disabled={rowCount <= 1}
+            onSelect={() => {
+              removeRow(menu.ri)
+              setMenu(null)
+            }}
+          >
+            Delete row
+          </MenuItem>
+          <div className="my-1 h-px bg-border" aria-hidden />
+          <MenuItem
+            icon={<ArrowLeft className="h-3.5 w-3.5" />}
+            disabled={menu.ci === 0}
+            onSelect={() => {
+              moveColumn(menu.ci, -1)
+              setMenu(null)
+            }}
+          >
+            Move column left
+          </MenuItem>
+          <MenuItem
+            icon={<ArrowRight className="h-3.5 w-3.5" />}
+            disabled={menu.ci === colCount - 1}
+            onSelect={() => {
+              moveColumn(menu.ci, 1)
+              setMenu(null)
+            }}
+          >
+            Move column right
+          </MenuItem>
+          <MenuItem
+            icon={<Plus className="h-3.5 w-3.5" />}
+            onSelect={() => {
+              addColumn(menu.ci - 1)
+              setMenu(null)
+            }}
+          >
+            Insert column left
+          </MenuItem>
+          <MenuItem
+            icon={<Plus className="h-3.5 w-3.5" />}
+            onSelect={() => {
+              addColumn(menu.ci)
+              setMenu(null)
+            }}
+          >
+            Insert column right
+          </MenuItem>
+          <MenuItem
+            icon={<Trash2 className="h-3.5 w-3.5" />}
+            danger
+            disabled={colCount <= 1}
+            onSelect={() => {
+              removeColumn(menu.ci)
+              setMenu(null)
+            }}
+          >
+            Delete column
+          </MenuItem>
+        </div>
+      )}
     </div>
   )
 }
