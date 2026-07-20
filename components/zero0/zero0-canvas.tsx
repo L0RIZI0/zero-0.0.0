@@ -1644,8 +1644,14 @@ export function Zero0Canvas() {
         <span className="text-border" aria-hidden>
           |
         </span>
-        {/* Doc link — the create-bar grammar reference (also reachable via the seeded
-            "Zero" docs Space). A plain anchor, not a frame toggle. */}
+        {/* Doc links — plain anchors, not frame toggles. `entities` = the interactive
+            "bible of entities" table; `sugars` = the create-bar grammar reference. */}
+        <a
+          href="/entities"
+          className="text-muted-foreground transition-colors hover:text-foreground"
+        >
+          entities
+        </a>
         <a
           href="/sugars"
           className="text-muted-foreground transition-colors hover:text-foreground"
