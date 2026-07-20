@@ -35,15 +35,27 @@ import type { EntityKind } from "@/lib/zero/types"
 //       – no selection (just a caret in a cell) ⇒ a CELL FOOTNOTE: a small corner marker + a
 //         numbered entry in the footnotes list under the table (stored as `cell.note`).
 //   • The "Glyph" row seeds the REAL ontology glyph for each kind (via <Zero0Glyph>), display-only.
-//   • State persists to localStorage (`zero:entities-bible:v2`) so edits survive reloads (matches
-//     the app's `zero:*` storage convention). Bumping to v2 because the seed shape changed.
+//   • SHARED STORE: the doc persists to a private Blob via /api/entities-bible so it is the SAME
+//     document for Loris AND v0 (localStorage is only an offline fallback cache). This enables the
+//     collaborative loop — Loris edits / drops "@v0 …" requests, v0 reads the blob next turn and
+//     appends replies. AUTHORSHIP colour: Loris's typing is BLUE by default; v0-authored text is
+//     wrapped `.v0e` (neutral foreground). Cells with an unresolved "@v0" show an amber marker.
 //
 // contentEditable is intentionally UNCONTROLLED: each cell's innerHTML is seeded ONCE on mount and
 // read back on blur. React never rewrites it during typing (which would jump the caret); cells are
 // keyed by a stable id so reordering rows/cols preserves their DOM + edits.
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 
-const STORAGE_KEY = "zero:entities-bible:v2"
+// localStorage is now only an OFFLINE FALLBACK cache; the shared Blob (via /api/entities-bible) is
+// the source of truth so v0 and Loris edit the SAME document.
+const STORAGE_KEY = "zero:entities-bible:v3"
+
+// AUTHORSHIP colour model: text typed by Loris is BLUE by default; text authored by v0 is wrapped
+// in `<span class="v0e">` so it renders in the neutral foreground (black in light / near-white in
+// dark). Bumping this constant re-runs the wrap migration. All SEED content is v0-authored.
+const AUTHOR_MODEL = 2
+const wrapV0 = (html: string) =>
+  html && !html.includes('class="v0e"') ? `<span class="v0e">${html}</span>` : html
 
 type Cell = {
   /** Rich-text HTML for a normal cell. */
@@ -59,9 +71,24 @@ type Grid = {
   colIds: string[]
   /** Keyed by `${rowId}::${colId}`. */
   cells: Record<string, Cell>
+  /** Which authorship-colour migration has been applied (see AUTHOR_MODEL). */
+  authorModel?: number
+  /** Server write timestamp (set by the API on save). */
+  updatedAt?: number
 }
 
 const cellKey = (rowId: string, colId: string) => `${rowId}::${colId}`
+
+// Wrap all existing cell content as v0-authored (neutral) exactly once, so that fresh typing —
+// which is unwrapped — defaults to the user's blue. Idempotent via the `authorModel` stamp.
+function ensureAuthorModel(grid: Grid): Grid {
+  if (grid.authorModel === AUTHOR_MODEL) return grid
+  const cells: Record<string, Cell> = {}
+  for (const [k, cell] of Object.entries(grid.cells)) {
+    cells[k] = cell.html ? { ...cell, html: wrapV0(cell.html) } : cell
+  }
+  return { ...grid, cells, authorModel: AUTHOR_MODEL }
+}
 
 // The field-label column and the "Name" row have stable ids so cell-specific styling (e.g. the
 // centered kind names) survives row/column reordering.
@@ -473,7 +500,7 @@ function EditableCell({
       onFocus={() => ref.current && onFocus(cellId, ref.current)}
       onBlur={() => ref.current && onCommit(cellId, ref.current.innerHTML)}
       className={
-        "h-full min-w-[3rem] px-3 py-1.5 text-sm leading-relaxed text-foreground outline-none [&_ul]:my-0 [&_ul]:list-disc [&_ul]:pl-5 [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-[0.8em] " +
+        "bible-cell h-full min-w-[3rem] px-3 py-1.5 text-sm leading-relaxed outline-none [&_ul]:my-0 [&_ul]:list-disc [&_ul]:pl-5 [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-[0.8em] " +
         (centered ? "text-center " : "") +
         (active ? "bg-primary/5 ring-1 ring-inset ring-primary/40" : "")
       }
@@ -568,6 +595,9 @@ type HoverNote = { text: string; x: number; y: number }
 export function Zero0EntitiesBible() {
   const [grid, setGrid] = useState<Grid>(seedGrid)
   const [hydrated, setHydrated] = useState(false)
+  // Shared-store sync status shown in the header ("saving…" / "saved" / "offline").
+  const [sync, setSync] = useState<"idle" | "saving" | "saved" | "offline">("idle")
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [activeCell, setActiveCell] = useState<string | null>(null)
   const [menu, setMenu] = useState<Menu | null>(null)
   const [picker, setPicker] = useState<Picker | null>(null)
@@ -583,22 +613,48 @@ export function Zero0EntitiesBible() {
   const hiliteAnchorRef = useRef<HTMLSpanElement | null>(null)
   const noteAnchorRef = useRef<HTMLSpanElement | null>(null)
 
-  // Hydrate from localStorage after mount (SSR-safe: server + first client render both show the
-  // seed skeleton, then this swaps in stored content — no hydration mismatch).
+  // Hydrate from the SHARED Blob store after mount (SSR-safe: server + first client render both
+  // show the seed skeleton, then this swaps in the stored doc — no hydration mismatch). Falls back
+  // to the localStorage cache when the network is unavailable. If the shared store is empty but a
+  // local doc exists, that local doc is adopted (and will be pushed up by the save effect).
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY)
-      if (raw) {
+    let cancelled = false
+    const readLocal = (): Grid | null => {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY)
+        if (!raw) return null
         const parsed = JSON.parse(raw) as Grid
-        if (parsed?.rowIds?.length && parsed?.colIds?.length && parsed.cells) setGrid(parsed)
+        return parsed?.rowIds?.length && parsed?.colIds?.length && parsed.cells ? parsed : null
+      } catch {
+        return null
       }
-    } catch {
-      /* ignore malformed storage */
     }
-    setHydrated(true)
+    ;(async () => {
+      let next: Grid | null = null
+      let offline = false
+      try {
+        const res = await fetch("/api/entities-bible", { cache: "no-store" })
+        if (res.ok) {
+          const { doc } = (await res.json()) as { doc: Grid | null }
+          if (doc?.rowIds?.length && doc?.colIds?.length && doc.cells) next = doc
+        }
+      } catch {
+        offline = true
+      }
+      if (!next) next = readLocal() // shared store empty (or offline) ⇒ adopt local doc if any
+      if (cancelled) return
+      if (next) setGrid(ensureAuthorModel(next))
+      else setGrid((g) => ensureAuthorModel(g)) // fresh seed ⇒ stamp it v0-authored
+      setSync(offline ? "offline" : "saved")
+      setHydrated(true)
+    })()
+    return () => {
+      cancelled = true
+    }
   }, [])
 
-  // Persist on every change once hydrated.
+  // Persist on every change once hydrated: cache locally immediately, then debounce-push to the
+  // shared Blob store so v0 sees the edits next turn.
   useEffect(() => {
     if (!hydrated) return
     try {
@@ -606,6 +662,20 @@ export function Zero0EntitiesBible() {
     } catch {
       /* quota / private mode — non-fatal */
     }
+    setSync("saving")
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+    saveTimerRef.current = setTimeout(async () => {
+      try {
+        const res = await fetch("/api/entities-bible", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ doc: grid }),
+        })
+        setSync(res.ok ? "saved" : "offline")
+      } catch {
+        setSync("offline")
+      }
+    }, 800)
   }, [grid, hydrated])
 
   // Dismiss any popover (menu / picker / note) on outside click, scroll, or Escape. The popovers
@@ -813,7 +883,7 @@ export function Zero0EntitiesBible() {
   }, [])
 
   const resetTable = useCallback(() => {
-    setGrid(seedGrid())
+    setGrid(ensureAuthorModel(seedGrid()))
     setActiveCell(null)
   }, [])
 
@@ -858,6 +928,46 @@ export function Zero0EntitiesBible() {
 
   return (
     <div className="flex flex-col gap-3">
+      {/* Authorship colours: what Loris types defaults to BLUE; v0-authored text (wrapped .v0e) is
+          the neutral foreground. Scoped to the editable cells. */}
+      <style>{`
+        .bible-cell { color: #2563eb; }
+        .dark .bible-cell { color: #60a5fa; }
+        .bible-cell .v0e { color: var(--foreground); }
+      `}</style>
+
+      {/* Legend + shared-store sync status. */}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+        <span className="flex items-center gap-1.5">
+          <span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ background: "#2563eb" }} aria-hidden />
+          you
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="inline-block h-2.5 w-2.5 rounded-sm bg-foreground" aria-hidden />
+          v0
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="rounded bg-amber-400/25 px-1 text-[9px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-300">
+            @v0
+          </span>
+          type an <code className="rounded bg-muted px-1">@v0 …</code> request in any cell
+        </span>
+        <span className="ml-auto flex items-center gap-1.5">
+          <span
+            className={
+              "inline-block h-1.5 w-1.5 rounded-full " +
+              (sync === "saving"
+                ? "bg-amber-500"
+                : sync === "offline"
+                  ? "bg-destructive"
+                  : "bg-emerald-500")
+            }
+            aria-hidden
+          />
+          {sync === "saving" ? "saving…" : sync === "offline" ? "offline (local only)" : "saved to shared store"}
+        </span>
+      </div>
+
       {/* Formatting toolbar — acts on the focused cell. */}
       <div className="sticky top-0 z-10 flex flex-wrap items-center gap-1 rounded-md border border-border bg-background/95 p-1.5 backdrop-blur">
         <IconBtn title="Bold" onClick={() => exec("bold")}>
@@ -996,6 +1106,15 @@ export function Zero0EntitiesBible() {
                           {fnNum}
                         </button>
                       )}
+                      {/* Unresolved "@v0 …" directive marker — flags a cell awaiting a v0 reply. */}
+                      {/@v0\b/i.test(stripHtml(cell.html ?? "")) && (
+                        <span
+                          title="Awaiting v0 — this cell contains an @v0 request"
+                          className="pointer-events-none absolute bottom-0.5 left-0.5 rounded bg-amber-400/25 px-1 text-[9px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-300"
+                        >
+                          @v0
+                        </span>
+                      )}
                     </td>
                   )
                 })}
@@ -1028,7 +1147,9 @@ export function Zero0EntitiesBible() {
         <span className="text-foreground">highlight</span>. Select some text then hit{" "}
         <span className="text-foreground">Note</span> for a hover-note, or hit it with no selection for a cell
         footnote. <span className="text-foreground">Right-click a cell</span> to move, insert, or delete its row or
-        column. Everything is saved locally in this browser.
+        column. Your edits are <span style={{ color: "#2563eb" }}>blue</span>; v0 replies in the neutral color.
+        Everything saves to a shared store, so v0 sees your edits and{" "}
+        <code className="rounded bg-muted px-1">@v0 …</code> requests on the next turn.
       </p>
 
       {/* Colour picker popover. */}
