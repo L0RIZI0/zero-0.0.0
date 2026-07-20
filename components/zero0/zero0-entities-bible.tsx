@@ -489,6 +489,63 @@ function EditableCell({
     if (ref.current) ref.current.innerHTML = initialHtml
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // AUTHORSHIP GUARD: text typed by the user must stay BLUE (the .bible-cell default). Left to the
+  // browser, typing at the edge of a v0-authored `<span class="v0e">` gets absorbed into it and
+  // inherits the neutral (black) colour. So we intercept plain text insertion and drop the typed
+  // characters as a BARE text node OUTSIDE any enclosing .v0e span (splitting the span at the
+  // caret). Everything else (delete, paste, formatting, Enter, IME composition) is left native.
+  useEffect(() => {
+    const root = ref.current
+    if (!root) return
+    const onBeforeInput = (e: InputEvent) => {
+      if (e.inputType !== "insertText" || e.data == null || e.isComposing) return
+      const sel = window.getSelection()
+      if (!sel || !sel.rangeCount) return
+      const range = sel.getRangeAt(0)
+      if (!root.contains(range.startContainer)) return
+      e.preventDefault()
+      range.deleteContents()
+      // Find an enclosing .v0e span (if any) between the caret and the cell root.
+      let v0e: HTMLElement | null = null
+      let n: Node | null = range.startContainer
+      while (n && n !== root) {
+        if (n instanceof HTMLElement && n.classList.contains("v0e")) {
+          v0e = n
+          break
+        }
+        n = n.parentNode
+      }
+      const textNode = document.createTextNode(e.data)
+      if (v0e && v0e.parentNode) {
+        // Split the v0e span: move everything after the caret into a new trailing v0e span, then
+        // insert the bare text between the two halves so it renders blue.
+        const tail = document.createRange()
+        tail.setStart(range.startContainer, range.startOffset)
+        tail.setEnd(v0e, v0e.childNodes.length)
+        const frag = tail.extractContents()
+        const parent = v0e.parentNode
+        const afterV0e = v0e.nextSibling
+        parent.insertBefore(textNode, afterV0e)
+        if (frag.textContent && frag.textContent.length > 0) {
+          const tailSpan = document.createElement("span")
+          tailSpan.className = "v0e"
+          tailSpan.appendChild(frag)
+          parent.insertBefore(tailSpan, textNode.nextSibling)
+        }
+        if (!v0e.textContent) v0e.remove()
+      } else {
+        range.insertNode(textNode)
+      }
+      const after = document.createRange()
+      after.setStartAfter(textNode)
+      after.collapse(true)
+      sel.removeAllRanges()
+      sel.addRange(after)
+    }
+    root.addEventListener("beforeinput", onBeforeInput)
+    return () => root.removeEventListener("beforeinput", onBeforeInput)
+  }, [])
   return (
     <div
       ref={ref}
