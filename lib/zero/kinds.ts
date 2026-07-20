@@ -1,4 +1,4 @@
-import type { Entity, EntityKind, Engagement, Schedule } from "./types"
+import type { Entity, EntityKind, Session, Schedule } from "./types"
 import { WHENEVER } from "./types"
 import {
   isDone,
@@ -320,8 +320,8 @@ export function isPlayable(entity: Entity): boolean {
 /**
  * True when the entity is MARKABLE — a live INSTANT whose glyph records an OCCURRENCE (a
  * point in time) on each click. An instant is a POINT, not a span, so it never opens a
- * running session; instead each mark is a zero-length engagement (`endAt === startAt`,
- * via `"mark"`) appended to `schedule.engagements` — a growing tally of timestamps.
+ * running session; instead each mark is a zero-length session (`endAt === startAt`,
+ * via `"mark"`) appended to `schedule.sessions` — a growing tally of timestamps.
  * Ended instants aren't markable (their occurrences are historical).
  */
 export function isMarkable(entity: Entity, now: number = Date.now()): boolean {
@@ -359,11 +359,11 @@ export function occurrenceAction(
   return isClosed(entity, now) ? "reopen" : "play"
 }
 
-/** The OCCURRENCE marks tallied on an instant (zero-length `via:"mark"` engagements), newest
+/** The OCCURRENCE marks tallied on an instant (zero-length `via:"mark"` sessions), newest
  *  first. [] for any non-instant or an instant with no marks yet. */
-export function getMarks(entity: Entity): Engagement[] {
+export function getMarks(entity: Entity): Session[] {
   if (entity.kind !== "instant") return []
-  return getEngagements(entity)
+  return getSessions(entity)
     .filter((e) => e.via === "mark")
     .sort((a, b) => b.startAt - a.startAt)
 }
@@ -401,15 +401,15 @@ export function getInstantOccurrenceCount(entity: Entity, now: number = Date.now
   return getInstantOccurrences(entity, now).length
 }
 
-// ── Engagement reads (pure — engagements live ON the entity) ─────────────────────────
-// The CANONICAL store of punch-ins/outs is `schedule.engagements` (see types.ts). These
+// ── Session reads (pure — sessions live ON the entity) ─────────────────────────
+// The CANONICAL store of punch-ins/outs is `schedule.sessions` (see types.ts). These
 // pure reads let getState derive "ongoing" with zero dependency on the current view,
 // which is what makes a Task read ongoing EVERYWHERE it appears. Write helpers
-// (openEngagement/closeEngagement) live in data.ts.
+// (openSession/closeSession) live in data.ts.
 
-/** All of an entity's tracked engagements (oldest first); [] if none. */
-export function getEngagements(entity: Entity): Engagement[] {
-  return entity.schedule?.engagements ?? []
+/** All of an entity's tracked sessions (oldest first); [] if none. */
+export function getSessions(entity: Entity): Session[] {
+  return entity.schedule?.sessions ?? []
 }
 
 /**
@@ -419,8 +419,8 @@ export function getEngagements(entity: Entity): Engagement[] {
  * rail must pass `via`. Marks (`endAt === startAt`) are never "open". Scans from the end so the
  * MOST-RECENT matching open session wins.
  */
-export function getOpenEngagement(entity: Entity, via?: Engagement["via"]): Engagement | null {
-  const s = getEngagements(entity)
+export function getOpenSession(entity: Entity, via?: Session["via"]): Session | null {
+  const s = getSessions(entity)
   for (let i = s.length - 1; i >= 0; i--) {
     const e = s[i]
     if (e.endAt == null && (via == null || e.via === via)) return e
@@ -429,26 +429,26 @@ export function getOpenEngagement(entity: Entity, via?: Engagement["via"]): Enga
 }
 
 /**
- * The open engagement that makes THIS entity read `ongoing` (v0.6.32: PLAY-ONLY). Ongoing is now
+ * The open session that makes THIS entity read `ongoing` (v0.6.32: PLAY-ONLY). Ongoing is now
  * driven exclusively by an open `play` session — `focus` (presence/viewing) NEVER flips state for
  * ANY kind. This replaces the old per-kind special-casing (moment/instant/being) with a single
  * rule: play spins the glyph, focus only accrues ACCESS. task/resource/space auto-open a `play`
  * on enter (see canvas), so they still spin on enter; beings never do; a moment/space also spins
  * from a concrete in-progress occurrence (handled separately in getStateInner).
  */
-export function ongoingOpenEngagement(entity: Entity): Engagement | null {
-  return getOpenEngagement(entity, "play")
+export function ongoingOpenSession(entity: Entity): Session | null {
+  return getOpenSession(entity, "play")
 }
 
 /** Whether the entity has an open session right now (optionally of a specific `via`). */
-export function hasOpenEngagement(entity: Entity, via?: Engagement["via"]): boolean {
-  return getOpenEngagement(entity, via) != null
+export function hasOpenSession(entity: Entity, via?: Session["via"]): boolean {
+  return getOpenSession(entity, via) != null
 }
 
 /**
  * OWN ongoing — is this entity ongoing BY ITSELF (not merely by rollup from a contained
  * descendant)? Mirrors getState sources (1) + (2), deliberately EXCLUDING (3) the rollup:
- *   (1) an open ENGAGEMENT (Task focus / Whenever play), or
+ *   (1) an open SESSION (Task focus / Whenever play), or
  *   (2) a Moment/Space with a CONCRETE started span still in progress.
  * This is the set the §4 PINS band lists — the entities you can directly END (a container
  * that only spins by rollup can't be ended here; you'd end its running child instead).
@@ -462,7 +462,7 @@ export function isOwnOngoing(entity: Entity, now: number = Date.now()): boolean 
   // that's by its OWN session/span (true) or merely a contained descendant's rollup (false).
   if (getState(entity, now).word !== "ongoing") return false
   // State-relevant open session (a focus/viewing session on a moment/instant does NOT count).
-  if (ongoingOpenEngagement(entity) != null) return true
+  if (ongoingOpenSession(entity) != null) return true
   if (entity.kind === "moment" || entity.kind === "space") {
     const start = concreteStart(entity)
     if (start != null && now >= start) {
@@ -676,8 +676,8 @@ function getStateInner(entity: Entity, now: number, seen: Set<string>): EntitySt
   //      it appears, purely from its own data. EXCEPTION: a Moment/Instant is a time-based
   //      essence — a mere FOCUS (viewing) session does NOT make it ongoing (its ongoing means the
   //      occurrence is actually happening: a concrete start or a manual Play). The focus session
-  //      still accrues on the activity rail; it just doesn't flip the state. (See ongoingOpenEngagement.)
-  const open = ongoingOpenEngagement(entity)
+  //      still accrues on the activity rail; it just doesn't flip the state. (See ongoingOpenSession.)
+  const open = ongoingOpenSession(entity)
   if (open) return { word: "ongoing", at: open.startAt }
   //  (2) a MOMENT or SPACE with a CONCRETE started span still in progress (started, not
   //      yet ended). Space joins Moment here (a live container). "whenever" is NOT

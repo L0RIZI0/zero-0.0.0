@@ -96,7 +96,7 @@ const FOUNDATIONS: EntityRow[] = [
       "STATE: every entity resolves to ONE computed word \u2014 open, ongoing, done, complete, closed, cancelled, dead, or retired \u2014 read live by getState() and shown on the glyph.",
       "CLOSE (open \u2192 closed) belongs to every kind and always FADES the row. Fillable kinds (Task, Space, Resource, Moment, Instant) also FILL their glyph when closed \u2014 that filled+faded state is what we call \u201Ccomplete.\u201D Terminal kinds (Community, Organism, Individual) just fade on close, keeping their outline (retire / die).",
       "DONE (done \u2192 undone) is a SECOND, softer mechanic \u2014 a checkmark that does NOT close \u2014 carried only by Task now (Moment/Instant dropped it; they auto-close when their time passes).",
-      "ONGOING spins the glyph. Sources: an open ENGAGEMENT (a Task being worked on, or a \u201Cwhenever\u201D Moment/Space playing), a Moment/Space with a concrete started span still running, or ROLLUP \u2014 a container spins while anything CONTAINED inside it runs. Rollup STOPS at the first BEING (a person isn\u2019t \u201Congoing,\u201D just alive).",
+      "ONGOING spins the glyph. Sources: an open SESSION (a Task being worked on, or a \u201Cwhenever\u201D Moment/Space playing), a Moment/Space with a concrete started span still running, or ROLLUP \u2014 a container spins while anything CONTAINED inside it runs. Rollup STOPS at the first BEING (a person isn\u2019t \u201Congoing,\u201D just alive).",
       "Any entity can be CANCELLED (called off): a bar is laid over its glyph and its title is struck through. Cancel also closes.",
       "Entities keep a record of who has access to them, who accessed them, and when (gathered in an auto-created Community).",
     ],
@@ -174,7 +174,7 @@ const KINDS: EntityRow[] = [
     lifecycle: "Open / ongoing / done / closed",
     fields: [
       "The only kind that still carries DONE (a checkmark). Done says the work happened; it does NOT close the task on its own.",
-      "ONGOING (glyph spins) while the task is being worked on \u2014 an open focus ENGAGEMENT, opened when you dwell inside it and closed when you leave.",
+      "ONGOING (glyph spins) while the task is being worked on \u2014 an open focus SESSION, opened when you dwell inside it and closed when you leave.",
       "Marking Done while a child task is still incomplete reads \u201Cdone\u201D (checkmark, not yet complete); it auto-completes once every task-child completes.",
       "CLOSING the task fills its glyph and fades the row \u2014 that filled+faded state is \u201Ccomplete.\u201D A done task auto-closes at the next local midnight (filed overnight).",
     ],
@@ -211,7 +211,7 @@ const KINDS: EntityRow[] = [
     lifecycle: "Open / ongoing / closed",
     fields: [
       "No DONE checkmark anymore \u2014 a Moment auto-CLOSES (fills + fades) once its span has passed.",
-      "ONGOING (glyph spins) while its concrete span is in progress (started, not yet ended), or while a \u201Cwhenever\u201D Moment is being played (an open engagement).",
+      "ONGOING (glyph spins) while its concrete span is in progress (started, not yet ended), or while a \u201Cwhenever\u201D Moment is being played (an open session).",
     ],
     states: [
       { label: "Open" },
@@ -320,7 +320,7 @@ const STATE_WORDS: { word: string; blurb: string }[] = [
   {
     word: "ongoing",
     blurb:
-      "Glyph SPINS. An open engagement, a running concrete span, or rollup from a contained descendant (stopping at the first being).",
+      "Glyph SPINS. An open session, a running concrete span, or rollup from a contained descendant (stopping at the first being).",
   },
   { word: "open", blurb: "The resting default. Death-terminal beings render this as \u201Calive.\u201D" },
 ]

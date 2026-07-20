@@ -19,7 +19,7 @@
 
 import type { Entity, EntityKind, Whenever } from "./types"
 import { WHENEVER } from "./types"
-  import { KIND_META, isClosed, fillsGlyph, getState, concreteStart, effectiveScheduleEnd, ongoingOpenEngagement, occurrenceAction, isPlannedKind, isMarkable, getMarks, getEngagements, getInstantMaxNb, isInstantMaxNbHard, getInstantOccurrenceCount, type EntityState } from "./kinds"
+  import { KIND_META, isClosed, fillsGlyph, getState, concreteStart, effectiveScheduleEnd, ongoingOpenSession, occurrenceAction, isPlannedKind, isMarkable, getMarks, getSessions, getInstantMaxNb, isInstantMaxNbHard, getInstantOccurrenceCount, type EntityState } from "./kinds"
 import { isDone, getCreatedAt, getCompletedOn } from "./entity-log"
 import { getEntity, getCreator, getOwner, getForwardTags, getBackReferences, getChildren } from "./data"
 import { formatLocale } from "./format-locale"
@@ -178,7 +178,7 @@ export function fmt(epoch?: number | Whenever): string {
   }
 
 // A COMPACT when-label for an entity, used to distinguish multiple back-references that
-// share a title (e.g. several "Work on Zero" engagements): its span → its point → else the
+// share a title (e.g. several "Work on Zero" sessions): its span → its point → else the
 // date it was created. Under the `mounted` gate like `fmt`.
 export function rangeLabel(e: Entity): string {
   const s = e.schedule
@@ -188,7 +188,7 @@ export function rangeLabel(e: Entity): string {
 }
 
 // OCCURRENCE duration of an entity, in ms — the length of when this thing HAPPENED / will
-// happen (TOP rail), DECOUPLED from access/engagement time (v0.6.18). Never stored — derived:
+// happen (TOP rail), DECOUPLED from access/session time (v0.6.18). Never stored — derived:
 //   • explicit --duration → that (a deliberately-set occurrence length, any kind)
 //   • instant             → 0 (a point has no length)
 //   • archived occurrences[] → Σ each finite past span (the happened-history)
@@ -251,7 +251,7 @@ export function getPlannedDurationMs(e: Entity): number | null {
 // middle rail), PLAYED = `play` (manual stopwatch, bottom rail). Unfiltered = every session.
 // The deliberate counterpart to getOccurrenceDurationMs: never merged with planned time.
 export function getSessionMs(e: Entity, now: number, via?: "focus" | "play" | "mark"): number | null {
-  const sessions = getEngagements(e).filter((s) => (via ? s.via === via : true))
+  const sessions = getSessions(e).filter((s) => (via ? s.via === via : true))
   if (sessions.length === 0) return null
   let total = 0
   for (const sess of sessions) total += Math.max(0, (sess.endAt ?? now) - sess.startAt)
@@ -504,7 +504,7 @@ export function getFaceModel(e: Entity, now: number): FaceModel {
 // instances under one title; an ACTIVITY rollup/segment is PRESENCE (time in a place),
 // and may even point at a since-deleted entity. These are PROJECTIONS — they have no
 // lifecycle of their own, so they present only their kind (glyph shape) + a title (+ an
-// optional aggregate echo the caller computes: "3 engagements", "1h 20m"). By resolving a
+// optional aggregate echo the caller computes: "3 sessions", "1h 20m"). By resolving a
 // projection into the SAME FaceModel an entity produces, a projection becomes a first-
 // class Face — which is exactly what lets STARTERS/ACTIVITY render through <Zero0Face>.
 //
@@ -518,7 +518,7 @@ export interface FaceLike {
   title: string
   /** Optional own-accent (a projection rarely sets this; the glyph stays neutral if absent). */
   accent?: string
-  /** Optional aggregate echo the caller computes (e.g. "3 engagements", "1h 20m tracked"). */
+  /** Optional aggregate echo the caller computes (e.g. "3 sessions", "1h 20m tracked"). */
   metaEcho?: string
 }
 
@@ -563,7 +563,7 @@ export function faceModelFromLike(like: FaceLike): FaceModel {
 export type ScheduleCell = { text: string; full?: string; faint?: boolean; pulse?: boolean }
 
 /** Structured START/END rows for a span-bearing entity (moment/space), or `null` for others.
- *  OCCURRENCE-ONLY (v0.6.18) — the TOP-rail lifecycle, fully decoupled from access/engagement
+ *  OCCURRENCE-ONLY (v0.6.18) — the TOP-rail lifecycle, fully decoupled from access/session
  *  time (which now lives on the ACCESS row). Cell 0 is the CURRENT occurrence: the scheduled
  *  `startAt`/`endAt` (planned intent, not faint), with the END reading a pulsing `ongoing` when
  *  the occurrence is started-but-not-ended. The rest are ARCHIVED past occurrences (newest→oldest,
@@ -611,7 +611,7 @@ export function getSessionCells(
   now: number,
   via?: "focus" | "play" | "mark",
 ): { total: string; segments: ScheduleCell[] } | null {
-  const engs = getEngagements(e)
+  const engs = getSessions(e)
     .filter((s) => (via ? s.via === via : true))
     .sort((a, b) => b.startAt - a.startAt)
   if (engs.length === 0) return null
@@ -647,7 +647,7 @@ export function getAccessCells(e: Entity, now: number) {
 /** Collect the raw ongoing intervals `[start, end]` (end clamped to `now` when live). */
 function ongoingIntervals(e: Entity, now: number): Array<[number, number]> {
   const out: Array<[number, number]> = []
-  for (const se of getEngagements(e)) {
+  for (const se of getSessions(e)) {
     if (se.via !== "play") continue // ongoing is play-driven (v0.6.32)
     out.push([se.startAt, se.endAt ?? now])
   }
@@ -700,7 +700,7 @@ export function getOngoingDurationCells(
   // The merged span that reaches `now` is the LIVE one (it was extended by an open play / in-progress
   // occurrence). Only that top span pulses + reads "ongoing".
   const liveHi = Math.max(...merged.map(([, hi]) => hi))
-  const isOngoing = ongoingOpenEngagement(e) != null || ((e.kind === "moment" || e.kind === "space") && concreteStart(e) != null)
+  const isOngoing = ongoingOpenSession(e) != null || ((e.kind === "moment" || e.kind === "space") && concreteStart(e) != null)
   const segments: ScheduleCell[] = [...merged]
     .sort((a, b) => b[0] - a[0]) // newest first
     .map(([lo, hi]) => {
@@ -823,7 +823,7 @@ function formatPlannedOccurrence(occ: PlannedOccurrence, status: OccurrenceStatu
 export function getPlannedOccurrenceRow(e: Entity, now: number): string | null {
   const planned = getPlannedOccurrences(e)
   if (planned.length === 0) return null
-  const sessions = getEngagements(e) // focus OR play both match a planned occurrence
+  const sessions = getSessions(e) // focus OR play both match a planned occurrence
   const tagged = planned.map((o) => [o, occurrenceStatus(o, sessions, now)] as const)
   const worth = tagged.length > 1 || tagged.some(([, st]) => st === "missed" || st === "cancelled")
   if (!worth) return null
@@ -951,7 +951,7 @@ export function getFaceMetaRows(e: Entity, now: number): [string, string][] {
   if (!OCCURRENCES_HIDDEN_KINDS.has(e.kind)) {
     // v0.6.34: count DELIBERATE plays only — an AUTO play (ongoing-on-enter) is presence, not a
     // deliberate occurrence ("I entered it" ≠ "it happened N times").
-    const playCount = getEngagements(e).filter((s) => s.via === "play" && !s.auto && s.endAt !== s.startAt).length
+    const playCount = getSessions(e).filter((s) => s.via === "play" && !s.auto && s.endAt !== s.startAt).length
     const plannedList = isPlannedKind(e.kind) ? getPlannedOccurrenceRow(e, now) : null
     const parts: string[] = []
     if (playCount > 0) parts.push(`${playCount} ${playCount === 1 ? "time" : "times"}`)
@@ -967,7 +967,7 @@ export function getFaceMetaRows(e: Entity, now: number): [string, string][] {
   // TAG LINKS — the recursive "also shows up in" web, both directions:
   //   • tags      = this entity's own outbound links (the contexts it plugs into).
   //   • tagged by = the DERIVED reverse — entities that name/reference THIS one, each with a
-  //     when-label so multiple same-titled engagements ("Work on Zero") stay distinguishable.
+  //     when-label so multiple same-titled sessions ("Work on Zero") stay distinguishable.
   // Only shown when non-empty (a leaf with no links stays quiet).
   const forwardTags = getForwardTags(e)
   if (forwardTags.length > 0) {

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { createPortal } from "react-dom"
 import { getSegments, useActivityRevision } from "@/lib/zero/activity-log"
-import { ROOT_ID, collectDescendants, getEntitiesWithEngagements, getEntity, getInheritedAccent, getTimelineOccurrences } from "@/lib/zero/data"
+import { ROOT_ID, collectDescendants, getEntitiesWithSessions, getEntity, getInheritedAccent, getTimelineOccurrences } from "@/lib/zero/data"
  import { titleAt } from "@/lib/zero/entity-log"
  import { isClosed, computeCloseAt, effectiveScheduleEnd } from "@/lib/zero/kinds"
 import { rangeText, NOW_COLOR } from "@/lib/zero/timeline-format"
@@ -77,10 +77,10 @@ const RECORDED_LANE_H = 10
 const MIDDLE_LANE_H = 10
 // Height of a presence tick on the STANDALONE ACTIVITY dayline (`tracks="presence"`).
 const PRESENCE_HEIGHT_PX = 10
-// DISPLAY-ONLY session coalescing: consecutive engagement sessions separated by a gap no larger
+// DISPLAY-ONLY session coalescing: consecutive session sessions separated by a gap no larger
 // than this collapse into ONE rendered bar. Its purpose is to keep a burst of quick stop→restart
 // toggles (typically tests / mis-clicks, a few seconds apart) reading as a single continuous
-// block instead of fragmenting the recorded rail into extra sub-lanes. The STORED engagements are
+// block instead of fragmenting the recorded rail into extra sub-lanes. The STORED sessions are
 // never touched (§0 still lists them all) — this only affects the dayline.
 const SESSION_MERGE_GAP_MS = 60_000
 
@@ -107,7 +107,7 @@ function bandMetrics(plannedCount: number, recordedCount: number, middle = false
 // Greedy interval LANE-PACKING (generalizes the old ongoing stack). Assigns each bar to the
 // lowest lane whose last-placed bar ends at/before this bar's start (no overlap); opens a new
 // lane when none is free. `compare` sets placement order: planned packs by START (minimal lanes,
-// tiling spans share lane 0); recorded packs LONGEST-FIRST so the longest engagement hugs the
+// tiling spans share lane 0); recorded packs LONGEST-FIRST so the longest session hugs the
 // seam. All bars share the [leftPct, leftPct+widthPct] x-range (openEnded bars included, since
 // they extend left from the now-edge). Returns each key's lane index + the total lane count.
 type LanePack = { laneOf: Map<string, number>; laneCount: number }
@@ -273,14 +273,14 @@ interface DaylineBar {
   // Which conceptual rail this bar belongs to (used for styling + a11y wording; the actual
   // rail ROUTING in the combined lane is by lane-index / `sess:` key, not this field):
   //   planned  = top rail    — declared/scheduled OCCURRENCES (the plan)
-  //   recorded = bottom rail  — MANUAL activity: play stopwatches + instant marks (engagements)
+  //   recorded = bottom rail  — MANUAL activity: play stopwatches + instant marks (sessions)
   //   middle   = middle spine — current-leaf focus/ACCESS
   //   presence = the standalone Activity dayline's machine-observed presence
   track: "planned" | "recorded" | "presence" | "middle"
   /** A single-point occurrence (instant / zero-length) renders as a thin tick. */
   point: boolean
   /**
-   * An INSTANT occurrence MARK — a zero-length `via:"mark"` engagement. Renders as a small
+   * An INSTANT occurrence MARK — a zero-length `via:"mark"` session. Renders as a small
    * downward-triangle instant glyph (not a bare 2px tick) so an occurrence reads as "an
    * Instant on the dayline" rather than an easy-to-miss sliver.
    */
@@ -468,7 +468,7 @@ export function Zero0Dayline({
       // can't still be running. If it lacks an `endAt`, terminate its bar at its actual close
       // time (`computeCloseAt`, the RECORD of when it ended) rather than letting it stretch to
       // now as an eternal ghost. (Covers a closed Moment/Space that had a start but no end and
-      // no engagement — the case `closeEngagement`-on-close can't reach since there's no session.)
+      // no session — the case `closeSession`-on-close can't reach since there's no session.)
       const closed = isClosed(occ, now)
       // Effective end = declared endAt OR (concrete start + duration). A start+duration span
       // therefore paints a FIXED-LENGTH bar and never reads as ongoing — same rule the state
@@ -539,7 +539,7 @@ export function Zero0Dayline({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [winStart, lo, hi, now, mounted, dataRev, activityRevision])
 
-  // SESSION bars — tracked work SESSIONS (`schedule.engagements`), the punch-in/out log behind
+  // SESSION bars — tracked work SESSIONS (`schedule.sessions`), the punch-in/out log behind
   // Play/Stop and dwell-focus. These are what make a "whenever" (no fixed clock time) entity
   // read `ongoing`, so they belong on the ACTIVITY rail even though they never anchor a
   // planned occurrence. We walk the WHOLE subtree (not just timed descendants, since the
@@ -547,15 +547,15 @@ export function Zero0Dayline({
   //   - OPEN session (no endAt) ⇒ an `openEnded` ongoing bar (right edge = now) that joins
   //     the vertical ongoing stack.
   //   - CLOSED session ⇒ a completed logged span.
-  // Both PLAY and FOCUS engagements are shown (per product decision). Bars are clipped to the
+  // Both PLAY and FOCUS sessions are shown (per product decision). Bars are clipped to the
   // day window so a session spanning midnight paints only today's slice.
-  const engagements = useMemo<DaylineBar[]>(() => {
+  const sessions = useMemo<DaylineBar[]>(() => {
     if (!mounted) return []
     const out: DaylineBar[] = []
-    // v0.6.22: iterate EVERY entity with engagements (not `collectDescendants`, which walks spaces
+    // v0.6.22: iterate EVERY entity with sessions (not `collectDescendants`, which walks spaces
     // only and hid Resource/Task/Moment leaves from the recorded rail).
-    for (const e of getEntitiesWithEngagements()) {
-      const list = e.schedule?.engagements
+    for (const e of getEntitiesWithSessions()) {
+      const list = e.schedule?.sessions
       if (!list || list.length === 0) continue
       const { fill, stroke } = paintFor(e.id)
       // COALESCE into runs (display only — see SESSION_MERGE_GAP_MS): walk sessions oldest→newest
@@ -631,7 +631,7 @@ export function Zero0Dayline({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [winStart, lo, hi, now, mounted, dataRev, activityRevision])
 
-  // SPINE bars — the MIDDLE rail (v0.6.21): the COLLAPSED-ACCESS leaf-spine. Focus engagements
+  // SPINE bars — the MIDDLE rail (v0.6.21): the COLLAPSED-ACCESS leaf-spine. Focus sessions
   // (`via` focus / legacy undefined) are punched on EVERY entity on the path, so at any instant
   // the covering focus intervals are exactly root→leaf and the DEEPEST (latest-started) is the
   // current leaf. We FLATTEN all focus intervals so only the deepest shows at each moment — a
@@ -640,7 +640,7 @@ export function Zero0Dayline({
   // (§2), spine = the correctable ACCESS record. Only rendered on the combined lane.
   const spine = useMemo<DaylineBar[]>(() => {
     if (!mounted || !combined) return []
-    // 1) Collect focus intervals (end = now while open) across EVERY entity with engagements.
+    // 1) Collect focus intervals (end = now while open) across EVERY entity with sessions.
     //    v0.6.22: was `collectDescendants(ROOT_ID)` which walks SPACES only, so a focused
     //    Resource/Task/Moment LEAF (e.g. the v0.app web resource) was invisible and the spine drew
     //    its parent Space instead of the true current leaf. v0.6.24: `end` uses the shared
@@ -649,8 +649,8 @@ export function Zero0Dayline({
     //    interval still survives (its right edge is clamped back to the marker at emit time).
     type Iv = { id: string; start: number; end: number; open: boolean }
     const ivs: Iv[] = []
-    for (const e of getEntitiesWithEngagements()) {
-      const list = e.schedule?.engagements
+    for (const e of getEntitiesWithSessions()) {
+      const list = e.schedule?.sessions
       if (!list) continue
       for (const s of list) {
         if (s.via === "play" || s.via === "mark") continue // manual → bottom rail
@@ -781,24 +781,24 @@ export function Zero0Dayline({
   const byKey = useMemo(() => {
     const m = new Map<string, DaylineBar>()
     for (const b of planned) m.set(b.key, b)
-    for (const b of engagements) m.set(b.key, b)
+    for (const b of sessions) m.set(b.key, b)
     for (const b of spine) m.set(b.key, b)
     for (const b of presence) m.set(b.key, b)
     return m
-  }, [planned, engagements, spine, presence])
+  }, [planned, sessions, spine, presence])
 
   // LANE PACKING per rail (OPTION A). TOP (planned) packs by START so tiling declared spans
   // share lane 0 and only genuine overlaps open new lanes. BOTTOM (recorded) packs LONGEST-
-  // FIRST so the longest engagement hugs the seam and shorter/overlapping ones stack away from
-  // it — this subsumes the old "ongoing stack" (all running engagements share the now-edge, so
+  // FIRST so the longest session hugs the seam and shorter/overlapping ones stack away from
+  // it — this subsumes the old "ongoing stack" (all running sessions share the now-edge, so
   // they fully overlap and each lands in its own lane, longest nearest the seam).
   const plannedLanes = useMemo(
     () => packLanes(planned, (a, b) => a.leftPct - b.leftPct || b.widthPct - a.widthPct),
     [planned],
   )
   const recordedLanes = useMemo(
-    () => packLanes(engagements, (a, b) => b.widthPct - a.widthPct || a.leftPct - b.leftPct),
-    [engagements],
+    () => packLanes(sessions, (a, b) => b.widthPct - a.widthPct || a.leftPct - b.leftPct),
+    [sessions],
   )
   // Combined-lane band geometry: the SEAM and total BAND HEIGHT grow with the busier rail's
   // sub-lane count (ticks keep full height; the band gets taller). Non-combined lanes keep the
@@ -1368,7 +1368,7 @@ export function Zero0Dayline({
                   All ticks are vertically CENTERED; on the combined lane the tracks are
                   told apart by HEIGHT (planned taller, presence shorter). */}
               {mounted &&
-                (combined ? [...planned, ...engagements, ...spine] : isPresence ? presence : planned).map((p) => {
+                (combined ? [...planned, ...sessions, ...spine] : isPresence ? presence : planned).map((p) => {
                   const isHot = hoveredKey === p.key
                   // LIT — this tick's entity is the one being HOVERED in ENTITY CONTENT
                   // (hover-only; cleared on navigation, so never lit merely for being open).
@@ -1377,7 +1377,7 @@ export function Zero0Dayline({
                   const isPresenceTick = !combined && isPresence
                   // THREE-RAIL assignment on the combined lane (v0.6.21): MIDDLE = the collapsed-
                   // ACCESS leaf-spine (`spine:` keys, track "middle"), centered on the seam; BOTTOM
-                  // (recorded) = manual PLAY + MARK sessions (`sess:` keys from the engagements
+                  // (recorded) = manual PLAY + MARK sessions (`sess:` keys from the sessions
                   // memo); TOP (planned) = everything else (declared occurrences).
                   const isMiddle = combined && p.track === "middle"
                   const isRecorded = combined && p.key.startsWith("sess:")

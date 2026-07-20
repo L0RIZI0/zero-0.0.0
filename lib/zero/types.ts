@@ -196,7 +196,7 @@ export interface Recurrence {
  * `duration` vs `timebox` are intentionally distinct:
  *   - `duration` is the length of a CONTIGUOUS block (usually `endAt - startAt`).
  *   - `timebox` is a planned EFFORT BUDGET in minutes that may be spread across
- *     many separate engagements (e.g. "spend 5h on this over the week"), so it is
+ *     many separate sessions (e.g. "spend 5h on this over the week"), so it is
  *     independent of any single start/end.
  */
 /**
@@ -204,7 +204,7 @@ export interface Recurrence {
  * "a real, trackable thing that has NO fixed clock time." It is deliberately
  * distinct from BOTH `undefined` (genuinely unscheduled) AND a concrete epoch
  * (a fixed time): an entity whose `startAt === "whenever"` is PLAYABLE — its glyph
- * offers Play/Stop to open/close a background session on demand (see `Engagement`).
+ * offers Play/Stop to open/close a background session on demand (see `Session`).
  * Every `startAt` comparison (`now >= startAt`, arithmetic, etc.) MUST guard this
  * sentinel first via `isWheneverStart` / `concreteStart` in kinds.ts.
  */
@@ -214,20 +214,20 @@ export type Whenever = typeof WHENEVER
 /**
  * One tracked work SESSION: a punch-in (`startAt`) and, once closed, a punch-out
  * (`endAt`). The LAST session missing `endAt` is the single OPEN/ongoing session.
- * Two sources open engagements:
+ * Two sources open sessions:
  *   - FOCUS (tasks): drilling into a Task past a dwell threshold opens one; leaving
  *     the active path closes it. So a Task reads `ongoing` everywhere purely from
  *     "has an open session", with no dependency on the current view.
  *   - PLAY (whenever-valued moments/spaces): the glyph Play/Stop toggles one.
  */
-export interface Engagement {
+export interface Session {
   /** Punch-in, epoch ms. */
   startAt: Epoch
-  /** Punch-out, epoch ms. Absent ⇒ this engagement is still OPEN (ongoing). */
+  /** Punch-out, epoch ms. Absent ⇒ this session is still OPEN (ongoing). */
   endAt?: Epoch
-  /** VIA — how the engagement was opened ("focus" = dwelling in a Task, "play" = a
+  /** VIA — how the session was opened ("focus" = dwelling in a Task, "play" = a
    *  whenever stopwatch, "mark" = an INSTANT occurrence tally — a zero-length entry where
-   *  `endAt === startAt`, never open). Lets hydrate-cleanup close dangling FOCUS engagements
+   *  `endAt === startAt`, never open). Lets hydrate-cleanup close dangling FOCUS sessions
    *  on reload while leaving PLAY stopwatches running (marks are always closed, so untouched).
    *  Absent ⇒ "focus". */
   via?: "focus" | "play" | "mark"
@@ -254,7 +254,7 @@ export interface Schedule {
   dueAt?: Epoch
   /** Length of a contiguous block, in MINUTES. */
   duration?: number
-  /** Effort budget in MINUTES, independent of when it happens (may span engagements). */
+  /** Effort budget in MINUTES, independent of when it happens (may span sessions). */
   timebox?: number
   /**
    * MULTI-BLOCK days (D4): more than one within-day span, e.g. Day Job 8:00–11:30
@@ -266,16 +266,16 @@ export interface Schedule {
    */
   blocks?: { startAt: Epoch; endAt: Epoch }[]
   /**
-   * Tracked work engagements — the CANONICAL store of punch-ins/outs (see {@link Engagement}).
+   * Tracked work sessions — the CANONICAL store of punch-ins/outs (see {@link Session}).
    * The last entry missing `endAt` is the one OPEN session. Mirrors the `blocks`
    * convention: when present, scalar `startAt`/`endAt` mirror the FIRST session's start
    * and the LAST session's end so existing single-span readers keep working. The
    * append-only log is a SECONDARY audit trail, never the source of truth.
    */
-  engagements?: Engagement[]
+  sessions?: Session[]
   /**
    * ARCHIVED OCCURRENCES — the history of when this thing actually HAPPENED (top rail), distinct
-   * from `engagements` (how long I WORKED on it, bottom rail). A moment/space accumulates one span
+   * from `sessions` (how long I WORKED on it, bottom rail). A moment/space accumulates one span
    * here each time it is Reopened: the live `{startAt,endAt}` is pushed in and the scalar
    * start/end are cleared (back to open). Past spans paint as FIXED top-rail ticks, untouched by
    * the current live state. `duration` is preserved on reopen as the default length for the next

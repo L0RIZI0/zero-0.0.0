@@ -3,7 +3,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import type React from "react"
 import { getInheritedAccent, getStarterPinnedEntities, getOwnOngoingEntities, getRecentlyMarkedInstants, getRecentlyEndedEntities } from "@/lib/zero/data"
- import { isOwnOngoing, getOpenEngagement, concreteStart, effectiveEndAt } from "@/lib/zero/kinds"
+ import { isOwnOngoing, getOpenSession, concreteStart, effectiveEndAt } from "@/lib/zero/kinds"
 import { getFaceModel } from "@/lib/zero/face-model"
 import type { Entity } from "@/lib/zero/types"
 import { isSleepTitle, sleepDotColor } from "@/lib/zero/sleep-sky"
@@ -13,7 +13,7 @@ import { Zero0Frame } from "@/components/zero0/zero0-frame"
 /** Tick cadence. 1s so each chip's live timer (elapsed / countdown) advances smoothly AND
  *  so time-crossing spans (a Moment that just ended or just started) appear/disappear without
  *  a data mutation. The scanned set is tiny (ongoing ∪ pinned), so a 1s re-scan is cheap.
- *  Engagement toggles (focus/play) also bump `dataRev` for an instant refresh. */
+ *  Session toggles (focus/play) also bump `dataRev` for an instant refresh. */
 const TICK_MS = 1000
 
 /** FLIP move animation duration + easing — deliberately GENEROUS so a chip sliding between
@@ -52,8 +52,8 @@ function formatTimer(ms: number): string {
  * The live timer shown on an ONGOING chip. Two flavors, mirroring how the entity is ongoing:
  *   - a KNOWN end (declared `endAt`, or a concrete start + duration) ⇒ COUNTDOWN "-MMm SSs"
  *     (time remaining until it ends), so a timed span reads like a stopwatch winding down.
- *   - no known end (an open engagement, or an open-ended running span) ⇒ ELAPSED so far,
- *     counting UP from whichever "since" anchor applies (the open engagement's punch-in if
+ *   - no known end (an open session, or an open-ended running span) ⇒ ELAPSED so far,
+ *     counting UP from whichever "since" anchor applies (the open session's punch-in if
  *     there is one, else the concrete span start).
  * Returns null when there's nothing sensible to show.
  */
@@ -64,7 +64,7 @@ function ongoingTimer(e: Entity, now: number): { text: string; countdown: boolea
   }
   // v0.6.32: the ONGOING timer tracks the PLAY (ongoing) session — not a `focus` presence session,
   // which can now be open concurrently (e.g. on a done task you're viewing) without meaning ongoing.
-  const open = getOpenEngagement(e, "play")
+  const open = getOpenSession(e, "play")
   const since = open?.startAt ?? concreteStart(e)
   if (since != null && now > since) {
     return { text: formatTimer(now - since), countdown: false }
@@ -172,7 +172,7 @@ function useFlipRow(sig: string) {
  * Each chip = accent color + GLYPH + TITLE + (when ongoing) a live TIMER. Interaction:
  *   - CLICK the chip body:
  *       · ONGOING       → FOCUS it (navigate the canvas onto it).
- *       · pinned-IDLE   → START an engagement AND focus it.
+ *       · pinned-IDLE   → START an session AND focus it.
  *   - ALT/⌘/CTRL-CLICK the chip body → START in the BACKGROUND (parallel; stay on the current
  *     canvas). No-op if it's already ongoing. (Alt is the safe modifier — ⌘/Ctrl+click is a
  *     right-click on some platforms; we accept all three.)
@@ -201,7 +201,7 @@ export function Zero0Pins({
   onOpen: (id: string) => void
   /** Glyph click on an ONGOING chip — END it (stay on canvas). */
   onEnd: (id: string) => void
-  /** START an engagement on the entity. `focus` ⇒ ALSO navigate the canvas onto it (a plain
+  /** START an session on the entity. `focus` ⇒ ALSO navigate the canvas onto it (a plain
    *  click on a pinned-idle chip); `focus:false` ⇒ start in the BACKGROUND, staying on the
    *  current canvas (the glyph on an idle chip, or an Alt/modifier click on any chip). */
   onStart: (id: string, focus: boolean) => void

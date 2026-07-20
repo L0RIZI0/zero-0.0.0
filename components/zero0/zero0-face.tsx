@@ -195,7 +195,7 @@ function FaceBlock({
   )
   // RICH access: the total PRESENCE time followed by a per-session breakdown ("<durX> (<whenX>)"),
   // each hoverable for its full start–end (the live session pulses). Null when there are no
-  // engagements. DECOUPLED from the plain DURATION row (which is now the occurrence length).
+  // sessions. DECOUPLED from the plain DURATION row (which is now the occurrence length).
   const access = useMemo(
     () => (rowsOverride ? null : getAccessCells(entity, now)),
     [entity, now, rowsOverride],

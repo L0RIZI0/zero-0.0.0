@@ -31,16 +31,16 @@ import {
   autoTagByTitle,
   isStarterPinned,
   toggleStarterPin,
-  openEngagement,
-  closeEngagement,
-  setOpenEngagementStart,
+  openSession,
+  closeSession,
+  setOpenSessionStart,
   markInstant,
   setInstantMax,
   endOngoing,
   reorderContextItems,
   moveEntityToContext,
 } from "@/lib/zero/data"
-  import { KIND_META, getState, isClosed, hasOpenEngagement, getOpenEngagement, isMarkable, getInstantMaxNb } from "@/lib/zero/kinds"
+  import { KIND_META, getState, isClosed, hasOpenSession, getOpenSession, isMarkable, getInstantMaxNb } from "@/lib/zero/kinds"
   import { isDone, describeLogEntry } from "@/lib/zero/entity-log"
 import {
   parseEntry,
@@ -177,7 +177,7 @@ export function Zero0Canvas() {
   // the chosen action id back through a single persistent IPC listener, which dispatches
   // to whatever this points at (entity action, or a sibling-nav closure).
   const nativeSelectRef = useRef<((id: string) => void) | null>(null)
-  // Which time frames are MINIMIZED (collapsed to just their dayline band). Engagement-only,
+  // Which time frames are MINIMIZED (collapsed to just their dayline band). Session-only,
   // a separate axis from § visibility: a shown frame can be full or minimized.
   const [minimized, setMinimized] = useState<{ agenda: boolean; activity: boolean; zeroHeader: boolean }>({
     // Agenda + the §1 ZERO HEADER open in their MINIMIZED form by default — a single
@@ -295,7 +295,7 @@ export function Zero0Canvas() {
   //   TWO RAILS, cleanly split: a focus session is RECORDED ACTIVITY (bottom rail), NEVER the same
   //   thing as the STATE `ongoing`. For a Moment/Instant these DIVERGE — a focus (viewing) session
   //   accrues activity but does NOT make it read `ongoing` (that's gated in getState via
-  //   `ongoingOpenEngagement`; their ongoing is reserved for the actual occurrence — a concrete
+  //   `ongoingOpenSession`; their ongoing is reserved for the actual occurrence — a concrete
   //   scheduled start or a manual Play punch-in). Wedding invitation = a Task with recorded
   //   work-time; the WEDDING = a Moment whose scheduled Aug-14 span sits on the PLANNED rail.
   //   • Punch OUT (immediate): anything we opened that's no longer on the path.
@@ -316,13 +316,13 @@ export function Zero0Canvas() {
     // Punch OUT the entities we auto-opened but have now left — BOTH rails independently.
     for (const id of Array.from(focusOpenRef.current)) {
       if (!pathSet.has(id)) {
-        if (closeEngagement(id, "focus")) changed = true
+        if (closeSession(id, "focus")) changed = true
         focusOpenRef.current.delete(id)
       }
     }
     for (const id of Array.from(playOpenRef.current)) {
       if (!pathSet.has(id)) {
-        if (closeEngagement(id, "play")) changed = true // leaving stops ongoing (DURATION freezes)
+        if (closeSession(id, "play")) changed = true // leaving stops ongoing (DURATION freezes)
         playOpenRef.current.delete(id)
       }
     }
@@ -338,9 +338,9 @@ export function Zero0Canvas() {
         // ranks complete/done/closed ABOVE session-ongoing so this never resurrects a finished
         // thing). We ensure exactly one open FOCUS; re-register an already-open one for punch-out
         // (reload continuity). Focus alone never spins the glyph (ongoing = play-only, v0.6.32).
-        if (hasOpenEngagement(e, "focus")) {
+        if (hasOpenSession(e, "focus")) {
           focusOpenRef.current.add(id) // re-register for punch-out
-        } else if (openEngagement(id, "focus")) {
+        } else if (openSession(id, "focus")) {
           focusOpenRef.current.add(id)
           opened = true
         }
@@ -350,9 +350,9 @@ export function Zero0Canvas() {
         // punch-out ONLY for these auto-play kinds so leaving stops the ongoing (a done task is
         // presence-only — canAutoPlay is false — so it accrues ACCESS but never resumes ongoing).
         if (canAutoPlay(e)) {
-          if (hasOpenEngagement(e, "play")) {
+          if (hasOpenSession(e, "play")) {
             playOpenRef.current.add(id)
-          } else if (openEngagement(id, "play", Date.now(), { auto: true })) {
+          } else if (openSession(id, "play", Date.now(), { auto: true })) {
             // v0.6.34: {auto:true} → this ongoing-on-enter play spins/counts DURATION but is kept
             // OFF the recorded rail + OCCURRENCES tally (it's presence-like, not deliberate activity).
             playOpenRef.current.add(id)
@@ -379,14 +379,14 @@ export function Zero0Canvas() {
       // v0.6.32: via-aware. A `focus` (presence) session may be open CONCURRENTLY — Play/Stop only
       // touches the `play` (ongoing) rail. Stopping also drops it from playOpenRef so the dwell
       // effect won't think it still owns an auto-play to punch out.
-      if (hasOpenEngagement(e, "play")) {
-        closeEngagement(e.id, "play") // Stop the running play (ongoing) — presence keeps ticking
+      if (hasOpenSession(e, "play")) {
+        closeSession(e.id, "play") // Stop the running play (ongoing) — presence keeps ticking
         playOpenRef.current.delete(e.id)
       } else {
         // A DELIBERATE Play is a stopwatch that SURVIVES navigation — so we do NOT register it in
         // playOpenRef (the auto-punch-out set). If/when you drill INTO this entity, the dwell effect
         // adopts it (registers it) so ongoing-on-enter parity resumes from there. (Play-from-afar.)
-        openEngagement(e.id, "play")
+        openSession(e.id, "play")
       }
       bump()
     },
@@ -396,7 +396,7 @@ export function Zero0Canvas() {
   const context = mounted ? getEntity(contextId) : undefined
   // SHOW HIDDEN — a per-context VIEW toggle (right-click ▸ Show hidden). When off, hidden
   // children (manual `hidden` flag OR auto-hidden-because-closed-before-today) collapse out
-  // of ENTITY CONTENT; when on, they're revealed with a "(hidden)" title prefix. Engagement-
+  // of ENTITY CONTENT; when on, they're revealed with a "(hidden)" title prefix. Session-
   // only and RESET on navigation so drilling into a new context starts clean.
   const [showHidden, setShowHidden] = useState(false)
   useEffect(() => {
@@ -404,7 +404,7 @@ export function Zero0Canvas() {
   }, [contextId])
   // LOG COLLAPSE — the §0 LIFE LOG is COLLAPSED by default (v0.2.150). It's an ever-growing list of
   // session-open/close ticks that pushed the children below the fold on every open while dogfooding.
-  // A per-context VIEW toggle (a chevron on the LOG header), engagement-only, RESET on navigation so
+  // A per-context VIEW toggle (a chevron on the LOG header), session-only, RESET on navigation so
   // each entity you open starts collapsed — same contract as showHidden.
   const [logExpanded, setLogExpanded] = useState(false)
   useEffect(() => {
@@ -564,11 +564,11 @@ export function Zero0Canvas() {
         case "sessionend": {
           // ACCESS-SESSION sugar (v0.6.19; retargeted v0.6.20) — the deliberate counterpart to the
           // occurrence --start/--end above. Corrects the current entity's OPEN ACCESS session (its
-          // focus engagement): "I opened Cooking just now but I've actually been cooking 30min" ⇒
+          // focus session): "I opened Cooking just now but I've actually been cooking 30min" ⇒
           // `--sessionStart:30min ago`. This is the MIDDLE (collapsed-ACCESS leaf-spine) rail, so
           // the edit slides the middle tick. It NEVER touches the top-rail schedule NOR the pure
           // PRESENCE truth rail (§2). NOTE: play-vs-focus precedence when a PLAY session is also
-          // open is deferred open-item #2 — today it hits whatever `getOpenEngagement` returns.
+          // open is deferred open-item #2 — today it hits whatever `getOpenSession` returns.
           const when = val.toLowerCase() === "now" ? batchNow : val === "" ? null : parseDateToken(val, batchNow)
           if (val !== "" && when == null) {
             setNotice({ tone: "err", text: `invalid time "${val}" — use HHMM, "30min ago", "in 2h", or now` })
@@ -579,22 +579,22 @@ export function Zero0Canvas() {
               setNotice({ tone: "err", text: "--sessionStart needs a time (e.g. 30min ago)" })
               return null
             }
-            if (!hasOpenEngagement(ent)) {
+            if (!hasOpenSession(ent)) {
               setNotice({ tone: "err", text: "no running session here to backdate" })
               return null
             }
-            if (!setOpenEngagementStart(id, when)) {
+            if (!setOpenSessionStart(id, when)) {
               setNotice({ tone: "err", text: "couldn't adjust the running session start" })
               return null
             }
             return `session start ${fmt(when)}`
           }
           // sessionend — close the running session (optionally at a past/`now` moment). Empty ⇒ now.
-          if (!hasOpenEngagement(ent)) {
+          if (!hasOpenSession(ent)) {
             setNotice({ tone: "err", text: "no running session here to end" })
             return null
           }
-          if (!closeEngagement(id, undefined, when ?? Date.now())) {
+          if (!closeSession(id, undefined, when ?? Date.now())) {
             // v0.6.32: via undefined ⇒ end the last-open session of any rail (manual --sessionend debug cmd)
             setNotice({ tone: "err", text: "couldn't end the running session" })
             return null
@@ -838,8 +838,8 @@ export function Zero0Canvas() {
   const toggleDone = useCallback(
     (e: Entity) => {
       if (!KIND_META[e.kind].hasDoneState) return
-      if (hasOpenEngagement(e, "play")) {
-        closeEngagement(e.id, "play") // STOP ongoing; keep focus/presence
+      if (hasOpenSession(e, "play")) {
+        closeSession(e.id, "play") // STOP ongoing; keep focus/presence
         playOpenRef.current.delete(e.id)
         return bump()
       }
@@ -848,7 +848,7 @@ export function Zero0Canvas() {
       if (!nowDone && canAutoPlay(e) && path.includes(e.id)) {
         // Un-done in place while still viewing it → resume ongoing now (auto, like enter — keeps it
         // off the recorded rail + OCCURRENCES tally).
-        if (openEngagement(e.id, "play", Date.now(), { auto: true })) playOpenRef.current.add(e.id)
+        if (openSession(e.id, "play", Date.now(), { auto: true })) playOpenRef.current.add(e.id)
       }
       bump()
     },
@@ -949,7 +949,7 @@ export function Zero0Canvas() {
   )
 
   // PINS (§4) END — the spinning-glyph click (STAY here): end whatever makes the chip
-  // ongoing (close its open engagement, or cap its running span at now — see `endOngoing`).
+  // ongoing (close its open session, or cap its running span at now — see `endOngoing`).
   // The chip then drops out of the band on the next scan (it's no longer own-ongoing).
   const endPin = useCallback(
     (id: string) => {
@@ -959,10 +959,10 @@ export function Zero0Canvas() {
     [bump],
   )
 
-  // PINS (§4) START — deliberately open an engagement on a pinned/idle entity. `via:"play"`
+  // PINS (§4) START — deliberately open an session on a pinned/idle entity. `via:"play"`
   // (NOT "focus") so it's a DELIBERATE, PERSISTENT start: unlike a dwell focus session it is
   // not tracked in `focusOpenRef`, so navigating away never punches it out, and hydrate keeps
-  // it running on reload. Idempotent (openEngagement no-ops if one is already open). `focus`
+  // it running on reload. Idempotent (openSession no-ops if one is already open). `focus`
   // ⇒ also navigate the canvas onto it (a plain click on a pinned chip); otherwise it starts
   // in the BACKGROUND in parallel, staying on the current canvas.
   const startPin = useCallback(
@@ -972,7 +972,7 @@ export function Zero0Canvas() {
       // stamped scalar startAt/endAt — the phantom top-rail tick + countdown, and worse, endPin
       // (endOngoing) then couldn't stop it (a stamped future endAt made effectiveScheduleEnd
       // non-null). A play session is closed cleanly by endOngoing → the chip drops out.
-      openEngagement(id, "play")
+      openSession(id, "play")
       if (focus) navigateTo(id)
       bump()
     },

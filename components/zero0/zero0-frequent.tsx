@@ -86,7 +86,7 @@ function Chevron({ expanded }: { expanded: boolean }) {
 /**
  * STARTERS (§4) — the topmost band, a quick-LOG palette of the activities the user repeats
  * most (Sleep, Walk the dog, Eat, Cook…). Renamed from FREQUENT (Jul 2026): the DISPLAY name
- * is now "starters" (it starts engagements); the persisted flag key, the `getFrequentEntities`
+ * is now "starters" (it starts sessions); the persisted flag key, the `getFrequentEntities`
  * data source, and the `Frequent*` code identifiers stay until §4 becomes real pinned Spaces
  * (see /excerpts, step b). A horizontal row of bordered TILES, each headed by
  * `[dot] [glyph] [title] [(n) | live-meta]` with its own vertical list beneath it.
