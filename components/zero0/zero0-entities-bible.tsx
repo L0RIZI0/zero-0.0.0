@@ -12,37 +12,46 @@ import {
   ArrowDown,
   ArrowLeft,
   ArrowRight,
+  Baseline,
+  Highlighter,
+  StickyNote,
 } from "lucide-react"
 import { Zero0Glyph } from "@/components/zero0/zero0-glyph"
 import type { EntityKind } from "@/lib/zero/types"
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────
-// THE ENTITIES BIBLE — a generic, interactive spreadsheet for documenting every entity kind
-// against every axis (kind · state · click · remote play · ongoing conditions · …). It is a plain
-// grid: no fixed header row/col — the field labels (Glyph, Name, ID, …) just live in the first
-// column, and the kind names live in the "Name" row, exactly like Loris's OneNote draft.
+// THE ENTITIES BIBLE — an interactive cheat sheet documenting every entity KIND (columns) against
+// every FIELD / STATE / INTERACTION (rows). Seeded from the live model (KIND_META, getState,
+// docs/interaction-matrix.md) so it reflects CURRENT behaviour, then editable/extendable by hand.
 //
-//   • Cells are RICH TEXT (contentEditable) — bold / italic / bullet list / clear, via the toolbar.
-//   • Cells size to their CONTENT (a real <table>, auto layout) — no forced min column widths and
-//     no always-on control gutters bloating them.
-//   • Row/column ops (move · insert · delete) live in a RIGHT-CLICK menu on any cell, which also
-//     shows that cell's row/col NUMBER.
+//   • Cells are RICH TEXT (contentEditable) — bold / italic / list / clear + TEXT COLOR and
+//     HIGHLIGHT via the toolbar swatch popovers (execCommand, persisted in the cell HTML).
+//   • Cells size to their CONTENT (a real <table>, auto layout) — no forced min widths, no
+//     always-on control gutters. Row/column ops (move · insert · delete) live in a RIGHT-CLICK
+//     menu that also shows the cell's row/col NUMBER.
+//   • NOTES — two flavours, both via the "Note" toolbar button:
+//       – select a word/sentence first ⇒ an INLINE note: the text gets a dotted underline and a
+//         floating tooltip on hover (stored inline as a `[data-note]` span in the cell HTML).
+//       – no selection (just a caret in a cell) ⇒ a CELL FOOTNOTE: a small corner marker + a
+//         numbered entry in the footnotes list under the table (stored as `cell.note`).
 //   • The "Glyph" row seeds the REAL ontology glyph for each kind (via <Zero0Glyph>), display-only.
-//   • State persists to localStorage (`zero:entities-bible:v1`) — this is a local-first doc we build
-//     up over time, so edits must survive reloads (matches the app's `zero:*` storage convention).
+//   • State persists to localStorage (`zero:entities-bible:v2`) so edits survive reloads (matches
+//     the app's `zero:*` storage convention). Bumping to v2 because the seed shape changed.
 //
-// contentEditable is intentionally UNCONTROLLED: each cell's innerHTML is seeded ONCE on mount (via
-// ref) and read back on blur. React never rewrites it during typing (which would jump the caret),
-// and because cells are keyed by a stable id, reordering rows/cols preserves their DOM + edits.
+// contentEditable is intentionally UNCONTROLLED: each cell's innerHTML is seeded ONCE on mount and
+// read back on blur. React never rewrites it during typing (which would jump the caret); cells are
+// keyed by a stable id so reordering rows/cols preserves their DOM + edits.
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 
-const STORAGE_KEY = "zero:entities-bible:v1"
+const STORAGE_KEY = "zero:entities-bible:v2"
 
 type Cell = {
   /** Rich-text HTML for a normal cell. */
   html?: string
   /** If set, the cell renders this kind's ontology glyph (display-only) instead of text. */
   glyph?: EntityKind
+  /** A cell-level footnote (rendered as a corner marker + a numbered entry below the table). */
+  note?: string
 }
 
 type Grid = {
@@ -71,30 +80,353 @@ const KIND_COLS: EntityKind[] = [
   "community",
 ]
 
-// Build the seed grid from the draft: a field-label column + one column per kind, and the rows
-// Glyph / Name / ID / Usecase / State:open / State:ongoing, plus a couple of empty rows to grow into.
-function seedGrid(): Grid {
-  const colIds = [FIELD_COL, ...KIND_COLS.map((_, i) => `c-${i}`)]
-  const rowDefs: { id: string; label: string; fill?: (kind: EntityKind, i: number) => Cell }[] = [
-    { id: "r-glyph", label: "Glyph", fill: (kind) => ({ glyph: kind }) },
-    { id: NAME_ROW, label: "Name", fill: (kind) => ({ html: cap(kind) }) },
-    { id: "r-id", label: "ID", fill: (_k, i) => ({ html: String(i + 1) }) },
-    { id: "r-usecase", label: "Usecase" },
-    { id: "r-state-open", label: "State:open" },
-    { id: "r-state-ongoing", label: "State:ongoing" },
-    { id: "r-empty-1", label: "" },
-  ]
-  const cells: Record<string, Cell> = {}
-  for (const row of rowDefs) {
-    cells[cellKey(row.id, FIELD_COL)] = { html: row.label }
-    KIND_COLS.forEach((kind, i) => {
-      cells[cellKey(row.id, `c-${i}`)] = row.fill ? row.fill(kind, i) : { html: "" }
-    })
-  }
-  return { rowIds: rowDefs.map((r) => r.id), colIds, cells }
+const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
+const stripHtml = (html: string) => html.replace(/<[^>]*>/g, "").trim()
+
+// ── The cheat-sheet content ─────────────────────────────────────────────────────────────────
+// Each row = a FIELD / STATE / INTERACTION. Per-kind cells are keyed by kind; a missing kind
+// renders "—". Everything here mirrors CURRENT behaviour (KIND_META, getStateInner, the matrix).
+type RowDef = {
+  id: string
+  /** Field-label (col 0) HTML. */
+  label: string
+  /** Optional accent color for the label (used to colour-code the STATE rows). */
+  labelColor?: string
+  /** Center the kind cells (used for short scalar rows like Name / ID). */
+  center?: boolean
+  /** Seed the ontology glyph instead of text. */
+  glyph?: boolean
+  /** Per-kind cell HTML. */
+  cells?: Partial<Record<EntityKind, string>>
 }
 
-const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
+// State colour-coding (also demonstrates the colour feature).
+const C = {
+  open: "#2563eb",
+  scheduled: "#d97706",
+  ongoing: "#16a34a",
+  done: "#15803d",
+  complete: "#0d9488",
+  closed: "#475569",
+  cancelled: "#dc2626",
+}
+
+const ROWS: RowDef[] = [
+  { id: "r-glyph", label: "Glyph", glyph: true, center: true },
+  {
+    id: NAME_ROW,
+    label: "Name",
+    center: true,
+    cells: kindMap((k) => cap(k)),
+  },
+  { id: "r-id", label: "ID", center: true, cells: kindMapI((_, i) => String(i + 1)) },
+  {
+    id: "r-desc",
+    label: "Description",
+    cells: {
+      space: "A context that holds things",
+      task: "A thing to do",
+      resource: "An asset, reference, or tool",
+      moment: "A span in time",
+      instant: "A point in time",
+      individual: "A person, animated by a Soul",
+      organism: "A company, a point of view",
+      community: "A place to gather people and discussions",
+    },
+  },
+  {
+    id: "r-family",
+    label: "Family",
+    cells: {
+      space: "What · container",
+      task: "What · action",
+      resource: "What · thing",
+      moment: "When · span",
+      instant: "When · point",
+      individual: "Who · being",
+      organism: "Who · being",
+      community: "Who · being",
+    },
+  },
+  {
+    id: "r-creatable",
+    label: "Creatable?",
+    cells: {
+      space: "Yes",
+      task: "Yes",
+      resource: "Yes",
+      moment: "Yes",
+      instant: "Yes",
+      individual: "Yes (temp)",
+      organism: "Yes",
+      community: "Yes",
+    },
+  },
+  {
+    id: "r-planned",
+    label: "Planned kind?",
+    cells: {
+      space: "Yes — span is its essence",
+      task: "Yes",
+      resource: "Yes — when set",
+      moment: "Yes — span is its essence",
+      instant: "No — a point + mark tally",
+      individual: "No — being → AGE",
+      organism: "No — being → AGE",
+      community: "No — being → AGE",
+    },
+  },
+  {
+    id: "r-done",
+    label: "Done-state?",
+    cells: { task: "Yes — a soft checkmark, its own axis" },
+  },
+  {
+    id: "r-fills",
+    label: "Fills when closed?",
+    cells: {
+      space: "Yes",
+      task: "Yes",
+      resource: "Yes",
+      moment: "Yes",
+      instant: "Yes",
+      individual: "No — only fades",
+      organism: "No — only fades",
+      community: "No — only fades",
+    },
+  },
+  {
+    id: "r-terminal",
+    label: "Terminal end",
+    cells: {
+      individual: "death",
+      organism: "death",
+      community: "retire",
+    },
+  },
+  {
+    id: "r-open",
+    label: "State: open",
+    labelColor: C.open,
+    cells: {
+      space: "Live; empty or holding open things (outline)",
+      task: "A live to-do (outline)",
+      resource: "Live / available (a web resource glyph is always filled)",
+      moment: "Planned but not started, or “whenever” (idle)",
+      instant: "No time set yet",
+      individual: "Alive / present",
+      organism: "Alive / present",
+      community: "Alive / present",
+    },
+  },
+  {
+    id: "r-scheduled",
+    label: "State: scheduled",
+    labelColor: C.scheduled,
+    cells: {
+      instant: "Concrete <code>at</code> set, not yet reached (instant-only word)",
+    },
+  },
+  {
+    id: "r-ongoing",
+    label: "State: ongoing",
+    labelColor: C.ongoing,
+    cells: {
+      space: "Open PLAY session, OR concrete start in progress, OR a contained child is ongoing (rollup)",
+      task: "Open PLAY session (auto-opened on enter while undone). Focus/viewing never flips state",
+      resource: "Open PLAY session (auto-opened on enter)",
+      moment: "Open PLAY session, OR concrete start passed &amp; not yet ended",
+      instant: "Never — a point in time",
+      individual: "Never — a being reads ALIVE, not “in progress” (rollup stops at beings)",
+      organism: "Never — a being reads ALIVE (rollup stops here)",
+      community: "Never — a being reads ALIVE (rollup stops here)",
+    },
+  },
+  {
+    id: "r-donestate",
+    label: "State: done",
+    labelColor: C.done,
+    cells: {
+      task:
+        "Marked Done (checkmark). Completes the task — unless a " +
+        '<span data-note="A Task marked Done while it still has an open task-child reads the dedicated word done (ranked above ongoing), NOT complete; it auto-completes the instant the last task-child completes. Non-task children never gate.">task-child is still open</span>' +
+        ", when it reads “done but open”",
+    },
+  },
+  {
+    id: "r-complete",
+    label: "State: complete",
+    labelColor: C.complete,
+    cells: {
+      space: "Its set end has passed; glyph FILLS, row stays live awaiting midnight close",
+      task: "Done + all task-children complete; glyph fills, awaits close",
+      resource: "When a set end passes",
+      moment: "Its end has passed; glyph fills, awaits close",
+      instant: "Reached its max occurrences (marks + a passed <code>at</code>); default max 1",
+      individual: "— beings don’t “complete”",
+      organism: "— beings don’t “complete”",
+      community: "— beings don’t “complete”",
+    },
+  },
+  {
+    id: "r-closed",
+    label: "State: closed / dead / retired",
+    labelColor: C.closed,
+    cells: {
+      space: "Closed — filed at the stamped midnight (fills + fades)",
+      task: "Closed — filed at midnight after Done (fills + fades)",
+      resource: "Closed by hand (fills + fades)",
+      moment: "Closed at the next midnight (fills + fades)",
+      instant: "Closed at the next midnight (fills + fades)",
+      individual: "<b>Dead</b> — fades, keeps its outline (<code>diedOn</code>)",
+      organism: "<b>Dead</b> — fades, keeps its outline (<code>diedOn</code>)",
+      community: "<b>Retired</b> — fades, keeps its outline (<code>retiredOn</code>)",
+    },
+  },
+  {
+    id: "r-cancelled",
+    label: "State: cancelled",
+    labelColor: C.cancelled,
+    cells: {
+      space: "Called off — bar over glyph + strike + fade",
+      task: "Called off — bar over glyph + strike + fade",
+      resource: "Called off — bar + strike + fade",
+      moment: "Called off — bar + strike + fade",
+      instant: "Called off — bar + strike + fade",
+      individual: "Not available — an Individual can’t be cancelled",
+      organism: "Called off — bar + strike + fade",
+      community: "Called off — bar + strike + fade",
+    },
+  },
+  {
+    id: "r-enter",
+    label: "On enter (drill-in)",
+    cells: {
+      space: "Auto-opens a PLAY session ⇒ spins + DURATION counts; ACCESS (presence) also ticks",
+      task: "Auto-PLAY while undone ⇒ spins; a Done task is presence-only (ACCESS ticks, no spin)",
+      resource: "Auto-PLAY ⇒ spins",
+      moment: "Presence only (ACCESS ticks); does NOT auto-play",
+      instant: "Presence only; never ongoing",
+      individual: "Presence only (ACCESS ticks); never spins",
+      organism: "Presence only; never spins",
+      community: "Presence only; never spins",
+    },
+  },
+  {
+    id: "r-glyphclick",
+    label: "Glyph click",
+    cells: {
+      space: "Idle ⇒ Play; spinning ⇒ Stop",
+      task: "Spinning ⇒ Stop; resting + undone ⇒ Done; done ⇒ un-done (resumes if still open)",
+      resource: "Idle ⇒ Play; spinning ⇒ Stop",
+      moment: "Idle ⇒ Play (manual stopwatch, activity rail); spinning ⇒ Stop",
+      instant: "Mark — adds one occurrence; glyph flashes its fill once",
+      individual: "— view only",
+      organism: "— view only",
+      community: "— view only",
+    },
+  },
+  {
+    id: "r-play",
+    label: "Play / Stop (menu)",
+    cells: {
+      space: "Play ⇒ open a play session; Stop ⇒ close it (records on the activity rail)",
+      task: "Via glyph; auto-plays on enter",
+      resource: "Play / Stop; auto-plays on enter",
+      moment: "Play ⇒ open a play session; Stop ⇒ close it",
+      instant: "— use Mark instead",
+      individual: "—",
+      organism: "—",
+      community: "—",
+    },
+  },
+  {
+    id: "r-mark",
+    label: "Mark",
+    cells: {
+      instant:
+        "Append a zero-length occurrence toward the tally. <code>--maxnb:3</code> soft cap, " +
+        "<code>--maxnbhard:3</code> hard cap; default max 1 = a unique occurrence",
+    },
+  },
+  {
+    id: "r-sources",
+    label: "Ongoing sources",
+    cells: {
+      space: "① open play · ② concrete started span · ③ rollup from a contained child",
+      task: "① open play (focus/viewing never flips state)",
+      resource: "① open play",
+      moment: "① open play · ② concrete started span",
+      instant: "none",
+      individual: "none — rollup stops at beings",
+      organism: "none — rollup stops at beings",
+      community: "none — rollup stops at beings",
+    },
+  },
+  {
+    id: "r-schedule",
+    label: "Schedule fields",
+    cells: {
+      space: "start · end · duration",
+      task: "start · end · due · duration",
+      resource: "start · end · duration (when set)",
+      moment: "start · end · duration",
+      instant: "at (start = end = at, a point)",
+      individual: "— AGE from <code>createdAt</code>",
+      organism: "— AGE from <code>createdAt</code>",
+      community: "— AGE from <code>createdAt</code>",
+    },
+  },
+  {
+    id: "r-usecase",
+    label: "Usecase",
+    cells: {
+      space: "“Work”, “Kitchen”, a project",
+      task: "“Write the report”, “Buy milk”",
+      resource: "A website, a doc, a tool",
+      moment: "“Lunch 1–2pm”, “Sprint week”",
+      instant: "“Ship v1”, a heartbeat ping",
+      individual: "“Loris”, a contact",
+      organism: "“Vercel”, a company / POV",
+      community: "“The team”, a group",
+    },
+  },
+]
+
+// Build a full per-kind map from a fn (keeps the seed declarations terse).
+function kindMap(fn: (k: EntityKind) => string): Partial<Record<EntityKind, string>> {
+  const out: Partial<Record<EntityKind, string>> = {}
+  KIND_COLS.forEach((k) => (out[k] = fn(k)))
+  return out
+}
+function kindMapI(fn: (k: EntityKind, i: number) => string): Partial<Record<EntityKind, string>> {
+  const out: Partial<Record<EntityKind, string>> = {}
+  KIND_COLS.forEach((k, i) => (out[k] = fn(k, i)))
+  return out
+}
+
+function seedGrid(): Grid {
+  const colIds = [FIELD_COL, ...KIND_COLS.map((_, i) => `c-${i}`)]
+  const cells: Record<string, Cell> = {}
+  for (const row of ROWS) {
+    const label = row.labelColor
+      ? `<span style="color:${row.labelColor}">${row.label}</span>`
+      : row.label
+    cells[cellKey(row.id, FIELD_COL)] = { html: label }
+    KIND_COLS.forEach((kind, i) => {
+      const colId = `c-${i}`
+      if (row.glyph) cells[cellKey(row.id, colId)] = { glyph: kind }
+      else cells[cellKey(row.id, colId)] = { html: row.cells?.[kind] ?? "—" }
+    })
+  }
+  // A seeded CELL FOOTNOTE demonstrating the footnote flavour (Individual is only temporarily creatable).
+  const indCol = `c-${KIND_COLS.indexOf("individual")}`
+  const creatableCell = cells[cellKey("r-creatable", indCol)]
+  if (creatableCell)
+    creatableCell.note =
+      "Normally an Individual is spawned WITH a Soul, not created ad hoc — it’s temporarily creatable so Loris can dogfood people/other Individuals directly."
+  return { rowIds: ROWS.map((r) => r.id), colIds, cells }
+}
 
 // Move item at `from` to `to` in a fresh copy of the array.
 function arrayMove<T>(arr: T[], from: number, to: number): T[] {
@@ -141,7 +473,7 @@ function EditableCell({
       onFocus={() => ref.current && onFocus(cellId, ref.current)}
       onBlur={() => ref.current && onCommit(cellId, ref.current.innerHTML)}
       className={
-        "h-full min-w-[3rem] px-3 py-1.5 text-sm leading-relaxed text-foreground outline-none [&_ul]:my-0 [&_ul]:list-disc [&_ul]:pl-5 " +
+        "h-full min-w-[3rem] px-3 py-1.5 text-sm leading-relaxed text-foreground outline-none [&_ul]:my-0 [&_ul]:list-disc [&_ul]:pl-5 [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-[0.8em] " +
         (centered ? "text-center " : "") +
         (active ? "bg-primary/5 ring-1 ring-inset ring-primary/40" : "")
       }
@@ -149,7 +481,7 @@ function EditableCell({
   )
 }
 
-// A tiny square control button used by the toolbar.
+// A tiny square control button used by the toolbar / popovers.
 function IconBtn({
   title,
   onClick,
@@ -199,9 +531,7 @@ function MenuItem({
       onClick={onSelect}
       className={
         "flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs transition-colors disabled:pointer-events-none disabled:opacity-30 " +
-        (danger
-          ? "text-destructive hover:bg-destructive/10"
-          : "text-foreground hover:bg-muted")
+        (danger ? "text-destructive hover:bg-destructive/10" : "text-foreground hover:bg-muted")
       }
     >
       <span className="flex h-3.5 w-3.5 items-center justify-center text-muted-foreground">{icon}</span>
@@ -210,18 +540,51 @@ function MenuItem({
   )
 }
 
+// Curated colour swatches (author-content colours, not app chrome — kept tasteful, no purple).
+const TEXT_COLORS = [
+  { name: "Red", hex: "#dc2626" },
+  { name: "Orange", hex: "#ea580c" },
+  { name: "Amber", hex: "#d97706" },
+  { name: "Green", hex: "#16a34a" },
+  { name: "Teal", hex: "#0d9488" },
+  { name: "Blue", hex: "#2563eb" },
+  { name: "Pink", hex: "#db2777" },
+  { name: "Slate", hex: "#475569" },
+]
+const HILITE_COLORS = [
+  { name: "Yellow", hex: "#fef08a" },
+  { name: "Green", hex: "#bbf7d0" },
+  { name: "Blue", hex: "#bfdbfe" },
+  { name: "Pink", hex: "#fbcfe8" },
+  { name: "Orange", hex: "#fed7aa" },
+  { name: "Slate", hex: "#e2e8f0" },
+]
+
 type Menu = { x: number; y: number; ri: number; ci: number }
+type Picker = { x: number; y: number; kind: "fore" | "hilite" }
+type NotePopover = { x: number; y: number; mode: "inline" | "cell"; cellId: string; initial: string }
+type HoverNote = { text: string; x: number; y: number }
 
 export function Zero0EntitiesBible() {
   const [grid, setGrid] = useState<Grid>(seedGrid)
   const [hydrated, setHydrated] = useState(false)
   const [activeCell, setActiveCell] = useState<string | null>(null)
   const [menu, setMenu] = useState<Menu | null>(null)
+  const [picker, setPicker] = useState<Picker | null>(null)
+  const [notePopover, setNotePopover] = useState<NotePopover | null>(null)
+  const [hoverNote, setHoverNote] = useState<HoverNote | null>(null)
+  const [noteText, setNoteText] = useState("")
   const activeElRef = useRef<HTMLDivElement | null>(null)
+  // A saved Range for an INLINE note — captured before the note input steals the selection.
+  const savedRangeRef = useRef<Range | null>(null)
+  const noteInputRef = useRef<HTMLInputElement | null>(null)
+  // Toolbar-button anchors so the colour / note popovers open beneath their icon.
+  const colorAnchorRef = useRef<HTMLSpanElement | null>(null)
+  const hiliteAnchorRef = useRef<HTMLSpanElement | null>(null)
+  const noteAnchorRef = useRef<HTMLSpanElement | null>(null)
 
   // Hydrate from localStorage after mount (SSR-safe: server + first client render both show the
-  // seed skeleton, then this swaps in stored content — no hydration mismatch, and cells mount with
-  // the correct initial html because the whole table is gated on `hydrated`).
+  // seed skeleton, then this swaps in stored content — no hydration mismatch).
   useEffect(() => {
     try {
       const raw = localStorage.getItem(STORAGE_KEY)
@@ -245,11 +608,16 @@ export function Zero0EntitiesBible() {
     }
   }, [grid, hydrated])
 
-  // Dismiss the context menu on any outside click, scroll, or Escape.
+  // Dismiss any popover (menu / picker / note) on outside click, scroll, or Escape. The popovers
+  // themselves stopPropagation on click so interacting inside them doesn't close them.
   useEffect(() => {
-    if (!menu) return
-    const close = () => setMenu(null)
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setMenu(null)
+    if (!menu && !picker && !notePopover) return
+    const close = () => {
+      setMenu(null)
+      setPicker(null)
+      setNotePopover(null)
+    }
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && close()
     window.addEventListener("click", close)
     window.addEventListener("scroll", close, true)
     window.addEventListener("keydown", onKey)
@@ -258,7 +626,16 @@ export function Zero0EntitiesBible() {
       window.removeEventListener("scroll", close, true)
       window.removeEventListener("keydown", onKey)
     }
-  }, [menu])
+  }, [menu, picker, notePopover])
+
+  // Focus the note input when the note popover opens.
+  useEffect(() => {
+    if (notePopover) {
+      setNoteText(notePopover.initial)
+      // next tick so the element is mounted
+      requestAnimationFrame(() => noteInputRef.current?.focus())
+    }
+  }, [notePopover])
 
   const handleFocus = useCallback((cellId: string, el: HTMLDivElement) => {
     activeElRef.current = el
@@ -273,15 +650,111 @@ export function Zero0EntitiesBible() {
     })
   }, [])
 
-  // Apply a rich-text command to the focused editable. execCommand is deprecated but remains the
-  // simplest cross-browser way to toggle inline formatting inside a contentEditable region.
-  const exec = useCallback((command: string) => {
-    activeElRef.current?.focus()
-    document.execCommand(command, false)
-    // Persist the change immediately (blur may not fire before the next action).
+  // Read the focused editable's current HTML straight back into the grid (used after execCommand,
+  // which mutates the DOM without firing blur).
+  const commitActive = useCallback(() => {
     const el = activeElRef.current
     if (el && activeCell) handleCommit(activeCell, el.innerHTML)
   }, [activeCell, handleCommit])
+
+  // Apply a no-arg rich-text command to the focused editable.
+  const exec = useCallback(
+    (command: string) => {
+      activeElRef.current?.focus()
+      document.execCommand(command, false)
+      commitActive()
+    },
+    [commitActive],
+  )
+
+  // Apply a valued command (colour). styleWithCSS ⇒ inline-style spans instead of <font> tags.
+  const execColor = useCallback(
+    (command: string, value: string) => {
+      activeElRef.current?.focus()
+      try {
+        document.execCommand("styleWithCSS", false, "true")
+      } catch {
+        /* not supported — falls back to font tags */
+      }
+      const ok = document.execCommand(command, false, value)
+      if (!ok && command === "hiliteColor") document.execCommand("backColor", false, value)
+      commitActive()
+      setPicker(null)
+    },
+    [commitActive],
+  )
+
+  // ── Note flow ───────────────────────────────────────────────────────────────────────────────
+  // Toolbar "Note": a non-collapsed selection inside the active cell ⇒ INLINE note; otherwise a
+  // CELL footnote for the active cell.
+  const openNoteFromToolbar = useCallback(
+    (anchor: DOMRect) => {
+      if (!activeCell) return
+      const sel = window.getSelection()
+      const el = activeElRef.current
+      let mode: "inline" | "cell" = "cell"
+      if (sel && sel.rangeCount && !sel.isCollapsed && el && el.contains(sel.anchorNode)) {
+        mode = "inline"
+        savedRangeRef.current = sel.getRangeAt(0).cloneRange()
+      } else {
+        savedRangeRef.current = null
+      }
+      const initial = mode === "cell" ? grid.cells[activeCell]?.note ?? "" : ""
+      setNotePopover({
+        x: Math.min(anchor.left, window.innerWidth - 320),
+        y: anchor.bottom + 6,
+        mode,
+        cellId: activeCell,
+        initial,
+      })
+    },
+    [activeCell, grid.cells],
+  )
+
+  // Marker click ⇒ edit an existing cell footnote.
+  const openNoteForCell = useCallback((cellId: string, anchor: DOMRect, initial: string) => {
+    savedRangeRef.current = null
+    setNotePopover({
+      x: Math.min(anchor.left, window.innerWidth - 320),
+      y: anchor.bottom + 6,
+      mode: "cell",
+      cellId,
+      initial,
+    })
+  }, [])
+
+  const saveNote = useCallback(() => {
+    const pop = notePopover
+    if (!pop) return
+    const text = noteText.trim()
+    if (pop.mode === "inline") {
+      const range = savedRangeRef.current
+      const el = activeElRef.current
+      if (text && range && el) {
+        el.focus()
+        const sel = window.getSelection()
+        sel?.removeAllRanges()
+        sel?.addRange(range)
+        const span = document.createElement("span")
+        span.setAttribute("data-note", text)
+        span.appendChild(range.extractContents())
+        range.insertNode(span)
+        sel?.removeAllRanges()
+        handleCommit(pop.cellId, el.innerHTML)
+      }
+    } else {
+      // Cell footnote: set (or clear on empty).
+      setGrid((g) => {
+        const prev = g.cells[pop.cellId] ?? { html: "" }
+        const next: Cell = { ...prev }
+        if (text) next.note = text
+        else delete next.note
+        return { ...g, cells: { ...g.cells, [pop.cellId]: next } }
+      })
+    }
+    savedRangeRef.current = null
+    setNotePopover(null)
+  }, [notePopover, noteText, handleCommit])
 
   // ── Column ops ────────────────────────────────────────────────────────────────────────────
   const addColumn = useCallback((afterIndex?: number) => {
@@ -366,6 +839,23 @@ export function Zero0EntitiesBible() {
   const rowCount = grid.rowIds.length
   const colCount = grid.colIds.length
 
+  // Assign footnote numbers in row-major order + build the list for below the table.
+  const footnoteNum: Record<string, number> = {}
+  const footnotes: { n: number; note: string; loc: string }[] = []
+  for (const rowId of grid.rowIds) {
+    for (const colId of grid.colIds) {
+      const key = cellKey(rowId, colId)
+      const c = grid.cells[key]
+      if (c?.note) {
+        const n = footnotes.length + 1
+        footnoteNum[key] = n
+        const rowLabel = stripHtml(grid.cells[cellKey(rowId, FIELD_COL)]?.html ?? "")
+        const colLabel = colId === FIELD_COL ? "" : stripHtml(grid.cells[cellKey(NAME_ROW, colId)]?.html ?? "")
+        footnotes.push({ n, note: c.note, loc: [rowLabel, colLabel].filter(Boolean).join(" · ") })
+      }
+    }
+  }
+
   return (
     <div className="flex flex-col gap-3">
       {/* Formatting toolbar — acts on the focused cell. */}
@@ -381,6 +871,44 @@ export function Zero0EntitiesBible() {
         </IconBtn>
         <IconBtn title="Clear formatting" onClick={() => exec("removeFormat")}>
           <RemoveFormatting className="h-4 w-4" />
+        </IconBtn>
+        <span className="mx-1 h-5 w-px bg-border" aria-hidden />
+        {/* Text colour */}
+        <IconBtn
+          title="Text color"
+          onClick={() => {
+            const r = colorAnchorRef.current?.getBoundingClientRect()
+            if (r) setPicker({ x: r.left, y: r.bottom + 6, kind: "fore" })
+          }}
+        >
+          <span ref={colorAnchorRef} className="flex items-center justify-center">
+            <Baseline className="h-4 w-4" />
+          </span>
+        </IconBtn>
+        {/* Highlight */}
+        <IconBtn
+          title="Highlight"
+          onClick={() => {
+            const r = hiliteAnchorRef.current?.getBoundingClientRect()
+            if (r) setPicker({ x: r.left, y: r.bottom + 6, kind: "hilite" })
+          }}
+        >
+          <span ref={hiliteAnchorRef} className="flex items-center justify-center">
+            <Highlighter className="h-4 w-4" />
+          </span>
+        </IconBtn>
+        {/* Note */}
+        <IconBtn
+          title="Add note (select text for a hover-note, or none for a cell footnote)"
+          disabled={!activeCell}
+          onClick={() => {
+            const r = noteAnchorRef.current?.getBoundingClientRect()
+            if (r) openNoteFromToolbar(r)
+          }}
+        >
+          <span ref={noteAnchorRef} className="flex items-center justify-center">
+            <StickyNote className="h-4 w-4" />
+          </span>
         </IconBtn>
         <span className="mx-1 h-5 w-px bg-border" aria-hidden />
         <IconBtn title="Add row (at end)" onClick={() => addRow()}>
@@ -403,8 +931,21 @@ export function Zero0EntitiesBible() {
         </button>
       </div>
 
-      {/* The grid — a real table so cells size to content. Horizontal scroll on overflow. */}
-      <div className="overflow-x-auto rounded-md border border-border">
+      {/* The grid — a real table so cells size to content. Horizontal scroll on overflow. Inline
+          [data-note] spans get a dotted underline + help cursor; hover shows a floating tooltip. */}
+      <div
+        className="overflow-x-auto rounded-md border border-border [&_[data-note]]:cursor-help [&_[data-note]]:underline [&_[data-note]]:decoration-dotted [&_[data-note]]:decoration-muted-foreground/70 [&_[data-note]]:underline-offset-2"
+        onMouseOver={(e) => {
+          const t = (e.target as HTMLElement).closest("[data-note]")
+          if (t) setHoverNote({ text: t.getAttribute("data-note") ?? "", x: e.clientX, y: e.clientY })
+        }}
+        onMouseMove={(e) => {
+          const t = (e.target as HTMLElement).closest("[data-note]")
+          if (t) setHoverNote((h) => (h ? { ...h, x: e.clientX, y: e.clientY } : h))
+          else if (hoverNote) setHoverNote(null)
+        }}
+        onMouseLeave={() => setHoverNote(null)}
+      >
         <table className="border-collapse">
           <tbody>
             {grid.rowIds.map((rowId, ri) => (
@@ -412,8 +953,7 @@ export function Zero0EntitiesBible() {
                 {grid.colIds.map((colId, ci) => {
                   const key = cellKey(rowId, colId)
                   const cell = grid.cells[key] ?? { html: "" }
-                  const border =
-                    "border border-border align-top" + (ci === 0 ? " bg-muted/20" : "")
+                  const border = "border border-border align-top" + (ci === 0 ? " bg-muted/20" : "")
                   if (cell.glyph) {
                     return (
                       <td
@@ -426,9 +966,14 @@ export function Zero0EntitiesBible() {
                       </td>
                     )
                   }
-                  const centered = rowId === NAME_ROW && colId !== FIELD_COL
+                  const centered = ROWS.find((r) => r.id === rowId)?.center && colId !== FIELD_COL
+                  const fnNum = footnoteNum[key]
                   return (
-                    <td key={colId} onContextMenu={(e) => openMenu(e, ri, ci)} className={border + " p-0"}>
+                    <td
+                      key={colId}
+                      onContextMenu={(e) => openMenu(e, ri, ci)}
+                      className={border + " relative p-0"}
+                    >
                       <EditableCell
                         cellId={key}
                         initialHtml={cell.html ?? ""}
@@ -437,6 +982,20 @@ export function Zero0EntitiesBible() {
                         onFocus={handleFocus}
                         onCommit={handleCommit}
                       />
+                      {fnNum != null && (
+                        <button
+                          type="button"
+                          title={cell.note}
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            openNoteForCell(key, (e.currentTarget as HTMLElement).getBoundingClientRect(), cell.note ?? "")
+                          }}
+                          className="absolute right-0.5 top-0.5 flex h-4 min-w-[1rem] items-center justify-center rounded bg-primary/15 px-1 text-[10px] font-medium text-primary transition-colors hover:bg-primary/25"
+                        >
+                          {fnNum}
+                        </button>
+                      )}
                     </td>
                   )
                 })}
@@ -446,12 +1005,140 @@ export function Zero0EntitiesBible() {
         </table>
       </div>
 
+      {/* Footnotes list. */}
+      {footnotes.length > 0 && (
+        <ol className="flex flex-col gap-1.5 rounded-md border border-border bg-muted/20 p-3 text-xs leading-relaxed text-muted-foreground">
+          {footnotes.map((f) => (
+            <li key={f.n} className="flex gap-2">
+              <span className="flex h-4 min-w-[1rem] shrink-0 items-center justify-center rounded bg-primary/15 px-1 text-[10px] font-medium text-primary">
+                {f.n}
+              </span>
+              <span>
+                {f.loc && <strong className="text-foreground">{f.loc}: </strong>}
+                {f.note}
+              </span>
+            </li>
+          ))}
+        </ol>
+      )}
+
       <p className="text-xs leading-relaxed text-muted-foreground">
         Click a cell to edit. Use the toolbar for <strong className="text-foreground">bold</strong>,{" "}
-        <em className="text-foreground">italic</em>, and bulleted lists.{" "}
-        <span className="text-foreground">Right-click a cell</span> to move, insert, or delete its row
-        or column. Everything you type is saved locally in this browser.
+        <em className="text-foreground">italic</em>, lists, <span className="text-foreground">color</span>, and{" "}
+        <span className="text-foreground">highlight</span>. Select some text then hit{" "}
+        <span className="text-foreground">Note</span> for a hover-note, or hit it with no selection for a cell
+        footnote. <span className="text-foreground">Right-click a cell</span> to move, insert, or delete its row or
+        column. Everything is saved locally in this browser.
       </p>
+
+      {/* Colour picker popover. */}
+      {picker && (
+        <div
+          onClick={(e) => e.stopPropagation()}
+          onContextMenu={(e) => e.preventDefault()}
+          style={{ left: Math.max(8, Math.min(picker.x, (typeof window !== "undefined" ? window.innerWidth : 9999) - 200)), top: picker.y }}
+          className="fixed z-50 rounded-md border border-border bg-popover p-2 shadow-md"
+        >
+          <div className="mb-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+            {picker.kind === "fore" ? "Text color" : "Highlight"}
+          </div>
+          <div className="grid grid-cols-4 gap-1.5">
+            {(picker.kind === "fore" ? TEXT_COLORS : HILITE_COLORS).map((c) => (
+              <button
+                key={c.hex}
+                type="button"
+                title={c.name}
+                aria-label={c.name}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => execColor(picker.kind === "fore" ? "foreColor" : "hiliteColor", c.hex)}
+                className="h-6 w-6 rounded border border-border transition-transform hover:scale-110"
+                style={{ backgroundColor: c.hex }}
+              />
+            ))}
+          </div>
+          <button
+            type="button"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => exec("removeFormat")}
+            className="mt-2 w-full rounded px-2 py-1 text-left text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          >
+            Clear formatting
+          </button>
+        </div>
+      )}
+
+      {/* Note editor popover. */}
+      {notePopover && (
+        <div
+          onClick={(e) => e.stopPropagation()}
+          onContextMenu={(e) => e.preventDefault()}
+          style={{ left: Math.max(8, notePopover.x), top: notePopover.y, width: 300 }}
+          className="fixed z-50 rounded-md border border-border bg-popover p-3 shadow-md"
+        >
+          <div className="mb-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+            {notePopover.mode === "inline" ? "Hover note (on the selected text)" : "Cell footnote"}
+          </div>
+          <input
+            ref={noteInputRef}
+            value={noteText}
+            onChange={(e) => setNoteText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.nativeEvent.isComposing && e.keyCode !== 229) {
+                e.preventDefault()
+                saveNote()
+              }
+            }}
+            placeholder="Add context, a question, a caveat…"
+            className="w-full rounded border border-border bg-background px-2 py-1.5 text-sm text-foreground outline-none focus:ring-1 focus:ring-primary/40"
+          />
+          <div className="mt-2 flex items-center gap-2">
+            <button
+              type="button"
+              onClick={saveNote}
+              className="rounded bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground transition-opacity hover:opacity-90"
+            >
+              Save
+            </button>
+            <button
+              type="button"
+              onClick={() => setNotePopover(null)}
+              className="rounded px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            >
+              Cancel
+            </button>
+            {notePopover.mode === "cell" && notePopover.initial && (
+              <button
+                type="button"
+                onClick={() => {
+                  setNoteText("")
+                  // Clear + close.
+                  setGrid((g) => {
+                    const prev = g.cells[notePopover.cellId]
+                    if (!prev) return g
+                    const next = { ...prev }
+                    delete next.note
+                    return { ...g, cells: { ...g.cells, [notePopover.cellId]: next } }
+                  })
+                  setNotePopover(null)
+                }}
+                className="ml-auto rounded px-2 py-1 text-xs text-destructive transition-colors hover:bg-destructive/10"
+              >
+                Remove
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Floating hover-note tooltip for inline notes. */}
+      {hoverNote && (
+        <div
+          style={{ left: hoverNote.x + 12, top: hoverNote.y + 12 }}
+          className="pointer-events-none fixed z-50 max-w-xs rounded-md border border-border bg-popover px-2.5 py-1.5 text-xs leading-relaxed text-popover-foreground shadow-md"
+        >
+          {hoverNote.text}
+        </div>
+      )}
 
       {/* Right-click row/column menu. */}
       {menu && (
