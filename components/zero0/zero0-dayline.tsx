@@ -270,7 +270,13 @@ interface DaylineBar {
   widthPct: number
   centerPct: number
   range: string
-  track: "planned" | "presence" | "middle"
+  // Which conceptual rail this bar belongs to (used for styling + a11y wording; the actual
+  // rail ROUTING in the combined lane is by lane-index / `sess:` key, not this field):
+  //   planned  = top rail    — declared/scheduled OCCURRENCES (the plan)
+  //   recorded = bottom rail  — MANUAL activity: play stopwatches + instant marks (engagements)
+  //   middle   = middle spine — current-leaf focus/ACCESS
+  //   presence = the standalone Activity dayline's machine-observed presence
+  track: "planned" | "recorded" | "presence" | "middle"
   /** A single-point occurrence (instant / zero-length) renders as a thin tick. */
   point: boolean
   /**
@@ -608,9 +614,9 @@ export function Zero0Dayline({
           range: open
             ? `${rangeText(rawStart, rawEnd)} · ${kindLabel} · ongoing${merged}`
             : `${rangeText(rawStart, rawEnd)} · ${kindLabel}${merged}`,
-          track: "planned", // activity rail
-          point: en <= st,
-          markGlyph: run.via === "mark", // occurrence ⇒ draw a small instant glyph
+    track: "recorded", // bottom rail — manual play/mark activity
+    point: en <= st,
+    markGlyph: run.via === "mark", // occurrence ⇒ draw a small instant glyph
           // Open run's right edge IS now → anchored + joins the ongoing stack.
           openEnded: open,
           // An OPEN session run is "happening now, end unknown" — trail the same rightward
