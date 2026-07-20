@@ -655,6 +655,12 @@ export function Zero0EntitiesBible() {
   // Shared-store sync status shown in the header ("saving…" / "saved" / "offline").
   const [sync, setSync] = useState<"idle" | "saving" | "saved" | "offline">("idle")
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // The exact grid object produced by hydration (loaded doc or seed). The save effect refuses to
+  // PUT this object, so an untouched / freshly-seeded page can never clobber the shared doc.
+  const hydratedGridRef = useRef<Grid | null>(null)
+  // Whether the shared store was reachable at load. When false, saves are suppressed so we never
+  // overwrite a real doc we merely failed to read.
+  const storeReachableRef = useRef(false)
   const [activeCell, setActiveCell] = useState<string | null>(null)
   const [menu, setMenu] = useState<Menu | null>(null)
   const [picker, setPicker] = useState<Picker | null>(null)
@@ -672,8 +678,15 @@ export function Zero0EntitiesBible() {
 
   // Hydrate from the SHARED Blob store after mount (SSR-safe: server + first client render both
   // show the seed skeleton, then this swaps in the stored doc — no hydration mismatch). Falls back
-  // to the localStorage cache when the network is unavailable. If the shared store is empty but a
-  // local doc exists, that local doc is adopted (and will be pushed up by the save effect).
+  // to the localStorage cache when the network is unavailable.
+  //
+  // ⚠️ CLOBBER SAFETY: the save effect below must NEVER push the grid object that hydration
+  // produced (a loaded doc, or a fresh seed). Otherwise a reload whose GET transiently fails — or a
+  // fresh context with empty localStorage — would fall back to the seed and immediately PUT it,
+  // wiping the real shared doc. We therefore record the exact hydrated object in `hydratedGridRef`
+  // and skip saving while `grid` is still that object. Only a genuine user edit (which produces a
+  // NEW grid object) is ever written back. An empty store is seeded via a single controlled PUT
+  // here, and only when the store was actually reachable.
   useEffect(() => {
     let cancelled = false
     const readLocal = (): Grid | null => {
@@ -687,37 +700,64 @@ export function Zero0EntitiesBible() {
       }
     }
     ;(async () => {
-      let next: Grid | null = null
-      let offline = false
+      let remote: Grid | null = null
+      let reachable = true
       try {
         const res = await fetch("/api/entities-bible", { cache: "no-store" })
         if (res.ok) {
           const { doc } = (await res.json()) as { doc: Grid | null }
-          if (doc?.rowIds?.length && doc?.colIds?.length && doc.cells) next = doc
+          if (doc?.rowIds?.length && doc?.colIds?.length && doc.cells) remote = doc
+        } else {
+          reachable = false
         }
       } catch {
-        offline = true
+        reachable = false
       }
-      if (!next) next = readLocal() // shared store empty (or offline) ⇒ adopt local doc if any
       if (cancelled) return
-      if (next) setGrid(ensureAuthorModel(next))
-      else setGrid((g) => ensureAuthorModel(g)) // fresh seed ⇒ stamp it v0-authored
-      setSync(offline ? "offline" : "saved")
+
+      const local = readLocal()
+      // Prefer the shared doc; else adopt a local cache; else start from a fresh seed.
+      const source = remote ?? local ?? seedGrid()
+      const finalGrid = ensureAuthorModel(source)
+      hydratedGridRef.current = finalGrid // mark this object as "not a user edit" → never auto-PUT
+      storeReachableRef.current = reachable
+      setGrid(finalGrid)
+      setSync(reachable ? "saved" : "offline")
       setHydrated(true)
+
+      // Controlled one-shot seed: only when the store is genuinely empty AND reachable. Never when
+      // offline (that would risk overwriting a real doc we simply failed to read).
+      if (reachable && !remote) {
+        try {
+          await fetch("/api/entities-bible", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ doc: finalGrid }),
+          })
+        } catch {
+          /* non-fatal — a later user edit will persist it */
+        }
+      }
     })()
     return () => {
       cancelled = true
     }
   }, [])
 
-  // Persist on every change once hydrated: cache locally immediately, then debounce-push to the
-  // shared Blob store so v0 sees the edits next turn.
+  // Persist USER EDITS: cache locally immediately, then debounce-push to the shared Blob store so
+  // v0 sees the edits next turn. Skips the hydrated/seed object (see CLOBBER SAFETY above) and never
+  // pushes when the store was unreachable at load.
   useEffect(() => {
     if (!hydrated) return
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(grid))
     } catch {
       /* quota / private mode — non-fatal */
+    }
+    if (grid === hydratedGridRef.current) return // untouched hydrate/seed result — do not save
+    if (!storeReachableRef.current) {
+      setSync("offline")
+      return
     }
     setSync("saving")
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current)

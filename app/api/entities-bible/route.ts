@@ -20,28 +20,43 @@ const PATHNAME = "entities-bible/table.json"
 
 export const dynamic = "force-dynamic"
 
+// READ-AFTER-WRITE CACHE. The public Blob store is eventually consistent: for ~2–3s after a PUT,
+// fetching the blob URL can still return the PREVIOUS content (or 404). That window is what made
+// reloads show the stale "draft" and let a save-on-hydrate clobber a fresh doc. To close it, we keep
+// the last written doc in module memory and, on GET, return whichever of {blob, memory} has the
+// newer `updatedAt`. This is strongly consistent within a running server instance (the dev server /
+// a warm serverless instance); across cold instances the blob is still the durable source of truth.
+type Doc = { updatedAt?: number; [k: string]: unknown }
+let lastWrite: Doc | null = null
+
+async function readBlob(): Promise<Doc | null> {
+  let url: string | null = null
+  try {
+    const meta = await head(PATHNAME)
+    url = meta?.url ?? null
+  } catch {
+    const { blobs } = await list({ prefix: PATHNAME, limit: 1 })
+    url = (blobs.find((b) => b.pathname === PATHNAME) ?? blobs[0])?.url ?? null
+  }
+  if (!url) return null
+  const res = await fetch(`${url}?t=${Date.now()}`, { cache: "no-store" })
+  if (!res.ok) return null
+  const text = await res.text()
+  return text ? (JSON.parse(text) as Doc) : null
+}
+
 export async function GET() {
   try {
-    // Resolve the canonical blob URL. `head` looks up by exact pathname and is more consistent than
-    // `list` right after a write; fall back to `list` if head misses.
-    let url: string | null = null
-    try {
-      const meta = await head(PATHNAME)
-      url = meta?.url ?? null
-    } catch {
-      const { blobs } = await list({ prefix: PATHNAME, limit: 1 })
-      url = (blobs.find((b) => b.pathname === PATHNAME) ?? blobs[0])?.url ?? null
-    }
-    if (!url) return NextResponse.json({ doc: null })
-    // Fetch content server-side, busting any CDN cache so a fresh save is seen immediately.
-    const res = await fetch(`${url}?t=${Date.now()}`, { cache: "no-store" })
-    if (!res.ok) return NextResponse.json({ doc: null })
-    const text = await res.text()
-    const doc = text ? JSON.parse(text) : null
-    return NextResponse.json({ doc })
+    const blobDoc = await readBlob()
+    // Pick the newer of the durable blob and the in-memory last write.
+    const blobAt = blobDoc?.updatedAt ?? 0
+    const memAt = lastWrite?.updatedAt ?? 0
+    const doc = memAt > blobAt ? lastWrite : (blobDoc ?? lastWrite)
+    return NextResponse.json({ doc: doc ?? null })
   } catch (error) {
     console.log("[v0] entities-bible GET:", error instanceof Error ? error.message : error)
-    return NextResponse.json({ doc: null })
+    // On error, still surface the last known write rather than nothing.
+    return NextResponse.json({ doc: lastWrite ?? null })
   }
 }
 
@@ -53,8 +68,9 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: "Missing doc" }, { status: 400 })
     }
     const updatedAt = Date.now()
-    const payload = JSON.stringify({ ...doc, updatedAt })
-    await put(PATHNAME, payload, {
+    const stamped = { ...doc, updatedAt }
+    lastWrite = stamped // serve this immediately on subsequent GETs, before CDN propagation
+    await put(PATHNAME, JSON.stringify(stamped), {
       access: "public",
       contentType: "application/json",
       allowOverwrite: true, // stable pathname — overwrite the single canonical doc
