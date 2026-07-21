@@ -667,12 +667,15 @@ export function Zero0EntitiesBible() {
   // glyph + name. We measure the live column widths and mirror the horizontal scroll so it aligns.
   const wrapRef = useRef<HTMLDivElement | null>(null)
   const tableRef = useRef<HTMLTableElement | null>(null)
+  const toolbarRef = useRef<HTMLDivElement | null>(null) // the sticky formatting toolbar (pinned at top)
   const triggerRowRef = useRef<HTMLTableRowElement | null>(null) // the Name row (index 1)
   const [stickyHead, setStickyHead] = useState<{
     left: number
     width: number
     scrollLeft: number
     colW: number[]
+    /** Viewport offset (px) so the floating header sits just BELOW the sticky toolbar, not over it. */
+    top: number
     open: boolean
   } | null>(null)
   const [menu, setMenu] = useState<Menu | null>(null)
@@ -809,10 +812,14 @@ export function Zero0EntitiesBible() {
       const colW = firstRow
         ? Array.from(firstRow.children).map((c) => (c as HTMLElement).getBoundingClientRect().width)
         : []
+      // The toolbar is sticky at the viewport top; sit the floating header just below it so it never
+      // covers the formatting controls. Clamp to >= 0 in case the toolbar has scrolled off entirely.
+      const tb = toolbarRef.current?.getBoundingClientRect()
+      const top = tb ? Math.max(0, tb.bottom) : 0
       setStickyHead((s) => {
         // Once closed and never re-opened, drop it entirely to avoid an empty fixed layer.
         if (!open && !s) return null
-        return { left: wrapRect.left, width: wrapRect.width, scrollLeft: wrap.scrollLeft, colW, open }
+        return { left: wrapRect.left, width: wrapRect.width, scrollLeft: wrap.scrollLeft, colW, top, open }
       })
     }
     const onScroll = () => {
@@ -893,9 +900,27 @@ export function Zero0EntitiesBible() {
   )
 
   // Apply a valued command (colour). styleWithCSS ⇒ inline-style spans instead of <font> tags.
+  // If the user has no text selected (just a caret, or focus was lost), colour the WHOLE active
+  // cell — matching the natural "click in a cell, pick a colour" expectation. `foreColor`/
+  // `hiliteColor` are no-ops on a collapsed selection, which is why this felt broken before.
   const execColor = useCallback(
     (command: string, value: string) => {
-      activeElRef.current?.focus()
+      const el = activeElRef.current
+      if (!el) {
+        setPicker(null)
+        return
+      }
+      el.focus()
+      const sel = window.getSelection()
+      const hasCellSelection =
+        sel && sel.rangeCount > 0 && !sel.isCollapsed && el.contains(sel.anchorNode) && el.contains(sel.focusNode)
+      if (!hasCellSelection) {
+        // Select the whole cell so the command has something to act on.
+        const range = document.createRange()
+        range.selectNodeContents(el)
+        sel?.removeAllRanges()
+        sel?.addRange(range)
+      }
       try {
         document.execCommand("styleWithCSS", false, "true")
       } catch {
@@ -1009,7 +1034,7 @@ export function Zero0EntitiesBible() {
     setGrid((g) => ({ ...g, colIds: arrayMove(g.colIds, index, index + dir) }))
   }, [])
 
-  // ── Row ops ───────────────────────────────────────────────────────────────────────────────
+  // ── Row ops ──��────────────────────────────────────────────────────────────────────────────
   const addRow = useCallback((afterIndex?: number) => {
     setGrid((g) => {
       const newRow = uid("r")
@@ -1123,8 +1148,9 @@ export function Zero0EntitiesBible() {
         </span>
       </div>
 
-      {/* Formatting toolbar — acts on the focused cell. */}
-      <div className="sticky top-0 z-10 flex flex-wrap items-center gap-1 rounded-md border border-border bg-background/95 p-1.5 backdrop-blur">
+      {/* Formatting toolbar — acts on the focused cell. z-30 keeps it ABOVE the floating column
+          header (z-20), which is itself offset to sit just below this bar. */}
+      <div ref={toolbarRef} className="sticky top-0 z-30 flex flex-wrap items-center gap-1 rounded-md border border-border bg-background/95 p-1.5 backdrop-blur">
         <IconBtn title="Bold" onClick={() => exec("bold")}>
           <Bold className="h-4 w-4" />
         </IconBtn>
@@ -1287,10 +1313,10 @@ export function Zero0EntitiesBible() {
         <div
           aria-hidden={!stickyHead.open}
           className={
-            "fixed top-0 z-40 overflow-hidden rounded-b-md border-x border-b border-border bg-background/85 shadow-sm backdrop-blur transition-[opacity,transform] duration-200 ease-out supports-[backdrop-filter]:bg-background/70 motion-reduce:transition-none " +
+            "fixed z-20 overflow-hidden rounded-b-md border-x border-b border-border bg-background/85 shadow-sm backdrop-blur transition-[opacity,transform] duration-200 ease-out supports-[backdrop-filter]:bg-background/70 motion-reduce:transition-none " +
             (stickyHead.open ? "translate-y-0 opacity-100" : "pointer-events-none -translate-y-full opacity-0")
           }
-          style={{ left: stickyHead.left, width: stickyHead.width }}
+          style={{ left: stickyHead.left, width: stickyHead.width, top: stickyHead.top }}
         >
           <div className="flex" style={{ transform: `translateX(${-stickyHead.scrollLeft}px)`, willChange: "transform" }}>
             {grid.colIds.map((colId, ci) => {
