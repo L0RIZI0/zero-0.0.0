@@ -1346,22 +1346,21 @@ export function Zero0Canvas() {
             >
               {c.label}
             </button>
-            {/* CLOSE — to the RIGHT of every crumb except root. Closes THAT entity: parks/
-                destroys its web view and climbs the path out to its parent (closeContext).
-                Root (Loris) is the fixed anchor, so it carries no caret and no ACTIVE close —
-                but it renders an invisible, non-interactive spacer with the SAME footprint so
-                the "/" that follows Loris lines up exactly like every other crumb's. */}
-            {i > 0 ? (
+            {/* CLOSE — to the RIGHT of every crumb except root. Hidden with zero footprint at
+                rest (`.zero0-crumb-close` in globals.css), fades + expands in on crumb hover,
+                pushing the following "/" and deeper crumbs right. Closes THAT entity: parks/
+                destroys its web view and climbs the path out (closeContext). Root (Loris) has
+                no close at all — at rest every crumb's close is zero-width, so root's trailing
+                "/" already aligns with the rest; no spacer needed. */}
+            {i > 0 && (
               <Zero0CloseButton
                 iconClassName="h-2 w-2"
-                className="zero0-crumb-close -ml-1.5 -mr-2"
+                className="zero0-crumb-close"
                 onClick={() => {
                   const ent = getEntity(c.id)
                   if (ent) closeContext(ent)
                 }}
               />
-            ) : (
-              <span aria-hidden className="pointer-events-none flex h-4 w-4 shrink-0 -ml-1.5 -mr-2" />
             )}
           </span>
         )

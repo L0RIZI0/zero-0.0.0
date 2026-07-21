@@ -312,16 +312,26 @@
    Animations API in zero0-glyph.tsx so the spin can ease IN on start and decelerate OUT
    to upright on stop (a class toggle can only snap off). */
 
-/* Breadcrumb crumb close (×) — reveal on hover of the crumb (or keyboard focus within it).
-   Uses a PLAIN :hover rule on purpose: Tailwind v4 gates hover:/group-hover: behind
-   @media (hover: hover), which fails to fire in environments that don't advertise a fine
-   hover pointer (embedded webviews, some laptops/hybrids), leaving the × permanently hidden.
-   Opacity keeps the button's footprint reserved so the trail never reflows on reveal. */
+/* Breadcrumb crumb close (×) — hidden with ZERO layout footprint at rest (no reserved gap),
+   and REVEALED on hover of the crumb (or keyboard focus within it). It animates its WIDTH in,
+   so appearing PUSHES the following "/" + deeper crumbs to the right rather than sitting in a
+   pre-reserved slot; the negative margin cancels the flex gap-1 before it so at rest there's
+   only the original title→"/" spacing. Plain :hover rule on purpose — Tailwind v4 gates
+   hover:/group-hover: behind @media (hover: hover), which fails to fire in embedded webviews /
+   non-fine-pointer environments, leaving the × permanently stuck hidden. */
 .zero0-crumb-close {
+  width: 0;
+  margin-left: -0.25rem;
+  overflow: hidden;
   opacity: 0;
-  transition: opacity 150ms ease;
+  transition:
+    opacity 150ms ease,
+    width 150ms ease,
+    margin-left 150ms ease;
 }
 .zero0-crumb:hover .zero0-crumb-close,
 .zero0-crumb:focus-within .zero0-crumb-close {
+  width: 1rem;
+  margin-left: 0;
   opacity: 1;
 }
