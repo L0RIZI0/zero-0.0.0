@@ -1351,7 +1351,7 @@ export function Zero0Canvas() {
             {i > 0 && (
               <Zero0CloseButton
                 iconClassName="h-2 w-2"
-                className="-ml-0.5 -mr-0.5"
+                className="relative top-[2px] -ml-0.5 -mr-1"
                 onClick={() => {
                   const ent = getEntity(c.id)
                   if (ent) closeContext(ent)
