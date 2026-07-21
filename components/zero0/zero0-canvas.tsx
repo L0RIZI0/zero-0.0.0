@@ -125,7 +125,15 @@ const draftColorHex = (draft: string): string | null => {
 
 // A tiny dep-free × button (the zero0 tree avoids lucide). Explicitly CLOSES the open
 // entity — for a web resource that destroys its warm tab; otherwise it just climbs out.
-function Zero0CloseButton({ onClick, className = "" }: { onClick: () => void; className?: string }) {
+function Zero0CloseButton({
+  onClick,
+  className = "",
+  iconClassName = "h-3 w-3",
+}: {
+  onClick: () => void
+  className?: string
+  iconClassName?: string
+}) {
   return (
     <button
       type="button"
@@ -137,7 +145,7 @@ function Zero0CloseButton({ onClick, className = "" }: { onClick: () => void; cl
         className
       }
     >
-      <svg viewBox="0 0 16 16" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth={1.5} aria-hidden>
+      <svg viewBox="0 0 16 16" className={iconClassName} fill="none" stroke="currentColor" strokeWidth={1.5} aria-hidden>
         <path d="M4 4l8 8M12 4l-8 8" strokeLinecap="round" />
       </svg>
     </button>
@@ -1342,6 +1350,7 @@ export function Zero0Canvas() {
                 Root (Loris) is the fixed anchor, so it carries neither caret nor close. */}
             {i > 0 && (
               <Zero0CloseButton
+                iconClassName="h-2 w-2"
                 onClick={() => {
                   const ent = getEntity(c.id)
                   if (ent) closeContext(ent)
