@@ -492,8 +492,11 @@ export function Zero0Canvas() {
   useEffect(() => {
     if (!mounted) return
     // The DESKTOP (Electron) build is a static export with no server, so `/api/web-title` isn't
-    // shipped there — skip the fetch entirely and let the hostname/path fallback stand.
-    if (process.env.NEXT_PUBLIC_ZERO_ELECTRON === "1") return
+    // shipped. Instead we resolve titles through the IPC bridge (main-process fetch, no CORS).
+    // Internal Zero routes have no live server page in the desktop shell, so on desktop we only
+    // upgrade EXTERNAL http(s) URLs and let internal routes fall back to their curated title/path.
+    const bridge = typeof window !== "undefined" ? window.zero : undefined
+    const isDesktop = process.env.NEXT_PUBLIC_ZERO_ELECTRON === "1" || !!bridge?.isDesktop
     const candidates = [...children, ...path.map((id) => getEntity(id)).filter(Boolean)] as Entity[]
     const seen = new Set<string>()
     for (const e of candidates) {
@@ -501,7 +504,20 @@ export function Zero0Canvas() {
       seen.add(e.id)
       const url = e.webUrl
       if (!url || e.webTitle || webTitleTriedRef.current.has(e.id)) continue
-      if (!/^https?:\/\//i.test(url) && !url.startsWith("/")) continue // only http(s) or internal routes
+      const isHttp = /^https?:\/\//i.test(url)
+      if (!isHttp && !url.startsWith("/")) continue // only http(s) or internal routes
+      if (isDesktop) {
+        // No server: use the native bridge for external pages; skip internal routes.
+        if (!isHttp || !bridge?.webTitle) continue
+        webTitleTriedRef.current.add(e.id)
+        bridge
+          .webTitle(url)
+          .then((data) => {
+            if (data?.title && setWebTitle(e.id, data.title)) bump()
+          })
+          .catch(() => {})
+        continue
+      }
       webTitleTriedRef.current.add(e.id)
       fetch(`/api/web-title?url=${encodeURIComponent(url)}`)
         .then((r) => (r.ok ? r.json() : null))

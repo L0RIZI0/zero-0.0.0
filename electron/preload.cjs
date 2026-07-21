@@ -85,6 +85,12 @@ contextBridge.exposeInMainWorld("zero", {
   /** Open a URL in the user's real external browser (graceful fallback). */
   openExternal: (url) => ipcRenderer.send("zero:open-external", url),
 
+  /** Fetch a web page's real <title>/og:title from MAIN (net.fetch — no CORS, no server).
+   *  The desktop stand-in for the /api/web-title route that the static export can't ship, so
+   *  web Resources still show a human title + favicon offline. Resolves { title: string|null };
+   *  never rejects (main swallows errors → { title: null }). External http(s) URLs only. */
+  webTitle: (url) => ipcRenderer.invoke("zero:web-title", url),
+
   /** MANUAL background-update lifecycle (see setupAutoUpdate in main.cjs). A newer build
    *  is ANNOUNCED (onAvailable) but NOT fetched until you call startDownload(); progress
    *  streams via onProgress, completion via onDownloaded, then restartToApply() applies it. */

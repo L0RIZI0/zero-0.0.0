@@ -4,6 +4,19 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* `hover-underline-any` — underline on hover, gated on `any-hover` instead of Tailwind v4's
+   default `(hover: hover)`. On touchscreen laptops (e.g. a Surface) the PRIMARY pointer is
+   touch, so `(hover: hover)` is false and stock `hover:underline` silently never fires even
+   with a mouse attached. `(any-hover: hover)` is true whenever ANY connected pointer can hover,
+   so the entity-title underline affordance works there while staying off for touch-only. */
+@utility hover-underline-any {
+  @media (any-hover: hover) {
+    &:hover {
+      text-decoration-line: underline;
+    }
+  }
+}
+
 @theme inline {
   --font-heading: var(--font-geist-sans), 'Geist Fallback';
   --font-sans: var(--font-geist-sans), 'Geist Fallback';

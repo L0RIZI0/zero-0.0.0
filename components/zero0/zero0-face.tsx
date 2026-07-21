@@ -310,7 +310,7 @@ function FaceBlock({
             type="button"
             onClick={() => onOpen(entity)}
             className={
-              "text-foreground underline-offset-2 hover:underline " + (model.cancelled ? "line-through" : "")
+              "text-foreground underline-offset-2 hover-any:underline " + (model.cancelled ? "line-through" : "")
             }
             title="Open"
           >
@@ -486,7 +486,7 @@ export function Zero0Face({
           type="button"
           onClick={() => onOpen?.(entity)}
           className={
-            "min-w-0 shrink truncate text-left text-foreground underline-offset-2 hover:underline " +
+            "min-w-0 shrink truncate text-left text-foreground underline-offset-2 hover-any:underline " +
             (model.cancelled ? "line-through" : "")
           }
           title="Open"
@@ -532,7 +532,7 @@ export function Zero0Face({
           type="button"
           onClick={() => onOpen?.(entity)}
           className={
-            "min-w-0 shrink truncate text-left text-foreground underline-offset-2 hover:underline " +
+            "min-w-0 shrink truncate text-left text-foreground underline-offset-2 hover-any:underline " +
             (model.cancelled ? "line-through" : "")
           }
           title="Open"

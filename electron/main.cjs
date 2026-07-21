@@ -766,6 +766,57 @@ ipcMain.on("zero:open-external", (_e, url) => {
   if (typeof url === "string" && /^https?:\/\//.test(url)) shell.openExternal(url)
 })
 
+// ── Web title fetch (desktop replacement for /api/web-title) ─────────────────
+// The static export ships no server, so the renderer can't hit the Next route. Main fetches
+// the page's real <title>/og:title via net.fetch (Chromium network stack — no CORS, follows
+// redirects) and returns { title } so web Resources still get a human label offline. Mirrors
+// the route's extraction; best-effort, always resolves (never rejects).
+function decodeHtmlEntities(s) {
+  return s
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;|&apos;/g, "'")
+    .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(Number(d)))
+    .replace(/&nbsp;/g, " ")
+}
+function extractPageTitle(html) {
+  const og =
+    html.match(/<meta[^>]+property=["']og:title["'][^>]*content=["']([^"']+)["']/i) ||
+    html.match(/<meta[^>]+content=["']([^"']+)["'][^>]*property=["']og:title["']/i)
+  if (og && og[1]) return decodeHtmlEntities(og[1]).trim() || null
+  const t = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)
+  if (t && t[1]) return decodeHtmlEntities(t[1].replace(/\s+/g, " ")).trim() || null
+  return null
+}
+ipcMain.handle("zero:web-title", async (_e, url) => {
+  // External http(s) only — internal Zero routes have no live server page in the desktop
+  // shell (their names come from the curated seed titles instead).
+  if (typeof url !== "string" || !/^https?:\/\//i.test(url)) return { title: null }
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 6000)
+  try {
+    const res = await net.fetch(url, {
+      signal: controller.signal,
+      redirect: "follow",
+      headers: {
+        "user-agent":
+          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+        accept: "text/html,application/xhtml+xml",
+      },
+    })
+    if (!res.ok) return { title: null }
+    // Cap the body — <title> lives near the top of <head>.
+    const text = await res.text()
+    return { title: extractPageTitle(text.slice(0, 200_000)) }
+  } catch {
+    return { title: null }
+  } finally {
+    clearTimeout(timer)
+  }
+})
+
 // ── In-app window controls (frameless Windows/Linux) ─────────────────────────
 // Act on the window that SENT the event (via its webContents), not the global
 // `mainWindow` — with multiple windows open, the min/max/close buttons must control

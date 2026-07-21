@@ -35,6 +35,10 @@ export interface ZeroDesktopBridge {
     onSelected: (cb: (actionId: string) => void) => () => void
   }
   openExternal: (url: string) => void
+  /** Fetch a web page's real <title>/og:title from the MAIN process (no CORS, no server) —
+   *  the desktop replacement for the /api/web-title route the static export can't ship.
+   *  Resolves to { title } (null when it can't be read). External http(s) URLs only. */
+  webTitle: (url: string) => Promise<{ title: string | null }>
   updates: {
     onAvailable: (cb: (payload: { version?: string }) => void) => () => void
     onProgress: (cb: (payload: { percent: number }) => void) => () => void
