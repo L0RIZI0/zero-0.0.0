@@ -17,3 +17,5 @@ node_modules
 # Electron build outputs
 out/
 release/
+# Temp parking for server-only app/api routes during the electron static export (scripts/electron-build.mjs)
+.electron-api-stash/

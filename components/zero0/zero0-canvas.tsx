@@ -491,6 +491,9 @@ export function Zero0Canvas() {
   const webTitleTriedRef = useRef<Set<string>>(new Set())
   useEffect(() => {
     if (!mounted) return
+    // The DESKTOP (Electron) build is a static export with no server, so `/api/web-title` isn't
+    // shipped there — skip the fetch entirely and let the hostname/path fallback stand.
+    if (process.env.NEXT_PUBLIC_ZERO_ELECTRON === "1") return
     const candidates = [...children, ...path.map((id) => getEntity(id)).filter(Boolean)] as Entity[]
     const seen = new Set<string>()
     for (const e of candidates) {

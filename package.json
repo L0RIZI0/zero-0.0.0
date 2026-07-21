@@ -13,8 +13,8 @@
     "lint": "eslint .",
     "electron": "electron .",
     "electron:dev": "concurrently -k -n NEXT,ELECTRON -c blue,magenta \"cross-env CHOKIDAR_USEPOLLING=true WATCHPACK_POLLING=true next dev\" \"wait-on tcp:3000 && electronmon .\"",
-    "electron:build": "node scripts/gen-interaction-matrix.mjs && cross-env BUILD_TARGET=electron next build && electron-builder",
-    "electron:build:ci": "node scripts/gen-interaction-matrix.mjs && cross-env BUILD_TARGET=electron next build && electron-builder --win nsis --publish never",
+    "electron:build": "node scripts/gen-interaction-matrix.mjs && node scripts/electron-build.mjs && electron-builder",
+    "electron:build:ci": "node scripts/gen-interaction-matrix.mjs && node scripts/electron-build.mjs && electron-builder --win nsis --publish never",
     "release:upload": "node scripts/upload-release.mjs"
   },
   "dependencies": {
