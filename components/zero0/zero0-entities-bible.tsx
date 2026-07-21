@@ -840,22 +840,33 @@ export function Zero0EntitiesBible() {
     }
   }, [hydrated, grid])
 
-  // Dismiss any popover (menu / picker / note) on outside click, scroll, or Escape. The popovers
-  // themselves stopPropagation on click so interacting inside them doesn't close them.
+  // Dismiss any popover (menu / picker / note) on OUTSIDE click, scroll, or Escape.
+  // IMPORTANT: this is a NATIVE window listener, so React's `stopPropagation` inside the popovers
+  // does NOT block it — and for trusted discrete clicks React flushes this effect synchronously, so
+  // the very click that OPENS a popover would otherwise reach window and close it again (the bug that
+  // made color/highlight/note "do nothing"). We therefore guard by the real event target: clicks that
+  // originate inside the toolbar (the trigger buttons) or inside any popover never dismiss.
   useEffect(() => {
     if (!menu && !picker && !notePopover) return
-    const close = () => {
+    const hardClose = () => {
       setMenu(null)
       setPicker(null)
       setNotePopover(null)
     }
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && close()
-    window.addEventListener("click", close)
-    window.addEventListener("scroll", close, true)
+    const closeOnClick = (e: Event) => {
+      const node = e.target as Node | null
+      const el = node instanceof Element ? node : node?.parentElement ?? null
+      if (toolbarRef.current && node && toolbarRef.current.contains(node)) return // a toolbar trigger
+      if (el?.closest("[data-bible-popover]")) return // inside a popover (swatches, note input, menu)
+      hardClose()
+    }
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && hardClose()
+    window.addEventListener("click", closeOnClick)
+    window.addEventListener("scroll", hardClose, true)
     window.addEventListener("keydown", onKey)
     return () => {
-      window.removeEventListener("click", close)
-      window.removeEventListener("scroll", close, true)
+      window.removeEventListener("click", closeOnClick)
+      window.removeEventListener("scroll", hardClose, true)
       window.removeEventListener("keydown", onKey)
     }
   }, [menu, picker, notePopover])
@@ -1378,6 +1389,7 @@ export function Zero0EntitiesBible() {
       {/* Colour picker popover. */}
       {picker && (
         <div
+          data-bible-popover
           onClick={(e) => e.stopPropagation()}
           onContextMenu={(e) => e.preventDefault()}
           style={{ left: Math.max(8, Math.min(picker.x, (typeof window !== "undefined" ? window.innerWidth : 9999) - 200)), top: picker.y }}
@@ -1414,6 +1426,7 @@ export function Zero0EntitiesBible() {
       {/* Note editor popover. */}
       {notePopover && (
         <div
+          data-bible-popover
           onClick={(e) => e.stopPropagation()}
           onContextMenu={(e) => e.preventDefault()}
           style={{ left: Math.max(8, notePopover.x), top: notePopover.y, width: 300 }}
@@ -1488,6 +1501,7 @@ export function Zero0EntitiesBible() {
       {menu && (
         <div
           role="menu"
+          data-bible-popover
           onClick={(e) => e.stopPropagation()}
           onContextMenu={(e) => e.preventDefault()}
           style={{ left: menu.x, top: menu.y }}
