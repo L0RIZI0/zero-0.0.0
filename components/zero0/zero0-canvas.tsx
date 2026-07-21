@@ -1354,14 +1354,14 @@ export function Zero0Canvas() {
             {i > 0 ? (
               <Zero0CloseButton
                 iconClassName="h-2 w-2"
-                className="-ml-0.5 -mr-2"
+                className="-ml-1.5 -mr-2"
                 onClick={() => {
                   const ent = getEntity(c.id)
                   if (ent) closeContext(ent)
                 }}
               />
             ) : (
-              <span aria-hidden className="pointer-events-none flex h-4 w-4 shrink-0 -ml-0.5 -mr-2" />
+              <span aria-hidden className="pointer-events-none flex h-4 w-4 shrink-0 -ml-1.5 -mr-2" />
             )}
           </span>
         )
