@@ -261,10 +261,12 @@ function FaceBlock({
   // breathing per row — DURATION (the ongoing clock) still pulses; ACCESS does NOT (presence is a
   // passive tally, no need to draw the eye to it).
   const renderAccessRow = (cells: NonNullable<typeof access>, pulse = true) => (
-    <dd className="min-w-0 text-foreground">
+    <dd className="min-w-0 text-muted-foreground">
       <div className="no-scrollbar overflow-x-auto whitespace-pre">
-        <span className="text-foreground" title="total duration">
-          <span className="text-muted-foreground opacity-70">{"Total "}</span>
+        {/* Everything stays dimmed (v0: the total is no longer bright foreground) — the value
+            reads at the plain muted token, the "Total" label + segments a touch fainter. */}
+        <span className="text-muted-foreground" title="total duration">
+          <span className="opacity-70">{"Total "}</span>
           {cells.total}
         </span>
         {cells.segments.map((c, i) => (

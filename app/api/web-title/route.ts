@@ -30,25 +30,11 @@ function extractTitle(html: string): string | null {
   return null
 }
 
-export async function GET(request: NextRequest) {
-  const url = request.nextUrl.searchParams.get("url")
-  if (!url) return NextResponse.json({ error: "Missing url" }, { status: 400 })
-  // Resolve the target. Root-relative INTERNAL Zero routes ("/vision") are pinned to this
-  // request's own origin so we read their real page <title> too — they're same-origin Next
-  // pages. External URLs parse as-is; other schemes have no remote <title> to read.
-  let parsed: URL
+async function fetchTitle(target: string): Promise<string | null> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 6000)
   try {
-    parsed = url.startsWith("/") ? new URL(url, request.nextUrl.origin) : new URL(url)
-  } catch {
-    return NextResponse.json({ title: null })
-  }
-  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-    return NextResponse.json({ title: null })
-  }
-  try {
-    const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), 6000)
-    const res = await fetch(parsed.toString(), {
+    const res = await fetch(target, {
       signal: controller.signal,
       redirect: "follow",
       headers: {
@@ -59,8 +45,7 @@ export async function GET(request: NextRequest) {
       },
       cache: "no-store",
     })
-    clearTimeout(timer)
-    if (!res.ok) return NextResponse.json({ title: null })
+    if (!res.ok) return null
     // Read only the first chunk — <head>/<title> is near the top; avoid pulling huge bodies.
     const reader = res.body?.getReader()
     let html = ""
@@ -75,7 +60,46 @@ export async function GET(request: NextRequest) {
     } else {
       html = await res.text()
     }
-    return NextResponse.json({ title: extractTitle(html) })
+    return extractTitle(html)
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+export async function GET(request: NextRequest) {
+  const url = request.nextUrl.searchParams.get("url")
+  if (!url) return NextResponse.json({ error: "Missing url" }, { status: 400 })
+
+  // INTERNAL Zero routes ("/vision") are same-origin Next pages. We must self-fetch them over
+  // LOOPBACK, not `request.nextUrl.origin`: behind the preview proxy that origin is the public
+  // URL, which the server can't reliably fetch from itself (returns null). Try loopback ports
+  // (the dev/prod server port) in order and take the first title.
+  if (url.startsWith("/")) {
+    const port = process.env.PORT || request.nextUrl.port || "3000"
+    const bases = [`http://127.0.0.1:${port}`, `http://localhost:${port}`, request.nextUrl.origin]
+    for (const base of bases) {
+      try {
+        const title = await fetchTitle(new URL(url, base).toString())
+        if (title) return NextResponse.json({ title })
+      } catch {
+        // try next base
+      }
+    }
+    return NextResponse.json({ title: null })
+  }
+
+  // External URLs parse as-is; other schemes have no remote <title> to read.
+  let parsed: URL
+  try {
+    parsed = new URL(url)
+  } catch {
+    return NextResponse.json({ title: null })
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    return NextResponse.json({ title: null })
+  }
+  try {
+    return NextResponse.json({ title: await fetchTitle(parsed.toString()) })
   } catch (error) {
     console.log("[v0] web-title fetch:", error instanceof Error ? error.message : error)
     return NextResponse.json({ title: null })
