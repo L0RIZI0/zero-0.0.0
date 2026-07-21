@@ -62,6 +62,13 @@ type Cell = {
   html?: string
   /** If set, the cell renders this kind's ontology glyph (display-only) instead of text. */
   glyph?: EntityKind
+  /**
+   * If set, the cell renders this kind's ontology glyph as a small LEADING badge ALONGSIDE its
+   * editable text (unlike `glyph`, which replaces the content). The glyph is drawn in its base
+   * OPEN state — outline, no fill — i.e. identical to the "Glyph" row. Used on the "Creatable?"
+   * row to show, per kind, the shape a freshly-created (open-state) entity takes.
+   */
+  glyphInline?: EntityKind
   /** A cell-level footnote (rendered as a corner marker + a numbered entry below the table). */
   note?: string
 }
@@ -123,6 +130,8 @@ type RowDef = {
   center?: boolean
   /** Seed the ontology glyph instead of text. */
   glyph?: boolean
+  /** Seed each kind's open-state glyph as a leading badge ALONGSIDE the cell text. */
+  glyphInline?: boolean
   /** Per-kind cell HTML. */
   cells?: Partial<Record<EntityKind, string>>
 }
@@ -176,10 +185,11 @@ const ROWS: RowDef[] = [
     },
   },
   {
-    id: "r-creatable",
-    label: "Creatable?",
-    cells: {
-      space: "Yes",
+      id: "r-creatable",
+      label: "Creatable?",
+      glyphInline: true,
+      cells: {
+        space: "Yes",
       task: "Yes",
       resource: "Yes",
       moment: "Yes",
@@ -443,7 +453,11 @@ function seedGrid(): Grid {
     KIND_COLS.forEach((kind, i) => {
       const colId = `c-${i}`
       if (row.glyph) cells[cellKey(row.id, colId)] = { glyph: kind }
-      else cells[cellKey(row.id, colId)] = { html: row.cells?.[kind] ?? "—" }
+      else
+        cells[cellKey(row.id, colId)] = {
+          html: row.cells?.[kind] ?? "—",
+          ...(row.glyphInline ? { glyphInline: kind } : {}),
+        }
     })
   }
   // A seeded CELL FOOTNOTE demonstrating the footnote flavour (Individual is only temporarily creatable).
@@ -1278,14 +1292,26 @@ export function Zero0EntitiesBible() {
                       onContextMenu={(e) => openMenu(e, ri, ci)}
                       className={border + " relative p-0"}
                     >
-                      <EditableCell
-                        cellId={key}
-                        initialHtml={cell.html ?? ""}
-                        active={activeCell === key}
-                        centered={centered}
-                        onFocus={handleFocus}
-                        onCommit={handleCommit}
-                      />
+                      <div className={cell.glyphInline ? "flex items-start" : undefined}>
+                        {cell.glyphInline && (
+                          <span
+                            title={`${cap(cell.glyphInline)} — open state`}
+                            className="mt-1.5 ml-1.5 flex shrink-0"
+                          >
+                            <Zero0Glyph kind={cell.glyphInline} className="h-4 w-4 text-foreground" />
+                          </span>
+                        )}
+                        <div className={cell.glyphInline ? "min-w-0 flex-1" : undefined}>
+                          <EditableCell
+                            cellId={key}
+                            initialHtml={cell.html ?? ""}
+                            active={activeCell === key}
+                            centered={centered}
+                            onFocus={handleFocus}
+                            onCommit={handleCommit}
+                          />
+                        </div>
+                      </div>
                       {fnNum != null && (
                         <button
                           type="button"
