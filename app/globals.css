@@ -336,8 +336,8 @@
   opacity: 1;
 }
 
-/* Breadcrumb crumb ENTER / EXIT — a crumb grows IN (drill deeper) and shrinks OUT (climb out /
-   close / sibling-swap) to its content width, so the trail slides smoothly instead of snapping.
+/* Breadcrumb crumb ENTER / EXIT (v0.2.186) — a crumb grows IN (drill deeper) and shrinks OUT
+   (climb out / close / sibling-swap) to its content width, so the trail slides smoothly instead of snapping.
    The grid-column 1fr↔0fr trick animates to intrinsic (auto) width, which a plain width/transform
    can't; `.zero0-crumb-inner` clips the content while it collapses. All inter-crumb spacing lives
    INSIDE the crumb (the leading "/" carries an `ml`), so a collapsed crumb has truly zero footprint
