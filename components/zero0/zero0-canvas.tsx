@@ -1302,7 +1302,7 @@ export function Zero0Canvas() {
         return (
           <span
             key={c.id}
-            className="flex items-center gap-1"
+            className="group flex items-center gap-1"
             onContextMenu={(ev) => {
               // Right-click a crumb → THAT entity's menu (same as its row). Handled on the
               // span so it fires even for the current/last crumb, whose button is disabled.
@@ -1354,7 +1354,7 @@ export function Zero0Canvas() {
             {i > 0 ? (
               <Zero0CloseButton
                 iconClassName="h-2 w-2"
-                className="-ml-1.5 -mr-2"
+                className="-ml-1.5 -mr-2 opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100"
                 onClick={() => {
                   const ent = getEntity(c.id)
                   if (ent) closeContext(ent)
