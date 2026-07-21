@@ -662,6 +662,10 @@ export function Zero0EntitiesBible() {
   // overwrite a real doc we merely failed to read.
   const storeReachableRef = useRef(false)
   const [activeCell, setActiveCell] = useState<string | null>(null)
+  // First two rows (Glyph + Name) are sticky while scrolling the table. Row 1 must sit exactly
+  // below row 0, whose height varies with content, so we measure it live and use it as row 1's top.
+  const row0Ref = useRef<HTMLTableRowElement | null>(null)
+  const [row0H, setRow0H] = useState(0)
   const [menu, setMenu] = useState<Menu | null>(null)
   const [picker, setPicker] = useState<Picker | null>(null)
   const [notePopover, setNotePopover] = useState<NotePopover | null>(null)
