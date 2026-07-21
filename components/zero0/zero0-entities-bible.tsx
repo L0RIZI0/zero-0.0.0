@@ -187,7 +187,6 @@ const ROWS: RowDef[] = [
   {
       id: "r-creatable",
       label: "Creatable?",
-      glyphInline: true,
       cells: {
         space: "Yes",
       task: "Yes",
@@ -235,6 +234,7 @@ const ROWS: RowDef[] = [
   {
     id: "r-terminal",
     label: "Terminal end",
+    glyphInline: true,
     cells: {
       individual: "death",
       organism: "death",
