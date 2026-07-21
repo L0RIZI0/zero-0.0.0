@@ -167,9 +167,6 @@ export function webDisplayName(url: string, resourceId?: string): string {
   return hostOf(url) ?? url
 }
 
-/** A fetched page title is only worth substituting for a URL that's long enough to be worth
- *  hiding; a short URL is already readable, so it's shown verbatim. */
-export const WEB_TITLE_MIN_URL_LEN = 15
 /** Displayed web-resource labels (fetched title / raw URL) are cropped to this many chars,
  *  with the full text available via the hover tooltip. Curated human names are NOT cropped. */
 export const WEB_TITLE_MAX_LEN = 15
@@ -178,9 +175,9 @@ export const WEB_TITLE_MAX_LEN = 15
  *  + the breadcrumb (paired with the favicon). Preference:
  *    1. the entity's own `title` WHEN it's a distinct human label (not just the raw URL) — this
  *       preserves curated seed names like "Interaction Matrix" / catalog names like "Photopea";
- *    2. the fetched real webpage `<title>` (`webTitle`), but ONLY when the URL is longer than
- *       {@link WEB_TITLE_MIN_URL_LEN} (a short URL isn't worth replacing);
- *    3. otherwise the raw URL itself (short URL, or long URL with no fetched title).
+ *    2. the fetched real webpage `<title>` (`webTitle`) whenever we have one — always preferred
+ *       over the raw URL, regardless of URL length;
+ *    3. otherwise the raw URL itself (no fetched title yet).
  *  `webTitle` is populated best-effort by `/api/web-title` (web) or the desktop IPC bridge. */
 export function webDisplayTitle(opts: {
   webUrl?: string
@@ -191,10 +188,9 @@ export function webDisplayTitle(opts: {
   const { webUrl, webTitle, title } = opts
   const own = title?.trim()
   if (own && own !== webUrl) return own // curated human label, not the raw URL
-  if (!webUrl) return own ?? ""
   const fetched = webTitle?.trim()
-  if (fetched && webUrl.length > WEB_TITLE_MIN_URL_LEN) return fetched
-  return webUrl // short URL, or no fetched page title → the URL itself
+  if (fetched) return fetched // real page title always wins over the URL
+  return webUrl ?? own ?? "" // no page title yet → the URL itself
 }
 
 /** Crop a label to {@link WEB_TITLE_MAX_LEN} chars, appending an ellipsis when it overflows. */
