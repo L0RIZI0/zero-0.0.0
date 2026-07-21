@@ -557,7 +557,7 @@ function EditableCell({
       onFocus={() => ref.current && onFocus(cellId, ref.current)}
       onBlur={() => ref.current && onCommit(cellId, ref.current.innerHTML)}
       className={
-        "bible-cell h-full min-w-[3rem] px-3 py-1.5 text-sm leading-relaxed outline-none [&_ul]:my-0 [&_ul]:list-disc [&_ul]:pl-5 [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-[0.8em] " +
+        "bible-cell h-full min-w-[3rem] px-3 py-1.5 text-xs leading-relaxed outline-none [&_ul]:my-0 [&_ul]:list-disc [&_ul]:pl-5 [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-[0.8em] " +
         (centered ? "text-center " : "") +
         (active ? "bg-primary/5 ring-1 ring-inset ring-primary/40" : "")
       }
@@ -662,10 +662,18 @@ export function Zero0EntitiesBible() {
   // overwrite a real doc we merely failed to read.
   const storeReachableRef = useRef(false)
   const [activeCell, setActiveCell] = useState<string | null>(null)
-  // First two rows (Glyph + Name) are sticky while scrolling the table. Row 1 must sit exactly
-  // below row 0, whose height varies with content, so we measure it live and use it as row 1's top.
-  const row0Ref = useRef<HTMLTableRowElement | null>(null)
-  const [row0H, setRow0H] = useState(0)
+  // Sticky floating header: the first two rows (Glyph + Name) stay in the table, but once they
+  // scroll above the viewport a condensed header appears pinned to the top, echoing each column's
+  // glyph + name. We measure the live column widths and mirror the horizontal scroll so it aligns.
+  const wrapRef = useRef<HTMLDivElement | null>(null)
+  const tableRef = useRef<HTMLTableElement | null>(null)
+  const triggerRowRef = useRef<HTMLTableRowElement | null>(null) // the Name row (index 1)
+  const [stickyHead, setStickyHead] = useState<{
+    left: number
+    width: number
+    scrollLeft: number
+    colW: number[]
+  } | null>(null)
   const [menu, setMenu] = useState<Menu | null>(null)
   const [picker, setPicker] = useState<Picker | null>(null)
   const [notePopover, setNotePopover] = useState<NotePopover | null>(null)
@@ -778,6 +786,49 @@ export function Zero0EntitiesBible() {
       }
     }, 800)
   }, [grid, hydrated])
+
+  // Drive the sticky floating header: show it once the first two rows scroll above the viewport,
+  // measuring live column widths and mirroring the wrapper's horizontal scroll. Uses capture-phase
+  // scroll so it works whether the page scrolls at the window or inside an ancestor container.
+  useEffect(() => {
+    const wrap = wrapRef.current
+    const table = tableRef.current
+    if (!wrap || !table) return
+    let raf = 0
+    const compute = () => {
+      raf = 0
+      const trigger = triggerRowRef.current
+      const wrapRect = wrap.getBoundingClientRect()
+      const triggerBottom = trigger ? trigger.getBoundingClientRect().bottom : Infinity
+      // Appear only after the Glyph+Name rows have scrolled past the top, while the table is still
+      // on screen (leave ~48px so it doesn't flash for a sliver of remaining table).
+      if (triggerBottom > 0 || wrapRect.bottom < 48) {
+        setStickyHead((s) => (s ? null : s))
+        return
+      }
+      const firstRow = table.querySelector("tbody tr")
+      const colW = firstRow
+        ? Array.from(firstRow.children).map((c) => (c as HTMLElement).getBoundingClientRect().width)
+        : []
+      setStickyHead({ left: wrapRect.left, width: wrapRect.width, scrollLeft: wrap.scrollLeft, colW })
+    }
+    const onScroll = () => {
+      if (!raf) raf = requestAnimationFrame(compute)
+    }
+    compute()
+    window.addEventListener("scroll", onScroll, { passive: true, capture: true })
+    window.addEventListener("resize", onScroll)
+    wrap.addEventListener("scroll", onScroll, { passive: true })
+    const ro = new ResizeObserver(onScroll)
+    ro.observe(table)
+    return () => {
+      window.removeEventListener("scroll", onScroll, { capture: true } as EventListenerOptions)
+      window.removeEventListener("resize", onScroll)
+      wrap.removeEventListener("scroll", onScroll)
+      ro.disconnect()
+      if (raf) cancelAnimationFrame(raf)
+    }
+  }, [hydrated, grid])
 
   // Dismiss any popover (menu / picker / note) on outside click, scroll, or Escape. The popovers
   // themselves stopPropagation on click so interacting inside them doesn't close them.
@@ -1145,6 +1196,7 @@ export function Zero0EntitiesBible() {
       {/* The grid — a real table so cells size to content. Horizontal scroll on overflow. Inline
           [data-note] spans get a dotted underline + help cursor; hover shows a floating tooltip. */}
       <div
+        ref={wrapRef}
         className="overflow-x-auto rounded-md border border-border [&_[data-note]]:cursor-help [&_[data-note]]:underline [&_[data-note]]:decoration-dotted [&_[data-note]]:decoration-muted-foreground/70 [&_[data-note]]:underline-offset-2"
         onMouseOver={(e) => {
           const t = (e.target as HTMLElement).closest("[data-note]")
@@ -1157,14 +1209,15 @@ export function Zero0EntitiesBible() {
         }}
         onMouseLeave={() => setHoverNote(null)}
       >
-        <table className="border-collapse">
+        <table ref={tableRef} className="border-collapse">
           <tbody>
             {grid.rowIds.map((rowId, ri) => (
-              <tr key={rowId}>
+              <tr key={rowId} ref={ri === 1 ? triggerRowRef : undefined}>
                 {grid.colIds.map((colId, ci) => {
                   const key = cellKey(rowId, colId)
                   const cell = grid.cells[key] ?? { html: "" }
-                  const border = "border border-border align-top" + (ci === 0 ? " bg-muted/20" : "")
+                  const border =
+                    "border border-border align-top" + (ci === 0 ? " bg-muted/20 font-semibold" : "")
                   if (cell.glyph) {
                     return (
                       <td
@@ -1224,6 +1277,43 @@ export function Zero0EntitiesBible() {
           </tbody>
         </table>
       </div>
+
+      {/* Sticky floating header — appears once the Glyph + Name rows scroll above the top. Echoes
+          each column's glyph + name, aligned to the live column widths and horizontal scroll. */}
+      {stickyHead && (
+        <div
+          aria-hidden="true"
+          className="fixed top-0 z-40 overflow-hidden rounded-b-md border-x border-b border-border bg-background/85 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-background/70"
+          style={{ left: stickyHead.left, width: stickyHead.width }}
+        >
+          <div className="flex" style={{ transform: `translateX(${-stickyHead.scrollLeft}px)`, willChange: "transform" }}>
+            {grid.colIds.map((colId, ci) => {
+              const glyphKind = grid.cells[cellKey(grid.rowIds[0] ?? "", colId)]?.glyph
+              const nameHtml = grid.cells[cellKey(grid.rowIds[1] ?? "", colId)]?.html
+              const name = nameHtml ? stripHtml(nameHtml) : ""
+              return (
+                <div
+                  key={colId}
+                  style={{ width: stickyHead.colW[ci] }}
+                  className={
+                    "flex shrink-0 items-center gap-2 border-r border-border/50 px-3 py-2 last:border-r-0" +
+                    (ci === 0 ? " bg-muted/40" : "")
+                  }
+                >
+                  {glyphKind && <Zero0Glyph kind={glyphKind} className="h-4 w-4 shrink-0 text-muted-foreground" />}
+                  {ci === 0 ? (
+                    <span className="truncate text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+                      Field
+                    </span>
+                  ) : (
+                    <span className="truncate text-xs font-medium text-foreground">{name}</span>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Footnotes list. */}
       {footnotes.length > 0 && (
