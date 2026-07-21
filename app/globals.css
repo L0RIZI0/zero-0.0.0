@@ -4,16 +4,27 @@
 
 @custom-variant dark (&:is(.dark *));
 
-/* `hover-underline-any` — underline on hover, gated on `any-hover` instead of Tailwind v4's
-   default `(hover: hover)`. On touchscreen laptops (e.g. a Surface) the PRIMARY pointer is
+/* `hover-underline-any` — animated underline on hover, gated on `any-hover` instead of Tailwind
+   v4's default `(hover: hover)`. On touchscreen laptops (e.g. a Surface) the PRIMARY pointer is
    touch, so `(hover: hover)` is false and stock `hover:underline` silently never fires even
    with a mouse attached. `(any-hover: hover)` is true whenever ANY connected pointer can hover,
-   so the entity-title underline affordance works there while staying off for touch-only. */
+   so the entity-title underline affordance works there while staying off for touch-only.
+   It uses a `background-size` gradient rather than `text-decoration` (which can't transition),
+   so the line smoothly wipes in from the left and back out. `line-through` (cancelled entities)
+   is unaffected since that stays a `text-decoration`. */
 @utility hover-underline-any {
+  background-image: linear-gradient(currentColor, currentColor);
+  background-position: 0 100%;
+  background-repeat: no-repeat;
+  background-size: 0% 1px;
+  transition: background-size 180ms ease-out;
   @media (any-hover: hover) {
     &:hover {
-      text-decoration-line: underline;
+      background-size: 100% 1px;
     }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    transition: none;
   }
 }
 
