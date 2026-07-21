@@ -517,6 +517,14 @@ export interface EntityBase {
    */
   webUrl?: string
   webResourceId?: string
+  /**
+   * DISPLAYED TITLE for a web resource — the real webpage `<title>` (best-effort
+   * fetched via `/api/web-title`, see `web-resources.ts#webDisplayTitle`). The entity's
+   * own `title` stays the raw URL (the `--title`); this is only the label shown in
+   * ENTITY CONTENT + breadcrumb, paired with the site favicon. Absent until resolved
+   * (falls back to the known resource name / hostname).
+   */
+  webTitle?: string
 }
 
 /**

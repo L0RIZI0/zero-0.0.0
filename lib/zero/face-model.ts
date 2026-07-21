@@ -23,6 +23,7 @@ import { WHENEVER } from "./types"
 import { isDone, getCreatedAt, getCompletedOn } from "./entity-log"
 import { getEntity, getCreator, getOwner, getForwardTags, getBackReferences, getChildren } from "./data"
 import { formatLocale } from "./format-locale"
+import { webDisplayTitle } from "./web-resources"
 
 // ── THE SIZE LADDER ──────────────────────────────────────────────────────────
 // XS and Full are the FIXED ends; the middle rungs are pragmatic presets, not
@@ -465,6 +466,12 @@ export interface FaceModel {
   metaEcho: string
   /** This entity's own explicitly-set accent (inherited colors are not surfaced). */
   accent?: string
+  /** WEB RESOURCE: the fronted URL, when this entity fronts a web surface. Its presence tells
+      a renderer to show the site FAVICON before the title and that `title` is the DISPLAYED
+      title (webpage title / hostname), not the raw URL (which stays the entity's stored title). */
+  webUrl?: string
+  /** Optional catalog id for the fronted resource (branding/favicon domain). */
+  webResourceId?: string
 }
 
 // Derive the presentation model for an entity. Pure; call per render (cheap).
@@ -475,9 +482,17 @@ export function getFaceModel(e: Entity, now: number): FaceModel {
   const requested = e.kind === "task" && !!e.requested
   const lifeLabel = state.word
   const occAction = occurrenceAction(e, now) // moment/space glyph: play / stop / reopen / null
+  // WEB RESOURCE display title: when this entity fronts a web surface, the label shown is the
+  // fetched webpage title (→ resource name → hostname), NOT the raw URL that stays its stored
+  // `title`. Non-web entities keep their title verbatim.
+  const title = e.webUrl
+    ? webDisplayTitle({ webUrl: e.webUrl, webResourceId: e.webResourceId, webTitle: e.webTitle })
+    : e.title
   return {
     kind: e.kind,
-    title: e.title,
+    title,
+    webUrl: e.webUrl,
+    webResourceId: e.webResourceId,
     kindLabel: km.label,
     hasDoneState: km.hasDoneState,
     filled: fillsGlyph(e), // fill on complete AND closed (fillable kinds)

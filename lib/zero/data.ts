@@ -2557,9 +2557,28 @@ export function addWebResource(input: {
   userEntityIds.add(entity.id)
   persist()
   return entity
-}
+  }
 
-export function addSpace(input: { name: string; parentId: string }): Entity {
+  /**
+   * Persist the fetched DISPLAYED TITLE (real webpage <title>) for a web resource. The
+   * entity's own `title` (the raw URL) is untouched — this only fills `webTitle`, the label
+   * shown in ENTITY CONTENT + breadcrumb. No-op when unchanged so a re-fetch doesn't churn
+   * persistence. Mirrors the seeded/user split used by the other scalar setters.
+   */
+  export function setWebTitle(id: string, webTitle: string): boolean {
+  const stored = byId.get(id)
+  if (!stored) return false
+  const next = webTitle.trim()
+  if (!next || next === stored.webTitle) return false
+  mutable(stored).webTitle = next
+  if (!userEntityIds.has(id)) {
+  seededOverrides.set(id, { ...seededOverrides.get(id), webTitle: next })
+  }
+  persist()
+  return true
+  }
+
+  export function addSpace(input: { name: string; parentId: string }): Entity {
   const entity: Entity = {
     id: uid("s"),
     kind: "space",

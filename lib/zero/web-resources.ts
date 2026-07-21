@@ -167,6 +167,20 @@ export function webDisplayName(url: string, resourceId?: string): string {
   return hostOf(url) ?? url
 }
 
+/** The DISPLAYED TITLE for a web resource — the label shown in ENTITY CONTENT + the
+ *  breadcrumb (paired with the favicon), DISTINCT from the entity's stored `title` (the
+ *  raw URL). Preference: the fetched real webpage `<title>` (`webTitle`) → the known
+ *  resource name / hostname (`webDisplayName`) → the raw URL. `webTitle` is populated
+ *  best-effort by `/api/web-title`; until then the hostname stands in so a fresh resource
+ *  still reads cleanly. */
+export function webDisplayTitle(opts: { webUrl?: string; webResourceId?: string; webTitle?: string }): string {
+  const { webUrl, webResourceId, webTitle } = opts
+  const t = webTitle?.trim()
+  if (t) return t
+  if (webUrl) return webDisplayName(webUrl, webResourceId)
+  return webUrl ?? ""
+}
+
 /**
  * Best-effort REAL favicon for a resource/URL. We resolve the host (catalog domain
  * first, else the typed URL's host) and fetch its icon through DuckDuckGo's icon

@@ -18,6 +18,7 @@ import {
   hydrateFromStorage,
   addParsedEntity,
   addWebResource,
+  setWebTitle,
   setEntityCompleted,
   setEntityScheduleField,
   setEntityDuration,
@@ -50,7 +51,7 @@ import {
   parseHexColor,
   type EntryAttr,
 } from "@/lib/zero/create-parse"
-import { looksLikeUrl, normalizeUrl, resolveWebResourceByUrl, webDisplayName } from "@/lib/zero/web-resources"
+import { looksLikeUrl, normalizeUrl, resolveWebResourceByUrl, webDisplayTitle } from "@/lib/zero/web-resources"
 import { useZero0Flag, toggleZero0Flag } from "@/lib/zero/zero0-chord"
 import { useZeroCrossWindowSync } from "@/lib/zero/use-zero-sync"
 import { useNowSeconds } from "@/lib/zero/use-now"
@@ -61,6 +62,7 @@ import { Zero0ResourceCanvas } from "./zero0-resource-canvas"
 import { Zero0Pins } from "./zero0-pins"
 import { Zero0Frame } from "./zero0-frame"
 import { Zero0Face } from "./zero0-face"
+import { Zero0Favicon } from "./zero0-favicon"
 import { Zero0Content, type Zero0ContentCtx } from "./zero0-content"
   import { fmt, fmtLogValue, sexSymbol, formatDuration, type FaceSize, type FaceMake } from "@/lib/zero/face-model"
 import type { Entity } from "@/lib/zero/types"
@@ -464,16 +466,48 @@ export function Zero0Canvas() {
     return { open, done, complete, total: children.length }
   }, [children])
 
-  // Resolve each crumb to a display label (fall back to the user name at the root).
+  // Resolve each crumb to a display label (fall back to the user name at the root). A web
+  // resource crumb shows its DISPLAYED title (webpage title / hostname) + favicon, not the raw
+  // URL that stays its stored title.
   const crumbs = useMemo(
     () =>
-      path.map((id, i) => ({
-        id,
-        label: getEntity(id)?.title ?? (i === 0 ? currentUser.name : id),
-      })),
+      path.map((id, i) => {
+        const e = getEntity(id)
+        const label = e?.webUrl
+          ? webDisplayTitle({ webUrl: e.webUrl, webResourceId: e.webResourceId, webTitle: e.webTitle })
+          : (e?.title ?? (i === 0 ? currentUser.name : id))
+        return { id, label, webUrl: e?.webUrl, webResourceId: e?.webResourceId }
+      }),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- rev re-reads titles after renames
     [path, mounted, rev],
   )
+
+  // WEB-TITLE RESOLUTION — for every VISIBLE web resource (the open context's children + the
+  // breadcrumb trail) that fronts an EXTERNAL http(s) URL but has no fetched `webTitle` yet,
+  // fetch the real page <title> via `/api/web-title` and persist it (so the label upgrades from
+  // hostname → real title, paired with the favicon). Attempts are tracked so a miss/failure is
+  // never retried in a loop; a success bumps to re-render. Best-effort and non-blocking.
+  const webTitleTriedRef = useRef<Set<string>>(new Set())
+  useEffect(() => {
+    if (!mounted) return
+    const candidates = [...children, ...path.map((id) => getEntity(id)).filter(Boolean)] as Entity[]
+    const seen = new Set<string>()
+    for (const e of candidates) {
+      if (seen.has(e.id)) continue
+      seen.add(e.id)
+      const url = e.webUrl
+      if (!url || e.webTitle || webTitleTriedRef.current.has(e.id)) continue
+      if (!/^https?:\/\//i.test(url)) continue // internal "/route" has no remote title
+      webTitleTriedRef.current.add(e.id)
+      fetch(`/api/web-title?url=${encodeURIComponent(url)}`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((data: { title?: string | null } | null) => {
+          if (data?.title && setWebTitle(e.id, data.title)) bump()
+        })
+        .catch(() => {})
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- children/path identity + rev drive rescans
+  }, [children, path, mounted, rev])
 
   // `create()` with no args = submit the main create field against the OPEN context (the
   // original behaviour). `create(rawArg, targetArg)` = create under an ARBITRARY context
@@ -773,8 +807,11 @@ export function Zero0Canvas() {
     if (entry.kind === null && looksLikeUrl(entry.title)) {
       const url = normalizeUrl(entry.title)
       const resource = resolveWebResourceByUrl(url)
+      // The entity's stored TITLE is the raw URL (the `--title`); the label shown in ENTITY
+      // CONTENT + breadcrumb is the DISPLAYED title (webpage title / hostname), resolved from
+      // `webUrl` + the best-effort fetched `webTitle` (see the web-title effect below).
       addWebResource({
-        title: webDisplayName(url, resource?.id),
+        title: url,
         url,
         contextId: target,
         resourceId: resource?.id,
@@ -1181,7 +1218,11 @@ export function Zero0Canvas() {
       const items: MenuItem[] = siblings.map((s) => ({
         type: "item",
         id: s.id,
-        label: s.title,
+        // A web resource sibling reads as its DISPLAYED title (webpage title / hostname), not
+        // the raw URL now stored as its title.
+        label: s.webUrl
+          ? webDisplayTitle({ webUrl: s.webUrl, webResourceId: s.webResourceId, webTitle: s.webTitle })
+          : s.title,
         glyphKind: s.kind,
         current: s.id === contextId,
       }))
@@ -1242,6 +1283,7 @@ export function Zero0Canvas() {
                 /
               </span>
             )}
+            {c.webUrl && <Zero0Favicon url={c.webUrl} resourceId={c.webResourceId} />}
             <button
               type="button"
               onClick={() => goToCrumb(i)}

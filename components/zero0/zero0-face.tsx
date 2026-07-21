@@ -3,6 +3,7 @@
 import type React from "react"
 import { useMemo, useRef, useState } from "react"
 import { Zero0Glyph } from "./zero0-glyph"
+import { Zero0Favicon } from "./zero0-favicon"
 import {
   getFaceModel,
   getFaceMetaRows,
@@ -301,6 +302,7 @@ function FaceBlock({
         onContextMenu={onContextMenu ? (ev) => onContextMenu(entity, ev) : undefined}
       >
         <FaceGlyph entity={entity} model={model} size="full" onToggleDone={onToggleDone} onTogglePlay={onTogglePlay} onMark={onMark} />
+        {model.webUrl && <Zero0Favicon url={model.webUrl} resourceId={model.webResourceId} className="self-center" />}
         {onOpen ? (
           <button
             type="button"
@@ -475,7 +477,9 @@ export function Zero0Face({
         )}
         {/* Title — click to DRILL IN. Only the TITLE TEXT is the drill target (v0.2.151): the
             button shrinks to its content (no longer flex-1), so clicking empty row space does
-            nothing. Strikethrough only when CANCELLED (plain closed just fades). */}
+            nothing. Strikethrough only when CANCELLED (plain closed just fades). A web resource
+            shows its FAVICON just before the displayed title (the diamond glyph stays). */}
+        {model.webUrl && <Zero0Favicon url={model.webUrl} resourceId={model.webResourceId} className="self-center" />}
         <button
           type="button"
           onClick={() => onOpen?.(entity)}
@@ -519,7 +523,9 @@ export function Zero0Face({
     return (
       <>
         <FaceGlyph entity={entity} model={model} size="m" onToggleDone={toggle} onTogglePlay={onTogglePlay} onMark={onMark} />
-        {/* Title-only drill (v0.2.151): shrinks to its text, inert spacer takes the rest. */}
+        {/* Title-only drill (v0.2.151): shrinks to its text, inert spacer takes the rest. Web
+            resource shows its favicon before the displayed title. */}
+        {model.webUrl && <Zero0Favicon url={model.webUrl} resourceId={model.webResourceId} className="self-center" />}
         <button
           type="button"
           onClick={() => onOpen?.(entity)}
@@ -553,6 +559,7 @@ export function Zero0Face({
     return (
       <>
         <Zero0Glyph kind={model.kind} className="h-3 w-3 shrink-0 text-muted-foreground" />
+        {model.webUrl && <Zero0Favicon url={model.webUrl} resourceId={model.webResourceId} className="self-center" />}
         <button
           type="button"
           onClick={onActivate}
