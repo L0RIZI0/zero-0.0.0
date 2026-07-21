@@ -51,7 +51,7 @@ import {
   parseHexColor,
   type EntryAttr,
 } from "@/lib/zero/create-parse"
-import { looksLikeUrl, normalizeUrl, resolveWebResourceByUrl, webDisplayTitle } from "@/lib/zero/web-resources"
+import { looksLikeUrl, normalizeUrl, resolveWebResourceByUrl, webLabel } from "@/lib/zero/web-resources"
 import { useZero0Flag, toggleZero0Flag } from "@/lib/zero/zero0-chord"
 import { useZeroCrossWindowSync } from "@/lib/zero/use-zero-sync"
 import { useNowSeconds } from "@/lib/zero/use-now"
@@ -467,16 +467,18 @@ export function Zero0Canvas() {
   }, [children])
 
   // Resolve each crumb to a display label (fall back to the user name at the root). A web
-  // resource crumb shows its DISPLAYED title (webpage title / hostname) + favicon, not the raw
-  // URL that stays its stored title.
+  // resource crumb shows its DISPLAYED title (page title for long URLs, else the URL) cropped to
+  // a max width + favicon, with the full title/URL in a hover tooltip; never the raw stored URL
+  // uncropped.
   const crumbs = useMemo(
     () =>
       path.map((id, i) => {
         const e = getEntity(id)
-        const label = e?.webUrl
-          ? webDisplayTitle({ webUrl: e.webUrl, webResourceId: e.webResourceId, webTitle: e.webTitle, title: e.title })
-          : (e?.title ?? (i === 0 ? currentUser.name : id))
-        return { id, label, webUrl: e?.webUrl, webResourceId: e?.webResourceId }
+        const web = e?.webUrl
+          ? webLabel({ webUrl: e.webUrl, webResourceId: e.webResourceId, webTitle: e.webTitle, title: e.title })
+          : null
+        const label = web ? web.display : (e?.title ?? (i === 0 ? currentUser.name : id))
+        return { id, label, tooltip: web?.tooltip, webUrl: e?.webUrl, webResourceId: e?.webResourceId }
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- rev re-reads titles after renames
     [path, mounted, rev],
@@ -1238,10 +1240,10 @@ export function Zero0Canvas() {
       const items: MenuItem[] = siblings.map((s) => ({
         type: "item",
         id: s.id,
-        // A web resource sibling reads as its DISPLAYED title (webpage title / hostname), not
-        // the raw URL now stored as its title.
+        // A web resource sibling reads as its DISPLAYED title (page title for long URLs, else the
+        // URL) cropped to a max width, not the raw stored URL.
         label: s.webUrl
-          ? webDisplayTitle({ webUrl: s.webUrl, webResourceId: s.webResourceId, webTitle: s.webTitle, title: s.title })
+          ? webLabel({ webUrl: s.webUrl, webResourceId: s.webResourceId, webTitle: s.webTitle, title: s.title }).display
           : s.title,
         glyphKind: s.kind,
         current: s.id === contextId,
@@ -1309,6 +1311,7 @@ export function Zero0Canvas() {
               onClick={() => goToCrumb(i)}
               disabled={last}
               aria-current={last ? "page" : undefined}
+              title={c.tooltip}
               className={
                 last
                   ? "text-foreground"

@@ -23,7 +23,7 @@ import { WHENEVER } from "./types"
 import { isDone, getCreatedAt, getCompletedOn } from "./entity-log"
 import { getEntity, getCreator, getOwner, getForwardTags, getBackReferences, getChildren } from "./data"
 import { formatLocale } from "./format-locale"
-import { webDisplayTitle } from "./web-resources"
+import { webLabel } from "./web-resources"
 
 // ── THE SIZE LADDER ──────────────────────────────────────────────────────────
 // XS and Full are the FIXED ends; the middle rungs are pragmatic presets, not
@@ -432,6 +432,10 @@ export interface FaceModel {
       glyph from the model alone, without an Entity in hand). */
   kind: EntityKind
   title: string
+  /** WEB RESOURCE only: a two-line hover string (full title + full URL) for a native `title`
+   *  attribute — since `title` above may be cropped to {@link WEB_TITLE_MAX_LEN}. undefined for
+   *  non-web entities (their button keeps the "Open" hint). */
+  titleTooltip?: string
   /** UPPERCASE kind label (e.g. "TASK", "MOMENT"). */
   kindLabel: string
   /** This kind carries the soft DONE axis (Task only today). */
@@ -484,15 +488,18 @@ export function getFaceModel(e: Entity, now: number): FaceModel {
   const requested = e.kind === "task" && !!e.requested
   const lifeLabel = state.word
   const occAction = occurrenceAction(e, now) // moment/space glyph: play / stop / reopen / null
-  // WEB RESOURCE display title: when this entity fronts a web surface, the label shown is the
-  // fetched webpage title (→ resource name → hostname), NOT the raw URL that stays its stored
-  // `title`. Non-web entities keep their title verbatim.
-  const title = e.webUrl
-    ? webDisplayTitle({ webUrl: e.webUrl, webResourceId: e.webResourceId, webTitle: e.webTitle, title: e.title })
-    : e.title
+  // WEB RESOURCE display title: when this entity fronts a web surface, the label is the fetched
+  // page title (only for URLs long enough to be worth it) else the URL, cropped to a max width
+  // with the full title+URL in a hover tooltip. Curated human names stay full. Non-web entities
+  // keep their title verbatim.
+  const web = e.webUrl
+    ? webLabel({ webUrl: e.webUrl, webResourceId: e.webResourceId, webTitle: e.webTitle, title: e.title })
+    : null
+  const title = web ? web.display : e.title
   return {
     kind: e.kind,
     title,
+    titleTooltip: web?.tooltip,
     webUrl: e.webUrl,
     webResourceId: e.webResourceId,
     kindLabel: km.label,

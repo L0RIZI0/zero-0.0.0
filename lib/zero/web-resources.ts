@@ -167,28 +167,62 @@ export function webDisplayName(url: string, resourceId?: string): string {
   return hostOf(url) ?? url
 }
 
-/** The DISPLAYED TITLE for a web resource — the label shown in ENTITY CONTENT + the
- *  breadcrumb (paired with the favicon). Preference:
- *    1. the fetched real webpage `<title>` (`webTitle`),
- *    2. the entity's own `title` WHEN it's a distinct human label (i.e. not just the raw
- *       URL) — this preserves curated seed names like "Interaction Matrix" / "Sugars",
- *    3. the known resource name / hostname / path (`webDisplayName`).
- *  For USER-CREATED resources the stored `title` IS the raw URL (equals `webUrl`), so step 2
- *  is skipped and we show the fetched title or the hostname — never the bare URL. `webTitle`
- *  is populated best-effort by `/api/web-title`. */
+/** A fetched page title is only worth substituting for a URL that's long enough to be worth
+ *  hiding; a short URL is already readable, so it's shown verbatim. */
+export const WEB_TITLE_MIN_URL_LEN = 15
+/** Displayed web-resource labels (fetched title / raw URL) are cropped to this many chars,
+ *  with the full text available via the hover tooltip. Curated human names are NOT cropped. */
+export const WEB_TITLE_MAX_LEN = 15
+
+/** The FULL (uncropped) displayed title for a web resource — the label shown in ENTITY CONTENT
+ *  + the breadcrumb (paired with the favicon). Preference:
+ *    1. the entity's own `title` WHEN it's a distinct human label (not just the raw URL) — this
+ *       preserves curated seed names like "Interaction Matrix" / catalog names like "Photopea";
+ *    2. the fetched real webpage `<title>` (`webTitle`), but ONLY when the URL is longer than
+ *       {@link WEB_TITLE_MIN_URL_LEN} (a short URL isn't worth replacing);
+ *    3. otherwise the raw URL itself (short URL, or long URL with no fetched title).
+ *  `webTitle` is populated best-effort by `/api/web-title` (web) or the desktop IPC bridge. */
 export function webDisplayTitle(opts: {
   webUrl?: string
   webResourceId?: string
   webTitle?: string
   title?: string
 }): string {
-  const { webUrl, webResourceId, webTitle, title } = opts
-  const fetched = webTitle?.trim()
-  if (fetched) return fetched
+  const { webUrl, webTitle, title } = opts
   const own = title?.trim()
   if (own && own !== webUrl) return own // curated human label, not the raw URL
-  if (webUrl) return webDisplayName(webUrl, webResourceId)
-  return own ?? webUrl ?? ""
+  if (!webUrl) return own ?? ""
+  const fetched = webTitle?.trim()
+  if (fetched && webUrl.length > WEB_TITLE_MIN_URL_LEN) return fetched
+  return webUrl // short URL, or no fetched page title → the URL itself
+}
+
+/** Crop a label to {@link WEB_TITLE_MAX_LEN} chars, appending an ellipsis when it overflows. */
+export function cropTitle(s: string, max = WEB_TITLE_MAX_LEN): string {
+  const t = s ?? ""
+  return t.length > max ? `${t.slice(0, max).trimEnd()}…` : t
+}
+
+/** Everything a renderer needs to show a web-resource label:
+ *    • `display` — what to render: the fetched-title / raw-URL cropped to {@link WEB_TITLE_MAX_LEN}
+ *      (a curated human name is shown in full, never cropped);
+ *    • `full`    — the full, uncropped chosen label;
+ *    • `tooltip` — a two-line hover string: the full label (when it differs from the URL) then the
+ *      full URL, for a native `title` attribute.
+ *  Single source of truth so ENTITY CONTENT + breadcrumb + siblings menu stay consistent. */
+export function webLabel(opts: { webUrl?: string; webResourceId?: string; webTitle?: string; title?: string }): {
+  display: string
+  full: string
+  tooltip: string
+} {
+  const { webUrl, title } = opts
+  const own = title?.trim()
+  const curated = !!(own && webUrl && own !== webUrl)
+  const full = webDisplayTitle(opts)
+  const display = curated ? full : cropTitle(full)
+  const url = webUrl ?? ""
+  const tooltip = url ? (full && full !== url ? `${full}\n${url}` : url) : full
+  return { display, full, tooltip }
 }
 
 /**

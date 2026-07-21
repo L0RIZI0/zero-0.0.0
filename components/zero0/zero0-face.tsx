@@ -312,12 +312,17 @@ function FaceBlock({
             className={
               "text-foreground underline-offset-2 hover-underline-any " + (model.cancelled ? "line-through" : "")
             }
-            title="Open"
+            title={model.titleTooltip ?? "Open"}
           >
             {titleText}
           </button>
         ) : (
-          <span className={"text-foreground " + (model.cancelled ? "line-through" : "")}>{titleText}</span>
+          <span
+            title={model.titleTooltip}
+            className={"text-foreground " + (model.cancelled ? "line-through" : "")}
+          >
+            {titleText}
+          </span>
         )}
         <span className="text-[10px] uppercase tracking-wider text-muted-foreground">{model.kindLabel}</span>
         {trailing}
@@ -489,7 +494,7 @@ export function Zero0Face({
             "min-w-0 shrink truncate text-left text-foreground underline-offset-2 hover-underline-any " +
             (model.cancelled ? "line-through" : "")
           }
-          title="Open"
+          title={model.titleTooltip ?? "Open"}
         >
           {hiddenPrefix ? `(hidden) ${model.title}` : model.title}
         </button>
@@ -535,7 +540,7 @@ export function Zero0Face({
             "min-w-0 shrink truncate text-left text-foreground underline-offset-2 hover-underline-any " +
             (model.cancelled ? "line-through" : "")
           }
-          title="Open"
+          title={model.titleTooltip ?? "Open"}
         >
           {hiddenPrefix ? `(hidden) ${model.title}` : model.title}
         </button>
@@ -570,7 +575,7 @@ export function Zero0Face({
             (titleClassName ?? "flex-1") +
             " truncate text-left text-foreground transition-colors hover:text-muted-foreground"
           }
-          title={model.title}
+          title={model.titleTooltip ?? model.title}
         >
           {model.title}
         </button>
