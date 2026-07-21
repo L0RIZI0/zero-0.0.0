@@ -601,7 +601,7 @@ export function getScheduleCells(e: Entity, now: number): { start: ScheduleCell[
   const cs = concreteStart(e) // concrete started moment, else null ("whenever"/unset)
   const liveOngoing = cs != null && s?.endAt == null // started, not yet ended → END pulses "ongoing"
   const startText0 = s?.startAt ? fmt(s.startAt) : "— (none scheduled)"
-  const endText0 = liveOngoing ? "ongoing" : s?.endAt ? fmt(s.endAt) : "�� (none scheduled)"
+  const endText0 = liveOngoing ? "ongoing" : s?.endAt ? fmt(s.endAt) : "— (none scheduled)"
   // Pad the scheduled prefix so the FIRST archived column starts at the same x in both rows.
   const schedW = Math.max(startText0.length, endText0.length)
   const start: ScheduleCell[] = [

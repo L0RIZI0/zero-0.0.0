@@ -432,14 +432,10 @@ export function Zero0Canvas() {
   )
   // eslint-disable-next-line react-hooks/exhaustive-deps -- rev/contextId are the intended re-read triggers
   const children = useMemo(() => (mounted ? getChildren(contextId) : []), [mounted, rev, contextId])
-  // SIBLINGS: the children of the open node's PARENT — i.e. entities at the same depth on
-  // the same branch. `path[len-2]` is the parent (undefined at the root, which has no
-  // parent within the drill path, so no siblings there). Surfaced via the breadcrumb's
-  // trailing chevron as a stable dropdown of ALL same-parent children (current one marked)
-  // — lateral shortcuts to switch branch without climbing a crumb and drilling back in.
-  const parentId = path.length >= 2 ? path[path.length - 2] : undefined
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- rev/parentId are the intended re-read triggers
-  const siblings = useMemo(() => (mounted && parentId ? getChildren(parentId) : []), [mounted, rev, parentId])
+  // SIBLINGS (entities at the same depth on the same branch = a crumb's parent's children) are
+  // now resolved PER-CRUMB: each breadcrumb crumb carries its own `siblingCount`, and its
+  // left-hand caret opens that level's sibling dropdown on demand (openSiblingsAt). No single
+  // "current level" memo is needed anymore.
 
   // ENTITIES readout breakdown over the direct children, by STATE:
   //   • open     — still open (word "open"); the true "to-do / live" count.
@@ -469,7 +465,8 @@ export function Zero0Canvas() {
   // Resolve each crumb to a display label (fall back to the user name at the root). A web
   // resource crumb shows its DISPLAYED title (page title for long URLs, else the URL) cropped to
   // a max width + favicon, with the full title/URL in a hover tooltip; never the raw stored URL
-  // uncropped.
+  // uncropped. `siblingCount` = how many entities sit at this crumb's level (its parent's
+  // children); drives the per-crumb sibling-switch caret (>1 ⇒ there's somewhere to switch to).
   const crumbs = useMemo(
     () =>
       path.map((id, i) => {
@@ -478,7 +475,8 @@ export function Zero0Canvas() {
           ? webLabel({ webUrl: e.webUrl, webResourceId: e.webResourceId, webTitle: e.webTitle, title: e.title })
           : null
         const label = web ? web.display : (e?.title ?? (i === 0 ? currentUser.name : id))
-        return { id, label, tooltip: web?.tooltip, webUrl: e?.webUrl, webResourceId: e?.webResourceId }
+        const siblingCount = i > 0 ? getChildren(path[i - 1]).length : 0
+        return { id, label, tooltip: web?.tooltip, webUrl: e?.webUrl, webResourceId: e?.webResourceId, siblingCount }
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- rev re-reads titles after renames
     [path, mounted, rev],
@@ -970,11 +968,13 @@ export function Zero0Canvas() {
     [],
   )
 
-  // Open a SIBLING (tab click): swap just the leaf of the path, keeping the breadcrumb
-  // prefix identical (siblings share a parent, so only the last crumb changes). The
+  // Switch a SIBLING at crumb depth `i` (from that crumb's left-hand caret): truncate the
+  // path to that depth and swap in the chosen sibling. For the LEAF (i = last) this just
+  // swaps the last crumb, keeping the prefix identical; for an ANCESTOR it re-roots to the
+  // sibling branch (the deeper crumbs belonged to the old branch and can't carry over). The
   // `contextId`-effect then re-logs presence, so the activity tracker refocuses as usual.
-  const goToSibling = useCallback((id: string) => {
-    setPath((p) => (p.length >= 2 ? [...p.slice(0, -1), id] : [ROOT_ID, id]))
+  const goToSiblingAt = useCallback((i: number, id: string) => {
+    setPath((p) => [...p.slice(0, i), id])
   }, [])
 
   // Jump to an ARBITRARY entity (e.g. clicked in the activity view), rebuilding the drill
@@ -1225,19 +1225,21 @@ export function Zero0Canvas() {
     [minimized, showMenu],
   )
 
-  // SIBLINGS dropdown — opened from the chevron beside the breadcrumb. Lists ALL of the
-  // open node's same-parent children (INCLUDING the current one, marked), in their stable
-  // child order. Listing all — not just the "others" — means the menu's contents + order
-  // NEVER change as you switch: only which row is marked current moves. Picking one drills
-  // laterally (goToSibling; picking the current is a harmless no-op). Behind a chevron so
-  // the visible header never reshuffles; routed through `showMenu`, so over a web Resource
-  // it draws in the native overlay (unoccluded).
-  const openSiblings = useCallback(
-    (ev: React.MouseEvent) => {
+  // SIBLINGS dropdown — opened from the caret to the LEFT of a crumb (any depth except root).
+  // Lists ALL entities at that crumb's level (its parent's children, INCLUDING the current one,
+  // marked), in their stable child order. Listing all — not just the "others" — means the menu's
+  // contents + order NEVER change as you switch: only which row is marked current moves. Picking
+  // one drills laterally at that depth (goToSiblingAt; picking the current is a harmless no-op).
+  // Routed through `showMenu`, so over a web Resource it draws in the native overlay (unoccluded).
+  const openSiblingsAt = useCallback(
+    (i: number, ev: React.MouseEvent) => {
       ev.preventDefault()
       ev.stopPropagation()
-      if (siblings.length < 2) return
-      const items: MenuItem[] = siblings.map((s) => ({
+      const parent = i > 0 ? path[i - 1] : undefined
+      const sibs = parent ? getChildren(parent) : []
+      if (sibs.length < 2) return
+      const current = path[i]
+      const items: MenuItem[] = sibs.map((s) => ({
         type: "item",
         id: s.id,
         // A web resource sibling reads as its DISPLAYED title (page title for long URLs, else the
@@ -1246,11 +1248,11 @@ export function Zero0Canvas() {
           ? webLabel({ webUrl: s.webUrl, webResourceId: s.webResourceId, webTitle: s.webTitle, title: s.title }).display
           : s.title,
         glyphKind: s.kind,
-        current: s.id === contextId,
+        current: s.id === current,
       }))
-      showMenu(items, ev.clientX, ev.clientY, (id) => goToSibling(id))
+      showMenu(items, ev.clientX, ev.clientY, (id) => goToSiblingAt(i, id))
     },
-    [siblings, contextId, showMenu, goToSibling],
+    [path, showMenu, goToSiblingAt],
   )
 
   // Detect the Electron desktop shell (only there do native web views occlude the DOM).
@@ -1305,6 +1307,21 @@ export function Zero0Canvas() {
                 /
               </span>
             )}
+            {/* SIBLING caret — to the LEFT of every crumb except root. Shown only when this
+                level has more than one entity (its parent's children). Click → a dropdown of
+                ALL those siblings (openSiblingsAt), current one marked; picking one drills
+                laterally at this depth. Behind a caret so the header never reshuffles. */}
+            {i > 0 && c.siblingCount > 1 && (
+              <button
+                type="button"
+                onClick={(ev) => openSiblingsAt(i, ev)}
+                aria-label={`Switch sibling (${c.siblingCount} at this level)`}
+                title="Switch sibling"
+                className="leading-none text-muted-foreground hover:text-foreground"
+              >
+                {"\u25BE"}
+              </button>
+            )}
             {c.webUrl && <Zero0Favicon url={c.webUrl} resourceId={c.webResourceId} />}
             <button
               type="button"
@@ -1320,24 +1337,20 @@ export function Zero0Canvas() {
             >
               {c.label}
             </button>
+            {/* CLOSE — to the RIGHT of every crumb except root. Closes THAT entity: parks/
+                destroys its web view and climbs the path out to its parent (closeContext).
+                Root (Loris) is the fixed anchor, so it carries neither caret nor close. */}
+            {i > 0 && (
+              <Zero0CloseButton
+                onClick={() => {
+                  const ent = getEntity(c.id)
+                  if (ent) closeContext(ent)
+                }}
+              />
+            )}
           </span>
         )
       })}
-      {/* SIBLINGS chevron — a compact affordance at the end of the trail, shown only when
-          the open node has same-parent siblings to switch between. Click → a dropdown of
-          ALL those siblings (openSiblings), current one marked. Behind a chevron so the
-          header stays STABLE: switching siblings never reshuffles a visible tab list. */}
-      {siblings.length > 1 && (
-        <button
-          type="button"
-          onClick={openSiblings}
-          aria-label={`Switch sibling (${siblings.length} at this level)`}
-          title="Switch sibling"
-          className="ml-0.5 leading-none text-muted-foreground hover:text-foreground"
-        >
-          {"\u25BE"}
-        </button>
-      )}
     </nav>
   )
 
@@ -1346,7 +1359,7 @@ export function Zero0Canvas() {
       className="relative flex h-screen flex-col bg-background text-foreground"
       style={{ fontFamily: "var(--font-zero0-mono), ui-monospace, monospace" }}
     >
-      {/* ── GLUED TOP: live clock ──────────��───────���─���─────────────────────────
+      {/* ── GLUED TOP: live clock ───────��──��───────���─���─────────────────────────
           Permanent top chrome (mirrors the footer's glued-bottom role): the live full
           date + time WITH seconds, top-left. Always present �� for any open entity, and
           regardless of which frames are toggled below. `min-h` reserves its row so the
