@@ -1310,26 +1310,27 @@ export function Zero0Canvas() {
               if (ent) openMenu(ent, ev)
             }}
           >
-            {i > 0 && (
-              <span className="text-muted-foreground/50" aria-hidden>
-                /
-              </span>
-            )}
-            {/* SIBLING caret — to the LEFT of every crumb except root. Shown only when this
-                level has more than one entity (its parent's children). Click → a dropdown of
-                ALL those siblings (openSiblingsAt), current one marked; picking one drills
-                laterally at this depth. Behind a caret so the header never reshuffles. */}
-            {i > 0 && c.siblingCount > 1 && (
-              <button
-                type="button"
-                onClick={(ev) => openSiblingsAt(i, ev)}
-                aria-label={`Switch sibling (${c.siblingCount} at this level)`}
-                title="Switch sibling"
-                className="leading-none text-muted-foreground hover:text-foreground"
-              >
-                {"\u25BE"}
-              </button>
-            )}
+            {/* SEPARATOR "/" — doubles as the SIBLING switcher. The "/" preceding a crumb (any
+                depth except root) opens a dropdown of ALL entities at THAT crumb's level
+                (openSiblingsAt), current one marked; picking one drills laterally at this depth.
+                It's only interactive when the level has more than one entity (siblingCount > 1);
+                otherwise it's a plain muted "/". This replaces the old dedicated ▾ caret. */}
+            {i > 0 &&
+              (c.siblingCount > 1 ? (
+                <button
+                  type="button"
+                  onClick={(ev) => openSiblingsAt(i, ev)}
+                  aria-label={`Switch sibling (${c.siblingCount} at this level)`}
+                  title="Switch sibling"
+                  className="text-muted-foreground/50 hover:text-foreground"
+                >
+                  /
+                </button>
+              ) : (
+                <span className="text-muted-foreground/50" aria-hidden>
+                  /
+                </span>
+              ))}
             {c.webUrl && <Zero0Favicon url={c.webUrl} resourceId={c.webResourceId} />}
             <button
               type="button"
@@ -1353,7 +1354,7 @@ export function Zero0Canvas() {
             {i > 0 ? (
               <Zero0CloseButton
                 iconClassName="h-2 w-2"
-                className="relative top-[1px] -ml-0.5 -mr-1"
+                className="-ml-0.5 -mr-1"
                 onClick={() => {
                   const ent = getEntity(c.id)
                   if (ent) closeContext(ent)
@@ -1591,7 +1592,7 @@ export function Zero0Canvas() {
                 ) : undefined
               }
             />
-            {/* LIFE LOG — the whole append-only history (lifecycle transitions AND field
+            {/* LIFE LOG �� the whole append-only history (lifecycle transitions AND field
                 sets), oldest→newest, so the entity's entire life is retraceable. Every
                 setter dual-writes here; a per-field history is just this list filtered. */}
             {mounted && context.log && context.log.length > 0 && (
