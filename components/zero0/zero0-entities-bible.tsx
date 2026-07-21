@@ -65,8 +65,8 @@ type Cell = {
   /**
    * If set, the cell renders this kind's ontology glyph as a small LEADING badge ALONGSIDE its
    * editable text (unlike `glyph`, which replaces the content). The glyph is drawn in its base
-   * OPEN state — outline, no fill — i.e. identical to the "Glyph" row. Used on the "Creatable?"
-   * row to show, per kind, the shape a freshly-created (open-state) entity takes.
+   * OPEN state — outline, no fill — i.e. identical to the "Glyph" row. Used on the "State: open"
+   * row to show, per kind, the shape an open-state entity takes.
    */
   glyphInline?: EntityKind
   /** A cell-level footnote (rendered as a corner marker + a numbered entry below the table). */
@@ -234,7 +234,6 @@ const ROWS: RowDef[] = [
   {
     id: "r-terminal",
     label: "Terminal end",
-    glyphInline: true,
     cells: {
       individual: "death",
       organism: "death",
@@ -245,6 +244,7 @@ const ROWS: RowDef[] = [
     id: "r-open",
     label: "State: open",
     labelColor: C.open,
+    glyphInline: true,
     cells: {
       space: "Live; empty or holding open things (outline)",
       task: "A live to-do (outline)",
