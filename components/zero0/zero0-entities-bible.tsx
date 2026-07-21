@@ -673,6 +673,7 @@ export function Zero0EntitiesBible() {
     width: number
     scrollLeft: number
     colW: number[]
+    open: boolean
   } | null>(null)
   const [menu, setMenu] = useState<Menu | null>(null)
   const [picker, setPicker] = useState<Picker | null>(null)
@@ -800,17 +801,19 @@ export function Zero0EntitiesBible() {
       const trigger = triggerRowRef.current
       const wrapRect = wrap.getBoundingClientRect()
       const triggerBottom = trigger ? trigger.getBoundingClientRect().bottom : Infinity
-      // Appear only after the Glyph+Name rows have scrolled past the top, while the table is still
-      // on screen (leave ~48px so it doesn't flash for a sliver of remaining table).
-      if (triggerBottom > 0 || wrapRect.bottom < 48) {
-        setStickyHead((s) => (s ? null : s))
-        return
-      }
+      // Open only after the Glyph+Name rows have scrolled past the top, while the table is still on
+      // screen (leave ~48px so it doesn't flash for a sliver of remaining table). We keep the header
+      // MOUNTED and toggle `open` so it can transition in/out smoothly rather than pop.
+      const open = triggerBottom <= 0 && wrapRect.bottom >= 48
       const firstRow = table.querySelector("tbody tr")
       const colW = firstRow
         ? Array.from(firstRow.children).map((c) => (c as HTMLElement).getBoundingClientRect().width)
         : []
-      setStickyHead({ left: wrapRect.left, width: wrapRect.width, scrollLeft: wrap.scrollLeft, colW })
+      setStickyHead((s) => {
+        // Once closed and never re-opened, drop it entirely to avoid an empty fixed layer.
+        if (!open && !s) return null
+        return { left: wrapRect.left, width: wrapRect.width, scrollLeft: wrap.scrollLeft, colW, open }
+      })
     }
     const onScroll = () => {
       if (!raf) raf = requestAnimationFrame(compute)
@@ -1282,8 +1285,11 @@ export function Zero0EntitiesBible() {
           each column's glyph + name, aligned to the live column widths and horizontal scroll. */}
       {stickyHead && (
         <div
-          aria-hidden="true"
-          className="fixed top-0 z-40 overflow-hidden rounded-b-md border-x border-b border-border bg-background/85 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-background/70"
+          aria-hidden={!stickyHead.open}
+          className={
+            "fixed top-0 z-40 overflow-hidden rounded-b-md border-x border-b border-border bg-background/85 shadow-sm backdrop-blur transition-[opacity,transform] duration-200 ease-out supports-[backdrop-filter]:bg-background/70 motion-reduce:transition-none " +
+            (stickyHead.open ? "translate-y-0 opacity-100" : "pointer-events-none -translate-y-full opacity-0")
+          }
           style={{ left: stickyHead.left, width: stickyHead.width }}
         >
           <div className="flex" style={{ transform: `translateX(${-stickyHead.scrollLeft}px)`, willChange: "transform" }}>
