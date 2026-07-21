@@ -123,6 +123,81 @@ const draftColorHex = (draft: string): string | null => {
  * (tokens + a page-local `--font-zero0-mono`), so `/1` + `/2` keep Geist.
  */
 
+type CrumbState = "entering" | "stable" | "leaving"
+type Crumb = {
+  id: string
+  label: string
+  tooltip?: string
+  webUrl?: string
+  webResourceId?: string
+  siblingCount: number
+  idx: number
+  isLast: boolean
+}
+type DisplayCrumb = Crumb & { state: CrumbState }
+
+// Breadcrumb enter/exit choreography. Diffs the incoming crumb trail against what's on screen:
+// brand-new crumbs start `entering` (collapsed → flipped to `stable` next frame so CSS grows
+// them in), and crumbs that dropped out are retained as `leaving` (collapsed) until their
+// transition finishes, then unmounted. The very first population (mount, or empty → seeded) is
+// NOT animated — only genuine navigations after that. The collapse/expand itself is pure CSS
+// (`.zero0-crumb-wrap`); this hook only orchestrates which crumbs exist + their state.
+const CRUMB_ANIM_MS = 240
+function useCrumbTransitions(crumbs: Crumb[]): DisplayCrumb[] {
+  const [display, setDisplay] = useState<DisplayCrumb[]>(() => crumbs.map((c) => ({ ...c, state: "stable" })))
+  const seeded = useRef(false)
+
+  useEffect(() => {
+    const initial = !seeded.current
+    setDisplay((prev) => {
+      const prevById = new Map(prev.map((d) => [d.id, d]))
+      const currentIds = new Set(crumbs.map((c) => c.id))
+      const next: DisplayCrumb[] = crumbs.map((c) => {
+        const ex = prevById.get(c.id)
+        // Carry a still-`entering` state forward; anything new (or a re-entered id whose old copy
+        // was leaving) starts `entering`. On the initial seed, everything is `stable` (no anim).
+        const state: CrumbState = initial ? "stable" : ex && ex.state !== "leaving" ? ex.state : "entering"
+        return { ...c, state }
+      })
+      if (!initial) {
+        for (const d of prev) {
+          if (!currentIds.has(d.id) && d.state !== "leaving") next.push({ ...d, state: "leaving" })
+        }
+      }
+      return next
+    })
+    if (crumbs.length > 0) seeded.current = true
+  }, [crumbs])
+
+  // Advance `entering` → `stable` on the next frame (double rAF so the collapsed initial state
+  // paints first, giving the transition something to animate from), and drop `leaving` crumbs
+  // once their exit transition has run.
+  useEffect(() => {
+    let raf1 = 0
+    let raf2 = 0
+    let timer = 0
+    if (display.some((d) => d.state === "entering")) {
+      raf1 = requestAnimationFrame(() => {
+        raf2 = requestAnimationFrame(() => {
+          setDisplay((d) => d.map((x) => (x.state === "entering" ? { ...x, state: "stable" } : x)))
+        })
+      })
+    }
+    if (display.some((d) => d.state === "leaving")) {
+      timer = window.setTimeout(() => {
+        setDisplay((d) => d.filter((x) => x.state !== "leaving"))
+      }, CRUMB_ANIM_MS + 40)
+    }
+    return () => {
+      if (raf1) cancelAnimationFrame(raf1)
+      if (raf2) cancelAnimationFrame(raf2)
+      if (timer) clearTimeout(timer)
+    }
+  }, [display])
+
+  return display
+}
+
 // A tiny dep-free × button (the zero0 tree avoids lucide). Explicitly CLOSES the open
 // entity — for a web resource that destroys its warm tab; otherwise it just climbs out.
 function Zero0CloseButton({
@@ -484,11 +559,25 @@ export function Zero0Canvas() {
           : null
         const label = web ? web.display : (e?.title ?? (i === 0 ? currentUser.name : id))
         const siblingCount = i > 0 ? getChildren(path[i - 1]).length : 0
-        return { id, label, tooltip: web?.tooltip, webUrl: e?.webUrl, webResourceId: e?.webResourceId, siblingCount }
+        return {
+          id,
+          label,
+          tooltip: web?.tooltip,
+          webUrl: e?.webUrl,
+          webResourceId: e?.webResourceId,
+          siblingCount,
+          idx: i,
+          isLast: i === path.length - 1,
+        }
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- rev re-reads titles after renames
     [path, mounted, rev],
   )
+
+  // Animate the breadcrumb: newly-drilled crumbs grow/fade IN and removed (climbed-out /
+  // closed / swapped) crumbs shrink/fade OUT, instead of the trail snapping. Returns the crumbs
+  // to render, each tagged with a transition `state`.
+  const displayCrumbs = useCrumbTransitions(crumbs)
 
   // WEB-TITLE RESOLUTION — for every VISIBLE web resource (the open context's children + the
   // breadcrumb trail) that has no fetched `webTitle` yet, fetch the real page <title> via
@@ -1296,72 +1385,80 @@ export function Zero0Canvas() {
   // to that depth, right-click targets that entity. In the full layout it's the value
   // of the CONTEXT row; minimized, it stands alone.
   const breadcrumb = (
-    <nav className="flex flex-wrap items-center gap-1" aria-label="Breadcrumb">
-      {crumbs.map((c, i) => {
-        const last = i === crumbs.length - 1
+    <nav className="flex flex-wrap items-center" aria-label="Breadcrumb">
+      {displayCrumbs.map((c) => {
+        // A `leaving` crumb is animating out — never treat it as the current page.
+        const last = c.isLast && c.state !== "leaving"
+        const isRoot = c.idx === 0
         return (
-          <span
-            key={c.id}
-            className="zero0-crumb flex items-center gap-1"
-            onContextMenu={(ev) => {
-              // Right-click a crumb → THAT entity's menu (same as its row). Handled on the
-              // span so it fires even for the current/last crumb, whose button is disabled.
-              const ent = getEntity(c.id)
-              if (ent) openMenu(ent, ev)
-            }}
-          >
-            {/* SEPARATOR "/" — doubles as the SIBLING switcher. The "/" preceding a crumb (any
-                depth except root) opens a dropdown of ALL entities at THAT crumb's level
-                (openSiblingsAt), current one marked; picking one drills laterally at this depth.
-                It's only interactive when the level has more than one entity (siblingCount > 1);
-                otherwise it's a plain muted "/". This replaces the old dedicated ▾ caret. */}
-            {i > 0 &&
-              (c.siblingCount > 1 ? (
+          // WRAP + INNER = the enter/exit collapse. `.zero0-crumb-wrap` is a grid that animates
+          // its column 1fr↔0fr (with opacity), so a crumb grows IN / shrinks OUT to its content
+          // width, pushing the rest of the trail smoothly instead of snapping. `.zero0-crumb-inner`
+          // clips the overflow during the collapse. `data-state` drives it (see globals.css).
+          <span key={c.id} className="zero0-crumb-wrap" data-state={c.state}>
+            <span className="zero0-crumb-inner">
+              <span
+                className="zero0-crumb flex items-center gap-1"
+                onContextMenu={(ev) => {
+                  // Right-click a crumb → THAT entity's menu (same as its row). Handled on the
+                  // span so it fires even for the current/last crumb, whose button is disabled.
+                  const ent = getEntity(c.id)
+                  if (ent) openMenu(ent, ev)
+                }}
+              >
+                {/* SEPARATOR "/" — doubles as the SIBLING switcher AND carries the inter-crumb
+                    spacing (ml) so it collapses WITH the crumb (nav has no flex gap anymore).
+                    The "/" preceding a crumb (any depth except root) opens a dropdown of ALL
+                    entities at THAT crumb's level (openSiblingsAt), current one marked; picking
+                    one drills laterally at this depth. Interactive only when siblingCount > 1;
+                    otherwise a plain muted "/". */}
+                {!isRoot &&
+                  (c.siblingCount > 1 ? (
+                    <button
+                      type="button"
+                      onClick={(ev) => openSiblingsAt(c.idx, ev)}
+                      aria-label={`Switch sibling (${c.siblingCount} at this level)`}
+                      title="Switch sibling"
+                      className="ml-1 mr-0.5 text-muted-foreground/50 hover:text-foreground"
+                    >
+                      /
+                    </button>
+                  ) : (
+                    <span className="ml-1 mr-0.5 text-muted-foreground/50" aria-hidden>
+                      /
+                    </span>
+                  ))}
+                {c.webUrl && <Zero0Favicon url={c.webUrl} resourceId={c.webResourceId} />}
                 <button
                   type="button"
-                  onClick={(ev) => openSiblingsAt(i, ev)}
-                  aria-label={`Switch sibling (${c.siblingCount} at this level)`}
-                  title="Switch sibling"
-                  className="mr-0.5 text-muted-foreground/50 hover:text-foreground"
+                  onClick={() => goToCrumb(c.idx)}
+                  disabled={last}
+                  aria-current={last ? "page" : undefined}
+                  title={c.tooltip}
+                  className={
+                    last
+                      ? "text-foreground"
+                      : "text-muted-foreground hover:text-foreground underline-offset-2 hover:underline"
+                  }
                 >
-                  /
+                  {c.label}
                 </button>
-              ) : (
-                <span className="mr-0.5 text-muted-foreground/50" aria-hidden>
-                  /
-                </span>
-              ))}
-            {c.webUrl && <Zero0Favicon url={c.webUrl} resourceId={c.webResourceId} />}
-            <button
-              type="button"
-              onClick={() => goToCrumb(i)}
-              disabled={last}
-              aria-current={last ? "page" : undefined}
-              title={c.tooltip}
-              className={
-                last
-                  ? "text-foreground"
-                  : "text-muted-foreground hover:text-foreground underline-offset-2 hover:underline"
-              }
-            >
-              {c.label}
-            </button>
-            {/* CLOSE — to the RIGHT of every crumb except root. Hidden with zero footprint at
-                rest (`.zero0-crumb-close` in globals.css), fades + expands in on crumb hover,
-                pushing the following "/" and deeper crumbs right. Closes THAT entity: parks/
-                destroys its web view and climbs the path out (closeContext). Root (Loris) has
-                no close at all — at rest every crumb's close is zero-width, so root's trailing
-                "/" already aligns with the rest; no spacer needed. */}
-            {i > 0 && (
-              <Zero0CloseButton
-                iconClassName="h-2 w-2"
-                className="zero0-crumb-close"
-                onClick={() => {
-                  const ent = getEntity(c.id)
-                  if (ent) closeContext(ent)
-                }}
-              />
-            )}
+                {/* CLOSE — to the RIGHT of every crumb except root. Hidden with zero footprint at
+                    rest (`.zero0-crumb-close` in globals.css), fades + expands in on crumb hover,
+                    pushing the following "/" and deeper crumbs right. Closes THAT entity: parks/
+                    destroys its web view and climbs the path out (closeContext). */}
+                {!isRoot && (
+                  <Zero0CloseButton
+                    iconClassName="h-2 w-2"
+                    className="zero0-crumb-close"
+                    onClick={() => {
+                      const ent = getEntity(c.id)
+                      if (ent) closeContext(ent)
+                    }}
+                  />
+                )}
+              </span>
+            </span>
           </span>
         )
       })}
