@@ -33,11 +33,12 @@ function extractTitle(html: string): string | null {
 export async function GET(request: NextRequest) {
   const url = request.nextUrl.searchParams.get("url")
   if (!url) return NextResponse.json({ error: "Missing url" }, { status: 400 })
-  // Only fetch real external http(s) pages. Internal Zero routes ("/vision") and other
-  // schemes have no remote <title> to read.
+  // Resolve the target. Root-relative INTERNAL Zero routes ("/vision") are pinned to this
+  // request's own origin so we read their real page <title> too — they're same-origin Next
+  // pages. External URLs parse as-is; other schemes have no remote <title> to read.
   let parsed: URL
   try {
-    parsed = new URL(url)
+    parsed = url.startsWith("/") ? new URL(url, request.nextUrl.origin) : new URL(url)
   } catch {
     return NextResponse.json({ title: null })
   }

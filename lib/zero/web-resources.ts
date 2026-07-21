@@ -168,17 +168,27 @@ export function webDisplayName(url: string, resourceId?: string): string {
 }
 
 /** The DISPLAYED TITLE for a web resource — the label shown in ENTITY CONTENT + the
- *  breadcrumb (paired with the favicon), DISTINCT from the entity's stored `title` (the
- *  raw URL). Preference: the fetched real webpage `<title>` (`webTitle`) → the known
- *  resource name / hostname (`webDisplayName`) → the raw URL. `webTitle` is populated
- *  best-effort by `/api/web-title`; until then the hostname stands in so a fresh resource
- *  still reads cleanly. */
-export function webDisplayTitle(opts: { webUrl?: string; webResourceId?: string; webTitle?: string }): string {
-  const { webUrl, webResourceId, webTitle } = opts
-  const t = webTitle?.trim()
-  if (t) return t
+ *  breadcrumb (paired with the favicon). Preference:
+ *    1. the fetched real webpage `<title>` (`webTitle`),
+ *    2. the entity's own `title` WHEN it's a distinct human label (i.e. not just the raw
+ *       URL) — this preserves curated seed names like "Interaction Matrix" / "Sugars",
+ *    3. the known resource name / hostname / path (`webDisplayName`).
+ *  For USER-CREATED resources the stored `title` IS the raw URL (equals `webUrl`), so step 2
+ *  is skipped and we show the fetched title or the hostname — never the bare URL. `webTitle`
+ *  is populated best-effort by `/api/web-title`. */
+export function webDisplayTitle(opts: {
+  webUrl?: string
+  webResourceId?: string
+  webTitle?: string
+  title?: string
+}): string {
+  const { webUrl, webResourceId, webTitle, title } = opts
+  const fetched = webTitle?.trim()
+  if (fetched) return fetched
+  const own = title?.trim()
+  if (own && own !== webUrl) return own // curated human label, not the raw URL
   if (webUrl) return webDisplayName(webUrl, webResourceId)
-  return webUrl ?? ""
+  return own ?? webUrl ?? ""
 }
 
 /**

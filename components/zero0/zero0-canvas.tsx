@@ -474,7 +474,7 @@ export function Zero0Canvas() {
       path.map((id, i) => {
         const e = getEntity(id)
         const label = e?.webUrl
-          ? webDisplayTitle({ webUrl: e.webUrl, webResourceId: e.webResourceId, webTitle: e.webTitle })
+          ? webDisplayTitle({ webUrl: e.webUrl, webResourceId: e.webResourceId, webTitle: e.webTitle, title: e.title })
           : (e?.title ?? (i === 0 ? currentUser.name : id))
         return { id, label, webUrl: e?.webUrl, webResourceId: e?.webResourceId }
       }),
@@ -483,10 +483,11 @@ export function Zero0Canvas() {
   )
 
   // WEB-TITLE RESOLUTION — for every VISIBLE web resource (the open context's children + the
-  // breadcrumb trail) that fronts an EXTERNAL http(s) URL but has no fetched `webTitle` yet,
-  // fetch the real page <title> via `/api/web-title` and persist it (so the label upgrades from
-  // hostname → real title, paired with the favicon). Attempts are tracked so a miss/failure is
-  // never retried in a loop; a success bumps to re-render. Best-effort and non-blocking.
+  // breadcrumb trail) that has no fetched `webTitle` yet, fetch the real page <title> via
+  // `/api/web-title` and persist it (so the label upgrades from path/hostname → real title,
+  // paired with the favicon). Covers EXTERNAL http(s) URLs AND internal Zero routes ("/vision",
+  // resolved server-side against this origin) — both are real titled pages. Attempts are tracked
+  // so a miss/failure is never retried in a loop; a success bumps to re-render. Non-blocking.
   const webTitleTriedRef = useRef<Set<string>>(new Set())
   useEffect(() => {
     if (!mounted) return
@@ -497,7 +498,7 @@ export function Zero0Canvas() {
       seen.add(e.id)
       const url = e.webUrl
       if (!url || e.webTitle || webTitleTriedRef.current.has(e.id)) continue
-      if (!/^https?:\/\//i.test(url)) continue // internal "/route" has no remote title
+      if (!/^https?:\/\//i.test(url) && !url.startsWith("/")) continue // only http(s) or internal routes
       webTitleTriedRef.current.add(e.id)
       fetch(`/api/web-title?url=${encodeURIComponent(url)}`)
         .then((r) => (r.ok ? r.json() : null))
@@ -1221,7 +1222,7 @@ export function Zero0Canvas() {
         // A web resource sibling reads as its DISPLAYED title (webpage title / hostname), not
         // the raw URL now stored as its title.
         label: s.webUrl
-          ? webDisplayTitle({ webUrl: s.webUrl, webResourceId: s.webResourceId, webTitle: s.webTitle })
+          ? webDisplayTitle({ webUrl: s.webUrl, webResourceId: s.webResourceId, webTitle: s.webTitle, title: s.title })
           : s.title,
         glyphKind: s.kind,
         current: s.id === contextId,
@@ -1340,7 +1341,7 @@ export function Zero0Canvas() {
         <Zero0WindowControls />
       </div>
 
-      {/* ── §4 PINS BAND (topmost, just under the clock) ───────────────────��────
+      {/* ── §4 PINS BAND (topmost, just under the clock) ──────────���────────��────
           The repurposed §4 frame: a horizontal row of colored chips for every ONGOING
           entity (glyph + title). Click a chip to drill in; click its spinning glyph to
           END it. UNLIKE the other frames this has NO footer toggle — it is purely

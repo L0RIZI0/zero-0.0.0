@@ -486,7 +486,7 @@ export function getFaceModel(e: Entity, now: number): FaceModel {
   // fetched webpage title (→ resource name → hostname), NOT the raw URL that stays its stored
   // `title`. Non-web entities keep their title verbatim.
   const title = e.webUrl
-    ? webDisplayTitle({ webUrl: e.webUrl, webResourceId: e.webResourceId, webTitle: e.webTitle })
+    ? webDisplayTitle({ webUrl: e.webUrl, webResourceId: e.webResourceId, webTitle: e.webTitle, title: e.title })
     : e.title
   return {
     kind: e.kind,
