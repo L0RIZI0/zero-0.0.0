@@ -9,22 +9,37 @@
    touch, so `(hover: hover)` is false and stock `hover:underline` silently never fires even
    with a mouse attached. `(any-hover: hover)` is true whenever ANY connected pointer can hover,
    so the entity-title underline affordance works there while staying off for touch-only.
-   It uses a `background-size` gradient rather than `text-decoration` (which can't transition),
-   so the line smoothly wipes in from the left and back out. `line-through` (cancelled entities)
-   is unaffected since that stays a `text-decoration`. */
+   The line is a `::after` pseudo-element so it can be transformed independently of the text:
+   on hover it FADES IN while sliding down from just above its resting spot; on un-hover it
+   FADES OUT while sliding back UP. `line-through` (cancelled entities) is unaffected since that
+   stays a `text-decoration`. */
 @utility hover-underline-any {
-  background-image: linear-gradient(currentColor, currentColor);
-  background-position: 0 100%;
-  background-repeat: no-repeat;
-  background-size: 0% 1px;
-  transition: background-size 180ms ease-out;
+  position: relative;
+  &::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 1px;
+    background-color: currentColor;
+    opacity: 0;
+    transform: translateY(-3px);
+    transition:
+      opacity 180ms ease-out,
+      transform 180ms ease-out;
+    pointer-events: none;
+  }
   @media (any-hover: hover) {
-    &:hover {
-      background-size: 100% 1px;
+    &:hover::after {
+      opacity: 1;
+      transform: translateY(0);
     }
   }
   @media (prefers-reduced-motion: reduce) {
-    transition: none;
+    &::after {
+      transition: none;
+    }
   }
 }
 

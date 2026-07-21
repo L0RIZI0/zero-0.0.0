@@ -267,7 +267,7 @@ export function getAccessMs(e: Entity, now: number): number | null {
 // time lives on DURATION (getOngoingDurationMs/Cells, a union) and OCCURRENCES is now a count+list.
 
 // Human-readable duration: up to THREE adjacent units, from the largest non-zero unit
-// down — "0s", "45s", "5m 12s", "1h 30m 5s", "2d 3h 40m", "35y 1mo 24d". Scales to years
+// down — "00s", "45s", "5m 12s", "1h 30m 05s", "2d 3h 40m", "35y 1mo 24d". Scales to years
 // so an Individual's age reads cleanly. Uses average month/year lengths (30.44d / 365.25d)
 // — display-only, not for exact arithmetic. Trailing zero units are dropped, but a zero
 // BETWEEN two shown units is kept (e.g. "1y 0mo 5d") so the tiers stay positionally clear.
@@ -277,7 +277,7 @@ const DAY = 24 * HOUR
 const MONTH = 30.44 * DAY
 const YEAR = 365.25 * DAY
 export function formatDuration(ms: number): string {
-  if (ms < 1000) return "0s"
+  if (ms < 1000) return "00s"
   let rem = ms
   const y = Math.floor(rem / YEAR)
   rem -= y * YEAR
@@ -299,10 +299,12 @@ export function formatDuration(ms: number): string {
     [s, "s"],
   ]
   const first = parts.findIndex(([v]) => v > 0)
-  if (first === -1) return "0s"
+  if (first === -1) return "00s"
   const shown = parts.slice(first, first + 3)
   while (shown.length > 1 && shown[shown.length - 1][0] === 0) shown.pop()
-  return shown.map(([v, u]) => `${v}${u}`).join(" ")
+  // Always render seconds two-digit ("06s", not "6s") so a session list doesn't jitter
+  // horizontally as a value crosses 10; other units render at their natural width.
+  return shown.map(([v, u]) => `${u === "s" ? String(v).padStart(2, "0") : v}${u}`).join(" ")
 }
 
 // Schedule `set` entries carry an epoch NUMBER as their value; render it as a date rather
@@ -592,7 +594,7 @@ export function getScheduleCells(e: Entity, now: number): { start: ScheduleCell[
   const cs = concreteStart(e) // concrete started moment, else null ("whenever"/unset)
   const liveOngoing = cs != null && s?.endAt == null // started, not yet ended → END pulses "ongoing"
   const startText0 = s?.startAt ? fmt(s.startAt) : "— (none scheduled)"
-  const endText0 = liveOngoing ? "ongoing" : s?.endAt ? fmt(s.endAt) : "— (none scheduled)"
+  const endText0 = liveOngoing ? "ongoing" : s?.endAt ? fmt(s.endAt) : "�� (none scheduled)"
   // Pad the scheduled prefix so the FIRST archived column starts at the same x in both rows.
   const schedW = Math.max(startText0.length, endText0.length)
   const start: ScheduleCell[] = [
