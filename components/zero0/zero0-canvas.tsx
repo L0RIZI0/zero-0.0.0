@@ -1322,12 +1322,12 @@ export function Zero0Canvas() {
                   onClick={(ev) => openSiblingsAt(i, ev)}
                   aria-label={`Switch sibling (${c.siblingCount} at this level)`}
                   title="Switch sibling"
-                  className="text-muted-foreground/50 hover:text-foreground"
+                  className="mr-0.5 text-muted-foreground/50 hover:text-foreground"
                 >
                   /
                 </button>
               ) : (
-                <span className="text-muted-foreground/50" aria-hidden>
+                <span className="mr-0.5 text-muted-foreground/50" aria-hidden>
                   /
                 </span>
               ))}
@@ -1354,14 +1354,14 @@ export function Zero0Canvas() {
             {i > 0 ? (
               <Zero0CloseButton
                 iconClassName="h-2 w-2"
-                className="-ml-0.5 -mr-1"
+                className="-ml-0.5 -mr-2"
                 onClick={() => {
                   const ent = getEntity(c.id)
                   if (ent) closeContext(ent)
                 }}
               />
             ) : (
-              <span aria-hidden className="pointer-events-none flex h-4 w-4 shrink-0 -ml-0.5 -mr-1" />
+              <span aria-hidden className="pointer-events-none flex h-4 w-4 shrink-0 -ml-0.5 -mr-2" />
             )}
           </span>
         )
