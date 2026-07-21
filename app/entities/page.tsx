@@ -19,6 +19,7 @@ function Kicker({ children }: { children: React.ReactNode }) {
 export default function EntitiesPage() {
   return (
     <main className="min-h-dvh bg-background px-6 py-16 text-foreground md:px-10 md:py-24">
+      {/* Hero stays comfortably measured. */}
       <div className="mx-auto flex max-w-5xl flex-col">
         <Link
           href="/"
@@ -43,13 +44,14 @@ export default function EntitiesPage() {
             cell, and add, remove, or reorder rows and columns as the model grows.
           </p>
         </header>
-
-        {/* The interactive table. */}
-        <section className="flex flex-col border-t border-border pt-10">
-          <Kicker>The table</Kicker>
-          <Zero0EntitiesBible />
-        </section>
       </div>
+
+      {/* The interactive table spans the FULL width (only bounded by the main's padding) so as
+          many columns as possible are visible without horizontal scrolling. */}
+      <section className="flex w-full flex-col border-t border-border pt-10">
+        <Kicker>The table</Kicker>
+        <Zero0EntitiesBible />
+      </section>
     </main>
   )
 }

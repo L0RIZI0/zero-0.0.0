@@ -557,7 +557,7 @@ function EditableCell({
       onFocus={() => ref.current && onFocus(cellId, ref.current)}
       onBlur={() => ref.current && onCommit(cellId, ref.current.innerHTML)}
       className={
-        "bible-cell h-full min-w-[3rem] px-3 py-1.5 text-xs leading-relaxed outline-none [&_ul]:my-0 [&_ul]:list-disc [&_ul]:pl-5 [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-[0.8em] " +
+        "bible-cell h-full min-w-[3rem] px-2 py-1 text-[10px] leading-snug outline-none [&_ul]:my-0 [&_ul]:list-disc [&_ul]:pl-5 [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-[0.85em] " +
         (centered ? "text-center " : "") +
         (active ? "bg-primary/5 ring-1 ring-inset ring-primary/40" : "")
       }
@@ -1339,7 +1339,7 @@ export function Zero0EntitiesBible() {
                   key={colId}
                   style={{ width: stickyHead.colW[ci] }}
                   className={
-                    "flex shrink-0 items-center gap-2 border-r border-border/50 px-3 py-2 last:border-r-0" +
+                    "flex shrink-0 items-center gap-2 border-r border-border/50 px-2 py-1.5 last:border-r-0" +
                     (ci === 0 ? " bg-muted/40" : "")
                   }
                 >
@@ -1349,7 +1349,7 @@ export function Zero0EntitiesBible() {
                       Field
                     </span>
                   ) : (
-                    <span className="truncate text-xs font-medium text-foreground">{name}</span>
+                    <span className="truncate text-[11px] font-medium text-foreground">{name}</span>
                   )}
                 </div>
               )
