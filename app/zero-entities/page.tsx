@@ -25,14 +25,18 @@ import type { EntityKind } from "@/lib/zero/types"
  * actual silhouettes via <Zero0Glyph>, so the page reads its own glyphs instead of
  * narrating them.
  *
- * STATE MODEL (current): every entity resolves to ONE computed STATE word via
- * getState(), layered by priority: cancelled → closed/dead/retired (a terminal close)
- * → complete → done → ongoing → open. "complete" is the resting word for a FILLABLE
- * kind whose time/verdict has passed (filled + faded); "ongoing" SPINS the glyph.
- * Under the words sit two mechanics: CLOSE (open → closed, every kind, always fades)
- * and DONE (a soft checkmark that does NOT close — Task ONLY now). BEINGS
- * (soul/individual/organism/community) rest at their own presence ("alive"/"open"),
- * never made "ongoing" by what they contain (see the ONGOING + rollup note below).
+ * STATE MODEL (current): TWO ORTHOGONAL AXES, not one word.
+ *   • STATE (what it IS) — getState() resolves ONE lifecycle word by priority:
+ *     cancelled → closed/dead/retired (a terminal close) → complete → scheduled → open.
+ *     "complete" is the resting word for a FILLABLE kind whose time/verdict has passed
+ *     (filled + faded). STATE never carries "ongoing" or "done".
+ *   • STATUS (what it's DOING) — isOngoing() reports "ongoing" (glyph SPINS) LAYERED on
+ *     top of any live STATE: an open OR scheduled entity can be ongoing. Sources: an open
+ *     session, a running concrete span, or ROLLUP from a contained descendant.
+ * Under those sit two mechanics: CLOSE (open → closed, every kind, always fades) and
+ * DONE (a soft Task-ONLY FLAG — a checkmark that does NOT close and is NOT a state).
+ * BEINGS (soul/individual/organism/community) rest at their own presence ("alive"/"open")
+ * and are never made ongoing by what they contain (the rollup stops at the first being).
  */
 
 /** A glyph is either a real runtime kind (drawn by Zero0Glyph) or one of the two
@@ -93,7 +97,7 @@ const FOUNDATIONS: EntityRow[] = [
     lifecycle: "Some kinds open / closed",
     fields: [
       "The base every kind extends: all kinds inherit the shared Meta below.",
-      "STATE: every entity resolves to ONE computed word \u2014 open, ongoing, done, complete, closed, cancelled, dead, or retired \u2014 read live by getState() and shown on the glyph.",
+      "STATE (what it IS): every entity resolves to ONE lifecycle word \u2014 open, scheduled, complete, closed, cancelled, dead, or retired \u2014 read live by getState(). STATUS (what it's DOING): \u201Congoing\u201D is a SEPARATE axis (isOngoing) layered on top, so an open entity can be ongoing without losing its STATE.",
       "CLOSE (open \u2192 closed) belongs to every kind and always FADES the row. Fillable kinds (Task, Space, Resource, Moment, Instant) also FILL their glyph when closed \u2014 that filled+faded state is what we call \u201Ccomplete.\u201D Terminal kinds (Community, Organism, Individual) just fade on close, keeping their outline (retire / die).",
       "DONE (done \u2192 undone) is a SECOND, softer mechanic \u2014 a checkmark that does NOT close \u2014 carried only by Task now (Moment/Instant dropped it; they auto-close when their time passes).",
       "ONGOING spins the glyph. Sources: an open SESSION (a Task being worked on, or a \u201Cwhenever\u201D Moment/Space playing), a Moment/Space with a concrete started span still running, or ROLLUP \u2014 a container spins while anything CONTAINED inside it runs. Rollup STOPS at the first BEING (a person isn\u2019t \u201Congoing,\u201D just alive).",
@@ -306,8 +310,10 @@ const LENSES: { name: string; formula: string; blurb: string }[] = [
   },
 ]
 
-// The STATE words getState() can resolve to, in the priority order it checks them.
+// The STATE (Being) words getState() can resolve to, in the priority order it checks them.
 // This mirrors lib/zero/kinds.ts (StateWord + getStateInner) and face-model formatState.
+// NOTE: "ongoing" and "done" are NOT here — they live on the separate STATUS axis / DONE
+// flag below, so a running entity keeps its true lifecycle word.
 const STATE_WORDS: { word: string; blurb: string }[] = [
   { word: "cancelled", blurb: "Called off — a bar over the glyph, title struck; also closes. Highest priority." },
   {
@@ -316,13 +322,23 @@ const STATE_WORDS: { word: string; blurb: string }[] = [
       "The lifecycle ended (manually or when a stamped time passed). Death-terminal beings read \u201Cdead\u201D (with age), Communities \u201Cretired,\u201D everything else \u201Cclosed.\u201D Always fades.",
   },
   { word: "complete", blurb: "A fillable kind whose time/verdict has passed — filled + faded. May still auto-close later." },
-  { word: "done", blurb: "A Task marked Done but still gated by an incomplete task-child. Checkmark, not yet complete." },
+  { word: "scheduled", blurb: "A not-yet-terminal Instant carrying a concrete future anchor — planned, its occurrence not yet passed." },
+  { word: "open", blurb: "The resting default. Death-terminal beings render this as \u201Calive.\u201D" },
+]
+
+// The STATUS (Action) axis — ORTHOGONAL to STATE, reported by isOngoing(). Layers on top of
+// any live STATE word above; also the Task-only DONE flag which is neither state nor status.
+const STATUS_WORDS: { word: string; blurb: string }[] = [
   {
     word: "ongoing",
     blurb:
-      "Glyph SPINS. An open session, a running concrete span, or rollup from a contained descendant (stopping at the first being).",
+      "Glyph SPINS. Running RIGHT NOW, on top of any live STATE (an open OR scheduled entity can be ongoing). Sources: an open session, a running concrete span, or rollup from a contained descendant (stopping at the first being).",
   },
-  { word: "open", blurb: "The resting default. Death-terminal beings render this as \u201Calive.\u201D" },
+  {
+    word: "done (flag)",
+    blurb:
+      "Task ONLY. A checkmark saying the work happened; it does NOT close the task and is NOT a state. Triggers the move to \u201Ccomplete\u201D at the next midnight (unless close:manual).",
+  },
 ]
 
 /** The two document-only glyphs (no Zero0Glyph entry). Drawn to sit in a 24-box,
@@ -527,12 +543,12 @@ export default function ZeroEntitiesPage() {
           </ul>
         </section>
 
-        {/* State words — the computed word getState() resolves to, in priority order. */}
+        {/* State words — the STATE (Being) axis getState() resolves to, in priority order. */}
         <section className="mt-10">
-          <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">State words</h2>
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">State words · what it is</h2>
           <p className="mt-3 max-w-prose text-pretty text-sm leading-relaxed text-muted-foreground">
-            Every entity resolves to exactly one <strong className="font-medium text-foreground">state</strong>, checked
-            in this priority order (the first that matches wins). This is what the glyph and the inline{" "}
+            Every entity resolves to exactly one <strong className="font-medium text-foreground">state</strong> (its
+            Being), checked in this priority order (the first that matches wins). This is what the glyph and the inline{" "}
             <code className="rounded bg-muted px-1 py-0.5 text-[10px]">state</code> row read.
           </p>
           <ol className="mt-4 space-y-2">
@@ -551,6 +567,30 @@ export default function ZeroEntitiesPage() {
               </li>
             ))}
           </ol>
+        </section>
+
+        {/* Status axis — ORTHOGONAL to STATE: "ongoing" (running now) + the Task-only DONE flag. */}
+        <section className="mt-10">
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Status · what it&apos;s doing</h2>
+          <p className="mt-3 max-w-prose text-pretty text-sm leading-relaxed text-muted-foreground">
+            A second, <strong className="font-medium text-foreground">orthogonal</strong> axis that layers on top of the
+            Being state above — an entity can be <em>open</em> and <em>ongoing</em> at once. Reported by{" "}
+            <code className="rounded bg-muted px-1 py-0.5 text-[10px]">isOngoing()</code>, shown on its own{" "}
+            <code className="rounded bg-muted px-1 py-0.5 text-[10px]">status</code> row.
+          </p>
+          <ul className="mt-4 space-y-2">
+            {STATUS_WORDS.map((s) => (
+              <li
+                key={s.word}
+                className="flex items-start gap-3 rounded-lg border border-border bg-card p-3 text-card-foreground"
+              >
+                <div className="min-w-0">
+                  <span className="text-xs font-medium">{s.word}</span>
+                  <span className="ml-2 text-pretty text-[11px] leading-relaxed text-muted-foreground">{s.blurb}</span>
+                </div>
+              </li>
+            ))}
+          </ul>
         </section>
 
         {/* The essence & the roots. */}
