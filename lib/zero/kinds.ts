@@ -232,11 +232,15 @@ export function formatAge(from: number, to: number): string {
   return unit(Math.floor(ms / 60_000), "minute")
 }
 
-/** The mutually-exclusive lifecycle positions (see {@link getState}).
+/** The mutually-exclusive lifecycle positions on the STATE axis (a being's *being* — see
+ *  {@link getState}). This axis is ORTHOGONAL to the STATUS axis ("ongoing", the action of
+ *  running right now — see {@link isOngoing}) and to the Task-only `done` FLAG (see {@link isDone}):
+ *  an entity can be `open` AND ongoing, or `complete` AND not, etc. STATE never carries "ongoing"
+ *  or "done" — those live on their own axes so a running entity keeps its true lifecycle position.
  *  `scheduled` = a not-yet-terminal INSTANT that carries a concrete `at` anchor (planned, but
  *  its occurrence(s) haven't completed it): open (no schedule) · scheduled · complete · closed
- *  · cancelled are the instant's positions (an instant is a point, so never `ongoing`). */
-export type StateWord = "open" | "scheduled" | "ongoing" | "done" | "complete" | "closed" | "cancelled" | "dead" | "retired"
+ *  · cancelled are the instant's positions (an instant is a point, so never ongoing). */
+export type StateWord = "open" | "scheduled" | "complete" | "closed" | "cancelled" | "dead" | "retired"
 
 /**
  * An entity's current lifecycle STATE — one position on the STATE axis, plus the
@@ -454,13 +458,13 @@ export function hasOpenSession(entity: Entity, via?: Session["via"]): boolean {
  * that only spins by rollup can't be ended here; you'd end its running child instead).
  */
 export function isOwnOngoing(entity: Entity, now: number = Date.now()): boolean {
-  // v0.6.31: a TERMINAL / done / complete entity is NEVER ongoing — mirror getState's precedence
-  // (cancelled > closed > complete > done > ongoing). Presence (focus) is now lifecycle-independent
-  // (a done task can hold a LIVE focus session so ACCESS keeps counting while you view it), so we
-  // must NOT let that session make the done task read own-ongoing / endable in the PINS band. If
-  // getState isn't "ongoing", it isn't ongoing at all; if it IS, the own-checks below tell whether
-  // that's by its OWN session/span (true) or merely a contained descendant's rollup (false).
-  if (getState(entity, now).word !== "ongoing") return false
+  // A TERMINAL / complete entity, or a Done task, is NEVER ongoing (isOngoing already applies
+  // that guard + all three sources). Presence (focus) is lifecycle-independent (a done task can
+  // hold a LIVE focus session so ACCESS keeps counting while you view it), so we must NOT let
+  // that session make the done task read own-ongoing / endable in the PINS band. If it isn't
+  // ongoing at all, bail; if it IS, the own-checks below tell whether that's by its OWN
+  // session/span (true) or merely a contained descendant's rollup (false).
+  if (!isOngoing(entity, now)) return false
   // State-relevant open session (a focus/viewing session on a moment/instant does NOT count).
   if (ongoingOpenSession(entity) != null) return true
   if (entity.kind === "moment" || entity.kind === "space") {
@@ -510,8 +514,8 @@ function containedOngoingSince(entity: Entity, now: number, seen: Set<string>): 
   if (seen.has(entity.id)) return null
   seen.add(entity.id)
   for (const child of _containedResolver(entity.id)) {
-    const s = getStateInner(child, now, seen)
-    if (s.word === "ongoing") return s.at ?? now
+    const at = ongoingSince(child, now, seen)
+    if (at != null) return at
   }
   return null
 }
@@ -663,46 +667,13 @@ function getStateInner(entity: Entity, now: number, seen: Set<string>): EntitySt
   const c = completeSince(entity, now, seen)
   if (c != null) return { word: "complete", at: c, willCloseAt: entity.closeAt }
 
-  // DONE-but-not-complete: a Task explicitly marked Done whose completion is still GATED
-  // (an incomplete `kind === "task"` child, see completeSince). It isn't "complete" yet,
-  // but it shouldn't read as a plain "open" to-do either — surface "done" so the word
-  // agrees with the checkmark on its glyph. Ranked above ongoing: a Done task is done, not
-  // "in progress", even if a stray session lingered.
-  if (entity.kind === "task" && isDone(entity)) return { word: "done", at: getCompletedOn(entity) }
-
-  // ONGOING — three sources, in priority:
-  //  (1) an OPEN SESSION: a Task/Space/Resource/being being worked on (focus punch-in) OR any
-  //      entity with a running Play stopwatch. This is what makes a Task read ongoing EVERYWHERE
-  //      it appears, purely from its own data. EXCEPTION: a Moment/Instant is a time-based
-  //      essence — a mere FOCUS (viewing) session does NOT make it ongoing (its ongoing means the
-  //      occurrence is actually happening: a concrete start or a manual Play). The focus session
-  //      still accrues on the activity rail; it just doesn't flip the state. (See ongoingOpenSession.)
-  const open = ongoingOpenSession(entity)
-  if (open) return { word: "ongoing", at: open.startAt }
-  //  (2) a MOMENT or SPACE with a CONCRETE started span still in progress (started, not
-  //      yet ended). Space joins Moment here (a live container). "whenever" is NOT
-  //      concrete, so a playable-but-idle entity is "open", not ongoing.
-  if (entity.kind === "moment" || entity.kind === "space") {
-    const start = concreteStart(entity)
-    if (start != null && now >= start) {
-      // A start+duration implies an end (effectiveScheduleEnd): once now passes it, the
-      // span is over and it's no longer ongoing — same as a declared end.
-      const end = effectiveScheduleEnd(entity.schedule)
-      if (end == null || now < end) return { word: "ongoing", at: start }
-    }
-  }
-  //  (3) ROLLUP — any CONTAINED descendant is ongoing (containment only, never tags). A
-  //      Space spins while anything inside it runs. UNBOUNDED UP among CONTAINERS but STOPS
-  //      AT THE FIRST BEING: a being (soul/individual/organism/community) is never made
-  //      "ongoing" by what it contains — it's ALIVE/present, not "in progress" (see isBeing).
-  //      This is what keeps the root Individual reading "alive" while its Spaces spin, and
-  //      why the rollup halts at the Space directly under a person rather than climbing into
-  //      them. (The old `parentId !== null` guard was wrong: the root Individual's parent is
-  //      the Soul, so it wasn't excluded and wrongly span whenever any descendant ran.)
-  if (!isBeing(entity.kind)) {
-    const rolled = containedOngoingSince(entity, now, seen)
-    if (rolled != null) return { word: "ongoing", at: rolled }
-  }
+  // NOTE: `ongoing` (the ACTION of running right now) and the Task `done` FLAG are NO LONGER
+  // STATE positions — they live on their own orthogonal axes (see {@link isOngoing} and
+  // {@link isDone}). An entity that is running keeps its true lifecycle STATE here (usually
+  // `open`), and its ongoing-ness is reported separately. This is the STATE / STATUS split:
+  // STATE = what it IS (this function), STATUS = what it's DOING (isOngoing / ongoingSince).
+  // A done-but-not-yet-complete Task therefore reads STATE `open` with the `done` flag set,
+  // rather than a dedicated "done" word.
 
   // SCHEDULED — a not-yet-terminal INSTANT that carries a concrete `at` anchor reads
   // "scheduled" rather than a bare "open": it's planned, its occurrence(s) just haven't
@@ -712,6 +683,57 @@ function getStateInner(entity: Entity, now: number, seen: Set<string>): EntitySt
   }
 
   return { word: "open" }
+}
+
+// ── STATUS axis — "ongoing" (the ACTION of running now), ORTHOGONAL to STATE ──────
+// Whether `entity` is ONGOING right now, and since when. STATUS layers ON TOP of the STATE
+// axis (getState): an `open` (or `scheduled`) entity can be ongoing; a terminal / complete
+// entity, or a Task marked `done`, never is. Three sources, in priority:
+//  (1) an OPEN SESSION — a Task/Space/being worked on (focus punch-in) OR any entity with a
+//      running Play stopwatch. A mere FOCUS (viewing) session on a Moment/Instant does NOT
+//      count (its ongoing means the occurrence is actually happening — see ongoingOpenSession).
+//  (2) a MOMENT or SPACE with a CONCRETE started span still in progress (started, not ended).
+//      "whenever" is not concrete, so a playable-but-idle entity is not ongoing.
+//  (3) ROLLUP — any CONTAINED descendant is ongoing (containment only, never tags). A Space
+//      spins while anything inside it runs; the rollup STOPS AT THE FIRST BEING (a person is
+//      ALIVE, not "in progress" — see isBeing), keeping the root Individual "alive" while its
+//      Spaces spin. Returns the start instant (for a "since …" readout) or null.
+function ongoingSince(entity: Entity, now: number, seen: Set<string>): number | null {
+  // Only a LIVE state can be ongoing. Computed with a FRESH cycle-guard so the STATE check
+  // can't pollute the rollup's `seen` set (the two recursions are independent concerns).
+  const w = getStateInner(entity, now, new Set<string>()).word
+  if (w !== "open" && w !== "scheduled") return null
+  // A Done task is "done", not "in progress" — even if a stray session lingered.
+  if (entity.kind === "task" && isDone(entity)) return null
+  // (1) open (state-relevant) session
+  const open = ongoingOpenSession(entity)
+  if (open) return open.startAt
+  // (2) moment/space concrete started span still in progress (start+duration implies an end)
+  if (entity.kind === "moment" || entity.kind === "space") {
+    const start = concreteStart(entity)
+    if (start != null && now >= start) {
+      const end = effectiveScheduleEnd(entity.schedule)
+      if (end == null || now < end) return start
+    }
+  }
+  // (3) rollup over CONTAINED descendants (stops at the first being)
+  if (!isBeing(entity.kind)) {
+    const rolled = containedOngoingSince(entity, now, seen)
+    if (rolled != null) return rolled
+  }
+  return null
+}
+
+/** Whether `entity` is ONGOING right now (the STATUS axis — running), by ANY source: its own
+ *  session/span OR a contained descendant's rollup. Orthogonal to {@link getState} (STATE). */
+export function isOngoing(entity: Entity, now: number = Date.now()): boolean {
+  return ongoingSince(entity, now, new Set<string>()) != null
+}
+
+/** When `entity`'s current ongoing-ness STARTED (for a "since …" readout), or null when it
+ *  isn't ongoing. The STATUS-axis companion to {@link isOngoing}. */
+export function getOngoingSince(entity: Entity, now: number = Date.now()): number | null {
+  return ongoingSince(entity, now, new Set<string>())
 }
 
 /**

@@ -533,14 +533,12 @@ export function Zero0Canvas() {
     let complete = 0
     for (const c of children) {
       const w = getState(c).word
-      // open + ongoing + scheduled are all "active / not yet done" for the tally.
-      if (w === "open" || w === "ongoing" || w === "scheduled") open++
-      // "done" = a Task marked Done but still gated (not yet complete) — count as done.
-      else if (w === "done") done++
-      else if (w === "complete") {
-        if (isDone(c)) done++
-        else complete++
-      }
+      // A Task marked Done counts as done whether it's already complete or still gated
+      // (gated ⇒ STATE `open` now, since "done" is a flag not a state) — checked first.
+      if (c.kind === "task" && isDone(c)) done++
+      else if (w === "complete") complete++
+      // open + scheduled (which now also covers ongoing, an `open`/`scheduled` STATE) = active.
+      else if (w === "open" || w === "scheduled") open++
     }
     return { open, done, complete, total: children.length }
   }, [children])

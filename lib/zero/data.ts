@@ -1,6 +1,6 @@
 import type { Asset, Entity, EntityKind, IndividualEntity, Instant, Recurrence, Schedule, Resource, EntityBase, Session, Sex, TaskPriority, TitleEntry, User } from "./types"
 import { WHENEVER } from "./types"
-  import { hasDoneState, isClosed, computeCloseAt, getState, fillsGlyph, hasOpenSession, getOpenSession, setChildrenResolver, setContainedResolver, isConcreteStart, concreteStart, isOwnOngoing, effectiveScheduleEnd, getMarks, isMarkable, getSessions } from "./kinds"
+  import { hasDoneState, isClosed, computeCloseAt, getState, isOngoing, fillsGlyph, hasOpenSession, getOpenSession, setChildrenResolver, setContainedResolver, isConcreteStart, concreteStart, isOwnOngoing, effectiveScheduleEnd, getMarks, isMarkable, getSessions } from "./kinds"
 import {
   isDone,
   isCancelled,
@@ -914,8 +914,9 @@ export function getFrequentEntities(opts?: {
     // The expanded-list members: ONGOING (live) + COMPLETE (finished, not yet closed),
     // oldest first. Ended members (closed/cancelled/…) drop out.
     const instances: FrequentInstance[] = b.members
-      .map((m) => ({ m, word: getState(m, now).word }))
-      .filter((x) => x.word === "ongoing" || x.word === "complete")
+      // STATUS (ongoing) is now its own axis; a "complete" STATE still comes from getState.
+      .map((m) => ({ m, on: isOngoing(m, now), word: getState(m, now).word }))
+      .filter((x) => x.on || x.word === "complete")
       .sort((a, c) => (concreteStart(a.m) ?? 0) - (concreteStart(c.m) ?? 0))
       .map((x) => ({
         id: x.m.id,
@@ -923,7 +924,7 @@ export function getFrequentEntities(opts?: {
         title: x.m.title,
         startAt: concreteStart(x.m) ?? now,
         endAt: x.m.schedule?.endAt ?? null,
-        state: x.word as "ongoing" | "complete",
+        state: (x.on ? "ongoing" : "complete") as "ongoing" | "complete",
         filled: fillsGlyph(x.m),
       }))
     const ongoingCount = instances.reduce((n, i) => n + (i.state === "ongoing" ? 1 : 0), 0)

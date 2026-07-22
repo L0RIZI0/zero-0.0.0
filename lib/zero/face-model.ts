@@ -19,7 +19,7 @@
 
 import type { Entity, EntityKind, Whenever } from "./types"
 import { WHENEVER } from "./types"
-  import { KIND_META, isClosed, fillsGlyph, getState, concreteStart, effectiveScheduleEnd, ongoingOpenSession, occurrenceAction, isPlannedKind, isMarkable, getMarks, getSessions, getInstantMaxNb, isInstantMaxNbHard, getInstantOccurrenceCount, type EntityState } from "./kinds"
+  import { KIND_META, isClosed, fillsGlyph, getState, isOngoing, getOngoingSince, concreteStart, effectiveScheduleEnd, ongoingOpenSession, occurrenceAction, isPlannedKind, isMarkable, getMarks, getSessions, getInstantMaxNb, isInstantMaxNbHard, getInstantOccurrenceCount, type EntityState } from "./kinds"
 import { isDone, getCreatedAt, getCompletedOn } from "./entity-log"
 import { getEntity, getCreator, getOwner, getForwardTags, getBackReferences, getChildren } from "./data"
 import { formatLocale } from "./format-locale"
@@ -59,7 +59,7 @@ export function faceSizeLabel(size: FaceSize): string {
 // drift from §0 — it only ever hides rows, never invents them.
 //   • L  = the temporal essentials: done + lifecycle state + schedule + duration/age.
 //   • XL = everything EXCEPT raw provenance plumbing (id / creator / owner).
-  const L_META_KEYS = new Set(["done", "state", "planned start", "planned end", "at", "due", "scheduled", "planned duration", "duration", "age"])
+  const L_META_KEYS = new Set(["done", "state", "status", "planned start", "planned end", "at", "due", "scheduled", "planned duration", "duration", "age"])
 const XL_OMIT_KEYS = new Set(["id", "creator", "owner"])
 export function filterMetaRows(rows: [string, string][], size: "l" | "xl" | "full"): [string, string][] {
   if (size === "full") return rows
@@ -126,9 +126,11 @@ export function getAggregate(entity: Entity, now: number): FaceAggregate {
   let latest: number | null = null
   for (const k of kids) {
     const st = getState(k, now)
-    if (st.word === "open") open++
+    // STATUS axis first: an ongoing child counts as ongoing (not also as open), mirroring the
+    // old single-word behavior where "ongoing" preempted "open". STATE axis fills the rest.
+    if (isOngoing(k, now)) ongoing++
+    else if (st.word === "open") open++
     else if (st.word === "complete") complete++
-    if (st.word === "ongoing") ongoing++
     // Sum only FINITE spans (a span with both ends, or a point/instant = 0), so an
     // open-ended running moment doesn't inflate the rollup with live-elapsed time.
     const s = k.schedule
@@ -332,13 +334,9 @@ export function formatState(state: EntityState, format: (e?: number) => string, 
     case "open":
       if (isLiving) return state.reopenedAt ? `alive · reopened ${format(state.reopenedAt)}` : "alive"
       return state.reopenedAt ? `open · reopened ${format(state.reopenedAt)}` : "open"
-    case "ongoing":
-      // A live span in progress — `at` is when it STARTED. No auto-close yet (no end set).
-      return `ongoing · since ${format(state.at)}`
-    case "done":
-      // A Task marked Done but still GATED by an incomplete task child — done, not yet
-      // complete. `at` is when it was marked done.
-      return state.at != null ? `done · ${format(state.at)}` : "done"
+    case "scheduled":
+      // A planned instant awaiting its occurrence — `at` is the scheduled anchor.
+      return state.at != null ? `scheduled · ${format(state.at)}` : "scheduled"
     case "complete":
       return state.willCloseAt ? `complete · closes ${format(state.willCloseAt)} (auto)` : "complete"
     case "dead":
@@ -483,7 +481,8 @@ export interface FaceModel {
 // Derive the presentation model for an entity. Pure; call per render (cheap).
 export function getFaceModel(e: Entity, now: number): FaceModel {
   const km = KIND_META[e.kind]
-  const state = getState(e) // the single lifecycle position (STATE axis)
+  const state = getState(e) // the lifecycle position (STATE axis — what it IS)
+  const ongoingNow = isOngoing(e, now) // STATUS axis — what it's DOING (running), orthogonal to STATE
   const done = isDone(e) // soft DONE marker (Task only), orthogonal to STATE
   const requested = e.kind === "task" && !!e.requested
   const lifeLabel = state.word
@@ -511,13 +510,15 @@ export function getFaceModel(e: Entity, now: number): FaceModel {
     // isCancelled), so §0 and rows agree — previously §0 read isCancelled() directly.
     cancelled: state.word === "cancelled",
     requested,
-    ongoing: state.word === "ongoing", // live span ⇒ glyph rotates
+    ongoing: ongoingNow, // running now (STATUS axis) ⇒ glyph rotates
     playable: occAction != null, // moment/space glyph drives its occurrence lifecycle
     occAction, // which one: play / stop / reopen
     markable: isMarkable(e), // live instant ⇒ glyph records an occurrence on click
     closed: isClosed(e), // ENDED ⇒ fade — NOT complete
     lifeLabel,
-    stateLabel: `${done ? "done, " : ""}${lifeLabel}${requested ? ", requested" : ""}`,
+    // Compact summary folding the two axes + the done flag for display (they stay computed
+    // separately): e.g. "done, ongoing, open" / "complete" / "ongoing, open, requested".
+    stateLabel: `${done ? "done, " : ""}${ongoingNow ? "ongoing, " : ""}${lifeLabel}${requested ? ", requested" : ""}`,
     metaEcho: metaEcho(e, now),
     accent: e.accent,
   }
@@ -882,6 +883,12 @@ export function getFaceMetaRows(e: Entity, now: number): [string, string][] {
   // carries no date (CREATED above already says since when); other states carry theirs.
   if (meta.fillsWhenClosed || meta.terminal) {
     rows.push(["state", formatState(getState(e), fmt, meta.terminal === "death")])
+  }
+  // STATUS — the ORTHOGONAL action axis (running now), its own row so STATE keeps its true
+  // lifecycle word. Shown only while ongoing; `since` is when the current run started.
+  {
+    const since = getOngoingSince(e, now)
+    if (since != null) rows.push(["status", `ongoing · since ${fmt(since)}`])
   }
   // CLOSE POLICY — only when MANUAL (auto is the silent default). Signals this entity
   // won't roll to closed at midnight; it waits for a hand Close/Cancel.
