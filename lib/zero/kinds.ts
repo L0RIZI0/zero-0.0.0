@@ -110,8 +110,10 @@ export const KIND_META: Record<EntityKind, KindMeta> = {
     creatable: true,
     // Like a Moment: no DONE marker; complete once its point passes, closes at midnight.
     hasDoneState: false,
-    // A POINT + a mark tally, not a span — so NOT plannable (no planned start/end/duration).
-    plannable: false,
+    // PLANNABLE as a degenerate span: a placed `at` IS its plan (at == start == end, duration 0),
+    // surfaced as the `scheduled` state + the occurrences tally — NOT the start/end/duration span
+    // UI (that's SPAN_UI_KINDS in face-model, which excludes instant).
+    plannable: true,
     fillsWhenClosed: true,
     terminal: null,
   },

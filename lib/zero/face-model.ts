@@ -19,7 +19,7 @@
 
 import type { Entity, EntityKind, Whenever } from "./types"
 import { WHENEVER } from "./types"
-  import { KIND_META, isClosed, fillsGlyph, getState, isOngoing, getOngoingSince, concreteStart, effectiveScheduleEnd, ongoingOpenSession, occurrenceAction, isPlannable, isMarkable, getMarks, getSessions, getInstantMaxNb, isInstantMaxNbHard, getInstantOccurrenceCount, type EntityState } from "./kinds"
+  import { KIND_META, isClosed, fillsGlyph, getState, isOngoing, getOngoingSince, concreteStart, effectiveScheduleEnd, ongoingOpenSession, occurrenceAction, isMarkable, getMarks, getSessions, getInstantMaxNb, isInstantMaxNbHard, getInstantOccurrenceCount, type EntityState } from "./kinds"
 import { isDone, getCreatedAt, getCompletedOn } from "./entity-log"
 import { getEntity, getCreator, getOwner, getForwardTags, getBackReferences, getChildren } from "./data"
 import { formatLocale } from "./format-locale"
@@ -53,6 +53,14 @@ export function faceSizeLabel(size: FaceSize): string {
       return "Full · §0"
   }
 }
+
+// The kinds that render the full START/END/DURATION planned-SPAN UI. DECOUPLED from the
+// ontological `isPlannable` (KIND_META.plannable): an INSTANT is plannable (a placed `at`) but is
+// a POINT — it renders a tally + `at`, not a span — so it is EXCLUDED here. Beings are plannable
+// ontologically but their span UI ("Expected" state, planned birth/end) is a separate, pending
+// feature, so they are not in this set yet either. Keeping this list explicit (rather than reusing
+// isPlannable) is what lets the ontology be broad without regressing instant/being rendering.
+const SPAN_UI_KINDS = new Set<EntityKind>(["task", "moment", "space", "resource"])
 
 // Which §0 meta keys the BLOCK rungs surface. `full` shows everything; `l` and `xl`
 // are SUBSETS of the very same `getFaceMetaRows` output, so a block rung can never
@@ -595,8 +603,9 @@ export type ScheduleCell = { text: string; full?: string; faint?: boolean; pulse
  *  faint), padded per-column so the Nth start sits directly above the Nth end. `getFaceMetaRows`
  *  flattens the same cells to a plain string for every other consumer. */
 export function getScheduleCells(e: Entity, now: number): { start: ScheduleCell[]; end: ScheduleCell[] } | null {
-  // v0.6.28: PLANNED span cells for any planned kind (task/moment/space/resource), not just spans.
-  if (!isPlannable(e.kind)) return null
+  // v0.6.28: PLANNED span cells for the span kinds (task/moment/space/resource). Instant is
+  // plannable but a POINT (tally, not a span), so it's excluded via SPAN_UI_KINDS.
+  if (!SPAN_UI_KINDS.has(e.kind)) return null
   const NB = "\u00A0"
   const s = e.schedule
   const cs = concreteStart(e) // concrete started moment, else null ("whenever"/unset)
@@ -906,7 +915,7 @@ export function getFaceMetaRows(e: Entity, now: number): [string, string][] {
   // to plan on the current entity; hiding it until a `--field:value` was typed made planning
   // undiscoverable. These scalars are PURE PLANNING (user-set, never written by Play/punch —
   // v0.6.26); actual time lives on ACCESS/OCCURRENCES.
-  if (isPlannable(e.kind)) {
+  if (SPAN_UI_KINDS.has(e.kind)) {
     {
       // Plain-string fallback (block-rung subsets / `title` / non-rich consumers). The FULL §0 face
       // renders these RICHLY from the same `getScheduleCells`, so they never diverge.
@@ -950,7 +959,7 @@ export function getFaceMetaRows(e: Entity, now: number): [string, string][] {
     //   • beings        → AGE: now − birth.
     //   • everything else → DURATION: its occurrence length (getOccurrenceDurationMs).
     const isBeingKind = e.kind === "individual" || e.kind === "organism"
-    const isPlanned = isPlannable(e.kind)
+    const isPlanned = SPAN_UI_KINDS.has(e.kind)
     const durLabel = isBeingKind ? "age" : isPlanned ? "planned duration" : "duration"
     const durMs = isPlanned ? getPlannedDurationMs(e) : getOccurrenceDurationMs(e, now)
     rows.push([durLabel, durMs == null ? "—" : formatDuration(durMs)])
@@ -961,7 +970,7 @@ export function getFaceMetaRows(e: Entity, now: number): [string, string][] {
   // ongoing, e.g. a done task you're viewing), and from the OCCURRENCES count below. Shown for any
   // planned kind that has ever been ongoing; the FULL §0 face renders the segments richly (see
   // getOngoingDurationCells), the live span pulsing. Beings never spin (AGE covers them).
-  if (isPlannable(e.kind)) {
+  if (SPAN_UI_KINDS.has(e.kind)) {
     const dur = getOngoingDurationCells(e, now)
     if (dur) rows.push(["duration", [dur.total, ...dur.segments.map((c) => c.text)].join(" · ")])
   }
@@ -984,7 +993,7 @@ export function getFaceMetaRows(e: Entity, now: number): [string, string][] {
     // v0.6.34: count DELIBERATE plays only — an AUTO play (ongoing-on-enter) is presence, not a
     // deliberate occurrence ("I entered it" ≠ "it happened N times").
     const playCount = getSessions(e).filter((s) => s.via === "play" && !s.auto && s.endAt !== s.startAt).length
-    const plannedList = isPlannable(e.kind) ? getPlannedOccurrenceRow(e, now) : null
+    const plannedList = SPAN_UI_KINDS.has(e.kind) ? getPlannedOccurrenceRow(e, now) : null
     const parts: string[] = []
     if (playCount > 0) parts.push(`${playCount} ${playCount === 1 ? "time" : "times"}`)
     if (plannedList) parts.push(plannedList)
