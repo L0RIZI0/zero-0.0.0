@@ -48,8 +48,14 @@ export interface KindMeta {
   description: string
   /** Whether the user can create one from the new-entity affordances. */
   creatable: boolean
-  /** Can hold the soft DONE checkmark (its own axis). Task / Moment / Instant only. */
+  /** Can hold the soft DONE checkmark (its own axis). Task ONLY. */
   hasDoneState: boolean
+  /**
+   * Can carry a PLANNED span (planned start / end / duration): task · moment · space · resource.
+   * The single source of truth behind {@link isPlannable} (was the hardcoded `isPlannedKind`).
+   * Excludes beings (they AGE, not plan) and instants (a POINT + mark tally, not a span).
+   */
+  plannable: boolean
   /** When CLOSED, the glyph fills its silhouette. False for terminal kinds (they only fade). */
   fillsWhenClosed: boolean
   /**
@@ -65,6 +71,7 @@ export const KIND_META: Record<EntityKind, KindMeta> = {
     description: "A thing to do",
     creatable: true,
     hasDoneState: true,
+    plannable: true,
     fillsWhenClosed: true,
     terminal: null,
   },
@@ -73,6 +80,7 @@ export const KIND_META: Record<EntityKind, KindMeta> = {
     description: "A context that holds things",
     creatable: true,
     hasDoneState: false,
+    plannable: true,
     fillsWhenClosed: true,
     terminal: null,
   },
@@ -81,6 +89,7 @@ export const KIND_META: Record<EntityKind, KindMeta> = {
     description: "An asset, reference, or tool",
     creatable: true,
     hasDoneState: false,
+    plannable: true,
     fillsWhenClosed: true,
     terminal: null,
   },
@@ -91,6 +100,7 @@ export const KIND_META: Record<EntityKind, KindMeta> = {
     // DONE is a Task-only marker now. A Moment is not "done" — it simply becomes
     // COMPLETE once its end passes, and CLOSES (fills + fades) at the next midnight.
     hasDoneState: false,
+    plannable: true,
     fillsWhenClosed: true,
     terminal: null,
   },
@@ -100,6 +110,8 @@ export const KIND_META: Record<EntityKind, KindMeta> = {
     creatable: true,
     // Like a Moment: no DONE marker; complete once its point passes, closes at midnight.
     hasDoneState: false,
+    // A POINT + a mark tally, not a span — so NOT plannable (no planned start/end/duration).
+    plannable: false,
     fillsWhenClosed: true,
     terminal: null,
   },
@@ -108,6 +120,7 @@ export const KIND_META: Record<EntityKind, KindMeta> = {
     description: "A place to gather people and discussions",
     creatable: true,
     hasDoneState: false,
+    plannable: false,
     fillsWhenClosed: false,
     terminal: "retire",
   },
@@ -116,6 +129,7 @@ export const KIND_META: Record<EntityKind, KindMeta> = {
     description: "A company, a point of view",
     creatable: true,
     hasDoneState: false,
+    plannable: false,
     fillsWhenClosed: false,
     terminal: "death",
   },
@@ -126,6 +140,7 @@ export const KIND_META: Record<EntityKind, KindMeta> = {
     description: "A person, animated by a Soul",
     creatable: true,
     hasDoneState: false,
+    plannable: false,
     fillsWhenClosed: false,
     terminal: "death",
   },
@@ -134,6 +149,7 @@ export const KIND_META: Record<EntityKind, KindMeta> = {
     description: "The animating self behind a person",
     creatable: false,
     hasDoneState: false,
+    plannable: false,
     fillsWhenClosed: false,
     terminal: null,
   },
@@ -168,9 +184,13 @@ export function isBeing(kind: EntityKind): boolean {
  * a mark tally, not a span). moment/space still surface the planned rows ALWAYS (a span is their
  * essence); task/resource surface them when actually set.
  */
-export function isPlannedKind(kind: EntityKind): boolean {
-  return kind === "task" || kind === "moment" || kind === "space" || kind === "resource"
+export function isPlannable(kind: EntityKind): boolean {
+  return KIND_META[kind].plannable
 }
+
+/** @deprecated Renamed to {@link isPlannable} (now reads `KIND_META.plannable`). Thin alias kept
+ *  so existing call sites keep working; prefer `isPlannable` in new code. */
+export const isPlannedKind = isPlannable
 
 /**
  * Whether `entity` is in its TERMINAL end-state (retired / dead). Inert today —

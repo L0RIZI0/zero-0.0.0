@@ -127,23 +127,22 @@ const KIND_COLS: EntityKind[] = [
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
 const stripHtml = (html: string) => html.replace(/<[^>]*>/g, "").trim()
 
-// ── Phase 2: reconciliation of the ENUMERABLE "hard fact" rows against the live code ─────────
-// Keyed by the row's LABEL (normalized) — stable across the live doc's DYNAMIC row ids. Each
-// checker returns the BOOLEAN the code guarantees for that kind (read from KIND_META), or null
-// to skip. "Check facts" compares that to whether the cell's prose is affirmative ("yes…") or
-// negative ("no…"): agreement ⇒ match (green), disagreement ⇒ gap (red), unclear ⇒ left alone.
-// Prose-only rows aren't listed here, so they are NEVER auto-touched — they stay manual.
+// ── Phase 2/3: reconciliation of the ENUMERABLE "hard fact" rows against the live code ───────
+// Keyed by the row's STABLE ID (Phase 3) — NOT its prose label, which the user is free to reword
+// (that fragility silently skipped the "mark as done" row in Phase 2). Each checker returns the
+// BOOLEAN the code guarantees for that kind (read straight from KIND_META, the single source of
+// truth), or null to skip. "Check facts" compares that to whether the cell's prose is affirmative
+// ("yes…") or negative ("no…"): agreement ⇒ match (green), disagreement ⇒ gap (red), unclear ⇒
+// left alone. Rows NOT listed here (prose, or capabilities that aren't a per-kind boolean —
+// deletable/closable are ~universal, completable is a runtime computation) are NEVER auto-touched;
+// they stay manual / @v0-driven. To auto-check a new row, give it a stable id + a KIND_META field.
 const HARD_FACTS: Record<string, (k: EntityKind) => boolean | null> = {
-  creatable: (k) => KIND_META[k].creatable,
-  "creatable?": (k) => KIND_META[k].creatable,
-  done: (k) => KIND_META[k].hasDoneState,
-  "done?": (k) => KIND_META[k].hasDoneState,
+  "r-creatable": (k) => KIND_META[k].creatable,
+  "r-planned": (k) => KIND_META[k].plannable,
+  "r-done": (k) => KIND_META[k].hasDoneState,
+  // NOTE: the "Terminal end" row (r-terminal) is NOT a per-kind boolean — its cells ENUMERATE
+  // the end-states (Closed/Deleted/Cancelled, or Dead/Retired for beings), so it stays manual.
 }
-// Normalize a row's PRIMARY label = the first <br>-separated line only (row labels often carry
-// extra prose on following lines, e.g. "Creatable" + "New entity → State = Open"), so the
-// HARD_FACTS lookup keys stay clean single words.
-const normLabel = (html: string) =>
-  stripHtml(String(html).split(/<br\s*\/?>/i)[0]).toLowerCase().replace(/\s+/g, " ").trim()
 // Affirmative/negative signal from a cell's prose, or null when it can't be told (prose/blank).
 function cellPolarity(html: string): boolean | null {
   const t = stripHtml(html).toLowerCase().trim()
@@ -968,7 +967,7 @@ export function Zero0EntitiesBible() {
       }
       const cells = { ...g.cells }
       for (const rowId of g.rowIds) {
-        const checker = HARD_FACTS[normLabel(g.cells[cellKey(rowId, FIELD_COL)]?.html ?? "")]
+        const checker = HARD_FACTS[rowId]
         if (!checker) continue
         for (const colId of g.colIds) {
           if (colId === FIELD_COL) continue
