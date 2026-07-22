@@ -1157,20 +1157,6 @@ export function Zero0EntitiesBible() {
           </span>
           type an <code className="rounded bg-muted px-1">@v0 …</code> request in any cell
         </span>
-        <span className="ml-auto flex items-center gap-1.5">
-          <span
-            className={
-              "inline-block h-1.5 w-1.5 rounded-full " +
-              (sync === "saving"
-                ? "bg-amber-500"
-                : sync === "offline"
-                  ? "bg-destructive"
-                  : "bg-emerald-500")
-            }
-            aria-hidden
-          />
-          {sync === "saving" ? "saving…" : sync === "offline" ? "offline (local only)" : "saved to shared store"}
-        </span>
       </div>
 
       {/* Formatting toolbar — acts on the focused cell. z-30 keeps it ABOVE the floating column
@@ -1237,14 +1223,27 @@ export function Zero0EntitiesBible() {
             <Plus className="h-3.5 w-3.5" />C
           </span>
         </IconBtn>
-        <button
-          type="button"
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={resetTable}
-          className="ml-auto rounded px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-        >
-          Reset to draft
-        </button>
+        {/* Save state + draft reset, grouped at the right end of the toolbar. */}
+        <div className="ml-auto flex items-center gap-3">
+          <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <span
+              className={
+                "inline-block h-1.5 w-1.5 rounded-full " +
+                (sync === "saving" ? "bg-amber-500" : sync === "offline" ? "bg-destructive" : "bg-emerald-500")
+              }
+              aria-hidden
+            />
+            {sync === "saving" ? "saving…" : sync === "offline" ? "offline (local only)" : "saved to shared store"}
+          </span>
+          <button
+            type="button"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={resetTable}
+            className="rounded px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          >
+            Reset to draft
+          </button>
+        </div>
       </div>
 
       {/* The grid — a real table so cells size to content. Horizontal scroll on overflow. Inline
