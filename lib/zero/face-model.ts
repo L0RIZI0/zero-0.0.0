@@ -885,10 +885,11 @@ export function getFaceMetaRows(e: Entity, now: number): [string, string][] {
     rows.push(["state", formatState(getState(e), fmt, meta.terminal === "death")])
   }
   // STATUS — the ORTHOGONAL action axis (running now), its own row so STATE keeps its true
-  // lifecycle word. Shown only while ongoing; `since` is when the current run started.
-  {
+  // lifecycle word. ALWAYS shown alongside STATE (like DONE/CLOSED): "ongoing · since …" while
+  // running, else "idle" — the axis persists so stopping a run doesn't make the row vanish.
+  if (meta.fillsWhenClosed || meta.terminal) {
     const since = getOngoingSince(e, now)
-    if (since != null) rows.push(["status", `ongoing · since ${fmt(since)}`])
+    rows.push(["status", since != null ? `ongoing · since ${fmt(since)}` : "idle"])
   }
   // CLOSE POLICY — only when MANUAL (auto is the silent default). Signals this entity
   // won't roll to closed at midnight; it waits for a hand Close/Cancel.

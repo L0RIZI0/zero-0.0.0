@@ -17,6 +17,7 @@ import {
   StickyNote,
 } from "lucide-react"
 import { Zero0Glyph } from "@/components/zero0/zero0-glyph"
+import { KIND_META } from "@/lib/zero/kinds"
 import type { EntityKind } from "@/lib/zero/types"
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────
@@ -71,6 +72,15 @@ type Cell = {
   glyphInline?: EntityKind
   /** A cell-level footnote (rendered as a corner marker + a numbered entry below the table). */
   note?: string
+  /**
+   * RECONCILIATION status (Phase 2) — how this cell's stated INTENT relates to the CURRENT code:
+   *   • undefined = "unchecked" (neutral) — intent only, not yet reconciled against the code
+   *   • "match"   = green — code verified to do what this cell says
+   *   • "gap"     = red   — a KNOWN discrepancy between this cell and the code, still to fix
+   * Set by hand via the cell right-click menu, or auto-set for enumerable "hard fact" rows by
+   * the "Check facts" toolbar action (which reads KIND_META). Prose cells stay manual.
+   */
+  reconcile?: "match" | "gap"
 }
 
 type Grid = {
@@ -116,6 +126,32 @@ const KIND_COLS: EntityKind[] = [
 
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
 const stripHtml = (html: string) => html.replace(/<[^>]*>/g, "").trim()
+
+// ── Phase 2: reconciliation of the ENUMERABLE "hard fact" rows against the live code ─────────
+// Keyed by the row's LABEL (normalized) — stable across the live doc's DYNAMIC row ids. Each
+// checker returns the BOOLEAN the code guarantees for that kind (read from KIND_META), or null
+// to skip. "Check facts" compares that to whether the cell's prose is affirmative ("yes…") or
+// negative ("no…"): agreement ⇒ match (green), disagreement ⇒ gap (red), unclear ⇒ left alone.
+// Prose-only rows aren't listed here, so they are NEVER auto-touched — they stay manual.
+const HARD_FACTS: Record<string, (k: EntityKind) => boolean | null> = {
+  creatable: (k) => KIND_META[k].creatable,
+  "creatable?": (k) => KIND_META[k].creatable,
+  done: (k) => KIND_META[k].hasDoneState,
+  "done?": (k) => KIND_META[k].hasDoneState,
+}
+// Normalize a row's PRIMARY label = the first <br>-separated line only (row labels often carry
+// extra prose on following lines, e.g. "Creatable" + "New entity → State = Open"), so the
+// HARD_FACTS lookup keys stay clean single words.
+const normLabel = (html: string) =>
+  stripHtml(String(html).split(/<br\s*\/?>/i)[0]).toLowerCase().replace(/\s+/g, " ").trim()
+// Affirmative/negative signal from a cell's prose, or null when it can't be told (prose/blank).
+function cellPolarity(html: string): boolean | null {
+  const t = stripHtml(html).toLowerCase().trim()
+  if (!t || t === "—" || t === "-") return null
+  if (/^(yes|always|true|✓)\b/.test(t)) return true
+  if (/^(no|never|false|n\/a|✗)\b/.test(t)) return false
+  return null
+}
 
 // ── The cheat-sheet content ─────────────────────────────────────────────────────────────────
 // Each row = a FIELD / STATE / INTERACTION. Per-kind cells are keyed by kind; a missing kind
@@ -907,6 +943,51 @@ export function Zero0EntitiesBible() {
     })
   }, [])
 
+  // Phase 2 — set (or clear) a cell's reconciliation status by hand. `null` clears back to
+  // unchecked. Persists via the shared grid like any other cell mutation.
+  const setReconcile = useCallback((rowId: string, colId: string, val: "match" | "gap" | null) => {
+    setGrid((g) => {
+      const key = cellKey(rowId, colId)
+      const prev = g.cells[key] ?? {}
+      const next: Cell = { ...prev }
+      if (val == null) delete next.reconcile
+      else next.reconcile = val
+      return { ...g, cells: { ...g.cells, [key]: next } }
+    })
+  }, [])
+
+  // Phase 2 — auto-mark the enumerable "hard fact" cells (see HARD_FACTS) green/red by comparing
+  // KIND_META to each cell's affirmative/negative prose. Column→kind is read from the glyph cells
+  // (robust to reordering). Only hard-fact rows with a clear polarity are touched; everything
+  // else (prose, unclear, blank) is left exactly as-is.
+  const checkFacts = useCallback(() => {
+    setGrid((g) => {
+      const colKind: Record<string, EntityKind> = {}
+      for (const [k, c] of Object.entries(g.cells)) {
+        if (c.glyph) colKind[k.split("::")[1]] = c.glyph
+      }
+      const cells = { ...g.cells }
+      for (const rowId of g.rowIds) {
+        const checker = HARD_FACTS[normLabel(g.cells[cellKey(rowId, FIELD_COL)]?.html ?? "")]
+        if (!checker) continue
+        for (const colId of g.colIds) {
+          if (colId === FIELD_COL) continue
+          const kind = colKind[colId]
+          if (!kind) continue
+          const expected = checker(kind)
+          if (expected == null) continue
+          const key = cellKey(rowId, colId)
+          const cell = cells[key]
+          if (!cell) continue
+          const pol = cellPolarity(cell.html ?? "")
+          if (pol == null) continue
+          cells[key] = { ...cell, reconcile: pol === expected ? "match" : "gap" }
+        }
+      }
+      return { ...g, cells }
+    })
+  }, [])
+
   // Read the focused editable's current HTML straight back into the grid (used after execCommand,
   // which mutates the DOM without firing blur).
   const commitActive = useCallback(() => {
@@ -1157,6 +1238,15 @@ export function Zero0EntitiesBible() {
           </span>
           type an <code className="rounded bg-muted px-1">@v0 …</code> request in any cell
         </span>
+        {/* Reconciliation legend — the per-cell left-edge status (right-click a cell to set). */}
+        <span className="flex items-center gap-1.5">
+          <span className="inline-block h-2.5 w-1 rounded-sm bg-emerald-500" aria-hidden />
+          matches code
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="inline-block h-2.5 w-1 rounded-sm bg-rose-500" aria-hidden />
+          known gap
+        </span>
       </div>
 
       {/* Formatting toolbar — acts on the focused cell. z-30 keeps it ABOVE the floating column
@@ -1237,6 +1327,15 @@ export function Zero0EntitiesBible() {
           </span>
           <button
             type="button"
+            title="Auto-mark the enumerable 'hard fact' rows (creatable, done) green/red by comparing them to KIND_META"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={checkFacts}
+            className="rounded px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          >
+            Check facts
+          </button>
+          <button
+            type="button"
             onMouseDown={(e) => e.preventDefault()}
             onClick={resetTable}
             className="rounded px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
@@ -1291,6 +1390,16 @@ export function Zero0EntitiesBible() {
                       onContextMenu={(e) => openMenu(e, ri, ci)}
                       className={border + " relative p-0"}
                     >
+                      {/* Reconciliation edge — green = code matches this cell, red = known gap. */}
+                      {cell.reconcile && ci !== 0 && (
+                        <span
+                          aria-hidden
+                          className={
+                            "pointer-events-none absolute inset-y-0 left-0 w-1 " +
+                            (cell.reconcile === "match" ? "bg-emerald-500" : "bg-rose-500")
+                          }
+                        />
+                      )}
                       <div className={cell.glyphInline ? "flex items-start" : undefined}>
                         {cell.glyphInline && (
                           <span
@@ -1536,6 +1645,40 @@ export function Zero0EntitiesBible() {
             Row {menu.ri} · Col {menu.ci}
           </div>
           <div className="my-1 h-px bg-border" aria-hidden />
+          {/* Reconciliation status — only on content cells (not the label column or glyph cells). */}
+          {grid.colIds[menu.ci] !== FIELD_COL &&
+            !grid.cells[cellKey(grid.rowIds[menu.ri] ?? "", grid.colIds[menu.ci] ?? "")]?.glyph && (
+              <>
+                <MenuItem
+                  icon={<span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />}
+                  onSelect={() => {
+                    setReconcile(grid.rowIds[menu.ri], grid.colIds[menu.ci], "match")
+                    setMenu(null)
+                  }}
+                >
+                  Mark matches code
+                </MenuItem>
+                <MenuItem
+                  icon={<span className="h-2.5 w-2.5 rounded-full bg-rose-500" />}
+                  onSelect={() => {
+                    setReconcile(grid.rowIds[menu.ri], grid.colIds[menu.ci], "gap")
+                    setMenu(null)
+                  }}
+                >
+                  Mark as gap
+                </MenuItem>
+                <MenuItem
+                  icon={<span className="h-2.5 w-2.5 rounded-full border border-muted-foreground" />}
+                  onSelect={() => {
+                    setReconcile(grid.rowIds[menu.ri], grid.colIds[menu.ci], null)
+                    setMenu(null)
+                  }}
+                >
+                  Clear status
+                </MenuItem>
+                <div className="my-1 h-px bg-border" aria-hidden />
+              </>
+            )}
           <MenuItem
             icon={<ArrowUp className="h-3.5 w-3.5" />}
             disabled={menu.ri === 0}
