@@ -19,7 +19,7 @@
 
 import type { Entity, EntityKind, Whenever } from "./types"
 import { WHENEVER } from "./types"
-  import { KIND_META, isClosed, fillsGlyph, getState, isOngoing, getOngoingSince, concreteStart, effectiveScheduleEnd, ongoingOpenSession, occurrenceAction, isMarkable, getMarks, getSessions, getInstantMaxNb, isInstantMaxNbHard, getInstantOccurrenceCount, type EntityState } from "./kinds"
+  import { KIND_META, isClosed, fillsGlyph, getState, isOngoing, getOngoingSince, concreteStart, effectiveScheduleEnd, ongoingOpenSession, occurrenceAction, isBeing, isMarkable, getMarks, getSessions, getInstantMaxNb, isInstantMaxNbHard, getInstantOccurrenceCount, type EntityState } from "./kinds"
 import { isDone, getCreatedAt, getCompletedOn } from "./entity-log"
 import { getEntity, getCreator, getOwner, getForwardTags, getBackReferences, getChildren } from "./data"
 import { formatLocale } from "./format-locale"
@@ -337,13 +337,22 @@ export function sexSymbol(sex: string): string {
 // which lives nowhere else. `complete` also shows WHEN it will auto-close at midnight.
 // `isLiving` (a death-terminal kind — an Individual/Organism) reads its `open` state as
 // "alive" (lowercase, like every other state word), the natural antonym of `dead`.
-export function formatState(state: EntityState, format: (e?: number) => string, isLiving = false): string {
+// `isBeing` (individual/organism/community) reads the `scheduled` word as "expected" — a being
+// isn't "scheduled" like an appointment, it is EXPECTED to begin (be born / founded).
+export function formatState(
+  state: EntityState,
+  format: (e?: number) => string,
+  isLiving = false,
+  isBeing = false,
+): string {
   switch (state.word) {
     case "open":
       if (isLiving) return state.reopenedAt ? `alive · reopened ${format(state.reopenedAt)}` : "alive"
       return state.reopenedAt ? `open · reopened ${format(state.reopenedAt)}` : "open"
     case "scheduled":
-      // A planned instant awaiting its occurrence — `at` is the scheduled anchor.
+      // A being awaiting its beginning reads "expected"; a planned instant awaiting its
+      // occurrence reads "scheduled". Both carry the concrete anchor in `at`.
+      if (isBeing) return state.at != null ? `expected · ${format(state.at)}` : "expected"
       return state.at != null ? `scheduled · ${format(state.at)}` : "scheduled"
     case "complete":
       return state.willCloseAt ? `complete · closes ${format(state.willCloseAt)} (auto)` : "complete"
@@ -891,7 +900,7 @@ export function getFaceMetaRows(e: Entity, now: number): [string, string][] {
   // cancelled / dead / retired), replacing the old CLOSED + CANCELLED booleans. `open`
   // carries no date (CREATED above already says since when); other states carry theirs.
   if (meta.fillsWhenClosed || meta.terminal) {
-    rows.push(["state", formatState(getState(e), fmt, meta.terminal === "death")])
+    rows.push(["state", formatState(getState(e), fmt, meta.terminal === "death", isBeing(e.kind))])
   }
   // STATUS — the ORTHOGONAL action axis (running now), its own row so STATE keeps its true
   // lifecycle word. ALWAYS shown alongside STATE (like DONE/CLOSED): "ongoing · since …" while

@@ -51,9 +51,15 @@ export interface KindMeta {
   /** Can hold the soft DONE checkmark (its own axis). Task ONLY. */
   hasDoneState: boolean
   /**
-   * Can carry a PLANNED span (planned start / end / duration): task · moment · space · resource.
-   * The single source of truth behind {@link isPlannable} (was the hardcoded `isPlannedKind`).
-   * Excludes beings (they AGE, not plan) and instants (a POINT + mark tally, not a span).
+   * Can carry a PLANNED schedule. The single source of truth behind {@link isPlannable} (was the
+   * hardcoded `isPlannedKind`). TRUE for every creatable kind EXCEPT soul:
+   *   • task · moment · space · resource → a planned span (start / end / duration).
+   *   • instant → a degenerate span (a placed `at`, start == end, duration 0) + a mark tally.
+   *   • individual · organism · community (beings) → a planned BEGINNING (birth / founding); a
+   *     concrete future start reads state "expected" until it passes, then the being is alive.
+   * Only `soul` is not plannable (it is the animating self, never scheduled). NOTE: being able to
+   * PLAN (this flag) is distinct from rendering the start/end/duration SPAN UI — that is gated
+   * separately by SPAN_UI_KINDS in face-model, so instants/beings plan without the span rows.
    */
   plannable: boolean
   /** When CLOSED, the glyph fills its silhouette. False for terminal kinds (they only fade). */
@@ -122,7 +128,8 @@ export const KIND_META: Record<EntityKind, KindMeta> = {
     description: "A place to gather people and discussions",
     creatable: true,
     hasDoneState: false,
-    plannable: false,
+    // A community can be planned to BEGIN (founding date) — "expected" until it starts.
+    plannable: true,
     fillsWhenClosed: false,
     terminal: "retire",
   },
@@ -131,7 +138,8 @@ export const KIND_META: Record<EntityKind, KindMeta> = {
     description: "A company, a point of view",
     creatable: true,
     hasDoneState: false,
-    plannable: false,
+    // An organism can be planned to BEGIN (founding) — "expected" until it starts.
+    plannable: true,
     fillsWhenClosed: false,
     terminal: "death",
   },
@@ -142,7 +150,8 @@ export const KIND_META: Record<EntityKind, KindMeta> = {
     description: "A person, animated by a Soul",
     creatable: true,
     hasDoneState: false,
-    plannable: false,
+    // A person can be planned to BEGIN (birth / a future arrival) — "expected" until born.
+    plannable: true,
     fillsWhenClosed: false,
     terminal: "death",
   },
@@ -179,12 +188,13 @@ export function isBeing(kind: EntityKind): boolean {
 }
 
 /**
- * A "PLANNED" kind (v0.6.28) — an actionable/schedulable thing that can carry a PLANNED span
- * (planned start / end / duration): task · moment · space · resource. Generalizes the planning
- * affordance beyond the moment/space span-essence: a Task is just as plannable (start it Monday,
- * due Friday, budget 2h). EXCLUDES beings (they persist → AGE, not a plan) and instants (a POINT +
- * a mark tally, not a span). moment/space still surface the planned rows ALWAYS (a span is their
- * essence); task/resource surface them when actually set.
+ * Whether a kind can carry a PLANNED schedule — reads {@link KindMeta.plannable}, the single
+ * source of truth. TRUE for every creatable kind except `soul`: task/moment/space/resource plan a
+ * SPAN, instant plans a degenerate point (`at`), and beings (individual/organism/community) plan a
+ * BEGINNING (a concrete future start reads state "expected" until it passes). This is the ONTOLOGY
+ * question only; whether the start/end/duration SPAN UI renders is the separate SPAN_UI_KINDS gate
+ * in face-model (so instants/beings are plannable without those span rows). Renamed from the
+ * hardcoded `isPlannedKind` in Phase 3.
  */
 export function isPlannable(kind: EntityKind): boolean {
   return KIND_META[kind].plannable
@@ -702,6 +712,16 @@ function getStateInner(entity: Entity, now: number, seen: Set<string>): EntitySt
   // completed it yet. Instant-scoped (moments keep their open→ongoing→complete arc).
   if (entity.kind === "instant" && entity.schedule?.at != null) {
     return { word: "scheduled", at: entity.schedule.at }
+  }
+
+  // SCHEDULED (beings) — an individual/organism/community with a concrete start still in the
+  // FUTURE is planned but NOT YET BEGUN (born / founded). It shares the `scheduled` word but
+  // renders as "expected" (see formatState). Once `now` passes the start it falls through to
+  // `open` = alive/active. Soul is excluded (never plannable). This is the being-planning arm of
+  // KIND_META.plannable — the START gates begun-ness, unlike the instant's timeless `at`.
+  if (isBeing(entity.kind) && entity.kind !== "soul") {
+    const start = concreteStart(entity)
+    if (start != null && now < start) return { word: "scheduled", at: start }
   }
 
   return { word: "open" }
