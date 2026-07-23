@@ -177,6 +177,27 @@ const KIND_ID: Partial<Record<EntityKind, string>> = {
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
 const stripHtml = (html: string) => html.replace(/<[^>]*>/g, "").trim()
 
+// The ID row is DISPLAYED as Roman numerals (I…IX) but the underlying stored value stays the plain
+// number (0…9, ∞) — those numbers are the real ordering and must never become Roman in the data (any
+// id used in code is numeric). 0 and ∞ have no Roman form, so they pass through untouched. The two
+// maps below convert for display (num→Roman) and normalize back on commit (Roman→num).
+const ID_TO_ROMAN: Record<string, string> = {
+  "1": "I", "2": "II", "3": "III", "4": "IV", "5": "V", "6": "VI", "7": "VII", "8": "VIII", "9": "IX",
+}
+const ID_FROM_ROMAN: Record<string, string> = Object.fromEntries(
+  Object.entries(ID_TO_ROMAN).map(([n, r]) => [r, n]),
+)
+/** For the ID row only: render the stored number as its Roman numeral (0/∞/unknown pass through). */
+const idHtmlToRoman = (html: string) => {
+  const t = stripHtml(html)
+  return ID_TO_ROMAN[t] ?? html
+}
+/** For the ID row only: normalize an edited Roman numeral back to its number before it is stored. */
+const idHtmlFromRoman = (html: string) => {
+  const t = stripHtml(html).toUpperCase()
+  return ID_FROM_ROMAN[t] ?? html
+}
+
 // ── Phase 2/3: reconciliation of the ENUMERABLE "hard fact" rows against the live code ───────
 // Keyed by the row's STABLE ID — NOT its prose label, which the user is free to reword (that
 // fragility silently skipped the "mark as done" row in Phase 2). Each checker returns the BOOLEAN
@@ -546,6 +567,12 @@ export function Zero0EntitiesBible() {
       grid.rowIds[1]
     )
   }, [grid])
+  // The ID row, located by its FIELD-column label (robust to row reordering) — its cells render as
+  // Roman numerals for display while storing plain numbers. `null` if there is no ID row.
+  const idRowId = useMemo(() => {
+    const fieldCol = grid.colIds[0]
+    return grid.rowIds.find((r) => /^id$/i.test(stripHtml(grid.cells[cellKey(r, fieldCol)]?.html ?? ""))) ?? null
+  }, [grid])
   const [menu, setMenu] = useState<Menu | null>(null)
   const [picker, setPicker] = useState<Picker | null>(null)
   const [notePopover, setNotePopover] = useState<NotePopover | null>(null)
@@ -820,12 +847,15 @@ export function Zero0EntitiesBible() {
   }, [])
 
   const handleCommit = useCallback((cellId: string, html: string) => {
+    // ID-row cells display Roman numerals but must PERSIST the plain number — normalize any edited
+    // Roman (e.g. "VII") back to its digit before storing, so the data never drifts to Roman.
+    const nextHtml = idRowId && cellId.startsWith(idRowId + "::") ? idHtmlFromRoman(html) : html
     setGrid((g) => {
       const prev = g.cells[cellId]
-      if (prev?.html === html) return g
-      return { ...g, cells: { ...g.cells, [cellId]: { ...prev, html } } }
+      if (prev?.html === nextHtml) return g
+      return { ...g, cells: { ...g.cells, [cellId]: { ...prev, html: nextHtml } } }
     })
-  }, [])
+  }, [idRowId])
 
   // Phase 2 — set (or clear) a cell's reconciliation status by hand. `null` clears back to
   // unchecked. Persists via the shared grid like any other cell mutation.
@@ -1400,7 +1430,9 @@ export function Zero0EntitiesBible() {
                         <div className={cell.glyphInline ? "min-w-0 flex-1" : undefined}>
                           <EditableCell
                             cellId={key}
-                            initialHtml={cell.html ?? ""}
+                            initialHtml={
+                              rowId === idRowId ? idHtmlToRoman(cell.html ?? "") : (cell.html ?? "")
+                            }
                             active={activeCell === key}
                             centered={centered}
                             onFocus={handleFocus}
