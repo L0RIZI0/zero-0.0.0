@@ -1455,7 +1455,9 @@ export function Zero0EntitiesBible() {
             {grid.colIds.map((colId, ci) => {
               const glyphKind = grid.cells[cellKey(glyphRowId ?? "", colId)]?.glyph
               const nameHtml = grid.cells[cellKey(nameRowId ?? "", colId)]?.html
-              const name = nameHtml ? stripHtml(nameHtml) : ""
+              // Drop a leading "The " — the sticky row already pairs the name with its glyph, so the
+              // article is redundant here (kept in the full Name row where it reads better standalone).
+              const name = nameHtml ? stripHtml(nameHtml).replace(/^the\s+/i, "") : ""
               return (
                 <div
                   key={colId}
