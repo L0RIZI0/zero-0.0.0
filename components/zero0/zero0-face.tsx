@@ -350,7 +350,16 @@ function FaceBlock({
                       style={{ backgroundColor: v }}
                     />
                   )}
-                  <span className="truncate">{v}</span>
+                  {/* SEX renders a single-stroke symbol glyph (♂/♀). Append the U+FE0E text
+                      variation selector so the browser keeps it in the (mono) text font instead of
+                      swapping to a thin emoji/symbol fallback, and give it a slightly larger,
+                      semibold weight so the hairline reads as solid foreground white — not the gray
+                      an antialiased 1px stroke would otherwise look. */}
+                  {k === "sex" && v !== "—" ? (
+                    <span className="truncate text-[12px] font-semibold">{v + "\uFE0E"}</span>
+                  ) : (
+                    <span className="truncate">{v}</span>
+                  )}
                 </dd>
               )}
             </div>
