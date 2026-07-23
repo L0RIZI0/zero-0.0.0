@@ -125,16 +125,12 @@ const SPACE_MORPH_SQUARE_RADII = SQUARE_RADII.map((r) => r * SPACE_MORPH_SQUARE_
 function KindShape({ kind, requested }: { kind: EntityKind; requested?: boolean }) {
   switch (kind) {
     case "entity":
-      // The raw Idea — an "add" CROSS with a genuinely EMPTY center (like ✜): FOUR separate arms
-      // that stop short of the middle, leaving a hollow square gap at the core. No enclosed
-      // silhouette (so it never fills). The open, un-closed center reads as "not yet shaped" — it
-      // can still become any specialized kind. Drawn as bare strokes, never filled.
-      return (
-        <path
-          d="M12 4 L12 9.5 M12 14.5 L12 20 M4 12 L9.5 12 M14.5 12 L20 12"
-          fill="none"
-        />
-      )
+      // The raw Idea — an ✜-style "add" CROSS with a genuinely EMPTY center: FOUR separate arms
+      // that stop short of the middle, leaving a hollow gap at the core. Drawn with SVG primitives
+      // (NOT the ✜ Unicode char, which renders blank — JetBrains Mono lacks U+271C, confirmed) so
+      // it paints identically everywhere. No enclosed silhouette, so it never fills; the open,
+      // un-closed center reads as "not yet shaped" — it can still become any specialized kind.
+      return <path d="M12 4 L12 9.5 M12 14.5 L12 20 M4 12 L9.5 12 M14.5 12 L20 12" fill="none" />
     case "task":
       // A "sent as request" task hangs a diagonal flag/leg off its bottom-right
       // CORNER, pointing DOWN-LEFT to a tip (like a "9" descender). The right + left

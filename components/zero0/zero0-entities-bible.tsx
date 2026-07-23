@@ -141,7 +141,9 @@ const KIND_ID: Partial<Record<EntityKind, string>> = {
   individual: "6",
   organism: "7",
   community: "8",
-  soul: "∞",
+  // ∞ has a tiny cap-height, so at the digits' size it reads much smaller — scale just this glyph
+  // up (via an inline span) so the beyond-pole id matches the numerals optically.
+  soul: '<span style="font-size:1.7em;line-height:1;display:inline-block;vertical-align:-0.15em;color:var(--foreground)">∞</span>',
 }
 
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
@@ -1440,13 +1442,7 @@ export function Zero0EntitiesBible() {
                     <td
                       key={colId}
                       onContextMenu={(e) => openMenu(e, ri, ci)}
-                      // The ID row carries short symbols (0 … 8 … ∞) — bump it up so the ∞ pole id
-                      // is legible instead of tiny. `!` beats the cell's default text-[10px].
-                      className={
-                        border +
-                        " relative p-0" +
-                        (rowId === "r-id" ? " [&_.bible-cell]:!text-sm [&_.bible-cell]:!leading-tight" : "")
-                      }
+                      className={border + " relative p-0"}
                     >
                       {/* Reconciliation edge — green = code matches this cell, red = known gap. */}
                       {cell.reconcile && ci !== 0 && (
