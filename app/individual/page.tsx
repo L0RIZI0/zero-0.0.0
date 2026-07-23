@@ -424,6 +424,22 @@ export default function IndividualPage() {
             </li>
           </ul>
         </Section>
+
+        {/* Sibling life-beings */}
+        <Section title="Sibling life-beings">
+          <p className="mt-3 max-w-prose text-pretty text-sm leading-relaxed text-muted-foreground">
+            The <strong className="font-medium text-foreground">Organism</strong> and{" "}
+            <strong className="font-medium text-foreground">Community</strong> share this exact life axis —
+            the same <code className="rounded bg-muted px-1 text-[11px]">open → scheduled → alive → terminal</code>{" "}
+            arc, guards, and §0 life-label. The only differences: their alive-anchor is{" "}
+            <code className="rounded bg-muted px-1 text-[11px]">publishedAt</code> (the{" "}
+            <strong className="font-medium text-foreground">Publish</strong> toggle, offered on every kind
+            except Soul) rather than <code className="rounded bg-muted px-1 text-[11px]">bornAt</code>, and a
+            Community&rsquo;s terminal is <code className="rounded bg-muted px-1 text-[10px]">retired</code>{" "}
+            rather than <code className="rounded bg-muted px-1 text-[10px]">dead</code>. Publish makes them
+            live (and undeletable); Unpublish returns them to a draft. Their own pages will detail this.
+          </p>
+        </Section>
       </div>
     </main>
   )
