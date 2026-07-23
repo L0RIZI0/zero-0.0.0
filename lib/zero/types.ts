@@ -115,15 +115,28 @@ export type Epoch = number
  *   - `closed` / `reopened`  — archived / pulled back open (plain close = fade only).
  *   - `cancelled` / `restored` — called off / un-cancelled (also closes: bar + strike).
  *   - `retired` / `died`     — TERMINAL ends (community retires, organism/individual die).
+ *   PRESENCE + ONGOING — the SESSION model. Four verbs across two concerns, all folded into the
+ *   `schedule.sessions[]` cache by {@link deriveSessionsFromLog}. Presence is ONE continuous span;
+ *   "ongoing" is a SINGLE (non-overlapping) span with a FLAVOR (auto = presence-driven, remote =
+ *   deliberate), so DURATION never double-counts:
  *   - `accessed` / `exited`  — PRESENCE (the "focus" rail): you ENTERED this entity's scope
- *                              (`accessed`, a punch-in on drill-in past the dwell threshold) and
- *                              LEFT it (`exited`, punch-out). This is the ACCESS/presence half of
- *                              the session model — deliberately NOT `session-open/close`, which are
- *                              reserved for the deliberate PLAY stopwatch below. A focus session is
- *                              a folded `accessed`…`exited` pair (see deriveSessionsFromLog).
- *   - `session-open` / `session-close` — the deliberate PLAY stopwatch (the Play/Stop glyph, incl.
- *                              an auto play opened by ongoing-on-enter, tagged `auto`). These are
- *                              PLAY-only; presence uses `accessed`/`exited`.
+ *                              (`accessed`, punch-in on drill-in) and LEFT it (`exited`, punch-out).
+ *                              ACCESS (presence total) counts the whole `accessed`…`exited` span —
+ *                              it NEVER pauses. `accessed` on an ongoing-on-enter kind (task/space/
+ *                              resource, not done/closed) ALSO opens an AUTO ongoing span.
+ *   - `paused` / `resumed`   — IN-PLACE ongoing toggle, only while the entity is the LEAF you're
+ *                              viewing (glyph click inside it). `paused` closes the auto ongoing
+ *                              span (presence keeps counting); `resumed` reopens it. A pause is
+ *                              transient/leaf-only: drilling DEEPER (entering a child) or a reclick
+ *                              lifts it (`resumed`); a full `exited`+`accessed` re-enter starts fresh
+ *                              ongoing (so you never see `resumed` right after `accessed`).
+ *   - `started` / `stopped`  — REMOTE PLAY: a deliberate stopwatch punched from AFAR (glyph on a row
+ *                              you're not inside, or a §4 pin). Presence-INDEPENDENT: a remote
+ *                              ongoing span opens on `started` and only `stopped` closes it — it
+ *                              SURVIVES navigation (an `exited` does NOT stop it). GRAMMAR: `started`
+ *                              may precede `accessed` (play from afar, then enter); `resumed` cannot.
+ *   - `session-open` / `session-close` — LEGACY aliases for `started` / `stopped` (older persisted
+ *                              logs); the fold treats them as remote play. Not emitted by new writes.
  *   - `mark`      — a zero-length occurrence tally on an Instant entity.
  *   - `set`       — a generic FIELD ASSIGNMENT: some editable field (`title`, `color`,
  *                   `startAt`, `sex`, `kind`, …) was set to a new `value` (or cleared,
@@ -151,8 +164,12 @@ export type LogType =
   | "died"
   | "accessed"
   | "exited"
-  | "session-open"
-  | "session-close"
+  | "paused"
+  | "resumed"
+  | "started"
+  | "stopped"
+  | "session-open" // legacy alias for "started"
+  | "session-close" // legacy alias for "stopped"
   | "mark"
   | "set"
 

@@ -331,58 +331,110 @@ export function auditLogScalarConsistency(entity: Entity): LogScalarMismatch[] {
  * exact same cache from the log alone. Used by the consistency audit now and, later, as the
  * rebuild path when the scalar cache is retired.
  *
- * The RAIL is encoded by the entry TYPE (Loris' model), so the fold walks the log in order:
- *   - `accessed`      → begin an OPEN focus (presence) session, positioned at its access time (so
- *      derived order matches the cache, which is append-ordered by open).
- *   - `exited`        → close the most-recent still-open FOCUS session.
- *   - `session-open`  → begin an OPEN play session (carries `auto`).
- *   - `session-close` → close the most-recent still-open PLAY session.
- *   - `mark`          → a zero-length session (`endAt === startAt`, via "mark").
- * On any close, if the span is ≤ `minSessionMs` the whole session is DISCARDED (the discard-short
- * rule the writer applies), so a sub-threshold blip leaves no cached session. An `accessed`/
- * `session-open` with no matching close stays OPEN (no `endAt`) — the one running session on its rail.
+ * TWO CONCERNS, one ordered walk (Loris' model; rail encoded by entry TYPE):
  *
- * KNOWN LIMITATION (pending the editing model): a backdate via `setOpenSessionStart` currently
- * mutates the cache (swallow/merge) but is logged only as a `set sessionStart` entry, NOT as
- * access/exit corrections — so after such an edit this fold reproduces the PRE-edit history, not the
- * edited cache. Closing that gap (append-only correction Instants, Option A) is the next phase. For
- * the append-only access/exit/session/mark stream it is exact.
+ *  PRESENCE (focus rail) — ONE continuous span so ACCESS never pauses:
+ *   - `accessed` → open a `focus` session (also opens an AUTO ongoing span if `canAutoPlay(entity)`).
+ *   - `exited`   → close the open focus session (and the auto ongoing span, if any).
+ *
+ *  ONGOING (play rail) — a SINGLE non-overlapping span with a FLAVOR, so DURATION never
+ *  double-counts. Openers no-op while already ongoing (union/absorption); a closer whose flavor
+ *  doesn't match the current span is a no-op:
+ *   - AUTO flavor  — opened by `accessed`(canAutoPlay) or `resumed`; closed by `paused` or `exited`.
+ *   - REMOTE flavor— opened by `started` (legacy `session-open`); closed ONLY by `stopped` (legacy
+ *     `session-close`). REMOTE SURVIVES navigation — an `exited` does NOT close a remote span.
+ *  `mark` → a zero-length session (`endAt === startAt`, via "mark").
+ *
+ * On any close, a span ≤ `minSessionMs` is DISCARDED (matches the writer's discard-short rule), so a
+ * sub-threshold blip leaves no cached session. An unclosed open stays OPEN (no `endAt`) — the running
+ * session on its rail. `canAutoPlay` is INJECTED (entity-log must not import kinds); when omitted, no
+ * auto ongoing is derived (presence-only).
+ *
+ * ABSORPTION EDGE (documented, intentional): only ONE ongoing span at a time. A `started` while an
+ * auto span is open is absorbed (stays auto, dies on `exited`); an `accessed` while a remote span is
+ * open is absorbed (stays remote, survives `exited`). This trades a rare overlap for guaranteed
+ * no-double-count.
+ *
+ * KNOWN LIMITATION (pending the editing model): a backdate via `setOpenSessionStart` mutates the
+ * cache but is logged only as a `set sessionStart` entry, not as correction Instants — so after such
+ * an edit this fold reproduces PRE-edit history. Closing that (Option A correction Instants) is next.
  */
-export function deriveSessionsFromLog(entity: Entity, minSessionMs = 0): Session[] {
+export function deriveSessionsFromLog(
+  entity: Entity,
+  opts: { minSessionMs?: number; canAutoPlay?: (e: Entity) => boolean } = {},
+): Session[] {
   const log = entity.log
   if (!log || log.length === 0) return []
+  const minSessionMs = opts.minSessionMs ?? 0
+  const autoOpenable = opts.canAutoPlay ? opts.canAutoPlay(entity) : false
   const out: Session[] = []
-  // Index of the open session on each rail, so a close finds its partner.
-  const openIdx: { focus?: number; play?: number } = {}
-  const closeRail = (rail: "focus" | "play", at: number) => {
-    const idx = openIdx[rail]
-    if (idx == null) return // close with no matching open — ignore (crash/replay artifact)
+  // Live pointers in a holder object: closures mutate these, and property access (unlike a captured
+  // `let`) isn't narrowed to `never` by TS control-flow across those closure calls.
+  const st: { focusIdx: number | null; ongoing: { idx: number; flavor: "auto" | "remote" } | null } = {
+    focusIdx: null,
+    ongoing: null,
+  }
+
+  // Close the session at `idx` at `at`; DISCARD it if sub-threshold. Fixes the live pointers when a
+  // splice shifts later indices.
+  const closeAt = (idx: number, at: number) => {
     const s = out[idx]
-    openIdx[rail] = undefined
     if (at - s.startAt <= minSessionMs) {
-      out.splice(idx, 1) // discard-short: drop the whole session
-      for (const k of ["focus", "play"] as const) {
-        if (openIdx[k] != null && openIdx[k]! > idx) openIdx[k]!-- // later opens shift left by one
-      }
+      out.splice(idx, 1)
+      if (st.focusIdx != null && st.focusIdx > idx) st.focusIdx--
+      if (st.ongoing != null && st.ongoing.idx > idx) st.ongoing.idx--
     } else {
       s.endAt = at
     }
   }
+  const openOngoing = (at: number, flavor: "auto" | "remote") => {
+    if (st.ongoing != null) return // absorption: one ongoing at a time
+    const s: Session = { startAt: at, via: "play" }
+    if (flavor === "auto") s.auto = true
+    out.push(s)
+    st.ongoing = { idx: out.length - 1, flavor }
+  }
+
   for (const e of log) {
-    if (e.type === "accessed") {
-      out.push({ startAt: e.at, via: "focus" })
-      openIdx.focus = out.length - 1
-    } else if (e.type === "exited") {
-      closeRail("focus", e.at)
-    } else if (e.type === "session-open") {
-      const s: Session = { startAt: e.at, via: "play" }
-      if (e.auto) s.auto = true
-      out.push(s)
-      openIdx.play = out.length - 1
-    } else if (e.type === "session-close") {
-      closeRail("play", e.at)
-    } else if (e.type === "mark") {
-      out.push({ startAt: e.at, endAt: e.at, via: "mark" })
+    switch (e.type) {
+      case "accessed":
+        out.push({ startAt: e.at, via: "focus" })
+        st.focusIdx = out.length - 1
+        if (autoOpenable) openOngoing(e.at, "auto")
+        break
+      case "resumed":
+        openOngoing(e.at, "auto")
+        break
+      case "started":
+      case "session-open": // legacy alias
+        openOngoing(e.at, "remote")
+        break
+      case "paused":
+        if (st.ongoing?.flavor === "auto") {
+          closeAt(st.ongoing.idx, e.at)
+          st.ongoing = null
+        }
+        break
+      case "stopped":
+      case "session-close": // legacy alias
+        if (st.ongoing?.flavor === "remote") {
+          closeAt(st.ongoing.idx, e.at)
+          st.ongoing = null
+        }
+        break
+      case "exited":
+        if (st.ongoing?.flavor === "auto") {
+          closeAt(st.ongoing.idx, e.at) // remote survives navigation
+          st.ongoing = null
+        }
+        if (st.focusIdx != null) {
+          closeAt(st.focusIdx, e.at)
+          st.focusIdx = null
+        }
+        break
+      case "mark":
+        out.push({ startAt: e.at, endAt: e.at, via: "mark" })
+        break
     }
   }
   return out

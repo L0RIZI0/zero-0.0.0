@@ -1101,6 +1101,18 @@ export function isClosed(entity: Entity, now: number = Date.now()): boolean {
   return w === "closed" || w === "dead" || w === "retired" || w === "cancelled"
 }
 
+/** Kinds that go ONGOING automatically the moment you enter them (open an auto ongoing span). */
+export const ONGOING_ON_ENTER: ReadonlySet<EntityKind> = new Set(["task", "resource", "space"])
+
+/**
+ * Whether entering `entity` should AUTO-open an ongoing span (the "auto" flavor). True for an
+ * ONGOING_ON_ENTER kind that isn't done/closed. Canonical home (was canvas-local) so the session
+ * fold ({@link deriveSessionsFromLog}) and the canvas dwell effect share ONE definition.
+ */
+export function canAutoPlay(entity: Entity, now: number = Date.now()): boolean {
+  return ONGOING_ON_ENTER.has(entity.kind) && !isDone(entity) && !isClosed(entity, now)
+}
+
 /** Whether `entity` is in the COMPLETE interim (positive terminal reached, not yet filed). */
 export function isComplete(entity: Entity, now: number = Date.now()): boolean {
   return getState(entity, now).word === "complete"

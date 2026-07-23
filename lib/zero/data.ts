@@ -1494,11 +1494,12 @@ export function openSession(
   if (opts?.auto && via === "play") session.auto = true
   sched.sessions = [...(sched.sessions ?? []), session]
   const log = ensureEntityLog(entity)
-  // LOSSLESS dual-write, with the RAIL encoded by log TYPE (Loris' model): PRESENCE (focus) logs as
-  // `accessed` (an access/entry record), the deliberate PLAY stopwatch as `session-open`. A play
-  // open also carries `auto`. This lets a fold rebuild sessions[] exactly (deriveSessionsFromLog).
-  const openType = via === "play" ? "session-open" : "accessed"
-  entity.log = appendInstant(log, makeInstant(openType, at, { auto: session.auto }))
+  // LOG only the events the four-verb model records; the AUTO ongoing is NOT logged — it is DERIVED
+  // from `accessed` by deriveSessionsFromLog (canAutoPlay), so logging it too would double-log on
+  // entry (the thing Loris explicitly killed). Mapping: focus ⇒ `accessed`; a MANUAL/remote play
+  // (no `auto`) ⇒ `started`; an AUTO play ⇒ no entry.
+  const openType = via === "focus" ? "accessed" : session.auto ? null : "started"
+  if (openType) entity.log = appendInstant(log, makeInstant(openType, at))
   persistSessionMutation(id, entity, sched)
   return true
 }
