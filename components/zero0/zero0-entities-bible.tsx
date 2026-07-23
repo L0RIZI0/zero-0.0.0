@@ -1136,7 +1136,10 @@ export function Zero0EntitiesBible() {
                   const edge = poleInnerEdge[colId]
                   const border =
                     "border border-border align-top" +
-                    (ci === 0 ? " bg-muted/20 font-semibold" : "") +
+                    // The field-label column (col 0) sticks to the left edge on horizontal scroll.
+                    // It needs an OPAQUE background (solid bg-muted, not /20) so scrolled cells don't
+                    // bleed through; z-10 keeps it above cells but below the floating header (z-20).
+                    (ci === 0 ? " sticky left-0 z-10 bg-muted font-semibold" : "") +
                     // Pole columns (entity/soul): subtle tint + a heavier inner-edge border so they
                     // frame the eight kinds as bookends without leaving the table.
                     (edge ? " bg-muted/30" : "") +
