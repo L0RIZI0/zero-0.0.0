@@ -18,9 +18,13 @@ Status tags: **[CUR]** = built + verified today · **[PART]** = partially built 
 - **kinds**: soul · individual · organism · community · space · resource · task · moment · instant.
 - **states** (`getState().word`, one axis, mutually exclusive; kinds.ts): `open` → `complete`
   → `closed`; plus `ongoing`, `cancelled`, terminal `dead`/`retired`. `open` includes a
-  reopened entity. INDIVIDUAL adds `alive`: a person whose `bornAt` has passed (open → scheduled
-  → alive → dead/closed). A future `bornAt`/planned start reads `scheduled` ("expected"); a Close
-  while alive ⇒ `dead` (age = born→close), while not-yet-lived ⇒ `closed`.
+  reopened entity. `scheduled` now applies to EVERY plannable kind: an entity with a concrete
+  FUTURE start reads `scheduled` (only the timeless Soul, the one non-plannable kind, stays
+  `open`) — an action kind renders it "scheduled", a being renders it "expected".
+  LIFE-BEINGS add `alive`: INDIVIDUAL is alive once its `bornAt` has passed; ORGANISM / COMMUNITY
+  are alive once PUBLISHED (`publishedAt` set & past — the Publish toggle is their birth). Arc:
+  open → scheduled → alive → dead/retired/closed. A Close while alive ⇒ `dead` (individual/
+  organism) / `retired` (community), age = anchor→close; while not-yet-lived ⇒ plain `closed`.
 - **axes/fields**: `schedule{startAt,endAt,at,dueAt,duration,sessions[]}` · `closeAt` (frozen
   close instant) · `closePolicy` ('manual' opts out of auto midnight-close) · `completed` (task done
   scalar) · `accent` (color) · `taggedContextIds` (multi-parent links) · `createdAt`/`ownerId`/`createdBy`.

@@ -3263,6 +3263,29 @@ export function setEntityClosePolicy(id: string, policy: "auto" | "manual" | nul
   return true
   }
 
+  /**
+   * PUBLISH / UNPUBLISH an entity, in place — the Publish menu toggle. `published:true` stamps
+   * `publishedAt = now`; `false` clears it. Offered on EVERY kind EXCEPT Soul (returns false for a
+   * soul). For an ORGANISM / COMMUNITY this is the ALIVE toggle (parallel to setEntityBornAt for an
+   * Individual): publishing makes it `alive` (and undeletable), unpublishing returns it to a draft.
+   * For other kinds it just flips the published flag (surfaced in §0). Logs + mirrors the seeded-
+   * override handling so a change to a seeded entity survives refreshes.
+   */
+  export function setEntityPublished(id: string, published: boolean): boolean {
+  const stored = byId.get(id)
+  if (!stored || stored.kind === "soul") return false
+  const entity = mutable(stored)
+  const at = published ? Date.now() : null
+  if (at == null) delete entity.publishedAt
+  else entity.publishedAt = at
+  logSet(entity, "publishedAt", at)
+  if (!userEntityIds.has(id)) {
+  seededOverrides.set(id, { ...seededOverrides.get(id), publishedAt: at ?? undefined } as Partial<Entity>)
+  }
+  persist()
+  return true
+  }
+
 /**
  * Set (or clear) an entity's MANUAL `hidden` flag (right-click ▸ Hide / Unhide), in place.
  * Works on any kind. Hiding only removes the entity from its parent's ENTITY CONTENT

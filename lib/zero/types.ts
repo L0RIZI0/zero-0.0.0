@@ -486,6 +486,15 @@ export interface EntityBase {
    * approximates their time as `createdAt`).
    */
   cancelledOn?: Epoch
+  /**
+   * PUBLISH stamp (epoch ms) — set by the Publish menu action, cleared by Unpublish. Offered on
+   * every kind EXCEPT Soul. For an ORGANISM / COMMUNITY this is the ALIVE anchor (the direct
+   * parallel to an Individual's {@link IndividualEntity.bornAt}): once `publishedAt` is set and in
+   * the past the being's state is `alive` and it can no longer be deleted; Close then ends it
+   * (dead / retired) with a lifespan measured from here. For OTHER kinds it is, for now, a simple
+   * "published" flag surfaced in §0 and not yet wired to state. Absent = unpublished.
+   */
+  publishedAt?: Epoch
   /** Mainly spaces. */
   description?: string
   /** Contextual tint, mainly spaces. */

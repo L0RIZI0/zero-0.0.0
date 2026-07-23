@@ -521,6 +521,33 @@ export function individualBornAt(entity: Entity): number | null {
 }
 
 /**
+ * An Organism / Community's PUBLISH instant (the `publishedAt` field), or null. This is the
+ * being-alive anchor for those two kinds — the DIRECT parallel to an Individual's `bornAt`: once
+ * it's in the past the being is `alive` (published = live). Returns null for any other kind (the
+ * publish flag exists on other kinds too, but does not make THEM alive) and when unpublished.
+ */
+export function getPublishedAt(entity: Entity): number | null {
+  if (entity.kind !== "organism" && entity.kind !== "community") return null
+  const v = entity.publishedAt
+  return typeof v === "number" ? v : null
+}
+
+/**
+ * The being-alive ANCHOR for any life-bearing kind: `bornAt` for an Individual, `publishedAt` for
+ * an Organism/Community, null otherwise. Unifies the "was it alive at time T?" test used by the
+ * state machine (alive when this is set + past) and the close block (dead/retired vs plain closed).
+ */
+export function lifeAnchor(entity: Entity): number | null {
+  return entity.kind === "individual" ? individualBornAt(entity) : getPublishedAt(entity)
+}
+
+/** The three life-bearing being kinds (become `alive`, then reach a terminal): they share the
+ *  delete/cancel narrowing and the §0 life-status projection. Soul is NOT one (it never lives). */
+export function isLifeBeing(kind: EntityKind): boolean {
+  return kind === "individual" || kind === "organism" || kind === "community"
+}
+
+/**
  * The EFFECTIVE end of a schedule's span: the declared `endAt` if present, ELSE a
  * concrete `startAt` + `duration` (minutes) treated as an IMPLIED end. This is the one
  * place the "start + duration ⇒ end" rule lives, so state transitions, close timing,
@@ -889,23 +916,21 @@ function getStateInner(entity: Entity, now: number, seen: Set<string>): EntitySt
     now >= entity.closeAt
   if (manualClosed || timeClosed) {
     const at = manualClosed ? entity.closedOn ?? entity.closeAt : entity.closeAt
-    if (meta.terminal === "death") {
-      // INDIVIDUAL: closing is a DEATH only if the person was actually ALIVE at the moment of
-      // closing — i.e. `bornAt` is known and had already passed. Closing a not-yet-born (open /
-      // "expected") individual is a plain `closed` (a plan that was shut, not a life that ended),
-      // so `dead` always implies a real lifespan (age = bornAt → close). Other death-terminal
-      // beings (organism) keep the record-age behaviour until their own alive-model lands.
-      if (entity.kind === "individual") {
-        const born = individualBornAt(entity)
-        const wasAlive = born != null && at != null && born <= at
-        if (wasAlive) return { word: "dead", at, age: formatAge(born, at) }
-        return { word: "closed", at }
+    // BEINGS (terminal != null) reach their terminal — `dead` (death) or `retired` (retire) —
+    // ONLY if they were actually ALIVE at the moment of closing: their life anchor (`bornAt` for
+    // an Individual, `publishedAt` for an Organism/Community) is known and had already passed.
+    // Closing a NOT-YET-LIVED being (open / "expected") is a plain `closed` — a shut plan, not an
+    // ended life — so a terminal always implies a real lifespan (age = anchor → close). This is
+    // the symmetric rule behind the delete guard: you can only end a being that truly lived.
+    if (meta.terminal != null) {
+      const anchor = lifeAnchor(entity)
+      const wasAlive = anchor != null && at != null && anchor <= at
+      if (wasAlive) {
+        if (meta.terminal === "retire") return { word: "retired", at, age: formatAge(anchor, at) }
+        return { word: "dead", at, age: formatAge(anchor, at) }
       }
-      const born = getCreatedAt(entity)
-      const age = born != null && at != null ? formatAge(born, at) : undefined
-      return { word: "dead", at, age }
+      return { word: "closed", at }
     }
-    if (meta.terminal === "retire") return { word: "retired", at }
     return { word: "closed", at }
   }
 
@@ -944,12 +969,23 @@ function getStateInner(entity: Entity, now: number, seen: Set<string>): EntitySt
     return { word: "open" }
   }
 
-  // SCHEDULED (other beings) — an organism/community with a concrete start still in the FUTURE is
-  // planned but NOT YET BEGUN (founded). It shares the `scheduled` word but renders as "expected"
-  // (see formatState). Once `now` passes the start it falls through to `open` = active. Soul is
-  // excluded (never plannable). The being alive-via-Publish model is deferred, so these keep the
-  // start-gated arm for now.
-  if (isBeing(entity.kind) && entity.kind !== "soul") {
+  // ORGANISM / COMMUNITY — alive via PUBLISH (the parallel to an Individual's birth). Once
+  // `publishedAt` is set and in the PAST the being is `alive` (published = live); otherwise it
+  // falls through to the generic plannable arm below (a future founding start ⇒ "expected", else
+  // a bare `open` = an unpublished draft, still deletable). Closing an alive one ⇒ dead/retired
+  // (handled above); closing an unpublished one ⇒ plain closed.
+  if (entity.kind === "organism" || entity.kind === "community") {
+    const pub = getPublishedAt(entity)
+    if (pub != null && now >= pub) return { word: "alive", at: pub }
+  }
+
+  // SCHEDULED (any PLANNABLE kind) — an entity with a concrete start still in the FUTURE is
+  // planned but NOT YET BEGUN, so it reads "scheduled" rather than a bare `open`. Covers the
+  // action kinds (Idea/Task/Moment/Space) AND the un-published beings (organism/community), which
+  // render it as "expected" (see formatState). Gated on `meta.plannable`, so the timeless Soul —
+  // the only non-plannable kind — stays `open`. (Instants + Individuals returned from their own
+  // arms above.) Once `now` passes the start it falls through to `open`.
+  if (meta.plannable) {
     const start = concreteStart(entity)
     if (start != null && now < start) return { word: "scheduled", at: start }
   }
@@ -974,10 +1010,12 @@ export function canDeleteEntity(
   if (!KIND_META[entity.kind].deletable) return false
   if (opts?.byUzer0) return true
   const word = getState(entity, now).word
-  // INDIVIDUAL: additionally deletable while `cancelled` — a voided plan can be cleared away —
-  // but NEVER once `alive` (a living person), nor `dead`/`closed` (a life on the record). This is
-  // the fix for the old bug where an alive individual read `open` and was wrongly deletable.
-  if (entity.kind === "individual") {
+  // LIFE-BEINGS (individual / organism / community): deletable while NOT yet lived — `open`,
+  // `scheduled`, or `cancelled` (a voided plan can be cleared away) — but NEVER once `alive`
+  // (a living person / a published organism·community), nor `dead`/`retired`/`closed` (a life on
+  // the record). This is the fix for the bug where an alive being read `open`/was wrongly
+  // deletable; for org·community it means an unpublished draft is deletable, a published one is not.
+  if (isLifeBeing(entity.kind)) {
     return word === "open" || word === "scheduled" || word === "cancelled"
   }
   return word === "open" || word === "scheduled"
@@ -985,17 +1023,18 @@ export function canDeleteEntity(
 
 /**
  * CANCEL GUARD — may this entity be CANCELLED (voided) right now? Cancelling is only meaningful
- * while an entity is still LIVE (not already terminal). INDIVIDUAL narrows further to its
- * not-yet-lived window (`open` / `scheduled`): once a person is `alive` they are ended by Close
- * (a death), never cancelled. Soul is never cancellable. Other kinds: cancellable while not
- * terminal (this preserves the prior menu behaviour, which offered Cancel to any non-individual
- * that was closeable and not yet ended).
+ * while an entity is still LIVE (not already terminal). LIFE-BEINGS (individual / organism /
+ * community) narrow further to their not-yet-lived window (`open` / `scheduled`): once alive
+ * (born / published) they are ended by Close (death / retire), never cancelled. Soul is never
+ * cancellable. Other kinds: cancellable while not terminal (preserves the prior menu behaviour,
+ * which offered Cancel to any non-individual that was closeable and not yet ended).
  */
 export function canCancelEntity(entity: Entity, now: number = Date.now()): boolean {
   if (!isCancellable(entity.kind)) return false
   const word = getState(entity, now).word
-  if (word === "cancelled" || word === "closed" || word === "dead" || word === "retired") return false
-  if (entity.kind === "individual") return word === "open" || word === "scheduled"
+  if (word === "cancelled" || word === "closed" || word === "dead" || word === "retired" || word === "alive")
+    return false
+  if (isLifeBeing(entity.kind)) return word === "open" || word === "scheduled"
   return true
 }
 

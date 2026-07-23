@@ -18,6 +18,7 @@ import {
   setEntityCompleted,
   setEntityClosed,
   setEntityCancelled,
+  setEntityPublished,
   setEntityRequested,
   setEntityScheduleField,
   setEntityAccent,
@@ -130,6 +131,14 @@ export function buildEntityMenuItems(
         items.push({ type: "item", id: "cancel", label: "Cancel" })
       }
     }
+  }
+
+  // PUBLISH / UNPUBLISH — offered on EVERY kind except Soul. For an Organism/Community this is the
+  // ALIVE toggle (published ⇒ state `alive`, undeletable); for other kinds it's a simple published
+  // flag. Label reflects current state via `publishedAt`. Resolved by applyEntityMenuAction.
+  if (entity.kind !== "soul") {
+    const published = entity.publishedAt != null
+    items.push({ type: "item", id: published ? "unpublish" : "publish", label: published ? "Unpublish" : "Publish" })
   }
 
   if (entity.kind === "task") {
@@ -277,6 +286,12 @@ export function applyEntityMenuAction(entity: Entity, actionId: string): boolean
       return true
     case "cancel":
       setEntityCancelled(id, true)
+      return true
+    case "publish":
+      setEntityPublished(id, true)
+      return true
+    case "unpublish":
+      setEntityPublished(id, false)
       return true
     case "reopen":
       // v0.6.26: Reopen just UN-CLOSES, for every kind (a moment/space is no longer "complete" via
