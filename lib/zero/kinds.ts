@@ -90,9 +90,10 @@ export interface KindMeta {
  * The DEFAULTS every kind starts from — the capability profile of the raw `entity` (the Idea:
  * a Goal / Aspiration / Ambition, undifferentiated). Every kind is the Idea SPECIALIZED, so each
  * kind's meta below is documented as "entity defaults + this kind's overrides". These are the
- * UNIVERSAL, undifferentiated capabilities (create / delete / close / cancel / complete); the
- * SPECIALIZED flags (`hasDoneFlag`, `plannable`) default OFF and are switched on by the kinds
- * that earn them. Every kind still spells out ALL fields explicitly (NOT spread) so the compiler
+ * UNIVERSAL, undifferentiated capabilities (create / delete / close / cancel / complete / plan);
+ * the only SPECIALIZED flag that defaults OFF is `hasDoneFlag` (Task-only). `plannable` defaults ON
+ * (the Idea itself is plannable — only the timeless Soul opts out). Every kind still spells out ALL
+ * fields explicitly (NOT spread) so the compiler
  * forces a decision per field; a guard test asserts each kind either matches these defaults or
  * differs intentionally. Users will later add THEIR OWN fields on top of these (runtime, on kinds
  * other than entity/soul) — a third layer of the same pull-from-parent chain.
@@ -104,7 +105,10 @@ export const ENTITY_DEFAULTS = {
   cancellable: true,
   completable: true,
   hasDoneFlag: false,
-  plannable: false,
+  // The raw Idea IS plannable — you can schedule when to shape/act on it (→ "scheduled"/"expected").
+  // Plannable is therefore the DEFAULT; only the timeless Soul opts out. (Bible: every kind reads
+  // "Yes" on the Plannable row except Soul.)
+  plannable: true,
   fillsWhenClosed: true,
   terminal: null,
 } satisfies Omit<KindMeta, "label" | "description">
@@ -114,14 +118,17 @@ export const KIND_META: Record<EntityKind, KindMeta> = {
   // the single legitimate spread: entity's capability profile literally is the reference). Every
   // OTHER kind spells its fields out explicitly so the compiler enforces a per-field decision.
   entity: {
-    label: "Entity",
-    description: "A raw idea — a goal, an aspiration, not yet shaped",
+    // KEY stays `entity` (the internal discriminator + the one profile that spreads
+    // ENTITY_DEFAULTS — the reference every kind specializes from, and the fallback for an
+    // unshaped thing). The user-facing LABEL mirrors the bible row 2 minus "The" ⇒ "Idea".
+    label: "Idea",
+    description: "An idea, a goal, an ambition — not yet shaped",
     ...ENTITY_DEFAULTS,
   },
   task: {
     label: "Task",
-    description: "A thing to do",
-    // entity defaults + overrides: hasDoneFlag (task-only), plannable (a planned span).
+    description: "Something to do",
+    // entity defaults + override: hasDoneFlag (task-only). Plannable is inherited (default ON).
     creatable: true,
     deletable: true,
     closable: true,
@@ -134,8 +141,8 @@ export const KIND_META: Record<EntityKind, KindMeta> = {
   },
   space: {
     label: "Space",
-    description: "A context that holds things",
-    // entity defaults + override: plannable (a planned span).
+    description: "A context, something that holds things",
+    // entity defaults verbatim (plannable inherited, default ON).
     creatable: true,
     deletable: true,
     closable: true,
@@ -148,8 +155,8 @@ export const KIND_META: Record<EntityKind, KindMeta> = {
   },
   resource: {
     label: "Resource",
-    description: "An asset, reference, or tool",
-    // entity defaults + override: plannable (a planned span).
+    description: "An asset, a reference, a tool",
+    // entity defaults verbatim (plannable inherited, default ON).
     creatable: true,
     deletable: true,
     closable: true,
@@ -163,7 +170,7 @@ export const KIND_META: Record<EntityKind, KindMeta> = {
   moment: {
     label: "Moment",
     description: "A span in time",
-    // entity defaults + override: plannable (a span IS its essence).
+    // entity defaults verbatim; a span IS a Moment's essence (plannable inherited, default ON).
     creatable: true,
     deletable: true,
     closable: true,
@@ -179,7 +186,7 @@ export const KIND_META: Record<EntityKind, KindMeta> = {
   instant: {
     label: "Instant",
     description: "A point in time",
-    // entity defaults + override: plannable (a degenerate span, see below).
+    // entity defaults verbatim; plannable inherited (default ON) as a degenerate span, see below.
     creatable: true,
     deletable: true,
     closable: true,
@@ -196,9 +203,10 @@ export const KIND_META: Record<EntityKind, KindMeta> = {
   },
   community: {
     label: "Community",
-    description: "A place to gather people and discussions",
+    description: "A gathering of individuals",
     // entity defaults + overrides: NOT completable (a being reaches terminal via RETIRE, it does
-    // not "complete"); plannable (a founding date); fillsWhenClosed false + terminal "retire".
+    // not "complete"); fillsWhenClosed false + terminal "retire". Plannable inherited (a founding
+    // date — "expected" until it starts).
     creatable: true,
     deletable: true,
     closable: true,
@@ -214,7 +222,8 @@ export const KIND_META: Record<EntityKind, KindMeta> = {
     label: "Organism",
     description: "A company, a point of view",
     // entity defaults + overrides: NOT completable (reaches terminal via DEATH, not complete);
-    // plannable (a founding); fillsWhenClosed false + terminal "death".
+    // fillsWhenClosed false + terminal "death". Plannable inherited (a founding — "expected" until
+    // it starts).
     creatable: true,
     deletable: true,
     closable: true,
@@ -230,9 +239,10 @@ export const KIND_META: Record<EntityKind, KindMeta> = {
     label: "Individual",
     // TEMPORARILY creatable (Jul 2026) so the user can dogfood people/other Individuals
     // directly; normally an Individual is spawned with a Soul, not created ad hoc.
-    description: "A person, animated by a Soul",
+    description: "An individual",
     // entity defaults + overrides: NOT completable (reaches terminal via DEATH, not complete);
-    // plannable (a birth / arrival); fillsWhenClosed false + terminal "death".
+    // fillsWhenClosed false + terminal "death". Plannable inherited (a birth / arrival — "expected"
+    // until born).
     creatable: true,
     deletable: true,
     closable: true,
@@ -246,7 +256,7 @@ export const KIND_META: Record<EntityKind, KindMeta> = {
   },
   soul: {
     label: "Soul",
-    description: "The animating self behind a person",
+    description: "The animating self behind an Individual",
     // The BEYOND-differentiated pole (opposite entity): the animating self is not user-manipulable
     // — every capability is OFF. Seeded, never created / deleted / closed / cancelled / completed.
     creatable: false,
@@ -308,15 +318,16 @@ const GUARDED_FIELDS = [
 // (it IS the defaults). Keep this in sync when a kind's profile changes — the guard enforces it.
 const KIND_OVERRIDES: Record<EntityKind, ReadonlyArray<(typeof GUARDED_FIELDS)[number]>> = {
   entity: [],
-  task: ["hasDoneFlag", "plannable"],
-  space: ["plannable"],
-  resource: ["plannable"],
-  moment: ["plannable"],
-  instant: ["plannable"],
-  community: ["completable", "plannable", "fillsWhenClosed", "terminal"],
-  organism: ["completable", "plannable", "fillsWhenClosed", "terminal"],
-  individual: ["completable", "plannable", "fillsWhenClosed", "terminal"],
-  soul: ["creatable", "deletable", "closable", "cancellable", "completable", "fillsWhenClosed"],
+  task: ["hasDoneFlag"],
+  space: [],
+  resource: [],
+  moment: [],
+  instant: [],
+  community: ["completable", "fillsWhenClosed", "terminal"],
+  organism: ["completable", "fillsWhenClosed", "terminal"],
+  individual: ["completable", "fillsWhenClosed", "terminal"],
+  // Soul is the only kind that opts OUT of the now-default `plannable` (it is timeless).
+  soul: ["creatable", "deletable", "closable", "cancellable", "completable", "plannable", "fillsWhenClosed"],
 }
 
 if (process.env.NODE_ENV !== "production") {
