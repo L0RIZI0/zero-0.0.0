@@ -1144,12 +1144,14 @@ export function Zero0EntitiesBible() {
                     //    container edge (clipped by overflow-x), closing the seam.
                     //  • z-10 keeps it above scrolled cells but below the floating header (z-20).
                     (ci === 0
-                      ? // Sticky label column with the header's frosted background. Draw the row
-                        // separators with an INSET box-shadow (top + bottom white lines) instead of
+                      ? // Sticky label column with the header's frosted background. Draw ONE row
+                        // separator per cell (BOTTOM edge only) with an INSET box-shadow instead of
                         // borders: border-collapse lets the dim theme border win the tie-break, and
-                        // the translucent frost composites over collapsed borders, washing them out.
-                        // An inset shadow paints on top of the frosted bg, so the lines stay crisp.
-                        " sticky -left-px z-10 bg-muted/70 backdrop-blur supports-[backdrop-filter]:bg-muted/60 font-semibold shadow-[inset_0_1px_0_0_#fff,inset_0_-1px_0_0_#fff]"
+                        // the translucent frost composites over collapsed borders, washing them out;
+                        // an inset shadow paints on top of the frosted bg, so lines stay crisp.
+                        // Bottom-only (not top+bottom) so adjacent cells don't STACK into a double
+                        // line — each boundary is a single line owned by the cell above it.
+                        " sticky -left-px z-10 bg-muted/70 backdrop-blur supports-[backdrop-filter]:bg-muted/60 font-semibold shadow-[inset_0_-1px_0_0_#fff]"
                       : "") +
                     // Pole columns (entity/soul): subtle tint + a heavier inner-edge border so they
                     // frame the eight kinds as bookends without leaving the table.
