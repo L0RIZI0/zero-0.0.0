@@ -111,6 +111,7 @@ function ensureAuthorModel(grid: Grid): Grid {
 // centered kind names) survives row/column reordering.
 const FIELD_COL = "c-field"
 const NAME_ROW = "r-name"
+const GLYPH_ROW = "r-glyph"
 
 // The columns, framed by the two POLES: `entity` (the pre-differentiated raw Idea, ID "0") leads,
 // the eight kinds sit numbered 1–8, and `soul` (the beyond-differentiated animating self, ID "∞")
@@ -1244,6 +1245,18 @@ export function Zero0EntitiesBible() {
     }
   }
 
+  // The two POLES (entity = origin, soul = beyond) get a tinted column + a heavier border on their
+  // INNER edge, so they read as bookends framing the eight real kinds while staying in the table.
+  // Detected by the glyph-row cell's kind, so it works for both the seed (`c-N` ids) and the live
+  // doc (`c-entity`/`c-soul` ids). `poleInnerEdge` = the side facing the kinds (right for the
+  // leading entity, left for the trailing soul).
+  const poleInnerEdge: Record<string, "left" | "right"> = {}
+  for (let i = 0; i < grid.colIds.length; i++) {
+    const g = grid.cells[cellKey(GLYPH_ROW, grid.colIds[i])]?.glyph
+    if (g === "entity") poleInnerEdge[grid.colIds[i]] = "right"
+    else if (g === "soul") poleInnerEdge[grid.colIds[i]] = "left"
+  }
+
   return (
     <div className="flex flex-col gap-3">
       {/* Authorship colours: what Loris types defaults to BLUE; v0-authored text (wrapped .v0e) is
@@ -1400,8 +1413,15 @@ export function Zero0EntitiesBible() {
                 {grid.colIds.map((colId, ci) => {
                   const key = cellKey(rowId, colId)
                   const cell = grid.cells[key] ?? { html: "" }
+                  const edge = poleInnerEdge[colId]
                   const border =
-                    "border border-border align-top" + (ci === 0 ? " bg-muted/20 font-semibold" : "")
+                    "border border-border align-top" +
+                    (ci === 0 ? " bg-muted/20 font-semibold" : "") +
+                    // Pole columns (entity/soul): subtle tint + a heavier inner-edge border so they
+                    // frame the eight kinds as bookends without leaving the table.
+                    (edge ? " bg-muted/30" : "") +
+                    (edge === "right" ? " border-r-2 border-r-border" : "") +
+                    (edge === "left" ? " border-l-2 border-l-border" : "")
                   if (cell.glyph) {
                     return (
                       <td
@@ -1420,7 +1440,13 @@ export function Zero0EntitiesBible() {
                     <td
                       key={colId}
                       onContextMenu={(e) => openMenu(e, ri, ci)}
-                      className={border + " relative p-0"}
+                      // The ID row carries short symbols (0 … 8 … ∞) — bump it up so the ∞ pole id
+                      // is legible instead of tiny. `!` beats the cell's default text-[10px].
+                      className={
+                        border +
+                        " relative p-0" +
+                        (rowId === "r-id" ? " [&_.bible-cell]:!text-sm [&_.bible-cell]:!leading-tight" : "")
+                      }
                     >
                       {/* Reconciliation edge — green = code matches this cell, red = known gap. */}
                       {cell.reconcile && ci !== 0 && (
