@@ -1380,7 +1380,10 @@ export function Zero0EntitiesBible() {
                         />
                       )}
                       {soonTop && (
-                        <span className="mx-auto mb-0.5 block w-fit rounded-sm border border-border bg-background px-1 py-px text-[8px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                        // Discrete FLOATING overlay pill, out of normal flow (absolute) so it does NOT
+                        // push the id number down — the "5" stays baseline-aligned with 3/4/6/7. Pinned
+                        // to the cell's top edge, centred, nudged up so it reads as a tag ON the column.
+                        <span className="pointer-events-none absolute left-1/2 top-0 z-10 -translate-x-1/2 -translate-y-1/2 rounded-sm border border-border bg-background px-1 py-px text-[8px] font-semibold uppercase leading-none tracking-[0.14em] text-muted-foreground">
                           soon
                         </span>
                       )}
