@@ -174,6 +174,14 @@ const KIND_ID: Partial<Record<EntityKind, string>> = {
   soul: '<span style="font-size:1.7em;line-height:1;display:inline-block;vertical-align:-0.15em;color:var(--foreground)">∞</span>',
 }
 
+// Kinds that have their own dedicated doc page. Clicking a kind's GLYPH (row 1) or NAME (row 2)
+// cell — but NOT the ID (row 0) — navigates there, turning the bible into a hub. Only the
+// Individual page exists today; more kinds join as their pages are built (each kept in sync with
+// the code, per the entity-page convention).
+const KIND_PAGE: Partial<Record<EntityKind, string>> = {
+  individual: "/individual",
+}
+
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
 const stripHtml = (html: string) => html.replace(/<[^>]*>/g, "").trim()
 
@@ -1056,7 +1064,7 @@ export function Zero0EntitiesBible() {
     setGrid((g) => ({ ...g, colIds: arrayMove(g.colIds, index, index + dir) }))
   }, [])
 
-  // ── Row ops ──��────────────────────────────────────────────────────────────────────────────
+  // ── Row ops ──��─────────────────────────────────────���──────────────────────────────────────
   const addRow = useCallback((afterIndex?: number) => {
     setGrid((g) => {
       const newRow = uid("r")
@@ -1373,17 +1381,31 @@ export function Zero0EntitiesBible() {
                     (isSoonCol[colId] ? " zero0-soon-col" : "")
                   if (cell.glyph) {
                     const soon = cell.glyph === "link"
+                    const page = cell.glyph !== "link" ? KIND_PAGE[cell.glyph] : undefined
+                    const glyphEl = (
+                      <Zero0Glyph
+                        kind={cell.glyph}
+                        className={"mx-auto h-6 w-6 " + (soon ? "text-muted-foreground" : "text-foreground")}
+                      />
+                    )
                     return (
                       <td
                         key={colId}
                         onContextMenu={(e) => openMenu(e, ri, ci)}
                         className={border + " p-2 text-center"}
-                        title={soon ? "Link — coming soon" : cap(cell.glyph)}
+                        title={soon ? "Link — coming soon" : page ? `${cap(cell.glyph)} — open page` : cap(cell.glyph)}
                       >
-                        <Zero0Glyph
-                          kind={cell.glyph}
-                          className={"mx-auto h-6 w-6 " + (soon ? "text-muted-foreground" : "text-foreground")}
-                        />
+                        {page ? (
+                          <a
+                            href={page}
+                            aria-label={`Open the ${cap(cell.glyph)} page`}
+                            className="mx-auto flex w-fit rounded transition-opacity hover:opacity-70 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/60"
+                          >
+                            {glyphEl}
+                          </a>
+                        ) : (
+                          glyphEl
+                        )}
                       </td>
                     )
                   }
@@ -1428,16 +1450,41 @@ export function Zero0EntitiesBible() {
                           </span>
                         )}
                         <div className={cell.glyphInline ? "min-w-0 flex-1" : undefined}>
-                          <EditableCell
-                            cellId={key}
-                            initialHtml={
-                              rowId === idRowId ? idHtmlToRoman(cell.html ?? "") : (cell.html ?? "")
+                          {(() => {
+                            // NAME row of a kind that has a dedicated page ⇒ render the name as a
+                            // LINK (row 2 of the nav rule) instead of an inline-editable cell. The
+                            // name still comes from the doc, so it stays visually in sync; editing
+                            // that kind's name now lives on its page. All other cells stay editable.
+                            const glyphOfCol = grid.cells[cellKey(GLYPH_ROW, colId)]?.glyph
+                            const namePage =
+                              rowId === NAME_ROW && glyphOfCol && glyphOfCol !== "link"
+                                ? KIND_PAGE[glyphOfCol]
+                                : undefined
+                            if (namePage) {
+                              return (
+                                <a
+                                  href={namePage}
+                                  className={
+                                    "block px-2 py-1 text-[10px] font-semibold leading-snug text-foreground underline decoration-transparent underline-offset-2 transition-colors hover:decoration-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/60 " +
+                                    (centered ? "text-center" : "")
+                                  }
+                                  dangerouslySetInnerHTML={{ __html: cell.html ?? "" }}
+                                />
+                              )
                             }
-                            active={activeCell === key}
-                            centered={centered}
-                            onFocus={handleFocus}
-                            onCommit={handleCommit}
-                          />
+                            return (
+                              <EditableCell
+                                cellId={key}
+                                initialHtml={
+                                  rowId === idRowId ? idHtmlToRoman(cell.html ?? "") : (cell.html ?? "")
+                                }
+                                active={activeCell === key}
+                                centered={centered}
+                                onFocus={handleFocus}
+                                onCommit={handleCommit}
+                              />
+                            )
+                          })()}
                         </div>
                       </div>
                       {fnNum != null && (
