@@ -1,4 +1,4 @@
-import { put, list, head } from "@vercel/blob"
+import { put, list, head, del } from "@vercel/blob"
 import { type NextRequest, NextResponse } from "next/server"
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────
@@ -17,6 +17,27 @@ import { type NextRequest, NextResponse } from "next/server"
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 
 const PATHNAME = "entities-bible/table.json"
+
+// VERSION HISTORY. Every save (that actually changes the content) also drops a timestamped snapshot
+// under this prefix, so a corrupting edit — or an accidental over-deletion in the table — can always
+// be rolled back from the in-app History panel. We keep the newest MAX_VERSIONS and prune the rest
+// so storage stays bounded. Snapshots are named `<updatedAt>.json` for cheap sort/lookup by time.
+const VERSIONS_PREFIX = "entities-bible/versions/"
+const MAX_VERSIONS = 50
+
+// The `updatedAt` ms encoded in a version pathname (`.../versions/<ms>.json`), or 0 if unparseable.
+function versionTs(pathname: string): number {
+  const m = pathname.match(/(\d+)\.json$/)
+  return m ? Number(m[1]) : 0
+}
+
+// A content fingerprint that IGNORES `updatedAt`, so we don't snapshot no-op saves (e.g. the
+// hydrate seed followed by an identical re-save) — only real content changes get a new version.
+function fingerprint(doc: Doc | null): string {
+  if (!doc) return ""
+  const { updatedAt: _ignored, ...rest } = doc
+  return JSON.stringify(rest)
+}
 
 export const dynamic = "force-dynamic"
 
@@ -69,14 +90,41 @@ export async function PUT(request: NextRequest) {
     }
     const updatedAt = Date.now()
     const stamped = { ...doc, updatedAt }
+    // Did the CONTENT actually change vs the last write we saw? (ignores the timestamp) — decides
+    // whether this save is worth its own history snapshot. Capture before we overwrite lastWrite.
+    const contentChanged = fingerprint(lastWrite) !== fingerprint(stamped)
     lastWrite = stamped // serve this immediately on subsequent GETs, before CDN propagation
-    await put(PATHNAME, JSON.stringify(stamped), {
+    const payload = JSON.stringify(stamped)
+    await put(PATHNAME, payload, {
       access: "public",
       contentType: "application/json",
       allowOverwrite: true, // stable pathname — overwrite the single canonical doc
       addRandomSuffix: false,
       cacheControlMaxAge: 0, // don't let the CDN serve a stale doc between turns
     })
+
+    // AUTO-SNAPSHOT + PRUNE — best-effort, never fail the save over history bookkeeping. Only when
+    // the content genuinely changed, so identical re-saves don't spam the timeline.
+    if (contentChanged) {
+      try {
+        await put(`${VERSIONS_PREFIX}${updatedAt}.json`, payload, {
+          access: "public",
+          contentType: "application/json",
+          allowOverwrite: true,
+          addRandomSuffix: false,
+          cacheControlMaxAge: 0,
+        })
+        const { blobs } = await list({ prefix: VERSIONS_PREFIX })
+        if (blobs.length > MAX_VERSIONS) {
+          const stale = blobs
+            .sort((a, b) => versionTs(b.pathname) - versionTs(a.pathname))
+            .slice(MAX_VERSIONS)
+          await Promise.all(stale.map((b) => del(b.url)))
+        }
+      } catch (snapErr) {
+        console.log("[v0] entities-bible snapshot:", snapErr instanceof Error ? snapErr.message : snapErr)
+      }
+    }
     return NextResponse.json({ ok: true, updatedAt })
   } catch (error) {
     console.log("[v0] entities-bible PUT:", error instanceof Error ? error.message : error)

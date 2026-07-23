@@ -15,6 +15,8 @@ import {
   Baseline,
   Highlighter,
   StickyNote,
+  History,
+  X,
 } from "lucide-react"
 import { Zero0Glyph } from "@/components/zero0/zero0-glyph"
 import { KIND_META } from "@/lib/zero/kinds"
@@ -50,6 +52,31 @@ import type { EntityKind } from "@/lib/zero/types"
 // localStorage is now only an OFFLINE FALLBACK cache; the shared Blob (via /api/entities-bible) is
 // the source of truth so v0 and Loris edit the SAME document.
 const STORAGE_KEY = "zero:entities-bible:v3"
+
+// Version History panel width (px) — used both for layout and to clamp the anchored popover.
+const HISTORY_W = 288
+// Mirrors MAX_VERSIONS in the versions API route — shown as a hint in the panel footer.
+const MAX_VERSIONS_HINT = 50
+
+// Human label for a snapshot timestamp: absolute date/time + a relative hint ("3m ago").
+function fmtVersionTime(ts: number): string {
+  const diff = Date.now() - ts
+  const rel =
+    diff < 60_000
+      ? "just now"
+      : diff < 3_600_000
+        ? `${Math.floor(diff / 60_000)}m ago`
+        : diff < 86_400_000
+          ? `${Math.floor(diff / 3_600_000)}h ago`
+          : `${Math.floor(diff / 86_400_000)}d ago`
+  const abs = new Date(ts).toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  })
+  return `${abs} · ${rel}`
+}
 
 // AUTHORSHIP colour model: text typed by Loris is BLUE by default; text authored by v0 is wrapped
 // in `<span class="v0e">` so it renders in the neutral foreground (black in light / near-white in
@@ -471,6 +498,16 @@ export function Zero0EntitiesBible() {
   // Shared-store sync status shown in the header ("saving…" / "saved" / "offline").
   const [sync, setSync] = useState<"idle" | "saving" | "saved" | "offline">("idle")
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // VERSION HISTORY panel. `versions` = list from /api/entities-bible/versions (null while loading).
+  // `preview` = a past version currently loaded into the grid but NOT persisted; `previewingRef`
+  // makes the save effect skip it, and `preRestoreGridRef` stashes the live doc so Cancel can return.
+  const [showHistory, setShowHistory] = useState(false)
+  const [historyPos, setHistoryPos] = useState<{ x: number; y: number } | null>(null)
+  const [versions, setVersions] = useState<{ ts: number; size: number }[] | null>(null)
+  const [preview, setPreview] = useState<{ ts: number } | null>(null)
+  const historyAnchorRef = useRef<HTMLSpanElement | null>(null)
+  const preRestoreGridRef = useRef<Grid | null>(null)
+  const previewingRef = useRef(false)
   // The exact grid object produced by hydration (loaded doc or seed). The save effect refuses to
   // PUT this object, so an untouched / freshly-seeded page can never clobber the shared doc.
   const hydratedGridRef = useRef<Grid | null>(null)
@@ -581,6 +618,9 @@ export function Zero0EntitiesBible() {
   // pushes when the store was unreachable at load.
   useEffect(() => {
     if (!hydrated) return
+    // PREVIEWING a past version: the grid is showing a snapshot, not a user edit — never cache or
+    // persist it (Restore flips this off and sets a fresh object to commit; Cancel restores the doc).
+    if (previewingRef.current) return
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(grid))
     } catch {
@@ -606,6 +646,69 @@ export function Zero0EntitiesBible() {
       }
     }, 800)
   }, [grid, hydrated])
+
+  // ── VERSION HISTORY ──────────────────────────────────────────────────────────────────────────
+  // Load the snapshot list (newest first) from the versions endpoint.
+  const loadVersions = useCallback(async () => {
+    setVersions(null)
+    try {
+      const res = await fetch("/api/entities-bible/versions", { cache: "no-store" })
+      const data = (await res.json()) as { versions?: { ts: number; size: number }[] }
+      setVersions(Array.isArray(data.versions) ? data.versions : [])
+    } catch {
+      setVersions([])
+    }
+  }, [])
+
+  // Open the panel anchored under the History button, and (re)load the list.
+  const openHistory = useCallback(() => {
+    const r = historyAnchorRef.current?.getBoundingClientRect()
+    setHistoryPos(r ? { x: r.right - HISTORY_W, y: r.bottom + 6 } : { x: 8, y: 48 })
+    setShowHistory(true)
+    loadVersions()
+  }, [loadVersions])
+
+  // Load a past version INTO the grid without saving it (preview). Stash the live doc once so Cancel
+  // can restore it. `previewingRef` makes the save effect skip while previewing.
+  const previewVersion = useCallback(
+    async (ts: number) => {
+      try {
+        const res = await fetch(`/api/entities-bible/versions?ts=${ts}`, { cache: "no-store" })
+        if (!res.ok) return
+        const { doc } = (await res.json()) as { doc: Grid | null }
+        if (!doc?.rowIds?.length || !doc?.colIds?.length || !doc.cells) return
+        if (!preRestoreGridRef.current) preRestoreGridRef.current = grid
+        previewingRef.current = true
+        setGrid(ensureAuthorModel(doc))
+        setPreview({ ts })
+      } catch {
+        /* ignore — panel stays open */
+      }
+    },
+    [grid],
+  )
+
+  // Leave preview without changing anything — put the pre-preview doc back.
+  const cancelPreview = useCallback(() => {
+    const prev = preRestoreGridRef.current
+    previewingRef.current = false
+    if (prev) {
+      hydratedGridRef.current = prev // returning to the existing doc is not a new edit → don't re-PUT
+      setGrid(prev)
+    }
+    preRestoreGridRef.current = null
+    setPreview(null)
+  }, [])
+
+  // Commit the previewed version as the new canonical doc. Cloning to a NEW object ref makes the
+  // save effect fire, which persists it AND snapshots the restore — so a restore is itself undoable.
+  const restoreVersion = useCallback(() => {
+    previewingRef.current = false
+    preRestoreGridRef.current = null
+    setPreview(null)
+    setShowHistory(false)
+    setGrid((g) => ({ ...g, rowIds: [...g.rowIds], colIds: [...g.colIds], cells: { ...g.cells } }))
+  }, [])
 
   // Drive the sticky floating header: show it once the first two rows scroll above the viewport,
   // measuring live column widths and mirroring the wrapper's horizontal scroll. Uses capture-phase
@@ -1098,6 +1201,18 @@ export function Zero0EntitiesBible() {
             />
             {sync === "saving" ? "saving…" : sync === "offline" ? "offline (local only)" : "saved to shared store"}
           </span>
+          <span ref={historyAnchorRef} className="inline-flex">
+            <button
+              type="button"
+              title="Version history — restore a past save (auto-snapshotted on every change)"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={openHistory}
+              className="flex items-center gap-1 rounded px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            >
+              <History className="h-3.5 w-3.5" />
+              History
+            </button>
+          </span>
           <button
             type="button"
             title="Auto-mark the enumerable 'hard fact' rows (creatable, done) green/red by comparing them to KIND_META"
@@ -1109,6 +1224,33 @@ export function Zero0EntitiesBible() {
           </button>
           </div>
       </div>
+
+      {/* PREVIEW banner — shown while viewing a past version. The table below shows that snapshot but
+          it is NOT saved until you Restore; Cancel returns to the current doc. */}
+      {preview && (
+        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-md border border-amber-500/40 bg-amber-400/10 px-3 py-2 text-xs">
+          <span className="font-medium text-amber-700 dark:text-amber-300">
+            Previewing version from {fmtVersionTime(preview.ts)}
+          </span>
+          <span className="text-muted-foreground">Not saved yet — restore it to make it current, or cancel.</span>
+          <div className="ml-auto flex items-center gap-2">
+            <button
+              type="button"
+              onClick={restoreVersion}
+              className="rounded bg-foreground px-2 py-1 font-medium text-background transition-opacity hover:opacity-90"
+            >
+              Restore this version
+            </button>
+            <button
+              type="button"
+              onClick={cancelPreview}
+              className="rounded px-2 py-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* The grid — a real table so cells size to content. Horizontal scroll on overflow. Inline
           [data-note] spans get a dotted underline + help cursor; hover shows a floating tooltip. */}
@@ -1311,6 +1453,71 @@ export function Zero0EntitiesBible() {
       </p>
 
       {/* Colour picker popover. */}
+      {/* VERSION HISTORY panel — anchored under the History button, with a click-away backdrop. */}
+      {showHistory && historyPos && (
+        <>
+          <button
+            type="button"
+            aria-label="Close version history"
+            onClick={() => setShowHistory(false)}
+            className="fixed inset-0 z-40 cursor-default"
+          />
+          <div
+            data-bible-popover
+            onClick={(e) => e.stopPropagation()}
+            onContextMenu={(e) => e.preventDefault()}
+            style={{
+              left: Math.max(8, Math.min(historyPos.x, (typeof window !== "undefined" ? window.innerWidth : 9999) - HISTORY_W - 8)),
+              top: historyPos.y,
+              width: HISTORY_W,
+            }}
+            className="fixed z-50 rounded-md border border-border bg-popover p-2 shadow-md"
+          >
+            <div className="mb-1.5 flex items-center justify-between">
+              <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                Version history
+              </span>
+              <button
+                type="button"
+                aria-label="Close"
+                onClick={() => setShowHistory(false)}
+                className="rounded p-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </div>
+            {versions === null ? (
+              <div className="px-2 py-4 text-center text-xs text-muted-foreground">Loading…</div>
+            ) : versions.length === 0 ? (
+              <div className="px-2 py-4 text-center text-xs text-muted-foreground">No saved versions yet.</div>
+            ) : (
+              <ul className="max-h-72 overflow-auto">
+                {versions.map((v) => (
+                  <li key={v.ts}>
+                    <button
+                      type="button"
+                      onClick={() => previewVersion(v.ts)}
+                      className={
+                        "flex w-full items-center justify-between gap-2 rounded px-2 py-1.5 text-left text-xs transition-colors hover:bg-muted " +
+                        (preview?.ts === v.ts ? "bg-muted text-foreground" : "text-muted-foreground")
+                      }
+                    >
+                      <span className="tabular-nums">{fmtVersionTime(v.ts)}</span>
+                      <span className="shrink-0 text-[10px] text-muted-foreground">
+                        {preview?.ts === v.ts ? "previewing" : "preview"}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <p className="mt-1.5 border-t border-border px-2 pt-1.5 text-[10px] leading-relaxed text-muted-foreground">
+              Newest first · up to {MAX_VERSIONS_HINT} kept · restoring is itself undoable
+            </p>
+          </div>
+        </>
+      )}
+
       {picker && (
         <div
           data-bible-popover
