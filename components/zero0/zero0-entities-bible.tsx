@@ -89,8 +89,8 @@ type Cell = {
   /** Rich-text HTML for a normal cell. */
   html?: string
   /** If set, the cell renders this kind's ontology glyph (display-only) instead of text.
-   *  `"facet"` = the forthcoming (id-5) placeholder kind, drawn as a dashed blueprint glyph. */
-  glyph?: EntityKind | "facet"
+   *  `"link"` = the forthcoming (id-5) placeholder kind, drawn as a dashed blueprint glyph. */
+  glyph?: EntityKind | "link"
   /**
    * If set, the cell renders this kind's ontology glyph as a small LEADING badge ALONGSIDE its
    * editable text (unlike `glyph`, which replaces the content). The glyph is drawn in its base
@@ -846,7 +846,7 @@ export function Zero0EntitiesBible() {
   // else (prose, unclear, blank) is left exactly as-is.
   const checkFacts = useCallback(() => {
     setGrid((g) => {
-      const colKind: Record<string, EntityKind | "facet"> = {}
+      const colKind: Record<string, EntityKind | "link"> = {}
       for (const [k, c] of Object.entries(g.cells)) {
         if (c.glyph) colKind[k.split("::")[1]] = c.glyph
       }
@@ -857,7 +857,7 @@ export function Zero0EntitiesBible() {
         for (const colId of g.colIds) {
           if (colId === FIELD_COL) continue
           const kind = colKind[colId]
-          // Skip columns whose glyph isn't a real ontology kind (e.g. the forthcoming "facet"
+          // Skip columns whose glyph isn't a real ontology kind (e.g. the forthcoming "link"
           // placeholder) — the HARD_FACTS checkers deref KIND_META[kind] and would throw.
           if (!kind || !(kind in KIND_META)) continue
           const expected = checker(kind as EntityKind)
@@ -1099,7 +1099,7 @@ export function Zero0EntitiesBible() {
   // doc (`c-entity`/`c-soul` ids). `poleInnerEdge` = the side facing the kinds (right for the
   // leading entity, left for the trailing soul).
   const poleInnerEdge: Record<string, "left" | "right"> = {}
-  // Forthcoming ("coming soon") columns — any whose glyph is the non-ontology `facet` placeholder.
+  // Forthcoming ("coming soon") columns — any whose glyph is the non-ontology `link` placeholder.
   // These get a hatched, muted treatment (see `zero0-soon-col`) so they read as a reserved slot,
   // clearly distinct from the ten real kinds. Detected by glyph so it survives column reordering.
   const isSoonCol: Record<string, boolean> = {}
@@ -1107,7 +1107,7 @@ export function Zero0EntitiesBible() {
     const g = grid.cells[cellKey(GLYPH_ROW, grid.colIds[i])]?.glyph
     if (g === "entity") poleInnerEdge[grid.colIds[i]] = "right"
     else if (g === "soul") poleInnerEdge[grid.colIds[i]] = "left"
-    else if (g === "facet") isSoonCol[grid.colIds[i]] = true
+    else if (g === "link") isSoonCol[grid.colIds[i]] = true
   }
 
   return (
@@ -1342,13 +1342,13 @@ export function Zero0EntitiesBible() {
                     (edge === "left" ? " border-l-2 border-l-border" : "") +
                     (isSoonCol[colId] ? " zero0-soon-col" : "")
                   if (cell.glyph) {
-                    const soon = cell.glyph === "facet"
+                    const soon = cell.glyph === "link"
                     return (
                       <td
                         key={colId}
                         onContextMenu={(e) => openMenu(e, ri, ci)}
                         className={border + " p-2 text-center"}
-                        title={soon ? "Facet — coming soon" : cap(cell.glyph)}
+                        title={soon ? "Link — coming soon" : cap(cell.glyph)}
                       >
                         <Zero0Glyph
                           kind={cell.glyph}
@@ -1507,6 +1507,68 @@ export function Zero0EntitiesBible() {
         Everything saves to a shared store, so v0 sees your edits and{" "}
         <code className="rounded bg-muted px-1">@v0 …</code> requests on the next turn.
       </p>
+
+      {/* ───────────────────────────────────────────────────────────────────────────
+          SLOT 5 DOSSIER — a parked, out-of-table area preserving the thinking behind the
+          forthcoming id-5 kind so it can be revisited later. Not part of the ontology grid.
+          ─────────────────────────────────────────────────────────────────────────── */}
+      <section
+        aria-label="Slot 5 — forthcoming kind notes"
+        className="rounded-md border border-dashed border-border bg-muted/20 p-4 text-xs leading-relaxed text-muted-foreground"
+      >
+        <div className="mb-3 flex items-center gap-2">
+          <Zero0Glyph kind="link" className="h-4 w-4 shrink-0 text-muted-foreground" />
+          <h3 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-foreground">
+            Slot 5 — reserved / coming soon
+          </h3>
+          <span className="rounded-sm border border-border bg-background px-1 py-px text-[8px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+            soon
+          </span>
+        </div>
+        <p className="mb-3">
+          The single gap in the ontology sits between the thing-block (Resource · Task) and the
+          context-block (Space). Space is locked at 6, so there is exactly one reserved slot. It is
+          currently pencilled in as <strong className="text-foreground">The Link</strong>, but the
+          direction is not finalized — this note parks the thinking to revisit.
+        </p>
+        <dl className="flex flex-col gap-3">
+          <div>
+            <dt className="mb-0.5 font-semibold text-foreground">Direction A — The Link / Relation (current)</dt>
+            <dd>
+              A relation reified as a first-class entity: it holds two endpoints and <em>is</em> the
+              &ldquo;between&rdquo; that relates any two entities (e.g. a Task in relation to a Space).
+              Payoff: nodes and edges become the same thing, collapsing the privileged{" "}
+              <code className="rounded bg-muted px-1">taggedContextIds</code> field into the general
+              &ldquo;everything is an entity&rdquo; recursion. It also opens a future path to
+              conditional links (&ldquo;tag if …&rdquo;, boolean formulas) — noted as a separate,
+              larger rules-engine concern, deliberately <em>not</em> a reason to ship it now. Category
+              caveat: a Link is a connective, not a noun-peer of the other ten — it operates one level
+              up, on entities.
+            </dd>
+          </div>
+          <div>
+            <dt className="mb-0.5 font-semibold text-foreground">Direction B — The Facet / Surface (earlier)</dt>
+            <dd>
+              The boundary/membrane where an entity meets its context — &ldquo;how a thing renders,
+              its layout and dress&rdquo; (the /002 Regions · Views · Components machinery). A Facet
+              is a special case of a relation (an entity ↔ its own context), so{" "}
+              <strong className="text-foreground">Link generalizes Facet</strong>. Counter-view:
+              appearance may be better modelled as a <em>view</em> of an entity (the existing{" "}
+              <code className="rounded bg-muted px-1">Face</code> view-primitive) rather than its own
+              kind — which is partly why it was set aside.
+            </dd>
+          </div>
+          <div>
+            <dt className="mb-0.5 font-semibold text-foreground">Decision test to revisit</dt>
+            <dd>
+              Adopt the Link once there are concrete cases where the <em>link itself</em> must carry
+              data neither endpoint owns — a name, a state, a timestamp, a weight (e.g. &ldquo;A blocks
+              B, since March, for reason X&rdquo;). If every link is just &ldquo;A tagged with B&rdquo;
+              with no payload, it would only re-implement tags with more machinery — wait.
+            </dd>
+          </div>
+        </dl>
+      </section>
 
       {/* Colour picker popover. */}
       {/* VERSION HISTORY panel — anchored under the History button, with a click-away backdrop. */}

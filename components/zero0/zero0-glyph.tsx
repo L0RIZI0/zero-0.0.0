@@ -124,17 +124,24 @@ const SPACE_MORPH_SQUARE_SCALE = 0.95
 const SPACE_MORPH_SQUARE_RADII = SQUARE_RADII.map((r) => r * SPACE_MORPH_SQUARE_SCALE)
 
 /** Draw the kind's outline shape. Fill/stroke are set by the caller via props.
- *  `"facet"` is a FORTHCOMING (id-5) placeholder kind — not yet in the real `EntityKind` union —
+ *  `"link"` is a FORTHCOMING (id-5) placeholder kind — not yet in the real `EntityKind` union —
  *  so the param is widened to allow it without polluting the ontology type everywhere. */
-function KindShape({ kind, requested }: { kind: EntityKind | "facet"; requested?: boolean }) {
+function KindShape({ kind, requested }: { kind: EntityKind | "link"; requested?: boolean }) {
   switch (kind) {
-    case "facet":
-      // ⟨forthcoming · id 5⟩ ONE FACE of the hexagonal Space: an isometric cube's silhouette IS a
-      // hexagon (Space=6), and each visible face of that cube is a rhomboid — so a single leaning
-      // parallelogram reads as one facet of the six-faced space (Facet ⊂ Space). Drawn with a
-      // DASHED outline: a blueprint/ghost marking a kind that is planned but not yet real. Slanted
-      // so it never reads as Resource's on-point diamond. Never fills (it isn't a live kind).
-      return <polygon points="8,4.5 21,4.5 16,19.5 3,19.5" fill="none" strokeDasharray="2.6 2.2" />
+    case "link":
+      // ⟨forthcoming · id 5⟩ THE LINK — a relation reified: two endpoint NODES on either side joined
+      // by a connecting segment (the "between" that relates any two entities). Sits between the
+      // thing-block (Resource/Task) and the context-block (Space). The joining segment is DASHED —
+      // a blueprint/ghost marking a kind that is planned but not yet real; the nodes are small open
+      // circles. Never fills (it isn't a live kind). Endpoints offset off the node edges so the
+      // line meets each circle rather than piercing it.
+      return (
+        <g fill="none">
+          <circle cx="6" cy="18" r="2.6" />
+          <circle cx="18" cy="6" r="2.6" />
+          <line x1="7.84" y1="16.16" x2="16.16" y2="7.84" strokeDasharray="2.4 2" />
+        </g>
+      )
     case "entity":
       // The raw Idea — an ✜-style "add" CROSS with a genuinely EMPTY center: FOUR separate arms
       // that stop short of the middle, leaving a hollow gap at the core. Drawn with SVG primitives
@@ -194,7 +201,7 @@ export function Zero0Glyph({
   pulse,
   className,
 }: {
-  kind: EntityKind | "facet"
+  kind: EntityKind | "link"
   /**
    * FILLED ⇒ the shape fills solid. Fill DERIVES from close: a closed entity of a
    * fillable kind (task/space/resource/moment/instant) fills. Terminal kinds and
@@ -266,7 +273,7 @@ export function Zero0Glyph({
   const [morphing, setMorphing] = useState(false)
   const polyRef = useRef<SVGPolygonElement | null>(null)
   const morphRafRef = useRef<number | null>(null)
-  const prevKindRef = useRef<EntityKind | "facet">(kind)
+  const prevKindRef = useRef<EntityKind | "link">(kind)
 
   useEffect(() => {
     const el = svgRef.current
@@ -391,7 +398,7 @@ export function Zero0Glyph({
     const reduce =
       typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
 
-    const toR = RADII[kind as EntityKind] // "facet" isn't morphable ⇒ undefined ⇒ no morph, static shape
+    const toR = RADII[kind as EntityKind] // "link" isn't morphable ⇒ undefined ⇒ no morph, static shape
     const fromR = RADII[prev as EntityKind]
     const entry = !reduce && !!toR && !!fromR && prev !== kind // morph between two morphable kinds
     const periodic = !reduce && !!toR && kind === "space" && !!ongoing // spinning-space flourish
