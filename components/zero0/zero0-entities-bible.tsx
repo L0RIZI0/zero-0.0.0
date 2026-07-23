@@ -1307,9 +1307,11 @@ export function Zero0EntitiesBible() {
                         // an inset shadow paints on top of the frosted bg, so lines stay crisp.
                         // Bottom-only (not top+bottom) so adjacent cells don't STACK into a double
                         // line — each boundary is a single line owned by the cell above it. Colour
-                        // is a discrete grey (#5a5a5a): visible against the frost, but not as loud
-                        // as pure white.
-                        " sticky -left-px z-10 bg-muted/70 backdrop-blur supports-[backdrop-filter]:bg-muted/60 font-semibold shadow-[inset_0_-1px_0_0_#5a5a5a]"
+                        // is the themed `--border` token: in light mode it's just a hair darker than
+                        // the muted col0 background (a soft grey seam, not the old near-black #5a5a5a),
+                        // and it still reads clearly in dark mode — painted on top of the frost so it
+                        // never washes out the way a collapsed border would.
+                        " sticky -left-px z-10 bg-muted/70 backdrop-blur supports-[backdrop-filter]:bg-muted/60 font-semibold shadow-[inset_0_-1px_0_0_var(--border)]"
                       : "") +
                     // Pole columns (entity/soul): subtle tint + a heavier inner-edge border so they
                     // frame the eight kinds as bookends without leaving the table.
