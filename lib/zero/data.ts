@@ -289,7 +289,7 @@ export const resources: Resource[] = [
 // which is the intended trade-off.)
 export const DAY_MS = 86_400_000
 
-/** Midnight (epoch ms) of the calendar day that the CURRENT 5am→5am "human day"
+/** Midnight (epoch ms) of the calendar day that the CURRENT 5am���5am "human day"
  *  window started on — computed once at module load. This is the seed's day origin.
  *
  *  Zero's day boundary is 5am, not midnight (the Dayline shows [5am → next 5am]). So
@@ -1828,6 +1828,7 @@ const uid = (prefix: string) => `${prefix}_u${Date.now().toString(36)}${(_seq++)
 // addInstant→i, addResource→r, addSpace→s). Used by addParsedEntity so an entity's id
 // reflects its kind regardless of the create path. Falls back to "t" for unmapped kinds.
 const ID_PREFIX: Partial<Record<EntityKind, string>> = {
+  entity: "e",
   task: "t",
   moment: "m",
   instant: "i",

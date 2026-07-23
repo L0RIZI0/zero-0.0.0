@@ -81,6 +81,10 @@ export interface User {
  * conditionally rather than the model splitting into separate shapes.
  */
 export type EntityKind =
+  // The primordial, UNDIFFERENTIATED kind: a raw Idea / Goal / Aspiration / Ambition. Every other
+  // kind is the Idea SPECIALIZED into a shape (a span → moment, an action → task, a context →
+  // space, …), which is why they all share entity's default capability profile (ENTITY_DEFAULTS).
+  | "entity"
   | "space"
   | "task"
   | "moment"
@@ -614,10 +618,21 @@ export interface SoulEntity extends EntityBase {
 }
 
 /**
+ * The raw, UNDIFFERENTIATED idea (a Goal / Aspiration / Ambition). Carries no per-kind fields of
+ * its own — it is the bare {@link EntityBase} — because it has not yet been shaped into a
+ * specialized kind. Specializing it (giving it a span, an action, children, …) is what promotes
+ * it to a Moment / Task / Space / … Users may attach their OWN custom fields to non-entity kinds.
+ */
+export interface IdeaEntity extends EntityBase {
+  kind: "entity"
+}
+
+/**
  * ENTITY — the discriminated union of every particular Space, keyed on `kind`.
  * Narrow on `entity.kind === "task"` etc. to reach a variant's own fields.
  */
 export type Entity =
+  | IdeaEntity
   | TaskEntity
   | MomentEntity
   | InstantEntity

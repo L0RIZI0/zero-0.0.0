@@ -179,6 +179,7 @@ function repeatLabel(r: Recurrence): string {
  * collision.
  */
 const KIND_PREFIX: Record<string, EntityKind> = {
+  enti: "entity",
   spac: "space",
   task: "task",
   mome: "moment",

@@ -48,6 +48,21 @@ export interface KindMeta {
   description: string
   /** Whether the user can create one from the new-entity affordances. */
   creatable: boolean
+  /** Whether the user can DELETE one (remove it entirely). True for every kind except `soul`. */
+  deletable: boolean
+  /** Whether it can be CLOSED (moved to a terminal end-state). True for every kind except `soul`. */
+  closable: boolean
+  /** Whether it can be CANCELLED (voided before it completes). True for every kind except `soul`. */
+  cancellable: boolean
+  /**
+   * Whether it can be marked COMPLETE. TRUE for the action/span kinds (task · space · resource ·
+   * moment · instant); FALSE for beings (they reach a terminal via death/retire, they don't
+   * "complete") and soul. NOTE: this is the CAPABILITY ("can this kind ever reach the complete
+   * state"), distinct from the runtime VERDICT of whether a given entity IS complete now — that is
+   * derived from its done-flag / elapsed time, OR set by an EXPLICIT manual mark (reality happens
+   * off-Zero, so a user may mark something complete without a done-flag or a passed time).
+   */
+  completable: boolean
   /** Can hold the soft DONE checkmark (its own axis). Task ONLY. */
   hasDoneState: boolean
   /**
@@ -71,11 +86,47 @@ export interface KindMeta {
   terminal: "retire" | "death" | null
 }
 
+/**
+ * The DEFAULTS every kind starts from — the capability profile of the raw `entity` (the Idea:
+ * a Goal / Aspiration / Ambition, undifferentiated). Every kind is the Idea SPECIALIZED, so each
+ * kind's meta below is documented as "entity defaults + this kind's overrides". These are the
+ * UNIVERSAL, undifferentiated capabilities (create / delete / close / cancel / complete); the
+ * SPECIALIZED flags (`hasDoneState`, `plannable`) default OFF and are switched on by the kinds
+ * that earn them. Every kind still spells out ALL fields explicitly (NOT spread) so the compiler
+ * forces a decision per field; a guard test asserts each kind either matches these defaults or
+ * differs intentionally. Users will later add THEIR OWN fields on top of these (runtime, on kinds
+ * other than entity/soul) — a third layer of the same pull-from-parent chain.
+ */
+export const ENTITY_DEFAULTS = {
+  creatable: true,
+  deletable: true,
+  closable: true,
+  cancellable: true,
+  completable: true,
+  hasDoneState: false,
+  plannable: false,
+  fillsWhenClosed: true,
+  terminal: null,
+} satisfies Omit<KindMeta, "label" | "description">
+
 export const KIND_META: Record<EntityKind, KindMeta> = {
+  // The raw Idea — the ONE kind whose meta IS the defaults verbatim (it spreads ENTITY_DEFAULTS,
+  // the single legitimate spread: entity's capability profile literally is the reference). Every
+  // OTHER kind spells its fields out explicitly so the compiler enforces a per-field decision.
+  entity: {
+    label: "Entity",
+    description: "A raw idea — a goal, an aspiration, not yet shaped",
+    ...ENTITY_DEFAULTS,
+  },
   task: {
     label: "Task",
     description: "A thing to do",
+    // entity defaults + overrides: hasDoneState (task-only), plannable (a planned span).
     creatable: true,
+    deletable: true,
+    closable: true,
+    cancellable: true,
+    completable: true,
     hasDoneState: true,
     plannable: true,
     fillsWhenClosed: true,
@@ -84,7 +135,12 @@ export const KIND_META: Record<EntityKind, KindMeta> = {
   space: {
     label: "Space",
     description: "A context that holds things",
+    // entity defaults + override: plannable (a planned span).
     creatable: true,
+    deletable: true,
+    closable: true,
+    cancellable: true,
+    completable: true,
     hasDoneState: false,
     plannable: true,
     fillsWhenClosed: true,
@@ -93,7 +149,12 @@ export const KIND_META: Record<EntityKind, KindMeta> = {
   resource: {
     label: "Resource",
     description: "An asset, reference, or tool",
+    // entity defaults + override: plannable (a planned span).
     creatable: true,
+    deletable: true,
+    closable: true,
+    cancellable: true,
+    completable: true,
     hasDoneState: false,
     plannable: true,
     fillsWhenClosed: true,
@@ -102,7 +163,12 @@ export const KIND_META: Record<EntityKind, KindMeta> = {
   moment: {
     label: "Moment",
     description: "A span in time",
+    // entity defaults + override: plannable (a span IS its essence).
     creatable: true,
+    deletable: true,
+    closable: true,
+    cancellable: true,
+    completable: true,
     // DONE is a Task-only marker now. A Moment is not "done" — it simply becomes
     // COMPLETE once its end passes, and CLOSES (fills + fades) at the next midnight.
     hasDoneState: false,
@@ -113,7 +179,12 @@ export const KIND_META: Record<EntityKind, KindMeta> = {
   instant: {
     label: "Instant",
     description: "A point in time",
+    // entity defaults + override: plannable (a degenerate span, see below).
     creatable: true,
+    deletable: true,
+    closable: true,
+    cancellable: true,
+    completable: true,
     // Like a Moment: no DONE marker; complete once its point passes, closes at midnight.
     hasDoneState: false,
     // PLANNABLE as a degenerate span: a placed `at` IS its plan (at == start == end, duration 0),
@@ -126,7 +197,13 @@ export const KIND_META: Record<EntityKind, KindMeta> = {
   community: {
     label: "Community",
     description: "A place to gather people and discussions",
+    // entity defaults + overrides: NOT completable (a being reaches terminal via RETIRE, it does
+    // not "complete"); plannable (a founding date); fillsWhenClosed false + terminal "retire".
     creatable: true,
+    deletable: true,
+    closable: true,
+    cancellable: true,
+    completable: false,
     hasDoneState: false,
     // A community can be planned to BEGIN (founding date) — "expected" until it starts.
     plannable: true,
@@ -136,7 +213,13 @@ export const KIND_META: Record<EntityKind, KindMeta> = {
   organism: {
     label: "Organism",
     description: "A company, a point of view",
+    // entity defaults + overrides: NOT completable (reaches terminal via DEATH, not complete);
+    // plannable (a founding); fillsWhenClosed false + terminal "death".
     creatable: true,
+    deletable: true,
+    closable: true,
+    cancellable: true,
+    completable: false,
     hasDoneState: false,
     // An organism can be planned to BEGIN (founding) — "expected" until it starts.
     plannable: true,
@@ -148,7 +231,13 @@ export const KIND_META: Record<EntityKind, KindMeta> = {
     // TEMPORARILY creatable (Jul 2026) so the user can dogfood people/other Individuals
     // directly; normally an Individual is spawned with a Soul, not created ad hoc.
     description: "A person, animated by a Soul",
+    // entity defaults + overrides: NOT completable (reaches terminal via DEATH, not complete);
+    // plannable (a birth / arrival); fillsWhenClosed false + terminal "death".
     creatable: true,
+    deletable: true,
+    closable: true,
+    cancellable: true,
+    completable: false,
     hasDoneState: false,
     // A person can be planned to BEGIN (birth / a future arrival) — "expected" until born.
     plannable: true,
@@ -158,7 +247,13 @@ export const KIND_META: Record<EntityKind, KindMeta> = {
   soul: {
     label: "Soul",
     description: "The animating self behind a person",
+    // The BEYOND-differentiated pole (opposite entity): the animating self is not user-manipulable
+    // — every capability is OFF. Seeded, never created / deleted / closed / cancelled / completed.
     creatable: false,
+    deletable: false,
+    closable: false,
+    cancellable: false,
+    completable: false,
     hasDoneState: false,
     plannable: false,
     fillsWhenClosed: false,
@@ -169,6 +264,30 @@ export const KIND_META: Record<EntityKind, KindMeta> = {
 /** Whether a kind can hold the soft DONE checkmark (task/moment/instant). */
 export function hasDoneState(kind: EntityKind): boolean {
   return KIND_META[kind].hasDoneState
+}
+
+/** Whether the user can DELETE a kind (all except soul). Reads {@link KindMeta.deletable}. */
+export function isDeletable(kind: EntityKind): boolean {
+  return KIND_META[kind].deletable
+}
+
+/** Whether a kind can be CLOSED to a terminal end-state (all except soul). */
+export function isClosable(kind: EntityKind): boolean {
+  return KIND_META[kind].closable
+}
+
+/** Whether a kind can be CANCELLED / voided (all except soul). */
+export function isCancellable(kind: EntityKind): boolean {
+  return KIND_META[kind].cancellable
+}
+
+/**
+ * Whether a kind can ever reach the COMPLETE state — the action/span kinds (task/space/resource/
+ * moment/instant). Beings reach a terminal via death/retire, and soul never completes. This is the
+ * CAPABILITY, not the runtime verdict of whether a given entity is complete now (see KindMeta).
+ */
+export function isCompletable(kind: EntityKind): boolean {
+  return KIND_META[kind].completable
 }
 
 /** Whether a kind's glyph FILLS when it closes (fillable kinds; not terminal ones). */

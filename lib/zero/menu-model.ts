@@ -68,10 +68,10 @@ function buildColorSubmenu(entity: Entity): MenuItem {
   return { type: "submenu", label: "Set color", items }
 }
 
-// The kinds an entity can be turned INTO — the creatable set only (identity kinds
-// `individual`/`soul` are excluded: not user-creatable, and changing them would break
-// root-scoping).
-const CHANGE_KINDS: EntityKind[] = ["task", "space", "resource", "moment", "instant", "community", "organism"]
+// The kinds an entity can be turned INTO — the creatable set. `entity` (the raw idea) is
+// included so a specialized entity can be DE-specialized back to a bare idea. Identity kinds
+// `individual`/`soul` are excluded: not user-creatable, and changing them would break root-scoping.
+const CHANGE_KINDS: EntityKind[] = ["entity", "task", "space", "resource", "moment", "instant", "community", "organism"]
 
 /**
  * Build the entity menu as a pure function of the entity's kind + STATE model. Mirrors

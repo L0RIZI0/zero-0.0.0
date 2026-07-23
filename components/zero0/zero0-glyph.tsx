@@ -124,6 +124,12 @@ const SPACE_MORPH_SQUARE_RADII = SQUARE_RADII.map((r) => r * SPACE_MORPH_SQUARE_
 /** Draw the kind's outline shape. Fill/stroke are set by the caller via props. */
 function KindShape({ kind, requested }: { kind: EntityKind; requested?: boolean }) {
   switch (kind) {
+    case "entity":
+      // The raw Idea — an "add" CROSS with an EMPTY center: two bare strokes, no enclosed
+      // silhouette (so it never fills). The open cross reads as "not yet shaped" — it can
+      // still become any of the specialized kinds. Drawn like `individual`/`soul` as a bare
+      // stroke path, never filled.
+      return <path d="M12 4.5 L12 19.5 M4.5 12 L19.5 12" fill="none" />
     case "task":
       // A "sent as request" task hangs a diagonal flag/leg off its bottom-right
       // CORNER, pointing DOWN-LEFT to a tip (like a "9" descender). The right + left
