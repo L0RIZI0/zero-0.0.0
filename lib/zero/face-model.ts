@@ -19,7 +19,7 @@
 
 import type { Entity, EntityKind, Whenever } from "./types"
 import { WHENEVER } from "./types"
-  import { KIND_META, isClosed, fillsGlyph, getState, isOngoing, getOngoingSince, concreteStart, effectiveScheduleEnd, ongoingOpenSession, occurrenceAction, isBeing, isMarkable, getMarks, getSessions, getInstantMaxNb, isInstantMaxNbHard, getInstantOccurrenceCount, type EntityState } from "./kinds"
+  import { KIND_META, isClosed, fillsGlyph, getState, isOngoing, getOngoingSince, concreteStart, effectiveScheduleEnd, ongoingOpenSession, occurrenceAction, isBeing, individualBornAt, formatAge, isMarkable, getMarks, getSessions, getInstantMaxNb, isInstantMaxNbHard, getInstantOccurrenceCount, type EntityState } from "./kinds"
 import { isDone, getCreatedAt, getCompletedOn } from "./entity-log"
 import { getEntity, getCreator, getOwner, getForwardTags, getBackReferences, getChildren } from "./data"
 import { formatLocale } from "./format-locale"
@@ -349,6 +349,10 @@ export function formatState(
     case "open":
       if (isLiving) return state.reopenedAt ? `alive · reopened ${format(state.reopenedAt)}` : "alive"
       return state.reopenedAt ? `open · reopened ${format(state.reopenedAt)}` : "open"
+    case "alive":
+      // A living Individual (its `bornAt` has passed). The born date lives on its own §0 row, so
+      // the STATE line stays the bare word — the natural antonym of `dead` — plus reopened trace.
+      return state.reopenedAt ? `alive · reopened ${format(state.reopenedAt)}` : "alive"
     case "scheduled":
       // A being awaiting its beginning reads "expected"; a planned instant awaiting its
       // occurrence reads "scheduled". Both carry the concrete anchor in `at`.
@@ -905,7 +909,14 @@ export function getFaceMetaRows(e: Entity, now: number): [string, string][] {
   // STATUS — the ORTHOGONAL action axis (running now), its own row so STATE keeps its true
   // lifecycle word. ALWAYS shown alongside STATE (like DONE/CLOSED): "ongoing · since …" while
   // running, else "idle" — the axis persists so stopping a run doesn't make the row vanish.
-  if (meta.fillsWhenClosed || meta.terminal) {
+  if (e.kind === "individual") {
+    // A being's STATUS is its LIFE-LABEL — a pure projection of STATE, NOT the ongoing/session
+    // axis (that machinery is untouched, just not surfaced here): `scheduled` ⇒ "upcoming",
+    // `alive` ⇒ "live"; every other state (open / dead / closed / cancelled) hides the row.
+    const w = getState(e, now).word
+    const life = w === "scheduled" ? "upcoming" : w === "alive" ? "live" : null
+    if (life) rows.push(["status", life])
+  } else if (meta.fillsWhenClosed || meta.terminal) {
     const since = getOngoingSince(e, now)
     rows.push(["status", since != null ? `ongoing · since ${fmt(since)}` : "idle"])
   }
@@ -967,11 +978,26 @@ export function getFaceMetaRows(e: Entity, now: number): [string, string][] {
     //     when nothing's planned (NOT the elapsed/session time — the bug this fixes).
     //   • beings        → AGE: now − birth.
     //   • everything else → DURATION: its occurrence length (getOccurrenceDurationMs).
-    const isBeingKind = e.kind === "individual" || e.kind === "organism"
-    const isPlanned = SPAN_UI_KINDS.has(e.kind)
-    const durLabel = isBeingKind ? "age" : isPlanned ? "planned duration" : "duration"
-    const durMs = isPlanned ? getPlannedDurationMs(e) : getOccurrenceDurationMs(e, now)
-    rows.push([durLabel, durMs == null ? "—" : formatDuration(durMs)])
+    if (e.kind === "individual") {
+      // AGE keys off the confirmed `bornAt` (NOT createdAt): live-counting while `alive`, the
+      // frozen lifespan (born → death) once `dead`, and "—" before birth (open/scheduled) or when
+      // never born. Uses formatAge so it agrees with the "dead · (age)" the STATE row shows.
+      const st = getState(e, now)
+      const born = individualBornAt(e)
+      const age =
+        st.word === "alive" && born != null
+          ? formatAge(born, now)
+          : st.word === "dead" && st.age != null
+            ? st.age
+            : "—"
+      rows.push(["age", age])
+    } else {
+      const isBeingKind = e.kind === "organism"
+      const isPlanned = SPAN_UI_KINDS.has(e.kind)
+      const durLabel = isBeingKind ? "age" : isPlanned ? "planned duration" : "duration"
+      const durMs = isPlanned ? getPlannedDurationMs(e) : getOccurrenceDurationMs(e, now)
+      rows.push([durLabel, durMs == null ? "—" : formatDuration(durMs)])
+    }
   }
   // DURATION (v0.6.33) — the ACTUAL "how long the glyph was SPINNING" clock: the UNION of ongoing
   // intervals (play sessions + a moment/space's in-progress occurrence), live-counting an open play.
@@ -1011,6 +1037,13 @@ export function getFaceMetaRows(e: Entity, now: number): [string, string][] {
   // ACCENT — only when set (via `:color:`). The value is the raw hex; the dt cell
   // paints a matching swatch so the raw-data view still shows the color itself.
   if (e.accent) rows.push(["color", e.accent])
+  // BORN — an Individual's confirmed birthday (the `bornAt` field): the source of truth for the
+  // `alive` state and the age above. Always shown (— when unset), like SEX. A past value ⇒ alive;
+  // a future one ⇒ still "expected". Individual-only.
+  if (e.kind === "individual") {
+    const born = individualBornAt(e)
+    rows.push(["born", born != null ? fmt(born) : "—"])
+  }
   // SEX — an Individual's defining identity field, always shown (— when unset), the
   // same way a Moment always shows its span. Individual-only.
   if (e.kind === "individual") rows.push(["sex", e.sex ? sexSymbol(e.sex) : "—"])

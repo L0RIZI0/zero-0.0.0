@@ -357,6 +357,10 @@ export const entities: Entity[] = [
     // (month is 0-based, so 4 = May) so it round-trips through `toLocaleString()` as
     // 19 May 1991, 13:33 in whatever timezone/locale the reader is in.
   createdAt: new Date(1991, 4, 19, 13, 33, 0, 0).getTime(),
+  // The confirmed `bornAt` birthday — the SOURCE OF TRUTH for the `alive` state (a past value ⇒
+  // alive/live). Same instant as createdAt here: the root person is born, so root reads `alive`
+  // and is NOT deletable (an empty individual with no bornAt would read `open` = deletable).
+  bornAt: new Date(1991, 4, 19, 13, 33, 0, 0).getTime(),
   // Loris is a man.
   sex: "man",
   // Root canvas starts as a FRESH tree: the Individual owns no resources yet, and
@@ -3233,6 +3237,27 @@ export function setEntityClosePolicy(id: string, policy: "auto" | "manual" | nul
   logSet(entity, "sex", sex)
   if (!userEntityIds.has(id)) {
   seededOverrides.set(id, { ...seededOverrides.get(id), sex: sex ?? undefined } as Partial<Entity>)
+  }
+  persist()
+  return true
+  }
+
+  /**
+   * Set (or clear) an INDIVIDUAL's confirmed `bornAt` birthday (epoch ms), in place. Individual-
+   * only (returns false for any other kind). `bornAt` is the SOURCE OF TRUTH for the `alive` state
+   * (a past value ⇒ alive; a future one ⇒ still "expected") and drives the AGE row — SEPARATE from
+   * the generic planned `schedule.startAt`. Logs the change and mirrors setEntitySex's seeded-
+   * override handling so a change to a seeded individual (e.g. the root "0") survives refreshes.
+   */
+  export function setEntityBornAt(id: string, bornAt: number | null): boolean {
+  const stored = byId.get(id)
+  if (!stored || stored.kind !== "individual") return false
+  const entity = mutable(stored)
+  if (bornAt == null) delete (entity as IndividualEntity).bornAt
+  else (entity as IndividualEntity).bornAt = bornAt
+  logSet(entity, "bornAt", bornAt)
+  if (!userEntityIds.has(id)) {
+  seededOverrides.set(id, { ...seededOverrides.get(id), bornAt: bornAt ?? undefined } as Partial<Entity>)
   }
   persist()
   return true

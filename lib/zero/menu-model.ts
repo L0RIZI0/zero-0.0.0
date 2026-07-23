@@ -28,7 +28,7 @@ import {
   openSession,
   closeSession,
 } from "@/lib/zero/data"
-import { isClosed, KIND_META, hasOpenSession, canDeleteEntity } from "@/lib/zero/kinds"
+import { isClosed, KIND_META, hasOpenSession, canDeleteEntity, canCancelEntity } from "@/lib/zero/kinds"
 import { isDone } from "@/lib/zero/entity-log"
 import { FACE_SIZES, faceSizeLabel, FACE_MAKES, faceMakeLabel, type FaceSize, type FaceMake } from "@/lib/zero/face-model"
 import type { Entity, EntityKind } from "@/lib/zero/types"
@@ -123,7 +123,10 @@ export function buildEntityMenuItems(
         items.push({ type: "item", id: done ? "undone" : "done", label: done ? "Mark as Undone" : "Mark as Done" })
       }
       items.push({ type: "item", id: "close", label: closeLabel })
-      if (entity.kind !== "individual") {
+      // CANCEL — void the entity. Guarded by canCancelEntity: an Individual may only be cancelled
+      // while not-yet-lived (open/scheduled) — once alive it's ended by Close (death), never
+      // cancelled; other kinds keep the prior "cancel while live" behaviour.
+      if (canCancelEntity(entity)) {
         items.push({ type: "item", id: "cancel", label: "Cancel" })
       }
     }

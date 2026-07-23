@@ -1,4 +1,4 @@
-import type { Entity, EntityKind, Session, Schedule } from "./types"
+import type { Entity, EntityKind, IndividualEntity, Session, Schedule } from "./types"
 import { WHENEVER } from "./types"
 import {
   isDone,
@@ -444,7 +444,15 @@ export function formatAge(from: number, to: number): string {
  *  `scheduled` = a not-yet-terminal INSTANT that carries a concrete `at` anchor (planned, but
  *  its occurrence(s) haven't completed it): open (no schedule) · scheduled · complete · closed
  *  · cancelled are the instant's positions (an instant is a point, so never ongoing). */
-export type StateWord = "open" | "scheduled" | "complete" | "closed" | "cancelled" | "dead" | "retired"
+export type StateWord =
+  | "open"
+  | "scheduled"
+  | "alive"
+  | "complete"
+  | "closed"
+  | "cancelled"
+  | "dead"
+  | "retired"
 
 /**
  * An entity's current lifecycle STATE — one position on the STATE axis, plus the
@@ -486,6 +494,19 @@ export function isWheneverStart(v: number | typeof WHENEVER | undefined): boolea
 export function concreteStart(entity: Entity): number | null {
   const v = entity.schedule?.startAt
   return isConcreteStart(v) ? v : null
+}
+
+/**
+ * An Individual's confirmed BIRTH instant, or null. This is the dedicated `bornAt` field —
+ * SEPARATE from the generic `schedule.startAt` (which, for a being, is the PLANNED arrival).
+ * `bornAt` is the source of truth for "alive": once it's in the past the person is `alive`;
+ * a future `bornAt` (or a future planned start) is still `scheduled` / "expected". Returns null
+ * for any non-individual (organisms/communities become "alive" via Publish — deferred).
+ */
+export function individualBornAt(entity: Entity): number | null {
+  if (entity.kind !== "individual") return null
+  const v = (entity as IndividualEntity).bornAt
+  return typeof v === "number" ? v : null
 }
 
 /**
@@ -858,6 +879,17 @@ function getStateInner(entity: Entity, now: number, seen: Set<string>): EntitySt
   if (manualClosed || timeClosed) {
     const at = manualClosed ? entity.closedOn ?? entity.closeAt : entity.closeAt
     if (meta.terminal === "death") {
+      // INDIVIDUAL: closing is a DEATH only if the person was actually ALIVE at the moment of
+      // closing — i.e. `bornAt` is known and had already passed. Closing a not-yet-born (open /
+      // "expected") individual is a plain `closed` (a plan that was shut, not a life that ended),
+      // so `dead` always implies a real lifespan (age = bornAt → close). Other death-terminal
+      // beings (organism) keep the record-age behaviour until their own alive-model lands.
+      if (entity.kind === "individual") {
+        const born = individualBornAt(entity)
+        const wasAlive = born != null && at != null && born <= at
+        if (wasAlive) return { word: "dead", at, age: formatAge(born, at) }
+        return { word: "closed", at }
+      }
       const born = getCreatedAt(entity)
       const age = born != null && at != null ? formatAge(born, at) : undefined
       return { word: "dead", at, age }
@@ -886,11 +918,26 @@ function getStateInner(entity: Entity, now: number, seen: Set<string>): EntitySt
     return { word: "scheduled", at: entity.schedule.at }
   }
 
-  // SCHEDULED (beings) — an individual/organism/community with a concrete start still in the
-  // FUTURE is planned but NOT YET BEGUN (born / founded). It shares the `scheduled` word but
-  // renders as "expected" (see formatState). Once `now` passes the start it falls through to
-  // `open` = alive/active. Soul is excluded (never plannable). This is the being-planning arm of
-  // KIND_META.plannable — the START gates begun-ness, unlike the instant's timeless `at`.
+  // INDIVIDUAL — the life axis is driven by the confirmed `bornAt` birthday (NOT the generic
+  // planned start). Once born is in the PAST the person is `alive`; a future birthday, OR a future
+  // planned arrival when no birthday is set, reads `scheduled` (rendered "expected"); anything else
+  // (no birthday, no future plan) is a bare `open` — a not-yet-shaped person, safe to delete. This
+  // is what keeps a LIVING person out of the delete guard (alive ∉ {open, scheduled}).
+  if (entity.kind === "individual") {
+    const born = individualBornAt(entity)
+    if (born != null && now >= born) return { word: "alive", at: born }
+    const start = concreteStart(entity)
+    const expectedAt =
+      born != null && now < born ? born : start != null && now < start ? start : null
+    if (expectedAt != null) return { word: "scheduled", at: expectedAt }
+    return { word: "open" }
+  }
+
+  // SCHEDULED (other beings) — an organism/community with a concrete start still in the FUTURE is
+  // planned but NOT YET BEGUN (founded). It shares the `scheduled` word but renders as "expected"
+  // (see formatState). Once `now` passes the start it falls through to `open` = active. Soul is
+  // excluded (never plannable). The being alive-via-Publish model is deferred, so these keep the
+  // start-gated arm for now.
   if (isBeing(entity.kind) && entity.kind !== "soul") {
     const start = concreteStart(entity)
     if (start != null && now < start) return { word: "scheduled", at: start }
@@ -916,7 +963,29 @@ export function canDeleteEntity(
   if (!KIND_META[entity.kind].deletable) return false
   if (opts?.byUzer0) return true
   const word = getState(entity, now).word
+  // INDIVIDUAL: additionally deletable while `cancelled` — a voided plan can be cleared away —
+  // but NEVER once `alive` (a living person), nor `dead`/`closed` (a life on the record). This is
+  // the fix for the old bug where an alive individual read `open` and was wrongly deletable.
+  if (entity.kind === "individual") {
+    return word === "open" || word === "scheduled" || word === "cancelled"
+  }
   return word === "open" || word === "scheduled"
+}
+
+/**
+ * CANCEL GUARD — may this entity be CANCELLED (voided) right now? Cancelling is only meaningful
+ * while an entity is still LIVE (not already terminal). INDIVIDUAL narrows further to its
+ * not-yet-lived window (`open` / `scheduled`): once a person is `alive` they are ended by Close
+ * (a death), never cancelled. Soul is never cancellable. Other kinds: cancellable while not
+ * terminal (this preserves the prior menu behaviour, which offered Cancel to any non-individual
+ * that was closeable and not yet ended).
+ */
+export function canCancelEntity(entity: Entity, now: number = Date.now()): boolean {
+  if (!isCancellable(entity.kind)) return false
+  const word = getState(entity, now).word
+  if (word === "cancelled" || word === "closed" || word === "dead" || word === "retired") return false
+  if (entity.kind === "individual") return word === "open" || word === "scheduled"
+  return true
 }
 
 // ── STATUS axis — "ongoing" (the ACTION of running now), ORTHOGONAL to STATE ──────
@@ -935,8 +1004,10 @@ export function canDeleteEntity(
 function ongoingSince(entity: Entity, now: number, seen: Set<string>): number | null {
   // Only a LIVE state can be ongoing. Computed with a FRESH cycle-guard so the STATE check
   // can't pollute the rollup's `seen` set (the two recursions are independent concerns).
+  // `alive` (a living Individual) is included alongside `open`/`scheduled`: a being can still be
+  // actively worked on (a focus/play session), exactly as it could when it used to read `open`.
   const w = getStateInner(entity, now, new Set<string>()).word
-  if (w !== "open" && w !== "scheduled") return null
+  if (w !== "open" && w !== "scheduled" && w !== "alive") return null
   // A Done task is "done", not "in progress" — even if a stray session lingered.
   if (entity.kind === "task" && isDone(entity)) return null
   // (1) open (state-relevant) session
