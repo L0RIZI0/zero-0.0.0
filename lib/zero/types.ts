@@ -510,6 +510,18 @@ export interface EntityBase {
   hidden?: boolean
 
   /**
+   * SOFT-DELETE stamp. Deleting an entity no longer removes it — it sets `deletedAt`
+   * (ms epoch), which drops the entity from EVERY listing/rollup ({@link getChildren}
+   * filters it out unconditionally, so unlike `hidden` it is NOT revealed by "Show
+   * hidden"). Its subtree is left intact so a Restore ({@link restoreEntity}, reached
+   * from the container's right-click ▸ Deleted list) brings the whole thing back by
+   * clearing this one stamp. Absent = live. Deletion is guarded (see canDeleteEntity):
+   * only an entity whose state is `open` or `scheduled` can be deleted (bypassable by
+   * uzer0 — deferred). Permanent removal is a separate uzer0-only path.
+   */
+  deletedAt?: number
+
+  /**
    * WEB SURFACE binding (Zero as a contextual browser). When set, opening this
    * entity shows a live web surface (external site, or one of Zero's own internal
    * pages via a root-relative path like "/vision") instead of a do-list. This is

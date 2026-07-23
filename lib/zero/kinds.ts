@@ -899,6 +899,26 @@ function getStateInner(entity: Entity, now: number, seen: Set<string>): EntitySt
   return { word: "open" }
 }
 
+/**
+ * DELETE GUARD — is this entity deletable RIGHT NOW? Deletion (soft, reversible) is only
+ * allowed while the entity's STATE is `open` or `scheduled` (its early, not-yet-lived life),
+ * AND its kind is deletable at all (`KIND_META.deletable` — a Soul never is). Once an entity
+ * has started/completed/closed/died, it's part of the record and can't be casually deleted.
+ *
+ * `byUzer0` BYPASSES the state guard (the system actor can delete anything) — scaffolded now,
+ * the real uzer0 story (incl. permanent removal) is deferred. Kind deletability still applies.
+ */
+export function canDeleteEntity(
+  entity: Entity,
+  opts?: { byUzer0?: boolean },
+  now: number = Date.now(),
+): boolean {
+  if (!KIND_META[entity.kind].deletable) return false
+  if (opts?.byUzer0) return true
+  const word = getState(entity, now).word
+  return word === "open" || word === "scheduled"
+}
+
 // ── STATUS axis — "ongoing" (the ACTION of running now), ORTHOGONAL to STATE ──────
 // Whether `entity` is ONGOING right now, and since when. STATUS layers ON TOP of the STATE
 // axis (getState): an `open` (or `scheduled`) entity can be ongoing; a terminal / complete

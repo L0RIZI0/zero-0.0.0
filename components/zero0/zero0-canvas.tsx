@@ -14,6 +14,8 @@ import {
   ROOT_ID,
   currentUser,
   getChildren,
+  getDeletedChildren,
+  restoreEntity,
   getEntity,
   hydrateFromStorage,
   addParsedEntity,
@@ -1032,7 +1034,9 @@ export function Zero0Canvas() {
 
   const remove = useCallback(
     (e: Entity) => {
-      deleteEntity(e.id)
+      // Soft-delete is GUARDED (open/scheduled only) — deleteEntity returns false if blocked, in
+      // which case there's nothing to climb out of or re-render.
+      if (!deleteEntity(e.id)) return
       // If we're inside the entity being deleted, climb out of it first.
       setPath((p) => (p.includes(e.id) ? p.slice(0, p.indexOf(e.id)) : p))
       bump()
@@ -1183,6 +1187,13 @@ export function Zero0Canvas() {
           return copy
         })
       }
+      // RESTORE — undelete a soft-deleted CHILD (id = `restore:<childId>`, from the container's
+      // Deleted submenu). Targets a DIFFERENT id than `e`, so it's intercepted here rather than
+      // delegated to applyEntityMenuAction (which acts on e.id).
+      if (id.startsWith("restore:")) {
+        restoreEntity(id.slice("restore:".length))
+        return bump()
+      }
       // STARTER PIN — curation, not entity data: add/remove from the global §4 PINNED list.
       // Handled here (like the view toggles) rather than via `applyEntityMenuAction`.
       if (id === "starter-pin" || id === "starter-unpin") {
@@ -1214,6 +1225,10 @@ export function Zero0Canvas() {
           // The pin toggle appears on EVERY entity menu (content rows, tiles, header) with
           // its label reflecting current membership — computed live so it always matches.
           starterPinned: isStarterPinned(e.id),
+          // The soft-deleted children AT THIS entity — feeds the "Deleted (N)" restore submenu.
+          // Present on every menu, but only renders when this entity actually has deleted kids
+          // (chiefly the ENTITY CONTENT / context right-click, which targets the open node).
+          deletedChildren: getDeletedChildren(e.id).map((d) => ({ id: d.id, title: d.title, kind: d.kind })),
         }),
         ev.clientX,
         ev.clientY,

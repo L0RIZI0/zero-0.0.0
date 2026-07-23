@@ -1,6 +1,6 @@
 import type { Asset, Entity, EntityKind, IndividualEntity, Instant, Recurrence, Schedule, Resource, EntityBase, Session, Sex, TaskPriority, TitleEntry, User } from "./types"
 import { WHENEVER } from "./types"
-  import { hasDoneFlag, isClosed, computeCloseAt, getState, isOngoing, fillsGlyph, hasOpenSession, getOpenSession, setChildrenResolver, setContainedResolver, isConcreteStart, concreteStart, isOwnOngoing, effectiveScheduleEnd, getMarks, isMarkable, getSessions } from "./kinds"
+  import { hasDoneFlag, isClosed, computeCloseAt, getState, isOngoing, fillsGlyph, hasOpenSession, getOpenSession, setChildrenResolver, setContainedResolver, isConcreteStart, concreteStart, isOwnOngoing, effectiveScheduleEnd, getMarks, isMarkable, getSessions, canDeleteEntity } from "./kinds"
 import {
   isDone,
   isCancelled,
@@ -579,8 +579,12 @@ export function getChildren(contextId: string): Entity[] {
       // appear as a normal child. (The scaffold's own Individual is the root context and
       // its Soul parent is unreachable, so neither leaks into a listing here.)
       e.kind !== "soul" &&
+      // SOFT-DELETED entities drop out of EVERY listing + rollup unconditionally (unlike
+      // `hidden`, which "Show hidden" reveals). They're reachable only via the container's
+      // right-click ▸ Deleted list (getDeletedChildren) to Restore. See Entity.deletedAt.
+      e.deletedAt == null &&
       // Materialized recurrence occurrences (overrides) are timeline instances, not
-      // do-list children �� they must never leak into any listing (the round-27 trap).
+      // do-list children — they must never leak into any listing (the round-27 trap).
       e.seriesId == null &&
       (e.parentId === contextId || e.taggedContextIds.includes(contextId)),
   )
@@ -605,6 +609,25 @@ export function getChildren(contextId: string): Entity[] {
       return a.i - b.i
     })
     .map((x) => x.e)
+}
+
+/**
+ * The SOFT-DELETED children at a context — the mirror of {@link getChildren}, returning only
+ * the entities `getChildren` filters out for being deleted (same parent/tag membership + the
+ * soul/series exclusions). Powers the container's right-click ▸ Deleted restore list. Newest
+ * deletions first (by `deletedAt`) so the most recent mistake is easiest to undo.
+ */
+export function getDeletedChildren(contextId: string): Entity[] {
+  return entities
+    .filter(
+      (e) =>
+        e.id !== contextId &&
+        e.kind !== "soul" &&
+        e.seriesId == null &&
+        e.deletedAt != null &&
+        (e.parentId === contextId || e.taggedContextIds.includes(contextId)),
+    )
+    .sort((a, b) => (b.deletedAt ?? 0) - (a.deletedAt ?? 0))
 }
 
 // Wire getChildren into kinds.ts so child-gated Task completion (a Done task isn't
@@ -3258,12 +3281,56 @@ function removeEntityById(id: string): boolean {
 }
 
 /**
- * Delete an entity (space / task / event / instant) and everything nested
- * under it (its origin children, recursively). Seeded entities leave a
- * tombstone so the deletion survives refreshes; user-created ones are simply
- * dropped. Persisted afterward.
+ * DELETE an entity — SOFT + reversible (v0.3.8x). Deleting no longer removes anything: it
+ * stamps `deletedAt`, which drops the entity (and its whole subtree, since the parent is now
+ * unlisted) from every listing + rollup. The subtree is left intact so {@link restoreEntity}
+ * undoes it by clearing that one stamp. Restore is reached from the container's right-click ▸
+ * Deleted list.
+ *
+ * GUARDED by {@link canDeleteEntity}: only an `open`/`scheduled` entity of a deletable kind can
+ * be deleted. `opts.byUzer0` bypasses the STATE guard (system actor) — scaffolded; the full
+ * uzer0 story (incl. PERMANENT removal via {@link hardDeleteEntity}) is deferred. Returns true
+ * if the entity was (soft-)deleted. Seeded entities record an override so it survives refreshes.
  */
-export function deleteEntity(id: string): void {
+export function deleteEntity(id: string, opts?: { byUzer0?: boolean }): boolean {
+  const stored = byId.get(id)
+  if (!stored) return false
+  if (!canDeleteEntity(stored, opts)) return false
+  const entity = mutable(stored)
+  entity.deletedAt = Date.now()
+  logSet(entity, "deleted", true)
+  if (!userEntityIds.has(id)) {
+    seededOverrides.set(id, { ...seededOverrides.get(id), deletedAt: entity.deletedAt } as Partial<Entity>)
+  }
+  persist()
+  return true
+}
+
+/**
+ * RESTORE (undelete) a soft-deleted entity — clears `deletedAt`, bringing it (and its whole
+ * subtree) back into listings exactly where it was. Mirrors {@link setEntityHidden}'s
+ * seeded-override handling so the restore survives refreshes. Returns true if it existed.
+ */
+export function restoreEntity(id: string): boolean {
+  const stored = byId.get(id)
+  if (!stored) return false
+  const entity = mutable(stored)
+  delete entity.deletedAt
+  logSet(entity, "deleted", false)
+  if (!userEntityIds.has(id)) {
+    seededOverrides.set(id, { ...seededOverrides.get(id), deletedAt: undefined } as Partial<Entity>)
+  }
+  persist()
+  return true
+}
+
+/**
+ * PERMANENT removal (hard delete) of an entity + its whole origin subtree — the pre-soft-delete
+ * behavior, now reserved for the future uzer0-only path. Seeded entities leave a tombstone
+ * (`deletedIds`) so the removal survives refreshes; user-created ones are simply dropped. NOT
+ * wired to the menu (which uses the reversible {@link deleteEntity}); kept for that later story.
+ */
+export function hardDeleteEntity(id: string): void {
   // Collect the entity and all descendants via origin parent links.
   const toDelete: string[] = []
   const collect = (targetId: string) => {

@@ -28,7 +28,7 @@ import {
   openSession,
   closeSession,
 } from "@/lib/zero/data"
-import { isClosed, KIND_META, hasOpenSession } from "@/lib/zero/kinds"
+import { isClosed, KIND_META, hasOpenSession, canDeleteEntity } from "@/lib/zero/kinds"
 import { isDone } from "@/lib/zero/entity-log"
 import { FACE_SIZES, faceSizeLabel, FACE_MAKES, faceMakeLabel, type FaceSize, type FaceMake } from "@/lib/zero/face-model"
 import type { Entity, EntityKind } from "@/lib/zero/types"
@@ -81,7 +81,15 @@ const CHANGE_KINDS: EntityKind[] = ["entity", "task", "space", "resource", "mome
  */
 export function buildEntityMenuItems(
   entity: Entity,
-  opts?: { showHidden?: boolean; currentSize?: FaceSize; currentMake?: FaceMake; starterPinned?: boolean },
+  opts?: {
+    showHidden?: boolean
+    currentSize?: FaceSize
+    currentMake?: FaceMake
+    starterPinned?: boolean
+    /** The soft-deleted children AT THIS context (from getDeletedChildren). When non-empty a
+     *  "Deleted (N)" submenu is shown; picking one reports `restore:<id>` (the caller undeletes). */
+    deletedChildren?: { id: string; title: string; kind: EntityKind }[]
+  },
 ): MenuItem[] {
   const meta = KIND_META[entity.kind]
   const closeable = meta.fillsWhenClosed || meta.terminal != null
@@ -210,7 +218,30 @@ export function buildEntityMenuItems(
     id: opts?.showHidden ? "hide-hidden" : "show-hidden",
     label: opts?.showHidden ? "Hide hidden" : "Show hidden",
   })
-  items.push({ type: "item", id: "delete", label: "Delete", danger: true })
+
+  // DELETED (restore list) — the container view of soft-deleted children at THIS level. Each row
+  // reports `restore:<id>`; the caller (canvas) undeletes it. Only shown when there ARE deleted
+  // children here, so it's contextual and unobtrusive (chiefly the ENTITY CONTENT right-click).
+  const deleted = opts?.deletedChildren ?? []
+  if (deleted.length > 0) {
+    items.push({
+      type: "submenu",
+      label: `Deleted (${deleted.length})`,
+      items: deleted.map((d) => ({
+        type: "item" as const,
+        id: `restore:${d.id}`,
+        label: d.title || "(untitled)",
+        glyphKind: d.kind,
+      })),
+    })
+  }
+
+  // DELETE — soft + reversible, GUARDED: only offered while the entity is deletable right now
+  // (deletable kind + open/scheduled state; see canDeleteEntity). Once it has lived, it's part
+  // of the record and the option disappears (uzer0 bypass is a deferred story).
+  if (canDeleteEntity(entity)) {
+    items.push({ type: "item", id: "delete", label: "Delete", danger: true })
+  }
 
   return items
 }
