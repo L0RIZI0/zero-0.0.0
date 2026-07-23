@@ -31,7 +31,9 @@ const easeOutCubic = (p: number) => 1 - Math.pow(1 - p, 3)
 // same width because its corners are cut, so it's scaled up ~15% to appear at least as big
 // as the Task square in the ENTITY CONTENT row grid.
 const HEXAGON = "12,1.6 21.01,6.8 21.01,17.2 12,22.4 2.99,17.2 2.99,6.8"
-const PENTAGON = "12,3 20.6,9.2 17.3,19.3 6.7,19.3 3.4,9.2"
+// Scaled ~5% about the box centre vs a bounding-equal peer: a pentagon reads optically small
+// (pointed top, wide flat base sits low), so it's nudged up to Community's neighbours' mass.
+const PENTAGON = "12,2.55 21.03,9.06 17.57,19.67 6.43,19.67 2.97,9.06"
 const DIAMOND = "12,3 21,12 12,21 3,12"
 const TRIANGLE_UP = "12,4 20,19 4,19"
 const TRIANGLE_DOWN = "12,20 20,5 4,5"
@@ -88,7 +90,7 @@ const RADII: Partial<Record<EntityKind, number[]>> = {
   moment: radiiFromVerts(parseVerts(TRIANGLE_UP)),
   instant: radiiFromVerts(parseVerts(TRIANGLE_DOWN)),
   community: radiiFromVerts(parseVerts(PENTAGON)),
-  organism: Array.from({ length: MORPH_N }, () => 9), // circle ⇒ constant radius
+  organism: Array.from({ length: MORPH_N }, () => 9.8), // circle ⇒ constant radius (matches KindShape r)
 }
 const SQUARE_RADII = RADII.task as number[]
 
@@ -132,14 +134,14 @@ function KindShape({ kind, requested }: { kind: EntityKind | "facet"; requested?
       // parallelogram reads as one facet of the six-faced space (Facet ⊂ Space). Drawn with a
       // DASHED outline: a blueprint/ghost marking a kind that is planned but not yet real. Slanted
       // so it never reads as Resource's on-point diamond. Never fills (it isn't a live kind).
-      return <polygon points="9,5.5 20,5.5 15,18.5 4,18.5" fill="none" strokeDasharray="2.6 2.2" />
+      return <polygon points="8,4.5 21,4.5 16,19.5 3,19.5" fill="none" strokeDasharray="2.6 2.2" />
     case "entity":
       // The raw Idea — an ✜-style "add" CROSS with a genuinely EMPTY center: FOUR separate arms
       // that stop short of the middle, leaving a hollow gap at the core. Drawn with SVG primitives
       // (NOT the ✜ Unicode char, which renders blank — JetBrains Mono lacks U+271C, confirmed) so
       // it paints identically everywhere. No enclosed silhouette, so it never fills; the open,
       // un-closed center reads as "not yet shaped" — it can still become any specialized kind.
-      return <path d="M12 4 L12 9.5 M12 14.5 L12 20 M4 12 L9.5 12 M14.5 12 L20 12" fill="none" />
+      return <path d="M12 3 L12 9 M12 15 L12 21 M3 12 L9 12 M15 12 L21 12" fill="none" />
     case "task":
       // A "sent as request" task hangs a diagonal flag/leg off its bottom-right
       // CORNER, pointing DOWN-LEFT to a tip (like a "9" descender). The right + left
@@ -162,7 +164,9 @@ function KindShape({ kind, requested }: { kind: EntityKind | "facet"; requested?
     case "community":
       return <polygon points={PENTAGON} />
     case "organism":
-      return <circle cx="12" cy="12" r="9" />
+      // r bumped 9 → 9.8: a circle reads optically SMALLER than the hexagon/square at equal radius,
+      // so it's grown to sit at the same visual mass as the hexagon-Space beside it (id 6/7 harmony).
+      return <circle cx="12" cy="12" r="9.8" />
     case "individual":
       // A capital "Z" rotated 45° anticlockwise — the ontology's Individual mark.
       // Authored upright (top bar → diagonal → bottom bar) and rotated −45° about the

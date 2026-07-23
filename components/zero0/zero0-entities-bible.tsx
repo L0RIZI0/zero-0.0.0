@@ -1354,16 +1354,15 @@ export function Zero0EntitiesBible() {
                           kind={cell.glyph}
                           className={"mx-auto h-6 w-6 " + (soon ? "text-muted-foreground" : "text-foreground")}
                         />
-                        {soon && (
-                          <span className="mt-1 block text-[8px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                            soon
-                          </span>
-                        )}
                       </td>
                     )
                   }
                   const centered = ROWS.find((r) => r.id === rowId)?.center && colId !== FIELD_COL
                   const fnNum = footnoteNum[key]
+                  // The "coming soon" tag rides on TOP of the whole forthcoming column, in its ID
+                  // (topmost) cell — stacked ABOVE the id number so it clearly labels the COLUMN as
+                  // provisional, instead of reading as the entity's name (the old under-glyph caption).
+                  const soonTop = isSoonCol[colId] && rowId === "r-id"
                   return (
                     <td
                       key={colId}
@@ -1379,6 +1378,11 @@ export function Zero0EntitiesBible() {
                             (cell.reconcile === "match" ? "bg-emerald-500" : "bg-rose-500")
                           }
                         />
+                      )}
+                      {soonTop && (
+                        <span className="mx-auto mb-0.5 block w-fit rounded-sm border border-border bg-background px-1 py-px text-[8px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                          soon
+                        </span>
                       )}
                       <div className={cell.glyphInline ? "flex items-start" : undefined}>
                         {cell.glyphInline && (
