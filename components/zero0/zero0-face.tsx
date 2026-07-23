@@ -94,7 +94,7 @@ function FaceGlyph({
       className={glyphClass}
     />
   )
-  if (model.hasDoneState) {
+  if (model.hasDoneFlag) {
     return (
       <button
         type="button"

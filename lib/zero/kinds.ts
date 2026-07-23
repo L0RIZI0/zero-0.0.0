@@ -38,7 +38,7 @@ import {
  * in the actor's local day, so every viewer flips Complete→Closed at the same real
  * moment regardless of timezone (see the `closeAt` doc in types.ts).
  *
- * Two STATIC per-kind flags: `hasDoneState` (Task only now) and `fillsWhenClosed`
+ * Two STATIC per-kind flags: `hasDoneFlag` (Task only now) and `fillsWhenClosed`
  * (task/space/resource/moment/instant fill; terminal kinds only fade).
  */
 export interface KindMeta {
@@ -64,7 +64,7 @@ export interface KindMeta {
    */
   completable: boolean
   /** Can hold the soft DONE checkmark (its own axis). Task ONLY. */
-  hasDoneState: boolean
+  hasDoneFlag: boolean
   /**
    * Can carry a PLANNED schedule. The single source of truth behind {@link isPlannable} (was the
    * hardcoded `isPlannedKind`). TRUE for every creatable kind EXCEPT soul:
@@ -91,7 +91,7 @@ export interface KindMeta {
  * a Goal / Aspiration / Ambition, undifferentiated). Every kind is the Idea SPECIALIZED, so each
  * kind's meta below is documented as "entity defaults + this kind's overrides". These are the
  * UNIVERSAL, undifferentiated capabilities (create / delete / close / cancel / complete); the
- * SPECIALIZED flags (`hasDoneState`, `plannable`) default OFF and are switched on by the kinds
+ * SPECIALIZED flags (`hasDoneFlag`, `plannable`) default OFF and are switched on by the kinds
  * that earn them. Every kind still spells out ALL fields explicitly (NOT spread) so the compiler
  * forces a decision per field; a guard test asserts each kind either matches these defaults or
  * differs intentionally. Users will later add THEIR OWN fields on top of these (runtime, on kinds
@@ -103,7 +103,7 @@ export const ENTITY_DEFAULTS = {
   closable: true,
   cancellable: true,
   completable: true,
-  hasDoneState: false,
+  hasDoneFlag: false,
   plannable: false,
   fillsWhenClosed: true,
   terminal: null,
@@ -121,13 +121,13 @@ export const KIND_META: Record<EntityKind, KindMeta> = {
   task: {
     label: "Task",
     description: "A thing to do",
-    // entity defaults + overrides: hasDoneState (task-only), plannable (a planned span).
+    // entity defaults + overrides: hasDoneFlag (task-only), plannable (a planned span).
     creatable: true,
     deletable: true,
     closable: true,
     cancellable: true,
     completable: true,
-    hasDoneState: true,
+    hasDoneFlag: true,
     plannable: true,
     fillsWhenClosed: true,
     terminal: null,
@@ -141,7 +141,7 @@ export const KIND_META: Record<EntityKind, KindMeta> = {
     closable: true,
     cancellable: true,
     completable: true,
-    hasDoneState: false,
+    hasDoneFlag: false,
     plannable: true,
     fillsWhenClosed: true,
     terminal: null,
@@ -155,7 +155,7 @@ export const KIND_META: Record<EntityKind, KindMeta> = {
     closable: true,
     cancellable: true,
     completable: true,
-    hasDoneState: false,
+    hasDoneFlag: false,
     plannable: true,
     fillsWhenClosed: true,
     terminal: null,
@@ -171,7 +171,7 @@ export const KIND_META: Record<EntityKind, KindMeta> = {
     completable: true,
     // DONE is a Task-only marker now. A Moment is not "done" — it simply becomes
     // COMPLETE once its end passes, and CLOSES (fills + fades) at the next midnight.
-    hasDoneState: false,
+    hasDoneFlag: false,
     plannable: true,
     fillsWhenClosed: true,
     terminal: null,
@@ -186,7 +186,7 @@ export const KIND_META: Record<EntityKind, KindMeta> = {
     cancellable: true,
     completable: true,
     // Like a Moment: no DONE marker; complete once its point passes, closes at midnight.
-    hasDoneState: false,
+    hasDoneFlag: false,
     // PLANNABLE as a degenerate span: a placed `at` IS its plan (at == start == end, duration 0),
     // surfaced as the `scheduled` state + the occurrences tally — NOT the start/end/duration span
     // UI (that's SPAN_UI_KINDS in face-model, which excludes instant).
@@ -204,7 +204,7 @@ export const KIND_META: Record<EntityKind, KindMeta> = {
     closable: true,
     cancellable: true,
     completable: false,
-    hasDoneState: false,
+    hasDoneFlag: false,
     // A community can be planned to BEGIN (founding date) — "expected" until it starts.
     plannable: true,
     fillsWhenClosed: false,
@@ -220,7 +220,7 @@ export const KIND_META: Record<EntityKind, KindMeta> = {
     closable: true,
     cancellable: true,
     completable: false,
-    hasDoneState: false,
+    hasDoneFlag: false,
     // An organism can be planned to BEGIN (founding) — "expected" until it starts.
     plannable: true,
     fillsWhenClosed: false,
@@ -238,7 +238,7 @@ export const KIND_META: Record<EntityKind, KindMeta> = {
     closable: true,
     cancellable: true,
     completable: false,
-    hasDoneState: false,
+    hasDoneFlag: false,
     // A person can be planned to BEGIN (birth / a future arrival) — "expected" until born.
     plannable: true,
     fillsWhenClosed: false,
@@ -254,16 +254,16 @@ export const KIND_META: Record<EntityKind, KindMeta> = {
     closable: false,
     cancellable: false,
     completable: false,
-    hasDoneState: false,
+    hasDoneFlag: false,
     plannable: false,
     fillsWhenClosed: false,
     terminal: null,
   },
 }
 
-/** Whether a kind can hold the soft DONE checkmark (task/moment/instant). */
-export function hasDoneState(kind: EntityKind): boolean {
-  return KIND_META[kind].hasDoneState
+/** Whether a kind can hold the soft DONE checkmark (Task only). */
+export function hasDoneFlag(kind: EntityKind): boolean {
+  return KIND_META[kind].hasDoneFlag
 }
 
 /** Whether the user can DELETE a kind (all except soul). Reads {@link KindMeta.deletable}. */
@@ -301,14 +301,14 @@ export function isCompletable(kind: EntityKind): boolean {
 // flags STALE declarations (a field listed here that no longer differs). Runs in dev only.
 const GUARDED_FIELDS = [
   "creatable", "deletable", "closable", "cancellable", "completable",
-  "hasDoneState", "plannable", "fillsWhenClosed", "terminal",
+  "hasDoneFlag", "plannable", "fillsWhenClosed", "terminal",
 ] as const
 
 // The fields each kind INTENTIONALLY differs from ENTITY_DEFAULTS on. `entity` itself has none
 // (it IS the defaults). Keep this in sync when a kind's profile changes — the guard enforces it.
 const KIND_OVERRIDES: Record<EntityKind, ReadonlyArray<(typeof GUARDED_FIELDS)[number]>> = {
   entity: [],
-  task: ["hasDoneState", "plannable"],
+  task: ["hasDoneFlag", "plannable"],
   space: ["plannable"],
   resource: ["plannable"],
   moment: ["plannable"],
@@ -988,7 +988,7 @@ export function fillsGlyph(entity: Entity, now: number = Date.now()): boolean {
   if (w === "complete") {
     // Task (the only fillable kind with a Done axis) needs an explicit complete;
     // time-driven kinds (Moment/Instant) fill as soon as they are complete.
-    if (KIND_META[entity.kind].hasDoneState) return getExplicitComplete(entity) === true
+    if (KIND_META[entity.kind].hasDoneFlag) return getExplicitComplete(entity) === true
     return true
   }
   return false

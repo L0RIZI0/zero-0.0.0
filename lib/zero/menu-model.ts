@@ -111,7 +111,7 @@ export function buildEntityMenuItems(
     if (ended) {
       items.push({ type: "item", id: "reopen", label: "Reopen" })
     } else {
-      if (meta.hasDoneState) {
+      if (meta.hasDoneFlag) {
         items.push({ type: "item", id: done ? "undone" : "done", label: done ? "Mark as Undone" : "Mark as Done" })
       }
       items.push({ type: "item", id: "close", label: closeLabel })

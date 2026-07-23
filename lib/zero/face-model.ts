@@ -454,7 +454,7 @@ export interface FaceModel {
   /** UPPERCASE kind label (e.g. "TASK", "MOMENT"). */
   kindLabel: string
   /** This kind carries the soft DONE axis (Task only today). */
-  hasDoneState: boolean
+  hasDoneFlag: boolean
   /** Glyph fills solid — complete OR closed, for fillable kinds. */
   filled: boolean
   /** The soft "I did this" marker is set (Task). */
@@ -468,7 +468,7 @@ export interface FaceModel {
   /** A live span in progress — the glyph rotates. */
   ongoing: boolean
   /** PLAYABLE — a moment/space whose glyph drives its OCCURRENCE lifecycle (top rail). True for
-      any of play/stop/reopen; see `occAction` for which one. Mutually exclusive with hasDoneState. */
+      any of play/stop/reopen; see `occAction` for which one. Mutually exclusive with hasDoneFlag. */
   playable: boolean
   /** The specific occurrence affordance the glyph performs on click: "play" (start), "stop" (end
       the running one), or "reopen" (archive the finished span → playable again). null when the
@@ -519,10 +519,10 @@ export function getFaceModel(e: Entity, now: number): FaceModel {
     webUrl: e.webUrl,
     webResourceId: e.webResourceId,
     kindLabel: km.label,
-    hasDoneState: km.hasDoneState,
+    hasDoneFlag: km.hasDoneFlag,
     filled: fillsGlyph(e), // fill on complete AND closed (fillable kinds)
     done,
-    showCheck: done && km.hasDoneState,
+    showCheck: done && km.hasDoneFlag,
     // Unified: derive cancellation from the STATE axis (getState already folds
     // isCancelled), so §0 and rows agree — previously §0 read isCancelled() directly.
     cancelled: state.word === "cancelled",
@@ -574,7 +574,7 @@ export function faceModelFromLike(like: FaceLike): FaceModel {
     kind: like.kind,
     title: like.title,
     kindLabel: km?.label ?? like.kind.toUpperCase(),
-    hasDoneState: false,
+    hasDoneFlag: false,
     filled: false,
     done: false,
     showCheck: false,
@@ -892,7 +892,7 @@ export function getFaceMetaRows(e: Entity, now: number): [string, string][] {
     rows.push(["titles", e.titleLog.map((t) => `${t.title} (${fmt(t.at)})`).join("  →  ")])
   }
   // DONE — its own orthogonal row, TASKS only (the soft "I did this" marker).
-  if (meta.hasDoneState) {
+  if (meta.hasDoneFlag) {
     const done = isDone(e)
     rows.push(["done", done ? `yes · ${fmt(getCompletedOn(e))}` : "no"])
   }

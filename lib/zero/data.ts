@@ -1,6 +1,6 @@
 import type { Asset, Entity, EntityKind, IndividualEntity, Instant, Recurrence, Schedule, Resource, EntityBase, Session, Sex, TaskPriority, TitleEntry, User } from "./types"
 import { WHENEVER } from "./types"
-  import { hasDoneState, isClosed, computeCloseAt, getState, isOngoing, fillsGlyph, hasOpenSession, getOpenSession, setChildrenResolver, setContainedResolver, isConcreteStart, concreteStart, isOwnOngoing, effectiveScheduleEnd, getMarks, isMarkable, getSessions } from "./kinds"
+  import { hasDoneFlag, isClosed, computeCloseAt, getState, isOngoing, fillsGlyph, hasOpenSession, getOpenSession, setChildrenResolver, setContainedResolver, isConcreteStart, concreteStart, isOwnOngoing, effectiveScheduleEnd, getMarks, isMarkable, getSessions } from "./kinds"
 import {
   isDone,
   isCancelled,
@@ -2718,9 +2718,9 @@ export function renameEntity(id: string, nextTitle: string, now = Date.now()): b
 export function setEntityCompleted(id: string, completed: boolean): void {
   const stored = byId.get(id)
   if (!stored) return
-  // Only kinds WITH a done axis (Task / Moment / Instant) hold a "done" checkmark.
+  // Only kinds WITH a done flag (Task) hold a "done" checkmark.
   // Space/Resource only open⟷close; terminal kinds retire/die — ignore done writes on them.
-  if (completed && !hasDoneState(stored.kind)) return
+  if (completed && !hasDoneFlag(stored.kind)) return
   // Only append a log entry on a REAL state change (guards against redundant sets
   // adding duplicate done/undone Instants).
   const changed = isDone(stored) !== completed

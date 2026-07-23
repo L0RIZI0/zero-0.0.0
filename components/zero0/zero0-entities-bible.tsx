@@ -112,8 +112,11 @@ function ensureAuthorModel(grid: Grid): Grid {
 const FIELD_COL = "c-field"
 const NAME_ROW = "r-name"
 
-// The eight creatable kinds in Loris's draft column order (matches the ID row 1–8).
+// The columns, framed by the two POLES: `entity` (the pre-differentiated raw Idea, ID "0") leads,
+// the eight kinds sit numbered 1–8, and `soul` (the beyond-differentiated animating self, ID "∞")
+// closes. Everything real lives between the origin and the beyond.
 const KIND_COLS: EntityKind[] = [
+  "entity",
   "space",
   "task",
   "resource",
@@ -122,7 +125,23 @@ const KIND_COLS: EntityKind[] = [
   "individual",
   "organism",
   "community",
+  "soul",
 ]
+
+// The ID shown per kind: the poles carry symbolic ids (0 = origin, ∞ = beyond); the eight real
+// kinds are numbered 1–8 in column order.
+const KIND_ID: Partial<Record<EntityKind, string>> = {
+  entity: "0",
+  space: "1",
+  task: "2",
+  resource: "3",
+  moment: "4",
+  instant: "5",
+  individual: "6",
+  organism: "7",
+  community: "8",
+  soul: "∞",
+}
 
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
 const stripHtml = (html: string) => html.replace(/<[^>]*>/g, "").trim()
@@ -140,7 +159,7 @@ const stripHtml = (html: string) => html.replace(/<[^>]*>/g, "").trim()
 const HARD_FACTS: Record<string, (k: EntityKind) => boolean | null> = {
   "r-creatable": (k) => KIND_META[k].creatable,
   "r-planned": (k) => KIND_META[k].plannable,
-  "r-done": (k) => KIND_META[k].hasDoneState,
+  "r-done": (k) => KIND_META[k].hasDoneFlag,
   "r-mruyayc3-0": (k) => KIND_META[k].deletable, // Deletable
   "r-mrtotrwz-1": (k) => KIND_META[k].completable, // Completable
   "r-mrv41tu4-2": (k) => KIND_META[k].closable, // Closable
@@ -195,11 +214,12 @@ const ROWS: RowDef[] = [
     center: true,
     cells: kindMap((k) => cap(k)),
   },
-  { id: "r-id", label: "ID", center: true, cells: kindMapI((_, i) => String(i + 1)) },
+  { id: "r-id", label: "ID", center: true, cells: kindMap((k) => KIND_ID[k] ?? "—") },
   {
     id: "r-desc",
     label: "Description",
     cells: {
+      entity: "A raw idea — a goal, an aspiration, an ambition; not yet shaped",
       space: "A context that holds things",
       task: "A thing to do",
       resource: "An asset, reference, or tool",
@@ -208,12 +228,14 @@ const ROWS: RowDef[] = [
       individual: "A person, animated by a Soul",
       organism: "A company, a point of view",
       community: "A place to gather people and discussions",
+      soul: "The animating self behind a person",
     },
   },
   {
     id: "r-family",
     label: "Family",
     cells: {
+      entity: "Idea · the undifferentiated origin",
       space: "What · container",
       task: "What · action",
       resource: "What · thing",
@@ -222,12 +244,14 @@ const ROWS: RowDef[] = [
       individual: "Who · being",
       organism: "Who · being",
       community: "Who · being",
+      soul: "Who · the animating self",
     },
   },
   {
       id: "r-creatable",
       label: "Creatable?",
       cells: {
+        entity: "Yes — the raw idea any new entity can start as before it is shaped",
         space: "Yes",
       task: "Yes",
       resource: "Yes",
@@ -236,31 +260,35 @@ const ROWS: RowDef[] = [
       individual: "Yes (temp)",
       organism: "Yes",
       community: "Yes",
+      soul: "No — a Soul is seeded with a person, never created",
     },
   },
   {
     id: "r-planned",
     label: "Planned kind?",
     cells: {
+      entity: "No — an unshaped idea carries no schedule (shaping it into a span adds one)",
       space: "Yes — span is its essence",
       task: "Yes",
       resource: "Yes — when set",
       moment: "Yes — span is its essence",
-      instant: "No — a point + mark tally",
-      individual: "No — being → AGE",
-      organism: "No — being → AGE",
-      community: "No — being → AGE",
+      instant: "Yes — a placed at (a degenerate span)",
+      individual: "Yes — a planned beginning; reads “expected”",
+      organism: "Yes — a planned beginning; reads “expected”",
+      community: "Yes — a planned beginning; reads “expected”",
+      soul: "No — a Soul is timeless",
     },
   },
   {
     id: "r-done",
-    label: "Done-state?",
-    cells: { task: "Yes — a soft checkmark, its own axis" },
+    label: "Done-flag?",
+    cells: { entity: "No", task: "Yes — a soft checkmark, its own axis", soul: "No" },
   },
   {
     id: "r-fills",
     label: "Fills when closed?",
     cells: {
+      entity: "Yes",
       space: "Yes",
       task: "Yes",
       resource: "Yes",
@@ -269,15 +297,18 @@ const ROWS: RowDef[] = [
       individual: "No — only fades",
       organism: "No — only fades",
       community: "No — only fades",
+      soul: "No",
     },
   },
   {
     id: "r-terminal",
     label: "Terminal end",
     cells: {
+      entity: "Closed / Deleted / Cancelled",
       individual: "death",
       organism: "death",
       community: "retire",
+      soul: "— none (permanent)",
     },
   },
   {
@@ -458,6 +489,7 @@ const ROWS: RowDef[] = [
     id: "r-usecase",
     label: "Usecase",
     cells: {
+      entity: "A thought captured before you know what it is",
       space: "“Work”, “Kitchen”, a project",
       task: "“Write the report”, “Buy milk”",
       resource: "A website, a doc, a tool",
@@ -466,6 +498,7 @@ const ROWS: RowDef[] = [
       individual: "“Loris”, a contact",
       organism: "“Vercel”, a company / POV",
       community: "“The team”, a group",
+      soul: "The “you” that persists behind the person",
     },
   },
 ]
@@ -474,11 +507,6 @@ const ROWS: RowDef[] = [
 function kindMap(fn: (k: EntityKind) => string): Partial<Record<EntityKind, string>> {
   const out: Partial<Record<EntityKind, string>> = {}
   KIND_COLS.forEach((k) => (out[k] = fn(k)))
-  return out
-}
-function kindMapI(fn: (k: EntityKind, i: number) => string): Partial<Record<EntityKind, string>> {
-  const out: Partial<Record<EntityKind, string>> = {}
-  KIND_COLS.forEach((k, i) => (out[k] = fn(k, i)))
   return out
 }
 

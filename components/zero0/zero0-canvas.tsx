@@ -985,11 +985,11 @@ export function Zero0Canvas() {
   //   • DONE ⇒ un-done. If you're still INSIDE it and it's now auto-play-eligible, resume ongoing
   //     immediately (the dwell effect won't re-fire on an unchanged path — this avoids the static-
   //     glyph bug where an in-place un-done stayed at rest until you navigated away and back).
-  // Wired as `onToggleDone` (FaceGlyph routes hasDoneState kinds here). Non-task done-kinds, if any
+  // Wired as `onToggleDone` (FaceGlyph routes hasDoneFlag kinds here). Non-task done-kinds, if any
   // ever exist, just fall through to the done toggle.
   const toggleDone = useCallback(
     (e: Entity) => {
-      if (!KIND_META[e.kind].hasDoneState) return
+      if (!KIND_META[e.kind].hasDoneFlag) return
       if (hasOpenSession(e, "play")) {
         closeSession(e.id, "play") // STOP ongoing; keep focus/presence
         playOpenRef.current.delete(e.id)
