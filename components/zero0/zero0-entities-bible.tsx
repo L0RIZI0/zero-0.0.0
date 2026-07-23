@@ -88,8 +88,9 @@ const wrapV0 = (html: string) =>
 type Cell = {
   /** Rich-text HTML for a normal cell. */
   html?: string
-  /** If set, the cell renders this kind's ontology glyph (display-only) instead of text. */
-  glyph?: EntityKind
+  /** If set, the cell renders this kind's ontology glyph (display-only) instead of text.
+   *  `"facet"` = the forthcoming (id-5) placeholder kind, drawn as a dashed blueprint glyph. */
+  glyph?: EntityKind | "facet"
   /**
    * If set, the cell renders this kind's ontology glyph as a small LEADING badge ALONGSIDE its
    * editable text (unlike `glyph`, which replaces the content). The glyph is drawn in its base
@@ -845,7 +846,7 @@ export function Zero0EntitiesBible() {
   // else (prose, unclear, blank) is left exactly as-is.
   const checkFacts = useCallback(() => {
     setGrid((g) => {
-      const colKind: Record<string, EntityKind> = {}
+      const colKind: Record<string, EntityKind | "facet"> = {}
       for (const [k, c] of Object.entries(g.cells)) {
         if (c.glyph) colKind[k.split("::")[1]] = c.glyph
       }
@@ -856,8 +857,10 @@ export function Zero0EntitiesBible() {
         for (const colId of g.colIds) {
           if (colId === FIELD_COL) continue
           const kind = colKind[colId]
-          if (!kind) continue
-          const expected = checker(kind)
+          // Skip columns whose glyph isn't a real ontology kind (e.g. the forthcoming "facet"
+          // placeholder) — the HARD_FACTS checkers deref KIND_META[kind] and would throw.
+          if (!kind || !(kind in KIND_META)) continue
+          const expected = checker(kind as EntityKind)
           if (expected == null) continue
           const key = cellKey(rowId, colId)
           const cell = cells[key]
@@ -1096,10 +1099,15 @@ export function Zero0EntitiesBible() {
   // doc (`c-entity`/`c-soul` ids). `poleInnerEdge` = the side facing the kinds (right for the
   // leading entity, left for the trailing soul).
   const poleInnerEdge: Record<string, "left" | "right"> = {}
+  // Forthcoming ("coming soon") columns — any whose glyph is the non-ontology `facet` placeholder.
+  // These get a hatched, muted treatment (see `zero0-soon-col`) so they read as a reserved slot,
+  // clearly distinct from the ten real kinds. Detected by glyph so it survives column reordering.
+  const isSoonCol: Record<string, boolean> = {}
   for (let i = 0; i < grid.colIds.length; i++) {
     const g = grid.cells[cellKey(GLYPH_ROW, grid.colIds[i])]?.glyph
     if (g === "entity") poleInnerEdge[grid.colIds[i]] = "right"
     else if (g === "soul") poleInnerEdge[grid.colIds[i]] = "left"
+    else if (g === "facet") isSoonCol[grid.colIds[i]] = true
   }
 
   return (
@@ -1110,6 +1118,20 @@ export function Zero0EntitiesBible() {
         .bible-cell { color: #2563eb; }
         .dark .bible-cell { color: #60a5fa; }
         .bible-cell .v0e { color: var(--foreground); }
+        /* Forthcoming ("coming soon") column: faint diagonal blueprint hatch + muted text, so the
+           reserved slot reads as provisional without competing with the ten real kinds. */
+        .zero0-soon-col {
+          color: var(--muted-foreground);
+          background-image: repeating-linear-gradient(
+            -45deg,
+            color-mix(in oklab, var(--muted-foreground) 9%, transparent) 0,
+            color-mix(in oklab, var(--muted-foreground) 9%, transparent) 1px,
+            transparent 1px,
+            transparent 7px
+          );
+        }
+        .zero0-soon-col .bible-cell,
+        .zero0-soon-col .bible-cell .v0e { color: var(--muted-foreground); }
       `}</style>
 
       {/* Legend + shared-store sync status. */}
@@ -1317,16 +1339,26 @@ export function Zero0EntitiesBible() {
                     // frame the eight kinds as bookends without leaving the table.
                     (edge ? " bg-muted/30" : "") +
                     (edge === "right" ? " border-r-2 border-r-border" : "") +
-                    (edge === "left" ? " border-l-2 border-l-border" : "")
+                    (edge === "left" ? " border-l-2 border-l-border" : "") +
+                    (isSoonCol[colId] ? " zero0-soon-col" : "")
                   if (cell.glyph) {
+                    const soon = cell.glyph === "facet"
                     return (
                       <td
                         key={colId}
                         onContextMenu={(e) => openMenu(e, ri, ci)}
                         className={border + " p-2 text-center"}
-                        title={cap(cell.glyph)}
+                        title={soon ? "Facet — coming soon" : cap(cell.glyph)}
                       >
-                        <Zero0Glyph kind={cell.glyph} className="mx-auto h-6 w-6 text-foreground" />
+                        <Zero0Glyph
+                          kind={cell.glyph}
+                          className={"mx-auto h-6 w-6 " + (soon ? "text-muted-foreground" : "text-foreground")}
+                        />
+                        {soon && (
+                          <span className="mt-1 block text-[8px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                            soon
+                          </span>
+                        )}
                       </td>
                     )
                   }

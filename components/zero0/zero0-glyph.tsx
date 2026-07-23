@@ -121,9 +121,18 @@ const SPACE_MORPH_PULSE = 0.68
 const SPACE_MORPH_SQUARE_SCALE = 0.95
 const SPACE_MORPH_SQUARE_RADII = SQUARE_RADII.map((r) => r * SPACE_MORPH_SQUARE_SCALE)
 
-/** Draw the kind's outline shape. Fill/stroke are set by the caller via props. */
-function KindShape({ kind, requested }: { kind: EntityKind; requested?: boolean }) {
+/** Draw the kind's outline shape. Fill/stroke are set by the caller via props.
+ *  `"facet"` is a FORTHCOMING (id-5) placeholder kind — not yet in the real `EntityKind` union —
+ *  so the param is widened to allow it without polluting the ontology type everywhere. */
+function KindShape({ kind, requested }: { kind: EntityKind | "facet"; requested?: boolean }) {
   switch (kind) {
+    case "facet":
+      // ⟨forthcoming · id 5⟩ ONE FACE of the hexagonal Space: an isometric cube's silhouette IS a
+      // hexagon (Space=6), and each visible face of that cube is a rhomboid — so a single leaning
+      // parallelogram reads as one facet of the six-faced space (Facet ⊂ Space). Drawn with a
+      // DASHED outline: a blueprint/ghost marking a kind that is planned but not yet real. Slanted
+      // so it never reads as Resource's on-point diamond. Never fills (it isn't a live kind).
+      return <polygon points="9,5.5 20,5.5 15,18.5 4,18.5" fill="none" strokeDasharray="2.6 2.2" />
     case "entity":
       // The raw Idea — an ✜-style "add" CROSS with a genuinely EMPTY center: FOUR separate arms
       // that stop short of the middle, leaving a hollow gap at the core. Drawn with SVG primitives
@@ -181,7 +190,7 @@ export function Zero0Glyph({
   pulse,
   className,
 }: {
-  kind: EntityKind
+  kind: EntityKind | "facet"
   /**
    * FILLED ⇒ the shape fills solid. Fill DERIVES from close: a closed entity of a
    * fillable kind (task/space/resource/moment/instant) fills. Terminal kinds and
@@ -253,7 +262,7 @@ export function Zero0Glyph({
   const [morphing, setMorphing] = useState(false)
   const polyRef = useRef<SVGPolygonElement | null>(null)
   const morphRafRef = useRef<number | null>(null)
-  const prevKindRef = useRef<EntityKind>(kind)
+  const prevKindRef = useRef<EntityKind | "facet">(kind)
 
   useEffect(() => {
     const el = svgRef.current
@@ -378,8 +387,8 @@ export function Zero0Glyph({
     const reduce =
       typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
 
-    const toR = RADII[kind]
-    const fromR = RADII[prev]
+    const toR = RADII[kind as EntityKind] // "facet" isn't morphable ⇒ undefined ⇒ no morph, static shape
+    const fromR = RADII[prev as EntityKind]
     const entry = !reduce && !!toR && !!fromR && prev !== kind // morph between two morphable kinds
     const periodic = !reduce && !!toR && kind === "space" && !!ongoing // spinning-space flourish
 
@@ -436,10 +445,10 @@ export function Zero0Glyph({
       aria-hidden="true"
       focusable="false"
     >
-      {morphing && RADII[kind] ? (
+      {morphing && RADII[kind as EntityKind] ? (
         // Sampled silhouette, driven by the morph rAF. Initial points = the current kind so the
         // very first paint matches before the effect's first frame runs.
-        <polygon ref={polyRef} points={buildPoints(RADII[kind] as number[])} />
+        <polygon ref={polyRef} points={buildPoints(RADII[kind as EntityKind] as number[])} />
       ) : (
         <KindShape kind={kind} requested={requested && kind === "task"} />
       )}
