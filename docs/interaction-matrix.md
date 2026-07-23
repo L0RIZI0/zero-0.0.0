@@ -110,7 +110,8 @@ Status tags: **[CUR]** = built + verified today · **[PART]** = partially built 
 | Set to now | instant, not-ended | stamps `schedule.at` = Date.now() | instant only | [CUR] |
 | Set color… (submenu) | any kind | `setEntityAccent(id, hex\|null)`; paints ticks + row | Clear returns to inherited/neutral | [CUR] |
 | Change into… | creatable kinds | `changeEntityKind`; may stamp `closeAt` if new kind time-closes | identity kinds excluded | [CUR] |
-| Delete | any user/seed | removes (user) or tombstones (seed) | — | [CUR] |
+| Delete | any deletable kind, state = open OR scheduled | SOFT + reversible: `deleteEntity` stamps `deletedAt`, dropping it (+ subtree) from every listing/rollup immediately (like Hidden, but NOT revealed by Show hidden) | GUARDED by `canDeleteEntity` (deletable kind + open/scheduled); once it has lived the menu item disappears. uzer0 state-guard bypass scaffolded (`{byUzer0:true}`), not yet wired. Permanent removal = `hardDeleteEntity` (uzer0-only, deferred) | [CUR] |
+| Deleted ▸ (restore list) | container with ≥1 soft-deleted child | container right-click shows `Deleted (N)` submenu of `getDeletedChildren`; clicking one calls `restoreEntity` (clears `deletedAt`) so it + its subtree return exactly where they were | only shown when this level has deleted children; newest-deleted first | [CUR] |
 
 ### Time / automatic
 | Trigger | Applies to | Effect | Guard / unless | Status |
