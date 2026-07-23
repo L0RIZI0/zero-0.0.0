@@ -209,301 +209,38 @@ const C = {
   cancelled: "#dc2626",
 }
 
+// ── The STRUCTURAL SKELETON ───────────────────────────────────────────────────────────────────
+// This is now ONLY the bones: each row's id, label, label colour, and glyph/center/inline flags —
+// PLUS the two rows whose cells are DERIVED FROM CODE (Name = capitalised kind, ID = KIND_ID). No
+// hand-written cell PROSE lives here anymore: the live Blob doc is the single source of truth for
+// content (that's how in-browser edits round-trip). On a truly-empty bootstrap the builder fills
+// prose cells with "—" placeholders; hydration then swaps in the Blob. Add/rename/reorder rows or
+// columns HERE (structure); edit cell content in the Blob. `C` = the STATE-row label colours.
 const ROWS: RowDef[] = [
   { id: "r-glyph", label: "Glyph", glyph: true, center: true },
-  {
-    id: NAME_ROW,
-    label: "Name",
-    center: true,
-    cells: kindMap((k) => cap(k)),
-  },
+  { id: NAME_ROW, label: "Name", center: true, cells: kindMap((k) => cap(k)) },
   { id: "r-id", label: "ID", center: true, cells: kindMap((k) => KIND_ID[k] ?? "—") },
-  {
-    id: "r-desc",
-    label: "Description",
-    cells: {
-      entity: "A raw idea — a goal, an aspiration, an ambition; not yet shaped",
-      space: "A context that holds things",
-      task: "A thing to do",
-      resource: "An asset, reference, or tool",
-      moment: "A span in time",
-      instant: "A point in time",
-      individual: "A person, animated by a Soul",
-      organism: "A company, a point of view",
-      community: "A place to gather people and discussions",
-      soul: "The animating self behind a person",
-    },
-  },
-  {
-    id: "r-family",
-    label: "Family",
-    cells: {
-      entity: "Idea · the undifferentiated origin",
-      space: "What · container",
-      task: "What · action",
-      resource: "What · thing",
-      moment: "When · span",
-      instant: "When · point",
-      individual: "Who · being",
-      organism: "Who · being",
-      community: "Who · being",
-      soul: "Who · the animating self",
-    },
-  },
-  {
-      id: "r-creatable",
-      label: "Creatable?",
-      cells: {
-        entity: "Yes — the raw idea any new entity can start as before it is shaped",
-        space: "Yes",
-      task: "Yes",
-      resource: "Yes",
-      moment: "Yes",
-      instant: "Yes",
-      individual: "Yes (temp)",
-      organism: "Yes",
-      community: "Yes",
-      soul: "No — a Soul is seeded with a person, never created",
-    },
-  },
-  {
-    id: "r-planned",
-    label: "Planned kind?",
-    cells: {
-      entity: "No — an unshaped idea carries no schedule (shaping it into a span adds one)",
-      space: "Yes — span is its essence",
-      task: "Yes",
-      resource: "Yes — when set",
-      moment: "Yes — span is its essence",
-      instant: "Yes — a placed at (a degenerate span)",
-      individual: "Yes — a planned beginning; reads “expected”",
-      organism: "Yes — a planned beginning; reads “expected”",
-      community: "Yes — a planned beginning; reads “expected”",
-      soul: "No — a Soul is timeless",
-    },
-  },
-  {
-    id: "r-done",
-    label: "Done-flag?",
-    cells: { entity: "No", task: "Yes — a soft checkmark, its own axis", soul: "No" },
-  },
-  {
-    id: "r-fills",
-    label: "Fills when closed?",
-    cells: {
-      entity: "Yes",
-      space: "Yes",
-      task: "Yes",
-      resource: "Yes",
-      moment: "Yes",
-      instant: "Yes",
-      individual: "No — only fades",
-      organism: "No — only fades",
-      community: "No — only fades",
-      soul: "No",
-    },
-  },
-  {
-    id: "r-terminal",
-    label: "Terminal end",
-    cells: {
-      entity: "Closed / Deleted / Cancelled",
-      individual: "death",
-      organism: "death",
-      community: "retire",
-      soul: "— none (permanent)",
-    },
-  },
-  {
-    id: "r-open",
-    label: "State: open",
-    labelColor: C.open,
-    glyphInline: true,
-    cells: {
-      space: "Live; empty or holding open things (outline)",
-      task: "A live to-do (outline)",
-      resource: "Live / available (a web resource glyph is always filled)",
-      moment: "Planned but not started, or “whenever” (idle)",
-      instant: "No time set yet",
-      individual: "Alive / present",
-      organism: "Alive / present",
-      community: "Alive / present",
-    },
-  },
-  {
-    id: "r-scheduled",
-    label: "State: scheduled",
-    labelColor: C.scheduled,
-    cells: {
-      instant: "Concrete <code>at</code> set, not yet reached (instant-only word)",
-    },
-  },
-  {
-    id: "r-ongoing",
-    label: "State: ongoing",
-    labelColor: C.ongoing,
-    cells: {
-      space: "Open PLAY session, OR concrete start in progress, OR a contained child is ongoing (rollup)",
-      task: "Open PLAY session (auto-opened on enter while undone). Focus/viewing never flips state",
-      resource: "Open PLAY session (auto-opened on enter)",
-      moment: "Open PLAY session, OR concrete start passed &amp; not yet ended",
-      instant: "Never — a point in time",
-      individual: "Never — a being reads ALIVE, not “in progress” (rollup stops at beings)",
-      organism: "Never — a being reads ALIVE (rollup stops here)",
-      community: "Never — a being reads ALIVE (rollup stops here)",
-    },
-  },
-  {
-    id: "r-donestate",
-    label: "State: done",
-    labelColor: C.done,
-    cells: {
-      task:
-        "Marked Done (checkmark). Completes the task — unless a " +
-        '<span data-note="A Task marked Done while it still has an open task-child reads the dedicated word done (ranked above ongoing), NOT complete; it auto-completes the instant the last task-child completes. Non-task children never gate.">task-child is still open</span>' +
-        ", when it reads “done but open”",
-    },
-  },
-  {
-    id: "r-complete",
-    label: "State: complete",
-    labelColor: C.complete,
-    cells: {
-      space: "Its set end has passed; glyph FILLS, row stays live awaiting midnight close",
-      task: "Done + all task-children complete; glyph fills, awaits close",
-      resource: "When a set end passes",
-      moment: "Its end has passed; glyph fills, awaits close",
-      instant: "Reached its max occurrences (marks + a passed <code>at</code>); default max 1",
-      individual: "— beings don’t “complete”",
-      organism: "— beings don’t “complete”",
-      community: "— beings don’t “complete”",
-    },
-  },
-  {
-    id: "r-closed",
-    label: "State: closed / dead / retired",
-    labelColor: C.closed,
-    cells: {
-      space: "Closed — filed at the stamped midnight (fills + fades)",
-      task: "Closed — filed at midnight after Done (fills + fades)",
-      resource: "Closed by hand (fills + fades)",
-      moment: "Closed at the next midnight (fills + fades)",
-      instant: "Closed at the next midnight (fills + fades)",
-      individual: "<b>Dead</b> — fades, keeps its outline (<code>diedOn</code>)",
-      organism: "<b>Dead</b> — fades, keeps its outline (<code>diedOn</code>)",
-      community: "<b>Retired</b> — fades, keeps its outline (<code>retiredOn</code>)",
-    },
-  },
-  {
-    id: "r-cancelled",
-    label: "State: cancelled",
-    labelColor: C.cancelled,
-    cells: {
-      space: "Called off — bar over glyph + strike + fade",
-      task: "Called off — bar over glyph + strike + fade",
-      resource: "Called off — bar + strike + fade",
-      moment: "Called off — bar + strike + fade",
-      instant: "Called off — bar + strike + fade",
-      individual: "Not available — an Individual can’t be cancelled",
-      organism: "Called off — bar + strike + fade",
-      community: "Called off — bar + strike + fade",
-    },
-  },
-  {
-    id: "r-enter",
-    label: "On enter (drill-in)",
-    cells: {
-      space: "Auto-opens a PLAY session ⇒ spins + DURATION counts; ACCESS (presence) also ticks",
-      task: "Auto-PLAY while undone ⇒ spins; a Done task is presence-only (ACCESS ticks, no spin)",
-      resource: "Auto-PLAY ⇒ spins",
-      moment: "Presence only (ACCESS ticks); does NOT auto-play",
-      instant: "Presence only; never ongoing",
-      individual: "Presence only (ACCESS ticks); never spins",
-      organism: "Presence only; never spins",
-      community: "Presence only; never spins",
-    },
-  },
-  {
-    id: "r-glyphclick",
-    label: "Glyph click",
-    cells: {
-      space: "Idle ⇒ Play; spinning ⇒ Stop",
-      task: "Spinning ⇒ Stop; resting + undone ⇒ Done; done ⇒ un-done (resumes if still open)",
-      resource: "Idle ⇒ Play; spinning ⇒ Stop",
-      moment: "Idle ⇒ Play (manual stopwatch, activity rail); spinning ⇒ Stop",
-      instant: "Mark — adds one occurrence; glyph flashes its fill once",
-      individual: "— view only",
-      organism: "— view only",
-      community: "— view only",
-    },
-  },
-  {
-    id: "r-play",
-    label: "Play / Stop (menu)",
-    cells: {
-      space: "Play ⇒ open a play session; Stop ⇒ close it (records on the activity rail)",
-      task: "Via glyph; auto-plays on enter",
-      resource: "Play / Stop; auto-plays on enter",
-      moment: "Play ⇒ open a play session; Stop ⇒ close it",
-      instant: "— use Mark instead",
-      individual: "—",
-      organism: "—",
-      community: "—",
-    },
-  },
-  {
-    id: "r-mark",
-    label: "Mark",
-    cells: {
-      instant:
-        "Append a zero-length occurrence toward the tally. <code>--maxnb:3</code> soft cap, " +
-        "<code>--maxnbhard:3</code> hard cap; default max 1 = a unique occurrence",
-    },
-  },
-  {
-    id: "r-sources",
-    label: "Ongoing sources",
-    cells: {
-      space: "① open play · ② concrete started span · ③ rollup from a contained child",
-      task: "① open play (focus/viewing never flips state)",
-      resource: "① open play",
-      moment: "① open play · ② concrete started span",
-      instant: "none",
-      individual: "none — rollup stops at beings",
-      organism: "none — rollup stops at beings",
-      community: "none — rollup stops at beings",
-    },
-  },
-  {
-    id: "r-schedule",
-    label: "Schedule fields",
-    cells: {
-      space: "start · end · duration",
-      task: "start · end · due · duration",
-      resource: "start · end · duration (when set)",
-      moment: "start · end · duration",
-      instant: "at (start = end = at, a point)",
-      individual: "— AGE from <code>createdAt</code>",
-      organism: "— AGE from <code>createdAt</code>",
-      community: "— AGE from <code>createdAt</code>",
-    },
-  },
-  {
-    id: "r-usecase",
-    label: "Usecase",
-    cells: {
-      entity: "A thought captured before you know what it is",
-      space: "“Work”, “Kitchen”, a project",
-      task: "“Write the report”, “Buy milk”",
-      resource: "A website, a doc, a tool",
-      moment: "“Lunch 1–2pm”, “Sprint week”",
-      instant: "“Ship v1”, a heartbeat ping",
-      individual: "“Loris”, a contact",
-      organism: "“Vercel”, a company / POV",
-      community: "“The team”, a group",
-      soul: "The “you” that persists behind the person",
-    },
-  },
+  { id: "r-desc", label: "Description" },
+  { id: "r-family", label: "Family" },
+  { id: "r-creatable", label: "Creatable?" },
+  { id: "r-planned", label: "Planned kind?" },
+  { id: "r-done", label: "Done-flag?" },
+  { id: "r-fills", label: "Fills when closed?" },
+  { id: "r-terminal", label: "Terminal end" },
+  { id: "r-open", label: "State: open", labelColor: C.open, glyphInline: true },
+  { id: "r-scheduled", label: "State: scheduled", labelColor: C.scheduled },
+  { id: "r-ongoing", label: "State: ongoing", labelColor: C.ongoing },
+  { id: "r-donestate", label: "State: done", labelColor: C.done },
+  { id: "r-complete", label: "State: complete", labelColor: C.complete },
+  { id: "r-closed", label: "State: closed / dead / retired", labelColor: C.closed },
+  { id: "r-cancelled", label: "State: cancelled", labelColor: C.cancelled },
+  { id: "r-enter", label: "On enter (drill-in)" },
+  { id: "r-glyphclick", label: "Glyph click" },
+  { id: "r-play", label: "Play / Stop (menu)" },
+  { id: "r-mark", label: "Mark" },
+  { id: "r-sources", label: "Ongoing sources" },
+  { id: "r-schedule", label: "Schedule fields" },
+  { id: "r-usecase", label: "Usecase" },
 ]
 
 // Build a full per-kind map from a fn (keeps the seed declarations terse).
@@ -531,12 +268,6 @@ function seedGrid(): Grid {
         }
     })
   }
-  // A seeded CELL FOOTNOTE demonstrating the footnote flavour (Individual is only temporarily creatable).
-  const indCol = `c-${KIND_COLS.indexOf("individual")}`
-  const creatableCell = cells[cellKey("r-creatable", indCol)]
-  if (creatableCell)
-    creatableCell.note =
-      "Normally an Individual is spawned WITH a Soul, not created ad hoc — it’s temporarily creatable so Loris can dogfood people/other Individuals directly."
   return { rowIds: ROWS.map((r) => r.id), colIds, cells }
 }
 
@@ -1147,7 +878,7 @@ export function Zero0EntitiesBible() {
     setNotePopover(null)
   }, [notePopover, noteText, handleCommit])
 
-  // ── Column ops ────────────────────────────────────────────────────────────────────────────
+  // ── Column ops ─────────────────────────────────────────────────────────────────────���──────
   const addColumn = useCallback((afterIndex?: number) => {
     setGrid((g) => {
       const newCol = uid("c")
@@ -1200,12 +931,7 @@ export function Zero0EntitiesBible() {
   }, [])
 
   const moveRow = useCallback((index: number, dir: -1 | 1) => {
-    setGrid((g) => ({ ...g, rowIds: arrayMove(g.rowIds, index, index + dir) }))
-  }, [])
-
-  const resetTable = useCallback(() => {
-    setGrid(ensureAuthorModel(seedGrid()))
-    setActiveCell(null)
+  setGrid((g) => ({ ...g, rowIds: arrayMove(g.rowIds, index, index + dir) }))
   }, [])
 
   // Open the row/col context menu at the cursor, clamped to the viewport.
@@ -1360,7 +1086,7 @@ export function Zero0EntitiesBible() {
             <Plus className="h-3.5 w-3.5" />C
           </span>
         </IconBtn>
-        {/* Save state + draft reset, grouped at the right end of the toolbar. */}
+        {/* Save state + fact-check, grouped at the right end of the toolbar. */}
         <div className="ml-auto flex items-center gap-3">
           <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <span
@@ -1379,17 +1105,9 @@ export function Zero0EntitiesBible() {
             onClick={checkFacts}
             className="rounded px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           >
-            Check facts
+          Check facts
           </button>
-          <button
-            type="button"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={resetTable}
-            className="rounded px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-          >
-            Reset to draft
-          </button>
-        </div>
+          </div>
       </div>
 
       {/* The grid — a real table so cells size to content. Horizontal scroll on overflow. Inline
