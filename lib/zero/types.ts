@@ -115,7 +115,16 @@ export type Epoch = number
  *   - `closed` / `reopened`  — archived / pulled back open (plain close = fade only).
  *   - `cancelled` / `restored` — called off / un-cancelled (also closes: bar + strike).
  *   - `retired` / `died`     — TERMINAL ends (community retires, organism/individual die).
- *   - `accessed`  — an entry/exit "who was here, when" access record.
+ *   - `accessed` / `exited`  — PRESENCE (the "focus" rail): you ENTERED this entity's scope
+ *                              (`accessed`, a punch-in on drill-in past the dwell threshold) and
+ *                              LEFT it (`exited`, punch-out). This is the ACCESS/presence half of
+ *                              the session model — deliberately NOT `session-open/close`, which are
+ *                              reserved for the deliberate PLAY stopwatch below. A focus session is
+ *                              a folded `accessed`…`exited` pair (see deriveSessionsFromLog).
+ *   - `session-open` / `session-close` — the deliberate PLAY stopwatch (the Play/Stop glyph, incl.
+ *                              an auto play opened by ongoing-on-enter, tagged `auto`). These are
+ *                              PLAY-only; presence uses `accessed`/`exited`.
+ *   - `mark`      — a zero-length occurrence tally on an Instant entity.
  *   - `set`       — a generic FIELD ASSIGNMENT: some editable field (`title`, `color`,
  *                   `startAt`, `sex`, `kind`, …) was set to a new `value` (or cleared,
  *                   `value: null`). This is what makes the log the UNION of an entity's
@@ -141,6 +150,7 @@ export type LogType =
   | "retired"
   | "died"
   | "accessed"
+  | "exited"
   | "session-open"
   | "session-close"
   | "mark"
@@ -172,17 +182,11 @@ export interface Instant {
    */
   value?: string | number | boolean | null
   /**
-   * SESSION rail — on a `session-open` / `session-close` / `mark` entry, which rail this
-   * presence event belongs to ("focus" = dwelling in scope, "play" = a stopwatch, "mark" = an
-   * instant occurrence tally). This is what makes {@link Session}s DERIVABLE from the log: a fold
-   * pairs each `session-open` with the next `session-close` of the SAME `via` into one interval
-   * (see deriveSessionsFromLog). Absent on non-session entries; on a session entry, absent ⇒ "focus".
-   */
-  via?: Session["via"]
-  /**
    * SESSION auto flag — mirrors {@link Session.auto}: true on a `session-open` that was opened
-   * automatically by ongoing-on-enter (vs a deliberate Play). Carried on the OPEN entry only; the
-   * fold copies it onto the derived session. Absent ⇒ deliberate. Only meaningful with via "play".
+   * automatically by ongoing-on-enter (vs a deliberate Play). Carried on the play OPEN entry only;
+   * the fold copies it onto the derived session. Absent ⇒ deliberate. The RAIL itself is encoded by
+   * the entry TYPE (accessed/exited = focus, session-open/close = play, mark = mark), so no separate
+   * `via` is stored — {@link deriveSessionsFromLog} recovers each {@link Session}'s via from the type.
    */
   auto?: boolean
 }

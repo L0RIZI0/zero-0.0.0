@@ -1494,10 +1494,11 @@ export function openSession(
   if (opts?.auto && via === "play") session.auto = true
   sched.sessions = [...(sched.sessions ?? []), session]
   const log = ensureEntityLog(entity)
-  // LOSSLESS dual-write: the log entry carries the SAME via (+ auto) as the cached session, so a
-  // fold can rebuild sessions[] exactly (see deriveSessionsFromLog). Without via the log couldn't
-  // tell a focus session from a play session.
-  entity.log = appendInstant(log, makeInstant("session-open", at, { via, auto: session.auto }))
+  // LOSSLESS dual-write, with the RAIL encoded by log TYPE (Loris' model): PRESENCE (focus) logs as
+  // `accessed` (an access/entry record), the deliberate PLAY stopwatch as `session-open`. A play
+  // open also carries `auto`. This lets a fold rebuild sessions[] exactly (deriveSessionsFromLog).
+  const openType = via === "play" ? "session-open" : "accessed"
+  entity.log = appendInstant(log, makeInstant(openType, at, { auto: session.auto }))
   persistSessionMutation(id, entity, sched)
   return true
 }
@@ -1534,11 +1535,12 @@ export function closeSession(id: string, via?: Session["via"], at = Date.now()):
   }
   sched.sessions = sessions
   const log = ensureEntityLog(entity)
-  // Log the close with the via of the ACTUAL session we closed (the param may be undefined ⇒ "any
-  // open"), so the fold pairs it with its matching open. A DISCARD-SHORT session still logs both
-  // open + close: the log keeps the blip (full truth) and the fold re-applies the discard rule, so
-  // the derived sessions[] still matches the cache.
-  entity.log = appendInstant(log, makeInstant("session-close", at, { via: target.via ?? "focus" }))
+  // Close type mirrors the CLOSED session's rail (target.via): PRESENCE exit ⇒ `exited`, PLAY stop ⇒
+  // `session-close` — so the fold pairs it with its matching open (accessed↔exited, open↔close). A
+  // DISCARD-SHORT session still logs both ends: the log keeps the blip (full truth) and the fold
+  // re-applies the discard rule, so the derived sessions[] still matches the cache.
+  const closeType = target.via === "play" ? "session-close" : "exited"
+  entity.log = appendInstant(log, makeInstant(closeType, at))
   persistSessionMutation(id, entity, sched)
   return true
 }
@@ -1645,8 +1647,9 @@ export function markInstant(id: string, at = Date.now()): boolean {
   const sched: Schedule = { ...(entity.schedule ?? {}) }
   sched.sessions = [...(sched.sessions ?? []), { startAt: at, endAt: at, via: "mark" }]
   const log = ensureEntityLog(entity)
-  // A mark is a zero-length occurrence; tag via "mark" so the fold rebuilds it as an endAt===startAt entry.
-  entity.log = appendInstant(log, makeInstant("mark", at, { via: "mark" }))
+  // A mark is a zero-length occurrence; the `mark` type itself tells the fold to rebuild it as an
+  // endAt===startAt session (via "mark").
+  entity.log = appendInstant(log, makeInstant("mark", at))
   entity.schedule = sched
   // Like a Moment, an instant files at the next local midnight — anchored on this latest
   // occurrence (unless --close:manual). Stamped so every viewer flips at the same instant.
