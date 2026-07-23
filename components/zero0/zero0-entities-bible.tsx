@@ -128,18 +128,23 @@ const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
 const stripHtml = (html: string) => html.replace(/<[^>]*>/g, "").trim()
 
 // ── Phase 2/3: reconciliation of the ENUMERABLE "hard fact" rows against the live code ───────
-// Keyed by the row's STABLE ID (Phase 3) — NOT its prose label, which the user is free to reword
-// (that fragility silently skipped the "mark as done" row in Phase 2). Each checker returns the
-// BOOLEAN the code guarantees for that kind (read straight from KIND_META, the single source of
-// truth), or null to skip. "Check facts" compares that to whether the cell's prose is affirmative
-// ("yes…") or negative ("no…"): agreement ⇒ match (green), disagreement ⇒ gap (red), unclear ⇒
-// left alone. Rows NOT listed here (prose, or capabilities that aren't a per-kind boolean —
-// deletable/closable are ~universal, completable is a runtime computation) are NEVER auto-touched;
-// they stay manual / @v0-driven. To auto-check a new row, give it a stable id + a KIND_META field.
+// Keyed by the row's STABLE ID — NOT its prose label, which the user is free to reword (that
+// fragility silently skipped the "mark as done" row in Phase 2). Each checker returns the BOOLEAN
+// the code guarantees for that kind (read straight from KIND_META, the single source of truth), or
+// null to skip. "Check facts" compares that to whether the cell's prose is affirmative ("yes…") or
+// negative ("no…"): agreement ⇒ match (green), disagreement ⇒ gap (red), unclear ⇒ left alone.
+// The CAPABILITY rows are now real KIND_META booleans (Phase 3 promotion), so they auto-check too;
+// cells whose prose is conditional ("only while open…") or a dash are correctly left neutral.
+// NOTE on ids: rows seeded with pretty ids (r-creatable/r-planned/r-done) use them; the later
+// capability rows carry generated-but-stable ids (they persist in the stored doc), mapped here.
 const HARD_FACTS: Record<string, (k: EntityKind) => boolean | null> = {
   "r-creatable": (k) => KIND_META[k].creatable,
   "r-planned": (k) => KIND_META[k].plannable,
   "r-done": (k) => KIND_META[k].hasDoneState,
+  "r-mruyayc3-0": (k) => KIND_META[k].deletable, // Deletable
+  "r-mrtotrwz-1": (k) => KIND_META[k].completable, // Completable
+  "r-mrv41tu4-2": (k) => KIND_META[k].closable, // Closable
+  "r-mrv5t3i9-1": (k) => KIND_META[k].cancellable, // Cancellable
   // NOTE: the "Terminal end" row (r-terminal) is NOT a per-kind boolean — its cells ENUMERATE
   // the end-states (Closed/Deleted/Cancelled, or Dead/Retired for beings), so it stays manual.
 }

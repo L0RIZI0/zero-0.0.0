@@ -290,6 +290,59 @@ export function isCompletable(kind: EntityKind): boolean {
   return KIND_META[kind].completable
 }
 
+// ── GUARD: enforce the "every kind pulls from `entity`" relationship ─────────────────────────
+// The capability/spec fields default to ENTITY_DEFAULTS (the raw Idea's profile). A kind may only
+// DIFFER from a default if it declares that field in KIND_OVERRIDES below — a written, reviewed
+// statement of intent. This turns the mental model ("everything is an Entity first; kinds override
+// specifics") into a checked invariant WITHOUT spread-inheritance: every kind still lists all its
+// fields explicitly (so the compiler forces a per-field decision), and this guard additionally
+// catches the SILENT-DRIFT hazard — if a NEW field is added to ENTITY_DEFAULTS and a kind is given
+// a non-default value without declaring it here, the guard throws in dev at module load. It also
+// flags STALE declarations (a field listed here that no longer differs). Runs in dev only.
+const GUARDED_FIELDS = [
+  "creatable", "deletable", "closable", "cancellable", "completable",
+  "hasDoneState", "plannable", "fillsWhenClosed", "terminal",
+] as const
+
+// The fields each kind INTENTIONALLY differs from ENTITY_DEFAULTS on. `entity` itself has none
+// (it IS the defaults). Keep this in sync when a kind's profile changes — the guard enforces it.
+const KIND_OVERRIDES: Record<EntityKind, ReadonlyArray<(typeof GUARDED_FIELDS)[number]>> = {
+  entity: [],
+  task: ["hasDoneState", "plannable"],
+  space: ["plannable"],
+  resource: ["plannable"],
+  moment: ["plannable"],
+  instant: ["plannable"],
+  community: ["completable", "plannable", "fillsWhenClosed", "terminal"],
+  organism: ["completable", "plannable", "fillsWhenClosed", "terminal"],
+  individual: ["completable", "plannable", "fillsWhenClosed", "terminal"],
+  soul: ["creatable", "deletable", "closable", "cancellable", "completable", "fillsWhenClosed"],
+}
+
+if (process.env.NODE_ENV !== "production") {
+  const problems: string[] = []
+  for (const kind of Object.keys(KIND_META) as EntityKind[]) {
+    const declared = new Set(KIND_OVERRIDES[kind])
+    for (const field of GUARDED_FIELDS) {
+      const differs = KIND_META[kind][field] !== ENTITY_DEFAULTS[field]
+      if (differs && !declared.has(field)) {
+        problems.push(
+          `${kind}.${field} = ${JSON.stringify(KIND_META[kind][field])} differs from entity ` +
+            `default ${JSON.stringify(ENTITY_DEFAULTS[field])} but is NOT declared in KIND_OVERRIDES`,
+        )
+      }
+      if (!differs && declared.has(field)) {
+        problems.push(`${kind}.${field} is declared in KIND_OVERRIDES but matches the entity default (stale)`)
+      }
+    }
+  }
+  if (problems.length) {
+    throw new Error(
+      "KIND_META drifted from ENTITY_DEFAULTS without declaring it:\n  - " + problems.join("\n  - "),
+    )
+  }
+}
+
 /** Whether a kind's glyph FILLS when it closes (fillable kinds; not terminal ones). */
 export function fillsWhenClosed(kind: EntityKind): boolean {
   return KIND_META[kind].fillsWhenClosed
