@@ -1300,17 +1300,18 @@ export function Zero0EntitiesBible() {
                     //    container edge (clipped by overflow-x), closing the seam.
                     //  • z-10 keeps it above scrolled cells but below the floating header (z-20).
                     (ci === 0
-                      ? // Sticky label column with the header's frosted background. `-left-px` (not
-                        // left-0): with border-collapse the cell's collapsed LEFT border belongs to
-                        // the table and scrolls away, leaving a 1px seam where the cells behind bleed
-                        // through — nudging the column 1px left tucks it under the container edge
-                        // (clipped by overflow-x), closing the seam. `z-10` keeps it above scrolled
-                        // cells but below the floating header (z-20). It draws its row separators with
-                        // the SAME real `border-border` as every other cell (frost is opaque enough
-                        // that they read clearly, scrolled or not) — we do NOT add an inset-shadow
-                        // separator: that painted the line 1px inside the border (above the true grid
-                        // line), so col0's separators sat ~1px higher than the data columns'.
-                        " sticky -left-px z-10 bg-muted/70 backdrop-blur supports-[backdrop-filter]:bg-muted/60 font-semibold"
+                      ? // Sticky label column. `-left-px` (not left-0): with border-collapse the cell's
+                        // collapsed LEFT border belongs to the table and scrolls away, leaving a 1px
+                        // seam where the cells behind bleed through — nudging the column 1px left tucks
+                        // it under the container edge (clipped by overflow-x), closing the seam. `z-10`
+                        // keeps it above scrolled cells but below the floating header (z-20). Background
+                        // is OPAQUE `bg-muted` (not a translucent frost): a translucent bg composites
+                        // over the real `border-border` and washes the row separators toward the bg
+                        // colour (near-white in light, near-black in dark) — opaque lets the SAME real
+                        // border every other cell uses read with full contrast, stays pixel-aligned
+                        // with the data columns (no inset-shadow offset), and cleanly hides the columns
+                        // that scroll beneath it.
+                        " sticky -left-px z-10 bg-muted font-semibold"
                       : "") +
                     // Pole columns (entity/soul): subtle tint + a heavier inner-edge border so they
                     // frame the eight kinds as bookends without leaving the table.
