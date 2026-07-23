@@ -311,7 +311,11 @@ export function formatDuration(ms: number): string {
   const first = parts.findIndex(([v]) => v > 0)
   if (first === -1) return "00s"
   const shown = parts.slice(first, first + 3)
-  while (shown.length > 1 && shown[shown.length - 1][0] === 0) shown.pop()
+  // Drop TRAILING zero units so a coarse duration collapses cleanly ("2y 0mo 0d" → "2y"), BUT never
+  // drop a trailing SECONDS tier: a live counter must keep "00s" so the row doesn't jump width at
+  // each whole-minute boundary (e.g. "1m 59s" → "1m 00s", not "1m 59s" → "1m"). Seconds only enter
+  // the shown window for sub-day durations, so coarse ages are unaffected.
+  while (shown.length > 1 && shown[shown.length - 1][0] === 0 && shown[shown.length - 1][1] !== "s") shown.pop()
   // Always render seconds two-digit ("06s", not "6s") so a session list doesn't jitter
   // horizontally as a value crosses 10; other units render at their natural width.
   return shown.map(([v, u]) => `${u === "s" ? String(v).padStart(2, "0") : v}${u}`).join(" ")
@@ -441,7 +445,7 @@ export function metaEcho(e: Entity, now: number): string {
   }
 }
 
-// ── THE PRESENTATION MODEL ────────────────────────────────────────────────────
+// ── THE PRESENTATION MODEL ────────────────���───────────────────────────────────
 // Everything a Face needs to render, at ANY size, derived once from the entity +
 // `now`. This collapses the derivation that used to be duplicated between §0 and
 // each content row — glyph fill, the done checkmark, cancel bar, ongoing rotation,

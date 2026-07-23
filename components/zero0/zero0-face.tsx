@@ -263,10 +263,10 @@ function FaceBlock({
   const renderAccessRow = (cells: NonNullable<typeof access>, pulse = true) => (
     <dd className="min-w-0 text-muted-foreground">
       <div className="no-scrollbar overflow-x-auto whitespace-pre">
-        {/* Everything stays dimmed (v0: the total is no longer bright foreground) — the value
-            reads at the plain muted token, the "Total" label + segments a touch fainter. */}
-        <span className="text-muted-foreground" title="total duration">
-          <span className="opacity-70">{"Total "}</span>
+        {/* Uniformly dimmed — the "Total" label, the total value, and every segment all read at
+            the same muted opacity-70 (no part of the row is brighter than the rest). */}
+        <span className="text-muted-foreground opacity-70" title="total duration">
+          {"Total "}
           {cells.total}
         </span>
         {cells.segments.map((c, i) => (
