@@ -22,7 +22,7 @@
  * The pure builders (`appendInstant`, `makeInstant`, `buildLogFromScalars`) never
  * mutate; they return new values, safe for the write paths and React state.
  */
-import type { Entity, Epoch, Instant, LogType } from "./types"
+import type { Entity, Epoch, Instant, LogType, Session } from "./types"
 
 /** Log entry types that TOGGLE completion on/off (the "doneState" parity view). */
 const DONE_TYPES: readonly LogType[] = ["done", "undone"]
@@ -177,15 +177,22 @@ export function getAccesses(entity: Entity): Instant[] {
 
 // --- Pure builders (for the Phase 2 write paths; no mutation) ---------------
 
-/** Construct a single log entry, dropping undefined provenance fields. */
+/**
+ * Construct a single log entry, dropping undefined optional fields. `meta` carries the extra
+ * fields relevant to specific entry types: `by`/`where` provenance (any entry) and `via`/`auto`
+ * SESSION metadata (on `session-open` / `session-close` / `mark`, so sessions stay derivable —
+ * see {@link deriveSessionsFromLog}).
+ */
 export function makeInstant(
   type: LogType,
   at: Epoch = Date.now(),
-  provenance?: { by?: string; where?: string },
+  meta?: { by?: string; where?: string; via?: Instant["via"]; auto?: boolean },
 ): Instant {
   const entry: Instant = { at, type }
-  if (provenance?.by != null) entry.by = provenance.by
-  if (provenance?.where != null) entry.where = provenance.where
+  if (meta?.by != null) entry.by = meta.by
+  if (meta?.where != null) entry.where = meta.where
+  if (meta?.via != null) entry.via = meta.via
+  if (meta?.auto != null) entry.auto = meta.auto
   return entry
 }
 
@@ -312,5 +319,65 @@ export function auditLogScalarConsistency(entity: Entity): LogScalarMismatch[] {
     out.push({ id: entity.id, axis: "cancelled", fromLog: cancelLog, fromScalar: cancelScalar })
   }
 
+  return out
+}
+
+// --- Sessions AS A FOLD (log → sessions[] cache) ----------------------------
+
+/**
+ * DERIVE the {@link Session}[] cache purely from the log's presence events — the fold that makes
+ * `schedule.sessions[]` a REBUILDABLE materialized view rather than an independent store. This is
+ * the "log is truth, sessions[] is a cache" half of the hybrid: writers dual-write (append a
+ * `session-open`/`session-close`/`mark` Instant AND update the cache), and this reconstructs the
+ * exact same cache from the log alone. Used by the consistency audit now and, later, as the
+ * rebuild path when the scalar cache is retired.
+ *
+ * The fold, walking the log in order:
+ *   - `session-open`  → begin an OPEN session (startAt, via, auto), positioned at its open time
+ *      (so derived order matches the cache, which is append-ordered by open).
+ *   - `session-close` → close the most-recent still-open session of the SAME `via`. If the span is
+ *      ≤ `minSessionMs` the whole session is DISCARDED (the discard-short rule the writer applies),
+ *      so a sub-threshold blip in the log leaves no cached session.
+ *   - `mark`          → a zero-length session (`endAt === startAt`, via "mark").
+ * A `session-open` with no matching close stays OPEN (no `endAt`) — the one running session.
+ *
+ * KNOWN LIMITATION (pending the editing model): a backdate via `setOpenSessionStart` currently
+ * mutates the cache (swallow/merge) but is logged only as a `set sessionStart` entry, NOT as
+ * session open/close corrections — so after such an edit this fold reproduces the PRE-edit history,
+ * not the edited cache. Closing that gap (append-only correction Instants, Option A) is the next
+ * phase. For the append-only open/close/mark stream it is exact.
+ */
+export function deriveSessionsFromLog(entity: Entity, minSessionMs = 0): Session[] {
+  const log = entity.log
+  if (!log || log.length === 0) return []
+  const out: Session[] = []
+  // Index of the open session for each via, so a close finds its partner in O(1)-ish.
+  const openIdx: { focus?: number; play?: number } = {}
+  for (const e of log) {
+    if (e.type === "session-open") {
+      const via = (e.via ?? "focus") as NonNullable<Session["via"]>
+      const s: Session = { startAt: e.at, via }
+      if (e.auto) s.auto = true
+      out.push(s)
+      if (via === "focus" || via === "play") openIdx[via] = out.length - 1
+    } else if (e.type === "session-close") {
+      const via = (e.via ?? "focus") as "focus" | "play"
+      const idx = openIdx[via]
+      if (idx == null) continue // close with no matching open — ignore (crash/replay artifact)
+      const s = out[idx]
+      openIdx[via] = undefined
+      if (e.at - s.startAt <= minSessionMs) {
+        out.splice(idx, 1) // discard-short: drop the whole session
+        // Any later-positioned open index shifts left by one.
+        for (const k of ["focus", "play"] as const) {
+          if (openIdx[k] != null && openIdx[k]! > idx) openIdx[k]!--
+        }
+      } else {
+        s.endAt = e.at
+      }
+    } else if (e.type === "mark") {
+      out.push({ startAt: e.at, endAt: e.at, via: "mark" })
+    }
+  }
   return out
 }

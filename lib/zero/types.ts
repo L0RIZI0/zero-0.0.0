@@ -171,6 +171,20 @@ export interface Instant {
    * booleans — the reader formats per field. Absent on lifecycle entries.
    */
   value?: string | number | boolean | null
+  /**
+   * SESSION rail — on a `session-open` / `session-close` / `mark` entry, which rail this
+   * presence event belongs to ("focus" = dwelling in scope, "play" = a stopwatch, "mark" = an
+   * instant occurrence tally). This is what makes {@link Session}s DERIVABLE from the log: a fold
+   * pairs each `session-open` with the next `session-close` of the SAME `via` into one interval
+   * (see deriveSessionsFromLog). Absent on non-session entries; on a session entry, absent ⇒ "focus".
+   */
+  via?: Session["via"]
+  /**
+   * SESSION auto flag — mirrors {@link Session.auto}: true on a `session-open` that was opened
+   * automatically by ongoing-on-enter (vs a deliberate Play). Carried on the OPEN entry only; the
+   * fold copies it onto the derived session. Absent ⇒ deliberate. Only meaningful with via "play".
+   */
+  auto?: boolean
 }
 
 /**

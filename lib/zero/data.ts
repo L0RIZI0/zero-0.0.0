@@ -1494,7 +1494,10 @@ export function openSession(
   if (opts?.auto && via === "play") session.auto = true
   sched.sessions = [...(sched.sessions ?? []), session]
   const log = ensureEntityLog(entity)
-  entity.log = appendInstant(log, makeInstant("session-open", at))
+  // LOSSLESS dual-write: the log entry carries the SAME via (+ auto) as the cached session, so a
+  // fold can rebuild sessions[] exactly (see deriveSessionsFromLog). Without via the log couldn't
+  // tell a focus session from a play session.
+  entity.log = appendInstant(log, makeInstant("session-open", at, { via, auto: session.auto }))
   persistSessionMutation(id, entity, sched)
   return true
 }
@@ -1531,7 +1534,11 @@ export function closeSession(id: string, via?: Session["via"], at = Date.now()):
   }
   sched.sessions = sessions
   const log = ensureEntityLog(entity)
-  entity.log = appendInstant(log, makeInstant("session-close", at))
+  // Log the close with the via of the ACTUAL session we closed (the param may be undefined ⇒ "any
+  // open"), so the fold pairs it with its matching open. A DISCARD-SHORT session still logs both
+  // open + close: the log keeps the blip (full truth) and the fold re-applies the discard rule, so
+  // the derived sessions[] still matches the cache.
+  entity.log = appendInstant(log, makeInstant("session-close", at, { via: target.via ?? "focus" }))
   persistSessionMutation(id, entity, sched)
   return true
 }
@@ -1638,7 +1645,8 @@ export function markInstant(id: string, at = Date.now()): boolean {
   const sched: Schedule = { ...(entity.schedule ?? {}) }
   sched.sessions = [...(sched.sessions ?? []), { startAt: at, endAt: at, via: "mark" }]
   const log = ensureEntityLog(entity)
-  entity.log = appendInstant(log, makeInstant("mark", at))
+  // A mark is a zero-length occurrence; tag via "mark" so the fold rebuilds it as an endAt===startAt entry.
+  entity.log = appendInstant(log, makeInstant("mark", at, { via: "mark" }))
   entity.schedule = sched
   // Like a Moment, an instant files at the next local midnight — anchored on this latest
   // occurrence (unless --close:manual). Stamped so every viewer flips at the same instant.
