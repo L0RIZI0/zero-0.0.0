@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   Bold,
   Italic,
@@ -515,13 +515,13 @@ export function Zero0EntitiesBible() {
   // overwrite a real doc we merely failed to read.
   const storeReachableRef = useRef(false)
   const [activeCell, setActiveCell] = useState<string | null>(null)
-  // Sticky floating header: the first two rows (Glyph + Name) stay in the table, but once they
-  // scroll above the viewport a condensed header appears pinned to the top, echoing each column's
-  // glyph + name. We measure the live column widths and mirror the horizontal scroll so it aligns.
+  // Sticky floating header: the Glyph + Name rows stay in the table, but once they scroll above the
+  // viewport a condensed header appears pinned to the top, echoing each column's glyph + name. We
+  // measure the live column widths and mirror the horizontal scroll so it aligns.
   const wrapRef = useRef<HTMLDivElement | null>(null)
   const tableRef = useRef<HTMLTableElement | null>(null)
   const toolbarRef = useRef<HTMLDivElement | null>(null) // the sticky formatting toolbar (pinned at top)
-  const triggerRowRef = useRef<HTMLTableRowElement | null>(null) // the Name row (index 1)
+  const triggerRowRef = useRef<HTMLTableRowElement | null>(null) // the Name row (whichever index it sits at)
   const [stickyHead, setStickyHead] = useState<{
     left: number
     width: number
@@ -531,6 +531,20 @@ export function Zero0EntitiesBible() {
     top: number
     open: boolean
   } | null>(null)
+  // Which rows feed the sticky header — located by CONTENT, not by a fixed index, so reordering rows
+  // (e.g. moving the ID row to the top) never breaks it. Glyph row = the one whose cells carry a
+  // `.glyph`; Name row = the one whose FIELD-column label reads "Name". Fall back to sensible indices.
+  const glyphRowId = useMemo(
+    () => grid.rowIds.find((r) => grid.colIds.some((c) => grid.cells[cellKey(r, c)]?.glyph)) ?? grid.rowIds[0],
+    [grid],
+  )
+  const nameRowId = useMemo(() => {
+    const fieldCol = grid.colIds[0]
+    return (
+      grid.rowIds.find((r) => /^name$/i.test(stripHtml(grid.cells[cellKey(r, fieldCol)]?.html ?? ""))) ??
+      grid.rowIds[1]
+    )
+  }, [grid])
   const [menu, setMenu] = useState<Menu | null>(null)
   const [picker, setPicker] = useState<Picker | null>(null)
   const [notePopover, setNotePopover] = useState<NotePopover | null>(null)
@@ -710,8 +724,8 @@ export function Zero0EntitiesBible() {
     setGrid((g) => ({ ...g, rowIds: [...g.rowIds], colIds: [...g.colIds], cells: { ...g.cells } }))
   }, [])
 
-  // Drive the sticky floating header: show it once the first two rows scroll above the viewport,
-  // measuring live column widths and mirroring the wrapper's horizontal scroll. Uses capture-phase
+  // Drive the sticky floating header: show it once the Name row (the trigger) scrolls above the
+  // viewport, measuring live column widths and mirroring the wrapper's horizontal scroll. Capture-phase
   // scroll so it works whether the page scrolls at the window or inside an ancestor container.
   useEffect(() => {
     const wrap = wrapRef.current
@@ -723,7 +737,7 @@ export function Zero0EntitiesBible() {
       const trigger = triggerRowRef.current
       const wrapRect = wrap.getBoundingClientRect()
       const triggerBottom = trigger ? trigger.getBoundingClientRect().bottom : Infinity
-      // Open only after the Glyph+Name rows have scrolled past the top, while the table is still on
+      // Open only after the Name row (trigger) has scrolled past the top, while the table is still on
       // screen (leave ~48px so it doesn't flash for a sliver of remaining table). We keep the header
       // MOUNTED and toggle `open` so it can transition in/out smoothly rather than pop.
       const open = triggerBottom <= 0 && wrapRect.bottom >= 48
@@ -1271,7 +1285,7 @@ export function Zero0EntitiesBible() {
         <table ref={tableRef} className="border-collapse">
           <tbody>
             {grid.rowIds.map((rowId, ri) => (
-              <tr key={rowId} ref={ri === 1 ? triggerRowRef : undefined}>
+              <tr key={rowId} ref={rowId === nameRowId ? triggerRowRef : undefined}>
                 {grid.colIds.map((colId, ci) => {
                   const key = cellKey(rowId, colId)
                   const cell = grid.cells[key] ?? { html: "" }
@@ -1397,8 +1411,8 @@ export function Zero0EntitiesBible() {
         >
           <div className="flex" style={{ transform: `translateX(${-stickyHead.scrollLeft}px)`, willChange: "transform" }}>
             {grid.colIds.map((colId, ci) => {
-              const glyphKind = grid.cells[cellKey(grid.rowIds[0] ?? "", colId)]?.glyph
-              const nameHtml = grid.cells[cellKey(grid.rowIds[1] ?? "", colId)]?.html
+              const glyphKind = grid.cells[cellKey(glyphRowId ?? "", colId)]?.glyph
+              const nameHtml = grid.cells[cellKey(nameRowId ?? "", colId)]?.html
               const name = nameHtml ? stripHtml(nameHtml) : ""
               return (
                 <div
