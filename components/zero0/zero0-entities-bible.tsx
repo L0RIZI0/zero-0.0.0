@@ -1144,7 +1144,7 @@ export function Zero0EntitiesBible() {
                     //    container edge (clipped by overflow-x), closing the seam.
                     //  • z-10 keeps it above scrolled cells but below the floating header (z-20).
                     (ci === 0
-                      ? " sticky -left-px z-10 bg-muted/70 backdrop-blur supports-[backdrop-filter]:bg-muted/60 font-semibold"
+                      ? " sticky -left-px z-10 bg-muted/70 backdrop-blur supports-[backdrop-filter]:bg-muted/60 font-semibold border-y-white"
                       : "") +
                     // Pole columns (entity/soul): subtle tint + a heavier inner-edge border so they
                     // frame the eight kinds as bookends without leaving the table.
