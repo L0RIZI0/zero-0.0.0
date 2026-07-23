@@ -356,7 +356,7 @@ function FaceBlock({
                       semibold weight so the hairline reads as solid foreground white — not the gray
                       an antialiased 1px stroke would otherwise look. */}
                   {k === "sex" && v !== "—" ? (
-                    <span className="truncate text-[12px] font-semibold">{v + "\uFE0E"}</span>
+                    <span className="truncate text-[11px] font-semibold">{v + "\uFE0E"}</span>
                   ) : (
                     <span className="truncate">{v}</span>
                   )}
