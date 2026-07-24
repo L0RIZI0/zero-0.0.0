@@ -154,7 +154,8 @@ if (process.argv.includes("--dry")) {
   const res = await fetch(`${base}/api/entities-bible`, {
     method: "PUT",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify(newDoc),
+    // The route expects the doc WRAPPED as { doc }, not the bare doc.
+    body: JSON.stringify({ doc: newDoc }),
   })
   console.log("PUT", res.status, await res.text())
 }
