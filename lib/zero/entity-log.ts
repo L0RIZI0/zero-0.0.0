@@ -196,11 +196,40 @@ export function makeInstant(
 }
 
 /**
+ * The next per-entity log id = `1 + max existing id` (1 when the log is empty or all pre-id). Since
+ * the log is append-only (entries are never deleted), this is monotonic and can never collide with
+ * an existing id — the guarantee that lets a CORRECTION reference a boundary by id. O(n) over a tiny
+ * per-entity log, called only on append.
+ */
+export function nextLogId(log: Instant[] | undefined): number {
+  let max = 0
+  for (const e of log ?? []) if (typeof e.id === "number" && e.id > max) max = e.id
+  return max + 1
+}
+
+/**
+ * BACKFILL missing ids on a (legacy, pre-id) log, in array order, preserving any ids already
+ * present and assigning fresh ones ABOVE the current max so nothing collides. Idempotent: a log
+ * that's already fully id'd is returned unchanged (same ref). Used at hydrate so every stored log
+ * is id-complete BEFORE any append runs (which is what makes `nextLogId` correct thereafter), and
+ * to seal logs built in bulk by {@link buildLogFromScalars}.
+ */
+export function ensureLogIds(log: Instant[] | undefined): Instant[] {
+  if (!log || log.length === 0) return log ?? []
+  if (log.every((e) => typeof e.id === "number")) return log
+  let max = 0
+  for (const e of log) if (typeof e.id === "number" && e.id > max) max = e.id
+  return log.map((e) => (typeof e.id === "number" ? e : { ...e, id: ++max }))
+}
+
+/**
  * Return a NEW log array with `entry` appended (never mutates the input). Use in
- * write paths so React state updates stay referentially clean.
+ * write paths so React state updates stay referentially clean. STAMPS a per-entity `id`
+ * ({@link nextLogId}) when the entry lacks one, so every appended entry is addressable.
  */
 export function appendInstant(log: Instant[] | undefined, entry: Instant): Instant[] {
-  return [...(log ?? []), entry]
+  const stamped = typeof entry.id === "number" ? entry : { ...entry, id: nextLogId(log) }
+  return [...(log ?? []), stamped]
 }
 
 /**
@@ -274,7 +303,9 @@ export function buildLogFromScalars(entity: Entity): Instant[] {
   if (entity.cancelled) log.push(makeInstant("cancelled", entity.cancelledOn ?? createdAt))
   if (term.retiredOn != null) log.push(makeInstant("retired", term.retiredOn))
   if (term.diedOn != null) log.push(makeInstant("died", term.diedOn))
-  return log.sort((a, b) => a.at - b.at)
+  // Sort chronologically THEN seal ids (1..n in that order) — these entries were built by direct
+  // push (bypassing appendInstant), so this is where they get their addressable ids.
+  return ensureLogIds(log.sort((a, b) => a.at - b.at))
 }
 
 /** One disagreement between an entity's log-derived state and its scalar backup. */

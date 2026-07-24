@@ -8,6 +8,7 @@ import {
   makeInstant,
   makeSet,
   appendInstant,
+  ensureLogIds,
   auditLogScalarConsistency,
   deriveSessionsFromLog,
   } from "./entity-log"
@@ -2130,6 +2131,10 @@ export function hydrateFromStorage(): boolean {
     // (freshly-migrated ones would match their scalars by construction).
     if (process.env.NODE_ENV !== "production") logAudit.push(...auditLogScalarConsistency(entity))
     migrateCompletionToLog(entity)
+    // Backfill per-entity log ids on LEGACY (pre-id) stored logs, BEFORE any append can run this
+    // session — this is what makes `nextLogId` correct thereafter (no append could collide with an
+    // un-id'd legacy entry). Idempotent + no-op for already-id'd logs.
+    if (entity.log) entity.log = ensureLogIds(entity.log)
     entities.push(entity)
     byId.set(entity.id, entity)
     userEntityIds.add(entity.id)
@@ -2165,6 +2170,8 @@ export function hydrateFromStorage(): boolean {
     const entity = byId.get(id)
     if (!entity || userEntityIds.has(id)) continue
     Object.assign(entity, patch)
+    // An override patch may carry a legacy (pre-id) `log` for a seeded entity — seal ids here too.
+    if (entity.log) entity.log = ensureLogIds(entity.log)
     seededOverrides.set(id, patch)
     added = true
   }
@@ -2422,8 +2429,9 @@ export function addTask(input: { title: string; contextId: string }): Entity {
     taggedContextIds: [],
     completed: false,
     createdAt: now,
-    // Birth is the first log entry; scalars above are the transitional backup.
-    log: [makeInstant("created", now)],
+    // Birth is the first log entry; scalars above are the transitional backup. Via appendInstant so
+    // it gets its per-entity id (1) like every other entry.
+    log: appendInstant(undefined, makeInstant("created", now)),
     priority: "medium",
     tags: [],
   }

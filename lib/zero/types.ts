@@ -179,6 +179,16 @@ export type LogType =
  * a log record.) A `by`/`where` pair captures provenance for `created`/`accessed`.
  */
 export interface Instant {
+  /**
+   * PER-ENTITY unique id, assigned at append time as `1 + max existing id in this log` — so it is
+   * monotonic, never reused (the log is append-only), and PROVABLY collision-free WITHIN one entity.
+   * NOT globally unique (id 3 exists in many entities); a cross-entity reference must pair it with
+   * the entity id. This is the stable handle a CORRECTION targets (`--sessionStart` retargets the
+   * boundary with a given id), which timestamps can't safely be since two events may share a ms.
+   * Optional only for backward-compat with pre-id stored logs — hydrate backfills it, and every
+   * append/build path stamps it, so in practice every in-memory entry carries one.
+   */
+  id?: number
   /** When this event happened (epoch ms). */
   at: Epoch
   /** What kind of lifecycle event it was. */
