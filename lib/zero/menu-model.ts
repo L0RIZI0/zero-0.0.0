@@ -29,7 +29,7 @@ import {
   openSession,
   closeSession,
 } from "@/lib/zero/data"
-import { isClosed, KIND_META, hasOpenSession, canDeleteEntity, canCancelEntity } from "@/lib/zero/kinds"
+import { isClosed, KIND_META, hasOpenSession, isPlayable, canDeleteEntity, canCancelEntity } from "@/lib/zero/kinds"
 import { isDone } from "@/lib/zero/entity-log"
 import { FACE_SIZES, faceSizeLabel, FACE_MAKES, faceMakeLabel, type FaceSize, type FaceMake } from "@/lib/zero/face-model"
 import type { Entity, EntityKind } from "@/lib/zero/types"
@@ -154,14 +154,14 @@ export function buildEntityMenuItems(
   // while live (an ended entity's times are historical). Simple: stamps `Date.now()` with no
   // cross-midnight adjustment (the create bar's `--start:now` etc. is the fuller path).
   if (!ended) {
-    if (entity.kind === "space" || entity.kind === "moment") {
-      // MOMENT/SPACE (v0.6.26) — Play/Stop is a MANUAL PLAY: a `via:"play"` session on the BOTTOM
-      // (recorded) rail, NOT a top-rail occurrence (the scalar start/end is now PLANNED-only) and
-      // NOT the auto focus/presence spine. Label reflects the running MANUAL PLAY specifically
-      // (`via==="play"`), so merely VIEWING (which opens a focus session) still reads "Play", and
-      // Stop only appears when a manual play is actually running.
-      const playing = hasOpenSession(entity, "play") // v0.6.32: play-specific (a `focus`
-      // presence session no longer masquerades as "playing" now that both rails can be open at once)
+    if (isPlayable(entity) && !meta.hasDoneFlag) {
+      // PLAYABLE non-task (v0.7 — idea·resource·moment·space; TASK is excluded here because it
+      // plays through its DONE glyph, matching the canvas glyph routing). Play/Stop is a MANUAL
+      // PLAY: a `via:"play"` session on the BOTTOM (recorded) rail, NOT a top-rail occurrence (the
+      // scalar start/end is PLANNED-only) and NOT the auto focus/presence spine. Label reflects the
+      // running MANUAL PLAY specifically (`via==="play"`), so merely VIEWING (which opens a focus
+      // session) still reads "Play", and Stop only appears when a manual play is actually running.
+      const playing = hasOpenSession(entity, "play")
       items.push({ type: "item", id: playing ? "stop" : "play", label: playing ? "Stop" : "Play" })
     }
     if (entity.kind === "instant") {

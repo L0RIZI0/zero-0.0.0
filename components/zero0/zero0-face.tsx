@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-import { useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { Zero0Glyph } from "./zero0-glyph"
 import { Zero0Favicon } from "./zero0-favicon"
 import {
@@ -21,6 +21,7 @@ import {
   type FaceSize,
   type FaceMake,
 } from "@/lib/zero/face-model"
+import { subscribeGlyphPulse } from "@/lib/zero/data"
 import type { Entity } from "@/lib/zero/types"
 
 /**
@@ -80,8 +81,14 @@ function FaceGlyph({
   // Full sits on a `gap-2` line (no fixed column); a row glyph occupies the `w-6` column.
   const wrapperBase =
     size === "full" ? "text-foreground" : "flex w-6 shrink-0 justify-center self-center text-foreground"
-  // A local counter bumped on each MARK click → drives the glyph's one-shot "written" spin.
+  // A counter that drives the glyph's one-shot "written" spin. Bumped by THIS glyph's own MARK
+  // click AND by the GLYPH PULSE BUS — so when a child instant is marked, this Face spins too if
+  // it's a task ancestor of that instant (the mark propagates up the task lineage, all at once).
   const [markSpin, setMarkSpin] = useState(0)
+  useEffect(
+    () => subscribeGlyphPulse(entity.id, () => setMarkSpin((n) => n + 1)),
+    [entity.id],
+  )
   const glyph = (
     <Zero0Glyph
       kind={entity.kind}

@@ -562,6 +562,51 @@ export function getEntity(id: string): Entity | undefined {
   return byId.get(id)
 }
 
+// ── GLYPH PULSE BUS ─────────────────────────────────────────────────────────────
+// A one-shot "spin-once" signal broadcast BY ENTITY ID, so a Face can flash its glyph in
+// response to something that happened ELSEWHERE (not its own click). Today's sole use: when
+// an INSTANT is marked (or fires by a passed `at`), the instant AND every TASK ancestor spin
+// once TOGETHER — the parent task's glyph (and all its task ancestors') acknowledges the tick
+// at the same moment. Module-level (survives re-renders); Faces subscribe by their own id.
+type PulseListener = () => void
+const pulseListeners = new Map<string, Set<PulseListener>>()
+
+/** Subscribe a Face (by its entity id) to pulse signals. Returns an unsubscribe fn. */
+export function subscribeGlyphPulse(id: string, cb: PulseListener): () => void {
+  let set = pulseListeners.get(id)
+  if (!set) pulseListeners.set(id, (set = new Set()))
+  set.add(cb)
+  return () => {
+    set!.delete(cb)
+    if (set!.size === 0) pulseListeners.delete(id)
+  }
+}
+
+/** Fire a one-shot pulse at each id (any subscribed Face spins its glyph once). */
+export function pulseGlyphs(ids: Iterable<string>): void {
+  for (const id of ids) pulseListeners.get(id)?.forEach((cb) => cb())
+}
+
+/**
+ * The chain of TASK ancestors above an entity, walking `parentId` upward. Stops at the first
+ * non-task parent (a task's containment ends where the task nesting ends) — an instant under
+ * `Task A ▸ Task B ▸ instant` yields `[B, A]`; a `Space ▸ Task ▸ instant` yields `[Task]`.
+ * Cycle-guarded. Used to propagate an instant's mark pulse up its task lineage.
+ */
+export function taskAncestorIds(id: string): string[] {
+  const out: string[] = []
+  const seen = new Set<string>([id])
+  let cur = byId.get(id)?.parentId
+  while (cur && !seen.has(cur)) {
+    seen.add(cur)
+    const p = byId.get(cur)
+    if (!p || p.kind !== "task") break
+    out.push(p.id)
+    cur = p.parentId
+  }
+  return out
+}
+
 export function getResource(id: string): Resource | undefined {
   return resourceById.get(id)
 }
@@ -1675,6 +1720,9 @@ export function markInstant(id: string, at = Date.now()): boolean {
   // occurrence (unless --close:manual). Stamped so every viewer flips at the same instant.
   entity.closeAt = computeCloseAt(entity, at)
   recomputeSessionsFromLog(id, entity)
+  // ONE-SHOT PULSE: the instant fired, so it AND every task ancestor spin their glyph once,
+  // together — the parent task (and its task ancestors) acknowledge the mark at the same beat.
+  pulseGlyphs([id, ...taskAncestorIds(id)])
   return true
   }
 

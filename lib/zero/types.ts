@@ -259,15 +259,15 @@ export interface Recurrence {
  *   - FOCUS (tasks): drilling into a Task past a dwell threshold opens one; leaving
  *     the active path closes it. So a Task reads `ongoing` everywhere purely from
  *     "has an open session", with no dependency on the current view.
- *   - PLAY (whenever-valued moments/spaces): the glyph Play/Stop toggles one.
- */
+   *   - PLAY (any playable kind — idea/task/resource/moment/space): the glyph Play/Stop toggles one.
+   */
 export interface Session {
   /** Punch-in, epoch ms. */
   startAt: Epoch
   /** Punch-out, epoch ms. Absent ⇒ this session is still OPEN (ongoing). */
   endAt?: Epoch
   /** VIA — how the session was opened ("focus" = dwelling in a Task, "play" = a
-   *  whenever stopwatch, "mark" = an INSTANT occurrence tally — a zero-length entry where
+   *  glyph stopwatch, "mark" = an INSTANT occurrence tally — a zero-length entry where
    *  `endAt === startAt`, never open). Lets hydrate-cleanup close dangling FOCUS sessions
    *  on reload while leaving PLAY stopwatches running (marks are always closed, so untouched).
    *  Absent ⇒ "focus". */
@@ -283,10 +283,10 @@ export interface Session {
 
 export interface Schedule {
   /**
-   * Contiguous span start (moments, timed blocks), OR the `"whenever"` sentinel
-   * (a playable thing with no fixed time — see {@link WHENEVER}).
+   * Contiguous span start (moments, timed blocks). Absent = unplanned; playability no
+   * longer rides on startAt (it's derived from KIND + idle — see isPlayable in kinds.ts).
    */
-  startAt?: Epoch | Whenever
+  startAt?: Epoch
   /** Contiguous span end. */
   endAt?: Epoch
   /** A single point in time (instants). */
@@ -315,7 +315,7 @@ export interface Schedule {
    */
   sessions?: Session[]
   /**
-   * ARCHIVED OCCURRENCES — the history of when this thing actually HAPPENED (top rail), distinct
+   * ARCHIVED OCCURRENCES �� the history of when this thing actually HAPPENED (top rail), distinct
    * from `sessions` (how long I WORKED on it, bottom rail). A moment/space accumulates one span
    * here each time it is Reopened: the live `{startAt,endAt}` is pushed in and the scalar
    * start/end are cleared (back to open). Past spans paint as FIXED top-rail ticks, untouched by

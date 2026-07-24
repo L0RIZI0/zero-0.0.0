@@ -45,7 +45,7 @@ import {
   reorderContextItems,
   moveEntityToContext,
 } from "@/lib/zero/data"
-  import { KIND_META, getState, isClosed, hasOpenSession, getOpenSession, isMarkable, getInstantMaxNb, canAutoPlay } from "@/lib/zero/kinds"
+  import { KIND_META, getState, isClosed, hasOpenSession, getOpenSession, isMarkable, isPlayable, getInstantMaxNb, canAutoPlay } from "@/lib/zero/kinds"
   import { isDone, describeLogEntry } from "@/lib/zero/entity-log"
 import {
   parseEntry,
@@ -70,7 +70,6 @@ import { Zero0Favicon } from "./zero0-favicon"
 import { Zero0Content, type Zero0ContentCtx } from "./zero0-content"
   import { fmt, fmtLogValue, sexSymbol, formatDuration, type FaceSize, type FaceMake } from "@/lib/zero/face-model"
 import type { Entity } from "@/lib/zero/types"
-import { WHENEVER } from "@/lib/zero/types"
 
 // `canAutoPlay` + `ONGOING_ON_ENTER` now live in lib/zero/kinds.ts (canonical), shared by the
 // session fold (deriveSessionsFromLog) and this canvas so the two can't drift.
@@ -774,19 +773,9 @@ export function Zero0Canvas() {
           // `--at` plans the entity's START. On an INSTANT, setEntityScheduleField still
           // collapses startAt/endAt/at to the one epoch, so a point is unaffected.
           const key = ({ start: "startAt", end: "endAt", at: "startAt", due: "dueAt" } as const)[attr.field]
-          // `--start:whenever` — mark the entity PLAYABLE (a trackable thing with no fixed
-          // time; its glyph offers Play/Stop). Only valid on `start`.
-          if (val.toLowerCase() === "whenever") {
-            if (attr.field !== "start") {
-              setNotice({ tone: "err", text: "whenever only applies to --start" })
-              return null
-            }
-            if (!setEntityScheduleField(id, "startAt", WHENEVER)) {
-              setNotice({ tone: "err", text: `can't set start on a ${KIND_META[ent.kind].label}` })
-              return null
-            }
-            return "start whenever (playable)"
-          }
+          // NOTE: `--start:whenever` is GONE (v0.7). Playability no longer rides on a startAt
+          // sentinel — every idle {idea,task,resource,moment,space} is playable by kind, so
+          // there's nothing to opt into. `--start` now only accepts a concrete time (or clear).
           let epoch: number | null = null
           if (val.toLowerCase() === "now") {
             // `--start:now` / `--end:now` / `--at:now` — stamp the shared batch instant.
@@ -794,7 +783,7 @@ export function Zero0Canvas() {
           } else if (val !== "") {
             epoch = parseDateToken(val, batchNow)
             if (epoch == null) {
-              setNotice({ tone: "err", text: `invalid time "${val}" — use HHMM, YYMMDD, YYMMDDHHMM, now, "5min ago", "in 2h", or whenever` })
+              setNotice({ tone: "err", text: `invalid time "${val}" — use HHMM, YYMMDD, YYMMDDHHMM, now, "5min ago", or "in 2h"` })
               return null
             }
           }
@@ -1029,14 +1018,18 @@ export function Zero0Canvas() {
     [bump, path, contextId],
   )
 
-  // PLAY / STOP on a MOMENT/SPACE glyph (v0.6.26) — both open/close a `via:"play"` SESSION (bottom
-  // rail). A moment is no longer "its own occurrence": its SCHEDULED time is PLANNED-only (top rail,
-  // user-set), and PLAYING it records actual time on the bottom rail — the same as a space. This
-  // retires the startOccurrence/endOccurrence/reopenOccurrence Play mechanism (which stamped scalar
-  // startAt/endAt behind the user's back and caused the phantom top-rail tick + countdown).
+  // PLAY / STOP on a PLAYABLE glyph (v0.7 — idea·task·resource·moment·space; task routes through
+  // its DONE glyph instead, so this fires for the rest). Both open/close a `via:"play"` SESSION
+  // (bottom rail). PLAYING records actual time on the bottom rail; it NEVER stamps the scalar
+  // startAt/endAt (those stay the declared plan). Guarded by isPlayable so it no-ops on a
+  // being/soul/instant. Reopen (ended entity) just opens a fresh play session — bringing it live.
   const togglePlay = useCallback(
     (e: Entity) => {
-      if (e.kind === "space" || e.kind === "moment") togglePlaySession(e)
+      // Glyph Play/Stop: only for a LIVE playable (isPlayable already excludes ended entities, so
+      // the glyph never offers "reopen" — that verb lives on the right-click menu, which routes to
+      // reopenEntity). togglePlaySession is fully kind-agnostic (idea·resource·moment·space; task
+      // routes through its DONE glyph and never reaches here).
+      if (isPlayable(e)) togglePlaySession(e)
     },
     [togglePlaySession],
   )
@@ -1220,10 +1213,11 @@ export function Zero0Canvas() {
         toggleStarterPin(e.id)
         return bump()
       }
-      // MOMENT/SPACE play/stop routes through togglePlaySession (v0.6.26) — a `via:"play"` session,
-      // never the scalar occurrence. (applyEntityMenuAction does the same toggle as a fallback.)
-      if ((e.kind === "space" || e.kind === "moment") && (id === "play" || id === "stop"))
-        return togglePlaySession(e)
+      // PLAYABLE play/stop routes through togglePlaySession (v0.7 — idea·resource·moment·space; a
+      // `via:"play"` session on the bottom rail, never the scalar occurrence) so the menu shares the
+      // glyph's in-place-pause / remote-stop four-verb logic. (applyEntityMenuAction's plain
+      // open/close is only a fallback for the native overlay, which lacks the in-place context.)
+      if (isPlayable(e) && (id === "play" || id === "stop")) return togglePlaySession(e)
       applyEntityMenuAction(e, id)
       bump()
     },
