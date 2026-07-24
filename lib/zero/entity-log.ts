@@ -334,46 +334,55 @@ export function auditLogScalarConsistency(entity: Entity): LogScalarMismatch[] {
  * TWO CONCERNS, one ordered walk (Loris' model; rail encoded by entry TYPE):
  *
  *  PRESENCE (focus rail) — ONE continuous span so ACCESS never pauses:
- *   - `accessed` → open a `focus` session (also opens an AUTO ongoing span if `canAutoPlay(entity)`).
+ *   - `accessed` → open a `focus` session (also opens an AUTO ongoing span if the entity is an
+ *      ongoing-on-enter kind AND not currently done/closed — see `blocked` tracking below).
  *   - `exited`   → close the open focus session (and the auto ongoing span, if any).
  *
  *  ONGOING (play rail) — a SINGLE non-overlapping span with a FLAVOR, so DURATION never
  *  double-counts. Openers no-op while already ongoing (union/absorption); a closer whose flavor
  *  doesn't match the current span is a no-op:
- *   - AUTO flavor  — opened by `accessed`(canAutoPlay) or `resumed`; closed by `paused` or `exited`.
+ *   - AUTO flavor  — opened by `accessed` (when eligible) or `resumed`; closed by `paused`, `exited`,
+ *      or a TERMINAL lifecycle entry (done/completed/closed/cancelled/retired/died).
  *   - REMOTE flavor— opened by `started` (legacy `session-open`); closed ONLY by `stopped` (legacy
  *     `session-close`). REMOTE SURVIVES navigation — an `exited` does NOT close a remote span.
  *  `mark` → a zero-length session (`endAt === startAt`, via "mark").
  *
+ *  DONE/CLOSED TRACKING (the "terminal ends ongoing" rule, Loris' choice): the fold tracks a
+ *  `blocked` flag AS IT WALKS (done/completed/closed/cancelled/retired/died ⇒ blocked; undone/
+ *  uncompleted/reopened/restored ⇒ unblocked). An AUTO ongoing span opens only when
+ *  `ongoingOnEnter && !blocked`, and a blocking entry closes any open auto span. This is why
+ *  `ongoingOnEnter` is a STATIC kind flag, not the old whole-entity `canAutoPlay` boolean: the
+ *  done/closed half must be evaluated PER MOMENT in history (a task that was ongoing and later
+ *  completed must still reconstruct its historical auto span), which a single final-state boolean
+ *  couldn't do. (No revival auto-reopen: undoing done while still viewing won't re-open ongoing until
+ *  you re-enter — deliberate simplification, revisit with the editing model.)
+ *
  * On any close, a span ≤ `minSessionMs` is DISCARDED (matches the writer's discard-short rule), so a
  * sub-threshold blip leaves no cached session. An unclosed open stays OPEN (no `endAt`) — the running
- * session on its rail. `canAutoPlay` is INJECTED (entity-log must not import kinds); when omitted, no
- * auto ongoing is derived (presence-only).
+ * session on its rail. `ongoingOnEnter` is INJECTED (entity-log must not import kinds); when omitted,
+ * no auto ongoing is derived (presence-only).
  *
  * ABSORPTION EDGE (documented, intentional): only ONE ongoing span at a time. A `started` while an
  * auto span is open is absorbed (stays auto, dies on `exited`); an `accessed` while a remote span is
  * open is absorbed (stays remote, survives `exited`). This trades a rare overlap for guaranteed
  * no-double-count.
- *
- * KNOWN LIMITATION (pending the editing model): a backdate via `setOpenSessionStart` mutates the
- * cache but is logged only as a `set sessionStart` entry, not as correction Instants — so after such
- * an edit this fold reproduces PRE-edit history. Closing that (Option A correction Instants) is next.
  */
 export function deriveSessionsFromLog(
   entity: Entity,
-  opts: { minSessionMs?: number; canAutoPlay?: (e: Entity) => boolean } = {},
+  opts: { minSessionMs?: number; ongoingOnEnter?: boolean } = {},
 ): Session[] {
   const log = entity.log
   if (!log || log.length === 0) return []
   const minSessionMs = opts.minSessionMs ?? 0
-  const autoOpenable = opts.canAutoPlay ? opts.canAutoPlay(entity) : false
+  const ongoingOnEnter = opts.ongoingOnEnter ?? false
   const out: Session[] = []
   // Live pointers in a holder object: closures mutate these, and property access (unlike a captured
   // `let`) isn't narrowed to `never` by TS control-flow across those closure calls.
-  const st: { focusIdx: number | null; ongoing: { idx: number; flavor: "auto" | "remote" } | null } = {
-    focusIdx: null,
-    ongoing: null,
-  }
+  const st: {
+    focusIdx: number | null
+    ongoing: { idx: number; flavor: "auto" | "remote" } | null
+    blocked: boolean
+  } = { focusIdx: null, ongoing: null, blocked: false }
 
   // Close the session at `idx` at `at`; DISCARD it if sub-threshold. Fixes the live pointers when a
   // splice shifts later indices.
@@ -394,26 +403,29 @@ export function deriveSessionsFromLog(
     out.push(s)
     st.ongoing = { idx: out.length - 1, flavor }
   }
+  const closeAutoOngoing = (at: number) => {
+    if (st.ongoing?.flavor === "auto") {
+      closeAt(st.ongoing.idx, at)
+      st.ongoing = null
+    }
+  }
 
   for (const e of log) {
     switch (e.type) {
       case "accessed":
         out.push({ startAt: e.at, via: "focus" })
         st.focusIdx = out.length - 1
-        if (autoOpenable) openOngoing(e.at, "auto")
+        if (ongoingOnEnter && !st.blocked) openOngoing(e.at, "auto")
         break
       case "resumed":
-        openOngoing(e.at, "auto")
+        if (!st.blocked) openOngoing(e.at, "auto")
         break
       case "started":
       case "session-open": // legacy alias
         openOngoing(e.at, "remote")
         break
       case "paused":
-        if (st.ongoing?.flavor === "auto") {
-          closeAt(st.ongoing.idx, e.at)
-          st.ongoing = null
-        }
+        closeAutoOngoing(e.at)
         break
       case "stopped":
       case "session-close": // legacy alias
@@ -423,14 +435,28 @@ export function deriveSessionsFromLog(
         }
         break
       case "exited":
-        if (st.ongoing?.flavor === "auto") {
-          closeAt(st.ongoing.idx, e.at) // remote survives navigation
-          st.ongoing = null
-        }
+        closeAutoOngoing(e.at) // remote survives navigation
         if (st.focusIdx != null) {
           closeAt(st.focusIdx, e.at)
           st.focusIdx = null
         }
+        break
+      // TERMINAL lifecycle → close the auto ongoing span and block further auto opens.
+      case "done":
+      case "completed":
+      case "closed":
+      case "cancelled":
+      case "retired":
+      case "died":
+        closeAutoOngoing(e.at)
+        st.blocked = true
+        break
+      // REVIVAL → auto may open again on the next access (no immediate reopen).
+      case "undone":
+      case "uncompleted":
+      case "reopened":
+      case "restored":
+        st.blocked = false
         break
       case "mark":
         out.push({ startAt: e.at, endAt: e.at, via: "mark" })

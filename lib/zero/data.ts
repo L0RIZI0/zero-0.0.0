@@ -1536,12 +1536,12 @@ export function closeSession(id: string, via?: Session["via"], at = Date.now()):
   }
   sched.sessions = sessions
   const log = ensureEntityLog(entity)
-  // Close type mirrors the CLOSED session's rail (target.via): PRESENCE exit ⇒ `exited`, PLAY stop ⇒
-  // `session-close` — so the fold pairs it with its matching open (accessed↔exited, open↔close). A
-  // DISCARD-SHORT session still logs both ends: the log keeps the blip (full truth) and the fold
-  // re-applies the discard rule, so the derived sessions[] still matches the cache.
-  const closeType = target.via === "play" ? "session-close" : "exited"
-  entity.log = appendInstant(log, makeInstant(closeType, at))
+  // LOG the four-verb close, SYMMETRIC with openSession: focus ⇒ `exited`; a MANUAL/remote play
+  // (no `auto`) ⇒ `stopped`; an AUTO play ⇒ NO entry (the auto ongoing is DERIVED from `accessed`/
+  // `exited` by deriveSessionsFromLog, never logged in its own right). Keeps the §0 LOG clean:
+  // only accessed/exited (presence) + started/stopped (deliberate play) + mark ever appear.
+  const closeType = target.via === "focus" ? "exited" : target.auto ? null : "stopped"
+  if (closeType) entity.log = appendInstant(log, makeInstant(closeType, at))
   persistSessionMutation(id, entity, sched)
   return true
 }
