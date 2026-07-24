@@ -36,6 +36,8 @@ import {
   toggleStarterPin,
   openSession,
   closeSession,
+  pauseOngoing,
+  resumeOngoing,
   setOpenSessionStart,
   markInstant,
   setInstantMax,
@@ -43,7 +45,7 @@ import {
   reorderContextItems,
   moveEntityToContext,
 } from "@/lib/zero/data"
-  import { KIND_META, getState, isClosed, hasOpenSession, getOpenSession, isMarkable, getInstantMaxNb } from "@/lib/zero/kinds"
+  import { KIND_META, getState, isClosed, hasOpenSession, getOpenSession, isMarkable, getInstantMaxNb, canAutoPlay } from "@/lib/zero/kinds"
   import { isDone, describeLogEntry } from "@/lib/zero/entity-log"
 import {
   parseEntry,
@@ -70,20 +72,8 @@ import { Zero0Content, type Zero0ContentCtx } from "./zero0-content"
 import type { Entity } from "@/lib/zero/types"
 import { WHENEVER } from "@/lib/zero/types"
 
-// ONGOING-ON-ENTER kinds (v0.6.32): entities that are "in progress" simply by being entered —
-// drilling in auto-opens a `play` (ongoing) session, leaving closes it. {task, resource, space}
-// are DOING-kinds; moments/instants/beings are not (a moment is its occurrence, a being is alive).
-const ONGOING_ON_ENTER = new Set(["task", "resource", "space"])
-
-/**
- * Whether entering `e` should AUTO-open a `play` (ongoing) session. True for the doing-kinds while
- * still LIVE — a done / closed / cancelled entity is presence-only (ACCESS ticks, but it must not
- * resume ongoing on enter; see zero-session-model). Shared by the initial punch-in AND re-entry so
- * the two can't diverge.
- */
-function canAutoPlay(e: Entity): boolean {
-  return ONGOING_ON_ENTER.has(e.kind) && !isDone(e) && !isClosed(e)
-}
+// `canAutoPlay` + `ONGOING_ON_ENTER` now live in lib/zero/kinds.ts (canonical), shared by the
+// session fold (deriveSessionsFromLog) and this canvas so the two can't drift.
 
 // True when the draft is a "--color" command whose value is empty OR a (possibly partial)
 // HEX — the trigger to reveal the swatch row + visual picker. v0.2.147: broadened from the
@@ -431,19 +421,26 @@ export function Zero0Canvas() {
           focusOpenRef.current.add(id)
           opened = true
         }
-        // ── ONGOING rail (play): {task, resource, space} are ONGOING-ON-ENTER while not done/closed
-        // — auto-open a `play` session so the glyph spins and DURATION counts. A play already open
-        // (manual Play from afar, or reload continuity) is left running; we register it for
-        // punch-out ONLY for these auto-play kinds so leaving stops the ongoing (a done task is
-        // presence-only — canAutoPlay is false — so it accrues ACCESS but never resumes ongoing).
+        // ── ONGOING rail (play): {task, resource, space} are ONGOING-ON-ENTER while not done/closed.
+        // The auto ongoing span is now DERIVED — opening `focus` above (⇒ `accessed`) already made it
+        // open via the fold, so a freshly-entered entity lands in the `hasOpenSession` branch and we
+        // just register it for punch-out. The interesting case is the LEAF-TRANSITIVE RESUME: an
+        // entity that was PAUSED while it was the leaf, and is now a NON-LEAF ancestor because we
+        // drilled deeper — "A is ongoing whenever it's in the path AND not paused-as-leaf", so going
+        // deeper un-pauses it. A leaf with no open play is paused-as-leaf and stays paused.
         if (canAutoPlay(e)) {
-          if (hasOpenSession(e, "play")) {
-            playOpenRef.current.add(id)
-          } else if (openSession(id, "play", Date.now(), { auto: true })) {
-            // v0.6.34: {auto:true} → this ongoing-on-enter play spins/counts DURATION but is kept
-            // OFF the recorded rail + OCCURRENCES tally (it's presence-like, not deliberate activity).
-            playOpenRef.current.add(id)
-            opened = true
+          const openPlay = getOpenSession(e, "play")
+          if (openPlay) {
+            // Only AUTO plays are presence-managed (punched out on leave). A REMOTE play you drilled
+            // into is a deliberate stopwatch that SURVIVES navigation — never adopt it into the
+            // punch-out set, or leaving would silently Stop it.
+            if (openPlay.auto) playOpenRef.current.add(id)
+          } else if (id !== contextId) {
+            // navigation-driven resume of a paused ancestor ⇒ `resumed {auto:true}` (provenance).
+            if (resumeOngoing(id, Date.now(), { auto: true })) {
+              playOpenRef.current.add(id)
+              opened = true
+            }
           }
         }
       }
@@ -463,21 +460,35 @@ export function Zero0Canvas() {
   // no-op — presence already tracks you (two simultaneous focus+play sessions = deferred, see todos).
   const togglePlaySession = useCallback(
     (e: Entity) => {
-      // v0.6.32: via-aware. A `focus` (presence) session may be open CONCURRENTLY — Play/Stop only
-      // touches the `play` (ongoing) rail. Stopping also drops it from playOpenRef so the dwell
-      // effect won't think it still owns an auto-play to punch out.
-      if (hasOpenSession(e, "play")) {
-        closeSession(e.id, "play") // Stop the running play (ongoing) — presence keeps ticking
-        playOpenRef.current.delete(e.id)
+      // The glyph means different things by WHERE it's clicked (Loris' four-verb model):
+      //   • IN-PLACE (e is the entity you're viewing = the leaf): interrupt/continue the AMBIENT
+      //     ongoing → `paused`/`resumed`. Presence keeps ticking either way.
+      //   • REMOTE (a row you're NOT inside): a deliberate stopwatch → `started`/`stopped`, which
+      //     SURVIVES navigation (never auto-punched-out; not in playOpenRef).
+      const inPlace = e.id === contextId
+      const openPlay = getOpenSession(e, "play")
+      if (inPlace) {
+        if (openPlay) {
+          // ongoing right now: an AUTO span pauses; a REMOTE span you drilled into is Stopped.
+          if (openPlay.auto) pauseOngoing(e.id)
+          else {
+            closeSession(e.id, "play")
+            playOpenRef.current.delete(e.id)
+          }
+        } else {
+          resumeOngoing(e.id) // deliberate reclick → plain `resumed` (no auto provenance flag)
+        }
       } else {
-        // A DELIBERATE Play is a stopwatch that SURVIVES navigation — so we do NOT register it in
-        // playOpenRef (the auto-punch-out set). If/when you drill INTO this entity, the dwell effect
-        // adopts it (registers it) so ongoing-on-enter parity resumes from there. (Play-from-afar.)
-        openSession(e.id, "play")
+        if (openPlay) {
+          closeSession(e.id, "play") // Stop the remote play
+          playOpenRef.current.delete(e.id)
+        } else {
+          openSession(e.id, "play") // Start a remote play (survives navigation)
+        }
       }
       bump()
     },
-    [bump],
+    [bump, contextId],
   )
 
   const context = mounted ? getEntity(contextId) : undefined

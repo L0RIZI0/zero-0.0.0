@@ -1,6 +1,6 @@
-import type { Asset, Entity, EntityKind, IndividualEntity, Instant, Recurrence, Schedule, Resource, EntityBase, Session, Sex, TaskPriority, TitleEntry, User } from "./types"
+import type { Asset, Entity, EntityKind, IndividualEntity, Instant, LogType, Recurrence, Schedule, Resource, EntityBase, Session, Sex, TaskPriority, TitleEntry, User } from "./types"
 import { WHENEVER } from "./types"
-  import { hasDoneFlag, isClosed, computeCloseAt, getState, isOngoing, fillsGlyph, hasOpenSession, getOpenSession, setChildrenResolver, setContainedResolver, isConcreteStart, concreteStart, isOwnOngoing, effectiveScheduleEnd, getMarks, isMarkable, getSessions, canDeleteEntity } from "./kinds"
+  import { hasDoneFlag, isClosed, computeCloseAt, getState, isOngoing, fillsGlyph, hasOpenSession, getOpenSession, setChildrenResolver, setContainedResolver, isConcreteStart, concreteStart, isOwnOngoing, effectiveScheduleEnd, getMarks, isMarkable, getSessions, canDeleteEntity, ONGOING_ON_ENTER } from "./kinds"
 import {
   isDone,
   isCancelled,
@@ -9,6 +9,7 @@ import {
   makeSet,
   appendInstant,
   auditLogScalarConsistency,
+  deriveSessionsFromLog,
   } from "./entity-log"
 import type { LogScalarMismatch } from "./entity-log"
 import { readUserItems, writeUserItems } from "./persistence"
@@ -1472,9 +1473,26 @@ function persistSessionMutation(id: string, entity: LooseEntity, sched: Schedule
 }
 
 /**
- * OPEN an session on an entity if none is already open (idempotent). `via` marks focus
- * punch-ins vs play stopwatches so hydrate-cleanup can close dangling focus sessions
- * while leaving play stopwatches running. Returns true if an session is now open.
+ * THE derive step: recompute `schedule.sessions` PURELY from the entity's log and persist it.
+ * sessions[] is now a MATERIALIZED CACHE (Loris' hybrid: log = truth, sessions[] = derived view,
+ * refreshed after EVERY log append). Every session writer below ends by calling this, so there is
+ * ONE place the fold rules (flavored single-ongoing, discard-short, terminal-closes-ongoing) live.
+ */
+function recomputeSessionsFromLog(id: string, entity: LooseEntity): void {
+  const sched: Schedule = { ...(entity.schedule ?? {}) }
+  sched.sessions = deriveSessionsFromLog(entity as unknown as Entity, {
+    minSessionMs: MIN_SESSION_MS,
+    ongoingOnEnter: ONGOING_ON_ENTER.has((entity as unknown as Entity).kind),
+  })
+  persistSessionMutation(id, entity, sched)
+}
+
+/**
+ * OPEN a session (LOG-FIRST): append the right verb, then re-derive sessions[]. `via` "focus" is
+ * PRESENCE (⇒ `accessed`); "play" is the DELIBERATE stopwatch. An AUTO play (opts.auto) writes NO
+ * log entry — the auto ongoing span is DERIVED from `accessed` by {@link deriveSessionsFromLog}, so
+ * logging it would double-log on entry (the thing Loris killed). A MANUAL/remote play ⇒ `started`.
+ * Idempotent per rail (no-op if that rail is already open). Returns true if a session is now open.
  */
 export function openSession(
   id: string,
@@ -1484,30 +1502,23 @@ export function openSession(
 ): boolean {
   const stored = byId.get(id)
   if (!stored) return false
-  if (hasOpenSession(stored, via)) return true // this rail already running — no-op (v0.6.32:
-  // per-via, so an open `focus` doesn't block opening `play` and vice versa — the two run concurrently)
+  if (hasOpenSession(stored, via)) return true // this rail already running — no-op (focus + play concurrent)
   const entity = mutable(stored)
-  const sched: Schedule = { ...(entity.schedule ?? {}) }
-  // v0.6.34: tag an AUTO play (ongoing-on-enter) so it spins/counts DURATION but stays off the
-  // recorded rail + OCCURRENCES tally. Only stamped on play; focus/mark never carry `auto`.
-  const session: Session = { startAt: at, via }
-  if (opts?.auto && via === "play") session.auto = true
-  sched.sessions = [...(sched.sessions ?? []), session]
-  const log = ensureEntityLog(entity)
-  // LOG only the events the four-verb model records; the AUTO ongoing is NOT logged — it is DERIVED
-  // from `accessed` by deriveSessionsFromLog (canAutoPlay), so logging it too would double-log on
-  // entry (the thing Loris explicitly killed). Mapping: focus ⇒ `accessed`; a MANUAL/remote play
-  // (no `auto`) ⇒ `started`; an AUTO play ⇒ no entry.
-  const openType = via === "focus" ? "accessed" : session.auto ? null : "started"
-  if (openType) entity.log = appendInstant(log, makeInstant(openType, at))
-  persistSessionMutation(id, entity, sched)
-  return true
+  // focus ⇒ accessed; MANUAL play ⇒ started; AUTO play ⇒ nothing (derived from accessed).
+  const type: LogType | null = via === "focus" ? "accessed" : opts?.auto ? null : "started"
+  if (type) entity.log = appendInstant(ensureEntityLog(entity), makeInstant(type, at))
+  recomputeSessionsFromLog(id, entity)
+  // Report whether the intended rail actually ended up open (an auto play with no prior `accessed`
+  // derives nothing — callers treat that as "not opened").
+  return hasOpenSession(byId.get(id)!, via)
 }
 
 /**
- * CLOSE the open session on an entity. If the resulting span ≤ MIN_SESSION_MS it is
- * DROPPED entirely (discard-short). No-op if nothing is open. Returns true if a session
- * was closed (or dropped).
+ * CLOSE the open session on an entity (LOG-FIRST): append the right verb, then re-derive. focus ⇒
+ * `exited`; a MANUAL/remote play ⇒ `stopped`; an AUTO play ⇒ NO entry (its span is closed in the
+ * fold by the matching `exited` / a terminal lifecycle entry — never logged in its own right, so the
+ * §0 LOG only ever shows accessed/exited + started/stopped + mark). Discard-short is applied by the
+ * fold. No-op if nothing is open on that rail. Returns true if a session was closed.
  */
 export function closeSession(id: string, via?: Session["via"], at = Date.now()): boolean {
   const stored = byId.get(id)
@@ -1515,35 +1526,44 @@ export function closeSession(id: string, via?: Session["via"], at = Date.now()):
   const open = getOpenSession(stored, via)
   if (!open) return false
   const entity = mutable(stored)
-  const sched: Schedule = { ...(entity.schedule ?? {}) }
-  const sessions = [...(sched.sessions ?? [])]
-  // v0.6.32: the target open session (matching `via`) is NOT necessarily the LAST entry anymore
-  // (a `focus` and a `play` can be open at once) — find it by scanning from the end.
-  let idx = -1
-  for (let i = sessions.length - 1; i >= 0; i--) {
-    const e = sessions[i]
-    if (e.endAt == null && (via == null || e.via === via)) {
-      idx = i
-      break
-    }
-  }
-  if (idx === -1) return false
-  const target = sessions[idx]
-  if (at - target.startAt <= MIN_SESSION_MS) {
-    sessions.splice(idx, 1) // too short → discard the whole entry
-  } else {
-    sessions[idx] = { ...target, endAt: at }
-  }
-  sched.sessions = sessions
-  const log = ensureEntityLog(entity)
-  // LOG the four-verb close, SYMMETRIC with openSession: focus ⇒ `exited`; a MANUAL/remote play
-  // (no `auto`) ⇒ `stopped`; an AUTO play ⇒ NO entry (the auto ongoing is DERIVED from `accessed`/
-  // `exited` by deriveSessionsFromLog, never logged in its own right). Keeps the §0 LOG clean:
-  // only accessed/exited (presence) + started/stopped (deliberate play) + mark ever appear.
-  const closeType = target.via === "focus" ? "exited" : target.auto ? null : "stopped"
-  if (closeType) entity.log = appendInstant(log, makeInstant(closeType, at))
-  persistSessionMutation(id, entity, sched)
+  const type: LogType | null = open.via === "focus" ? "exited" : open.auto ? null : "stopped"
+  if (type) entity.log = appendInstant(ensureEntityLog(entity), makeInstant(type, at))
+  recomputeSessionsFromLog(id, entity)
   return true
+}
+
+/**
+ * PAUSE the AUTO ongoing span IN PLACE (the leaf-glyph "hold" — you're viewing the entity and
+ * interrupt its ambient ongoing without leaving). Appends `paused` (the fold closes the open auto
+ * span; PRESENCE keeps ticking). No-op unless there's an open AUTO play (a REMOTE play is stopped
+ * via {@link closeSession}, not paused). Returns true if it paused.
+ */
+export function pauseOngoing(id: string, at = Date.now()): boolean {
+  const stored = byId.get(id)
+  if (!stored) return false
+  const open = getOpenSession(stored, "play")
+  if (!open || !open.auto) return false
+  const entity = mutable(stored)
+  entity.log = appendInstant(ensureEntityLog(entity), makeInstant("paused", at))
+  recomputeSessionsFromLog(id, entity)
+  return true
+}
+
+/**
+ * RESUME the ambient ongoing (reopen an AUTO span). Appends `resumed`; `opts.auto` tags a
+ * NAVIGATION-driven resume (drilling deeper un-pauses a paused ancestor) vs a deliberate glyph
+ * reclick — pure provenance the fold ignores (both reopen the span). No-op if a play is already
+ * open, or if the entity is done/closed (the fold's `blocked` guard yields no span). Returns true if
+ * a resume was logged.
+ */
+export function resumeOngoing(id: string, at = Date.now(), opts?: { auto?: boolean }): boolean {
+  const stored = byId.get(id)
+  if (!stored) return false
+  if (getOpenSession(stored, "play")) return false // already ongoing
+  const entity = mutable(stored)
+  entity.log = appendInstant(ensureEntityLog(entity), makeInstant("resumed", at, opts?.auto ? { auto: true } : undefined))
+  recomputeSessionsFromLog(id, entity)
+  return hasOpenSession(byId.get(id)!, "play")
 }
 
 /**
@@ -1645,19 +1665,17 @@ export function markInstant(id: string, at = Date.now()): boolean {
   // Respect a HARD maxNb cap: once complete, a hard-capped instant accepts no more marks.
   if (!isMarkable(stored, at)) return false
   const entity = mutable(stored)
-  const sched: Schedule = { ...(entity.schedule ?? {}) }
-  sched.sessions = [...(sched.sessions ?? []), { startAt: at, endAt: at, via: "mark" }]
   const log = ensureEntityLog(entity)
-  // A mark is a zero-length occurrence; the `mark` type itself tells the fold to rebuild it as an
-  // endAt===startAt session (via "mark").
+  // LOG-FIRST (like the session writers): append the `mark`, then re-derive sessions[]. The fold
+  // rebuilds it as a zero-length (endAt===startAt) session via "mark"; discard-short never touches a
+  // mark (it's meant to be zero-length). sessions[] is now a pure projection of the log.
   entity.log = appendInstant(log, makeInstant("mark", at))
-  entity.schedule = sched
   // Like a Moment, an instant files at the next local midnight — anchored on this latest
   // occurrence (unless --close:manual). Stamped so every viewer flips at the same instant.
   entity.closeAt = computeCloseAt(entity, at)
-  persistSessionMutation(id, entity, sched)
+  recomputeSessionsFromLog(id, entity)
   return true
-}
+  }
 
 /**
  * Set an INSTANT's max authorized OCCURRENCES (`--maxnb:3`) and whether that cap is HARD
