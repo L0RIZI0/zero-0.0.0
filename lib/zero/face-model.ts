@@ -19,7 +19,7 @@
 
 import type { Entity, EntityKind, Whenever } from "./types"
 import { WHENEVER } from "./types"
-  import { KIND_META, isClosed, fillsGlyph, getState, isOngoing, getOngoingSince, concreteStart, effectiveScheduleEnd, ongoingOpenSession, occurrenceAction, isBeing, isLifeBeing, individualBornAt, getPublishedAt, lifeAnchor, formatAge, isMarkable, getMarks, getSessions, getInstantMaxNb, isInstantMaxNbHard, getInstantOccurrenceCount, type EntityState } from "./kinds"
+  import { KIND_META, isClosed, fillsGlyph, getState, isOngoing, getOngoingSince, concreteStart, effectiveScheduleEnd, ongoingOpenSession, occurrenceAction, isBeing, isLifeBeing, individualBornAt, getPublishedAt, lifeAnchor, isMarkable, getMarks, getSessions, getInstantMaxNb, isInstantMaxNbHard, getInstantOccurrenceCount, type EntityState } from "./kinds"
 import { isDone, getCreatedAt, getCompletedOn } from "./entity-log"
 import { getEntity, getCreator, getOwner, getForwardTags, getBackReferences, getChildren } from "./data"
 import { formatLocale } from "./format-locale"
@@ -991,12 +991,15 @@ export function getFaceMetaRows(e: Entity, now: number): [string, string][] {
       // AGE keys off the being's LIFE ANCHOR (`bornAt` for an Individual, `publishedAt` for an
       // Organism/Community) — NOT createdAt: live-counting while `alive`, the frozen lifespan
       // (anchor → death/retire) once `dead`/`retired`, and "—" before it lived (open/scheduled) or
-      // when never born/published. Uses formatAge so it agrees with the STATE row's "(age)".
+      // when never born/published. The LIVE age uses `formatDuration` for the COMPOSITE reading
+      // ("35y 1mo 24d") — a single coarse unit ("35 years") throws away the months/days the user
+      // wants to see. The frozen lifespan keeps `st.age` (formatAge, single-unit) since a terminal
+      // "(age)" in the STATE row reads better coarse and the two must agree there.
       const st = getState(e, now)
       const anchor = lifeAnchor(e)
       const age =
         st.word === "alive" && anchor != null
-          ? formatAge(anchor, now)
+          ? formatDuration(Math.max(0, now - anchor))
           : (st.word === "dead" || st.word === "retired") && st.age != null
             ? st.age
             : "—"

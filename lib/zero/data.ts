@@ -354,13 +354,15 @@ export const entities: Entity[] = [
     parentId: "soul_self",
     taggedContextIds: [],
     description: "A person, animated by a Soul.",
-    // Loris's BIRTH — the Individual's creation. Built from local-time components
-    // (month is 0-based, so 4 = May) so it round-trips through `toLocaleString()` as
-    // 19 May 1991, 13:33 in whatever timezone/locale the reader is in.
-  createdAt: new Date(1991, 4, 19, 13, 33, 0, 0).getTime(),
-  // The confirmed `bornAt` birthday — the SOURCE OF TRUTH for the `alive` state (a past value ⇒
-  // alive/live). Same instant as createdAt here: the root person is born, so root reads `alive`
-  // and is NOT deletable (an empty individual with no bornAt would read `open` = deletable).
+    // CREATED — when the Zero ENTITY for Loris was created (DISTINCT from birth): 22 Jun 2026,
+    // 12:46 local. There's deliberately no `--created` sugar (createdAt is stamped only at
+    // creation), so CREATED and BORN read as two different dates. Built from local-time
+    // components (month is 0-based, so 5 = June) so it round-trips through `toLocaleString()`.
+  createdAt: new Date(2026, 5, 22, 12, 46, 0, 0).getTime(),
+  // The confirmed `bornAt` BIRTHDAY — the SOURCE OF TRUTH for the `alive` state (a past value ⇒
+  // alive/live) and the AGE row. 19 May 1991, 13:33 local (month 0-based, 4 = May). Being born
+  // (a past bornAt) also makes root NOT deletable (an empty individual with no bornAt reads
+  // `open` = deletable).
   bornAt: new Date(1991, 4, 19, 13, 33, 0, 0).getTime(),
   // Loris is a man.
   sex: "man",
