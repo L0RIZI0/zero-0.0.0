@@ -1,5 +1,4 @@
 import type { Asset, Entity, EntityKind, IndividualEntity, Instant, LogType, Recurrence, Schedule, Resource, EntityBase, Session, Sex, TaskPriority, TitleEntry, User } from "./types"
-import { WHENEVER } from "./types"
   import { hasDoneFlag, isClosed, computeCloseAt, getState, isOngoing, fillsGlyph, hasOpenSession, getOpenSession, setChildrenResolver, setContainedResolver, isConcreteStart, concreteStart, isOwnOngoing, effectiveScheduleEnd, getMarks, isMarkable, getSessions, canDeleteEntity, ONGOING_ON_ENTER } from "./kinds"
 import {
   isDone,
@@ -373,8 +372,8 @@ export const entities: Entity[] = [
   },
   // --- WEB-PREVIEW SAMPLE SET ----------------------------------------------
   // A minimal, legible sample under the Individual: ONE of each core kind so the web
-  // preview has something to interact with, plus a second Space "Edan" whose start is
-  // WHENEVER (a playable one — its glyph offers Play/Stop). Accents per Loris's spec:
+  // preview has something to interact with, plus a second Space "Edan" (a plain live Space —
+  // playable by kind, its glyph offers Play/Stop; no schedule needed). Accents per Loris's spec:
   // blue space · purple moment · pink instant · green resource · amber Edan; the Task is
   // left uncoloured. The green Resource points at the internal `/matrix-interactions`
   // doc viewer, so it doubles as the one-click matrix link the preview used to carry.
@@ -395,7 +394,6 @@ export const entities: Entity[] = [
           parentId: ROOT_ID,
           taggedContextIds: [],
           accent: "#F5A623",
-          schedule: { startAt: WHENEVER },
         },
         {
           id: "r_matrix",
@@ -1756,8 +1754,9 @@ export function endOccurrence(id: string, at = Date.now()): boolean {
  * REOPEN — click a COMPLETE moment/space glyph. Archives the finished live span into
  * `occurrences[]` (so it stays as a fixed past tick on the top rail), preserves its length as
  * the default `duration` for the next Play, then clears the live start/end + completion close
- * and returns `startAt` to the WHENEVER sentinel (playable again → outline glyph). Moment/Space
- * only; requires a concrete finished start to archive.
+ * so it's idle/playable again (outline glyph — playability is kind-based, no start needed).
+ * Moment/Space only; requires a concrete finished start to archive. NOTE: legacy/dead — the
+ * live Reopen path just opens a fresh `via:"play"` session (see occurrenceAction "reopen").
  */
 export function reopenOccurrence(id: string): boolean {
   const stored = byId.get(id)
@@ -1770,11 +1769,11 @@ export function reopenOccurrence(id: string): boolean {
   // Preserve the just-finished length as the default duration for the next Play (if not already set).
   if (sched.duration == null && endAt != null) sched.duration = Math.round((endAt - startAt) / 60000)
   sched.occurrences = [...(sched.occurrences ?? []), { startAt, endAt }]
-  sched.startAt = WHENEVER
+  delete sched.startAt // playable again = idle (no start); playability is kind-based now
   delete sched.endAt
   entity.schedule = sched
   delete entity.closeAt // reopened → no longer completed/closed
-  logSet(entity, "startAt", WHENEVER)
+  logSet(entity, "startAt", null)
   if (!userEntityIds.has(id)) {
     seededOverrides.set(id, { ...seededOverrides.get(id), schedule: sched, closeAt: undefined })
   }
@@ -3031,12 +3030,10 @@ export function setEntityRequested(id: string, requested: boolean): void {
 export function setEntityScheduleField(
   id: string,
   field: "startAt" | "endAt" | "at" | "dueAt",
-  epoch: number | null | typeof WHENEVER,
+  epoch: number | null,
   ): boolean {
   const stored = byId.get(id)
   if (!stored) return false
-  // Only `startAt` accepts the "whenever" sentinel (a playable, timeless start).
-  if (epoch === WHENEVER && field !== "startAt") return false
   const entity = mutable(stored)
   const sched: NonNullable<Entity["schedule"]> = { ...(entity.schedule ?? {}) }
   // An INSTANT is a ZERO-DURATION POINT — its start and end coincide. ANY concrete time set on
@@ -3049,22 +3046,21 @@ export function setEntityScheduleField(
   delete sched.startAt
   delete sched.endAt
   delete sched.at
-  } else if (epoch !== WHENEVER) {
+  } else {
   sched.startAt = epoch
   sched.endAt = epoch
   sched.at = epoch
   }
   } else if (epoch == null) delete sched[field]
-  else if (field === "startAt") sched.startAt = epoch
-  else if (epoch !== WHENEVER) sched[field] = epoch
+  else sched[field] = epoch
   entity.schedule = sched
   // Instant logs the COINCIDENT open + close as a pair (start, then its matching end) so its
   // life log reads a close right after the start. Other kinds log the single field set.
-  if (isInstant && epoch !== WHENEVER) {
+  if (isInstant && epoch != null) {
   logSet(entity, "startAt", epoch)
   logSet(entity, "endAt", epoch)
   } else {
-  logSet(entity, field, epoch === WHENEVER ? WHENEVER : epoch)
+  logSet(entity, field, epoch)
   }
   // Re-stamp the absolute midnight close whenever a MOMENT/INSTANT's end (or point)
   // changes, so its time-close stays tz-stable and in sync with the new schedule. Tasks

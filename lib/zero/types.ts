@@ -252,14 +252,6 @@ export interface Recurrence {
  * The special `startAt` value **"whenever"** — a first-class sentinel meaning
  * "a real, trackable thing that has NO fixed clock time." It is deliberately
  * distinct from BOTH `undefined` (genuinely unscheduled) AND a concrete epoch
- * (a fixed time): an entity whose `startAt === "whenever"` is PLAYABLE — its glyph
- * offers Play/Stop to open/close a background session on demand (see `Session`).
- * Every `startAt` comparison (`now >= startAt`, arithmetic, etc.) MUST guard this
- * sentinel first via `isWheneverStart` / `concreteStart` in kinds.ts.
- */
-export const WHENEVER = "whenever" as const
-export type Whenever = typeof WHENEVER
-
 /**
  * One tracked work SESSION: a punch-in (`startAt`) and, once closed, a punch-out
  * (`endAt`). The LAST session missing `endAt` is the single OPEN/ongoing session.

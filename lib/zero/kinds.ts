@@ -1,5 +1,4 @@
 import type { Entity, EntityKind, IndividualEntity, Session, Schedule } from "./types"
-import { WHENEVER } from "./types"
 import {
   isDone,
   getCompletedOn,
@@ -485,23 +484,18 @@ export interface EntityState {
   age?: string
 }
 
-// ── "Whenever" sentinel guards ────────────────────────────────────────────────
-// A `startAt` may be a concrete epoch, the `"whenever"` sentinel (playable, no fixed
-// time), or undefined. EVERY comparison (`now >= startAt`, sorting, arithmetic) must
-// go through these so the sentinel is never treated as a number. `isConcreteStart` is
-// a type guard that narrows to `number` for the compiler.
+// ── startAt guard ─────────────────────────────────────────────────────────────
+// A `startAt` is either a concrete epoch or absent (undefined). There is NO sentinel:
+// "playable" is no longer a value ON startAt — it's derived from KIND + idle state (see
+// isPlayable), because play/stop now lives entirely in the LOG as `via:"play"` sessions.
+// `isConcreteStart` is the type guard that narrows to `number` for the compiler.
 
 /** True (and narrows to `number`) when a startAt value is a concrete epoch. */
-export function isConcreteStart(v: number | typeof WHENEVER | undefined): v is number {
+export function isConcreteStart(v: number | undefined): v is number {
   return typeof v === "number"
 }
 
-/** True when a startAt value is the `"whenever"` sentinel (a playable, timeless thing). */
-export function isWheneverStart(v: number | typeof WHENEVER | undefined): boolean {
-  return v === WHENEVER
-}
-
-/** An entity's concrete startAt epoch, or null if it is "whenever" / unset. */
+/** An entity's concrete startAt epoch, or null if unset. */
 export function concreteStart(entity: Entity): number | null {
   const v = entity.schedule?.startAt
   return isConcreteStart(v) ? v : null
@@ -569,19 +563,30 @@ export function effectiveEndAt(entity: Entity): number | null {
 }
 
 /**
- * True when the entity is PLAYABLE — a live Moment/Space with NO fixed clock anchor, so its
- * glyph offers Play/Stop to open/close a background session on demand. "No fixed anchor" =
- * `startAt` is the `"whenever"` sentinel OR simply UNSET (v0.6.9: null starts joined whenever —
- * there was never a reason to exclude them; both mean "a real trackable thing with no time").
- * A CONCRETE start is deliberately excluded: a past one is already ongoing by its own span
- * (End it, don't Stop a session on top), and a future one arrives on its own. ENDED entities
- * aren't playable either (their times are historical) — this matches the menu's `!ended` guard.
+ * The kinds whose glyph is a PLAY/STOP control by default (v0.7 — the "whenever nonsense" is gone).
+ * Any LIVE (not-ended) entity of these kinds is playable: idle ⇒ Play, ongoing ⇒ Stop. The beings
+ * (individual/organism/community) are alive, not played; the timeless Soul is never played; an
+ * Instant is a POINT (it MARKS, never runs). Task IS playable, but its glyph routes through the
+ * DONE control first (it stops a running span there) — so its play affordance lives on enter +
+ * the done glyph, not a separate Play button.
  */
-export function isPlayable(entity: Entity): boolean {
-  if (entity.kind !== "moment" && entity.kind !== "space") return false
-  if (isClosed(entity)) return false
-  const start = entity.schedule?.startAt
-  return isWheneverStart(start) || start == null
+export const PLAYABLE_KINDS: ReadonlySet<EntityKind> = new Set([
+  "entity", // the raw Idea
+  "task",
+  "resource",
+  "moment",
+  "space",
+])
+
+/**
+ * True when the entity is PLAYABLE — a LIVE entity of a {@link PLAYABLE_KINDS} kind. Playability
+ * is now purely KIND + not-ended: there's no fixed-time exception (a future-scheduled moment is
+ * still idle ⇒ its glyph Plays it early — one clean rule: idle ⇒ Play, ongoing ⇒ Stop, ended ⇒
+ * Reopen). ENDED entities aren't playable (their times are historical) — matches the `!ended` guard.
+ */
+export function isPlayable(entity: Entity, now: number = Date.now()): boolean {
+  if (!PLAYABLE_KINDS.has(entity.kind)) return false
+  return !isClosed(entity, now)
 }
 
 /**
@@ -603,27 +608,24 @@ export function isMarkable(entity: Entity, now: number = Date.now()): boolean {
 }
 
 /**
- * The OCCURRENCE affordance a Moment/Space glyph offers right now (v0.6.18). The top-rail
- * lifecycle: `play` → start an occurrence, `stop` → end the running one, `reopen` → archive the
- * finished span and go playable again. `null` for kinds that don't have an occurrence lifecycle
- * (task/resource/beings/instant — instants use marks instead).
- *   • not-started (whenever, or a future-scheduled start) → "play"
- *   • running (concrete start in the past, not yet ended) → "stop"
- *   • complete (a finished/closed occurrence) → "reopen"
+ * The PLAY affordance a glyph offers right now (v0.7 — session-based, no startAt sentinel). One
+ * rule for every {@link PLAYABLE_KINDS} kind: `play` → open a `via:"play"` session, `stop` → close
+ * the running one, `reopen` → start a fresh session on an ended entity (bring it back live). `null`
+ * for kinds with no play lifecycle (beings / soul / instant — instants MARK instead).
+ *   • ended (closed/cancelled/…) → "reopen"
+ *   • OWN-ongoing (an open play session, or a concrete moment/space span in progress) → "stop"
+ *   • otherwise (idle, incl. a future-scheduled start) → "play"
+ * Rollup-only ongoing (a container spinning because a child runs) is NOT "stop" — you'd stop the
+ * running child, not the container — so this uses isOwnOngoing, not isOngoing.
  */
 export function occurrenceAction(
   entity: Entity,
   now: number = Date.now(),
 ): "play" | "stop" | "reopen" | null {
-  if (entity.kind !== "moment" && entity.kind !== "space") return null
-  const st = entity.schedule?.startAt
-  const started = isConcreteStart(st) && (st as number) <= now
-  if (started) {
-    // Running until it has an endAt in the past (or is otherwise closed) → then it's complete.
-    return isClosed(entity, now) ? "reopen" : "stop"
-  }
-  // Not yet started. If it's somehow already closed (e.g. cancelled), offer reopen; else play.
-  return isClosed(entity, now) ? "reopen" : "play"
+  if (!PLAYABLE_KINDS.has(entity.kind)) return null
+  if (isClosed(entity, now)) return "reopen"
+  if (isOwnOngoing(entity, now)) return "stop"
+  return "play"
 }
 
 /** The OCCURRENCE marks tallied on an instant (zero-length `via:"mark"` sessions), newest
@@ -1101,8 +1103,10 @@ export function isClosed(entity: Entity, now: number = Date.now()): boolean {
   return w === "closed" || w === "dead" || w === "retired" || w === "cancelled"
 }
 
-/** Kinds that go ONGOING automatically the moment you enter them (open an auto ongoing span). */
-export const ONGOING_ON_ENTER: ReadonlySet<EntityKind> = new Set(["task", "resource", "space"])
+/** Kinds that go ONGOING automatically the moment you enter them (open an auto ongoing span).
+ *  Includes the raw Idea (`entity`): drilling into an idea to shape it is itself working on it,
+ *  so its glyph spins on enter (per the bible STATUS row). Instants/beings/soul never auto-play. */
+export const ONGOING_ON_ENTER: ReadonlySet<EntityKind> = new Set(["entity", "task", "resource", "space"])
 
 /**
  * Whether entering `entity` should AUTO-open an ongoing span (the "auto" flavor). True for an

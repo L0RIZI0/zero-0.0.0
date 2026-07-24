@@ -17,8 +17,7 @@
 // a Face at any resolution. Kept free of React on purpose.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import type { Entity, EntityKind, Whenever } from "./types"
-import { WHENEVER } from "./types"
+import type { Entity, EntityKind } from "./types"
   import { KIND_META, isClosed, fillsGlyph, getState, isOngoing, getOngoingSince, concreteStart, effectiveScheduleEnd, ongoingOpenSession, occurrenceAction, isBeing, isLifeBeing, individualBornAt, getPublishedAt, lifeAnchor, isMarkable, getMarks, getSessions, getInstantMaxNb, isInstantMaxNbHard, getInstantOccurrenceCount, type EntityState } from "./kinds"
 import { isDone, getCreatedAt, getCompletedOn } from "./entity-log"
 import { getEntity, getCreator, getOwner, getForwardTags, getBackReferences, getChildren } from "./data"
@@ -182,8 +181,7 @@ export function aggregateMetaRows(agg: FaceAggregate, now: number, size: "l" | "
 
 // Format an epoch (ms) for the meta readout. Only ever called under the `mounted`
 // gate, so it's client-only — no SSR/static-export time-freeze hydration trap.
-export function fmt(epoch?: number | Whenever): string {
-  if (epoch === WHENEVER) return "whenever"
+export function fmt(epoch?: number): string {
   if (!epoch) return "—"
   return new Date(epoch).toLocaleString(formatLocale())
   }
@@ -406,11 +404,10 @@ export function fmtShort(epoch: number, now: number): string {
 // title + state already say it all. `now` drives the live ongoing count-up.
 export function metaEcho(e: Entity, now: number): string {
   const s = e.schedule
-  // A start/end/at span shared by moments AND scheduled tasks. "whenever" has no clock
-  // time, so it reads as the word (its live time, if any, comes from an open session).
+  // A start/end/at span shared by moments AND scheduled tasks. An unplanned (no startAt)
+  // playable entity shows no span here — its live time, if any, comes from an open session.
   const span = (): string => {
     const cs = concreteStart(e)
-    if (s?.startAt === WHENEVER) return "whenever"
     if (cs != null && s?.endAt != null)
       return `${fmtShort(cs, now)}–${fmtShort(s.endAt, now)} · ${formatDuration(Math.max(0, s.endAt - cs))}`
     if (cs != null) return `since ${fmtShort(cs, now)} · ${formatDuration(Math.max(0, now - cs))}`
@@ -774,9 +771,8 @@ export function getOngoingDurationCells(
 export type OccurrenceStatus = "cancelled" | "fulfilled" | "missed" | "upcoming"
 
 export interface PlannedOccurrence {
-  startAt?: number // concrete epoch, or undefined ("whenever"/open)
+  startAt?: number // concrete epoch, or undefined (open/unplanned)
   endAt?: number
-  whenever?: boolean // startAt is the WHENEVER sentinel (playable, no fixed time)
   cancelled?: boolean
   primary?: boolean // the scalar span (vs an occurrences[] entry)
 }
@@ -822,10 +818,9 @@ export function occurrenceStatus(
 export function getPlannedOccurrences(e: Entity): PlannedOccurrence[] {
   const s = e.schedule
   const list: PlannedOccurrence[] = []
-  const cs = concreteStart(e) // concrete epoch, else null ("whenever"/unset)
-  const isWhenever = s?.startAt === WHENEVER
-  if (cs != null || s?.endAt != null || isWhenever) {
-    list.push({ startAt: cs ?? undefined, endAt: s?.endAt, whenever: isWhenever, primary: true })
+  const cs = concreteStart(e) // concrete epoch, else null (unset)
+  if (cs != null || s?.endAt != null) {
+    list.push({ startAt: cs ?? undefined, endAt: s?.endAt, primary: true })
   }
   for (const occ of s?.occurrences ?? []) {
     list.push({ startAt: occ.startAt, endAt: occ.endAt, cancelled: occ.cancelled })
@@ -846,11 +841,10 @@ export function occurrenceStatusWord(status: OccurrenceStatus): string {
   return status === "fulfilled" ? "matched" : status // missed | upcoming | cancelled
 }
 
-/** One planned occurrence rendered as `<when>[–<end>] (<matched|missed|…>)`; sentinel/open handled. */
+/** One planned occurrence rendered as `<when>[–<end>] (<matched|missed|…>)`; open/unset handled. */
 function formatPlannedOccurrence(occ: PlannedOccurrence, status: OccurrenceStatus, now: number): string {
-  const when = occ.whenever
-    ? "whenever"
-    : occ.startAt != null
+  const when =
+    occ.startAt != null
       ? fmtShort(occ.startAt, now)
       : occ.endAt != null
         ? `by ${fmtShort(occ.endAt, now)}`
