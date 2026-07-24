@@ -1003,21 +1003,30 @@ export function Zero0Canvas() {
   const toggleDone = useCallback(
     (e: Entity) => {
       if (!KIND_META[e.kind].hasDoneFlag) return
-      if (hasOpenSession(e, "play")) {
-        closeSession(e.id, "play") // STOP ongoing; keep focus/presence
-        playOpenRef.current.delete(e.id)
+      const openPlay = getOpenSession(e, "play")
+      if (openPlay) {
+        // Spinning ⇒ hold/stop, same in-place-vs-remote split as togglePlaySession: an AUTO span you
+        // are viewing PAUSES (presence keeps ticking); a REMOTE span, or any span on a row you're not
+        // inside, hard-Stops.
+        if (openPlay.auto && e.id === contextId) pauseOngoing(e.id)
+        else {
+          closeSession(e.id, "play")
+          playOpenRef.current.delete(e.id)
+        }
         return bump()
       }
       const nowDone = !isDone(e)
       setEntityCompleted(e.id, nowDone)
       if (!nowDone && canAutoPlay(e) && path.includes(e.id)) {
-        // Un-done in place while still viewing it → resume ongoing now (auto, like enter — keeps it
-        // off the recorded rail + OCCURRENCES tally).
-        if (openSession(e.id, "play", Date.now(), { auto: true })) playOpenRef.current.add(e.id)
+        // Un-done in place while still viewing it → RESUME ongoing now. Must be `resumed` (not an
+        // auto openSession, which logs nothing and wouldn't reopen a span with no fresh `accessed`):
+        // undone cleared the fold's `blocked`, so `resumed` reopens the auto span immediately. This
+        // is the fix for the static-glyph bug (in-place un-done stayed at rest until nav away+back).
+        if (resumeOngoing(e.id, Date.now(), { auto: true })) playOpenRef.current.add(e.id)
       }
       bump()
     },
-    [bump, path],
+    [bump, path, contextId],
   )
 
   // PLAY / STOP on a MOMENT/SPACE glyph (v0.6.26) — both open/close a `via:"play"` SESSION (bottom
