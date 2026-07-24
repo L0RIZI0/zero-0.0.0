@@ -511,6 +511,31 @@ const preparedPartitions = new Set()
 // Chrome version is kept roughly aligned with the bundled Chromium.
 const RESOURCE_UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
+const RESOURCE_UA_CH_VERSION = "136"
+
+// User-Agent CLIENT HINTS to match RESOURCE_UA. Spoofing only navigator.userAgent /
+// the UA header is NOT enough for Google's OAuth "secure browser" check: modern
+// Chromium ALSO sends `Sec-CH-UA…` client-hint headers, and Electron's still list
+// `"Electron"` as a brand AND report the real OS in `Sec-CH-UA-Platform` — which
+// contradicts our Windows/Chrome UA and flags us as an embedded/untrusted browser
+// ("Couldn't sign you in"). We overwrite the low-entropy hints to a clean Chrome
+// identity and DROP the high-entropy ones (full-version-list etc.) so no Electron
+// brand can leak through. Kept consistent with the Windows UA above.
+const RESOURCE_CLIENT_HINTS = {
+  "sec-ch-ua": `"Chromium";v="${RESOURCE_UA_CH_VERSION}", "Google Chrome";v="${RESOURCE_UA_CH_VERSION}", "Not.A/Brand";v="99"`,
+  "sec-ch-ua-mobile": "?0",
+  "sec-ch-ua-platform": '"Windows"',
+}
+// High-entropy client hints that would otherwise re-expose Electron / the real OS.
+const RESOURCE_CLIENT_HINTS_DROP = [
+  "sec-ch-ua-full-version",
+  "sec-ch-ua-full-version-list",
+  "sec-ch-ua-platform-version",
+  "sec-ch-ua-arch",
+  "sec-ch-ua-bitness",
+  "sec-ch-ua-model",
+  "sec-ch-ua-wow64",
+]
 
 /**
  * Make a partitioned session embeddable. Sites defend against being embedded with
@@ -556,11 +581,23 @@ function prepareResourceSession(partition) {
     callback({ responseHeaders: headers })
   })
 
-  // Send a Chrome-like UA on the request side too (some sites sniff the header,
-  // not just navigator.userAgent).
+  // Send a Chrome-like UA + matching client hints on the request side too. Sites
+  // (Google's OAuth especially) sniff BOTH the UA header and the `Sec-CH-UA…` client
+  // hints, so we rewrite the UA, overwrite the low-entropy hints to a clean Chrome
+  // identity, and drop the high-entropy ones that would re-leak Electron / the real OS.
   ses.webRequest.onBeforeSendHeaders((details, callback) => {
-    details.requestHeaders["User-Agent"] = RESOURCE_UA
-    callback({ requestHeaders: details.requestHeaders })
+    const h = details.requestHeaders
+    h["User-Agent"] = RESOURCE_UA
+    // Overwrite/normalize case-insensitively: delete any existing sec-ch-ua* first so a
+    // differently-cased Electron-supplied header can't survive alongside ours.
+    for (const key of Object.keys(h)) {
+      if (key.toLowerCase().startsWith("sec-ch-ua")) delete h[key]
+    }
+    for (const [k, v] of Object.entries(RESOURCE_CLIENT_HINTS)) h[k] = v
+    // (DROP list is implicitly satisfied — we removed all sec-ch-ua* and only re-added
+    // the three low-entropy hints — but keep the constant as the explicit contract.)
+    void RESOURCE_CLIENT_HINTS_DROP
+    callback({ requestHeaders: h })
   })
 }
 

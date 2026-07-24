@@ -1520,7 +1520,7 @@ export function Zero0Canvas() {
         <Zero0WindowControls />
       </div>
 
-      {/* ── §4 PINS BAND (topmost, just under the clock) ──────────���────────��────
+      {/* ── §4 PINS BAND (topmost, just under the clock) ──────────���───��────��────
           The repurposed §4 frame: a horizontal row of colored chips for every ONGOING
           entity (glyph + title). Click a chip to drill in; click its spinning glyph to
           END it. UNLIKE the other frames this has NO footer toggle — it is purely
@@ -1741,8 +1741,13 @@ export function Zero0Canvas() {
                 {logExpanded && (
                   <ol className="mt-1 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-[10px] tabular-nums">
                     {context.log.map((entry, i) => (
-                      <li key={i} className="contents">
-                        <span className="shrink-0 text-muted-foreground">{fmt(entry.at)}</span>
+                      <li key={entry.id ?? i} className="contents">
+                        <span className="shrink-0 text-muted-foreground">
+                          {/* Per-entity log id — a dev aid (the stable handle a CORRECTION targets).
+                              Muted `#n` prefix so the timestamp still leads visually. */}
+                          {entry.id != null && <span className="mr-1.5 opacity-40">{`#${entry.id}`}</span>}
+                          {fmt(entry.at)}
+                        </span>
                         <span className="truncate text-foreground">{describeLogEntry(entry, fmtLogValue)}</span>
                       </li>
                     ))}
