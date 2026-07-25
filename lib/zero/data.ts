@@ -2733,15 +2733,18 @@ export function addMoment(input: { title: string; contextId: string }): Entity {
 }
 
 export function addInstant(input: { title: string; contextId: string }): Entity {
-  // An instant is a single point in time (down-triangle). It defaults to noon
-  // today exactly; sub-minute precision is free now that `at` is absolute ms.
+  // An instant is a single point in time (down-triangle). With no explicit time it
+  // defaults to NOW — the moment of creation — so a fresh instant lands on the
+  // now-marker (matches "a mark is a point acknowledged now"). The old noon default
+  // was a temporary placeholder (and used the stale module-load START_OF_TODAY anchor,
+  // so it wasn't even noon *today* on a long-running session).
   const entity: Entity = {
     id: uid("i"),
     kind: "instant",
     title: input.title,
     parentId: input.contextId,
     taggedContextIds: [],
-    schedule: { at: t(12) },
+    schedule: { at: Date.now() },
   }
   entities.push(entity)
   byId.set(entity.id, entity)
@@ -2755,7 +2758,7 @@ export function addInstant(input: { title: string; contextId: string }): Entity 
  * anywhere in the title — e.g. "Standup --4pm", "Ping --16:30", "Call --9:15am",
  * "Sync --7" — and returns the CLEANED title (token stripped) plus an absolute
  * epoch for TODAY at that time. No / invalid token → `{ title, at: undefined }`
- * and the caller keeps the default noon. Intentionally minimal: a proper time
+ * and the caller keeps the default (now). Intentionally minimal: a proper time
  * picker comes later; this just lets the user scatter instants across the day.
  */
 export function parseInstantTime(raw: string): { title: string; at?: number } {
@@ -2907,7 +2910,10 @@ export function changeEntityKind(id: string, kind: EntityKind): void {
   } else if (kind === "moment") {
     entity.schedule = { startAt: t(12), endAt: t(13), ...entity.schedule }
   } else if (kind === "instant") {
-    entity.schedule = { at: t(12), ...entity.schedule }
+    // Default a freshly-picked instant to NOW (moment of creation) — lands on the now-marker,
+    // matches "a mark is a point acknowledged now". The old noon `t(12)` was a temporary
+    // scaffold (and used the stale module-load anchor, so not even noon *today*).
+    entity.schedule = { at: Date.now(), ...entity.schedule }
   } else if (kind === "resource" || kind === "community" || kind === "organism") {
     // All container-like: they hold things and carry a blurb. (Organism is the
     // only identity-triad kind that's user-creatable; individual/soul are seeded
