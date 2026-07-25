@@ -14,6 +14,11 @@ node_modules
 .next/
 .DS_Store
 
+# Throwaway WebView2 M0 spike build artifacts (the source in spike/ is kept for reference)
+spike/**/bin/
+spike/**/obj/
+spike/**/zero-spike-profile/
+
 # Electron build outputs
 out/
 release/
