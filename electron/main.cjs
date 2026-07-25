@@ -698,18 +698,42 @@ function fpLog(msg) {
  * OnNewDocument` works without it (as it did in 195/197, which loaded fine). We just attach +
  * addScript and await that one command. The caller additionally races this with a timeout so a
  * slow/failed arm can never again block navigation.
+ *
+ * v0.2.200: the 198 diagnostic log showed EVERY arm FAILED with "target closed while handling
+ * command" — i.e. the CDP script was never actually injected in ANY build (195/197/198), so the
+ * disguise was only ever header/UA-deep. Root cause: we attached + sent the command at view
+ * CREATION time, before the WebContentsView's renderer target was stably alive (and before it
+ * was added to the window), so the initial target closed mid-command. FIX: (1) the caller now
+ * arms AFTER `addChildView`; (2) we RETRY with reattach + backoff so a transient "target closed"
+ * during target setup is ridden out; (3) log each attempt so the outcome is unambiguous.
  */
 async function applyFingerprintPatch(webContents, tag = "resource") {
-  try {
-    const dbg = webContents.debugger
-    if (!dbg.isAttached()) dbg.attach("1.3")
-    await dbg.sendCommand("Page.addScriptToEvaluateOnNewDocument", {
-      source: buildFingerprintPatch(RESOURCE_UA_CH_VERSION),
-    })
-    fpLog(`patch ARMED (${tag})`)
-  } catch (err) {
-    fpLog(`patch FAILED (${tag}): ${err?.message || err}`)
+  const source = buildFingerprintPatch(RESOURCE_UA_CH_VERSION)
+  const MAX_ATTEMPTS = 5
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    if (webContents.isDestroyed()) {
+      fpLog(`patch ABORTED (${tag}): webContents destroyed before arm`)
+      return
+    }
+    try {
+      const dbg = webContents.debugger
+      if (!dbg.isAttached()) dbg.attach("1.3")
+      await dbg.sendCommand("Page.addScriptToEvaluateOnNewDocument", { source })
+      fpLog(`patch ARMED (${tag}) attempt=${attempt}`)
+      return
+    } catch (err) {
+      const msg = err?.message || String(err)
+      fpLog(`patch attempt ${attempt}/${MAX_ATTEMPTS} failed (${tag}): ${msg}`)
+      // Detach so the next attempt gets a clean attach against the (hopefully now stable) target.
+      try {
+        if (webContents.debugger.isAttached()) webContents.debugger.detach()
+      } catch {
+        /* ignore */
+      }
+      await new Promise((r) => setTimeout(r, 200 * attempt))
+    }
   }
+  fpLog(`patch GAVE UP (${tag}) after ${MAX_ATTEMPTS} attempts`)
 }
 
 /**
@@ -797,13 +821,15 @@ ipcMain.handle("zero:resource:mount", async (_e, args) => {
     },
   })
   view.setBackgroundColor("#ffffff")
+  view.setBounds(toBounds(rect))
+  mainWindow.contentView.addChildView(view)
   // Finish the Chrome disguise in the page's main world (headers alone don't fool Google's
   // JS `userAgentData` check). MUST be fully armed before the first navigation — we await
   // this promise right before loadURL below, otherwise the first document (e.g. Google's
-  // login page) loads before the CDP script registers.
+  // login page) loads before the CDP script registers. Armed AFTER addChildView (v0.2.200) so
+  // the renderer target is stably alive — arming at creation raced target setup and every
+  // command failed with "target closed" (the disguise never actually applied in 195–198).
   const fpReady = applyFingerprintPatch(view.webContents)
-  view.setBounds(toBounds(rect))
-  mainWindow.contentView.addChildView(view)
   view.__zeroLoaded = false
   resourceViews.set(id, view) // newest ⇒ MRU (back of the LRU order)
   // A freshly opened tab may push us over the warm cap; retire the oldest parked one.
@@ -933,10 +959,12 @@ ipcMain.handle("zero:resource:mount", async (_e, args) => {
   try {
     // Ensure the fingerprint disguise is armed BEFORE the first navigation, so the very
     // first document (often the Google login page itself) is patched, not just later ones.
-    // SAFETY: race the arm against a short timeout so a slow/hung CDP call can NEVER again
-    // block navigation (the 198 spinner-forever regression). Worst case we lose the disguise
-    // on the very first document but the page still loads.
-    await Promise.race([fpReady, new Promise((r) => setTimeout(r, 2500))])
+    // SAFETY: race the arm against a timeout so a slow/hung CDP call can NEVER again block
+    // navigation (the 198 spinner-forever regression). 3s comfortably covers the first few
+    // retry attempts (0/200/600/1200ms backoff); if the arm still hasn't landed we load anyway
+    // (worst case: the very first document is unpatched, but the retry keeps arming in the
+    // background so subsequent documents in the same view get the disguise).
+    await Promise.race([fpReady, new Promise((r) => setTimeout(r, 3000))])
     await view.webContents.loadURL(url)
   } catch (err) {
     console.log(`[v0] resource:loadURL threw id=${id} ${err?.message || err}`)
