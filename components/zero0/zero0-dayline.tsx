@@ -57,8 +57,9 @@ const DEFAULT_PRESENCE = "#ffffff"
 //     session (the current leaf). One continuous, non-overlapping line — the declarable/correctable
 //     ACCESS record (`--sessionStart/End` slides it). Ancestor focus sessions still exist for state
 //     + rollup but are NOT drawn (killing the old A>B>C>D overlap mud). See the `spine` memo.
-//   • the RECORDED rail (BOTTOM) — MANUAL activity only: PLAY stopwatches + instant MARKS. Auto
-//     focus sessions are NOT here (they're the middle spine).
+//   • the RECORDED rail (BOTTOM) — REMOTELY-PLAYED entities only (v0.7): deliberate glyph/menu
+//     Play stopwatches (non-auto `via:"play"` sessions that survive navigation). Auto-plays +
+//     focus sessions are the middle spine; instant marks now live only as the glyph pulse.
 // The pure PRESENCE truth rail (machine-observed, unmodifiable) is NOT on this lane — it lives on
 // the standalone ACTIVITY dayline (`tracks="presence"`), untouched, and is a SEPARATE record from
 // the correctable ACCESS spine by design.
@@ -273,7 +274,7 @@ interface DaylineBar {
   // Which conceptual rail this bar belongs to (used for styling + a11y wording; the actual
   // rail ROUTING in the combined lane is by lane-index / `sess:` key, not this field):
   //   planned  = top rail    — declared/scheduled OCCURRENCES (the plan)
-  //   recorded = bottom rail  — MANUAL activity: play stopwatches + instant marks (sessions)
+  //   recorded = bottom rail  — remote-play stopwatches only (non-auto `via:"play"` sessions)
   //   middle   = middle spine — current-leaf focus/ACCESS
   //   presence = the standalone Activity dayline's machine-observed presence
   track: "planned" | "recorded" | "presence" | "middle"
@@ -416,18 +417,6 @@ export function Zero0Dayline({
   // escape the canvas collapse wrapper's `overflow-hidden`, so it needs absolute
   // viewport coords rather than the in-lane percent the full-mode tooltip rides.
   const [hoverAnchor, setHoverAnchor] = useState<{ x: number; y: number } | null>(null)
-  // Hover state for the NOW marker's time tooltip.
-  const [nowHover, setNowHover] = useState(false)
-  // A per-SECOND clock, live ONLY while the NOW marker is hovered, so the marker's
-  // tooltip can tick seconds without the whole app running a 1s interval (`useNow`
-  // is per-minute). Idle otherwise.
-  const [nowSec, setNowSec] = useState(() => Date.now())
-  useEffect(() => {
-    if (!nowHover) return
-    setNowSec(Date.now())
-    const id = setInterval(() => setNowSec(Date.now()), 1000)
-    return () => clearInterval(id)
-  }, [nowHover])
 
   const lo = winStart - RENDER_MARGIN_MS
   const hi = winStart + DAY_MS + RENDER_MARGIN_MS
@@ -564,16 +553,18 @@ export function Zero0Dayline({
       type Run = { start: number; end: number; open: boolean; via?: string; auto?: boolean; count: number }
       const runs: Run[] = []
       for (const sess of [...list].sort((a, b) => a.startAt - b.startAt)) {
-        // v0.6.34: an AUTO play (ongoing-on-enter) is presence-like — it belongs to the MIDDLE
-        // access spine via its twin focus session, NOT the recorded (manual) rail. Skip it here.
-        if (sess.via === "play" && sess.auto) continue
+        // v0.7: the BOTTOM (recorded) rail is now EXCLUSIVELY for REMOTELY-PLAYED entities — a
+        // deliberate glyph/menu Play (a NON-auto `via:"play"` session that survives navigation).
+        // Everything else is skipped here: an AUTO play (ongoing-on-enter) is presence-like and
+        // belongs to the MIDDLE access spine via its twin focus session; an instant MARK now lives
+        // only as the glyph one-shot pulse (no dayline tick); focus/legacy sessions are the access
+        // spine. So we collect non-auto plays only, and the whole rail reads "what I remote-played".
+        if (sess.via !== "play" || sess.auto) continue
         const sOpen = sess.endAt == null
         const sEnd = sess.endAt ?? now
         const cur = runs[runs.length - 1]
-        // A MARK (instant occurrence) is a discrete point in a tally — never coalesce it (nor
-        // coalesce anything INTO it), so each mark stays its own dot on the dayline (Loris:
-        // "each mark should give an Instant on the dayline"). Only session runs merge.
-        const mergeable = cur && !cur.open && cur.via !== "mark" && sess.via !== "mark"
+        // Only closed runs merge into a coalesced span (can't merge past a still-open one).
+        const mergeable = cur && !cur.open
         if (mergeable && sess.startAt - cur.end <= SESSION_MERGE_GAP_MS) {
           cur.end = Math.max(cur.end, sEnd)
           cur.open = cur.open || sOpen
@@ -584,11 +575,8 @@ export function Zero0Dayline({
         }
       }
       runs.forEach((run, i) => {
-        // v0.6.21 THREE-RAIL: the BOTTOM (recorded) rail is now MANUAL activity only — PLAY
-        // stopwatches + instant MARKS. FOCUS sessions (auto entry→exit / dwell, `via` focus or
-        // legacy undefined) are the ACCESS record and render as the collapsed leaf-spine on the
-        // MIDDLE rail (see the `spine` memo below), so they're skipped here.
-        if (run.via !== "play" && run.via !== "mark") return
+        // Every run here is a non-auto (remote) PLAY — the collection loop above already dropped
+        // auto-plays, marks, and focus/access sessions (those live on the MIDDLE spine).
         const rawStart = run.start
         const open = run.open
         const rawEnd = open ? now : run.end
@@ -600,7 +588,7 @@ export function Zero0Dayline({
         const en = Math.min(rawEnd, hi)
         const leftPct = ((st - winStart) / DAY_MS) * 100
         const widthPct = Math.max(0, ((en - st) / DAY_MS) * 100)
-        const kindLabel = run.via === "play" ? "play" : run.via === "mark" ? "occurrence" : "focus"
+        const kindLabel = "play"
         const merged = run.count > 1 ? ` · ${run.count} sessions` : ""
         out.push({
           key: `sess:${e.id}:${i}`,
@@ -614,9 +602,8 @@ export function Zero0Dayline({
           range: open
             ? `${rangeText(rawStart, rawEnd)} · ${kindLabel} · ongoing${merged}`
             : `${rangeText(rawStart, rawEnd)} · ${kindLabel}${merged}`,
-    track: "recorded", // bottom rail — manual play/mark activity
+    track: "recorded", // bottom rail — remote-play activity only (v0.7)
     point: en <= st,
-    markGlyph: run.via === "mark", // occurrence ⇒ draw a small instant glyph
           // Open run's right edge IS now → anchored + joins the ongoing stack.
           openEnded: open,
           // An OPEN session run is "happening now, end unknown" — trail the same rightward
@@ -1544,34 +1531,23 @@ export function Zero0Dayline({
                 className="pointer-events-none absolute inset-0 will-change-transform"
               >
                 <div
-                  className="pointer-events-auto absolute -bottom-px -top-px w-px -translate-x-1/2"
+                  className="pointer-events-none absolute -bottom-px -top-px w-px -translate-x-1/2"
                   style={{ left: `${nowPct}%`, backgroundColor: NOW_COLOR }}
                 >
+                  {/* Little downward-pointing triangle capping the TOP of the marker line
+                      (its apex points down into the line). The marker is now purely a 1px
+                      orange line + this cap — no hover, no tooltip. */}
                   <span
-                    // Narrow hit strip hugging the marker LINE only (was w-4/16px, which
-                    // overhung nearby ticks and stole their hover). ~6px keeps the marker
-                    // easy to hover without blanketing adjacent presence/planned ticks.
-                    className="absolute -bottom-1 -top-1 left-1/2 w-1.5 -translate-x-1/2 cursor-default"
-                    onMouseEnter={() => setNowHover(true)}
-                    onMouseLeave={() => setNowHover(false)}
+                    aria-hidden
+                    className="absolute left-1/2 top-0 -translate-x-1/2 -translate-y-full"
+                    style={{
+                      width: 0,
+                      height: 0,
+                      borderLeft: "3px solid transparent",
+                      borderRight: "3px solid transparent",
+                      borderTop: `4px solid ${NOW_COLOR}`,
+                    }}
                   />
-                  <span
-                    className={cn(
-                      // Float ABOVE the marker (its bottom edge sits just over the
-                      // marker's top) instead of superposed on the line.
-                      "pointer-events-none absolute bottom-full left-1/2 mb-1 -translate-x-1/2 whitespace-nowrap rounded border border-border/70 bg-card px-2 py-1 text-[10.5px] font-medium leading-none tracking-tight tabular-nums text-foreground/80 shadow-sm transition-opacity duration-150",
-                      // A hovered BAR always wins: suppress the NOW tooltip so a tick near
-                      // the marker shows its own tooltip instead of the clock.
-                      nowHover && !hovered ? "opacity-100" : "opacity-0",
-                    )}
-                  >
-                {new Date(nowHover ? nowSec : now).toLocaleTimeString(formatLocale(), {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                  second: "2-digit",
-                  hour12: false,
-                })}
-                  </span>
                 </div>
               </div>
             </div>
