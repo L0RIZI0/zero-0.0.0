@@ -2908,7 +2908,11 @@ export function changeEntityKind(id: string, kind: EntityKind): void {
     entity.description = entity.description ?? ""
     entity.assignedResourceIds = entity.assignedResourceIds ?? []
   } else if (kind === "moment") {
-    entity.schedule = { startAt: t(12), endAt: t(13), ...entity.schedule }
+    // Default a freshly-picked moment to a now → now+1h block (parity with the instant=now
+    // default). The old noon→1pm `t(12)`/`t(13)` was a temporary scaffold on the stale
+    // module-load anchor (not even today on a long-running session).
+    const startNow = Date.now()
+    entity.schedule = { startAt: startNow, endAt: startNow + 60 * 60 * 1000, ...entity.schedule }
   } else if (kind === "instant") {
     // Default a freshly-picked instant to NOW (moment of creation) — lands on the now-marker,
     // matches "a mark is a point acknowledged now". The old noon `t(12)` was a temporary

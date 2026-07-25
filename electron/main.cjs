@@ -415,6 +415,15 @@ ipcMain.on("zero:locale", (event) => {
   event.returnValue = osFormatLocale()
 })
 
+// The REAL running build version (`app.getVersion()` = the packaged package.json
+// version the CI stamped from the release tag). Synchronous so the header can show
+// the TRUE version at first paint. This is the self-correcting source of truth —
+// the web `ZERO_VERSION` constant is only a fallback for the browser build, and can
+// no longer drift out of step with what the desktop app actually shipped.
+ipcMain.on("zero:app-version", (event) => {
+  event.returnValue = app.getVersion()
+})
+
 // A second launch of the exe lands here in the PRIMARY process instead of starting
 // a new one. Open another window in this process — it shares storage with the
 // existing window(s) and live-syncs via the storage event. Best-effort: only once

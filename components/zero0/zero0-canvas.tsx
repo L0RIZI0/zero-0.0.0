@@ -249,6 +249,12 @@ export function Zero0Canvas() {
   // Whether we're in the Electron desktop app (native web views occlude the DOM, so
   // menus over an open Resource must be drawn in the native overlay window).
   const [isDesktop, setIsDesktop] = useState(false)
+  // The build version shown in the header. Starts at the web `ZERO_VERSION` constant (also
+  // the SSR value, so hydration matches), then post-mount adopts the REAL running version
+  // from the desktop bridge (`window.zero.appVersion` = app.getVersion()) when present — so
+  // the desktop header always reflects the ACTUAL shipped build and can't drift from the
+  // hand-maintained constant (the bug that made 195/196 look un-applied).
+  const [displayVersion, setDisplayVersion] = useState(ZERO_VERSION)
   // The onSelect callback for the CURRENTLY-open NATIVE overlay menu. The overlay echoes
   // the chosen action id back through a single persistent IPC listener, which dispatches
   // to whatever this points at (entity action, or a sibling-nav closure).
@@ -1382,6 +1388,10 @@ export function Zero0Canvas() {
   // Detect the Electron desktop shell (only there do native web views occlude the DOM).
   useEffect(() => {
     setIsDesktop(typeof window !== "undefined" && !!window.zero?.menu)
+    // Adopt the REAL shipped version from the desktop bridge (falls back to ZERO_VERSION on
+    // web / older shells). app.getVersion() has no "v" prefix, so add one to match the tag.
+    const real = typeof window !== "undefined" ? window.zero?.appVersion : null
+    if (real) setDisplayVersion(real.startsWith("v") ? real : `v${real}`)
   }, [])
 
   // Route the NATIVE overlay menu's chosen action back to whatever opened it. One
@@ -1600,7 +1610,7 @@ export function Zero0Canvas() {
               the end of the identity line (right-aligned) so it's always in view, even
               in web-resource view where only the top of this header shows. */}
           <span className="ml-auto text-muted-foreground/70" title="Build version">
-            {ZERO_VERSION}
+            {displayVersion}
           </span>
         </div>
         {/* MINIMIZED — just the breadcrumb (with its trailing SIBLINGS chevron), tight

@@ -23,6 +23,18 @@ contextBridge.exposeInMainWorld("zero", {
     }
   })(),
 
+  /** The REAL running build version (`app.getVersion()`, e.g. "0.2.196"), resolved
+   *  synchronously at load so the header shows the TRUE shipped version instead of the
+   *  hand-maintained web `ZERO_VERSION` constant (which drifted out of step twice). Null
+   *  if it couldn't be read. */
+  appVersion: (() => {
+    try {
+      return ipcRenderer.sendSync("zero:app-version")
+    } catch {
+      return null
+    }
+  })(),
+
   // ── STEP 2 anchor: native resource host ──────────────────────────────────
   // These are the calls ResourceCanvas will use once the native view lands in
   // main. They are safe no-op-ish stubs today (main doesn't handle them yet), so

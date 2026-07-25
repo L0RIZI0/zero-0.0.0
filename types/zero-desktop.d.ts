@@ -16,6 +16,9 @@ export interface ZeroDesktopBridge {
    *  so formatting honors the device region / 24h settings (Electron's V8 otherwise
    *  defaults Intl to en-US). */
   locale: string | null
+  /** The REAL running build version (`app.getVersion()`, e.g. "0.2.196"), or null. The
+   *  header prefers this over the web `ZERO_VERSION` constant so it can't drift. */
+  appVersion: string | null
   resource: {
     mount: (args: ZeroResourceMountArgs) => Promise<void>
     setBounds: (args: { id: string; rect: ZeroResourceMountArgs["rect"] }) => void
