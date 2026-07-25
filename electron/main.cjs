@@ -729,7 +729,24 @@ function fpLog(msg) {
  * was added to the window), so the initial target closed mid-command. FIX: (1) the caller now
  * arms AFTER `addChildView`; (2) we RETRY with reattach + backoff so a transient "target closed"
  * during target setup is ridden out; (3) log each attempt so the outcome is unambiguous.
+ *
+ * v0.2.202: the 201 log showed the arm "succeeding" but `window.__zeroFp` was NULL in the page
+ * and the native Chromium userAgentData survived — i.e. `addScriptToEvaluateOnNewDocument`
+ * RESOLVED but its script NEVER RAN. That's the signature of the Page domain not being enabled:
+ * the command is accepted but no document-creation hook fires without `Page.enable`. We removed
+ * `Page.enable` in 199 because it HUNG — but that hang was caused by arming at CREATION time
+ * (target not alive), which 200 fixed by arming after addChildView. So we now `Page.enable`
+ * again, but each CDP call is wrapped in `sendWithTimeout` so a stuck call can never hang the
+ * arm (and the caller still races the whole arm against a timeout before loadURL). Belt +
+ * braces: navigation can never be blocked again, and the injection finally actually runs.
  */
+function sendWithTimeout(dbg, method, params, ms) {
+  return Promise.race([
+    dbg.sendCommand(method, params || {}),
+    new Promise((_resolve, reject) => setTimeout(() => reject(new Error(`${method} timed out after ${ms}ms`)), ms)),
+  ])
+}
+
 async function applyFingerprintPatch(webContents, tag = "resource") {
   const source = buildFingerprintPatch(RESOURCE_UA_CH_VERSION)
   const MAX_ATTEMPTS = 5
@@ -741,7 +758,11 @@ async function applyFingerprintPatch(webContents, tag = "resource") {
     try {
       const dbg = webContents.debugger
       if (!dbg.isAttached()) dbg.attach("1.3")
-      await dbg.sendCommand("Page.addScriptToEvaluateOnNewDocument", { source })
+      // Page.enable is REQUIRED for addScriptToEvaluateOnNewDocument to actually run its script
+      // (201 proved that: without it the command resolves but the script never executes).
+      // Timeout-guarded so a stuck enable can't hang the arm (the 198 spinner-forever bug).
+      await sendWithTimeout(dbg, "Page.enable", {}, 1500)
+      await sendWithTimeout(dbg, "Page.addScriptToEvaluateOnNewDocument", { source }, 1500)
       fpLog(`patch ARMED (${tag}) attempt=${attempt}`)
       return
     } catch (err) {
