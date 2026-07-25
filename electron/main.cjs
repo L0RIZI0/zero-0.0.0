@@ -524,9 +524,14 @@ const preparedPartitions = new Set()
 // A modern Chrome UA. Electron's default UA contains "Electron/…" and the app
 // name, which some sites (Google included) treat as an unsupported browser. The
 // Chrome version is kept roughly aligned with the bundled Chromium.
+// v0.2.201: version MUST match the bundled Chromium major. The 200 diagnostic showed the
+// page's NATIVE userAgentData reports Chromium 148 (fullVersionList 148.0.7778.265) — but we
+// were claiming Chrome/136 in the UA string. A UA(136) vs UA-CH(148) mismatch is itself a bot
+// tell, and if the JS override fails the native 148 leaks anyway. So we align everything to the
+// real Chromium major so header, UA string, and (if it lands) the JS patch all agree.
 const RESOURCE_UA =
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
-const RESOURCE_UA_CH_VERSION = "136"
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36"
+const RESOURCE_UA_CH_VERSION = "148"
 
 // User-Agent CLIENT HINTS to match RESOURCE_UA. Spoofing only navigator.userAgent /
 // the UA header is NOT enough for Google's OAuth "secure browser" check: modern
@@ -626,8 +631,16 @@ function prepareResourceSession(partition) {
  * `navigator.webdriver`. Kept in sync with RESOURCE_UA + RESOURCE_CLIENT_HINTS above.
  */
 function buildFingerprintPatch(chVersion) {
-  const V = String(chVersion || "136")
+  const V = String(chVersion || "148")
   return `(() => {
+  // v0.2.201 DIAGNOSTIC: record on window.__zeroFp whether this script ran (and in which
+  // world — the probe reads it via executeJavaScript in the MAIN world, so if __zeroFp is
+  // undefined there, the CDP script ran in a DIFFERENT world = the real bug) and exactly
+  // which override threw. The 200 log showed native Chromium-148 values surviving despite a
+  // "patch ARMED", so an override is silently failing OR we're patching the wrong world.
+  var diag = { ran: true, world: "main?", errors: [] };
+  try { window.__zeroFp = diag; } catch (e) {}
+  var rec = function (label, fn) { try { fn(); } catch (e) { diag.errors.push(label + ": " + (e && e.message || e)); } };
   try {
     var V = ${JSON.stringify(V)};
     var brands = [
@@ -643,27 +656,37 @@ function buildFingerprintPatch(chVersion) {
     ];
     var clone = function (a) { return a.map(function (b) { return { brand: b.brand, version: b.version }; }); };
     var ua = navigator.userAgentData;
+    diag.hadUAData = !!ua;
     if (ua) {
-      try { Object.defineProperty(ua, "brands", { get: function () { return clone(brands); }, configurable: true }); } catch (e) {}
-      try { Object.defineProperty(ua, "mobile", { get: function () { return false; }, configurable: true }); } catch (e) {}
-      try { Object.defineProperty(ua, "platform", { get: function () { return "Windows"; }, configurable: true }); } catch (e) {}
+      // Try shadowing on the instance; if that fails, try the PROTOTYPE (the getter lives on
+      // NavigatorUAData.prototype, and some builds make the instance prop non-configurable).
+      rec("brands", function () {
+        try { Object.defineProperty(ua, "brands", { get: function () { return clone(brands); }, configurable: true }); }
+        catch (e) { Object.defineProperty(Object.getPrototypeOf(ua), "brands", { get: function () { return clone(brands); }, configurable: true }); }
+      });
+      rec("mobile", function () { Object.defineProperty(ua, "mobile", { get: function () { return false; }, configurable: true }); });
+      rec("platform", function () { Object.defineProperty(ua, "platform", { get: function () { return "Windows"; }, configurable: true }); });
       var high = {
         architecture: "x86", bitness: "64",
         brands: clone(brands), fullVersionList: clone(fullList),
         mobile: false, model: "", platform: "Windows",
-        platformVersion: "10.0.0", uaFullVersion: full, wow64: false,
+        platformVersion: "15.0.0", uaFullVersion: full, wow64: false,
       };
-      ua.getHighEntropyValues = function (hints) {
-        var out = { brands: clone(brands), mobile: false, platform: "Windows" };
-        if (Array.isArray(hints)) for (var i = 0; i < hints.length; i++) { var k = hints[i]; if (k in high) out[k] = high[k]; }
-        return Promise.resolve(out);
-      };
+      rec("getHighEntropyValues", function () {
+        var impl = function (hints) {
+          var out = { brands: clone(brands), mobile: false, platform: "Windows" };
+          if (Array.isArray(hints)) for (var i = 0; i < hints.length; i++) { var k = hints[i]; if (k in high) out[k] = high[k]; }
+          return Promise.resolve(out);
+        };
+        try { ua.getHighEntropyValues = impl; }
+        catch (e) { Object.defineProperty(Object.getPrototypeOf(ua), "getHighEntropyValues", { value: impl, configurable: true, writable: true }); }
+      });
     }
     // Keep the deprecated navigator.platform consistent with the Windows UA (a Mac platform
     // under a Windows UA is itself an embedded/spoof tell).
-    try { Object.defineProperty(navigator, "platform", { get: function () { return "Win32"; }, configurable: true }); } catch (e) {}
-    try { if (navigator.webdriver) Object.defineProperty(navigator, "webdriver", { get: function () { return false; }, configurable: true }); } catch (e) {}
-  } catch (e) {}
+    rec("navigator.platform", function () { Object.defineProperty(navigator, "platform", { get: function () { return "Win32"; }, configurable: true }); });
+    rec("webdriver", function () { if (navigator.webdriver) Object.defineProperty(navigator, "webdriver", { get: function () { return false; }, configurable: true }); });
+  } catch (e) { try { diag.errors.push("outer: " + (e && e.message || e)); } catch (e2) {} }
 })();`
 }
 
@@ -753,6 +776,10 @@ async function logFingerprintState(webContents, tag = "resource") {
         high: high,
         platform: navigator.platform,
         webdriver: navigator.webdriver,
+        // v0.2.201: the patch's self-report. If this is null the CDP script ran in a DIFFERENT
+        // world than this probe (a world/injection problem); if it's present with errors[],
+        // those name the exact overrides that threw.
+        fp: (typeof window !== "undefined" ? window.__zeroFp : null) || null,
       });
     })()`
     const result = await webContents.executeJavaScript(probe, true)
