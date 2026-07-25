@@ -3,7 +3,7 @@ using System.Windows.Forms;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
 
-namespace Zero.WebView2.Spike;
+namespace Zero.WebViewSpike;
 
 // ---------------------------------------------------------------------------
 // Zero WebView2 ergonomics spike (Milestone 0 of the WebView2 migration plan).
