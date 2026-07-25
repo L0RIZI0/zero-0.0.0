@@ -76,6 +76,11 @@ function osFormatLocale() {
 app.commandLine.appendSwitch("ignore-gpu-blocklist")
 app.commandLine.appendSwitch("enable-gpu-rasterization")
 app.commandLine.appendSwitch("enable-zero-copy")
+// FINGERPRINT PARITY: Blink otherwise sets `navigator.webdriver = true` and tags the
+// engine as automation-controlled, a tell Google's "secure browser" check reads to block
+// embedded sign-in. Disabling it is part of looking like a plain Chrome (see
+// buildFingerprintPatch + applyFingerprintPatch, which finish the JS-side disguise).
+app.commandLine.appendSwitch("disable-blink-features", "AutomationControlled")
 
 /**
  * Print Chromium's GPU feature status into BOTH the main-process terminal and the
@@ -601,6 +606,75 @@ function prepareResourceSession(partition) {
   })
 }
 
+/**
+ * The JS-world half of the Chrome disguise. `prepareResourceSession` fixes the HTTP layer
+ * (UA + Sec-CH-UA headers), but that is INVISIBLE to JavaScript: Google's OAuth page calls
+ * the live API `navigator.userAgentData.getHighEntropyValues(...)`, which reads Chromium's
+ * INTERNAL brand list — still `"Electron"` — no matter what headers we rewrote. So a header
+ * spoof alone still trips "Couldn't sign you in". This source patches the JS tells to the
+ * SAME clean Chrome identity as the headers: brands / high-entropy values / platform, plus
+ * `navigator.webdriver`. Kept in sync with RESOURCE_UA + RESOURCE_CLIENT_HINTS above.
+ */
+function buildFingerprintPatch(chVersion) {
+  const V = String(chVersion || "136")
+  return `(() => {
+  try {
+    var V = ${JSON.stringify(V)};
+    var brands = [
+      { brand: "Chromium", version: V },
+      { brand: "Google Chrome", version: V },
+      { brand: "Not.A/Brand", version: "99" },
+    ];
+    var full = V + ".0.0.0";
+    var fullList = [
+      { brand: "Chromium", version: full },
+      { brand: "Google Chrome", version: full },
+      { brand: "Not.A/Brand", version: "99.0.0.0" },
+    ];
+    var clone = function (a) { return a.map(function (b) { return { brand: b.brand, version: b.version }; }); };
+    var ua = navigator.userAgentData;
+    if (ua) {
+      try { Object.defineProperty(ua, "brands", { get: function () { return clone(brands); }, configurable: true }); } catch (e) {}
+      try { Object.defineProperty(ua, "mobile", { get: function () { return false; }, configurable: true }); } catch (e) {}
+      try { Object.defineProperty(ua, "platform", { get: function () { return "Windows"; }, configurable: true }); } catch (e) {}
+      var high = {
+        architecture: "x86", bitness: "64",
+        brands: clone(brands), fullVersionList: clone(fullList),
+        mobile: false, model: "", platform: "Windows",
+        platformVersion: "10.0.0", uaFullVersion: full, wow64: false,
+      };
+      ua.getHighEntropyValues = function (hints) {
+        var out = { brands: clone(brands), mobile: false, platform: "Windows" };
+        if (Array.isArray(hints)) for (var i = 0; i < hints.length; i++) { var k = hints[i]; if (k in high) out[k] = high[k]; }
+        return Promise.resolve(out);
+      };
+    }
+    // Keep the deprecated navigator.platform consistent with the Windows UA (a Mac platform
+    // under a Windows UA is itself an embedded/spoof tell).
+    try { Object.defineProperty(navigator, "platform", { get: function () { return "Win32"; }, configurable: true }); } catch (e) {}
+    try { if (navigator.webdriver) Object.defineProperty(navigator, "webdriver", { get: function () { return false; }, configurable: true }); } catch (e) {}
+  } catch (e) {}
+})();`
+}
+
+/**
+ * Inject {@link buildFingerprintPatch} into a resource webContents' MAIN world BEFORE any page
+ * script runs, on every navigation, via CDP `Page.addScriptToEvaluateOnNewDocument`. This is
+ * how we reach the page's real world while keeping `contextIsolation: true` (a preload would
+ * only patch its own isolated world, which the page can't see). Best-effort: if the debugger
+ * can't attach (e.g. DevTools already owns it), we log and leave the header spoof in place.
+ */
+function applyFingerprintPatch(webContents) {
+  try {
+    if (!webContents.debugger.isAttached()) webContents.debugger.attach("1.3")
+    webContents.debugger.sendCommand("Page.addScriptToEvaluateOnNewDocument", {
+      source: buildFingerprintPatch(RESOURCE_UA_CH_VERSION),
+    })
+  } catch (err) {
+    console.log(`[v0] resource: fingerprint patch failed`, err?.message || err)
+  }
+}
+
 /** Snap a CSS-pixel rect from the renderer to integer device-independent bounds. */
 function toBounds(rect) {
   return {
@@ -660,6 +734,9 @@ ipcMain.handle("zero:resource:mount", async (_e, args) => {
     },
   })
   view.setBackgroundColor("#ffffff")
+  // Finish the Chrome disguise in the page's main world (headers alone don't fool Google's
+  // JS `userAgentData` check). Must run before any page navigation loads content.
+  applyFingerprintPatch(view.webContents)
   view.setBounds(toBounds(rect))
   mainWindow.contentView.addChildView(view)
   view.__zeroLoaded = false
@@ -714,6 +791,11 @@ ipcMain.handle("zero:resource:mount", async (_e, args) => {
       }
     }
     return { action: "deny" }
+  })
+  // A popup child (a common OAuth pattern) inherits the session's header spoof but NOT the
+  // main-world JS patch — apply it so Google's check passes inside the popup too.
+  view.webContents.on("did-create-window", (childWin) => {
+    if (childWin && !childWin.isDestroyed()) applyFingerprintPatch(childWin.webContents)
   })
 
   // OUTPUTS BRIDGE: when the resource produces a file (export/download), notify the
