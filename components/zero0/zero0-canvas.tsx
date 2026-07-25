@@ -1125,15 +1125,34 @@ export function Zero0Canvas() {
     [navigateTo, bump],
   )
 
-  // PINS (§4) END — the spinning-glyph click (STAY here): end whatever makes the chip
-  // ongoing (close its open session, or cap its running span at now — see `endOngoing`).
-  // The chip then drops out of the band on the next scan (it's no longer own-ongoing).
+  // PINS (§4) END — the spinning-glyph click (STAY here): end whatever makes the chip ongoing.
+  // v0.2.204: this must use the SAME in-place-vs-remote split as togglePlaySession, or clicking
+  // the chip for the entity you're CURRENTLY viewing does nothing. Reason: the ongoing span of the
+  // leaf you're inside is an AUTO span DERIVED from your open focus/presence session via the log
+  // fold — `endOngoing`→closeSession("play") closes it but the fold immediately re-derives it as
+  // open (you're still present), so the chip never drops. The correct verb for an in-place auto
+  // span is `pauseOngoing` (writes a `paused` marker the fold respects). Remote chips (an entity
+  // you are NOT inside) still hard-end via endOngoing. This is exactly why stopping a resource
+  // from ENTITY CONTENT worked while the PINS chip for the current resource didn't.
   const endPin = useCallback(
     (id: string) => {
-      endOngoing(id)
+      const e = getEntity(id)
+      if (e && e.id === contextId) {
+        // In-place: an AUTO ongoing span pauses (presence keeps ticking); a deliberate remote-style
+        // play span you happen to be viewing is hard-stopped. Mirrors togglePlaySession's in-place arm.
+        const openPlay = getOpenSession(e, "play")
+        if (openPlay?.auto) pauseOngoing(e.id)
+        else {
+          endOngoing(id)
+          playOpenRef.current.delete(id)
+        }
+      } else {
+        endOngoing(id) // remote chip: cap its running span / close its open session at now
+        playOpenRef.current.delete(id)
+      }
       bump()
     },
-    [bump],
+    [bump, contextId],
   )
 
   // PINS (§4) START — deliberately open an session on a pinned/idle entity. `via:"play"`

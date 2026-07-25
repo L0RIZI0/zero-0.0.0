@@ -1908,8 +1908,25 @@ export function moveEntityToContext(entityId: string, newContextId: string): boo
   }
   const oldParent = entity.parentId
   entity.parentId = newContextId
+  // v0.2.204: RECONCILE redundant cross-tags so a move reads as a true move, not a copy. Drop any
+  // taggedContextIds that are now an ANCESTOR (or equal) of the new parent: getChildren matches
+  // parentId OR taggedContextIds, so a tag pointing at an ancestor of where the item now lives
+  // would keep showing a ghost of it up the chain (the exact bug: task moved into Backlog but still
+  // showing under Backlog's parent "Zero" because of an auto-tag to Zero). `isInSubtree(tag,
+  // newContextId)` is true when the new parent is that tag or sits under it → that tag is redundant.
+  // Genuinely independent tags (siblings / unrelated contexts) are preserved.
+  if (entity.taggedContextIds?.length) {
+    const kept = entity.taggedContextIds.filter((tag) => !isInSubtree(tag, newContextId))
+    if (kept.length !== entity.taggedContextIds.length) {
+      entity.taggedContextIds = kept
+    }
+  }
   if (!userEntityIds.has(entityId)) {
-    seededOverrides.set(entityId, { ...seededOverrides.get(entityId), parentId: newContextId })
+    seededOverrides.set(entityId, {
+      ...seededOverrides.get(entityId),
+      parentId: newContextId,
+      taggedContextIds: entity.taggedContextIds,
+    })
   }
   // Land it LAST in the new context's saved order (if that context has one).
   const destOrder = orderByContext[newContextId]
@@ -3256,8 +3273,15 @@ export function autoTagByTitle(
   if (!hay.trim()) return []
   const matched: Entity[] = []
   for (const cand of entities) {
-    if (cand.id === newId || cand.id === stored.parentId) continue
+    if (cand.id === newId) continue
     if (cand.id === ROOT_ID || cand.kind === "soul") continue
+    // v0.2.204: NEVER auto-tag into a context that is already an ANCESTOR (or the direct parent)
+    // of the new entity. An entity created under Space "Zero" will naturally have "Zero" in its
+    // title, but it's already a child of Zero — tagging it back to its own ancestor produced a
+    // ghost: the item then showed BOTH under its real parent and under the ancestor (getChildren
+    // matches parentId OR taggedContextIds), which read as a duplicate. `isInSubtree(cand.id,
+    // newId)` is true when the new entity is cand itself or a descendant of cand → skip those.
+    if (isInSubtree(cand.id, newId)) continue
     if (cand.title.trim().length < 2) continue // ignore 1-char titles (noise)
     if (isClosed(cand)) continue
     if (titlePhraseMatches(hay, cand.title)) matched.push(cand)
