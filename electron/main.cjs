@@ -533,6 +533,16 @@ const RESOURCE_UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36"
 const RESOURCE_UA_CH_VERSION = "148"
 
+// v0.2.203: DISABLE the CDP main-world fingerprint patch + per-page probe. The 195–202
+// investigation proved this is Google's *policy* block on OAuth inside embedded webviews
+// (Electron WebContentsView), NOT a beatable fingerprint: on 202 the injected script ran
+// cleanly in-page (`fp:{ran:true,errors:[]}`) with a clean UA + webdriver:false, and Google
+// STILL showed "Couldn't sign you in" — the same wall every Electron browser (Min, etc.) hits.
+// Meanwhile `Page.enable` was timing out ~1.5s×retries per view, taxing ALL browsing. So we
+// keep the cheap header/UA spoof (setUserAgent, zero cost) but gate off the CDP machinery.
+// Flip to `true` only if we ever revisit a runtime approach. The helper fns are kept intact.
+const FINGERPRINT_PATCH_ENABLED = false
+
 // User-Agent CLIENT HINTS to match RESOURCE_UA. Spoofing only navigator.userAgent /
 // the UA header is NOT enough for Google's OAuth "secure browser" check: modern
 // Chromium ALSO sends `Sec-CH-UA…` client-hint headers, and Electron's still list
@@ -748,6 +758,9 @@ function sendWithTimeout(dbg, method, params, ms) {
 }
 
 async function applyFingerprintPatch(webContents, tag = "resource") {
+  // v0.2.203: gated off — proven a policy wall, not a fingerprint (see FINGERPRINT_PATCH_ENABLED).
+  // Early-return keeps browsing fast: no debugger attach, no Page.enable timeouts.
+  if (!FINGERPRINT_PATCH_ENABLED) return
   const source = buildFingerprintPatch(RESOURCE_UA_CH_VERSION)
   const MAX_ATTEMPTS = 5
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
@@ -787,6 +800,8 @@ async function applyFingerprintPatch(webContents, tag = "resource") {
  * block is a DIFFERENT Google signal; if they still say Electron, the injection didn't take.
  */
 async function logFingerprintState(webContents, tag = "resource") {
+  // v0.2.203: gated off with the patch — no per-dom-ready executeJavaScript probe when disabled.
+  if (!FINGERPRINT_PATCH_ENABLED) return
   try {
     const probe = `(async () => {
       let high = null;
