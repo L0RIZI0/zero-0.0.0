@@ -691,15 +691,18 @@ function fpLog(msg) {
  * ASYNC + AWAITED (v0.2.198): the earlier version fired `sendCommand` without awaiting, so the
  * "inject on every new document" registration almost never completed before `loadURL` started
  * the FIRST navigation — meaning Google's login page (the first document) loaded WITHOUT the
- * patch, defeating the whole thing. The caller now awaits this before loadURL. We also
- * `Page.enable` first (some Electron/CDP versions no-op addScript otherwise) and log the
- * outcome so a silent failure is visible in the diagnostic file.
+ * patch, defeating the whole thing. The caller now awaits this before loadURL.
+ *
+ * v0.2.199: DO NOT call `Page.enable` — awaiting it wedged forever in the packaged build, so
+ * `loadURL` never fired and every resource hung on the loading spinner. `addScriptToEvaluate-
+ * OnNewDocument` works without it (as it did in 195/197, which loaded fine). We just attach +
+ * addScript and await that one command. The caller additionally races this with a timeout so a
+ * slow/failed arm can never again block navigation.
  */
 async function applyFingerprintPatch(webContents, tag = "resource") {
   try {
     const dbg = webContents.debugger
     if (!dbg.isAttached()) dbg.attach("1.3")
-    await dbg.sendCommand("Page.enable")
     await dbg.sendCommand("Page.addScriptToEvaluateOnNewDocument", {
       source: buildFingerprintPatch(RESOURCE_UA_CH_VERSION),
     })
@@ -930,7 +933,10 @@ ipcMain.handle("zero:resource:mount", async (_e, args) => {
   try {
     // Ensure the fingerprint disguise is armed BEFORE the first navigation, so the very
     // first document (often the Google login page itself) is patched, not just later ones.
-    await fpReady
+    // SAFETY: race the arm against a short timeout so a slow/hung CDP call can NEVER again
+    // block navigation (the 198 spinner-forever regression). Worst case we lose the disguise
+    // on the very first document but the page still loads.
+    await Promise.race([fpReady, new Promise((r) => setTimeout(r, 2500))])
     await view.webContents.loadURL(url)
   } catch (err) {
     console.log(`[v0] resource:loadURL threw id=${id} ${err?.message || err}`)
