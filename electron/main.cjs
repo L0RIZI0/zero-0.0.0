@@ -10,6 +10,7 @@
 
   const { app, BrowserWindow, WebContentsView, protocol, net, shell, session, ipcMain, Menu } = require("electron")
 const path = require("node:path")
+const fs = require("node:fs")
 const { pathToFileURL } = require("node:url")
 const { autoUpdater } = require("electron-updater")
 const { hideWindowsBorder } = require("./win-border.cjs")
@@ -667,20 +668,70 @@ function buildFingerprintPatch(chVersion) {
 }
 
 /**
+ * Append a line to a small diagnostic log in userData (`zero-fingerprint.log`) so we can
+ * VERIFY, from a packaged build with no console, whether the disguise actually armed and
+ * what the page ends up seeing. The user can open this file and read it back.
+ */
+function fpLog(msg) {
+  try {
+    const line = `${new Date().toISOString()}  ${msg}\n`
+    fs.appendFileSync(path.join(app.getPath("userData"), "zero-fingerprint.log"), line)
+  } catch {
+    /* diagnostics are best-effort */
+  }
+  console.log(`[v0] fp: ${msg}`)
+}
+
+/**
  * Inject {@link buildFingerprintPatch} into a resource webContents' MAIN world BEFORE any page
  * script runs, on every navigation, via CDP `Page.addScriptToEvaluateOnNewDocument`. This is
  * how we reach the page's real world while keeping `contextIsolation: true` (a preload would
- * only patch its own isolated world, which the page can't see). Best-effort: if the debugger
- * can't attach (e.g. DevTools already owns it), we log and leave the header spoof in place.
+ * only patch its own isolated world, which the page can't see).
+ *
+ * ASYNC + AWAITED (v0.2.198): the earlier version fired `sendCommand` without awaiting, so the
+ * "inject on every new document" registration almost never completed before `loadURL` started
+ * the FIRST navigation — meaning Google's login page (the first document) loaded WITHOUT the
+ * patch, defeating the whole thing. The caller now awaits this before loadURL. We also
+ * `Page.enable` first (some Electron/CDP versions no-op addScript otherwise) and log the
+ * outcome so a silent failure is visible in the diagnostic file.
  */
-function applyFingerprintPatch(webContents) {
+async function applyFingerprintPatch(webContents, tag = "resource") {
   try {
-    if (!webContents.debugger.isAttached()) webContents.debugger.attach("1.3")
-    webContents.debugger.sendCommand("Page.addScriptToEvaluateOnNewDocument", {
+    const dbg = webContents.debugger
+    if (!dbg.isAttached()) dbg.attach("1.3")
+    await dbg.sendCommand("Page.enable")
+    await dbg.sendCommand("Page.addScriptToEvaluateOnNewDocument", {
       source: buildFingerprintPatch(RESOURCE_UA_CH_VERSION),
     })
+    fpLog(`patch ARMED (${tag})`)
   } catch (err) {
-    console.log(`[v0] resource: fingerprint patch failed`, err?.message || err)
+    fpLog(`patch FAILED (${tag}): ${err?.message || err}`)
+  }
+}
+
+/**
+ * After a resource page has loaded, read what its MAIN world ACTUALLY exposes (UA, the JS
+ * userAgentData brands + high-entropy list, webdriver) and log it. This is the conclusive
+ * check: if these read clean Chrome with no "Electron", the disguise is live and any remaining
+ * block is a DIFFERENT Google signal; if they still say Electron, the injection didn't take.
+ */
+async function logFingerprintState(webContents, tag = "resource") {
+  try {
+    const probe = `(async () => {
+      let high = null;
+      try { high = await navigator.userAgentData?.getHighEntropyValues(["fullVersionList","platform","platformVersion"]); } catch (e) {}
+      return JSON.stringify({
+        ua: navigator.userAgent,
+        brands: navigator.userAgentData?.brands,
+        high: high,
+        platform: navigator.platform,
+        webdriver: navigator.webdriver,
+      });
+    })()`
+    const result = await webContents.executeJavaScript(probe, true)
+    fpLog(`page sees (${tag}): ${result}`)
+  } catch (err) {
+    fpLog(`probe FAILED (${tag}): ${err?.message || err}`)
   }
 }
 
@@ -744,8 +795,10 @@ ipcMain.handle("zero:resource:mount", async (_e, args) => {
   })
   view.setBackgroundColor("#ffffff")
   // Finish the Chrome disguise in the page's main world (headers alone don't fool Google's
-  // JS `userAgentData` check). Must run before any page navigation loads content.
-  applyFingerprintPatch(view.webContents)
+  // JS `userAgentData` check). MUST be fully armed before the first navigation — we await
+  // this promise right before loadURL below, otherwise the first document (e.g. Google's
+  // login page) loads before the CDP script registers.
+  const fpReady = applyFingerprintPatch(view.webContents)
   view.setBounds(toBounds(rect))
   mainWindow.contentView.addChildView(view)
   view.__zeroLoaded = false
@@ -843,6 +896,11 @@ ipcMain.handle("zero:resource:mount", async (_e, args) => {
     view.__zeroLoaded = true // mark resident-and-ready so a later re-open reveals instantly
     report(true)
   })
+  // DIAGNOSTIC: on every document (incl. the akiflow→Google redirect), record what the page's
+  // main world actually sees, so we can confirm from the log file whether the disguise is live.
+  view.webContents.on("dom-ready", () => {
+    void logFingerprintState(view.webContents, `id=${id} ${view.webContents.getURL()}`)
+  })
   view.webContents.on("did-finish-load", () => {
     console.log(`[v0] resource:loaded id=${id}`)
     view.__zeroLoaded = true
@@ -870,6 +928,9 @@ ipcMain.handle("zero:resource:mount", async (_e, args) => {
   })
 
   try {
+    // Ensure the fingerprint disguise is armed BEFORE the first navigation, so the very
+    // first document (often the Google login page itself) is patched, not just later ones.
+    await fpReady
     await view.webContents.loadURL(url)
   } catch (err) {
     console.log(`[v0] resource:loadURL threw id=${id} ${err?.message || err}`)
