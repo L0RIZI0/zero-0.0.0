@@ -8,12 +8,13 @@
 // ResourceCanvas) is STEP 2 and is intentionally not here yet — see the IPC stub
 // in preload.cjs and the comments at the bottom of this file for where it slots in.
 
-  const { app, BrowserWindow, WebContentsView, protocol, net, shell, session, ipcMain, Menu } = require("electron")
+  const { app, BrowserWindow, WebContentsView, protocol, net, shell, session, ipcMain, Menu, screen } = require("electron")
 const path = require("node:path")
 const fs = require("node:fs")
 const { pathToFileURL } = require("node:url")
 const { autoUpdater } = require("electron-updater")
 const { hideWindowsBorder } = require("./win-border.cjs")
+const { ResourceHostBridge } = require("./resource-host-bridge.cjs")
 
 const isDev = !app.isPackaged
 const DEV_URL = process.env.ELECTRON_RENDERER_URL || "http://localhost:3000"
@@ -403,6 +404,15 @@ function createWindow() {
     const survivors = BrowserWindow.getAllWindows().filter((w) => w !== win && !w.isDestroyed())
     if (survivors.length === 0) {
       resourceViews.clear()
+      // Tear down the out-of-process WebView2 host too (if it was in use).
+      if (hostBridge) {
+        try {
+          hostBridge.shutdown()
+        } catch {
+          /* ignore */
+        }
+        hostBridge = null
+      }
       mainWindow = null
     } else if (mainWindow === win || mainWindow?.isDestroyed()) {
       mainWindow = survivors[0]
@@ -847,10 +857,100 @@ function destroyResourceView(id) {
   resourceViews.delete(id)
 }
 
+// ── RESOURCE ENGINE SELECTION (WebView2 host vs Electron WebContentsView) ────
+// M2 of the WebView2 migration. The resource surface can render through either:
+//   • "webview2" — an out-of-process WebView2 host (native/resource-host). Edge's
+//     Chromium, which Google TRUSTS for OAuth (the whole reason for the migration).
+//   • "electron" — the original in-process WebContentsView path below (kept intact).
+// Default is webview2 on Windows (the dogfooding target); everything else stays on
+// Electron. If the host fails to spawn we set hostBridgeFailed and FALL BACK to the
+// WebContentsView path, so the app can never end up with a dead resource surface.
+// Force either path with ZERO_RESOURCE_ENGINE=webview2|electron.
+const RESOURCE_ENGINE = (
+  process.env.ZERO_RESOURCE_ENGINE || (process.platform === "win32" ? "webview2" : "electron")
+).toLowerCase()
+/** @type {ResourceHostBridge | null} */
+let hostBridge = null
+let hostBridgeFailed = false
+
+function useWebView2() {
+  return RESOURCE_ENGINE === "webview2" && process.platform === "win32" && !hostBridgeFailed
+}
+
+/** Forward the bridge's normalized events onto the SAME zero:resource:* channels the
+ *  WebContentsView path uses, so the renderer contract is identical either way. */
+function wireBridgeEvents(bridge) {
+  const send = (channel, payload) => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, payload)
+  }
+  bridge.on("status", (p) => send("zero:resource:status", p))
+  bridge.on("navigated", (p) => send("zero:resource:navigated", p))
+  bridge.on("contextmenu", (p) => send("zero:resource:contextmenu", { id: p.id, x: p.x, y: p.y }))
+  bridge.on("output", (p) => {
+    // NOTE (M2 refinement): the host emits this at DownloadStarting, so the file at
+    // p.path may still be in flight. Good enough to register the Output; revisit to
+    // fire on completion if a half-written file becomes a problem.
+    send("zero:resource:output", {
+      id: p.id,
+      name: p.name,
+      dataUrl: p.path ? pathToFileURL(p.path).toString() : undefined,
+    })
+  })
+  bridge.on("host-exit", () => {
+    // Host died. Mark not-ready; the next mount will attempt a fresh start (and, if
+    // that also fails, fall back to WebContentsView).
+    hostBridge = null
+  })
+}
+
+/** Lazily spawn + hand-shake the WebView2 host. Resolves the live bridge, or null on
+ *  failure (caller then falls back to the WebContentsView path). */
+async function ensureHostBridge() {
+  if (hostBridge && hostBridge.ready) return hostBridge
+  if (hostBridgeFailed || !mainWindow) return null
+  if (!hostBridge) {
+    hostBridge = new ResourceHostBridge({
+      isDev,
+      appRoot: app.getAppPath(),
+      resourcesPath: process.resourcesPath,
+      userDataFolder: path.join(app.getPath("userData"), "resource-host-profiles"),
+    })
+    wireBridgeEvents(hostBridge)
+  }
+  try {
+    const disp = screen.getDisplayNearestPoint(mainWindow.getBounds())
+    await hostBridge.start(mainWindow.getNativeWindowHandle(), disp.scaleFactor)
+    return hostBridge
+  } catch (err) {
+    console.log(`[v0] resource-host: start failed — falling back to WebContentsView (${err?.message || err})`)
+    hostBridgeFailed = true
+    hostBridge = null
+    return null
+  }
+}
+
+/** WebView2 mount. Returns true if handled, false to fall back to WebContentsView. */
+async function webview2Mount(args) {
+  const { id, url, resourceId, rect } = args
+  const bridge = await ensureHostBridge()
+  if (!bridge) return false
+  // Map the per-resource persistent partition → a WebView2 profile so logins persist
+  // per resource, exactly like `persist:resource:<id>` does on the Electron path.
+  const profile = `resource-${resourceId || "web"}`
+  bridge.mount({ id, url, profile, rect })
+  return true
+}
+
 ipcMain.handle("zero:resource:mount", async (_e, args) => {
   if (!mainWindow) return
   const { id, url, resourceId, rect } = args
-  console.log(`[v0] resource:mount id=${id} resourceId=${resourceId || "-"} url=${url}`)
+  console.log(`[v0] resource:mount id=${id} resourceId=${resourceId || "-"} url=${url} engine=${useWebView2() ? "webview2" : "electron"}`)
+  // WebView2 path (Windows dogfooding). Falls through to WebContentsView if the host
+  // couldn't start, so a failed migration never leaves the surface dead.
+  if (useWebView2()) {
+    const handled = await webview2Mount(args)
+    if (handled) return
+  }
   // Already resident (a warm/parked tab being re-opened): REVEAL it instead of
   // reloading — this is the instant tab-switch. Un-throttle, show, reposition, bump
   // to MRU. If it already finished loading once, re-announce ok so the renderer drops
@@ -1035,18 +1135,40 @@ ipcMain.handle("zero:resource:mount", async (_e, args) => {
 })
 
 ipcMain.on("zero:resource:set-bounds", (_e, { id, rect }) => {
+  if (useWebView2() && hostBridge) {
+    hostBridge.setBounds({ id, rect })
+    return
+  }
   const view = resourceViews.get(id)
   if (view) view.setBounds(toBounds(rect))
 })
 
 // Drilling AWAY (breadcrumb / dayline tick / sibling / anywhere) parks the view —
 // hidden + throttled, but kept warm for an instant re-open.
-ipcMain.on("zero:resource:park", (_e, id) => parkResourceView(id))
+ipcMain.on("zero:resource:park", (_e, id) => {
+  if (useWebView2() && hostBridge) {
+    hostBridge.park(id)
+    return
+  }
+  parkResourceView(id)
+})
 // The header × button explicitly closes the tab for good — destroy now, ignore the cap.
-ipcMain.on("zero:resource:close", (_e, id) => destroyResourceView(id))
+ipcMain.on("zero:resource:close", (_e, id) => {
+  if (useWebView2() && hostBridge) {
+    hostBridge.close(id)
+    return
+  }
+  destroyResourceView(id)
+})
 // Back-compat alias (older renderers called unmount on teardown). Treat as PARK so a
 // stale build still keeps tabs warm rather than tearing them down.
-ipcMain.on("zero:resource:unmount", (_e, id) => parkResourceView(id))
+ipcMain.on("zero:resource:unmount", (_e, id) => {
+  if (useWebView2() && hostBridge) {
+    hostBridge.park(id)
+    return
+  }
+  parkResourceView(id)
+})
 
 ipcMain.on("zero:open-external", (_e, url) => {
   if (typeof url === "string" && /^https?:\/\//.test(url)) shell.openExternal(url)

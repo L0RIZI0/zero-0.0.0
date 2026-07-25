@@ -49,6 +49,14 @@ jobs:
           node-version: 20
           cache: pnpm
 
+      # The WebView2 resource host (native/resource-host) is published to a self-contained
+      # .exe by scripts/build-resource-host.mjs during electron:build:ci, then bundled via
+      # electron-builder extraResources. Pin the SDK so the publish is reproducible.
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
       - name: Set version from tag
         shell: bash
         run: |

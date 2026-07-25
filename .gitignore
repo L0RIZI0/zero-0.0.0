@@ -19,10 +19,11 @@ spike/**/bin/
 spike/**/obj/
 spike/**/zero-spike-profile/
 
-# WebView2 resource-host (M1) build artifacts + local profile data (source is kept)
+# WebView2 resource-host build artifacts + local profile data (source is kept)
 native/**/bin/
 native/**/obj/
 native/**/profiles/
+native/**/publish/
 
 # Electron build outputs
 out/

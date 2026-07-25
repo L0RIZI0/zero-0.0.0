@@ -13,8 +13,9 @@
     "lint": "eslint .",
     "electron": "electron .",
     "electron:dev": "concurrently -k -n NEXT,ELECTRON -c blue,magenta \"cross-env CHOKIDAR_USEPOLLING=true WATCHPACK_POLLING=true next dev\" \"wait-on tcp:3000 && electronmon .\"",
-    "electron:build": "node scripts/gen-interaction-matrix.mjs && node scripts/electron-build.mjs && electron-builder",
-    "electron:build:ci": "node scripts/gen-interaction-matrix.mjs && node scripts/electron-build.mjs && electron-builder --win nsis --publish never",
+    "build:resource-host": "node scripts/build-resource-host.mjs",
+    "electron:build": "node scripts/gen-interaction-matrix.mjs && node scripts/electron-build.mjs && node scripts/build-resource-host.mjs && electron-builder",
+    "electron:build:ci": "node scripts/gen-interaction-matrix.mjs && node scripts/electron-build.mjs && node scripts/build-resource-host.mjs && electron-builder --win nsis --publish never",
     "release:upload": "node scripts/upload-release.mjs"
   },
   "dependencies": {
@@ -73,6 +74,13 @@
     "files": [
       "out/**/*",
       "electron/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "native/resource-host/publish",
+        "to": "resource-host",
+        "filter": ["**/*"]
+      }
     ],
     "asarUnpack": [
       "**/*.node",
