@@ -11,6 +11,7 @@ import { isSleepTitle, sleepSkyBackground } from "@/lib/zero/sleep-sky"
 import { DAYLINE_ROW_H } from "@/lib/zero/layout"
 import { useNowSeconds } from "@/lib/zero/use-now"
 import { formatLocale } from "@/lib/zero/format-locale"
+import { Zero0Glyph } from "./zero0-glyph"
 import { cn } from "@/lib/utils"
 
 /** Horizontal gap (px) between a day label and its 1px boundary marker in the minimized
@@ -287,6 +288,13 @@ interface DaylineBar {
    */
   markGlyph?: boolean
   /**
+   * A PLANNED instant occurrence (`kind === "instant"`). Instead of a bare 2px point tick,
+   * it renders on the TOP rail as a small FILLED instant glyph (the down-triangle) with the
+   * entity's title beside it, both painted in the entity's own color — so a placed instant
+   * reads as a labelled point on the plan, not an easy-to-miss sliver.
+   */
+  instant?: boolean
+  /**
    * A presence segment that is still OPEN (`leftAt === null`) — its right edge IS
    * "now". Rendered anchored to its right edge (growing leftward) so its min-width
    * never spills a tick PAST the NOW marker.
@@ -514,6 +522,9 @@ export function Zero0Dayline({
         range: ongoing ? `${rangeText(st, en, s.repeat)} · ongoing` : rangeText(st, en, s.repeat),
         track: "planned",
         point: en <= st,
+        // A planned INSTANT renders as a labelled filled glyph (see the render branch), not a
+        // bare point tick.
+        instant: occ.kind === "instant",
         // An ongoing bar's right edge IS "now" — flag it so it renders anchored (never
         // spilling a min-width tick PAST the now marker), same as an open presence segment.
         openEnded: ongoing,
@@ -1429,6 +1440,51 @@ export function Zero0Dayline({
                         : p.coverage != null
                           ? COVERAGE_OPACITY_MIN + p.coverage * (COVERAGE_OPACITY_MAX - COVERAGE_OPACITY_MIN)
                           : 0.4
+                  // PLANNED INSTANT — a small FILLED instant glyph (the down-triangle) with the
+                  // entity title beside it, both in the entity's color. The glyph is nudged left
+                  // half its width so its center sits exactly on the instant's time; the title
+                  // reads to its right. Same hover/click/context-menu affordances as any tick.
+                  if (p.instant) {
+                    return (
+                      <div
+                        key={p.key}
+                        ref={registerRipple(p.key)}
+                        data-left={p.leftPct}
+                        className="pointer-events-none absolute inset-0 will-change-transform"
+                      >
+                        <button
+                          type="button"
+                          data-barkey={p.key}
+                          aria-label={`${p.title}, ${p.range}`}
+                          onMouseEnter={(ev) => {
+                            setHoveredKey(p.key)
+                            const r = (ev.currentTarget as HTMLElement).getBoundingClientRect()
+                            setHoverAnchor({ x: r.left + r.width / 2, y: r.top })
+                          }}
+                          onMouseLeave={() => {
+                            setHoveredKey((h) => (h === p.key ? null : h))
+                            setHoverAnchor(null)
+                          }}
+                          onClick={() => {
+                            if (draggedRef.current) return
+                            onOpen(p.id)
+                          }}
+                          onContextMenu={onContextMenuEntity ? (ev) => onContextMenuEntity(p.id, ev) : undefined}
+                          className="pointer-events-auto absolute flex cursor-default items-center gap-1 -translate-y-1/2 whitespace-nowrap"
+                          style={{
+                            top: railTop,
+                            left: `${p.leftPct}%`,
+                            color: fill,
+                            opacity: tickOpacity,
+                            zIndex: lit || isHot ? 16 : 8,
+                          }}
+                        >
+                          <Zero0Glyph kind="instant" filled className="-ml-1.5 h-3 w-3 shrink-0" />
+                          <span className="text-[10px] leading-none tracking-tight">{p.title}</span>
+                        </button>
+                      </div>
+                    )
+                  }
                   return (
                     <div
                       key={p.key}
