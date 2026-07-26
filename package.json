@@ -3,6 +3,16 @@
   "version": "0.1.0",
   "private": true,
   "main": "electron/main.cjs",
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "koffi",
+      "sharp",
+      "electron",
+      "electron-winstaller",
+      "esbuild",
+      "msw"
+    ]
+  },
   "electronmon": {
     "patterns": [
       "!native/**",
