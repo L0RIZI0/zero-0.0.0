@@ -190,12 +190,37 @@ internal sealed class ResourceView : IDisposable
             EmbedUnderParent(parentHwnd);
 
             // 2) Parent the controller into OUR window (client-filling), not Electron's HWND directly.
-            var opts = env.CreateCoreWebView2ControllerOptions();
-            opts.ProfileName = _profile;
-            opts.IsInPrivateModeEnabled = false;
-
-            var controller = await env.CreateCoreWebView2ControllerAsync(hostHandle, opts);
-            if (_disposed) { controller.Close(); return; }
+            //    Creating a SECOND controller on the shared profile can transiently throw ERROR_INVALID_STATE
+            //    (0x8007139F) while the profile finishes wiring up (the first resource rendered, the second
+            //    failed — see host.log). Microsoft's guidance for this race is a short delay + retry, so we
+            //    retry a few times before giving up. We KEEP one shared "resource-web" profile so a single
+            //    Google login is shared across all resources (per-site profiles would fragment that).
+            const int MaxAttempts = 6;
+            const int SharedAttempts = 4; // first N attempts keep the shared profile (race hypothesis)
+            const uint E_INVALID_STATE = 0x8007139F;
+            CoreWebView2Controller? controller = null;
+            for (int attempt = 1; attempt <= MaxAttempts; attempt++)
+            {
+                // If the shared-profile retries all fail, it's likely a HARD "one live controller per
+                // profile" limit rather than a race, so fall back to a per-SITE profile (stable across
+                // restarts → login still persists, just isolated to that site) so the resource still renders.
+                if (attempt > SharedAttempts) _profile = PerSiteProfile(url);
+                var opts = env.CreateCoreWebView2ControllerOptions();
+                opts.ProfileName = _profile;
+                opts.IsInPrivateModeEnabled = false;
+                try
+                {
+                    controller = await env.CreateCoreWebView2ControllerAsync(hostHandle, opts);
+                    break;
+                }
+                catch (COMException ce) when ((uint)ce.HResult == E_INVALID_STATE && attempt < MaxAttempts && !_disposed)
+                {
+                    Program.Log($"create attempt {attempt} id={_id} profile={_profile} hit 0x8007139F; retrying after delay");
+                    await Task.Delay(120 * attempt); // back off: 120,240,360…
+                }
+            }
+            if (_disposed) { controller?.Close(); return; }
+            if (controller is null) throw new InvalidOperationException("controller creation returned null after retries");
             _controller = controller;
 
             var core = controller.CoreWebView2;
@@ -328,5 +353,15 @@ internal sealed class ResourceView : IDisposable
         var cleaned = Regex.Replace(profile, @"[^A-Za-z0-9 .\-_]", "-");
         if (cleaned.Length == 0 || !char.IsLetterOrDigit(cleaned[0])) cleaned = "p" + cleaned;
         return cleaned.Length > 64 ? cleaned.Substring(0, 64) : cleaned;
+    }
+
+    // Stable-per-site profile name (fallback when the shared profile can't host a 2nd live controller).
+    // Derived from the host so it persists across restarts and is unique per site.
+    private static string PerSiteProfile(string url)
+    {
+        string host;
+        try { host = new Uri(url).Host; } catch { host = "site"; }
+        if (host.StartsWith("www.")) host = host.Substring(4);
+        return SanitizeProfile("site-" + host);
     }
 }
