@@ -230,6 +230,12 @@ const DWELL_MS = 0
 // Own key, isolated from the entity store (`zero:root-items:v1`) and the activity log.
 const PATH_STORAGE_KEY = "zero:root-path:v1"
 
+// CONTEXT-ENTER PRE-WARM — on drilling INTO a context, create+load its direct web-resource children HIDDEN
+// so opening one is an instant reveal (hides the ~330ms cold controller create). Bounded to the first N so a
+// context with many web resources can't spawn an unbounded number of browser processes. [DOGFOODING: this
+// mode trades memory for snappiness — the red "prewarm" note on §1 is the reminder to watch memory usage.]
+const PREWARM_MAX_PER_CONTEXT = 3
+
 export function Zero0Canvas() {
   // All reads/writes touch localStorage-backed module state, so gate behind mount
   // to avoid SSR/hydration mismatch. `rev` is a manual re-render bump after every
@@ -551,6 +557,40 @@ export function Zero0Canvas() {
   )
   // eslint-disable-next-line react-hooks/exhaustive-deps -- rev/contextId are the intended re-read triggers
   const children = useMemo(() => (mounted ? getChildren(contextId) : []), [mounted, rev, contextId])
+
+  // ── RESOURCE PRE-WARM (desktop/WebView2) ────────────────────────────────────────────
+  // Create+load a web resource's native view HIDDEN so a later drill-in is an instant reveal.
+  // `prewarmedRef` tracks the ids we pre-warmed (and never actually opened) so we can discard
+  // them to bound memory when leaving their context. `openedRef` marks ids the user actually
+  // drilled into — those become normal warm/parked views owned by the resource canvas, so we
+  // must NOT discard them.
+  const prewarmedRef = useRef<Set<string>>(new Set())
+  const openedRef = useRef<Set<string>>(new Set())
+  const prewarm = useCallback((id: string, url: string, resourceId?: string) => {
+    if (typeof window === "undefined") return
+    const r = window.zero?.resource
+    if (!r?.prewarm || prewarmedRef.current.has(id) || openedRef.current.has(id)) return
+    prewarmedRef.current.add(id)
+    void r.prewarm({ id, url, resourceId })
+  }, [])
+  // CONTEXT-ENTER: pre-warm the current context's direct web-resource children (bounded), and
+  // discard any previously pre-warmed views that aren't children here and were never opened.
+  useEffect(() => {
+    if (!isDesktop) return
+    const r = typeof window !== "undefined" ? window.zero?.resource : undefined
+    if (!r?.prewarm) return
+    const webKids = children.filter((c) => !!c.webUrl)
+    for (const c of webKids.slice(0, PREWARM_MAX_PER_CONTEXT)) prewarm(c.id, c.webUrl!, c.webResourceId)
+    // Discard pre-warmed-but-unopened views we've navigated away from.
+    const keep = new Set(webKids.map((c) => c.id))
+    for (const id of Array.from(prewarmedRef.current)) {
+      if (!keep.has(id) && !openedRef.current.has(id)) {
+        r.discardPrewarm?.(id)
+        prewarmedRef.current.delete(id)
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- children is the intended re-read trigger
+  }, [isDesktop, contextId, children, prewarm])
   // SIBLINGS (entities at the same depth on the same branch = a crumb's parent's children) are
   // now resolved PER-CRUMB: each breadcrumb crumb carries its own `siblingCount`, and its
   // left-hand caret opens that level's sibling dropdown on demand (openSiblingsAt). No single
@@ -956,12 +996,15 @@ export function Zero0Canvas() {
       // The entity's stored TITLE is the raw URL (the `--title`); the label shown in ENTITY
       // CONTENT + breadcrumb is the DISPLAYED title (webpage title / hostname), resolved from
       // `webUrl` + the best-effort fetched `webTitle` (see the web-title effect below).
-      addWebResource({
+      const createdResource = addWebResource({
         title: url,
         url,
         contextId: target,
         resourceId: resource?.id,
       })
+      // Pre-warm the just-typed resource: creating it signals strong intent to open it next, so
+      // start loading it hidden now → clicking it is an instant reveal. (No-op on web/non-WebView2.)
+      prewarm(createdResource.id, url, resource?.id)
       if (!inline) setDraft("")
       bump()
       return
@@ -1087,6 +1130,12 @@ export function Zero0Canvas() {
   )
 
   const openEntity = useCallback((e: Entity) => {
+    // A pre-warmed view the user is now actually opening becomes a real (warm/parked) view owned
+    // by the resource canvas — promote it out of the pre-warm set so context-leave won't discard it.
+    if (e.webUrl) {
+      openedRef.current.add(e.id)
+      prewarmedRef.current.delete(e.id)
+    }
     setPath((p) => [...p, e.id])
   }, [])
 
@@ -1648,6 +1697,17 @@ export function Zero0Canvas() {
           <span className="text-foreground">zero</span>
           <span aria-hidden>·</span>
           <span>root canvas</span>
+          {/* PRE-WARM MODE indicator (desktop only) — a discrete red note reminding Loris that
+              context-enter pre-warm is ACTIVE, so he watches memory usage during dogfooding
+              (each pre-warmed resource is a live browser process). Remove when pre-warm is proven. */}
+          {isDesktop && (
+            <span
+              className="text-destructive"
+              title={`Pre-warm active: web-resource children are loaded in the background on context-enter (up to ${PREWARM_MAX_PER_CONTEXT}). Watch memory usage.`}
+            >
+              prewarm
+            </span>
+          )}
           {/* Build version — the release git tag this Surface was built from. Sits at
               the end of the identity line (right-aligned) so it's always in view, even
               in web-resource view where only the top of this header shows. */}

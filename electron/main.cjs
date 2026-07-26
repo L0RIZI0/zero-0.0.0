@@ -473,7 +473,7 @@ app.on("window-all-closed", () => {
 
 // ── STEP 2: native resource host ─────────────────────────────────────────────
 // Each open RESOURCE TASK gets a real Chromium WebContentsView, loaded as
-// top-level content (so X-Frame-Options / frame-ancestors do NOT apply — Figma,
+// top-level content (so X-Frame-Options / frame-ancestors do NOT apply ��� Figma,
 // Notion, Linear, anything loads live). The view is a native layer that floats
 // ABOVE the DOM; ResourceCanvas renders a transparent placeholder and streams its
 // screen rect here, so the native view tracks the placeholder through scrolls,
@@ -1174,6 +1174,25 @@ ipcMain.on("zero:resource:unmount", (_e, id) => {
 // hand keyboard focus back to Electron so the click actually lands in Zero's input instead of the website.
 ipcMain.on("zero:resource:release-focus", () => {
   if (useWebView2() && hostBridge) hostBridge.releaseFocus()
+})
+
+// PRE-WARM a resource's native view HIDDEN so a later drill-in is an instant reveal (WebView2 only). This is
+// just a mount with visible:false at a 1×1 off-screen rect — the host creates the controller + navigates but
+// never shows it. The eventual real mount() reveals it via the host's idempotent path.
+ipcMain.handle("zero:resource:prewarm", async (_e, args) => {
+  if (!useWebView2()) return false
+  const { id, url, resourceId } = args || {}
+  if (!id || !url) return false
+  const bridge = await ensureHostBridge()
+  if (!bridge) return false
+  const profile = `resource-${resourceId || "web"}`
+  bridge.mount({ id, url, profile, rect: { x: 0, y: 0, width: 1, height: 1 }, visible: false })
+  return true
+})
+
+// Discard a pre-warmed-but-never-opened view (frees the browser process). Same as close.
+ipcMain.on("zero:resource:discard-prewarm", (_e, id) => {
+  if (useWebView2() && hostBridge && id) hostBridge.close(id)
 })
 
 ipcMain.on("zero:open-external", (_e, url) => {

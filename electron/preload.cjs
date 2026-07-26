@@ -50,6 +50,12 @@ contextBridge.exposeInMainWorld("zero", {
     close: (id) => ipcRenderer.send("zero:resource:close", id),
     /** Legacy teardown alias; main now treats it as PARK. Prefer park()/close(). */
     unmount: (id) => ipcRenderer.send("zero:resource:unmount", id),
+    /** PRE-WARM: create + start loading a resource's native view HIDDEN (off-screen), so a later drill-in
+     *  reveals a warm view instead of paying the ~330ms cold controller create. Same id as mount() so the
+     *  drill-in reveal is idempotent. No-op on web / non-WebView2. */
+    prewarm: (args) => ipcRenderer.invoke("zero:resource:prewarm", args),
+    /** Discard a pre-warmed-but-never-opened view to bound memory (e.g. on leaving its context). */
+    discardPrewarm: (id) => ipcRenderer.send("zero:resource:discard-prewarm", id),
     /** Hand keyboard focus back to Zero's own UI when a Zero input is focused while a webview is displayed
      *  above it. Cross-process: asks the native host to SetFocus back to Electron. No-op in web builds. */
     releaseFocus: () => ipcRenderer.send("zero:resource:release-focus"),
