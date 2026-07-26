@@ -109,6 +109,11 @@ export function Zero0ResourceCanvas({
 // the rect has been stable for a few frames. A blurred branded preview covers the gap.
 const STABLE_FRAMES = 6
 const SETTLE_TIMEOUT_MS = 1600
+// If the view reports ready within this window of (re)mount it's a WARM view (already loaded, e.g.
+// pre-warmed or a warm-tab re-open) — reveal it at once instead of waiting out STABLE_FRAMES, which
+// is what caused the placeholder to briefly show through on a tab-switch. Time-based (not frame-based)
+// so it's robust to the mount→IPC→status round-trip latency; a cold network load lands well past it.
+const WARM_REVEAL_MS = 250
 const hiddenRectOf = (r: { y: number; width: number; height: number }) => ({
   x: -100000,
   y: Math.max(0, Math.round(r.y)),
@@ -193,7 +198,15 @@ function NativeSurface({
       const settled = stable >= STABLE_FRAMES || performance.now() - start > SETTLE_TIMEOUT_MS
 
       if (!revealed) {
-        if (ready && settled && activeRef.current && rect.width > 0) {
+        // A WARM view (pre-warmed or previously-opened) re-announces `ready` almost immediately
+        // on (re)mount — it's already loaded at full size, so there's nothing to settle. Reveal it
+        // the instant it's ready + active + measured, WITHOUT waiting for STABLE_FRAMES: that
+        // settle delay is what left the DOM placeholder covering the canvas during a tab-switch
+        // (the visible "flash"). `warmReady` = ready arrived within the first few frames. A COLD
+        // view (ready only after a real network load, well past the warm window) still waits for
+        // `settled` so it can't reveal mid-layout.
+        const warmReady = ready && performance.now() - start <= WARM_REVEAL_MS
+        if (ready && (warmReady || settled) && activeRef.current && rect.width > 0) {
           revealed = true
           lastSent = key
           bridge.resource.setBounds({ id, rect })

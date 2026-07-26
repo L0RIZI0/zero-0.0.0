@@ -30,7 +30,7 @@ export interface ZeroDesktopBridge {
     unmount: (id: string) => void
     /** Pre-warm a resource's native view hidden (create + load off-screen) so a later drill-in reveals a
      *  warm view instead of paying the cold controller-create latency. No-op on web. */
-    prewarm: (args: { id: string; url: string; resourceId?: string }) => Promise<boolean>
+    prewarm: (args: { id: string; url: string; resourceId?: string; w?: number; h?: number }) => Promise<boolean>
     /** Discard a pre-warmed-but-never-opened view to bound memory. */
     discardPrewarm: (id: string) => void
     /** Hand keyboard focus back to Zero's own UI when a Zero input is focused while a webview is displayed

@@ -1181,12 +1181,19 @@ ipcMain.on("zero:resource:release-focus", () => {
 // never shows it. The eventual real mount() reveals it via the host's idempotent path.
 ipcMain.handle("zero:resource:prewarm", async (_e, args) => {
   if (!useWebView2()) return false
-  const { id, url, resourceId } = args || {}
+  const { id, url, resourceId, w, h } = args || {}
   if (!id || !url) return false
   const bridge = await ensureHostBridge()
   if (!bridge) return false
   const profile = `resource-${resourceId || "web"}`
-  bridge.mount({ id, url, profile, rect: { x: 0, y: 0, width: 1, height: 1 }, visible: false })
+  // Load hidden but at the FULL target size: the host sets the controller's viewport (the page's
+  // layout size) from these bounds even while hidden (ApplyBounds assigns _controller.Bounds
+  // regardless of visibility), so a full-size prewarm lays the page out at the REAL width during the
+  // background load → the eventual reveal is a pure show with NO reflow / responsive-breakpoint
+  // re-trigger. (A 1×1 prewarm would lay out at 1px wide and only reflow to full on reveal.)
+  const width = Math.max(1, Math.round(w || 1280))
+  const height = Math.max(1, Math.round(h || 800))
+  bridge.mount({ id, url, profile, rect: { x: 0, y: 0, width, height }, visible: false })
   return true
 })
 

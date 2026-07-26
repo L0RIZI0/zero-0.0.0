@@ -571,7 +571,10 @@ export function Zero0Canvas() {
     const r = window.zero?.resource
     if (!r?.prewarm || prewarmedRef.current.has(id) || openedRef.current.has(id)) return
     prewarmedRef.current.add(id)
-    void r.prewarm({ id, url, resourceId })
+    // Pass the window's inner size so the hidden view lays out at the real viewport width during the
+    // background load (the resource isn't mounted yet, so this is the best available target size) →
+    // the reveal is a pure show with no reflow.
+    void r.prewarm({ id, url, resourceId, w: window.innerWidth, h: window.innerHeight })
   }, [])
   // CONTEXT-ENTER: pre-warm the current context's direct web-resource children (bounded), and
   // discard any previously pre-warmed views that aren't children here and were never opened.
@@ -1598,7 +1601,7 @@ export function Zero0Canvas() {
       className="relative flex h-screen flex-col bg-background text-foreground"
       style={{ fontFamily: "var(--font-zero0-mono), ui-monospace, monospace" }}
     >
-      {/* ── GLUED TOP: live clock ───────��──��───────���─���─────────────────────────
+      {/* ── GLUED TOP: live clock ───────��──��───────���─���───���─────────────────────
           Permanent top chrome (mirrors the footer's glued-bottom role): the live full
           date + time WITH seconds, top-left. Always present �� for any open entity, and
           regardless of which frames are toggled below. `min-h` reserves its row so the
