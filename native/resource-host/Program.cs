@@ -43,7 +43,7 @@ internal static class Program
 
         // BUILD MARKER — bump this string on every native change so host.log unambiguously proves which
         // build is actually running (rules out `dotnet run` serving a stale incremental build).
-        Log("=== BUILD create-serialize-v4 (AttachThreadInput + serialized controller create + diag) ===");
+        Log("=== BUILD focus-dynamic-v5 (visibility-gated AttachThreadInput + serialized create) ===");
         Log($"start ipc parentHwnd={opts.ParentHwnd} userData={opts.UserDataFolder}");
         var host = new HostContext(opts.UserDataFolder, IpcEmit);
         var reader = new Thread(() => ReadStdinLoop(sync, host)) { IsBackground = true, Name = "stdin" };

@@ -226,6 +226,11 @@ internal sealed class ResourceView : IDisposable
     // views share one host UI thread; AttachThreadInput links a THREAD PAIR (not refcounted), so a per-view
     // attach/detach would let closing one view kill keyboard input for the others.
     private static uint _attachedThread;
+    // How many resource views are currently VISIBLE (process-wide). We keep the input queues merged ONLY while
+    // >=1 webview is visible; when it drops to 0 we DETACH so Electron regains independent keyboard focus for
+    // Zero's own UI. A permanent (static) attach made any alive-but-hidden webview starve Zero's inputs.
+    private static int _visibleCount;
+    private bool _countedVisible; // does THIS view currently contribute to _visibleCount?
 
     // Serialize controller creation across ALL resources. Two CreateCoreWebView2ControllerAsync calls
     // overlapping on one environment throw ERROR_INVALID_STATE (0x8007139F) — the "second resource fails"
@@ -354,31 +359,36 @@ internal sealed class ResourceView : IDisposable
         style &= ~(NativeMethods.WS_POPUP | NativeMethods.WS_CAPTION | NativeMethods.WS_THICKFRAME);
         style |= NativeMethods.WS_CHILD | NativeMethods.WS_CLIPSIBLINGS;
         NativeMethods.SetWindowLong(h, NativeMethods.GWL_STYLE, style);
-        AttachInputTo(parent);
+        // NOTE: input-queue attach is NO LONGER done here. It is driven by VISIBILITY (UpdateInputAttach)
+        // so a hidden/parked webview never holds keyboard focus away from Zero's own Electron UI.
     }
 
-    // Link our UI thread's input queue to Electron's window thread so keyboard input reaches the embedded
-    // WebView2 even when Electron is the foreground window. This is the canonical fix for the cross-process
-    // SetParent keyboard-focus bug (host.log showed our container never got WM_SETFOCUS while typing —
-    // input was going to Electron's thread queue, which ours wasn't part of). Idempotent + re-points on reparent.
-    private void AttachInputTo(IntPtr parent)
+    // Merge our host UI thread's input queue with Electron's ONLY while a webview is visible; detach when
+    // none are. AttachThreadInput links a thread PAIR into one shared focus, so while merged only ONE window
+    // (across both processes) can own keyboard focus. A permanent merge meant an alive-but-hidden webview
+    // could hold focus and starve Zero's own inputs (create-entity field) — the bug Loris reported. Driven
+    // from ApplyBounds visibility transitions + _visibleCount.
+    private void UpdateInputAttach()
     {
         try
         {
-            uint target = parent == IntPtr.Zero ? 0 : NativeMethods.GetWindowThreadProcessId(parent, out _);
-            if (target == _attachedThread) return;
+            bool want = _visibleCount > 0;
             uint self = NativeMethods.GetCurrentThreadId();
-            if (_attachedThread != 0 && _attachedThread != self)
-                NativeMethods.AttachThreadInput(self, _attachedThread, false); // detach previous
-            _attachedThread = 0;
-            if (target != 0 && target != self)
+            uint electron = _parentHwnd == IntPtr.Zero ? 0 : NativeMethods.GetWindowThreadProcessId(_parentHwnd, out _);
+            if (want && electron != 0 && electron != self && _attachedThread == 0)
             {
-                bool ok = NativeMethods.AttachThreadInput(self, target, true);
-                if (ok) _attachedThread = target;
-                Program.Log($"AttachThreadInput self={self} electron={target} ok={ok}");
+                bool ok = NativeMethods.AttachThreadInput(self, electron, true);
+                if (ok) _attachedThread = electron;
+                Program.Log($"AttachThreadInput ATTACH self={self} electron={electron} ok={ok} visible={_visibleCount}");
+            }
+            else if (!want && _attachedThread != 0)
+            {
+                bool ok = NativeMethods.AttachThreadInput(self, _attachedThread, false);
+                Program.Log($"AttachThreadInput DETACH self={self} electron={_attachedThread} ok={ok} visible={_visibleCount}");
+                _attachedThread = 0;
             }
         }
-        catch (Exception ex) { Program.Log($"AttachThreadInput failed: {ex.Message}"); }
+        catch (Exception ex) { Program.Log($"UpdateInputAttach failed: {ex.Message}"); }
     }
 
     // Position + size the container to _bounds. It's raised above Electron's Chromium content HWND ONCE
@@ -403,6 +413,20 @@ internal sealed class ResourceView : IDisposable
             | (show ? NativeMethods.SWP_SHOWWINDOW : NativeMethods.SWP_HIDEWINDOW);
         NativeMethods.SetWindowPos(h, NativeMethods.HWND_TOP, _bounds.X, _bounds.Y, Math.Max(1, _bounds.Width), Math.Max(1, _bounds.Height), flags);
         if (_controller != null) _controller.Bounds = new Rectangle(0, 0, Math.Max(1, _bounds.Width), Math.Max(1, _bounds.Height));
+
+        // Visibility transition → keep the shared input queue merged only while a webview is visible.
+        if (show != _countedVisible)
+        {
+            _countedVisible = show;
+            _visibleCount = Math.Max(0, _visibleCount + (show ? 1 : -1));
+            UpdateInputAttach();
+            if (show)
+            {
+                // Freshly visible: pull keyboard focus INTO this webview (deferred, so Windows doesn't overwrite it).
+                var reseed = _host.ReseedFocus;
+                if (reseed != null) { try { _host.BeginInvoke(reseed); } catch { /* ignore */ } }
+            }
+        }
 
         _appliedBounds = _bounds;
         _appliedShown = show;
@@ -479,8 +503,9 @@ internal sealed class ResourceView : IDisposable
     public void Dispose()
     {
         _disposed = true;
-        // NOTE: deliberately do NOT detach the thread-input link here — it's process-wide/shared across views
-        // (see _attachedThread). The OS drops it on process exit.
+        // If this view was visible, release its contribution to the shared input-queue merge so a closed
+        // webview never leaves Electron starved of keyboard focus.
+        if (_countedVisible) { _countedVisible = false; _visibleCount = Math.Max(0, _visibleCount - 1); UpdateInputAttach(); }
         if (_controller != null) { _liveControllers = Math.Max(0, _liveControllers - 1); Program.Log($"controller closed id={_id} liveNow={_liveControllers}"); }
         try { _controller?.Close(); } catch { /* ignore */ }
         _controller = null;
