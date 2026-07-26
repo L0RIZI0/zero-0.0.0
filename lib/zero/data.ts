@@ -877,6 +877,26 @@ export function getInheritedAccent(contextId: string | null): string | undefined
   return undefined
 }
 
+/**
+ * The ENVIRONMENT KEY for a web resource opened under `entityId` — the identity of the
+ * isolated cookie jar / login it uses. Walk up the entity's OWN parentId chain and return the
+ * nearest SPACE ancestor's id; if there is no Space ancestor, return ROOT_ID (the shared default
+ * environment). This is what makes SSO work WITHIN a Space (every resource filed under the same
+ * Space — directly or nested under Tasks/Moments/etc. — shares one env, so a login carries across
+ * them) while ISOLATING across Spaces (a resource under "Client A" and one under "Client B" get
+ * separate envs, so separate logins). Deterministic by design: it follows the entity's PRIMARY
+ * parent chain only (never `taggedContextIds`), so a resource's env never changes with how you
+ * navigated to it. The host keys the WebView2 environment folder + profile by this string.
+ */
+export function getEnvKey(entityId: string | null): string {
+  let current = entityId ? byId.get(entityId) : undefined
+  while (current) {
+    if (current.kind === "space") return current.id
+    current = current.parentId ? byId.get(current.parentId) : undefined
+  }
+  return ROOT_ID
+}
+
 // ----------------------------------------------------------------------------
 // FREQUENT ENTITIES (§4 quick-create band)
 // ----------------------------------------------------------------------------

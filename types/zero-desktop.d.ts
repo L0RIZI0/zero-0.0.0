@@ -6,8 +6,12 @@ export interface ZeroResourceMountArgs {
   id: string
   url: string
   resourceId?: string
+  /** Environment key = identity of the isolated cookie jar / login this resource uses (the
+   *  nearest Space ancestor's id, else root). Same key ⇒ shared login across a Space's
+   *  resources; different key ⇒ isolated login. Keys the host's WebView2 env folder + profile. */
+  envKey?: string
   rect: { x: number; y: number; width: number; height: number }
-}
+  }
 
 export interface ZeroDesktopBridge {
   isDesktop: true
@@ -30,7 +34,7 @@ export interface ZeroDesktopBridge {
     unmount: (id: string) => void
     /** Pre-warm a resource's native view hidden (create + load off-screen) so a later drill-in reveals a
      *  warm view instead of paying the cold controller-create latency. No-op on web. */
-    prewarm: (args: { id: string; url: string; resourceId?: string; w?: number; h?: number }) => Promise<boolean>
+    prewarm: (args: { id: string; url: string; resourceId?: string; envKey?: string; w?: number; h?: number }) => Promise<boolean>
     /** Discard a pre-warmed-but-never-opened view to bound memory. */
     discardPrewarm: (id: string) => void
     /** Hand keyboard focus back to Zero's own UI when a Zero input is focused while a webview is displayed

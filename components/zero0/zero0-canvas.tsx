@@ -17,6 +17,7 @@ import {
   getDeletedChildren,
   restoreEntity,
   getEntity,
+  getEnvKey,
   hydrateFromStorage,
   addParsedEntity,
   addWebResource,
@@ -670,8 +671,9 @@ export function Zero0Canvas() {
     prewarmedRef.current.add(id)
     // Pass the window's inner size so the hidden view lays out at the real viewport width during the
     // background load (the resource isn't mounted yet, so this is the best available target size) →
-    // the reveal is a pure show with no reflow.
-    void r.prewarm({ id, url, resourceId, w: window.innerWidth, h: window.innerHeight })
+    // the reveal is a pure show with no reflow. `envKey` = nearest-Space-ancestor identity of the
+    // cookie jar / login this resource uses (SSO within a Space, isolation across Spaces).
+    void r.prewarm({ id, url, resourceId, envKey: getEnvKey(id), w: window.innerWidth, h: window.innerHeight })
   }, [])
   // CONTEXT-ENTER: pre-warm the current context's direct web-resource children (bounded), and
   // discard any previously pre-warmed views that aren't children here and were never opened.
@@ -1924,6 +1926,7 @@ export function Zero0Canvas() {
               id={context.id}
               url={context.webUrl}
               resourceId={context.webResourceId}
+              envKey={getEnvKey(context.id)}
             />
           </div>
         )}

@@ -114,11 +114,15 @@ internal sealed class HostContext
     private readonly string _userDataFolder;
     private readonly Action<object> _emit;
     private readonly Dictionary<string, ResourceView> _views = new();
-    // One CoreWebView2Environment (+ its own on-disk user-data folder) PER SITE, reused across all resources
-    // of that site. Separate environments never contend, which eliminates the intermittent 0x8007139F
-    // (ERROR_INVALID_STATE) we saw when a new controller was created on a PROFILE a just-closed controller had
-    // been using inside ONE shared environment. Same-site resources still share login (same folder).
-    private readonly Dictionary<string, CoreWebView2Environment> _envBySite = new();
+    // One CoreWebView2Environment (+ its own on-disk user-data folder) PER ENV KEY, reused across all
+    // resources sharing that key. The key is the renderer-supplied `profile` = CONTEXT ENV KEY
+    // (`env-<nearestSpaceAncestorId>`); resources under one Space share it (SSO within a Space), resources
+    // under different Spaces get separate keys (isolation across Spaces). Falls back to the site host when
+    // no profile is supplied. Separate environments never contend, which eliminates the intermittent
+    // 0x8007139F (ERROR_INVALID_STATE) we saw when a new controller was created on a PROFILE a just-closed
+    // controller had been using inside ONE shared environment — that structural guarantee is UNCHANGED here
+    // (still one folder ⇒ one environment ⇒ one profile); only WHAT the key is has changed (Space, not host).
+    private readonly Dictionary<string, CoreWebView2Environment> _envByKey = new();
     private readonly Dictionary<string, Task<CoreWebView2Environment>> _envPending = new();
     private IntPtr _parentHwnd;
 
@@ -131,12 +135,18 @@ internal sealed class HostContext
     public Task InitializeAsync(IntPtr parentHwnd)
     {
         _parentHwnd = parentHwnd;
-        // Environments are now created lazily per site (GetEnvForSiteAsync). Nothing to pre-create here.
+        // Environments are now created lazily per env key (GetEnvForKeyAsync). Nothing to pre-create here.
         return Task.CompletedTask;
     }
 
-    // Key a site to its own environment: registrable-ish host (drop leading www.). Same-site resources reuse
-    // one environment so they share cookies/login; different sites are fully isolated on disk.
+    // The ENVIRONMENT KEY for a mount. The renderer's `profile` (`env-<nearestSpaceAncestorId>`) is
+    // authoritative — that's the CONTEXT env-keying (SSO within a Space, isolation across Spaces). If no
+    // profile is supplied (older renderer / prewarm without a key), fall back to the site host so behavior
+    // degrades to the previous per-site isolation rather than dumping everything into one shared env.
+    private static string EnvKey(string profile, string url)
+        => string.IsNullOrEmpty(profile) ? SiteKey(url) : ResourceView.SanitizeProfile(profile);
+
+    // Fallback keying: registrable-ish host (drop leading www.). Used only when no context env key is passed.
     private static string SiteKey(string url)
     {
         string host;
@@ -145,29 +155,29 @@ internal sealed class HostContext
         return ResourceView.SanitizeProfile(host);
     }
 
-    // Lazily create (and cache) the environment for a site. De-dupes concurrent creations of the same site
+    // Lazily create (and cache) the environment for an env key. De-dupes concurrent creations of the same key
     // via _envPending so a rapid double-mount can't spin up two environments on the same folder (which would
     // itself throw INVALID_STATE — the folder can only back one environment at a time).
-    private Task<CoreWebView2Environment> GetEnvForSiteAsync(string siteKey)
+    private Task<CoreWebView2Environment> GetEnvForKeyAsync(string envKey)
     {
-        if (_envBySite.TryGetValue(siteKey, out var env)) return Task.FromResult(env);
-        if (_envPending.TryGetValue(siteKey, out var pending)) return pending;
-        var folder = Path.Combine(_userDataFolder, "sites", siteKey);
-        var task = CreateSiteEnvAsync(siteKey, folder);
-        _envPending[siteKey] = task;
+        if (_envByKey.TryGetValue(envKey, out var env)) return Task.FromResult(env);
+        if (_envPending.TryGetValue(envKey, out var pending)) return pending;
+        var folder = Path.Combine(_userDataFolder, "envs", envKey);
+        var task = CreateEnvAsync(envKey, folder);
+        _envPending[envKey] = task;
         return task;
     }
 
-    private async Task<CoreWebView2Environment> CreateSiteEnvAsync(string siteKey, string folder)
+    private async Task<CoreWebView2Environment> CreateEnvAsync(string envKey, string folder)
     {
         try
         {
-            Program.Log($"env create site={siteKey} folder={folder}");
+            Program.Log($"env create key={envKey} folder={folder}");
             var env = await CoreWebView2Environment.CreateAsync(null, folder, null);
-            _envBySite[siteKey] = env;
+            _envByKey[envKey] = env;
             return env;
         }
-        finally { _envPending.Remove(siteKey); }
+        finally { _envPending.Remove(envKey); }
     }
 
     // Parse one JSON command line and act on it.
@@ -219,19 +229,20 @@ internal sealed class HostContext
         _ = MountControllerAsync(view, id, url, profile);
     }
 
-    // Resolve the site's (own) environment, then create the controller in it. Fire-and-forget from Mount.
-    // NOTE: we IGNORE the renderer's per-resource `profile` (resource-<id>) and use the SITE KEY as the
-    // profile, so all resources of the same site share one login within that site's own environment. (Login
-    // is still isolated ACROSS sites — each site is its own folder, which is what fixed the 0x8007139F bug.)
+    // Resolve the CONTEXT environment (keyed by the renderer's `profile` = env-<nearestSpaceAncestorId>),
+    // then create the controller in it. Fire-and-forget from Mount. The env key is ALSO used as the WebView2
+    // profile name, so all resources sharing a key share one login inside that key's own environment (SSO
+    // within a Space). Login stays isolated ACROSS keys — each key is its own folder, which is the same
+    // one-folder-one-environment structure that fixed the 0x8007139F bug.
     private async Task MountControllerAsync(ResourceView view, string id, string url, string profile)
     {
         try
         {
-            var siteKey = SiteKey(url);
-            var env = await GetEnvForSiteAsync(siteKey);
+            var envKey = EnvKey(profile, url);
+            var env = await GetEnvForKeyAsync(envKey);
             // The view may have been closed while its environment was being created.
             if (!_views.TryGetValue(id, out var still) || still != view) { return; }
-            await view.CreateAsync(env, _parentHwnd, siteKey, url);
+            await view.CreateAsync(env, _parentHwnd, envKey, url);
         }
         catch (Exception ex)
         {

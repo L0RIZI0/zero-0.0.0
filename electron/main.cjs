@@ -931,19 +931,22 @@ async function ensureHostBridge() {
 
 /** WebView2 mount. Returns true if handled, false to fall back to WebContentsView. */
 async function webview2Mount(args) {
-  const { id, url, resourceId, rect } = args
+  const { id, url, resourceId, envKey, rect } = args
   const bridge = await ensureHostBridge()
   if (!bridge) return false
-  // Map the per-resource persistent partition → a WebView2 profile so logins persist
-  // per resource, exactly like `persist:resource:<id>` does on the Electron path.
-  const profile = `resource-${resourceId || "web"}`
+  // CONTEXT ENV-KEYING: the WebView2 profile (and, host-side, its environment folder) is keyed
+  // by `envKey` = the resource's nearest-Space-ancestor identity. So every resource filed under
+  // the same Space shares ONE profile/login (SSO within a Space), while resources under different
+  // Spaces get separate profiles (isolation across Spaces). Falls back to a per-resource profile
+  // when no envKey is supplied (e.g. an older renderer), preserving prior behavior.
+  const profile = envKey ? `env-${envKey}` : `resource-${resourceId || "web"}`
   bridge.mount({ id, url, profile, rect })
   return true
 }
 
 ipcMain.handle("zero:resource:mount", async (_e, args) => {
   if (!mainWindow) return
-  const { id, url, resourceId, rect } = args
+  const { id, url, resourceId, envKey, rect } = args
   console.log(`[v0] resource:mount id=${id} resourceId=${resourceId || "-"} url=${url} engine=${useWebView2() ? "webview2" : "electron"}`)
   // WebView2 path (Windows dogfooding). Falls through to WebContentsView if the host
   // couldn't start, so a failed migration never leaves the surface dead.
@@ -971,8 +974,10 @@ ipcMain.handle("zero:resource:mount", async (_e, args) => {
     return
   }
 
-  // Per-resource persistent partition → independent, sticky logins ("subscriptions").
-  const partition = `persist:resource:${resourceId || "web"}`
+  // CONTEXT ENV-KEYING (Electron fallback path): partition by `envKey` (nearest-Space-ancestor)
+  // so logins are shared within a Space and isolated across Spaces — mirroring the WebView2
+  // profile keying above. Falls back to a per-resource partition when no envKey is supplied.
+  const partition = envKey ? `persist:env:${envKey}` : `persist:resource:${resourceId || "web"}`
   prepareResourceSession(partition)
   const view = new WebContentsView({
     webPreferences: {
@@ -1181,11 +1186,13 @@ ipcMain.on("zero:resource:release-focus", () => {
 // never shows it. The eventual real mount() reveals it via the host's idempotent path.
 ipcMain.handle("zero:resource:prewarm", async (_e, args) => {
   if (!useWebView2()) return false
-  const { id, url, resourceId, w, h } = args || {}
+  const { id, url, resourceId, envKey, w, h } = args || {}
   if (!id || !url) return false
   const bridge = await ensureHostBridge()
   if (!bridge) return false
-  const profile = `resource-${resourceId || "web"}`
+  // MUST match the profile the real mount() will use (webview2Mount) so the warm view is reused
+  // instead of re-created: env-keyed by nearest-Space-ancestor, same fallback.
+  const profile = envKey ? `env-${envKey}` : `resource-${resourceId || "web"}`
   // Load hidden but at the FULL target size: the host sets the controller's viewport (the page's
   // layout size) from these bounds even while hidden (ApplyBounds assigns _controller.Bounds
   // regardless of visibility), so a full-size prewarm lays the page out at the REAL width during the

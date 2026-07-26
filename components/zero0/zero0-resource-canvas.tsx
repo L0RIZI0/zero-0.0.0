@@ -46,13 +46,15 @@ export function Zero0ResourceCanvas({
   id,
   url,
   resourceId,
+  envKey,
   active = true,
-}: {
+  }: {
   id: string
   url: string
   resourceId?: string
+  envKey?: string
   active?: boolean
-}) {
+  }) {
   const resource = getWebResource(resourceId) ?? resolveWebResourceByUrl(url)
   // Feature-detect the desktop bridge (injected by the Electron preload; undefined on
   // the web and during SSR).
@@ -72,14 +74,15 @@ export function Zero0ResourceCanvas({
   if (isDesktop) {
     return (
       <div className="h-full w-full overflow-hidden bg-card">
-        <NativeSurface
-          id={id}
-          url={initialUrl}
-          resourceId={resourceId}
-          active={active}
-          name={webDisplayName(url, resource?.id)}
-          resource={resource}
-        />
+  <NativeSurface
+  id={id}
+  url={initialUrl}
+  resourceId={resourceId}
+  envKey={envKey}
+  active={active}
+  name={webDisplayName(url, resource?.id)}
+  resource={resource}
+  />
       </div>
     )
   }
@@ -132,6 +135,7 @@ function NativeSurface({
   id,
   url,
   resourceId,
+  envKey,
   active,
   name,
   resource,
@@ -139,6 +143,7 @@ function NativeSurface({
   id: string
   url: string
   resourceId?: string
+  envKey?: string
   active: boolean
   name: string
   resource?: WebResource
@@ -187,7 +192,9 @@ function NativeSurface({
 
     const seq = (mountSeq.get(id) ?? 0) + 1
     mountSeq.set(id, seq)
-    bridge.resource.mount({ id, url: toDesktopUrl(url), resourceId, rect: hiddenRectOf(rectOf()) })
+    // `envKey` picks the isolated cookie jar / profile (nearest-Space-ancestor identity) — same
+    // key ⇒ same login shared across a Space's resources; different key ⇒ isolated login.
+    bridge.resource.mount({ id, url: toDesktopUrl(url), resourceId, envKey, rect: hiddenRectOf(rectOf()) })
 
     // Remember the last page navigated to (skip internal app:// routes — those are
     // Zero's own pages, not user browsing, and shouldn't override the resource url).
@@ -254,7 +261,7 @@ function NativeSurface({
         }),
       )
     }
-  }, [id, url, resourceId, retryKey])
+  }, [id, url, resourceId, envKey, retryKey])
 
   const covered = phase !== "live"
 
