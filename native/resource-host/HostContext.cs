@@ -72,10 +72,12 @@ internal sealed class ContainerForm : Form
             case NativeMethods.WM_MOUSEACTIVATE:
                 base.WndProc(ref m);
                 m.Result = (IntPtr)NativeMethods.MA_ACTIVATE; // a click activates us + seeds focus into the webview
+                Program.Log("container WM_MOUSEACTIVATE -> reseed");
                 QueueReseed();
                 return;
             case NativeMethods.WM_SETFOCUS:
                 base.WndProc(ref m);
+                Program.Log("container WM_SETFOCUS -> reseed"); // if this NEVER logs, focus is taken above us
                 QueueReseed(); // webview handed focus back to us -> push it straight back in
                 return;
         }
@@ -278,7 +280,7 @@ internal sealed class ResourceView : IDisposable
             // Self-healing keyboard focus: whenever our container HWND is clicked or handed focus, push it
             // back into the WebView2 (see ContainerForm). Without this, keyboard input dies after focus
             // drifts back to the parent (the cross-process focus bug on the Google login / Figma fields).
-            _host.ReseedFocus = () => { try { _controller?.MoveFocus(CoreWebView2MoveFocusReason.Programmatic); } catch { /* ignore */ } };
+            _host.ReseedFocus = () => { try { Program.Log($"reseed MoveFocus id={_id}"); _controller?.MoveFocus(CoreWebView2MoveFocusReason.Programmatic); } catch (Exception ex) { Program.Log($"reseed FAILED id={_id}: {ex.Message}"); } };
             // Accept focus moves the webview requests (e.g. tabbing) instead of leaving it in limbo.
             controller.MoveFocusRequested += (_, e) => { e.Handled = true; try { _controller?.MoveFocus(CoreWebView2MoveFocusReason.Programmatic); } catch { /* ignore */ } };
 
