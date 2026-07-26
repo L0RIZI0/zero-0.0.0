@@ -63,7 +63,7 @@ import { useNowSeconds } from "@/lib/zero/use-now"
 import { Zero0FrameMarker } from "./zero0-frame-marker"
 import { ZERO_VERSION } from "@/lib/zero/version"
 import { formatLocale } from "@/lib/zero/format-locale"
-import { Zero0ResourceCanvas } from "./zero0-resource-canvas"
+import { Zero0ResourceCanvas, toDesktopUrl } from "./zero0-resource-canvas"
 import { Zero0Pins } from "./zero0-pins"
 import { Zero0Frame } from "./zero0-frame"
 import { Zero0Face } from "./zero0-face"
@@ -673,7 +673,19 @@ export function Zero0Canvas() {
     // background load (the resource isn't mounted yet, so this is the best available target size) →
     // the reveal is a pure show with no reflow. `envKey` = nearest-Space-ancestor identity of the
     // cookie jar / login this resource uses (SSO within a Space, isolation across Spaces).
-    void r.prewarm({ id, url, resourceId, envKey: getEnvKey(id), w: window.innerWidth, h: window.innerHeight })
+    // CRITICAL: normalize the url with toDesktopUrl EXACTLY like the real mount does. An INTERNAL
+    // page (e.g. "/matrix-interactions") is a relative url, and WebView2's Navigate() throws
+    // ArgumentException on a relative uri — that crashed the pre-warmed controller and left a dead
+    // warm view that the eventual open reused (⇒ "site doesn't display"). Normalizing here also
+    // makes the prewarm url IDENTICAL to the mount url so the warm view is reused, not re-navigated.
+    void r.prewarm({
+      id,
+      url: toDesktopUrl(url),
+      resourceId,
+      envKey: getEnvKey(id),
+      w: window.innerWidth,
+      h: window.innerHeight,
+    })
   }, [])
   // CONTEXT-ENTER: pre-warm the current context's direct web-resource children (bounded), and
   // discard any previously pre-warmed views that aren't children here and were never opened.

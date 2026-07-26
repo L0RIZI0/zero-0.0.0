@@ -1188,6 +1188,11 @@ ipcMain.handle("zero:resource:prewarm", async (_e, args) => {
   if (!useWebView2()) return false
   const { id, url, resourceId, envKey, w, h } = args || {}
   if (!id || !url) return false
+  // Defense-in-depth: the host's WebView2 Navigate() throws ArgumentException on a RELATIVE uri,
+  // which crashes the pre-warmed controller and poisons the session. The renderer now normalizes
+  // via toDesktopUrl, but guard here too so a stale renderer can't crash the host: skip pre-warming
+  // anything that isn't an absolute scheme:// url (it'll still load fine on the real, normalized mount).
+  if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(url)) return false
   const bridge = await ensureHostBridge()
   if (!bridge) return false
   // MUST match the profile the real mount() will use (webview2Mount) so the warm view is reused
@@ -1279,7 +1284,7 @@ ipcMain.on("zero:win:toggle-maximize", (e) => {
 ipcMain.on("zero:win:close", (e) => senderWindow(e)?.close())
 ipcMain.handle("zero:win:is-maximized", (e) => !!senderWindow(e)?.isMaximized())
 
-// ── Apply a downloaded update on demand ──────────────────────────────────────
+// ── Apply a downloaded update on demand ────────────���─────────────────────────
 // Triggered by the in-app "Restart to update" affordance. Only meaningful once an
 // update has actually been downloaded (autoUpdater guards this internally); if
 // nothing is staged it's a harmless no-op.

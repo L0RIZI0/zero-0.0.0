@@ -35,12 +35,12 @@ import { cn } from "@/lib/utils"
  * bare path. Built from `protocol` + `host` (not `location.origin`, which serializes
  * to "null" for a custom `app:` scheme). Absolute URLs pass through untouched.
  */
-function toDesktopUrl(url: string): string {
+export function toDesktopUrl(url: string): string {
   if (/^[a-z][a-z0-9+.-]*:\/\//i.test(url)) return url
   if (typeof window === "undefined") return url
   const { protocol, host } = window.location
   return `${protocol}//${host}${url.startsWith("/") ? url : `/${url}`}`
-}
+  }
 
 export function Zero0ResourceCanvas({
   id,
