@@ -54,6 +54,24 @@ class ResourceHostBridge extends EventEmitter {
     /** last DIP bounds per view id, for context-menu coord mapping: {x,y,w,h} */
     this.boundsDip = new Map()
     this._queue = [] // commands buffered until "ready"
+    // Packaged builds have no visible console; mirror the host conversation to a file next to the
+    // WebView2 profiles so we can diagnose issues from a shipped build.
+    try {
+      this._logPath = path.join(opts.userDataFolder, "..", "resource-host-bridge.log")
+    } catch {
+      this._logPath = null
+    }
+  }
+
+  _log(line) {
+    const stamped = `${new Date().toISOString()} ${line}\n`
+    if (this._logPath) {
+      try {
+        fs.appendFileSync(this._logPath, stamped)
+      } catch {
+        /* logging must never throw */
+      }
+    }
   }
 
   /** Resolve how to launch the host. Prod: packaged exe. Dev: `dotnet run` against the csproj. */
@@ -108,9 +126,13 @@ class ResourceHostBridge extends EventEmitter {
       }
       this.proc = proc
 
+      // Dev launches via `dotnet run`, which may cold-compile on first run — be generous. Prod runs a
+      // prebuilt exe and should be quick; if it isn't, fail over to WebContentsView rather than hang.
+      const settleMs = this.isDev ? 120000 : 20000
       const settleTimer = setTimeout(() => {
-        reject(new Error("resource host did not report ready within 20s"))
-      }, 20000)
+        this._log(`timeout: no ready within ${settleMs}ms`)
+        reject(new Error(`resource host did not report ready within ${settleMs}ms`))
+      }, settleMs)
 
       proc.on("error", (err) => {
         clearTimeout(settleTimer)
@@ -127,7 +149,10 @@ class ResourceHostBridge extends EventEmitter {
 
       // stderr → log (dotnet build output, host exceptions)
       readline.createInterface({ input: proc.stderr }).on("line", (line) => {
-        if (line.trim()) console.log(`[v0] resource-host[err]: ${line}`)
+        if (line.trim()) {
+          console.log(`[v0] resource-host[err]: ${line}`)
+          this._log(`[err] ${line}`)
+        }
       })
 
       // stdout → newline JSON events
@@ -139,13 +164,24 @@ class ResourceHostBridge extends EventEmitter {
         } catch {
           // dotnet run prints non-JSON build lines before the app starts; ignore them.
           console.log(`[v0] resource-host[out]: ${line}`)
+          this._log(`[out] ${line}`)
           return
         }
+        this._log(`< ${line}`)
         if (msg.evt === "ready") {
           clearTimeout(settleTimer)
           this.ready = true
           this._flushQueue()
           resolve()
+          return
+        }
+        if (msg.evt === "fatal") {
+          // Env init failed (e.g. missing WebView2 runtime). Reject so main.cjs falls back
+          // to the WebContentsView path instead of leaving a dead surface.
+          clearTimeout(settleTimer)
+          console.log(`[v0] resource-host: fatal — ${msg.message}`)
+          this._log(`fatal: ${msg.message}`)
+          reject(new Error(msg.message || "resource host fatal"))
           return
         }
         this._onEvent(msg)
@@ -160,7 +196,10 @@ class ResourceHostBridge extends EventEmitter {
   }
 
   _writeRaw(line) {
-    if (this.proc && this.proc.stdin.writable) this.proc.stdin.write(line + "\n")
+    if (this.proc && this.proc.stdin.writable) {
+      this._log(`> ${line}`)
+      this.proc.stdin.write(line + "\n")
+    }
   }
 
   _send(obj) {

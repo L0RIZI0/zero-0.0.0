@@ -147,11 +147,13 @@ internal sealed class ResourceView : IDisposable
             controller.IsVisible = _visible;
             controller.ZoomFactor = _zoom;
 
+            Program.Log($"controller created id={_id} parent={parentHwnd} bounds={_bounds} visible={_visible} profile={_profile}");
             _emit(new { evt = "mounted", id = _id });
             if (!string.IsNullOrEmpty(_pendingNavigate)) core.Navigate(_pendingNavigate);
         }
         catch (Exception ex)
         {
+            Program.Log($"create failed id={_id}: {ex}");
             _emit(new { evt = "error", id = _id, message = "create failed: " + ex.Message });
         }
     }
@@ -163,7 +165,7 @@ internal sealed class ResourceView : IDisposable
         core.HistoryChanged += (_, _) => _emit(new { evt = "navState", id = _id, canGoBack = core.CanGoBack, canGoForward = core.CanGoForward });
         core.FaviconChanged += (_, _) => _emit(new { evt = "favicon", id = _id, url = core.FaviconUri });
         core.NavigationStarting += (_, e) => _emit(new { evt = "loading", id = _id, loading = true, url = e.Uri });
-        core.NavigationCompleted += (_, e) => _emit(new { evt = "loading", id = _id, loading = false, ok = e.IsSuccess });
+        core.NavigationCompleted += (_, e) => { Program.Log($"navDone id={_id} ok={e.IsSuccess} status={e.HttpStatusCode} err={e.WebErrorStatus}"); _emit(new { evt = "loading", id = _id, loading = false, ok = e.IsSuccess }); };
         core.DownloadStarting += (_, e) => _emit(new { evt = "download", id = _id, url = e.DownloadOperation.Uri, path = e.ResultFilePath });
         core.ContextMenuRequested += OnContextMenu;
         core.NewWindowRequested += OnNewWindow;
