@@ -1,9 +1,45 @@
 using System.Drawing;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using System.Windows.Forms;
 using Microsoft.Web.WebView2.Core;
 
 namespace Zero.ResourceHost;
+
+// Win32 helpers for embedding a host-owned child window under Electron's (another process's) window.
+// Parenting the WebView2 controller DIRECTLY into Electron's HWND renders it BEHIND Electron's opaque
+// Chromium content HWND (v0.2.205 "blank" bug: the view loaded + was positioned at x:0 but was occluded).
+// Instead each view gets its own borderless Form, SetParent'd under Electron's HWND and kept at the TOP of
+// the sibling z-order so it paints above the page — the same own-window model that made the M1 demo render.
+internal static class NativeMethods
+{
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern IntPtr SetParent(IntPtr hWndChild, IntPtr hWndNewParent);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern int GetWindowLong(IntPtr hWnd, int nIndex);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
+
+    public const int GWL_STYLE = -16;
+    public const int WS_CHILD = unchecked((int)0x40000000);
+    public const int WS_VISIBLE = unchecked((int)0x10000000);
+    public const int WS_CLIPSIBLINGS = unchecked((int)0x04000000);
+    public const int WS_POPUP = unchecked((int)0x80000000);
+    public const int WS_CAPTION = 0x00C00000;
+    public const int WS_THICKFRAME = 0x00040000;
+
+    public static readonly IntPtr HWND_TOP = IntPtr.Zero;
+    public const uint SWP_NOACTIVATE = 0x0010;
+    public const uint SWP_SHOWWINDOW = 0x0040;
+    public const uint SWP_HIDEWINDOW = 0x0080;
+    public const uint SWP_NOZORDER = 0x0004;
+}
 
 // Owns the shared WebView2 environment and the live set of resource views. All methods run on the
 // UI thread (commands are marshalled there by Program). Events are emitted via the `_emit` callback.
@@ -119,6 +155,9 @@ internal sealed class ResourceView : IDisposable
     private readonly Action<object> _emit;
     private CoreWebView2Controller? _controller;
     private CoreWebView2Environment? _env;
+    // Host-owned borderless child window that actually hosts the WebView2 (see NativeMethods for why).
+    private Form? _host;
+    private IntPtr _parentHwnd;
 
     // desired state (applied when controller becomes ready)
     private Rectangle _bounds;
@@ -135,13 +174,27 @@ internal sealed class ResourceView : IDisposable
         _env = env;
         _pendingNavigate = url;
         _profile = SanitizeProfile(profile);
+        _parentHwnd = parentHwnd;
         try
         {
+            // 1) Host-owned borderless container window. We create + own its HWND (same process as the
+            //    controller), so WebView2 renders into it exactly like the M1 demo's own Form did.
+            _host = new Form
+            {
+                FormBorderStyle = FormBorderStyle.None,
+                ShowInTaskbar = false,
+                StartPosition = FormStartPosition.Manual,
+                Bounds = _bounds.IsEmpty ? new Rectangle(0, 0, 800, 600) : _bounds,
+            };
+            var hostHandle = _host.Handle; // force creation
+            EmbedUnderParent(parentHwnd);
+
+            // 2) Parent the controller into OUR window (client-filling), not Electron's HWND directly.
             var opts = env.CreateCoreWebView2ControllerOptions();
             opts.ProfileName = _profile;
             opts.IsInPrivateModeEnabled = false;
 
-            var controller = await env.CreateCoreWebView2ControllerAsync(parentHwnd, opts);
+            var controller = await env.CreateCoreWebView2ControllerAsync(hostHandle, opts);
             if (_disposed) { controller.Close(); return; }
             _controller = controller;
 
@@ -151,10 +204,11 @@ internal sealed class ResourceView : IDisposable
             core.Settings.AreDefaultContextMenusEnabled = false;
             WireEvents(core);
 
-            // Apply whatever desired state accumulated during the await.
-            controller.Bounds = _bounds;
-            controller.IsVisible = _visible;
+            // The controller fills the container; the CONTAINER is what we move/size (see SetBounds).
+            controller.Bounds = new Rectangle(Point.Empty, _host.ClientSize);
+            controller.IsVisible = true;
             controller.ZoomFactor = _zoom;
+            ApplyBounds(); // position + z-order the container to the desired rect
 
             Program.Log($"controller created id={_id} parent={parentHwnd} bounds={_bounds} visible={_visible} profile={_profile}");
             _emit(new { evt = "mounted", id = _id });
@@ -165,6 +219,30 @@ internal sealed class ResourceView : IDisposable
             Program.Log($"create failed id={_id}: {ex}");
             _emit(new { evt = "error", id = _id, message = "create failed: " + ex.Message });
         }
+    }
+
+    // Make the container a WS_CHILD of `parent` (Electron's window) without a frame/activation.
+    private void EmbedUnderParent(IntPtr parent)
+    {
+        if (_host == null) return;
+        var h = _host.Handle;
+        NativeMethods.SetParent(h, parent);
+        int style = NativeMethods.GetWindowLong(h, NativeMethods.GWL_STYLE);
+        style &= ~(NativeMethods.WS_POPUP | NativeMethods.WS_CAPTION | NativeMethods.WS_THICKFRAME);
+        style |= NativeMethods.WS_CHILD | NativeMethods.WS_CLIPSIBLINGS;
+        NativeMethods.SetWindowLong(h, NativeMethods.GWL_STYLE, style);
+    }
+
+    // Position + size the container to _bounds and keep it at the TOP of the sibling z-order (above
+    // Electron's Chromium content HWND) so it isn't occluded. Hide it when parked (negative x) or !visible.
+    private void ApplyBounds()
+    {
+        if (_host == null) return;
+        var h = _host.Handle;
+        bool show = _visible && _bounds.X > -10000 && _bounds.Width > 0 && _bounds.Height > 0;
+        uint flags = NativeMethods.SWP_NOACTIVATE | (show ? NativeMethods.SWP_SHOWWINDOW : NativeMethods.SWP_HIDEWINDOW);
+        NativeMethods.SetWindowPos(h, NativeMethods.HWND_TOP, _bounds.X, _bounds.Y, Math.Max(1, _bounds.Width), Math.Max(1, _bounds.Height), flags);
+        if (_controller != null) _controller.Bounds = new Rectangle(0, 0, Math.Max(1, _bounds.Width), Math.Max(1, _bounds.Height));
     }
 
     private void WireEvents(CoreWebView2 core)
@@ -209,8 +287,10 @@ internal sealed class ResourceView : IDisposable
     }
 
     // ---- commands (safe before controller ready via desired-state) ----
-    public void SetBounds(Rectangle r) { _bounds = r; if (_controller != null) _controller.Bounds = r; }
-    public void SetVisible(bool v) { _visible = v; if (_controller != null) _controller.IsVisible = v; }
+    // Bounds/visibility drive the host CONTAINER window (positioned + z-ordered), not the controller
+    // directly — the controller always fills the container.
+    public void SetBounds(Rectangle r) { _bounds = r; if (_host != null) ApplyBounds(); }
+    public void SetVisible(bool v) { _visible = v; if (_host != null) ApplyBounds(); }
     public void SetZoom(double z) { _zoom = z; if (_controller != null) _controller.ZoomFactor = z; }
     public void Navigate(string url) { _pendingNavigate = url; _controller?.CoreWebView2.Navigate(url); }
     // Re-mount reveal: only (re)navigate if the target actually changed, so revealing a warm tab does
@@ -225,13 +305,20 @@ internal sealed class ResourceView : IDisposable
     public void GoBack() { if (_controller?.CoreWebView2.CanGoBack == true) _controller.CoreWebView2.GoBack(); }
     public void GoForward() { if (_controller?.CoreWebView2.CanGoForward == true) _controller.CoreWebView2.GoForward(); }
     public void Reload() => _controller?.CoreWebView2.Reload();
-    public void Reparent(IntPtr parent) { if (_controller != null) _controller.ParentWindow = parent; } // WebView2 supports live reparent
+    // Reparent the CONTAINER under a new Electron window (the controller stays parented to the container).
+    public void Reparent(IntPtr parent)
+    {
+        _parentHwnd = parent;
+        if (_host != null) { EmbedUnderParent(parent); ApplyBounds(); }
+    }
 
     public void Dispose()
     {
         _disposed = true;
         try { _controller?.Close(); } catch { /* ignore */ }
         _controller = null;
+        try { _host?.Dispose(); } catch { /* ignore */ }
+        _host = null;
     }
 
     private static string SanitizeProfile(string profile)
