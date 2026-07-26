@@ -505,6 +505,24 @@ export function Zero0Canvas() {
   useEffect(() => {
     setShowHidden(false)
   }, [contextId])
+  // FOCUS ARBITRATION (desktop, over a web resource). The native webview is a SEPARATE OS process whose
+  // window sits above Zero's own UI; when it holds keyboard focus, clicking a Zero field (e.g. create-entity)
+  // focuses the DOM element but keys still route to the website. Because the webview never lives in the DOM,
+  // ANY `focusin` we observe is necessarily a Zero element — so while a webview is shown, on focusin we ask
+  // the host to hand keyboard focus back to Electron. Only wired when a webview is actually displayed.
+  const hasWebView = isDesktop && !!context?.webUrl
+  useEffect(() => {
+    if (!hasWebView) return
+    const release = () => {
+      try {
+        window.zero?.resource?.releaseFocus?.()
+      } catch {
+        /* ignore */
+      }
+    }
+    document.addEventListener("focusin", release)
+    return () => document.removeEventListener("focusin", release)
+  }, [hasWebView])
   // LOG COLLAPSE — the §0 LIFE LOG is COLLAPSED by default (v0.2.150). It's an ever-growing list of
   // session-open/close ticks that pushed the children below the fold on every open while dogfooding.
   // A per-context VIEW toggle (a chevron on the LOG header), session-only, RESET on navigation so

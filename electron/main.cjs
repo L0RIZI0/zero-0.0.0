@@ -1170,6 +1170,12 @@ ipcMain.on("zero:resource:unmount", (_e, id) => {
   parkResourceView(id)
 })
 
+// A Zero UI field (create-entity, etc.) was focused while a webview is displayed above it. Ask the host to
+// hand keyboard focus back to Electron so the click actually lands in Zero's input instead of the website.
+ipcMain.on("zero:resource:release-focus", () => {
+  if (useWebView2() && hostBridge) hostBridge.releaseFocus()
+})
+
 ipcMain.on("zero:open-external", (_e, url) => {
   if (typeof url === "string" && /^https?:\/\//.test(url)) shell.openExternal(url)
 })

@@ -28,6 +28,9 @@ export interface ZeroDesktopBridge {
     close: (id: string) => void
     /** Legacy teardown alias; main now treats it as park. Prefer park()/close(). */
     unmount: (id: string) => void
+    /** Hand keyboard focus back to Zero's own UI when a Zero input is focused while a webview is displayed
+     *  above it (the webview is a separate process, so focus must be handed back explicitly). No-op on web. */
+    releaseFocus: () => void
     onOutput: (cb: (payload: { id: string; name: string; dataUrl: string }) => void) => () => void
     onStatus: (cb: (payload: { id: string; ok: boolean; detail?: string }) => void) => () => void
     onNavigated: (cb: (payload: { id: string; url: string }) => void) => () => void

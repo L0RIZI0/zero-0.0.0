@@ -50,6 +50,9 @@ contextBridge.exposeInMainWorld("zero", {
     close: (id) => ipcRenderer.send("zero:resource:close", id),
     /** Legacy teardown alias; main now treats it as PARK. Prefer park()/close(). */
     unmount: (id) => ipcRenderer.send("zero:resource:unmount", id),
+    /** Hand keyboard focus back to Zero's own UI when a Zero input is focused while a webview is displayed
+     *  above it. Cross-process: asks the native host to SetFocus back to Electron. No-op in web builds. */
+    releaseFocus: () => ipcRenderer.send("zero:resource:release-focus"),
     /** Subscribe to outputs the resource produces (exports/downloads) → Outputs. */
     onOutput: (cb) => {
       const handler = (_e, payload) => cb(payload)

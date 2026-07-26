@@ -284,6 +284,11 @@ class ResourceHostBridge extends EventEmitter {
   navigate(id, url) {
     this._send({ cmd: "navigate", id, url })
   }
+  // Ask the host to hand keyboard focus back to Electron (Zero's own UI), e.g. when a Zero input is clicked
+  // while a webview is displayed above it. No id: focus is a process-wide concern in the host.
+  releaseFocus() {
+    this._send({ cmd: "releaseFocus" })
+  }
   setScaleFactor(s) {
     this.scaleFactor = s || 1
   }

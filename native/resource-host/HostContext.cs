@@ -42,6 +42,11 @@ internal static class NativeMethods
     [DllImport("user32.dll")]
     public static extern bool IsWindow(IntPtr hWnd);
 
+    // Hand keyboard focus to another window (used to release focus back to Electron when a Zero UI field is
+    // clicked). Works cross-thread because our input queue is merged with Electron's while a webview is visible.
+    [DllImport("user32.dll")]
+    public static extern IntPtr SetFocus(IntPtr hWnd);
+
     public const int GWL_STYLE = -16;
     public const int WS_CHILD = unchecked((int)0x40000000);
     public const int WS_VISIBLE = unchecked((int)0x10000000);
@@ -146,6 +151,7 @@ internal sealed class HostContext
             case "reload": if (_views.TryGetValue(Id(), out var vr)) vr.Reload(); break;
             case "setZoom": if (_views.TryGetValue(Id(), out var vz)) vz.SetZoom(Dbl(root, "zoom", 1.0)); break;
             case "setParent": Reparent(new IntPtr(root.GetProperty("parentHwnd").GetInt64())); break;
+            case "releaseFocus": ReleaseFocusToParent(); break;
             case "shutdown": Shutdown(); break;
             default: _emit(new { evt = "error", message = $"unknown cmd: {cmd}" }); break;
         }
@@ -186,6 +192,16 @@ internal sealed class HostContext
     {
         _parentHwnd = parent;
         foreach (var v in _views.Values) v.Reparent(parent);
+    }
+
+    // Hand keyboard focus back to Electron (Zero's own UI). Called when the user clicks a Zero input while a
+    // webview is displayed. Cross-thread SetFocus works because the input queues are merged while visible.
+    // Chromium restores focus to whatever DOM element the renderer focuses next.
+    private void ReleaseFocusToParent()
+    {
+        if (_parentHwnd == IntPtr.Zero || !NativeMethods.IsWindow(_parentHwnd)) return;
+        var prev = NativeMethods.SetFocus(_parentHwnd);
+        Program.Log($"releaseFocus -> electron={_parentHwnd} prevFocus={prev}");
     }
 
     private void Shutdown()
