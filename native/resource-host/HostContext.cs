@@ -158,6 +158,10 @@ internal sealed class ResourceView : IDisposable
     // Host-owned borderless child window that actually hosts the WebView2 (see NativeMethods for why).
     private Form? _host;
     private IntPtr _parentHwnd;
+    // Last state pushed to SetWindowPos, so ApplyBounds can skip no-ops and only raise z-order on reveal.
+    private Rectangle _appliedBounds = Rectangle.Empty;
+    private bool _appliedShown;
+    private bool _hasApplied;
 
     // desired state (applied when controller becomes ready)
     private Rectangle _bounds;
@@ -258,16 +262,32 @@ internal sealed class ResourceView : IDisposable
         NativeMethods.SetWindowLong(h, NativeMethods.GWL_STYLE, style);
     }
 
-    // Position + size the container to _bounds and keep it at the TOP of the sibling z-order (above
-    // Electron's Chromium content HWND) so it isn't occluded. Hide it when parked (negative x) or !visible.
+    // Position + size the container to _bounds. It's raised above Electron's Chromium content HWND ONCE
+    // on reveal (hidden->shown); routine move/size keeps the current z-order (SWP_NOZORDER). CRITICAL:
+    // re-raising to HWND_TOP on every update was stealing keyboard focus from the WebView2 mid-typing —
+    // the renderer floods setBounds (per-second ticks + crumb animation), and each z-order raise let
+    // Chromium reclaim focus (symptom: "type for a few seconds, then input stops"). Also dedupes no-ops.
     private void ApplyBounds()
     {
         if (_host == null) return;
         var h = _host.Handle;
         bool show = _visible && _bounds.X > -10000 && _bounds.Width > 0 && _bounds.Height > 0;
-        uint flags = NativeMethods.SWP_NOACTIVATE | (show ? NativeMethods.SWP_SHOWWINDOW : NativeMethods.SWP_HIDEWINDOW);
+
+        // Skip if nothing changed since the last apply (kills the redundant per-tick SetWindowPos flood).
+        if (_hasApplied && show == _appliedShown && _bounds == _appliedBounds) return;
+
+        // Raise to the top of the sibling z-order ONLY on a genuine hidden->shown reveal. Otherwise keep
+        // the current z-order so we never reorder the child window out from under keyboard focus.
+        bool raise = show && (!_hasApplied || !_appliedShown);
+        uint flags = NativeMethods.SWP_NOACTIVATE
+            | (raise ? 0u : NativeMethods.SWP_NOZORDER)
+            | (show ? NativeMethods.SWP_SHOWWINDOW : NativeMethods.SWP_HIDEWINDOW);
         NativeMethods.SetWindowPos(h, NativeMethods.HWND_TOP, _bounds.X, _bounds.Y, Math.Max(1, _bounds.Width), Math.Max(1, _bounds.Height), flags);
         if (_controller != null) _controller.Bounds = new Rectangle(0, 0, Math.Max(1, _bounds.Width), Math.Max(1, _bounds.Height));
+
+        _appliedBounds = _bounds;
+        _appliedShown = show;
+        _hasApplied = true;
     }
 
     private void WireEvents(CoreWebView2 core)
