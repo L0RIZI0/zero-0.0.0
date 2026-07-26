@@ -2025,12 +2025,19 @@ export function Zero0Canvas() {
           |
         </span>
         {/* Doc links — plain anchors, not frame toggles. `entities` = the interactive
-            "bible of entities" table; `sugars` = the create-bar grammar reference. */}
+            "bible of entities" table; `features` = the marketing-facet feature tour;
+            `sugars` = the create-bar grammar reference. */}
         <a
           href="/entities"
           className="text-muted-foreground transition-colors hover:text-foreground"
         >
           entities
+        </a>
+        <a
+          href="/features"
+          className="text-muted-foreground transition-colors hover:text-foreground"
+        >
+          features
         </a>
         <a
           href="/sugars"
