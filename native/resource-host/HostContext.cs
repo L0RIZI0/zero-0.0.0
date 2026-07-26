@@ -39,6 +39,48 @@ internal static class NativeMethods
     public const uint SWP_SHOWWINDOW = 0x0040;
     public const uint SWP_HIDEWINDOW = 0x0080;
     public const uint SWP_NOZORDER = 0x0004;
+
+    public const int WM_SETFOCUS = 0x0007;
+    public const int WM_MOUSEACTIVATE = 0x0021;
+    public const int MA_ACTIVATE = 1;
+}
+
+// The container that hosts the WebView2. WebView2 is cross-process, so Win32 keyboard focus is unreliable:
+// when the WebView2 relinquishes focus (mid-navigation, a page calling focus(), etc.) it hands focus back to
+// THIS parent HWND — and with no handler the keyboard goes dead (symptom: "type a few seconds, then input
+// stops"). We intercept WM_SETFOCUS + WM_MOUSEACTIVATE and PostMessage-defer (BeginInvoke) MoveFocus back
+// INTO the WebView2 — a self-healing loop. The defer is REQUIRED: calling MoveFocus synchronously inside the
+// focus message lets Windows overwrite it right after (per WebView2 hosting guidance).
+internal sealed class ContainerForm : Form
+{
+    // Set by ResourceView once the controller exists; pushes focus into the WebView2.
+    public Action? ReseedFocus;
+    private bool _reseedQueued;
+
+    private void QueueReseed()
+    {
+        if (_reseedQueued || ReseedFocus is null || IsDisposed) return;
+        _reseedQueued = true;
+        try { BeginInvoke(new Action(() => { _reseedQueued = false; ReseedFocus?.Invoke(); })); }
+        catch { _reseedQueued = false; }
+    }
+
+    protected override void WndProc(ref Message m)
+    {
+        switch (m.Msg)
+        {
+            case NativeMethods.WM_MOUSEACTIVATE:
+                base.WndProc(ref m);
+                m.Result = (IntPtr)NativeMethods.MA_ACTIVATE; // a click activates us + seeds focus into the webview
+                QueueReseed();
+                return;
+            case NativeMethods.WM_SETFOCUS:
+                base.WndProc(ref m);
+                QueueReseed(); // webview handed focus back to us -> push it straight back in
+                return;
+        }
+        base.WndProc(ref m);
+    }
 }
 
 // Owns the shared WebView2 environment and the live set of resource views. All methods run on the
@@ -156,7 +198,7 @@ internal sealed class ResourceView : IDisposable
     private CoreWebView2Controller? _controller;
     private CoreWebView2Environment? _env;
     // Host-owned borderless child window that actually hosts the WebView2 (see NativeMethods for why).
-    private Form? _host;
+    private ContainerForm? _host;
     private IntPtr _parentHwnd;
     // Last state pushed to SetWindowPos, so ApplyBounds can skip no-ops and only raise z-order on reveal.
     private Rectangle _appliedBounds = Rectangle.Empty;
@@ -183,7 +225,7 @@ internal sealed class ResourceView : IDisposable
         {
             // 1) Host-owned borderless container window. We create + own its HWND (same process as the
             //    controller), so WebView2 renders into it exactly like the M1 demo's own Form did.
-            _host = new Form
+            _host = new ContainerForm
             {
                 FormBorderStyle = FormBorderStyle.None,
                 ShowInTaskbar = false,
@@ -232,6 +274,13 @@ internal sealed class ResourceView : IDisposable
             // dead edge:// items like "Import passwords"). M2 will render Zero's menu from these events.
             core.Settings.AreDefaultContextMenusEnabled = false;
             WireEvents(core);
+
+            // Self-healing keyboard focus: whenever our container HWND is clicked or handed focus, push it
+            // back into the WebView2 (see ContainerForm). Without this, keyboard input dies after focus
+            // drifts back to the parent (the cross-process focus bug on the Google login / Figma fields).
+            _host.ReseedFocus = () => { try { _controller?.MoveFocus(CoreWebView2MoveFocusReason.Programmatic); } catch { /* ignore */ } };
+            // Accept focus moves the webview requests (e.g. tabbing) instead of leaving it in limbo.
+            controller.MoveFocusRequested += (_, e) => { e.Handled = true; try { _controller?.MoveFocus(CoreWebView2MoveFocusReason.Programmatic); } catch { /* ignore */ } };
 
             // The controller fills the container; the CONTAINER is what we move/size (see SetBounds).
             controller.Bounds = new Rectangle(Point.Empty, _host.ClientSize);
