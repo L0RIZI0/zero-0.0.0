@@ -26,6 +26,18 @@ internal static class NativeMethods
     [DllImport("user32.dll", SetLastError = true)]
     public static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
 
+    // Cross-process focus: link our host UI thread's input queue to Electron's so keyboard routing works
+    // for the embedded (SetParent'd) WebView2. Without this, keys only reach us while our process happens
+    // to be foreground; once Electron reasserts, input dies.
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool fAttach);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+
+    [DllImport("kernel32.dll")]
+    public static extern uint GetCurrentThreadId();
+
     public const int GWL_STYLE = -16;
     public const int WS_CHILD = unchecked((int)0x40000000);
     public const int WS_VISIBLE = unchecked((int)0x10000000);
@@ -206,6 +218,10 @@ internal sealed class ResourceView : IDisposable
     private Rectangle _appliedBounds = Rectangle.Empty;
     private bool _appliedShown;
     private bool _hasApplied;
+    // Electron UI thread our (single, process-wide) input queue is attached to (0 = none). STATIC because all
+    // views share one host UI thread; AttachThreadInput links a THREAD PAIR (not refcounted), so a per-view
+    // attach/detach would let closing one view kill keyboard input for the others.
+    private static uint _attachedThread;
 
     // desired state (applied when controller becomes ready)
     private Rectangle _bounds;
@@ -311,6 +327,31 @@ internal sealed class ResourceView : IDisposable
         style &= ~(NativeMethods.WS_POPUP | NativeMethods.WS_CAPTION | NativeMethods.WS_THICKFRAME);
         style |= NativeMethods.WS_CHILD | NativeMethods.WS_CLIPSIBLINGS;
         NativeMethods.SetWindowLong(h, NativeMethods.GWL_STYLE, style);
+        AttachInputTo(parent);
+    }
+
+    // Link our UI thread's input queue to Electron's window thread so keyboard input reaches the embedded
+    // WebView2 even when Electron is the foreground window. This is the canonical fix for the cross-process
+    // SetParent keyboard-focus bug (host.log showed our container never got WM_SETFOCUS while typing —
+    // input was going to Electron's thread queue, which ours wasn't part of). Idempotent + re-points on reparent.
+    private void AttachInputTo(IntPtr parent)
+    {
+        try
+        {
+            uint target = parent == IntPtr.Zero ? 0 : NativeMethods.GetWindowThreadProcessId(parent, out _);
+            if (target == _attachedThread) return;
+            uint self = NativeMethods.GetCurrentThreadId();
+            if (_attachedThread != 0 && _attachedThread != self)
+                NativeMethods.AttachThreadInput(self, _attachedThread, false); // detach previous
+            _attachedThread = 0;
+            if (target != 0 && target != self)
+            {
+                bool ok = NativeMethods.AttachThreadInput(self, target, true);
+                if (ok) _attachedThread = target;
+                Program.Log($"AttachThreadInput self={self} electron={target} ok={ok}");
+            }
+        }
+        catch (Exception ex) { Program.Log($"AttachThreadInput failed: {ex.Message}"); }
     }
 
     // Position + size the container to _bounds. It's raised above Electron's Chromium content HWND ONCE
@@ -411,6 +452,8 @@ internal sealed class ResourceView : IDisposable
     public void Dispose()
     {
         _disposed = true;
+        // NOTE: deliberately do NOT detach the thread-input link here — it's process-wide/shared across views
+        // (see _attachedThread). The OS drops it on process exit.
         try { _controller?.Close(); } catch { /* ignore */ }
         _controller = null;
         try { _host?.Dispose(); } catch { /* ignore */ }
