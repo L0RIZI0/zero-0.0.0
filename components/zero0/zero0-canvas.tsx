@@ -55,7 +55,7 @@ import {
   parseHexColor,
   type EntryAttr,
 } from "@/lib/zero/create-parse"
-import { looksLikeUrl, normalizeUrl, resolveWebResourceByUrl, webLabel } from "@/lib/zero/web-resources"
+import { cropTitle, looksLikeUrl, normalizeUrl, resolveWebResourceByUrl, webLabel } from "@/lib/zero/web-resources"
 import { useZero0Flag, toggleZero0Flag } from "@/lib/zero/zero0-chord"
 import { useZeroCrossWindowSync } from "@/lib/zero/use-zero-sync"
 import { useNowSeconds } from "@/lib/zero/use-now"
@@ -591,7 +591,12 @@ export function Zero0Canvas() {
         const web = e?.webUrl
           ? webLabel({ webUrl: e.webUrl, webResourceId: e.webResourceId, webTitle: e.webTitle, title: e.title })
           : null
-        const label = web ? web.display : (e?.title ?? (i === 0 ? currentUser.name : id))
+        // Crop the crumb label UNIFORMLY (web curated titles bypass webLabel's crop, and long entity
+        // titles could wrap too). A short, fixed-length crumb can never grow the header height — which was
+        // shoving the web-view rect down when a fetched page <title> arrived. `full` (not `display`) is the
+        // uncropped source so we control the crop here; tooltip still carries the whole thing.
+        const rawLabel = web ? web.full : (e?.title ?? (i === 0 ? currentUser.name : id))
+        const label = cropTitle(rawLabel)
         const siblingCount = i > 0 ? getChildren(path[i - 1]).length : 0
         return {
           id,
@@ -1509,11 +1514,11 @@ export function Zero0Canvas() {
                   disabled={last}
                   aria-current={last ? "page" : undefined}
                   title={c.tooltip}
-                  className={
+                  className={`inline-block max-w-[14rem] truncate align-bottom ${
                     last
                       ? "text-foreground"
                       : "text-muted-foreground hover:text-foreground underline-offset-2 hover:underline"
-                  }
+                  }`}
                 >
                   {c.label}
                 </button>
