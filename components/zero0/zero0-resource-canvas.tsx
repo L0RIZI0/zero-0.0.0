@@ -114,6 +114,13 @@ const SETTLE_TIMEOUT_MS = 1600
 // is what caused the placeholder to briefly show through on a tab-switch. Time-based (not frame-based)
 // so it's robust to the mount→IPC→status round-trip latency; a cold network load lands well past it.
 const WARM_REVEAL_MS = 250
+// Monotonic mount token per resource id. On unmount we DEFER `park` by two animation frames so
+// Chromium can paint the freshly-revealed DOM pane BEFORE the native surface is torn down —
+// otherwise the surface (a separate OS layer composited on top) hides before that paint lands and
+// the airspace region flashes black for a frame or two. The token guards the race: if the SAME id
+// is re-opened within those two frames, its new mount bumps the token and the stale deferred park
+// is skipped (so it can't hide the freshly re-mounted view).
+const mountSeq = new Map<string, number>()
 const hiddenRectOf = (r: { y: number; width: number; height: number }) => ({
   x: -100000,
   y: Math.max(0, Math.round(r.y)),
@@ -178,6 +185,8 @@ function NativeSurface({
       }
     })
 
+    const seq = (mountSeq.get(id) ?? 0) + 1
+    mountSeq.set(id, seq)
     bridge.resource.mount({ id, url: toDesktopUrl(url), resourceId, rect: hiddenRectOf(rectOf()) })
 
     // Remember the last page navigated to (skip internal app:// routes — those are
@@ -234,9 +243,16 @@ function NativeSurface({
       cancelAnimationFrame(raf)
       offStatus()
       offNav?.()
-      // Drilling away PARKS (keeps warm), not destroys — reopening is an instant
-      // tab-switch. Explicit destruction happens only via the header × (resource.close).
-      bridge.resource.park(id)
+      // Drilling away PARKS (keeps warm), not destroys — reopening is an instant tab-switch.
+      // DEFER the hide by two rAFs so Chromium paints the revealed DOM pane underneath first,
+      // then the native surface hides onto already-painted content (no black airspace flash).
+      // Skip if this id was re-mounted in the meantime (token changed) — that newer view is now
+      // the live one and must stay visible.
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() => {
+          if (mountSeq.get(id) === seq) bridge.resource.park(id)
+        }),
+      )
     }
   }, [id, url, resourceId, retryKey])
 
