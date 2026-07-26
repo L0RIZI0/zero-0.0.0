@@ -3,23 +3,6 @@
   "version": "0.1.0",
   "private": true,
   "main": "electron/main.cjs",
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "koffi",
-      "sharp",
-      "electron",
-      "electron-winstaller",
-      "esbuild",
-      "msw"
-    ]
-  },
-  "electronmon": {
-    "patterns": [
-      "!native/**",
-      "!**/*.log",
-      "!**/resource-host-profiles/**"
-    ]
-  },
   "scripts": {
     "gen:docs": "node scripts/gen-interaction-matrix.mjs",
     "predev": "node scripts/gen-interaction-matrix.mjs",
@@ -138,7 +121,8 @@
   "pnpm": {
     "onlyBuiltDependencies": [
       "electron",
-      "esbuild"
+      "esbuild",
+      "koffi"
     ],
     "ignoredBuiltDependencies": [
       "electron-winstaller",
