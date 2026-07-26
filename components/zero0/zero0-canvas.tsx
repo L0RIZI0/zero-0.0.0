@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { Activity, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { VersionSwitcher } from "@/components/version-switcher"
 import { Zero0ThemeToggle } from "./zero0-theme-toggle"
 import { Zero0UpdateIndicator } from "./zero0-update-indicator"
@@ -215,6 +215,107 @@ function Zero0CloseButton({
         <path d="M4 4l8 8M12 4l-8 8" strokeLinecap="round" />
       </svg>
     </button>
+  )
+}
+
+// ONE CONTEXT LEVEL of the drill-in stack — the §0 entity header (Face + life log) plus the
+// recursive ENTITY CONTENT, in its OWN scroll container. The canvas renders one of these per
+// non-web level of `path`, wrapping each in <Activity> so ANCESTOR levels stay mounted-hidden
+// (state + scroll preserved, effects paused) instead of unmounting — so climbing back out is
+// instant and remembers where you were. Owns only truly per-level view state (`logExpanded`,
+// scroll); all row view-overrides (size/make/expansion) stay canvas-global via `ctx`, keyed by
+// entity id, so a row looks the same wherever it appears.
+function Zero0ContextPane({
+  entity,
+  isRootLevel,
+  showEntityHeader,
+  nowSec,
+  mounted,
+  ancestry,
+  ctx,
+  onToggleDone,
+  onTogglePlay,
+  onMark,
+  onContextMenu,
+  onClose,
+}: {
+  entity: Entity
+  isRootLevel: boolean
+  showEntityHeader: boolean
+  nowSec: number
+  mounted: boolean
+  ancestry: Set<string>
+  ctx: Zero0ContentCtx
+  onToggleDone: (e: Entity) => void
+  onTogglePlay: (e: Entity) => void
+  onMark: (e: Entity) => void
+  onContextMenu: (e: Entity, ev: React.MouseEvent) => void
+  onClose: (e: Entity) => void
+}) {
+  const [logExpanded, setLogExpanded] = useState(false)
+  return (
+    <div
+      className="min-h-0 flex-1 overflow-auto"
+      onContextMenu={(ev) => onContextMenu(entity, ev)}
+    >
+      {mounted && (
+        <div
+          className="grid transition-[grid-template-rows] duration-300 ease-out motion-reduce:transition-none"
+          style={{ gridTemplateRows: showEntityHeader ? "1fr" : "0fr" }}
+          inert={!showEntityHeader}
+        >
+          <div className="overflow-hidden">
+            <section className="relative border-b border-border px-4 py-3">
+              <Zero0Face
+                entity={entity}
+                size="full"
+                now={nowSec}
+                onToggleDone={onToggleDone}
+                onTogglePlay={onTogglePlay}
+                onMark={onMark}
+                onContextMenu={onContextMenu}
+                trailing={
+                  !isRootLevel ? (
+                    <Zero0CloseButton className="ml-auto" onClick={() => onClose(entity)} />
+                  ) : undefined
+                }
+              />
+              {entity.log && entity.log.length > 0 && (
+                <div className="mt-3 border-t border-border pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setLogExpanded((v) => !v)}
+                    aria-expanded={logExpanded}
+                    className="flex items-center gap-1.5 text-[10px] uppercase tracking-widest text-muted-foreground hover:text-foreground"
+                  >
+                    <span aria-hidden className="inline-block w-2 text-center">{logExpanded ? "▾" : "▸"}</span>
+                    <span>log</span>
+                    <span className="tracking-normal normal-case opacity-70">{`(${entity.log.length})`}</span>
+                  </button>
+                  {logExpanded && (
+                    <ol className="mt-1 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-[10px] tabular-nums">
+                      {entity.log.map((entry, i) => (
+                        <li key={entry.id ?? i} className="contents">
+                          <span className="shrink-0 text-muted-foreground">
+                            {entry.id != null && <span className="mr-1.5 opacity-40">{`#${entry.id}`}</span>}
+                            {fmt(entry.at)}
+                          </span>
+                          <span className="truncate text-foreground">{describeLogEntry(entry, fmtLogValue)}</span>
+                        </li>
+                      ))}
+                    </ol>
+                  )}
+                </div>
+              )}
+              <Zero0FrameMarker flag="entityHeader" label="the entity header" />
+            </section>
+          </div>
+        </div>
+      )}
+      <div className="px-4 py-3">
+        <Zero0Content entity={entity} axis="list" depth={0} ancestry={ancestry} ctx={ctx} isRoot mounted={mounted} />
+      </div>
+    </div>
   )
 }
 
@@ -531,12 +632,8 @@ export function Zero0Canvas() {
   }, [hasWebView])
   // LOG COLLAPSE — the §0 LIFE LOG is COLLAPSED by default (v0.2.150). It's an ever-growing list of
   // session-open/close ticks that pushed the children below the fold on every open while dogfooding.
-  // A per-context VIEW toggle (a chevron on the LOG header), session-only, RESET on navigation so
-  // each entity you open starts collapsed — same contract as showHidden.
-  const [logExpanded, setLogExpanded] = useState(false)
-  useEffect(() => {
-    setLogExpanded(false)
-  }, [contextId])
+  // Now OWNED PER-LEVEL by <Zero0ContextPane> (session-only): each drill level keeps its own toggle,
+  // preserved while that level stays mounted in the keep-alive stack.
   // PER-ROW FACE SIZE — the rung each ENTITY CONTENT row is shown at (right-click ▸ Size).
   // A VIEW override, not stored data ("a size is a curated projection" — a way of LOOKING,
   // not a property of the entity), so it lives in session state keyed by entity id: kept as
@@ -1409,10 +1506,9 @@ export function Zero0Canvas() {
     [toggleDone, togglePlay, mark, openEntity, remove, openMenu, sizeOf, makeOf, showHidden, nowSec, rev, expandedIds, toggleExpand, createChild, reorder, reparent],
   )
 
-  // The drill path as a Set — the top-level Content's ancestry. Seeds the cycle guard so a
-  // row can't expand into an entity that's already an ancestor on the breadcrumb (a
-  // `taggedContextIds` loop). `contextId` itself is added inside Content as it recurses.
-  const contentAncestry = useMemo(() => new Set(path), [path])
+  // (The top-level Content's ancestry Set is now built PER-LEVEL at the render site — each
+  // <Zero0ContextPane> gets `new Set(path.slice(0, i+1))`, the prefix up to its own level, so
+  // its content can't re-drill into one of its own breadcrumb ancestors.)
 
   // Right-click by ENTITY ID — used by the ACTIVITY rows and the dayline ticks, which
   // only carry ids. Resolves to the live entity (skipping deleted / sentinel ids so no
@@ -1732,7 +1828,7 @@ export function Zero0Canvas() {
         )}
         {/* FULL — the session readout as a labelled meta block. CONTEXT is the breadcrumb
             itself (the crumb trail IS the context, and its trailing chevron opens the
-            SIBLINGS dropdown — so there's no separate reshuffling siblings row), then
+            SIBLINGS dropdown �� so there's no separate reshuffling siblings row), then
             STORE/ENTITIES. Matches the ENTITY HEADER meta exactly (`7.5rem` label col +
             left-packed values) so the two blocks align as one column. The 7.5rem width (up
             from 6rem, v0.2.147) lets the longest §0 label — "PLANNED DURATION" — sit on one
@@ -1782,111 +1878,56 @@ export function Zero0Canvas() {
           zero header (breadcrumb), create field, and footer stay in place around it,
           so you can always climb back out. `overflow-hidden` (not auto) lets the
           surface fill without a scrollbar; the native desktop view tracks this rect. */}
-      {mounted && context?.webUrl ? (
-        <div
-          className="min-h-0 flex-1 overflow-hidden"
-          onContextMenu={(ev) => openMenu(context, ev)}
-        >
-          <Zero0ResourceCanvas
-            key={context.id}
-            id={context.id}
-            url={context.webUrl}
-            resourceId={context.webResourceId}
-          />
-        </div>
-      ) : (
-      <div
-        className="min-h-0 flex-1 overflow-auto"
-        // Right-clicking the empty content frame targets the CURRENT open node (the
-        // context). Child rows stopPropagation, so this only fires on blank space.
-        onContextMenu={context ? (ev) => openMenu(context, ev) : undefined}
-      >
-        {/* ENTITY HEADER (§0) — the open node's raw-data block (glyph/title/kind, meta
-            rows, life log). Toggled with §0 / the corner marker; the children list below
-            slides up/down with the same grid-rows collapse animation as every frame. */}
-        {mounted && context && (
+      {/* CONTENT AREA — the drill-in stack. Each NON-WEB level of `path` renders its own
+          keep-alive <Zero0ContextPane>; ancestor levels stay mounted-hidden via <Activity>
+          (state + scroll preserved, effects paused) so climbing back out is instant and
+          remembers where you were, and future heavier ENTITY CONTENT never re-mounts on a
+          switch. If the current leaf is a web resource, its native surface renders on top of
+          the (all-hidden) DOM panes. `relative flex-col` so the one visible pane fills via
+          `flex-1` while hidden ones (display:none) drop out of layout. */}
+      <div className="relative flex min-h-0 flex-1 flex-col">
+        {mounted &&
+          path.map((id, i) => {
+            const e = getEntity(id)
+            // Web levels have no DOM pane — they're shown by the native surface below.
+            if (!e || e.webUrl) return null
+            const active = i === path.length - 1
+            return (
+              <Activity key={id} mode={active ? "visible" : "hidden"}>
+                <Zero0ContextPane
+                  entity={e}
+                  isRootLevel={i === 0}
+                  showEntityHeader={showEntityHeader}
+                  nowSec={nowSec}
+                  mounted={mounted}
+                  // Ancestry = the path PREFIX up to this level, so the pane's content can't
+                  // re-drill into one of its own ancestors (cycle guard) while still allowing
+                  // the next drilled level (a descendant) to expand normally.
+                  ancestry={new Set(path.slice(0, i + 1))}
+                  ctx={contentCtx}
+                  onToggleDone={toggleDone}
+                  onTogglePlay={togglePlay}
+                  onMark={mark}
+                  onContextMenu={openMenu}
+                  onClose={closeContext}
+                />
+              </Activity>
+            )
+          })}
+        {mounted && context?.webUrl && (
           <div
-            className="grid transition-[grid-template-rows] duration-300 ease-out motion-reduce:transition-none"
-            style={{ gridTemplateRows: showEntityHeader ? "1fr" : "0fr" }}
-            inert={!showEntityHeader}
+            className="absolute inset-0 min-h-0 overflow-hidden"
+            onContextMenu={(ev) => openMenu(context, ev)}
           >
-            <div className="overflow-hidden">
-          <section className="relative border-b border-border px-4 py-3">
-            {/* The open node as a FULL Face (§0) — glyph/title/kind identity line + the
-                exhaustive meta dl. The close button (drilled-in, non-web) rides the
-                identity line via `trailing`; right-click opens the node's own menu. The
-                life log + frame marker below stay Content-side (canvas). */}
-            <Zero0Face
-              entity={context}
-              size="full"
-              now={nowSec}
-              onToggleDone={toggleDone}
-              onTogglePlay={togglePlay}
-              onMark={mark}
-              onContextMenu={openMenu}
-              trailing={
-                path.length > 1 ? (
-                  <Zero0CloseButton className="ml-auto" onClick={() => closeContext(context)} />
-                ) : undefined
-              }
+            <Zero0ResourceCanvas
+              key={context.id}
+              id={context.id}
+              url={context.webUrl}
+              resourceId={context.webResourceId}
             />
-            {/* LIFE LOG �� the whole append-only history (lifecycle transitions AND field
-                sets), oldest→newest, so the entity's entire life is retraceable. Every
-                setter dual-writes here; a per-field history is just this list filtered. */}
-            {mounted && context.log && context.log.length > 0 && (
-              <div className="mt-3 border-t border-border pt-2">
-                {/* COLLAPSED BY DEFAULT (v0.2.150): the header is a toggle — a chevron + "log" + the
-                    entry count — so the ever-growing tick list no longer buries the children. */}
-                <button
-                  type="button"
-                  onClick={() => setLogExpanded((v) => !v)}
-                  aria-expanded={logExpanded}
-                  className="flex items-center gap-1.5 text-[10px] uppercase tracking-widest text-muted-foreground hover:text-foreground"
-                >
-                  <span aria-hidden className="inline-block w-2 text-center">{logExpanded ? "▾" : "▸"}</span>
-                  <span>log</span>
-                  <span className="tracking-normal normal-case opacity-70">{`(${context.log.length})`}</span>
-                </button>
-                {logExpanded && (
-                  <ol className="mt-1 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-[10px] tabular-nums">
-                    {context.log.map((entry, i) => (
-                      <li key={entry.id ?? i} className="contents">
-                        <span className="shrink-0 text-muted-foreground">
-                          {/* Per-entity log id — a dev aid (the stable handle a CORRECTION targets).
-                              Muted `#n` prefix so the timestamp still leads visually. */}
-                          {entry.id != null && <span className="mr-1.5 opacity-40">{`#${entry.id}`}</span>}
-                          {fmt(entry.at)}
-                        </span>
-                        <span className="truncate text-foreground">{describeLogEntry(entry, fmtLogValue)}</span>
-                      </li>
-                    ))}
-                  </ol>
-                )}
-              </div>
-            )}
-            <Zero0FrameMarker flag="entityHeader" label="the entity header" />
-          </section>
-            </div>
           </div>
         )}
-
-        {/* ENTITY CONTENT — the container's INSIDE, via the recursive Content primitive.
-            A row can expand (▸) into its own nested Content. Empty until you create. */}
-        <div className="px-4 py-3">
-          {context && (
-            <Zero0Content
-              entity={context}
-              axis="list"
-              depth={0}
-              ancestry={contentAncestry}
-              ctx={contentCtx}
-              isRoot
-              mounted={mounted}
-            />
-          )}
-        </div>
       </div>
-      )}
 
       {/* Create field — part of the entity content (you create INTO this context),
           pinned above the footer helper. Bare mono input, hairline top. */}
