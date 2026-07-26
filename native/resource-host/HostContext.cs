@@ -58,7 +58,16 @@ internal sealed class HostContext
     private void Mount(string id, string url, string profile, Rectangle rect, bool visible)
     {
         if (_env is null) { _emit(new { evt = "error", message = "env not ready" }); return; }
-        if (_views.ContainsKey(id)) { _views[id].Navigate(url); return; }
+        // Idempotent re-mount = REVEAL a warm/parked view (mirrors the WebContentsView path): re-apply
+        // bounds + show and re-announce mounted, but DON'T reload if the url is unchanged.
+        if (_views.TryGetValue(id, out var existing))
+        {
+            existing.SetBounds(rect);
+            existing.SetVisible(visible);
+            existing.NavigateIfChanged(url);
+            _emit(new { evt = "mounted", id });
+            return;
+        }
 
         var view = new ResourceView(id, _emit);
         _views[id] = view;
@@ -204,6 +213,15 @@ internal sealed class ResourceView : IDisposable
     public void SetVisible(bool v) { _visible = v; if (_controller != null) _controller.IsVisible = v; }
     public void SetZoom(double z) { _zoom = z; if (_controller != null) _controller.ZoomFactor = z; }
     public void Navigate(string url) { _pendingNavigate = url; _controller?.CoreWebView2.Navigate(url); }
+    // Re-mount reveal: only (re)navigate if the target actually changed, so revealing a warm tab does
+    // not reload it. Compares against the last requested/loaded url.
+    public void NavigateIfChanged(string url)
+    {
+        if (string.IsNullOrEmpty(url)) return;
+        var current = _controller?.CoreWebView2?.Source;
+        if (url == _pendingNavigate || url == current) return;
+        Navigate(url);
+    }
     public void GoBack() { if (_controller?.CoreWebView2.CanGoBack == true) _controller.CoreWebView2.GoBack(); }
     public void GoForward() { if (_controller?.CoreWebView2.CanGoForward == true) _controller.CoreWebView2.GoForward(); }
     public void Reload() => _controller?.CoreWebView2.Reload();

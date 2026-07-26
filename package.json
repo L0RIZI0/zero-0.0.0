@@ -3,6 +3,13 @@
   "version": "0.1.0",
   "private": true,
   "main": "electron/main.cjs",
+  "electronmon": {
+    "patterns": [
+      "!native/**",
+      "!**/*.log",
+      "!**/resource-host-profiles/**"
+    ]
+  },
   "scripts": {
     "gen:docs": "node scripts/gen-interaction-matrix.mjs",
     "predev": "node scripts/gen-interaction-matrix.mjs",

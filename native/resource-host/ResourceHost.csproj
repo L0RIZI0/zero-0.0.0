@@ -15,7 +15,15 @@
       resource surfaces (the thing that must NOT be Electron's Chromium, so Google login works).
       Bundled into the Electron app via electron-builder extraResources. Windows-only.
     -->
-    <!-- Self-contained single-file publish keeps the shipped host to one .exe (no .NET install needed). -->
+  </PropertyGroup>
+
+  <!--
+    Self-contained single-file settings apply ONLY when we publish the shipped host (one .exe, no .NET
+    install needed). Gating them behind HostPublish keeps plain `dotnet run`/`dotnet build` (used in dev)
+    a fast framework-dependent build instead of the heavy single-file/self-contained compile. The publish
+    script (scripts/build-resource-host.mjs) passes -p:HostPublish=true.
+  -->
+  <PropertyGroup Condition="'$(HostPublish)' == 'true'">
     <PublishSingleFile>true</PublishSingleFile>
     <SelfContained>true</SelfContained>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>

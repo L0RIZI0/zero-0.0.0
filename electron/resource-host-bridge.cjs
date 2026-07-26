@@ -85,8 +85,10 @@ class ResourceHostBridge extends EventEmitter {
     const proj = path.join(this.appRoot, "native", "resource-host")
     return {
       cmd: "dotnet",
-      // -c Release keeps dev parity with the shipped build; --no-launch-profile avoids console noise.
-      baseArgs: ["run", "-c", "Release", "--project", proj, "--"],
+      // Dev: framework-dependent Debug build (fast). NOT -c Release — that flips on the self-contained
+      // single-file publish (HostPublish props) which is slow and only needed for the shipped exe.
+      // `-v q` silences the MSB3277 WindowsBase-conflict warning spam on stdout.
+      baseArgs: ["run", "--project", proj, "-v", "q", "--"],
     }
   }
 

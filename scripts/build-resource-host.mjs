@@ -42,7 +42,8 @@ async function main() {
   // Clean prior output so a stale exe can't ship.
   await rm(outDir, { recursive: true, force: true })
 
-  // Self-contained single-file publish (RID/SelfContained/PublishSingleFile are in the csproj).
+  // Self-contained single-file publish. -p:HostPublish=true flips on the single-file/self-contained/RID
+  // property group in the csproj (kept OFF for dev builds so `dotnet run` stays fast).
   await run("dotnet", [
     "publish",
     proj,
@@ -51,6 +52,7 @@ async function main() {
     "-o",
     outDir,
     "--nologo",
+    "-p:HostPublish=true",
   ])
 
   console.log(`[build-resource-host] published → ${outDir}`)
