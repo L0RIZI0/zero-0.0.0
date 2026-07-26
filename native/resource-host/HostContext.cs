@@ -38,6 +38,10 @@ internal static class NativeMethods
     [DllImport("kernel32.dll")]
     public static extern uint GetCurrentThreadId();
 
+    // Validate an HWND is still a real window (parent-HWND churn can leave us pointing at a destroyed window).
+    [DllImport("user32.dll")]
+    public static extern bool IsWindow(IntPtr hWnd);
+
     public const int GWL_STYLE = -16;
     public const int WS_CHILD = unchecked((int)0x40000000);
     public const int WS_VISIBLE = unchecked((int)0x10000000);
@@ -223,6 +227,12 @@ internal sealed class ResourceView : IDisposable
     // attach/detach would let closing one view kill keyboard input for the others.
     private static uint _attachedThread;
 
+    // Serialize controller creation across ALL resources. Two CreateCoreWebView2ControllerAsync calls
+    // overlapping on one environment throw ERROR_INVALID_STATE (0x8007139F) — the "second resource fails"
+    // bug. This gate ensures only one creation runs at a time. _liveControllers is diagnostics only.
+    private static readonly SemaphoreSlim _createGate = new(1, 1);
+    private static int _liveControllers;
+
     // desired state (applied when controller becomes ready)
     private Rectangle _bounds;
     private bool _visible = true;
@@ -254,38 +264,55 @@ internal sealed class ResourceView : IDisposable
             EmbedUnderParent(parentHwnd);
 
             // 2) Parent the controller into OUR window (client-filling), not Electron's HWND directly.
-            //    Creating a SECOND controller on the shared profile can transiently throw ERROR_INVALID_STATE
-            //    (0x8007139F) while the profile finishes wiring up (the first resource rendered, the second
-            //    failed — see host.log). Microsoft's guidance for this race is a short delay + retry, so we
-            //    retry a few times before giving up. We KEEP one shared "resource-web" profile so a single
-            //    Google login is shared across all resources (per-site profiles would fragment that).
+            //    ROOT-CAUSE HYPOTHESIS (the "second resource fails with 0x8007139F" bug): two
+            //    CreateCoreWebView2ControllerAsync calls overlapping on ONE environment throw
+            //    ERROR_INVALID_STATE. We now SERIALIZE creation across all resources with _createGate so only
+            //    one runs at a time. We keep the delay+retry as a backstop and log rich diagnostics (HWND
+            //    validity, live-controller count, thread) so the log can confirm/deny the hypothesis.
+            //    We KEEP one shared "resource-web" profile so a single Google login is shared across resources.
             const int MaxAttempts = 6;
             const int SharedAttempts = 4; // first N attempts keep the shared profile (race hypothesis)
             const uint E_INVALID_STATE = 0x8007139F;
             CoreWebView2Controller? controller = null;
-            for (int attempt = 1; attempt <= MaxAttempts; attempt++)
+
+            await _createGate.WaitAsync();
+            try
             {
-                // If the shared-profile retries all fail, it's likely a HARD "one live controller per
-                // profile" limit rather than a race, so fall back to a per-SITE profile (stable across
-                // restarts → login still persists, just isolated to that site) so the resource still renders.
-                if (attempt > SharedAttempts) _profile = PerSiteProfile(url);
-                var opts = env.CreateCoreWebView2ControllerOptions();
-                opts.ProfileName = _profile;
-                opts.IsInPrivateModeEnabled = false;
-                try
+                Program.Log($"create BEGIN id={_id} profile={_profile} live={_liveControllers} " +
+                    $"parentOk={NativeMethods.IsWindow(parentHwnd)} hostOk={NativeMethods.IsWindow(hostHandle)} " +
+                    $"tid={NativeMethods.GetCurrentThreadId()}");
+                for (int attempt = 1; attempt <= MaxAttempts; attempt++)
                 {
-                    controller = await env.CreateCoreWebView2ControllerAsync(hostHandle, opts);
-                    break;
-                }
-                catch (COMException ce) when ((uint)ce.HResult == E_INVALID_STATE && attempt < MaxAttempts && !_disposed)
-                {
-                    Program.Log($"create attempt {attempt} id={_id} profile={_profile} hit 0x8007139F; retrying after delay");
-                    await Task.Delay(120 * attempt); // back off: 120,240,360…
+                    if (_disposed) break;
+                    // If the shared-profile retries all fail, fall back to a per-SITE profile so the resource
+                    // still renders (stable across restarts → login persists, just isolated to that site).
+                    if (attempt > SharedAttempts) _profile = PerSiteProfile(url);
+                    var opts = env.CreateCoreWebView2ControllerOptions();
+                    opts.ProfileName = _profile;
+                    opts.IsInPrivateModeEnabled = false;
+                    try
+                    {
+                        controller = await env.CreateCoreWebView2ControllerAsync(hostHandle, opts);
+                        Program.Log($"create OK id={_id} attempt={attempt} profile={_profile}");
+                        break;
+                    }
+                    catch (COMException ce) when (attempt < MaxAttempts && !_disposed)
+                    {
+                        // Log the FULL hresult+message so a non-INVALID_STATE cause is visible too.
+                        Program.Log($"create attempt {attempt} id={_id} profile={_profile} FAILED " +
+                            $"hr=0x{(uint)ce.HResult:X8} isInvalidState={(uint)ce.HResult == E_INVALID_STATE} " +
+                            $"msg=\"{ce.Message}\"; retrying");
+                        await Task.Delay(120 * attempt); // back off: 120,240,360…
+                    }
                 }
             }
+            finally { _createGate.Release(); }
+
             if (_disposed) { controller?.Close(); return; }
             if (controller is null) throw new InvalidOperationException("controller creation returned null after retries");
             _controller = controller;
+            _liveControllers++;
+            Program.Log($"controller live id={_id} liveNow={_liveControllers}");
 
             var core = controller.CoreWebView2;
             // Relay context menus to Zero's own native menu instead of the browser default (which shows
@@ -454,6 +481,7 @@ internal sealed class ResourceView : IDisposable
         _disposed = true;
         // NOTE: deliberately do NOT detach the thread-input link here — it's process-wide/shared across views
         // (see _attachedThread). The OS drops it on process exit.
+        if (_controller != null) { _liveControllers = Math.Max(0, _liveControllers - 1); Program.Log($"controller closed id={_id} liveNow={_liveControllers}"); }
         try { _controller?.Close(); } catch { /* ignore */ }
         _controller = null;
         try { _host?.Dispose(); } catch { /* ignore */ }
