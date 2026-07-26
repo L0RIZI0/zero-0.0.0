@@ -1,4 +1,5 @@
 using System.Drawing;
+using System.IO;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -113,7 +114,12 @@ internal sealed class HostContext
     private readonly string _userDataFolder;
     private readonly Action<object> _emit;
     private readonly Dictionary<string, ResourceView> _views = new();
-    private CoreWebView2Environment? _env;
+    // One CoreWebView2Environment (+ its own on-disk user-data folder) PER SITE, reused across all resources
+    // of that site. Separate environments never contend, which eliminates the intermittent 0x8007139F
+    // (ERROR_INVALID_STATE) we saw when a new controller was created on a PROFILE a just-closed controller had
+    // been using inside ONE shared environment. Same-site resources still share login (same folder).
+    private readonly Dictionary<string, CoreWebView2Environment> _envBySite = new();
+    private readonly Dictionary<string, Task<CoreWebView2Environment>> _envPending = new();
     private IntPtr _parentHwnd;
 
     public HostContext(string userDataFolder, Action<object> emit)
@@ -122,11 +128,46 @@ internal sealed class HostContext
         _emit = emit;
     }
 
-    public async Task InitializeAsync(IntPtr parentHwnd)
+    public Task InitializeAsync(IntPtr parentHwnd)
     {
         _parentHwnd = parentHwnd;
-        // One environment, one user-data root. Per-resource isolation is done with PROFILES below.
-        _env = await CoreWebView2Environment.CreateAsync(null, _userDataFolder, null);
+        // Environments are now created lazily per site (GetEnvForSiteAsync). Nothing to pre-create here.
+        return Task.CompletedTask;
+    }
+
+    // Key a site to its own environment: registrable-ish host (drop leading www.). Same-site resources reuse
+    // one environment so they share cookies/login; different sites are fully isolated on disk.
+    private static string SiteKey(string url)
+    {
+        string host;
+        try { host = new Uri(url).Host; } catch { host = "site"; }
+        if (host.StartsWith("www.")) host = host.Substring(4);
+        return ResourceView.SanitizeProfile(host);
+    }
+
+    // Lazily create (and cache) the environment for a site. De-dupes concurrent creations of the same site
+    // via _envPending so a rapid double-mount can't spin up two environments on the same folder (which would
+    // itself throw INVALID_STATE — the folder can only back one environment at a time).
+    private Task<CoreWebView2Environment> GetEnvForSiteAsync(string siteKey)
+    {
+        if (_envBySite.TryGetValue(siteKey, out var env)) return Task.FromResult(env);
+        if (_envPending.TryGetValue(siteKey, out var pending)) return pending;
+        var folder = Path.Combine(_userDataFolder, "sites", siteKey);
+        var task = CreateSiteEnvAsync(siteKey, folder);
+        _envPending[siteKey] = task;
+        return task;
+    }
+
+    private async Task<CoreWebView2Environment> CreateSiteEnvAsync(string siteKey, string folder)
+    {
+        try
+        {
+            Program.Log($"env create site={siteKey} folder={folder}");
+            var env = await CoreWebView2Environment.CreateAsync(null, folder, null);
+            _envBySite[siteKey] = env;
+            return env;
+        }
+        finally { _envPending.Remove(siteKey); }
     }
 
     // Parse one JSON command line and act on it.
@@ -159,7 +200,6 @@ internal sealed class HostContext
 
     private void Mount(string id, string url, string profile, Rectangle rect, bool visible)
     {
-        if (_env is null) { _emit(new { evt = "error", message = "env not ready" }); return; }
         // Idempotent re-mount = REVEAL a warm/parked view (mirrors the WebContentsView path): re-apply
         // bounds + show and re-announce mounted, but DON'T reload if the url is unchanged.
         if (_views.TryGetValue(id, out var existing))
@@ -176,7 +216,28 @@ internal sealed class HostContext
         // Desired state is set now; the controller applies it once its async creation finishes.
         view.SetBounds(rect);
         view.SetVisible(visible);
-        _ = view.CreateAsync(_env, _parentHwnd, profile, url);
+        _ = MountControllerAsync(view, id, url, profile);
+    }
+
+    // Resolve the site's (own) environment, then create the controller in it. Fire-and-forget from Mount.
+    // NOTE: we IGNORE the renderer's per-resource `profile` (resource-<id>) and use the SITE KEY as the
+    // profile, so all resources of the same site share one login within that site's own environment. (Login
+    // is still isolated ACROSS sites — each site is its own folder, which is what fixed the 0x8007139F bug.)
+    private async Task MountControllerAsync(ResourceView view, string id, string url, string profile)
+    {
+        try
+        {
+            var siteKey = SiteKey(url);
+            var env = await GetEnvForSiteAsync(siteKey);
+            // The view may have been closed while its environment was being created.
+            if (!_views.TryGetValue(id, out var still) || still != view) { return; }
+            await view.CreateAsync(env, _parentHwnd, siteKey, url);
+        }
+        catch (Exception ex)
+        {
+            Program.Log($"mount failed id={id} err={ex.Message}");
+            _emit(new { evt = "error", id, message = "create failed: " + ex.Message });
+        }
     }
 
     private void Close(string id)
@@ -285,14 +346,11 @@ internal sealed class ResourceView : IDisposable
             EmbedUnderParent(parentHwnd);
 
             // 2) Parent the controller into OUR window (client-filling), not Electron's HWND directly.
-            //    ROOT-CAUSE HYPOTHESIS (the "second resource fails with 0x8007139F" bug): two
-            //    CreateCoreWebView2ControllerAsync calls overlapping on ONE environment throw
-            //    ERROR_INVALID_STATE. We now SERIALIZE creation across all resources with _createGate so only
-            //    one runs at a time. We keep the delay+retry as a backstop and log rich diagnostics (HWND
-            //    validity, live-controller count, thread) so the log can confirm/deny the hypothesis.
-            //    We KEEP one shared "resource-web" profile so a single Google login is shared across resources.
-            const int MaxAttempts = 6;
-            const int SharedAttempts = 4; // first N attempts keep the shared profile (race hypothesis)
+            //    The environment is now PER-SITE (its own user-data folder), so cross-profile teardown
+            //    contention inside one shared env — the old 0x8007139F trigger — can't happen. We still
+            //    serialize creation with _createGate (belt-and-braces against overlapping creates) and keep a
+            //    short delay+retry for any residual transient state, with full diagnostics.
+            const int MaxAttempts = 4;
             const uint E_INVALID_STATE = 0x8007139F;
             CoreWebView2Controller? controller = null;
 
@@ -305,9 +363,6 @@ internal sealed class ResourceView : IDisposable
                 for (int attempt = 1; attempt <= MaxAttempts; attempt++)
                 {
                     if (_disposed) break;
-                    // If the shared-profile retries all fail, fall back to a per-SITE profile so the resource
-                    // still renders (stable across restarts → login persists, just isolated to that site).
-                    if (attempt > SharedAttempts) _profile = PerSiteProfile(url);
                     var opts = env.CreateCoreWebView2ControllerOptions();
                     opts.ProfileName = _profile;
                     opts.IsInPrivateModeEnabled = false;
@@ -529,22 +584,12 @@ internal sealed class ResourceView : IDisposable
         _host = null;
     }
 
-    private static string SanitizeProfile(string profile)
+    internal static string SanitizeProfile(string profile)
     {
         if (string.IsNullOrWhiteSpace(profile)) return "default";
         // WebView2 ProfileName: ^[A-Za-z0-9][A-Za-z0-9 .\-_]*$ , max 64 chars.
         var cleaned = Regex.Replace(profile, @"[^A-Za-z0-9 .\-_]", "-");
         if (cleaned.Length == 0 || !char.IsLetterOrDigit(cleaned[0])) cleaned = "p" + cleaned;
         return cleaned.Length > 64 ? cleaned.Substring(0, 64) : cleaned;
-    }
-
-    // Stable-per-site profile name (fallback when the shared profile can't host a 2nd live controller).
-    // Derived from the host so it persists across restarts and is unique per site.
-    private static string PerSiteProfile(string url)
-    {
-        string host;
-        try { host = new Uri(url).Host; } catch { host = "site"; }
-        if (host.StartsWith("www.")) host = host.Substring(4);
-        return SanitizeProfile("site-" + host);
     }
 }
