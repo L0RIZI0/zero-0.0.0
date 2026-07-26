@@ -421,6 +421,7 @@ export const entities: Entity[] = [
             ["Zero Entities", "/zero-entities"],
             ["Entity Kinds", "/entity-kinds"],
             ["Interaction Matrix", "/matrix-interactions"],
+            ["Future Chromium Strategy", "/future-chromium-zero-strategy"],
           ] as const
         ).map(
           ([title, url]) =>
