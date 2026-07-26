@@ -414,6 +414,7 @@ export const entities: Entity[] = [
         { id: "s_zero", kind: "space", title: "Zero", parentId: ROOT_ID, taggedContextIds: [], accent: ACCENT.zero },
         ...(
           [
+            ["Features", "/features"],
             ["Sugars", "/sugars"],
             ["Excerpts", "/excerpts"],
             ["Vision", "/vision"],
