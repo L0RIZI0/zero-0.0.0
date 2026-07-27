@@ -694,7 +694,26 @@ export function Zero0Canvas() {
     const r = typeof window !== "undefined" ? window.zero?.resource : undefined
     if (!r?.prewarm) return
     const webKids = children.filter((c) => !!c.webUrl)
-    for (const c of webKids.slice(0, PREWARM_MAX_PER_CONTEXT)) prewarm(c.id, c.webUrl!, c.webResourceId)
+    // ONE LIVE WEB VIEW PER ENV (profile). WebView2 locks a profile's user-data dir to a single live
+    // controller, and context env-keying makes every web resource of a Space share ONE profile — so
+    // prewarming several web children of a Space would spin up multiple live controllers on one profile and
+    // crash them (0x8007139F ⇒ blank page). Guard: prewarm at most ONE resource per distinct envKey, and
+    // never into an envKey already occupied by a live view (the current web context, or an opened resource).
+    // Net effect = "prewarm across Spaces only": cross-Space children still warm; same-Space web resources
+    // take turns (the host sheds the live one on switch, both stay signed in).
+    const seededEnvs = new Set<string>()
+    if (context?.webUrl) seededEnvs.add(getEnvKey(context.id))
+    for (const oid of openedRef.current) seededEnvs.add(getEnvKey(oid))
+    let seededCount = 0
+    for (const c of webKids) {
+      if (seededCount >= PREWARM_MAX_PER_CONTEXT) break
+      if (prewarmedRef.current.has(c.id) || openedRef.current.has(c.id)) continue
+      const ek = getEnvKey(c.id)
+      if (seededEnvs.has(ek)) continue // this profile already has (or is about to have) a live view
+      prewarm(c.id, c.webUrl!, c.webResourceId)
+      seededEnvs.add(ek)
+      seededCount++
+    }
     // Discard pre-warmed-but-unopened views we've navigated away from.
     const keep = new Set(webKids.map((c) => c.id))
     for (const id of Array.from(prewarmedRef.current)) {
@@ -704,7 +723,7 @@ export function Zero0Canvas() {
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- children is the intended re-read trigger
-  }, [isDesktop, contextId, children, prewarm])
+  }, [isDesktop, contextId, children, prewarm, context])
   // SIBLINGS (entities at the same depth on the same branch = a crumb's parent's children) are
   // now resolved PER-CRUMB: each breadcrumb crumb carries its own `siblingCount`, and its
   // left-hand caret opens that level's sibling dropdown on demand (openSiblingsAt). No single

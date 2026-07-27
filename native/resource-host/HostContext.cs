@@ -216,7 +216,17 @@ internal sealed class HostContext
         {
             existing.SetBounds(rect);
             existing.SetVisible(visible);
-            existing.NavigateIfChanged(url);
+            if (existing.HasController)
+            {
+                existing.NavigateIfChanged(url);
+            }
+            else
+            {
+                // The view was SHED (its controller closed to satisfy one-live-per-profile). Re-create it now
+                // — this will evict whatever sibling is currently live on the profile, so the two web
+                // resources in a Space take turns being live while both stay signed in.
+                _ = MountControllerAsync(existing, id, url, profile);
+            }
             _emit(new { evt = "mounted", id });
             return;
         }
@@ -227,6 +237,26 @@ internal sealed class HostContext
         view.SetBounds(rect);
         view.SetVisible(visible);
         _ = MountControllerAsync(view, id, url, profile);
+    }
+
+    // One live controller PER PROFILE. WebView2 locks a profile's user-data folder to a single live
+    // controller; a second live controller on the same profile throws 0x8007139F (ERROR_INVALID_STATE) — the
+    // "blank page" regression that appeared once context env-rekeying put several resources of a Space onto
+    // one shared profile. Before a view goes live on `profile`, shed any OTHER live view sharing it. Shared
+    // login SURVIVES (cookies are on disk in the profile); the shed view just reloads next time it's
+    // revealed. Paired with the renderer prewarming across Spaces only, this keeps cross-Space panes warm
+    // while making same-Space web resources take turns.
+    private void EvictLiveInProfile(string profile, string exceptId)
+    {
+        foreach (var kv in _views)
+        {
+            if (kv.Key == exceptId) continue;
+            if (kv.Value.HasController && kv.Value.Profile == profile)
+            {
+                Program.Log($"evict-for-profile id={kv.Key} profile={profile} incoming={exceptId}");
+                kv.Value.ShedController();
+            }
+        }
     }
 
     // Resolve the CONTEXT environment (keyed by the renderer's `profile` = env-<nearestSpaceAncestorId>),
@@ -242,6 +272,11 @@ internal sealed class HostContext
             var env = await GetEnvForKeyAsync(envKey);
             // The view may have been closed while its environment was being created.
             if (!_views.TryGetValue(id, out var still) || still != view) { return; }
+            // One-live-per-profile: shed any sibling currently live on this profile BEFORE we create, so our
+            // create doesn't hit 0x8007139F. CreateAsync's delay+retry loop rides out the brief profile
+            // user-data-dir teardown window left by the shed (the original 0x8007139F trigger the retries
+            // were designed for — now actually effective because the conflicting controller is really closed).
+            EvictLiveInProfile(ResourceView.SanitizeProfile(envKey), id);
             await view.CreateAsync(env, _parentHwnd, envKey, url);
         }
         catch (Exception ex)
@@ -357,11 +392,13 @@ internal sealed class ResourceView : IDisposable
             EmbedUnderParent(parentHwnd);
 
             // 2) Parent the controller into OUR window (client-filling), not Electron's HWND directly.
-            //    The environment is now PER-SITE (its own user-data folder), so cross-profile teardown
-            //    contention inside one shared env — the old 0x8007139F trigger — can't happen. We still
-            //    serialize creation with _createGate (belt-and-braces against overlapping creates) and keep a
-            //    short delay+retry for any residual transient state, with full diagnostics.
-            const int MaxAttempts = 4;
+            //    Environments are keyed per CONTEXT (nearest-Space) so several resources of a Space SHARE a
+            //    profile (shared login). Because a profile allows only ONE live controller at a time, the
+            //    caller (EvictLiveInProfile) sheds any sibling on this profile just before we create. That
+            //    leaves a brief user-data-dir teardown window in which CreateCoreWebView2ControllerAsync can
+            //    still throw 0x8007139F — so we serialize with _createGate AND retry with backoff long enough
+            //    to outlast the teardown. Full diagnostics on every attempt.
+            const int MaxAttempts = 6;
             const uint E_INVALID_STATE = 0x8007139F;
             CoreWebView2Controller? controller = null;
 
@@ -389,7 +426,7 @@ internal sealed class ResourceView : IDisposable
                         Program.Log($"create attempt {attempt} id={_id} profile={_profile} FAILED " +
                             $"hr=0x{(uint)ce.HResult:X8} isInvalidState={(uint)ce.HResult == E_INVALID_STATE} " +
                             $"msg=\"{ce.Message}\"; retrying");
-                        await Task.Delay(120 * attempt); // back off: 120,240,360…
+                        await Task.Delay(150 * attempt); // back off: 150,300,450,600,750 (~2.25s total) to outlast profile teardown
                     }
                 }
             }
@@ -580,6 +617,32 @@ internal sealed class ResourceView : IDisposable
     {
         _parentHwnd = parent;
         if (_host != null) { EmbedUnderParent(parent); ApplyBounds(); }
+    }
+
+    // Does this view currently hold a live WebView2 controller? False after ShedController (until re-revealed).
+    public bool HasController => _controller != null;
+    // The (sanitized) profile/env this view is bound to — used to enforce one-live-controller-per-profile.
+    public string Profile => _profile;
+
+    // Close ONLY the WebView2 controller (+ its host window) while keeping this ResourceView REGISTERED so it
+    // can be transparently re-created on the next reveal. This enforces one-live-controller-per-profile:
+    // WebView2 locks a profile's user-data folder to a single live controller, so a second live controller on
+    // the same profile throws 0x8007139F (the "blank page" bug). Login is PRESERVED — cookies live on disk in
+    // the profile, so the eventual re-create is still signed in; only the in-memory page (scroll/form state)
+    // is lost and reloads. Mirrors Dispose's controller teardown but leaves the view alive + re-createable.
+    public void ShedController()
+    {
+        if (_countedVisible) { _countedVisible = false; _visibleCount = Math.Max(0, _visibleCount - 1); UpdateInputAttach(); }
+        if (_controller != null) { _liveControllers = Math.Max(0, _liveControllers - 1); Program.Log($"controller shed id={_id} liveNow={_liveControllers}"); }
+        try { _controller?.Close(); } catch { /* ignore */ }
+        _controller = null;
+        try { _host?.Dispose(); } catch { /* ignore */ }
+        _host = null;
+        // Reset applied-state bookkeeping so a fresh controller re-applies bounds/visibility/z-order cleanly.
+        _hasApplied = false;
+        _appliedShown = false;
+        _appliedBounds = Rectangle.Empty;
+        _pendingNavigate = null; // the reveal's url (passed to CreateAsync) drives the reload
     }
 
     public void Dispose()
