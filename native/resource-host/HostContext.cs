@@ -60,6 +60,30 @@ internal static class NativeMethods
     [DllImport("user32.dll", SetLastError = true)]
     public static extern bool BringWindowToTop(IntPtr hWnd);
 
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern IntPtr GetAncestor(IntPtr hWnd, uint gaFlags);
+
+    // x64 host (self-contained win-x64 publish) → SetWindowLongPtr is the correct entry point.
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern IntPtr SetWindowLongPtr(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
+
+    public const int GWL_HWNDPARENT = -8;
+    public const uint GA_ROOT = 2;
+
+    // Make `child` an OWNED window of `owner` (resolved to its top-level root). An owned window ALWAYS
+    // renders above its owner and is never hidden behind it — even when the owner is topmost/kiosk — which
+    // is the reliable, cross-process way to float an OAuth popup above the Electron main window. Fighting the
+    // foreground lock alone (ForceForeground) is flaky for a BACKGROUND helper process, which is why the
+    // popup kept opening invisibly.
+    public static void SetOwner(IntPtr child, IntPtr owner)
+    {
+        if (child == IntPtr.Zero || owner == IntPtr.Zero || !IsWindow(owner)) return;
+        IntPtr root = GetAncestor(owner, GA_ROOT);
+        if (root == IntPtr.Zero) root = owner;
+        SetWindowLongPtr(child, GWL_HWNDPARENT, root);
+        Program.Log($"popup SetOwner child={child} owner={root}");
+    }
+
     // Force a background-process top-level window to the actual foreground, defeating the foreground lock by
     // temporarily merging our thread's input queue with the current foreground thread's.
     public static void ForceForeground(IntPtr hWnd)
@@ -736,7 +760,7 @@ internal sealed class ResourceView : IDisposable
         if (_env is null) return;
         var deferral = e.GetDeferral();
         _emit(new { evt = "newWindow", id = _id, url = e.Uri });
-        _ = PopupWindow.OpenAsync(_env, _profile, e, deferral);
+        _ = PopupWindow.OpenAsync(_env, _profile, e, deferral, _parentHwnd);
     }
 
     // ---- commands (safe before controller ready via desired-state) ----

@@ -22,15 +22,20 @@ internal sealed class PopupWindow : Form
         CoreWebView2Environment env,
         string profile,
         CoreWebView2NewWindowRequestedEventArgs e,
-        CoreWebView2Deferral deferral)
+        CoreWebView2Deferral deferral,
+        IntPtr ownerHwnd)
     {
         var uri = e.Uri;
-        Program.Log($"popup open BEGIN profile={profile} url={uri}");
+        Program.Log($"popup open BEGIN profile={profile} owner={ownerHwnd} url={uri}");
         var win = new PopupWindow();
         try
         {
             win.Show();
-            BringToFront(win); // background helper process — force the popup above the Electron window
+            // Own the popup to the Electron top-level window BEFORE anything else: an owned window always
+            // floats above its owner and can't be buried behind it, which is the reliable fix for the popup
+            // opening invisibly. Handle exists now that Show() has been called.
+            NativeMethods.SetOwner(win.Handle, ownerHwnd);
+            BringToFront(win); // + steal foreground so it also gets focus
 
             var opts = env.CreateCoreWebView2ControllerOptions();
             opts.ProfileName = profile;           // share the opener's persistent login profile
@@ -96,6 +101,8 @@ internal sealed class PopupWindow : Form
             win.BringToFront();
             win.Activate();
             NativeMethods.ForceForeground(win.Handle); // defeat the foreground lock (background process)
+            Program.Log($"popup front state visible={win.Visible} bounds={win.Bounds} " +
+                        $"fg={NativeMethods.GetForegroundWindow()} self={win.Handle}");
         }
         catch (Exception ex) { Program.Log($"popup BringToFront failed: {ex.Message}"); }
     }
