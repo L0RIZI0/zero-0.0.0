@@ -126,14 +126,14 @@ internal sealed class HostContext
     private readonly Dictionary<string, Task<CoreWebView2Environment>> _envPending = new();
     private IntPtr _parentHwnd;
 
-    // DEBUG SWITCH (no terminal / no install): when a file named `zero-debug-multilive` exists, DISABLE
-    // one-live-per-profile eviction. That lets two web resources of a Space go live on one shared profile
-    // SIMULTANEOUSLY so we can confirm whether multi-controller-per-profile works on this runtime (the ideal:
-    // warm tabs + shared login together) — or capture the 0x8007139F failure WITH full diagnostics. Absent the
-    // file (default) eviction is ON, so normal use never blanks. Loris: drop an empty file named
-    // `zero-debug-multilive` in EITHER the folder that holds host.log (…\Local\ZeroResourceHost) OR the
-    // user-data folder (logged at startup as `userData=…`); we check BOTH. Relaunch, open two sites in one
-    // Space, send host.log, then delete the file.
+    // MULTI-LIVE IS THE DEFAULT. Proven on Loris's runtime (150.0.4078.99): multiple CoreWebView2 controllers
+    // sharing ONE profile coexist fine (host.log host-wh1rI: liveNow reached 4, two controllers on one env,
+    // every create OK attempt=1, no 0x8007139F) — so web resources of a Space stay WARM simultaneously AND
+    // share login. Eviction (one-live-per-profile, the RUN #18 fallback) is therefore OFF unless explicitly
+    // re-enabled via an ESCAPE-HATCH flag file `zero-debug-evict` (in the host.log folder OR the user-data
+    // folder — we check both). Keep it as a no-rebuild kill switch in case the concurrent-open-during-load
+    // edge (two sibling sites opened within one env before the first finishes loading — the original
+    // 0x8007139F trigger, not exercised in the passing log) ever regresses in the wild.
     private readonly bool _noEvict;
 
     public HostContext(string userDataFolder, Action<object> emit)
@@ -142,19 +142,18 @@ internal sealed class HostContext
         _emit = emit;
         try
         {
-            // Check both the user-data folder AND the log folder (the intuitive place, next to host.log).
             var candidates = new[]
             {
-                Path.Combine(userDataFolder, "zero-debug-multilive"),
-                Path.Combine(Program.LogDir, "zero-debug-multilive"),
+                Path.Combine(userDataFolder, "zero-debug-evict"),
+                Path.Combine(Program.LogDir, "zero-debug-evict"),
             };
             var hit = candidates.FirstOrDefault(File.Exists);
-            _noEvict = hit != null;
+            _noEvict = hit == null; // default (no flag) = multi-live; flag present = re-enable eviction
             Program.Log(_noEvict
-                ? $"eviction DISABLED (zero-debug-multilive present at {hit} — testing multi-live)"
-                : "eviction ENABLED (one-live-per-profile); drop zero-debug-multilive next to host.log to test multi-live");
+                ? "multi-live ENABLED (default): multiple controllers per profile, warm siblings + shared login"
+                : $"eviction RE-ENABLED (zero-debug-evict present at {hit}): one live controller per profile");
         }
-        catch { _noEvict = false; }
+        catch { _noEvict = true; }
     }
 
     public Task InitializeAsync(IntPtr parentHwnd)
@@ -272,19 +271,15 @@ internal sealed class HostContext
         _ = MountControllerAsync(view, id, url, profile);
     }
 
-    // One live controller PER PROFILE. WebView2 locks a profile's user-data folder to a single live
-    // controller; a second live controller on the same profile throws 0x8007139F (ERROR_INVALID_STATE) — the
-    // "blank page" regression that appeared once context env-rekeying put several resources of a Space onto
-    // one shared profile. Before a view goes live on `profile`, shed any OTHER live view sharing it. Shared
-    // login SURVIVES (cookies are on disk in the profile); the shed view just reloads next time it's
-    // revealed. Paired with the renderer prewarming across Spaces only, this keeps cross-Space panes warm
-    // while making same-Space web resources take turns.
+    // FALLBACK: one live controller per profile. OFF by default now that multi-live is proven to work —
+    // only runs when the `zero-debug-evict` escape-hatch flag re-enables it. When active, before a view goes
+    // live on `profile` it sheds any OTHER live view sharing it (shared login survives — cookies are on disk;
+    // the shed view reloads on next reveal), trading warm same-profile siblings for guaranteed no-0x8007139F.
     private void EvictLiveInProfile(string profile, string exceptId)
     {
         if (_noEvict)
         {
-            Program.Log($"evict SKIPPED (debug multi-live) profile={profile} incoming={exceptId}");
-            return;
+            return; // multi-live default: keep every controller warm
         }
         foreach (var kv in _views)
         {

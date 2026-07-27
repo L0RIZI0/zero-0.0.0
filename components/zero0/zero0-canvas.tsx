@@ -694,13 +694,13 @@ export function Zero0Canvas() {
     const r = typeof window !== "undefined" ? window.zero?.resource : undefined
     if (!r?.prewarm) return
     const webKids = children.filter((c) => !!c.webUrl)
-    // ONE LIVE WEB VIEW PER ENV (profile). WebView2 locks a profile's user-data dir to a single live
-    // controller, and context env-keying makes every web resource of a Space share ONE profile — so
-    // prewarming several web children of a Space would spin up multiple live controllers on one profile and
-    // crash them (0x8007139F ⇒ blank page). Guard: prewarm at most ONE resource per distinct envKey, and
-    // never into an envKey already occupied by a live view (the current web context, or an opened resource).
-    // Net effect = "prewarm across Spaces only": cross-Space children still warm; same-Space web resources
-    // take turns (the host sheds the live one on switch, both stay signed in).
+    // PREWARM AT MOST ONE PER ENV (profile). Multiple controllers per profile is supported and IS the
+    // default now (warm siblings + shared login), and controllers created SEQUENTIALLY on one profile
+    // coexist fine. What still risks 0x8007139F is CONCURRENT creates on one profile — spinning up several
+    // hidden controllers in the SAME env within a few ms of each other (the original blank-page trigger). So
+    // we prewarm at most ONE resource per distinct envKey, and never into an envKey already occupied by a
+    // live view (current web context or an opened resource). Cross-Space children (different profiles) still
+    // prewarm freely; additional same-Space web siblings warm lazily on first open, then stay warm (parked).
     const seededEnvs = new Set<string>()
     if (context?.webUrl) seededEnvs.add(getEnvKey(context.id))
     for (const oid of openedRef.current) seededEnvs.add(getEnvKey(oid))
