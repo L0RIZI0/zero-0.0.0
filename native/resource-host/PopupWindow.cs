@@ -24,10 +24,13 @@ internal sealed class PopupWindow : Form
         CoreWebView2NewWindowRequestedEventArgs e,
         CoreWebView2Deferral deferral)
     {
+        var uri = e.Uri;
+        Program.Log($"popup open BEGIN profile={profile} url={uri}");
         var win = new PopupWindow();
         try
         {
             win.Show();
+            BringToFront(win); // background helper process — force the popup above the Electron window
 
             var opts = env.CreateCoreWebView2ControllerOptions();
             opts.ProfileName = profile;           // share the opener's persistent login profile
@@ -39,13 +42,19 @@ internal sealed class PopupWindow : Form
 
             var core = controller.CoreWebView2;
             core.Settings.AreDefaultContextMenusEnabled = false;
+            Program.Log($"popup controller OK profile={profile} url={uri}");
 
-            // Hand the created window back to WebView2 so it wires opener/postMessage correctly.
+            // Hand the created window back to WebView2 so it wires opener/postMessage correctly. This MUST
+            // happen for GIS/OAuth popups (response_mode=form_post) — the popup relays its result to the
+            // opener via window.opener.postMessage, which only works when WebView2 owns the opener link.
             e.NewWindow = core;
 
-            // Mirror the real title; let the page close its own popup (OAuth calls window.close()).
+            // Surface the popup's own navigation + close so a stuck/failed OAuth flow is visible in the log.
+            core.NavigationCompleted += (_, ev) =>
+                Program.Log($"popup navDone ok={ev.IsSuccess} status={ev.HttpStatusCode} err={ev.WebErrorStatus} url={core.Source}");
             core.DocumentTitleChanged += (_, _) => win.Text = string.IsNullOrEmpty(core.DocumentTitle) ? "Zero" : core.DocumentTitle;
-            core.WindowCloseRequested += (_, _) => win.Close();
+            // Let the page close its own popup (OAuth calls window.close() when it's done).
+            core.WindowCloseRequested += (_, _) => { Program.Log($"popup WindowCloseRequested url={core.Source}"); win.Close(); };
 
             // Keep the controller sized to the window.
             win.Resize += (_, _) =>
@@ -53,16 +62,37 @@ internal sealed class PopupWindow : Form
                 if (win._controller != null)
                     win._controller.Bounds = new System.Drawing.Rectangle(0, 0, win.ClientSize.Width, win.ClientSize.Height);
             };
-            win.FormClosed += (_, _) => { try { win._controller?.Close(); } catch { } win._controller = null; };
+            win.FormClosed += (_, _) => { Program.Log("popup closed"); try { win._controller?.Close(); } catch { } win._controller = null; };
+
+            // Now that the controller fills it, make sure the window is on top + focused so the user
+            // actually sees the account picker (otherwise it opens behind the main app = "nothing happened").
+            BringToFront(win);
         }
-        catch
+        catch (Exception ex)
         {
-            // If we fail to create the popup controller, fall back to letting WebView2 handle it.
-            try { win.Close(); } catch { }
+            // If we fail to create the popup controller, log it (was silently swallowed before) and let
+            // WebView2 fall back to its default handling.
+            Program.Log($"popup FAILED url={uri}: {ex.GetType().Name}: {ex.Message}");
+            try { win.Close(); } catch { /* ignore */ }
         }
         finally
         {
             deferral.Complete();
         }
+    }
+
+    // Force a top-level window owned by this background helper process to the foreground. A plain
+    // Form.Show() from a non-foreground process often lands BEHIND the Electron window (or unfocused),
+    // which reads to the user as "the button did nothing".
+    private static void BringToFront(PopupWindow win)
+    {
+        try
+        {
+            win.TopMost = true;
+            win.Activate();
+            win.BringToFront();
+            win.TopMost = false; // don't pin it permanently above everything — just win the initial z-order
+        }
+        catch (Exception ex) { Program.Log($"popup BringToFront failed: {ex.Message}"); }
     }
 }
