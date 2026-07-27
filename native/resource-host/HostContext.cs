@@ -126,13 +126,14 @@ internal sealed class HostContext
     private readonly Dictionary<string, Task<CoreWebView2Environment>> _envPending = new();
     private IntPtr _parentHwnd;
 
-    // DEBUG SWITCH (no terminal / no install): when a file named `zero-debug-multilive` exists in the user-data
-    // folder, DISABLE one-live-per-profile eviction. That lets two web resources of a Space go live on one
-    // shared profile SIMULTANEOUSLY so the 0x8007139F "blank page" reproduces WITH full diagnostics in the log
-    // — the capture we need to land the real (warm + shared-login) fix. Absent the file (default) eviction is
-    // ON, so normal use never blanks. Loris: create an empty file named `zero-debug-multilive` inside the
-    // `resource-host-profiles` folder (next to the env folders), relaunch, open two sites in one Space, send
-    // host.log, then delete the file. Exact path is logged at startup as `userData=...`.
+    // DEBUG SWITCH (no terminal / no install): when a file named `zero-debug-multilive` exists, DISABLE
+    // one-live-per-profile eviction. That lets two web resources of a Space go live on one shared profile
+    // SIMULTANEOUSLY so we can confirm whether multi-controller-per-profile works on this runtime (the ideal:
+    // warm tabs + shared login together) — or capture the 0x8007139F failure WITH full diagnostics. Absent the
+    // file (default) eviction is ON, so normal use never blanks. Loris: drop an empty file named
+    // `zero-debug-multilive` in EITHER the folder that holds host.log (…\Local\ZeroResourceHost) OR the
+    // user-data folder (logged at startup as `userData=…`); we check BOTH. Relaunch, open two sites in one
+    // Space, send host.log, then delete the file.
     private readonly bool _noEvict;
 
     public HostContext(string userDataFolder, Action<object> emit)
@@ -141,9 +142,17 @@ internal sealed class HostContext
         _emit = emit;
         try
         {
-            var flag = Path.Combine(userDataFolder, "zero-debug-multilive");
-            _noEvict = File.Exists(flag);
-            Program.Log($"eviction {( _noEvict ? "DISABLED (zero-debug-multilive present — capturing multi-live)" : "ENABLED (one-live-per-profile)" )}");
+            // Check both the user-data folder AND the log folder (the intuitive place, next to host.log).
+            var candidates = new[]
+            {
+                Path.Combine(userDataFolder, "zero-debug-multilive"),
+                Path.Combine(Program.LogDir, "zero-debug-multilive"),
+            };
+            var hit = candidates.FirstOrDefault(File.Exists);
+            _noEvict = hit != null;
+            Program.Log(_noEvict
+                ? $"eviction DISABLED (zero-debug-multilive present at {hit} — testing multi-live)"
+                : "eviction ENABLED (one-live-per-profile); drop zero-debug-multilive next to host.log to test multi-live");
         }
         catch { _noEvict = false; }
     }

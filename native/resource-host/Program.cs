@@ -51,7 +51,8 @@ internal static class Program
 
         // BUILD MARKER — bump this string on every native change so host.log unambiguously proves which
         // build is actually running (rules out `dotnet run` serving a stale incremental build).
-        Log("=== BUILD env-per-context-v8-diag (shared-profile multi-controller diagnostics + eviction fallback) ===");
+        Log("=== BUILD dpi-permonitorv2-v9 (host is now Per-Monitor-V2 DPI aware; fixes high-DPI gap/blow-up) ===");
+        Log($"dpi SetHighDpiMode(PerMonitorV2) ok={dpiOk} applied={Application.HighDpiMode}");
         Log($"start ipc parentHwnd={opts.ParentHwnd} userData={opts.UserDataFolder}");
         // DIAGNOSTIC: log the installed WebView2 Evergreen runtime version. Multiple controllers sharing ONE
         // profile (CoreWebView2ControllerOptions.ProfileName) — the feature shared-login-within-a-Space relies
@@ -93,6 +94,8 @@ internal static class Program
     private static readonly string LogPath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "ZeroResourceHost", "host.log");
+    // Folder that holds host.log — the intuitive place for the zero-debug-multilive flag file.
+    internal static string LogDir => Path.GetDirectoryName(LogPath)!;
     private static readonly object _logLock = new();
     internal static void Log(string msg)
     {
