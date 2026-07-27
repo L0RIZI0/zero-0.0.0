@@ -5,7 +5,7 @@ import { createPortal } from "react-dom"
 import { getSegments, useActivityRevision } from "@/lib/zero/activity-log"
 import { ROOT_ID, collectDescendants, getEntitiesWithSessions, getEntity, getInheritedAccent, getTimelineOccurrences } from "@/lib/zero/data"
  import { titleAt } from "@/lib/zero/entity-log"
- import { webDisplayTitle } from "@/lib/zero/web-resources"
+ import { webLabel } from "@/lib/zero/web-resources"
  import type { Entity } from "@/lib/zero/types"
  import { isClosed, computeCloseAt, effectiveScheduleEnd } from "@/lib/zero/kinds"
 import { rangeText, NOW_COLOR } from "@/lib/zero/timeline-format"
@@ -17,17 +17,19 @@ import { Zero0Glyph } from "./zero0-glyph"
 import { cn } from "@/lib/utils"
 
 /** The label shown for an entity on the dayline (bars + hover tooltip). A WEB RESOURCE uses its
- *  concise DISPLAYED title — the curated human name, else the fetched page `<title>`, else the URL —
- *  so a bar/tooltip reads "v0 by Vercel" instead of the visually heavy raw `https://www.v0.app`.
- *  Everything else keeps the historical `titleAt` fold (the name the place carried at that time). */
+ *  concise DISPLAYED title CROPPED to the same width as ENTITY CONTENT (`webLabel().display`,
+ *  {@link WEB_TITLE_MAX_LEN} chars) — so a bar/tooltip reads "v0 by Vercel -…" instead of the full
+ *  fetched `<title>` or the visually heavy raw `https://www.v0.app`. A curated human name stays
+ *  full (never cropped). Everything else keeps the historical `titleAt` fold (the name the place
+ *  carried at that time). */
 function daylineLabel(entity: Entity, at: number): string {
   if (entity.webUrl) {
-    return webDisplayTitle({
+    return webLabel({
       webUrl: entity.webUrl,
       webResourceId: entity.webResourceId,
       webTitle: entity.webTitle,
       title: entity.title,
-    })
+    }).display
   }
   return titleAt(entity, at)
 }

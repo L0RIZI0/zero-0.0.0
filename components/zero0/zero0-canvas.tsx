@@ -1140,7 +1140,7 @@ export function Zero0Canvas() {
       prewarm(createdResource.id, url, resource?.id)
       if (!inline) setDraft("")
       bump()
-      return
+      return createdResource.id // id so Ctrl/Cmd-Enter can open it
     }
 
     // Kind = explicit `:kind`, else the default (always TASK — scheduling flags no longer
@@ -1183,6 +1183,7 @@ export function Zero0Canvas() {
       setNotice({ tone: "ok", text: `tagged: ${tagged.map((t) => t.title).join(", ")}` })
     }
     bump()
+    return created.id // id so Ctrl/Cmd-Enter can open the new entity
   }, [draft, bump, contextId])
 
   // The TASK glyph click tree (v0.6.32). One button, STATE-DEPENDENT — Loris's model:
@@ -1980,9 +1981,13 @@ export function Zero0Canvas() {
               if (ev.key !== "Enter") return
               // CJK IME guard: don't submit while composing.
               if (ev.nativeEvent.isComposing || ev.keyCode === 229) return
-              create()
+              // Ctrl/Cmd-Enter = create AND drill straight into the new entity; plain Enter
+              // creates and stays here. (No-op for command-mode lines, which return no id.)
+              const openIt = ev.ctrlKey || ev.metaKey
+              const createdId = create()
+              if (openIt && createdId) navigateTo(createdId)
             }}
-            placeholder="create entity…  (try:  :mome Sleep --start:2330   ·   --end:0630   ·   :done   ·   --color)"
+            placeholder="create entity…  (⌘/Ctrl-Enter to create & open   ·   try:  :mome Sleep --start:2330   ·   :done   ·   --color)"
             className="flex-1 bg-transparent text-foreground placeholder:text-muted-foreground/60 focus:outline-none"
             aria-label="Create entity"
           />

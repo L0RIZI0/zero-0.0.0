@@ -5,7 +5,7 @@ import type React from "react"
 import { getInheritedAccent, getStarterPinnedEntities, getOwnOngoingEntities, getRecentlyMarkedInstants, getRecentlyEndedEntities } from "@/lib/zero/data"
  import { isOwnOngoing, getOpenSession, concreteStart, effectiveEndAt } from "@/lib/zero/kinds"
 import { getFaceModel } from "@/lib/zero/face-model"
-import { webDisplayTitle } from "@/lib/zero/web-resources"
+import { webLabel } from "@/lib/zero/web-resources"
 import type { Entity } from "@/lib/zero/types"
 import { isSleepTitle, sleepDotColor } from "@/lib/zero/sleep-sky"
 import { Zero0Glyph } from "@/components/zero0/zero0-glyph"
@@ -409,13 +409,22 @@ export function Zero0Pins({
   )
 }
 
-/** The label shown on a §4 chip. A WEB RESOURCE uses its concise DISPLAYED title (curated human
- *  name, else the fetched page `<title>`, else the URL) so a chip reads "v0 by Vercel" instead of
- *  the visually heavy raw `https://www.v0.app`; the CSS `truncate` still caps its width. Everything
+/** The label shown ON a §4 chip. A WEB RESOURCE uses its concise DISPLAYED title CROPPED to the same
+ *  width as ENTITY CONTENT (`webLabel().display`, {@link WEB_TITLE_MAX_LEN} chars) — so a chip reads
+ *  "v0 by Vercel -…" rather than the full fetched `<title>` or the raw `https://www.v0.app` (a
+ *  curated human name stays full). The CSS `truncate` remains a secondary width guard. Everything
  *  else uses the entity's own `title`. */
 function chipLabel(e: Entity): string {
   return e.webUrl
-    ? webDisplayTitle({ webUrl: e.webUrl, webResourceId: e.webResourceId, webTitle: e.webTitle, title: e.title })
+    ? webLabel({ webUrl: e.webUrl, webResourceId: e.webResourceId, webTitle: e.webTitle, title: e.title }).display
+    : e.title
+}
+
+/** The FULL (uncropped) label for a chip's hover tooltip / aria — so hovering still reveals the
+ *  whole web title even though the visible chip is cropped, exactly like ENTITY CONTENT. */
+function chipFullLabel(e: Entity): string {
+  return e.webUrl
+    ? webLabel({ webUrl: e.webUrl, webResourceId: e.webResourceId, webTitle: e.webTitle, title: e.title }).full
     : e.title
 }
 
@@ -435,7 +444,8 @@ function PinChip({
   onContextMenu: (entity: Entity, ev: React.MouseEvent) => void
 }) {
   const { entity: e, ongoing, focused, timer, notify, notifyText } = item
-  const label = chipLabel(e)
+  const label = chipLabel(e) // cropped — what's shown on the chip
+  const fullLabel = chipFullLabel(e) // uncropped — for the hover tooltip
   const accent = e.accent ?? getInheritedAccent(e.parentId) ?? (isSleepTitle(e.title) ? sleepDotColor : undefined)
   const tint = accent ?? "var(--muted-foreground)"
   // GLYPH readability (v0.2.147) — an accent picked for its HUE can sit too close to the
@@ -497,10 +507,10 @@ function PinChip({
       }}
       title={
         notify
-          ? `${label} — just happened · click to open · right-click for menu`
+          ? `${fullLabel} — just happened · click to open · right-click for menu`
           : ongoing
-            ? `${label} — click to focus · alt-click to start another in parallel · glyph to stop · right-click for menu`
-            : `${label} — click to start & focus · alt-click to start in background · glyph to start in background · right-click for menu`
+            ? `${fullLabel} — click to focus · alt-click to start another in parallel · glyph to stop · right-click for menu`
+            : `${fullLabel} — click to start & focus · alt-click to start in background · glyph to start in background · right-click for menu`
       }
     >
       {/* GLYPH — a NOTIFICATION chip's glyph reflects the entity's ACTUAL state (filled when
@@ -584,8 +594,8 @@ function NotifyChipGlyph({
       }}
         className="shrink-0 transition-opacity hover:opacity-60"
         style={{ color: tint }}
-        title={`Resume ${chipLabel(e)} in background`}
-        aria-label={`Resume ${chipLabel(e)} in background`}
+        title={`Resume ${chipFullLabel(e)} in background`}
+        aria-label={`Resume ${chipFullLabel(e)} in background`}
     >
       {glyph}
     </button>
@@ -618,8 +628,8 @@ function MarkableChipGlyph({
       }}
         className="shrink-0 transition-opacity hover:opacity-60"
         style={{ color: tint }}
-        title={ongoing ? `Stop ${chipLabel(e)}` : `Start ${chipLabel(e)} in background`}
-        aria-label={ongoing ? `Stop ${chipLabel(e)}` : `Start ${chipLabel(e)} in background`}
+        title={ongoing ? `Stop ${chipFullLabel(e)}` : `Start ${chipFullLabel(e)} in background`}
+        aria-label={ongoing ? `Stop ${chipFullLabel(e)}` : `Start ${chipFullLabel(e)} in background`}
     >
       <Zero0Glyph kind={e.kind} ongoing={ongoing} filled={false} className="h-3.5 w-3.5" />
     </button>
