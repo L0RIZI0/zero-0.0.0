@@ -22,6 +22,14 @@ internal static class Program
     [STAThread]
     private static int Main(string[] args)
     {
+        // DPI: make THIS process Per-Monitor-V2 aware BEFORE any window/handle is created. Without this a
+        // .NET WinForms process defaults to DPI-UNAWARE, so Windows VIRTUALIZES its coordinates and scales
+        // its child windows UP by the monitor's scale factor. The bridge already converts the renderer's
+        // DIP rect to PHYSICAL pixels (× scaleFactor), so an unaware host scaled them a SECOND time — the web
+        // surface came out blown-up, pushed down (the "§0-height gap"), and clipped on the right/bottom, and
+        // only on scaled (high-DPI) displays (looked "random"). Per-Monitor-V2 makes the host's coordinate
+        // space == physical pixels (1:1 with the bridge) and lets WebView2 auto-pick the right RasterizationScale.
+        bool dpiOk = Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
 
