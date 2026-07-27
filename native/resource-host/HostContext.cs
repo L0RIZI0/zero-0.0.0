@@ -271,6 +271,16 @@ internal sealed class HostContext
         _ = MountControllerAsync(view, id, url, profile);
     }
 
+    // System resume / session-unlock recovery. The OS can silently break the AttachThreadInput merge that
+    // routes mouse/keyboard into the visible webview across sleep+unlock, leaving it rendered-but-dead until
+    // the user parks+reveals it by hand. Re-anchor the visible view's input so that manual dance isn't
+    // needed. Safe to call on all views — only the currently-visible one holds the merge (the rest no-op).
+    // Runs on the UI thread (marshaled from the SystemEvents callback), as AttachThreadInput requires.
+    public void ReanchorVisibleInput(string reason)
+    {
+        foreach (var v in _views.Values) v.ReanchorInput(reason);
+    }
+
     // FALLBACK: one live controller per profile. OFF by default now that multi-live is proven to work —
     // only runs when the `zero-debug-evict` escape-hatch flag re-enables it. When active, before a view goes
     // live on `profile` it sheds any OTHER live view sharing it (shared login survives — cookies are on disk;
@@ -548,6 +558,34 @@ internal sealed class ResourceView : IDisposable
             }
         }
         catch (Exception ex) { Program.Log($"UpdateInputAttach failed: {ex.Message}"); }
+    }
+
+    // Recover input after the OS silently breaks our thread-input merge across system sleep / lock.
+    // AttachThreadInput links a THREAD PAIR into one shared focus, but that link can be torn down by the OS
+    // on suspend/resume/session-unlock WITHOUT us detaching — so `_attachedThread` still names Electron's
+    // thread and UpdateInputAttach believes the (now dead) merge is live and does nothing. The webview stays
+    // rendered but mouse/keyboard never reach it ("unresponsive"). The manual workaround Loris found — park
+    // the view then reveal it — worked precisely because park DETACHES (`_attachedThread=0`) and reveal
+    // RE-ATTACHES fresh. This does the same forced detach→re-attach→reseed WITHOUT hiding the page or
+    // reloading it, so nothing flickers and no state is lost. Only the currently-visible view holds the merge.
+    public void ReanchorInput(string reason)
+    {
+        if (_host == null || !_countedVisible) return;
+        try
+        {
+            uint self = NativeMethods.GetCurrentThreadId();
+            // Force-detach any (possibly stale) link so UpdateInputAttach re-attaches a fresh one.
+            if (_attachedThread != 0)
+            {
+                try { NativeMethods.AttachThreadInput(self, _attachedThread, false); } catch { /* ignore */ }
+                _attachedThread = 0;
+            }
+            UpdateInputAttach(); // re-attaches because this view is visible (_visibleCount>0)
+            Program.Log($"reanchor input id={_id} reason={reason} attached={_attachedThread}");
+            var reseed = _host.ReseedFocus;
+            if (reseed != null) { try { _host.BeginInvoke(reseed); } catch { /* ignore */ } }
+        }
+        catch (Exception ex) { Program.Log($"reanchor failed id={_id}: {ex.Message}"); }
     }
 
     // Position + size the container to _bounds. It's raised above Electron's Chromium content HWND ONCE

@@ -51,7 +51,7 @@ internal static class Program
 
         // BUILD MARKER — bump this string on every native change so host.log unambiguously proves which
         // build is actually running (rules out `dotnet run` serving a stale incremental build).
-        Log("=== BUILD multilive-default-v10 (multiple controllers per profile: warm siblings + shared login; DPI PerMonitorV2) ===");
+        Log("=== BUILD input-reanchor-v11 (re-anchor webview input on resume/unlock; multilive default; DPI PerMonitorV2) ===");
         Log($"dpi SetHighDpiMode(PerMonitorV2) ok={dpiOk} applied={Application.HighDpiMode}");
         Log($"start ipc parentHwnd={opts.ParentHwnd} userData={opts.UserDataFolder}");
         // Log the installed WebView2 Evergreen runtime version (confirmed 150.x supports multiple controllers
@@ -60,6 +60,28 @@ internal static class Program
         catch (Exception ex) { Log($"webview2 runtime version LOOKUP FAILED: {ex.Message}"); }
         var host = new HostContext(opts.UserDataFolder, IpcEmit);
         var reader = new Thread(() => ReadStdinLoop(sync, host)) { IsBackground = true, Name = "stdin" };
+
+        // POST-SLEEP / POST-UNLOCK INPUT RECOVERY. Across system suspend/resume and session lock/unlock the
+        // OS can silently tear down the AttachThreadInput merge that routes mouse+keyboard into the visible
+        // webview, leaving it rendered-but-unresponsive until manually parked+revealed. Re-anchor the visible
+        // view's input on those transitions. SystemEvents fires on its own thread, so marshal onto the host UI
+        // thread (AttachThreadInput must run there). Fire immediately AND after a short delay to ride out the
+        // window/session restoration lag that follows a wake (the immediate pass can land before Electron's
+        // window has regained its own focus).
+        void ScheduleReanchor(string reason)
+        {
+            Program.Log($"schedule reanchor reason={reason}");
+            sync.Post(_ => SafeReanchor(host, reason + ":now"), null);
+            _ = Task.Delay(700).ContinueWith(_ => sync.Post(__ => SafeReanchor(host, reason + ":delayed"), null));
+        }
+        Microsoft.Win32.SystemEvents.PowerModeChanged += (_, e) =>
+        {
+            if (e.Mode == Microsoft.Win32.PowerModes.Resume) ScheduleReanchor("power-resume");
+        };
+        Microsoft.Win32.SystemEvents.SessionSwitch += (_, e) =>
+        {
+            if (e.Reason == Microsoft.Win32.SessionSwitchReason.SessionUnlock) ScheduleReanchor("session-unlock");
+        };
 
         // CRITICAL: create the WebView2 environment FIRST, then emit "ready" and start reading commands.
         // Emitting ready before _env exists lets early mounts race in and fail with "env not ready"
@@ -85,6 +107,13 @@ internal static class Program
 
         Application.Run(pump);
         return 0;
+    }
+
+    // Re-anchor the visible webview's input, never throwing (a recovery path must not crash the pump).
+    private static void SafeReanchor(HostContext host, string reason)
+    {
+        try { host.ReanchorVisibleInput(reason); }
+        catch (Exception ex) { Log($"reanchor error ({reason}): {ex.Message}"); }
     }
 
     // ---- file logging (packaged builds have no visible console) ----
