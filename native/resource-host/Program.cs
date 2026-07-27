@@ -51,7 +51,7 @@ internal static class Program
 
         // BUILD MARKER — bump this string on every native change so host.log unambiguously proves which
         // build is actually running (rules out `dotnet run` serving a stale incremental build).
-        Log("=== BUILD popup-foreground-v13 (persistent-topmost + AttachThreadInput foreground-steal for OAuth popups; reanchor via powerMonitor) ===");
+        Log("=== BUILD input-reanchor-v14 (reanchor also on window-focus + idle-return poll, not just sleep; popup foreground-steal) ===");
         Log($"dpi SetHighDpiMode(PerMonitorV2) ok={dpiOk} applied={Application.HighDpiMode}");
         Log($"start ipc parentHwnd={opts.ParentHwnd} userData={opts.UserDataFolder}");
         // Log the installed WebView2 Evergreen runtime version (confirmed 150.x supports multiple controllers

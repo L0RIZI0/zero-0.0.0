@@ -458,12 +458,20 @@ if (gotSingleInstanceLock) {
 
     createWindow()
 
-    // POST-SLEEP / POST-UNLOCK INPUT RECOVERY. Across system sleep and session lock/unlock the OS silently
-    // tears down the thread-input merge that routes mouse+keyboard into the visible webview, leaving it
-    // rendered-but-frozen until manually parked+reopened. Electron's powerMonitor fires reliably on Windows
-    // Modern Standby (S0) — the Surface sleep mode where the host's own .NET SystemEvents power/session
-    // events do NOT fire — so we drive the host re-anchor from here. Fire immediately AND after a short delay
-    // to ride out the window/session restoration lag that follows a wake.
+    // WEBVIEW INPUT RECOVERY. The OS silently tears down the AttachThreadInput merge that routes
+    // mouse+keyboard into the visible webview, leaving it rendered-but-frozen until manually parked+reopened.
+    // The host's re-anchor (detach→re-attach→reseed) fixes it, but it needs a TRIGGER. We used to trigger
+    // only on sleep/unlock — but Loris hit the freeze after merely being AWAY A COUPLE MINUTES with NO sleep
+    // (host.log showed a healthy ATTACH then silence then dead input). The real culprit is any idle low-power
+    // transition — most likely DISPLAY POWER-OFF (screen timeout), which on Modern Standby is a genuine power
+    // event that breaks the merge but does NOT raise powerMonitor 'resume'. So we trigger on THREE signals:
+    //   1. powerMonitor resume / unlock-screen  — full sleep + session unlock.
+    //   2. browser-window-focus                 — alt-tab back / app refocus.
+    //   3. idle-return poll (below)             — user returns after the screen/system went idle, even when
+    //      focus never changed. Uses powerMonitor.getSystemIdleTime() (OS-level GetLastInputInfo), which keeps
+    //      working even while our own input merge is broken.
+    // Re-anchor is cheap + idempotent and only reseeds focus into the ALREADY-visible webview, so firing from
+    // several triggers is harmless (a parked/hidden view no-ops in the host).
     const reanchorResourceInput = (reason) => {
       try {
         if (!(useWebView2() && hostBridge && hostBridge.ready)) return
@@ -478,6 +486,27 @@ if (gotSingleInstanceLock) {
     }
     powerMonitor.on("resume", () => reanchorResourceInput("power-resume"))
     powerMonitor.on("unlock-screen", () => reanchorResourceInput("session-unlock"))
+    app.on("browser-window-focus", () => reanchorResourceInput("window-focus"))
+
+    // Idle-return watcher. Poll the OS idle timer every second; once the user has been idle past the
+    // threshold (screen likely off), the NEXT tick where they're active again re-anchors the webview input so
+    // their first real interaction lands. Worst case the very first click after returning is swallowed and it
+    // recovers within ~1s — vastly better than a permanent freeze needing a manual park+reveal.
+    const IDLE_AWAY_THRESHOLD_S = 30
+    let wasIdleAway = false
+    setInterval(() => {
+      try {
+        const idle = powerMonitor.getSystemIdleTime() // seconds since last OS-level input
+        if (idle >= IDLE_AWAY_THRESHOLD_S) {
+          wasIdleAway = true
+        } else if (wasIdleAway) {
+          wasIdleAway = false
+          reanchorResourceInput("idle-return")
+        }
+      } catch {
+        /* getSystemIdleTime can throw very early in startup; ignore */
+      }
+    }, 1000)
 
     // Best-effort background update check (production/packaged only).
     setupAutoUpdate()
