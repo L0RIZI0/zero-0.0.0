@@ -191,12 +191,25 @@ export default function FeaturesPage() {
           </p>
         </section>
 
-        <footer className="flex flex-col gap-1 border-t border-border pt-8">
-          <p className="font-mono text-xs uppercase tracking-[0.25em] text-muted-foreground">
-            Zero
-          </p>
+        <footer className="flex flex-col gap-4 border-t border-border pt-8">
+          <div className="flex flex-col gap-1">
+            <p className="font-mono text-xs uppercase tracking-[0.25em] text-muted-foreground">
+              Zero
+            </p>
+            <p className="text-sm text-muted-foreground">
+              A living page — it grows as Zero does.
+            </p>
+          </div>
           <p className="text-sm text-muted-foreground">
-            A living page — it grows as Zero does.
+            Building on Zero?{" "}
+            <Link
+              href="/web-browsing"
+              className="text-foreground underline underline-offset-4 transition-colors hover:text-muted-foreground"
+            >
+              Web browsing — engineering reference
+            </Link>{" "}
+            has the full technical picture of the contextual browser (architecture, prewarm, per-Space
+            logins, sleep recovery, limitations, and open work).
           </p>
         </footer>
       </div>
