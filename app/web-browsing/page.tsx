@@ -69,10 +69,15 @@ const HISTORY: { v: string; marker?: string; note: string }[] = [
   { v: "v0.2.217", marker: "popup-owner-v16", note: "OAuth popup is now an OWNED window of the Electron top-level HWND (SetWindowLongPtr GWL_HWNDPARENT), so it always floats above instead of opening invisibly." },
   { v: "v0.2.218", marker: "popup-owner-v17", note: "Popup inherits the Electron window's Zero app icon (WM_GETICON/WM_SETICON) instead of the WinForms default. Also shipped this doc page. On a 150% Surface the popup now appeared — but rendered BLACK (content under-covered the window)." },
   { v: "v0.2.219", marker: "popup-dpi-v18", note: "Fixed the black popup: its WebView2 controller was sized from WinForms ClientSize (logical DIPs) while Controller.Bounds wants physical pixels. Now sized from Win32 GetClientRect (raw px) so the account picker fills the window on HiDPI." },
+  { v: "v0.2.220", marker: "popup-dpi-v19", note: "OAuth login confirmed working end-to-end on the 150% Surface (logged in to the phone step). The popup was still tiny because its Form runs at 96 DPI (its ClientSize == GetClientRect), so the hardcoded 520×640 was ~physical px. Now the WINDOW size is DPI-scaled via GetDpiForWindow and centered on the owner." },
 ]
 
 // ── open work ────────────────────────────────────────────────────────────────────
 const OPEN: { title: string; body: string }[] = [
+  {
+    title: "Stray parked window in Task View / Alt-Tab",
+    body: "A black thumbnail with the generic icon appears in Windows Task View; clicking it darts to the upper-left corner. It's a PARKED container: off-screen views are shoved to x=-200000 but stay top-level enough to show as a thumbnail. Cosmetic, doesn't block the popup. Fix: give parked windows WS_EX_TOOLWINDOW (drops them from Alt-Tab/Task View) or park by ShowWindow(SW_HIDE) instead of moving off-screen.",
+  },
   {
     title: "Background media as a real feature",
     body: "Today background audio is an incidental side effect of park-keeps-alive. A dedicated persistent mini-player (transport controls, survives close) would make it intentional.",
@@ -106,7 +111,7 @@ export default function WebBrowsingReferencePage() {
             Web browsing in Zero
           </h1>
           <p className="max-w-prose text-pretty text-base leading-relaxed text-muted-foreground md:text-lg">
-            A handoff-grade reference for the feature as it exists today (v0.2.219, Windows-only). Grounded in
+            A handoff-grade reference for the feature as it exists today (v0.2.220, Windows-only). Grounded in
             the live code, not recollection. In Zero a web page is an <em>entity</em>: a web-resource kind with
             a <Code>webUrl</Code>, living in the context tree like a Task or Space, revealed as a real browser
             surface when you drill in.
@@ -295,6 +300,14 @@ export default function WebBrowsingReferencePage() {
               <Code>NativeMethods.PhysicalClientRect</Code> (Win32 <Code>GetClientRect</Code>, always raw px),
               in both the initial set and the resize handler.
             </Fact>
+            <Fact term="…and again on WINDOW size (v0.2.220)">
+              Subtler second bite: the popup Form itself runs at 96 DPI (its <Code>ClientSize</Code> equals its{" "}
+              <Code>GetClientRect</Code> — WinForms does not per-monitor-scale it), so a hardcoded{" "}
+              <Code>Width=520</Code> is ~520 <em>physical</em> px and looked tiny on the 150% Surface. Fix:{" "}
+              <Code>PopupBoundsForOwner</Code> scales the window by <Code>GetDpiForWindow(owner)</Code> and
+              centers it on the app. Lesson: DPI affects BOTH the controller&apos;s bounds and the window&apos;s
+              own size — they&apos;re independent.
+            </Fact>
             <Fact term="Rule of thumb / how to confirm">
               Any WebView2 controller whose <Code>Bounds</Code> comes from WinForms <Code>ClientSize</Code> is a
               latent black-on-HiDPI bug — always source it from <Code>GetClientRect</Code>. The{" "}
@@ -339,7 +352,7 @@ export default function WebBrowsingReferencePage() {
         {/* Version history */}
         <section className="mb-16 flex flex-col gap-6">
           <Kicker>Version history — the sleep &amp; OAuth saga</Kicker>
-          <h2 className="text-pretty text-2xl font-semibold leading-tight">How we got to v0.2.219</h2>
+          <h2 className="text-pretty text-2xl font-semibold leading-tight">How we got to v0.2.220</h2>
           <ul className="flex flex-col gap-4">
             {HISTORY.map((h) => (
               <li key={h.v} className="grid gap-1.5 border-t border-border pt-4 md:grid-cols-[10rem_1fr] md:gap-6">

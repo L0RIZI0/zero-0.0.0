@@ -10,12 +10,16 @@ internal sealed class PopupWindow : Form
 {
     private CoreWebView2Controller? _controller;
 
+    // Base LOGICAL size (at 96 DPI). The real size is computed per-DPI in OpenAsync via PopupBoundsForOwner.
+    private const int BaseWidth = 520;
+    private const int BaseHeight = 640;
+
     private PopupWindow()
     {
         Text = "Zero";
-        StartPosition = FormStartPosition.CenterScreen;
-        Width = 520;
-        Height = 640;
+        StartPosition = FormStartPosition.Manual; // we position/size it ourselves, scaled to the owner's DPI
+        Width = BaseWidth;
+        Height = BaseHeight;
     }
 
     public static async Task OpenAsync(
@@ -36,6 +40,11 @@ internal sealed class PopupWindow : Form
             // opening invisibly. Handle exists now that Show() has been called.
             NativeMethods.SetOwner(win.Handle, ownerHwnd);
             NativeMethods.CopyOwnerIcon(win.Handle, ownerHwnd); // use the Zero app icon, not WinForms' default
+            // Size + center for the OWNER's DPI. The Form runs at 96 DPI, so the hardcoded 520x640 was tiny
+            // on the 150% Surface (~347px equivalent). Scale it so it reads normally on any display.
+            var wb = NativeMethods.PopupBoundsForOwner(ownerHwnd, BaseWidth, BaseHeight);
+            win.Bounds = wb;
+            Program.Log($"popup sized bounds={wb} ownerDpi={NativeMethods.GetDpiForWindow(ownerHwnd)}");
             BringToFront(win); // + steal foreground so it also gets focus
 
             var opts = env.CreateCoreWebView2ControllerOptions();

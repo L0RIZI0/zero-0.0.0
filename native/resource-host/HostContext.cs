@@ -49,6 +49,40 @@ internal static class NativeMethods
         return new System.Drawing.Rectangle(0, 0, Math.Max(1, fallback.Width), Math.Max(1, fallback.Height));
     }
 
+    [DllImport("user32.dll")]
+    public static extern uint GetDpiForWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
+
+    // Compute the popup's PHYSICAL window rect: base logical size scaled by the OWNER monitor's DPI and
+    // centered over the owner window. The popup Form runs effectively at 96 DPI (its ClientSize == its
+    // GetClientRect — WinForms doesn't per-monitor-scale it), so a raw Width=520 is 520 PHYSICAL px, which
+    // looks tiny on a 150% display. We scale it ourselves so it reads at a normal size on any DPI, and place
+    // it centered on the app rather than the primary screen.
+    public static System.Drawing.Rectangle PopupBoundsForOwner(IntPtr ownerHwnd, int baseW, int baseH)
+    {
+        uint dpi = ownerHwnd != IntPtr.Zero ? GetDpiForWindow(ownerHwnd) : 96;
+        double scale = dpi >= 48 ? dpi / 96.0 : 1.0;
+        int w = (int)Math.Round(baseW * scale);
+        int h = (int)Math.Round(baseH * scale);
+
+        int cx, cy;
+        if (ownerHwnd != IntPtr.Zero && GetWindowRect(ownerHwnd, out RECT o) && o.Right > o.Left && o.Bottom > o.Top)
+        {
+            cx = o.Left + (o.Right - o.Left) / 2;
+            cy = o.Top + (o.Bottom - o.Top) / 2;
+        }
+        else
+        {
+            var wa = System.Windows.Forms.Screen.PrimaryScreen!.WorkingArea;
+            cx = wa.Left + wa.Width / 2;
+            cy = wa.Top + wa.Height / 2;
+        }
+        return new System.Drawing.Rectangle(cx - w / 2, cy - h / 2, w, h);
+    }
+
     // Cross-process focus: link our host UI thread's input queue to Electron's so keyboard routing works
     // for the embedded (SetParent'd) WebView2. Without this, keys only reach us while our process happens
     // to be foreground; once Electron reasserts, input dies.
