@@ -35,6 +35,7 @@ internal sealed class PopupWindow : Form
             // floats above its owner and can't be buried behind it, which is the reliable fix for the popup
             // opening invisibly. Handle exists now that Show() has been called.
             NativeMethods.SetOwner(win.Handle, ownerHwnd);
+            NativeMethods.CopyOwnerIcon(win.Handle, ownerHwnd); // use the Zero app icon, not WinForms' default
             BringToFront(win); // + steal foreground so it also gets focus
 
             var opts = env.CreateCoreWebView2ControllerOptions();

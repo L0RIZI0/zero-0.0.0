@@ -84,6 +84,43 @@ internal static class NativeMethods
         Program.Log($"popup SetOwner child={child} owner={root}");
     }
 
+    [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Auto)]
+    public static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern IntPtr GetClassLongPtr(IntPtr hWnd, int nIndex);
+
+    public const int WM_GETICON = 0x007F;
+    public const int WM_SETICON = 0x0080;
+    public const int ICON_SMALL = 0;
+    public const int ICON_BIG = 1;
+    public const int GCLP_HICON = -14;
+    public const int GCLP_HICONSM = -34;
+
+    // Give an OAuth popup the SAME title-bar icon as the Electron main window (the Zero app icon), instead
+    // of WinForms' generic default. We can't easily load the packaged .ico from the native host, but the
+    // owner window already HAS the icon loaded, so we just copy its HICONs across. Owned windows don't show
+    // in the taskbar, so this only affects the popup's title-bar glyph.
+    public static void CopyOwnerIcon(IntPtr child, IntPtr owner)
+    {
+        if (child == IntPtr.Zero || owner == IntPtr.Zero || !IsWindow(owner)) return;
+        IntPtr root = GetAncestor(owner, GA_ROOT);
+        if (root == IntPtr.Zero) root = owner;
+        try
+        {
+            IntPtr big = SendMessage(root, WM_GETICON, (IntPtr)ICON_BIG, IntPtr.Zero);
+            if (big == IntPtr.Zero) big = GetClassLongPtr(root, GCLP_HICON);
+            IntPtr small = SendMessage(root, WM_GETICON, (IntPtr)ICON_SMALL, IntPtr.Zero);
+            if (small == IntPtr.Zero) small = GetClassLongPtr(root, GCLP_HICONSM);
+            if (small == IntPtr.Zero) small = big;
+            if (big == IntPtr.Zero) big = small;
+            if (big != IntPtr.Zero) SendMessage(child, WM_SETICON, (IntPtr)ICON_BIG, big);
+            if (small != IntPtr.Zero) SendMessage(child, WM_SETICON, (IntPtr)ICON_SMALL, small);
+            Program.Log($"popup CopyOwnerIcon big={big} small={small}");
+        }
+        catch (Exception ex) { Program.Log($"popup CopyOwnerIcon failed: {ex.Message}"); }
+    }
+
     // Force a background-process top-level window to the actual foreground, defeating the foreground lock by
     // temporarily merging our thread's input queue with the current foreground thread's.
     public static void ForceForeground(IntPtr hWnd)
