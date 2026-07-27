@@ -67,14 +67,12 @@ const HISTORY: { v: string; marker?: string; note: string }[] = [
   { v: "v0.2.215", marker: "input-reanchor-v14", note: "Webview input recovery now fires on window-focus + a 1s idle-return poll (getSystemIdleTime), not just sleep. Fixed the away-a-few-minutes freeze. Keyboard recovered; mouse did not." },
   { v: "v0.2.216", marker: "input-reanchor-v15", note: "Reanchor now also re-raises the container z-order to HWND_TOP, so MOUSE hit-testing recovers after sleep, not just keyboard. Sleep saga closed." },
   { v: "v0.2.217", marker: "popup-owner-v16", note: "OAuth popup is now an OWNED window of the Electron top-level HWND (SetWindowLongPtr GWL_HWNDPARENT), so it always floats above instead of opening invisibly." },
+  { v: "v0.2.218", marker: "popup-owner-v17", note: "Popup inherits the Electron window's Zero app icon (WM_GETICON/WM_SETICON) instead of the WinForms default. Also shipped this doc page. On a 150% Surface the popup now appeared — but rendered BLACK (content under-covered the window)." },
+  { v: "v0.2.219", marker: "popup-dpi-v18", note: "Fixed the black popup: its WebView2 controller was sized from WinForms ClientSize (logical DIPs) while Controller.Bounds wants physical pixels. Now sized from Win32 GetClientRect (raw px) so the account picker fills the window on HiDPI." },
 ]
 
 // ── open work ────────────────────────────────────────────────────────────────────
 const OPEN: { title: string; body: string }[] = [
-  {
-    title: "Popup favicon",
-    body: "The OAuth popup Form has no Icon set, so Windows shows a generic default. One line in PopupWindow (win.Icon = app icon). Trivial, not yet done.",
-  },
   {
     title: "Background media as a real feature",
     body: "Today background audio is an incidental side effect of park-keeps-alive. A dedicated persistent mini-player (transport controls, survives close) would make it intentional.",
@@ -108,7 +106,7 @@ export default function WebBrowsingReferencePage() {
             Web browsing in Zero
           </h1>
           <p className="max-w-prose text-pretty text-base leading-relaxed text-muted-foreground md:text-lg">
-            A handoff-grade reference for the feature as it exists today (v0.2.217, Windows-only). Grounded in
+            A handoff-grade reference for the feature as it exists today (v0.2.219, Windows-only). Grounded in
             the live code, not recollection. In Zero a web page is an <em>entity</em>: a web-resource kind with
             a <Code>webUrl</Code>, living in the context tree like a Task or Space, revealed as a real browser
             surface when you drill in.
@@ -263,6 +261,49 @@ export default function WebBrowsingReferencePage() {
           </ul>
         </section>
 
+        {/* DPI — always suspect this */}
+        <section className="mb-16 flex flex-col gap-6">
+          <Kicker>DPI &amp; scaling</Kicker>
+          <h2 className="text-pretty text-2xl font-semibold leading-tight">
+            Always suspect DPI first on &ldquo;works on my machine&rdquo; bugs
+          </h2>
+          <p className="max-w-prose text-pretty text-sm leading-relaxed text-muted-foreground md:text-base">
+            The host runs <Code>SetHighDpiMode(PerMonitorV2)</Code>. This is the single most common source of
+            surface-only glitches (blank/black regions, content offset from its window, clicks landing off by a
+            factor, half-covered views) — and they only reproduce on <strong>&gt;100% displays</strong> like a
+            150% Surface, so they sail through testing on a 100% monitor or <Code>electron:web</Code>. If a
+            rendering or hit-testing bug appears on one machine but not another, check the scaling factors
+            before anything else.
+          </p>
+          <ul className="flex flex-col gap-5">
+            <Fact term="The invariant">
+              WebView2 <Code>CoreWebView2Controller.Bounds</Code> is defined in <strong>physical device
+              pixels</strong>. So is every <Code>SetWindowPos</Code> / <Code>GetClientRect</Code> call. WinForms
+              <Code>Form.ClientSize</Code>/<Code>Bounds</Code> and any hard-coded <Code>Width</Code>/
+              <Code>Height</Code> are <strong>logical (DIP)</strong> under PerMonitorV2. Never feed a logical
+              size into a physical-pixel API — at 150% they differ by 1.5×.
+            </Fact>
+            <Fact term="Why the main view is safe">
+              The main container is a borderless Form driven by raw Win32 <Code>SetWindowPos</Code> to
+              Electron&apos;s physical rect (e.g. <Code>rect w:2878 h:1800</Code> = 1920×1200 × 1.5), so its
+              client area is already physical. Prewarm/reveal layout inherits the same physical rect.
+            </Fact>
+            <Fact term="Where it bit us (v0.2.218 → v0.2.219)">
+              The OAuth popup was a normal bordered WinForms Form sized in DIPs, and its controller was sized
+              from <Code>win.ClientSize</Code> (logical). On the 150% Surface the controller covered ~⅔ of the
+              window and the rest painted black. Fix: size <Code>controller.Bounds</Code> from{" "}
+              <Code>NativeMethods.PhysicalClientRect</Code> (Win32 <Code>GetClientRect</Code>, always raw px),
+              in both the initial set and the resize handler.
+            </Fact>
+            <Fact term="Rule of thumb / how to confirm">
+              Any WebView2 controller whose <Code>Bounds</Code> comes from WinForms <Code>ClientSize</Code> is a
+              latent black-on-HiDPI bug — always source it from <Code>GetClientRect</Code>. The{" "}
+              <Code>popup controller OK … clientLogical=… boundsPhysical=…</Code> log line shows both: on a
+              150% display they differ by ~1.5×; on 100% they match. Divergence + a visual glitch = DPI.
+            </Fact>
+          </ul>
+        </section>
+
         {/* Feature status */}
         <section className="mb-16 flex flex-col gap-6">
           <Kicker>Status &amp; limitations, honestly</Kicker>
@@ -298,7 +339,7 @@ export default function WebBrowsingReferencePage() {
         {/* Version history */}
         <section className="mb-16 flex flex-col gap-6">
           <Kicker>Version history — the sleep &amp; OAuth saga</Kicker>
-          <h2 className="text-pretty text-2xl font-semibold leading-tight">How we got to v0.2.217</h2>
+          <h2 className="text-pretty text-2xl font-semibold leading-tight">How we got to v0.2.219</h2>
           <ul className="flex flex-col gap-4">
             {HISTORY.map((h) => (
               <li key={h.v} className="grid gap-1.5 border-t border-border pt-4 md:grid-cols-[10rem_1fr] md:gap-6">
@@ -353,6 +394,20 @@ export default function WebBrowsingReferencePage() {
               <Code>data.ts</Code> — <Code>getEnvKey</Code> (per-Space profile keying).
             </Fact>
           </ul>
+        </section>
+
+        {/* Pick up where we left off */}
+        <section className="mb-16 flex flex-col gap-4 border-t border-border pt-8">
+          <Kicker>For the next agent (or future me)</Kicker>
+          <h2 className="text-pretty text-2xl font-semibold leading-tight">Resuming this feature cold</h2>
+          <p className="max-w-prose text-pretty text-sm leading-relaxed text-muted-foreground md:text-base">
+            To pick this up exactly where we left it, read <strong>this page</strong> together with the seeded
+            memory topic file <Code>v0_memories/user/zero-contextual-browser.md</Code> — it carries the blow-by-blow
+            &ldquo;RUN #&rdquo; debug log (each host build, the exact <Code>host.log</Code> evidence, the fix, and how
+            to verify). Then confirm which host is actually running via the <Code>=== BUILD … ===</Code> marker line
+            in a fresh <Code>host.log</Code> before trusting anything. When a bug reproduces on one machine but not
+            another, re-read the DPI section above first.
+          </p>
         </section>
 
         <p className="border-t border-border pt-8 text-pretty text-sm leading-relaxed text-muted-foreground">
