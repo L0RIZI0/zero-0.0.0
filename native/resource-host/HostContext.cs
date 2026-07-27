@@ -27,6 +27,28 @@ internal static class NativeMethods
     [DllImport("user32.dll", SetLastError = true)]
     public static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
 
+    [StructLayout(LayoutKind.Sequential)]
+    public struct RECT { public int Left, Top, Right, Bottom; }
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool GetClientRect(IntPtr hWnd, out RECT lpRect);
+
+    // The RAW-PIXEL client size of a window. WebView2's CoreWebView2Controller.Bounds is defined in physical
+    // device pixels, but WinForms' Form.ClientSize returns LOGICAL (DIP) units once the process is
+    // PerMonitorV2 DPI-aware — so on a >100% display (e.g. a 150% Surface) a controller sized from ClientSize
+    // covers only a fraction of the window and the rest paints BLACK. GetClientRect is a pure Win32 call that
+    // always reports physical pixels, which is exactly what Bounds wants. Falls back to `fallback` if it fails.
+    public static System.Drawing.Rectangle PhysicalClientRect(IntPtr hWnd, System.Drawing.Size fallback)
+    {
+        if (hWnd != IntPtr.Zero && GetClientRect(hWnd, out RECT r))
+        {
+            int w = r.Right - r.Left, h = r.Bottom - r.Top;
+            if (w > 0 && h > 0) return new System.Drawing.Rectangle(0, 0, w, h);
+        }
+        return new System.Drawing.Rectangle(0, 0, Math.Max(1, fallback.Width), Math.Max(1, fallback.Height));
+    }
+
     // Cross-process focus: link our host UI thread's input queue to Electron's so keyboard routing works
     // for the embedded (SetParent'd) WebView2. Without this, keys only reach us while our process happens
     // to be foreground; once Electron reasserts, input dies.

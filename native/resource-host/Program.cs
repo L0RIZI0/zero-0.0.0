@@ -51,7 +51,7 @@ internal static class Program
 
         // BUILD MARKER — bump this string on every native change so host.log unambiguously proves which
         // build is actually running (rules out `dotnet run` serving a stale incremental build).
-        Log("=== BUILD popup-owner-v17 (owned OAuth popup + inherits the Electron window's Zero app icon instead of the WinForms default favicon) ===");
+        Log("=== BUILD popup-dpi-v18 (popup controller sized from RAW-PIXEL GetClientRect, fixing the black popup on >100% DPI displays like the Surface) ===");
         Log($"dpi SetHighDpiMode(PerMonitorV2) ok={dpiOk} applied={Application.HighDpiMode}");
         Log($"start ipc parentHwnd={opts.ParentHwnd} userData={opts.UserDataFolder}");
         // Log the installed WebView2 Evergreen runtime version (confirmed 150.x supports multiple controllers

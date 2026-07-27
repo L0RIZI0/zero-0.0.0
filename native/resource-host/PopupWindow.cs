@@ -44,11 +44,14 @@ internal sealed class PopupWindow : Form
 
             var controller = await env.CreateCoreWebView2ControllerAsync(win.Handle, opts);
             win._controller = controller;
-            controller.Bounds = new System.Drawing.Rectangle(0, 0, win.ClientSize.Width, win.ClientSize.Height);
+            // Use the RAW-PIXEL client rect, not WinForms ClientSize (which is logical/DIP under PerMonitorV2).
+            // On a >100% display the logical size under-covers the window and the popup renders BLACK.
+            var pcr = NativeMethods.PhysicalClientRect(win.Handle, win.ClientSize);
+            controller.Bounds = pcr;
 
             var core = controller.CoreWebView2;
             core.Settings.AreDefaultContextMenusEnabled = false;
-            Program.Log($"popup controller OK profile={profile} url={uri}");
+            Program.Log($"popup controller OK profile={profile} clientLogical={win.ClientSize} boundsPhysical={pcr} url={uri}");
 
             // Hand the created window back to WebView2 so it wires opener/postMessage correctly. This MUST
             // happen for GIS/OAuth popups (response_mode=form_post) — the popup relays its result to the
@@ -62,11 +65,11 @@ internal sealed class PopupWindow : Form
             // Let the page close its own popup (OAuth calls window.close() when it's done).
             core.WindowCloseRequested += (_, _) => { Program.Log($"popup WindowCloseRequested url={core.Source}"); win.Close(); };
 
-            // Keep the controller sized to the window.
+            // Keep the controller sized to the window (raw pixels, DPI-correct).
             win.Resize += (_, _) =>
             {
                 if (win._controller != null)
-                    win._controller.Bounds = new System.Drawing.Rectangle(0, 0, win.ClientSize.Width, win.ClientSize.Height);
+                    win._controller.Bounds = NativeMethods.PhysicalClientRect(win.Handle, win.ClientSize);
             };
             win.FormClosed += (_, _) => { Program.Log("popup closed"); try { win._controller?.Close(); } catch { } win._controller = null; };
 
