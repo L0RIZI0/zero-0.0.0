@@ -618,11 +618,42 @@ internal sealed class ResourceView : IDisposable
                 _attachedThread = 0;
             }
             UpdateInputAttach(); // re-attaches because this view is visible (_visibleCount>0)
+            // MOUSE recovery: keyboard comes back with the attach+reseed above, but mouse CLICKS still miss the
+            // web render after resume — the OS knocks our WS_CHILD container's z-order down below Electron's
+            // Chromium content HWND, so clicks land on Electron (Zero's own UI still works) not the webview.
+            // The manual park→reveal dance fixed this precisely because REVEAL re-raises the container to
+            // HWND_TOP. Do just that raise here (no hide, no reload → no flicker, no lost page state).
+            RaiseToTop();
             Program.Log($"reanchor input id={_id} reason={reason} attached={_attachedThread}");
             var reseed = _host.ReseedFocus;
             if (reseed != null) { try { _host.BeginInvoke(reseed); } catch { /* ignore */ } }
         }
         catch (Exception ex) { Program.Log($"reanchor failed id={_id}: {ex.Message}"); }
+    }
+
+    // Re-raise the visible container above Electron's Chromium content HWND and re-assert its bounds so mouse
+    // hit-testing routes into the webview again. Idempotent; only acts on a genuinely-visible view. Kept
+    // separate from ApplyBounds (which deliberately SWP_NOZORDER's routine moves to avoid stealing focus
+    // mid-typing) — this is the explicit, deliberate raise the resume path needs.
+    private void RaiseToTop()
+    {
+        if (_host == null) return;
+        bool show = _visible && _bounds.X > -10000 && _bounds.Width > 0 && _bounds.Height > 0;
+        if (!show) return;
+        var h = _host.Handle;
+        uint flags = NativeMethods.SWP_NOACTIVATE | NativeMethods.SWP_SHOWWINDOW; // no NOZORDER → actually raise
+        NativeMethods.SetWindowPos(h, NativeMethods.HWND_TOP, _bounds.X, _bounds.Y,
+            Math.Max(1, _bounds.Width), Math.Max(1, _bounds.Height), flags);
+        if (_controller != null)
+        {
+            try
+            {
+                _controller.IsVisible = true;
+                _controller.Bounds = new Rectangle(0, 0, Math.Max(1, _bounds.Width), Math.Max(1, _bounds.Height));
+            }
+            catch { /* ignore */ }
+        }
+        Program.Log($"reanchor raise id={_id} bounds={_bounds}");
     }
 
     // Position + size the container to _bounds. It's raised above Electron's Chromium content HWND ONCE
