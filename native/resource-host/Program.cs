@@ -43,8 +43,15 @@ internal static class Program
 
         // BUILD MARKER — bump this string on every native change so host.log unambiguously proves which
         // build is actually running (rules out `dotnet run` serving a stale incremental build).
-        Log("=== BUILD env-per-site-v7 (per-site CoreWebView2Environment, eliminates 0x8007139F) ===");
+        Log("=== BUILD env-per-context-v8-diag (shared-profile multi-controller diagnostics + eviction fallback) ===");
         Log($"start ipc parentHwnd={opts.ParentHwnd} userData={opts.UserDataFolder}");
+        // DIAGNOSTIC: log the installed WebView2 Evergreen runtime version. Multiple controllers sharing ONE
+        // profile (CoreWebView2ControllerOptions.ProfileName) — the feature shared-login-within-a-Space relies
+        // on — was added around Runtime 94 (Sept 2022). If this box has an older runtime, the 2nd controller
+        // on a shared profile throws 0x8007139F (the "blank page"), and the clean fix is simply updating the
+        // WebView2 runtime (no Visual Studio needed). This one line confirms or rules that out immediately.
+        try { Log($"webview2 runtime version = {CoreWebView2Environment.GetAvailableBrowserVersionString()}"); }
+        catch (Exception ex) { Log($"webview2 runtime version LOOKUP FAILED: {ex.Message}"); }
         var host = new HostContext(opts.UserDataFolder, IpcEmit);
         var reader = new Thread(() => ReadStdinLoop(sync, host)) { IsBackground = true, Name = "stdin" };
 

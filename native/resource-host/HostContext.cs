@@ -126,10 +126,26 @@ internal sealed class HostContext
     private readonly Dictionary<string, Task<CoreWebView2Environment>> _envPending = new();
     private IntPtr _parentHwnd;
 
+    // DEBUG SWITCH (no terminal / no install): when a file named `zero-debug-multilive` exists in the user-data
+    // folder, DISABLE one-live-per-profile eviction. That lets two web resources of a Space go live on one
+    // shared profile SIMULTANEOUSLY so the 0x8007139F "blank page" reproduces WITH full diagnostics in the log
+    // — the capture we need to land the real (warm + shared-login) fix. Absent the file (default) eviction is
+    // ON, so normal use never blanks. Loris: create an empty file named `zero-debug-multilive` inside the
+    // `resource-host-profiles` folder (next to the env folders), relaunch, open two sites in one Space, send
+    // host.log, then delete the file. Exact path is logged at startup as `userData=...`.
+    private readonly bool _noEvict;
+
     public HostContext(string userDataFolder, Action<object> emit)
     {
         _userDataFolder = userDataFolder;
         _emit = emit;
+        try
+        {
+            var flag = Path.Combine(userDataFolder, "zero-debug-multilive");
+            _noEvict = File.Exists(flag);
+            Program.Log($"eviction {( _noEvict ? "DISABLED (zero-debug-multilive present — capturing multi-live)" : "ENABLED (one-live-per-profile)" )}");
+        }
+        catch { _noEvict = false; }
     }
 
     public Task InitializeAsync(IntPtr parentHwnd)
@@ -160,7 +176,14 @@ internal sealed class HostContext
     // itself throw INVALID_STATE — the folder can only back one environment at a time).
     private Task<CoreWebView2Environment> GetEnvForKeyAsync(string envKey)
     {
-        if (_envByKey.TryGetValue(envKey, out var env)) return Task.FromResult(env);
+        if (_envByKey.TryGetValue(envKey, out var env))
+        {
+            // DIAGNOSTIC: prove the env is REUSED (same instance) for every controller of a key. If a shared
+            // profile's 2nd controller fails while this logs the SAME env#, the folder isn't the problem — the
+            // cause is runtime/profile-lock, not two environments on one folder.
+            Program.Log($"env CACHED key={envKey} env#={System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(env)}");
+            return Task.FromResult(env);
+        }
         if (_envPending.TryGetValue(envKey, out var pending)) return pending;
         var folder = Path.Combine(_userDataFolder, "envs", envKey);
         var task = CreateEnvAsync(envKey, folder);
@@ -172,9 +195,10 @@ internal sealed class HostContext
     {
         try
         {
-            Program.Log($"env create key={envKey} folder={folder}");
+            Program.Log($"env create NEW key={envKey} folder={folder}");
             var env = await CoreWebView2Environment.CreateAsync(null, folder, null);
             _envByKey[envKey] = env;
+            Program.Log($"env created key={envKey} env#={System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(env)}");
             return env;
         }
         finally { _envPending.Remove(envKey); }
@@ -248,6 +272,11 @@ internal sealed class HostContext
     // while making same-Space web resources take turns.
     private void EvictLiveInProfile(string profile, string exceptId)
     {
+        if (_noEvict)
+        {
+            Program.Log($"evict SKIPPED (debug multi-live) profile={profile} incoming={exceptId}");
+            return;
+        }
         foreach (var kv in _views)
         {
             if (kv.Key == exceptId) continue;
@@ -405,7 +434,14 @@ internal sealed class ResourceView : IDisposable
             await _createGate.WaitAsync();
             try
             {
+                // DIAGNOSTIC: env# proves whether this create shares the SAME env instance as an already-live
+                // controller (it should — one env per key); hostHwnd proves each controller gets its OWN host
+                // window (two controllers must NOT share an hwnd). Combined with the runtime-version line at
+                // startup + the full exception dump on failure, this pins whether 0x8007139F is a runtime-
+                // version limit, a folder/env-duplication bug, or an hwnd collision.
                 Program.Log($"create BEGIN id={_id} profile={_profile} live={_liveControllers} " +
+                    $"env#={System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(env)} " +
+                    $"hostHwnd={hostHandle} " +
                     $"parentOk={NativeMethods.IsWindow(parentHwnd)} hostOk={NativeMethods.IsWindow(hostHandle)} " +
                     $"tid={NativeMethods.GetCurrentThreadId()}");
                 for (int attempt = 1; attempt <= MaxAttempts; attempt++)
