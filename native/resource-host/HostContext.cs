@@ -48,6 +48,38 @@ internal static class NativeMethods
     [DllImport("user32.dll")]
     public static extern IntPtr SetFocus(IntPtr hWnd);
 
+    // Foreground/z-order control for OAuth POPUP windows. A background helper process normally can't call
+    // SetForegroundWindow successfully (Windows foreground lock), so we AttachThreadInput to the current
+    // foreground thread first, which lifts the lock for the duration of the merge.
+    [DllImport("user32.dll")]
+    public static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern bool SetForegroundWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern bool BringWindowToTop(IntPtr hWnd);
+
+    // Force a background-process top-level window to the actual foreground, defeating the foreground lock by
+    // temporarily merging our thread's input queue with the current foreground thread's.
+    public static void ForceForeground(IntPtr hWnd)
+    {
+        if (hWnd == IntPtr.Zero || !IsWindow(hWnd)) return;
+        IntPtr fg = GetForegroundWindow();
+        uint fgThread = fg == IntPtr.Zero ? 0 : GetWindowThreadProcessId(fg, out _);
+        uint self = GetCurrentThreadId();
+        bool merged = fgThread != 0 && fgThread != self && AttachThreadInput(self, fgThread, true);
+        try
+        {
+            BringWindowToTop(hWnd);
+            SetForegroundWindow(hWnd);
+        }
+        finally
+        {
+            if (merged) { try { AttachThreadInput(self, fgThread, false); } catch { /* ignore */ } }
+        }
+    }
+
     public const int GWL_STYLE = -16;
     public const int WS_CHILD = unchecked((int)0x40000000);
     public const int WS_VISIBLE = unchecked((int)0x10000000);

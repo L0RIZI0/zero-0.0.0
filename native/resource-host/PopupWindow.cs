@@ -81,17 +81,21 @@ internal sealed class PopupWindow : Form
         }
     }
 
-    // Force a top-level window owned by this background helper process to the foreground. A plain
-    // Form.Show() from a non-foreground process often lands BEHIND the Electron window (or unfocused),
-    // which reads to the user as "the button did nothing".
+    // Force a top-level window owned by this BACKGROUND helper process to the foreground. A plain
+    // Form.Show() (and Form.Activate()) from a non-foreground process lands BEHIND the Electron window
+    // because of the Windows foreground lock, which reads to the user as "the button did nothing".
+    // v0.2.213 tried a TopMost true->false PULSE, but toggling it back to false in the same synchronous
+    // block net-cancels to non-topmost, so the window stayed behind. Fix: keep it TopMost for the whole
+    // life of the popup (it's a modal auth dialog — it SHOULD float above until dismissed), and steal the
+    // real foreground via AttachThreadInput so it also gets keyboard focus.
     private static void BringToFront(PopupWindow win)
     {
         try
         {
-            win.TopMost = true;
-            win.Activate();
+            win.TopMost = true;   // persistent while open — removed implicitly when the window closes
             win.BringToFront();
-            win.TopMost = false; // don't pin it permanently above everything — just win the initial z-order
+            win.Activate();
+            NativeMethods.ForceForeground(win.Handle); // defeat the foreground lock (background process)
         }
         catch (Exception ex) { Program.Log($"popup BringToFront failed: {ex.Message}"); }
     }
