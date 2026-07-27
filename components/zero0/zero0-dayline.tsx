@@ -5,6 +5,8 @@ import { createPortal } from "react-dom"
 import { getSegments, useActivityRevision } from "@/lib/zero/activity-log"
 import { ROOT_ID, collectDescendants, getEntitiesWithSessions, getEntity, getInheritedAccent, getTimelineOccurrences } from "@/lib/zero/data"
  import { titleAt } from "@/lib/zero/entity-log"
+ import { webDisplayTitle } from "@/lib/zero/web-resources"
+ import type { Entity } from "@/lib/zero/types"
  import { isClosed, computeCloseAt, effectiveScheduleEnd } from "@/lib/zero/kinds"
 import { rangeText, NOW_COLOR } from "@/lib/zero/timeline-format"
 import { isSleepTitle, sleepSkyBackground } from "@/lib/zero/sleep-sky"
@@ -13,6 +15,22 @@ import { useNowSeconds } from "@/lib/zero/use-now"
 import { formatLocale } from "@/lib/zero/format-locale"
 import { Zero0Glyph } from "./zero0-glyph"
 import { cn } from "@/lib/utils"
+
+/** The label shown for an entity on the dayline (bars + hover tooltip). A WEB RESOURCE uses its
+ *  concise DISPLAYED title — the curated human name, else the fetched page `<title>`, else the URL —
+ *  so a bar/tooltip reads "v0 by Vercel" instead of the visually heavy raw `https://www.v0.app`.
+ *  Everything else keeps the historical `titleAt` fold (the name the place carried at that time). */
+function daylineLabel(entity: Entity, at: number): string {
+  if (entity.webUrl) {
+    return webDisplayTitle({
+      webUrl: entity.webUrl,
+      webResourceId: entity.webResourceId,
+      webTitle: entity.webTitle,
+      title: entity.title,
+    })
+  }
+  return titleAt(entity, at)
+}
 
 /** Horizontal gap (px) between a day label and its 1px boundary marker in the minimized
  *  in-band overlay, so the two never touch. */
@@ -604,7 +622,7 @@ export function Zero0Dayline({
         out.push({
           key: `sess:${e.id}:${i}`,
           id: e.id,
-          title: e.title,
+          title: daylineLabel(e, st),
           color: fill,
           stroke,
           leftPct,
@@ -706,7 +724,7 @@ export function Zero0Dayline({
       out.push({
         key: `spine:${seg.id}:${seg.start}`,
         id: seg.id,
-        title: entity ? titleAt(entity, st) : seg.id === ROOT_ID ? "Home" : "Elsewhere",
+        title: entity ? daylineLabel(entity, st) : seg.id === ROOT_ID ? "Home" : "Elsewhere",
         color: fill,
         stroke,
         leftPct,
@@ -756,8 +774,9 @@ export function Zero0Dayline({
       out.push({
         key: `pres:${s.entityId}:${s.enteredAt}`,
         id: s.entityId,
-        // Historical title — the name the place carried at the segment's start.
-        title: entity ? titleAt(entity, st) : s.entityId === ROOT_ID ? "Home" : "Elsewhere",
+        // Historical title — the name the place carried at the segment's start (web resources
+        // use their concise displayed title instead of the raw URL).
+        title: entity ? daylineLabel(entity, st) : s.entityId === ROOT_ID ? "Home" : "Elsewhere",
         color: fill,
         stroke,
         leftPct,

@@ -5,6 +5,7 @@ import type React from "react"
 import { getInheritedAccent, getStarterPinnedEntities, getOwnOngoingEntities, getRecentlyMarkedInstants, getRecentlyEndedEntities } from "@/lib/zero/data"
  import { isOwnOngoing, getOpenSession, concreteStart, effectiveEndAt } from "@/lib/zero/kinds"
 import { getFaceModel } from "@/lib/zero/face-model"
+import { webDisplayTitle } from "@/lib/zero/web-resources"
 import type { Entity } from "@/lib/zero/types"
 import { isSleepTitle, sleepDotColor } from "@/lib/zero/sleep-sky"
 import { Zero0Glyph } from "@/components/zero0/zero0-glyph"
@@ -408,6 +409,16 @@ export function Zero0Pins({
   )
 }
 
+/** The label shown on a §4 chip. A WEB RESOURCE uses its concise DISPLAYED title (curated human
+ *  name, else the fetched page `<title>`, else the URL) so a chip reads "v0 by Vercel" instead of
+ *  the visually heavy raw `https://www.v0.app`; the CSS `truncate` still caps its width. Everything
+ *  else uses the entity's own `title`. */
+function chipLabel(e: Entity): string {
+  return e.webUrl
+    ? webDisplayTitle({ webUrl: e.webUrl, webResourceId: e.webResourceId, webTitle: e.webTitle, title: e.title })
+    : e.title
+}
+
 /** A single §4 chip. Split out so both lists render it identically (and so the FLIP wrapper
  *  can own the transform while the chip owns its color transitions). */
 function PinChip({
@@ -424,6 +435,7 @@ function PinChip({
   onContextMenu: (entity: Entity, ev: React.MouseEvent) => void
 }) {
   const { entity: e, ongoing, focused, timer, notify, notifyText } = item
+  const label = chipLabel(e)
   const accent = e.accent ?? getInheritedAccent(e.parentId) ?? (isSleepTitle(e.title) ? sleepDotColor : undefined)
   const tint = accent ?? "var(--muted-foreground)"
   // GLYPH readability (v0.2.147) — an accent picked for its HUE can sit too close to the
@@ -485,10 +497,10 @@ function PinChip({
       }}
       title={
         notify
-          ? `${e.title} — just happened · click to open · right-click for menu`
+          ? `${label} — just happened · click to open · right-click for menu`
           : ongoing
-            ? `${e.title} — click to focus · alt-click to start another in parallel · glyph to stop · right-click for menu`
-            : `${e.title} — click to start & focus · alt-click to start in background · glyph to start in background · right-click for menu`
+            ? `${label} — click to focus · alt-click to start another in parallel · glyph to stop · right-click for menu`
+            : `${label} — click to start & focus · alt-click to start in background · glyph to start in background · right-click for menu`
       }
     >
       {/* GLYPH — a NOTIFICATION chip's glyph reflects the entity's ACTUAL state (filled when
@@ -503,8 +515,9 @@ function PinChip({
       ) : (
         <MarkableChipGlyph e={e} tint={glyphTint} ongoing={ongoing} onEnd={onEnd} onStart={onStart} />
       )}
-      {/* TITLE — the chip body carries the drill-in click. */}
-      <span className="max-w-[10rem] truncate">{e.title}</span>
+      {/* TITLE — the chip body carries the drill-in click. Web resources show their concise
+          displayed title (see chipLabel) rather than the raw URL. */}
+      <span className="max-w-[10rem] truncate">{label}</span>
       {/* LIVE TIMER (ongoing) — elapsed-so-far or countdown, ticking each second. Muted +
           tabular so the chip width never jitters. A NOTIFICATION chip instead shows its frozen
           final duration (a stopped session) or "Ns ago" (a marked instant). */}
@@ -569,10 +582,10 @@ function NotifyChipGlyph({
         ev.stopPropagation()
         onStart(e.id, false)
       }}
-      className="shrink-0 transition-opacity hover:opacity-60"
-      style={{ color: tint }}
-      title={`Resume ${e.title} in background`}
-      aria-label={`Resume ${e.title} in background`}
+        className="shrink-0 transition-opacity hover:opacity-60"
+        style={{ color: tint }}
+        title={`Resume ${chipLabel(e)} in background`}
+        aria-label={`Resume ${chipLabel(e)} in background`}
     >
       {glyph}
     </button>
@@ -603,10 +616,10 @@ function MarkableChipGlyph({
         if (ongoing) onEnd(e.id)
         else onStart(e.id, false)
       }}
-      className="shrink-0 transition-opacity hover:opacity-60"
-      style={{ color: tint }}
-      title={ongoing ? `Stop ${e.title}` : `Start ${e.title} in background`}
-      aria-label={ongoing ? `Stop ${e.title}` : `Start ${e.title} in background`}
+        className="shrink-0 transition-opacity hover:opacity-60"
+        style={{ color: tint }}
+        title={ongoing ? `Stop ${chipLabel(e)}` : `Start ${chipLabel(e)} in background`}
+        aria-label={ongoing ? `Stop ${chipLabel(e)}` : `Start ${chipLabel(e)} in background`}
     >
       <Zero0Glyph kind={e.kind} ongoing={ongoing} filled={false} className="h-3.5 w-3.5" />
     </button>
