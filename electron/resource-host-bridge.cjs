@@ -289,6 +289,12 @@ class ResourceHostBridge extends EventEmitter {
   releaseFocus() {
     this._send({ cmd: "releaseFocus" })
   }
+  // Ask the host to re-anchor the visible webview's input after the OS broke the thread-input merge across
+  // system sleep / session unlock (Modern Standby leaves the page rendered but unresponsive). Driven by
+  // Electron's powerMonitor, which fires reliably on S0 sleep where .NET's SystemEvents does not.
+  reanchor(reason) {
+    this._send({ cmd: "reanchor", reason: reason || "ipc" })
+  }
   setScaleFactor(s) {
     this.scaleFactor = s || 1
   }

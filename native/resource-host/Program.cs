@@ -51,7 +51,7 @@ internal static class Program
 
         // BUILD MARKER — bump this string on every native change so host.log unambiguously proves which
         // build is actually running (rules out `dotnet run` serving a stale incremental build).
-        Log("=== BUILD input-reanchor-v11 (re-anchor webview input on resume/unlock; multilive default; DPI PerMonitorV2) ===");
+        Log("=== BUILD input-reanchor-v12 (reanchor driven by Electron powerMonitor via IPC — reliable on Modern Standby) ===");
         Log($"dpi SetHighDpiMode(PerMonitorV2) ok={dpiOk} applied={Application.HighDpiMode}");
         Log($"start ipc parentHwnd={opts.ParentHwnd} userData={opts.UserDataFolder}");
         // Log the installed WebView2 Evergreen runtime version (confirmed 150.x supports multiple controllers
@@ -61,13 +61,15 @@ internal static class Program
         var host = new HostContext(opts.UserDataFolder, IpcEmit);
         var reader = new Thread(() => ReadStdinLoop(sync, host)) { IsBackground = true, Name = "stdin" };
 
-        // POST-SLEEP / POST-UNLOCK INPUT RECOVERY. Across system suspend/resume and session lock/unlock the
-        // OS can silently tear down the AttachThreadInput merge that routes mouse+keyboard into the visible
-        // webview, leaving it rendered-but-unresponsive until manually parked+revealed. Re-anchor the visible
-        // view's input on those transitions. SystemEvents fires on its own thread, so marshal onto the host UI
-        // thread (AttachThreadInput must run there). Fire immediately AND after a short delay to ride out the
-        // window/session restoration lag that follows a wake (the immediate pass can land before Electron's
-        // window has regained its own focus).
+        // POST-SLEEP / POST-UNLOCK INPUT RECOVERY — SECONDARY (S3-only) path. Across sleep/unlock the OS
+        // silently tears down the AttachThreadInput merge that routes mouse+keyboard into the visible webview,
+        // leaving it frozen until manually parked+revealed. These .NET SystemEvents fire on classic S3 sleep
+        // but NOT on Windows Modern Standby (S0) — the Surface sleep mode — which is why v11 didn't recover.
+        // The PRIMARY trigger is now the Electron `powerMonitor` → `reanchor` IPC command (see main.cjs and
+        // the "reanchor" case in HostContext.Dispatch), which is reliable on S0. We keep these too as a
+        // belt-and-suspenders fallback for non-Modern-Standby machines; the reanchor is cheap + idempotent so
+        // firing from both paths is harmless. SystemEvents runs on its own thread, so marshal onto the UI
+        // thread (AttachThreadInput must run there); fire immediately + after a delay to ride out wake lag.
         void ScheduleReanchor(string reason)
         {
             Program.Log($"schedule reanchor reason={reason}");

@@ -235,6 +235,11 @@ internal sealed class HostContext
             case "setZoom": if (_views.TryGetValue(Id(), out var vz)) vz.SetZoom(Dbl(root, "zoom", 1.0)); break;
             case "setParent": Reparent(new IntPtr(root.GetProperty("parentHwnd").GetInt64())); break;
             case "releaseFocus": ReleaseFocusToParent(); break;
+            // Re-anchor the visible webview's input after the OS broke our thread-input merge across
+            // sleep/unlock. Driven by Electron's powerMonitor (reliable on Modern Standby, unlike the .NET
+            // SystemEvents power/session events, which do not fire on Surface's S0 sleep). Runs here on the
+            // UI thread because the stdin reader marshals every command through SynchronizationContext.
+            case "reanchor": { var rr = Str(root, "reason"); ReanchorVisibleInput(rr.Length > 0 ? rr : "ipc"); break; }
             case "shutdown": Shutdown(); break;
             default: _emit(new { evt = "error", message = $"unknown cmd: {cmd}" }); break;
         }

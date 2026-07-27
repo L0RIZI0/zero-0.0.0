@@ -8,7 +8,7 @@
 // ResourceCanvas) is STEP 2 and is intentionally not here yet — see the IPC stub
 // in preload.cjs and the comments at the bottom of this file for where it slots in.
 
-  const { app, BrowserWindow, WebContentsView, protocol, net, shell, session, ipcMain, Menu, screen } = require("electron")
+  const { app, BrowserWindow, WebContentsView, protocol, net, shell, session, ipcMain, Menu, screen, powerMonitor } = require("electron")
 const path = require("node:path")
 const fs = require("node:fs")
 const { pathToFileURL } = require("node:url")
@@ -457,6 +457,27 @@ if (gotSingleInstanceLock) {
     }
 
     createWindow()
+
+    // POST-SLEEP / POST-UNLOCK INPUT RECOVERY. Across system sleep and session lock/unlock the OS silently
+    // tears down the thread-input merge that routes mouse+keyboard into the visible webview, leaving it
+    // rendered-but-frozen until manually parked+reopened. Electron's powerMonitor fires reliably on Windows
+    // Modern Standby (S0) — the Surface sleep mode where the host's own .NET SystemEvents power/session
+    // events do NOT fire — so we drive the host re-anchor from here. Fire immediately AND after a short delay
+    // to ride out the window/session restoration lag that follows a wake.
+    const reanchorResourceInput = (reason) => {
+      try {
+        if (!(useWebView2() && hostBridge && hostBridge.ready)) return
+        console.log(`[v0] reanchor resource input: ${reason}`)
+        hostBridge.reanchor(reason)
+        setTimeout(() => {
+          if (useWebView2() && hostBridge && hostBridge.ready) hostBridge.reanchor(`${reason}:delayed`)
+        }, 800)
+      } catch (err) {
+        console.log(`[v0] reanchor failed (${reason}): ${err && err.message}`)
+      }
+    }
+    powerMonitor.on("resume", () => reanchorResourceInput("power-resume"))
+    powerMonitor.on("unlock-screen", () => reanchorResourceInput("session-unlock"))
 
     // Best-effort background update check (production/packaged only).
     setupAutoUpdate()
