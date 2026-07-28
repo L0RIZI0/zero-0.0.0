@@ -51,7 +51,7 @@ internal static class Program
 
         // BUILD MARKER — bump this string on every native change so host.log unambiguously proves which
         // build is actually running (rules out `dotnet run` serving a stale incremental build).
-        Log("=== BUILD forcedark-v23 (v22 + BUILD FIX: PreferColorScheme is now a static field on HostContext — v222/v223 failed to compile because ResourceView read it off _host, a ContainerForm) ===");
+        Log("=== BUILD colorscheme-v24 (prefers-color-scheme now RELIABLE + on BOTH engines: WebView2 forces it live via CDP Emulation.setEmulatedMedia (re-asserted per nav); Electron fallback via nativeTheme.themeSource) ===");
         Log($"dpi SetHighDpiMode(PerMonitorV2) ok={dpiOk} applied={Application.HighDpiMode}");
         Log($"start ipc parentHwnd={opts.ParentHwnd} userData={opts.UserDataFolder}");
         // Log the installed WebView2 Evergreen runtime version (confirmed 150.x supports multiple controllers

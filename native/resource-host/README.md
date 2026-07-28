@@ -15,12 +15,20 @@ Zero's packaged app in M3.
 - **Default context menu enabled** (v0.2.221) so web content has Edge's own right-click actions
   (Back/Forward/Reload/Save/Print/Copy/inspect). Zero never built a bespoke web-content menu, so the earlier
   `ContextMenuRequested` relay left right-click doing nothing — the relay + `contextMenu` event were removed.
-- **Web content follows Zero's in-app light/dark toggle** (v0.2.222) — not the OS. The renderer relays the
-  theme via a `setTheme` command (`window.zero.resource.setTheme` → `zero:resource:set-theme` → bridge →
-  host), stored as `HostContext.PreferColorScheme` and pushed to `Profile.PreferredColorScheme` on every
-  live controller + at each controller's creation. Falls back to `Auto` (OS) until the first toggle.
-  Note: `PreferredColorScheme` only flips sites that *implement* their own dark theme (via
-  `prefers-color-scheme`); it does not touch sites without one.
+- **Web content follows Zero's in-app light/dark toggle** (v0.2.222, made reliable + cross-engine in
+  v0.2.225) — not the OS. The renderer relays the theme via a `setTheme` command
+  (`window.zero.resource.setTheme` → `zero:resource:set-theme`). It drives BOTH resource engines:
+  - **WebView2 host:** stored as `HostContext.PreferColorScheme`, applied to every controller (+ each new
+    one at creation). `Profile.PreferredColorScheme` themes the scrollbars/menu, but on its own it does NOT
+    reliably re-fire a live page's `prefers-color-scheme` media query — so `ApplyColorScheme` ALSO forces it
+    via CDP `Emulation.setEmulatedMedia` (`prefers-color-scheme: dark|light`, `Auto` clears it), stored
+    per-view (`_scheme`) and **re-asserted on every `NavigationCompleted`** (CDP overrides drop on cross-doc
+    nav).
+  - **Electron `WebContentsView` fallback:** the `zero:resource:set-theme` IPC handler sets
+    `nativeTheme.themeSource`, which drives `prefers-color-scheme` for all Electron-rendered pages. Safe for
+    Zero's own UI, which is class-based with `enableSystem={false}`, so it only affects resource webviews.
+  - Caveat: this only flips sites that *implement* their own dark theme. Sites that pin a theme in their own
+    settings (e.g. GitHub unless "Sync with system") won't move — use the **Force dark** menu item for those.
 - **"Force dark" web-content menu item** (v0.2.223) — a checkable item appended to Edge's own right-click
   menu (via `Environment.CreateContextMenuItem` + `ContextMenuRequested`, additive — defaults untouched).
   Toggling it algorithmically darkens *any* site (even those with no dark theme) live per view, with no

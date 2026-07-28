@@ -8,7 +8,7 @@
 // ResourceCanvas) is STEP 2 and is intentionally not here yet — see the IPC stub
 // in preload.cjs and the comments at the bottom of this file for where it slots in.
 
-  const { app, BrowserWindow, WebContentsView, protocol, net, shell, session, ipcMain, Menu, screen, powerMonitor } = require("electron")
+  const { app, BrowserWindow, WebContentsView, protocol, net, shell, session, ipcMain, Menu, screen, powerMonitor, nativeTheme } = require("electron")
 const path = require("node:path")
 const fs = require("node:fs")
 const { pathToFileURL } = require("node:url")
@@ -1231,10 +1231,16 @@ ipcMain.on("zero:resource:release-focus", () => {
   if (useWebView2() && hostBridge) hostBridge.releaseFocus()
 })
 
-// Zero's in-app light/dark toggle changed. Tell the native web host so web content's default right-click
-// menu (and prefers-color-scheme) follows Zero rather than the OS theme. WebView2 host only.
+// Zero's in-app light/dark toggle changed. Make web content follow Zero (not the OS) on BOTH engines:
+//  • Electron WebContentsView fallback: nativeTheme.themeSource drives prefers-color-scheme for all
+//    Electron-rendered pages. Safe for Zero's own UI, which is class-based (enableSystem={false}), so this
+//    only affects the resource webviews.
+//  • WebView2 host: relayed to the host process (separate Chromium, unaffected by nativeTheme), which sets
+//    PreferredColorScheme + forces prefers-color-scheme via CDP.
 ipcMain.on("zero:resource:set-theme", (_e, mode) => {
-  if (useWebView2() && hostBridge) hostBridge.setTheme(mode === "light" ? "light" : "dark")
+  const m = mode === "light" ? "light" : "dark"
+  try { nativeTheme.themeSource = m } catch {}
+  if (useWebView2() && hostBridge) hostBridge.setTheme(m)
 })
 
 // PRE-WARM a resource's native view HIDDEN so a later drill-in is an instant reveal (WebView2 only). This is

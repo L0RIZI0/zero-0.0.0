@@ -586,6 +586,11 @@ internal sealed class ResourceView : IDisposable
     // via CDP Emulation.setAutoDarkModeOverride — algorithmically darkens sites that have no dark theme,
     // live, with no env rebuild or reload. Off by default; re-applied after navigations while on.
     private bool _forceDark;
+    // The scheme Zero's toggle wants this view's page to REPORT for `prefers-color-scheme`. Applied via CDP
+    // Emulation.setEmulatedMedia (the DevTools-grade force that re-lays-out the live page immediately —
+    // Profile.PreferredColorScheme alone themes scrollbars/menus but doesn't reliably re-fire the CSS media
+    // query on an already-loaded page). Re-asserted after each navigation. Auto ⇒ clear the emulation.
+    private CoreWebView2PreferredColorScheme _scheme = CoreWebView2PreferredColorScheme.Auto;
 
     public ResourceView(string id, Action<object> emit) { _id = id; _emit = emit; }
 
@@ -671,6 +676,7 @@ internal sealed class ResourceView : IDisposable
             // Make that menu (and prefers-color-scheme) follow Zero's in-app light/dark toggle, relayed from
             // the renderer via setTheme and stored on the host. Falls back to Auto (OS) until the first toggle.
             try { core.Profile.PreferredColorScheme = HostContext.PreferColorScheme; } catch { /* older runtime: ignore */ }
+            _scheme = HostContext.PreferColorScheme; // so the first NavigationCompleted re-asserts the media force
             WireEvents(core);
 
             // Self-healing keyboard focus: whenever our container HWND is clicked or handed focus, push it
@@ -851,8 +857,9 @@ internal sealed class ResourceView : IDisposable
         {
             Program.Log($"navDone id={_id} ok={e.IsSuccess} status={e.HttpStatusCode} err={e.WebErrorStatus}");
             _emit(new { evt = "loading", id = _id, loading = false, ok = e.IsSuccess });
-            // CDP emulation overrides can be dropped on cross-document navigation — re-assert if it's on.
+            // CDP emulation overrides can be dropped on cross-document navigation — re-assert them.
             if (_forceDark) ApplyForceDark(true);
+            if (_scheme != CoreWebView2PreferredColorScheme.Auto) ApplyEmulatedScheme();
         };
         core.DownloadStarting += (_, e) => _emit(new { evt = "download", id = _id, url = e.DownloadOperation.Uri, path = e.ResultFilePath });
         core.NewWindowRequested += OnNewWindow;
@@ -901,10 +908,34 @@ internal sealed class ResourceView : IDisposable
     public void SetBounds(Rectangle r) { _bounds = r; if (_host != null) ApplyBounds(); }
     public void SetVisible(bool v) { _visible = v; if (_host != null) ApplyBounds(); }
     public void SetZoom(double z) { _zoom = z; if (_controller != null) _controller.ZoomFactor = z; }
-    // Live-apply Zero's light/dark choice to this view's web content + its default context menu.
+    // Live-apply Zero's light/dark choice to this view. PreferredColorScheme themes the scrollbars +
+    // default context menu; setEmulatedMedia (CDP) forces the page's `prefers-color-scheme` to re-evaluate
+    // immediately (the reliable part). Both are stored so a later navigation can re-assert the media force.
     public void ApplyColorScheme(CoreWebView2PreferredColorScheme scheme)
     {
-        if (_controller != null) { try { _controller.CoreWebView2.Profile.PreferredColorScheme = scheme; } catch { /* older runtime */ } }
+        _scheme = scheme;
+        if (_controller == null) return;
+        try { _controller.CoreWebView2.Profile.PreferredColorScheme = scheme; } catch { /* older runtime */ }
+        ApplyEmulatedScheme();
+    }
+
+    // Force (or clear) the emulated `prefers-color-scheme` for this view's current page via CDP. Dark/Light
+    // pin the media feature; Auto clears the override so the page follows the OS/PreferredColorScheme again.
+    private async void ApplyEmulatedScheme()
+    {
+        if (_controller is null) return;
+        string payload = _scheme switch
+        {
+            CoreWebView2PreferredColorScheme.Dark  => "{\"features\":[{\"name\":\"prefers-color-scheme\",\"value\":\"dark\"}]}",
+            CoreWebView2PreferredColorScheme.Light => "{\"features\":[{\"name\":\"prefers-color-scheme\",\"value\":\"light\"}]}",
+            _ => "{\"features\":[]}",
+        };
+        try
+        {
+            await _controller.CoreWebView2.CallDevToolsProtocolMethodAsync("Emulation.setEmulatedMedia", payload);
+            Program.Log($"colorScheme id={_id} scheme={_scheme}");
+        }
+        catch { /* CDP unavailable: PreferredColorScheme above is still applied */ }
     }
     public void Navigate(string url) { _pendingNavigate = url; _controller?.CoreWebView2.Navigate(url); }
     // Re-mount reveal: only (re)navigate if the target actually changed, so revealing a warm tab does
