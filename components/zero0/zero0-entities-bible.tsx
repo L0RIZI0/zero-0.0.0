@@ -17,6 +17,8 @@ import {
   StickyNote,
   History,
   X,
+  ChevronRight,
+  ChevronDown,
 } from "lucide-react"
 import { Zero0Glyph } from "@/components/zero0/zero0-glyph"
 import { KIND_META } from "@/lib/zero/kinds"
@@ -52,6 +54,10 @@ import type { EntityKind } from "@/lib/zero/types"
 // localStorage is now only an OFFLINE FALLBACK cache; the shared Blob (via /api/entities-bible) is
 // the source of truth so v0 and Loris edit the SAME document.
 const STORAGE_KEY = "zero:entities-bible:v3"
+
+// Which rows are COLLAPSED is a per-viewer VIEW preference, not document content — so it lives in
+// its own localStorage key (never the shared Blob) and never touches the doc/clobber logic.
+const COLLAPSE_KEY = "zero:entities-bible:collapsed:v1"
 
 // Version History panel width (px) — used both for layout and to clamp the anchored popover.
 const HISTORY_W = 288
@@ -545,6 +551,33 @@ export function Zero0EntitiesBible() {
   // overwrite a real doc we merely failed to read.
   const storeReachableRef = useRef(false)
   const [activeCell, setActiveCell] = useState<string | null>(null)
+  // COLLAPSED rows — a view-only preference (see COLLAPSE_KEY). Starts empty so SSR + first client
+  // render match the seed; the stored set is loaded in an effect after mount (no hydration mismatch).
+  const [collapsedRows, setCollapsedRows] = useState<Set<string>>(() => new Set())
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(COLLAPSE_KEY)
+      if (raw) {
+        const ids = JSON.parse(raw)
+        if (Array.isArray(ids)) setCollapsedRows(new Set(ids as string[]))
+      }
+    } catch {
+      /* ignore — collapse state is non-essential */
+    }
+  }, [])
+  const toggleCollapse = useCallback((rowId: string) => {
+    setCollapsedRows((prev) => {
+      const next = new Set(prev)
+      if (next.has(rowId)) next.delete(rowId)
+      else next.add(rowId)
+      try {
+        localStorage.setItem(COLLAPSE_KEY, JSON.stringify([...next]))
+      } catch {
+        /* ignore */
+      }
+      return next
+    })
+  }, [])
   // Sticky floating header: the Glyph + Name rows stay in the table, but once they scroll above the
   // viewport a condensed header appears pinned to the top, echoing each column's glyph + name. We
   // measure the live column widths and mirror the horizontal scroll so it aligns.
@@ -1379,6 +1412,44 @@ export function Zero0EntitiesBible() {
                     (edge === "right" ? " border-r-2 border-r-border" : "") +
                     (edge === "left" ? " border-l-2 border-l-border" : "") +
                     (isSoonCol[colId] ? " zero0-soon-col" : "")
+                  // FAINT reconcile TINT across the whole data cell (green = matches code, red =
+                  // known gap) — a soft wash behind the content, alongside the saturated 1px edge.
+                  // Only on data cells; the sticky label column stays opaque `bg-muted`.
+                  const reconcileBg =
+                    cell.reconcile && ci !== 0
+                      ? cell.reconcile === "match"
+                        ? " bg-emerald-500/10 dark:bg-emerald-400/10"
+                        : " bg-rose-500/10 dark:bg-rose-400/10"
+                      : ""
+                  const collapsed = collapsedRows.has(rowId)
+                  // COLLAPSED data cell: a short, clickable strip that keeps the reconcile tint +
+                  // edge but hides the content. Clicking ANY collapsed cell expands the row. A faint
+                  // "⋯" hints there's hidden content underneath.
+                  if (collapsed && ci !== 0) {
+                    const hasContent = !!stripHtml(cell.html ?? "") || !!cell.glyph
+                    return (
+                      <td
+                        key={colId}
+                        onContextMenu={(e) => openMenu(e, ri, ci)}
+                        onClick={() => toggleCollapse(rowId)}
+                        className={border + reconcileBg + " relative cursor-pointer p-0"}
+                        title="Expand row"
+                      >
+                        {cell.reconcile && (
+                          <span
+                            aria-hidden
+                            className={
+                              "pointer-events-none absolute inset-y-0 left-0 w-1 " +
+                              (cell.reconcile === "match" ? "bg-emerald-500" : "bg-rose-500")
+                            }
+                          />
+                        )}
+                        <div className="flex h-5 items-center justify-center text-[10px] leading-none text-muted-foreground/40">
+                          {hasContent ? "⋯" : ""}
+                        </div>
+                      </td>
+                    )
+                  }
                   if (cell.glyph) {
                     const soon = cell.glyph === "link"
                     const page = cell.glyph !== "link" ? KIND_PAGE[cell.glyph] : undefined
@@ -1419,7 +1490,7 @@ export function Zero0EntitiesBible() {
                     <td
                       key={colId}
                       onContextMenu={(e) => openMenu(e, ri, ci)}
-                      className={border + " relative p-0"}
+                      className={border + reconcileBg + " relative p-0"}
                     >
                       {/* Reconciliation edge — green = code matches this cell, red = known gap. */}
                       {cell.reconcile && ci !== 0 && (
@@ -1440,7 +1511,25 @@ export function Zero0EntitiesBible() {
                           soon
                         </span>
                       )}
-                      <div className={cell.glyphInline ? "flex items-start" : undefined}>
+                      <div className={cell.glyphInline || ci === 0 ? "flex items-start" : undefined}>
+                        {/* COLLAPSE TOGGLE — lives in the label column (col 0). Chevron down = row
+                            open, right = collapsed. Also available via the right-click menu. */}
+                        {ci === 0 && (
+                          <button
+                            type="button"
+                            aria-label={collapsed ? "Expand row" : "Collapse row"}
+                            aria-expanded={!collapsed}
+                            title={collapsed ? "Expand row" : "Collapse row"}
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              toggleCollapse(rowId)
+                            }}
+                            className="mt-1 ml-1 flex h-4 w-4 shrink-0 items-center justify-center rounded text-muted-foreground/50 transition-colors hover:bg-foreground/10 hover:text-foreground"
+                          >
+                            {collapsed ? <ChevronRight className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                          </button>
+                        )}
                         {cell.glyphInline && (
                           <span
                             title={`${cap(cell.glyphInline)} — open state`}
@@ -1449,7 +1538,7 @@ export function Zero0EntitiesBible() {
                             <Zero0Glyph kind={cell.glyphInline} className="h-4 w-4 text-foreground" />
                           </span>
                         )}
-                        <div className={cell.glyphInline ? "min-w-0 flex-1" : undefined}>
+                        <div className={cell.glyphInline || ci === 0 ? "min-w-0 flex-1" : undefined}>
                           {(() => {
                             // NAME row of a kind that has a dedicated page ⇒ render the name as a
                             // LINK (row 2 of the nav rule) instead of an inline-editable cell. The
@@ -1875,6 +1964,22 @@ export function Zero0EntitiesBible() {
                 <div className="my-1 h-px bg-border" aria-hidden />
               </>
             )}
+          {(() => {
+            const rowId = grid.rowIds[menu.ri] ?? ""
+            const isCollapsed = collapsedRows.has(rowId)
+            return (
+              <MenuItem
+                icon={isCollapsed ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+                onSelect={() => {
+                  toggleCollapse(rowId)
+                  setMenu(null)
+                }}
+              >
+                {isCollapsed ? "Expand row" : "Collapse row"}
+              </MenuItem>
+            )
+          })()}
+          <div className="my-1 h-px bg-border" aria-hidden />
           <MenuItem
             icon={<ArrowUp className="h-3.5 w-3.5" />}
             disabled={menu.ri === 0}
