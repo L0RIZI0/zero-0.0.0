@@ -227,15 +227,15 @@ function Zero0CloseButton({
 // to its bottom edge, so it reads as the web rect tucked under the frame's lip. Tall + many-stop
 // (ease-out distribution) so it's an elegant graduated shadow, not a hard band; legible in both
 // themes. pointer-events-none so it never eats clicks meant for the page.
-// Taller (38px) + softer (peak 0.17, was 0.20 → 0.32): a bigger, gentler penumbra so the extra
-// height counterbalances the reduced opacity — reads as a diffuse ambient shadow, not a dark lip.
-// (All stops scaled ×0.85 from the 0.20-peak set per Loris' "lower another 15%".)
+// Taller (38px) + softer (peak 0.12, was 0.17 → 0.20 → 0.32): a bigger, gentler penumbra so the
+// extra height counterbalances the reduced opacity — reads as a diffuse ambient shadow, not a dark
+// lip. (Stops scaled to a 0.12 peak per Loris' successive "lower it further" nudges.)
 const WEB_SEAM_SHADOW_H = 38
 const WEB_SEAM_SHADOW_BG =
   "linear-gradient(to top," +
-  " rgba(0,0,0,0.17) 0%, rgba(0,0,0,0.132) 14%, rgba(0,0,0,0.094) 30%," +
-  " rgba(0,0,0,0.06) 48%, rgba(0,0,0,0.034) 66%, rgba(0,0,0,0.014) 82%," +
-  " rgba(0,0,0,0.004) 92%, rgba(0,0,0,0) 100%)"
+  " rgba(0,0,0,0.12) 0%, rgba(0,0,0,0.093) 14%, rgba(0,0,0,0.066) 30%," +
+  " rgba(0,0,0,0.042) 48%, rgba(0,0,0,0.024) 66%, rgba(0,0,0,0.010) 82%," +
+  " rgba(0,0,0,0.003) 92%, rgba(0,0,0,0) 100%)"
 
 function Zero0WebSeamShadow() {
   return (
