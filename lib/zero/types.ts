@@ -304,19 +304,20 @@ export interface Schedule {
   /** Effort budget in MINUTES, independent of when it happens (may span sessions). */
   timebox?: number
   /**
-   * MULTI-BLOCK days (D4): more than one within-day span, e.g. Day Job 8:00–11:30
+   * MULTI-TIMEBLOCK days (D4): more than one within-day span, e.g. Day Job 8:00–11:30
    * AND 13:30–18:00. Stored as absolute times on the ANCHOR day; for a recurring
-   * schedule the expander shifts each block's time-of-day onto every matching day.
+   * schedule the expander shifts each timeblock's time-of-day onto every matching day.
    * Absent = single span (the `startDate`/`endDate` path, unchanged). When present,
-   * `startDate`/`endDate` mirror the FIRST/LAST block so existing single-span readers
-   * (duration, sorting, bounds) keep working without knowing about blocks.
-   * NOTE: a block is part of the PLAN (a planned sub-span), so it keeps `startAt`/`endAt`,
+   * `startDate`/`endDate` mirror the FIRST/LAST timeblock so existing single-span readers
+   * (duration, sorting, bounds) keep working without knowing about timeblocks.
+   * NOTE: a timeblock is part of the PLAN (a planned sub-span), so it keeps `startAt`/`endAt`,
    * NOT the recorded `startedAt`/`endedAt` of sessions/occurrences.
+   * Renamed from `blocks` (v0.2.229) — "block" was overloaded (cf. dependency "blocks the parent").
    */
-  blocks?: { startAt: Epoch; endAt: Epoch }[]
+  timeblocks?: { startAt: Epoch; endAt: Epoch }[]
   /**
    * Tracked work sessions — the CANONICAL store of punch-ins/outs (see {@link Session}).
-   * The last entry missing `endedAt` is the one OPEN session. Mirrors the `blocks`
+   * The last entry missing `endedAt` is the one OPEN session. Mirrors the `timeblocks`
    * convention: when present, scalar `startDate`/`endDate` mirror the FIRST session's start
    * and the LAST session's end so existing single-span readers keep working. The
    * append-only log is a SECONDARY audit trail, never the source of truth.
@@ -333,16 +334,16 @@ export interface Schedule {
    */
   occurrences?: { startedAt: Epoch; endedAt?: Epoch; cancelled?: boolean }[]
   /**
-   * INSTANT max authorized OCCURRENCES before it COMPLETES (fills its glyph). Default 1 (an
-   * instant is a UNIQUE occurrence — completes the moment its scheduled `at` passes, or on its
-   * first mark). `--maxnb:3` means three occurrences (marks + a passed scheduled `at`) are
-   * required. Only meaningful for instants; absent ⇒ 1.
+   * Max authorized OCCURRENCES before this entity COMPLETES (fills its glyph). UNIVERSAL
+   * (v0.2.229 — was instant-only): default 1 (a UNIQUE occurrence — completes the moment its
+   * scheduled `at`/`dueDate` passes, or on its first mark). `--maxnb:3` means three occurrences
+   * (marks + a passed scheduled time) are required. Absent ⇒ 1.
    */
   maxNb?: number
   /**
-   * When true, `maxNb` is a HARD cap: once the instant is complete, NO further marks are
-   * accepted (`--maxnbhard`). When false/absent, extra marks beyond `maxNb` are still recorded
-   * (the instant just stays complete). Only meaningful for instants.
+   * When true, `maxNb` is a HARD cap: once complete, NO further marks are accepted
+   * (`--maxnbhard`). When false/absent, extra marks beyond `maxNb` are still recorded (the entity
+   * just stays complete). UNIVERSAL (v0.2.229 — was instant-only).
    */
   maxNbHard?: boolean
   /** Recurrence; absent = one-off. */
@@ -383,10 +384,12 @@ export interface EntityBase {
   id: string
   title: string
   /**
-   * Append-only TITLE HISTORY (additive; absent on entities never renamed). Each entry
-   * is a {@link TitleEntry} `{title, at}`, oldest→newest. On the FIRST rename the prior
-   * title is backfilled at `creationDate` so the history is complete from birth. `title`
-   * above remains the current value; fold with `titleAt(entity, epoch)` for a past name.
+   * TITLE HISTORY — DERIVED (and cached). Conceptually a projection of the `log`'s title-change
+   * entries (the log is the source of truth); this array is the CACHED mirror the activity
+   * tracker's `titleAt(entity, epoch)` folds today, kept for cheap reads. Entries are
+   * {@link TitleEntry} `{title, at}`, oldest→newest; on the FIRST rename the prior title is
+   * backfilled at `creationDate` so the history is complete from birth. `title` above remains the
+   * current value. (Full log-derivation is the deferred projection epoch — see zero-todos.md.)
    */
   titleLog?: TitleEntry[]
 

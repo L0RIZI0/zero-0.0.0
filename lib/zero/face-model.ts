@@ -1130,12 +1130,15 @@ export function getFaceRawFields(e: Entity, now: number): [string, string][] {
   rows.push(["schedule.duration", s.duration == null ? "—" : `${s.duration} min`])
   rows.push(["schedule.timebox", s.timebox == null ? "—" : `${s.timebox} min`])
   rows.push(["schedule.repeat", val(s.repeat ? JSON.stringify(s.repeat) : undefined)])
-  rows.push(["schedule.blocks", Array.isArray(s.blocks) ? `${s.blocks.length}` : "—"])
+  rows.push(["schedule.timeblocks", Array.isArray(s.timeblocks) ? `${s.timeblocks.length}` : "—"])
   // RECORDED sub-arrays (startedAt/endedAt) — show counts + open flag, the detail lives above.
   const sessions = Array.isArray(s.sessions) ? (s.sessions as { endedAt?: number }[]) : []
   const openSession = sessions.some((x) => x && x.endedAt == null)
   rows.push(["schedule.sessions", sessions.length ? `${sessions.length}${openSession ? " · 1 open" : ""}` : "—"])
   rows.push(["schedule.occurrences", Array.isArray(s.occurrences) ? `${s.occurrences.length}` : "—"])
+  // Completion cap — UNIVERSAL (v0.2.229, was instant-only).
+  rows.push(["maxNb", val(b.maxNb)])
+  rows.push(["maxNbHard", val(b.maxNbHard)])
   // Kind-specific defining fields (shown for the kinds that own them).
   if (e.kind === "individual") {
     rows.push(["bornAt", dateish(b.bornAt)])
@@ -1150,10 +1153,6 @@ export function getFaceRawFields(e: Entity, now: number): [string, string][] {
   if (e.kind === "community") {
     rows.push(["publishedAt", dateish(b.publishedAt)])
     rows.push(["retiredOn", dateish(b.retiredOn)])
-  }
-  if (e.kind === "instant") {
-    rows.push(["maxNb", val(b.maxNb)])
-    rows.push(["maxNbHard", val(b.maxNbHard)])
   }
   return rows
 }

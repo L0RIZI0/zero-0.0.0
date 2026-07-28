@@ -1186,17 +1186,17 @@ export function dayMatchesRecurrence(dayStart: number, anchor: number, repeat: R
 }
 
 /**
- * Project a schedule's `blocks` (D4 multi-block days, stored as absolute times on
- * the anchor day) onto `dayStart`, preserving each block's wall-clock start-of-day
- * (DST-safe via setHours) and its duration. Returns blocks sorted by start. Used by
+ * Project a schedule's `timeblocks` (D4 multi-timeblock days, stored as absolute times on
+ * the anchor day) onto `dayStart`, preserving each timeblock's wall-clock start-of-day
+ * (DST-safe via setHours) and its duration. Returns timeblocks sorted by start. Used by
  * both the expander (virtual occurrences) and materializeOccurrence (overrides) so a
  * "Day Job 8–11:30 AND 13:30–18:00" rule lands those two spans on every matching day.
  */
-function shiftBlocksToDay(
-  blocks: { startAt: number; endAt: number }[],
+function shiftTimeblocksToDay(
+  timeblocks: { startAt: number; endAt: number }[],
   dayStart: number,
 ): { startAt: number; endAt: number }[] {
-  return blocks
+  return timeblocks
     .map((b) => {
       const bs = new Date(b.startAt)
       const start = new Date(dayStart)
@@ -1269,12 +1269,12 @@ export function getTimelineOccurrences(
           occDate.setHours(anchorDate.getHours(), anchorDate.getMinutes(), anchorDate.getSeconds(), 0)
           const occStart = occDate.getTime()
           let schedule: Schedule
-          if (s.blocks && s.blocks.length > 0) {
-            // Multi-block day (D4): project every span onto this day; mirror
+          if (s.timeblocks && s.timeblocks.length > 0) {
+            // Multi-timeblock day (D4): project every span onto this day; mirror
             // startAt/endAt to the first start / last end so single-span readers
-            // (bounds, sorting) keep working without knowing about blocks.
-            const blocks = shiftBlocksToDay(s.blocks, dayStart)
-            schedule = { ...s, blocks, startDate: blocks[0].startAt, endDate: blocks[blocks.length - 1].endAt }
+            // (bounds, sorting) keep working without knowing about timeblocks.
+            const timeblocks = shiftTimeblocksToDay(s.timeblocks, dayStart)
+            schedule = { ...s, timeblocks, startDate: timeblocks[0].startAt, endDate: timeblocks[timeblocks.length - 1].endAt }
           } else if (s.at != null) {
             schedule = { ...s, at: occStart }
           } else {
@@ -2190,8 +2190,9 @@ function migrateStoredSessionsKey(stored: UserItems): void {
  * stored entity AND every seeded-entity `overrides` patch. Rules:
  *   TOP-LEVEL:  createdAt→creationDate, accent→color, webTitle→displayTitle
  *   SCHEDULE (the PLAN):  startAt→startDate, endAt→endDate, dueAt→dueDate  (`at` unchanged)
+ *   SCHEDULE:  blocks→timeblocks (v0.2.229 — "block" was overloaded); its INNER startAt/endAt
+ *              are UNCHANGED (a timeblock is a planned sub-span).
  *   RECORDED sub-arrays (sessions[] + occurrences[]):  startAt→startedAt, endAt→endedAt
- *   blocks[]:  UNCHANGED — a block is a planned sub-span, it keeps startAt/endAt.
  * In-memory only (like the sibling migrations); localStorage rewrites on the next mutation.
  * Idempotent: canonical data ⇒ no-op (never clobbers an already-present new key).
  */
@@ -2224,9 +2225,9 @@ function migrateStoredScheduleFields(stored: UserItems): void {
       move(s, "startAt", "startDate")
       move(s, "endAt", "endDate")
       move(s, "dueAt", "dueDate")
+      move(s, "blocks", "timeblocks") // v0.2.229 key rename; inner startAt/endAt left as-is
       fixRecordedList(s.sessions)
       fixRecordedList(s.occurrences)
-      // s.blocks intentionally left on startAt/endAt
     }
   }
   for (const e of stored.entities) fixOne(e)
@@ -2640,11 +2641,11 @@ function resolveOccurrenceSchedule(s: Schedule | undefined, dayStart: number): S
   const resolved: Schedule = { ...s }
   delete resolved.repeat
   if (anchor == null) return resolved
-  if (s.blocks && s.blocks.length > 0) {
-    const blocks = shiftBlocksToDay(s.blocks, dayStart)
-    resolved.blocks = blocks
-    resolved.startDate = blocks[0].startAt
-    resolved.endDate = blocks[blocks.length - 1].endAt
+  if (s.timeblocks && s.timeblocks.length > 0) {
+    const timeblocks = shiftTimeblocksToDay(s.timeblocks, dayStart)
+    resolved.timeblocks = timeblocks
+    resolved.startDate = timeblocks[0].startAt
+    resolved.endDate = timeblocks[timeblocks.length - 1].endAt
     return resolved
   }
   const a = new Date(anchor)
@@ -3099,12 +3100,12 @@ export function applyParsedSchedule(id: string, plan: ScheduleParse): boolean {
   }
   const startAt = anchorDay + timeOfDayMs
 
-  // MULTI-BLOCK days (D4): build the within-day spans on the anchor day. Stored as
+  // MULTI-TIMEBLOCK days (D4): build the within-day spans on the anchor day. Stored as
   // absolute times there; the expander/materialize project them onto each matching
-  // day. Only meaningful with 2+ blocks (a single block is just the normal span).
-  const blocks =
-    plan.blocks && plan.blocks.length >= 2
-      ? plan.blocks
+  // day. Only meaningful with 2+ timeblocks (a single one is just the normal span).
+  const timeblocks =
+    plan.timeblocks && plan.timeblocks.length >= 2
+      ? plan.timeblocks
           .map((b) => ({
             startAt: anchorDay + b.startHour * 3_600_000 + b.startMinute * 60_000,
             endAt: anchorDay + b.endHour * 3_600_000 + b.endMinute * 60_000,
@@ -3121,11 +3122,11 @@ export function applyParsedSchedule(id: string, plan: ScheduleParse): boolean {
       entity.description = entity.description ?? ""
       entity.assignedResourceIds = entity.assignedResourceIds ?? []
     }
-    if (blocks) {
+    if (timeblocks) {
       entity.schedule = {
-        startDate: blocks[0].startAt,
-        endDate: blocks[blocks.length - 1].endAt,
-        blocks,
+        startDate: timeblocks[0].startAt,
+        endDate: timeblocks[timeblocks.length - 1].endAt,
+        timeblocks,
         ...(repeat ? { repeat } : {}),
       }
     } else {

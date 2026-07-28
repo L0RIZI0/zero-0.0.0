@@ -45,12 +45,12 @@ export const scheduleParseSchema = z.object({
   /** Span length in minutes for an `event`. null ⇒ client default (60). Ignored for instant/task. */
   durationMinutes: z.number().int().min(1).max(1440).nullable(),
   /**
-   * MULTI-BLOCK days (D4): two or more within-day spans on the SAME day, e.g.
-   * "Day Job 8:00–11:30 AND 13:30–18:00". Each block is a local start/end time of
+   * MULTI-TIMEBLOCK days (D4): two or more within-day spans on the SAME day, e.g.
+   * "Day Job 8:00–11:30 AND 13:30–18:00". Each timeblock is a local start/end time of
    * day. null or fewer than 2 entries ⇒ a single span (use startHour/durationMinutes).
    * Typically paired with a daily/weekday `repeat` and `kind:"moment"` or "space".
    */
-  blocks: z
+  timeblocks: z
     .array(
       z.object({
         startHour: z.number().int().min(0).max(23),
