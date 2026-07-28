@@ -273,6 +273,10 @@ internal sealed class HostContext
     // (still one folder ⇒ one environment ⇒ one profile); only WHAT the key is has changed (Space, not host).
     private readonly Dictionary<string, CoreWebView2Environment> _envByKey = new();
     private readonly Dictionary<string, Task<CoreWebView2Environment>> _envPending = new();
+    // Color scheme Zero's in-app light/dark toggle wants web content (+ its default context menu) to use.
+    // Defaults to Auto (follow OS) until the renderer sends a `setTheme` command; applied to every controller
+    // at creation and re-applied live to all views on each setTheme.
+    public CoreWebView2PreferredColorScheme PreferColorScheme = CoreWebView2PreferredColorScheme.Auto;
     private IntPtr _parentHwnd;
 
     // MULTI-LIVE IS THE DEFAULT. Proven on Loris's runtime (150.0.4078.99): multiple CoreWebView2 controllers
@@ -389,6 +393,7 @@ internal sealed class HostContext
             // SystemEvents power/session events, which do not fire on Surface's S0 sleep). Runs here on the
             // UI thread because the stdin reader marshals every command through SynchronizationContext.
             case "reanchor": { var rr = Str(root, "reason"); ReanchorVisibleInput(rr.Length > 0 ? rr : "ipc"); break; }
+            case "setTheme": SetTheme(Str(root, "mode")); break;
             case "shutdown": Shutdown(); break;
             default: _emit(new { evt = "error", message = $"unknown cmd: {cmd}" }); break;
         }
@@ -433,6 +438,17 @@ internal sealed class HostContext
     public void ReanchorVisibleInput(string reason)
     {
         foreach (var v in _views.Values) v.ReanchorInput(reason);
+    }
+
+    // Zero's in-app light/dark toggle changed. Store the scheme (so future controllers pick it up at
+    // creation) and re-apply it live to every existing view. Unknown/empty mode ⇒ Auto (follow OS).
+    private void SetTheme(string mode)
+    {
+        PreferColorScheme = mode == "light" ? CoreWebView2PreferredColorScheme.Light
+            : mode == "dark" ? CoreWebView2PreferredColorScheme.Dark
+            : CoreWebView2PreferredColorScheme.Auto;
+        foreach (var v in _views.Values) v.ApplyColorScheme(PreferColorScheme);
+        Program.Log($"setTheme mode={mode} scheme={PreferColorScheme} views={_views.Count}");
     }
 
     // FALLBACK: one live controller per profile. OFF by default now that multi-live is proven to work —
@@ -647,9 +663,9 @@ internal sealed class ResourceView : IDisposable
             // Copy / inspect, etc.). Zero never built a web-content menu of its own, so suppressing this left
             // right-click doing nothing — re-enabling restores those useful browser actions.
             core.Settings.AreDefaultContextMenusEnabled = true;
-            // Make that menu follow the OS light/dark theme so it isn't a jarring white box in dark mode.
-            // (This tracks the Windows theme, not Zero's in-app toggle — matching that would need theme plumbing.)
-            try { core.Profile.PreferredColorScheme = CoreWebView2PreferredColorScheme.Auto; } catch { /* older runtime: ignore */ }
+            // Make that menu (and prefers-color-scheme) follow Zero's in-app light/dark toggle, relayed from
+            // the renderer via setTheme and stored on the host. Falls back to Auto (OS) until the first toggle.
+            try { core.Profile.PreferredColorScheme = _host.PreferColorScheme; } catch { /* older runtime: ignore */ }
             WireEvents(core);
 
             // Self-healing keyboard focus: whenever our container HWND is clicked or handed focus, push it
@@ -847,6 +863,11 @@ internal sealed class ResourceView : IDisposable
     public void SetBounds(Rectangle r) { _bounds = r; if (_host != null) ApplyBounds(); }
     public void SetVisible(bool v) { _visible = v; if (_host != null) ApplyBounds(); }
     public void SetZoom(double z) { _zoom = z; if (_controller != null) _controller.ZoomFactor = z; }
+    // Live-apply Zero's light/dark choice to this view's web content + its default context menu.
+    public void ApplyColorScheme(CoreWebView2PreferredColorScheme scheme)
+    {
+        if (_controller != null) { try { _controller.CoreWebView2.Profile.PreferredColorScheme = scheme; } catch { /* older runtime */ } }
+    }
     public void Navigate(string url) { _pendingNavigate = url; _controller?.CoreWebView2.Navigate(url); }
     // Re-mount reveal: only (re)navigate if the target actually changed, so revealing a warm tab does
     // not reload it. Compares against the last requested/loaded url.

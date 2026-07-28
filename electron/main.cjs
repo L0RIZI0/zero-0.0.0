@@ -1231,6 +1231,12 @@ ipcMain.on("zero:resource:release-focus", () => {
   if (useWebView2() && hostBridge) hostBridge.releaseFocus()
 })
 
+// Zero's in-app light/dark toggle changed. Tell the native web host so web content's default right-click
+// menu (and prefers-color-scheme) follows Zero rather than the OS theme. WebView2 host only.
+ipcMain.on("zero:resource:set-theme", (_e, mode) => {
+  if (useWebView2() && hostBridge) hostBridge.setTheme(mode === "light" ? "light" : "dark")
+})
+
 // PRE-WARM a resource's native view HIDDEN so a later drill-in is an instant reveal (WebView2 only). This is
 // just a mount with visible:false at a 1×1 off-screen rect — the host creates the controller + navigates but
 // never shows it. The eventual real mount() reveals it via the host's idempotent path.

@@ -295,6 +295,11 @@ class ResourceHostBridge extends EventEmitter {
   reanchor(reason) {
     this._send({ cmd: "reanchor", reason: reason || "ipc" })
   }
+  // Set the color scheme web content should use (follows Zero's in-app light/dark toggle, not the OS). The
+  // host stores it and applies to all live controllers + any mounted afterwards.
+  setTheme(mode) {
+    this._send({ cmd: "setTheme", mode: mode === "light" ? "light" : "dark" })
+  }
   setScaleFactor(s) {
     this.scaleFactor = s || 1
   }

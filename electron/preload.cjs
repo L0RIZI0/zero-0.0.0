@@ -59,6 +59,9 @@ contextBridge.exposeInMainWorld("zero", {
     /** Hand keyboard focus back to Zero's own UI when a Zero input is focused while a webview is displayed
      *  above it. Cross-process: asks the native host to SetFocus back to Electron. No-op in web builds. */
     releaseFocus: () => ipcRenderer.send("zero:resource:release-focus"),
+    /** Tell the native host which color scheme Zero's light/dark toggle is on, so web content's default
+     *  context menu matches Zero instead of the OS. Applies to all live + later-mounted views. */
+    setTheme: (mode) => ipcRenderer.send("zero:resource:set-theme", mode),
     /** Subscribe to outputs the resource produces (exports/downloads) → Outputs. */
     onOutput: (cb) => {
       const handler = (_e, payload) => cb(payload)

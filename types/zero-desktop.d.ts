@@ -40,6 +40,10 @@ export interface ZeroDesktopBridge {
     /** Hand keyboard focus back to Zero's own UI when a Zero input is focused while a webview is displayed
      *  above it (the webview is a separate process, so focus must be handed back explicitly). No-op on web. */
     releaseFocus: () => void
+    /** Tell the native web host which color scheme Zero's in-app light/dark toggle is on, so web content's
+     *  default right-click menu (and prefers-color-scheme) matches Zero instead of following the OS. Applies
+     *  to all live views + any mounted later. No-op on web. */
+    setTheme: (mode: "dark" | "light") => void
     onOutput: (cb: (payload: { id: string; name: string; dataUrl: string }) => void) => () => void
     onStatus: (cb: (payload: { id: string; ok: boolean; detail?: string }) => void) => () => void
     onNavigated: (cb: (payload: { id: string; url: string }) => void) => () => void

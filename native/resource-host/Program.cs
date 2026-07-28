@@ -51,7 +51,7 @@ internal static class Program
 
         // BUILD MARKER — bump this string on every native change so host.log unambiguously proves which
         // build is actually running (rules out `dotnet run` serving a stale incremental build).
-        Log("=== BUILD ctxmenu-v20 (re-enabled Edge's default right-click menu over web content — Back/Forward/Reload/Print/etc — themed to the OS via PreferredColorScheme.Auto) ===");
+        Log("=== BUILD ctxmenu-theme-v21 (Edge's default web-content menu now follows Zero's in-app light/dark toggle via a setTheme command → PreferredColorScheme, applied live + at controller creation) ===");
         Log($"dpi SetHighDpiMode(PerMonitorV2) ok={dpiOk} applied={Application.HighDpiMode}");
         Log($"start ipc parentHwnd={opts.ParentHwnd} userData={opts.UserDataFolder}");
         // Log the installed WebView2 Evergreen runtime version (confirmed 150.x supports multiple controllers

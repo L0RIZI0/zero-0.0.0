@@ -18,6 +18,18 @@ export function Zero0ThemeToggle() {
   useEffect(() => setMounted(true), [])
 
   const isDark = resolvedTheme === "dark"
+
+  // Relay Zero's light/dark choice to the native web host (desktop only) so web content's default
+  // right-click menu + prefers-color-scheme match Zero instead of the OS. Fires on mount and on every
+  // toggle; newly-mounted webviews pick up the stored scheme from the host. No-op on the web.
+  useEffect(() => {
+    if (!mounted) return
+    try {
+      window.zero?.resource?.setTheme?.(isDark ? "dark" : "light")
+    } catch {
+      /* ignore */
+    }
+  }, [mounted, isDark])
   const label = !mounted ? "····" : isDark ? "dark" : "light"
 
   return (
