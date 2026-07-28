@@ -1920,6 +1920,22 @@ export function Zero0Canvas() {
           the (all-hidden) DOM panes. `relative flex-col` so the one visible pane fills via
           `flex-1` while hidden ones (display:none) drop out of layout. */}
       <div className="relative flex min-h-0 flex-1 flex-col">
+        {/* SEAM SHADOW (web view only) — a soft drop shadow that makes the boundary between
+            Zero's chrome and the embedded page legible. The native web surface is an OS layer
+            composited ON TOP of Zero's DOM within its rect, so nothing in Zero can paint over
+            the page itself — but this zero-height element sits at the content-area's top edge
+            (== the surface's top edge) and casts its shadow UPWARD (negative-Y offset) into the
+            header airspace, which the surface does NOT cover, so it's visible right at the seam.
+            The content area paints after the header (later flex sibling, auto z-index) and isn't
+            overflow-clipped, so the upward bleed lands on top of the header. pointer-events-none
+            so it never intercepts clicks meant for the page. */}
+        {mounted && context?.webUrl && (
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-x-0 top-0 z-30 h-0"
+            style={{ boxShadow: "0 -7px 12px -2px rgba(0,0,0,0.35)" }}
+          />
+        )}
         {mounted &&
           path.map((id, i) => {
             const e = getEntity(id)
