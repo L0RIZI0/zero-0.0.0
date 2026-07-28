@@ -227,12 +227,14 @@ function Zero0CloseButton({
 // to its bottom edge, so it reads as the web rect tucked under the frame's lip. Tall + many-stop
 // (ease-out distribution) so it's an elegant graduated shadow, not a hard band; legible in both
 // themes. pointer-events-none so it never eats clicks meant for the page.
-const WEB_SEAM_SHADOW_H = 26
+// Taller (38px) + softer (peak 0.20, was 0.32): a bigger, gentler penumbra so the extra height
+// counterbalances the reduced opacity — reads as a diffuse ambient shadow, not a dark lip.
+const WEB_SEAM_SHADOW_H = 38
 const WEB_SEAM_SHADOW_BG =
   "linear-gradient(to top," +
-  " rgba(0,0,0,0.32) 0%, rgba(0,0,0,0.25) 14%, rgba(0,0,0,0.175) 30%," +
-  " rgba(0,0,0,0.11) 48%, rgba(0,0,0,0.06) 66%, rgba(0,0,0,0.025) 82%," +
-  " rgba(0,0,0,0.007) 92%, rgba(0,0,0,0) 100%)"
+  " rgba(0,0,0,0.20) 0%, rgba(0,0,0,0.155) 14%, rgba(0,0,0,0.11) 30%," +
+  " rgba(0,0,0,0.07) 48%, rgba(0,0,0,0.04) 66%, rgba(0,0,0,0.017) 82%," +
+  " rgba(0,0,0,0.005) 92%, rgba(0,0,0,0) 100%)"
 
 function Zero0WebSeamShadow() {
   return (
@@ -453,8 +455,8 @@ export function Zero0Canvas() {
   const showActivity = useZero0Flag("activity")
   const showEntityHeader = useZero0Flag("entityHeader")
   const showZeroHeader = useZero0Flag("zeroHeader")
-  // §4 PINS — the band auto-shows whenever an entity is ongoing. This flag is the MANUAL
-  // override (toggled by §4) that force-reveals the EMPTY frame when nothing is ongoing.
+  // §4 PINS — a strict show/hide toggle (v0.2.228): this flag alone controls the band's
+  // visibility, like every other § frame. Ongoing chips populate it live while it's open.
   const showFrequent = useZero0Flag("frequent")
 
   useEffect(() => {
@@ -1813,13 +1815,13 @@ export function Zero0Canvas() {
         <Zero0WindowControls />
       </div>
 
-      {/* ── §4 PINS BAND (topmost, just under the clock) ──────────���───��────��────
-          The repurposed §4 frame: a horizontal row of colored chips for every ONGOING
-          entity (glyph + title). Click a chip to drill in; click its spinning glyph to
-          END it. UNLIKE the other frames this has NO footer toggle — it is purely
-          AUTOMATIC: `Zero0Pins` renders nothing (→ the band collapses) whenever nothing
-          is ongoing, and appears the moment something starts. (Named "PINS" because the
-          plan is to let you pin a chip so it lingers here after it stops being ongoing.) */}
+      {/* ── §4 PINS BAND (topmost, just under the clock) ─────────────────────────
+          The §4 frame: a horizontal row of colored chips for every ONGOING entity (glyph
+          + title). Click a chip to drill in; click its spinning glyph to END it. Like every
+          other § frame it is a STRICT show/hide TOGGLE (the `frequent` flag, via §4 chord /
+          footer / frame marker) — v0.2.228 dropped the old auto-show-when-ongoing so §4 can
+          both hide AND display it. Ongoing chips populate it live while it's open. (Named
+          "PINS" because you can pin a chip so it lingers here after it stops being ongoing.) */}
       {mounted && (
         <Zero0Pins
           dataRev={rev}
@@ -2029,8 +2031,16 @@ export function Zero0Canvas() {
                 keeps its natural height and the surface below takes the rest; hiding §0 grows the
                 rect. Face-header ONLY (no child ENTITY CONTENT list — the web page IS the content).
                 Carries the seam shadow at its bottom since it's now the frame on top of the rect. */}
-            {showEntityHeader && (
-              <div className="shrink-0">
+            {/* Kept MOUNTED and collapsed via the SAME grid-rows 1fr↔0fr trick the non-web §0
+                (Zero0ContextPane) uses — so toggling §0 SMOOTHLY grows/shrinks it (300ms ease-out)
+                instead of popping, and the native surface below follows the animating rect frame-by
+                -frame via its rAF rect tracker. `inert` drops it from tab/hit-testing when collapsed. */}
+            <div
+              className="grid shrink-0 transition-[grid-template-rows] duration-300 ease-out motion-reduce:transition-none"
+              style={{ gridTemplateRows: showEntityHeader ? "1fr" : "0fr" }}
+              inert={!showEntityHeader}
+            >
+              <div className="overflow-hidden">
                 <Zero0EntityHeaderBlock
                   entity={context}
                   isRootLevel={path.length <= 1}
@@ -2043,7 +2053,7 @@ export function Zero0Canvas() {
                   seamShadow
                 />
               </div>
-            )}
+            </div>
             {/* The native web surface fills the REMAINING space below §0 (or the whole content area
                 when §0 is hidden). `relative flex-1` (not absolute) so it's a real flex item whose
                 rect shrinks/grows as §0 toggles — the native desktop view tracks THIS rect. */}

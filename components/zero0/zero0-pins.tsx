@@ -179,8 +179,8 @@ function useFlipRow(sig: string) {
  *     right-click on some platforms; we accept all three.)
  *   - CLICK the GLYPH → ongoing ��� STOP it; idle ⇒ START in the background. Stays here.
  *   - RIGHT-CLICK → the unified entity menu (Pin / Unpin at the top).
- * The band renders NOTHING when both lists are empty (⇒ hidden), unless `forceShow` (the §4
- * keybinding) reveals the empty frame with a muted placeholder.
+ * The band is a STRICT §4 TOGGLE: it shows/hides ENTIRELY with `forceShow` (the §4 flag). When
+ * open it lists ongoing/pinned chips, or a muted placeholder when empty; when off it's hidden.
  */
 export function Zero0Pins({
   dataRev,
@@ -353,9 +353,13 @@ export function Zero0Pins({
   // Present (excluding fading-out) vs everything rendered (incl. leaving chips).
   const presentTotal = pinnedIdle.length + ongoing.length
   const total = pinnedRender.length + ongoingRender.length
-  // The FRAME is open whenever something is present, or §4 forces the empty hint. When it goes
-  // false the frame plays its close sequence (below) while any leaving chips fade inside it.
-  const visible = presentTotal > 0 || forceShow
+  // The FRAME is a STRICT §4 TOGGLE (v0.2.228) — it shows/hides ONLY with the `frequent` flag, like
+  // every other § frame (§0/§1/agenda/activity) and Zero's blank-canvas philosophy. Previously it
+  // AUTO-showed whenever something was ongoing (`presentTotal > 0 || forceShow`), which meant §4
+  // could reveal the empty frame but could NOT hide it while something was ongoing. Now §4 both
+  // hides AND displays it. (Ongoing chips still populate it live WHEN it's open; they just no longer
+  // force it open.) When it goes false the frame plays its close sequence while leaving chips fade.
+  const visible = forceShow
   // Show the muted empty hint only when truly empty (nothing present AND nothing still fading).
   const showHint = total === 0 && forceShow
 
