@@ -303,6 +303,19 @@ class ResourceHostBridge extends EventEmitter {
   setScaleFactor(s) {
     this.scaleFactor = s || 1
   }
+  // Adopt a new display scale (e.g. the window was dragged to a monitor with a different DPI) and re-push
+  // every live view's bounds so the host re-lays them out in the NEW physical-pixel space. Without this the
+  // DIP→px conversion keeps using the scale captured at start() → the web rect is mis-sized + off-screen
+  // until the app is reopened. No-op when the scale is unchanged. Returns whether it changed.
+  refreshScaleAndBounds(s) {
+    const ns = s || 1
+    if (ns === this.scaleFactor) return false
+    this.scaleFactor = ns
+    for (const [id, b] of this.boundsDip) {
+      this._send({ cmd: "setBounds", id, rect: this._toPx({ x: b.x, y: b.y, width: b.w, height: b.h }) })
+    }
+    return true
+  }
   setParent(parentHwndBuffer) {
     this._send({ cmd: "setParent", parentHwnd: Number(hwndToString(parentHwndBuffer)) })
   }

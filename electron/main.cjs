@@ -297,6 +297,21 @@ if (!isDev) {
   ])
 }
 
+// Keep the WebView2 host's DIP→px scale in sync with the display the window is currently on. The scale is
+// captured once at host start(); if the window is later dragged to a monitor with a different DPI, the web
+// rect is converted with the stale factor and ends up mis-sized + off-screen (until reopen). Recompute from
+// the window's nearest display and, if it changed, re-push all view bounds. Cheap + idempotent.
+function syncHostScaleToDisplay(reason) {
+  try {
+    if (!(useWebView2() && hostBridge && hostBridge.ready && mainWindow && !mainWindow.isDestroyed())) return
+    const disp = screen.getDisplayNearestPoint(mainWindow.getBounds())
+    const changed = hostBridge.refreshScaleAndBounds(disp.scaleFactor)
+    if (changed) console.log(`[v0] resource-host scale → ${disp.scaleFactor} (${reason})`)
+  } catch (err) {
+    console.log(`[v0] scale sync failed (${reason}): ${err && err.message}`)
+  }
+}
+
 function createWindow() {
   // Bind every per-window handler to THIS window via a local `win`, not the shared
   // `mainWindow` global — otherwise, once a second window is opened, the global is
@@ -339,6 +354,20 @@ function createWindow() {
   }
   win.on("maximize", sendMaxState)
   win.on("unmaximize", sendMaxState)
+
+  // Re-sync the resource-host DPI scale when this window moves/resizes — dragging to a monitor with a
+  // different scale factor fires `move` (not `display-metrics-changed`), so this is the trigger that catches
+  // the cross-monitor case. Debounced so a drag doesn't spam the host; only acts for the active host window.
+  let dpiSyncTimer = null
+  const scheduleDpiSync = () => {
+    if (dpiSyncTimer) clearTimeout(dpiSyncTimer)
+    dpiSyncTimer = setTimeout(() => {
+      dpiSyncTimer = null
+      if (win === mainWindow) syncHostScaleToDisplay("window-move")
+    }, 150)
+  }
+  win.on("move", scheduleDpiSync)
+  win.on("resize", scheduleDpiSync)
 
   // Avoid a white flash: reveal only once the first paint is ready. At the same time
   // strip the Windows 11 DWM border (no-op elsewhere) so our frameless near-black
@@ -487,6 +516,10 @@ if (gotSingleInstanceLock) {
     powerMonitor.on("resume", () => reanchorResourceInput("power-resume"))
     powerMonitor.on("unlock-screen", () => reanchorResourceInput("session-unlock"))
     app.on("browser-window-focus", () => reanchorResourceInput("window-focus"))
+
+    // A monitor's DPI changed in place (e.g. display settings / plugging a screen). Catches the scale change
+    // when the window ISN'T moved; the drag-between-monitors case is handled by the per-window move listener.
+    screen.on("display-metrics-changed", () => syncHostScaleToDisplay("display-metrics"))
 
     // Idle-return watcher. Poll the OS idle timer every second; once the user has been idle past the
     // threshold (screen likely off), the NEXT tick where they're active again re-anchors the webview input so
