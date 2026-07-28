@@ -19,6 +19,14 @@ Zero's packaged app in M3.
   theme via a `setTheme` command (`window.zero.resource.setTheme` → `zero:resource:set-theme` → bridge →
   host), stored as `HostContext.PreferColorScheme` and pushed to `Profile.PreferredColorScheme` on every
   live controller + at each controller's creation. Falls back to `Auto` (OS) until the first toggle.
+  Note: `PreferredColorScheme` only flips sites that *implement* their own dark theme (via
+  `prefers-color-scheme`); it does not touch sites without one.
+- **"Force dark" web-content menu item** (v0.2.223) — a checkable item appended to Edge's own right-click
+  menu (via `Environment.CreateContextMenuItem` + `ContextMenuRequested`, additive — defaults untouched).
+  Toggling it algorithmically darkens *any* site (even those with no dark theme) live per view, with no
+  reload/env rebuild, via CDP `Emulation.setAutoDarkModeOverride` (`CallDevToolsProtocolMethodAsync`). Per-
+  view state (`_forceDark`), off by default, re-asserted after navigations. Heuristic — may look off on some
+  sites; it's opt-in per view precisely for that reason.
 - **Popup OAuth** handled in-app: `NewWindowRequested` opens a `PopupWindow` hosting a controller in the
   same env+profile, so flows like Figma "Continue with Google" complete without bouncing to the system
   browser.

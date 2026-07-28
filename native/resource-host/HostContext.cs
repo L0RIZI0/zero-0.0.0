@@ -581,6 +581,10 @@ internal sealed class ResourceView : IDisposable
     private string? _pendingNavigate;
     private string _profile = "default";
     private bool _disposed;
+    // Per-view "Force dark" toggle (from the web-content right-click menu). Applies Chromium's auto-dark
+    // via CDP Emulation.setAutoDarkModeOverride — algorithmically darkens sites that have no dark theme,
+    // live, with no env rebuild or reload. Off by default; re-applied after navigations while on.
+    private bool _forceDark;
 
     public ResourceView(string id, Action<object> emit) { _id = id; _emit = emit; }
 
@@ -842,9 +846,42 @@ internal sealed class ResourceView : IDisposable
         core.HistoryChanged += (_, _) => _emit(new { evt = "navState", id = _id, canGoBack = core.CanGoBack, canGoForward = core.CanGoForward });
         core.FaviconChanged += (_, _) => _emit(new { evt = "favicon", id = _id, url = core.FaviconUri });
         core.NavigationStarting += (_, e) => _emit(new { evt = "loading", id = _id, loading = true, url = e.Uri });
-        core.NavigationCompleted += (_, e) => { Program.Log($"navDone id={_id} ok={e.IsSuccess} status={e.HttpStatusCode} err={e.WebErrorStatus}"); _emit(new { evt = "loading", id = _id, loading = false, ok = e.IsSuccess }); };
+        core.NavigationCompleted += (_, e) =>
+        {
+            Program.Log($"navDone id={_id} ok={e.IsSuccess} status={e.HttpStatusCode} err={e.WebErrorStatus}");
+            _emit(new { evt = "loading", id = _id, loading = false, ok = e.IsSuccess });
+            // CDP emulation overrides can be dropped on cross-document navigation — re-assert if it's on.
+            if (_forceDark) ApplyForceDark(true);
+        };
         core.DownloadStarting += (_, e) => _emit(new { evt = "download", id = _id, url = e.DownloadOperation.Uri, path = e.ResultFilePath });
         core.NewWindowRequested += OnNewWindow;
+        // Append a checkable "Force dark" item to Edge's OWN right-click menu (defaults preserved — we only
+        // add, never set e.Handled). Toggling it flips this view's auto-dark live via CDP.
+        core.ContextMenuRequested += (_, e) =>
+        {
+            try
+            {
+                var item = core.Environment.CreateContextMenuItem("Force dark", null, CoreWebView2ContextMenuItemKind.CheckBox);
+                item.IsChecked = _forceDark;
+                item.CustomItemSelected += (_, _) => { _forceDark = !_forceDark; ApplyForceDark(_forceDark); };
+                e.MenuItems.Add(item);
+            }
+            catch { /* older runtime without context-menu customization: leave the default menu as-is */ }
+        };
+    }
+
+    // Toggle Chromium auto-dark for this view live (no reload/env rebuild). enabled:true darkens the site;
+    // "{}" clears the override so the page returns to its own prefers-color-scheme behavior.
+    private async void ApplyForceDark(bool on)
+    {
+        if (_controller is null) return;
+        try
+        {
+            await _controller.CoreWebView2.CallDevToolsProtocolMethodAsync(
+                "Emulation.setAutoDarkModeOverride", on ? "{\"enabled\":true}" : "{}");
+            Program.Log($"forceDark id={_id} on={on}");
+        }
+        catch { /* CDP unavailable: ignore */ }
     }
 
     private void OnNewWindow(object? sender, CoreWebView2NewWindowRequestedEventArgs e)
