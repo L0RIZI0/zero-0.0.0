@@ -102,7 +102,7 @@ const draftColorHex = (draft: string): string | null => {
  *
  * LAYOUT — three bands. The canvas treats the top + bottom as pure Zero-UX HELPERS
  * that SANDWICH the current node's raw data:
- *   1. TOP HELPER (`<header>`): the "zero · root canvas" mark, the ACCESS PATH
+ *   1. TOP HELPER (`<header>`): the "zero �� root canvas" mark, the ACCESS PATH
  *      (breadcrumb), and a CONTEXT/STORE/ENTITIES session readout.
  *   2. ENTITY CONTENT: the open node rendered as raw data — its META (id, kind,
  *      states, timestamps), then its CHILDREN list, then a create field. Because
@@ -1253,7 +1253,7 @@ export function Zero0Canvas() {
 
   const remove = useCallback(
     (e: Entity) => {
-      // Soft-delete is GUARDED (open/scheduled only) �� deleteEntity returns false if blocked, in
+      // Soft-delete is GUARDED (open/scheduled only) ��� deleteEntity returns false if blocked, in
       // which case there's nothing to climb out of or re-render.
       if (!deleteEntity(e.id)) return
       // If we're inside the entity being deleted, climb out of it first.
@@ -1909,8 +1909,15 @@ export function Zero0Canvas() {
         {mounted && context?.webUrl && (
           <div
             aria-hidden
-            className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-[10px]"
-            style={{ background: "linear-gradient(to top, rgba(0,0,0,0.45), rgba(0,0,0,0))" }}
+            className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-[14px]"
+            // A soft EASED penumbra (not a flat 2-stop ramp): dense at the seam, with a long gentle
+            // tail fading up into the header — the stop distribution approximates an ease-out curve so
+            // it reads as a real drop shadow cast by the web rect tucked under the header lip, not a
+            // hard band. Peak kept modest for elegance; still legible over the near-black dark header.
+            style={{
+              background:
+                "linear-gradient(to top, rgba(0,0,0,0.34) 0%, rgba(0,0,0,0.24) 22%, rgba(0,0,0,0.15) 44%, rgba(0,0,0,0.08) 64%, rgba(0,0,0,0.03) 82%, rgba(0,0,0,0) 100%)",
+            }}
           />
         )}
         <Zero0FrameMarker flag="zeroHeader" label="the zero header" />
