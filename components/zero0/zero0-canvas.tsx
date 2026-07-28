@@ -248,8 +248,8 @@ function Zero0WebSeamShadow() {
 
 // THE §0 ENTITY HEADER (Face at full size + collapsible life LOG + the §0 frame marker), factored
 // out so it renders identically in a normal ContextPane AND standalone above a web leaf's surface.
-// Owns only its own `logExpanded` toggle. `seamShadow` paints the web-seam penumbra at its bottom
-// (used when this header is the frame directly above a web rect).
+// Owns only its own `logExpanded` toggle. (The web-seam penumbra is painted by the web-view block's
+// §0 wrapper, not here, so it can ride the wrapper's animating bottom edge without being clipped.)
 function Zero0EntityHeaderBlock({
   entity,
   isRootLevel,
@@ -259,7 +259,6 @@ function Zero0EntityHeaderBlock({
   onMark,
   onContextMenu,
   onClose,
-  seamShadow = false,
 }: {
   entity: Entity
   isRootLevel: boolean
@@ -269,7 +268,6 @@ function Zero0EntityHeaderBlock({
   onMark: (e: Entity) => void
   onContextMenu: (e: Entity, ev: React.MouseEvent) => void
   onClose: (e: Entity) => void
-  seamShadow?: boolean
 }) {
   const [logExpanded, setLogExpanded] = useState(false)
   return (
@@ -316,7 +314,6 @@ function Zero0EntityHeaderBlock({
         </div>
       )}
       <Zero0FrameMarker flag="entityHeader" label="the entity header" />
-      {seamShadow && <Zero0WebSeamShadow />}
     </section>
   )
 }
@@ -1965,12 +1962,12 @@ export function Zero0Canvas() {
             )}
           </dl>
         )}
-        {/* SEAM SHADOW (web view, §0 HIDDEN) — when the entity header (§0) is NOT shown, the zero
-            header (§1) is the frame directly on top of the web surface, so the seam shadow lives at
-            ITS bottom edge. When §0 IS shown it renders below §1 and carries the shadow instead (see
-            the web-view block). See Zero0WebSeamShadow for why this is a gradient in-airspace, not a
-            box-shadow onto the (natively-composited) page. */}
-        {mounted && context?.webUrl && !showEntityHeader && <Zero0WebSeamShadow />}
+        {/* SEAM SHADOW note: over a web view the seam shadow is a SINGLE element in the §0 wrapper
+            (web-view block below), pinned to that wrapper's animating bottom edge so it rides the
+            seam continuously — at §0's bottom when open, gliding up to right under this header as §0
+            collapses. No separate header-anchored shadow is needed (it would cause a jump on toggle).
+            See Zero0WebSeamShadow for why it's an in-airspace gradient, not a box-shadow onto the
+            (natively-composited) page. */}
         <Zero0FrameMarker flag="zeroHeader" label="the zero header" />
       </header>
       </Zero0Frame>
@@ -2027,16 +2024,19 @@ export function Zero0Canvas() {
         {mounted && context?.webUrl && (
           <>
             {/* §0 OVER WEB — the resource's OWN entity header, shown in normal flow ABOVE the web
-                rect when the §0 flag is on (chord `§0` / footer toggles it). It's `shrink-0` so it
-                keeps its natural height and the surface below takes the rest; hiding §0 grows the
-                rect. Face-header ONLY (no child ENTITY CONTENT list — the web page IS the content).
-                Carries the seam shadow at its bottom since it's now the frame on top of the rect. */}
-            {/* Kept MOUNTED and collapsed via the SAME grid-rows 1fr↔0fr trick the non-web §0
+                rect when the §0 flag is on (chord `§0` / footer toggles it). Face-header ONLY (no
+                child ENTITY CONTENT list — the web page IS the content).
+                Kept MOUNTED and collapsed via the SAME grid-rows 1fr↔0fr trick the non-web §0
                 (Zero0ContextPane) uses — so toggling §0 SMOOTHLY grows/shrinks it (300ms ease-out)
                 instead of popping, and the native surface below follows the animating rect frame-by
-                -frame via its rAF rect tracker. `inert` drops it from tab/hit-testing when collapsed. */}
+                -frame via its rAF rect tracker. `inert` drops it from tab/hit-testing when collapsed.
+                THE SEAM SHADOW is a SINGLE element pinned to the BOTTOM of this `relative` wrapper
+                (sibling to the overflow-clip, so it's NOT clipped by the collapse). Because the
+                wrapper's height animates natural↔0, `bottom-0` RIDES the seam up continuously: at
+                §0's bottom while open, gliding to the content-top (right under §1) as it collapses —
+                one unbroken shadow, no jump from §0 to §1. */}
             <div
-              className="grid shrink-0 transition-[grid-template-rows] duration-300 ease-out motion-reduce:transition-none"
+              className="relative grid shrink-0 transition-[grid-template-rows] duration-300 ease-out motion-reduce:transition-none"
               style={{ gridTemplateRows: showEntityHeader ? "1fr" : "0fr" }}
               inert={!showEntityHeader}
             >
@@ -2050,9 +2050,9 @@ export function Zero0Canvas() {
                   onMark={mark}
                   onContextMenu={openMenu}
                   onClose={closeContext}
-                  seamShadow
                 />
               </div>
+              <Zero0WebSeamShadow />
             </div>
             {/* The native web surface fills the REMAINING space below §0 (or the whole content area
                 when §0 is hidden). `relative flex-1` (not absolute) so it's a real flex item whose
