@@ -56,7 +56,7 @@ export function WorkSurface() {
   const rootId = stack[0]
   // The timeline is the ROOT Organism's Lifeline (home only), so it reads the root
   // entity's accent — not the active context's.
-  const rootAccent = getSpace(rootId)?.accent ?? getEntity(rootId)?.accent
+  const rootAccent = getSpace(rootId)?.color ?? getEntity(rootId)?.color
 
   // registerStage is preserved via a combined ref so the Flip stage still resolves
   // the window region's box (the morph origin for every fixed child window).

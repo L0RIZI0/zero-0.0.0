@@ -321,7 +321,8 @@ export function formatDuration(ms: number): string {
 
 // Schedule `set` entries carry an epoch NUMBER as their value; render it as a date rather
 // than a raw millisecond count in the life-log history. Everything else prints as-is.
-export const TIME_LOG_FIELDS = new Set(["startAt", "endAt", "at", "dueDate"])
+// New (v0.2.228) field names + legacy ones kept so historical log entries still format as dates.
+export const TIME_LOG_FIELDS = new Set(["startDate", "endDate", "at", "dueDate", "startAt", "endAt", "dueAt"])
 export function fmtLogValue(field: string, value: string | number | boolean): string {
   if (TIME_LOG_FIELDS.has(field) && typeof value === "number") return fmt(value)
   if (field === "sex" && typeof value === "string") return sexSymbol(value)
@@ -1074,6 +1075,85 @@ export function getFaceMetaRows(e: Entity, now: number): [string, string][] {
   const backRefs = getBackReferences(e.id)
   if (backRefs.length > 0) {
     rows.push(["tagged by", backRefs.map((b) => `${b.title} (${rangeLabel(b)})`).join(", ")])
+  }
+  return rows
+}
+
+// ── RAW FIELDS (TEMP, v0.2.228) ─────────────────────────────────────────────────
+// The exhaustive "deepest level" dump of an entity's ACTUAL stored shape — every EntityBase
+// + Schedule field, ALWAYS listed ("—" when unset), so the full ENTITY schema is visible at a
+// glance while we keep evolving the concept. Distinct from getFaceMetaRows (the CURATED, derived,
+// human §0 view): this is the raw persisted fields, unmassaged. Epoch numbers render as dates; the
+// universal fields (displayTitle/color/priority/requested + the plan dates) show for EVERY kind,
+// even when empty, which is the whole point. Rendered FAINT as a §0 appendix; not part of the
+// block-rung subsets (full-size only). TEMP: expected to fold into a first-class editable §0.
+export function getFaceRawFields(e: Entity, now: number): [string, string][] {
+  const b = e as unknown as Record<string, unknown>
+  const s = (e.schedule ?? {}) as Record<string, unknown>
+  const rows: [string, string][] = []
+  // Format a value: epoch number → date; "whenever" sentinel + other strings raw; arrays joined;
+  // booleans yes/—; null/undefined → "—".
+  const dateish = (v: unknown) => (typeof v === "number" ? fmt(v) : v == null ? "—" : String(v))
+  const val = (v: unknown): string => {
+    if (v == null) return "—"
+    if (Array.isArray(v)) return v.length ? v.map(String).join(", ") : "—"
+    if (typeof v === "boolean") return v ? "yes" : "—"
+    return String(v)
+  }
+  // Identity + the UNIVERSAL fields (always shown for every kind).
+  rows.push(["id", e.id])
+  rows.push(["kind", e.kind])
+  rows.push(["title", e.title])
+  rows.push(["displayTitle", val(b.displayTitle)])
+  rows.push(["color", val(b.color)])
+  rows.push(["priority", val(b.priority)])
+  rows.push(["requested", val(b.requested)])
+  rows.push(["description", val(b.description)])
+  rows.push(["tags", val(b.tags)])
+  rows.push(["completed", val(b.completed)])
+  // Structure / provenance.
+  rows.push(["parentId", val(b.parentId)])
+  rows.push(["taggedContextIds", val(b.taggedContextIds)])
+  rows.push(["creationDate", dateish(getCreatedAt(e))])
+  rows.push(["createdBy", val(getCreator(e))])
+  rows.push(["ownerId", val(getOwner(e))])
+  rows.push(["closePolicy", val(b.closePolicy)])
+  rows.push(["closeAt", dateish(b.closeAt)])
+  // Web-surface binding (defines the `resource` kind).
+  rows.push(["webUrl", val(b.webUrl)])
+  rows.push(["webResourceId", val(b.webResourceId)])
+  // Schedule — the PLAN (universal, always shown) then the sub-structures.
+  rows.push(["schedule.startDate", dateish(s.startDate)])
+  rows.push(["schedule.endDate", dateish(s.endDate)])
+  rows.push(["schedule.dueDate", dateish(s.dueDate)])
+  rows.push(["schedule.at", dateish(s.at)])
+  rows.push(["schedule.duration", s.duration == null ? "—" : `${s.duration} min`])
+  rows.push(["schedule.timebox", s.timebox == null ? "—" : `${s.timebox} min`])
+  rows.push(["schedule.repeat", val(s.repeat ? JSON.stringify(s.repeat) : undefined)])
+  rows.push(["schedule.blocks", Array.isArray(s.blocks) ? `${s.blocks.length}` : "—"])
+  // RECORDED sub-arrays (startedAt/endedAt) — show counts + open flag, the detail lives above.
+  const sessions = Array.isArray(s.sessions) ? (s.sessions as { endedAt?: number }[]) : []
+  const openSession = sessions.some((x) => x && x.endedAt == null)
+  rows.push(["schedule.sessions", sessions.length ? `${sessions.length}${openSession ? " · 1 open" : ""}` : "—"])
+  rows.push(["schedule.occurrences", Array.isArray(s.occurrences) ? `${s.occurrences.length}` : "—"])
+  // Kind-specific defining fields (shown for the kinds that own them).
+  if (e.kind === "individual") {
+    rows.push(["bornAt", dateish(b.bornAt)])
+    rows.push(["sex", val(b.sex)])
+    rows.push(["diedOn", dateish(b.diedOn)])
+  }
+  if (e.kind === "organism") {
+    rows.push(["alive", val(b.alive)])
+    rows.push(["publishedAt", dateish(b.publishedAt)])
+    rows.push(["diedOn", dateish(b.diedOn)])
+  }
+  if (e.kind === "community") {
+    rows.push(["publishedAt", dateish(b.publishedAt)])
+    rows.push(["retiredOn", dateish(b.retiredOn)])
+  }
+  if (e.kind === "instant") {
+    rows.push(["maxNb", val(b.maxNb)])
+    rows.push(["maxNbHard", val(b.maxNbHard)])
   }
   return rows
 }

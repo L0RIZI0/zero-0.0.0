@@ -973,9 +973,9 @@ export function Zero0Canvas() {
           // an END completes/closes it. This is the whole point-vs-start fix.
           // `--at` maps to startAt (not the `at` point anchor): any kind can be planned, so
           // `--at` plans the entity's START. On an INSTANT, setEntityScheduleField still
-          // collapses startAt/endAt/at to the one epoch, so a point is unaffected.
-          const key = ({ start: "startAt", end: "endAt", at: "startAt", due: "dueDate" } as const)[attr.field]
-          // NOTE: `--start:whenever` is GONE (v0.7). Playability no longer rides on a startAt
+          // collapses startDate/endDate/at to the one epoch, so a point is unaffected.
+          const key = ({ start: "startDate", end: "endDate", at: "startDate", due: "dueDate" } as const)[attr.field]
+          // NOTE: `--start:whenever` is GONE (v0.7). Playability no longer rides on a startDate
           // sentinel — every idle {idea,task,resource,moment,space} is playable by kind, so
           // there's nothing to opt into. `--start` now only accepts a concrete time (or clear).
           let epoch: number | null = null
@@ -1168,7 +1168,7 @@ export function Zero0Canvas() {
       const en = fresh.schedule?.endDate
       // Only a CONCRETE start can form a cross-midnight span ("whenever" has no time).
       if (typeof st === "number" && en != null && en <= st) {
-        setEntityScheduleField(created.id, "endAt", en + 86_400_000)
+        setEntityScheduleField(created.id, "endDate", en + 86_400_000)
       }
     }
 

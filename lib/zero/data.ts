@@ -1713,7 +1713,7 @@ export function endOngoing(id: string, at = Date.now()): boolean {
     // Running concrete span with no known end → cap it at now via the schedule field setter
     // (which also stamps closeAt / logs the set), matching a manual `--end:now`.
     if (effectiveScheduleEnd(stored.schedule) == null) {
-      return setEntityScheduleField(id, "endAt", at)
+      return setEntityScheduleField(id, "endDate", at)
     }
   }
   return false
@@ -1804,8 +1804,8 @@ export function startOccurrence(id: string, at = Date.now()): boolean {
   const stored = byId.get(id)
   if (!stored || !isOccurrenceKind(stored)) return false
   const dur = stored.schedule?.duration
-  setEntityScheduleField(id, "startAt", at)
-  setEntityScheduleField(id, "endAt", dur != null ? at + dur * 60000 : null)
+  setEntityScheduleField(id, "startDate", at)
+  setEntityScheduleField(id, "endDate", dur != null ? at + dur * 60000 : null)
   return true
 }
 
@@ -1817,7 +1817,7 @@ export function endOccurrence(id: string, at = Date.now()): boolean {
   const stored = byId.get(id)
   if (!stored || !isOccurrenceKind(stored)) return false
   if (!isConcreteStart(stored.schedule?.startDate)) return false
-  return setEntityScheduleField(id, "endAt", at)
+  return setEntityScheduleField(id, "endDate", at)
 }
 
 /**
@@ -1843,7 +1843,7 @@ export function reopenOccurrence(id: string): boolean {
   delete sched.endDate
   entity.schedule = sched
   delete entity.closeAt // reopened → no longer completed/closed
-  logSet(entity, "startAt", null)
+  logSet(entity, "startDate", null)
   if (!userEntityIds.has(id)) {
     seededOverrides.set(id, { ...seededOverrides.get(id), schedule: sched, closeAt: undefined })
   }
@@ -2185,6 +2185,54 @@ function migrateStoredSessionsKey(stored: UserItems): void {
   for (const patch of Object.values(stored.overrides)) fix((patch as { schedule?: unknown }).schedule)
 }
 
+/**
+ * v0.2.228 FIELD RENAMES — normalize persisted data onto the new explicit names. Runs on every
+ * stored entity AND every seeded-entity `overrides` patch. Rules:
+ *   TOP-LEVEL:  createdAt→creationDate, accent→color, webTitle→displayTitle
+ *   SCHEDULE (the PLAN):  startAt→startDate, endAt→endDate, dueAt→dueDate  (`at` unchanged)
+ *   RECORDED sub-arrays (sessions[] + occurrences[]):  startAt→startedAt, endAt→endedAt
+ *   blocks[]:  UNCHANGED — a block is a planned sub-span, it keeps startAt/endAt.
+ * In-memory only (like the sibling migrations); localStorage rewrites on the next mutation.
+ * Idempotent: canonical data ⇒ no-op (never clobbers an already-present new key).
+ */
+function migrateStoredScheduleFields(stored: UserItems): void {
+  const move = (o: Record<string, unknown>, from: string, to: string) => {
+    if (o[from] !== undefined && o[to] === undefined) o[to] = o[from]
+    delete o[from]
+  }
+  const fixRecordedList = (list: unknown) => {
+    if (!Array.isArray(list)) return
+    for (const entry of list) {
+      if (entry && typeof entry === "object") {
+        const e = entry as Record<string, unknown>
+        move(e, "startAt", "startedAt")
+        move(e, "endAt", "endedAt")
+      }
+    }
+  }
+  const fixOne = (obj: unknown) => {
+    if (!obj || typeof obj !== "object") return
+    const o = obj as Record<string, unknown>
+    // top-level renamed fields
+    move(o, "createdAt", "creationDate")
+    move(o, "accent", "color")
+    move(o, "webTitle", "displayTitle")
+    // schedule
+    const sched = o.schedule
+    if (sched && typeof sched === "object") {
+      const s = sched as Record<string, unknown>
+      move(s, "startAt", "startDate")
+      move(s, "endAt", "endDate")
+      move(s, "dueAt", "dueDate")
+      fixRecordedList(s.sessions)
+      fixRecordedList(s.occurrences)
+      // s.blocks intentionally left on startAt/endAt
+    }
+  }
+  for (const e of stored.entities) fixOne(e)
+  for (const patch of Object.values(stored.overrides)) fixOne(patch)
+}
+
 let _hydrated = false
 
 /**
@@ -2203,6 +2251,8 @@ export function hydrateFromStorage(): boolean {
   migrateStoredRootId(stored)
   // Normalize persisted schedules onto canonical `sessions[]` (undo interim `engagements` key + old `kind`).
   migrateStoredSessionsKey(stored)
+  // v0.2.228: rename schedule/top-level fields (startAt→startDate, accent→color, sessions startAt→startedAt, …).
+  migrateStoredScheduleFields(stored)
   let added = false
   // DEV-only: collect log↔scalar disagreements to prove out dual-write before the
   // scalars are retired (Phase 3). Reported once after the loop; never in prod.
@@ -2377,6 +2427,8 @@ export function resyncFromStorage(): boolean {
   const stored = readUserItems()
   migrateStoredTaggedKey(stored)
   migrateStoredRootId(stored)
+  migrateStoredSessionsKey(stored)
+  migrateStoredScheduleFields(stored)
   let changed = false
 
   const storedById = new Map(stored.entities.map((e) => [e.id, e]))

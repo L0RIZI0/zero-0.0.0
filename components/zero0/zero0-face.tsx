@@ -7,6 +7,7 @@ import { Zero0Favicon } from "./zero0-favicon"
 import {
   getFaceModel,
   getFaceMetaRows,
+  getFaceRawFields,
   getScheduleCells,
   getAccessCells,
   getOngoingDurationCells,
@@ -192,6 +193,9 @@ function FaceBlock({
   rowsOverride?: [string, string][]
 }) {
   const rows = rowsOverride ?? filterMetaRows(getFaceMetaRows(entity, now), size)
+  // TEMP (v0.2.228): the exhaustive raw stored-field dump, shown FAINT as a §0 appendix so the full
+  // ENTITY shape is visible at the deepest level. Full size only, and never for aggregate overrides.
+  const rawFields = size === "full" && !rowsOverride ? getFaceRawFields(entity, now) : null
   const titleText = hiddenPrefix ? `(hidden) ${model.title}` : model.title
   // RICH start/end: when these rows aren't an aggregate override, render the schedule cells
   // (faint sessions, pulsing "ongoing", per-cell hover, horizontal scroll) instead of the flat
@@ -357,7 +361,7 @@ function FaceBlock({
                       style={{ backgroundColor: v }}
                     />
                   )}
-                  {/* SEX renders a single-stroke symbol glyph (♂/♀). Append the U+FE0E text
+                  {/* SEX renders a single-stroke symbol glyph (��/♀). Append the U+FE0E text
                       variation selector so the browser keeps it in the (mono) text font instead of
                       swapping to a thin emoji/symbol fallback, and give it a slightly larger,
                       semibold weight so the hairline reads as solid foreground white — not the gray
@@ -372,6 +376,31 @@ function FaceBlock({
             </div>
           ))}
         </dl>
+      )}
+      {/* RAW FIELDS (temp) — the exhaustive stored shape, faint, under the curated §0 rows. */}
+      {rawFields && rawFields.length > 0 && (
+        <div className="mt-3 border-t border-border/40 pt-2 opacity-45">
+          <div className="mb-1 text-[9px] uppercase tracking-widest text-muted-foreground">raw fields</div>
+          <dl className="grid grid-cols-[9rem_1fr] gap-x-4 gap-y-0.5 text-[10px] tabular-nums">
+            {rawFields.map(([k, v]) => (
+              <div key={k} className="contents">
+                <dt className="truncate uppercase tracking-widest text-muted-foreground" title={k}>
+                  {k}
+                </dt>
+                <dd className="flex items-center gap-1.5 truncate text-muted-foreground" title={v}>
+                  {k === "color" && v !== "—" && (
+                    <span
+                      aria-hidden
+                      className="h-2.5 w-2.5 shrink-0 rounded-sm border border-border"
+                      style={{ backgroundColor: v }}
+                    />
+                  )}
+                  <span className="truncate">{v}</span>
+                </dd>
+              </div>
+            ))}
+          </dl>
+        </div>
       )}
     </>
   )
