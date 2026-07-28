@@ -1253,7 +1253,7 @@ export function Zero0Canvas() {
 
   const remove = useCallback(
     (e: Entity) => {
-      // Soft-delete is GUARDED (open/scheduled only) — deleteEntity returns false if blocked, in
+      // Soft-delete is GUARDED (open/scheduled only) �� deleteEntity returns false if blocked, in
       // which case there's nothing to climb out of or re-render.
       if (!deleteEntity(e.id)) return
       // If we're inside the entity being deleted, climb out of it first.
@@ -1898,6 +1898,21 @@ export function Zero0Canvas() {
             )}
           </dl>
         )}
+        {/* SEAM SHADOW (web view only) — a 10px INTERNAL shadow along the BOTTOM of this header,
+            the frame that sits directly on top of the web surface. The native web surface is an OS
+            layer composited OVER Zero's DOM within the content-area rect, so nothing painted at the
+            content-area's top edge would show (it renders UNDER the surface). This gradient instead
+            lives in the header's own airspace — which the surface does NOT cover — pinned to its
+            bottom edge, so it reads as the embedded page tucked UNDER the header lip. A real 10px
+            gradient (not a box-shadow) so it's clearly visible in BOTH themes, unlike the old
+            near-invisible dark-on-dark upward box-shadow. pointer-events-none so it never eats clicks. */}
+        {mounted && context?.webUrl && (
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-[10px]"
+            style={{ background: "linear-gradient(to top, rgba(0,0,0,0.45), rgba(0,0,0,0))" }}
+          />
+        )}
         <Zero0FrameMarker flag="zeroHeader" label="the zero header" />
       </header>
       </Zero0Frame>
@@ -1920,22 +1935,9 @@ export function Zero0Canvas() {
           the (all-hidden) DOM panes. `relative flex-col` so the one visible pane fills via
           `flex-1` while hidden ones (display:none) drop out of layout. */}
       <div className="relative flex min-h-0 flex-1 flex-col">
-        {/* SEAM SHADOW (web view only) — a soft drop shadow that makes the boundary between
-            Zero's chrome and the embedded page legible. The native web surface is an OS layer
-            composited ON TOP of Zero's DOM within its rect, so nothing in Zero can paint over
-            the page itself — but this zero-height element sits at the content-area's top edge
-            (== the surface's top edge) and casts its shadow UPWARD (negative-Y offset) into the
-            header airspace, which the surface does NOT cover, so it's visible right at the seam.
-            The content area paints after the header (later flex sibling, auto z-index) and isn't
-            overflow-clipped, so the upward bleed lands on top of the header. pointer-events-none
-            so it never intercepts clicks meant for the page. */}
-        {mounted && context?.webUrl && (
-          <div
-            aria-hidden
-            className="pointer-events-none absolute inset-x-0 top-0 z-30 h-0"
-            style={{ boxShadow: "0 -7px 12px -2px rgba(0,0,0,0.35)" }}
-          />
-        )}
+        {/* SEAM SHADOW note: the web-surface seam shadow now lives at the BOTTOM of the zero
+            header (see above) — a 10px internal gradient in the header's airspace. Nothing can
+            paint here at the content-area top because the native surface composites OVER it. */}
         {mounted &&
           path.map((id, i) => {
             const e = getEntity(id)
