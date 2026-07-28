@@ -51,7 +51,7 @@ internal static class Program
 
         // BUILD MARKER — bump this string on every native change so host.log unambiguously proves which
         // build is actually running (rules out `dotnet run` serving a stale incremental build).
-        Log("=== BUILD popup-dpi-v19 (popup WINDOW size now DPI-scaled + centered on the owner, fixing the tiny popup on >100% DPI displays like the Surface) ===");
+        Log("=== BUILD ctxmenu-v20 (re-enabled Edge's default right-click menu over web content — Back/Forward/Reload/Print/etc — themed to the OS via PreferredColorScheme.Auto) ===");
         Log($"dpi SetHighDpiMode(PerMonitorV2) ok={dpiOk} applied={Application.HighDpiMode}");
         Log($"start ipc parentHwnd={opts.ParentHwnd} userData={opts.UserDataFolder}");
         // Log the installed WebView2 Evergreen runtime version (confirmed 150.x supports multiple controllers

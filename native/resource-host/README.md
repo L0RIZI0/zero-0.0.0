@@ -12,8 +12,10 @@ Zero's packaged app in M3.
   `NativeSurface` rect stream.
 - **Per-resource profiles** (`CoreWebView2ControllerOptions.ProfileName`) so each resource's login
   persists independently — mirrors Zero's current per-resource persistent partitions.
-- **Default context menu disabled** + `ContextMenuRequested` relayed as a `contextMenu` event, so M2 can
-  show Zero's own single native menu (no dead `edge://` items).
+- **Default context menu enabled** (v0.2.221) so web content has Edge's own right-click actions
+  (Back/Forward/Reload/Save/Print/Copy/inspect); themed to the OS via `Profile.PreferredColorScheme = Auto`.
+  Zero never built a bespoke web-content menu, so the earlier `ContextMenuRequested` relay left right-click
+  doing nothing — the relay + `contextMenu` event were removed.
 - **Popup OAuth** handled in-app: `NewWindowRequested` opens a `PopupWindow` hosting a controller in the
   same env+profile, so flows like Figma "Continue with Google" complete without bouncing to the system
   browser.

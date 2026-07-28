@@ -643,9 +643,13 @@ internal sealed class ResourceView : IDisposable
             Program.Log($"controller live id={_id} liveNow={_liveControllers}");
 
             var core = controller.CoreWebView2;
-            // Relay context menus to Zero's own native menu instead of the browser default (which shows
-            // dead edge:// items like "Import passwords"). M2 will render Zero's menu from these events.
-            core.Settings.AreDefaultContextMenusEnabled = false;
+            // Show Edge's OWN right-click menu over web content (Back / Forward / Reload / Save / Print /
+            // Copy / inspect, etc.). Zero never built a web-content menu of its own, so suppressing this left
+            // right-click doing nothing — re-enabling restores those useful browser actions.
+            core.Settings.AreDefaultContextMenusEnabled = true;
+            // Make that menu follow the OS light/dark theme so it isn't a jarring white box in dark mode.
+            // (This tracks the Windows theme, not Zero's in-app toggle — matching that would need theme plumbing.)
+            try { core.Profile.PreferredColorScheme = CoreWebView2PreferredColorScheme.Auto; } catch { /* older runtime: ignore */ }
             WireEvents(core);
 
             // Self-healing keyboard focus: whenever our container HWND is clicked or handed focus, push it
@@ -824,26 +828,7 @@ internal sealed class ResourceView : IDisposable
         core.NavigationStarting += (_, e) => _emit(new { evt = "loading", id = _id, loading = true, url = e.Uri });
         core.NavigationCompleted += (_, e) => { Program.Log($"navDone id={_id} ok={e.IsSuccess} status={e.HttpStatusCode} err={e.WebErrorStatus}"); _emit(new { evt = "loading", id = _id, loading = false, ok = e.IsSuccess }); };
         core.DownloadStarting += (_, e) => _emit(new { evt = "download", id = _id, url = e.DownloadOperation.Uri, path = e.ResultFilePath });
-        core.ContextMenuRequested += OnContextMenu;
         core.NewWindowRequested += OnNewWindow;
-    }
-
-    private void OnContextMenu(object? sender, CoreWebView2ContextMenuRequestedEventArgs e)
-    {
-        // Suppress the default menu and hand Zero the target info; M2 shows the native menu + sends the action back.
-        e.Handled = true;
-        var t = e.ContextMenuTarget;
-        _emit(new
-        {
-            evt = "contextMenu",
-            id = _id,
-            x = e.Location.X,
-            y = e.Location.Y,
-            selectionText = t.SelectionText,
-            linkUri = t.HasLinkUri ? t.LinkUri : null,
-            srcUri = t.HasSourceUri ? t.SourceUri : null,
-            kind = t.Kind.ToString()
-        });
     }
 
     private void OnNewWindow(object? sender, CoreWebView2NewWindowRequestedEventArgs e)
