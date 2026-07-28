@@ -275,8 +275,9 @@ internal sealed class HostContext
     private readonly Dictionary<string, Task<CoreWebView2Environment>> _envPending = new();
     // Color scheme Zero's in-app light/dark toggle wants web content (+ its default context menu) to use.
     // Defaults to Auto (follow OS) until the renderer sends a `setTheme` command; applied to every controller
-    // at creation and re-applied live to all views on each setTheme.
-    public CoreWebView2PreferredColorScheme PreferColorScheme = CoreWebView2PreferredColorScheme.Auto;
+    // at creation and re-applied live to all views on each setTheme. STATIC because the host is a process-wide
+    // singleton and ResourceView (which reads it at controller creation) has no back-reference to HostContext.
+    public static CoreWebView2PreferredColorScheme PreferColorScheme = CoreWebView2PreferredColorScheme.Auto;
     private IntPtr _parentHwnd;
 
     // MULTI-LIVE IS THE DEFAULT. Proven on Loris's runtime (150.0.4078.99): multiple CoreWebView2 controllers
@@ -669,7 +670,7 @@ internal sealed class ResourceView : IDisposable
             core.Settings.AreDefaultContextMenusEnabled = true;
             // Make that menu (and prefers-color-scheme) follow Zero's in-app light/dark toggle, relayed from
             // the renderer via setTheme and stored on the host. Falls back to Auto (OS) until the first toggle.
-            try { core.Profile.PreferredColorScheme = _host.PreferColorScheme; } catch { /* older runtime: ignore */ }
+            try { core.Profile.PreferredColorScheme = HostContext.PreferColorScheme; } catch { /* older runtime: ignore */ }
             WireEvents(core);
 
             // Self-healing keyboard focus: whenever our container HWND is clicked or handed focus, push it
