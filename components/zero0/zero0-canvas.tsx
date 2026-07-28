@@ -762,7 +762,7 @@ export function Zero0Canvas() {
       path.map((id, i) => {
         const e = getEntity(id)
         const web = e?.webUrl
-          ? webLabel({ webUrl: e.webUrl, webResourceId: e.webResourceId, webTitle: e.webTitle, title: e.title })
+          ? webLabel({ webUrl: e.webUrl, webResourceId: e.webResourceId, webTitle: e.displayTitle, title: e.title })
           : null
         // Crop the crumb label UNIFORMLY (web curated titles bypass webLabel's crop, and long entity
         // titles could wrap too). A short, fixed-length crumb can never grow the header height — which was
@@ -812,7 +812,7 @@ export function Zero0Canvas() {
       if (seen.has(e.id)) continue
       seen.add(e.id)
       const url = e.webUrl
-      if (!url || e.webTitle || webTitleTriedRef.current.has(e.id)) continue
+      if (!url || e.displayTitle || webTitleTriedRef.current.has(e.id)) continue
       const isHttp = /^https?:\/\//i.test(url)
       if (!isHttp && !url.startsWith("/")) continue // only http(s) or internal routes
       if (isDesktop) {
@@ -1599,7 +1599,7 @@ export function Zero0Canvas() {
         // A web resource sibling reads as its DISPLAYED title (page title for long URLs, else the
         // URL) cropped to a max width, not the raw stored URL.
         label: s.webUrl
-          ? webLabel({ webUrl: s.webUrl, webResourceId: s.webResourceId, webTitle: s.webTitle, title: s.title }).display
+          ? webLabel({ webUrl: s.webUrl, webResourceId: s.webResourceId, webTitle: s.displayTitle, title: s.title }).display
           : s.title,
         glyphKind: s.kind,
         current: s.id === current,

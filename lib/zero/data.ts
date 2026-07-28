@@ -383,17 +383,17 @@ export const entities: Entity[] = [
   // dogfooding on the Surface app still starts from a clean tree.
   ...(process.env.NEXT_PUBLIC_ZERO_ELECTRON !== "1"
     ? ([
-        { id: "seed_space", kind: "space", title: "Space", parentId: ROOT_ID, taggedContextIds: [], accent: "#4A90E2" },
+        { id: "seed_space", kind: "space", title: "Space", parentId: ROOT_ID, taggedContextIds: [], color: "#4A90E2" },
         { id: "seed_task", kind: "task", title: "Task", parentId: ROOT_ID, taggedContextIds: [], completed: false },
-        { id: "seed_moment", kind: "moment", title: "Moment", parentId: ROOT_ID, taggedContextIds: [], accent: "#A855F7" },
-        { id: "seed_instant", kind: "instant", title: "Instant", parentId: ROOT_ID, taggedContextIds: [], accent: "#EC4899" },
+        { id: "seed_moment", kind: "moment", title: "Moment", parentId: ROOT_ID, taggedContextIds: [], color: "#A855F7" },
+        { id: "seed_instant", kind: "instant", title: "Instant", parentId: ROOT_ID, taggedContextIds: [], color: "#EC4899" },
         {
           id: "seed_edan",
           kind: "space",
           title: "Edan",
           parentId: ROOT_ID,
           taggedContextIds: [],
-          accent: "#F5A623",
+          color: "#F5A623",
         },
         {
           id: "r_matrix",
@@ -401,7 +401,7 @@ export const entities: Entity[] = [
           title: "Interaction Matrix",
           parentId: ROOT_ID,
           taggedContextIds: [],
-          accent: "#2ECC71",
+          color: "#2ECC71",
           completed: false,
           tags: [],
           webUrl: "/matrix-interactions",
@@ -411,7 +411,7 @@ export const entities: Entity[] = [
         // pages, each a Resource pointing at its route (webUrl). This is the
         // dogfooding HOME for Zero's own documentation: drill into "Zero" and every
         // doc reads as a normal entity you can open, pin, or right-click.
-        { id: "s_zero", kind: "space", title: "Zero", parentId: ROOT_ID, taggedContextIds: [], accent: ACCENT.zero },
+        { id: "s_zero", kind: "space", title: "Zero", parentId: ROOT_ID, taggedContextIds: [], color: ACCENT.zero },
         ...(
           [
             ["Features", "/features"],
@@ -432,7 +432,7 @@ export const entities: Entity[] = [
               title,
               parentId: "s_zero",
               taggedContextIds: [],
-              accent: ACCENT.zero,
+              color: ACCENT.zero,
               completed: false,
               tags: [],
               webUrl: url,
@@ -872,7 +872,7 @@ export function getSpace(id: string): Entity | undefined {
 export function getInheritedAccent(contextId: string | null): string | undefined {
   let current = contextId ? byId.get(contextId) : undefined
   while (current) {
-    if (current.kind === "space" && current.accent) return current.accent
+    if (current.kind === "space" && current.color) return current.color
     current = current.parentId ? byId.get(current.parentId) : undefined
   }
   return undefined
@@ -1027,9 +1027,9 @@ export function getFrequentEntities(opts?: {
     // ACCENT: the newest member that ACTUALLY carries one — NOT strictly `b.latest`, whose
     // accent may be undefined (a punched-in occurrence is created without a color, and being
     // newest would otherwise blank the tile dot). Falls back to any accented member.
-    const accent = b.members
-      .filter((m) => !!m.accent)
-      .sort((a, c) => (c.creationDate ?? 0) - (a.creationDate ?? 0))[0]?.accent
+  const accent = b.members
+    .filter((m) => !!m.color)
+    .sort((a, c) => (c.creationDate ?? 0) - (a.creationDate ?? 0))[0]?.color
     groups.push({
       key,
       kind: b.kind,
@@ -1838,7 +1838,7 @@ export function reopenOccurrence(id: string): boolean {
   const entity = mutable(stored)
   // Preserve the just-finished length as the default duration for the next Play (if not already set).
   if (sched.duration == null && endAt != null) sched.duration = Math.round((endAt - startAt) / 60000)
-  sched.occurrences = [...(sched.occurrences ?? []), { startedAt, endedAt }]
+  sched.occurrences = [...(sched.occurrences ?? []), { startedAt: startAt, endedAt: endAt }]
   delete sched.startDate // playable again = idle (no start); playability is kind-based now
   delete sched.endDate
   entity.schedule = sched
@@ -2333,7 +2333,7 @@ export function hydrateFromStorage(): boolean {
       changed = true
       const endAt = lastLogAt(entity) ?? e.startedAt
       if (endAt - e.startedAt <= MIN_SESSION_MS) continue // too short → drop
-      next.push({ ...e, endedAt })
+      next.push({ ...e, endedAt: endAt })
     }
     if (changed) entity.schedule = { ...entity.schedule, sessions: next }
   }
@@ -2652,7 +2652,7 @@ export function materializeOccurrence(seriesId: string, dayStart: number): Entit
     recurrenceId: dayStart,
     schedule: resolveOccurrenceSchedule(mother.schedule, dayStart),
     completed: false,
-    ...(mother.accent ? { accent: mother.accent } : {}),
+    ...(mother.color ? { color: mother.color } : {}),
     ...(mother.description ? { description: mother.description } : {}),
     ...(mother.tags ? { tags: [...mother.tags] } : {}),
     ...taskExtras,
@@ -2715,19 +2715,20 @@ export function addWebResource(input: {
   }
 
   /**
-   * Persist the fetched DISPLAYED TITLE (real webpage <title>) for a web resource. The
-   * entity's own `title` (the raw URL) is untouched — this only fills `webTitle`, the label
+   * Persist the fetched DISPLAY TITLE (real webpage <title>) for a web resource. The
+   * entity's own `title` (the raw URL) is untouched — this only fills `displayTitle`, the label
    * shown in ENTITY CONTENT + breadcrumb. No-op when unchanged so a re-fetch doesn't churn
-   * persistence. Mirrors the seeded/user split used by the other scalar setters.
+   * persistence. Mirrors the seeded/user split used by the other scalar setters. (Universal field
+   * since v0.2.228, but only auto-populated here in the URL case — see EntityBase.displayTitle.)
    */
   export function setWebTitle(id: string, webTitle: string): boolean {
   const stored = byId.get(id)
   if (!stored) return false
   const next = webTitle.trim()
-  if (!next || next === stored.webTitle) return false
-  mutable(stored).webTitle = next
+  if (!next || next === stored.displayTitle) return false
+  mutable(stored).displayTitle = next
   if (!userEntityIds.has(id)) {
-  seededOverrides.set(id, { ...seededOverrides.get(id), webTitle: next })
+  seededOverrides.set(id, { ...seededOverrides.get(id), displayTitle: next })
   }
   persist()
   return true
@@ -3062,7 +3063,7 @@ export function applyParsedSchedule(id: string, plan: ScheduleParse): boolean {
   if (plan.kind === "instant") {
     // Zero-duration point: at === startAt === endAt (uniform with setEntityScheduleField's
     // instant normalization), so it renders as a dayline point and never reads ongoing.
-    entity.schedule = { at: startAt, startDate, endDate: startAt, ...(repeat ? { repeat } : {}) }
+    entity.schedule = { at: startAt, startDate: startAt, endDate: startAt, ...(repeat ? { repeat } : {}) }
   } else if (plan.kind === "moment" || plan.kind === "space") {
     if (plan.kind === "space") {
       entity.description = entity.description ?? ""
@@ -3077,7 +3078,7 @@ export function applyParsedSchedule(id: string, plan: ScheduleParse): boolean {
       }
     } else {
       const durMin = plan.durationMinutes ?? 60
-      entity.schedule = { startDate, endDate: startAt + durMin * 60_000, ...(repeat ? { repeat } : {}) }
+      entity.schedule = { startDate: startAt, endDate: startAt + durMin * 60_000, ...(repeat ? { repeat } : {}) }
     }
   } else {
     // task: keep it a task, but attach timing. A recurring task carries the repeat rule;
@@ -3119,14 +3120,14 @@ export function setEntityRequested(id: string, requested: boolean): void {
 
 /**
  * Set (or CLEAR) a single absolute time field on an entity's schedule, in place. This is
- * the write-side of the create-field self-setters (`:start:`/`:end:` → startAt/endAt).
+ * the write-side of the create-field self-setters (`:start:`/`:end:` → startDate/endDate).
  * Passing `null` removes that field; all OTHER schedule fields are preserved (so setting
  * start doesn't wipe end). If the entity had no schedule yet, one is created. Returns
- * true when the entity existed.
+ * true when the entity existed. The `field` key doubles as the log field name.
  */
 export function setEntityScheduleField(
   id: string,
-  field: "startAt" | "endAt" | "at" | "dueDate",
+  field: "startDate" | "endDate" | "at" | "dueDate",
   epoch: number | null,
   ): boolean {
   const stored = byId.get(id)
@@ -3207,11 +3208,11 @@ export function setEntityScheduleField(
   const stored = byId.get(id)
   if (!stored) return false
   const entity = mutable(stored)
-  if (hex == null) delete entity.accent
-  else entity.accent = hex
+  if (hex == null) delete entity.color
+  else entity.color = hex
   logSet(entity, "color", hex)
   if (!userEntityIds.has(id)) {
-  seededOverrides.set(id, { ...seededOverrides.get(id), accent: hex ?? undefined })
+  seededOverrides.set(id, { ...seededOverrides.get(id), color: hex ?? undefined })
   }
   persist()
   return true
@@ -3313,15 +3314,15 @@ export function autoTagByTitle(
   const links = new Set(entity.taggedContextIds ?? [])
   for (const m of matched) links.add(m.id)
   entity.taggedContextIds = [...links]
-  if (opts.inheritAccent && entity.accent == null) {
-    const inherited = matched[0].accent ?? getInheritedAccent(matched[0].id)
-    if (inherited) entity.accent = inherited
+  if (opts.inheritAccent && entity.color == null) {
+    const inherited = matched[0].color ?? getInheritedAccent(matched[0].id)
+    if (inherited) entity.color = inherited
   }
   if (!userEntityIds.has(newId)) {
     seededOverrides.set(newId, {
       ...seededOverrides.get(newId),
       taggedContextIds: entity.taggedContextIds,
-      accent: entity.accent,
+      color: entity.color,
     })
   }
   persist()

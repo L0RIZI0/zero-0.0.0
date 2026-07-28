@@ -452,7 +452,7 @@ export function parseCreateField(raw: string): CreateFieldParse | null {
     title,
     kind,
     completed,
-    schedule: { startDate, endDate, ...(repeat ? { repeat } : {}) },
+    schedule: { startDate: startAt, endDate: endAt, ...(repeat ? { repeat } : {}) },
     summary: `${label}${completed ? " logged" : ""} · ${fmt(time.start)}–${fmt(time.end)}${recurSuffix}`,
   }
 }

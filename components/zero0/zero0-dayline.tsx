@@ -27,7 +27,7 @@ function daylineLabel(entity: Entity, at: number): string {
     return webLabel({
       webUrl: entity.webUrl,
       webResourceId: entity.webResourceId,
-      webTitle: entity.webTitle,
+      webTitle: entity.displayTitle,
       title: entity.title,
     }).display
   }
@@ -221,13 +221,13 @@ const DYNAMIC_PLANNED_OPACITY = false
 function paintFor(entityId: string): { fill: string; stroke: string | null } {
   const e = getEntity(entityId)
   const isRoot = entityId === ROOT_ID
-  const own = e?.accent ?? getInheritedAccent(e?.parentId ?? null)
+  const own = e?.color ?? getInheritedAccent(e?.parentId ?? null)
   const fill = own ?? (isRoot ? DEFAULT_PRESENCE : NEUTRAL)
 
   // Walk ancestors (from the parent up) to (a) detect a Space container and (b) resolve
   // the parent's display color for the hairline.
   const parent = e?.parentId ? getEntity(e.parentId) : undefined
-  const parentColor = parent ? (parent.accent ?? getInheritedAccent(parent.parentId)) : undefined
+  const parentColor = parent ? (parent.color ?? getInheritedAccent(parent.parentId)) : undefined
   let cursor = parent
   let inSpace = false
   while (cursor) {

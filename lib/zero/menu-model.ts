@@ -60,7 +60,7 @@ export type MenuItem =
  *  `color:<hex>` action id via {@link applyEntityMenuAction} (`setEntityAccent`); `color:clear`
  *  removes the accent. Kept here so the DOM menu + native overlay share it. */
 function buildColorSubmenu(entity: Entity): MenuItem {
-  const current = entity.accent?.toLowerCase()
+  const current = entity.color?.toLowerCase()
   const items: MenuItem[] = [
     { type: "colorInput", current },
     { type: "divider" },

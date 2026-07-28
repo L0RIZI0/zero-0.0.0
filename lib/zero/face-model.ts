@@ -514,7 +514,7 @@ export function getFaceModel(e: Entity, now: number): FaceModel {
   // with the full title+URL in a hover tooltip. Curated human names stay full. Non-web entities
   // keep their title verbatim.
   const web = e.webUrl
-    ? webLabel({ webUrl: e.webUrl, webResourceId: e.webResourceId, webTitle: e.webTitle, title: e.title })
+    ? webLabel({ webUrl: e.webUrl, webResourceId: e.webResourceId, webTitle: e.displayTitle, title: e.title })
     : null
   const title = web ? web.display : e.title
   return {
@@ -542,7 +542,7 @@ export function getFaceModel(e: Entity, now: number): FaceModel {
     // separately): e.g. "done, ongoing, open" / "complete" / "ongoing, open, requested".
     stateLabel: `${done ? "done, " : ""}${ongoingNow ? "ongoing, " : ""}${lifeLabel}${requested ? ", requested" : ""}`,
     metaEcho: metaEcho(e, now),
-    accent: e.accent,
+    accent: e.color,
   }
 }
 
@@ -779,16 +779,16 @@ export interface PlannedOccurrence {
 
 /** Does a session span overlap a planned occurrence's window? Open-ended occ ⇒ [start, ∞). */
 function sessionOverlapsOccurrence(
-  se: { startAt: number; endAt?: number },
+  se: { startedAt: number; endedAt?: number },
   occStart: number | undefined,
   occEnd: number | undefined,
   now: number,
-): boolean {
+  ): boolean {
   if (occStart == null && occEnd == null) return false // nothing to overlap
-  const seEnd = se.endAt ?? now // an open session counts live to now
+  const seEnd = se.endedAt ?? now // an open session counts live to now
   const lo = occStart ?? -Infinity
   const hi = occEnd ?? Infinity
-  return se.startAt < hi && seEnd > lo
+  return se.startedAt < hi && seEnd > lo
 }
 
 /**
@@ -803,7 +803,7 @@ function sessionOverlapsOccurrence(
  */
 export function occurrenceStatus(
   occ: PlannedOccurrence,
-  sessions: { startAt: number; endAt?: number }[],
+  sessions: { startedAt: number; endedAt?: number }[],
   now: number,
 ): OccurrenceStatus {
   if (occ.cancelled) return "cancelled"
@@ -1042,7 +1042,7 @@ export function getFaceMetaRows(e: Entity, now: number): [string, string][] {
   }
   // ACCENT — only when set (via `:color:`). The value is the raw hex; the dt cell
   // paints a matching swatch so the raw-data view still shows the color itself.
-  if (e.accent) rows.push(["color", e.accent])
+  if (e.color) rows.push(["color", e.color])
   // BORN — an Individual's confirmed birthday (the `bornAt` field): the source of truth for the
   // `alive` state and the age above. Always shown (— when unset), like SEX. A past value ⇒ alive;
   // a future one ⇒ still "expected". Individual-only.

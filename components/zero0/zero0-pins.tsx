@@ -416,7 +416,7 @@ export function Zero0Pins({
  *  else uses the entity's own `title`. */
 function chipLabel(e: Entity): string {
   return e.webUrl
-    ? webLabel({ webUrl: e.webUrl, webResourceId: e.webResourceId, webTitle: e.webTitle, title: e.title }).display
+    ? webLabel({ webUrl: e.webUrl, webResourceId: e.webResourceId, webTitle: e.displayTitle, title: e.title }).display
     : e.title
 }
 
@@ -424,7 +424,7 @@ function chipLabel(e: Entity): string {
  *  whole web title even though the visible chip is cropped, exactly like ENTITY CONTENT. */
 function chipFullLabel(e: Entity): string {
   return e.webUrl
-    ? webLabel({ webUrl: e.webUrl, webResourceId: e.webResourceId, webTitle: e.webTitle, title: e.title }).full
+    ? webLabel({ webUrl: e.webUrl, webResourceId: e.webResourceId, webTitle: e.displayTitle, title: e.title }).full
     : e.title
 }
 
@@ -446,7 +446,7 @@ function PinChip({
   const { entity: e, ongoing, focused, timer, notify, notifyText } = item
   const label = chipLabel(e) // cropped — what's shown on the chip
   const fullLabel = chipFullLabel(e) // uncropped — for the hover tooltip
-  const accent = e.accent ?? getInheritedAccent(e.parentId) ?? (isSleepTitle(e.title) ? sleepDotColor : undefined)
+  const accent = e.color ?? getInheritedAccent(e.parentId) ?? (isSleepTitle(e.title) ? sleepDotColor : undefined)
   const tint = accent ?? "var(--muted-foreground)"
   // GLYPH readability (v0.2.147) — an accent picked for its HUE can sit too close to the
   // background lightness (a dark purple on dark mode, a pale color on light mode), so the small

@@ -51,7 +51,7 @@ function kindOf(id: string): EntityKind {
  */
 function accentOf(id: string): string | undefined {
   const e = getEntity(id)
-  return e?.accent ?? getInheritedAccent(e?.parentId ?? null)
+  return e?.color ?? getInheritedAccent(e?.parentId ?? null)
 }
 
 /** Title a place had AT `epoch` — folds titleLog so a past segment reads with its name
