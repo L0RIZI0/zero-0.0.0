@@ -219,6 +219,106 @@ function Zero0CloseButton({
   )
 }
 
+// WEB-SURFACE SEAM SHADOW — a soft, EASED penumbra painted along the BOTTOM of whatever frame
+// sits directly on top of the native web surface (§0 when the entity header is shown over a web
+// leaf, else §1 the zero header). The native surface is an OS layer composited OVER Zero's DOM
+// within the content rect, so a real downward box-shadow onto the page is impossible — instead we
+// paint this gradient INSIDE the frame's own airspace (which the surface does NOT cover), pinned
+// to its bottom edge, so it reads as the web rect tucked under the frame's lip. Tall + many-stop
+// (ease-out distribution) so it's an elegant graduated shadow, not a hard band; legible in both
+// themes. pointer-events-none so it never eats clicks meant for the page.
+const WEB_SEAM_SHADOW_H = 26
+const WEB_SEAM_SHADOW_BG =
+  "linear-gradient(to top," +
+  " rgba(0,0,0,0.32) 0%, rgba(0,0,0,0.25) 14%, rgba(0,0,0,0.175) 30%," +
+  " rgba(0,0,0,0.11) 48%, rgba(0,0,0,0.06) 66%, rgba(0,0,0,0.025) 82%," +
+  " rgba(0,0,0,0.007) 92%, rgba(0,0,0,0) 100%)"
+
+function Zero0WebSeamShadow() {
+  return (
+    <div
+      aria-hidden
+      className="pointer-events-none absolute inset-x-0 bottom-0 z-10"
+      style={{ height: WEB_SEAM_SHADOW_H, background: WEB_SEAM_SHADOW_BG }}
+    />
+  )
+}
+
+// THE §0 ENTITY HEADER (Face at full size + collapsible life LOG + the §0 frame marker), factored
+// out so it renders identically in a normal ContextPane AND standalone above a web leaf's surface.
+// Owns only its own `logExpanded` toggle. `seamShadow` paints the web-seam penumbra at its bottom
+// (used when this header is the frame directly above a web rect).
+function Zero0EntityHeaderBlock({
+  entity,
+  isRootLevel,
+  nowSec,
+  onToggleDone,
+  onTogglePlay,
+  onMark,
+  onContextMenu,
+  onClose,
+  seamShadow = false,
+}: {
+  entity: Entity
+  isRootLevel: boolean
+  nowSec: number
+  onToggleDone: (e: Entity) => void
+  onTogglePlay: (e: Entity) => void
+  onMark: (e: Entity) => void
+  onContextMenu: (e: Entity, ev: React.MouseEvent) => void
+  onClose: (e: Entity) => void
+  seamShadow?: boolean
+}) {
+  const [logExpanded, setLogExpanded] = useState(false)
+  return (
+    <section className="relative border-b border-border px-4 py-3">
+      <Zero0Face
+        entity={entity}
+        size="full"
+        now={nowSec}
+        onToggleDone={onToggleDone}
+        onTogglePlay={onTogglePlay}
+        onMark={onMark}
+        onContextMenu={onContextMenu}
+        trailing={
+          !isRootLevel ? (
+            <Zero0CloseButton className="ml-auto" onClick={() => onClose(entity)} />
+          ) : undefined
+        }
+      />
+      {entity.log && entity.log.length > 0 && (
+        <div className="mt-3 border-t border-border pt-2">
+          <button
+            type="button"
+            onClick={() => setLogExpanded((v) => !v)}
+            aria-expanded={logExpanded}
+            className="flex items-center gap-1.5 text-[10px] uppercase tracking-widest text-muted-foreground hover:text-foreground"
+          >
+            <span aria-hidden className="inline-block w-2 text-center">{logExpanded ? "▾" : "▸"}</span>
+            <span>log</span>
+            <span className="tracking-normal normal-case opacity-70">{`(${entity.log.length})`}</span>
+          </button>
+          {logExpanded && (
+            <ol className="mt-1 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-[10px] tabular-nums">
+              {entity.log.map((entry, i) => (
+                <li key={entry.id ?? i} className="contents">
+                  <span className="shrink-0 text-muted-foreground">
+                    {entry.id != null && <span className="mr-1.5 opacity-40">{`#${entry.id}`}</span>}
+                    {fmt(entry.at)}
+                  </span>
+                  <span className="truncate text-foreground">{describeLogEntry(entry, fmtLogValue)}</span>
+                </li>
+              ))}
+            </ol>
+          )}
+        </div>
+      )}
+      <Zero0FrameMarker flag="entityHeader" label="the entity header" />
+      {seamShadow && <Zero0WebSeamShadow />}
+    </section>
+  )
+}
+
 // ONE CONTEXT LEVEL of the drill-in stack — the §0 entity header (Face + life log) plus the
 // recursive ENTITY CONTENT, in its OWN scroll container. The canvas renders one of these per
 // non-web level of `path`, wrapping each in <Activity> so ANCESTOR levels stay mounted-hidden
@@ -253,7 +353,6 @@ function Zero0ContextPane({
   onContextMenu: (e: Entity, ev: React.MouseEvent) => void
   onClose: (e: Entity) => void
 }) {
-  const [logExpanded, setLogExpanded] = useState(false)
   return (
     <div
       className="min-h-0 flex-1 overflow-auto"
@@ -266,50 +365,16 @@ function Zero0ContextPane({
           inert={!showEntityHeader}
         >
           <div className="overflow-hidden">
-            <section className="relative border-b border-border px-4 py-3">
-              <Zero0Face
-                entity={entity}
-                size="full"
-                now={nowSec}
-                onToggleDone={onToggleDone}
-                onTogglePlay={onTogglePlay}
-                onMark={onMark}
-                onContextMenu={onContextMenu}
-                trailing={
-                  !isRootLevel ? (
-                    <Zero0CloseButton className="ml-auto" onClick={() => onClose(entity)} />
-                  ) : undefined
-                }
-              />
-              {entity.log && entity.log.length > 0 && (
-                <div className="mt-3 border-t border-border pt-2">
-                  <button
-                    type="button"
-                    onClick={() => setLogExpanded((v) => !v)}
-                    aria-expanded={logExpanded}
-                    className="flex items-center gap-1.5 text-[10px] uppercase tracking-widest text-muted-foreground hover:text-foreground"
-                  >
-                    <span aria-hidden className="inline-block w-2 text-center">{logExpanded ? "▾" : "▸"}</span>
-                    <span>log</span>
-                    <span className="tracking-normal normal-case opacity-70">{`(${entity.log.length})`}</span>
-                  </button>
-                  {logExpanded && (
-                    <ol className="mt-1 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-[10px] tabular-nums">
-                      {entity.log.map((entry, i) => (
-                        <li key={entry.id ?? i} className="contents">
-                          <span className="shrink-0 text-muted-foreground">
-                            {entry.id != null && <span className="mr-1.5 opacity-40">{`#${entry.id}`}</span>}
-                            {fmt(entry.at)}
-                          </span>
-                          <span className="truncate text-foreground">{describeLogEntry(entry, fmtLogValue)}</span>
-                        </li>
-                      ))}
-                    </ol>
-                  )}
-                </div>
-              )}
-              <Zero0FrameMarker flag="entityHeader" label="the entity header" />
-            </section>
+            <Zero0EntityHeaderBlock
+              entity={entity}
+              isRootLevel={isRootLevel}
+              nowSec={nowSec}
+              onToggleDone={onToggleDone}
+              onTogglePlay={onTogglePlay}
+              onMark={onMark}
+              onContextMenu={onContextMenu}
+              onClose={onClose}
+            />
           </div>
         </div>
       )}
@@ -1898,28 +1963,12 @@ export function Zero0Canvas() {
             )}
           </dl>
         )}
-        {/* SEAM SHADOW (web view only) — a 10px INTERNAL shadow along the BOTTOM of this header,
-            the frame that sits directly on top of the web surface. The native web surface is an OS
-            layer composited OVER Zero's DOM within the content-area rect, so nothing painted at the
-            content-area's top edge would show (it renders UNDER the surface). This gradient instead
-            lives in the header's own airspace — which the surface does NOT cover — pinned to its
-            bottom edge, so it reads as the embedded page tucked UNDER the header lip. A real 10px
-            gradient (not a box-shadow) so it's clearly visible in BOTH themes, unlike the old
-            near-invisible dark-on-dark upward box-shadow. pointer-events-none so it never eats clicks. */}
-        {mounted && context?.webUrl && (
-          <div
-            aria-hidden
-            className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-[14px]"
-            // A soft EASED penumbra (not a flat 2-stop ramp): dense at the seam, with a long gentle
-            // tail fading up into the header — the stop distribution approximates an ease-out curve so
-            // it reads as a real drop shadow cast by the web rect tucked under the header lip, not a
-            // hard band. Peak kept modest for elegance; still legible over the near-black dark header.
-            style={{
-              background:
-                "linear-gradient(to top, rgba(0,0,0,0.34) 0%, rgba(0,0,0,0.24) 22%, rgba(0,0,0,0.15) 44%, rgba(0,0,0,0.08) 64%, rgba(0,0,0,0.03) 82%, rgba(0,0,0,0) 100%)",
-            }}
-          />
-        )}
+        {/* SEAM SHADOW (web view, §0 HIDDEN) — when the entity header (§0) is NOT shown, the zero
+            header (§1) is the frame directly on top of the web surface, so the seam shadow lives at
+            ITS bottom edge. When §0 IS shown it renders below §1 and carries the shadow instead (see
+            the web-view block). See Zero0WebSeamShadow for why this is a gradient in-airspace, not a
+            box-shadow onto the (natively-composited) page. */}
+        {mounted && context?.webUrl && !showEntityHeader && <Zero0WebSeamShadow />}
         <Zero0FrameMarker flag="zeroHeader" label="the zero header" />
       </header>
       </Zero0Frame>
@@ -1974,18 +2023,43 @@ export function Zero0Canvas() {
             )
           })}
         {mounted && context?.webUrl && (
-          <div
-            className="absolute inset-0 min-h-0 overflow-hidden"
-            onContextMenu={(ev) => openMenu(context, ev)}
-          >
-            <Zero0ResourceCanvas
-              key={context.id}
-              id={context.id}
-              url={context.webUrl}
-              resourceId={context.webResourceId}
-              envKey={getEnvKey(context.id)}
-            />
-          </div>
+          <>
+            {/* §0 OVER WEB — the resource's OWN entity header, shown in normal flow ABOVE the web
+                rect when the §0 flag is on (chord `§0` / footer toggles it). It's `shrink-0` so it
+                keeps its natural height and the surface below takes the rest; hiding §0 grows the
+                rect. Face-header ONLY (no child ENTITY CONTENT list — the web page IS the content).
+                Carries the seam shadow at its bottom since it's now the frame on top of the rect. */}
+            {showEntityHeader && (
+              <div className="shrink-0">
+                <Zero0EntityHeaderBlock
+                  entity={context}
+                  isRootLevel={path.length <= 1}
+                  nowSec={nowSec}
+                  onToggleDone={toggleDone}
+                  onTogglePlay={togglePlay}
+                  onMark={mark}
+                  onContextMenu={openMenu}
+                  onClose={closeContext}
+                  seamShadow
+                />
+              </div>
+            )}
+            {/* The native web surface fills the REMAINING space below §0 (or the whole content area
+                when §0 is hidden). `relative flex-1` (not absolute) so it's a real flex item whose
+                rect shrinks/grows as §0 toggles — the native desktop view tracks THIS rect. */}
+            <div
+              className="relative min-h-0 flex-1 overflow-hidden"
+              onContextMenu={(ev) => openMenu(context, ev)}
+            >
+              <Zero0ResourceCanvas
+                key={context.id}
+                id={context.id}
+                url={context.webUrl}
+                resourceId={context.webResourceId}
+                envKey={getEnvKey(context.id)}
+              />
+            </div>
+          </>
         )}
       </div>
 
