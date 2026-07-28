@@ -974,7 +974,7 @@ export function Zero0Canvas() {
           // `--at` maps to startAt (not the `at` point anchor): any kind can be planned, so
           // `--at` plans the entity's START. On an INSTANT, setEntityScheduleField still
           // collapses startAt/endAt/at to the one epoch, so a point is unaffected.
-          const key = ({ start: "startAt", end: "endAt", at: "startAt", due: "dueAt" } as const)[attr.field]
+          const key = ({ start: "startAt", end: "endAt", at: "startAt", due: "dueDate" } as const)[attr.field]
           // NOTE: `--start:whenever` is GONE (v0.7). Playability no longer rides on a startAt
           // sentinel — every idle {idea,task,resource,moment,space} is playable by kind, so
           // there's nothing to opt into. `--start` now only accepts a concrete time (or clear).
@@ -1164,8 +1164,8 @@ export function Zero0Canvas() {
     // 23:30 → 06:30) means "the next day" — bump the end forward 24h so the span is real.
     const fresh = getEntity(created.id)
     if (fresh && fresh.kind === "moment") {
-      const st = fresh.schedule?.startAt
-      const en = fresh.schedule?.endAt
+      const st = fresh.schedule?.startDate
+      const en = fresh.schedule?.endDate
       // Only a CONCRETE start can form a cross-midnight span ("whenever" has no time).
       if (typeof st === "number" && en != null && en <= st) {
         setEntityScheduleField(created.id, "endAt", en + 86_400_000)

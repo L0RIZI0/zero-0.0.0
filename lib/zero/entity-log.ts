@@ -7,7 +7,7 @@
  * boolean scalars. See the "entity log model" memory / spec for the full plan.
  *
  * Every derive helper reads `entity.log` IF PRESENT and otherwise FALLS BACK to the
- * existing scalar fields (`createdAt`, `completed`, `completedOn`, `closed`/`closedOn`,
+ * existing scalar fields (`creationDate`, `completed`, `completedOn`, `closed`/`closedOn`,
  * `reopened`/`reopenedOn`, `createdBy`, `createdWhere`), so entities that predate the
  * log — or seeded entities that never persist one — stay correct.
  *
@@ -152,9 +152,9 @@ export function isCancelled(entity: Entity): boolean {
   return !!entity.cancelled
 }
 
-/** Birth time. Log: first `created`.at; else the scalar `createdAt`. */
+/** Birth time. Log: first `created`.at; else the scalar `creationDate`. */
 export function getCreatedAt(entity: Entity): Epoch | undefined {
-  return firstEntry(entity, "created")?.at ?? entity.createdAt
+  return firstEntry(entity, "created")?.at ?? entity.creationDate
 }
 
 /** Creator id. Log: first `created`.by; else the scalar `createdBy`. */
@@ -286,21 +286,21 @@ export function describeLogEntry(
  * `at` so `created` comes first.
  *
  * `cancelled` folds in via `cancelledOn` (Phase 2b); entities cancelled BEFORE that
- * scalar existed have no real time, so this approximates them at `createdAt`. The
+ * scalar existed have no real time, so this approximates them at `creationDate`. The
  * terminal `retired`/`died` states fold from `retiredOn`/`diedOn` (per-kind fields).
  */
 export function buildLogFromScalars(entity: Entity): Instant[] {
   const log: Instant[] = []
   // Terminal timestamps live on per-kind interfaces, not EntityBase.
   const term = entity as { retiredOn?: Epoch; diedOn?: Epoch }
-  const createdAt = entity.createdAt ?? entity.completedOn ?? Date.now()
-  log.push(makeInstant("created", createdAt, { by: entity.createdBy, where: entity.createdWhere }))
+  const creationDate = entity.creationDate ?? entity.completedOn ?? Date.now()
+  log.push(makeInstant("created", creationDate, { by: entity.createdBy, where: entity.createdWhere }))
   if (entity.completed && entity.completedOn != null) log.push(makeInstant("done", entity.completedOn))
   if (entity.complete && entity.completeOn != null) log.push(makeInstant("completed", entity.completeOn))
   if (entity.closed && entity.closedOn != null) log.push(makeInstant("closed", entity.closedOn))
   if (entity.reopened && entity.reopenedOn != null) log.push(makeInstant("reopened", entity.reopenedOn))
   // Cancelled: use its timestamp when known, else approximate at creation time.
-  if (entity.cancelled) log.push(makeInstant("cancelled", entity.cancelledOn ?? createdAt))
+  if (entity.cancelled) log.push(makeInstant("cancelled", entity.cancelledOn ?? creationDate))
   if (term.retiredOn != null) log.push(makeInstant("retired", term.retiredOn))
   if (term.diedOn != null) log.push(makeInstant("died", term.diedOn))
   // Sort chronologically THEN seal ids (1..n in that order) — these entries were built by direct
@@ -419,17 +419,17 @@ export function deriveSessionsFromLog(
   // splice shifts later indices.
   const closeAt = (idx: number, at: number) => {
     const s = out[idx]
-    if (at - s.startAt <= minSessionMs) {
+    if (at - s.startedAt <= minSessionMs) {
       out.splice(idx, 1)
       if (st.focusIdx != null && st.focusIdx > idx) st.focusIdx--
       if (st.ongoing != null && st.ongoing.idx > idx) st.ongoing.idx--
     } else {
-      s.endAt = at
+      s.endedAt = at
     }
   }
   const openOngoing = (at: number, flavor: "auto" | "remote") => {
     if (st.ongoing != null) return // absorption: one ongoing at a time
-    const s: Session = { startAt: at, via: "play" }
+    const s: Session = { startedAt: at, via: "play" }
     if (flavor === "auto") s.auto = true
     out.push(s)
     st.ongoing = { idx: out.length - 1, flavor }
@@ -444,7 +444,7 @@ export function deriveSessionsFromLog(
   for (const e of log) {
     switch (e.type) {
       case "accessed":
-        out.push({ startAt: e.at, via: "focus" })
+        out.push({ startedAt: e.at, via: "focus" })
         st.focusIdx = out.length - 1
         if (ongoingOnEnter && !st.blocked) openOngoing(e.at, "auto")
         break
@@ -490,7 +490,7 @@ export function deriveSessionsFromLog(
         st.blocked = false
         break
       case "mark":
-        out.push({ startAt: e.at, endAt: e.at, via: "mark" })
+        out.push({ startedAt: e.at, endedAt: e.at, via: "mark" })
         break
     }
   }

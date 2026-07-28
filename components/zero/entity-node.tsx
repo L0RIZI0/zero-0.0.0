@@ -668,7 +668,7 @@ export function EntityNode({
   const openCount = getOpenTaskCount(entityId)
 
   const sched = entity.schedule
-  const hasRange = typeof sched?.startAt === "number" && typeof sched?.endAt === "number"
+  const hasRange = typeof sched?.startDate === "number" && typeof sched?.endDate === "number"
   const hasMoment = typeof sched?.at === "number"
   const cancelled = !!entity.cancelled
 
@@ -1796,9 +1796,9 @@ export function EntityNode({
               )}
               {hasRange && (
                 <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground/70">
-                  {fmtTime(typeof sched!.startAt === "number" ? sched!.startAt : 0)}
+                  {fmtTime(typeof sched!.startDate === "number" ? sched!.startDate : 0)}
                   {"\u2013"}
-                  {fmtTime(sched!.endAt!)}
+                  {fmtTime(sched!.endDate!)}
                 </span>
               )}
               {kind === "instant" && hasMoment && (
@@ -1806,12 +1806,12 @@ export function EntityNode({
                   {fmtMoment(sched!.at!)}
                 </span>
               )}
-              {isTask && typeof sched?.dueAt === "number" && (
+              {isTask && typeof sched?.dueDate === "number" && (
                 <span
                   suppressHydrationWarning
                   className="shrink-0 text-[11px] tabular-nums text-muted-foreground/70"
                 >
-                  {fmtDue(sched.dueAt, mounted)}
+                  {fmtDue(sched.dueDate, mounted)}
                 </span>
               )}
               {isTask && (

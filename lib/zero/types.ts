@@ -198,8 +198,8 @@ export interface Instant {
   /** Place id or label ("where"), when known. */
   where?: string
   /**
-   * For a `set` entry: WHICH field was assigned (e.g. "title", "color", "startAt",
-   * "endAt", "at", "dueAt", "requested", "kind", "sex"). Absent on lifecycle entries.
+   * For a `set` entry: WHICH field was assigned (e.g. "title", "color", "startDate",
+   * "endDate", "at", "dueDate", "priority", "requested", "kind", "sex"). Absent on lifecycle entries.
    */
   field?: string
   /**
@@ -238,37 +238,42 @@ export interface Recurrence {
  * `schedule` is the single "is this entity scheduled?" check. Every field is
  * optional and relevant to different kinds:
  *
- *   - moment  → `startAt` + `endAt` (a contiguous span).
+ *   - moment  → `startDate` + `endDate` (a contiguous span).
  *   - instant → `at` (a single point in time).
- *   - task    → `dueAt` (a deadline) and/or `timebox` (effort budget).
+ *   - task    → `dueDate` (a deadline) and/or `timebox` (effort budget).
+ *
+ * As of v0.2.228 the PLANNED date fields (`startDate`/`endDate`/`dueDate`/`at`) are UNIVERSAL —
+ * any entity may carry any of them (nothing forbids it yet). RECORDED times live elsewhere:
+ * `sessions[]`/`occurrences[]` use `startedAt`/`endedAt`.
  *
  * `duration` vs `timebox` are intentionally distinct:
- *   - `duration` is the length of a CONTIGUOUS block (usually `endAt - startAt`).
+ *   - `duration` is the length of a CONTIGUOUS block (usually `endDate - startDate`).
  *   - `timebox` is a planned EFFORT BUDGET in minutes that may be spread across
  *     many separate sessions (e.g. "spend 5h on this over the week"), so it is
  *     independent of any single start/end.
  */
 /**
- * The special `startAt` value **"whenever"** — a first-class sentinel meaning
+ * The special `startDate` value **"whenever"** — a first-class sentinel meaning
  * "a real, trackable thing that has NO fixed clock time." It is deliberately
  * distinct from BOTH `undefined` (genuinely unscheduled) AND a concrete epoch
 /**
- * One tracked work SESSION: a punch-in (`startAt`) and, once closed, a punch-out
- * (`endAt`). The LAST session missing `endAt` is the single OPEN/ongoing session.
- * Two sources open sessions:
+ * One tracked work SESSION: a punch-in (`startedAt`) and, once closed, a punch-out
+ * (`endedAt`). The LAST session missing `endedAt` is the single OPEN/ongoing session.
+ * These are RECORDED facts (past tense) — distinct from the entity's PLANNED dates
+ * (`startDate`/`endDate`/`dueDate`/`at` on {@link Schedule}). Two sources open sessions:
  *   - FOCUS (tasks): drilling into a Task past a dwell threshold opens one; leaving
  *     the active path closes it. So a Task reads `ongoing` everywhere purely from
  *     "has an open session", with no dependency on the current view.
    *   - PLAY (any playable kind — idea/task/resource/moment/space): the glyph Play/Stop toggles one.
    */
 export interface Session {
-  /** Punch-in, epoch ms. */
-  startAt: Epoch
+  /** Punch-in, epoch ms (RECORDED). */
+  startedAt: Epoch
   /** Punch-out, epoch ms. Absent ⇒ this session is still OPEN (ongoing). */
-  endAt?: Epoch
+  endedAt?: Epoch
   /** VIA — how the session was opened ("focus" = dwelling in a Task, "play" = a
    *  glyph stopwatch, "mark" = an INSTANT occurrence tally — a zero-length entry where
-   *  `endAt === startAt`, never open). Lets hydrate-cleanup close dangling FOCUS sessions
+   *  `endedAt === startedAt`, never open). Lets hydrate-cleanup close dangling FOCUS sessions
    *  on reload while leaving PLAY stopwatches running (marks are always closed, so untouched).
    *  Absent ⇒ "focus". */
   via?: "focus" | "play" | "mark"
@@ -283,16 +288,17 @@ export interface Session {
 
 export interface Schedule {
   /**
-   * Contiguous span start (moments, timed blocks). Absent = unplanned; playability no
-   * longer rides on startAt (it's derived from KIND + idle — see isPlayable in kinds.ts).
+   * PLANNED contiguous span start (moments, timed blocks). Absent = unplanned; playability no
+   * longer rides on startDate (it's derived from KIND + idle — see isPlayable in kinds.ts).
+   * Renamed from `startAt` (v0.2.228) — a PLAN date, distinct from a recorded session `startedAt`.
    */
-  startAt?: Epoch
-  /** Contiguous span end. */
-  endAt?: Epoch
-  /** A single point in time (instants). */
+  startDate?: Epoch
+  /** PLANNED contiguous span end. Renamed from `endAt`. */
+  endDate?: Epoch
+  /** A single point in time (instants). For an instant, START/END/DUE all equal this. */
   at?: Epoch
-  /** Deadline (tasks). Was the free-text `dueDate`; now machine-readable. */
-  dueAt?: Epoch
+  /** PLANNED deadline (tasks). Renamed from `dueDate` (originally the free-text `dueDate`). */
+  dueDate?: Epoch
   /** Length of a contiguous block, in MINUTES. */
   duration?: number
   /** Effort budget in MINUTES, independent of when it happens (may span sessions). */
@@ -301,28 +307,31 @@ export interface Schedule {
    * MULTI-BLOCK days (D4): more than one within-day span, e.g. Day Job 8:00–11:30
    * AND 13:30–18:00. Stored as absolute times on the ANCHOR day; for a recurring
    * schedule the expander shifts each block's time-of-day onto every matching day.
-   * Absent = single span (the `startAt`/`endAt` path, unchanged). When present,
-   * `startAt`/`endAt` mirror the FIRST/LAST block so existing single-span readers
+   * Absent = single span (the `startDate`/`endDate` path, unchanged). When present,
+   * `startDate`/`endDate` mirror the FIRST/LAST block so existing single-span readers
    * (duration, sorting, bounds) keep working without knowing about blocks.
+   * NOTE: a block is part of the PLAN (a planned sub-span), so it keeps `startAt`/`endAt`,
+   * NOT the recorded `startedAt`/`endedAt` of sessions/occurrences.
    */
   blocks?: { startAt: Epoch; endAt: Epoch }[]
   /**
    * Tracked work sessions — the CANONICAL store of punch-ins/outs (see {@link Session}).
-   * The last entry missing `endAt` is the one OPEN session. Mirrors the `blocks`
-   * convention: when present, scalar `startAt`/`endAt` mirror the FIRST session's start
+   * The last entry missing `endedAt` is the one OPEN session. Mirrors the `blocks`
+   * convention: when present, scalar `startDate`/`endDate` mirror the FIRST session's start
    * and the LAST session's end so existing single-span readers keep working. The
    * append-only log is a SECONDARY audit trail, never the source of truth.
    */
   sessions?: Session[]
   /**
-   * ARCHIVED OCCURRENCES �� the history of when this thing actually HAPPENED (top rail), distinct
+   * ARCHIVED OCCURRENCES — the history of when this thing actually HAPPENED (top rail), distinct
    * from `sessions` (how long I WORKED on it, bottom rail). A moment/space accumulates one span
-   * here each time it is Reopened: the live `{startAt,endAt}` is pushed in and the scalar
+   * here each time it is Reopened: the live `{startedAt,endedAt}` is pushed in and the scalar
    * start/end are cleared (back to open). Past spans paint as FIXED top-rail ticks, untouched by
    * the current live state. `duration` is preserved on reopen as the default length for the next
    * Play. Non-recurring only (a recurring schedule already yields multiple points via the expander).
+   * RECORDED facts, so `startedAt`/`endedAt` (not the planned `startDate`/`endDate`).
    */
-  occurrences?: { startAt: Epoch; endAt?: Epoch; cancelled?: boolean }[]
+  occurrences?: { startedAt: Epoch; endedAt?: Epoch; cancelled?: boolean }[]
   /**
    * INSTANT max authorized OCCURRENCES before it COMPLETES (fills its glyph). Default 1 (an
    * instant is a UNIQUE occurrence — completes the moment its scheduled `at` passes, or on its
@@ -376,7 +385,7 @@ export interface EntityBase {
   /**
    * Append-only TITLE HISTORY (additive; absent on entities never renamed). Each entry
    * is a {@link TitleEntry} `{title, at}`, oldest→newest. On the FIRST rename the prior
-   * title is backfilled at `createdAt` so the history is complete from birth. `title`
+   * title is backfilled at `creationDate` so the history is complete from birth. `title`
    * above remains the current value; fold with `titleAt(entity, epoch)` for a past name.
    */
   titleLog?: TitleEntry[]
@@ -420,11 +429,11 @@ export interface EntityBase {
    * ADDITIVE + not yet written: no code path populates this today, and every
    * derive helper falls back to the scalar fields below when `log` is absent, so
    * persisted data is untouched. This is the target shape that the scalars
-   * (`createdAt`, `completed`, `closed`, …) will eventually fold into.
+   * (`creationDate`, `completed`, `closed`, …) will eventually fold into.
    */
   log?: Instant[]
-  /** When this space was created (epoch ms). */
-  createdAt?: Epoch
+  /** CREATION DATE — when this entity was created (epoch ms). Renamed from `creationDate` (v0.2.228). */
+  creationDate?: Epoch
   /** Id of the creating Individual/Organism ("created by"). */
   createdBy?: string
   /**
@@ -520,7 +529,7 @@ export interface EntityBase {
    * When the cancel/restore state last changed (epoch ms) — added in log-model
    * Phase 2b so `cancelled` can fold into the lifecycle log as a timestamped
    * Instant. Absent on entities cancelled before this existed (the migration
-   * approximates their time as `createdAt`).
+   * approximates their time as `creationDate`).
    */
   cancelledOn?: Epoch
   /**
@@ -534,8 +543,20 @@ export interface EntityBase {
   publishedAt?: Epoch
   /** Mainly spaces. */
   description?: string
-  /** Contextual tint, mainly spaces. */
-  accent?: string
+  /** COLOR — contextual tint (any entity). Renamed from `accent` (v0.2.228); the `set` verb
+   *  already logged this as field "color", so the property name now matches the log. */
+  color?: string
+  /**
+   * PRIORITY — universal since v0.2.228 (was Task-only). "low" | "medium" | "high"; any entity
+   * may carry it. A stored label with no behavioral wiring yet (no sort/filter derives from it).
+   */
+  priority?: TaskPriority
+  /**
+   * REQUESTED — universal since v0.2.228 (was Task-only). An entity SENT to someone as a request
+   * ("Can you do this?"). State flag only (no recipient/transport modelled); on a task glyph it
+   * sprouts a tilted "sent" edge off the square's bottom-right corner.
+   */
+  requested?: boolean
   /** Resources assigned to this entity (mainly spaces). */
   assignedResourceIds?: string[]
   /**
@@ -580,30 +601,24 @@ export interface EntityBase {
   webUrl?: string
   webResourceId?: string
   /**
-   * DISPLAYED TITLE for a web resource — the real webpage `<title>` (best-effort
-   * fetched via `/api/web-title`, see `web-resources.ts#webDisplayTitle`). The entity's
-   * own `title` stays the raw URL (the `--title`); this is only the label shown in
-   * ENTITY CONTENT + breadcrumb, paired with the site favicon. Absent until resolved
-   * (falls back to the known resource name / hostname).
+   * DISPLAY TITLE — an optional friendlier label shown IN PLACE OF `title` wherever the entity
+   * is named (ENTITY CONTENT, breadcrumb, §0). Universal since v0.2.228 (renamed from `webTitle`),
+   * but AUTO-FILLED only in the URL case: when `title` is a raw URL, the real webpage `<title>`
+   * is best-effort fetched (`/api/web-title`, see `web-resources.ts#webDisplayTitle`) into here,
+   * so today only web resources get one populated automatically — same behavior as before, just a
+   * universal field. Hidden when unset (readers fall back to `title`).
    */
-  webTitle?: string
+  displayTitle?: string
 }
 
 /**
- * TASK — a unit of work; still a container (it can hold subtasks). Carries a
- * sent/requested flag and a priority. (The web-surface binding now lives on
- * EntityBase and defines the `resource` kind — see below.)
+ * TASK — a unit of work; still a container (it can hold subtasks). `priority` and
+ * `requested` moved to EntityBase (universal since v0.2.228), so Task adds no extra
+ * fields today — it's distinguished by kind + its done-gating semantics. (The
+ * web-surface binding also lives on EntityBase and defines the `resource` kind.)
  */
 export interface TaskEntity extends EntityBase {
   kind: "task"
-  /** Task priority. */
-  priority?: TaskPriority
-  /**
-   * A task SENT to someone as a request ("Can you do this?"). State flag only
-   * (no recipient/transport modelled yet); it sprouts a tilted "sent" edge off the
-   * square glyph's bottom-right corner.
-   */
-  requested?: boolean
 }
 
 /** MOMENT — a scheduled contiguous span (start→end); a container at its core. */

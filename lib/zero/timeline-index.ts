@@ -64,7 +64,7 @@ export function entityInterval(e: Entity): [number, number] {
     return [a, a]
   }
   // "whenever" isn't a fixed time, so it has no lifeline interval → zero-width at 0.
-  const st = typeof s?.startAt === "number" ? s.startAt : 0
+  const st = typeof s?.startDate === "number" ? s.startDate : 0
   // start+duration implies an end (effectiveScheduleEnd), so a duration-only span gets a
   // real width on the lifeline / in sort bounds — not collapsed to a point at its start.
   return [st, effectiveScheduleEnd(s) ?? st]
@@ -175,7 +175,7 @@ export function queryTimeline(
     const s = e.schedule
     if (!s) continue
     // "whenever" can't anchor a timeline occurrence (no fixed time).
-    const anchor = s.at ?? (typeof s.startAt === "number" ? s.startAt : undefined)
+    const anchor = s.at ?? (typeof s.startDate === "number" ? s.startDate : undefined)
     if (anchor == null) continue
     const color = getInheritedAccent(e.parentId ?? ROOT_ID) ?? NEUTRAL
 

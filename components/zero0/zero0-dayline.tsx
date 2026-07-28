@@ -477,9 +477,9 @@ export function Zero0Dayline({
       const s = occ.schedule
       if (!s) continue
       // "whenever" has no fixed clock time, so it never anchors a planned dayline bar.
-      const startNum = typeof s.startAt === "number" ? s.startAt : undefined
+      const startNum = typeof s.startDate === "number" ? s.startDate : undefined
       // start / point / due — a due-only task anchors on its deadline and paints a point.
-      const st = startNum ?? s.at ?? s.dueAt
+      const st = startNum ?? s.at ?? s.dueDate
       if (st == null) continue
       // CLOSED occurrences are NOT ongoing, even without a declared `endAt`: a closed entity
       // can't still be running. If it lacks an `endAt`, terminate its bar at its actual close
@@ -583,7 +583,7 @@ export function Zero0Dayline({
       // OPEN session extends the run to `now` and seals it (can't merge past a still-running one).
       type Run = { start: number; end: number; open: boolean; via?: string; auto?: boolean; count: number }
       const runs: Run[] = []
-      for (const sess of [...list].sort((a, b) => a.startAt - b.startAt)) {
+      for (const sess of [...list].sort((a, b) => a.startedAt - b.startedAt)) {
         // v0.7: the BOTTOM (recorded) rail is now EXCLUSIVELY for REMOTELY-PLAYED entities — a
         // deliberate glyph/menu Play (a NON-auto `via:"play"` session that survives navigation).
         // Everything else is skipped here: an AUTO play (ongoing-on-enter) is presence-like and
@@ -591,18 +591,18 @@ export function Zero0Dayline({
         // only as the glyph one-shot pulse (no dayline tick); focus/legacy sessions are the access
         // spine. So we collect non-auto plays only, and the whole rail reads "what I remote-played".
         if (sess.via !== "play" || sess.auto) continue
-        const sOpen = sess.endAt == null
-        const sEnd = sess.endAt ?? now
+        const sOpen = sess.endedAt == null
+        const sEnd = sess.endedAt ?? now
         const cur = runs[runs.length - 1]
         // Only closed runs merge into a coalesced span (can't merge past a still-open one).
         const mergeable = cur && !cur.open
-        if (mergeable && sess.startAt - cur.end <= SESSION_MERGE_GAP_MS) {
+        if (mergeable && sess.startedAt - cur.end <= SESSION_MERGE_GAP_MS) {
           cur.end = Math.max(cur.end, sEnd)
           cur.open = cur.open || sOpen
           cur.via = sess.via
           cur.count += 1
         } else {
-          runs.push({ start: sess.startAt, end: sEnd, open: sOpen, via: sess.via, count: 1 })
+          runs.push({ start: sess.startedAt, end: sEnd, open: sOpen, via: sess.via, count: 1 })
         }
       }
       runs.forEach((run, i) => {
@@ -672,10 +672,10 @@ export function Zero0Dayline({
       if (!list) continue
       for (const s of list) {
         if (s.via === "play" || s.via === "mark") continue // manual → bottom rail
-        const open = s.endAt == null
-        const end = s.endAt ?? Math.max(now, s.startAt)
-        if (end < s.startAt) continue
-        ivs.push({ id: e.id, start: s.startAt, end, open })
+        const open = s.endedAt == null
+        const end = s.endedAt ?? Math.max(now, s.startedAt)
+        if (end < s.startedAt) continue
+        ivs.push({ id: e.id, start: s.startedAt, end, open })
       }
     }
     if (ivs.length === 0) return []

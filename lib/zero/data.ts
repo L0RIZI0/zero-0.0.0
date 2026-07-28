@@ -355,10 +355,10 @@ export const entities: Entity[] = [
     taggedContextIds: [],
     description: "A person, animated by a Soul.",
     // CREATED — when the Zero ENTITY for Loris was created (DISTINCT from birth): 22 Jun 2026,
-    // 12:46 local. There's deliberately no `--created` sugar (createdAt is stamped only at
+    // 12:46 local. There's deliberately no `--created` sugar (creationDate is stamped only at
     // creation), so CREATED and BORN read as two different dates. Built from local-time
     // components (month is 0-based, so 5 = June) so it round-trips through `toLocaleString()`.
-  createdAt: new Date(2026, 5, 22, 12, 46, 0, 0).getTime(),
+  creationDate: new Date(2026, 5, 22, 12, 46, 0, 0).getTime(),
   // The confirmed `bornAt` BIRTHDAY — the SOURCE OF TRUTH for the `alive` state (a past value ⇒
   // alive/live) and the AGE row. 19 May 1991, 13:33 local (month 0-based, 4 = May). Being born
   // (a past bornAt) also makes root NOT deletable (an empty individual with no bornAt reads
@@ -983,7 +983,7 @@ export function getFrequentEntities(opts?: {
     const norm = e.title.trim().replace(/\s+/g, " ").toLowerCase()
     if (!norm) continue
     const key = `${e.kind}\u0000${norm}`
-    const created = e.createdAt ?? 0
+    const created = e.creationDate ?? 0
     let b = buckets.get(key)
     if (!b) {
       b = { kind: e.kind, members: [], windowCount: 0, latest: e, parentCounts: new Map() }
@@ -991,7 +991,7 @@ export function getFrequentEntities(opts?: {
     }
     b.members.push(e)
     if (created >= since) b.windowCount++
-    if (created >= (b.latest.createdAt ?? 0)) b.latest = e
+    if (created >= (b.latest.creationDate ?? 0)) b.latest = e
     if (e.parentId) b.parentCounts.set(e.parentId, (b.parentCounts.get(e.parentId) ?? 0) + 1)
   }
 
@@ -1019,7 +1019,7 @@ export function getFrequentEntities(opts?: {
         kind: x.m.kind,
         title: x.m.title,
         startAt: concreteStart(x.m) ?? now,
-        endAt: x.m.schedule?.endAt ?? null,
+        endAt: x.m.schedule?.endDate ?? null,
         state: (x.on ? "ongoing" : "complete") as "ongoing" | "complete",
         filled: fillsGlyph(x.m),
       }))
@@ -1029,7 +1029,7 @@ export function getFrequentEntities(opts?: {
     // newest would otherwise blank the tile dot). Falls back to any accented member.
     const accent = b.members
       .filter((m) => !!m.accent)
-      .sort((a, c) => (c.createdAt ?? 0) - (a.createdAt ?? 0))[0]?.accent
+      .sort((a, c) => (c.creationDate ?? 0) - (a.creationDate ?? 0))[0]?.accent
     groups.push({
       key,
       kind: b.kind,
@@ -1109,10 +1109,10 @@ export function getTimedDescendants(contextId: string): Entity[] {
   // getTimelineOccurrences emits itself, so they're excluded here to avoid duplicates.
   const hasScheduledTime = (s: Entity["schedule"]) =>
     !!s &&
-    (s.startAt != null ||
-      s.endAt != null ||
+    (s.startDate != null ||
+      s.endDate != null ||
       s.at != null ||
-      s.dueAt != null ||
+      s.dueDate != null ||
       // A reopened entity has a null live start/end but keeps its HISTORY — its archived
       // occurrences must still place it on the lifeline so past ticks keep rendering.
       (s.occurrences != null && s.occurrences.length > 0))
@@ -1230,17 +1230,17 @@ export function getTimelineOccurrences(
       s.occurrences.forEach((occ, i) => {
         out.push({
           ...e,
-          schedule: { ...s, startAt: occ.startAt, endAt: occ.endAt, occurrences: undefined, repeat: undefined },
+          schedule: { ...s, startDate: occ.startedAt, endDate: occ.endedAt, occurrences: undefined, repeat: undefined },
           occKey: `${e.id}#occ${i}`,
         })
       })
     }
 
     // A point (`at`), a span start, or — for a due-only entity like a Task deadline —
-    // the `dueAt` all serve as the timeline anchor, so a task with just a due date still
+    // the `dueDate` all serve as the timeline anchor, so a task with just a due date still
     // places a marker.
     // "whenever" is not a fixed time, so it can't anchor a timeline occurrence.
-    const anchor = s.at ?? (isConcreteStart(s.startAt) ? s.startAt : undefined) ?? s.dueAt
+    const anchor = s.at ?? (isConcreteStart(s.startDate) ? s.startDate : undefined) ?? s.dueDate
     if (anchor == null) continue
 
     if (!s.repeat) {
@@ -1249,7 +1249,7 @@ export function getTimelineOccurrences(
       continue
     }
 
-    const duration = isConcreteStart(s.startAt) && s.endAt != null ? s.endAt - s.startAt : 0
+    const duration = isConcreteStart(s.startDate) && s.endDate != null ? s.endDate - s.startDate : 0
     const anchorDate = new Date(anchor)
     // Walk each local day in range; emit an occurrence on matching days. Using a
     // Date stepper (setDate) keeps midnights correct across DST boundaries.
@@ -1274,11 +1274,11 @@ export function getTimelineOccurrences(
             // startAt/endAt to the first start / last end so single-span readers
             // (bounds, sorting) keep working without knowing about blocks.
             const blocks = shiftBlocksToDay(s.blocks, dayStart)
-            schedule = { ...s, blocks, startAt: blocks[0].startAt, endAt: blocks[blocks.length - 1].endAt }
+            schedule = { ...s, blocks, startDate: blocks[0].startAt, endDate: blocks[blocks.length - 1].endAt }
           } else if (s.at != null) {
             schedule = { ...s, at: occStart }
           } else {
-            schedule = { ...s, startAt: occStart, endAt: occStart + duration }
+            schedule = { ...s, startDate: occStart, endDate: occStart + duration }
           }
           out.push({ ...e, schedule, occKey: `${e.id}@${dayStart}` })
         }
@@ -1449,7 +1449,7 @@ export function getStarterPinnedEntities(): Entity[] {
   for (const e of entities) {
   if (e.kind !== "instant" || e.seriesId != null) continue
   const marks = getMarks(e) // newest-first
-  const last = marks[0]?.startAt
+  const last = marks[0]?.startedAt
   if (last != null && now - last <= RECENT_MARK_MS) out.push({ entity: e, markedAt: last })
   }
   return out.sort((a, b) => b.markedAt - a.markedAt)
@@ -1481,9 +1481,9 @@ export function getStarterPinnedEntities(): Entity[] {
   let endedAt: number | undefined
   let lastMs = 0
   for (const se of getSessions(e)) {
-  if (se.endAt != null && (endedAt == null || se.endAt > endedAt)) {
-  endedAt = se.endAt
-  lastMs = Math.max(0, se.endAt - se.startAt)
+  if (se.endedAt != null && (endedAt == null || se.endedAt > endedAt)) {
+  endedAt = se.endedAt
+  lastMs = Math.max(0, se.endedAt - se.startedAt)
   }
   }
   if (endedAt != null && now - endedAt <= NOTIFY_LINGER_MS) out.push({ entity: e, endedAt, lastMs })
@@ -1675,15 +1675,15 @@ export function setOpenSessionStart(id: string, at: number, now = Date.now()): b
       kept.push(e)
       continue
     }
-    const eEnd = e.endAt ?? e.startAt
+    const eEnd = e.endedAt ?? e.startedAt
     if (eEnd < start) {
       kept.push(e) // entirely before the new span — untouched
       continue
     }
-    if (e.startAt < start) start = e.startAt // straddles → extend the span back to cover it
+    if (e.startedAt < start) start = e.startedAt // straddles → extend the span back to cover it
     // else: fully inside [start, now] ⇒ swallowed (not kept)
   }
-  kept.push({ ...open, startAt: start })
+  kept.push({ ...open, startedAt: start })
   sched.sessions = kept
   logSet(entity, "sessionStart", start)
   persistSessionMutation(id, entity, sched)
@@ -1816,7 +1816,7 @@ export function startOccurrence(id: string, at = Date.now()): boolean {
 export function endOccurrence(id: string, at = Date.now()): boolean {
   const stored = byId.get(id)
   if (!stored || !isOccurrenceKind(stored)) return false
-  if (!isConcreteStart(stored.schedule?.startAt)) return false
+  if (!isConcreteStart(stored.schedule?.startDate)) return false
   return setEntityScheduleField(id, "endAt", at)
 }
 
@@ -1832,15 +1832,15 @@ export function reopenOccurrence(id: string): boolean {
   const stored = byId.get(id)
   if (!stored || !isOccurrenceKind(stored)) return false
   const sched: Schedule = { ...(stored.schedule ?? {}) }
-  if (!isConcreteStart(sched.startAt)) return false
-  const startAt = sched.startAt
-  const endAt = sched.endAt
+  if (!isConcreteStart(sched.startDate)) return false
+  const startAt = sched.startDate
+  const endAt = sched.endDate
   const entity = mutable(stored)
   // Preserve the just-finished length as the default duration for the next Play (if not already set).
   if (sched.duration == null && endAt != null) sched.duration = Math.round((endAt - startAt) / 60000)
-  sched.occurrences = [...(sched.occurrences ?? []), { startAt, endAt }]
-  delete sched.startAt // playable again = idle (no start); playability is kind-based now
-  delete sched.endAt
+  sched.occurrences = [...(sched.occurrences ?? []), { startedAt, endedAt }]
+  delete sched.startDate // playable again = idle (no start); playability is kind-based now
+  delete sched.endDate
   entity.schedule = sched
   delete entity.closeAt // reopened → no longer completed/closed
   logSet(entity, "startAt", null)
@@ -2024,11 +2024,11 @@ function migrateLegacyTime(entity: Entity): void {
   }
   const fromMin = (min: number, sec = 0) => t(Math.floor(min / 60), min % 60, sec)
   const schedule: NonNullable<Entity["schedule"]> = {}
-  if (typeof legacy.start === "number") schedule.startAt = fromMin(legacy.start)
-  if (typeof legacy.end === "number") schedule.endAt = fromMin(legacy.end)
+  if (typeof legacy.start === "number") schedule.startDate = fromMin(legacy.start)
+  if (typeof legacy.end === "number") schedule.endDate = fromMin(legacy.end)
   if (typeof legacy.at === "number") schedule.at = fromMin(legacy.at, legacy.seconds ?? 0)
   // Old free-text dueDate can't be parsed reliably; default a labelled due to 5pm today.
-  if (legacy.dueDate) schedule.dueAt = t(17)
+  if (legacy.dueDate) schedule.dueDate = t(17)
   if (Object.keys(schedule).length > 0) entity.schedule = schedule
   delete legacy.start
   delete legacy.end
@@ -2069,7 +2069,7 @@ function migrateEventToMoment(entity: Entity): void {
 
 /**
  * ONTOLOGY MIGRATION (Jul 2026, Phase 2 + 2b): fold a persisted entity's legacy
- * SCALAR lifecycle fields (`createdAt`/`completedOn`/`closedOn`/`reopenedOn`, plus
+ * SCALAR lifecycle fields (`creationDate`/`completedOn`/`closedOn`/`reopenedOn`, plus
  * `cancelled` and the terminal `retiredOn`/`diedOn`) into the append-only
  * {@link Instant} log — Meta field 1 — if it doesn't already have one.
  * Idempotent (a non-empty `log` is left untouched) and NON-destructive: the scalar
@@ -2298,14 +2298,14 @@ export function hydrateFromStorage(): boolean {
     let changed = false
     const next: Session[] = []
     for (const e of sessions) {
-      if (e.endAt != null || e.via === "play") {
+      if (e.endedAt != null || e.via === "play") {
         next.push(e) // already closed, or a play stopwatch → leave running
         continue
       }
       changed = true
-      const closeAt = Math.max(aliveAt ?? lastLogAt(entity) ?? e.startAt, e.startAt)
-      if (closeAt - e.startAt <= MIN_SESSION_MS) continue // too short → drop
-      next.push({ ...e, endAt: closeAt })
+      const closeAt = Math.max(aliveAt ?? lastLogAt(entity) ?? e.startedAt, e.startedAt)
+      if (closeAt - e.startedAt <= MIN_SESSION_MS) continue // too short → drop
+      next.push({ ...e, endedAt: closeAt })
     }
     if (changed) entity.schedule = { ...entity.schedule, sessions: next }
     // In-memory only (like the id/tagged migrations); persists on the next mutation.
@@ -2326,14 +2326,14 @@ export function hydrateFromStorage(): boolean {
     let changed = false
     const next: Session[] = []
     for (const e of sessions) {
-      if (e.endAt != null) {
+      if (e.endedAt != null) {
         next.push(e)
         continue
       }
       changed = true
-      const endAt = lastLogAt(entity) ?? e.startAt
-      if (endAt - e.startAt <= MIN_SESSION_MS) continue // too short → drop
-      next.push({ ...e, endAt })
+      const endAt = lastLogAt(entity) ?? e.startedAt
+      if (endAt - e.startedAt <= MIN_SESSION_MS) continue // too short → drop
+      next.push({ ...e, endedAt })
     }
     if (changed) entity.schedule = { ...entity.schedule, sessions: next }
   }
@@ -2490,7 +2490,7 @@ export function buildLogAuditReport(): { count: number; text: string } {
             reopenedOn: e.reopenedOn,
             cancelled: e.cancelled,
             cancelledOn: e.cancelledOn,
-            createdAt: e.createdAt,
+            creationDate: e.creationDate,
           }
         : null,
     }
@@ -2514,7 +2514,7 @@ export function addTask(input: { title: string; contextId: string }): Entity {
     parentId: input.contextId,
     taggedContextIds: [],
     completed: false,
-    createdAt: now,
+    creationDate: now,
     // Birth is the first log entry; scalars above are the transitional backup. Via appendInstant so
     // it gets its per-entity id (1) like every other entry.
     log: appendInstant(undefined, makeInstant("created", now)),
@@ -2553,7 +2553,7 @@ export function addParsedEntity(input: {
     title: input.title,
     parentId: input.contextId,
     taggedContextIds: [],
-    createdAt: now,
+    creationDate: now,
     completed: input.completed ?? false,
     ...(input.completed ? { completedOn: now } : {}),
     ...(input.schedule ? { schedule: input.schedule } : {}),
@@ -2584,31 +2584,31 @@ export function addParsedEntity(input: {
  */
 function resolveOccurrenceSchedule(s: Schedule | undefined, dayStart: number): Schedule | undefined {
   if (!s) return undefined
-  const anchor = s.at ?? s.startAt
+  const anchor = s.at ?? s.startDate
   const resolved: Schedule = { ...s }
   delete resolved.repeat
   if (anchor == null) return resolved
   if (s.blocks && s.blocks.length > 0) {
     const blocks = shiftBlocksToDay(s.blocks, dayStart)
     resolved.blocks = blocks
-    resolved.startAt = blocks[0].startAt
-    resolved.endAt = blocks[blocks.length - 1].endAt
+    resolved.startDate = blocks[0].startAt
+    resolved.endDate = blocks[blocks.length - 1].endAt
     return resolved
   }
   const a = new Date(anchor)
   const occ = new Date(dayStart)
   occ.setHours(a.getHours(), a.getMinutes(), a.getSeconds(), 0)
   const occStart = occ.getTime()
-  const duration = isConcreteStart(s.startAt) && s.endAt != null ? s.endAt - s.startAt : 0
+  const duration = isConcreteStart(s.startDate) && s.endDate != null ? s.endDate - s.startDate : 0
   if (s.at != null) {
     // Instant (point): collapse start/end onto the same shifted instant so a materialized
     // occurrence never inherits the anchor day's stale startAt/endAt (which would misplace it).
     resolved.at = occStart
-    resolved.startAt = occStart
-    resolved.endAt = occStart
+    resolved.startDate = occStart
+    resolved.endDate = occStart
   } else {
-    resolved.startAt = occStart
-    resolved.endAt = occStart + duration
+    resolved.startDate = occStart
+    resolved.endDate = occStart + duration
   }
   return resolved
 }
@@ -2762,7 +2762,7 @@ export function addMoment(input: { title: string; contextId: string }): Entity {
     parentId: input.contextId,
     taggedContextIds: [],
     // Defaults to a noon→1pm block TODAY (absolute epoch ms).
-    schedule: { startAt: t(12), endAt: t(13) },
+    schedule: { startDate: t(12), endDate: t(13) },
   }
   entities.push(entity)
   byId.set(entity.id, entity)
@@ -2838,7 +2838,7 @@ export function setEntityTitle(id: string, title: string): void {
  * Rename an entity AND record the change in its append-only title history, so a
  * historical view (e.g. the activity tracker) can label a past segment with the name
  * the entity had at that time. On the FIRST rename the PRIOR title is backfilled at the
- * entity's `createdAt` (or `now` if unknown), so the log is complete from birth; then
+ * entity's `creationDate` (or `now` if unknown), so the log is complete from birth; then
  * the new title is appended at `now`. `entity.title` stays the canonical current value.
  * No-op (returns false) if the id is unknown or the trimmed title is empty/unchanged.
  */
@@ -2849,7 +2849,7 @@ export function renameEntity(id: string, nextTitle: string, now = Date.now()): b
   if (!title || title === stored.title) return false
   const entity = mutable(stored)
   const prior = entity.title
-  const log: TitleEntry[] = entity.titleLog ? [...entity.titleLog] : [{ title: prior, at: entity.createdAt ?? now }]
+  const log: TitleEntry[] = entity.titleLog ? [...entity.titleLog] : [{ title: prior, at: entity.creationDate ?? now }]
   log.push({ title, at: now })
   entity.titleLog = log
   entity.title = title
@@ -2951,7 +2951,7 @@ export function changeEntityKind(id: string, kind: EntityKind): void {
     // default). The old noon→1pm `t(12)`/`t(13)` was a temporary scaffold on the stale
     // module-load anchor (not even today on a long-running session).
     const startNow = Date.now()
-    entity.schedule = { startAt: startNow, endAt: startNow + 60 * 60 * 1000, ...entity.schedule }
+    entity.schedule = { startDate: startNow, endDate: startNow + 60 * 60 * 1000, ...entity.schedule }
   } else if (kind === "instant") {
     // Default a freshly-picked instant to NOW (moment of creation) — lands on the now-marker,
     // matches "a mark is a point acknowledged now". The old noon `t(12)` was a temporary
@@ -3062,7 +3062,7 @@ export function applyParsedSchedule(id: string, plan: ScheduleParse): boolean {
   if (plan.kind === "instant") {
     // Zero-duration point: at === startAt === endAt (uniform with setEntityScheduleField's
     // instant normalization), so it renders as a dayline point and never reads ongoing.
-    entity.schedule = { at: startAt, startAt, endAt: startAt, ...(repeat ? { repeat } : {}) }
+    entity.schedule = { at: startAt, startDate, endDate: startAt, ...(repeat ? { repeat } : {}) }
   } else if (plan.kind === "moment" || plan.kind === "space") {
     if (plan.kind === "space") {
       entity.description = entity.description ?? ""
@@ -3070,24 +3070,24 @@ export function applyParsedSchedule(id: string, plan: ScheduleParse): boolean {
     }
     if (blocks) {
       entity.schedule = {
-        startAt: blocks[0].startAt,
-        endAt: blocks[blocks.length - 1].endAt,
+        startDate: blocks[0].startAt,
+        endDate: blocks[blocks.length - 1].endAt,
         blocks,
         ...(repeat ? { repeat } : {}),
       }
     } else {
       const durMin = plan.durationMinutes ?? 60
-      entity.schedule = { startAt, endAt: startAt + durMin * 60_000, ...(repeat ? { repeat } : {}) }
+      entity.schedule = { startDate, endDate: startAt + durMin * 60_000, ...(repeat ? { repeat } : {}) }
     }
   } else {
     // task: keep it a task, but attach timing. A recurring task carries the repeat rule;
-    // a one-off task with a deadline gets dueAt.
+    // a one-off task with a deadline gets dueDate.
     const sched: NonNullable<Entity["schedule"]> = {}
     if (repeat) {
-      sched.startAt = startAt
+      sched.startDate = startAt
       sched.repeat = repeat
     } else if (plan.dueInDays != null) {
-      sched.dueAt = today0 + plan.dueInDays * DAY_MS + timeOfDayMs
+      sched.dueDate = today0 + plan.dueInDays * DAY_MS + timeOfDayMs
     }
     entity.schedule = Object.keys(sched).length > 0 ? sched : entity.schedule
     entity.completed = entity.completed ?? false
@@ -3126,7 +3126,7 @@ export function setEntityRequested(id: string, requested: boolean): void {
  */
 export function setEntityScheduleField(
   id: string,
-  field: "startAt" | "endAt" | "at" | "dueAt",
+  field: "startAt" | "endAt" | "at" | "dueDate",
   epoch: number | null,
   ): boolean {
   const stored = byId.get(id)
@@ -3140,12 +3140,12 @@ export function setEntityScheduleField(
   const isInstant = entity.kind === "instant"
   if (isInstant) {
   if (epoch == null) {
-  delete sched.startAt
-  delete sched.endAt
+  delete sched.startDate
+  delete sched.endDate
   delete sched.at
   } else {
-  sched.startAt = epoch
-  sched.endAt = epoch
+  sched.startDate = epoch
+  sched.endDate = epoch
   sched.at = epoch
   }
   } else if (epoch == null) delete sched[field]
@@ -3161,7 +3161,7 @@ export function setEntityScheduleField(
   }
   // Re-stamp the absolute midnight close whenever a MOMENT/INSTANT's end (or point)
   // changes, so its time-close stays tz-stable and in sync with the new schedule. Tasks
-  // stamp on Done instead, not from `dueAt`, so they're unaffected here.
+  // stamp on Done instead, not from `dueDate`, so they're unaffected here.
   if (entity.kind === "moment" || entity.kind === "instant") {
   entity.closeAt = computeCloseAt(entity)
   }

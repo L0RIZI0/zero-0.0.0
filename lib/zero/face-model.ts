@@ -142,7 +142,7 @@ export function getAggregate(entity: Entity, now: number): FaceAggregate {
     // open-ended running moment doesn't inflate the rollup with live-elapsed time.
     const s = k.schedule
     const cs = concreteStart(k)
-    if (cs != null && s?.endAt != null) durationMs += Math.max(0, s.endAt - cs)
+    if (cs != null && s?.endDate != null) durationMs += Math.max(0, s.endDate - cs)
     // Most-recent anchor: the child's start / point, falling back to when it was created.
     // "whenever" isn't a time, so fall through to the point / creation stamp.
     const point = cs ?? s?.at ?? getCreatedAt(k) ?? null
@@ -191,7 +191,7 @@ export function fmt(epoch?: number): string {
 // date it was created. Under the `mounted` gate like `fmt`.
 export function rangeLabel(e: Entity): string {
   const s = e.schedule
-  if (s?.startAt != null || s?.endAt != null) return `${fmt(s?.startAt)} → ${fmt(s?.endAt)}`
+  if (s?.startDate != null || s?.endDate != null) return `${fmt(s?.startDate)} → ${fmt(s?.endDate)}`
   if (s?.at != null) return fmt(s.at)
   return fmt(getCreatedAt(e))
 }
@@ -202,7 +202,7 @@ export function rangeLabel(e: Entity): string {
 //   • instant             → 0 (a point has no length)
 //   • archived occurrences[] → Σ each finite past span (the happened-history)
 //   • current live span    → concreteStart→endAt, or (ongoing, no end) count up to `now`
-//   • BEING w/ no span     → its AGE: now − createdAt (an Individual/Organism's createdAt is a
+//   • BEING w/ no span     → its AGE: now − creationDate (an Individual/Organism's creationDate is a
 //                            genuine birth, so this reads "3d" / "34y")
 //   • otherwise            → null → "—" (a merely-open "whenever" moment/space that was never
 //                            started has accrued NO occurrence length; access time lives on its
@@ -215,15 +215,15 @@ export function getOccurrenceDurationMs(e: Entity, now: number): number | null {
   let total = 0
   let any = false
   for (const occ of s?.occurrences ?? []) {
-    if (occ.endAt != null) {
-      total += Math.max(0, occ.endAt - occ.startAt)
+    if (occ.endedAt != null) {
+      total += Math.max(0, occ.endedAt - occ.startedAt)
       any = true
     }
   }
   const cs = concreteStart(e) // null when "whenever" / unset
   if (cs != null) {
     any = true
-    total += s?.endAt != null ? Math.max(0, s.endAt - cs) : Math.max(0, now - cs) // live when ongoing
+    total += s?.endDate != null ? Math.max(0, s.endDate - cs) : Math.max(0, now - cs) // live when ongoing
   } else if (s?.at != null) {
     any = true // a lone point anchor is a zero-length occurrence
   }
@@ -250,7 +250,7 @@ export function getPlannedDurationMs(e: Entity): number | null {
   const s = e.schedule
   if (s?.duration != null && s.duration > 0) return s.duration * 60000
   const start = concreteStart(e) // planned start epoch, excluding "whenever"/unset
-  if (start != null && s?.endAt != null) return Math.max(0, s.endAt - start)
+  if (start != null && s?.endDate != null) return Math.max(0, s.endDate - start)
   return null
 }
 
@@ -263,7 +263,7 @@ export function getSessionMs(e: Entity, now: number, via?: "focus" | "play" | "m
   const sessions = getSessions(e).filter((s) => (via ? s.via === via : true))
   if (sessions.length === 0) return null
   let total = 0
-  for (const sess of sessions) total += Math.max(0, (sess.endAt ?? now) - sess.startAt)
+  for (const sess of sessions) total += Math.max(0, (sess.endedAt ?? now) - sess.startedAt)
   return total
 }
 
@@ -321,7 +321,7 @@ export function formatDuration(ms: number): string {
 
 // Schedule `set` entries carry an epoch NUMBER as their value; render it as a date rather
 // than a raw millisecond count in the life-log history. Everything else prints as-is.
-export const TIME_LOG_FIELDS = new Set(["startAt", "endAt", "at", "dueAt"])
+export const TIME_LOG_FIELDS = new Set(["startAt", "endAt", "at", "dueDate"])
 export function fmtLogValue(field: string, value: string | number | boolean): string {
   if (TIME_LOG_FIELDS.has(field) && typeof value === "number") return fmt(value)
   if (field === "sex" && typeof value === "string") return sexSymbol(value)
@@ -399,7 +399,7 @@ export function fmtShort(epoch: number, now: number): string {
 //   • task      → its due time; OR a scheduled span "start–end · dur" / ongoing "since start ·
 //                 dur" / lone "at" (a task can carry start/end/duration too, not just a due).
 //                 Due takes precedence when both are set.
-//   • individual→ sex glyph · age (elapsed since birth/createdAt).
+//   • individual→ sex glyph · age (elapsed since birth/creationDate).
 // Everything else (community/organism/resource/soul) stays quiet — the row's kind +
 // title + state already say it all. `now` drives the live ongoing count-up.
 export function metaEcho(e: Entity, now: number): string {
@@ -408,8 +408,8 @@ export function metaEcho(e: Entity, now: number): string {
   // playable entity shows no span here — its live time, if any, comes from an open session.
   const span = (): string => {
     const cs = concreteStart(e)
-    if (cs != null && s?.endAt != null)
-      return `${fmtShort(cs, now)}–${fmtShort(s.endAt, now)} · ${formatDuration(Math.max(0, s.endAt - cs))}`
+    if (cs != null && s?.endDate != null)
+      return `${fmtShort(cs, now)}–${fmtShort(s.endDate, now)} · ${formatDuration(Math.max(0, s.endDate - cs))}`
     if (cs != null) return `since ${fmtShort(cs, now)} · ${formatDuration(Math.max(0, now - cs))}`
     if (s?.at != null) return fmtShort(s.at, now)
     return ""
@@ -424,12 +424,12 @@ export function metaEcho(e: Entity, now: number): string {
       const marks = getMarks(e)
       if (marks.length > 0) {
         const n = marks.length
-        return `${n} occurrence${n === 1 ? "" : "s"} · ${fmtShort(marks[0].startAt, now)}`
+        return `${n} occurrence${n === 1 ? "" : "s"} · ${fmtShort(marks[0].startedAt, now)}`
       }
       return s?.at != null ? fmtShort(s.at, now) : ""
     }
     case "task": {
-      if (s?.dueAt != null) return `due ${fmtShort(s.dueAt, now)}`
+      if (s?.dueDate != null) return `due ${fmtShort(s.dueDate, now)}`
       return span() // start/end/duration when no due is set
     }
     case "individual": {
@@ -623,26 +623,26 @@ export function getScheduleCells(e: Entity, now: number): { start: ScheduleCell[
   const NB = "\u00A0"
   const s = e.schedule
   const cs = concreteStart(e) // concrete started moment, else null ("whenever"/unset)
-  const liveOngoing = cs != null && s?.endAt == null // started, not yet ended → END pulses "ongoing"
-  const startText0 = s?.startAt ? fmt(s.startAt) : "— (none scheduled)"
-  const endText0 = liveOngoing ? "ongoing" : s?.endAt ? fmt(s.endAt) : "— (none scheduled)"
+  const liveOngoing = cs != null && s?.endDate == null // started, not yet ended → END pulses "ongoing"
+  const startText0 = s?.startDate ? fmt(s.startDate) : "— (none scheduled)"
+  const endText0 = liveOngoing ? "ongoing" : s?.endDate ? fmt(s.endDate) : "— (none scheduled)"
   // Pad the scheduled prefix so the FIRST archived column starts at the same x in both rows.
   const schedW = Math.max(startText0.length, endText0.length)
   const start: ScheduleCell[] = [
-    { text: startText0.padEnd(schedW, NB), full: s?.startAt ? fmt(s.startAt) : undefined, pulse: liveOngoing },
+    { text: startText0.padEnd(schedW, NB), full: s?.startDate ? fmt(s.startDate) : undefined, pulse: liveOngoing },
   ]
   const end: ScheduleCell[] = [
-    { text: endText0.padEnd(schedW, NB), full: !liveOngoing && s?.endAt ? fmt(s.endAt) : undefined, pulse: liveOngoing },
+    { text: endText0.padEnd(schedW, NB), full: !liveOngoing && s?.endDate ? fmt(s.endDate) : undefined, pulse: liveOngoing },
   ]
   // ARCHIVED occurrences — fixed past ticks (faint), newest first. These are the happened-history
   // accumulated by Reopen; they never pulse (they're done) and never merge with access sessions.
-  const occs = [...(s?.occurrences ?? [])].sort((a, b) => b.startAt - a.startAt)
+  const occs = [...(s?.occurrences ?? [])].sort((a, b) => b.startedAt - a.startedAt)
   for (const occ of occs) {
-    const sTxt = fmtShort(occ.startAt, now)
-    const eTxt = occ.endAt != null ? fmtShort(occ.endAt, now) : "—"
+    const sTxt = fmtShort(occ.startedAt, now)
+    const eTxt = occ.endedAt != null ? fmtShort(occ.endedAt, now) : "—"
     const w = Math.max(sTxt.length, eTxt.length)
-    start.push({ text: sTxt.padStart(w, NB), full: fmt(occ.startAt), faint: true })
-    end.push({ text: eTxt.padStart(w, NB), full: occ.endAt != null ? fmt(occ.endAt) : undefined, faint: true })
+    start.push({ text: sTxt.padStart(w, NB), full: fmt(occ.startedAt), faint: true })
+    end.push({ text: eTxt.padStart(w, NB), full: occ.endedAt != null ? fmt(occ.endedAt) : undefined, faint: true })
   }
   return { start, end }
 }
@@ -661,17 +661,17 @@ export function getSessionCells(
 ): { total: string; segments: ScheduleCell[] } | null {
   const engs = getSessions(e)
     .filter((s) => (via ? s.via === via : true))
-    .sort((a, b) => b.startAt - a.startAt)
+    .sort((a, b) => b.startedAt - a.startedAt)
   if (engs.length === 0) return null
   const totalMs = getSessionMs(e, now, via)
   const total = totalMs == null ? "—" : formatDuration(totalMs)
   const segments: ScheduleCell[] = engs.map((se) => {
-    const open = se.endAt == null
-    const ms = Math.max(0, (se.endAt ?? now) - se.startAt)
-    const when = fmtShort(se.startAt, now)
+    const open = se.endedAt == null
+    const ms = Math.max(0, (se.endedAt ?? now) - se.startedAt)
+    const when = fmtShort(se.startedAt, now)
     return {
       text: `${formatDuration(ms)} (${when})`,
-      full: `${fmt(se.startAt)} – ${open ? "ongoing" : fmt(se.endAt as number)}`,
+      full: `${fmt(se.startedAt)} – ${open ? "ongoing" : fmt(se.endedAt as number)}`,
       pulse: open, // the live session's segment breathes
     }
   })
@@ -697,7 +697,7 @@ function ongoingIntervals(e: Entity, now: number): Array<[number, number]> {
   const out: Array<[number, number]> = []
   for (const se of getSessions(e)) {
     if (se.via !== "play") continue // ongoing is play-driven (v0.6.32)
-    out.push([se.startAt, se.endAt ?? now])
+    out.push([se.startedAt, se.endedAt ?? now])
   }
   // A moment/space that is concretely started-and-not-ended is ongoing FROM its occurrence, even
   // with no play session (mirrors getStateInner's concrete-start ⇒ ongoing rule).
@@ -819,11 +819,11 @@ export function getPlannedOccurrences(e: Entity): PlannedOccurrence[] {
   const s = e.schedule
   const list: PlannedOccurrence[] = []
   const cs = concreteStart(e) // concrete epoch, else null (unset)
-  if (cs != null || s?.endAt != null) {
-    list.push({ startAt: cs ?? undefined, endAt: s?.endAt, primary: true })
+  if (cs != null || s?.endDate != null) {
+    list.push({ startAt: cs ?? undefined, endAt: s?.endDate, primary: true })
   }
   for (const occ of s?.occurrences ?? []) {
-    list.push({ startAt: occ.startAt, endAt: occ.endAt, cancelled: occ.cancelled })
+    list.push({ startAt: occ.startedAt, endAt: occ.endedAt, cancelled: occ.cancelled })
   }
   return list
 }
@@ -952,7 +952,7 @@ export function getFaceMetaRows(e: Entity, now: number): [string, string][] {
     if (s?.at != null) rows.push(["at", fmt(s.at)])
     // DUE — a task/resource deadline (distinct from a planned END: a due date is "must be done BY",
     // not "the span stops at"). Shown when set.
-    if (s?.dueAt != null) rows.push(["due", fmt(s.dueAt)])
+    if (s?.dueDate != null) rows.push(["due", fmt(s.dueDate)])
   } else if (e.kind === "instant") {
     // An instant is a TALLY of occurrences (marks + a passed scheduled `at`), not a span. The
     // OCCURRENCES row reads "<count> / <maxNb>" (the progress toward completion; maxNb omitted
@@ -961,14 +961,14 @@ export function getFaceMetaRows(e: Entity, now: number): [string, string][] {
     const max = getInstantMaxNb(e)
     const marks = getMarks(e)
     const tally = max > 1 ? `${count} / ${max}` : `${count}`
-    const stamps = marks.length > 0 ? ` · ${marks.map((m) => fmt(m.startAt)).join(" · ")}` : ""
+    const stamps = marks.length > 0 ? ` · ${marks.map((m) => fmt(m.startedAt)).join(" · ")}` : ""
     rows.push(["occurrences", `${tally}${stamps}${isInstantMaxNbHard(e) ? " · hard cap" : ""}`])
     rows.push(["at", s?.at ? fmt(s.at) : "—"])
-  } else if (s?.dueAt) {
+  } else if (s?.dueDate) {
     // Tasks (and other kinds) only surface a schedule row when one is actually set.
-    rows.push(["due", fmt(s.dueAt)])
-  } else if (s && (s.startAt || s.endAt || s.at)) {
-    rows.push(["scheduled", s.at ? fmt(s.at) : `${fmt(s.startAt)} → ${fmt(s.endAt)}`])
+    rows.push(["due", fmt(s.dueDate)])
+  } else if (s && (s.startDate || s.endDate || s.at)) {
+    rows.push(["scheduled", s.at ? fmt(s.at) : `${fmt(s.startDate)} → ${fmt(s.endDate)}`])
   }
   // DURATION / AGE — the OCCURRENCE length (TOP rail): a start+end span's width, a live ongoing
   // occurrence counting up from `now`, the sum of archived occurrences[], or a being's age since
@@ -983,7 +983,7 @@ export function getFaceMetaRows(e: Entity, now: number): [string, string][] {
     //   • everything else → DURATION: its occurrence length (getOccurrenceDurationMs).
     if (isLifeBeing(e.kind)) {
       // AGE keys off the being's LIFE ANCHOR (`bornAt` for an Individual, `publishedAt` for an
-      // Organism/Community) — NOT createdAt: live-counting while `alive`, the frozen lifespan
+      // Organism/Community) — NOT creationDate: live-counting while `alive`, the frozen lifespan
       // (anchor → death/retire) once `dead`/`retired`, and "—" before it lived (open/scheduled) or
       // when never born/published. The LIVE age uses `formatDuration` for the COMPOSITE reading
       // ("35y 1mo 24d") — a single coarse unit ("35 years") throws away the months/days the user
@@ -1033,7 +1033,7 @@ export function getFaceMetaRows(e: Entity, now: number): [string, string][] {
   if (!OCCURRENCES_HIDDEN_KINDS.has(e.kind)) {
     // v0.6.34: count DELIBERATE plays only — an AUTO play (ongoing-on-enter) is presence, not a
     // deliberate occurrence ("I entered it" ≠ "it happened N times").
-    const playCount = getSessions(e).filter((s) => s.via === "play" && !s.auto && s.endAt !== s.startAt).length
+    const playCount = getSessions(e).filter((s) => s.via === "play" && !s.auto && s.endedAt !== s.startedAt).length
     const plannedList = SPAN_UI_KINDS.has(e.kind) ? getPlannedOccurrenceRow(e, now) : null
     const parts: string[] = []
     if (playCount > 0) parts.push(`${playCount} ${playCount === 1 ? "time" : "times"}`)

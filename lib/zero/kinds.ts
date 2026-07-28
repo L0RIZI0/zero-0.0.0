@@ -497,7 +497,7 @@ export function isConcreteStart(v: number | undefined): v is number {
 
 /** An entity's concrete startAt epoch, or null if unset. */
 export function concreteStart(entity: Entity): number | null {
-  const v = entity.schedule?.startAt
+  const v = entity.schedule?.startDate
   return isConcreteStart(v) ? v : null
 }
 
@@ -551,8 +551,8 @@ export function isLifeBeing(kind: EntityKind): boolean {
  */
 export function effectiveScheduleEnd(s: Schedule | undefined): number | null {
   if (!s) return null
-  if (s.endAt != null) return s.endAt
-  const start = typeof s.startAt === "number" ? s.startAt : null
+  if (s.endDate != null) return s.endDate
+  const start = typeof s.startDate === "number" ? s.startDate : null
   if (start != null && s.duration != null && s.duration > 0) return start + s.duration * 60000
   return null
 }
@@ -634,7 +634,7 @@ export function getMarks(entity: Entity): Session[] {
   if (entity.kind !== "instant") return []
   return getSessions(entity)
     .filter((e) => e.via === "mark")
-    .sort((a, b) => b.startAt - a.startAt)
+    .sort((a, b) => b.startedAt - a.startedAt)
 }
 
 /**
@@ -659,7 +659,7 @@ export function isInstantMaxNbHard(entity: Entity): boolean {
  */
 export function getInstantOccurrences(entity: Entity, now: number = Date.now()): number[] {
   if (entity.kind !== "instant") return []
-  const times = getMarks(entity).map((m) => m.startAt)
+  const times = getMarks(entity).map((m) => m.startedAt)
   const at = entity.schedule?.at
   if (at != null && now >= at) times.push(at)
   return times.sort((a, b) => a - b)
@@ -692,7 +692,7 @@ export function getOpenSession(entity: Entity, via?: Session["via"]): Session | 
   const s = getSessions(entity)
   for (let i = s.length - 1; i >= 0; i--) {
     const e = s[i]
-    if (e.endAt == null && (via == null || e.via === via)) return e
+    if (e.endedAt == null && (via == null || e.via === via)) return e
   }
   return null
 }
@@ -843,7 +843,7 @@ export function computeCloseAt(entity: Entity, now: number = Date.now()): number
     // occurrence (its most recent mark, or a scheduled `at`), so a marked-today instant closes
     // tonight. No occurrence and no scheduled anchor ⇒ nothing to close on (stays open).
     const occ = getInstantOccurrences(entity, now)
-    const anchor = occ.length ? occ[occ.length - 1] : entity.schedule?.at ?? entity.schedule?.endAt
+    const anchor = occ.length ? occ[occ.length - 1] : entity.schedule?.at ?? entity.schedule?.endDate
     return anchor != null ? nextLocalMidnight(anchor) : undefined
   }
   return undefined
@@ -1064,7 +1064,7 @@ function ongoingSince(entity: Entity, now: number, seen: Set<string>): number | 
   if (entity.kind === "task" && isDone(entity)) return null
   // (1) open (state-relevant) session
   const open = ongoingOpenSession(entity)
-  if (open) return open.startAt
+  if (open) return open.startedAt
   // (2) moment/space concrete started span still in progress (start+duration implies an end)
   if (entity.kind === "moment" || entity.kind === "space") {
     const start = concreteStart(entity)

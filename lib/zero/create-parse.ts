@@ -452,7 +452,7 @@ export function parseCreateField(raw: string): CreateFieldParse | null {
     title,
     kind,
     completed,
-    schedule: { startAt, endAt, ...(repeat ? { repeat } : {}) },
+    schedule: { startDate, endDate, ...(repeat ? { repeat } : {}) },
     summary: `${label}${completed ? " logged" : ""} · ${fmt(time.start)}–${fmt(time.end)}${recurSuffix}`,
   }
 }
@@ -604,7 +604,7 @@ export function parseEntry(raw: string): EntryParse {
  * The creatable {@link EntityKind} for a NEW entity that carried no explicit `:kind` directive.
  * ALWAYS **task** (Jul 2026, by request). FIELD-based kind inference was DROPPED: scheduling
  * flags NO LONGER flip the kind, because ANY kind can be planned — a Task with `--start/--end`
- * is a planned task, not a Moment; `--at` sets the task's `startAt`; `--due` its `dueAt`. The
+ * is a planned task, not a Moment; `--at` sets the task's `startAt`; `--due` its `dueDate`. The
  * flags just populate the schedule of whatever you're making (default Task); to make another
  * kind, state it explicitly (`:mome`, `:inst`, …). Verb-based inference was already dropped
  * (titles kept verbatim). `attrs` is now unused but kept for signature stability / callers.
