@@ -46,7 +46,7 @@ function makeEntity(props: LooseEntity): Entity {
 /**
  * A MUTABLE loose view of a stored entity, for the imperative setters that change
  * `kind` and/or per-kind fields IN PLACE (changeEntityKind, applyParsedSchedule,
- * setEntityRequested, setEntityDone). The returned object is the SAME reference
+ * setEntityRequested, setTaskDone). The returned object is the SAME reference
  * held by `byId`/`entities`, so writes persist; the cast only lets TS allow assigning
  * the discriminant and cross-kind fields. Runtime behavior is identical to before the
  * Space-union refactor (these functions already mutated the object in place).
@@ -2964,8 +2964,13 @@ export function renameEntity(id: string, nextTitle: string, now = Date.now()): b
  * — most visible on a recurrence occurrence (check a subtask, close, reopen → it was
  * back to unchecked). Writing through to the store fixes that for ALL tasks, and for
  * materialized occurrences it lands on the override's own cloned subtask, keeping each
- * day independent. No-op if the id is unknown. */
-export function setEntityDone(id: string, done: boolean): void {
+ * day independent. No-op if the id is unknown.
+ *
+ * Named `setTaskDone` (v0.2.229) — the DONE marker is a TASK-ONLY axis (`hasDoneFlag` is true only
+ * for Task in KIND_META; the early-return below enforces it), so the name states what the guard
+ * already does. The `done`/`doneOn` fields still live on EntityBase (universal shape), but only a
+ * Task ever gets them WRITTEN. */
+export function setTaskDone(id: string, done: boolean): void {
   const stored = byId.get(id)
   if (!stored) return
   // Only kinds WITH a done flag (Task) hold a "done" checkmark.
@@ -3711,7 +3716,7 @@ export function setEntityCancelled(id: string, cancelled: boolean): void {
     // Seeded entity — track as an override patch (log rebuilt from these on reload).
     seededOverrides.set(id, { ...seededOverrides.get(id), cancelled, cancelledOn: now })
   }
-  // Cancelling ENDS the ongoing (`play`) session, keeping `focus`/presence (see setEntityDone;
+  // Cancelling ENDS the ongoing (`play`) session, keeping `focus`/presence (see setTaskDone;
   // v0.6.32). Not on restore.
   if (cancelled) closeSession(id, "play", now)
   persist()
@@ -3751,7 +3756,7 @@ export function setEntityClosed(id: string, closed: boolean): void {
     seededOverrides.set(id, { ...seededOverrides.get(id), closed, closedOn, reopened, reopenedOn })
   }
   // A manual Close ENDS the ongoing (`play`) session, keeping `focus`/presence (see
-  // setEntityDone; v0.6.32). Not on reopen.
+  // setTaskDone; v0.6.32). Not on reopen.
   if (closed) closeSession(id, "play", now)
   persist()
 }

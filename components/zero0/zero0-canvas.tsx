@@ -22,7 +22,7 @@ import {
   addParsedEntity,
   addWebResource,
   setWebTitle,
-  setEntityDone,
+  setTaskDone,
   setEntityScheduleField,
   setEntityDuration,
   setEntityClosed,
@@ -1323,7 +1323,7 @@ export function Zero0Canvas() {
         return bump()
       }
       const nowDone = !isDone(e)
-      setEntityDone(e.id, nowDone)
+      setTaskDone(e.id, nowDone)
       if (!nowDone && canAutoPlay(e) && path.includes(e.id)) {
         // Un-done in place while still viewing it → RESUME ongoing now. Must be `resumed` (not an
         // auto openSession, which logs nothing and wouldn't reopen a span with no fresh `accessed`):
