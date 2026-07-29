@@ -690,6 +690,13 @@ export interface OrganismEntity extends EntityBase {
   alive?: boolean
   /** When the organism died (terminal state; epoch ms). */
   diedOn?: Epoch
+  /**
+   * Parent(s) — a REAL relation to other ORGANISMS (a parent company / institution), stored as
+   * their entity ids (like the Individual `parents` relation, not free text). Organism-only; each
+   * `--parent:<name>` resolves a case-insensitive title match against existing Organisms and
+   * appends its id.
+   */
+  parents?: string[]
 }
 
 /**

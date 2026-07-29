@@ -31,7 +31,7 @@ import {
   setEntityFirstName,
   setEntityLastName,
   setEntityParents,
-  findIndividualByTitle,
+  findEntityByTitle,
   setEntityClosePolicy,
   renameEntity,
   changeEntityKind,
@@ -74,7 +74,7 @@ import { Zero0Face } from "./zero0-face"
 import { Zero0Favicon } from "./zero0-favicon"
 import { Zero0Content, type Zero0ContentCtx } from "./zero0-content"
   import { fmt, fmtLogValue, sexSymbol, formatDuration, type FaceSize, type FaceMake } from "@/lib/zero/face-model"
-  import type { Entity, IndividualEntity } from "@/lib/zero/types"
+  import type { Entity, IndividualEntity, OrganismEntity } from "@/lib/zero/types"
 
 // `canAutoPlay` + `ONGOING_ON_ENTER` now live in lib/zero/kinds.ts (canonical), shared by the
 // session fold (deriveSessionsFromLog) and this canvas so the two can't drift.
@@ -1011,26 +1011,27 @@ export function Zero0Canvas() {
           return `${label} ${val}`
         }
         case "parent": {
-          // Add a PARENT link (Individual→Individual) by resolving a typed name to an existing
-          // Individual. Empty `--parent:` clears all parents. Repeat the flag to add several.
-          if (ent.kind !== "individual") {
-            setNotice({ tone: "err", text: "only individuals have parents" })
+          // Add a PARENT link by resolving a typed name to an existing being of the SAME kind:
+          // Individual→Individual (parent people) or Organism→Organism (parent company). Empty
+          // `--parent:` clears all parents. Repeat the flag to add several.
+          if (ent.kind !== "individual" && ent.kind !== "organism") {
+            setNotice({ tone: "err", text: "only individuals and organisms have parents" })
             return null
           }
           if (val === "") {
             setEntityParents(id, null)
             return "parents cleared"
           }
-          const match = findIndividualByTitle(val)
+          const match = findEntityByTitle(val, ent.kind)
           if (!match) {
-            setNotice({ tone: "err", text: `no individual named "${val}"` })
+            setNotice({ tone: "err", text: `no ${ent.kind} named "${val}"` })
             return null
           }
           if (match.id === id) {
-            setNotice({ tone: "err", text: "an individual can't be their own parent" })
+            setNotice({ tone: "err", text: `a ${ent.kind} can't be their own parent` })
             return null
           }
-          const current = (ent as IndividualEntity).parents ?? []
+          const current = (ent as IndividualEntity | OrganismEntity).parents ?? []
           if (current.includes(match.id)) return `already a parent: ${match.title}`
           setEntityParents(id, [...current, match.id])
           return `parent + ${match.title}`

@@ -3525,19 +3525,24 @@ function setIndividualName(id: string, field: "firstName" | "lastName", value: s
 export const setEntityFirstName = (id: string, name: string | null) => setIndividualName(id, "firstName", name)
 export const setEntityLastName = (id: string, name: string | null) => setIndividualName(id, "lastName", name)
 
+/** Kinds that carry a `parents` relation — the terminal BEINGS Individual + Organism (v0.2.229). */
+const KINDS_WITH_PARENTS = new Set<EntityKind>(["individual", "organism"])
+
 /**
- * Set (or clear) an INDIVIDUAL's `parents` — the list of parent Individual ids (a real relation,
- * like `taggedContextIds`). Individual-only. `null`/empty clears it entirely. Ids are stored
- * verbatim (the caller resolves names → ids via {@link findIndividualByTitle}). Mirrors
- * setEntitySex's log + seeded-override handling.
+ * Set (or clear) a BEING's `parents` — the list of parent ids (a real relation, like
+ * `taggedContextIds`). Allowed on the two parent-bearing kinds: an INDIVIDUAL (parent people) and
+ * an ORGANISM (parent company / institution). `null`/empty clears it entirely. Ids are stored
+ * verbatim (the caller resolves names → ids via {@link findEntityByTitle}, matching the being's OWN
+ * kind). Mirrors setEntitySex's log + seeded-override handling.
  */
 export function setEntityParents(id: string, parentIds: string[] | null): boolean {
   const stored = byId.get(id)
-  if (!stored || stored.kind !== "individual") return false
+  if (!stored || !KINDS_WITH_PARENTS.has(stored.kind)) return false
   const entity = mutable(stored)
+  const withParents = entity as { parents?: string[] }
   const next = parentIds && parentIds.length > 0 ? [...new Set(parentIds)] : null
-  if (next == null) delete (entity as IndividualEntity).parents
-  else (entity as IndividualEntity).parents = next
+  if (next == null) delete withParents.parents
+  else withParents.parents = next
   logSet(entity, "parents", next ? next.join(",") : null)
   if (!userEntityIds.has(id)) {
     seededOverrides.set(id, { ...seededOverrides.get(id), parents: next ?? undefined } as Partial<Entity>)
@@ -3547,15 +3552,17 @@ export function setEntityParents(id: string, parentIds: string[] | null): boolea
 }
 
 /**
- * Resolve a typed NAME to an existing INDIVIDUAL entity by case-insensitive exact title match
- * (used by the `--parent:<name>` setter). Returns the first match, or null when none. Kept simple
- * (exact, trimmed, lowercased) so it's predictable; disambiguation by richer keys can come later.
+ * Resolve a typed NAME to an existing entity OF A GIVEN KIND by case-insensitive exact title match
+ * (used by the `--parent:<name>` setter — a parent resolves within the SAME kind as the child: an
+ * Individual's parent is an Individual, an Organism's parent is an Organism). Returns the first
+ * match, or null when none. Kept simple (exact, trimmed, lowercased) so it's predictable;
+ * disambiguation by richer keys can come later.
  */
-export function findIndividualByTitle(name: string): Entity | null {
+export function findEntityByTitle(name: string, kind: EntityKind): Entity | null {
   const needle = name.trim().toLowerCase()
   if (!needle) return null
   for (const e of entities) {
-    if (e.kind === "individual" && e.title.trim().toLowerCase() === needle) return e
+    if (e.kind === kind && e.title.trim().toLowerCase() === needle) return e
   }
   return null
 }
