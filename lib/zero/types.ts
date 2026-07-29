@@ -448,7 +448,7 @@ export interface EntityBase {
    * ADDITIVE + not yet written: no code path populates this today, and every
    * derive helper falls back to the scalar fields below when `log` is absent, so
    * persisted data is untouched. This is the target shape that the scalars
-   * (`creationDate`, `completed`, `closed`, …) will eventually fold into.
+   * (`creationDate`, `done`, `closed`, …) will eventually fold into.
    */
   log?: Instant[]
   /** CREATION DATE — when this entity was created (epoch ms). Renamed from `creationDate` (v0.2.228). */
@@ -464,12 +464,12 @@ export interface EntityBase {
   ownerId?: string
   /** Place id or label where it was created ("created where"). */
   createdWhere?: string
-  /** When `completed` (the DONE marker) last flipped true (mirrors the done write). */
-  completedOn?: Epoch
+  /** When `done` (the DONE marker) last flipped true (mirrors the done write). Renamed from
+   *  `completedOn` (v0.2.229) — the old name collided with the separate COMPLETE verdict. */
+  doneOn?: Epoch
   /**
-   * COMPLETE = the success VERDICT (its own axis, distinct from the soft `completed`
-   * "done" marker despite the near-identical name — `completed` here means DONE, this
-   * means COMPLETE). Complete implies done and CLOSES the entity; it is the ONLY thing
+   * COMPLETE = the success VERDICT (its own axis, distinct from the soft `done`
+   * marker). Complete implies done and CLOSES the entity; it is the ONLY thing
    * that FILLS the glyph. Set by "Mark as Complete", and DERIVED (not stored) when a
    * done task passes its next local midnight or a moment/instant passes its end. Only
    * the explicit flag is persisted; derivation lives in {@link isComplete}. Reversed by
@@ -532,13 +532,13 @@ export interface EntityBase {
 
   // --- Shared state + display (relevance varies by kind) --------------------
   /**
-   * The soft "DONE" marker (badly named `completed` for legacy reasons — this is
-   * DONE, not the COMPLETE verdict which lives in `complete`). Done shows a checkmark
-   * and does NOT close/fill; it means "done but maybe not yet filed". Only meaningful
-   * for completable kinds (task/space/resource/moment/instant). Community/Organism/
-   * Individual/Soul are NOT done — they reach a TERMINAL state instead; see `KIND_META`.
+   * The soft "DONE" marker. Renamed from `completed` (v0.2.229) — that name dangerously
+   * collided with the separate COMPLETE verdict (`complete`); this is DONE, not COMPLETE.
+   * Done shows a checkmark and does NOT close/fill; it means "done but maybe not yet filed".
+   * Only meaningful for completable kinds (task/space/resource/moment/instant). Community/
+   * Organism/Individual/Soul are NOT done — they reach a TERMINAL state instead; see `KIND_META`.
    */
-  completed?: boolean
+  done?: boolean
   /**
    * A moment (or instant) that was called off but kept on the timeline for
    * reference. Cancelled items render dimmed with a struck-through title.

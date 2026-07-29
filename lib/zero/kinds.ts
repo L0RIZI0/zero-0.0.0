@@ -1,7 +1,7 @@
 import type { Entity, EntityKind, IndividualEntity, Session, Schedule } from "./types"
 import {
   isDone,
-  getCompletedOn,
+  getDoneOn,
   getCloseState,
   isCancelled,
   getExplicitComplete,
@@ -821,14 +821,14 @@ function stateWordFor(child: Entity, now: number, seen: Set<string>): StateWord 
  *   - TASK: the next local midnight after it was marked done (else none).
  *   - MOMENT/INSTANT: the next local midnight after its end/point (else none).
  *   - everything else: none (they close only manually).
- * `now` backfills a done task that somehow lacks a `completedOn`.
+ * `now` backfills a done task that somehow lacks a `doneOn`.
  */
 export function computeCloseAt(entity: Entity, now: number = Date.now()): number | undefined {
   // A manual close policy opts OUT of any stamped time-close (belt-and-braces alongside
   // the getState guard) — such entities close only by an explicit hand action.
   if (entity.closePolicy === "manual") return undefined
   if (entity.kind === "task") {
-    return isDone(entity) ? nextLocalMidnight(getCompletedOn(entity) ?? now) : undefined
+    return isDone(entity) ? nextLocalMidnight(getDoneOn(entity) ?? now) : undefined
   }
   if (entity.kind === "moment") {
     // END only — a Moment is a SPAN, and only its END closes it. A lone point anchor
@@ -852,7 +852,7 @@ export function computeCloseAt(entity: Entity, now: number = Date.now()): number
 /**
  * When (if ever) `entity` reached its positive terminal — i.e. became COMPLETE —
  * IGNORING whether it has since closed. Returns that instant, or null if not complete.
- *   - TASK: complete the moment it is Done (single-user: done ⇒ complete). `completedOn`.
+ *   - TASK: complete the moment it is Done (single-user: done ⇒ complete). `doneOn`.
  *   - MOMENT/INSTANT: complete once its end/point is in the past. That end epoch.
  *   - LEGACY: a persisted explicit `complete` verdict from old data.
  */
@@ -863,7 +863,7 @@ function completeSince(entity: Entity, now: number, seen?: Set<string>): number 
     // and AUTOCOMPLETES once every task child is complete. Non-task children never gate.
     if (!isDone(entity)) return null
     if (!allTaskChildrenComplete(entity, now, seen ?? new Set<string>())) return null
-    return getCompletedOn(entity) ?? getCreatedAt(entity) ?? now
+    return getDoneOn(entity) ?? getCreatedAt(entity) ?? now
   }
   if (entity.kind === "moment") {
     // END only (see computeCloseAt): a moment completes when its span ENDS. With no end
@@ -916,20 +916,32 @@ function getStateInner(entity: Entity, now: number, seen: Set<string>): EntitySt
     closeState !== "reopened" &&
     entity.closeAt != null &&
     now >= entity.closeAt
-  if (manualClosed || timeClosed) {
-    const at = manualClosed ? entity.closedOn ?? entity.closeAt : entity.closeAt
-    // BEINGS (terminal != null) reach their terminal — `dead` (death) or `retired` (retire) —
-    // ONLY if they were actually ALIVE at the moment of closing: their life anchor (`bornAt` for
-    // an Individual, `publishedAt` for an Organism/Community) is known and had already passed.
-    // Closing a NOT-YET-LIVED being (open / "expected") is a plain `closed` — a shut plan, not an
-    // ended life — so a terminal always implies a real lifespan (age = anchor → close). This is
-    // the symmetric rule behind the delete guard: you can only end a being that truly lived.
+  // An EXPLICITLY asserted terminal — a stated death/retire instant on the being — is a close
+  // trigger in its OWN right: asserting "this person died" ends them even when nothing else
+  // (manual close or a stamped `closeAt`) closed the entity. Only terminal kinds carry these.
+  const term = entity as { retiredOn?: number; diedOn?: number }
+  const explicitTerminal = meta.terminal != null && (term.diedOn != null || term.retiredOn != null)
+  if (manualClosed || timeClosed || explicitTerminal) {
+    const at = manualClosed
+      ? entity.closedOn ?? entity.closeAt
+      : timeClosed
+        ? entity.closeAt
+        : term.diedOn ?? term.retiredOn
     if (meta.terminal != null) {
       const anchor = lifeAnchor(entity)
+      // Two ways a being reaches its terminal — `dead` (death) or `retired` (retire):
+      //   • EXPLICIT — a stated death/retire date. An asserted death is a FACT, so it reads as the
+      //     terminal REGARDLESS of the birth anchor; we simply OMIT the age when no lifespan can be
+      //     computed (birth unknown, or death date unknown). This captures "dead, birth unknown"
+      //     and "dead, when unknown" alike.
+      //   • IMPLICIT — a plain close with no assertion. This only reads terminal if the being was
+      //     actually ALIVE at close (anchor known and passed); otherwise closing a NOT-YET-LIVED
+      //     being is a plain `closed` — a shut plan, not an ended life (the delete-guard's mirror).
       const wasAlive = anchor != null && at != null && anchor <= at
-      if (wasAlive) {
-        if (meta.terminal === "retire") return { word: "retired", at, age: formatAge(anchor, at) }
-        return { word: "dead", at, age: formatAge(anchor, at) }
+      if (explicitTerminal || wasAlive) {
+        const age = anchor != null && at != null ? formatAge(anchor, at) : undefined
+        if (meta.terminal === "retire") return { word: "retired", at, age }
+        return { word: "dead", at, age }
       }
       return { word: "closed", at }
     }

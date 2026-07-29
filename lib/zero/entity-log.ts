@@ -7,7 +7,7 @@
  * boolean scalars. See the "entity log model" memory / spec for the full plan.
  *
  * Every derive helper reads `entity.log` IF PRESENT and otherwise FALLS BACK to the
- * existing scalar fields (`creationDate`, `completed`, `completedOn`, `closed`/`closedOn`,
+ * existing scalar fields (`creationDate`, `done`, `doneOn`, `closed`/`closedOn`,
  * `reopened`/`reopenedOn`, `createdBy`, `createdWhere`), so entities that predate the
  * log — or seeded entities that never persist one — stay correct.
  *
@@ -82,19 +82,20 @@ export function hasLog(entity: Entity): boolean {
 /**
  * Whether the entity is currently DONE. Log view: the latest done/undone toggle is
  * a `done`. This is the typed-log generalization of the user's "odd-length list ⇒
- * done" parity idea. Fallback: the scalar `completed` flag.
+ * done" parity idea. Fallback: the scalar `done` flag.
  */
 export function isDone(entity: Entity): boolean {
   const last = lastEntry(entity, ...DONE_TYPES)
   if (last) return last.type === "done"
-  return !!entity.completed
+  return !!entity.done
 }
 
-/** When completion last flipped true. Log: latest `done`.at; else `completedOn`. */
-export function getCompletedOn(entity: Entity): Epoch | undefined {
+/** When the DONE marker last flipped true. Log: latest `done`.at; else the `doneOn` scalar.
+ *  Renamed from `getCompletedOn` (v0.2.229) alongside the `completed`→`done` field rename. */
+export function getDoneOn(entity: Entity): Epoch | undefined {
   const last = lastEntry(entity, ...DONE_TYPES)
   if (last) return last.type === "done" ? last.at : undefined
-  return entity.completedOn
+  return entity.doneOn
 }
 
 /** Log entry types that TOGGLE the COMPLETE verdict on/off (its own axis). */
@@ -280,7 +281,7 @@ export function describeLogEntry(
  * Fold an entity's legacy SCALAR lifecycle fields into a starting {@link Instant}
  * log — the one-time seed used by the Phase 2 migration AND by the write paths when
  * they encounter a pre-log entity. Best-effort and LOSSY by nature: the scalars only
- * retain the LATEST timestamp per axis (one `completedOn`, one `closedOn`, one
+ * retain the LATEST timestamp per axis (one `doneOn`, one `closedOn`, one
  * `reopenedOn`), so this reconstructs a coherent SNAPSHOT, not full history — real
  * history accumulates from the next toggle onward. Entries are sorted ascending by
  * `at` so `created` comes first.
@@ -293,9 +294,9 @@ export function buildLogFromScalars(entity: Entity): Instant[] {
   const log: Instant[] = []
   // Terminal timestamps live on per-kind interfaces, not EntityBase.
   const term = entity as { retiredOn?: Epoch; diedOn?: Epoch }
-  const creationDate = entity.creationDate ?? entity.completedOn ?? Date.now()
+  const creationDate = entity.creationDate ?? entity.doneOn ?? Date.now()
   log.push(makeInstant("created", creationDate, { by: entity.createdBy, where: entity.createdWhere }))
-  if (entity.completed && entity.completedOn != null) log.push(makeInstant("done", entity.completedOn))
+  if (entity.done && entity.doneOn != null) log.push(makeInstant("done", entity.doneOn))
   if (entity.complete && entity.completeOn != null) log.push(makeInstant("completed", entity.completeOn))
   if (entity.closed && entity.closedOn != null) log.push(makeInstant("closed", entity.closedOn))
   if (entity.reopened && entity.reopenedOn != null) log.push(makeInstant("reopened", entity.reopenedOn))
@@ -332,7 +333,7 @@ export function auditLogScalarConsistency(entity: Entity): LogScalarMismatch[] {
   const out: LogScalarMismatch[] = []
 
   const doneLog = isDone(entity)
-  const doneScalar = !!entity.completed
+  const doneScalar = !!entity.done
   if (doneLog !== doneScalar) {
     out.push({ id: entity.id, axis: "done", fromLog: doneLog, fromScalar: doneScalar })
   }

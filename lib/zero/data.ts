@@ -2568,8 +2568,8 @@ export function buildLogAuditReport(): { count: number; text: string } {
       log: e?.log ?? null,
       scalars: e
         ? {
-            completed: e.completed,
-            completedOn: e.completedOn,
+            done: e.done,
+            doneOn: e.doneOn,
             closed: e.closed,
             closedOn: e.closedOn,
             reopened: e.reopened,
@@ -2599,7 +2599,7 @@ export function addTask(input: { title: string; contextId: string }): Entity {
     title: input.title,
     parentId: input.contextId,
     taggedContextIds: [],
-    completed: false,
+    done: false,
     creationDate: now,
     // Birth is the first log entry; scalars above are the transitional backup. Via appendInstant so
     // it gets its per-entity id (1) like every other entry.
@@ -2617,9 +2617,9 @@ export function addTask(input: { title: string; contextId: string }): Entity {
 /**
  * Create an entity from a PARSED create-field intent (see `create-parse.ts`) in one
  * write: a given `kind`, an optional `schedule` (span/point), and an optional already-
- * `completed` state (logging a PAST activity). Unlike `addTask` + `changeEntityKind`,
+ * `done` state (logging a PAST activity). Unlike `addTask` + `changeEntityKind`,
  * this sets the exact schedule instead of the per-kind placeholder span, and stamps
- * `completedOn` when done — so "Slept --2330-0630" lands as a finished Moment in a
+ * `doneOn` when done — so "Slept --2330-0630" lands as a finished Moment in a
  * single persist. Mirrors `addTask`'s store bookkeeping (userEntityIds + persist).
  */
 export function addParsedEntity(input: {
@@ -2627,7 +2627,7 @@ export function addParsedEntity(input: {
   contextId: string
   kind: EntityKind
   schedule?: Schedule
-  completed?: boolean
+  done?: boolean
 }): Entity {
   const now = Date.now()
   const entity = makeEntity({
@@ -2640,14 +2640,14 @@ export function addParsedEntity(input: {
     parentId: input.contextId,
     taggedContextIds: [],
     creationDate: now,
-    completed: input.completed ?? false,
-    ...(input.completed ? { completedOn: now } : {}),
+    done: input.done ?? false,
+    ...(input.done ? { doneOn: now } : {}),
     ...(input.schedule ? { schedule: input.schedule } : {}),
     // Tasks carry a priority + tags like `addTask` seeds; other kinds don't need them.
     ...(input.kind === "task" ? { priority: "medium" as TaskPriority, tags: [] } : {}),
   })
   // Seed the lifecycle log from the just-set scalars: a `created` entry, plus a
-  // `done` entry when logging a PAST activity (input.completed) — so "Slept …"
+  // `done` entry when logging a PAST activity (input.done) — so "Slept …"
   // lands as a finished Moment WITH history in one persist.
   entity.log = buildLogFromScalars(entity)
   // Stamp the absolute midnight close for a scheduled moment/instant (or a done task,
@@ -2958,20 +2958,20 @@ export function renameEntity(id: string, nextTitle: string, now = Date.now()): b
  * back to unchecked). Writing through to the store fixes that for ALL tasks, and for
  * materialized occurrences it lands on the override's own cloned subtask, keeping each
  * day independent. No-op if the id is unknown. */
-export function setEntityCompleted(id: string, completed: boolean): void {
+export function setEntityDone(id: string, done: boolean): void {
   const stored = byId.get(id)
   if (!stored) return
   // Only kinds WITH a done flag (Task) hold a "done" checkmark.
   // Space/Resource only open⟷close; terminal kinds retire/die — ignore done writes on them.
-  if (completed && !hasDoneFlag(stored.kind)) return
+  if (done && !hasDoneFlag(stored.kind)) return
   // Only append a log entry on a REAL state change (guards against redundant sets
   // adding duplicate done/undone Instants).
-  const changed = isDone(stored) !== completed
+  const changed = isDone(stored) !== done
   const entity = mutable(stored)
   const now = Date.now()
-  entity.completed = completed
-  // Track WHEN it was completed (cleared when un-checked) — part of every space's meta.
-  entity.completedOn = completed ? now : undefined
+  entity.done = done
+  // Track WHEN it was marked done (cleared when un-checked) — part of every space's meta.
+  entity.doneOn = done ? now : undefined
   // DONE is the soft "I did this" checkmark ��� its OWN axis. For a Task it DERIVES the
   // interim COMPLETE state (see getState/completeSince) and STAMPS the absolute midnight
   // close (`closeAt`) in the actor's local day, so the task files itself at the same real
@@ -2984,19 +2984,19 @@ export function setEntityCompleted(id: string, completed: boolean): void {
   // marks Done; only the owner (or a Complete action) sets the fill-driving verdict.
   entity.complete = undefined
   entity.completeOn = undefined
-  entity.closeAt = completed ? computeCloseAt(entity, now) : undefined
+  entity.closeAt = done ? computeCloseAt(entity, now) : undefined
   // DUAL-WRITE: append the toggle to the lifecycle log (the source of truth for reads),
   // seeding a log from scalars first if this entity predates it. Scalars above remain
   // as the transitional backup.
   if (changed) {
     const log = ensureEntityLog(stored)
-    stored.log = appendInstant(log, makeInstant(completed ? "done" : "undone", entity.completedOn ?? now))
+    stored.log = appendInstant(log, makeInstant(done ? "done" : "undone", entity.doneOn ?? now))
   }
   if (!userEntityIds.has(id)) {
     seededOverrides.set(id, {
       ...seededOverrides.get(id),
-      completed,
-      completedOn: entity.completedOn,
+      done,
+      doneOn: entity.doneOn,
       // Cleared: Done no longer implies the explicit complete verdict (see above).
       complete: undefined,
       completeOn: undefined,
@@ -3005,9 +3005,9 @@ export function setEntityCompleted(id: string, completed: boolean): void {
   }
   // Marking DONE ends the entity's ONGOING (its `play` session) at the close moment so it stops
   // printing/spinning as ongoing — but KEEPS the `focus` presence session open (v0.6.32 fix): a
-  // done task you're still looking at keeps accruing ACCESS. Skipped on un-check (completed=false)
+  // done task you're still looking at keeps accruing ACCESS. Skipped on un-check (done=false)
   // — a reopened entity resumes ongoing on the next enter/dwell.
-  if (completed) closeSession(id, "play", now)
+  if (done) closeSession(id, "play", now)
   persist()
 }
 
@@ -3027,7 +3027,7 @@ export function changeEntityKind(id: string, kind: EntityKind): void {
   const entity = mutable(stored)
   entity.kind = kind
   if (kind === "task") {
-    entity.completed = entity.completed ?? false
+    entity.done = entity.done ?? false
     entity.priority = entity.priority ?? "medium"
     entity.tags = entity.tags ?? []
   } else if (kind === "space") {
@@ -3177,7 +3177,7 @@ export function applyParsedSchedule(id: string, plan: ScheduleParse): boolean {
       sched.dueDate = today0 + plan.dueInDays * DAY_MS + timeOfDayMs
     }
     entity.schedule = Object.keys(sched).length > 0 ? sched : entity.schedule
-    entity.completed = entity.completed ?? false
+    entity.done = entity.done ?? false
     entity.priority = entity.priority ?? "medium"
   }
 
