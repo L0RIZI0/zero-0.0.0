@@ -3457,6 +3457,64 @@ export function setEntityClosePolicy(id: string, policy: "auto" | "manual" | nul
   return true
   }
 
+/**
+ * Set (or clear) an INDIVIDUAL's `firstName` / `lastName` — STRUCTURED identity fields kept
+ * SEPARATE from the display `title` (this never rewrites the title). Individual-only (returns
+ * false for any other kind). Empty/`null` clears the slot. Mirrors {@link setEntitySex}'s log +
+ * seeded-override handling so a change to a seeded individual (e.g. the root "0") survives refreshes.
+ */
+function setIndividualName(id: string, field: "firstName" | "lastName", value: string | null): boolean {
+  const stored = byId.get(id)
+  if (!stored || stored.kind !== "individual") return false
+  const entity = mutable(stored)
+  const v = value?.trim() ? value.trim() : null
+  if (v == null) delete (entity as IndividualEntity)[field]
+  else (entity as IndividualEntity)[field] = v
+  logSet(entity, field, v)
+  if (!userEntityIds.has(id)) {
+    seededOverrides.set(id, { ...seededOverrides.get(id), [field]: v ?? undefined } as Partial<Entity>)
+  }
+  persist()
+  return true
+}
+export const setEntityFirstName = (id: string, name: string | null) => setIndividualName(id, "firstName", name)
+export const setEntityLastName = (id: string, name: string | null) => setIndividualName(id, "lastName", name)
+
+/**
+ * Set (or clear) an INDIVIDUAL's `parents` — the list of parent Individual ids (a real relation,
+ * like `taggedContextIds`). Individual-only. `null`/empty clears it entirely. Ids are stored
+ * verbatim (the caller resolves names → ids via {@link findIndividualByTitle}). Mirrors
+ * setEntitySex's log + seeded-override handling.
+ */
+export function setEntityParents(id: string, parentIds: string[] | null): boolean {
+  const stored = byId.get(id)
+  if (!stored || stored.kind !== "individual") return false
+  const entity = mutable(stored)
+  const next = parentIds && parentIds.length > 0 ? [...new Set(parentIds)] : null
+  if (next == null) delete (entity as IndividualEntity).parents
+  else (entity as IndividualEntity).parents = next
+  logSet(entity, "parents", next ? next.join(",") : null)
+  if (!userEntityIds.has(id)) {
+    seededOverrides.set(id, { ...seededOverrides.get(id), parents: next ?? undefined } as Partial<Entity>)
+  }
+  persist()
+  return true
+}
+
+/**
+ * Resolve a typed NAME to an existing INDIVIDUAL entity by case-insensitive exact title match
+ * (used by the `--parent:<name>` setter). Returns the first match, or null when none. Kept simple
+ * (exact, trimmed, lowercased) so it's predictable; disambiguation by richer keys can come later.
+ */
+export function findIndividualByTitle(name: string): Entity | null {
+  const needle = name.trim().toLowerCase()
+  if (!needle) return null
+  for (const e of entities) {
+    if (e.kind === "individual" && e.title.trim().toLowerCase() === needle) return e
+  }
+  return null
+}
+
   /**
    * PUBLISH / UNPUBLISH an entity, in place — the Publish menu toggle. `published:true` stamps
    * `publishedAt = now`; `false` clears it. Offered on EVERY kind EXCEPT Soul (returns false for a

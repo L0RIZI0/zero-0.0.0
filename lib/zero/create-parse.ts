@@ -468,9 +468,11 @@ export function parseCreateField(raw: string): CreateFieldParse | null {
 //                      `:unrequest`, `:delete`).
 //   • `--field:value`— an ATTRIBUTE ("this has …"): `--start:2330`, `--end:0630`,
 //                      `--at:0630`, `--due:260709`, `--color:ff0000`, `--sex:man`,
+//                      `--firstName:Ada`, `--lastName:"Van Der Berg"`, `--parent:Loris`,
 //                      `--title:new name`. First colon splits name/value; `--s`/`--e`
 //                      alias start/end. `--title:` captures the REST of the line (free
-//                      multi-word text). (`--repeat` is not wired yet — no mutator.)
+//                      multi-word text); ANY field takes a quoted `--f:"multi word"` value.
+//                      (`--repeat` is not wired yet — no mutator.)
 // The remaining words are the TITLE. TARGET RULE (applied by the caller): a title ⇒ act
 // on a NEW child; no title ⇒ act on the CURRENTLY OPEN entity (the bar is a command
 // line). A NAKED time with no `--field` is just title text — the field name is mandatory,
@@ -491,7 +493,8 @@ const ACTION_IDS: Record<string, EntryActionId> = {
 const FIELD_ALIASES: Record<string, string> = { s: "start", e: "end" }
 
 export interface EntryAttr {
-  /** Canonical field name (aliases resolved): start | end | at | due | repeat | color | sex | title. */
+  /** Canonical field name (aliases resolved): start | end | at | due | repeat | color | sex |
+   *  firstname | lastname | parent | title | … */
   field: string
   /** Raw value after the first colon (empty ⇒ the caller clears the slot). */
   value: string
@@ -567,6 +570,15 @@ export function parseEntry(raw: string): EntryParse {
   })
   s = s.replace(new RegExp(`--${relFields}\\s*:\\s*in\\s+([\\d.]+[\\d.a-z ]*?)(?=\\s*(?:--|$))`, "gi"), (_m, f: string, dur: string) => {
     attrs.push({ field: FIELD_ALIASES[f.toLowerCase()] ?? f.toLowerCase(), value: `in ${dur.trim()}` })
+    return " "
+  })
+
+  // 1.9) `--field:"quoted value"` — a MULTI-WORD value in double quotes, for ANY field (e.g.
+  //      `--lastName:"Van Der Berg"`). Runs before the single-token step 2 so the spaces inside
+  //      the quotes aren't split off into the title. Quotes are stripped; the value is trimmed.
+  s = s.replace(/--([a-zA-Z]+)\s*:\s*"([^"]*)"/g, (_m, f: string, v: string) => {
+    const field = FIELD_ALIASES[f.toLowerCase()] ?? f.toLowerCase()
+    attrs.push({ field, value: v.trim() })
     return " "
   })
 

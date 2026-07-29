@@ -28,6 +28,10 @@ import {
   setEntityClosed,
   setEntityAccent,
   setEntitySex,
+  setEntityFirstName,
+  setEntityLastName,
+  setEntityParents,
+  findIndividualByTitle,
   setEntityClosePolicy,
   renameEntity,
   changeEntityKind,
@@ -70,7 +74,7 @@ import { Zero0Face } from "./zero0-face"
 import { Zero0Favicon } from "./zero0-favicon"
 import { Zero0Content, type Zero0ContentCtx } from "./zero0-content"
   import { fmt, fmtLogValue, sexSymbol, formatDuration, type FaceSize, type FaceMake } from "@/lib/zero/face-model"
-import type { Entity } from "@/lib/zero/types"
+  import type { Entity, IndividualEntity } from "@/lib/zero/types"
 
 // `canAutoPlay` + `ONGOING_ON_ENTER` now live in lib/zero/kinds.ts (canonical), shared by the
 // session fold (deriveSessionsFromLog) and this canvas so the two can't drift.
@@ -988,6 +992,49 @@ export function Zero0Canvas() {
           setEntitySex(id, sex)
           return `sex ${sexSymbol(sex)}`
         }
+        case "firstname":
+        case "lastname": {
+          // Structured identity names — Individual-only, INDEPENDENT of the display title.
+          // Empty clears the slot. Multi-word via quotes: `--lastName:"Van Der Berg"`.
+          if (ent.kind !== "individual") {
+            setNotice({ tone: "err", text: "only individuals have a first/last name" })
+            return null
+          }
+          const isFirst = attr.field === "firstname"
+          const label = isFirst ? "first name" : "last name"
+          const set = isFirst ? setEntityFirstName : setEntityLastName
+          if (val === "") {
+            set(id, null)
+            return `${label} cleared`
+          }
+          set(id, val)
+          return `${label} ${val}`
+        }
+        case "parent": {
+          // Add a PARENT link (Individual→Individual) by resolving a typed name to an existing
+          // Individual. Empty `--parent:` clears all parents. Repeat the flag to add several.
+          if (ent.kind !== "individual") {
+            setNotice({ tone: "err", text: "only individuals have parents" })
+            return null
+          }
+          if (val === "") {
+            setEntityParents(id, null)
+            return "parents cleared"
+          }
+          const match = findIndividualByTitle(val)
+          if (!match) {
+            setNotice({ tone: "err", text: `no individual named "${val}"` })
+            return null
+          }
+          if (match.id === id) {
+            setNotice({ tone: "err", text: "an individual can't be their own parent" })
+            return null
+          }
+          const current = (ent as IndividualEntity).parents ?? []
+          if (current.includes(match.id)) return `already a parent: ${match.title}`
+          setEntityParents(id, [...current, match.id])
+          return `parent + ${match.title}`
+        }
         case "sessionstart":
         case "sessionend": {
           // ACCESS-SESSION sugar (v0.6.19; retargeted v0.6.20) — the deliberate counterpart to the
@@ -1127,7 +1174,7 @@ export function Zero0Canvas() {
         default:
           setNotice({
             tone: "err",
-            text: `unknown --${attr.field} — try --start --end --at --due --duration --maxnb --maxnbhard --close --color --sex --title`,
+            text: `unknown --${attr.field} — try --start --end --at --due --duration --maxnb --maxnbhard --close --color --sex --firstName --lastName --parent --title`,
           })
           return null
       }

@@ -1063,6 +1063,17 @@ export function getFaceMetaRows(e: Entity, now: number): [string, string][] {
   // SEX — an Individual's defining identity field, always shown (— when unset), the
   // same way a Moment always shows its span. Individual-only.
   if (e.kind === "individual") rows.push(["sex", e.sex ? sexSymbol(e.sex) : "—"])
+  // NAME — an Individual's structured given/family name, kept SEPARATE from the display title.
+  // Always shown (— when unset), like SEX. Individual-only.
+  if (e.kind === "individual") {
+    rows.push(["first name", e.firstName ? e.firstName : "—"])
+    rows.push(["last name", e.lastName ? e.lastName : "—"])
+  }
+  // PARENTS — the parent-Individual link list, resolved id→name. Shown only when non-empty (a
+  // relation, like the tag links below — a person with no recorded parents stays quiet).
+  if (e.kind === "individual" && e.parents && e.parents.length > 0) {
+    rows.push(["parents", e.parents.map((pid) => getEntity(pid)?.title ?? pid).join(", ")])
+  }
   // TAG LINKS — the recursive "also shows up in" web, both directions:
   //   • tags      = this entity's own outbound links (the contexts it plugs into).
   //   • tagged by = the DERIVED reverse — entities that name/reference THIS one, each with a
@@ -1143,6 +1154,9 @@ export function getFaceRawFields(e: Entity, now: number): [string, string][] {
   if (e.kind === "individual") {
     rows.push(["bornAt", dateish(b.bornAt)])
     rows.push(["sex", val(b.sex)])
+    rows.push(["firstName", val(b.firstName)])
+    rows.push(["lastName", val(b.lastName)])
+    rows.push(["parents", val(b.parents)])
     rows.push(["diedOn", dateish(b.diedOn)])
   }
   if (e.kind === "organism") {

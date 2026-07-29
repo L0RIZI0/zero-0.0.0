@@ -681,8 +681,24 @@ export interface IndividualEntity extends EntityBase {
   bornAt?: Epoch
   /** When the individual died (terminal state; epoch ms). */
   diedOn?: Epoch
-  /** Biological sex. Individual-only; set via the `:sex:` self-field setter. */
+  /** Biological sex. Individual-only; set via the `--sex:` self-field setter. */
   sex?: Sex
+  /**
+   * Given (first) name — a STRUCTURED identity field, INDEPENDENT of the display `title`
+   * (setting it never rewrites `title`). Individual-only; set via `--firstName:`.
+   */
+  firstName?: string
+  /**
+   * Family (last) name — structured identity, independent of `title`. Individual-only;
+   * set via `--lastName:` (multi-word values via quotes: `--lastName:"Van Der Berg"`).
+   */
+  lastName?: string
+  /**
+   * Parent(s) — a REAL relation to other Individuals, stored as their entity ids (like
+   * `taggedContextIds`, not free text). Individual-only; each `--parent:<name>` resolves a
+   * case-insensitive title match against existing Individuals and appends its id.
+   */
+  parents?: string[]
 }
 
 /**
