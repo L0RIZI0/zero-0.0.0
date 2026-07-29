@@ -380,6 +380,22 @@ export interface TitleEntry {
   at: Epoch
 }
 
+/**
+ * An INPUT EDGE — something that flows INTO an entity as an input (money, an app, an asset, or
+ * eventually ANY entity: a task, a space, a web resource, …). Object-wrapped (not a bare id) so
+ * the edge can grow attributes without another migration — notably a future `amount?` for money
+ * budget allocation, and later a `role`. Today it carries only the source `id`.
+ *
+ * Renamed + reshaped from the old `assignedResourceIds: string[]` (v0.2.229): that field only ever
+ * pointed at Resource-catalog ids; `inputs` is the general "X is an input to Y" relation the model
+ * is moving toward. The `Input to…` / `Input from…` menu flow that writes arbitrary-entity edges is
+ * deferred — for now `id` still resolves against the Resource catalog first, then entities.
+ */
+export interface InputEdge {
+  /** The source that flows in — a Resource-catalog id today, any entity id in the target model. */
+  id: string
+}
+
 export interface EntityBase {
   id: string
   title: string
@@ -560,8 +576,13 @@ export interface EntityBase {
    * sprouts a tilted "sent" edge off the square's bottom-right corner.
    */
   requested?: boolean
-  /** Resources assigned to this entity (mainly spaces). */
-  assignedResourceIds?: string[]
+  /**
+   * INPUTS — the things that flow INTO this entity (see {@link InputEdge}). Universal on
+   * EntityBase (any entity can take inputs, though today only spaces are seeded with them).
+   * Renamed + reshaped from `assignedResourceIds: string[]` (v0.2.229); each edge's `id` still
+   * resolves against the Resource catalog for now.
+   */
+  inputs?: InputEdge[]
   /**
    * All timing for this entity (start/end span, instant point, due date, effort
    * budget, recurrence) — grouped in one optional object. See {@link Schedule}.

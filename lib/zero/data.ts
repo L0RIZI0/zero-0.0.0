@@ -366,9 +366,9 @@ export const entities: Entity[] = [
   bornAt: new Date(1991, 4, 19, 13, 33, 0, 0).getTime(),
   // Loris is a man.
   sex: "man",
-  // Root canvas starts as a FRESH tree: the Individual owns no resources yet, and
+  // Root canvas starts as a FRESH tree: the Individual owns no inputs yet, and
   // has no space/task children. Everything below is grown by the user at runtime.
-  assignedResourceIds: [],
+  inputs: [],
   },
   // --- WEB-PREVIEW SAMPLE SET ----------------------------------------------
   // A minimal, legible sample under the Individual: ONE of each core kind so the web
@@ -1070,14 +1070,15 @@ export function getChildSpaces(contextId: string): Entity[] {
   return entities.filter((e) => e.kind === "space" && e.parentId === contextId)
 }
 
-/** Resources DIRECTLY assigned to a context (its own assignedResourceIds — not the subtree). */
-export function getAssignedResources(contextId: string): Resource[] {
+  /** Resources DIRECTLY input to a context (its own `inputs` whose id resolves in the Resource
+   * catalog — not the subtree). Non-resource input edges (the future general case) are skipped. */
+  export function getAssignedResources(contextId: string): Resource[] {
   const space = getSpace(contextId)
   if (!space) return []
-  return (space.assignedResourceIds ?? [])
-    .map((id) => resourceById.get(id))
-    .filter(Boolean) as Resource[]
-}
+  return (space.inputs ?? [])
+  .map((edge) => resourceById.get(edge.id))
+  .filter(Boolean) as Resource[]
+  }
 
 /**
  * Tasks anywhere in a context's subtree (origin or tagged). Used by legacy
@@ -2105,6 +2106,33 @@ function migrateStoredTaggedKey(stored: UserItems): void {
   for (const patch of Object.values(stored.overrides)) rename(patch as Record<string, unknown>)
 }
 
+/** The pre-v0.2.229 field name for entity inputs (a bare `string[]` of Resource ids). */
+const LEGACY_INPUTS_KEY = "assignedResourceIds"
+
+/**
+ * ONE-TIME MIGRATION (v0.2.229): `assignedResourceIds: string[]` → `inputs: InputEdge[]`. Renames
+ * the key AND reshapes each bare id into an object edge `{ id }` (so a future `amount?`/`role` is
+ * additive). Runs in place on the freshly-read {@link UserItems} for both created `entities` and
+ * any seeded-entity `overrides` patch that captured the field.
+ * MUST run before {@link migrateStoredRootId}, which now remaps ids INSIDE the `inputs` edges.
+ * Idempotent: no-op once the legacy key is gone and `inputs` is already object-shaped.
+ */
+function migrateStoredInputs(stored: UserItems): void {
+  const rename = (obj: Record<string, unknown>) => {
+    const legacy = obj[LEGACY_INPUTS_KEY]
+    if (Array.isArray(legacy) && obj.inputs === undefined) {
+      obj.inputs = legacy.map((v) => (typeof v === "string" ? { id: v } : v))
+    }
+    delete obj[LEGACY_INPUTS_KEY]
+    // Defensive: an `inputs` persisted as a bare string[] (shouldn't happen) → wrap it.
+    if (Array.isArray(obj.inputs)) {
+      obj.inputs = (obj.inputs as unknown[]).map((v) => (typeof v === "string" ? { id: v } : v))
+    }
+  }
+  for (const e of stored.entities) rename(e as unknown as Record<string, unknown>)
+  for (const patch of Object.values(stored.overrides)) rename(patch as Record<string, unknown>)
+}
+
 /** The space-era id the root Individual used before it became {@link ROOT_ID} ("0"). */
 const LEGACY_ROOT_ID = "s_root"
 
@@ -2114,7 +2142,7 @@ const LEGACY_ROOT_ID = "s_root"
  * (so it already loads as `"0"`), but any data the user PERSISTED under the old id would
  * otherwise dangle. This remaps, in place on the freshly-read {@link UserItems}:
  *   • child `parentId`s pointing at the old root → `"0"` (reattaches the whole subtree);
- *   • id references inside `taggedContextIds` / `assignedResourceIds`;
+   *   • id references inside `taggedContextIds` / `inputs` edges;
  *   • the per-context `pins` / `order` maps keyed by (or listing) the old id;
  *   • an `overrides` patch keyed by the old id (e.g. a renamed/recolored root);
  *   • any `deletedIds` entry.
@@ -2125,7 +2153,8 @@ function migrateStoredRootId(stored: UserItems): void {
   for (const e of stored.entities) {
     if (e.parentId === LEGACY_ROOT_ID) e.parentId = ROOT_ID
     if (Array.isArray(e.taggedContextIds)) e.taggedContextIds = e.taggedContextIds.map(swap)
-    if (Array.isArray(e.assignedResourceIds)) e.assignedResourceIds = e.assignedResourceIds.map(swap)
+    // `inputs` is already object-wrapped by migrateStoredInputs (runs before this); remap the id inside each edge.
+    if (Array.isArray(e.inputs)) e.inputs = e.inputs.map((edge) => ({ ...edge, id: swap(edge.id) }))
   }
   const remapMap = (m: Record<string, string[]>) => {
     if (Array.isArray(m[LEGACY_ROOT_ID])) {
@@ -2248,6 +2277,9 @@ export function hydrateFromStorage(): boolean {
   // Normalize the space-era `taggedSpaceIds` key → `taggedContextIds` FIRST, so the
   // root-id remap below can read the multi-parent links through the new key.
   migrateStoredTaggedKey(stored)
+  // v0.2.229: `assignedResourceIds: string[]` → `inputs: InputEdge[]`. MUST precede the root-id
+  // remap below, which now swaps ids inside the (already object-wrapped) `inputs` edges.
+  migrateStoredInputs(stored)
   // Reattach any data persisted under the old space-era root id before merging.
   migrateStoredRootId(stored)
   // Normalize persisted schedules onto canonical `sessions[]` (undo interim `engagements` key + old `kind`).
@@ -2427,6 +2459,7 @@ export function resyncFromStorage(): boolean {
   if (typeof window === "undefined") return false
   const stored = readUserItems()
   migrateStoredTaggedKey(stored)
+  migrateStoredInputs(stored)
   migrateStoredRootId(stored)
   migrateStoredSessionsKey(stored)
   migrateStoredScheduleFields(stored)
@@ -2793,9 +2826,9 @@ export function addWebResource(input: {
     kind: "space",
     title: input.name,
     parentId: input.parentId,
-    taggedContextIds: [],
-    description: "",
-    assignedResourceIds: [],
+  taggedContextIds: [],
+  description: "",
+  inputs: [],
   }
   entities.push(entity)
   byId.set(entity.id, entity)
@@ -2998,8 +3031,8 @@ export function changeEntityKind(id: string, kind: EntityKind): void {
     entity.priority = entity.priority ?? "medium"
     entity.tags = entity.tags ?? []
   } else if (kind === "space") {
-    entity.description = entity.description ?? ""
-    entity.assignedResourceIds = entity.assignedResourceIds ?? []
+  entity.description = entity.description ?? ""
+  entity.inputs = entity.inputs ?? []
   } else if (kind === "moment") {
     // Default a freshly-picked moment to a now → now+1h block (parity with the instant=now
     // default). The old noon→1pm `t(12)`/`t(13)` was a temporary scaffold on the stale
@@ -3013,10 +3046,10 @@ export function changeEntityKind(id: string, kind: EntityKind): void {
     entity.schedule = { at: Date.now(), ...entity.schedule }
   } else if (kind === "resource" || kind === "community" || kind === "organism") {
     // All container-like: they hold things and carry a blurb. (Organism is the
-    // only identity-triad kind that's user-creatable; individual/soul are seeded
-    // system entities and never produced through this path.)
-    entity.description = entity.description ?? ""
-    entity.assignedResourceIds = entity.assignedResourceIds ?? []
+  // only identity-triad kind that's user-creatable; individual/soul are seeded
+  // system entities and never produced through this path.)
+  entity.description = entity.description ?? ""
+  entity.inputs = entity.inputs ?? []
   }
   // A row switched into a real kind should carry a lifecycle log (an inline draft
   // may have none yet); seed one from scalars if absent, then record the kind change.
@@ -3118,10 +3151,10 @@ export function applyParsedSchedule(id: string, plan: ScheduleParse): boolean {
     // instant normalization), so it renders as a dayline point and never reads ongoing.
     entity.schedule = { at: startAt, startDate: startAt, endDate: startAt, ...(repeat ? { repeat } : {}) }
   } else if (plan.kind === "moment" || plan.kind === "space") {
-    if (plan.kind === "space") {
-      entity.description = entity.description ?? ""
-      entity.assignedResourceIds = entity.assignedResourceIds ?? []
-    }
+  if (plan.kind === "space") {
+  entity.description = entity.description ?? ""
+  entity.inputs = entity.inputs ?? []
+  }
     if (timeblocks) {
       entity.schedule = {
         startDate: timeblocks[0].startAt,

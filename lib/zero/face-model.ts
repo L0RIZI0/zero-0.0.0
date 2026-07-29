@@ -21,6 +21,7 @@ import type { Entity, EntityKind } from "./types"
   import { KIND_META, isClosed, fillsGlyph, getState, isOngoing, getOngoingSince, concreteStart, effectiveScheduleEnd, ongoingOpenSession, occurrenceAction, isBeing, isLifeBeing, individualBornAt, getPublishedAt, lifeAnchor, isMarkable, getMarks, getSessions, getInstantMaxNb, isInstantMaxNbHard, getInstantOccurrenceCount, type EntityState } from "./kinds"
 import { isDone, getCreatedAt, getCompletedOn } from "./entity-log"
 import { getEntity, getCreator, getOwner, getForwardTags, getBackReferences, getChildren } from "./data"
+import { getResourceDef } from "./resources"
 import { formatLocale } from "./format-locale"
 import { webLabel } from "./web-resources"
 
@@ -1074,6 +1075,13 @@ export function getFaceMetaRows(e: Entity, now: number): [string, string][] {
   if (e.kind === "individual" && e.parents && e.parents.length > 0) {
     rows.push(["parents", e.parents.map((pid) => getEntity(pid)?.title ?? pid).join(", ")])
   }
+  // INPUTS — the things that flow INTO this entity (see EntityBase.inputs). Each edge id resolves
+  // to a name: an entity title first (the general target model), else the Resource-catalog name
+  // (today's only real case), else the raw id. Shown only when non-empty (a relation, like tags).
+  if (e.inputs && e.inputs.length > 0) {
+    const names = e.inputs.map((edge) => getEntity(edge.id)?.title ?? getResourceDef(edge.id)?.name ?? edge.id)
+    rows.push(["inputs", names.join(", ")])
+  }
   // TAG LINKS — the recursive "also shows up in" web, both directions:
   //   • tags      = this entity's own outbound links (the contexts it plugs into).
   //   • tagged by = the DERIVED reverse — entities that name/reference THIS one, each with a
@@ -1150,6 +1158,8 @@ export function getFaceRawFields(e: Entity, now: number): [string, string][] {
   // Completion cap — UNIVERSAL (v0.2.229, was instant-only).
   rows.push(["maxNb", val(b.maxNb)])
   rows.push(["maxNbHard", val(b.maxNbHard)])
+  // INPUTS — universal entity-input edges (v0.2.229, renamed from assignedResourceIds). Count only.
+  rows.push(["inputs", Array.isArray(b.inputs) ? `${(b.inputs as unknown[]).length}` : "—"])
   // Kind-specific defining fields (shown for the kinds that own them).
   if (e.kind === "individual") {
     rows.push(["bornAt", dateish(b.bornAt)])
