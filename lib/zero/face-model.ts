@@ -1052,6 +1052,14 @@ export function getFaceMetaRows(e: Entity, now: number): [string, string][] {
     const born = individualBornAt(e)
     rows.push(["born", born != null ? fmt(born) : "—"])
   }
+  // DIED — the death instant (`diedOn`), the closing bracket to BORN. Unlike BORN (a defining field
+  // always shown), death is only meaningful once the Individual is terminal, so this row appears
+  // ONLY when the being reads `dead` — a "died: —" on someone alive would be morbid noise. NOTE: it
+  // is NOT gated on `born` existing — a known death date is a real fact even when the birth is
+  // unknown, so we never hide a set `diedOn` just because `bornAt` is missing.
+  if (e.kind === "individual" && getState(e, now).word === "dead") {
+    rows.push(["died", e.diedOn != null ? fmt(e.diedOn) : "—"])
+  }
   // PUBLISHED — an Organism/Community's ALIVE anchor (the `publishedAt` field), the parallel to
   // BORN: always shown (— when unpublished); a set value ⇒ alive/live. For OTHER kinds the publish
   // flag is only surfaced when actually set (it isn't a defining field for them). Soul never has it.
