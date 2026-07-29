@@ -15,7 +15,7 @@
 
 import {
   deleteEntity,
-  setEntityCompleted,
+  setEntityDone,
   setEntityClosed,
   setEntityCancelled,
   setEntityPublished,
@@ -276,10 +276,10 @@ export function applyEntityMenuAction(entity: Entity, actionId: string): boolean
   }
   switch (actionId) {
     case "done":
-      setEntityCompleted(id, true)
+      setEntityDone(id, true)
       return true
     case "undone":
-      setEntityCompleted(id, false)
+      setEntityDone(id, false)
       return true
     case "close":
       setEntityClosed(id, true)

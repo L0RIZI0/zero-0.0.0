@@ -46,7 +46,7 @@ function makeEntity(props: LooseEntity): Entity {
 /**
  * A MUTABLE loose view of a stored entity, for the imperative setters that change
  * `kind` and/or per-kind fields IN PLACE (changeEntityKind, applyParsedSchedule,
- * setEntityRequested, setEntityCompleted). The returned object is the SAME reference
+ * setEntityRequested, setEntityDone). The returned object is the SAME reference
  * held by `byId`/`entities`, so writes persist; the cast only lets TS allow assigning
  * the discriminant and cross-kind fields. Runtime behavior is identical to before the
  * Space-union refactor (these functions already mutated the object in place).
@@ -384,7 +384,7 @@ export const entities: Entity[] = [
   ...(process.env.NEXT_PUBLIC_ZERO_ELECTRON !== "1"
     ? ([
         { id: "seed_space", kind: "space", title: "Space", parentId: ROOT_ID, taggedContextIds: [], color: "#4A90E2" },
-        { id: "seed_task", kind: "task", title: "Task", parentId: ROOT_ID, taggedContextIds: [], completed: false },
+        { id: "seed_task", kind: "task", title: "Task", parentId: ROOT_ID, taggedContextIds: [], done: false },
         { id: "seed_moment", kind: "moment", title: "Moment", parentId: ROOT_ID, taggedContextIds: [], color: "#A855F7" },
         { id: "seed_instant", kind: "instant", title: "Instant", parentId: ROOT_ID, taggedContextIds: [], color: "#EC4899" },
         {
@@ -402,7 +402,7 @@ export const entities: Entity[] = [
           parentId: ROOT_ID,
           taggedContextIds: [],
           color: "#2ECC71",
-          completed: false,
+          done: false,
           tags: [],
           webUrl: "/matrix-interactions",
         },
@@ -433,7 +433,7 @@ export const entities: Entity[] = [
               parentId: "s_zero",
               taggedContextIds: [],
               color: ACCENT.zero,
-              completed: false,
+              done: false,
               tags: [],
               webUrl: url,
             }) as Entity,
@@ -2217,7 +2217,10 @@ function migrateStoredSessionsKey(stored: UserItems): void {
 /**
  * v0.2.228 FIELD RENAMES — normalize persisted data onto the new explicit names. Runs on every
  * stored entity AND every seeded-entity `overrides` patch. Rules:
- *   TOP-LEVEL:  createdAt→creationDate, accent→color, webTitle→displayTitle
+ *   TOP-LEVEL:  createdAt→creationDate, accent→color, webTitle→displayTitle,
+ *               completed→done, completedOn→doneOn  (v0.2.229 — the DONE marker; renamed off the
+ *               name it shared with the separate COMPLETE verdict `complete`/`completeOn`, which
+ *               are LEFT UNTOUCHED here)
  *   SCHEDULE (the PLAN):  startAt→startDate, endAt→endDate, dueAt→dueDate  (`at` unchanged)
  *   SCHEDULE:  blocks→timeblocks (v0.2.229 — "block" was overloaded); its INNER startAt/endAt
  *              are UNCHANGED (a timeblock is a planned sub-span).
@@ -2247,6 +2250,10 @@ function migrateStoredScheduleFields(stored: UserItems): void {
     move(o, "createdAt", "creationDate")
     move(o, "accent", "color")
     move(o, "webTitle", "displayTitle")
+    // DONE marker rename (v0.2.229). Only touches `completed`/`completedOn`; the COMPLETE-verdict
+    // keys `complete`/`completeOn` are distinct and deliberately left alone.
+    move(o, "completed", "done")
+    move(o, "completedOn", "doneOn")
     // schedule
     const sched = o.schedule
     if (sched && typeof sched === "object") {
@@ -2737,7 +2744,7 @@ export function materializeOccurrence(seriesId: string, dayStart: number): Entit
     seriesId,
     recurrenceId: dayStart,
     schedule: resolveOccurrenceSchedule(mother.schedule, dayStart),
-    completed: false,
+    done: false,
     ...(mother.color ? { color: mother.color } : {}),
     ...(mother.description ? { description: mother.description } : {}),
     ...(mother.tags ? { tags: [...mother.tags] } : {}),
@@ -2757,7 +2764,7 @@ export function materializeOccurrence(seriesId: string, dayStart: number): Entit
       id: uid("t"),
       parentId: override.id,
       taggedContextIds: [...child.taggedContextIds],
-      completed: false,
+      done: false,
     }
     entities.push(clone)
     byId.set(clone.id, clone)
@@ -2788,7 +2795,7 @@ export function addWebResource(input: {
     title: input.title,
     parentId: input.contextId,
     taggedContextIds: [],
-    completed: false,
+    done: false,
     tags: [],
     webUrl: input.url,
     webResourceId: input.resourceId,
@@ -3704,7 +3711,7 @@ export function setEntityCancelled(id: string, cancelled: boolean): void {
     // Seeded entity — track as an override patch (log rebuilt from these on reload).
     seededOverrides.set(id, { ...seededOverrides.get(id), cancelled, cancelledOn: now })
   }
-  // Cancelling ENDS the ongoing (`play`) session, keeping `focus`/presence (see setEntityCompleted;
+  // Cancelling ENDS the ongoing (`play`) session, keeping `focus`/presence (see setEntityDone;
   // v0.6.32). Not on restore.
   if (cancelled) closeSession(id, "play", now)
   persist()
@@ -3744,7 +3751,7 @@ export function setEntityClosed(id: string, closed: boolean): void {
     seededOverrides.set(id, { ...seededOverrides.get(id), closed, closedOn, reopened, reopenedOn })
   }
   // A manual Close ENDS the ongoing (`play`) session, keeping `focus`/presence (see
-  // setEntityCompleted; v0.6.32). Not on reopen.
+  // setEntityDone; v0.6.32). Not on reopen.
   if (closed) closeSession(id, "play", now)
   persist()
 }

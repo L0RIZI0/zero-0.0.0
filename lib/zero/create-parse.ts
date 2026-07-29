@@ -24,7 +24,7 @@ import { resolveHHMMToLogicalDay } from "./day-window"
  *       · ACTIVE (transform/process: worked, wrote, coded…) + span ⇒ Task.
  *       · MOMENT (experience: slept, drove, walked…) or UNKNOWN + span ⇒ Moment.
  *       · any POINT param ⇒ Instant.
- *   - DONE: a recognized verb (active or moment) marks the entity `completed` — it's a
+ *   - DONE: a recognized verb (active or moment) marks the entity `done` — it's a
  *     logged PAST activity. An unknown verb leaves it open (so a bare point like
  *     "Dentist --1400" is a future Instant, not a done one).
  *
@@ -380,8 +380,8 @@ export interface CreateFieldParse {
   /** Title with all `--params` stripped (verb kept, e.g. "Slept"). */
   title: string
   kind: EntityKind
-  /** Logged past activity ⇒ true; a bare future point ⇒ false. */
-  completed: boolean
+  /** Logged past activity ⇒ true (marks the new entity DONE); a bare future point ⇒ false. */
+  done: boolean
   schedule: Schedule
   /** Short human confirmation, e.g. "Moment logged · 23:30–06:30". */
   summary: string
@@ -423,7 +423,7 @@ export function parseCreateField(raw: string): CreateFieldParse | null {
   const verb = classifyVerb(title)
   // A RECURRING create is a forward-looking PLAN, never a one-time "logged done" — even
   // with a past-tense verb. Only a one-off past activity is auto-completed.
-  const completed = repeat === null && verb !== null
+  const done = repeat === null && verb !== null
   const base = todayMidnight()
   const recurSuffix = repeat ? ` · ${repeatLabel(repeat)}` : ""
 
@@ -433,9 +433,9 @@ export function parseCreateField(raw: string): CreateFieldParse | null {
     return {
       title,
       kind: "instant",
-      completed,
+      done,
       schedule: { at, ...(repeat ? { repeat } : {}) },
-      summary: `${completed ? "Instant logged" : "Instant"} · ${fmt(time.at)}${recurSuffix}`,
+      summary: `${done ? "Instant logged" : "Instant"} · ${fmt(time.at)}${recurSuffix}`,
     }
   }
 
@@ -451,9 +451,9 @@ export function parseCreateField(raw: string): CreateFieldParse | null {
   return {
     title,
     kind,
-    completed,
+    done,
     schedule: { startDate: startAt, endDate: endAt, ...(repeat ? { repeat } : {}) },
-    summary: `${label}${completed ? " logged" : ""} · ${fmt(time.start)}–${fmt(time.end)}${recurSuffix}`,
+    summary: `${label}${done ? " logged" : ""} · ${fmt(time.start)}–${fmt(time.end)}${recurSuffix}`,
   }
 }
 

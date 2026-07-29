@@ -19,7 +19,7 @@
 
 import type { Entity, EntityKind } from "./types"
   import { KIND_META, isClosed, fillsGlyph, getState, isOngoing, getOngoingSince, concreteStart, effectiveScheduleEnd, ongoingOpenSession, occurrenceAction, isBeing, isLifeBeing, individualBornAt, getPublishedAt, lifeAnchor, isMarkable, getMarks, getSessions, getInstantMaxNb, isInstantMaxNbHard, getInstantOccurrenceCount, type EntityState } from "./kinds"
-import { isDone, getCreatedAt, getCompletedOn } from "./entity-log"
+import { isDone, getCreatedAt, getDoneOn } from "./entity-log"
 import { getEntity, getCreator, getOwner, getForwardTags, getBackReferences, getChildren } from "./data"
 import { getResourceDef } from "./resources"
 import { formatLocale } from "./format-locale"
@@ -898,7 +898,7 @@ export function getFaceMetaRows(e: Entity, now: number): [string, string][] {
   // DONE — its own orthogonal row, TASKS only (the soft "I did this" marker).
   if (meta.hasDoneFlag) {
     const done = isDone(e)
-    rows.push(["done", done ? `yes · ${fmt(getCompletedOn(e))}` : "no"])
+    rows.push(["done", done ? `yes · ${fmt(getDoneOn(e))}` : "no"])
   }
   // STATE — the single mutually-exclusive lifecycle row (open / complete / closed /
   // cancelled / dead / retired), replacing the old CLOSED + CANCELLED booleans. `open`
@@ -1137,7 +1137,7 @@ export function getFaceRawFields(e: Entity, now: number): [string, string][] {
   rows.push(["requested", val(b.requested)])
   rows.push(["description", val(b.description)])
   rows.push(["tags", val(b.tags)])
-  rows.push(["completed", val(b.completed)])
+  rows.push(["done", val(b.done)])
   // Structure / provenance.
   rows.push(["parentId", val(b.parentId)])
   rows.push(["taggedContextIds", val(b.taggedContextIds)])
