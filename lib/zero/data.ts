@@ -3552,19 +3552,29 @@ export function setEntityParents(id: string, parentIds: string[] | null): boolea
 }
 
 /**
- * Resolve a typed NAME to an existing entity OF A GIVEN KIND by case-insensitive exact title match
- * (used by the `--parent:<name>` setter — a parent resolves within the SAME kind as the child: an
- * Individual's parent is an Individual, an Organism's parent is an Organism). Returns the first
- * match, or null when none. Kept simple (exact, trimmed, lowercased) so it's predictable;
- * disambiguation by richer keys can come later.
+ * Resolve a typed NAME to an existing entity of one of the ALLOWED KINDS by case-insensitive exact
+ * title match (used by the `--parent:<name>` setter). The allowed set is the child's own "who can
+ * be a parent" rule: an Individual's parent is an Individual; an Organism's parents (its FOUNDERS)
+ * are Organisms OR Individuals — zero or more of each. Accepts a single kind or a list; returns the
+ * first match across the entity order, or null when none. Kept simple (exact, trimmed, lowercased)
+ * so it's predictable; disambiguation by richer keys can come later.
  */
-export function findEntityByTitle(name: string, kind: EntityKind): Entity | null {
+export function findEntityByTitle(name: string, kinds: EntityKind | EntityKind[]): Entity | null {
   const needle = name.trim().toLowerCase()
   if (!needle) return null
+  const allowed = Array.isArray(kinds) ? kinds : [kinds]
   for (const e of entities) {
-    if (e.kind === kind && e.title.trim().toLowerCase() === needle) return e
+    if (allowed.includes(e.kind) && e.title.trim().toLowerCase() === needle) return e
   }
   return null
+}
+
+/** Which kinds may be a PARENT of a given child kind (the `--parent:` resolution set). Individual
+ *  parents are Individuals; Organism parents (FOUNDERS) are Organisms OR Individuals. */
+export function parentKindsFor(childKind: EntityKind): EntityKind[] {
+  if (childKind === "organism") return ["organism", "individual"]
+  if (childKind === "individual") return ["individual"]
+  return []
 }
 
   /**

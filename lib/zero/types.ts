@@ -691,10 +691,11 @@ export interface OrganismEntity extends EntityBase {
   /** When the organism died (terminal state; epoch ms). */
   diedOn?: Epoch
   /**
-   * Parent(s) — a REAL relation to other ORGANISMS (a parent company / institution), stored as
-   * their entity ids (like the Individual `parents` relation, not free text). Organism-only; each
-   * `--parent:<name>` resolves a case-insensitive title match against existing Organisms and
-   * appends its id.
+   * Parent(s) = the organism's FOUNDERS — a REAL relation to other beings, stored as their entity
+   * ids (like the Individual `parents` relation, not free text). Founders can be ORGANISMS or
+   * INDIVIDUALS, zero or more of each (a company founded by people and/or other companies). Each
+   * `--parent:<name>` resolves a case-insensitive title match against existing Organisms +
+   * Individuals and appends its id.
    */
   parents?: string[]
 }

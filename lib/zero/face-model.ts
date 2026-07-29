@@ -1085,11 +1085,13 @@ export function getFaceMetaRows(e: Entity, now: number): [string, string][] {
     rows.push(["first name", e.firstName ? e.firstName : "—"])
     rows.push(["last name", e.lastName ? e.lastName : "—"])
   }
-  // PARENTS — the parent link list (Individual→people, Organism→parent company), resolved id→name.
+  // PARENTS — the parent link list, resolved id→name. Labeled "parents" for an Individual (its
+  // parent people) but "founders" for an Organism (its founding Individuals and/or Organisms).
   // Shown only when non-empty (a relation, like the tag links below — a being with no recorded
   // parents stays quiet).
   if ((e.kind === "individual" || e.kind === "organism") && e.parents && e.parents.length > 0) {
-    rows.push(["parents", e.parents.map((pid) => getEntity(pid)?.title ?? pid).join(", ")])
+    const label = e.kind === "organism" ? "founders" : "parents"
+    rows.push([label, e.parents.map((pid) => getEntity(pid)?.title ?? pid).join(", ")])
   }
   // INPUTS — the things that flow INTO this entity (see EntityBase.inputs). Each edge id resolves
   // to a name: an entity title first (the general target model), else the Resource-catalog name
@@ -1114,7 +1116,7 @@ export function getFaceMetaRows(e: Entity, now: number): [string, string][] {
   return rows
 }
 
-// ── RAW FIELDS (TEMP, v0.2.228) ────────────────────────────────────────────────��
+// ── RAW FIELDS (TEMP, v0.2.228) ────────────────────────��───────────────────────��
 // The exhaustive "deepest level" dump of an entity's ACTUAL stored shape — every EntityBase
 // + Schedule field, ALWAYS listed ("—" when unset), so the full ENTITY schema is visible at a
 // glance while we keep evolving the concept. Distinct from getFaceMetaRows (the CURATED, derived,

@@ -32,6 +32,7 @@ import {
   setEntityLastName,
   setEntityParents,
   findEntityByTitle,
+  parentKindsFor,
   setEntityClosePolicy,
   renameEntity,
   changeEntityKind,
@@ -1011,10 +1012,11 @@ export function Zero0Canvas() {
           return `${label} ${val}`
         }
         case "parent": {
-          // Add a PARENT link by resolving a typed name to an existing being of the SAME kind:
-          // Individual→Individual (parent people) or Organism→Organism (parent company). Empty
-          // `--parent:` clears all parents. Repeat the flag to add several.
-          if (ent.kind !== "individual" && ent.kind !== "organism") {
+          // Add a PARENT link by resolving a typed name to an allowed being: Individual→Individual
+          // (parent people); Organism→Organism OR Individual (its FOUNDERS — zero or more of each).
+          // Empty `--parent:` clears all parents. Repeat the flag to add several.
+          const parentKinds = parentKindsFor(ent.kind)
+          if (parentKinds.length === 0) {
             setNotice({ tone: "err", text: "only individuals and organisms have parents" })
             return null
           }
@@ -1022,9 +1024,10 @@ export function Zero0Canvas() {
             setEntityParents(id, null)
             return "parents cleared"
           }
-          const match = findEntityByTitle(val, ent.kind)
+          const match = findEntityByTitle(val, parentKinds)
           if (!match) {
-            setNotice({ tone: "err", text: `no ${ent.kind} named "${val}"` })
+            const label = parentKinds.join(" or ")
+            setNotice({ tone: "err", text: `no ${label} named "${val}"` })
             return null
           }
           if (match.id === id) {
