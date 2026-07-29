@@ -233,9 +233,16 @@ export function getOccurrenceDurationMs(e: Entity, now: number): number | null {
   // v0.6.26: the SPACE-session fallback was REMOVED. A played space/moment's actual time is ACCESS
   // (focus) + PLAYED (play), its own rows — DURATION must NOT borrow session time (that was the
   // v0.6.23 double-duty). Moment/space no longer call this fn at all (they use getPlannedDurationMs).
+  // AGE anchors to the being's LIFE ANCHOR once it has HAPPENED — `bornAt` for an Individual,
+  // `publishedAt` (launch) for an Organism — so a being recorded long after it was born/launched
+  // ages from that real birth, not from when its record was created. Before it has lived (no
+  // anchor, or a still-future birth/launch) the creationDate stands in — the record's own age (its
+  // creationDate is treated as a genuine birth). Mirrors the "since birth if it exists, else since
+  // creation" rule and keeps DURATION consistent with the §0 `age` row (both anchor-aware).
   if (e.kind === "individual" || e.kind === "organism") {
-    const created = getCreatedAt(e)
-    if (created != null) return Math.max(0, now - created)
+    const anchor = lifeAnchor(e)
+    const from = anchor != null && anchor <= now ? anchor : getCreatedAt(e)
+    if (from != null) return Math.max(0, now - from)
   }
   return null
 }
