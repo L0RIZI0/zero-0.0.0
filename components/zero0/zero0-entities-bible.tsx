@@ -542,6 +542,8 @@ export function Zero0EntitiesBible() {
   const [versions, setVersions] = useState<{ ts: number; size: number }[] | null>(null)
   const [preview, setPreview] = useState<{ ts: number } | null>(null)
   const historyAnchorRef = useRef<HTMLSpanElement | null>(null)
+  // Root of the whole widget — used to scan cell text for #todo / #proposed tags to highlight.
+  const rootRef = useRef<HTMLDivElement | null>(null)
   const preRestoreGridRef = useRef<Grid | null>(null)
   const previewingRef = useRef(false)
   // The exact grid object produced by hydration (loaded doc or seed). The save effect refuses to
@@ -1135,6 +1137,56 @@ export function Zero0EntitiesBible() {
     setMenu({ x: Math.max(8, x), y: Math.max(8, y), ri, ci })
   }, [])
 
+  // TAG HIGHLIGHTS — paint `#todo` (orange) and `#proposed` (yellow) wherever they appear in any
+  // cell, WITHOUT touching the stored HTML. Uses the CSS Custom Highlight API so the colour lives
+  // purely in the paint layer: it never lands in a cell's committed `innerHTML` and never fights
+  // the contentEditable authorship guard (same non-destructive spirit as the "@v0" marker). Ranges
+  // are rebuilt on every doc change and as the user types (the `input` listener). No-op on browsers
+  // without the API.
+  useEffect(() => {
+    const root = rootRef.current
+    if (!root) return
+    const cssApi = (globalThis as { CSS?: { highlights?: Map<string, unknown> } }).CSS
+    const HighlightCtor = (globalThis as { Highlight?: new (...ranges: Range[]) => unknown }).Highlight
+    if (!cssApi?.highlights || typeof HighlightCtor === "undefined") return
+    const TAG_RE = /#(todo|proposed)\b/gi
+    let raf = 0
+    const paint = () => {
+      raf = 0
+      const todo: Range[] = []
+      const proposed: Range[] = []
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
+      let node = walker.nextNode()
+      while (node) {
+        const text = node.nodeValue ?? ""
+        if (text.includes("#")) {
+          TAG_RE.lastIndex = 0
+          let m: RegExpExecArray | null
+          while ((m = TAG_RE.exec(text))) {
+            const r = document.createRange()
+            r.setStart(node, m.index)
+            r.setEnd(node, m.index + m[0].length)
+            ;(m[1].toLowerCase() === "todo" ? todo : proposed).push(r)
+          }
+        }
+        node = walker.nextNode()
+      }
+      cssApi.highlights!.set("zero0-todo", new HighlightCtor(...todo))
+      cssApi.highlights!.set("zero0-proposed", new HighlightCtor(...proposed))
+    }
+    const schedule = () => {
+      if (!raf) raf = requestAnimationFrame(paint)
+    }
+    schedule()
+    root.addEventListener("input", schedule)
+    return () => {
+      if (raf) cancelAnimationFrame(raf)
+      root.removeEventListener("input", schedule)
+      cssApi.highlights!.delete("zero0-todo")
+      cssApi.highlights!.delete("zero0-proposed")
+    }
+  }, [grid, hydrated])
+
   // Skeleton (pre-hydration) — same on server + first client paint to avoid mismatch.
   if (!hydrated) {
     return (
@@ -1182,7 +1234,7 @@ export function Zero0EntitiesBible() {
   }
 
   return (
-    <div className="flex flex-col gap-3">
+    <div ref={rootRef} className="flex flex-col gap-3">
       {/* Authorship colours: what Loris types defaults to BLUE; v0-authored text (wrapped .v0e) is
           the neutral foreground. Scoped to the editable cells. */}
       <style>{`
@@ -1203,6 +1255,10 @@ export function Zero0EntitiesBible() {
         }
         .zero0-soon-col .bible-cell,
         .zero0-soon-col .bible-cell .v0e { color: var(--muted-foreground); }
+        /* #todo / #proposed tag highlights (CSS Custom Highlight API — see the paint effect). Only
+           a few properties are honoured on ::highlight(); background-color + color are enough. */
+        ::highlight(zero0-todo) { background-color: rgba(249, 115, 22, 0.32); color: inherit; }
+        ::highlight(zero0-proposed) { background-color: rgba(234, 179, 8, 0.32); color: inherit; }
       `}</style>
 
       {/* Legend + shared-store sync status. */}
