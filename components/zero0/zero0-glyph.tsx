@@ -35,7 +35,10 @@ const HEXAGON = "12,1.6 21.01,6.8 21.01,17.2 12,22.4 2.99,17.2 2.99,6.8"
 // optically small (pointed top, wide flat base sits low), so Community is grown to match the
 // hexagon-Space's mass rather than a bounding-equal peer.
 const PENTAGON = "12,1.62 21.87,8.79 18.10,20.40 5.90,20.40 2.13,8.79"
-const DIAMOND = "12,3 21,12 12,21 3,12"
+// Scaled to the SAME ~15% optical oversize as the HEXAGON/PENTAGON (circumradius ~10.38): a diamond
+// reads optically small (only 4 points, large empty corners), so Resource is grown to match the
+// hexagon-Space's mass rather than a bounding-equal peer.
+const DIAMOND = "12,1.62 22.38,12 12,22.38 1.62,12"
 const TRIANGLE_UP = "12,4 20,19 4,19"
 const TRIANGLE_DOWN = "12,20 20,5 4,5"
 const SQUARE = "4.5,4.5 19.5,4.5 19.5,19.5 4.5,19.5"
