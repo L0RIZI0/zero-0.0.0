@@ -67,7 +67,7 @@ const SPAN_UI_KINDS = new Set<EntityKind>(["task", "moment", "space", "resource"
 // drift from §0 — it only ever hides rows, never invents them.
 //   • L  = the temporal essentials: done + lifecycle state + schedule + duration/age.
 //   • XL = everything EXCEPT raw provenance plumbing (id / creator / owner).
-  const L_META_KEYS = new Set(["done", "state", "status", "planned start", "planned end", "at", "due", "scheduled", "planned duration", "duration", "age"])
+  const L_META_KEYS = new Set(["done", "state", "status", "planned start", "planned end", "at", "due", "scheduled", "planned duration", "duration", "recorded duration", "age"])
 const XL_OMIT_KEYS = new Set(["id", "creator", "owner"])
 export function filterMetaRows(rows: [string, string][], size: "l" | "xl" | "full"): [string, string][] {
   if (size === "full") return rows
@@ -565,7 +565,7 @@ export function getFaceModel(e: Entity, now: number): FaceModel {
   }
 }
 
-// ── FACES OF NON-ENTITIES (projections) ───────────────────────────────────────
+// ── FACES OF NON-ENTITIES (projections) ─────────────────────────────────────���─
 // Not everything a Face shows is a live Entity. A STARTERS group aggregates many
 // instances under one title; an ACTIVITY rollup/segment is PRESENCE (time in a place),
 // and may even point at a since-deleted entity. These are PROJECTIONS — they have no
@@ -1033,7 +1033,9 @@ export function getFaceMetaRows(e: Entity, now: number): [string, string][] {
   // getOngoingDurationCells), the live span pulsing. Beings never spin (AGE covers them).
   if (SPAN_UI_KINDS.has(e.kind)) {
     const dur = getOngoingDurationCells(e, now)
-    if (dur) rows.push(["duration", [dur.total, ...dur.segments.map((c) => c.text)].join(" · ")])
+    // Labelled RECORDED DURATION (v0.2.229) to disambiguate from PLANNED DURATION above: this is the
+    // accumulated ACTUAL spinning time (union of past/live sessions), the plan is a separate row.
+    if (dur) rows.push(["recorded duration", [dur.total, ...dur.segments.map((c) => c.text)].join(" · ")])
   }
   // ACCESS — accumulated PRESENCE time (middle rail = "how long I've been on / looking at this"),
   // its own row for ANY kind that's been engaged, DECOUPLED from the durations above and from

@@ -349,7 +349,7 @@ function FaceBlock({
                 renderScheduleRow(k === "planned start" ? "start" : "end")
               ) : access && k === "access" ? (
                 renderAccessRow(access, false)
-              ) : duration && k === "duration" ? (
+              ) : duration && k === "recorded duration" ? (
                 renderAccessRow(duration)
               ) : k === "state" && v.startsWith("ongoing") ? (
                 renderOngoingState(v)
