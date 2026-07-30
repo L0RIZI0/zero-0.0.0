@@ -126,7 +126,15 @@ const SPACE_MORPH_SQUARE_RADII = SQUARE_RADII.map((r) => r * SPACE_MORPH_SQUARE_
 /** Draw the kind's outline shape. Fill/stroke are set by the caller via props.
  *  `"link"` is a FORTHCOMING (id-5) placeholder kind — not yet in the real `EntityKind` union —
  *  so the param is widened to allow it without polluting the ontology type everywhere. */
-function KindShape({ kind, requested }: { kind: EntityKind | "link"; requested?: boolean }) {
+function KindShape({
+  kind,
+  requested,
+  scheduled,
+}: {
+  kind: EntityKind | "link"
+  requested?: boolean
+  scheduled?: boolean
+}) {
   switch (kind) {
     case "link":
       // ⟨forthcoming · id 5⟩ THE LINK — a relation reified: two endpoint NODES on either side joined
@@ -161,7 +169,12 @@ function KindShape({ kind, requested }: { kind: EntityKind | "link"; requested?:
         <rect x="4.5" y="4.5" width="15" height="15" />
       )
     case "space":
-      return <polygon points={HEXAGON} />
+      // The HEXAGON carries a ~15% optical oversize (see its definition) so a thin hexagon reads as
+      // big as the Task square. But a THICK (scheduled) stroke already adds visual mass, making the
+      // oversized hexagon look bigger AND heavier than its neighbours — so when scheduled we UNDO
+      // the oversize with a centred scale-down (1/1.15 ≈ 0.87 about the box centre 12,12), leaving a
+      // bounding-box-equal hexagon whose heavier stroke then sits at the right size.
+      return <polygon points={HEXAGON} transform={scheduled ? "translate(1.56 1.56) scale(0.87)" : undefined} />
     case "resource":
       return <polygon points={DIAMOND} />
     case "moment":
@@ -480,13 +493,13 @@ export function Zero0Glyph({
         // very first paint matches before the effect's first frame runs.
         <polygon ref={polyRef} points={buildPoints(RADII[kind as EntityKind] as number[])} />
       ) : (
-        <KindShape kind={kind} requested={requested && kind === "task"} />
+        <KindShape kind={kind} requested={requested && kind === "task"} scheduled={scheduled} />
       )}
       {/* FILL-FLASH overlay — a filled copy of the shape, hidden (opacity 0) until a mark spin
           ramps it to full at the spin midpoint then back to 0. Explicit fill/stroke so it
           flashes even when the base glyph is an outline. */}
       <g ref={flashRef} fill="currentColor" stroke="none" style={{ opacity: 0 }} aria-hidden="true">
-        <KindShape kind={kind} requested={requested && kind === "task"} />
+        <KindShape kind={kind} requested={requested && kind === "task"} scheduled={scheduled} />
       </g>
       {done && (
         <path
