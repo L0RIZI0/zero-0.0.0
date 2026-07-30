@@ -1176,9 +1176,20 @@ export function getFaceRawFields(e: Entity, now: number): [string, string][] {
   // Schedule — the PLAN (universal, always shown) then the sub-structures.
   rows.push(["schedule.startDate", dateish(s.startDate)])
   rows.push(["schedule.endDate", dateish(s.endDate)])
-  rows.push(["schedule.dueDate", dateish(s.dueDate)])
+  // An INSTANT collapses all its anchors onto the single point: start = end = due = at (start/end
+  // are stored that way at creation). So a due-less instant DERIVES its due from `at`; every other
+  // kind shows the stored dueDate verbatim.
+  rows.push([
+    "schedule.dueDate",
+    dateish(s.dueDate == null && e.kind === "instant" ? s.at : s.dueDate),
+  ])
   rows.push(["schedule.at", dateish(s.at)])
-  rows.push(["schedule.duration", s.duration == null ? "—" : `${s.duration} min`])
+  // DURATION — an instant is a zero-duration point, so an unset instant duration reads "0 min"
+  // (matches the derived duration elsewhere); other kinds show the stored value or "—".
+  rows.push([
+    "schedule.duration",
+    s.duration != null ? `${s.duration} min` : e.kind === "instant" ? "0 min" : "—",
+  ])
   rows.push(["schedule.timebox", s.timebox == null ? "—" : `${s.timebox} min`])
   rows.push(["schedule.repeat", val(s.repeat ? JSON.stringify(s.repeat) : undefined)])
   rows.push(["schedule.timeblocks", Array.isArray(s.timeblocks) ? `${s.timeblocks.length}` : "—"])
