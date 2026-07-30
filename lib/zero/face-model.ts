@@ -1155,14 +1155,20 @@ export function getFaceRawFields(e: Entity, now: number): [string, string][] {
   rows.push(["requested", val(b.requested)])
   rows.push(["description", val(b.description)])
   rows.push(["tags", val(b.tags)])
-  rows.push(["done", val(b.done)])
+  // DONE — a TASK-ONLY marker (`hasDoneFlag` is true only for Task; see setTaskDone). The field
+  // lives on EntityBase (universal shape) but only a Task ever writes/reads it, so the raw dump
+  // hides it for every other kind rather than always showing "—".
+  if (e.kind === "task") rows.push(["done", val(b.done)])
   // Structure / provenance.
   rows.push(["parentId", val(b.parentId)])
   rows.push(["taggedContextIds", val(b.taggedContextIds)])
   rows.push(["creationDate", dateish(getCreatedAt(e))])
   rows.push(["createdBy", val(getCreator(e))])
   rows.push(["ownerId", val(getOwner(e))])
-  rows.push(["closePolicy", val(b.closePolicy)])
+  // closePolicy — the IMPLICIT default is AUTO (an unset policy still allows the derived/time
+  // close, as computeCloseAt shows by stamping closeAt). Shown "(auto)" in parens to mark it as the
+  // effective default rather than an explicitly stored value (a stored "auto"/"manual" shows bare).
+  rows.push(["closePolicy", b.closePolicy == null ? "(auto)" : String(b.closePolicy)])
   rows.push(["closeAt", dateish(b.closeAt)])
   // Web-surface binding (defines the `resource` kind).
   rows.push(["webUrl", val(b.webUrl)])
