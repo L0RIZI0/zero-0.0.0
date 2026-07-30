@@ -98,6 +98,7 @@ function FaceGlyph({
       cancelled={model.cancelled}
       requested={model.requested}
       ongoing={model.ongoing}
+      scheduled={model.scheduled}
       spinOnce={markSpin}
       className={glyphClass}
     />

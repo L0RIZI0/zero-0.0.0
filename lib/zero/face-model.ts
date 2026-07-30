@@ -481,6 +481,9 @@ export interface FaceModel {
   requested: boolean
   /** A live span in progress — the glyph rotates. */
   ongoing: boolean
+  /** NOT YET BEGUN but pinned to the future — the STATE-axis `scheduled` word (rendered "expected"
+      for beings). Drives the glyph's HEAVIER outline stroke (see `Zero0Glyph` `scheduled`). */
+  scheduled: boolean
   /** PLAYABLE — a moment/space whose glyph drives its OCCURRENCE lifecycle (top rail). True for
       any of play/stop/reopen; see `occAction` for which one. Mutually exclusive with hasDoneFlag. */
   playable: boolean
@@ -542,6 +545,10 @@ export function getFaceModel(e: Entity, now: number): FaceModel {
     cancelled: state.word === "cancelled",
     requested,
     ongoing: ongoingNow, // running now (STATUS axis) ⇒ glyph rotates
+    // NOT-YET-BEGUN (future start / instant at) ⇒ heavier glyph outline. The STATE word is
+    // `"scheduled"` for EVERY plannable kind, including un-begun beings (formatState merely DISPLAYS
+    // it as "expected" for them — "expected" is not itself a StateWord). Orthogonal to ongoing.
+    scheduled: state.word === "scheduled",
     playable: occAction != null, // moment/space glyph drives its occurrence lifecycle
     occAction, // which one: play / stop / reopen
     markable: isMarkable(e), // live instant ⇒ glyph records an occurrence on click
@@ -595,6 +602,7 @@ export function faceModelFromLike(like: FaceLike): FaceModel {
     cancelled: false,
     requested: false,
     ongoing: false,
+    scheduled: false, // a projection is inert — never carries a live scheduled state
     playable: false, // a projection is inert — never a live playable entity
     occAction: null, // inert projection — no occurrence control
     markable: false, // a projection is inert — never a live markable instant

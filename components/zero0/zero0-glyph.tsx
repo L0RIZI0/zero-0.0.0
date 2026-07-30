@@ -196,6 +196,7 @@ export function Zero0Glyph({
   cancelled,
   requested,
   ongoing,
+  scheduled,
   spinOnce,
   flashFill,
   pulse,
@@ -208,6 +209,14 @@ export function Zero0Glyph({
    * cancelled entities never fill (the row fades / a bar is drawn instead).
    */
   filled?: boolean
+  /**
+   * SCHEDULED ⇒ the outline is drawn with a HEAVIER stroke (the "not yet begun, but
+   * pinned to the future" signal) — the STATE-axis `scheduled` word (rendered "expected"
+   * for beings; see `getState`). Purely a stroke-weight bump over the base open outline,
+   * so an open vs a scheduled entity read apart at a glance. Ignored while `filled` (a
+   * filled silhouette has no stroke to thicken).
+   */
+  scheduled?: boolean
   /**
    * ONGOING ⇒ the glyph SLOWLY ROTATES clockwise — the "live span in progress" signal
    * for a started-but-unended Moment/Space or any entity with an open session (see
@@ -450,7 +459,7 @@ export function Zero0Glyph({
       style={{ transformOrigin: spinOrigin }}
       fill={filled ? "currentColor" : "none"}
       stroke="currentColor"
-      strokeWidth={filled ? 0 : 1.6}
+      strokeWidth={filled ? 0 : scheduled ? 2.9 : 1.6}
       strokeLinejoin="round"
       strokeLinecap="round"
       aria-hidden="true"

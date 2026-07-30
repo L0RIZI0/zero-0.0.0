@@ -21,7 +21,7 @@ import {
   ChevronDown,
 } from "lucide-react"
 import { Zero0Glyph } from "@/components/zero0/zero0-glyph"
-import { KIND_META } from "@/lib/zero/kinds"
+import { KIND_META, isBeing } from "@/lib/zero/kinds"
 import type { EntityKind } from "@/lib/zero/types"
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────
@@ -104,6 +104,13 @@ type Cell = {
    * row to show, per kind, the shape an open-state entity takes.
    */
   glyphInline?: EntityKind
+  /**
+   * When paired with `glyphInline`, draws that glyph in its SCHEDULED state — the heavier outline
+   * stroke (see `Zero0Glyph` `scheduled`) — instead of the base open outline. Used on the
+   * "State: scheduled" row so each kind shows the thicker shape a not-yet-begun entity takes
+   * (rendered "expected" for beings). Ignored without `glyphInline`.
+   */
+  glyphInlineScheduled?: boolean
   /** A cell-level footnote (rendered as a corner marker + a numbered entry below the table). */
   note?: string
   /**
@@ -257,6 +264,8 @@ type RowDef = {
   glyph?: boolean
   /** Seed each kind's open-state glyph as a leading badge ALONGSIDE the cell text. */
   glyphInline?: boolean
+  /** With `glyphInline`, seed the SCHEDULED (heavier-stroke) glyph variant instead of the open one. */
+  glyphInlineScheduled?: boolean
   /** Per-kind cell HTML. */
   cells?: Partial<Record<EntityKind, string>>
 }
@@ -291,7 +300,7 @@ const ROWS: RowDef[] = [
   { id: "r-fills", label: "Fills when closed?" },
   { id: "r-terminal", label: "Terminal end" },
   { id: "r-open", label: "State: open", labelColor: C.open, glyphInline: true },
-  { id: "r-scheduled", label: "State: scheduled", labelColor: C.scheduled },
+  { id: "r-scheduled", label: "State: scheduled", labelColor: C.scheduled, glyphInline: true, glyphInlineScheduled: true },
   { id: "r-ongoing", label: "State: ongoing", labelColor: C.ongoing },
   { id: "r-donestate", label: "State: done", labelColor: C.done },
   { id: "r-complete", label: "State: complete", labelColor: C.complete },
@@ -328,6 +337,7 @@ function seedGrid(): Grid {
         cells[cellKey(row.id, colId)] = {
           html: row.cells?.[kind] ?? "—",
           ...(row.glyphInline ? { glyphInline: kind } : {}),
+          ...(row.glyphInline && row.glyphInlineScheduled ? { glyphInlineScheduled: true } : {}),
         }
     })
   }
@@ -1588,10 +1598,20 @@ export function Zero0EntitiesBible() {
                         )}
                         {cell.glyphInline && (
                           <span
-                            title={`${cap(cell.glyphInline)} — open state`}
+                            title={`${cap(cell.glyphInline)} — ${
+                              cell.glyphInlineScheduled
+                                ? isBeing(cell.glyphInline)
+                                  ? "expected state"
+                                  : "scheduled state"
+                                : "open state"
+                            }`}
                             className="mt-1.5 ml-1.5 flex shrink-0"
                           >
-                            <Zero0Glyph kind={cell.glyphInline} className="h-4 w-4 text-foreground" />
+                            <Zero0Glyph
+                              kind={cell.glyphInline}
+                              scheduled={cell.glyphInlineScheduled}
+                              className="h-4 w-4 text-foreground"
+                            />
                           </span>
                         )}
                         <div className={cell.glyphInline || ci === 0 ? "min-w-0 flex-1" : undefined}>
