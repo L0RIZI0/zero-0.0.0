@@ -962,6 +962,12 @@ export function getOccurrenceCount(e: Entity): number {
   return getPlannedOccurrences(e).length
 }
 
+/** Kinds that can hold a multi-occurrence plan (a moment or a space) — gates the "+ add slot"
+    affordance + the addOccurrence writer. Mirrors data.ts's internal isOccurrenceKind. */
+export function isOccurrenceKind(e: Entity): boolean {
+  return e.kind === "moment" || e.kind === "space"
+}
+
 /**
  * The PLANNED OCCURRENCES §0 value (v0.6.31) — the tagged list itself, occurrence-led (NO leading
  * count summary): `Mon 1:00 PM–2:00 PM (matched) · Fri (upcoming) · Sat (missed)`. Reads left-to-

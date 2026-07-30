@@ -23,12 +23,17 @@ export function Zero0Occurrences({
   entity,
   now,
   onAction,
+  addOnly = false,
 }: {
   entity: Entity
   /** Epoch (ms) driving the derived status words. */
   now: number
   /** Dispatch an add / cancel. Absent ⇒ read-only (no + add slot, no cancel controls). */
   onAction?: (e: Entity, action: OccurrenceAction) => void
+  /** ADD-ONLY bootstrap (v0.2.229): render JUST the "+ add slot" control, no per-occurrence list.
+      Used beneath the flat PLANNED rows for a 0-/1-slot occurrence-kind, so the user can GROW from
+      1→2 (at which point §0 swaps to the full list block). No label, no rows — just the affordance. */
+  addOnly?: boolean
 }) {
   const rows = getOccurrenceRows(entity, now)
   const [adding, setAdding] = useState(false)
@@ -48,7 +53,9 @@ export function Zero0Occurrences({
   }, [draft, now, onAction, entity])
 
   return (
-    <div className="col-span-2 mt-0.5">
+    <div className={addOnly ? "col-span-2" : "col-span-2 mt-0.5"}>
+      {!addOnly && (
+        <>
       <div className="mb-1 text-[10px] uppercase tracking-widest text-muted-foreground">occurrences</div>
       <ul className="flex flex-col gap-0.5">
         {rows.map((r) => (
@@ -78,8 +85,10 @@ export function Zero0Occurrences({
           </li>
         ))}
       </ul>
+        </>
+      )}
       {onAction && (
-        <div className="mt-1">
+        <div className={addOnly ? "" : "mt-1"}>
           {adding ? (
             <input
               autoFocus
@@ -108,7 +117,7 @@ export function Zero0Occurrences({
               aria-invalid={error}
               className={
                 "w-full bg-transparent text-[10px] tabular-nums placeholder:text-muted-foreground/60 focus:outline-none " +
-                (error ? "text-destructive" : "text-foreground")
+                (error ? "text-foreground underline decoration-dotted decoration-muted-foreground underline-offset-2" : "text-foreground")
               }
             />
           ) : (
@@ -121,7 +130,7 @@ export function Zero0Occurrences({
             </button>
           )}
           {error && (
-            <div className="mt-0.5 text-[9px] text-destructive">{'Unrecognized time — try 1400-1530, 2330, 260709, or "in 2h".'}</div>
+            <div className="mt-0.5 text-[9px] text-muted-foreground">{'Unrecognized time — try 1400-1530, 2330, 260709, or "in 2h".'}</div>
           )}
         </div>
       )}

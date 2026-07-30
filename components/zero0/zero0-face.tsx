@@ -18,6 +18,7 @@ import {
   aggregateMetaRows,
   makeRendersDistinctly,
   getOccurrenceCount,
+  isOccurrenceKind,
   type FaceModel,
   type FaceLike,
   type FaceSize,
@@ -233,6 +234,8 @@ function FaceBlock({
     () => size === "full" && !rowsOverride && getOccurrenceCount(entity) >= 2,
     [entity, now, size, rowsOverride],
   )
+  // Can this entity accept a "+ add slot"? (moment/space only — the addOccurrence writer's gate).
+  const canAddOccurrence = useMemo(() => isOccurrenceKind(entity), [entity])
   const startScrollRef = useRef<HTMLDivElement>(null)
   const endScrollRef = useRef<HTMLDivElement>(null)
   const syncLock = useRef(false)
@@ -405,6 +408,15 @@ function FaceBlock({
             )
           })}
         </dl>
+      )}
+      {/* BOOTSTRAP "+ add slot": when the block ISN'T shown (0–1 occurrences) but the entity CAN hold
+          occurrences and a schedule action is wired, offer a lean add control beneath the flat rows so
+          the user can grow 0→1→2. At 2+, multiSlot renders the full block above and this is skipped. */}
+      {size === "full" && !rowsOverride && canAddOccurrence && !multiSlot && onScheduleAction && (
+        <div className="mt-1.5 grid grid-cols-[7.5rem_1fr] gap-x-4 text-[10px]">
+          <span aria-hidden />
+          <Zero0Occurrences entity={entity} now={now} onAction={onScheduleAction} addOnly />
+        </div>
       )}
       {/* RAW FIELDS (temp) — the exhaustive stored shape, faint, under the curated §0 rows. */}
       {rawFields && rawFields.length > 0 && (

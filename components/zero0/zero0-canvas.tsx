@@ -74,6 +74,7 @@ import { Zero0ResourceCanvas, toDesktopUrl } from "./zero0-resource-canvas"
 import { Zero0Pins } from "./zero0-pins"
 import { Zero0Frame } from "./zero0-frame"
 import { Zero0Face } from "./zero0-face"
+import type { OccurrenceAction } from "./zero0-occurrences"
 import { Zero0Favicon } from "./zero0-favicon"
 import { Zero0Content, type Zero0ContentCtx } from "./zero0-content"
   import { fmt, fmtLogValue, sexSymbol, formatDuration, type FaceSize, type FaceMake } from "@/lib/zero/face-model"
@@ -266,6 +267,7 @@ function Zero0EntityHeaderBlock({
   onTogglePlay,
   onMark,
   onContextMenu,
+  onScheduleAction,
   onClose,
 }: {
   entity: Entity
@@ -275,6 +277,7 @@ function Zero0EntityHeaderBlock({
   onTogglePlay: (e: Entity) => void
   onMark: (e: Entity) => void
   onContextMenu: (e: Entity, ev: React.MouseEvent) => void
+  onScheduleAction: (e: Entity, action: OccurrenceAction) => void
   onClose: (e: Entity) => void
 }) {
   const [logExpanded, setLogExpanded] = useState(false)
@@ -288,6 +291,7 @@ function Zero0EntityHeaderBlock({
         onTogglePlay={onTogglePlay}
         onMark={onMark}
         onContextMenu={onContextMenu}
+        onScheduleAction={onScheduleAction}
         trailing={
           !isRootLevel ? (
             <Zero0CloseButton className="ml-auto" onClick={() => onClose(entity)} />
@@ -345,6 +349,7 @@ function Zero0ContextPane({
   onTogglePlay,
   onMark,
   onContextMenu,
+  onScheduleAction,
   onClose,
 }: {
   entity: Entity
@@ -358,6 +363,7 @@ function Zero0ContextPane({
   onTogglePlay: (e: Entity) => void
   onMark: (e: Entity) => void
   onContextMenu: (e: Entity, ev: React.MouseEvent) => void
+  onScheduleAction: (e: Entity, action: OccurrenceAction) => void
   onClose: (e: Entity) => void
 }) {
   return (
@@ -380,6 +386,7 @@ function Zero0ContextPane({
               onTogglePlay={onTogglePlay}
               onMark={onMark}
               onContextMenu={onContextMenu}
+              onScheduleAction={onScheduleAction}
               onClose={onClose}
             />
           </div>
@@ -1573,6 +1580,25 @@ export function Zero0Canvas() {
     [bump, togglePlaySession],
   )
 
+  // §0 OCCURRENCES BLOCK actions (v0.2.229) — the "+ add slot" writer + per-occurrence cancel. A typed
+  // callback (not a menu-action string) since the payload carries parsed epochs / a unified index.
+  // "add" → addOccurrence (first slot fills the scalar primary, rest append to occurrences[]); "cancel"
+  // → setOccurrenceCancelled, mapping the UNIFIED index (0 = primary/scalar) to the occurrences[] index
+  // (unified − 1); a cancel on the primary (index 0) has no occurrences[] slot, so it's a no-op for now
+  // (primary-cancel is deferred with scalar-collapse). Both re-render via bump().
+  const runScheduleAction = useCallback(
+    (e: Entity, action: OccurrenceAction) => {
+      if (action.type === "add") {
+        addOccurrence(e.id, action.start, action.end)
+      } else if (action.type === "cancel") {
+        // Unified index → occurrences[] index (0 = primary/scalar, which has no cancelled flag yet).
+        if (action.index >= 1) setOccurrenceCancelled(e.id, action.index - 1, action.cancelled)
+      }
+      bump()
+    },
+    [bump],
+  )
+
   // Open the entity menu. `opts.size` (passed by the ENTITY CONTENT rows) adds the Size
   // submenu with the row's current rung ticked; surfaces without a per-entity size (the
   // breadcrumb, siblings, §0 header, activity) omit it.
@@ -2070,6 +2096,7 @@ export function Zero0Canvas() {
                   onTogglePlay={togglePlay}
                   onMark={mark}
                   onContextMenu={openMenu}
+                  onScheduleAction={runScheduleAction}
                   onClose={closeContext}
                 />
               </Activity>
@@ -2103,6 +2130,7 @@ export function Zero0Canvas() {
                   onTogglePlay={togglePlay}
                   onMark={mark}
                   onContextMenu={openMenu}
+                  onScheduleAction={runScheduleAction}
                   onClose={closeContext}
                 />
               </div>
