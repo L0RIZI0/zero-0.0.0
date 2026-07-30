@@ -472,8 +472,8 @@ export function Zero0Glyph({
   }, [kind, ongoing])
 
   // Scheduled stroke is 2.9 for every kind EXCEPT the space HEXAGON, which reads slightly light at
-  // its ~15% oversize, so it gets a touch heavier (3.0) to match the other thick glyphs' weight.
-  const scheduledStroke = kind === "space" ? 3.0 : 2.9
+  // its ~15% oversize, so it gets a touch heavier (3.1) to match the other thick glyphs' weight.
+  const scheduledStroke = kind === "space" ? 3.1 : 2.9
   const strokeW = filled ? 0 : scheduled ? scheduledStroke : 1.6
 
   return (
