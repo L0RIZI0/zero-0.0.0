@@ -1874,6 +1874,39 @@ export function setOccurrenceCancelled(id: string, index: number, cancelled = tr
   return true
 }
 
+/**
+ * ADD OCCURRENCE (v0.2.229) — the first genuine WRITER for a user-added planned occurrence (the
+ * companion to the §0 OCCURRENCES block's "+ Add slot"). Option A wiring: the FIRST slot on a
+ * primary-less entity fills the SCALAR `startDate`/`endDate` (so it becomes the primary occurrence
+ * and single-slot entities never need the block); every additional slot APPENDS to `occurrences[]`.
+ * `end` is optional (an open-ended / point occurrence). Moment/Space only (isOccurrenceKind) — the
+ * only kinds where a multi-occurrence plan is meaningful. Returns false otherwise.
+ */
+export function addOccurrence(id: string, start: number, end?: number): boolean {
+  const stored = byId.get(id)
+  if (!stored || !isOccurrenceKind(stored)) return false
+  const sched: Schedule = { ...(stored.schedule ?? {}) }
+  const entity = mutable(stored)
+  if (!isPlannedStart(sched.startDate)) {
+    // No primary yet → this slot BECOMES the primary (mirrored by the scalar, shown as PLANNED
+    // START/END). Log the scalar set so the lifecycle log stays coherent (mirrors reopenOccurrence).
+    sched.startDate = start
+    if (end != null) sched.endDate = end
+    else delete sched.endDate
+    entity.schedule = sched
+    logSet(entity, "startDate", start)
+  } else {
+    // Primary already set → append an ADDITIONAL planned occurrence to the list.
+    sched.occurrences = [...(sched.occurrences ?? []), { start, ...(end != null ? { end } : {}) }]
+    entity.schedule = sched
+  }
+  if (!userEntityIds.has(id)) {
+    seededOverrides.set(id, { ...seededOverrides.get(id), schedule: sched })
+  }
+  persist()
+  return true
+}
+
 // ----------------------------------------------------------------------------
 // Per-context ORDER �� the user's drag-and-drop sibling order for a do-list.
 // Scoped per context (like pins): `contextId` → the ordered child ids. A context

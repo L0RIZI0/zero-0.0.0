@@ -282,6 +282,43 @@ export function parseDateToken(raw: string, now: number = Date.now()): number | 
   return null
 }
 
+export interface SlotParse {
+  /** Occurrence start epoch. */
+  start: number
+  /** Occurrence end epoch, or undefined for a point / open-ended slot. */
+  end?: number
+}
+
+/**
+ * Parse an inline "+ Add slot" token into an occurrence `{ start, end? }` (v0.2.229). Reuses
+ * {@link parseDateToken} for each side, so it accepts everything that does — compact `HHMM` (today,
+ * logical-day-anchored), `YYMMDD` / `YYMMDDHHMM` absolute dates, and relative `in 2h` / `5min ago`:
+ *   "2330"           → point today 23:30
+ *   "1400-1530"      → span 14:00–15:30 today
+ *   "2330-0630"      → span crossing midnight (start anchored to the previous day)
+ *   "260709"         → point 2026-07-09 00:00
+ *   "in 2h"          → point 2h from now
+ * A single token ⇒ a POINT (no `end`); a `<a>-<b>` pair ⇒ a SPAN. When the span's end is at/before
+ * its start (a bare-clock span that wrapped past midnight) the start is pulled back a day, matching
+ * the create-field span rule. Returns null when either side doesn't parse. Pure + synchronous.
+ */
+export function parseSlotToken(raw: string, now: number = Date.now()): SlotParse | null {
+  const s = raw.trim()
+  if (!s) return null
+  // SPAN = exactly one interior hyphen splitting two non-empty sides. Compact/absolute/relative
+  // tokens never carry an interior hyphen themselves, so a lone "-" unambiguously means a range.
+  const dash = s.indexOf("-")
+  if (dash > 0 && dash < s.length - 1 && s.indexOf("-", dash + 1) === -1) {
+    const start0 = parseDateToken(s.slice(0, dash).trim(), now)
+    const end = parseDateToken(s.slice(dash + 1).trim(), now)
+    if (start0 == null || end == null) return null
+    // Cross-midnight bare-clock span (e.g. 2330-0630): end lands before start → start is prior day.
+    return { start: end <= start0 ? start0 - 86_400_000 : start0, end }
+  }
+  const at = parseDateToken(s, now)
+  return at == null ? null : { start: at }
+}
+
 /**
  * Normalize spelled-out DURATION units + spaces down to the compact single-letter grammar
  * so `parseDurationToMinutes` (and the relative-time parser) accept natural phrasing:

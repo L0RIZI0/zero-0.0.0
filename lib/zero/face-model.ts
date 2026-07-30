@@ -903,16 +903,63 @@ export function occurrenceStatusWord(status: OccurrenceStatus): string {
   return status === "fulfilled" ? "matched" : status // missed | upcoming | cancelled
 }
 
-/** One planned occurrence rendered as `<when>[–<end>] (<matched|missed|…>)`; open/unset handled. */
-function formatPlannedOccurrence(occ: PlannedOccurrence, status: OccurrenceStatus, now: number): string {
+/** An occurrence's WHEN, WITHOUT its status: `<when>[–<end>]` (open/unset handled). */
+function formatOccurrenceLabel(occ: PlannedOccurrence, now: number): string {
   const when =
     occ.startAt != null
       ? fmtShort(occ.startAt, now)
       : occ.endAt != null
         ? `by ${fmtShort(occ.endAt, now)}`
         : "—"
-  const span = occ.startAt != null && occ.endAt != null ? `${when}–${fmtShort(occ.endAt, now)}` : when
-  return `${span} (${occurrenceStatusWord(status)})`
+  return occ.startAt != null && occ.endAt != null ? `${when}–${fmtShort(occ.endAt, now)}` : when
+}
+
+/** One planned occurrence rendered as `<when>[–<end>] (<matched|missed|…>)`; open/unset handled. */
+function formatPlannedOccurrence(occ: PlannedOccurrence, status: OccurrenceStatus, now: number): string {
+  return `${formatOccurrenceLabel(occ, now)} (${occurrenceStatusWord(status)})`
+}
+
+// ─── OCCURRENCES BLOCK rows (v0.2.229) ─────────────────────────────────────────
+// Structured per-occurrence data for the §0 OCCURRENCES block (see zero0-occurrences.tsx). Keeps ALL
+// time formatting (fmtShort) + status derivation HERE so the component stays pure presentation. The
+// `index` is the UNIFIED index — 0 = the PRIMARY (scalar) occurrence, 1..n = `occurrences[]` entries
+// — which is what the block hands back to the canvas so it can target the right writer (index-1 into
+// occurrences[] for a cancel). NOTE: planned-vs-actual DELTA numbers stay dormant (getScheduleDelta
+// is not surfaced here) — the block shows only the derived STATUS word, per the deferred-display call.
+
+export interface OccurrenceRow {
+  /** Unified index: 0 = primary (scalar) span, 1..n = occurrences[] entries. */
+  index: number
+  primary: boolean
+  cancelled: boolean
+  /** WHEN text, e.g. "Mon 1:00 PM–2:00 PM" (no status). */
+  label: string
+  status: OccurrenceStatus
+  /** Display word: matched | missed | upcoming | cancelled. */
+  statusWord: string
+}
+
+/** The §0 OCCURRENCES block's rows — the unified planned list, each tagged with derived status. */
+export function getOccurrenceRows(e: Entity, now: number): OccurrenceRow[] {
+  const planned = getPlannedOccurrences(e)
+  const sessions = getSessions(e)
+  return planned.map((occ, index) => {
+    const status = occurrenceStatus(occ, sessions, now)
+    return {
+      index,
+      primary: !!occ.primary,
+      cancelled: !!occ.cancelled,
+      label: formatOccurrenceLabel(occ, now),
+      status,
+      statusWord: occurrenceStatusWord(status),
+    }
+  })
+}
+
+/** How many planned occurrences an entity has (primary scalar + occurrences[]). Drives the §0
+    swap: 0–1 ⇒ keep the flat PLANNED START/END rows; 2+ ⇒ show the OCCURRENCES block. */
+export function getOccurrenceCount(e: Entity): number {
+  return getPlannedOccurrences(e).length
 }
 
 /**

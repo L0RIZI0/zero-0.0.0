@@ -17,6 +17,7 @@ import {
   aggregateEcho,
   aggregateMetaRows,
   makeRendersDistinctly,
+  getOccurrenceCount,
   type FaceModel,
   type FaceLike,
   type FaceSize,
@@ -24,6 +25,7 @@ import {
 } from "@/lib/zero/face-model"
 import { subscribeGlyphPulse } from "@/lib/zero/data"
 import type { Entity } from "@/lib/zero/types"
+import { Zero0Occurrences, type OccurrenceAction } from "./zero0-occurrences"
 
 /**
  * `<Zero0Face>` — the excerpt SIDE of an entity, rendered at a SIZE (the other side
@@ -174,6 +176,7 @@ function FaceBlock({
   onMark,
   onOpen,
   onContextMenu,
+  onScheduleAction,
   trailing,
   hiddenPrefix,
   rowsOverride,
@@ -187,6 +190,8 @@ function FaceBlock({
   onMark?: (e: Entity) => void
   onOpen?: (e: Entity) => void
   onContextMenu?: (e: Entity, ev: React.MouseEvent) => void
+  /** §0 OCCURRENCES block: add / cancel a planned occurrence (full size only). */
+  onScheduleAction?: (e: Entity, action: OccurrenceAction) => void
   trailing?: React.ReactNode
   hiddenPrefix?: boolean
   /** When set (the `starter` make), the dl lists these ROLLUP rows instead of §0's. The
@@ -220,6 +225,13 @@ function FaceBlock({
   const duration = useMemo(
     () => (rowsOverride ? null : getOngoingDurationCells(entity, now)),
     [entity, now, rowsOverride],
+  )
+  // MULTI-SLOT (v0.2.229): 2+ planned occurrences ⇒ §0 swaps the flat PLANNED START / PLANNED END
+  // rows for the richer OCCURRENCES block (per-occurrence lines + "+ add slot"). A single slot keeps
+  // the flat rows verbatim (zero regression). Full size only, and never for an aggregate override.
+  const multiSlot = useMemo(
+    () => size === "full" && !rowsOverride && getOccurrenceCount(entity) >= 2,
+    [entity, now, size, rowsOverride],
   )
   const startScrollRef = useRef<HTMLDivElement>(null)
   const endScrollRef = useRef<HTMLDivElement>(null)
@@ -350,7 +362,14 @@ function FaceBlock({
       {/* Raw meta key/values (filtered by rung). */}
       {rows.length > 0 && (
         <dl className="mt-2 grid grid-cols-[7.5rem_1fr] gap-x-4 gap-y-0.5 text-[10px] tabular-nums">
-          {rows.map(([k, v]) => (
+          {rows.map(([k, v]) => {
+            // MULTI-SLOT SWAP: the OCCURRENCES block takes the flat START/END pair's place — rendered
+            // once at the START row's slot (full width), and the END row is dropped.
+            if (multiSlot && k === "planned start") {
+              return <Zero0Occurrences key="occurrences" entity={entity} now={now} onAction={onScheduleAction} />
+            }
+            if (multiSlot && k === "planned end") return null
+            return (
             <div key={k} className="contents">
               <dt className="uppercase tracking-widest text-muted-foreground">{k}</dt>
               {schedule && (k === "planned start" || k === "planned end") ? (
@@ -383,7 +402,8 @@ function FaceBlock({
                 </dd>
               )}
             </div>
-          ))}
+            )
+          })}
         </dl>
       )}
       {/* RAW FIELDS (temp) — the exhaustive stored shape, faint, under the curated §0 rows. */}
@@ -435,6 +455,8 @@ export interface Zero0FaceProps {
   hiddenPrefix?: boolean
   /** `full`: right-click the identity line → the entity's menu. */
   onContextMenu?: (e: Entity, ev: React.MouseEvent) => void
+  /** `full`: §0 OCCURRENCES block add/cancel (only surfaced for 2+ planned occurrences). */
+  onScheduleAction?: (e: Entity, action: OccurrenceAction) => void
   /** `full`: trailing slot on the identity line (the canvas's close button when drilled in). */
   trailing?: React.ReactNode
   /** `xs`: activate the title (the caller closes over its id — e.g. open the place). */
@@ -462,6 +484,7 @@ export function Zero0Face({
   onOpen,
   hiddenPrefix,
   onContextMenu,
+  onScheduleAction,
   trailing,
   onActivate,
   onActivateContextMenu,
@@ -509,6 +532,7 @@ export function Zero0Face({
         onMark={onMark}
         onOpen={onOpen}
         onContextMenu={onContextMenu}
+        onScheduleAction={onScheduleAction}
         trailing={trailing}
         hiddenPrefix={hiddenPrefix}
         rowsOverride={agg ? aggregateMetaRows(agg, nowMs, size) : undefined}
