@@ -1114,9 +1114,9 @@ export function getTimedDescendants(contextId: string): Entity[] {
       s.endDate != null ||
       s.at != null ||
       s.dueDate != null ||
-      // A reopened entity has a null live start/end but keeps its HISTORY — its archived
-      // occurrences must still place it on the lifeline so past ticks keep rendering.
-      (s.occurrences != null && s.occurrences.length > 0))
+      // An entity may have a null live start/end but keep planned/past spans — those
+      // plannedOccurrences must still place it on the lifeline so their ticks keep rendering.
+      (s.plannedOccurrences != null && s.plannedOccurrences.length > 0))
   const isTimed = (e: Entity) => e.seriesId == null && hasScheduledTime(e.schedule)
   if (contextId === ROOT_ID) return entities.filter(isTimed)
   const descendants = collectDescendants(contextId)
@@ -1224,14 +1224,20 @@ export function getTimelineOccurrences(
     const s = e.schedule
     if (!s) continue
 
-    // ARCHIVED OCCURRENCES — each Reopen archives the previous live span here. They paint as
-    // FIXED top-rail ticks (their own start/end schedule), independent of the current live
-    // state and independent of the live anchor below. Non-recurring history only.
-    if (s.occurrences && s.occurrences.length > 0) {
-      s.occurrences.forEach((occ, i) => {
+    // NON-PRIMARY PLANNED OCCURRENCES — the other spans besides the current (scalar) primary. They
+    // paint as FIXED top-rail ticks (their own start/end schedule), independent of the current live
+    // state and independent of the live anchor below. Non-recurring only.
+    if (s.plannedOccurrences && s.plannedOccurrences.length > 0) {
+      s.plannedOccurrences.forEach((occ, i) => {
         out.push({
           ...e,
-          schedule: { ...s, startDate: occ.start, endDate: occ.end, occurrences: undefined, repeat: undefined },
+          schedule: {
+            ...s,
+            startDate: occ.start,
+            endDate: occ.end,
+            plannedOccurrences: undefined,
+            repeat: undefined,
+          },
           occKey: `${e.id}#occ${i}`,
         })
       })
@@ -1829,14 +1835,15 @@ export function endOccurrence(id: string, at = Date.now()): boolean {
  * combiners working UNCHANGED (they still see "current primary + the rest, no overlap") while making
  * EVERY occurrence — the primary included — cancellable: a writer just edits the flat set and calls
  * this, which re-picks the soonest live span as the scalar primary and drops the rest into
- * `occurrences[]`. Idempotent. Only ever runs for occurrence kinds (moment/space), whose primary
- * always carries a concrete start; an end-only scalar (never produced for these kinds) is left as-is.
+ * `plannedOccurrences[]`. Idempotent. Only ever runs for occurrence kinds (moment/space), whose
+ * primary always carries a concrete start; an end-only scalar (never produced for these kinds) is
+ * left as-is.
  */
 function resyncPrimary(sched: Schedule): void {
   const all: { start: number; end?: number; cancelled?: boolean }[] = []
   const cs = sched.startDate
   if (typeof cs === "number") all.push({ start: cs, end: sched.endDate, cancelled: false })
-  all.push(...(sched.occurrences ?? []))
+  all.push(...(sched.plannedOccurrences ?? []))
   // Soonest NON-cancelled span becomes the primary (mirrored by the scalar); ties keep insertion order.
   const live = all
     .map((o, i) => ({ o, i }))
@@ -1847,22 +1854,23 @@ function resyncPrimary(sched: Schedule): void {
     sched.startDate = primary.start
     if (primary.end != null) sched.endDate = primary.end
     else delete sched.endDate
-    sched.occurrences = all.filter((o) => o !== primary)
+    sched.plannedOccurrences = all.filter((o) => o !== primary)
   } else {
     // Nothing live (empty, or every span cancelled) → no current primary; the entity is idle/playable.
     delete sched.startDate
     delete sched.endDate
-    sched.occurrences = all
+    sched.plannedOccurrences = all
   }
   // Drop an empty array so a plan-less entity serializes clean (matches pre-collapse shape).
-  if (sched.occurrences && sched.occurrences.length === 0) delete sched.occurrences
+  if (sched.plannedOccurrences && sched.plannedOccurrences.length === 0) delete sched.plannedOccurrences
 }
 
 /**
- * CANCEL THE PRIMARY occurrence (v0.2.232) — the current (scalar) occurrence has no `occurrences[]`
- * slot to flag, so cancelling it means: record it as a struck entry in `occurrences[]`, then
- * `resyncPrimary` promotes the next soonest live span into the scalar (or clears it → idle when none
- * remain). This is what makes the PRIMARY cancellable like any other slot. Moment/Space only.
+ * CANCEL THE PRIMARY occurrence (v0.2.232) — the current (scalar) occurrence has no
+ * `plannedOccurrences[]` slot to flag, so cancelling it means: record it as a struck entry in
+ * `plannedOccurrences[]`, then `resyncPrimary` promotes the next soonest live span into the scalar
+ * (or clears it → idle when none remain). This is what makes the PRIMARY cancellable like any other
+ * slot. Moment/Space only.
  */
 export function cancelPrimaryOccurrence(id: string): boolean {
   const stored = byId.get(id)
@@ -1870,7 +1878,7 @@ export function cancelPrimaryOccurrence(id: string): boolean {
   const sched: Schedule = { ...(stored.schedule ?? {}) }
   if (!isPlannedStart(sched.startDate)) return false // no concrete primary to cancel
   const cancelled = { start: sched.startDate, end: sched.endDate, cancelled: true }
-  sched.occurrences = [...(sched.occurrences ?? []), cancelled]
+  sched.plannedOccurrences = [...(sched.plannedOccurrences ?? []), cancelled]
   delete sched.startDate // clear the scalar so resync re-picks from the flat set
   delete sched.endDate
   resyncPrimary(sched)
@@ -1885,18 +1893,18 @@ export function cancelPrimaryOccurrence(id: string): boolean {
 }
 
 /**
- * CANCEL (or un-cancel) an `occurrences[]` occurrence (v0.6.30) — mark the entry as `cancelled` (or
- * clear it). `index` targets `schedule.occurrences[]`. The entry STAYS in the list as a struck-out
- * attempt. After the flag flips, `resyncPrimary` runs so an UN-cancel that is now the soonest live
- * span is promoted to the scalar primary (and a cancel never leaves a cancelled span as primary).
- * `cancelled` defaults to true. Returns false when there's no such entry.
+ * CANCEL (or un-cancel) a `plannedOccurrences[]` occurrence (v0.6.30) — mark the entry as `cancelled`
+ * (or clear it). `index` targets `schedule.plannedOccurrences[]`. The entry STAYS in the list as a
+ * struck-out attempt. After the flag flips, `resyncPrimary` runs so an UN-cancel that is now the
+ * soonest live span is promoted to the scalar primary (and a cancel never leaves a cancelled span as
+ * primary). `cancelled` defaults to true. Returns false when there's no such entry.
  */
 export function setOccurrenceCancelled(id: string, index: number, cancelled = true): boolean {
   const stored = byId.get(id)
-  const occs = stored?.schedule?.occurrences
+  const occs = stored?.schedule?.plannedOccurrences
   if (!stored || !occs || index < 0 || index >= occs.length) return false
   const sched: Schedule = { ...(stored.schedule ?? {}) }
-  sched.occurrences = occs.map((o, i) => (i === index ? { ...o, cancelled } : o))
+  sched.plannedOccurrences = occs.map((o, i) => (i === index ? { ...o, cancelled } : o))
   resyncPrimary(sched)
   const entity = mutable(stored)
   entity.schedule = sched
@@ -1908,10 +1916,9 @@ export function setOccurrenceCancelled(id: string, index: number, cancelled = tr
 }
 
 /**
- * ADD OCCURRENCE (v0.2.229) — the first genuine WRITER for a user-added planned occurrence (the
- * companion to the §0 OCCURRENCES block's "+ Add slot"). Option A wiring: the FIRST slot on a
- * primary-less entity fills the SCALAR `startDate`/`endDate` (so it becomes the primary occurrence
- * and single-slot entities never need the block); every additional slot APPENDS to `occurrences[]`.
+ * ADD OCCURRENCE (v0.2.229) — the genuine WRITER for a user-added planned occurrence (the companion
+ * to the §0 PLANNED OCCURRENCES block's "+ Add slot"). One path (v0.2.232): append the span to
+ * `plannedOccurrences[]`, then `resyncPrimary` re-picks the soonest live span as the scalar primary.
  * `end` is optional (an open-ended / point occurrence). Moment/Space only (isOccurrenceKind) — the
  * only kinds where a multi-occurrence plan is meaningful. Returns false otherwise.
  */
@@ -1921,9 +1928,12 @@ export function addOccurrence(id: string, start: number, end?: number): boolean 
   const sched: Schedule = { ...(stored.schedule ?? {}) }
   const before = sched.startDate
   // v0.2.232: one path — append the new span to the flat set, then let resyncPrimary decide whether
-  // it's the soonest (⇒ becomes the scalar primary) or just another entry in occurrences[]. This
-  // folds the old "first slot fills the scalar / rest append" branch into the single invariant.
-  sched.occurrences = [...(sched.occurrences ?? []), { start, ...(end != null ? { end } : {}) }]
+  // it's the soonest (⇒ becomes the scalar primary) or just another entry in plannedOccurrences[].
+  // This folds the old "first slot fills the scalar / rest append" branch into the single invariant.
+  sched.plannedOccurrences = [
+    ...(sched.plannedOccurrences ?? []),
+    { start, ...(end != null ? { end } : {}) },
+  ]
   resyncPrimary(sched)
   const entity = mutable(stored)
   entity.schedule = sched
@@ -2306,10 +2316,10 @@ function migrateStoredScheduleFields(stored: UserItems): void {
       }
     }
   }
-  // OCCURRENCES were reshaped {startedAt,endedAt}→{start,end} (v0.2.229 — occurrences are the PLAN,
-  // actual is derived). Map from BOTH legacy shapes in one hop: the very-old `startAt`/`endAt` AND the
-  // interim `startedAt`/`endedAt`. `cancelled` is unchanged. (Kept SEPARATE from fixRecordedList, which
-  // still applies to sessions[] — those stay recorded `startedAt`/`endedAt`.)
+  // PLANNED OCCURRENCES were reshaped {startedAt,endedAt}→{start,end} (v0.2.229 — occurrences are the
+  // PLAN, actual is derived). Map from BOTH legacy shapes in one hop: the very-old `startAt`/`endAt`
+  // AND the interim `startedAt`/`endedAt`. `cancelled` is unchanged. (Kept SEPARATE from
+  // fixRecordedList, which still applies to sessions[] — those stay recorded `startedAt`/`endedAt`.)
   const fixOccurrenceList = (list: unknown) => {
     if (!Array.isArray(list)) return
     for (const entry of list) {
@@ -2341,8 +2351,9 @@ function migrateStoredScheduleFields(stored: UserItems): void {
       move(s, "endAt", "endDate")
       move(s, "dueAt", "dueDate")
       move(s, "blocks", "timeblocks") // v0.2.229 key rename; inner startAt/endAt left as-is
+      move(s, "occurrences", "plannedOccurrences") // v0.2.233 key rename (occurrences → plannedOccurrences)
       fixRecordedList(s.sessions)
-      fixOccurrenceList(s.occurrences)
+      fixOccurrenceList(s.plannedOccurrences) // normalize entry shape on the NEW key
     }
   }
   for (const e of stored.entities) fixOne(e)

@@ -5,8 +5,9 @@ import type { Entity } from "@/lib/zero/types"
 import { getOccurrenceRows } from "@/lib/zero/face-model"
 import { parseSlotToken } from "@/lib/zero/create-parse"
 
-// The §0 OCCURRENCES block (v0.2.229; ALWAYS-ON + primary-cancellable v0.2.232) — the SINGLE way an
-// occurrence kind (moment/space) shows its schedule in §0. It is displayed at ALL times for those
+// The §0 PLANNED OCCURRENCES block (v0.2.229; ALWAYS-ON + primary-cancellable v0.2.232; renamed from
+// "occurrences" v0.2.233) — the SINGLE way an occurrence kind (moment/space) shows its schedule in §0.
+// (Backing field: schedule.plannedOccurrences[].) It is displayed at ALL times for those
 // kinds (even with zero slots — just the header + "+ add slot"), which removed the old flat PLANNED
 // START/END rows and the 0/1-vs-2+ swap entirely: one render path, always. Each line is one
 // occurrence: DAY · TIME · derived STATUS word, cancelled slots struck through, the current one
@@ -55,7 +56,7 @@ export function Zero0Occurrences({
 
   return (
     <div className="col-span-2 mt-3">
-      <div className="mb-1 text-[10px] uppercase tracking-widest text-muted-foreground">occurrences</div>
+      <div className="mb-1 text-[10px] uppercase tracking-widest text-muted-foreground">planned occurrences</div>
       {/* The list is empty when there are no slots yet — the header + "+ add slot" still render, so the
           block is present at all times (v0.2.232) rather than swapping in only at 2+ occurrences. */}
       {rows.length > 0 && (

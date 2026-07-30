@@ -320,20 +320,21 @@ export interface Schedule {
    */
   sessions?: Session[]
   /**
-   * OCCURRENCES — the canonical, temporally-NEUTRAL list of the times this entity occurs/occurred
-   * (top rail), distinct from `sessions` (how long I WORKED on it, bottom rail). An occurrence is a
-   * PLANNED span `{start, end?}` (hence the neutral plan-style names, matching `timeblocks`, NOT the
-   * recorded `startedAt`/`endedAt` of sessions) that may lie in the past OR the future — past-vs-
+   * PLANNED OCCURRENCES — the canonical, temporally-NEUTRAL list of the times this entity occurs/
+   * occurred (top rail), distinct from `sessions` (how long I WORKED on it, bottom rail). Each entry
+   * is a PLANNED span `{start, end?}` (hence the neutral plan-style names, matching `timeblocks`, NOT
+   * the recorded `startedAt`/`endedAt` of sessions) that may lie in the past OR the future — past-vs-
    * future is DERIVED from `start` vs now, never stored. The ACTUAL start/end of each occurrence is
    * derived by matching `sessions[]` to its window (see getScheduleDelta), so nothing here is a
    * recorded fact. `cancelled` is the ONE stored per-occurrence status (a struck-out tombstone,
-   * never deleted). Scalar `startDate`/`endDate` mirror the PRIMARY (soonest) occurrence so existing
-   * single-span readers keep working (Option A, v0.2.229). Today the only WRITER is the legacy Reopen
-   * archival (pushes a just-finished span); a genuine future "+add slot" writer is deferred.
-   * Non-recurring only (a recurring schedule already yields multiple points via the expander).
-   * Renamed from `{startedAt,endedAt}` (v0.2.229): occurrences are the plan, actual is derived.
+   * never deleted). SCALAR-COLLAPSE (v0.2.232): scalar `startDate`/`endDate` are a MIRROR of the
+   * CURRENT primary = the soonest NON-cancelled span across {scalar + this list}, re-picked by
+   * `resyncPrimary` after every write, so all single-span readers keep working AND the primary is a
+   * real, cancellable occurrence. Written by `addOccurrence` / `cancelPrimaryOccurrence` /
+   * `setOccurrenceCancelled`. Non-recurring only (a recurring schedule already yields multiple points
+   * via the expander). RENAMED from `occurrences` (v0.2.233; was `{startedAt,endedAt}` pre-v0.2.229).
    */
-  occurrences?: { start: Epoch; end?: Epoch; cancelled?: boolean }[]
+  plannedOccurrences?: { start: Epoch; end?: Epoch; cancelled?: boolean }[]
   /**
    * Max authorized OCCURRENCES before this entity COMPLETES (fills its glyph). UNIVERSAL
    * (v0.2.229 — was instant-only): default 1 (a UNIQUE occurrence — completes the moment its

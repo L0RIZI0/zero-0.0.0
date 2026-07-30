@@ -215,7 +215,7 @@ export function getOccurrenceDurationMs(e: Entity, now: number): number | null {
   if (e.kind === "instant") return 0
   let total = 0
   let any = false
-  for (const occ of s?.occurrences ?? []) {
+  for (const occ of s?.plannedOccurrences ?? []) {
     if (occ.end != null) {
       total += Math.max(0, occ.end - occ.start)
       any = true
@@ -696,9 +696,9 @@ export function getScheduleCells(e: Entity, now: number): { start: ScheduleCell[
   const end: ScheduleCell[] = [
     { text: endText0.padEnd(schedW, NB), full: !liveOngoing && s?.endDate ? fmt(s.endDate) : undefined, pulse: liveOngoing },
   ]
-  // ARCHIVED occurrences — fixed past ticks (faint), newest first. These are the happened-history
-  // accumulated by Reopen; they never pulse (they're done) and never merge with access sessions.
-  const occs = [...(s?.occurrences ?? [])].sort((a, b) => b.start - a.start)
+  // NON-PRIMARY planned occurrences — fixed ticks (faint), newest first. Besides the current primary;
+  // they never pulse and never merge with access sessions.
+  const occs = [...(s?.plannedOccurrences ?? [])].sort((a, b) => b.start - a.start)
   for (const occ of occs) {
     const sTxt = fmtShort(occ.start, now)
     const eTxt = occ.end != null ? fmtShort(occ.end, now) : "—"
@@ -826,8 +826,8 @@ export function getOngoingDurationCells(
 
 // ─── PLANNED OCCURRENCES model (v0.6.30, Stage B slice 2) ──────────────────────
 // A PLANNED occurrence = one intended span of "this should happen". Sources, unified:
-//   • the PRIMARY scalar span (`schedule.startAt`/`endAt`) — the main planned occurrence, and
-//   • each entry in `schedule.occurrences[]` — ADDITIONAL planned spans ("also Friday").
+//   • the PRIMARY scalar span (`schedule.startDate`/`endDate`) — the current planned occurrence, and
+//   • each entry in `schedule.plannedOccurrences[]` — the OTHER planned spans ("also Friday").
 // Its STATUS is derived (never stored, except `cancelled`) so it can't rot: see occurrenceStatus.
 
 export type OccurrenceStatus = "cancelled" | "fulfilled" | "missed" | "upcoming"
@@ -836,7 +836,7 @@ export interface PlannedOccurrence {
   startAt?: number // concrete epoch, or undefined (open/unplanned)
   endAt?: number
   cancelled?: boolean
-  primary?: boolean // the scalar span (vs an occurrences[] entry)
+  primary?: boolean // the scalar span (vs a plannedOccurrences[] entry)
 }
 
 /** Does a session span overlap a planned occurrence's window? Open-ended occ ⇒ [start, ∞). */
@@ -876,7 +876,7 @@ export function occurrenceStatus(
   return "upcoming"
 }
 
-/** The unified list of planned occurrences (primary scalar span first, then occurrences[]). */
+/** The unified list of planned occurrences (primary scalar span first, then plannedOccurrences[]). */
 export function getPlannedOccurrences(e: Entity): PlannedOccurrence[] {
   const s = e.schedule
   const list: PlannedOccurrence[] = []
@@ -884,7 +884,7 @@ export function getPlannedOccurrences(e: Entity): PlannedOccurrence[] {
   if (cs != null || s?.endDate != null) {
     list.push({ startAt: cs ?? undefined, endAt: s?.endDate, primary: true })
   }
-  for (const occ of s?.occurrences ?? []) {
+  for (const occ of s?.plannedOccurrences ?? []) {
     list.push({ startAt: occ.start, endAt: occ.end, cancelled: occ.cancelled })
   }
   return list
@@ -966,7 +966,7 @@ function formatPlannedOccurrence(occ: PlannedOccurrence, status: OccurrenceStatu
 export interface OccurrenceRow {
   /** Unified position in the displayed list (React key only). */
   index: number
-  /** Index into `schedule.occurrences[]` for a non-primary row, or -1 for the primary (scalar) span.
+  /** Index into `schedule.plannedOccurrences[]` for a non-primary row, or -1 for the primary (scalar) span.
       This is the writer-facing address — robust whether or not a primary exists (unlike a positional
       guess), which is what setOccurrenceCancelled targets. */
   occIndex: number
@@ -1360,7 +1360,10 @@ export function getFaceRawFields(e: Entity, now: number): [string, string][] {
   const sessions = Array.isArray(s.sessions) ? (s.sessions as { endedAt?: number }[]) : []
   const openSession = sessions.some((x) => x && x.endedAt == null)
   rows.push(["schedule.sessions", sessions.length ? `${sessions.length}${openSession ? " · 1 open" : ""}` : "—"])
-  rows.push(["schedule.occurrences", Array.isArray(s.occurrences) ? `${s.occurrences.length}` : "—"])
+  rows.push([
+    "schedule.plannedOccurrences",
+    Array.isArray(s.plannedOccurrences) ? `${s.plannedOccurrences.length}` : "—",
+  ])
   // Completion cap — UNIVERSAL (v0.2.229, was instant-only).
   rows.push(["maxNb", val(b.maxNb)])
   rows.push(["maxNbHard", val(b.maxNbHard)])
