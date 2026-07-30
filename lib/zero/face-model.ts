@@ -1157,8 +1157,10 @@ export function getFaceRawFields(e: Entity, now: number): [string, string][] {
   rows.push(["tags", val(b.tags)])
   // DONE — a TASK-ONLY marker (`hasDoneFlag` is true only for Task; see setTaskDone). The field
   // lives on EntityBase (universal shape) but only a Task ever writes/reads it, so the raw dump
-  // hides it for every other kind rather than always showing "—".
-  if (e.kind === "task") rows.push(["done", val(b.done)])
+  // hides it for every other kind rather than always showing "—". For a Task the flag is a genuine
+  // BOOLEAN — an unset/false done means the task is "undone" (not missing), so it reads "undone"
+  // (never "—"), mirroring the instant-duration=0 derivation: absent value has a real meaning.
+  if (e.kind === "task") rows.push(["done", b.done ? "done" : "undone"])
   // Structure / provenance.
   rows.push(["parentId", val(b.parentId)])
   rows.push(["taggedContextIds", val(b.taggedContextIds)])
