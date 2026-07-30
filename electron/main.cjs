@@ -464,6 +464,30 @@ ipcMain.on("zero:app-version", (event) => {
   event.returnValue = app.getVersion()
 })
 
+// ── RENDERER → FILE debug log ────────────────────────────────────────────────
+// A packaged desktop build has no visible console, so the renderer can't just
+// console.log for us to read. This appends renderer diagnostics to a plain-text
+// file the user can open and send back — same idea as the native host's host.log
+// and the fingerprint log above. Lives in %LOCALAPPDATA%\Zero (the "AppData Local"
+// folder) so it sits next to the host's own logs. Best-effort; never throws.
+function zeroDebugLogPath() {
+  const base = process.env.LOCALAPPDATA || app.getPath("userData")
+  return path.join(base, "Zero", "zero-debug.log")
+}
+// Synchronous getter so the renderer can SHOW the path (so the user knows what to send).
+ipcMain.on("zero:debug-log-path", (event) => {
+  event.returnValue = zeroDebugLogPath()
+})
+ipcMain.on("zero:debug-log", (_e, line) => {
+  try {
+    const p = zeroDebugLogPath()
+    fs.mkdirSync(path.dirname(p), { recursive: true })
+    fs.appendFileSync(p, `${new Date().toISOString()}  ${typeof line === "string" ? line : JSON.stringify(line)}\n`)
+  } catch {
+    /* diagnostics are best-effort */
+  }
+})
+
 // A second launch of the exe lands here in the PRIMARY process instead of starting
 // a new one. Open another window in this process — it shares storage with the
 // existing window(s) and live-syncs via the storage event. Best-effort: only once

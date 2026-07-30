@@ -54,6 +54,11 @@ export interface ZeroDesktopBridge {
     onSelected: (cb: (actionId: string) => void) => () => void
   }
   openExternal: (url: string) => void
+  /** Append a diagnostic line to the desktop debug log file (%LOCALAPPDATA%\Zero\zero-debug.log) so it
+   *  can be read back from a packaged build with no console. Best-effort; absent on web. */
+  debugLog: (line: string) => void
+  /** Absolute path of that debug log file (so the UI can tell the user what to send). Null if unknown. */
+  debugLogPath: string | null
   /** Fetch a web page's real <title>/og:title from the MAIN process (no CORS, no server) —
    *  the desktop replacement for the /api/web-title route the static export can't ship.
    *  Resolves to { title } (null when it can't be read). External http(s) URLs only. */

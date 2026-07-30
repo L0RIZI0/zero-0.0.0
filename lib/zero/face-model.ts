@@ -1174,14 +1174,20 @@ export function getFaceMetaRows(e: Entity, now: number): [string, string][] {
     // Labelled RECORDED SESSIONS (v0.2.229) — the row names WHAT the list is (the accumulated ACTUAL
     // session segments, union of past/live spinning intervals) rather than reusing "duration"; the
     // value line prefixes its total with "Total duration". Disambiguates from PLANNED DURATION above.
-    if (dur) rows.push(["recorded sessions", [dur.total, ...dur.segments.map((c) => c.text)].join(" · ")])
+    // v0.2.231: ALWAYS shown for activity kinds (— when empty) — it and ACCESS are two distinct,
+    // independent rails (spinning-time vs presence), so §0 keeps a STABLE two-row layout and never
+    // looks like one absorbed the other when a rail happens to be empty.
+    rows.push(["recorded sessions", dur ? [dur.total, ...dur.segments.map((c) => c.text)].join(" · ") : "—"])
   }
   // ACCESS — accumulated PRESENCE time (middle rail = "how long I've been on / looking at this"),
   // its own row for ANY kind that's been engaged, DECOUPLED from the durations above and from
   // ongoing (v0.6.32: presence ≠ ongoing — a done task you view still accrues ACCESS). Plain string
-  // reads "<total> · <dur1> (<when1>) · …"; the FULL §0 face renders the segments richly.
+  // reads "<total> · <dur1> (<when1>) · …"; the FULL §0 face renders the segments richly. v0.2.231:
+  // ALWAYS shown for activity kinds (— when empty), mirroring RECORDED SESSIONS above; other kinds
+  // keep it only when actually engaged (no empty-ACCESS noise on Souls/beings).
   const access = getAccessCells(e, now)
   if (access) rows.push(["access", [access.total, ...access.segments.map((c) => c.text)].join(" · ")])
+  else if (SPAN_UI_KINDS.has(e.kind)) rows.push(["access", "—"])
   // OCCURRENCES (v0.6.33) — now the COUNT + PLANNED-LIST row ("how many / which"), NOT a time sum
   // (the ongoing-time clock moved to DURATION above). It reads: `<N> times` (count of actual play
   // sessions = times it happened) then the planned-occurrence list with matched/missed status

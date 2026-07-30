@@ -109,6 +109,19 @@ contextBridge.exposeInMainWorld("zero", {
   /** Open a URL in the user's real external browser (graceful fallback). */
   openExternal: (url) => ipcRenderer.send("zero:open-external", url),
 
+  /** Append a diagnostic line to the desktop debug log file (see zero:debug-log in main). A packaged
+   *  build has no visible console, so this is how the renderer records state we can read back. The
+   *  file lives at `debugLogPath` (%LOCALAPPDATA%\Zero\zero-debug.log). Best-effort; no-op on web. */
+  debugLog: (line) => ipcRenderer.send("zero:debug-log", line),
+  /** Absolute path of that debug log file, resolved at load so the UI can SHOW the user where it is. */
+  debugLogPath: (() => {
+    try {
+      return ipcRenderer.sendSync("zero:debug-log-path")
+    } catch {
+      return null
+    }
+  })(),
+
   /** Fetch a web page's real <title>/og:title from MAIN (net.fetch — no CORS, no server).
    *  The desktop stand-in for the /api/web-title route that the static export can't ship, so
    *  web Resources still show a human title + favicon offline. Resolves { title: string|null };

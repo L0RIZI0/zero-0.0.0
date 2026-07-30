@@ -684,23 +684,36 @@ export function Zero0Canvas() {
   )
 
   const context = mounted ? getEntity(contextId) : undefined
-  // [v0] TEMP ACCESS-ROW PROBE (v0.2.230) — dumps the viewed entity's focus (presence) session state +
-  // recent log verbs whenever the context or a mutation (`rev`) changes, so we can see EXACTLY when the
-  // focus session that gates the ACCESS row opens / closes / gets sub-threshold-discarded. Remove once
-  // the "ACCESS not always displayed" cause is confirmed.
+  // [v0] TEMP ACCESS-ROW PROBE (v0.2.230/.231) — dumps the viewed entity's focus (ACCESS/presence) AND
+  // play (RECORDED SESSIONS/spinning) session state + recent log verbs whenever the context or a
+  // mutation (`rev`) changes, so we can see EXACTLY when the focus session that gates the ACCESS row
+  // opens / closes / gets sub-threshold-discarded. Writes to BOTH the console AND (on desktop) the
+  // debug-log FILE at window.zero.debugLogPath so Loris can send it from the packaged build. Remove
+  // once the "ACCESS not always displayed" cause is confirmed.
   useEffect(() => {
     if (!mounted || !context) return
-    const focus = getSessions(context).filter((s) => s.via === "focus")
-    const openFocus = focus.find((s) => s.endedAt == null)
-    console.log("[v0] ACCESS-probe", {
+    const all = getSessions(context)
+    const focus = all.filter((s) => s.via === "focus")
+    const play = all.filter((s) => s.via === "play")
+    const spanMs = (s: (typeof all)[number]) => Math.round((s.endedAt ?? Date.now()) - s.startedAt)
+    const payload = {
       id: context.id,
       kind: context.kind,
       focusCount: focus.length,
-      hasOpenFocus: !!openFocus,
-      accessRowWillShow: focus.length > 0,
-      focusSpansMs: focus.map((s) => Math.round(((s.endedAt ?? Date.now()) - s.startedAt))),
-      logTail: (context.log ?? []).slice(-8).map((l) => l.type),
-    })
+      hasOpenFocus: focus.some((s) => s.endedAt == null),
+      accessRowShows: focus.length > 0,
+      focusSpansMs: focus.map(spanMs),
+      playCount: play.length,
+      hasOpenPlay: play.some((s) => s.endedAt == null),
+      playSpansMs: play.map(spanMs),
+      logTail: (context.log ?? []).slice(-10).map((l) => `${l.type}@${new Date(l.at).toLocaleTimeString()}`),
+    }
+    console.log("[v0] ACCESS-probe", payload)
+    try {
+      window.zero?.debugLog?.(`ACCESS-probe ${JSON.stringify(payload)}`)
+    } catch {
+      /* best-effort */
+    }
   }, [mounted, context, rev])
   // SHOW HIDDEN — a per-context VIEW toggle (right-click ▸ Show hidden). When off, hidden
   // children (manual `hidden` flag OR auto-hidden-because-closed-before-today) collapse out
@@ -1929,7 +1942,7 @@ export function Zero0Canvas() {
   />
       )}
 
-      {/* ── AGENDA BAND (topmost, "TODAY") ─────────────────���─────��──────────────
+      {/* ── AGENDA BAND (topmost, "TODAY") ─────────────────���─────��─────────���────
           The FORWARD-looking frame — what's PLANNED today (the planned dayline).
           Hidden by default (toggled from the footer) so the canvas stays blank; when
           shown it sits at the very top, above ACTIVITY. Show/hide is animated with the
@@ -1971,7 +1984,7 @@ export function Zero0Canvas() {
         </Zero0Frame>
       )}
 
-      {/* ── ZERO HEADER (§1) ─────────�����────────────────��───────────────────────
+      {/* ── ZERO HEADER (§1) ─────────�����────────────���───��───────────────────────
           Zero-UX chrome: the mark, the access path (breadcrumb), and a session
           readout. Not part of the node's own data. Toggled by §1 / the corner marker,
           and — like every frame in the stack — collapses with the dep-free grid-rows
