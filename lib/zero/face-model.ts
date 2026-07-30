@@ -936,7 +936,7 @@ export function formatOccurrenceParts(occ: PlannedOccurrence, now: number): { da
   if (occ.endAt == null) return { day, time: fmtTime(occ.startAt) }
   const sameDay = new Date(occ.startAt).toDateString() === new Date(occ.endAt).toDateString()
   const end = sameDay ? fmtTime(occ.endAt) : `${fmtDay(occ.endAt, now)} ${fmtTime(occ.endAt)}`
-  return { day, time: `${fmtTime(occ.startAt)}–${end}` }
+  return { day, time: `${fmtTime(occ.startAt)} – ${end}` }
 }
 
 /** An occurrence's WHEN, WITHOUT its status: `<when>[–<end>]` (open/unset handled). */
