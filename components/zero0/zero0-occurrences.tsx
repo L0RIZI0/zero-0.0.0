@@ -63,7 +63,11 @@ export function Zero0Occurrences({
             <span aria-hidden className="text-muted-foreground opacity-50">
               ·
             </span>
-            <span className={"text-foreground " + (r.cancelled ? "line-through opacity-60" : "")}>{r.label}</span>
+            {/* DAY column is fixed-width so every occurrence's TIME lines up, whatever the day label. */}
+            <span className={"flex items-baseline gap-2 " + (r.cancelled ? "line-through opacity-60" : "")}>
+              <span className="w-20 shrink-0 text-muted-foreground">{r.day}</span>
+              <span className="text-foreground">{r.time}</span>
+            </span>
             <span className="text-muted-foreground">{r.statusWord}</span>
             {r.primary && (
               <span className="text-[9px] uppercase tracking-wider text-muted-foreground opacity-50">primary</span>

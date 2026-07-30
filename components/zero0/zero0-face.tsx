@@ -236,6 +236,14 @@ function FaceBlock({
   )
   // Can this entity accept a "+ add slot"? (moment/space only — the addOccurrence writer's gate).
   const canAddOccurrence = useMemo(() => isOccurrenceKind(entity), [entity])
+  // When the OCCURRENCES block is shown, strip the rows it supersedes so they don't ALSO render in the
+  // dl (and so no two rows can share a key): the flat PLANNED START / PLANNED END pair and the legacy
+  // "occurrences" count+list summary. Otherwise the dl shows every row as before.
+  const OCC_SUPERSEDED = useMemo(() => new Set(["planned start", "planned end", "occurrences"]), [])
+  const displayRows = useMemo(
+    () => (multiSlot ? rows.filter(([k]) => !OCC_SUPERSEDED.has(k)) : rows),
+    [rows, multiSlot, OCC_SUPERSEDED],
+  )
   const startScrollRef = useRef<HTMLDivElement>(null)
   const endScrollRef = useRef<HTMLDivElement>(null)
   const syncLock = useRef(false)
@@ -362,16 +370,14 @@ function FaceBlock({
         <span className="text-[10px] uppercase tracking-wider text-muted-foreground">{model.kindLabel}</span>
         {trailing}
       </div>
+      {/* MULTI-SLOT: render the OCCURRENCES block ONCE, above the dl, and REMOVE the rows it supersedes
+          (flat planned start/end + the legacy "occurrences" summary) from the list before mapping — so
+          row keys stay unique regardless of which schedule keys this entity happens to emit. */}
+      {multiSlot && <Zero0Occurrences entity={entity} now={now} onAction={onScheduleAction} />}
       {/* Raw meta key/values (filtered by rung). */}
-      {rows.length > 0 && (
+      {displayRows.length > 0 && (
         <dl className="mt-2 grid grid-cols-[7.5rem_1fr] gap-x-4 gap-y-0.5 text-[10px] tabular-nums">
-          {rows.map(([k, v]) => {
-            // MULTI-SLOT SWAP: the OCCURRENCES block takes the flat START/END pair's place — rendered
-            // once at the START row's slot (full width), and the END row is dropped.
-            if (multiSlot && k === "planned start") {
-              return <Zero0Occurrences key="occurrences" entity={entity} now={now} onAction={onScheduleAction} />
-            }
-            if (multiSlot && k === "planned end") return null
+          {displayRows.map(([k, v]) => {
             return (
             <div key={k} className="contents">
               <dt className="uppercase tracking-widest text-muted-foreground">{k}</dt>

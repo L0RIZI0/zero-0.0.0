@@ -903,6 +903,38 @@ export function occurrenceStatusWord(status: OccurrenceStatus): string {
   return status === "fulfilled" ? "matched" : status // missed | upcoming | cancelled
 }
 
+/** DAY label relative to `now`: Today / Tomorrow / Yesterday, else "Jul 31". Powers the OCCURRENCES
+    block's fixed-width leading day column so every occurrence's TIME aligns (even today's — which
+    fmtShort otherwise renders bare). */
+function fmtDay(epoch: number, now: number): string {
+  const startOfDay = (t: number) => {
+    const d = new Date(t)
+    return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
+  }
+  const diff = Math.round((startOfDay(epoch) - startOfDay(now)) / 86_400_000)
+  if (diff === 0) return "Today"
+  if (diff === 1) return "Tomorrow"
+  if (diff === -1) return "Yesterday"
+  return new Date(epoch).toLocaleString(formatLocale(), { month: "short", day: "numeric" })
+}
+
+/** Clock-only time, e.g. "5:30 PM" (no date — the day is carried separately by fmtDay). */
+function fmtTime(epoch: number): string {
+  return new Date(epoch).toLocaleString(formatLocale(), { hour: "numeric", minute: "2-digit" })
+}
+
+/** Split an occurrence into a leading DAY token + a TIME range, for the aligned block layout. A span
+    whose end lands on a DIFFERENT day than its start carries the end's own day inline. */
+export function formatOccurrenceParts(occ: PlannedOccurrence, now: number): { day: string; time: string } {
+  if (occ.startAt == null && occ.endAt == null) return { day: "—", time: "" }
+  if (occ.startAt == null) return { day: fmtDay(occ.endAt!, now), time: `by ${fmtTime(occ.endAt!)}` }
+  const day = fmtDay(occ.startAt, now)
+  if (occ.endAt == null) return { day, time: fmtTime(occ.startAt) }
+  const sameDay = new Date(occ.startAt).toDateString() === new Date(occ.endAt).toDateString()
+  const end = sameDay ? fmtTime(occ.endAt) : `${fmtDay(occ.endAt, now)} ${fmtTime(occ.endAt)}`
+  return { day, time: `${fmtTime(occ.startAt)}–${end}` }
+}
+
 /** An occurrence's WHEN, WITHOUT its status: `<when>[–<end>]` (open/unset handled). */
 function formatOccurrenceLabel(occ: PlannedOccurrence, now: number): string {
   const when =
@@ -932,7 +964,11 @@ export interface OccurrenceRow {
   index: number
   primary: boolean
   cancelled: boolean
-  /** WHEN text, e.g. "Mon 1:00 PM–2:00 PM" (no status). */
+  /** Leading DAY token — "Today" / "Tomorrow" / "Jul 31" — for the aligned fixed-width column. */
+  day: string
+  /** TIME range without the day, e.g. "5:30 PM–8:30 PM". */
+  time: string
+  /** WHEN text, e.g. "Mon 1:00 PM–2:00 PM" (no status). Combined form kept for non-block callers. */
   label: string
   status: OccurrenceStatus
   /** Display word: matched | missed | upcoming | cancelled. */
@@ -945,10 +981,13 @@ export function getOccurrenceRows(e: Entity, now: number): OccurrenceRow[] {
   const sessions = getSessions(e)
   return planned.map((occ, index) => {
     const status = occurrenceStatus(occ, sessions, now)
+    const parts = formatOccurrenceParts(occ, now)
     return {
       index,
       primary: !!occ.primary,
       cancelled: !!occ.cancelled,
+      day: parts.day,
+      time: parts.time,
       label: formatOccurrenceLabel(occ, now),
       status,
       statusWord: occurrenceStatusWord(status),
