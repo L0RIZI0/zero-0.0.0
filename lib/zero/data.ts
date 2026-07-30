@@ -1853,11 +1853,74 @@ export function reopenOccurrence(id: string): boolean {
 }
 
 /**
- * CANCEL (or un-cancel) a planned occurrence (v0.6.30) — mark an `occurrences[]` entry as
- * `cancelled` (or clear it). `index` targets the entry in `schedule.occurrences[]`. Cancellation
- * is the ONE stored occurrence status (intent, unobservable from data); the entry STAYS in the
- * list as a struck-out recorded attempt. `cancelled` defaults to true (the common call). Returns
- * false when there's no such entry.
+ * RESYNC THE PRIMARY (v0.2.232) — the ONE invariant enforcer behind the scalar-collapse. The model
+ * everything relies on: the SCALAR `startDate`/`endDate` = the CURRENT (soonest non-cancelled)
+ * occurrence, and `occurrences[]` = every OTHER occurrence (future, past, or cancelled). This keeps
+ * all ~53 scalar readers, `getState`, `getScheduleCells`, the timeline expander and the duration
+ * combiners working UNCHANGED (they still see "current primary + the rest, no overlap") while making
+ * EVERY occurrence — the primary included — cancellable: a writer just edits the flat set and calls
+ * this, which re-picks the soonest live span as the scalar primary and drops the rest into
+ * `occurrences[]`. Idempotent. Only ever runs for occurrence kinds (moment/space), whose primary
+ * always carries a concrete start; an end-only scalar (never produced for these kinds) is left as-is.
+ */
+function resyncPrimary(sched: Schedule): void {
+  const all: { start: number; end?: number; cancelled?: boolean }[] = []
+  const cs = sched.startDate
+  if (typeof cs === "number") all.push({ start: cs, end: sched.endDate, cancelled: false })
+  all.push(...(sched.occurrences ?? []))
+  // Soonest NON-cancelled span becomes the primary (mirrored by the scalar); ties keep insertion order.
+  const live = all
+    .map((o, i) => ({ o, i }))
+    .filter((x) => !x.o.cancelled)
+    .sort((a, b) => a.o.start - b.o.start || a.i - b.i)
+  const primary = live[0]?.o
+  if (primary) {
+    sched.startDate = primary.start
+    if (primary.end != null) sched.endDate = primary.end
+    else delete sched.endDate
+    sched.occurrences = all.filter((o) => o !== primary)
+  } else {
+    // Nothing live (empty, or every span cancelled) → no current primary; the entity is idle/playable.
+    delete sched.startDate
+    delete sched.endDate
+    sched.occurrences = all
+  }
+  // Drop an empty array so a plan-less entity serializes clean (matches pre-collapse shape).
+  if (sched.occurrences && sched.occurrences.length === 0) delete sched.occurrences
+}
+
+/**
+ * CANCEL THE PRIMARY occurrence (v0.2.232) — the current (scalar) occurrence has no `occurrences[]`
+ * slot to flag, so cancelling it means: record it as a struck entry in `occurrences[]`, then
+ * `resyncPrimary` promotes the next soonest live span into the scalar (or clears it → idle when none
+ * remain). This is what makes the PRIMARY cancellable like any other slot. Moment/Space only.
+ */
+export function cancelPrimaryOccurrence(id: string): boolean {
+  const stored = byId.get(id)
+  if (!stored || !isOccurrenceKind(stored)) return false
+  const sched: Schedule = { ...(stored.schedule ?? {}) }
+  if (!isPlannedStart(sched.startDate)) return false // no concrete primary to cancel
+  const cancelled = { start: sched.startDate, end: sched.endDate, cancelled: true }
+  sched.occurrences = [...(sched.occurrences ?? []), cancelled]
+  delete sched.startDate // clear the scalar so resync re-picks from the flat set
+  delete sched.endDate
+  resyncPrimary(sched)
+  const entity = mutable(stored)
+  entity.schedule = sched
+  logSet(entity, "startDate", sched.startDate ?? null)
+  if (!userEntityIds.has(id)) {
+    seededOverrides.set(id, { ...seededOverrides.get(id), schedule: sched })
+  }
+  persist()
+  return true
+}
+
+/**
+ * CANCEL (or un-cancel) an `occurrences[]` occurrence (v0.6.30) — mark the entry as `cancelled` (or
+ * clear it). `index` targets `schedule.occurrences[]`. The entry STAYS in the list as a struck-out
+ * attempt. After the flag flips, `resyncPrimary` runs so an UN-cancel that is now the soonest live
+ * span is promoted to the scalar primary (and a cancel never leaves a cancelled span as primary).
+ * `cancelled` defaults to true. Returns false when there's no such entry.
  */
 export function setOccurrenceCancelled(id: string, index: number, cancelled = true): boolean {
   const stored = byId.get(id)
@@ -1865,6 +1928,7 @@ export function setOccurrenceCancelled(id: string, index: number, cancelled = tr
   if (!stored || !occs || index < 0 || index >= occs.length) return false
   const sched: Schedule = { ...(stored.schedule ?? {}) }
   sched.occurrences = occs.map((o, i) => (i === index ? { ...o, cancelled } : o))
+  resyncPrimary(sched)
   const entity = mutable(stored)
   entity.schedule = sched
   if (!userEntityIds.has(id)) {
@@ -1886,20 +1950,16 @@ export function addOccurrence(id: string, start: number, end?: number): boolean 
   const stored = byId.get(id)
   if (!stored || !isOccurrenceKind(stored)) return false
   const sched: Schedule = { ...(stored.schedule ?? {}) }
+  const before = sched.startDate
+  // v0.2.232: one path — append the new span to the flat set, then let resyncPrimary decide whether
+  // it's the soonest (⇒ becomes the scalar primary) or just another entry in occurrences[]. This
+  // folds the old "first slot fills the scalar / rest append" branch into the single invariant.
+  sched.occurrences = [...(sched.occurrences ?? []), { start, ...(end != null ? { end } : {}) }]
+  resyncPrimary(sched)
   const entity = mutable(stored)
-  if (!isPlannedStart(sched.startDate)) {
-    // No primary yet → this slot BECOMES the primary (mirrored by the scalar, shown as PLANNED
-    // START/END). Log the scalar set so the lifecycle log stays coherent (mirrors reopenOccurrence).
-    sched.startDate = start
-    if (end != null) sched.endDate = end
-    else delete sched.endDate
-    entity.schedule = sched
-    logSet(entity, "startDate", start)
-  } else {
-    // Primary already set → append an ADDITIONAL planned occurrence to the list.
-    sched.occurrences = [...(sched.occurrences ?? []), { start, ...(end != null ? { end } : {}) }]
-    entity.schedule = sched
-  }
+  entity.schedule = sched
+  // Keep the lifecycle log coherent when this add changed the current primary start.
+  if (sched.startDate !== before) logSet(entity, "startDate", sched.startDate ?? null)
   if (!userEntityIds.has(id)) {
     seededOverrides.set(id, { ...seededOverrides.get(id), schedule: sched })
   }
