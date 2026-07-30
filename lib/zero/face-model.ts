@@ -918,9 +918,13 @@ function fmtDay(epoch: number, now: number): string {
   return new Date(epoch).toLocaleString(formatLocale(), { month: "short", day: "numeric" })
 }
 
-/** Clock-only time, e.g. "5:30 PM" (no date — the day is carried separately by fmtDay). */
+/** Clock-only time, e.g. "5:30 PM" (no date — the day is carried separately by fmtDay). A single-digit
+    hour (1–9) is prefixed with a FIGURE SPACE (U+2007, = one digit's width in the tabular-nums font) so
+    its digit lines up with the tens digit of a double-digit hour (10–12) on the row above/below —
+    keeping the beautiful bare "8:30 PM" while still column-aligning. Works for 12h and 24h locales. */
 function fmtTime(epoch: number): string {
-  return new Date(epoch).toLocaleString(formatLocale(), { hour: "numeric", minute: "2-digit" })
+  const s = new Date(epoch).toLocaleString(formatLocale(), { hour: "numeric", minute: "2-digit" })
+  return /^\d(?!\d)/.test(s) ? "\u2007" + s : s
 }
 
 /** Split an occurrence into a leading DAY token + a TIME range, for the aligned block layout. A span
