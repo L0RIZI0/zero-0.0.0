@@ -451,6 +451,16 @@ export function Zero0Glyph({
     }
   }, [kind, ongoing])
 
+  // OPTICAL STROKE BALANCE — the acute-angled TRIANGLES (moment ▲ / instant ▽) concentrate their
+  // ink along long straight diagonals meeting at sharp corners, so at an identical stroke width
+  // they read visibly HEAVIER than the many-sided outlines (hexagon, pentagon…). Slim the triangle
+  // stroke ~18% so its perceived weight matches the rest. Applied to BOTH the open (1.6) and the
+  // scheduled (2.9) widths, keeping their ratio, so a scheduled triangle stays balanced too.
+  const TRIANGLE_SLIM = 0.82
+  const isTriangle = kind === "moment" || kind === "instant"
+  const baseStroke = scheduled ? 2.9 : 1.6
+  const strokeW = filled ? 0 : isTriangle ? baseStroke * TRIANGLE_SLIM : baseStroke
+
   return (
     <svg
       ref={svgRef}
@@ -459,7 +469,7 @@ export function Zero0Glyph({
       style={{ transformOrigin: spinOrigin }}
       fill={filled ? "currentColor" : "none"}
       stroke="currentColor"
-      strokeWidth={filled ? 0 : scheduled ? 2.9 : 1.6}
+      strokeWidth={strokeW}
       strokeLinejoin="round"
       strokeLinecap="round"
       aria-hidden="true"
