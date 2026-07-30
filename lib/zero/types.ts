@@ -320,15 +320,20 @@ export interface Schedule {
    */
   sessions?: Session[]
   /**
-   * ARCHIVED OCCURRENCES — the history of when this thing actually HAPPENED (top rail), distinct
-   * from `sessions` (how long I WORKED on it, bottom rail). A moment/space accumulates one span
-   * here each time it is Reopened: the live `{startedAt,endedAt}` is pushed in and the scalar
-   * start/end are cleared (back to open). Past spans paint as FIXED top-rail ticks, untouched by
-   * the current live state. `duration` is preserved on reopen as the default length for the next
-   * Play. Non-recurring only (a recurring schedule already yields multiple points via the expander).
-   * RECORDED facts, so `startedAt`/`endedAt` (not the planned `startDate`/`endDate`).
+   * OCCURRENCES — the canonical, temporally-NEUTRAL list of the times this entity occurs/occurred
+   * (top rail), distinct from `sessions` (how long I WORKED on it, bottom rail). An occurrence is a
+   * PLANNED span `{start, end?}` (hence the neutral plan-style names, matching `timeblocks`, NOT the
+   * recorded `startedAt`/`endedAt` of sessions) that may lie in the past OR the future — past-vs-
+   * future is DERIVED from `start` vs now, never stored. The ACTUAL start/end of each occurrence is
+   * derived by matching `sessions[]` to its window (see getScheduleDelta), so nothing here is a
+   * recorded fact. `cancelled` is the ONE stored per-occurrence status (a struck-out tombstone,
+   * never deleted). Scalar `startDate`/`endDate` mirror the PRIMARY (soonest) occurrence so existing
+   * single-span readers keep working (Option A, v0.2.229). Today the only WRITER is the legacy Reopen
+   * archival (pushes a just-finished span); a genuine future "+add slot" writer is deferred.
+   * Non-recurring only (a recurring schedule already yields multiple points via the expander).
+   * Renamed from `{startedAt,endedAt}` (v0.2.229): occurrences are the plan, actual is derived.
    */
-  occurrences?: { startedAt: Epoch; endedAt?: Epoch; cancelled?: boolean }[]
+  occurrences?: { start: Epoch; end?: Epoch; cancelled?: boolean }[]
   /**
    * Max authorized OCCURRENCES before this entity COMPLETES (fills its glyph). UNIVERSAL
    * (v0.2.229 — was instant-only): default 1 (a UNIQUE occurrence — completes the moment its

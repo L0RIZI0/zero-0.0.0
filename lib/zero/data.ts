@@ -1231,7 +1231,7 @@ export function getTimelineOccurrences(
       s.occurrences.forEach((occ, i) => {
         out.push({
           ...e,
-          schedule: { ...s, startDate: occ.startedAt, endDate: occ.endedAt, occurrences: undefined, repeat: undefined },
+          schedule: { ...s, startDate: occ.start, endDate: occ.end, occurrences: undefined, repeat: undefined },
           occKey: `${e.id}#occ${i}`,
         })
       })
@@ -1839,7 +1839,7 @@ export function reopenOccurrence(id: string): boolean {
   const entity = mutable(stored)
   // Preserve the just-finished length as the default duration for the next Play (if not already set).
   if (sched.duration == null && endAt != null) sched.duration = Math.round((endAt - startAt) / 60000)
-  sched.occurrences = [...(sched.occurrences ?? []), { startedAt: startAt, endedAt: endAt }]
+  sched.occurrences = [...(sched.occurrences ?? []), { start: startAt, end: endAt }]
   delete sched.startDate // playable again = idle (no start); playability is kind-based now
   delete sched.endDate
   entity.schedule = sched
@@ -2224,7 +2224,8 @@ function migrateStoredSessionsKey(stored: UserItems): void {
  *   SCHEDULE (the PLAN):  startAt→startDate, endAt→endDate, dueAt→dueDate  (`at` unchanged)
  *   SCHEDULE:  blocks→timeblocks (v0.2.229 — "block" was overloaded); its INNER startAt/endAt
  *              are UNCHANGED (a timeblock is a planned sub-span).
- *   RECORDED sub-arrays (sessions[] + occurrences[]):  startAt→startedAt, endAt→endedAt
+   *   RECORDED sessions[]:  startAt→startedAt, endAt→endedAt
+   *   OCCURRENCES[] (now the PLAN, v0.2.229):  startAt/startedAt→start, endAt/endedAt→end
  * In-memory only (like the sibling migrations); localStorage rewrites on the next mutation.
  * Idempotent: canonical data ⇒ no-op (never clobbers an already-present new key).
  */
@@ -2240,6 +2241,22 @@ function migrateStoredScheduleFields(stored: UserItems): void {
         const e = entry as Record<string, unknown>
         move(e, "startAt", "startedAt")
         move(e, "endAt", "endedAt")
+      }
+    }
+  }
+  // OCCURRENCES were reshaped {startedAt,endedAt}→{start,end} (v0.2.229 — occurrences are the PLAN,
+  // actual is derived). Map from BOTH legacy shapes in one hop: the very-old `startAt`/`endAt` AND the
+  // interim `startedAt`/`endedAt`. `cancelled` is unchanged. (Kept SEPARATE from fixRecordedList, which
+  // still applies to sessions[] — those stay recorded `startedAt`/`endedAt`.)
+  const fixOccurrenceList = (list: unknown) => {
+    if (!Array.isArray(list)) return
+    for (const entry of list) {
+      if (entry && typeof entry === "object") {
+        const e = entry as Record<string, unknown>
+        move(e, "startAt", "start")
+        move(e, "startedAt", "start")
+        move(e, "endAt", "end")
+        move(e, "endedAt", "end")
       }
     }
   }
@@ -2263,7 +2280,7 @@ function migrateStoredScheduleFields(stored: UserItems): void {
       move(s, "dueAt", "dueDate")
       move(s, "blocks", "timeblocks") // v0.2.229 key rename; inner startAt/endAt left as-is
       fixRecordedList(s.sessions)
-      fixRecordedList(s.occurrences)
+      fixOccurrenceList(s.occurrences)
     }
   }
   for (const e of stored.entities) fixOne(e)

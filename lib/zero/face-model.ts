@@ -216,8 +216,8 @@ export function getOccurrenceDurationMs(e: Entity, now: number): number | null {
   let total = 0
   let any = false
   for (const occ of s?.occurrences ?? []) {
-    if (occ.endedAt != null) {
-      total += Math.max(0, occ.endedAt - occ.startedAt)
+    if (occ.end != null) {
+      total += Math.max(0, occ.end - occ.start)
       any = true
     }
   }
@@ -267,7 +267,7 @@ export function getPlannedDurationMs(e: Entity): number | null {
 // ended +1h") is a display decision, not a data one. Principle-preserving: the PLAN is the stored
 // `schedule.startDate`/`endDate`; the ACTUAL is DERIVED from the session ledger — never a new stored
 // field. `actualStart` = earliest session punch-in; `actualEnd` = latest CLOSED session punch-out
-// (null while any session is still open ⇒ no final actual end yet). Deltas are `actual − planned`
+// (null while any session is still open ��� no final actual end yet). Deltas are `actual − planned`
 // (positive = LATE, negative = early), null when either side is missing. `via` optionally scopes
 // which sessions count (e.g. only `play` for the ongoing clock); unfiltered = any recorded activity.
 export interface ScheduleDelta {
@@ -698,13 +698,13 @@ export function getScheduleCells(e: Entity, now: number): { start: ScheduleCell[
   ]
   // ARCHIVED occurrences — fixed past ticks (faint), newest first. These are the happened-history
   // accumulated by Reopen; they never pulse (they're done) and never merge with access sessions.
-  const occs = [...(s?.occurrences ?? [])].sort((a, b) => b.startedAt - a.startedAt)
+  const occs = [...(s?.occurrences ?? [])].sort((a, b) => b.start - a.start)
   for (const occ of occs) {
-    const sTxt = fmtShort(occ.startedAt, now)
-    const eTxt = occ.endedAt != null ? fmtShort(occ.endedAt, now) : "—"
+    const sTxt = fmtShort(occ.start, now)
+    const eTxt = occ.end != null ? fmtShort(occ.end, now) : "—"
     const w = Math.max(sTxt.length, eTxt.length)
-    start.push({ text: sTxt.padStart(w, NB), full: fmt(occ.startedAt), faint: true })
-    end.push({ text: eTxt.padStart(w, NB), full: occ.endedAt != null ? fmt(occ.endedAt) : undefined, faint: true })
+    start.push({ text: sTxt.padStart(w, NB), full: fmt(occ.start), faint: true })
+    end.push({ text: eTxt.padStart(w, NB), full: occ.end != null ? fmt(occ.end) : undefined, faint: true })
   }
   return { start, end }
 }
@@ -885,7 +885,7 @@ export function getPlannedOccurrences(e: Entity): PlannedOccurrence[] {
     list.push({ startAt: cs ?? undefined, endAt: s?.endDate, primary: true })
   }
   for (const occ of s?.occurrences ?? []) {
-    list.push({ startAt: occ.startedAt, endAt: occ.endedAt, cancelled: occ.cancelled })
+    list.push({ startAt: occ.start, endAt: occ.end, cancelled: occ.cancelled })
   }
   return list
 }
