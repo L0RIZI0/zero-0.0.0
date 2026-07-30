@@ -141,9 +141,9 @@ function KindShape({
 }) {
   // OVERSIZE DAMPING when THICK — the space/community/resource polygons bake in a ~15% optical
   // oversize (circumradius ~10.38). A scheduled (thick) stroke is centred on the path, so its outer
-  // half-stroke pushes the shape even bigger; to compensate we shrink those three to a ~10% oversize
-  // while thick. Scale = 1.10/1.15 ≈ 0.9565 about the box centre (12,12) → translate 12·(1−s).
-  const DAMP = scheduled ? "translate(0.5217 0.5217) scale(0.9565)" : undefined
+  // half-stroke pushes the shape even bigger; to compensate we shrink those three to a ~12% oversize
+  // while thick. Scale = 1.12/1.15 ≈ 0.9739 about the box centre (12,12) → translate 12·(1−s).
+  const DAMP = scheduled ? "translate(0.3130 0.3130) scale(0.9739)" : undefined
   switch (kind) {
     case "link":
       // ⟨forthcoming · id 5⟩ THE LINK — a relation reified: two endpoint NODES on either side joined
