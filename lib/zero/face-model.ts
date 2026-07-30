@@ -548,7 +548,10 @@ export function getFaceModel(e: Entity, now: number): FaceModel {
     // NOT-YET-BEGUN (future start / instant at) ⇒ heavier glyph outline. The STATE word is
     // `"scheduled"` for EVERY plannable kind, including un-begun beings (formatState merely DISPLAYS
     // it as "expected" for them — "expected" is not itself a StateWord). Orthogonal to ongoing.
-    scheduled: state.word === "scheduled",
+    // BEINGS (individual/organism/community) are EXCLUDED — a scheduled/"expected" being keeps its
+    // THIN glyph (per the bible row-8 "Thin glyph outline" text); only the 5 non-being plannable
+    // kinds (instant/moment/resource/task/space) thicken.
+    scheduled: state.word === "scheduled" && !isBeing(e.kind),
     playable: occAction != null, // moment/space glyph drives its occurrence lifecycle
     occAction, // which one: play / stop / reopen
     markable: isMarkable(e), // live instant ⇒ glyph records an occurrence on click
