@@ -964,8 +964,12 @@ function formatPlannedOccurrence(occ: PlannedOccurrence, status: OccurrenceStatu
 // is not surfaced here) — the block shows only the derived STATUS word, per the deferred-display call.
 
 export interface OccurrenceRow {
-  /** Unified index: 0 = primary (scalar) span, 1..n = occurrences[] entries. */
+  /** Unified position in the displayed list (React key only). */
   index: number
+  /** Index into `schedule.occurrences[]` for a non-primary row, or -1 for the primary (scalar) span.
+      This is the writer-facing address — robust whether or not a primary exists (unlike a positional
+      guess), which is what setOccurrenceCancelled targets. */
+  occIndex: number
   primary: boolean
   cancelled: boolean
   /** Leading DAY token — "Today" / "Tomorrow" / "Jul 31" — for the aligned fixed-width column. */
@@ -979,15 +983,21 @@ export interface OccurrenceRow {
   statusWord: string
 }
 
-/** The §0 OCCURRENCES block's rows — the unified planned list, each tagged with derived status. */
+/** The §0 OCCURRENCES block's rows — the unified planned list, each tagged with derived status. The
+    `occIndex` is computed here (not assumed positional): the primary is -1, and each non-primary row
+    counts its position among the occurrences[]-sourced rows, so it's correct whether or not a primary
+    span exists (e.g. after every slot is cancelled, there is no primary and index 0 IS occurrences[0]). */
 export function getOccurrenceRows(e: Entity, now: number): OccurrenceRow[] {
   const planned = getPlannedOccurrences(e)
   const sessions = getSessions(e)
+  let occCursor = 0
   return planned.map((occ, index) => {
     const status = occurrenceStatus(occ, sessions, now)
     const parts = formatOccurrenceParts(occ, now)
+    const occIndex = occ.primary ? -1 : occCursor++
     return {
       index,
+      occIndex,
       primary: !!occ.primary,
       cancelled: !!occ.cancelled,
       day: parts.day,
@@ -999,8 +1009,9 @@ export function getOccurrenceRows(e: Entity, now: number): OccurrenceRow[] {
   })
 }
 
-/** How many planned occurrences an entity has (primary scalar + occurrences[]). Drives the §0
-    swap: 0–1 ⇒ keep the flat PLANNED START/END rows; 2+ ⇒ show the OCCURRENCES block. */
+/** How many planned occurrences an entity has (current primary + occurrences[]). General helper;
+    the §0 block is now always-on for occurrence kinds, so this no longer gates a flat-rows ⇄ block
+    swap (v0.2.232). */
 export function getOccurrenceCount(e: Entity): number {
   return getPlannedOccurrences(e).length
 }

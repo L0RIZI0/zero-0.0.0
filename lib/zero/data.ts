@@ -1822,37 +1822,6 @@ export function endOccurrence(id: string, at = Date.now()): boolean {
 }
 
 /**
- * REOPEN — click a COMPLETE moment/space glyph. Archives the finished live span into
- * `occurrences[]` (so it stays as a fixed past tick on the top rail), preserves its length as
- * the default `duration` for the next Play, then clears the live start/end + completion close
- * so it's idle/playable again (outline glyph — playability is kind-based, no start needed).
- * Moment/Space only; requires a concrete finished start to archive. NOTE: legacy/dead — the
- * live Reopen path just opens a fresh `via:"play"` session (see occurrenceAction "reopen").
- */
-export function reopenOccurrence(id: string): boolean {
-  const stored = byId.get(id)
-  if (!stored || !isOccurrenceKind(stored)) return false
-  const sched: Schedule = { ...(stored.schedule ?? {}) }
-  if (!isPlannedStart(sched.startDate)) return false
-  const startAt = sched.startDate
-  const endAt = sched.endDate
-  const entity = mutable(stored)
-  // Preserve the just-finished length as the default duration for the next Play (if not already set).
-  if (sched.duration == null && endAt != null) sched.duration = Math.round((endAt - startAt) / 60000)
-  sched.occurrences = [...(sched.occurrences ?? []), { start: startAt, end: endAt }]
-  delete sched.startDate // playable again = idle (no start); playability is kind-based now
-  delete sched.endDate
-  entity.schedule = sched
-  delete entity.closeAt // reopened → no longer completed/closed
-  logSet(entity, "startDate", null)
-  if (!userEntityIds.has(id)) {
-    seededOverrides.set(id, { ...seededOverrides.get(id), schedule: sched, closeAt: undefined })
-  }
-  persist()
-  return true
-}
-
-/**
  * RESYNC THE PRIMARY (v0.2.232) — the ONE invariant enforcer behind the scalar-collapse. The model
  * everything relies on: the SCALAR `startDate`/`endDate` = the CURRENT (soonest non-cancelled)
  * occurrence, and `occurrences[]` = every OTHER occurrence (future, past, or cancelled). This keeps

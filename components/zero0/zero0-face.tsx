@@ -17,7 +17,6 @@ import {
   aggregateEcho,
   aggregateMetaRows,
   makeRendersDistinctly,
-  getOccurrenceCount,
   isOccurrenceKind,
   type FaceModel,
   type FaceLike,
@@ -227,22 +226,22 @@ function FaceBlock({
     () => (rowsOverride ? null : getOngoingDurationCells(entity, now)),
     [entity, now, rowsOverride],
   )
-  // MULTI-SLOT (v0.2.229): 2+ planned occurrences ⇒ §0 swaps the flat PLANNED START / PLANNED END
-  // rows for the richer OCCURRENCES block (per-occurrence lines + "+ add slot"). A single slot keeps
-  // the flat rows verbatim (zero regression). Full size only, and never for an aggregate override.
-  const multiSlot = useMemo(
-    () => size === "full" && !rowsOverride && getOccurrenceCount(entity) >= 2,
-    [entity, now, size, rowsOverride],
+  // OCCURRENCES BLOCK (v0.2.229; ALWAYS-ON v0.2.232): for an occurrence kind (moment/space) at full
+  // size, §0 ALWAYS shows the OCCURRENCES block — the single way these kinds present their schedule
+  // (per-occurrence lines + "+ add slot"), even with zero slots (header + add control only). This
+  // replaced the old 0/1-flat-rows ⇄ 2+-block swap, so there's one render path. Never for an
+  // aggregate override (rowsOverride).
+  const showOccBlock = useMemo(
+    () => size === "full" && !rowsOverride && isOccurrenceKind(entity),
+    [entity, size, rowsOverride],
   )
-  // Can this entity accept a "+ add slot"? (moment/space only — the addOccurrence writer's gate).
-  const canAddOccurrence = useMemo(() => isOccurrenceKind(entity), [entity])
-  // When the OCCURRENCES block is shown, strip the rows it supersedes so they don't ALSO render in the
-  // dl (and so no two rows can share a key): the flat PLANNED START / PLANNED END pair and the legacy
+  // When the block is shown, strip the rows it supersedes so they don't ALSO render in the dl (and so
+  // no two rows can share a key): the flat PLANNED START / PLANNED END pair and the legacy
   // "occurrences" count+list summary. Otherwise the dl shows every row as before.
   const OCC_SUPERSEDED = useMemo(() => new Set(["planned start", "planned end", "occurrences"]), [])
   const displayRows = useMemo(
-    () => (multiSlot ? rows.filter(([k]) => !OCC_SUPERSEDED.has(k)) : rows),
-    [rows, multiSlot, OCC_SUPERSEDED],
+    () => (showOccBlock ? rows.filter(([k]) => !OCC_SUPERSEDED.has(k)) : rows),
+    [rows, showOccBlock, OCC_SUPERSEDED],
   )
   const startScrollRef = useRef<HTMLDivElement>(null)
   const endScrollRef = useRef<HTMLDivElement>(null)
@@ -370,10 +369,11 @@ function FaceBlock({
         <span className="text-[10px] uppercase tracking-wider text-muted-foreground">{model.kindLabel}</span>
         {trailing}
       </div>
-      {/* MULTI-SLOT: render the OCCURRENCES block ONCE, above the dl, and REMOVE the rows it supersedes
-          (flat planned start/end + the legacy "occurrences" summary) from the list before mapping — so
-          row keys stay unique regardless of which schedule keys this entity happens to emit. */}
-      {multiSlot && <Zero0Occurrences entity={entity} now={now} onAction={onScheduleAction} />}
+      {/* OCCURRENCES block (always-on for occurrence kinds): rendered ONCE above the dl, with the rows
+          it supersedes (flat planned start/end + the legacy "occurrences" summary) stripped from the
+          list before mapping — so row keys stay unique regardless of which schedule keys this entity
+          emits. Handles the empty case itself (header + "+ add slot"), so no separate bootstrap. */}
+      {showOccBlock && <Zero0Occurrences entity={entity} now={now} onAction={onScheduleAction} />}
       {/* Raw meta key/values (filtered by rung). */}
       {displayRows.length > 0 && (
         <dl className="mt-2 grid grid-cols-[7.5rem_1fr] gap-x-4 gap-y-0.5 text-[10px] tabular-nums">
@@ -414,15 +414,6 @@ function FaceBlock({
             )
           })}
         </dl>
-      )}
-      {/* BOOTSTRAP "+ add slot": when the block ISN'T shown (0–1 occurrences) but the entity CAN hold
-          occurrences and a schedule action is wired, offer a lean add control beneath the flat rows so
-          the user can grow 0→1→2. At 2+, multiSlot renders the full block above and this is skipped. */}
-      {size === "full" && !rowsOverride && canAddOccurrence && !multiSlot && onScheduleAction && (
-        <div className="mt-1.5 grid grid-cols-[7.5rem_1fr] gap-x-4 text-[10px]">
-          <span aria-hidden />
-          <Zero0Occurrences entity={entity} now={now} onAction={onScheduleAction} addOnly />
-        </div>
       )}
       {/* RAW FIELDS (temp) — the exhaustive stored shape, faint, under the curated §0 rows. */}
       {rawFields && rawFields.length > 0 && (

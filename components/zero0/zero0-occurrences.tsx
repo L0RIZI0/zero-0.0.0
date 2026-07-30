@@ -5,35 +5,36 @@ import type { Entity } from "@/lib/zero/types"
 import { getOccurrenceRows } from "@/lib/zero/face-model"
 import { parseSlotToken } from "@/lib/zero/create-parse"
 
-// The §0 OCCURRENCES block (v0.2.229) — the per-occurrence view that REPLACES the flat PLANNED
-// START / PLANNED END rows once an entity has 2+ planned occurrences (single-slot keeps the flat
-// rows, zero regression — Option A). Each line is one occurrence: WHEN · derived STATUS word, with
-// cancelled slots struck through. A trailing "+ add slot" reveals an inline token field (reusing
-// parseSlotToken — the same local grammar as the create field: `1400-1530`, `2330`, `260709`,
-// `in 2h`). DORMANT-by-design: only the STATUS word shows, never the planned-vs-actual delta numbers.
+// The §0 OCCURRENCES block (v0.2.229; ALWAYS-ON + primary-cancellable v0.2.232) — the SINGLE way an
+// occurrence kind (moment/space) shows its schedule in §0. It is displayed at ALL times for those
+// kinds (even with zero slots — just the header + "+ add slot"), which removed the old flat PLANNED
+// START/END rows and the 0/1-vs-2+ swap entirely: one render path, always. Each line is one
+// occurrence: DAY · TIME · derived STATUS word, cancelled slots struck through, the current one
+// tagged PRIMARY. EVERY line (primary included) is cancellable now that the scalar is just the
+// mirror of the soonest live occurrence (see resyncPrimary/cancelPrimaryOccurrence in data.ts). A
+// trailing "+ add slot" reveals an inline token field (reusing parseSlotToken — the same local
+// grammar as the create field: `1400-1530`, `2330`, `260709`, `in 2h`). DORMANT-by-design: only the
+// STATUS word shows, never the planned-vs-actual delta numbers.
 
 const PLACEHOLDER = "e.g. 1400-1530, 2330, 260709, in 2h"
 
-/** A user action on the block, dispatched up to the canvas (which owns the writers + re-render). */
+/** A user action on the block, dispatched up to the canvas (which owns the writers + re-render). A
+    cancel carries whether the target is the PRIMARY (scalar) span and, if not, its occurrences[]
+    index — the unambiguous writer address, so the canvas never has to guess from list position. */
 export type OccurrenceAction =
   | { type: "add"; start: number; end?: number }
-  | { type: "cancel"; index: number; cancelled: boolean }
+  | { type: "cancel"; primary: boolean; occIndex: number; cancelled: boolean }
 
 export function Zero0Occurrences({
   entity,
   now,
   onAction,
-  addOnly = false,
 }: {
   entity: Entity
   /** Epoch (ms) driving the derived status words. */
   now: number
   /** Dispatch an add / cancel. Absent ⇒ read-only (no + add slot, no cancel controls). */
   onAction?: (e: Entity, action: OccurrenceAction) => void
-  /** ADD-ONLY bootstrap (v0.2.229): render JUST the "+ add slot" control, no per-occurrence list.
-      Used beneath the flat PLANNED rows for a 0-/1-slot occurrence-kind, so the user can GROW from
-      1→2 (at which point §0 swaps to the full list block). No label, no rows — just the affordance. */
-  addOnly?: boolean
 }) {
   const rows = getOccurrenceRows(entity, now)
   const [adding, setAdding] = useState(false)
@@ -53,46 +54,49 @@ export function Zero0Occurrences({
   }, [draft, now, onAction, entity])
 
   return (
-    <div className={addOnly ? "col-span-2" : "col-span-2 mt-3"}>
-      {!addOnly && (
-        <>
+    <div className="col-span-2 mt-3">
       <div className="mb-1 text-[10px] uppercase tracking-widest text-muted-foreground">occurrences</div>
-      <ul className="flex flex-col gap-0.5">
-        {rows.map((r) => (
-          <li key={r.index} className="flex items-center gap-2 text-[10px] tabular-nums">
-            <span aria-hidden className="text-muted-foreground opacity-50">
-              ·
-            </span>
-            {/* DAY column is fixed-width so every occurrence's TIME lines up, whatever the day label. */}
-            <span className={"flex items-baseline gap-2 " + (r.cancelled ? "line-through opacity-60" : "")}>
-              <span className="w-20 shrink-0 text-muted-foreground">{r.day}</span>
-              <span className="text-foreground">{r.time}</span>
-            </span>
-            <span className="text-muted-foreground">{r.statusWord}</span>
-            {r.primary && (
-              <span className="text-[9px] uppercase tracking-wider text-muted-foreground opacity-50">primary</span>
-            )}
-            {/* Cancel / restore — offered only for NON-primary occurrences this cut (the primary is the
-                scalar mirror, which has no per-occurrence cancelled flag; cancelling it is deferred).
-                Kept always-visible-but-faint rather than a group-hover reveal, which silently no-ops in
-                the Electron/webview build where `(hover:hover)` is false. */}
-            {onAction && r.index >= 1 && (
-              <button
-                type="button"
-                onClick={() => onAction(entity, { type: "cancel", index: r.index, cancelled: !r.cancelled })}
-                className="ml-auto text-[9px] uppercase tracking-wider text-muted-foreground opacity-60 hover:text-foreground hover:opacity-100"
-                title={r.cancelled ? "Restore this occurrence" : "Cancel this occurrence"}
-              >
-                {r.cancelled ? "restore" : "cancel"}
-              </button>
-            )}
-          </li>
-        ))}
-      </ul>
-        </>
+      {/* The list is empty when there are no slots yet — the header + "+ add slot" still render, so the
+          block is present at all times (v0.2.232) rather than swapping in only at 2+ occurrences. */}
+      {rows.length > 0 && (
+        <ul className="flex flex-col gap-0.5">
+          {rows.map((r) => (
+            <li key={r.index} className="flex items-center gap-2 text-[10px] tabular-nums">
+              <span aria-hidden className="text-muted-foreground opacity-50">
+                ·
+              </span>
+              {/* DAY column is fixed-width so every occurrence's TIME lines up, whatever the day label. */}
+              <span className={"flex items-baseline gap-2 " + (r.cancelled ? "line-through opacity-60" : "")}>
+                <span className="w-20 shrink-0 text-muted-foreground">{r.day}</span>
+                <span className="text-foreground">{r.time}</span>
+              </span>
+              <span className="text-muted-foreground">{r.statusWord}</span>
+              {r.primary && (
+                <span className="text-[9px] uppercase tracking-wider text-muted-foreground opacity-50">primary</span>
+              )}
+              {/* Cancel / restore — offered for EVERY occurrence now (v0.2.232), the PRIMARY included:
+                  the scalar is just the mirror of the soonest live occurrence, so the canvas routes an
+                  index-0 cancel to cancelPrimaryOccurrence (which promotes the next slot). Kept
+                  always-visible-but-faint, not a group-hover reveal, which silently no-ops in the
+                  Electron/webview build where `(hover:hover)` is false. */}
+              {onAction && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    onAction(entity, { type: "cancel", primary: r.primary, occIndex: r.occIndex, cancelled: !r.cancelled })
+                  }
+                  className="ml-auto text-[9px] uppercase tracking-wider text-muted-foreground opacity-60 hover:text-foreground hover:opacity-100"
+                  title={r.cancelled ? "Restore this occurrence" : "Cancel this occurrence"}
+                >
+                  {r.cancelled ? "restore" : "cancel"}
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
       )}
       {onAction && (
-        <div className={addOnly ? "" : "mt-1"}>
+        <div className="mt-1">
           {adding ? (
             <input
               autoFocus

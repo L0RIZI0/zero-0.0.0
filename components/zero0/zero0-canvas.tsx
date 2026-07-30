@@ -50,6 +50,7 @@ import {
   endOngoing,
   addOccurrence,
   setOccurrenceCancelled,
+  cancelPrimaryOccurrence,
   reorderContextItems,
   moveEntityToContext,
 } from "@/lib/zero/data"
@@ -1611,19 +1612,20 @@ export function Zero0Canvas() {
     [bump, togglePlaySession],
   )
 
-  // §0 OCCURRENCES BLOCK actions (v0.2.229) — the "+ add slot" writer + per-occurrence cancel. A typed
-  // callback (not a menu-action string) since the payload carries parsed epochs / a unified index.
-  // "add" → addOccurrence (first slot fills the scalar primary, rest append to occurrences[]); "cancel"
-  // → setOccurrenceCancelled, mapping the UNIFIED index (0 = primary/scalar) to the occurrences[] index
-  // (unified − 1); a cancel on the primary (index 0) has no occurrences[] slot, so it's a no-op for now
-  // (primary-cancel is deferred with scalar-collapse). Both re-render via bump().
+  // §0 OCCURRENCES BLOCK actions (v0.2.229; primary now cancellable v0.2.232) — the "+ add slot" writer
+  // + per-occurrence cancel. A typed callback (not a menu-action string) since the payload carries
+  // parsed epochs / an explicit target. "add" → addOccurrence. "cancel" dispatches on the row's own
+  // `primary` flag (never a positional guess, which breaks once the scalar is empty and index 0 is a
+  // real occurrences[] entry): primary → cancelPrimaryOccurrence (records the primary as a struck slot
+  // + promotes the next soonest live span into the scalar); otherwise setOccurrenceCancelled at the
+  // row's occurrences[] index, which also handles RESTORE (cancelled=false). Both re-render via bump().
   const runScheduleAction = useCallback(
     (e: Entity, action: OccurrenceAction) => {
       if (action.type === "add") {
         addOccurrence(e.id, action.start, action.end)
       } else if (action.type === "cancel") {
-        // Unified index → occurrences[] index (0 = primary/scalar, which has no cancelled flag yet).
-        if (action.index >= 1) setOccurrenceCancelled(e.id, action.index - 1, action.cancelled)
+        if (action.primary) cancelPrimaryOccurrence(e.id)
+        else setOccurrenceCancelled(e.id, action.occIndex, action.cancelled)
       }
       bump()
     },
@@ -1927,7 +1929,7 @@ export function Zero0Canvas() {
           The §4 frame: a horizontal row of colored chips for every ONGOING entity (glyph
           + title). Click a chip to drill in; click its spinning glyph to END it. Like every
           other § frame it is a STRICT show/hide TOGGLE (the `frequent` flag, via §4 chord /
-          footer / frame marker) — v0.2.228 dropped the old auto-show-when-ongoing so §4 can
+          footer / frame marker) — v0.2.228 dropped the old auto-show-when-ongoing so ��4 can
           both hide AND display it. Ongoing chips populate it live while it's open. (Named
           "PINS" because you can pin a chip so it lingers here after it stops being ongoing.) */}
       {mounted && (
