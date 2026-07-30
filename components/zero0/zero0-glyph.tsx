@@ -130,7 +130,20 @@ const SPACE_MORPH_SQUARE_RADII = SQUARE_RADII.map((r) => r * SPACE_MORPH_SQUARE_
 /** Draw the kind's outline shape. Fill/stroke are set by the caller via props.
  *  `"link"` is a FORTHCOMING (id-5) placeholder kind — not yet in the real `EntityKind` union —
  *  so the param is widened to allow it without polluting the ontology type everywhere. */
-function KindShape({ kind, requested }: { kind: EntityKind | "link"; requested?: boolean }) {
+function KindShape({
+  kind,
+  requested,
+  scheduled,
+}: {
+  kind: EntityKind | "link"
+  requested?: boolean
+  scheduled?: boolean
+}) {
+  // OVERSIZE DAMPING when THICK — the space/community/resource polygons bake in a ~15% optical
+  // oversize (circumradius ~10.38). A scheduled (thick) stroke is centred on the path, so its outer
+  // half-stroke pushes the shape even bigger; to compensate we shrink those three to a ~10% oversize
+  // while thick. Scale = 1.10/1.15 ≈ 0.9565 about the box centre (12,12) → translate 12·(1−s).
+  const DAMP = scheduled ? "translate(0.5217 0.5217) scale(0.9565)" : undefined
   switch (kind) {
     case "link":
       // ⟨forthcoming · id 5⟩ THE LINK — a relation reified: two endpoint NODES on either side joined
@@ -166,16 +179,17 @@ function KindShape({ kind, requested }: { kind: EntityKind | "link"; requested?:
       )
     case "space":
       // The HEXAGON carries a ~15% optical oversize (see its definition) so it reads as big as the
-      // Task square — ALWAYS, whether open or scheduled (Loris prefers the bolder oversized look).
-      return <polygon points={HEXAGON} />
+      // Task square; DAMP shrinks it to ~10% while thick (see above) so the heavier stroke doesn't
+      // balloon it.
+      return <polygon points={HEXAGON} transform={DAMP} />
     case "resource":
-      return <polygon points={DIAMOND} />
+      return <polygon points={DIAMOND} transform={DAMP} />
     case "moment":
       return <polygon points={TRIANGLE_UP} />
     case "instant":
       return <polygon points={TRIANGLE_DOWN} />
     case "community":
-      return <polygon points={PENTAGON} />
+      return <polygon points={PENTAGON} transform={DAMP} />
     case "organism":
       // r bumped 9 → 9.8: a circle reads optically SMALLER than the hexagon/square at equal radius,
       // so it's grown to sit at the same visual mass as the hexagon-Space beside it (id 6/7 harmony).
@@ -481,13 +495,13 @@ export function Zero0Glyph({
         // very first paint matches before the effect's first frame runs.
         <polygon ref={polyRef} points={buildPoints(RADII[kind as EntityKind] as number[])} />
       ) : (
-        <KindShape kind={kind} requested={requested && kind === "task"} />
+        <KindShape kind={kind} requested={requested && kind === "task"} scheduled={scheduled} />
       )}
       {/* FILL-FLASH overlay — a filled copy of the shape, hidden (opacity 0) until a mark spin
           ramps it to full at the spin midpoint then back to 0. Explicit fill/stroke so it
           flashes even when the base glyph is an outline. */}
       <g ref={flashRef} fill="currentColor" stroke="none" style={{ opacity: 0 }} aria-hidden="true">
-        <KindShape kind={kind} requested={requested && kind === "task"} />
+        <KindShape kind={kind} requested={requested && kind === "task"} scheduled={scheduled} />
       </g>
       {done && (
         <path
