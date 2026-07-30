@@ -53,7 +53,7 @@ export function Zero0Occurrences({
   }, [draft, now, onAction, entity])
 
   return (
-    <div className={addOnly ? "col-span-2" : "col-span-2 mt-0.5"}>
+    <div className={addOnly ? "col-span-2" : "col-span-2 mt-3"}>
       {!addOnly && (
         <>
       <div className="mb-1 text-[10px] uppercase tracking-widest text-muted-foreground">occurrences</div>

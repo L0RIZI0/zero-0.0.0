@@ -53,7 +53,7 @@ import {
   reorderContextItems,
   moveEntityToContext,
 } from "@/lib/zero/data"
-  import { KIND_META, getState, isClosed, hasOpenSession, getOpenSession, isMarkable, isPlayable, getInstantMaxNb, canAutoPlay } from "@/lib/zero/kinds"
+  import { KIND_META, getState, isClosed, hasOpenSession, getOpenSession, getSessions, isMarkable, isPlayable, getInstantMaxNb, canAutoPlay } from "@/lib/zero/kinds"
   import { isDone, describeLogEntry } from "@/lib/zero/entity-log"
 import {
   parseEntry,
@@ -684,6 +684,24 @@ export function Zero0Canvas() {
   )
 
   const context = mounted ? getEntity(contextId) : undefined
+  // [v0] TEMP ACCESS-ROW PROBE (v0.2.230) — dumps the viewed entity's focus (presence) session state +
+  // recent log verbs whenever the context or a mutation (`rev`) changes, so we can see EXACTLY when the
+  // focus session that gates the ACCESS row opens / closes / gets sub-threshold-discarded. Remove once
+  // the "ACCESS not always displayed" cause is confirmed.
+  useEffect(() => {
+    if (!mounted || !context) return
+    const focus = getSessions(context).filter((s) => s.via === "focus")
+    const openFocus = focus.find((s) => s.endedAt == null)
+    console.log("[v0] ACCESS-probe", {
+      id: context.id,
+      kind: context.kind,
+      focusCount: focus.length,
+      hasOpenFocus: !!openFocus,
+      accessRowWillShow: focus.length > 0,
+      focusSpansMs: focus.map((s) => Math.round(((s.endedAt ?? Date.now()) - s.startedAt))),
+      logTail: (context.log ?? []).slice(-8).map((l) => l.type),
+    })
+  }, [mounted, context, rev])
   // SHOW HIDDEN — a per-context VIEW toggle (right-click ▸ Show hidden). When off, hidden
   // children (manual `hidden` flag OR auto-hidden-because-closed-before-today) collapse out
   // of ENTITY CONTENT; when on, they're revealed with a "(hidden)" title prefix. Session-
