@@ -262,6 +262,48 @@ export function getPlannedDurationMs(e: Entity): number | null {
   return null
 }
 
+// PLANNED-vs-ACTUAL DELTA (v0.2.229) — a DORMANT capability: pure derivation, NOT rendered anywhere
+// yet (no §0 row calls it). It exists so a future retrospective view ("planned 14:00, started +15m,
+// ended +1h") is a display decision, not a data one. Principle-preserving: the PLAN is the stored
+// `schedule.startDate`/`endDate`; the ACTUAL is DERIVED from the session ledger — never a new stored
+// field. `actualStart` = earliest session punch-in; `actualEnd` = latest CLOSED session punch-out
+// (null while any session is still open ⇒ no final actual end yet). Deltas are `actual − planned`
+// (positive = LATE, negative = early), null when either side is missing. `via` optionally scopes
+// which sessions count (e.g. only `play` for the ongoing clock); unfiltered = any recorded activity.
+export interface ScheduleDelta {
+  plannedStart: number | null
+  plannedEnd: number | null
+  actualStart: number | null
+  actualEnd: number | null
+  /** actualStart − plannedStart, ms (>0 = started late). null if either missing. */
+  startDeltaMs: number | null
+  /** actualEnd − plannedEnd, ms (>0 = ended late). null if either missing. */
+  endDeltaMs: number | null
+}
+export function getScheduleDelta(e: Entity, via?: "focus" | "play" | "mark"): ScheduleDelta {
+  const pStart = plannedStart(e)
+  const pEnd = e.schedule?.endDate ?? null
+  const sessions = getSessions(e).filter((s) => via == null || s.via === via)
+  let actualStart: number | null = null
+  let actualEnd: number | null = null
+  let hasOpen = false
+  for (const s of sessions) {
+    if (actualStart == null || s.startedAt < actualStart) actualStart = s.startedAt
+    if (s.endedAt == null) hasOpen = true
+    else if (actualEnd == null || s.endedAt > actualEnd) actualEnd = s.endedAt
+  }
+  // A still-open session means the thing hasn't finished ⇒ no final actual end to compare against.
+  if (hasOpen) actualEnd = null
+  return {
+    plannedStart: pStart,
+    plannedEnd: pEnd,
+    actualStart,
+    actualEnd,
+    startDeltaMs: pStart != null && actualStart != null ? actualStart - pStart : null,
+    endDeltaMs: pEnd != null && actualEnd != null ? actualEnd - pEnd : null,
+  }
+}
+
 // Accumulated SESSION time of an entity, in ms — Σ each session span with the single OPEN one
 // counting LIVE to `now`. `null` when there are no matching sessions. Optionally filtered by
 // `via` so the two clocks stay separate (v0.6.26): ACCESS = `focus` (presence / "being there",
@@ -565,7 +607,7 @@ export function getFaceModel(e: Entity, now: number): FaceModel {
   }
 }
 
-// ── FACES OF NON-ENTITIES (projections) ─────────────────────────────���───────���─
+// ── FACES OF NON-ENTITIES (projections) ─────────────────────────────����───────���─
 // Not everything a Face shows is a live Entity. A STARTERS group aggregates many
 // instances under one title; an ACTIVITY rollup/segment is PRESENCE (time in a place),
 // and may even point at a since-deleted entity. These are PROJECTIONS — they have no
