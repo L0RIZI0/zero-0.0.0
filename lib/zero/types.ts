@@ -253,10 +253,6 @@ export interface Recurrence {
  *     independent of any single start/end.
  */
 /**
- * The special `startDate` value **"whenever"** — a first-class sentinel meaning
- * "a real, trackable thing that has NO fixed clock time." It is deliberately
- * distinct from BOTH `undefined` (genuinely unscheduled) AND a concrete epoch
-/**
  * One tracked work SESSION: a punch-in (`startedAt`) and, once closed, a punch-out
  * (`endedAt`). The LAST session missing `endedAt` is the single OPEN/ongoing session.
  * These are RECORDED facts (past tense) — distinct from the entity's PLANNED dates

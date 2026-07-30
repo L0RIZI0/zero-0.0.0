@@ -3,7 +3,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import type React from "react"
 import { getInheritedAccent, getStarterPinnedEntities, getOwnOngoingEntities, getRecentlyMarkedInstants, getRecentlyEndedEntities } from "@/lib/zero/data"
- import { isOwnOngoing, getOpenSession, concreteStart, effectiveEndAt } from "@/lib/zero/kinds"
+ import { isOwnOngoing, getOpenSession, plannedStart, effectiveEndAt } from "@/lib/zero/kinds"
 import { getFaceModel } from "@/lib/zero/face-model"
 import { webLabel } from "@/lib/zero/web-resources"
 import type { Entity } from "@/lib/zero/types"
@@ -66,7 +66,7 @@ function ongoingTimer(e: Entity, now: number): { text: string; countdown: boolea
   // v0.6.32: the ONGOING timer tracks the PLAY (ongoing) session — not a `focus` presence session,
   // which can now be open concurrently (e.g. on a done task you're viewing) without meaning ongoing.
   const open = getOpenSession(e, "play")
-  const since = open?.startedAt ?? concreteStart(e)
+  const since = open?.startedAt ?? plannedStart(e)
   if (since != null && now > since) {
     return { text: formatTimer(now - since), countdown: false }
   }

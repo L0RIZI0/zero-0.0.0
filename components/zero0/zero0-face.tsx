@@ -280,7 +280,13 @@ function FaceBlock({
         {/* Uniformly dimmed — the total label, the total value, and every segment all read at
             the same muted opacity-70 (no part of the row is brighter than the rest). */}
         <span className="text-muted-foreground opacity-70" title={totalLabel.toLowerCase()}>
-          {totalLabel + " "}
+          {/* Fixed-width label box so the total + session stream START at the SAME x on both the
+              RECORDED SESSIONS and ACCESS rows — otherwise the longer "Total access time" pushes its
+              stream right of "Total duration" above it (tilt). 18ch fits the longest label + 1ch gap;
+              exact in the §0 mono font. */}
+          <span className="inline-block" style={{ width: "18ch" }}>
+            {totalLabel}
+          </span>
           {cells.total}
         </span>
         {cells.segments.map((c, i) => (

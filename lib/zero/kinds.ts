@@ -484,21 +484,24 @@ export interface EntityState {
   age?: string
 }
 
-// ── startAt guard ─────────────────────────────────────────────────────────────
-// A `startAt` is either a concrete epoch or absent (undefined). There is NO sentinel:
-// "playable" is no longer a value ON startAt — it's derived from KIND + idle state (see
-// isPlayable), because play/stop now lives entirely in the LOG as `via:"play"` sessions.
-// `isConcreteStart` is the type guard that narrows to `number` for the compiler.
+// ── planned-start guard ────────────────────────────────────────────────────────
+// An entity's PLANNED start (`schedule.startDate`) is either a concrete epoch or absent
+// (undefined). Post-"whenever" there is NO sentinel — "playable" is derived from KIND + idle state
+// (see isPlayable), because play/stop lives entirely in the LOG as `via:"play"` sessions. So
+// `plannedStart` is simply "startDate if it's a number, else null", and `isPlannedStart` is the type
+// guard that narrows to `number`.
+// (Renamed from the old concreteStart/isConcreteStart v0.2.229: the "concrete = definite-not-
+// whenever" distinction died with the whenever sentinel — this is just the planned start.)
 
-/** True (and narrows to `number`) when a startAt value is a concrete epoch. */
-export function isConcreteStart(v: number | undefined): v is number {
+/** True (and narrows to `number`) when a planned-start value is a concrete epoch. */
+export function isPlannedStart(v: number | undefined): v is number {
   return typeof v === "number"
 }
 
-/** An entity's concrete startAt epoch, or null if unset. */
-export function concreteStart(entity: Entity): number | null {
+/** An entity's PLANNED start epoch (`schedule.startDate`), or null if unset. */
+export function plannedStart(entity: Entity): number | null {
   const v = entity.schedule?.startDate
-  return isConcreteStart(v) ? v : null
+  return isPlannedStart(v) ? v : null
 }
 
 /**
@@ -733,7 +736,7 @@ export function isOwnOngoing(entity: Entity, now: number = Date.now()): boolean 
   // State-relevant open session (a focus/viewing session on a moment/instant does NOT count).
   if (ongoingOpenSession(entity) != null) return true
   if (entity.kind === "moment" || entity.kind === "space") {
-    const start = concreteStart(entity)
+    const start = plannedStart(entity)
     if (start != null && now >= start) {
       const end = effectiveScheduleEnd(entity.schedule)
       if (end == null || now < end) return true
@@ -976,7 +979,7 @@ function getStateInner(entity: Entity, now: number, seen: Set<string>): EntitySt
   if (entity.kind === "individual") {
     const born = individualBornAt(entity)
     if (born != null && now >= born) return { word: "alive", at: born }
-    const start = concreteStart(entity)
+    const start = plannedStart(entity)
     const expectedAt =
       born != null && now < born ? born : start != null && now < start ? start : null
     if (expectedAt != null) return { word: "scheduled", at: expectedAt }
@@ -1000,7 +1003,7 @@ function getStateInner(entity: Entity, now: number, seen: Set<string>): EntitySt
   // the only non-plannable kind — stays `open`. (Instants + Individuals returned from their own
   // arms above.) Once `now` passes the start it falls through to `open`.
   if (meta.plannable) {
-    const start = concreteStart(entity)
+    const start = plannedStart(entity)
     if (start != null && now < start) return { word: "scheduled", at: start }
   }
 
@@ -1079,7 +1082,7 @@ function ongoingSince(entity: Entity, now: number, seen: Set<string>): number | 
   if (open) return open.startedAt
   // (2) moment/space concrete started span still in progress (start+duration implies an end)
   if (entity.kind === "moment" || entity.kind === "space") {
-    const start = concreteStart(entity)
+    const start = plannedStart(entity)
     if (start != null && now >= start) {
       const end = effectiveScheduleEnd(entity.schedule)
       if (end == null || now < end) return start

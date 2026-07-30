@@ -18,7 +18,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type { Entity, EntityKind } from "./types"
-  import { KIND_META, isClosed, fillsGlyph, getState, isOngoing, getOngoingSince, concreteStart, effectiveScheduleEnd, ongoingOpenSession, occurrenceAction, isBeing, isLifeBeing, individualBornAt, getPublishedAt, lifeAnchor, isMarkable, getMarks, getSessions, getInstantMaxNb, isInstantMaxNbHard, getInstantOccurrenceCount, type EntityState } from "./kinds"
+  import { KIND_META, isClosed, fillsGlyph, getState, isOngoing, getOngoingSince, plannedStart, effectiveScheduleEnd, ongoingOpenSession, occurrenceAction, isBeing, isLifeBeing, individualBornAt, getPublishedAt, lifeAnchor, isMarkable, getMarks, getSessions, getInstantMaxNb, isInstantMaxNbHard, getInstantOccurrenceCount, type EntityState } from "./kinds"
 import { isDone, getCreatedAt, getDoneOn } from "./entity-log"
 import { getEntity, getCreator, getOwner, getForwardTags, getBackReferences, getChildren } from "./data"
 import { getResourceDef } from "./resources"
@@ -142,7 +142,7 @@ export function getAggregate(entity: Entity, now: number): FaceAggregate {
     // Sum only FINITE spans (a span with both ends, or a point/instant = 0), so an
     // open-ended running moment doesn't inflate the rollup with live-elapsed time.
     const s = k.schedule
-    const cs = concreteStart(k)
+    const cs = plannedStart(k)
     if (cs != null && s?.endDate != null) durationMs += Math.max(0, s.endDate - cs)
     // Most-recent anchor: the child's start / point, falling back to when it was created.
     // "whenever" isn't a time, so fall through to the point / creation stamp.
@@ -202,7 +202,7 @@ export function rangeLabel(e: Entity): string {
 //   • explicit --duration → that (a deliberately-set occurrence length, any kind)
 //   • instant             → 0 (a point has no length)
 //   • archived occurrences[] → Σ each finite past span (the happened-history)
-//   • current live span    → concreteStart→endAt, or (ongoing, no end) count up to `now`
+//   • current live span    → plannedStart→endAt, or (ongoing, no end) count up to `now`
 //   • BEING w/ no span     → its AGE: now − creationDate (an Individual/Organism's creationDate is a
 //                            genuine birth, so this reads "3d" / "34y")
 //   • otherwise            → null → "—" (a merely-open "whenever" moment/space that was never
@@ -221,7 +221,7 @@ export function getOccurrenceDurationMs(e: Entity, now: number): number | null {
       any = true
     }
   }
-  const cs = concreteStart(e) // null when "whenever" / unset
+  const cs = plannedStart(e) // null when "whenever" / unset
   if (cs != null) {
     any = true
     total += s?.endDate != null ? Math.max(0, s.endDate - cs) : Math.max(0, now - cs) // live when ongoing
@@ -257,7 +257,7 @@ export function getOccurrenceDurationMs(e: Entity, now: number): number | null {
 export function getPlannedDurationMs(e: Entity): number | null {
   const s = e.schedule
   if (s?.duration != null && s.duration > 0) return s.duration * 60000
-  const start = concreteStart(e) // planned start epoch, excluding "whenever"/unset
+  const start = plannedStart(e) // planned start epoch, excluding "whenever"/unset
   if (start != null && s?.endDate != null) return Math.max(0, s.endDate - start)
   return null
 }
@@ -416,7 +416,7 @@ export function metaEcho(e: Entity, now: number): string {
   // A start/end/at span shared by moments AND scheduled tasks. An unplanned (no startAt)
   // playable entity shows no span here — its live time, if any, comes from an open session.
   const span = (): string => {
-    const cs = concreteStart(e)
+    const cs = plannedStart(e)
     if (cs != null && s?.endDate != null)
       return `${fmtShort(cs, now)}–${fmtShort(s.endDate, now)} · ${formatDuration(Math.max(0, s.endDate - cs))}`
     if (cs != null) return `since ${fmtShort(cs, now)} · ${formatDuration(Math.max(0, now - cs))}`
@@ -565,7 +565,7 @@ export function getFaceModel(e: Entity, now: number): FaceModel {
   }
 }
 
-// ── FACES OF NON-ENTITIES (projections) ─────────────────────────────��───────���─
+// ── FACES OF NON-ENTITIES (projections) ─────────────────────────────���───────���─
 // Not everything a Face shows is a live Entity. A STARTERS group aggregates many
 // instances under one title; an ACTIVITY rollup/segment is PRESENCE (time in a place),
 // and may even point at a since-deleted entity. These are PROJECTIONS — they have no
@@ -642,7 +642,7 @@ export function getScheduleCells(e: Entity, now: number): { start: ScheduleCell[
   if (!SPAN_UI_KINDS.has(e.kind)) return null
   const NB = "\u00A0"
   const s = e.schedule
-  const cs = concreteStart(e) // concrete started moment, else null ("whenever"/unset)
+  const cs = plannedStart(e) // concrete started moment, else null ("whenever"/unset)
   const liveOngoing = cs != null && s?.endDate == null // started, not yet ended → END pulses "ongoing"
   const startText0 = s?.startDate ? fmt(s.startDate) : "— (none scheduled)"
   const endText0 = liveOngoing ? "ongoing" : s?.endDate ? fmt(s.endDate) : "— (none scheduled)"
@@ -722,7 +722,7 @@ function ongoingIntervals(e: Entity, now: number): Array<[number, number]> {
   // A moment/space that is concretely started-and-not-ended is ongoing FROM its occurrence, even
   // with no play session (mirrors getStateInner's concrete-start ⇒ ongoing rule).
   if (e.kind === "moment" || e.kind === "space") {
-    const cs = concreteStart(e)
+    const cs = plannedStart(e)
     if (cs != null) {
       const end = effectiveScheduleEnd(e.schedule)
       out.push([cs, end != null ? Math.min(end, now) : now])
@@ -768,7 +768,7 @@ export function getOngoingDurationCells(
   // The merged span that reaches `now` is the LIVE one (it was extended by an open play / in-progress
   // occurrence). Only that top span pulses + reads "ongoing".
   const liveHi = Math.max(...merged.map(([, hi]) => hi))
-  const isOngoing = ongoingOpenSession(e) != null || ((e.kind === "moment" || e.kind === "space") && concreteStart(e) != null)
+  const isOngoing = ongoingOpenSession(e) != null || ((e.kind === "moment" || e.kind === "space") && plannedStart(e) != null)
   const segments: ScheduleCell[] = [...merged]
     .sort((a, b) => b[0] - a[0]) // newest first
     .map(([lo, hi]) => {
@@ -838,7 +838,7 @@ export function occurrenceStatus(
 export function getPlannedOccurrences(e: Entity): PlannedOccurrence[] {
   const s = e.schedule
   const list: PlannedOccurrence[] = []
-  const cs = concreteStart(e) // concrete epoch, else null (unset)
+  const cs = plannedStart(e) // concrete epoch, else null (unset)
   if (cs != null || s?.endDate != null) {
     list.push({ startAt: cs ?? undefined, endAt: s?.endDate, primary: true })
   }

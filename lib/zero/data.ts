@@ -1,5 +1,5 @@
 import type { Asset, Entity, EntityKind, IndividualEntity, Instant, LogType, Recurrence, Schedule, Resource, EntityBase, Session, Sex, TaskPriority, TitleEntry, User } from "./types"
-  import { hasDoneFlag, isClosed, computeCloseAt, getState, isOngoing, fillsGlyph, hasOpenSession, getOpenSession, setChildrenResolver, setContainedResolver, isConcreteStart, concreteStart, isOwnOngoing, effectiveScheduleEnd, getMarks, isMarkable, getSessions, canDeleteEntity, ONGOING_ON_ENTER } from "./kinds"
+  import { hasDoneFlag, isClosed, computeCloseAt, getState, isOngoing, fillsGlyph, hasOpenSession, getOpenSession, setChildrenResolver, setContainedResolver, isPlannedStart, plannedStart, isOwnOngoing, effectiveScheduleEnd, getMarks, isMarkable, getSessions, canDeleteEntity, ONGOING_ON_ENTER } from "./kinds"
 import {
   isDone,
   isCancelled,
@@ -945,7 +945,7 @@ export interface FrequentInstance {
 }
 
 /** Kinds that count as repeatable "activities" for the FREQUENT band. Structural kinds
- *  (identity scaffold + containers) are excluded — you don't quick-create a Space "now". */
+ *  (identity scaffold + containers) are excluded �� you don't quick-create a Space "now". */
 const FREQUENT_KINDS: ReadonlySet<EntityKind> = new Set<EntityKind>(["task", "moment", "instant"])
 
 /**
@@ -1013,12 +1013,12 @@ export function getFrequentEntities(opts?: {
       // STATUS (ongoing) is now its own axis; a "complete" STATE still comes from getState.
       .map((m) => ({ m, on: isOngoing(m, now), word: getState(m, now).word }))
       .filter((x) => x.on || x.word === "complete")
-      .sort((a, c) => (concreteStart(a.m) ?? 0) - (concreteStart(c.m) ?? 0))
+      .sort((a, c) => (plannedStart(a.m) ?? 0) - (plannedStart(c.m) ?? 0))
       .map((x) => ({
         id: x.m.id,
         kind: x.m.kind,
         title: x.m.title,
-        startAt: concreteStart(x.m) ?? now,
+        startAt: plannedStart(x.m) ?? now,
         endAt: x.m.schedule?.endDate ?? null,
         state: (x.on ? "ongoing" : "complete") as "ongoing" | "complete",
         filled: fillsGlyph(x.m),
@@ -1241,7 +1241,7 @@ export function getTimelineOccurrences(
     // the `dueDate` all serve as the timeline anchor, so a task with just a due date still
     // places a marker.
     // "whenever" is not a fixed time, so it can't anchor a timeline occurrence.
-    const anchor = s.at ?? (isConcreteStart(s.startDate) ? s.startDate : undefined) ?? s.dueDate
+    const anchor = s.at ?? (isPlannedStart(s.startDate) ? s.startDate : undefined) ?? s.dueDate
     if (anchor == null) continue
 
     if (!s.repeat) {
@@ -1250,7 +1250,7 @@ export function getTimelineOccurrences(
       continue
     }
 
-    const duration = isConcreteStart(s.startDate) && s.endDate != null ? s.endDate - s.startDate : 0
+    const duration = isPlannedStart(s.startDate) && s.endDate != null ? s.endDate - s.startDate : 0
     const anchorDate = new Date(anchor)
     // Walk each local day in range; emit an occurrence on matching days. Using a
     // Date stepper (setDate) keeps midnights correct across DST boundaries.
@@ -1817,7 +1817,7 @@ export function startOccurrence(id: string, at = Date.now()): boolean {
 export function endOccurrence(id: string, at = Date.now()): boolean {
   const stored = byId.get(id)
   if (!stored || !isOccurrenceKind(stored)) return false
-  if (!isConcreteStart(stored.schedule?.startDate)) return false
+  if (!isPlannedStart(stored.schedule?.startDate)) return false
   return setEntityScheduleField(id, "endDate", at)
 }
 
@@ -1833,7 +1833,7 @@ export function reopenOccurrence(id: string): boolean {
   const stored = byId.get(id)
   if (!stored || !isOccurrenceKind(stored)) return false
   const sched: Schedule = { ...(stored.schedule ?? {}) }
-  if (!isConcreteStart(sched.startDate)) return false
+  if (!isPlannedStart(sched.startDate)) return false
   const startAt = sched.startDate
   const endAt = sched.endDate
   const entity = mutable(stored)
@@ -2692,7 +2692,7 @@ function resolveOccurrenceSchedule(s: Schedule | undefined, dayStart: number): S
   const occ = new Date(dayStart)
   occ.setHours(a.getHours(), a.getMinutes(), a.getSeconds(), 0)
   const occStart = occ.getTime()
-  const duration = isConcreteStart(s.startDate) && s.endDate != null ? s.endDate - s.startDate : 0
+  const duration = isPlannedStart(s.startDate) && s.endDate != null ? s.endDate - s.startDate : 0
   if (s.at != null) {
     // Instant (point): collapse start/end onto the same shifted instant so a materialized
     // occurrence never inherits the anchor day's stale startAt/endAt (which would misplace it).
@@ -3491,6 +3491,10 @@ export function setEntityClosePolicy(id: string, policy: "auto" | "manual" | nul
   export function setEntityBornAt(id: string, bornAt: number | null): boolean {
   const stored = byId.get(id)
   if (!stored || stored.kind !== "individual") return false
+  // A birth is a RECORDED PAST FACT — reject a future `bornAt` (v0.2.229). "Expected"/scheduled for a
+  // being must come from a FUTURE PLANNED START (`schedule.startDate`), never from a future birthday.
+  // Clearing (null) is always allowed.
+  if (bornAt != null && bornAt > Date.now()) return false
   const entity = mutable(stored)
   if (bornAt == null) delete (entity as IndividualEntity).bornAt
   else (entity as IndividualEntity).bornAt = bornAt
