@@ -268,17 +268,19 @@ function FaceBlock({
   // ACCESS row with a per-session breakdown: "[total] · <dur1> (<when1>) · <dur2> …". The total
   // is foreground; each segment is a faint token hoverable for its full start–end (the live
   // session pulses). Horizontally scrollable like the schedule rows.
-  // Shared renderer for the DURATION + ACCESS rows: "Total <total> · <seg1> (<when1>) · …". The
-  // total is now prefixed with a faint "Total" label (v0.2.150). `pulse` gates the live-session
-  // breathing per row — DURATION (the ongoing clock) still pulses; ACCESS does NOT (presence is a
-  // passive tally, no need to draw the eye to it).
-  const renderAccessRow = (cells: NonNullable<typeof access>, pulse = true) => (
+  // Shared renderer for the RECORDED SESSIONS + ACCESS rows: "<totalLabel> <total> · <seg1>
+  // (<when1>) · …". The total carries a faint prefix LABEL (v0.2.150) that now names WHAT the total
+  // measures per row (v0.2.229): "Total duration" for RECORDED SESSIONS, "Total access time" for
+  // ACCESS — so the row LABEL says what the list is (sessions) while the value says what its total
+  // means. `pulse` gates the live-session breathing per row — the ongoing clock still pulses; ACCESS
+  // does NOT (presence is a passive tally, no need to draw the eye to it).
+  const renderAccessRow = (cells: NonNullable<typeof access>, pulse = true, totalLabel = "Total") => (
     <dd className="min-w-0 text-muted-foreground">
       <div className="no-scrollbar overflow-x-auto whitespace-pre">
-        {/* Uniformly dimmed — the "Total" label, the total value, and every segment all read at
+        {/* Uniformly dimmed — the total label, the total value, and every segment all read at
             the same muted opacity-70 (no part of the row is brighter than the rest). */}
-        <span className="text-muted-foreground opacity-70" title="total duration">
-          {"Total "}
+        <span className="text-muted-foreground opacity-70" title={totalLabel.toLowerCase()}>
+          {totalLabel + " "}
           {cells.total}
         </span>
         {cells.segments.map((c, i) => (
@@ -348,9 +350,9 @@ function FaceBlock({
               {schedule && (k === "planned start" || k === "planned end") ? (
                 renderScheduleRow(k === "planned start" ? "start" : "end")
               ) : access && k === "access" ? (
-                renderAccessRow(access, false)
-              ) : duration && k === "recorded duration" ? (
-                renderAccessRow(duration)
+                renderAccessRow(access, false, "Total access time")
+              ) : duration && k === "recorded sessions" ? (
+                renderAccessRow(duration, true, "Total duration")
               ) : k === "state" && v.startsWith("ongoing") ? (
                 renderOngoingState(v)
               ) : (
