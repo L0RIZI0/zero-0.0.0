@@ -1137,6 +1137,17 @@ export function getTimedDescendants(contextId: string): Entity[] {
 export type TimelineOccurrence = Entity & {
   /** Unique per rendered occurrence (a recurring series produces several). */
   occKey: string
+  /** OCCURRENCE DISPATCH IDENTITY (v0.2.249) — present only for dayline occurrences from
+      `getDaylineOccurrences`, so a top-rail tick's right-click menu can act on THAT occurrence (the same
+      origin-discriminated address the §0 block uses). Absent for the legacy `getTimelineOccurrences`. */
+  occRef?: {
+    origin: "definite" | "rule"
+    occIndex: number
+    recurrenceId?: number
+    ruleId?: string
+    /** (end ?? start) >= now — gates Edit/Cancel (can't re-time/cancel history). */
+    cancellable: boolean
+  }
 }
 
 /** Local midnight (epoch ms) for the day containing `epoch`. */
@@ -1291,6 +1302,60 @@ export function getTimelineOccurrences(
         }
       }
       cursor.setDate(cursor.getDate() + 1)
+    }
+  }
+  return out
+}
+
+/**
+ * DAYLINE occurrences (v0.2.249) — the TOP-rail data source, sourced from the SAME `projectOccurrences`
+ * engine the §0 block uses (NOT the legacy `getTimelineOccurrences` walker). This is what finally makes
+ * additional `series[]` (.246), edited-instance times via `exceptions[].start/end` (.248), and the
+ * `repeatAnchor` decoupling (.247) show correctly on the dayline — the old walker was blind to all three.
+ *
+ * Walks the whole tree; for each timed entity projects its occurrences windowed to [lo, hi] (past-capable),
+ * skips cancelled ones (they're struck in §0; a ghost tick on the dayline would just be noise), and
+ * synthesizes a single-instance `TimelineOccurrence` per record so the existing dayline geometry
+ * (ongoing / closed / point / sleep-sky / fades) keeps working unchanged. Each carries `occRef` so a
+ * top-tick right-click can open the per-occurrence menu.
+ */
+export function getDaylineOccurrences(lo: number, hi: number, now: number = Date.now()): TimelineOccurrence[] {
+  const out: TimelineOccurrence[] = []
+  for (const e of getTimedDescendants(ROOT_ID)) {
+    const s = e.schedule
+    if (!s) continue
+    for (const rec of projectOccurrences({ id: e.id, schedule: s }, now, 10, { from: lo, until: hi })) {
+      if (rec.cancelled) continue
+      // Clip to the window (definite scalar/plannedOccurrences aren't window-bounded by the projector).
+      if (rec.start > hi || (rec.end ?? rec.start) < lo) continue
+      // Single-instance schedule: strip the recurrence machinery and pin this instance's own start/end so
+      // the memo reads a plain one-off. Preserve a point (`at`) instance as a point.
+      const instSchedule: Schedule = {
+        ...s,
+        repeat: undefined,
+        series: undefined,
+        plannedOccurrences: undefined,
+        exceptions: undefined,
+        startDate: rec.start,
+        endDate: rec.end,
+        at: s.at != null ? rec.start : undefined,
+      }
+      const occKey =
+        rec.origin === "rule"
+          ? `${e.id}@${rec.recurrenceId}${rec.ruleId ? `~${rec.ruleId}` : ""}`
+          : `${e.id}#occ${rec.occIndex}`
+      out.push({
+        ...e,
+        schedule: instSchedule,
+        occKey,
+        occRef: {
+          origin: rec.origin,
+          occIndex: rec.occIndex,
+          recurrenceId: rec.recurrenceId,
+          ruleId: rec.ruleId,
+          cancellable: (rec.end ?? rec.start) >= now,
+        },
+      })
     }
   }
   return out
@@ -2015,7 +2080,16 @@ function primaryRuleAnchor(s: Schedule): { start: number; end?: number } | undef
  * co-exist; on a same-day collision BOTH render (definite sorts first — no auto-supersede, by decision).
  * Records carry only `entityId` + occurrence data; the row reads the entity itself for title/color.
  */
-export function projectOccurrences(e: { id: string; schedule?: Schedule }, now: number, cap = 10): OccurrenceRecord[] {
+/** An optional projection WINDOW (v0.2.249). When present, rule projection walks [from, until] (may be in
+    the PAST) instead of the default "next `cap` upcoming from `now`". Used by the dayline. */
+export type ProjectWindow = { from?: number; until?: number }
+
+export function projectOccurrences(
+  e: { id: string; schedule?: Schedule },
+  now: number,
+  cap = 10,
+  opts?: ProjectWindow,
+): OccurrenceRecord[] {
   const s = e.schedule
   if (!s) return []
   const out: OccurrenceRecord[] = []
@@ -2042,7 +2116,7 @@ export function projectOccurrences(e: { id: string; schedule?: Schedule }, now: 
     const a = primaryRuleAnchor(s)
     if (a != null) {
       const duration = a.end != null ? a.end - a.start : 0
-      projectRuleInto(out, e.id, s.repeat!, a.start, duration, s.exceptions, undefined, now, cap)
+      projectRuleInto(out, e.id, s.repeat!, a.start, duration, s.exceptions, undefined, now, cap, opts)
     }
   }
 
@@ -2050,7 +2124,7 @@ export function projectOccurrences(e: { id: string; schedule?: Schedule }, now: 
   // tagged with the series' `id` so the block can route actions to the right series.
   for (const sr of s.series ?? []) {
     const duration = sr.anchorEnd != null ? sr.anchorEnd - sr.anchorStart : 0
-    projectRuleInto(out, e.id, sr.repeat, sr.anchorStart, duration, sr.exceptions, sr.id, now, cap)
+    projectRuleInto(out, e.id, sr.repeat, sr.anchorStart, duration, sr.exceptions, sr.id, now, cap, opts)
   }
 
   // Start-ordered; tie-break DEFINITE before RULE on a same-day collision (stable).
@@ -2076,14 +2150,24 @@ function projectRuleInto(
   ruleId: string | undefined,
   now: number,
   cap: number,
+  opts?: ProjectWindow,
 ): void {
+  // WINDOW MODE (v0.2.249) — the dayline needs occurrences within an arbitrary [from, until] range that
+  // may lie in the PAST, not just the next `cap` upcoming from today. When `opts.from`/`opts.until` are
+  // given we floor the cursor at `from` and terminate at `until` (cap ignored — the window bounds the
+  // walk). With NO opts the behaviour is IDENTICAL to before (floor at `now`, stop after `cap` matches) —
+  // so the ~53 §0/state callers are untouched.
+  const from = opts?.from ?? now
+  const until = opts?.until
+  const windowed = until != null
   const anchorDate = new Date(anchor)
-  const cursor = new Date(now)
+  const cursor = new Date(from)
   cursor.setHours(0, 0, 0, 0)
   let matches = 0
   let scanned = 0
-  while (matches < cap && scanned < PROJECT_MAX_SCAN_DAYS) {
+  while ((windowed || matches < cap) && scanned < PROJECT_MAX_SCAN_DAYS) {
     const dayStart = cursor.getTime()
+    if (until != null && dayStart > until) break
     if (repeat.until != null && dayStart > repeat.until) break
     if (dayMatchesRecurrence(dayStart, anchor, repeat)) {
       const ex = exceptions?.[dayStart]
@@ -2844,7 +2928,7 @@ function migrateStoredScheduleFields(stored: UserItems): void {
       move(s, "endAt", "endDate")
       move(s, "dueAt", "dueDate")
       move(s, "blocks", "timeblocks") // v0.2.229 key rename; inner startAt/endAt left as-is
-      move(s, "occurrences", "plannedOccurrences") // v0.2.233 key rename (occurrences → plannedOccurrences)
+      move(s, "occurrences", "plannedOccurrences") // v0.2.233 key rename (occurrences �� plannedOccurrences)
       fixRecordedList(s.sessions)
       fixOccurrenceList(s.plannedOccurrences) // normalize entry shape on the NEW key
     }

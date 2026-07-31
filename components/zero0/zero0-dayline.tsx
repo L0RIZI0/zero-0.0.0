@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { createPortal } from "react-dom"
 import { getSegments, useActivityRevision } from "@/lib/zero/activity-log"
-import { ROOT_ID, collectDescendants, getEntitiesWithSessions, getEntity, getInheritedAccent, getTimelineOccurrences } from "@/lib/zero/data"
+import { ROOT_ID, getEntitiesWithSessions, getEntity, getInheritedAccent, getDaylineOccurrences } from "@/lib/zero/data"
+import type { TimelineOccurrence } from "@/lib/zero/data"
  import { titleAt } from "@/lib/zero/entity-log"
  import { webLabel } from "@/lib/zero/web-resources"
  import type { Entity } from "@/lib/zero/types"
@@ -189,19 +190,6 @@ const HIGHLIGHT_HEIGHT_PX = 26
 // (0%→100%) so it reads as a quick blend, not a second solid block.
 const UNKNOWN_END_FADE_PX = 20
 
-// A PAST planned tick's opacity reflects how much its window was actually HONORED by
-// recorded presence (fraction covered → these floor/ceiling stops, mapped linearly):
-// an un-honored plan sits at the floor, a fully-honored one at the ceiling. Kept below a
-// hard 1.0 so an honored plan still reads as "intent" (fainter than solid presence), and
-// above 0 so even a totally-missed past plan stays legible as a ghost of what I meant to do.
-const COVERAGE_OPACITY_MIN = 0.15
-const COVERAGE_OPACITY_MAX = 0.9
-
-// FEATURE FLAG — when false, planned ticks ignore the dynamic coverage/faint opacity above
-// and paint at FULL opacity (100%) like presence. The coverage machinery (`coverage`, the
-// MIN/MAX stops) is kept intact so this can be flipped back on. Currently OFF by request.
-const DYNAMIC_PLANNED_OPACITY = false
-
 /**
  * Resolve the two colors a dayline tick paints, shared by BOTH tracks (planned +
  * presence):
@@ -329,20 +317,24 @@ interface DaylineBar {
    */
   unknownEnd?: boolean
   /**
+   * PLANNED/SESSION bars: the tick's START is genuinely UNKNOWN — a real (declared/implied) END but no
+   * concrete start, and not a point/due anchor. Renders a LEFTWARD fade off the tick's left edge, the
+   * mirror of {@link unknownEnd}'s right fade (see {@link UNKNOWN_END_FADE_PX}). (v0.2.249)
+   */
+  unknownStart?: boolean
+  /**
    * For a sleep-titled planned Moment: a procedural night-sky CSS `background`
    * string (see {@link sleepSkyBackground}) painted INSTEAD of the flat accent, so
    * a night's sleep reads as a tiny starfield. Absent for every other bar.
    */
   sky?: string
   /**
-   * PLANNED bars only, and only once fully in the PAST (end < now) with a real
-   * duration: the FRACTION [0,1] of the planned window actually covered by recorded
-   * PRESENCE at this occurrence's entity or any DESCENDANT of it. Drives the tick's
-   * opacity — the more the plan was honored, the more solid it reads (see the
-   * COVERAGE_MIN/MAX ceilings in the render). `undefined` for future/ongoing/point
-   * planned bars and for every presence bar (those keep the flat faint/solid rule).
+   * PLANNED (top-rail) bars: the occurrence's dispatch identity (v0.2.249), so a right-click opens the
+   * per-occurrence menu (Edit time / Cancel / Delete) acting on THAT occurrence — the same origin-
+   * discriminated address the §0 block uses. Absent for session/spine/presence bars (they open the
+   * whole-entity menu).
    */
-  coverage?: number
+  occRef?: NonNullable<TimelineOccurrence["occRef"]>
   /**
    * PRESENCE bars only. A "session of using Zero" is a RUN of contiguous presence
    * segments (leaving one place enters the next at the same instant; a gap only opens
@@ -364,6 +356,7 @@ interface DaylineBar {
 export function Zero0Dayline({
   onOpen,
   onContextMenuEntity,
+  onOccurrenceMenu,
   dataRev,
   tracks = "planned",
   trailing,
@@ -375,6 +368,15 @@ export function Zero0Dayline({
   /** Right-click a tick → open the entity menu for that occurrence's entity. Optional so
    *  the dayline stays usable standalone; wired from the canvas via the frames. */
   onContextMenuEntity?: (id: string, ev: React.MouseEvent) => void
+  /** Right-click a TOP-rail (planned) tick → open the PER-OCCURRENCE menu (Edit time / Cancel /
+   *  Delete) for that specific occurrence, using its dispatch identity (v0.2.249). Falls back to
+   *  `onContextMenuEntity` when absent or when the tick carries no `occRef`. Middle/bottom ticks
+   *  never use this (they're not occurrences). */
+  onOccurrenceMenu?: (
+    entityId: string,
+    occ: NonNullable<TimelineOccurrence["occRef"]>,
+    ev: React.MouseEvent,
+  ) => void
   dataRev: number
   /** Which lane this instance paints. `"planned"` = scheduled occurrences only;
    *  `"presence"` = the tracked "where I was" band (Activity frame); `"both"` = the TODAY
@@ -454,26 +456,18 @@ export function Zero0Dayline({
   // entity's own `accent` (set via `:color:`), else an inherited space accent, else
   // neutral. `dataRev` re-derives after a create / `:color:` / `:start:` edit; `now`
   // is only a dep so a point exactly at "now" stays consistent with the marker.
-  // One activity-log revision counter, shared by BOTH the planned (for coverage) and the
-  // presence memos — bumps whenever a segment is logged/edited so both re-derive.
+  // One activity-log revision counter, used by the presence/session memos — bumps whenever a segment is
+  // logged/edited so they re-derive. (The planned rail no longer reads it: coverage was retired in .249.)
   const activityRevision = useActivityRevision()
   const planned = useMemo<DaylineBar[]>(() => {
     if (!mounted) return []
-    // Recorded presence segments + a per-entity descendant-set cache, used to score how
-    // much each PAST planned tick was actually honored (see `coverage` below).
-    const segs = getSegments()
-    const descCache = new Map<string, Set<string>>()
-    const inSubtree = (nodeId: string, ctxId: string): boolean => {
-      if (nodeId === ROOT_ID) return true
-      let set = descCache.get(nodeId)
-      if (!set) {
-        set = collectDescendants(nodeId)
-        descCache.set(nodeId, set)
-      }
-      return set.has(ctxId)
-    }
     const out: DaylineBar[] = []
-    for (const occ of getTimelineOccurrences(ROOT_ID, lo, hi)) {
+    // TOP RAIL (v0.2.249) — sourced from getDaylineOccurrences, i.e. the SAME projectOccurrences engine
+    // the §0 block uses. This is what makes additional series[] (.246), edited-instance times via
+    // exceptions (.248), and the repeatAnchor decoupling (.247) finally show on the dayline — the old
+    // getTimelineOccurrences walker was blind to all three. Each occ carries its dispatch identity
+    // (occ.occRef) for the per-occurrence right-click menu.
+    for (const occ of getDaylineOccurrences(lo, hi, now)) {
       const s = occ.schedule
       if (!s) continue
       // "whenever" has no fixed clock time, so it never anchors a planned dayline bar.
@@ -504,6 +498,10 @@ export function Zero0Dayline({
       // (startNum > now), which paints as a start point with a rightward fade. Drives the
       // "continues, end unknown" fade in the render.
       const unknownEnd = !closed && endNum == null && startNum != null
+      // UNKNOWN START (v0.2.249) — the mirror: a real end but NO concrete start (and not an `at`/due
+      // point). Renders a LEFTWARD fade. Dormant in today's model (projection always yields a start),
+      // wired for when start-less occurrences become representable.
+      const unknownStart = endNum != null && startNum == null && s.at == null
       // end = effective end (declared/implied), else the record close time (closed), else now
       // (ongoing), else a point.
       const en = endNum ?? closeAt ?? (ongoing ? now : st)
@@ -515,21 +513,6 @@ export function Zero0Dayline({
       const isSleepSpan = en > st && occ.kind === "moment" && isSleepTitle(occ.title)
       // fill = the occurrence's own color; stroke = its parent's color (only inside a Space).
       const { fill, stroke } = paintFor(occ.id)
-      // COVERAGE — only for a real-duration plan that has fully ended (a past window): what
-      // fraction of [st,en] overlaps recorded presence at this entity or a descendant. You're
-      // only ever in one place at a time, so segments don't double-count; still clamp to [0,1].
-      let coverage: number | undefined
-      if (!ongoing && en > st && en <= now) {
-        const total = en - st
-        let overlap = 0
-        for (const seg of segs) {
-          const segEn = seg.leftAt ?? now
-          if (segEn <= st || seg.enteredAt >= en) continue // no time overlap
-          if (!inSubtree(occ.id, seg.entityId)) continue // wrong place
-          overlap += Math.min(en, segEn) - Math.max(st, seg.enteredAt)
-        }
-        coverage = Math.max(0, Math.min(1, overlap / total))
-      }
       out.push({
         key: `plan:${occ.occKey}`,
         id: occ.id,
@@ -549,22 +532,24 @@ export function Zero0Dayline({
         // spilling a min-width tick PAST the now marker), same as an open presence segment.
         openEnded: ongoing,
         // Fade rightward off the right edge when the end is unknown (ongoing → past now;
-        // future open-ended → past the start point).
+        // future open-ended → past the start point). Fade LEFT when the start is unknown.
         unknownEnd,
+        unknownStart,
         sky: isSleepSpan ? sleepSkyBackground(occ.occKey) : undefined,
-        coverage,
+        // Per-occurrence dispatch identity for the top-rail right-click menu (v0.2.249).
+        occRef: occ.occRef,
       })
     }
     return out
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [winStart, lo, hi, now, mounted, dataRev, activityRevision])
+  }, [winStart, lo, hi, now, mounted, dataRev])
 
   // SESSION bars — tracked work SESSIONS (`schedule.sessions`), the punch-in/out log behind
   // Play/Stop and dwell-focus. These are what make a "whenever" (no fixed clock time) entity
   // read `ongoing`, so they belong on the ACTIVITY rail even though they never anchor a
   // planned occurrence. We walk the WHOLE subtree (not just timed descendants, since the
   // whole point is un-clocked playables) and emit one bar per session touching the day:
-  //   - OPEN session (no endAt) ⇒ an `openEnded` ongoing bar (right edge = now) that joins
+  //   - OPEN session (no endAt) ��� an `openEnded` ongoing bar (right edge = now) that joins
   //     the vertical ongoing stack.
   //   - CLOSED session ⇒ a completed logged span.
   // Both PLAY and FOCUS sessions are shown (per product decision). Bars are clipped to the
@@ -1447,20 +1432,15 @@ export function Zero0Dayline({
                   // FADING = an unknown-end (ongoing / future-open) span → render as ONE element
                   // with a masked tail (below), never a point or an instant mark.
                   const fading = p.unknownEnd && !p.point && !p.markGlyph
-                  // OPACITY. A LIT tick and hover both snap to full. PRESENCE is solid at all
-                  // times. When DYNAMIC_PLANNED_OPACITY is ON, a PAST planned tick with a
-                  // coverage score maps it LINEARLY between the floor and ceiling (the more it
-                  // was honored, the more solid) and every other planned tick stays a flat
-                  // faint layer. When OFF (current default), all planned ticks paint at full.
-                  const tickOpacity = lit || isHot
-                    ? 1
-                    : isPresenceTick
-                      ? 1
-                      : !DYNAMIC_PLANNED_OPACITY
-                        ? 1
-                        : p.coverage != null
-                          ? COVERAGE_OPACITY_MIN + p.coverage * (COVERAGE_OPACITY_MAX - COVERAGE_OPACITY_MIN)
-                          : 0.4
+                  // FADING-START (v0.2.249) = the mirror: a real end but unknown start → the tick fades
+                  // in from its LEFT edge. Rounds only its right (known) edge. Mutually exclusive with
+                  // `fading` in practice (a bar can't be open on both ends). Never a point/mark.
+                  const fadingStart = p.unknownStart && !p.point && !p.markGlyph && !fading
+                  // OPACITY (v0.2.249). A LIT tick and hover both snap to full. TOP-rail PLANNED ticks
+                  // paint at a flat 0.8 (a hair softer than solid, so "intent" reads distinct from
+                  // recorded presence without the old dynamic coverage math, which was retired). Every
+                  // other rail (presence / recorded / middle spine) stays fully solid.
+                  const tickOpacity = lit || isHot ? 1 : p.track === "planned" ? 0.8 : 1
                   // PLANNED INSTANT — a small FILLED instant glyph (the down-triangle) with the
                   // entity title beside it, both in the entity's color. The glyph is nudged left
                   // half its width so its center sits exactly on the instant's time; the title
@@ -1490,7 +1470,13 @@ export function Zero0Dayline({
                             if (draggedRef.current) return
                             onOpen(p.id)
                           }}
-                          onContextMenu={onContextMenuEntity ? (ev) => onContextMenuEntity(p.id, ev) : undefined}
+                          onContextMenu={(ev) => {
+                            // TOP-rail (planned) tick with an occurrence identity → per-occurrence menu;
+                            // else the whole-entity menu (v0.2.249).
+                            if (p.track === "planned" && p.occRef && onOccurrenceMenu)
+                              onOccurrenceMenu(p.id, p.occRef, ev)
+                            else onContextMenuEntity?.(p.id, ev)
+                          }}
                           className="pointer-events-auto absolute flex cursor-default items-center gap-1 -translate-y-1/2 whitespace-nowrap"
                           style={{
                             top: railTop,
@@ -1532,9 +1518,13 @@ export function Zero0Dayline({
                           if (draggedRef.current) return // a pan, not a tap
                           onOpen(p.id)
                         }}
-                        onContextMenu={
-                          onContextMenuEntity ? (ev) => onContextMenuEntity(p.id, ev) : undefined
-                        }
+                        onContextMenu={(ev) => {
+                          // TOP-rail (planned) tick with an occurrence identity → per-occurrence menu;
+                          // else the whole-entity menu (v0.2.249).
+                          if (p.track === "planned" && p.occRef && onOccurrenceMenu)
+                            onOccurrenceMenu(p.id, p.occRef, ev)
+                          else onContextMenuEntity?.(p.id, ev)
+                        }}
                         className={cn(
                           // Every tick is vertically centered on its anchor via
                           // `-translate-y-1/2` (the anchor is `top: railTop` in the style),
@@ -1543,8 +1533,13 @@ export function Zero0Dayline({
                           "pointer-events-auto absolute cursor-default -translate-y-1/2 transition-[height,opacity,top] duration-200",
                           // A FADING (unknown-end) tick is ONE element (see below): the tail is a
                           // mask, not a sibling, so it rounds ONLY on the start (left) edge — the
-                          // "continues" edge stays open. Otherwise use the normal per-end rounding.
-                          fading ? "rounded-l-[2px] rounded-r-none" : roundCls,
+                          // "continues" edge stays open. A FADING-START tick mirrors this, rounding only
+                          // its right (known) edge. Otherwise use the normal per-end rounding.
+                          fading
+                            ? "rounded-l-[2px] rounded-r-none"
+                            : fadingStart
+                              ? "rounded-r-[2px] rounded-l-none"
+                              : roundCls,
                           // Translate composes on separate axes: X for a point / right-anchored
                           // open-ended segment, Y to center every tick. A fading tick is LEFT-
                           // anchored (its start is fixed; the tail grows right past now), so it
@@ -1556,17 +1551,23 @@ export function Zero0Dayline({
                           top: railTop,
                           // Fading + non-open-ended ticks anchor by their LEFT (start) edge; a
                           // right-anchored open-ended tick (e.g. open presence, no fade) keeps
-                          // its right edge pinned to now.
-                          left: p.openEnded && !fading ? `${p.leftPct + p.widthPct}%` : `${p.leftPct}%`,
+                          // its right edge pinned to now. A FADING-START tick shifts its left anchor
+                          // LEFT by the fade length so the fade grows OUT past the (unknown) start.
+                          left: fadingStart
+                            ? `calc(${p.leftPct}% - ${UNKNOWN_END_FADE_PX}px)`
+                            : p.openEnded && !fading
+                              ? `${p.leftPct + p.widthPct}%`
+                              : `${p.leftPct}%`,
                           // A MARK renders as a small downward-triangle instant glyph (clip-path);
                           // a plain point is a 2px tick; a FADING tick spans start→now PLUS the
                           // fade tail (so the solid/fade boundary lands exactly on now, with no
-                          // min-width nub spilling past it); a plain span fills its width.
+                          // min-width nub spilling past it); a FADING-START tick adds the fade to its
+                          // LEFT; a plain span fills its width.
                           width: p.markGlyph
                             ? 9
                             : p.point
                               ? 2
-                              : fading
+                              : fading || fadingStart
                                 ? `calc(${p.widthPct}% + ${UNKNOWN_END_FADE_PX}px)`
                                 : `max(3px, ${p.widthPct}%)`,
                           height: p.markGlyph ? 9 : tickH,
@@ -1581,12 +1582,18 @@ export function Zero0Dayline({
                           // there's no crisp border box or rounded seam around the tail). One
                           // element = one hover target + one transition (fixes the old two-piece
                           // mismatch). The boundary sits at `100% - FADE`, which is exactly now.
+                          // FADING masks the RIGHT tail (end unknown); FADING-START masks the LEFT lead
+                          // (start unknown) — transparent at 0 ramping to solid after the fade length.
                           maskImage: fading
                             ? `linear-gradient(to right, #000 calc(100% - ${UNKNOWN_END_FADE_PX}px), transparent 100%)`
-                            : undefined,
+                            : fadingStart
+                              ? `linear-gradient(to right, transparent 0, #000 ${UNKNOWN_END_FADE_PX}px)`
+                              : undefined,
                           WebkitMaskImage: fading
                             ? `linear-gradient(to right, #000 calc(100% - ${UNKNOWN_END_FADE_PX}px), transparent 100%)`
-                            : undefined,
+                            : fadingStart
+                              ? `linear-gradient(to right, transparent 0, #000 ${UNKNOWN_END_FADE_PX}px)`
+                              : undefined,
                           opacity: tickOpacity,
                           zIndex: lit || isHot ? 16 : 8,
                         }}
