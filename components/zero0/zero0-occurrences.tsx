@@ -145,6 +145,26 @@ export function Zero0Occurrences({
     [onAction, entity],
   )
 
+  // Open the BLOCK menu (on the "PLANNED OCCURRENCES" title): CANCEL ALL (v0.2.245) — moved off the
+  // "one-off" sub-list header. Shown disabled when there's nothing cancellable, matching the app's
+  // disabled-item convention. Reachable by right-click OR plain click on the title.
+  const openBlockMenu = useCallback(
+    (ev: React.MouseEvent) => {
+      if (!onAction) return
+      ev.preventDefault()
+      ev.stopPropagation()
+      setMenu({
+        items: [{ type: "item", id: "cancelAll", label: "Cancel all", danger: true, disabled: !anyCancellableDefinite }],
+        x: ev.clientX,
+        y: ev.clientY,
+        onSelect: (id) => {
+          if (id === "cancelAll") onAction(entity, { type: "cancelAll" })
+        },
+      })
+    },
+    [onAction, entity, anyCancellableDefinite],
+  )
+
   // Visual tone of a series chip by derived status (the vertical list's STATUS word is dropped here —
   // the chip conveys it via color + a `title` tooltip; NEXT is brightened + ringed).
   const chipCls = (r: Row) => {
@@ -244,7 +264,25 @@ export function Zero0Occurrences({
 
   return (
     <div className="col-span-2 mt-3">
-      <div className="mb-1 text-[10px] uppercase tracking-widest text-muted-foreground">planned occurrences</div>
+      {/* BLOCK TITLE (v0.2.245): the "PLANNED OCCURRENCES" label is a click/right-click menu trigger
+          (Cancel all — moved off the one-off header); "+ add slot" sits inline just to its right, no
+          longer pinned far-right on the one-off row. */}
+      <div className="mb-1 flex items-baseline gap-3 text-[10px]">
+        <button
+          type="button"
+          onClick={onAction ? openBlockMenu : undefined}
+          onContextMenu={onAction ? openBlockMenu : undefined}
+          title={onAction ? "Planned occurrences — Cancel all" : undefined}
+          className={"uppercase tracking-widest text-muted-foreground " + (onAction ? "cursor-pointer hover:text-foreground" : "cursor-default")}
+        >
+          planned occurrences
+        </button>
+        {onAction && (
+          <button type="button" onClick={() => setAdding(true)} className={ACTION_CLS} title="Add a one-off occurrence (or type a rule like 'daily')">
+            + add slot
+          </button>
+        )}
+      </div>
 
       {/* ── SERIES sub-list (only when a repeat rule is set) ── SINGLE-ROW horizontal chips (v0.2.244):
           the rule label is followed inline by a NON-wrapping strip of day chips (Today · Aug 7 · Aug 14
@@ -295,28 +333,12 @@ export function Zero0Occurrences({
         </div>
       )}
 
-      {/* ── ONE-OFF sub-list (the explicitly-planned definite occurrences) ── */}
+      {/* ── ONE-OFF sub-list (the explicitly-planned definite occurrences) ── The "one-off" label is only
+          a DISAMBIGUATOR from the series list, so it's shown ONLY when a repeat rule exists (v0.2.245);
+          with no series there's nothing to distinguish. Its former CANCEL ALL / + ADD SLOT actions have
+          moved to the block title above. */}
       <div>
-        <div className="mb-1 flex items-center gap-2 text-[10px] text-muted-foreground">
-          <span>one-off</span>
-          {onAction && (
-            <span className="ml-auto flex items-center gap-2">
-              {anyCancellableDefinite && (
-                <button
-                  type="button"
-                  onClick={() => onAction(entity, { type: "cancelAll" })}
-                  className={ACTION_CLS}
-                  title="Cancel all upcoming one-off occurrences"
-                >
-                  cancel all
-                </button>
-              )}
-              <button type="button" onClick={() => setAdding(true)} className={ACTION_CLS} title="Add a one-off occurrence (or type a rule like 'daily')">
-                + add slot
-              </button>
-            </span>
-          )}
-        </div>
+        {hasRepeat && <div className="mb-1 text-[10px] text-muted-foreground">one-off</div>}
         {definiteRows.length > 0 && <ul className="flex flex-col gap-0.5">{definiteRows.map((r) => renderRow(r))}</ul>}
         {onAction && adding && (
           <div className="mt-1">
