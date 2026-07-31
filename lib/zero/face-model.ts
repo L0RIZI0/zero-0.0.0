@@ -1476,6 +1476,14 @@ export function getFaceRawFields(e: Entity, now: number): [string, string][] {
   ])
   rows.push(["schedule.timebox", s.timebox == null ? "—" : `${s.timebox} min`])
   rows.push(["schedule.repeat", val(s.repeat ? JSON.stringify(s.repeat) : undefined)])
+  // REPEAT ANCHOR (v0.2.247) — the rule seed, decoupled from the scalar (which now mirrors NEXT). Shown
+  // as `start → end` so it's clear this, NOT `startDate`, is where the series began.
+  const anchor = s.repeatAnchor as { start?: number; end?: number } | undefined
+  rows.push([
+    "schedule.repeatAnchor",
+    anchor ? `${dateish(anchor.start)} → ${dateish(anchor.end)}` : "—",
+  ])
+  rows.push(["schedule.series", Array.isArray(s.series) ? `${s.series.length}` : "—"])
   rows.push(["schedule.timeblocks", Array.isArray(s.timeblocks) ? `${s.timeblocks.length}` : "—"])
   // RECORDED sub-arrays (startedAt/endedAt) — show counts + open flag, the detail lives above.
   const sessions = Array.isArray(s.sessions) ? (s.sessions as { endedAt?: number }[]) : []
