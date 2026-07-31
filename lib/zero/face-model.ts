@@ -930,12 +930,13 @@ function fmtTime(epoch: number): string {
 /** Split an occurrence into a leading DAY token + a TIME range, for the aligned block layout. A span
     whose end lands on a DIFFERENT day than its start carries the end's own day inline. */
 export function formatOccurrenceParts(occ: PlannedOccurrence, now: number): { day: string; time: string } {
-  // A slot with NEITHER bound reads "unset" in the TIME column (not blank), so a degenerate/half-typed
-  // occurrence still renders a legible row that lines up with the status column.
+  // WHICHEVER bound is missing reads "unset" in the range (v0.2.236 — was: end-missing rendered a bare
+  // point time, start-missing rendered "by <end>"). So a half-typed occurrence shows the range shape with
+  // the absent side explicit: "3:00 PM – unset" / "unset – 10:00 PM". Both missing ⇒ a single "unset".
   if (occ.startAt == null && occ.endAt == null) return { day: "—", time: "unset" }
-  if (occ.startAt == null) return { day: fmtDay(occ.endAt!, now), time: `by ${fmtTime(occ.endAt!)}` }
+  if (occ.startAt == null) return { day: fmtDay(occ.endAt!, now), time: `unset – ${fmtTime(occ.endAt!)}` }
   const day = fmtDay(occ.startAt, now)
-  if (occ.endAt == null) return { day, time: fmtTime(occ.startAt) }
+  if (occ.endAt == null) return { day, time: `${fmtTime(occ.startAt)} – unset` }
   const sameDay = new Date(occ.startAt).toDateString() === new Date(occ.endAt).toDateString()
   const end = sameDay ? fmtTime(occ.endAt) : `${fmtDay(occ.endAt, now)} ${fmtTime(occ.endAt)}`
   return { day, time: `${fmtTime(occ.startAt)} – ${end}` }
