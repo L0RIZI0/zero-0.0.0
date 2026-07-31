@@ -1848,12 +1848,29 @@ export function endOccurrence(id: string, at = Date.now()): boolean {
  * left as-is.
  */
 function resyncPrimary(sched: Schedule, now: number = Date.now()): void {
-  // RECURRING GUARD (v0.2.234): when a `repeat` rule is set the scalar `startDate`/`endDate` is the
-  // rule ANCHOR (a stable seed), NOT a "soonest occurrence" mirror — the series is projected at
-  // view-time by `projectOccurrences`. So a definite `plannedOccurrences[]` mutation on a recurring
-  // entity must edit the list WITHOUT hijacking the anchor. Leave the scalar (and thus getState /
-  // plannedStart) untouched; the list still persists via the caller.
-  if (sched.repeat) return
+  // RULE-BEARING BRANCH (v0.2.247): when the entity carries ANY recurrence — the primary `repeat` OR ≥1
+  // additional `series[]` — the scalar `startDate`/`endDate` MIRRORS the GLOBAL current-or-next
+  // occurrence across every series + every definite one-off (was: frozen at the rule anchor). The rule
+  // seed itself lives in `repeatAnchor` / each `SeriesRule.anchorStart`, so mirroring here never drifts a
+  // rule. `plannedOccurrences[]` is LEFT AS-IS (it's projected directly, independent of the scalar). All
+  // ~53 scalar readers therefore reflect "what's actually next" for recurring entities too.
+  if (sched.repeat || (sched.series && sched.series.length)) {
+    const projected = projectOccurrences({ id: "_resync", schedule: sched }, now, 60)
+    const live = projected.filter((o) => !o.cancelled)
+    const notPassed = live.filter((o) => (o.end ?? o.start) >= now)
+    const pick = notPassed.length
+      ? notPassed.sort((a, b) => a.start - b.start)[0]
+      : live.sort((a, b) => b.start - a.start)[0]
+    if (pick) {
+      sched.startDate = pick.start
+      if (pick.end != null) sched.endDate = pick.end
+      else delete sched.endDate
+    } else {
+      delete sched.startDate
+      delete sched.endDate
+    }
+    return
+  }
   const all: { start: number; end?: number; cancelled?: boolean }[] = []
   const cs = sched.startDate
   if (typeof cs === "number") all.push({ start: cs, end: sched.endDate, cancelled: false })
@@ -2100,8 +2117,9 @@ function projectRuleInto(
  * VIRTUAL `repeat` instance restore-ably cancellable WITHOUT materialising the whole series. Sets
  * `schedule.exceptions[recurrenceId].cancelled` (recurrenceId = the occurrence's local-midnight
  * day-key). Un-cancelling that leaves an otherwise-empty patch DELETES the key (clean restore ⇒ the
- * day projects virtually again). Never touches the scalar (rule rows don't drive the anchor), so no
- * `resyncPrimary`. Requires a `repeat` rule. Returns false otherwise.
+ * day projects virtually again). Since v0.2.247 the scalar MIRRORS NEXT, so cancelling/restoring an
+ * instance can change what "next" is ⇒ we `resyncPrimary` after the edit. Requires a `repeat` rule.
+ * Returns false otherwise.
  */
 export function setRuleOccurrenceCancelled(id: string, recurrenceId: number, cancelled = true, ruleId?: string): boolean {
   const stored = byId.get(id)
@@ -2116,6 +2134,7 @@ export function setRuleOccurrenceCancelled(id: string, recurrenceId: number, can
   else exceptions[recurrenceId] = next
   if (Object.keys(exceptions).length === 0) delete sched.exceptions
   else sched.exceptions = exceptions
+  resyncPrimary(sched) // NEXT may have changed (v0.2.247)
   const entity = mutable(stored)
   entity.schedule = sched
   if (!userEntityIds.has(id)) {
@@ -2151,6 +2170,7 @@ function patchSeriesException(
   if (Object.keys(exceptions).length === 0) delete nextSr.exceptions
   else nextSr.exceptions = exceptions
   sched.series = series.map((s, i) => (i === idx ? nextSr : s))
+  resyncPrimary(sched) // NEXT may have changed (v0.2.247)
   const entity = mutable(stored)
   entity.schedule = sched
   if (!userEntityIds.has(stored.id)) {
@@ -2208,6 +2228,7 @@ export function deleteRuleOccurrence(id: string, recurrenceId: number, ruleId?: 
   const exceptions = { ...(sched.exceptions ?? {}) }
   exceptions[recurrenceId] = { ...(exceptions[recurrenceId] ?? {}), removed: true }
   sched.exceptions = exceptions
+  resyncPrimary(sched) // NEXT may have changed (v0.2.247)
   const entity = mutable(stored)
   entity.schedule = sched
   if (!userEntityIds.has(id)) {
@@ -2221,15 +2242,18 @@ export function deleteRuleOccurrence(id: string, recurrenceId: number, ruleId?: 
  * CANCEL ALL DEFINITE occurrences (v0.2.240) — the definite-list "cancel all" title action. Marks every
  * not-yet-ended definite span cancelled (a struck, per-row-restorable tombstone); already-past ones are
  * left untouched (you can't cancel history, matching the per-row gate). Only the DEFINITE layer is
- * affected — a `repeat` series is left alone (its scalar is the anchor; resyncPrimary early-returns).
+ * affected — recurrence series are left alone. For a rule-bearing entity the scalar is the NEXT-mirror
+ * (v0.2.247), NOT a real definite primary, so it must NOT be swept into the cancel set (guard on
+ * `hasRule`, not just `repeat`); `resyncPrimary` then re-mirrors NEXT from the surviving occurrences.
  */
 export function cancelAllDefiniteOccurrences(id: string, now: number = Date.now()): boolean {
   const stored = byId.get(id)
   if (!stored || !canPlanOccurrences(stored)) return false
   const sched: Schedule = { ...(stored.schedule ?? {}) }
   const before = sched.startDate
+  const hasRule = !!sched.repeat || !!(sched.series && sched.series.length)
   const all: { start: number; end?: number; cancelled?: boolean }[] = []
-  if (!sched.repeat && isPlannedStart(sched.startDate)) {
+  if (!hasRule && isPlannedStart(sched.startDate)) {
     all.push({ start: sched.startDate, end: sched.endDate, cancelled: false })
     delete sched.startDate
     delete sched.endDate
@@ -2267,16 +2291,22 @@ export function setEntityRepeat(
   const sched: Schedule = { ...(stored.schedule ?? {}) }
   if (repeat) {
     sched.repeat = repeat
+    // Seed the DECOUPLED anchor (v0.2.247): explicit anchor wins; else derive from the current scalar
+    // anchor (`at`/`startDate`/`dueDate`); else anchor at now. The scalar itself is then re-derived to
+    // NEXT by `resyncPrimary` below, so it may differ from this seed.
     if (anchor) {
-      sched.startDate = anchor.start
-      if (anchor.end != null) sched.endDate = anchor.end
-      else delete sched.endDate
-    } else if (sched.at == null && !isPlannedStart(sched.startDate) && sched.dueDate == null) {
-      sched.startDate = Date.now()
+      sched.repeatAnchor = anchor.end != null ? { start: anchor.start, end: anchor.end } : { start: anchor.start }
+    } else if (!sched.repeatAnchor) {
+      const derived = primaryRuleAnchor(sched)
+      sched.repeatAnchor = derived ?? { start: Date.now() }
     }
   } else {
     delete sched.repeat
+    delete sched.repeatAnchor // no primary rule ⇒ no primary anchor
   }
+  // Mirror NEXT into the scalar (rule-bearing branch), or restore the definite-set scalar when the last
+  // rule was just cleared (and no series remain).
+  resyncPrimary(sched)
   const entity = mutable(stored)
   entity.schedule = sched
   logSet(entity, "repeat", repeat ? repeat.freq : null)
@@ -2303,6 +2333,7 @@ export function addSeries(id: string, repeat: Recurrence, anchor?: { start: numb
   const sr: SeriesRule = { id: seriesId, repeat, anchorStart: anchor?.start ?? Date.now() }
   if (anchor?.end != null) sr.anchorEnd = anchor.end
   sched.series = [...(sched.series ?? []), sr]
+  resyncPrimary(sched) // the new series may now be the global NEXT ⇒ refresh the scalar mirror (v0.2.247)
   const entity = mutable(stored)
   entity.schedule = sched
   if (!userEntityIds.has(id)) {
@@ -2326,6 +2357,7 @@ export function removeSeries(id: string, ruleId: string): boolean {
   if (next.length === (sched.series ?? []).length) return false
   if (next.length === 0) delete sched.series
   else sched.series = next
+  resyncPrimary(sched) // removing a series may change the global NEXT ⇒ refresh the scalar mirror (v0.2.247)
   const entity = mutable(stored)
   entity.schedule = sched
   if (!userEntityIds.has(id)) {
@@ -2905,6 +2937,26 @@ export function hydrateFromStorage(): boolean {
       next.push({ ...e, endedAt: endAt })
     }
     if (changed) entity.schedule = { ...entity.schedule, sessions: next }
+  }
+
+  // v0.2.247 NEXT-MIRROR NORMALIZATION — for every RULE-BEARING entity (primary `repeat` OR ≥1 series),
+  // seed the decoupled `repeatAnchor` from the legacy scalar anchor (once), then re-derive the scalar
+  // `startDate`/`endDate` as the GLOBAL current-or-next occurrence. This migrates pre-.247 data (where
+  // the scalar WAS the frozen anchor) in place and refreshes the mirror for seeds on every load so a
+  // recurring entity's scalar always reflects "what's next" at open time. In-memory only (persists on
+  // the next mutation), idempotent. Covers seeded + user entities (both are in `entities` by now).
+  for (const entity of entities) {
+    const s = entity.schedule
+    if (!s) continue
+    const hasRule = !!s.repeat || !!(s.series && s.series.length)
+    if (!hasRule) continue
+    const sched: Schedule = { ...s }
+    if (s.repeat && !s.repeatAnchor) {
+      const derived = primaryRuleAnchor(sched)
+      if (derived) sched.repeatAnchor = derived
+    }
+    resyncPrimary(sched)
+    entity.schedule = sched
   }
 
   // DEV-only: surface any log↔scalar drift found above. A clean load (no warning)
