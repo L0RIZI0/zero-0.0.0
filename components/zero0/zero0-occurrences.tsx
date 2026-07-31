@@ -10,14 +10,16 @@ import { parseSlotToken, parseRepeatToken } from "@/lib/zero/create-parse"
 // (Backing field: schedule.plannedOccurrences[].) It is displayed at ALL times for those
 // kinds (even with zero slots — just the header + "+ add slot"), which removed the old flat PLANNED
 // START/END rows and the 0/1-vs-2+ swap entirely: one render path, always. Each line is one
-// occurrence: DAY · TIME · derived STATUS word, cancelled slots struck through, the current one
-// tagged PRIMARY. EVERY line (primary included) is cancellable now that the scalar is just the
-// mirror of the soonest live occurrence (see resyncPrimary/cancelPrimaryOccurrence in data.ts). A
-// trailing "+ add slot" reveals an inline token field (reusing parseSlotToken — the same local
-// grammar as the create field: `1400-1530`, `2330`, `260709`, `in 2h`). DORMANT-by-design: only the
-// STATUS word shows, never the planned-vs-actual delta numbers.
+// occurrence: DAY · TIME · derived STATUS word, cancelled slots struck through, and the current/next
+// one tagged NEXT (v0.2.235 — computed view-time from `now` in getOccurrenceRows; replaced the old
+// write-time PRIMARY tag that got stuck on a stale/missed earliest-past slot). EVERY line is
+// cancellable (see resyncPrimary/cancelPrimaryOccurrence in data.ts). A trailing "+ add slot" reveals
+// an inline token field: it accepts a TIME (`1400-1530`, `2330`, `in 2h` — via parseSlotToken, the
+// create-field grammar) OR a RULE word (`daily`, `12h daily`, `weekdays` — via parseRepeatToken, which
+// sets schedule.repeat with the time as anchor). DORMANT-by-design: only the STATUS word shows, never
+// the planned-vs-actual delta numbers.
 
-const PLACEHOLDER = "e.g. 1400-1530, 2330, 260709, in 2h"
+const PLACEHOLDER = "e.g. 1400-1530, 2330, in 2h, 12h daily"
 
 /** A user action on the block, dispatched up to the canvas (which owns the writers + re-render). A
     cancel is discriminated by `origin` (v0.2.234) so the canvas routes to the right writer without
@@ -109,7 +111,7 @@ export function Zero0Occurrences({
                 {/* TIME column is min-width-fixed so the following STATUS word starts at a constant x
                     whether the time is a point ("19:19") or a range ("17:00 – 18:00"). A rare very-wide
                     cross-day range is allowed to grow past it (min, not fixed) rather than clip. */}
-                <span className="min-w-[6.5rem] text-foreground">{r.time}</span>
+                <span className="min-w-[7.5rem] text-foreground">{r.time}</span>
               </span>
               <span className="text-muted-foreground">{r.statusWord}</span>
               {/* NEXT (v0.2.235) — marks the current/next occurrence, computed view-time from `now`
@@ -188,7 +190,7 @@ export function Zero0Occurrences({
             </button>
           )}
           {error && (
-            <div className="mt-0.5 text-[9px] text-muted-foreground">{'Unrecognized time — try 1400-1530, 2330, 260709, or "in 2h".'}</div>
+            <div className="mt-0.5 text-[9px] text-muted-foreground">{'Unrecognized — try a time (1400-1530, 2330, "in 2h") or a rule ("daily", "12h daily", "weekdays").'}</div>
           )}
         </div>
       )}

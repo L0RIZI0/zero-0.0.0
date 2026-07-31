@@ -255,6 +255,18 @@ export function parseDateToken(raw: string, now: number = Date.now()): number | 
     return mins == null ? null : now + mins * 60000
   }
 
+  // TOP-OF-HOUR CLOCK shorthand "<H>h" / "<H>h<MM>" → HH:MM today (v0.2.235). Lets a natural anchor
+  // like "12h" (noon) or "9h30" read as a clock TIME, not a duration — the shape users reach for in the
+  // block's "12h daily" and in `--at:9h`/`--end:9h`. Distinct from the digit shapes below (which have no
+  // "h") and from the duration grammar (only reached where a DURATION, not a date, is wanted). 24h clock.
+  const hClock = lower.match(/^(\d{1,2})h(\d{2})?$/)
+  if (hClock) {
+    const h = parseInt(hClock[1], 10)
+    const min = hClock[2] != null ? parseInt(hClock[2], 10) : 0
+    if (h > 23 || min > 59) return null
+    return resolveHHMMToLogicalDay(h, min, now)
+  }
+
   if (!/^\d+$/.test(s)) return null
   const n = (a: number, b: number) => parseInt(s.slice(a, b), 10)
 
