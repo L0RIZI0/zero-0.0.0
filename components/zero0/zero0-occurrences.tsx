@@ -360,11 +360,14 @@ export function Zero0Occurrences({
       ))}
 
       {/* ── ONE-OFF sub-list (the explicitly-planned definite occurrences) ── The "one-off" label is only
-          a DISAMBIGUATOR from the series strips, so it's shown ONLY when at least one series exists
-          (v0.2.245/.246); with no series there's nothing to distinguish. Its former CANCEL ALL / + ADD
+          a DISAMBIGUATOR from the series strips, so it's shown ONLY when a series exists AND there's at
+          least one one-off row to label (v0.2.245/.246/.247); with no series there's nothing to
+          distinguish, and with no one-off rows there's nothing to label. Its former CANCEL ALL / + ADD
           SLOT actions have moved to the block title above. */}
       <div>
-        {hasAnySeries && <div className="mb-1 text-[10px] text-muted-foreground">one-off</div>}
+        {hasAnySeries && definiteRows.length > 0 && (
+          <div className="mb-1 text-[10px] text-muted-foreground">one-off</div>
+        )}
         {definiteRows.length > 0 && <ul className="flex flex-col gap-0.5">{definiteRows.map((r) => renderRow(r))}</ul>}
         {onAction && adding && (
           <div className="mt-1">
