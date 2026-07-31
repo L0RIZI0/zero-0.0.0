@@ -861,9 +861,15 @@ function sessionOverlapsOccurrence(
  *   • cancelled — the stored intent (the user struck it out).
  *   • fulfilled — ∃ a session (focus OR play) overlapping its window (it was honored — being
  *                 present during the planned time counts, not just a manual Play).
- *   • missed    — fully elapsed (`now > end`) AND not fulfilled (nothing happened in the window).
+ *   • missed    — fully elapsed AND not fulfilled (nothing happened in the window).
  *   • upcoming  — everything else (future, whenever/playable, or in-progress with no session yet).
- * An occurrence with no end can never be "missed" (we can't say the window has passed).
+ * The "has it passed" boundary is the EFFECTIVE END `(endAt ?? startAt)` — the same measure the block's
+ * `cancellable`/`isNext` flags use (v0.2.242). So a POINT occurrence (start set, no end — e.g. a
+ * `daily · 12:00 PM` recurrence anchor, or a bare-start slot) becomes "missed" once its start is past,
+ * rather than being stuck on "upcoming" forever (the old `endAt != null` guard could never resolve a
+ * point). A SPAN `[start,end]` still only misses once `now > end`, so it reads "upcoming" while
+ * in-progress. Only a FULLY-unset occurrence (no start and no end) can't be missed. The `fulfilled`
+ * check runs FIRST, so an occurrence a session actually coincided with is "matched", never "missed".
  */
 export function occurrenceStatus(
   occ: PlannedOccurrence,
@@ -873,7 +879,8 @@ export function occurrenceStatus(
   if (occ.cancelled) return "cancelled"
   const fulfilled = sessions.some((se) => sessionOverlapsOccurrence(se, occ.startAt, occ.endAt, now))
   if (fulfilled) return "fulfilled"
-  const missed = occ.endAt != null && now > occ.endAt && !fulfilled
+  const boundary = occ.endAt ?? occ.startAt // effective end — a point's boundary is its start
+  const missed = boundary != null && now > boundary && !fulfilled
   if (missed) return "missed"
   return "upcoming"
 }
