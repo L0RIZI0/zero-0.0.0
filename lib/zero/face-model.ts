@@ -930,7 +930,9 @@ function fmtTime(epoch: number): string {
 /** Split an occurrence into a leading DAY token + a TIME range, for the aligned block layout. A span
     whose end lands on a DIFFERENT day than its start carries the end's own day inline. */
 export function formatOccurrenceParts(occ: PlannedOccurrence, now: number): { day: string; time: string } {
-  if (occ.startAt == null && occ.endAt == null) return { day: "—", time: "" }
+  // A slot with NEITHER bound reads "unset" in the TIME column (not blank), so a degenerate/half-typed
+  // occurrence still renders a legible row that lines up with the status column.
+  if (occ.startAt == null && occ.endAt == null) return { day: "—", time: "unset" }
   if (occ.startAt == null) return { day: fmtDay(occ.endAt!, now), time: `by ${fmtTime(occ.endAt!)}` }
   const day = fmtDay(occ.startAt, now)
   if (occ.endAt == null) return { day, time: fmtTime(occ.startAt) }
@@ -956,7 +958,7 @@ function formatPlannedOccurrence(occ: PlannedOccurrence, status: OccurrenceStatu
 }
 
 // ─── OCCURRENCES BLOCK rows (v0.2.229) ─────────────────────────────────────────
-// Structured per-occurrence data for the §0 OCCURRENCES block (see zero0-occurrences.tsx). Keeps ALL
+// Structured per-occurrence data for the ��0 OCCURRENCES block (see zero0-occurrences.tsx). Keeps ALL
 // time formatting (fmtShort) + status derivation HERE so the component stays pure presentation. The
 // `index` is the UNIFIED index — 0 = the PRIMARY (scalar) occurrence, 1..n = `occurrences[]` entries
 // — which is what the block hands back to the canvas so it can target the right writer (index-1 into

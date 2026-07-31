@@ -71,7 +71,10 @@ export function Zero0Occurrences({
               {/* DAY column is fixed-width so every occurrence's TIME lines up, whatever the day label. */}
               <span className={"flex items-baseline gap-2 " + (r.cancelled ? "line-through opacity-60" : "")}>
                 <span className="w-20 shrink-0 text-muted-foreground">{r.day}</span>
-                <span className="text-foreground">{r.time}</span>
+                {/* TIME column is min-width-fixed so the following STATUS word starts at a constant x
+                    whether the time is a point ("19:19") or a range ("17:00 – 18:00"). A rare very-wide
+                    cross-day range is allowed to grow past it (min, not fixed) rather than clip. */}
+                <span className="min-w-[6.5rem] text-foreground">{r.time}</span>
               </span>
               <span className="text-muted-foreground">{r.statusWord}</span>
               {r.primary && (
