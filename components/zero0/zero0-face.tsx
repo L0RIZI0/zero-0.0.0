@@ -369,11 +369,21 @@ function FaceBlock({
         <span className="text-[10px] uppercase tracking-wider text-muted-foreground">{model.kindLabel}</span>
         {trailing}
       </div>
-      {/* OCCURRENCES block (always-on for occurrence kinds): rendered ONCE above the dl, with the rows
-          it supersedes (flat planned start/end + the legacy "occurrences" summary) stripped from the
-          list before mapping — so row keys stay unique regardless of which schedule keys this entity
-          emits. Handles the empty case itself (header + "+ add slot"), so no separate bootstrap. */}
-      {showOccBlock && <Zero0Occurrences entity={entity} now={now} onAction={onScheduleAction} />}
+      {/* §0 body — TWO COLUMNS when the occurrence block is present (v0.2.241): the curated meta dl +
+          raw fields take the LEFT half, the PLANNED OCCURRENCES block the RIGHT half, so the (often
+          tall) occurrence list no longer pushes all the metadata far down the page. When there's no
+          occurrence block (e.g. a Soul) both wrappers collapse to `contents`, preserving the original
+          full-width stack exactly. The occurrence block handles its own empty case (header + "+ add
+          slot"). */}
+      <div className={showOccBlock ? "mt-2 grid gap-x-8 md:grid-cols-2 md:items-start" : "contents"}>
+        {/* RIGHT column on md+ (`order-2`) — but FIRST in DOM so when the layout stacks on narrow
+            widths the occurrence block stays on top (its original position), above the metadata. */}
+        {showOccBlock && (
+          <div className="min-w-0 md:order-2">
+            <Zero0Occurrences entity={entity} now={now} onAction={onScheduleAction} />
+          </div>
+        )}
+        <div className={showOccBlock ? "min-w-0 md:order-1" : "contents"}>
       {/* Raw meta key/values (filtered by rung). */}
       {displayRows.length > 0 && (
         <dl className="mt-2 grid grid-cols-[7.5rem_1fr] gap-x-4 gap-y-0.5 text-[10px] tabular-nums">
@@ -440,6 +450,8 @@ function FaceBlock({
           </dl>
         </div>
       )}
+        </div>
+      </div>
     </>
   )
 }
