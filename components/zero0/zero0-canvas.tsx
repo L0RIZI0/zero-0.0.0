@@ -1652,6 +1652,9 @@ export function Zero0Canvas() {
     (e: Entity, action: OccurrenceAction) => {
       if (action.type === "add") {
         addOccurrence(e.id, action.start, action.end)
+      } else if (action.type === "repeat") {
+        // "12h daily"-style add-slot (v0.2.235) — sets the RULE, with any parsed time as the anchor.
+        setEntityRepeat(e.id, action.repeat, action.start != null ? { start: action.start, end: action.end } : undefined)
       } else if (action.type === "cancel") {
         if (action.origin === "rule") setRuleOccurrenceCancelled(e.id, action.recurrenceId, action.cancelled)
         else if (action.primary) cancelPrimaryOccurrence(e.id)
@@ -1938,7 +1941,7 @@ export function Zero0Canvas() {
       className="relative flex h-screen flex-col bg-background text-foreground"
       style={{ fontFamily: "var(--font-zero0-mono), ui-monospace, monospace" }}
     >
-      {/* ── GLUED TOP: live clock ───────��──��───────���─���───���─────────────────────
+      {/* ── GLUED TOP: live clock ───────��──��───────�����─���───���─────────────────────
           Permanent top chrome (mirrors the footer's glued-bottom role): the live full
           date + time WITH seconds, top-left. Always present �� for any open entity, and
           regardless of which frames are toggled below. `min-h` reserves its row so the

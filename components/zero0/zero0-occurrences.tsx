@@ -1,9 +1,9 @@
 "use client"
 
 import { useCallback, useState } from "react"
-import type { Entity } from "@/lib/zero/types"
+import type { Entity, Recurrence } from "@/lib/zero/types"
 import { getOccurrenceRows } from "@/lib/zero/face-model"
-import { parseSlotToken } from "@/lib/zero/create-parse"
+import { parseSlotToken, parseRepeatToken } from "@/lib/zero/create-parse"
 
 // The §0 PLANNED OCCURRENCES block (v0.2.229; ALWAYS-ON + primary-cancellable v0.2.232; renamed from
 // "occurrences" v0.2.233) — the SINGLE way an occurrence kind (moment/space) shows its schedule in §0.
@@ -27,6 +27,9 @@ export type OccurrenceAction =
   | { type: "add"; start: number; end?: number }
   | { type: "cancel"; origin: "definite"; primary: boolean; occIndex: number; cancelled: boolean }
   | { type: "cancel"; origin: "rule"; recurrenceId: number; cancelled: boolean }
+  // SET A RULE from the add-slot field (v0.2.235) — "12h daily", "daily", "weekdays 9h", etc. `start`/
+  // `end` (when a time was also given) become the rule ANCHOR; absent ⇒ anchored at now by the writer.
+  | { type: "repeat"; repeat: Recurrence; start?: number; end?: number }
 
 export function Zero0Occurrences({
   entity,
@@ -45,6 +48,38 @@ export function Zero0Occurrences({
   const [error, setError] = useState(false)
 
   const submit = useCallback(() => {
+    // RECURRENCE-AWARE (v0.2.235): if any word parses as a recurrence ("daily", "weekdays", …) the field
+    // sets the entity's RULE instead of adding a one-off slot — the rest of the tokens (if any) parse as
+    // the anchor TIME ("12h daily" ⇒ daily rule anchored at 12:00; bare "daily" ⇒ anchored at now by the
+    // writer). Otherwise it's the original definite-slot path.
+    const words = draft.trim().split(/\s+/).filter(Boolean)
+    let repeat: Recurrence | null = null
+    let repeatIdx = -1
+    for (let i = 0; i < words.length; i++) {
+      const r = parseRepeatToken(words[i])
+      if (r) {
+        repeat = r
+        repeatIdx = i
+        break
+      }
+    }
+    if (repeat) {
+      const timePart = words.filter((_, i) => i !== repeatIdx).join(" ").trim()
+      let anchor: { start: number; end?: number } | undefined
+      if (timePart) {
+        const parsed = parseSlotToken(timePart, now)
+        if (!parsed) {
+          setError(true)
+          return
+        }
+        anchor = { start: parsed.start, end: parsed.end }
+      }
+      onAction?.(entity, { type: "repeat", repeat, start: anchor?.start, end: anchor?.end })
+      setDraft("")
+      setError(false)
+      setAdding(false)
+      return
+    }
     const parsed = parseSlotToken(draft, now)
     if (!parsed) {
       setError(true)
@@ -77,8 +112,12 @@ export function Zero0Occurrences({
                 <span className="min-w-[6.5rem] text-foreground">{r.time}</span>
               </span>
               <span className="text-muted-foreground">{r.statusWord}</span>
-              {r.primary && (
-                <span className="text-[9px] uppercase tracking-wider text-muted-foreground opacity-50">primary</span>
+              {/* NEXT (v0.2.235) — marks the current/next occurrence, computed view-time from `now`
+                  (see getOccurrenceRows). Replaces the old write-time PRIMARY tag, which got stuck on a
+                  stale/missed earliest-past slot. Rendered a touch brighter than the status word so the
+                  "when's this next?" row stands out. */}
+              {r.isNext && (
+                <span className="text-[9px] uppercase tracking-wider text-foreground opacity-70">next</span>
               )}
               {/* Cancel / restore — offered for EVERY occurrence now (v0.2.232), the PRIMARY included:
                   the scalar is just the mirror of the soonest live occurrence, so the canvas routes an

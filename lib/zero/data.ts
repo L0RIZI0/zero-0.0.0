@@ -1839,7 +1839,7 @@ export function endOccurrence(id: string, at = Date.now()): boolean {
  * primary always carries a concrete start; an end-only scalar (never produced for these kinds) is
  * left as-is.
  */
-function resyncPrimary(sched: Schedule): void {
+function resyncPrimary(sched: Schedule, now: number = Date.now()): void {
   // RECURRING GUARD (v0.2.234): when a `repeat` rule is set the scalar `startDate`/`endDate` is the
   // rule ANCHOR (a stable seed), NOT a "soonest occurrence" mirror — the series is projected at
   // view-time by `projectOccurrences`. So a definite `plannedOccurrences[]` mutation on a recurring
@@ -1850,12 +1850,19 @@ function resyncPrimary(sched: Schedule): void {
   const cs = sched.startDate
   if (typeof cs === "number") all.push({ start: cs, end: sched.endDate, cancelled: false })
   all.push(...(sched.plannedOccurrences ?? []))
-  // Soonest NON-cancelled span becomes the primary (mirrored by the scalar); ties keep insertion order.
-  const live = all
-    .map((o, i) => ({ o, i }))
-    .filter((x) => !x.o.cancelled)
-    .sort((a, b) => a.o.start - b.o.start || a.i - b.i)
-  const primary = live[0]?.o
+  const live = all.map((o, i) => ({ o, i })).filter((x) => !x.o.cancelled)
+  // CURRENT-OR-NEXT primary (v0.2.235; was "earliest live", which left the tag stuck on a stale/missed
+  // past slot). Prefer the occurrence the user would call "when's this next?": among live spans that
+  // have NOT fully passed (end — or start if point — still ≥ now), the soonest by start (so an ONGOING
+  // span, whose start is already behind now, naturally wins over a later upcoming one). If EVERY live
+  // span is in the past, fall back to the MOST-RECENT one (largest start) so the scalar still reflects
+  // "the thing that just happened" rather than the oldest. Recomputed at each write; view-time freshness
+  // for the block's own "next" marker is handled separately in getOccurrenceRows.
+  const notPassed = live.filter((x) => (x.o.end ?? x.o.start) >= now)
+  const pick = notPassed.length
+    ? notPassed.sort((a, b) => a.o.start - b.o.start || a.i - b.i)[0]
+    : live.sort((a, b) => b.o.start - a.o.start || a.i - b.i)[0]
+  const primary = pick?.o
   if (primary) {
     sched.startDate = primary.start
     if (primary.end != null) sched.endDate = primary.end
@@ -2054,18 +2061,28 @@ export function setRuleOccurrenceCancelled(id: string, recurrenceId: number, can
 }
 
 /**
- * SET (or clear) the RECURRENCE rule (v0.2.234) — the writer behind the create-bar `--repeat` flag.
- * Setting a rule on an entity with NO anchor (`at`/`startDate`/`dueDate` all absent) seeds
- * `startDate = now` so the series is immediately projectable ("repeats starting now"). Passing null
- * clears the rule (the entity reverts to its definite occurrences). Persist + log.
+ * SET (or clear) the RECURRENCE rule (v0.2.234; optional anchor v0.2.235) — the writer behind the
+ * create-bar `--repeat` flag and the block's "12h daily"-style add-slot. An explicit `anchor`
+ * ({start,end?}) SETS the rule anchor (e.g. "12h daily" ⇒ anchor today 12:00), overriding whatever
+ * time the entity had. With no anchor and NO existing time (`at`/`startDate`/`dueDate` all absent),
+ * seeds `startDate = now` so the series is immediately projectable ("repeats starting now"). Passing
+ * null repeat clears the rule (the entity reverts to its definite occurrences). Persist + log.
  */
-export function setEntityRepeat(id: string, repeat: Recurrence | null): boolean {
+export function setEntityRepeat(
+  id: string,
+  repeat: Recurrence | null,
+  anchor?: { start: number; end?: number },
+): boolean {
   const stored = byId.get(id)
   if (!stored) return false
   const sched: Schedule = { ...(stored.schedule ?? {}) }
   if (repeat) {
     sched.repeat = repeat
-    if (sched.at == null && !isPlannedStart(sched.startDate) && sched.dueDate == null) {
+    if (anchor) {
+      sched.startDate = anchor.start
+      if (anchor.end != null) sched.endDate = anchor.end
+      else delete sched.endDate
+    } else if (sched.at == null && !isPlannedStart(sched.startDate) && sched.dueDate == null) {
       sched.startDate = Date.now()
     }
   } else {

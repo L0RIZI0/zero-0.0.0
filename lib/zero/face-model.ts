@@ -990,6 +990,10 @@ export interface OccurrenceRow {
   status: OccurrenceStatus
   /** Display word: matched | missed | upcoming | cancelled. */
   statusWord: string
+  /** The "current-or-next" occurrence (v0.2.235) — the soonest non-cancelled row whose end (or start,
+      if a point) hasn't passed. Computed view-time from `now` so it's never stale, unlike the old
+      write-time PRIMARY mirror. At most one row is `isNext`; none when every occurrence is in the past. */
+  isNext: boolean
 }
 
 /** The §0 PLANNED OCCURRENCES block's rows — the unified, start-ordered occurrence list, each tagged
@@ -1000,7 +1004,13 @@ export interface OccurrenceRow {
     formatters/status derivation are reused via a light `PlannedOccurrence` adapter. */
 export function getOccurrenceRows(e: Entity, now: number): OccurrenceRow[] {
   const sessions = getSessions(e)
-  return projectOccurrences(e, now).map((rec, index) => {
+  const recs = projectOccurrences(e, now)
+  // CURRENT-OR-NEXT marker (v0.2.235) — records are already start-ordered, so the first non-cancelled
+  // one whose end (or start, for a point) hasn't passed IS the current/next occurrence. Computed here,
+  // view-time, so it stays correct as `now` advances without any write (the old PRIMARY tag was a
+  // write-time mirror that got stuck on a stale/missed past slot). None qualifies ⇒ no marker.
+  const nextIdx = recs.findIndex((r) => !r.cancelled && (r.end ?? r.start) >= now)
+  return recs.map((rec, index) => {
     const primary = rec.origin === "definite" && rec.occIndex === -1
     const occ: PlannedOccurrence = { startAt: rec.start, endAt: rec.end, cancelled: rec.cancelled, primary }
     const status = occurrenceStatus(occ, sessions, now)
@@ -1017,6 +1027,7 @@ export function getOccurrenceRows(e: Entity, now: number): OccurrenceRow[] {
       label: formatOccurrenceLabel(occ, now),
       status,
       statusWord: occurrenceStatusWord(status),
+      isNext: index === nextIdx,
     }
   })
 }
