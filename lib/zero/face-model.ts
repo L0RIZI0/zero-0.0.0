@@ -1071,14 +1071,14 @@ export function getOccurrenceCount(e: Entity): number {
   return getPlannedOccurrences(e).length
 }
 
-/** Kinds that show the PLANNED OCCURRENCES block. A moment/space holds a MULTI-occurrence plan (with
-    "+ add slot" + the addOccurrence writer). An INSTANT (v0.2.237) is a single point in time (`at` ==
-    start == end == due), so it shows the block too but READ-ONLY — one point row, no add-slot/cancel
-    (the component gates those on `entity.kind !== "instant"`). NOTE: data.ts keeps a SEPARATE internal
-    `isOccurrenceKind` (moment||space) that still gates the mutating writers, so an instant can never gain
-    added slots server-side even though it renders the block. */
+/** Kinds that show (and can edit) the PLANNED OCCURRENCES block — EVERY kind except the Soul (v0.2.238;
+    was moment/space/instant). Most kinds can carry a schedule of planned points/spans, so the block is
+    editable ("+ add slot" + cancel) for all of them; the block just isn't shown for the Soul, which has
+    no schedule of its own. An INSTANT still renders each occurrence as a single POINT time (no range /
+    no "unset") via the `isInstant` path in `formatOccurrenceParts`. Mirrors data.ts's `canPlanOccurrences`
+    (which gates the writers). */
 export function isOccurrenceKind(e: Entity): boolean {
-  return e.kind === "moment" || e.kind === "space" || e.kind === "instant"
+  return e.kind !== "soul"
 }
 
 /**

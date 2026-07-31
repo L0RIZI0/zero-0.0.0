@@ -1799,7 +1799,15 @@ export function toggleSession(id: string, via: Session["via"] = "play"): boolean
 // preserving the span's length as the default duration for the next Play. Non-recurring only.
 // ----------------------------------------------------------------------------
 
+// LIVE occurrence LIFECYCLE (Play/Stop top-rail) is a moment/space thing — a running span you punch
+// in/out of. Leave it narrow.
 const isOccurrenceKind = (e: Entity) => e.kind === "moment" || e.kind === "space"
+
+// PLANNED occurrences (the §0 block's "+ add slot" / cancel), by contrast, are meaningful on EVERY
+// kind except the Soul (v0.2.238) — an instant, task, resource, etc. can all carry a schedule of
+// planned points/spans. This gates the planned-occurrence WRITERS; the Soul is the one entity with no
+// schedule of its own.
+const canPlanOccurrences = (e: Entity) => e.kind !== "soul"
 
 /**
  * PLAY — start an occurrence NOW (top rail). Sets `startAt = at`; if a `duration` is known
@@ -1887,7 +1895,7 @@ function resyncPrimary(sched: Schedule, now: number = Date.now()): void {
  */
 export function cancelPrimaryOccurrence(id: string): boolean {
   const stored = byId.get(id)
-  if (!stored || !isOccurrenceKind(stored)) return false
+  if (!stored || !canPlanOccurrences(stored)) return false
   const sched: Schedule = { ...(stored.schedule ?? {}) }
   if (!isPlannedStart(sched.startDate)) return false // no concrete primary to cancel
   const cancelled = { start: sched.startDate, end: sched.endDate, cancelled: true }
@@ -1932,12 +1940,12 @@ export function setOccurrenceCancelled(id: string, index: number, cancelled = tr
  * ADD OCCURRENCE (v0.2.229) — the genuine WRITER for a user-added planned occurrence (the companion
  * to the §0 PLANNED OCCURRENCES block's "+ Add slot"). One path (v0.2.232): append the span to
  * `plannedOccurrences[]`, then `resyncPrimary` re-picks the soonest live span as the scalar primary.
- * `end` is optional (an open-ended / point occurrence). Moment/Space only (isOccurrenceKind) — the
- * only kinds where a multi-occurrence plan is meaningful. Returns false otherwise.
+ * `end` is optional (an open-ended / point occurrence). Available on every kind except the Soul
+ * (canPlanOccurrences, v0.2.238 — was Moment/Space only). Returns false otherwise.
  */
 export function addOccurrence(id: string, start: number, end?: number): boolean {
   const stored = byId.get(id)
-  if (!stored || !isOccurrenceKind(stored)) return false
+  if (!stored || !canPlanOccurrences(stored)) return false
   const sched: Schedule = { ...(stored.schedule ?? {}) }
   const before = sched.startDate
   // v0.2.232: one path — append the new span to the flat set, then let resyncPrimary decide whether

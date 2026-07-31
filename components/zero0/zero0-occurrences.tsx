@@ -6,7 +6,9 @@ import { getOccurrenceRows } from "@/lib/zero/face-model"
 import { parseSlotToken, parseRepeatToken } from "@/lib/zero/create-parse"
 
 // The §0 PLANNED OCCURRENCES block (v0.2.229; ALWAYS-ON + primary-cancellable v0.2.232; renamed from
-// "occurrences" v0.2.233) — the SINGLE way an occurrence kind (moment/space) shows its schedule in §0.
+// "occurrences" v0.2.233) — the SINGLE way an entity shows its schedule in §0. Shown+editable for EVERY
+// kind except the Soul (v0.2.238; was moment/space/instant). An instant lists each occurrence as a
+// single POINT time (isInstant path in formatOccurrenceParts) but is otherwise editable like any kind.
 // (Backing field: schedule.plannedOccurrences[].) It is displayed at ALL times for those
 // kinds (even with zero slots — just the header + "+ add slot"), which removed the old flat PLANNED
 // START/END rows and the 0/1-vs-2+ swap entirely: one render path, always. Each line is one
@@ -48,11 +50,6 @@ export function Zero0Occurrences({
   const [adding, setAdding] = useState(false)
   const [draft, setDraft] = useState("")
   const [error, setError] = useState(false)
-  // INSTANT (v0.2.237) is a single point in time — it renders its one AT row but READ-ONLY: no
-  // "+ add slot" (a point has no slots to add) and no per-row cancel. Suppressing `onAction` for
-  // instants hides both affordances at once, since each already gates on it.
-  const isInstant = entity.kind === "instant"
-  const editAction = isInstant ? undefined : onAction
 
   const submit = useCallback(() => {
     // RECURRENCE-AWARE (v0.2.235): if any word parses as a recurrence ("daily", "weekdays", …) the field
@@ -138,11 +135,11 @@ export function Zero0Occurrences({
                   index-0 cancel to cancelPrimaryOccurrence (which promotes the next slot). Kept
                   always-visible-but-faint, not a group-hover reveal, which silently no-ops in the
                   Electron/webview build where `(hover:hover)` is false. */}
-              {editAction && (
+              {onAction && (
                 <button
                   type="button"
                   onClick={() =>
-                    editAction(
+                    onAction(
                       entity,
                       r.origin === "rule"
                         ? { type: "cancel", origin: "rule", recurrenceId: r.recurrenceId!, cancelled: !r.cancelled }
@@ -159,7 +156,7 @@ export function Zero0Occurrences({
           ))}
         </ul>
       )}
-      {editAction && (
+      {onAction && (
         <div className="mt-1">
           {adding ? (
             <input
