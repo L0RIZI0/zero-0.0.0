@@ -235,17 +235,25 @@ export function Zero0Occurrences({
           </span>
           {ruleRows.length > 0 && (
             <span className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-1 gap-y-1 tabular-nums">
-              {ruleRows.map((r) => (
-                <button
-                  key={`rule-${r.index}`}
-                  type="button"
-                  onClick={onAction ? (ev) => openRowMenu(r, ev) : undefined}
-                  onContextMenu={onAction ? (ev) => openRowMenu(r, ev) : undefined}
-                  title={`${r.day} — ${r.statusWord}${r.isNext ? " · next" : ""}`}
-                  className={chipCls(r)}
-                >
-                  {r.day}
-                </button>
+              {ruleRows.map((r, i) => (
+                <span key={`rule-${r.index}`} className="flex items-baseline gap-x-1">
+                  {/* Middle-dot separator between chips, matching the recorded-sessions/access rows.
+                      Skipped before the first chip. */}
+                  {i > 0 && (
+                    <span aria-hidden className="text-muted-foreground opacity-50">
+                      ·
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={onAction ? (ev) => openRowMenu(r, ev) : undefined}
+                    onContextMenu={onAction ? (ev) => openRowMenu(r, ev) : undefined}
+                    title={`${r.day} — ${r.statusWord}${r.isNext ? " · next" : ""}`}
+                    className={chipCls(r)}
+                  >
+                    {r.day}
+                  </button>
+                </span>
               ))}
             </span>
           )}
