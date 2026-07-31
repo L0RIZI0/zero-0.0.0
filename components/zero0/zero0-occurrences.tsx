@@ -20,11 +20,13 @@ import { parseSlotToken } from "@/lib/zero/create-parse"
 const PLACEHOLDER = "e.g. 1400-1530, 2330, 260709, in 2h"
 
 /** A user action on the block, dispatched up to the canvas (which owns the writers + re-render). A
-    cancel carries whether the target is the PRIMARY (scalar) span and, if not, its occurrences[]
-    index — the unambiguous writer address, so the canvas never has to guess from list position. */
+    cancel is discriminated by `origin` (v0.2.234) so the canvas routes to the right writer without
+    guessing: a DEFINITE row carries whether it's the PRIMARY (scalar) span + its plannedOccurrences[]
+    index; a RULE row carries its `recurrenceId` (the day-key the exceptions layer targets). */
 export type OccurrenceAction =
   | { type: "add"; start: number; end?: number }
-  | { type: "cancel"; primary: boolean; occIndex: number; cancelled: boolean }
+  | { type: "cancel"; origin: "definite"; primary: boolean; occIndex: number; cancelled: boolean }
+  | { type: "cancel"; origin: "rule"; recurrenceId: number; cancelled: boolean }
 
 export function Zero0Occurrences({
   entity,
@@ -84,7 +86,12 @@ export function Zero0Occurrences({
                 <button
                   type="button"
                   onClick={() =>
-                    onAction(entity, { type: "cancel", primary: r.primary, occIndex: r.occIndex, cancelled: !r.cancelled })
+                    onAction(
+                      entity,
+                      r.origin === "rule"
+                        ? { type: "cancel", origin: "rule", recurrenceId: r.recurrenceId!, cancelled: !r.cancelled }
+                        : { type: "cancel", origin: "definite", primary: r.primary, occIndex: r.occIndex, cancelled: !r.cancelled },
+                    )
                   }
                   className="ml-auto text-[9px] uppercase tracking-wider text-muted-foreground opacity-60 hover:text-foreground hover:opacity-100"
                   title={r.cancelled ? "Restore this occurrence" : "Cancel this occurrence"}

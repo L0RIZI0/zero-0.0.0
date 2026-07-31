@@ -51,6 +51,8 @@ import {
   addOccurrence,
   setOccurrenceCancelled,
   cancelPrimaryOccurrence,
+  setRuleOccurrenceCancelled,
+  setEntityRepeat,
   reorderContextItems,
   moveEntityToContext,
 } from "@/lib/zero/data"
@@ -62,6 +64,7 @@ import {
   parseDateToken,
   parseDurationToMinutes,
   parseHexColor,
+  parseRepeatToken,
   type EntryAttr,
 } from "@/lib/zero/create-parse"
 import { cropTitle, looksLikeUrl, normalizeUrl, resolveWebResourceByUrl, webLabel } from "@/lib/zero/web-resources"
@@ -1216,12 +1219,37 @@ export function Zero0Canvas() {
           setInstantMax(id, n, hard)
           return `maxnb ${n}${hard ? " hard" : ""}`
         }
-        default:
+        case "repeat": {
+          // RECURRENCE (v0.2.234) — `--repeat:daily` / `weekly` / `monthly` / `yearly` / `weekdays` /
+          // `weekends`. Empty clears the rule (back to one-off). Sets schedule.repeat via setEntityRepeat,
+          // which seeds startDate=now as the anchor if the entity has no time yet, so the §0 PLANNED
+          // OCCURRENCES block immediately projects the series. Same path in create AND command mode.
+          if (val === "") {
+            setEntityRepeat(id, null)
+            return "repeat cleared"
+          }
+          const rule = parseRepeatToken(val)
+          if (!rule) {
+            setNotice({ tone: "err", text: `use --repeat:daily | weekly | monthly | yearly | weekdays | weekends (got "${val}")` })
+            return null
+          }
+          setEntityRepeat(id, rule)
+          return `repeat ${val.toLowerCase()}`
+        }
+        default: {
+          // BARE recurrence aliases — `--daily`, `--weekdays`, `--monthly`, etc. (no value) still work
+          // as a friendly shorthand for `--repeat:<word>` before we treat the flag as unknown.
+          const bareRule = attr.value === "" ? parseRepeatToken(attr.field) : null
+          if (bareRule) {
+            setEntityRepeat(id, bareRule)
+            return `repeat ${attr.field}`
+          }
           setNotice({
             tone: "err",
-            text: `unknown --${attr.field} — try --start --end --at --due --duration --maxnb --maxnbhard --close --color --sex --firstName --lastName --parent --title`,
+            text: `unknown --${attr.field} — try --start --end --at --due --duration --repeat --maxnb --maxnbhard --close --color --sex --firstName --lastName --parent --title`,
           })
           return null
+        }
       }
     }
 
@@ -1612,19 +1640,21 @@ export function Zero0Canvas() {
     [bump, togglePlaySession],
   )
 
-  // §0 OCCURRENCES BLOCK actions (v0.2.229; primary now cancellable v0.2.232) — the "+ add slot" writer
-  // + per-occurrence cancel. A typed callback (not a menu-action string) since the payload carries
-  // parsed epochs / an explicit target. "add" → addOccurrence. "cancel" dispatches on the row's own
-  // `primary` flag (never a positional guess, which breaks once the scalar is empty and index 0 is a
-  // real occurrences[] entry): primary → cancelPrimaryOccurrence (records the primary as a struck slot
-  // + promotes the next soonest live span into the scalar); otherwise setOccurrenceCancelled at the
-  // row's occurrences[] index, which also handles RESTORE (cancelled=false). Both re-render via bump().
+  // §0 PLANNED OCCURRENCES BLOCK actions (v0.2.229; primary cancellable v0.2.232; rule rows v0.2.234) —
+  // the "+ add slot" writer + per-occurrence cancel. A typed callback (not a menu-action string) since
+  // the payload carries parsed epochs / an explicit target. "add" → addOccurrence (definite only).
+  // "cancel" routes by the row's `origin` (never a positional guess): a RULE row → setRuleOccurrenceCancelled
+  // (writes/clears the exceptions[recurrenceId] patch — the restore-able virtual-instance cancel); a
+  // DEFINITE row dispatches on its `primary` flag → cancelPrimaryOccurrence (records the primary as a
+  // struck slot + promotes the next soonest live span) or setOccurrenceCancelled at its plannedOccurrences[]
+  // index, which also handles RESTORE (cancelled=false). All re-render via bump().
   const runScheduleAction = useCallback(
     (e: Entity, action: OccurrenceAction) => {
       if (action.type === "add") {
         addOccurrence(e.id, action.start, action.end)
       } else if (action.type === "cancel") {
-        if (action.primary) cancelPrimaryOccurrence(e.id)
+        if (action.origin === "rule") setRuleOccurrenceCancelled(e.id, action.recurrenceId, action.cancelled)
+        else if (action.primary) cancelPrimaryOccurrence(e.id)
         else setOccurrenceCancelled(e.id, action.occIndex, action.cancelled)
       }
       bump()

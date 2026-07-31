@@ -1,4 +1,4 @@
-import type { Asset, Entity, EntityKind, IndividualEntity, Instant, LogType, Recurrence, Schedule, Resource, EntityBase, Session, Sex, TaskPriority, TitleEntry, User } from "./types"
+import type { Asset, Entity, EntityKind, IndividualEntity, Instant, LogType, OccurrenceRecord, Recurrence, Schedule, Resource, EntityBase, Session, Sex, TaskPriority, TitleEntry, User } from "./types"
   import { hasDoneFlag, isClosed, computeCloseAt, getState, isOngoing, fillsGlyph, hasOpenSession, getOpenSession, setChildrenResolver, setContainedResolver, isPlannedStart, plannedStart, isOwnOngoing, effectiveScheduleEnd, getMarks, isMarkable, getSessions, canDeleteEntity, ONGOING_ON_ENTER } from "./kinds"
 import {
   isDone,
@@ -1840,6 +1840,12 @@ export function endOccurrence(id: string, at = Date.now()): boolean {
  * left as-is.
  */
 function resyncPrimary(sched: Schedule): void {
+  // RECURRING GUARD (v0.2.234): when a `repeat` rule is set the scalar `startDate`/`endDate` is the
+  // rule ANCHOR (a stable seed), NOT a "soonest occurrence" mirror — the series is projected at
+  // view-time by `projectOccurrences`. So a definite `plannedOccurrences[]` mutation on a recurring
+  // entity must edit the list WITHOUT hijacking the anchor. Leave the scalar (and thus getState /
+  // plannedStart) untouched; the list still persists via the caller.
+  if (sched.repeat) return
   const all: { start: number; end?: number; cancelled?: boolean }[] = []
   const cs = sched.startDate
   if (typeof cs === "number") all.push({ start: cs, end: sched.endDate, cancelled: false })
@@ -1939,6 +1945,135 @@ export function addOccurrence(id: string, start: number, end?: number): boolean 
   entity.schedule = sched
   // Keep the lifecycle log coherent when this add changed the current primary start.
   if (sched.startDate !== before) logSet(entity, "startDate", sched.startDate ?? null)
+  if (!userEntityIds.has(id)) {
+    seededOverrides.set(id, { ...seededOverrides.get(id), schedule: sched })
+  }
+  persist()
+  return true
+}
+
+/** Guard against a runaway scan when a rule never yields `cap` matches within a sane horizon. */
+const PROJECT_MAX_SCAN_DAYS = 366 * 10
+
+/**
+ * PROJECT OCCURRENCES (v0.2.234) — the view-time merge that unifies an entity's three occurrence
+ * layers into a start-ordered list of lightweight {@link OccurrenceRecord}s (the primitive the §0
+ * PLANNED OCCURRENCES block and the future occurrence-centric dayline both consume). Layers:
+ *   - DEFINITE: the scalar primary (`startDate`/`endDate`, occIndex −1) + each `plannedOccurrences[]`
+ *     slot (occIndex i). Hand-added one-offs.
+ *   - RULE: the `repeat` series, expanded FRESH each call (never materialised) from the anchor across
+ *     upcoming local days (capped at `cap`, DST-safe via the same day-stepper as the timeline expander),
+ *     overlaying `exceptions[recurrenceId]` by local-midnight day-key (v1 uses `cancelled` only).
+ * A recurring entity does NOT emit its scalar as a separate definite primary — the anchor is already
+ * one rule row (avoids a double-count on the anchor day). Both `repeat` and `plannedOccurrences[]` may
+ * co-exist; on a same-day collision BOTH render (definite sorts first — no auto-supersede, by decision).
+ * Records carry only `entityId` + occurrence data; the row reads the entity itself for title/color.
+ */
+export function projectOccurrences(e: Entity, now: number, cap = 10): OccurrenceRecord[] {
+  const s = e.schedule
+  if (!s) return []
+  const out: OccurrenceRecord[] = []
+  const recurring = !!s.repeat
+
+  // DEFINITE — scalar primary, but ONLY when not recurring (for a recurring entity the scalar is the
+  // rule anchor, emitted as a rule row below; pushing it here too would double-count the anchor day).
+  if (!recurring && isPlannedStart(s.startDate)) {
+    out.push({ entityId: e.id, start: s.startDate!, end: s.endDate, origin: "definite", cancelled: false, occIndex: -1 })
+  }
+  // DEFINITE — each plannedOccurrences[] slot (extra concrete one-offs; present in BOTH modes).
+  ;(s.plannedOccurrences ?? []).forEach((occ, i) => {
+    out.push({ entityId: e.id, start: occ.start, end: occ.end, origin: "definite", cancelled: !!occ.cancelled, occIndex: i })
+  })
+
+  // RULE — project the repeat series into the next `cap` upcoming occurrences from today.
+  if (recurring) {
+    const anchor = s.at ?? (isPlannedStart(s.startDate) ? s.startDate : undefined) ?? s.dueDate
+    if (anchor != null) {
+      const anchorDate = new Date(anchor)
+      const duration = isPlannedStart(s.startDate) && s.endDate != null ? s.endDate - s.startDate : 0
+      const cursor = new Date(now)
+      cursor.setHours(0, 0, 0, 0)
+      let matches = 0
+      let scanned = 0
+      while (matches < cap && scanned < PROJECT_MAX_SCAN_DAYS) {
+        const dayStart = cursor.getTime()
+        if (s.repeat!.until != null && dayStart > s.repeat!.until) break
+        if (dayMatchesRecurrence(dayStart, anchor, s.repeat!)) {
+          const occDate = new Date(dayStart)
+          occDate.setHours(anchorDate.getHours(), anchorDate.getMinutes(), anchorDate.getSeconds(), 0)
+          const occStart = occDate.getTime()
+          const ex = s.exceptions?.[dayStart]
+          out.push({
+            entityId: e.id,
+            start: ex?.start ?? occStart,
+            end: ex?.end ?? (duration > 0 ? occStart + duration : undefined),
+            origin: "rule",
+            cancelled: !!ex?.cancelled,
+            occIndex: -1,
+            recurrenceId: dayStart,
+          })
+          matches++
+        }
+        cursor.setDate(cursor.getDate() + 1)
+        scanned++
+      }
+    }
+  }
+
+  // Start-ordered; tie-break DEFINITE before RULE on a same-day collision (stable).
+  return out.sort(
+    (a, b) => a.start - b.start || (a.origin === b.origin ? 0 : a.origin === "definite" ? -1 : 1),
+  )
+}
+
+/**
+ * CANCEL (or un-cancel) a RULE occurrence (v0.2.234) — the exceptions-layer writer that makes a
+ * VIRTUAL `repeat` instance restore-ably cancellable WITHOUT materialising the whole series. Sets
+ * `schedule.exceptions[recurrenceId].cancelled` (recurrenceId = the occurrence's local-midnight
+ * day-key). Un-cancelling that leaves an otherwise-empty patch DELETES the key (clean restore ⇒ the
+ * day projects virtually again). Never touches the scalar (rule rows don't drive the anchor), so no
+ * `resyncPrimary`. Requires a `repeat` rule. Returns false otherwise.
+ */
+export function setRuleOccurrenceCancelled(id: string, recurrenceId: number, cancelled = true): boolean {
+  const stored = byId.get(id)
+  if (!stored || !stored.schedule?.repeat) return false
+  const sched: Schedule = { ...(stored.schedule ?? {}) }
+  const exceptions = { ...(sched.exceptions ?? {}) }
+  const next = { ...(exceptions[recurrenceId] ?? {}), cancelled }
+  if (!next.cancelled && next.start == null && next.end == null) delete exceptions[recurrenceId]
+  else exceptions[recurrenceId] = next
+  if (Object.keys(exceptions).length === 0) delete sched.exceptions
+  else sched.exceptions = exceptions
+  const entity = mutable(stored)
+  entity.schedule = sched
+  if (!userEntityIds.has(id)) {
+    seededOverrides.set(id, { ...seededOverrides.get(id), schedule: sched })
+  }
+  persist()
+  return true
+}
+
+/**
+ * SET (or clear) the RECURRENCE rule (v0.2.234) — the writer behind the create-bar `--repeat` flag.
+ * Setting a rule on an entity with NO anchor (`at`/`startDate`/`dueDate` all absent) seeds
+ * `startDate = now` so the series is immediately projectable ("repeats starting now"). Passing null
+ * clears the rule (the entity reverts to its definite occurrences). Persist + log.
+ */
+export function setEntityRepeat(id: string, repeat: Recurrence | null): boolean {
+  const stored = byId.get(id)
+  if (!stored) return false
+  const sched: Schedule = { ...(stored.schedule ?? {}) }
+  if (repeat) {
+    sched.repeat = repeat
+    if (sched.at == null && !isPlannedStart(sched.startDate) && sched.dueDate == null) {
+      sched.startDate = Date.now()
+    }
+  } else {
+    delete sched.repeat
+  }
+  const entity = mutable(stored)
+  entity.schedule = sched
+  logSet(entity, "repeat", repeat ? repeat.freq : null)
   if (!userEntityIds.has(id)) {
     seededOverrides.set(id, { ...seededOverrides.get(id), schedule: sched })
   }

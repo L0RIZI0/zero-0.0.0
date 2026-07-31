@@ -20,7 +20,7 @@
 import type { Entity, EntityKind } from "./types"
   import { KIND_META, isClosed, fillsGlyph, getState, isOngoing, getOngoingSince, plannedStart, effectiveScheduleEnd, ongoingOpenSession, occurrenceAction, isBeing, isLifeBeing, individualBornAt, getPublishedAt, lifeAnchor, isMarkable, getMarks, getSessions, getInstantMaxNb, isInstantMaxNbHard, getInstantOccurrenceCount, type EntityState } from "./kinds"
 import { isDone, getCreatedAt, getDoneOn } from "./entity-log"
-import { getEntity, getCreator, getOwner, getForwardTags, getBackReferences, getChildren } from "./data"
+import { getEntity, getCreator, getOwner, getForwardTags, getBackReferences, getChildren, projectOccurrences } from "./data"
 import { getResourceDef } from "./resources"
 import { formatLocale } from "./format-locale"
 import { webLabel } from "./web-resources"
@@ -972,6 +972,13 @@ export interface OccurrenceRow {
   occIndex: number
   primary: boolean
   cancelled: boolean
+  /** WHERE this row came from (v0.2.234): a definite `plannedOccurrences[]`/scalar slot, or a projected
+      `repeat`-rule day. Drives the cancel-action dispatch (definite vs rule writer), not the visuals —
+      rows of both origins render identically, per design. */
+  origin: "definite" | "rule"
+  /** For a RULE row (v0.2.234): the local-midnight day-key the cancel/restore action targets
+      (`setRuleOccurrenceCancelled`). Absent for definite rows. */
+  recurrenceId?: number
   /** Leading DAY token — "Today" / "Tomorrow" / "Jul 31" — for the aligned fixed-width column. */
   day: string
   /** TIME range without the day, e.g. "5:30 PM–8:30 PM". */
@@ -983,23 +990,26 @@ export interface OccurrenceRow {
   statusWord: string
 }
 
-/** The §0 OCCURRENCES block's rows — the unified planned list, each tagged with derived status. The
-    `occIndex` is computed here (not assumed positional): the primary is -1, and each non-primary row
-    counts its position among the occurrences[]-sourced rows, so it's correct whether or not a primary
-    span exists (e.g. after every slot is cancelled, there is no primary and index 0 IS occurrences[0]). */
+/** The §0 PLANNED OCCURRENCES block's rows — the unified, start-ordered occurrence list, each tagged
+    with derived status. As of v0.2.234 this is built from `projectOccurrences` (data.ts), which merges
+    the three layers (definite `plannedOccurrences[]`/scalar + projected `repeat` rule + `exceptions`).
+    Each projected record carries its own dispatch address (`origin` + `occIndex`/`recurrenceId`), so the
+    block can cancel the right thing whether the row is a definite slot or a virtual rule instance. The
+    formatters/status derivation are reused via a light `PlannedOccurrence` adapter. */
 export function getOccurrenceRows(e: Entity, now: number): OccurrenceRow[] {
-  const planned = getPlannedOccurrences(e)
   const sessions = getSessions(e)
-  let occCursor = 0
-  return planned.map((occ, index) => {
+  return projectOccurrences(e, now).map((rec, index) => {
+    const primary = rec.origin === "definite" && rec.occIndex === -1
+    const occ: PlannedOccurrence = { startAt: rec.start, endAt: rec.end, cancelled: rec.cancelled, primary }
     const status = occurrenceStatus(occ, sessions, now)
     const parts = formatOccurrenceParts(occ, now)
-    const occIndex = occ.primary ? -1 : occCursor++
     return {
       index,
-      occIndex,
-      primary: !!occ.primary,
-      cancelled: !!occ.cancelled,
+      occIndex: rec.occIndex,
+      primary,
+      cancelled: rec.cancelled,
+      origin: rec.origin,
+      recurrenceId: rec.recurrenceId,
       day: parts.day,
       time: parts.time,
       label: formatOccurrenceLabel(occ, now),

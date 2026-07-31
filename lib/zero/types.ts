@@ -350,6 +350,45 @@ export interface Schedule {
   maxNbHard?: boolean
   /** Recurrence; absent = one-off. */
   repeat?: Recurrence
+  /**
+   * RULE EXCEPTIONS (v0.2.234) — restore-able patches on individual `repeat`-rule occurrences,
+   * keyed by `recurrenceId` = the LOCAL-MIDNIGHT day-key of the occurrence (same convention as the
+   * D1 materialize-on-touch `dayStart`). This is the layer that lets a VIRTUAL rule instance be
+   * cancelled (and later time-edited) WITHOUT materialising every untouched instance: the projection
+   * (`projectOccurrences`) expands the rule fresh each read and overlays these patches by day-key.
+   * `cancelled` is a struck-out tombstone (a restorable EXDATE — clearing it un-cancels). `start`/`end`
+   * are RESERVED for future per-occurrence time editing (not wired in v1). Absent = no deviations =
+   * today's behaviour. Only meaningful when `repeat` is set. Written by `setRuleOccurrenceCancelled`.
+   */
+  exceptions?: Record<number, { cancelled?: boolean; start?: Epoch; end?: Epoch }>
+}
+
+/**
+ * OCCURRENCE RECORD (v0.2.234) — the lightweight, view-time projection primitive. `projectOccurrences`
+ * merges the three occurrence layers (the `repeat` rule, `plannedOccurrences[]` definite slots, and
+ * `exceptions` patches) of a SINGLE entity into a start-ordered list of these. A record is NOT an
+ * entity — it carries only `entityId` + occurrence data; a row reads the entity itself for title/color.
+ * Both the §0 PLANNED OCCURRENCES block and (later) the occurrence-centric dayline are meant to consume
+ * this same primitive so they can never drift. Rows of every `origin` behave identically to the user.
+ */
+export interface OccurrenceRecord {
+  /** The entity this occurrence belongs to (a row opens THIS entity's window). */
+  entityId: string
+  /** Planned start, epoch ms. */
+  start: Epoch
+  /** Planned end, epoch ms (absent = open-ended / point occurrence). */
+  end?: Epoch
+  /** Where the occurrence came from: a definite `plannedOccurrences[]`/scalar slot, or a `repeat` day. */
+  origin: "definite" | "rule"
+  /** Struck-out (a cancelled definite slot, or a rule day carrying a `cancelled` exception). */
+  cancelled: boolean
+  /**
+   * For a DEFINITE row: index into `plannedOccurrences[]`, or −1 for the scalar primary. For a RULE
+   * row: N/A (−1). This is the dispatch key the block's cancel action uses for definite rows.
+   */
+  occIndex: number
+  /** For a RULE row: the local-midnight day-key (the exceptions map key). Absent for definite rows. */
+  recurrenceId?: number
 }
 
 /**

@@ -140,7 +140,7 @@ function parseTimeParam(value: string): TimeParam | null {
  * (`getTimelineOccurrences` / `dayMatchesRecurrence`) expands the rule into ticks, so this
  * is the whole "port recurrence to /0" surface. Weekday convention: 0(Sun)–6(Sat).
  */
-function parseRepeatToken(value: string): Recurrence | null {
+export function parseRepeatToken(value: string): Recurrence | null {
   switch (value.toLowerCase()) {
     case "daily":
       return { freq: "daily" }
