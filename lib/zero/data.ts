@@ -2014,10 +2014,18 @@ export function projectOccurrences(e: Entity, now: number, cap = 10): Occurrence
         const dayStart = cursor.getTime()
         if (s.repeat!.until != null && dayStart > s.repeat!.until) break
         if (dayMatchesRecurrence(dayStart, anchor, s.repeat!)) {
+          const ex = s.exceptions?.[dayStart]
+          // HARD EXDATE (v0.2.240): a `removed` instance is dropped from the projection entirely and
+          // does NOT count toward `cap`, so the list backfills the next future day (unlike `cancelled`,
+          // which stays visible + counts). This is the "delete this instance" of a rule occurrence.
+          if (ex?.removed) {
+            cursor.setDate(cursor.getDate() + 1)
+            scanned++
+            continue
+          }
           const occDate = new Date(dayStart)
           occDate.setHours(anchorDate.getHours(), anchorDate.getMinutes(), anchorDate.getSeconds(), 0)
           const occStart = occDate.getTime()
-          const ex = s.exceptions?.[dayStart]
           out.push({
             entityId: e.id,
             start: ex?.start ?? occStart,
@@ -2061,6 +2069,92 @@ export function setRuleOccurrenceCancelled(id: string, recurrenceId: number, can
   else sched.exceptions = exceptions
   const entity = mutable(stored)
   entity.schedule = sched
+  if (!userEntityIds.has(id)) {
+    seededOverrides.set(id, { ...seededOverrides.get(id), schedule: sched })
+  }
+  persist()
+  return true
+}
+
+/**
+ * DELETE a DEFINITE occurrence (v0.2.240) — hard removal, vs the restorable struck tombstone of
+ * cancel. `index` −1 = the scalar PRIMARY span (cleared outright; resyncPrimary then promotes the next
+ * live span, or the entity goes idle); `index` ≥ 0 = splice `plannedOccurrences[index]`. Then resync.
+ * (The primary-delete path is never dispatched for a recurring entity — its scalar is the rule anchor,
+ * which has no definite primary row in the block.) Available on every kind except the Soul.
+ */
+export function deleteOccurrence(id: string, index: number): boolean {
+  const stored = byId.get(id)
+  if (!stored || !canPlanOccurrences(stored)) return false
+  const sched: Schedule = { ...(stored.schedule ?? {}) }
+  const before = sched.startDate
+  if (index === -1) {
+    if (!isPlannedStart(sched.startDate)) return false
+    delete sched.startDate
+    delete sched.endDate
+  } else {
+    const occs = sched.plannedOccurrences
+    if (!occs || index < 0 || index >= occs.length) return false
+    sched.plannedOccurrences = occs.filter((_, i) => i !== index)
+  }
+  resyncPrimary(sched)
+  const entity = mutable(stored)
+  entity.schedule = sched
+  if (sched.startDate !== before) logSet(entity, "startDate", sched.startDate ?? null)
+  if (!userEntityIds.has(id)) {
+    seededOverrides.set(id, { ...seededOverrides.get(id), schedule: sched })
+  }
+  persist()
+  return true
+}
+
+/**
+ * DELETE a RULE instance (v0.2.240) — the hard-EXDATE writer: sets `exceptions[recurrenceId].removed`
+ * so `projectOccurrences` drops that instance entirely (and backfills the next future day). Distinct
+ * from `setRuleOccurrenceCancelled`, which keeps the instance visible as a restorable struck tombstone.
+ * Requires a `repeat` rule. Returns false otherwise.
+ */
+export function deleteRuleOccurrence(id: string, recurrenceId: number): boolean {
+  const stored = byId.get(id)
+  if (!stored || !stored.schedule?.repeat) return false
+  const sched: Schedule = { ...(stored.schedule ?? {}) }
+  const exceptions = { ...(sched.exceptions ?? {}) }
+  exceptions[recurrenceId] = { ...(exceptions[recurrenceId] ?? {}), removed: true }
+  sched.exceptions = exceptions
+  const entity = mutable(stored)
+  entity.schedule = sched
+  if (!userEntityIds.has(id)) {
+    seededOverrides.set(id, { ...seededOverrides.get(id), schedule: sched })
+  }
+  persist()
+  return true
+}
+
+/**
+ * CANCEL ALL DEFINITE occurrences (v0.2.240) — the definite-list "cancel all" title action. Marks every
+ * not-yet-ended definite span cancelled (a struck, per-row-restorable tombstone); already-past ones are
+ * left untouched (you can't cancel history, matching the per-row gate). Only the DEFINITE layer is
+ * affected — a `repeat` series is left alone (its scalar is the anchor; resyncPrimary early-returns).
+ */
+export function cancelAllDefiniteOccurrences(id: string, now: number = Date.now()): boolean {
+  const stored = byId.get(id)
+  if (!stored || !canPlanOccurrences(stored)) return false
+  const sched: Schedule = { ...(stored.schedule ?? {}) }
+  const before = sched.startDate
+  const all: { start: number; end?: number; cancelled?: boolean }[] = []
+  if (!sched.repeat && isPlannedStart(sched.startDate)) {
+    all.push({ start: sched.startDate, end: sched.endDate, cancelled: false })
+    delete sched.startDate
+    delete sched.endDate
+  }
+  all.push(...(sched.plannedOccurrences ?? []))
+  sched.plannedOccurrences = all.map((o) =>
+    !o.cancelled && (o.end ?? o.start) >= now ? { ...o, cancelled: true } : o,
+  )
+  resyncPrimary(sched, now)
+  const entity = mutable(stored)
+  entity.schedule = sched
+  if (sched.startDate !== before) logSet(entity, "startDate", sched.startDate ?? null)
   if (!userEntityIds.has(id)) {
     seededOverrides.set(id, { ...seededOverrides.get(id), schedule: sched })
   }

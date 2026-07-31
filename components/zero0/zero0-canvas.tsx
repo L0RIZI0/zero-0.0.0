@@ -52,6 +52,9 @@ import {
   setOccurrenceCancelled,
   cancelPrimaryOccurrence,
   setRuleOccurrenceCancelled,
+  deleteOccurrence,
+  deleteRuleOccurrence,
+  cancelAllDefiniteOccurrences,
   setEntityRepeat,
   reorderContextItems,
   moveEntityToContext,
@@ -1662,6 +1665,14 @@ export function Zero0Canvas() {
         if (action.origin === "rule") setRuleOccurrenceCancelled(e.id, action.recurrenceId, action.cancelled)
         else if (action.primary) cancelPrimaryOccurrence(e.id)
         else setOccurrenceCancelled(e.id, action.occIndex, action.cancelled)
+      } else if (action.type === "delete") {
+        // Hard removal (v0.2.240): rule → a `removed` EXDATE that drops the instance from the projection;
+        // definite → splice the plannedOccurrences[] slot, or clear the scalar primary (occIndex −1).
+        if (action.origin === "rule") deleteRuleOccurrence(e.id, action.recurrenceId)
+        else deleteOccurrence(e.id, action.primary ? -1 : action.occIndex)
+      } else if (action.type === "cancelAll") {
+        // "cancel all" on the one-off list (v0.2.240) — cancels every not-yet-ended definite occurrence.
+        cancelAllDefiniteOccurrences(e.id)
       }
       bump()
     },

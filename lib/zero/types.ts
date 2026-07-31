@@ -356,11 +356,15 @@ export interface Schedule {
    * D1 materialize-on-touch `dayStart`). This is the layer that lets a VIRTUAL rule instance be
    * cancelled (and later time-edited) WITHOUT materialising every untouched instance: the projection
    * (`projectOccurrences`) expands the rule fresh each read and overlays these patches by day-key.
-   * `cancelled` is a struck-out tombstone (a restorable EXDATE — clearing it un-cancels). `start`/`end`
-   * are RESERVED for future per-occurrence time editing (not wired in v1). Absent = no deviations =
-   * today's behaviour. Only meaningful when `repeat` is set. Written by `setRuleOccurrenceCancelled`.
+   * `cancelled` is a struck-out tombstone (a restorable EXDATE — clearing it un-cancels, the row stays
+   * VISIBLE as a cancelled instance). `removed` (v0.2.240) is a HARD EXDATE — the instance is dropped
+   * from the projection entirely (not shown, and it doesn't count toward the projection cap, so the
+   * list backfills the next future day); this is the "delete this instance" of a rule occurrence, as
+   * distinct from the softer restorable `cancelled`. `start`/`end` are RESERVED for future
+   * per-occurrence time editing (not wired yet). Absent = no deviations = today's behaviour. Only
+   * meaningful when `repeat` is set. Written by `setRuleOccurrenceCancelled` / `deleteRuleOccurrence`.
    */
-  exceptions?: Record<number, { cancelled?: boolean; start?: Epoch; end?: Epoch }>
+  exceptions?: Record<number, { cancelled?: boolean; removed?: boolean; start?: Epoch; end?: Epoch }>
 }
 
 /**

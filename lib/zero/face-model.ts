@@ -17,10 +17,12 @@
 // a Face at any resolution. Kept free of React on purpose.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import type { Entity, EntityKind } from "./types"
+ import type { Entity, EntityKind } from "./types"
+import type { Recurrence } from "./types"
   import { KIND_META, isClosed, fillsGlyph, getState, isOngoing, getOngoingSince, plannedStart, effectiveScheduleEnd, ongoingOpenSession, occurrenceAction, isBeing, isLifeBeing, individualBornAt, getPublishedAt, lifeAnchor, isMarkable, getMarks, getSessions, getInstantMaxNb, isInstantMaxNbHard, getInstantOccurrenceCount, type EntityState } from "./kinds"
 import { isDone, getCreatedAt, getDoneOn } from "./entity-log"
-import { getEntity, getCreator, getOwner, getForwardTags, getBackReferences, getChildren, projectOccurrences } from "./data"
+ import { getEntity, getCreator, getOwner, getForwardTags, getBackReferences, getChildren, projectOccurrences } from "./data"
+import { isPlannedStart } from "./kinds"
 import { getResourceDef } from "./resources"
 import { formatLocale } from "./format-locale"
 import { webLabel } from "./web-resources"
@@ -1069,6 +1071,38 @@ export function getOccurrenceRows(e: Entity, now: number): OccurrenceRow[] {
       cancellable: (rec.end ?? rec.start) >= now,
     }
   })
+}
+
+const WEEKDAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+const FREQ_LABEL = { daily: "daily", weekly: "weekly", monthly: "monthly", yearly: "yearly" } as const
+const FREQ_UNIT = { daily: "day", weekly: "week", monthly: "month", yearly: "year" } as const
+
+/** Human label for a recurrence SERIES (v0.2.240) — the title of the series sub-list in the §0 block.
+    Covers frequency + interval + weekly `byWeekday`, plus the shared ANCHOR time when the entity has one
+    (all instances share it, so it belongs in the title). E.g. "daily · 3:00 PM",
+    "every Tuesday and Friday · 1:00 PM – 2:00 PM", "every 2 weeks". Time formatting stays here (model
+    layer) so the component is pure presentation. Returns "" when the entity has no `repeat` rule. */
+export function describeRecurrence(e: Entity): string {
+  const s = e.schedule
+  const r: Recurrence | undefined = s?.repeat
+  if (!s || !r) return ""
+  const n = r.interval ?? 1
+  let base: string
+  if (r.freq === "weekly" && r.byWeekday?.length) {
+    const days = [...r.byWeekday].sort((a, b) => a - b).map((d) => WEEKDAY_NAMES[d] ?? "?")
+    const list =
+      days.length === 1 ? days[0] : `${days.slice(0, -1).join(", ")} and ${days[days.length - 1]}`
+    base = n > 1 ? `every ${n} weeks on ${list}` : `every ${list}`
+  } else {
+    base = n > 1 ? `every ${n} ${FREQ_UNIT[r.freq]}s` : FREQ_LABEL[r.freq]
+  }
+  const anchor = s.at ?? (isPlannedStart(s.startDate) ? s.startDate : undefined) ?? s.dueDate
+  if (anchor != null) {
+    const hasEnd = isPlannedStart(s.startDate) && s.endDate != null
+    const time = hasEnd ? `${fmtTime(s.startDate!)} – ${fmtTime(s.endDate!)}` : fmtTime(anchor)
+    return `${base} · ${time}`
+  }
+  return base
 }
 
 /** How many planned occurrences an entity has (current primary + occurrences[]). General helper;
