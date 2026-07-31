@@ -6,6 +6,7 @@ import { Zero0ThemeToggle } from "./zero0-theme-toggle"
 import { Zero0UpdateIndicator } from "./zero0-update-indicator"
 import { Zero0WindowControls } from "./zero0-window-controls"
 import { Zero0Agenda, Zero0Activity } from "./zero0-activity"
+import type { DaylineOccRef } from "./zero0-dayline"
 import { recordPresence } from "@/lib/zero/activity-log"
 import { Zero0DomMenu, type Zero0DomMenuState } from "./zero0-dom-menu"
 import { Zero0ColorField } from "./zero0-color-picker"
@@ -1820,6 +1821,46 @@ export function Zero0Canvas() {
     [minimized, showMenu],
   )
 
+  // Right-click a TOP-rail (planned) dayline tick → the PER-OCCURRENCE menu (v0.2.249), mirroring the §0
+  // block's chip/row menu: Edit time · Cancel/Restore · Delete, all dispatched through the SAME
+  // `runScheduleAction` using the occurrence's own dispatch identity (`occ`). EDIT navigates to the entity
+  // (the inline time editor lives in the §0 block; the dayline hosts no text input this pass) — every other
+  // verb acts in place. Cancel/Edit are gated to a not-yet-past occurrence (`occ.cancellable`) exactly like
+  // §0 (can't re-time or cancel history), so a fully-past tick offers only Delete.
+  const openOccurrenceMenu = useCallback(
+    (entityId: string, occ: DaylineOccRef, ev: React.MouseEvent) => {
+      ev.preventDefault()
+      ev.stopPropagation()
+      const e = getEntity(entityId)
+      if (!e) return
+      const items: MenuItem[] = [
+        { type: "item", id: "edit", label: "Edit time", disabled: !occ.cancellable },
+      ]
+      if (occ.cancellable) items.push({ type: "item", id: "cancel", label: "Cancel" })
+      items.push({ type: "item", id: "delete", label: "Delete", danger: true })
+      showMenu(items, ev.clientX, ev.clientY, (id) => {
+        if (id === "edit") {
+          navigateTo(entityId) // open the entity; per-occurrence time editing lives in its §0 block
+        } else if (id === "cancel") {
+          runScheduleAction(
+            e,
+            occ.origin === "rule"
+              ? { type: "cancel", origin: "rule", recurrenceId: occ.recurrenceId!, cancelled: true, ruleId: occ.ruleId }
+              : { type: "cancel", origin: "definite", primary: occ.occIndex === -1, occIndex: occ.occIndex, cancelled: true },
+          )
+        } else if (id === "delete") {
+          runScheduleAction(
+            e,
+            occ.origin === "rule"
+              ? { type: "delete", origin: "rule", recurrenceId: occ.recurrenceId!, ruleId: occ.ruleId }
+              : { type: "delete", origin: "definite", primary: occ.occIndex === -1, occIndex: occ.occIndex },
+          )
+        }
+      })
+    },
+    [showMenu, navigateTo, runScheduleAction],
+  )
+
   // SIBLINGS dropdown — opened from the caret to the LEFT of a crumb (any depth except root).
   // Lists ALL entities at that crumb's level (its parent's children, INCLUDING the current one,
   // marked), in their stable child order. Listing all — not just the "others" — means the menu's
@@ -2020,6 +2061,7 @@ export function Zero0Canvas() {
           <Zero0Agenda
             onOpen={navigateTo}
             onContextMenuEntity={openMenuById}
+            onOccurrenceMenu={openOccurrenceMenu}
             onFrameMenu={openFrameMenu}
             onToggleMinimize={() => setMinimized((m) => ({ ...m, agenda: !m.agenda }))}
             minimized={minimized.agenda}

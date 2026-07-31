@@ -13,7 +13,7 @@ import {
   type SpaceRollup,
 } from "@/lib/zero/activity-log"
 import { Zero0Face } from "@/components/zero0/zero0-face"
-import { Zero0Dayline } from "@/components/zero0/zero0-dayline"
+import { Zero0Dayline, type DaylineOccRef } from "@/components/zero0/zero0-dayline"
 import { Zero0FrameMarker } from "@/components/zero0/zero0-frame-marker"
 import { useZero0Readout, toggleZero0Readout } from "@/lib/zero/zero0-chord"
 import { formatLocale } from "@/lib/zero/format-locale"
@@ -72,6 +72,7 @@ function titleForAt(id: string, epoch: number): string {
 export function Zero0Agenda({
   onOpen,
   onContextMenuEntity,
+  onOccurrenceMenu,
   onFrameMenu,
   onToggleMinimize,
   minimized = false,
@@ -82,6 +83,13 @@ export function Zero0Agenda({
   onOpen: (id: string) => void
   /** Right-click a planned tick → the entity menu for that occurrence. */
   onContextMenuEntity?: (id: string, ev: React.MouseEvent) => void
+  /** Right-click a TOP-rail tick → the PER-OCCURRENCE menu (Edit time / Cancel / Delete). Only the
+   *  agenda dayline has a top rail, so only this component forwards it (v0.2.249). */
+  onOccurrenceMenu?: (
+    entityId: string,
+    occ: NonNullable<DaylineOccRef>,
+    ev: React.MouseEvent,
+  ) => void
   /** Right-click the frame chrome (header / empty area) → the frame menu (minimize). */
   onFrameMenu?: (frame: "agenda" | "activity", ev: React.MouseEvent) => void
   /** Toggle minimize/maximize directly (LEFT-click): the chevron in the maximized title,
@@ -146,6 +154,7 @@ export function Zero0Agenda({
         <Zero0Dayline
           onOpen={onOpen}
           onContextMenuEntity={onContextMenuEntity}
+          onOccurrenceMenu={onOccurrenceMenu}
           dataRev={dataRev}
           tracks="both"
           minimized={minimized}

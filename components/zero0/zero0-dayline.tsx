@@ -5,6 +5,9 @@ import { createPortal } from "react-dom"
 import { getSegments, useActivityRevision } from "@/lib/zero/activity-log"
 import { ROOT_ID, getEntitiesWithSessions, getEntity, getInheritedAccent, getDaylineOccurrences } from "@/lib/zero/data"
 import type { TimelineOccurrence } from "@/lib/zero/data"
+
+/** A top-rail occurrence's dispatch identity, surfaced for the per-occurrence right-click menu (v0.2.249). */
+export type DaylineOccRef = NonNullable<TimelineOccurrence["occRef"]>
  import { titleAt } from "@/lib/zero/entity-log"
  import { webLabel } from "@/lib/zero/web-resources"
  import type { Entity } from "@/lib/zero/types"
@@ -664,8 +667,30 @@ export function Zero0Dayline({
       }
     }
     if (ivs.length === 0) return []
+    // Structural DEPTH of an entity = its number of ancestors (root = 0). Memoized per derive.
+    // (v0.2.249) Used to break start-ties in the flatten below.
+    const depthCache = new Map<string, number>()
+    const depthOf = (id: string): number => {
+      const hit = depthCache.get(id)
+      if (hit != null) return hit
+      let d = 0
+      let cur = getEntity(id)?.parentId ?? null
+      const seen = new Set<string>()
+      while (cur && !seen.has(cur)) {
+        seen.add(cur)
+        d += 1
+        cur = getEntity(cur)?.parentId ?? null
+      }
+      depthCache.set(id, d)
+      return d
+    }
     // 2) FLATTEN by max-start-wins: sweep the sorted boundaries; in each gap the visible owner is
     //    the active interval with the greatest start (the deepest / most-recently-entered leaf).
+    //    v0.2.249 LEAF FIX: a DIRECT jump to a deep entity punches focus on the WHOLE path
+    //    (root→…→leaf) in one tick, so every covering interval shares one `startedAt` and ties on
+    //    start. The old strict `v.start > win.start` then kept the FIRST-iterated (shallowest =
+    //    PARENT) interval — the "spine shows the parent, not the leaf" bug. Break the start-tie by
+    //    structural DEPTH so the deepest (true leaf) wins.
     const bounds = Array.from(new Set(ivs.flatMap((v) => [v.start, v.end]))).sort((a, b) => a - b)
     type Seg = { id: string; start: number; end: number; open: boolean }
     const flat: Seg[] = []
@@ -675,7 +700,14 @@ export function Zero0Dayline({
       if (b <= a) continue
       let win: Iv | null = null
       for (const v of ivs) {
-        if (v.start <= a && v.end >= b && (win == null || v.start > win.start)) win = v
+        if (v.start <= a && v.end >= b) {
+          if (
+            win == null ||
+            v.start > win.start ||
+            (v.start === win.start && depthOf(v.id) > depthOf(win.id))
+          )
+            win = v
+        }
       }
       if (!win) continue
       const prev = flat[flat.length - 1]
