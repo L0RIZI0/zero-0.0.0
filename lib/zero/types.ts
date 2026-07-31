@@ -351,6 +351,15 @@ export interface Schedule {
   /** Recurrence; absent = one-off. */
   repeat?: Recurrence
   /**
+   * PRIMARY RULE ANCHOR (v0.2.247) — the seed instant the `repeat` rule expands from, DECOUPLED from the
+   * scalar `startDate`/`endDate`. Before .247 the scalar doubled as the anchor, which is why it had to
+   * stay frozen for recurring entities; now the anchor lives here so the scalar is free to MIRROR the
+   * current-or-next occurrence (see `resyncPrimary`). Absent ⇒ back-compat fallback to the old scalar
+   * anchor (`at ?? startDate ?? dueDate`), seeded on first normalize/write. Only meaningful when `repeat`
+   * is set. `end` present ⇒ ranged instances (its duration is `end - start`); absent ⇒ point instances.
+   */
+  repeatAnchor?: { start: Epoch; end?: Epoch }
+  /**
    * RULE EXCEPTIONS (v0.2.234) — restore-able patches on individual `repeat`-rule occurrences,
    * keyed by `recurrenceId` = the LOCAL-MIDNIGHT day-key of the occurrence (same convention as the
    * D1 materialize-on-touch `dayStart`). This is the layer that lets a VIRTUAL rule instance be

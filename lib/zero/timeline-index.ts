@@ -174,8 +174,10 @@ export function queryTimeline(
   for (const e of getTimedDescendants(contextId)) {
     const s = e.schedule
     if (!s) continue
-    // "whenever" can't anchor a timeline occurrence (no fixed time).
-    const anchor = s.at ?? (typeof s.startDate === "number" ? s.startDate : undefined)
+    // "whenever" can't anchor a timeline occurrence (no fixed time). For a recurring entity the rule
+    // seed is `repeatAnchor` (v0.2.247 — the scalar now mirrors NEXT); fall back to the scalar for
+    // non-recurring entities and legacy un-normalized schedules.
+    const anchor = (s.repeat ? s.repeatAnchor?.start : undefined) ?? s.at ?? (typeof s.startDate === "number" ? s.startDate : undefined)
     if (anchor == null) continue
     const color = getInheritedAccent(e.parentId ?? ROOT_ID) ?? NEUTRAL
 

@@ -1097,8 +1097,10 @@ export function describeRecurrence(e: Entity): string {
   const s = e.schedule
   const r: Recurrence | undefined = s?.repeat
   if (!s || !r) return ""
-  const anchor = s.at ?? (isPlannedStart(s.startDate) ? s.startDate : undefined) ?? s.dueDate
-  const anchorEnd = isPlannedStart(s.startDate) && s.endDate != null ? s.endDate : undefined
+  // Label off the rule ANCHOR (v0.2.247: `repeatAnchor`), NOT the scalar — the scalar now mirrors NEXT,
+  // whose time equals the anchor's for a pure rule but could differ for a definite-backed NEXT.
+  const anchor = s.repeatAnchor?.start ?? s.at ?? (isPlannedStart(s.startDate) ? s.startDate : undefined) ?? s.dueDate
+  const anchorEnd = s.repeatAnchor?.end ?? (isPlannedStart(s.startDate) && s.endDate != null ? s.endDate : undefined)
   return describeRecurrenceRule(r, anchor, anchorEnd)
 }
 

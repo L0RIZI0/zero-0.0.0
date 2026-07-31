@@ -1971,6 +1971,20 @@ export function addOccurrence(id: string, start: number, end?: number): boolean 
 const PROJECT_MAX_SCAN_DAYS = 366 * 10
 
 /**
+ * PRIMARY RULE ANCHOR (v0.2.247) — the seed the primary `repeat` expands from. Prefers the decoupled
+ * `schedule.repeatAnchor`; falls back to the legacy scalar anchor (`at ?? plannedStart ?? dueDate`, with
+ * the scalar duration) for schedules not yet normalized. Returns undefined when there's no usable seed.
+ * This indirection is what lets the scalar `startDate`/`endDate` mirror NEXT without drifting the rule.
+ */
+function primaryRuleAnchor(s: Schedule): { start: number; end?: number } | undefined {
+  if (s.repeatAnchor && typeof s.repeatAnchor.start === "number") return s.repeatAnchor
+  const start = s.at ?? (isPlannedStart(s.startDate) ? s.startDate : undefined) ?? s.dueDate
+  if (start == null) return undefined
+  const end = isPlannedStart(s.startDate) && s.endDate != null ? s.endDate : undefined
+  return { start, end }
+}
+
+/**
  * PROJECT OCCURRENCES (v0.2.234) — the view-time merge that unifies an entity's three occurrence
  * layers into a start-ordered list of lightweight {@link OccurrenceRecord}s (the primitive the §0
  * PLANNED OCCURRENCES block and the future occurrence-centric dayline both consume). Layers:
@@ -1984,15 +1998,18 @@ const PROJECT_MAX_SCAN_DAYS = 366 * 10
  * co-exist; on a same-day collision BOTH render (definite sorts first — no auto-supersede, by decision).
  * Records carry only `entityId` + occurrence data; the row reads the entity itself for title/color.
  */
-export function projectOccurrences(e: Entity, now: number, cap = 10): OccurrenceRecord[] {
+export function projectOccurrences(e: { id: string; schedule?: Schedule }, now: number, cap = 10): OccurrenceRecord[] {
   const s = e.schedule
   if (!s) return []
   const out: OccurrenceRecord[] = []
+  // hasRule = the entity carries ANY recurrence (primary `repeat` OR ≥1 additional series). When true
+  // the scalar `startDate` is a NEXT-MIRROR (v0.2.247), NOT a real definite slot, so it must NOT be
+  // pushed as a definite here (it would double-count a rule/series occurrence it's already mirroring).
   const recurring = !!s.repeat
+  const hasRule = recurring || !!(s.series && s.series.length)
 
-  // DEFINITE — scalar primary, but ONLY when not recurring (for a recurring entity the scalar is the
-  // rule anchor, emitted as a rule row below; pushing it here too would double-count the anchor day).
-  if (!recurring && isPlannedStart(s.startDate)) {
+  // DEFINITE — scalar primary, ONLY when the entity has NO rule (else the scalar is the NEXT-mirror).
+  if (!hasRule && isPlannedStart(s.startDate)) {
     out.push({ entityId: e.id, start: s.startDate!, end: s.endDate, origin: "definite", cancelled: false, occIndex: -1 })
   }
   // DEFINITE — each plannedOccurrences[] slot (extra concrete one-offs; present in BOTH modes).
@@ -2001,13 +2018,14 @@ export function projectOccurrences(e: Entity, now: number, cap = 10): Occurrence
   })
 
   // RULE — the PRIMARY `repeat` series, projected into the next `cap` upcoming occurrences from today.
-  // Its anchor is the scalar (`at`/`startDate`/`dueDate`) and its exceptions are `schedule.exceptions`;
-  // a primary rule row carries NO `ruleId` (undefined).
+  // Its anchor is `repeatAnchor` (v0.2.247; falls back to the old scalar anchor when absent) — NOT the
+  // scalar, which now mirrors NEXT — and its exceptions are `schedule.exceptions`; a primary rule row
+  // carries NO `ruleId` (undefined).
   if (recurring) {
-    const anchor = s.at ?? (isPlannedStart(s.startDate) ? s.startDate : undefined) ?? s.dueDate
-    if (anchor != null) {
-      const duration = isPlannedStart(s.startDate) && s.endDate != null ? s.endDate - s.startDate : 0
-      projectRuleInto(out, e.id, s.repeat!, anchor, duration, s.exceptions, undefined, now, cap)
+    const a = primaryRuleAnchor(s)
+    if (a != null) {
+      const duration = a.end != null ? a.end - a.start : 0
+      projectRuleInto(out, e.id, s.repeat!, a.start, duration, s.exceptions, undefined, now, cap)
     }
   }
 
@@ -2829,7 +2847,7 @@ export function hydrateFromStorage(): boolean {
   // LIVENESS (v0.6.20, NO heartbeat): `getLastKnownAlive()` is the newest moment we have evidence
   // the app was alive — the presence log's last flush stamp (written on every hide/reload). Two
   // cases:
-  //   • alive-RECENTLY (now − alive ≤ ALIVE_GRACE_MS) ⇒ this was a mere RELOAD/deploy while you
+  //   • alive-RECENTLY (now ��� alive ≤ ALIVE_GRACE_MS) ⇒ this was a mere RELOAD/deploy while you
   //     were still present, NOT a shutdown. LEAVE the focus session OPEN so it stays continuous
   //     (openSession is idempotent, so the canvas re-uses it) — one long ongoing bar, matching
   //     "I never ended it". (The OLD bug closed it at lastLogAt≈startAt → span≈0 → dropped.)
