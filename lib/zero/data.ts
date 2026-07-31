@@ -2145,6 +2145,78 @@ export function setRuleOccurrenceCancelled(id: string, recurrenceId: number, can
 }
 
 /**
+ * EDIT the TIME of ONE RULE instance (v0.2.248) — the per-occurrence time-edit writer. Writes
+ * `exceptions[recurrenceId].start` (+ optional `.end`) so `projectOccurrences` re-times just that one
+ * instance (it already applies these override slots), leaving the rule + its other instances untouched.
+ * Scope: time-of-day edit — the caller re-anchors the new clock onto the instance's existing day, so
+ * `recurrenceId` (the day-key) stays valid. `ruleId` present ⇒ an additional series (v0.2.246); absent ⇒
+ * the primary `repeat`. Resyncs the NEXT mirror after (an edited time can change what's next). Passing
+ * `end == null` clears any prior end override (instance reverts to a point / the anchor's duration).
+ * Requires the targeted rule to exist. Returns false otherwise.
+ */
+export function setRuleOccurrenceTime(
+  id: string,
+  recurrenceId: number,
+  start: number,
+  end?: number,
+  ruleId?: string,
+): boolean {
+  const stored = byId.get(id)
+  if (!stored?.schedule) return false
+  if (ruleId != null) return patchSeriesException(stored, ruleId, recurrenceId, { start, end })
+  if (!stored.schedule.repeat) return false
+  const sched: Schedule = { ...(stored.schedule ?? {}) }
+  const exceptions = { ...(sched.exceptions ?? {}) }
+  const prev = exceptions[recurrenceId] ?? {}
+  const next: { cancelled?: boolean; removed?: boolean; start?: number; end?: number } = { ...prev, start }
+  if (end != null) next.end = end
+  else delete next.end
+  exceptions[recurrenceId] = next
+  sched.exceptions = exceptions
+  resyncPrimary(sched) // NEXT may have changed (v0.2.248)
+  const entity = mutable(stored)
+  entity.schedule = sched
+  if (!userEntityIds.has(id)) {
+    seededOverrides.set(id, { ...seededOverrides.get(id), schedule: sched })
+  }
+  persist()
+  return true
+}
+
+/**
+ * EDIT the TIME of ONE DEFINITE occurrence (v0.2.248) — the one-off analogue of `setRuleOccurrenceTime`.
+ * `index` −1 = the scalar PRIMARY span (only reachable on a NON-recurring entity, where the scalar is a
+ * real definite row); `index` ≥ 0 = `plannedOccurrences[index]`. Writes the new start (+ optional end),
+ * then resyncs so the scalar mirror reflects the change. Time-of-day edit ⇒ caller re-anchors onto the
+ * occurrence's existing day. Available on every kind except the Soul. Returns false on a bad index.
+ */
+export function setDefiniteOccurrenceTime(id: string, index: number, start: number, end?: number): boolean {
+  const stored = byId.get(id)
+  if (!stored || !canPlanOccurrences(stored)) return false
+  const sched: Schedule = { ...(stored.schedule ?? {}) }
+  const before = sched.startDate
+  if (index === -1) {
+    if (!isPlannedStart(sched.startDate)) return false
+    sched.startDate = start
+    if (end != null) sched.endDate = end
+    else delete sched.endDate
+  } else {
+    const occs = sched.plannedOccurrences
+    if (!occs || index < 0 || index >= occs.length) return false
+    sched.plannedOccurrences = occs.map((o, i) => (i === index ? { ...o, start, end } : o))
+  }
+  resyncPrimary(sched)
+  const entity = mutable(stored)
+  entity.schedule = sched
+  if (sched.startDate !== before) logSet(entity, "startDate", sched.startDate ?? null)
+  if (!userEntityIds.has(id)) {
+    seededOverrides.set(id, { ...seededOverrides.get(id), schedule: sched })
+  }
+  persist()
+  return true
+}
+
+/**
  * Apply a patch to ONE additional series' exceptions map (v0.2.246) — the `series[]` analogue of the
  * primary's exception writers. `patch.removed` ⇒ hard EXDATE (delete-instance); `patch.cancelled` ⇒
  * restorable tombstone. An exception that becomes empty (all flags false/absent) is deleted so the day

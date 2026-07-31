@@ -15,16 +15,35 @@ import { Zero0DomMenu, type Zero0DomMenuState } from "./zero0-dom-menu"
 // into two independently start-ordered sub-lists:
 //   1. SERIES (optional, only when schedule.repeat is set) — the projected rule INSTANCES, under a title
 //      that names the rule (describeRecurrence, e.g. "repeats every Tuesday and Friday · 1:00 PM"). The
-//      title carries the series-level actions: EDIT (placeholder, not wired yet) + CLEAR (stop repeating).
+//      title carries the series-level actions: EDIT (placeholder — editing the RULE itself is future work)
+//      + CLEAR (stop repeating).
 //   2. ONE-OFF — the explicitly-planned DEFINITE occurrences (scalar primary + plannedOccurrences[]).
 //      Its title carries CANCEL ALL + "+ add slot".
-// Each row (instance or occurrence) carries per-item actions: EDIT (placeholder) · CANCEL/RESTORE · DELETE.
+// Each row (instance or occurrence) carries per-item actions: EDIT (per-occurrence TIME edit, v0.2.248 —
+// re-times just that instance via the shared bottom input, day fixed) · CANCEL/RESTORE · DELETE.
 // CANCEL is a restorable struck tombstone, gated to not-yet-ended occurrences (r.cancellable); DELETE is
 // a hard removal (definite: splice/clear; rule: a `removed` EXDATE that drops the instance from the
 // projection). An INSTANT kind still renders each occurrence as a single POINT time (isInstant path in
 // formatOccurrenceParts). DORMANT-by-design: only the STATUS word shows, never the planned-vs-actual delta.
 
 const PLACEHOLDER = "e.g. 1400-1530, 2330, in 2h, 12h daily"
+const EDIT_PLACEHOLDER = "e.g. 1400 or 1400-1530"
+
+/** Local-clock `HHMM` for prefilling the time editor (v0.2.248). */
+function clockHHMM(epoch: number): string {
+  const d = new Date(epoch)
+  return String(d.getHours()).padStart(2, "0") + String(d.getMinutes()).padStart(2, "0")
+}
+
+/** Re-anchor a parsed clock onto an occurrence's EXISTING day (v0.2.248) — edit-occurrence is time-of-day
+    only, so we keep the day of `dayAnchor` and overwrite just the H:M:S from `parsedTime` (which
+    `parseSlotToken` may have placed on a different logical day). */
+function applyClock(dayAnchor: number, parsedTime: number): number {
+  const day = new Date(dayAnchor)
+  const t = new Date(parsedTime)
+  day.setHours(t.getHours(), t.getMinutes(), t.getSeconds(), 0)
+  return day.getTime()
+}
 
 /** A user action on the block, dispatched up to the canvas (which owns the writers + re-render). Cancel
     and delete are discriminated by `origin` (v0.2.234) so the canvas routes to the right writer without
@@ -37,6 +56,10 @@ export type OccurrenceAction =
   | { type: "cancel"; origin: "rule"; recurrenceId: number; cancelled: boolean; ruleId?: string }
   | { type: "delete"; origin: "definite"; primary: boolean; occIndex: number }
   | { type: "delete"; origin: "rule"; recurrenceId: number; ruleId?: string }
+  // EDIT the TIME of one occurrence (v0.2.248) — time-of-day only; the new `start`/`end` already carry the
+  // occurrence's existing day (re-anchored in the editor). Same origin-discrimination as cancel/delete.
+  | { type: "edit"; origin: "definite"; primary: boolean; occIndex: number; start: number; end?: number }
+  | { type: "edit"; origin: "rule"; recurrenceId: number; start: number; end?: number; ruleId?: string }
   // CANCEL ALL not-yet-ended DEFINITE occurrences (v0.2.240) — the block title's action.
   | { type: "cancelAll" }
   // SET the PRIMARY rule from the add-slot field (v0.2.235) — "12h daily", "daily", "weekdays 9h", etc.
@@ -93,6 +116,9 @@ export function Zero0Occurrences({
   const [adding, setAdding] = useState(false)
   const [draft, setDraft] = useState("")
   const [error, setError] = useState(false)
+  // EDIT MODE (v0.2.248) — when set, the SAME bottom input edits this occurrence's TIME (prefilled with
+  // its clock, day stays fixed) instead of adding a new slot. Cleared on commit / Esc / blur.
+  const [editing, setEditing] = useState<Row | null>(null)
   // Right-click menu for the series chips (v0.2.242) — reuses the shared Zero0DomMenu popup.
   const [menu, setMenu] = useState<Zero0DomMenuState | null>(null)
 
@@ -120,6 +146,45 @@ export function Zero0Occurrences({
     [onAction, entity],
   )
 
+  // Enter EDIT mode for one occurrence (v0.2.248): open the shared bottom input prefilled with the
+  // occurrence's current clock (HHMM / HHMM-HHMM), remembering which row we're editing. Day stays fixed.
+  const startEdit = useCallback((r: Row) => {
+    if (!onAction) return
+    const prefill =
+      r.startAt == null ? "" : r.endAt != null ? `${clockHHMM(r.startAt)}-${clockHHMM(r.endAt)}` : clockHHMM(r.startAt)
+    setEditing(r)
+    setAdding(false)
+    setDraft(prefill)
+    setError(false)
+    setMenu(null)
+  }, [onAction])
+
+  // Commit a TIME edit: parse the draft as a clock-only token, re-anchor it onto the edited occurrence's
+  // existing day, and dispatch `{type:"edit"}` discriminated by origin. Rule words are NOT accepted here
+  // (editing an instance's TIME, not its rule) — a non-time token just errors. (v0.2.248)
+  const submitEdit = useCallback(() => {
+    if (!editing) return
+    const parsed = parseSlotToken(draft.trim(), now)
+    if (!parsed) {
+      setError(true)
+      return
+    }
+    const dayAnchor = editing.startAt ?? now
+    const start = applyClock(dayAnchor, parsed.start)
+    let end = parsed.end != null ? applyClock(dayAnchor, parsed.end) : undefined
+    // An overnight span (e.g. 2330-0100) re-anchors with end <= start ⇒ push end to the next day.
+    if (end != null && end <= start) end += 24 * 60 * 60 * 1000
+    onAction?.(
+      entity,
+      editing.origin === "rule"
+        ? { type: "edit", origin: "rule", recurrenceId: editing.recurrenceId!, start, end, ruleId: editing.ruleId }
+        : { type: "edit", origin: "definite", primary: editing.primary, occIndex: editing.occIndex, start, end },
+    )
+    setEditing(null)
+    setDraft("")
+    setError(false)
+  }, [editing, draft, now, onAction, entity])
+
   // Open the series-chip menu at the cursor: EDIT (disabled placeholder) · CANCEL/RESTORE (when the
   // instance is cancellable or already cancelled) · DELETE. Wired to BOTH right-click and plain click,
   // so the actions are reachable without a physical right-mouse button (trackpads, etc.).
@@ -131,7 +196,9 @@ export function Zero0Occurrences({
       // bubble up and open the entity menu instead of this one. (v0.2.244)
       ev.preventDefault()
       ev.stopPropagation()
-      const items: MenuItem[] = [{ type: "item", id: "edit", label: "Edit", disabled: true }]
+      // EDIT is enabled only for a not-yet-past occurrence (v0.2.248) — same gate as cancel; you can't
+      // re-time history. Editing sets the instance's time via the exceptions/definite override.
+      const items: MenuItem[] = [{ type: "item", id: "edit", label: "Edit time", disabled: !r.cancellable }]
       if (r.cancelled || r.cancellable) items.push({ type: "item", id: r.cancelled ? "restore" : "cancel", label: r.cancelled ? "Restore" : "Cancel" })
       items.push({ type: "item", id: "delete", label: "Delete", danger: true })
       setMenu({
@@ -139,7 +206,8 @@ export function Zero0Occurrences({
         x: ev.clientX,
         y: ev.clientY,
         onSelect: (id) => {
-          if (id === "cancel" || id === "restore") dispatchRowAction(r, "cancel")
+          if (id === "edit") startEdit(r)
+          else if (id === "cancel" || id === "restore") dispatchRowAction(r, "cancel")
           else if (id === "delete") dispatchRowAction(r, "delete")
         },
       })
@@ -271,10 +339,13 @@ export function Zero0Occurrences({
       {r.isNext && <span className="text-[9px] uppercase tracking-wider text-foreground opacity-70">next</span>}
       {onAction && (
         <span className="ml-auto flex items-center gap-2">
-          {/* EDIT — placeholder (v0.2.240): per-occurrence time-edit isn't wired yet. */}
-          <button type="button" disabled className="text-[9px] uppercase tracking-wider text-muted-foreground opacity-30" title="Edit (coming soon)">
-            edit
-          </button>
+          {/* EDIT — per-occurrence TIME edit (v0.2.248), gated to not-yet-ended occurrences (can't re-time
+              history), matching the cancel gate. Opens the shared input prefilled with this row's time. */}
+          {(r.cancelled || r.cancellable) && (
+            <button type="button" onClick={() => startEdit(r)} className={ACTION_CLS} title="Edit this occurrence's time">
+              edit
+            </button>
+          )}
           {/* CANCEL / RESTORE — restorable struck tombstone, gated to not-yet-ended occurrences. */}
           {(r.cancelled || r.cancellable) && (
             <button type="button" onClick={() => dispatchRowAction(r, "cancel")} className={ACTION_CLS} title={r.cancelled ? "Restore this occurrence" : "Cancel this occurrence"}>
@@ -306,7 +377,17 @@ export function Zero0Occurrences({
           planned occurrences
         </button>
         {onAction && (
-          <button type="button" onClick={() => setAdding(true)} className={ACTION_CLS} title="Add a one-off occurrence (or type a rule like 'daily')">
+          <button
+            type="button"
+            onClick={() => {
+              setEditing(null) // never let add + edit modes overlap on the shared input
+              setDraft("")
+              setError(false)
+              setAdding(true)
+            }}
+            className={ACTION_CLS}
+            title="Add a one-off occurrence (or type a rule like 'daily')"
+          >
             + add slot
           </button>
         )}
@@ -369,8 +450,13 @@ export function Zero0Occurrences({
           <div className="mb-1 text-[10px] text-muted-foreground">one-off</div>
         )}
         {definiteRows.length > 0 && <ul className="flex flex-col gap-0.5">{definiteRows.map((r) => renderRow(r))}</ul>}
-        {onAction && adding && (
+        {/* Shared bottom input — DUAL-MODE (v0.2.248): ADD (empty, sets a slot/rule) when `adding`, or
+            EDIT (prefilled, re-times one occurrence, day fixed) when `editing` is set. */}
+        {onAction && (adding || editing) && (
           <div className="mt-1">
+            {editing && (
+              <div className="mb-0.5 text-[9px] uppercase tracking-wider text-muted-foreground">{`editing time · ${editing.day}`}</div>
+            )}
             <input
               autoFocus
               value={draft}
@@ -383,18 +469,25 @@ export function Zero0Occurrences({
                 if (e.nativeEvent.isComposing || e.keyCode === 229) return
                 if (e.key === "Enter") {
                   e.preventDefault()
-                  submit()
+                  if (editing) submitEdit()
+                  else submit()
                 } else if (e.key === "Escape") {
                   setAdding(false)
+                  setEditing(null)
                   setDraft("")
                   setError(false)
                 }
               }}
               onBlur={() => {
-                if (!draft) setAdding(false)
+                // Editing: a blur cancels the edit (no accidental commit); Adding: close if empty.
+                if (editing) {
+                  setEditing(null)
+                  setDraft("")
+                  setError(false)
+                } else if (!draft) setAdding(false)
               }}
-              placeholder={PLACEHOLDER}
-              aria-label="New occurrence time"
+              placeholder={editing ? EDIT_PLACEHOLDER : PLACEHOLDER}
+              aria-label={editing ? "Edit occurrence time" : "New occurrence time"}
               aria-invalid={error}
               className={
                 "w-full bg-transparent text-[10px] tabular-nums placeholder:text-muted-foreground/60 focus:outline-none " +
@@ -402,7 +495,11 @@ export function Zero0Occurrences({
               }
             />
             {error && (
-              <div className="mt-0.5 text-[9px] text-muted-foreground">{'Unrecognized — try a time (1400-1530, 2330, "in 2h") or a rule ("daily", "12h daily", "weekdays").'}</div>
+              <div className="mt-0.5 text-[9px] text-muted-foreground">
+                {editing
+                  ? "Unrecognized — enter a time like 1400 or 1400-1530."
+                  : 'Unrecognized — try a time (1400-1530, 2330, "in 2h") or a rule ("daily", "12h daily", "weekdays").'}
+              </div>
             )}
           </div>
         )}

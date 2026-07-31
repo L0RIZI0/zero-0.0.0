@@ -54,6 +54,8 @@ import {
   setRuleOccurrenceCancelled,
   deleteOccurrence,
   deleteRuleOccurrence,
+  setRuleOccurrenceTime,
+  setDefiniteOccurrenceTime,
   cancelAllDefiniteOccurrences,
   setEntityRepeat,
   addSeries,
@@ -1679,6 +1681,12 @@ export function Zero0Canvas() {
         // slot, or clear the scalar primary (occIndex −1).
         if (action.origin === "rule") deleteRuleOccurrence(e.id, action.recurrenceId, action.ruleId)
         else deleteOccurrence(e.id, action.primary ? -1 : action.occIndex)
+      } else if (action.type === "edit") {
+        // Per-occurrence TIME edit (v0.2.248) — the new start/end already carry the occurrence's day.
+        // rule → exceptions[day].start/end override (ruleId-scoped for a series); definite → the scalar
+        // span (occIndex −1, non-recurring only) or a plannedOccurrences[] slot.
+        if (action.origin === "rule") setRuleOccurrenceTime(e.id, action.recurrenceId, action.start, action.end, action.ruleId)
+        else setDefiniteOccurrenceTime(e.id, action.primary ? -1 : action.occIndex, action.start, action.end)
       } else if (action.type === "cancelAll") {
         // "cancel all" on the one-off list (v0.2.240) — cancels every not-yet-ended definite occurrence.
         cancelAllDefiniteOccurrences(e.id)

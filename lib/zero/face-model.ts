@@ -1028,6 +1028,11 @@ export interface OccurrenceRow {
       muted segments (unset placeholder + its dash) render faded, like the status word. For an INSTANT
       entity this is a single point-time segment. */
   time: TimeSegment[]
+  /** RAW epochs of this occurrence (v0.2.248) — the projected record's start (+ optional end). Used by
+      the per-occurrence time editor to prefill the input with the current clock and to re-anchor the new
+      time onto this occurrence's existing calendar day. `startAt` may be undefined for an unset slot. */
+  startAt?: number
+  endAt?: number
   /** WHEN text, e.g. "Mon 1:00 PM–2:00 PM" (no status). Combined form kept for non-block callers. */
   label: string
   status: OccurrenceStatus
@@ -1075,6 +1080,8 @@ export function getOccurrenceRows(e: Entity, now: number): OccurrenceRow[] {
       ruleId: rec.ruleId,
       day: parts.day,
       time: parts.time,
+      startAt: rec.start,
+      endAt: rec.end,
       label: formatOccurrenceLabel(occ, now),
       status,
       statusWord: occurrenceStatusWord(status),
