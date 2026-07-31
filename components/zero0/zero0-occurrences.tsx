@@ -102,7 +102,11 @@ export function Zero0Occurrences({
   const openRowMenu = useCallback(
     (r: Row, ev: React.MouseEvent) => {
       if (!onAction) return
+      // stopPropagation: the §0 detail panel wraps everything in an `onContextMenu` that opens the
+      // ENTITY menu (it doesn't check `defaultPrevented`), so without this a right-click on a chip would
+      // bubble up and open the entity menu instead of this one. (v0.2.244)
       ev.preventDefault()
+      ev.stopPropagation()
       const items: MenuItem[] = [{ type: "item", id: "edit", label: "Edit", disabled: true }]
       if (r.cancelled || r.cancellable) items.push({ type: "item", id: r.cancelled ? "restore" : "cancel", label: r.cancelled ? "Restore" : "Cancel" })
       items.push({ type: "item", id: "delete", label: "Delete", danger: true })
@@ -117,6 +121,28 @@ export function Zero0Occurrences({
       })
     },
     [onAction, dispatchRowAction],
+  )
+
+  // Open the RULE menu (on the "weekly · 11:00 PM" label): EDIT (disabled placeholder) · CLEAR (stop
+  // repeating). Replaces the inline EDIT/CLEAR text actions — reachable by right-click OR plain click.
+  const openRuleMenu = useCallback(
+    (ev: React.MouseEvent) => {
+      if (!onAction) return
+      ev.preventDefault()
+      ev.stopPropagation()
+      setMenu({
+        items: [
+          { type: "item", id: "edit", label: "Edit", disabled: true },
+          { type: "item", id: "clear", label: "Clear", danger: true },
+        ],
+        x: ev.clientX,
+        y: ev.clientY,
+        onSelect: (id) => {
+          if (id === "clear") onAction(entity, { type: "clearRepeat" })
+        },
+      })
+    },
+    [onAction, entity],
   )
 
   // Visual tone of a series chip by derived status (the vertical list's STATUS word is dropped here —
@@ -220,52 +246,51 @@ export function Zero0Occurrences({
     <div className="col-span-2 mt-3">
       <div className="mb-1 text-[10px] uppercase tracking-widest text-muted-foreground">planned occurrences</div>
 
-      {/* ── SERIES sub-list (only when a repeat rule is set) ── HORIZONTAL chips (v0.2.242): the rule
-          label is followed inline by a wrapping flow of day chips (Today · Aug 7 · Aug 14 …) instead of
-          a tall vertical list. Each chip opens a right-click / click menu (edit · cancel/restore ·
-          delete); status is conveyed by tone (NEXT brightened + ringed, missed faded, cancelled struck)
-          plus a `title` tooltip. The rule-level EDIT/CLEAR actions stay pinned to the right. */}
+      {/* ── SERIES sub-list (only when a repeat rule is set) ── SINGLE-ROW horizontal chips (v0.2.244):
+          the rule label is followed inline by a NON-wrapping strip of day chips (Today · Aug 7 · Aug 14
+          …) that scrolls horizontally (invisible scrollbar via `no-scrollbar`) — matching the recorded-
+          sessions/access rows. The rule label ("weekly · 11:00 PM") opens a right-click / click menu
+          (Edit [disabled] · Clear); each chip opens its own menu (Edit [disabled] · Cancel/Restore ·
+          Delete). Status is conveyed by chip tone (NEXT brightened + ringed, missed faded, cancelled
+          struck) plus a `title` tooltip. */}
       {hasRepeat && (
-        <div className="mb-2 flex flex-wrap items-baseline gap-x-3 gap-y-1 text-[10px]">
-          <span className="flex shrink-0 items-center gap-2 text-muted-foreground">
+        <div className="mb-2 flex items-baseline gap-x-3 text-[10px]">
+          <button
+            type="button"
+            onClick={onAction ? openRuleMenu : undefined}
+            onContextMenu={onAction ? openRuleMenu : undefined}
+            title={onAction ? "Recurrence rule — Edit / Clear" : undefined}
+            className={"flex shrink-0 items-center gap-2 text-muted-foreground " + (onAction ? "cursor-pointer hover:text-foreground" : "cursor-default")}
+          >
             <span aria-hidden className="opacity-50">
               ↻
             </span>
             <span className="text-foreground">{describeRecurrence(entity)}</span>
-          </span>
+          </button>
           {ruleRows.length > 0 && (
-            <span className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-1 gap-y-1 tabular-nums">
-              {ruleRows.map((r, i) => (
-                <span key={`rule-${r.index}`} className="flex items-baseline gap-x-1">
-                  {/* Middle-dot separator between chips, matching the recorded-sessions/access rows.
-                      Skipped before the first chip. */}
-                  {i > 0 && (
-                    <span aria-hidden className="text-muted-foreground opacity-50">
-                      ·
-                    </span>
-                  )}
-                  <button
-                    type="button"
-                    onClick={onAction ? (ev) => openRowMenu(r, ev) : undefined}
-                    onContextMenu={onAction ? (ev) => openRowMenu(r, ev) : undefined}
-                    title={`${r.day} — ${r.statusWord}${r.isNext ? " · next" : ""}`}
-                    className={chipCls(r)}
-                  >
-                    {r.day}
-                  </button>
-                </span>
-              ))}
-            </span>
-          )}
-          {onAction && (
-            <span className="ml-auto flex shrink-0 items-center gap-2 text-muted-foreground">
-              <button type="button" disabled className="text-[9px] uppercase tracking-wider text-muted-foreground opacity-30" title="Edit the recurrence rule (coming soon)">
-                edit
-              </button>
-              <button type="button" onClick={() => onAction(entity, { type: "clearRepeat" })} className={ACTION_CLS} title="Clear the recurrence rule (stop repeating)">
-                clear
-              </button>
-            </span>
+            <div className="no-scrollbar min-w-0 flex-1 overflow-x-auto">
+              <div className="flex w-max items-baseline gap-x-1 tabular-nums">
+                {ruleRows.map((r, i) => (
+                  <span key={`rule-${r.index}`} className="flex items-baseline gap-x-1 whitespace-nowrap">
+                    {/* Middle-dot separator between chips, matching the recorded-sessions/access rows. */}
+                    {i > 0 && (
+                      <span aria-hidden className="text-muted-foreground opacity-50">
+                        ·
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={onAction ? (ev) => openRowMenu(r, ev) : undefined}
+                      onContextMenu={onAction ? (ev) => openRowMenu(r, ev) : undefined}
+                      title={`${r.day} — ${r.statusWord}${r.isNext ? " · next" : ""}`}
+                      className={chipCls(r)}
+                    >
+                      {r.day}
+                    </button>
+                  </span>
+                ))}
+              </div>
+            </div>
           )}
         </div>
       )}
