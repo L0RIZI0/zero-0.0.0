@@ -1025,6 +1025,12 @@ export interface OccurrenceRow {
       if a point) hasn't passed. Computed view-time from `now` so it's never stale, unlike the old
       write-time PRIMARY mirror. At most one row is `isNext`; none when every occurrence is in the past. */
   isNext: boolean
+  /** Whether this occurrence may still be CANCELLED (v0.2.239): true when it hasn't yet ended — i.e. a
+      future ("yet to happen") or an ongoing ("already started") occurrence. A fully-past occurrence
+      (matched/missed and over) is LOCKED — you can't retroactively cancel history. Uses the same
+      not-yet-passed test as isNext, `(end ?? start) >= now`. (Restore of an already-cancelled row is
+      offered regardless, so a mistaken cancel is always undoable.) */
+  cancellable: boolean
 }
 
 /** The §0 PLANNED OCCURRENCES block's rows — the unified, start-ordered occurrence list, each tagged
@@ -1060,6 +1066,7 @@ export function getOccurrenceRows(e: Entity, now: number): OccurrenceRow[] {
       status,
       statusWord: occurrenceStatusWord(status),
       isNext: index === nextIdx,
+      cancellable: (rec.end ?? rec.start) >= now,
     }
   })
 }

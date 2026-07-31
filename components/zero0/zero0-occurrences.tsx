@@ -34,6 +34,17 @@ export type OccurrenceAction =
   // SET A RULE from the add-slot field (v0.2.235) — "12h daily", "daily", "weekdays 9h", etc. `start`/
   // `end` (when a time was also given) become the rule ANCHOR; absent ⇒ anchored at now by the writer.
   | { type: "repeat"; repeat: Recurrence; start?: number; end?: number }
+  // CLEAR the recurrence rule (v0.2.239) — the "stop repeating" control. Drops schedule.repeat so the
+  // block stops projecting the infinite series and falls back to the definite slots.
+  | { type: "clearRepeat" }
+
+/** Human label for a recurrence rule, e.g. "repeats daily", "repeats every 2 weeks". */
+function describeRecurrence(r: Recurrence): string {
+  const unit = { daily: "day", weekly: "week", monthly: "month", yearly: "year" }[r.freq]
+  const n = r.interval ?? 1
+  const every = n > 1 ? `every ${n} ${unit}s` : { daily: "daily", weekly: "weekly", monthly: "monthly", yearly: "yearly" }[r.freq]
+  return `repeats ${every}`
+}
 
 export function Zero0Occurrences({
   entity,
@@ -98,6 +109,25 @@ export function Zero0Occurrences({
   return (
     <div className="col-span-2 mt-3">
       <div className="mb-1 text-[10px] uppercase tracking-widest text-muted-foreground">planned occurrences</div>
+      {/* RECURRENCE control (v0.2.239) — shown only when a `repeat` rule is set. Names the rule and
+          offers "stop repeating", the ONLY UI to clear a series (previously you could set `daily` from
+          the add-slot field but had no way to remove it, leaving an infinite projected list). */}
+      {onAction && entity.schedule?.repeat && (
+        <div className="mb-1 flex items-center gap-2 text-[10px] text-muted-foreground">
+          <span aria-hidden className="opacity-50">
+            ↻
+          </span>
+          <span>{describeRecurrence(entity.schedule.repeat)}</span>
+          <button
+            type="button"
+            onClick={() => onAction(entity, { type: "clearRepeat" })}
+            className="ml-auto text-[9px] uppercase tracking-wider opacity-60 hover:text-foreground hover:opacity-100"
+            title="Stop repeating (clear the recurrence rule)"
+          >
+            stop repeating
+          </button>
+        </div>
+      )}
       {/* The list is empty when there are no slots yet — the header + "+ add slot" still render, so the
           block is present at all times (v0.2.232) rather than swapping in only at 2+ occurrences. */}
       {rows.length > 0 && (
@@ -130,12 +160,15 @@ export function Zero0Occurrences({
               {r.isNext && (
                 <span className="text-[9px] uppercase tracking-wider text-foreground opacity-70">next</span>
               )}
-              {/* Cancel / restore — offered for EVERY occurrence now (v0.2.232), the PRIMARY included:
-                  the scalar is just the mirror of the soonest live occurrence, so the canvas routes an
-                  index-0 cancel to cancelPrimaryOccurrence (which promotes the next slot). Kept
-                  always-visible-but-faint, not a group-hover reveal, which silently no-ops in the
-                  Electron/webview build where `(hover:hover)` is false. */}
-              {onAction && (
+              {/* Cancel / restore — the PRIMARY included (v0.2.232): the scalar is just the mirror of the
+                  soonest live occurrence, so the canvas routes an index-0 cancel to
+                  cancelPrimaryOccurrence (which promotes the next slot). CANCEL is offered only while the
+                  occurrence hasn't ended (`r.cancellable` — future or ongoing); a fully-past occurrence is
+                  locked, since you can't cancel history (v0.2.239). RESTORE is always offered for an
+                  already-cancelled row so a mistaken cancel is undoable. Kept always-visible-but-faint,
+                  not a group-hover reveal, which silently no-ops in the Electron/webview build where
+                  `(hover:hover)` is false. */}
+              {onAction && (r.cancelled || r.cancellable) && (
                 <button
                   type="button"
                   onClick={() =>

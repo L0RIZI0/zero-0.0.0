@@ -1655,6 +1655,9 @@ export function Zero0Canvas() {
       } else if (action.type === "repeat") {
         // "12h daily"-style add-slot (v0.2.235) — sets the RULE, with any parsed time as the anchor.
         setEntityRepeat(e.id, action.repeat, action.start != null ? { start: action.start, end: action.end } : undefined)
+      } else if (action.type === "clearRepeat") {
+        // "stop repeating" (v0.2.239) — drop the rule so the block stops projecting the infinite series.
+        setEntityRepeat(e.id, null)
       } else if (action.type === "cancel") {
         if (action.origin === "rule") setRuleOccurrenceCancelled(e.id, action.recurrenceId, action.cancelled)
         else if (action.primary) cancelPrimaryOccurrence(e.id)
