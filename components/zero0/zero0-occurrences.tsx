@@ -4,6 +4,8 @@ import { useCallback, useState } from "react"
 import type { Entity, Recurrence } from "@/lib/zero/types"
 import { getOccurrenceRows, describeRecurrence } from "@/lib/zero/face-model"
 import { parseSlotToken, parseRepeatToken } from "@/lib/zero/create-parse"
+import type { MenuItem } from "@/lib/zero/menu-model"
+import { Zero0DomMenu, type Zero0DomMenuState } from "./zero0-dom-menu"
 
 // The §0 PLANNED OCCURRENCES block (v0.2.229; ALWAYS-ON v0.2.232; renamed from "occurrences" v0.2.233)
 // — the SINGLE way an entity shows its schedule in §0. Shown+editable for EVERY kind except the Soul
@@ -67,6 +69,65 @@ export function Zero0Occurrences({
   const [adding, setAdding] = useState(false)
   const [draft, setDraft] = useState("")
   const [error, setError] = useState(false)
+  // Right-click menu for the series chips (v0.2.242) — reuses the shared Zero0DomMenu popup.
+  const [menu, setMenu] = useState<Zero0DomMenuState | null>(null)
+
+  // Dispatch a per-instance/occurrence action, discriminated by `origin` so the canvas routes to the
+  // right writer without guessing. Shared by the one-off rows' inline buttons AND the series chips' menu.
+  const dispatchRowAction = useCallback(
+    (r: Row, kind: "cancel" | "delete") => {
+      if (!onAction) return
+      if (kind === "cancel") {
+        onAction(
+          entity,
+          r.origin === "rule"
+            ? { type: "cancel", origin: "rule", recurrenceId: r.recurrenceId!, cancelled: !r.cancelled }
+            : { type: "cancel", origin: "definite", primary: r.primary, occIndex: r.occIndex, cancelled: !r.cancelled },
+        )
+      } else {
+        onAction(
+          entity,
+          r.origin === "rule"
+            ? { type: "delete", origin: "rule", recurrenceId: r.recurrenceId! }
+            : { type: "delete", origin: "definite", primary: r.primary, occIndex: r.occIndex },
+        )
+      }
+    },
+    [onAction, entity],
+  )
+
+  // Open the series-chip menu at the cursor: EDIT (disabled placeholder) · CANCEL/RESTORE (when the
+  // instance is cancellable or already cancelled) · DELETE. Wired to BOTH right-click and plain click,
+  // so the actions are reachable without a physical right-mouse button (trackpads, etc.).
+  const openRowMenu = useCallback(
+    (r: Row, ev: React.MouseEvent) => {
+      if (!onAction) return
+      ev.preventDefault()
+      const items: MenuItem[] = [{ type: "item", id: "edit", label: "Edit", disabled: true }]
+      if (r.cancelled || r.cancellable) items.push({ type: "item", id: r.cancelled ? "restore" : "cancel", label: r.cancelled ? "Restore" : "Cancel" })
+      items.push({ type: "item", id: "delete", label: "Delete", danger: true })
+      setMenu({
+        items,
+        x: ev.clientX,
+        y: ev.clientY,
+        onSelect: (id) => {
+          if (id === "cancel" || id === "restore") dispatchRowAction(r, "cancel")
+          else if (id === "delete") dispatchRowAction(r, "delete")
+        },
+      })
+    },
+    [onAction, dispatchRowAction],
+  )
+
+  // Visual tone of a series chip by derived status (the vertical list's STATUS word is dropped here —
+  // the chip conveys it via color + a `title` tooltip; NEXT is brightened + ringed).
+  const chipCls = (r: Row) => {
+    const interactive = onAction ? "cursor-pointer hover:text-foreground " : ""
+    if (r.cancelled) return interactive + "rounded-sm px-1 line-through text-muted-foreground/40"
+    if (r.isNext) return interactive + "rounded-sm px-1 text-foreground ring-1 ring-border"
+    const tone = r.status === "missed" ? "text-muted-foreground/50" : "text-muted-foreground"
+    return interactive + "rounded-sm px-1 " + tone
+  }
 
   const submit = useCallback(() => {
     // RECURRENCE-AWARE (v0.2.235): if any word parses as a recurrence ("daily", "weekdays", …) the field
@@ -112,12 +173,10 @@ export function Zero0Occurrences({
     setAdding(false)
   }, [draft, now, onAction, entity])
 
-  // One occurrence/instance row — shared by both sub-lists. Renders DAY · TIME · STATUS · [NEXT] and the
-  // per-row actions (edit · cancel/restore · delete). Cancel/delete dispatch is discriminated by origin.
-  // `inSeries` (v0.2.240): a series instance suppresses its TIME column, since the rule title already
-  // states the shared anchor time — showing "1:00 PM – unset" on every instance is redundant noise.
-  // (When per-occurrence time-edit lands, an overridden instance can opt back into showing its time.)
-  const renderRow = (r: Row, inSeries = false) => (
+  // One DEFINITE (one-off) occurrence row — DAY · TIME · STATUS · [NEXT] + inline actions (edit ·
+  // cancel/restore · delete). The SERIES sub-list no longer uses this; it renders horizontal chips
+  // (v0.2.242) whose actions live in a right-click menu instead of inline text buttons.
+  const renderRow = (r: Row) => (
     <li key={`${r.origin}-${r.index}`} className="flex items-center gap-2 text-[10px] tabular-nums">
       <span aria-hidden className="text-muted-foreground opacity-50">
         ·
@@ -126,60 +185,30 @@ export function Zero0Occurrences({
           constant x whether point or range. "unset" segments fade like the status word. */}
       <span className={"flex items-baseline gap-2 " + (r.cancelled ? "line-through opacity-60" : "")}>
         <span className="w-20 shrink-0 text-muted-foreground">{r.day}</span>
-        {!inSeries && (
-          <span className="min-w-[7.5rem] text-foreground">
-            {r.time.map((seg, i) => (
-              <span key={i} className={seg.muted ? "text-muted-foreground" : undefined}>
-                {seg.text}
-              </span>
-            ))}
-          </span>
-        )}
+        <span className="min-w-[7.5rem] text-foreground">
+          {r.time.map((seg, i) => (
+            <span key={i} className={seg.muted ? "text-muted-foreground" : undefined}>
+              {seg.text}
+            </span>
+          ))}
+        </span>
       </span>
       <span className="text-muted-foreground">{r.statusWord}</span>
       {r.isNext && <span className="text-[9px] uppercase tracking-wider text-foreground opacity-70">next</span>}
       {onAction && (
         <span className="ml-auto flex items-center gap-2">
-          {/* EDIT — placeholder (v0.2.240): the per-occurrence time-edit feature isn't wired yet, so the
-              control is present-but-disabled to signal it's coming. */}
+          {/* EDIT — placeholder (v0.2.240): per-occurrence time-edit isn't wired yet. */}
           <button type="button" disabled className="text-[9px] uppercase tracking-wider text-muted-foreground opacity-30" title="Edit (coming soon)">
             edit
           </button>
-          {/* CANCEL / RESTORE — restorable struck tombstone. Offered only while the occurrence hasn't
-              ended (r.cancellable — future or ongoing), so history can't be retroactively cancelled;
-              RESTORE is always offered for an already-cancelled row so a mistaken cancel is undoable. */}
+          {/* CANCEL / RESTORE — restorable struck tombstone, gated to not-yet-ended occurrences. */}
           {(r.cancelled || r.cancellable) && (
-            <button
-              type="button"
-              onClick={() =>
-                onAction(
-                  entity,
-                  r.origin === "rule"
-                    ? { type: "cancel", origin: "rule", recurrenceId: r.recurrenceId!, cancelled: !r.cancelled }
-                    : { type: "cancel", origin: "definite", primary: r.primary, occIndex: r.occIndex, cancelled: !r.cancelled },
-                )
-              }
-              className={ACTION_CLS}
-              title={r.cancelled ? "Restore this occurrence" : "Cancel this occurrence"}
-            >
+            <button type="button" onClick={() => dispatchRowAction(r, "cancel")} className={ACTION_CLS} title={r.cancelled ? "Restore this occurrence" : "Cancel this occurrence"}>
               {r.cancelled ? "restore" : "cancel"}
             </button>
           )}
-          {/* DELETE — hard removal (definite: splice/clear the slot; rule: a `removed` EXDATE that drops
-              the instance from the projection). Distinct from the restorable cancel. */}
-          <button
-            type="button"
-            onClick={() =>
-              onAction(
-                entity,
-                r.origin === "rule"
-                  ? { type: "delete", origin: "rule", recurrenceId: r.recurrenceId! }
-                  : { type: "delete", origin: "definite", primary: r.primary, occIndex: r.occIndex },
-              )
-            }
-            className={ACTION_CLS}
-            title="Delete this occurrence"
-          >
+          {/* DELETE — hard removal (splice/clear the slot). Distinct from the restorable cancel. */}
+          <button type="button" onClick={() => dispatchRowAction(r, "delete")} className={ACTION_CLS} title="Delete this occurrence">
             delete
           </button>
         </span>
@@ -191,31 +220,45 @@ export function Zero0Occurrences({
     <div className="col-span-2 mt-3">
       <div className="mb-1 text-[10px] uppercase tracking-widest text-muted-foreground">planned occurrences</div>
 
-      {/* ── SERIES sub-list (only when a repeat rule is set) ── */}
+      {/* ── SERIES sub-list (only when a repeat rule is set) ── HORIZONTAL chips (v0.2.242): the rule
+          label is followed inline by a wrapping flow of day chips (Today · Aug 7 · Aug 14 …) instead of
+          a tall vertical list. Each chip opens a right-click / click menu (edit · cancel/restore ·
+          delete); status is conveyed by tone (NEXT brightened + ringed, missed faded, cancelled struck)
+          plus a `title` tooltip. The rule-level EDIT/CLEAR actions stay pinned to the right. */}
       {hasRepeat && (
-        <div className="mb-2">
-          <div className="mb-1 flex items-center gap-2 text-[10px] text-muted-foreground">
+        <div className="mb-2 flex flex-wrap items-baseline gap-x-3 gap-y-1 text-[10px]">
+          <span className="flex shrink-0 items-center gap-2 text-muted-foreground">
             <span aria-hidden className="opacity-50">
               ↻
             </span>
             <span className="text-foreground">{describeRecurrence(entity)}</span>
-            {onAction && (
-              <span className="ml-auto flex items-center gap-2">
-                <button type="button" disabled className="text-[9px] uppercase tracking-wider text-muted-foreground opacity-30" title="Edit the recurrence rule (coming soon)">
-                  edit
-                </button>
+          </span>
+          {ruleRows.length > 0 && (
+            <span className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-1 gap-y-1 tabular-nums">
+              {ruleRows.map((r) => (
                 <button
+                  key={`rule-${r.index}`}
                   type="button"
-                  onClick={() => onAction(entity, { type: "clearRepeat" })}
-                  className={ACTION_CLS}
-                  title="Clear the recurrence rule (stop repeating)"
+                  onClick={onAction ? (ev) => openRowMenu(r, ev) : undefined}
+                  onContextMenu={onAction ? (ev) => openRowMenu(r, ev) : undefined}
+                  title={`${r.day} — ${r.statusWord}${r.isNext ? " · next" : ""}`}
+                  className={chipCls(r)}
                 >
-                  clear
+                  {r.day}
                 </button>
-              </span>
-            )}
-          </div>
-          {ruleRows.length > 0 && <ul className="flex flex-col gap-0.5">{ruleRows.map((r) => renderRow(r, true))}</ul>}
+              ))}
+            </span>
+          )}
+          {onAction && (
+            <span className="ml-auto flex shrink-0 items-center gap-2 text-muted-foreground">
+              <button type="button" disabled className="text-[9px] uppercase tracking-wider text-muted-foreground opacity-30" title="Edit the recurrence rule (coming soon)">
+                edit
+              </button>
+              <button type="button" onClick={() => onAction(entity, { type: "clearRepeat" })} className={ACTION_CLS} title="Clear the recurrence rule (stop repeating)">
+                clear
+              </button>
+            </span>
+          )}
         </div>
       )}
 
@@ -241,7 +284,7 @@ export function Zero0Occurrences({
             </span>
           )}
         </div>
-        {definiteRows.length > 0 && <ul className="flex flex-col gap-0.5">{definiteRows.map((r) => renderRow(r, false))}</ul>}
+        {definiteRows.length > 0 && <ul className="flex flex-col gap-0.5">{definiteRows.map((r) => renderRow(r))}</ul>}
         {onAction && adding && (
           <div className="mt-1">
             <input
@@ -280,6 +323,9 @@ export function Zero0Occurrences({
           </div>
         )}
       </div>
+
+      {/* Series-chip right-click / click menu — the shared popup (viewport-clamped, self-dismissing). */}
+      {menu && <Zero0DomMenu menu={menu} onClose={() => setMenu(null)} />}
     </div>
   )
 }

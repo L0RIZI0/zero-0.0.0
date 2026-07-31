@@ -78,10 +78,13 @@ function MenuRow({ item, onSelect }: { item: Indentable; onSelect: (id: string) 
       type="button"
       role="menuitem"
       aria-current={item.current ? "true" : undefined}
-      onClick={() => onSelect(item.id)}
+      disabled={item.disabled}
+      onClick={() => !item.disabled && onSelect(item.id)}
       className={
-        "flex w-full items-center gap-2 px-3 py-1 text-left hover:bg-muted hover:text-foreground " +
-        (item.current ? "text-foreground" : "text-muted-foreground") +
+        "flex w-full items-center gap-2 px-3 py-1 text-left " +
+        (item.disabled
+          ? "cursor-default text-muted-foreground/40"
+          : "hover:bg-muted hover:text-foreground " + (item.current ? "text-foreground" : "text-muted-foreground")) +
         (item._indent ? " pl-5" : "")
       }
     >

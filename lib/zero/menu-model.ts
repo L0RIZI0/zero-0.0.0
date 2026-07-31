@@ -45,6 +45,9 @@ export type MenuItem =
       danger?: boolean
       glyphKind?: EntityKind
       current?: boolean
+      /** Rendered faded + non-interactive; selecting it is a no-op. Used for
+          present-but-not-yet-wired affordances (e.g. the occurrence "Edit" placeholder). */
+      disabled?: boolean
       /** A `#rrggbb` swatch drawn as a leading dot (the color picker rows). */
       swatch?: string
     }
