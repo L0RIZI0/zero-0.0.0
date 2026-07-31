@@ -1019,6 +1019,9 @@ export interface OccurrenceRow {
   /** For a RULE row (v0.2.234): the local-midnight day-key the cancel/restore action targets
       (`setRuleOccurrenceCancelled`). Absent for definite rows. */
   recurrenceId?: number
+  /** For a RULE row from an ADDITIONAL series (v0.2.246): the `SeriesRule.id` it belongs to (used to
+      group rows into per-series strips and route actions). Absent for the primary rule + definite rows. */
+  ruleId?: string
   /** Leading DAY token — "Today" / "Tomorrow" / "Jul 31" — for the aligned fixed-width column. */
   day: string
   /** TIME range without the day, as styled segments (e.g. `[{"3:00 PM"},{" – unset",muted}]`). The
@@ -1069,6 +1072,7 @@ export function getOccurrenceRows(e: Entity, now: number): OccurrenceRow[] {
       cancelled: rec.cancelled,
       origin: rec.origin,
       recurrenceId: rec.recurrenceId,
+      ruleId: rec.ruleId,
       day: parts.day,
       time: parts.time,
       label: formatOccurrenceLabel(occ, now),
@@ -1093,6 +1097,16 @@ export function describeRecurrence(e: Entity): string {
   const s = e.schedule
   const r: Recurrence | undefined = s?.repeat
   if (!s || !r) return ""
+  const anchor = s.at ?? (isPlannedStart(s.startDate) ? s.startDate : undefined) ?? s.dueDate
+  const anchorEnd = isPlannedStart(s.startDate) && s.endDate != null ? s.endDate : undefined
+  return describeRecurrenceRule(r, anchor, anchorEnd)
+}
+
+/** Human label for ANY recurrence rule (v0.2.246) — the shared core behind `describeRecurrence` (the
+    primary `repeat`) and each ADDITIONAL `series[]` entry. Covers frequency + interval + weekly
+    `byWeekday`, plus the shared ANCHOR time when given (`anchorStart`, optional `anchorEnd` for a range).
+    E.g. "daily · 3:00 PM", "every Tuesday and Friday · 1:00 PM – 2:00 PM", "every 2 weeks". */
+export function describeRecurrenceRule(r: Recurrence, anchorStart?: number, anchorEnd?: number): string {
   const n = r.interval ?? 1
   let base: string
   if (r.freq === "weekly" && r.byWeekday?.length) {
@@ -1103,10 +1117,8 @@ export function describeRecurrence(e: Entity): string {
   } else {
     base = n > 1 ? `every ${n} ${FREQ_UNIT[r.freq]}s` : FREQ_LABEL[r.freq]
   }
-  const anchor = s.at ?? (isPlannedStart(s.startDate) ? s.startDate : undefined) ?? s.dueDate
-  if (anchor != null) {
-    const hasEnd = isPlannedStart(s.startDate) && s.endDate != null
-    const time = hasEnd ? `${fmtTime(s.startDate!)} – ${fmtTime(s.endDate!)}` : fmtTime(anchor)
+  if (anchorStart != null) {
+    const time = anchorEnd != null ? `${fmtTime(anchorStart)} – ${fmtTime(anchorEnd)}` : fmtTime(anchorStart)
     return `${base} · ${time}`
   }
   return base

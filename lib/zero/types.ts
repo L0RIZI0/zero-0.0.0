@@ -365,6 +365,36 @@ export interface Schedule {
    * meaningful when `repeat` is set. Written by `setRuleOccurrenceCancelled` / `deleteRuleOccurrence`.
    */
   exceptions?: Record<number, { cancelled?: boolean; removed?: boolean; start?: Epoch; end?: Epoch }>
+  /**
+   * ADDITIONAL recurrence series (v0.2.246) — beyond the PRIMARY `repeat` above. The primary `repeat`
+   * stays scalar-anchored (its anchor is the entity's `startDate`/`endDate`, and its exceptions are the
+   * `exceptions` map above) so the dayline/timeline and `resyncPrimary` are untouched. Each entry here
+   * is a SELF-ANCHORED extra rule with its OWN anchor + exceptions, so N series can co-exist on one
+   * entity. Absent/empty = today's single-series (or zero-series) behaviour. Projected by
+   * `projectOccurrences` into `origin:"rule"` records tagged with the entry's `id` (`ruleId`); written by
+   * `addSeries` / `removeSeries`. Note: this `id` is INTERNAL to the schedule and is unrelated to the
+   * override-linkage `seriesId`/`recurrenceId` on `EntityBase`.
+   */
+  series?: SeriesRule[]
+}
+
+/**
+ * ONE additional recurrence series on an entity (v0.2.246) — a self-anchored `repeat` rule that lives in
+ * `Schedule.series[]` alongside (and independently of) the primary `schedule.repeat`. Carries its own
+ * anchor and its own restore-able `exceptions` map (same day-keyed semantics as `Schedule.exceptions`),
+ * so cancelling/deleting/clearing one series never touches another or the primary.
+ */
+export interface SeriesRule {
+  /** Stable identifier for this series within the entity's schedule (the projection's `ruleId`). */
+  id: string
+  /** The recurrence rule itself. */
+  repeat: Recurrence
+  /** Anchor start (epoch ms) — the seed instant the rule expands from (mirrors the primary's `startDate`). */
+  anchorStart: Epoch
+  /** Anchor end (epoch ms); absent = point/open-ended instances (mirrors the primary's `endDate`). */
+  anchorEnd?: Epoch
+  /** Per-occurrence exceptions, keyed by local-midnight day-key. Same shape/semantics as `Schedule.exceptions`. */
+  exceptions?: Record<number, { cancelled?: boolean; removed?: boolean; start?: Epoch; end?: Epoch }>
 }
 
 /**
@@ -393,6 +423,12 @@ export interface OccurrenceRecord {
   occIndex: number
   /** For a RULE row: the local-midnight day-key (the exceptions map key). Absent for definite rows. */
   recurrenceId?: number
+  /**
+   * For a RULE row from an ADDITIONAL series (v0.2.246): the `SeriesRule.id` it was projected from.
+   * ABSENT for a rule row from the PRIMARY `schedule.repeat` (and for definite rows). This is how the
+   * block routes cancel/delete/clear to the right series without disturbing the primary.
+   */
+  ruleId?: string
 }
 
 /**

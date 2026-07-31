@@ -56,6 +56,8 @@ import {
   deleteRuleOccurrence,
   cancelAllDefiniteOccurrences,
   setEntityRepeat,
+  addSeries,
+  removeSeries,
   reorderContextItems,
   moveEntityToContext,
 } from "@/lib/zero/data"
@@ -1656,19 +1658,26 @@ export function Zero0Canvas() {
       if (action.type === "add") {
         addOccurrence(e.id, action.start, action.end)
       } else if (action.type === "repeat") {
-        // "12h daily"-style add-slot (v0.2.235) — sets the RULE, with any parsed time as the anchor.
+        // "12h daily"-style add-slot (v0.2.235) — sets the PRIMARY rule, with any parsed time as the anchor.
         setEntityRepeat(e.id, action.repeat, action.start != null ? { start: action.start, end: action.end } : undefined)
+      } else if (action.type === "addSeries") {
+        // ADDITIONAL series (v0.2.246) — add-slot rule typed when a primary already exists; appends a new
+        // self-anchored series rather than overwriting the primary, so multiple series co-exist.
+        addSeries(e.id, action.repeat, action.start != null ? { start: action.start, end: action.end } : undefined)
       } else if (action.type === "clearRepeat") {
-        // "stop repeating" (v0.2.239) — drop the rule so the block stops projecting the infinite series.
-        setEntityRepeat(e.id, null)
+        // "stop repeating" (v0.2.239): ruleId set ⇒ remove that additional series (v0.2.246); absent ⇒
+        // drop the primary rule so the block stops projecting the infinite primary series.
+        if (action.ruleId != null) removeSeries(e.id, action.ruleId)
+        else setEntityRepeat(e.id, null)
       } else if (action.type === "cancel") {
-        if (action.origin === "rule") setRuleOccurrenceCancelled(e.id, action.recurrenceId, action.cancelled)
+        if (action.origin === "rule") setRuleOccurrenceCancelled(e.id, action.recurrenceId, action.cancelled, action.ruleId)
         else if (action.primary) cancelPrimaryOccurrence(e.id)
         else setOccurrenceCancelled(e.id, action.occIndex, action.cancelled)
       } else if (action.type === "delete") {
-        // Hard removal (v0.2.240): rule → a `removed` EXDATE that drops the instance from the projection;
-        // definite → splice the plannedOccurrences[] slot, or clear the scalar primary (occIndex −1).
-        if (action.origin === "rule") deleteRuleOccurrence(e.id, action.recurrenceId)
+        // Hard removal (v0.2.240): rule → a `removed` EXDATE that drops the instance from the projection
+        // (v0.2.246: scoped to `ruleId`'s series when set); definite → splice the plannedOccurrences[]
+        // slot, or clear the scalar primary (occIndex −1).
+        if (action.origin === "rule") deleteRuleOccurrence(e.id, action.recurrenceId, action.ruleId)
         else deleteOccurrence(e.id, action.primary ? -1 : action.occIndex)
       } else if (action.type === "cancelAll") {
         // "cancel all" on the one-off list (v0.2.240) — cancels every not-yet-ended definite occurrence.

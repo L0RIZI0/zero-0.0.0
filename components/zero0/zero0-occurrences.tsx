@@ -2,7 +2,7 @@
 
 import { useCallback, useState } from "react"
 import type { Entity, Recurrence } from "@/lib/zero/types"
-import { getOccurrenceRows, describeRecurrence } from "@/lib/zero/face-model"
+import { getOccurrenceRows, describeRecurrence, describeRecurrenceRule } from "@/lib/zero/face-model"
 import { parseSlotToken, parseRepeatToken } from "@/lib/zero/create-parse"
 import type { MenuItem } from "@/lib/zero/menu-model"
 import { Zero0DomMenu, type Zero0DomMenuState } from "./zero0-dom-menu"
@@ -33,18 +33,27 @@ const PLACEHOLDER = "e.g. 1400-1530, 2330, in 2h, 12h daily"
 export type OccurrenceAction =
   | { type: "add"; start: number; end?: number }
   | { type: "cancel"; origin: "definite"; primary: boolean; occIndex: number; cancelled: boolean }
-  | { type: "cancel"; origin: "rule"; recurrenceId: number; cancelled: boolean }
+  // RULE cancel — `ruleId` set ⇒ an ADDITIONAL series (v0.2.246); absent ⇒ the primary `repeat`.
+  | { type: "cancel"; origin: "rule"; recurrenceId: number; cancelled: boolean; ruleId?: string }
   | { type: "delete"; origin: "definite"; primary: boolean; occIndex: number }
-  | { type: "delete"; origin: "rule"; recurrenceId: number }
-  // CANCEL ALL not-yet-ended DEFINITE occurrences (v0.2.240) — the one-off list's title action.
+  | { type: "delete"; origin: "rule"; recurrenceId: number; ruleId?: string }
+  // CANCEL ALL not-yet-ended DEFINITE occurrences (v0.2.240) — the block title's action.
   | { type: "cancelAll" }
-  // SET A RULE from the add-slot field (v0.2.235) — "12h daily", "daily", "weekdays 9h", etc. `start`/
-  // `end` (when a time was also given) become the rule ANCHOR; absent ⇒ anchored at now by the writer.
+  // SET the PRIMARY rule from the add-slot field (v0.2.235) — "12h daily", "daily", "weekdays 9h", etc.
+  // `start`/`end` (when a time was also given) become the rule ANCHOR; absent ⇒ anchored at now.
   | { type: "repeat"; repeat: Recurrence; start?: number; end?: number }
-  // CLEAR the recurrence rule (v0.2.239) — the "clear" / "stop repeating" control. Drops schedule.repeat.
-  | { type: "clearRepeat" }
+  // ADD AN ADDITIONAL series (v0.2.246) — dispatched by add-slot when a primary rule ALREADY exists, so a
+  // second rule becomes a new series rather than overwriting the first. Same anchor semantics as `repeat`.
+  | { type: "addSeries"; repeat: Recurrence; start?: number; end?: number }
+  // CLEAR a recurrence rule (v0.2.239) — "clear" / "stop repeating". `ruleId` set ⇒ remove that ADDITIONAL
+  // series (v0.2.246); absent ⇒ drop the primary `schedule.repeat`.
+  | { type: "clearRepeat"; ruleId?: string }
 
 type Row = ReturnType<typeof getOccurrenceRows>[number]
+
+/** One rendered SERIES strip (v0.2.246): the primary `repeat` (ruleId undefined) or one `series[]` entry,
+    with its human label and the projected rule rows belonging to it. */
+type SeriesGroup = { ruleId?: string; label: string; rows: Row[] }
 
 const ACTION_CLS =
   "text-[9px] uppercase tracking-wider text-muted-foreground opacity-60 hover:text-foreground hover:opacity-100"
@@ -63,8 +72,23 @@ export function Zero0Occurrences({
   const rows = getOccurrenceRows(entity, now)
   const ruleRows = rows.filter((r) => r.origin === "rule")
   const definiteRows = rows.filter((r) => r.origin === "definite")
-  const hasRepeat = !!entity.schedule?.repeat
   const anyCancellableDefinite = definiteRows.some((r) => !r.cancelled && r.cancellable)
+
+  // SERIES GROUPS (v0.2.246) — one strip per recurrence series: the PRIMARY `repeat` first (its rows carry
+  // no ruleId), then each ADDITIONAL `series[]` entry (rows carry its id). Each series can co-exist and is
+  // cancelled/cleared independently. `hasAnySeries` gates the "one-off" disambiguator label below.
+  const seriesGroups: SeriesGroup[] = []
+  if (entity.schedule?.repeat) {
+    seriesGroups.push({ ruleId: undefined, label: describeRecurrence(entity), rows: ruleRows.filter((r) => r.ruleId == null) })
+  }
+  for (const sr of entity.schedule?.series ?? []) {
+    seriesGroups.push({
+      ruleId: sr.id,
+      label: describeRecurrenceRule(sr.repeat, sr.anchorStart, sr.anchorEnd),
+      rows: ruleRows.filter((r) => r.ruleId === sr.id),
+    })
+  }
+  const hasAnySeries = seriesGroups.length > 0
 
   const [adding, setAdding] = useState(false)
   const [draft, setDraft] = useState("")
@@ -81,14 +105,14 @@ export function Zero0Occurrences({
         onAction(
           entity,
           r.origin === "rule"
-            ? { type: "cancel", origin: "rule", recurrenceId: r.recurrenceId!, cancelled: !r.cancelled }
+            ? { type: "cancel", origin: "rule", recurrenceId: r.recurrenceId!, cancelled: !r.cancelled, ruleId: r.ruleId }
             : { type: "cancel", origin: "definite", primary: r.primary, occIndex: r.occIndex, cancelled: !r.cancelled },
         )
       } else {
         onAction(
           entity,
           r.origin === "rule"
-            ? { type: "delete", origin: "rule", recurrenceId: r.recurrenceId! }
+            ? { type: "delete", origin: "rule", recurrenceId: r.recurrenceId!, ruleId: r.ruleId }
             : { type: "delete", origin: "definite", primary: r.primary, occIndex: r.occIndex },
         )
       }
@@ -126,7 +150,7 @@ export function Zero0Occurrences({
   // Open the RULE menu (on the "weekly · 11:00 PM" label): EDIT (disabled placeholder) · CLEAR (stop
   // repeating). Replaces the inline EDIT/CLEAR text actions — reachable by right-click OR plain click.
   const openRuleMenu = useCallback(
-    (ev: React.MouseEvent) => {
+    (ev: React.MouseEvent, ruleId?: string) => {
       if (!onAction) return
       ev.preventDefault()
       ev.stopPropagation()
@@ -137,8 +161,9 @@ export function Zero0Occurrences({
         ],
         x: ev.clientX,
         y: ev.clientY,
+        // ruleId set ⇒ remove that additional series; absent ⇒ clear the primary repeat. (v0.2.246)
         onSelect: (id) => {
-          if (id === "clear") onAction(entity, { type: "clearRepeat" })
+          if (id === "clear") onAction(entity, { type: "clearRepeat", ruleId })
         },
       })
     },
@@ -202,7 +227,10 @@ export function Zero0Occurrences({
         }
         anchor = { start: parsed.start, end: parsed.end }
       }
-      onAction?.(entity, { type: "repeat", repeat, start: anchor?.start, end: anchor?.end })
+      // If a PRIMARY rule already exists, a second rule becomes a NEW additional series (v0.2.246);
+      // otherwise it sets the primary. Either way the anchor is the typed time (or now, in the writer).
+      const kind = entity.schedule?.repeat ? "addSeries" : "repeat"
+      onAction?.(entity, { type: kind, repeat, start: anchor?.start, end: anchor?.end })
       setDraft("")
       setError(false)
       setAdding(false)
@@ -284,31 +312,29 @@ export function Zero0Occurrences({
         )}
       </div>
 
-      {/* ── SERIES sub-list (only when a repeat rule is set) ── SINGLE-ROW horizontal chips (v0.2.244):
-          the rule label is followed inline by a NON-wrapping strip of day chips (Today · Aug 7 · Aug 14
-          …) that scrolls horizontally (invisible scrollbar via `no-scrollbar`) — matching the recorded-
-          sessions/access rows. The rule label ("weekly · 11:00 PM") opens a right-click / click menu
-          (Edit [disabled] · Clear); each chip opens its own menu (Edit [disabled] · Cancel/Restore ·
-          Delete). Status is conveyed by chip tone (NEXT brightened + ringed, missed faded, cancelled
-          struck) plus a `title` tooltip. */}
-      {hasRepeat && (
-        <div className="mb-2 flex items-baseline gap-x-3 text-[10px]">
+      {/* ── SERIES strips ── ONE per recurrence series (v0.2.246): the primary `repeat` first, then each
+          additional `series[]` entry — each rendered identically as a SINGLE-ROW horizontal chip strip
+          (v0.2.244). The rule label opens a right-click / click menu (Edit [disabled] · Clear) scoped to
+          THAT series; each chip opens its own menu (Edit [disabled] · Cancel/Restore · Delete). Status is
+          conveyed by chip tone (NEXT brightened + ringed, missed faded, cancelled struck) + a `title`. */}
+      {seriesGroups.map((g) => (
+        <div key={g.ruleId ?? "primary"} className="mb-2 flex items-baseline gap-x-3 text-[10px]">
           <button
             type="button"
-            onClick={onAction ? openRuleMenu : undefined}
-            onContextMenu={onAction ? openRuleMenu : undefined}
+            onClick={onAction ? (ev) => openRuleMenu(ev, g.ruleId) : undefined}
+            onContextMenu={onAction ? (ev) => openRuleMenu(ev, g.ruleId) : undefined}
             title={onAction ? "Recurrence rule — Edit / Clear" : undefined}
             className={"flex shrink-0 items-center gap-2 text-muted-foreground " + (onAction ? "cursor-pointer hover:text-foreground" : "cursor-default")}
           >
             <span aria-hidden className="opacity-50">
               ↻
             </span>
-            <span className="text-foreground">{describeRecurrence(entity)}</span>
+            <span className="text-foreground">{g.label}</span>
           </button>
-          {ruleRows.length > 0 && (
+          {g.rows.length > 0 && (
             <div className="no-scrollbar min-w-0 flex-1 overflow-x-auto">
               <div className="flex w-max items-baseline gap-x-1 tabular-nums">
-                {ruleRows.map((r, i) => (
+                {g.rows.map((r, i) => (
                   <span key={`rule-${r.index}`} className="flex items-baseline gap-x-1 whitespace-nowrap">
                     {/* Middle-dot separator between chips, matching the recorded-sessions/access rows. */}
                     {i > 0 && (
@@ -331,14 +357,14 @@ export function Zero0Occurrences({
             </div>
           )}
         </div>
-      )}
+      ))}
 
       {/* ── ONE-OFF sub-list (the explicitly-planned definite occurrences) ── The "one-off" label is only
-          a DISAMBIGUATOR from the series list, so it's shown ONLY when a repeat rule exists (v0.2.245);
-          with no series there's nothing to distinguish. Its former CANCEL ALL / + ADD SLOT actions have
-          moved to the block title above. */}
+          a DISAMBIGUATOR from the series strips, so it's shown ONLY when at least one series exists
+          (v0.2.245/.246); with no series there's nothing to distinguish. Its former CANCEL ALL / + ADD
+          SLOT actions have moved to the block title above. */}
       <div>
-        {hasRepeat && <div className="mb-1 text-[10px] text-muted-foreground">one-off</div>}
+        {hasAnySeries && <div className="mb-1 text-[10px] text-muted-foreground">one-off</div>}
         {definiteRows.length > 0 && <ul className="flex flex-col gap-0.5">{definiteRows.map((r) => renderRow(r))}</ul>}
         {onAction && adding && (
           <div className="mt-1">

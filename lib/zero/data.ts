@@ -1,4 +1,4 @@
-import type { Asset, Entity, EntityKind, IndividualEntity, Instant, LogType, OccurrenceRecord, Recurrence, Schedule, Resource, EntityBase, Session, Sex, TaskPriority, TitleEntry, User } from "./types"
+import type { Asset, Entity, EntityKind, IndividualEntity, Instant, LogType, OccurrenceRecord, Recurrence, Schedule, SeriesRule, Resource, EntityBase, Session, Sex, TaskPriority, TitleEntry, User } from "./types"
   import { hasDoneFlag, isClosed, computeCloseAt, getState, isOngoing, fillsGlyph, hasOpenSession, getOpenSession, setChildrenResolver, setContainedResolver, isPlannedStart, plannedStart, isOwnOngoing, effectiveScheduleEnd, getMarks, isMarkable, getSessions, canDeleteEntity, ONGOING_ON_ENTER } from "./kinds"
 import {
   isDone,
@@ -2000,53 +2000,81 @@ export function projectOccurrences(e: Entity, now: number, cap = 10): Occurrence
     out.push({ entityId: e.id, start: occ.start, end: occ.end, origin: "definite", cancelled: !!occ.cancelled, occIndex: i })
   })
 
-  // RULE — project the repeat series into the next `cap` upcoming occurrences from today.
+  // RULE — the PRIMARY `repeat` series, projected into the next `cap` upcoming occurrences from today.
+  // Its anchor is the scalar (`at`/`startDate`/`dueDate`) and its exceptions are `schedule.exceptions`;
+  // a primary rule row carries NO `ruleId` (undefined).
   if (recurring) {
     const anchor = s.at ?? (isPlannedStart(s.startDate) ? s.startDate : undefined) ?? s.dueDate
     if (anchor != null) {
-      const anchorDate = new Date(anchor)
       const duration = isPlannedStart(s.startDate) && s.endDate != null ? s.endDate - s.startDate : 0
-      const cursor = new Date(now)
-      cursor.setHours(0, 0, 0, 0)
-      let matches = 0
-      let scanned = 0
-      while (matches < cap && scanned < PROJECT_MAX_SCAN_DAYS) {
-        const dayStart = cursor.getTime()
-        if (s.repeat!.until != null && dayStart > s.repeat!.until) break
-        if (dayMatchesRecurrence(dayStart, anchor, s.repeat!)) {
-          const ex = s.exceptions?.[dayStart]
-          // HARD EXDATE (v0.2.240): a `removed` instance is dropped from the projection entirely and
-          // does NOT count toward `cap`, so the list backfills the next future day (unlike `cancelled`,
-          // which stays visible + counts). This is the "delete this instance" of a rule occurrence.
-          if (ex?.removed) {
-            cursor.setDate(cursor.getDate() + 1)
-            scanned++
-            continue
-          }
-          const occDate = new Date(dayStart)
-          occDate.setHours(anchorDate.getHours(), anchorDate.getMinutes(), anchorDate.getSeconds(), 0)
-          const occStart = occDate.getTime()
-          out.push({
-            entityId: e.id,
-            start: ex?.start ?? occStart,
-            end: ex?.end ?? (duration > 0 ? occStart + duration : undefined),
-            origin: "rule",
-            cancelled: !!ex?.cancelled,
-            occIndex: -1,
-            recurrenceId: dayStart,
-          })
-          matches++
-        }
-        cursor.setDate(cursor.getDate() + 1)
-        scanned++
-      }
+      projectRuleInto(out, e.id, s.repeat!, anchor, duration, s.exceptions, undefined, now, cap)
     }
+  }
+
+  // RULE — each ADDITIONAL series (v0.2.246). Self-anchored with its own exceptions; each rule row is
+  // tagged with the series' `id` so the block can route actions to the right series.
+  for (const sr of s.series ?? []) {
+    const duration = sr.anchorEnd != null ? sr.anchorEnd - sr.anchorStart : 0
+    projectRuleInto(out, e.id, sr.repeat, sr.anchorStart, duration, sr.exceptions, sr.id, now, cap)
   }
 
   // Start-ordered; tie-break DEFINITE before RULE on a same-day collision (stable).
   return out.sort(
     (a, b) => a.start - b.start || (a.origin === b.origin ? 0 : a.origin === "definite" ? -1 : 1),
   )
+}
+
+/**
+ * Project a SINGLE recurrence rule into `out` — the shared expander used for both the primary `repeat`
+ * (v0.2.234) and each additional `series[]` entry (v0.2.246). Walks upcoming days from today, emitting a
+ * rule `OccurrenceRecord` per matching day (honouring the exceptions map: `removed` days are dropped and
+ * don't count toward `cap`; `cancelled` stay visible + count; `start`/`end` override the instance time),
+ * up to `cap` matches. `ruleId` tags the emitted records (undefined = primary series).
+ */
+function projectRuleInto(
+  out: OccurrenceRecord[],
+  entityId: string,
+  repeat: Recurrence,
+  anchor: number,
+  duration: number,
+  exceptions: Record<number, { cancelled?: boolean; removed?: boolean; start?: number; end?: number }> | undefined,
+  ruleId: string | undefined,
+  now: number,
+  cap: number,
+): void {
+  const anchorDate = new Date(anchor)
+  const cursor = new Date(now)
+  cursor.setHours(0, 0, 0, 0)
+  let matches = 0
+  let scanned = 0
+  while (matches < cap && scanned < PROJECT_MAX_SCAN_DAYS) {
+    const dayStart = cursor.getTime()
+    if (repeat.until != null && dayStart > repeat.until) break
+    if (dayMatchesRecurrence(dayStart, anchor, repeat)) {
+      const ex = exceptions?.[dayStart]
+      if (ex?.removed) {
+        cursor.setDate(cursor.getDate() + 1)
+        scanned++
+        continue
+      }
+      const occDate = new Date(dayStart)
+      occDate.setHours(anchorDate.getHours(), anchorDate.getMinutes(), anchorDate.getSeconds(), 0)
+      const occStart = occDate.getTime()
+      out.push({
+        entityId,
+        start: ex?.start ?? occStart,
+        end: ex?.end ?? (duration > 0 ? occStart + duration : undefined),
+        origin: "rule",
+        cancelled: !!ex?.cancelled,
+        occIndex: -1,
+        recurrenceId: dayStart,
+        ruleId,
+      })
+      matches++
+    }
+    cursor.setDate(cursor.getDate() + 1)
+    scanned++
+  }
 }
 
 /**
@@ -2057,9 +2085,12 @@ export function projectOccurrences(e: Entity, now: number, cap = 10): Occurrence
  * day projects virtually again). Never touches the scalar (rule rows don't drive the anchor), so no
  * `resyncPrimary`. Requires a `repeat` rule. Returns false otherwise.
  */
-export function setRuleOccurrenceCancelled(id: string, recurrenceId: number, cancelled = true): boolean {
+export function setRuleOccurrenceCancelled(id: string, recurrenceId: number, cancelled = true, ruleId?: string): boolean {
   const stored = byId.get(id)
-  if (!stored || !stored.schedule?.repeat) return false
+  if (!stored?.schedule) return false
+  // ruleId present ⇒ target an ADDITIONAL series' exceptions (v0.2.246); absent ⇒ the primary `repeat`.
+  if (ruleId != null) return patchSeriesException(stored, ruleId, recurrenceId, { cancelled })
+  if (!stored.schedule.repeat) return false
   const sched: Schedule = { ...(stored.schedule ?? {}) }
   const exceptions = { ...(sched.exceptions ?? {}) }
   const next = { ...(exceptions[recurrenceId] ?? {}), cancelled }
@@ -2071,6 +2102,41 @@ export function setRuleOccurrenceCancelled(id: string, recurrenceId: number, can
   entity.schedule = sched
   if (!userEntityIds.has(id)) {
     seededOverrides.set(id, { ...seededOverrides.get(id), schedule: sched })
+  }
+  persist()
+  return true
+}
+
+/**
+ * Apply a patch to ONE additional series' exceptions map (v0.2.246) — the `series[]` analogue of the
+ * primary's exception writers. `patch.removed` ⇒ hard EXDATE (delete-instance); `patch.cancelled` ⇒
+ * restorable tombstone. An exception that becomes empty (all flags false/absent) is deleted so the day
+ * projects virtually again; an empty exceptions map is removed from the series. Returns false if the
+ * series doesn't exist. Never touches the scalar (series rows don't drive the primary anchor).
+ */
+function patchSeriesException(
+  stored: Entity,
+  ruleId: string,
+  recurrenceId: number,
+  patch: { cancelled?: boolean; removed?: boolean; start?: number; end?: number },
+): boolean {
+  const sched: Schedule = { ...(stored.schedule ?? {}) }
+  const series = sched.series ?? []
+  const idx = series.findIndex((sr) => sr.id === ruleId)
+  if (idx === -1) return false
+  const sr = series[idx]
+  const exceptions = { ...(sr.exceptions ?? {}) }
+  const next = { ...(exceptions[recurrenceId] ?? {}), ...patch }
+  if (!next.cancelled && !next.removed && next.start == null && next.end == null) delete exceptions[recurrenceId]
+  else exceptions[recurrenceId] = next
+  const nextSr: SeriesRule = { ...sr }
+  if (Object.keys(exceptions).length === 0) delete nextSr.exceptions
+  else nextSr.exceptions = exceptions
+  sched.series = series.map((s, i) => (i === idx ? nextSr : s))
+  const entity = mutable(stored)
+  entity.schedule = sched
+  if (!userEntityIds.has(stored.id)) {
+    seededOverrides.set(stored.id, { ...seededOverrides.get(stored.id), schedule: sched })
   }
   persist()
   return true
@@ -2114,9 +2180,12 @@ export function deleteOccurrence(id: string, index: number): boolean {
  * from `setRuleOccurrenceCancelled`, which keeps the instance visible as a restorable struck tombstone.
  * Requires a `repeat` rule. Returns false otherwise.
  */
-export function deleteRuleOccurrence(id: string, recurrenceId: number): boolean {
+export function deleteRuleOccurrence(id: string, recurrenceId: number, ruleId?: string): boolean {
   const stored = byId.get(id)
-  if (!stored || !stored.schedule?.repeat) return false
+  if (!stored?.schedule) return false
+  // ruleId present ⇒ target an ADDITIONAL series' exceptions (v0.2.246); absent ⇒ the primary `repeat`.
+  if (ruleId != null) return patchSeriesException(stored, ruleId, recurrenceId, { removed: true })
+  if (!stored.schedule.repeat) return false
   const sched: Schedule = { ...(stored.schedule ?? {}) }
   const exceptions = { ...(sched.exceptions ?? {}) }
   exceptions[recurrenceId] = { ...(exceptions[recurrenceId] ?? {}), removed: true }
@@ -2193,6 +2262,54 @@ export function setEntityRepeat(
   const entity = mutable(stored)
   entity.schedule = sched
   logSet(entity, "repeat", repeat ? repeat.freq : null)
+  if (!userEntityIds.has(id)) {
+    seededOverrides.set(id, { ...seededOverrides.get(id), schedule: sched })
+  }
+  persist()
+  return true
+}
+
+/**
+ * ADD an ADDITIONAL recurrence series (v0.2.246) — appends a self-anchored rule to `schedule.series[]`,
+ * so multiple series co-exist on one entity alongside the primary `repeat`. The optional `anchor`
+ * ({start,end?}) seeds the series' anchor; with none, it anchors at `now` (a point instance "repeats
+ * starting now"). Returns the new series' id, or null if the entity doesn't exist. Never touches the
+ * primary `repeat` or the scalar. This is what the block's rule-typed "+ add slot" calls when a primary
+ * rule already exists (so a second rule becomes a NEW series rather than overwriting the first).
+ */
+export function addSeries(id: string, repeat: Recurrence, anchor?: { start: number; end?: number }): string | null {
+  const stored = byId.get(id)
+  if (!stored) return null
+  const sched: Schedule = { ...(stored.schedule ?? {}) }
+  const seriesId = uid("sr")
+  const sr: SeriesRule = { id: seriesId, repeat, anchorStart: anchor?.start ?? Date.now() }
+  if (anchor?.end != null) sr.anchorEnd = anchor.end
+  sched.series = [...(sched.series ?? []), sr]
+  const entity = mutable(stored)
+  entity.schedule = sched
+  if (!userEntityIds.has(id)) {
+    seededOverrides.set(id, { ...seededOverrides.get(id), schedule: sched })
+  }
+  persist()
+  return seriesId
+}
+
+/**
+ * REMOVE an ADDITIONAL recurrence series (v0.2.246) — drops the `series[]` entry with the given id
+ * (its exceptions go with it). The `series[]` array is deleted entirely when it becomes empty. This is
+ * the "clear/stop repeating" action for an additional series (the primary uses `setEntityRepeat(id,
+ * null)`). Returns false if the entity or series doesn't exist.
+ */
+export function removeSeries(id: string, ruleId: string): boolean {
+  const stored = byId.get(id)
+  if (!stored?.schedule?.series) return false
+  const sched: Schedule = { ...(stored.schedule ?? {}) }
+  const next = (sched.series ?? []).filter((sr) => sr.id !== ruleId)
+  if (next.length === (sched.series ?? []).length) return false
+  if (next.length === 0) delete sched.series
+  else sched.series = next
+  const entity = mutable(stored)
+  entity.schedule = sched
   if (!userEntityIds.has(id)) {
     seededOverrides.set(id, { ...seededOverrides.get(id), schedule: sched })
   }
