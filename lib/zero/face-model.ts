@@ -927,19 +927,47 @@ function fmtTime(epoch: number): string {
   return /^\d(?!\d)/.test(s) ? "\u2007" + s : s
 }
 
-/** Split an occurrence into a leading DAY token + a TIME range, for the aligned block layout. A span
-    whose end lands on a DIFFERENT day than its start carries the end's own day inline. */
-export function formatOccurrenceParts(occ: PlannedOccurrence, now: number): { day: string; time: string } {
+/** One styled piece of an occurrence's TIME range. `muted` segments (the "unset" placeholder and its
+    adjacent dash) render faded like the status word, so they don't shine as much as real times. */
+export interface TimeSegment {
+  text: string
+  muted: boolean
+}
+
+/** Split an occurrence into a leading DAY token + a TIME range (as styled segments), for the aligned
+    block layout. A span whose end lands on a DIFFERENT day than its start carries the end's own day
+    inline. `isInstant` (v0.2.237): an INSTANT entity is a single point in time (`at` == start == end ==
+    due), so it renders JUST that one time — never a range or an "unset" placeholder. */
+export function formatOccurrenceParts(
+  occ: PlannedOccurrence,
+  now: number,
+  isInstant = false,
+): { day: string; time: TimeSegment[] } {
+  // INSTANT = a point. List the one moment (prefer start; fall back to end/due if that's all there is);
+  // no "– unset", no range dash.
+  if (isInstant) {
+    const at = occ.startAt ?? occ.endAt
+    if (at == null) return { day: "—", time: [{ text: "unset", muted: true }] }
+    return { day: fmtDay(at, now), time: [{ text: fmtTime(at), muted: false }] }
+  }
   // WHICHEVER bound is missing reads "unset" in the range (v0.2.236 — was: end-missing rendered a bare
-  // point time, start-missing rendered "by <end>"). So a half-typed occurrence shows the range shape with
-  // the absent side explicit: "3:00 PM – unset" / "unset – 10:00 PM". Both missing ⇒ a single "unset".
-  if (occ.startAt == null && occ.endAt == null) return { day: "—", time: "unset" }
-  if (occ.startAt == null) return { day: fmtDay(occ.endAt!, now), time: `unset – ${fmtTime(occ.endAt!)}` }
+  // point time, start-missing rendered "by <end>"). The absent side + its dash are MUTED (v0.2.237). So a
+  // half-typed occurrence shows the range shape with the absent side explicit: "3:00 PM – unset" /
+  // "unset – 10:00 PM". Both missing ⇒ a single "unset".
+  if (occ.startAt == null && occ.endAt == null) return { day: "—", time: [{ text: "unset", muted: true }] }
+  if (occ.startAt == null) {
+    return {
+      day: fmtDay(occ.endAt!, now),
+      time: [{ text: "unset – ", muted: true }, { text: fmtTime(occ.endAt!), muted: false }],
+    }
+  }
   const day = fmtDay(occ.startAt, now)
-  if (occ.endAt == null) return { day, time: `${fmtTime(occ.startAt)} – unset` }
+  if (occ.endAt == null) {
+    return { day, time: [{ text: fmtTime(occ.startAt), muted: false }, { text: " – unset", muted: true }] }
+  }
   const sameDay = new Date(occ.startAt).toDateString() === new Date(occ.endAt).toDateString()
   const end = sameDay ? fmtTime(occ.endAt) : `${fmtDay(occ.endAt, now)} ${fmtTime(occ.endAt)}`
-  return { day, time: `${fmtTime(occ.startAt)} – ${end}` }
+  return { day, time: [{ text: `${fmtTime(occ.startAt)} – ${end}`, muted: false }] }
 }
 
 /** An occurrence's WHEN, WITHOUT its status: `<when>[–<end>]` (open/unset handled). */
@@ -984,8 +1012,10 @@ export interface OccurrenceRow {
   recurrenceId?: number
   /** Leading DAY token — "Today" / "Tomorrow" / "Jul 31" — for the aligned fixed-width column. */
   day: string
-  /** TIME range without the day, e.g. "5:30 PM–8:30 PM". */
-  time: string
+  /** TIME range without the day, as styled segments (e.g. `[{"3:00 PM"},{" – unset",muted}]`). The
+      muted segments (unset placeholder + its dash) render faded, like the status word. For an INSTANT
+      entity this is a single point-time segment. */
+  time: TimeSegment[]
   /** WHEN text, e.g. "Mon 1:00 PM–2:00 PM" (no status). Combined form kept for non-block callers. */
   label: string
   status: OccurrenceStatus
@@ -1011,11 +1041,12 @@ export function getOccurrenceRows(e: Entity, now: number): OccurrenceRow[] {
   // view-time, so it stays correct as `now` advances without any write (the old PRIMARY tag was a
   // write-time mirror that got stuck on a stale/missed past slot). None qualifies ⇒ no marker.
   const nextIdx = recs.findIndex((r) => !r.cancelled && (r.end ?? r.start) >= now)
+  const isInstant = e.kind === "instant"
   return recs.map((rec, index) => {
     const primary = rec.origin === "definite" && rec.occIndex === -1
     const occ: PlannedOccurrence = { startAt: rec.start, endAt: rec.end, cancelled: rec.cancelled, primary }
     const status = occurrenceStatus(occ, sessions, now)
-    const parts = formatOccurrenceParts(occ, now)
+    const parts = formatOccurrenceParts(occ, now, isInstant)
     return {
       index,
       occIndex: rec.occIndex,
@@ -1040,10 +1071,14 @@ export function getOccurrenceCount(e: Entity): number {
   return getPlannedOccurrences(e).length
 }
 
-/** Kinds that can hold a multi-occurrence plan (a moment or a space) — gates the "+ add slot"
-    affordance + the addOccurrence writer. Mirrors data.ts's internal isOccurrenceKind. */
+/** Kinds that show the PLANNED OCCURRENCES block. A moment/space holds a MULTI-occurrence plan (with
+    "+ add slot" + the addOccurrence writer). An INSTANT (v0.2.237) is a single point in time (`at` ==
+    start == end == due), so it shows the block too but READ-ONLY — one point row, no add-slot/cancel
+    (the component gates those on `entity.kind !== "instant"`). NOTE: data.ts keeps a SEPARATE internal
+    `isOccurrenceKind` (moment||space) that still gates the mutating writers, so an instant can never gain
+    added slots server-side even though it renders the block. */
 export function isOccurrenceKind(e: Entity): boolean {
-  return e.kind === "moment" || e.kind === "space"
+  return e.kind === "moment" || e.kind === "space" || e.kind === "instant"
 }
 
 /**

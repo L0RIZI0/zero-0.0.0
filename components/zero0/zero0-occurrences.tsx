@@ -48,6 +48,11 @@ export function Zero0Occurrences({
   const [adding, setAdding] = useState(false)
   const [draft, setDraft] = useState("")
   const [error, setError] = useState(false)
+  // INSTANT (v0.2.237) is a single point in time — it renders its one AT row but READ-ONLY: no
+  // "+ add slot" (a point has no slots to add) and no per-row cancel. Suppressing `onAction` for
+  // instants hides both affordances at once, since each already gates on it.
+  const isInstant = entity.kind === "instant"
+  const editAction = isInstant ? undefined : onAction
 
   const submit = useCallback(() => {
     // RECURRENCE-AWARE (v0.2.235): if any word parses as a recurrence ("daily", "weekdays", …) the field
@@ -110,8 +115,15 @@ export function Zero0Occurrences({
                 <span className="w-20 shrink-0 text-muted-foreground">{r.day}</span>
                 {/* TIME column is min-width-fixed so the following STATUS word starts at a constant x
                     whether the time is a point ("19:19") or a range ("17:00 – 18:00"). A rare very-wide
-                    cross-day range is allowed to grow past it (min, not fixed) rather than clip. */}
-                <span className="min-w-[7.5rem] text-foreground">{r.time}</span>
+                    cross-day range is allowed to grow past it (min, not fixed) rather than clip. Rendered
+                    as segments so the "unset" placeholder + its dash fade like the status word. */}
+                <span className="min-w-[7.5rem] text-foreground">
+                  {r.time.map((seg, i) => (
+                    <span key={i} className={seg.muted ? "text-muted-foreground" : undefined}>
+                      {seg.text}
+                    </span>
+                  ))}
+                </span>
               </span>
               <span className="text-muted-foreground">{r.statusWord}</span>
               {/* NEXT (v0.2.235) — marks the current/next occurrence, computed view-time from `now`
@@ -126,11 +138,11 @@ export function Zero0Occurrences({
                   index-0 cancel to cancelPrimaryOccurrence (which promotes the next slot). Kept
                   always-visible-but-faint, not a group-hover reveal, which silently no-ops in the
                   Electron/webview build where `(hover:hover)` is false. */}
-              {onAction && (
+              {editAction && (
                 <button
                   type="button"
                   onClick={() =>
-                    onAction(
+                    editAction(
                       entity,
                       r.origin === "rule"
                         ? { type: "cancel", origin: "rule", recurrenceId: r.recurrenceId!, cancelled: !r.cancelled }
@@ -147,7 +159,7 @@ export function Zero0Occurrences({
           ))}
         </ul>
       )}
-      {onAction && (
+      {editAction && (
         <div className="mt-1">
           {adding ? (
             <input
