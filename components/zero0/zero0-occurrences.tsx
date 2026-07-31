@@ -114,7 +114,10 @@ export function Zero0Occurrences({
 
   // One occurrence/instance row — shared by both sub-lists. Renders DAY · TIME · STATUS · [NEXT] and the
   // per-row actions (edit · cancel/restore · delete). Cancel/delete dispatch is discriminated by origin.
-  const renderRow = (r: Row) => (
+  // `inSeries` (v0.2.240): a series instance suppresses its TIME column, since the rule title already
+  // states the shared anchor time — showing "1:00 PM – unset" on every instance is redundant noise.
+  // (When per-occurrence time-edit lands, an overridden instance can opt back into showing its time.)
+  const renderRow = (r: Row, inSeries = false) => (
     <li key={`${r.origin}-${r.index}`} className="flex items-center gap-2 text-[10px] tabular-nums">
       <span aria-hidden className="text-muted-foreground opacity-50">
         ·
@@ -123,13 +126,15 @@ export function Zero0Occurrences({
           constant x whether point or range. "unset" segments fade like the status word. */}
       <span className={"flex items-baseline gap-2 " + (r.cancelled ? "line-through opacity-60" : "")}>
         <span className="w-20 shrink-0 text-muted-foreground">{r.day}</span>
-        <span className="min-w-[7.5rem] text-foreground">
-          {r.time.map((seg, i) => (
-            <span key={i} className={seg.muted ? "text-muted-foreground" : undefined}>
-              {seg.text}
-            </span>
-          ))}
-        </span>
+        {!inSeries && (
+          <span className="min-w-[7.5rem] text-foreground">
+            {r.time.map((seg, i) => (
+              <span key={i} className={seg.muted ? "text-muted-foreground" : undefined}>
+                {seg.text}
+              </span>
+            ))}
+          </span>
+        )}
       </span>
       <span className="text-muted-foreground">{r.statusWord}</span>
       {r.isNext && <span className="text-[9px] uppercase tracking-wider text-foreground opacity-70">next</span>}
@@ -210,7 +215,7 @@ export function Zero0Occurrences({
               </span>
             )}
           </div>
-          {ruleRows.length > 0 && <ul className="flex flex-col gap-0.5">{ruleRows.map(renderRow)}</ul>}
+          {ruleRows.length > 0 && <ul className="flex flex-col gap-0.5">{ruleRows.map((r) => renderRow(r, true))}</ul>}
         </div>
       )}
 
@@ -236,7 +241,7 @@ export function Zero0Occurrences({
             </span>
           )}
         </div>
-        {definiteRows.length > 0 && <ul className="flex flex-col gap-0.5">{definiteRows.map(renderRow)}</ul>}
+        {definiteRows.length > 0 && <ul className="flex flex-col gap-0.5">{definiteRows.map((r) => renderRow(r, false))}</ul>}
         {onAction && adding && (
           <div className="mt-1">
             <input
