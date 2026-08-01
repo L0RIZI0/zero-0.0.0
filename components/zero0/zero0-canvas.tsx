@@ -17,6 +17,7 @@ import {
   getChildren,
   getDeletedChildren,
   restoreEntity,
+  hardDeleteEntity,
   getEntity,
   getEnvKey,
   hydrateFromStorage,
@@ -1629,6 +1630,13 @@ export function Zero0Canvas() {
       // delegated to applyEntityMenuAction (which acts on e.id).
       if (id.startsWith("restore:")) {
         restoreEntity(id.slice("restore:".length))
+        return bump()
+      }
+      // PURGE — the SECOND, permanent delete (id = `purge:<childId>`, from the container's
+      // Restore-deleted submenu on an already-soft-deleted child). Hard-removes the entity and its
+      // whole subtree from the store; irreversible. Same different-id interception as restore.
+      if (id.startsWith("purge:")) {
+        hardDeleteEntity(id.slice("purge:".length))
         return bump()
       }
       // STARTER PIN — curation, not entity data: add/remove from the global §4 PINNED list.

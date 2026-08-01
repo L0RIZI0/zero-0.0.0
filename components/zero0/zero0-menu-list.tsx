@@ -57,7 +57,10 @@ function MenuRow({ item, onSelect }: { item: Indentable; onSelect: (id: string) 
           onClick={() => setOpen((o) => !o)}
           className="flex w-full items-center justify-between px-3 py-1 text-left text-muted-foreground hover:bg-muted hover:text-foreground"
         >
-          <span>{item.label}</span>
+          <span className="flex items-center gap-2">
+            {item.glyphKind && <Zero0Glyph kind={item.glyphKind} className="h-3 w-3" />}
+            <span>{item.label}</span>
+          </span>
           <span aria-hidden className="text-muted-foreground/60">
             {open ? "−" : "+"}
           </span>

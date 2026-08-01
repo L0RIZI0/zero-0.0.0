@@ -59,7 +59,7 @@ export type MenuItem =
       /** A `#rrggbb` swatch drawn as a leading dot (the color picker rows). */
       swatch?: string
     }
-  | { type: "submenu"; label: string; items: MenuItem[] }
+  | { type: "submenu"; label: string; items: MenuItem[]; glyphKind?: EntityKind }
   // The unified color entry: the renderer draws the shared swatch ramp + a "hex or name…" input
   // (which reveals the HSV picker on focus). All paths report back through the `color:<hex>`
   // action id. `current` seeds the field/dot with the entity's existing accent, if any.
@@ -269,9 +269,10 @@ export function buildEntityMenuItems(
     })
   }
 
-  // DELETE — soft + reversible, GUARDED: only offered while the entity is deletable right now
-  // (deletable kind + open/scheduled state; see canDeleteEntity). Once it has lived, it's part
-  // of the record and the option disappears (uzer0 bypass is a deferred story).
+  // DELETE — soft + reversible (stamps deletedAt; the trashed row then lives under the container's
+  // "Restore deleted" submenu, where a SECOND delete is permanent). Offered for any deletable kind;
+  // non-life-beings are deletable in ANY state (so a hidden/closed task/moment/space CAN be deleted —
+  // the bug fix), while life-beings stay protected once alive/on-the-record (see canDeleteEntity).
   if (canDeleteEntity(entity)) {
     items.push({ type: "item", id: "delete", label: "Delete", danger: true })
   }

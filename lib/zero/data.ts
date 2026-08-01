@@ -4377,10 +4377,11 @@ function removeEntityById(id: string): boolean {
  * undoes it by clearing that one stamp. Restore is reached from the container's right-click ▸
  * Deleted list.
  *
- * GUARDED by {@link canDeleteEntity}: only an `open`/`scheduled` entity of a deletable kind can
- * be deleted. `opts.byUzer0` bypasses the STATE guard (system actor) — scaffolded; the full
- * uzer0 story (incl. PERMANENT removal via {@link hardDeleteEntity}) is deferred. Returns true
- * if the entity was (soft-)deleted. Seeded entities record an override so it survives refreshes.
+ * GUARDED by {@link canDeleteEntity}: a deletable kind that is either a non-life-being (deletable
+ * in ANY state — so hidden/closed tasks·moments·spaces CAN be trashed) or a life-being not yet on
+ * the record. `opts.byUzer0` bypasses the guard (system actor). Reversible via {@link restoreEntity};
+ * a SECOND delete on the trashed row is the permanent {@link hardDeleteEntity}. Returns true if the
+ * entity was (soft-)deleted. Seeded entities record an override so it survives refreshes.
  */
 export function deleteEntity(id: string, opts?: { byUzer0?: boolean }): boolean {
   const stored = byId.get(id)
@@ -4415,10 +4416,11 @@ export function restoreEntity(id: string): boolean {
 }
 
 /**
- * PERMANENT removal (hard delete) of an entity + its whole origin subtree — the pre-soft-delete
- * behavior, now reserved for the future uzer0-only path. Seeded entities leave a tombstone
- * (`deletedIds`) so the removal survives refreshes; user-created ones are simply dropped. NOT
- * wired to the menu (which uses the reversible {@link deleteEntity}); kept for that later story.
+ * PERMANENT removal (hard delete) of an entity + its whole origin subtree — irreversible. Wired to
+ * the menu as the SECOND delete: right-clicking an already-soft-deleted child in the container's
+ * "Restore deleted" submenu offers "Delete permanently" (`purge:<id>`), the industry-standard
+ * two-step trash→purge. Seeded entities leave a tombstone (`deletedSeededIds`) so the removal
+ * survives refreshes; user-created ones are simply dropped.
  */
 export function hardDeleteEntity(id: string): void {
   // Collect the entity and all descendants via origin parent links.
