@@ -16,13 +16,20 @@ import { useEffect, useState } from "react"
 export function Zero0WindowControls() {
   const [show, setShow] = useState(false)
   const [maximized, setMaximized] = useState(false)
+  const [fullscreen, setFullscreen] = useState(false)
 
   useEffect(() => {
     const zero = typeof window !== "undefined" ? window.zero : undefined
     if (!zero?.isDesktop || zero.platform === "darwin") return
     setShow(true)
     zero.win.isMaximized().then(setMaximized)
-    return zero.win.onMaximizeChange(setMaximized)
+    zero.win.isFullScreen().then(setFullscreen)
+    const offMax = zero.win.onMaximizeChange(setMaximized)
+    const offFs = zero.win.onFullScreenChange(setFullscreen)
+    return () => {
+      offMax()
+      offFs()
+    }
   }, [])
 
   if (!show) return null
@@ -34,6 +41,26 @@ export function Zero0WindowControls() {
       style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
       aria-label="Window controls"
     >
+      <CtrlButton
+        label={fullscreen ? "Exit full screen (Esc)" : "Full screen (F11)"}
+        onClick={() => win.toggleFullScreen()}
+      >
+        {fullscreen ? (
+          <>
+            <path d="M4 2.5 V4 H2.5" />
+            <path d="M7 2.5 V4 H8.5" />
+            <path d="M4 8.5 V7 H2.5" />
+            <path d="M7 8.5 V7 H8.5" />
+          </>
+        ) : (
+          <>
+            <path d="M2.5 4 V2.5 H4" />
+            <path d="M7 2.5 H8.5 V4" />
+            <path d="M2.5 7 V8.5 H4" />
+            <path d="M7 8.5 H8.5 V7" />
+          </>
+        )}
+      </CtrlButton>
       <CtrlButton label="Minimize" onClick={() => win.minimize()}>
         <line x1="2.5" y1="6" x2="9.5" y2="6" />
       </CtrlButton>

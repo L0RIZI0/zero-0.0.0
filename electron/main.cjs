@@ -355,6 +355,31 @@ function createWindow() {
   win.on("maximize", sendMaxState)
   win.on("unmaximize", sendMaxState)
 
+  // Report OS-fullscreen enter/leave so the in-app control can light up and so an F11 /
+  // Escape / native gesture toggle stays reflected in the button state. Distinct from
+  // maximize: fullscreen covers the whole SCREEN and hides the OS taskbar.
+  const sendFsState = () => {
+    if (win && !win.isDestroyed()) {
+      win.webContents.send("zero:win:fullscreen", win.isFullScreen())
+    }
+  }
+  win.on("enter-full-screen", sendFsState)
+  win.on("leave-full-screen", sendFsState)
+
+  // Keyboard safety net for OS-fullscreen, scoped to THIS window (no global accelerator, so
+  // it can't clash with other apps or fire when Zero is unfocused): F11 toggles, Escape exits.
+  // `before-input-event` sees the key before the page, and we only swallow it when acting.
+  win.webContents.on("before-input-event", (event, input) => {
+    if (input.type !== "keyDown") return
+    if (input.key === "F11") {
+      win.setFullScreen(!win.isFullScreen())
+      event.preventDefault()
+    } else if (input.key === "Escape" && win.isFullScreen()) {
+      win.setFullScreen(false)
+      event.preventDefault()
+    }
+  })
+
   // Re-sync the resource-host DPI scale when this window moves/resizes — dragging to a monitor with a
   // different scale factor fires `move` (not `display-metrics-changed`), so this is the trigger that catches
   // the cross-monitor case. Debounced so a drag doesn't spam the host; only acts for the active host window.
@@ -1402,6 +1427,13 @@ ipcMain.on("zero:win:toggle-maximize", (e) => {
 })
 ipcMain.on("zero:win:close", (e) => senderWindow(e)?.close())
 ipcMain.handle("zero:win:is-maximized", (e) => !!senderWindow(e)?.isMaximized())
+// OS-level fullscreen (covers the whole screen, hides the taskbar) — the sender's own window.
+ipcMain.on("zero:win:toggle-fullscreen", (e) => {
+  const win = senderWindow(e)
+  if (!win) return
+  win.setFullScreen(!win.isFullScreen())
+})
+ipcMain.handle("zero:win:is-fullscreen", (e) => !!senderWindow(e)?.isFullScreen())
 
 // ── Apply a downloaded update on demand ────────────���─────────────────────────
 // Triggered by the in-app "Restart to update" affordance. Only meaningful once an

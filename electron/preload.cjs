@@ -174,5 +174,14 @@ contextBridge.exposeInMainWorld("zero", {
       ipcRenderer.on("zero:win:maximized", handler)
       return () => ipcRenderer.removeListener("zero:win:maximized", handler)
     },
+    /** OS-level fullscreen (whole screen, taskbar hidden) — distinct from maximize. */
+    toggleFullScreen: () => ipcRenderer.send("zero:win:toggle-fullscreen"),
+    isFullScreen: () => ipcRenderer.invoke("zero:win:is-fullscreen"),
+    /** Subscribe to real fullscreen-state changes (button, F11/Escape, or native gesture). */
+    onFullScreenChange: (cb) => {
+      const handler = (_e, value) => cb(!!value)
+      ipcRenderer.on("zero:win:fullscreen", handler)
+      return () => ipcRenderer.removeListener("zero:win:fullscreen", handler)
+    },
   },
 })

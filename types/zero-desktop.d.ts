@@ -77,6 +77,10 @@ export interface ZeroDesktopBridge {
     close: () => void
     isMaximized: () => Promise<boolean>
     onMaximizeChange: (cb: (maximized: boolean) => void) => () => void
+    /** OS-level fullscreen (whole screen, taskbar hidden) — distinct from maximize. */
+    toggleFullScreen: () => void
+    isFullScreen: () => Promise<boolean>
+    onFullScreenChange: (cb: (fullscreen: boolean) => void) => () => void
   }
 }
 
