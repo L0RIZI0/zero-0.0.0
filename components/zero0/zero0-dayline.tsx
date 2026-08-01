@@ -12,7 +12,7 @@ export type DaylineOccRef = NonNullable<TimelineOccurrence["occRef"]>
  import { webLabel } from "@/lib/zero/web-resources"
  import type { Entity } from "@/lib/zero/types"
  import { isClosed, computeCloseAt, effectiveScheduleEnd } from "@/lib/zero/kinds"
-import { rangeText, NOW_COLOR } from "@/lib/zero/timeline-format"
+import { rangeText, fmtTime, NOW_COLOR } from "@/lib/zero/timeline-format"
 import { isSleepTitle, sleepSkyBackground } from "@/lib/zero/sleep-sky"
 import { DAYLINE_ROW_H } from "@/lib/zero/layout"
 import { useNowSeconds } from "@/lib/zero/use-now"
@@ -475,20 +475,22 @@ export function Zero0Dayline({
       if (!s) continue
       // "whenever" has no fixed clock time, so it never anchors a planned dayline bar.
       const startNum = typeof s.startDate === "number" ? s.startDate : undefined
-      // start / point / due — a due-only task anchors on its deadline and paints a point.
+      // start / point / due — a due-only task anchors on its deadline and paints a point. May be
+      // undefined for an END-ONLY occurrence (declared end, no start) — handled below.
       const st = startNum ?? s.at ?? s.dueDate
-      if (st == null) continue
+      // Effective end = declared endAt OR (concrete start + duration). A start+duration span
+      // therefore paints a FIXED-LENGTH bar and never reads as ongoing — same rule the state
+      // model uses (effectiveScheduleEnd). `endNum` is undefined only when there's genuinely
+      // no known end (open-ended start, or a due/at point).
+      const endNum = effectiveScheduleEnd(s) ?? undefined
+      // Nothing to place when there's NEITHER a start anchor NOR a known end.
+      if (st == null && endNum == null) continue
       // CLOSED occurrences are NOT ongoing, even without a declared `endAt`: a closed entity
       // can't still be running. If it lacks an `endAt`, terminate its bar at its actual close
       // time (`computeCloseAt`, the RECORD of when it ended) rather than letting it stretch to
       // now as an eternal ghost. (Covers a closed Moment/Space that had a start but no end and
       // no session — the case `closeSession`-on-close can't reach since there's no session.)
       const closed = isClosed(occ, now)
-      // Effective end = declared endAt OR (concrete start + duration). A start+duration span
-      // therefore paints a FIXED-LENGTH bar and never reads as ongoing — same rule the state
-      // model uses (effectiveScheduleEnd). `endNum` is undefined only when there's genuinely
-      // no known end (open-ended start, or a due/at point).
-      const endNum = effectiveScheduleEnd(s) ?? undefined
       const closeAt = closed && endNum == null ? computeCloseAt(occ, now) : undefined
       // ONGOING — an entity with a real start (in the past) but no end yet reads as still
       // running, so its tick GROWS from start to NOW, as if `:end:` were live-set to now. It
@@ -501,19 +503,23 @@ export function Zero0Dayline({
       // (startNum > now), which paints as a start point with a rightward fade. Drives the
       // "continues, end unknown" fade in the render.
       const unknownEnd = !closed && endNum == null && startNum != null
-      // UNKNOWN START (v0.2.249) — the mirror: a real end but NO concrete start (and not an `at`/due
-      // point). Renders a LEFTWARD fade. Dormant in today's model (projection always yields a start),
-      // wired for when start-less occurrences become representable.
-      const unknownStart = endNum != null && startNum == null && s.at == null
+      // UNKNOWN START (v0.2.249) — the mirror: a real end but NO start anchor at all (no `startAt`,
+      // no `at`, no `dueDate`). Renders a LEFTWARD fade anchored at the end. Reachable via an
+      // end-only entity (`:end:` with no `:start:`), which getDaylineOccurrences synthesizes.
+      const unknownStart = endNum != null && st == null
       // end = effective end (declared/implied), else the record close time (closed), else now
-      // (ongoing), else a point.
-      const en = endNum ?? closeAt ?? (ongoing ? now : st)
-      if (en < lo || st > hi) continue
-      const leftPct = ((st - winStart) / DAY_MS) * 100
-      const widthPct = ((en - st) / DAY_MS) * 100
+      // (ongoing), else the start anchor (a point).
+      const en = endNum ?? closeAt ?? (ongoing ? now : st!)
+      // ANCHOR = the KNOWN edge the tick pins to: the start when we have one, else the end (end-only).
+      const anchor = st ?? en
+      if (en < lo || anchor > hi) continue
+      const leftPct = ((anchor - winStart) / DAY_MS) * 100
+      // End-only ticks carry no width of their own — they're just the leftward fade tail ending at
+      // the anchor; the render's `unknownStart` branch supplies the fade length.
+      const widthPct = st == null ? 0 : ((en - anchor) / DAY_MS) * 100
       // A sleep-titled DURATION moment paints a procedural night sky instead of a
       // flat accent bar (seeded per-occurrence so it's stable yet unique per night).
-      const isSleepSpan = en > st && occ.kind === "moment" && isSleepTitle(occ.title)
+      const isSleepSpan = st != null && en > st && occ.kind === "moment" && isSleepTitle(occ.title)
       // fill = the occurrence's own color; stroke = its parent's color (only inside a Space).
       const { fill, stroke } = paintFor(occ.id)
       out.push({
@@ -525,9 +531,13 @@ export function Zero0Dayline({
         leftPct,
         widthPct,
         centerPct: leftPct + widthPct / 2,
-        range: ongoing ? `${rangeText(st, en, s.repeat)} · ongoing` : rangeText(st, en, s.repeat),
+        range: unknownStart
+          ? `unset – ${fmtTime(en)}`
+          : ongoing
+            ? `${rangeText(st!, en, s.repeat)} · ongoing`
+            : rangeText(st!, en, s.repeat),
         track: "planned",
-        point: en <= st,
+        point: st != null && en <= st,
         // A planned INSTANT renders as a labelled filled glyph (see the render branch), not a
         // bare point tick.
         instant: occ.kind === "instant",

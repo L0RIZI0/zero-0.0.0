@@ -1357,6 +1357,40 @@ export function getDaylineOccurrences(lo: number, hi: number, now: number = Date
         },
       })
     }
+
+    // END-ONLY occurrence (v0.2.249) — a non-recurring entity with a declared END but NO concrete start
+    // (and no `at` point, no definite one-off slots). `projectOccurrences` emits NOTHING for it (its
+    // definite branch requires `isPlannedStart(startDate)`), so synthesize a start-LESS occurrence here.
+    // The dayline memo anchors it at its end and paints a LEFTWARD fade — the mirror of an open-ended
+    // start's right fade — and §0 already renders it as "unset – <end>". Due-only tasks (a `dueDate` with
+    // NO `endDate`) are intentionally excluded: they stay points, per decision.
+    const hasRule = !!s.repeat || !!(s.series && s.series.length)
+    const startless =
+      !hasRule &&
+      s.endDate != null &&
+      !isPlannedStart(s.startDate) &&
+      s.at == null &&
+      (s.plannedOccurrences == null || s.plannedOccurrences.length === 0)
+    if (startless && s.endDate! >= lo && s.endDate! <= hi) {
+      out.push({
+        ...e,
+        // Pure end-only schedule: strip every anchor EXCEPT the end so the memo takes the unknown-start
+        // path (st == null, endNum set).
+        schedule: {
+          ...s,
+          repeat: undefined,
+          series: undefined,
+          plannedOccurrences: undefined,
+          exceptions: undefined,
+          startDate: undefined,
+          at: undefined,
+          dueDate: undefined,
+          endDate: s.endDate,
+        },
+        occKey: `${e.id}#endonly`,
+        occRef: { origin: "definite", occIndex: -1, cancellable: s.endDate! >= now },
+      })
+    }
   }
   return out
 }
