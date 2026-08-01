@@ -748,8 +748,15 @@ export function Zero0Dayline({
       const widthPct = Math.max(0, ((en - st) / DAY_MS) * 100)
       const entity = getEntity(seg.id)
       const { fill, stroke } = paintFor(seg.id)
-      // v0.6.22: the middle spine does NOT trail the unknown-end fade — it's always "up to now"
-      // by construction, so a crisp right edge reads correctly and avoids the fade's cost/lag.
+      // v0.6.22: the middle spine does NOT trail the unknown-end fade (`unknownEnd:false`) — it's
+      // always "up to now" by construction, so a crisp right edge reads correctly and avoids the
+      // fade's cost/lag.
+      // 1a fix: an OPEN spine segment ends AT the now marker, so mark it `openEnded` — the render
+      // then anchors it by its RIGHT edge (grows the min-width nub LEFTWARD from now) exactly like
+      // the presence rail's open sessions. Without this, a just-punched ~0-width sliver was left-
+      // anchored and its `max(3px,…)` floor spilled a few px to the RIGHT of now (a presence tick
+      // wrongly drawn in the future). `openEnded` only drives right-anchoring here; the fade stays
+      // off because `unknownEnd` is false. A CLOSED segment keeps left-anchor (its end is in the past).
       out.push({
         key: `spine:${seg.id}:${seg.start}`,
         id: seg.id,
@@ -762,7 +769,7 @@ export function Zero0Dayline({
         range: `${rangeText(seg.start, rightEdge)} · access${seg.open ? " · ongoing" : ""}`,
         track: "middle",
         point: false,
-        openEnded: false,
+        openEnded: seg.open,
         unknownEnd: false,
       })
     }
