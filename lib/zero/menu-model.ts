@@ -29,7 +29,15 @@ import {
   openSession,
   closeSession,
 } from "@/lib/zero/data"
-import { isClosed, KIND_META, hasOpenSession, isPlayable, canDeleteEntity, canCancelEntity } from "@/lib/zero/kinds"
+import {
+  isClosed,
+  KIND_META,
+  hasOpenSession,
+  isPlayable,
+  canDeleteEntity,
+  canCancelEntity,
+  entityHiddenState,
+} from "@/lib/zero/kinds"
 import { isDone } from "@/lib/zero/entity-log"
 import { FACE_SIZES, faceSizeLabel, FACE_MAKES, faceMakeLabel, type FaceSize, type FaceMake } from "@/lib/zero/face-model"
 import type { Entity, EntityKind } from "@/lib/zero/types"
@@ -227,7 +235,10 @@ export function buildEntityMenuItems(
   // display flag). "Show hidden" is a VIEW toggle on the current list (revealing both
   // manually-hidden and auto-hidden-closed children with a "(hidden)" prefix); it is NOT a
   // data mutation, so `applyEntityMenuAction` returns false for it and the canvas handles it.
-  items.push({ type: "item", id: entity.hidden ? "unhide" : "hide", label: entity.hidden ? "Unhide" : "Hide" })
+  // Label from the EFFECTIVE hide state (manual OR derived auto-hide), not the raw flag — so an
+  // auto-hidden row correctly offers "Unhide" (which pins it visible), fixing the stale-label bug.
+  const hiddenNow = entityHiddenState(entity) != null
+  items.push({ type: "item", id: hiddenNow ? "unhide" : "hide", label: hiddenNow ? "Unhide" : "Hide" })
   items.push({
     type: "item",
     id: opts?.showHidden ? "hide-hidden" : "show-hidden",
@@ -241,12 +252,19 @@ export function buildEntityMenuItems(
   if (deleted.length > 0) {
     items.push({
       type: "submenu",
-      label: `Deleted (${deleted.length})`,
+      label: `Restore deleted (${deleted.length})`,
+      // Each trashed child expands to its OWN submenu: Restore (undelete in place) OR Delete
+      // permanently (the industry-standard second, irreversible delete — a hard removal of the
+      // whole subtree from the store). Two deliberate actions (trash, then delete-again) are the
+      // only safeguard; no confirm dialog, matching the app's dialog-free menu style.
       items: deleted.map((d) => ({
-        type: "item" as const,
-        id: `restore:${d.id}`,
+        type: "submenu" as const,
         label: d.title || "(untitled)",
         glyphKind: d.kind,
+        items: [
+          { type: "item" as const, id: `restore:${d.id}`, label: "Restore" },
+          { type: "item" as const, id: `purge:${d.id}`, label: "Delete permanently", danger: true },
+        ],
       })),
     })
   }

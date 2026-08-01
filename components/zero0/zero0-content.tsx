@@ -15,7 +15,7 @@ import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-
 import { restrictToVerticalAxis } from "@dnd-kit/modifiers"
 import { motion } from "motion/react"
 import { getChildren, getEntity } from "@/lib/zero/data"
-import { isClosed } from "@/lib/zero/kinds"
+  import { isClosed, entityHiddenState } from "@/lib/zero/kinds"
 import { Zero0Face } from "./zero0-face"
 import { Zero0Glyph } from "./zero0-glyph"
 import type { FaceSize, FaceMake } from "@/lib/zero/face-model"
@@ -132,12 +132,15 @@ export interface Zero0ContentProps {
 }
 
 // A single decorated child row (hide model applied).
-interface ChildRow {
+  interface ChildRow {
   e: Entity
   hidden: boolean
+  /** How it's hidden: "manual" (user) vs "auto" (system, closed before today) — drives the
+   *  "(hidden)" vs "(auto-hidden)" title prefix. null when visible. */
+  hiddenSource: "manual" | "auto" | null
   collapsed: boolean
   num: number | null
-}
+  }
 
 // Build the full ordered id list for `parentId` with `draggedId` placed before/after
 // `targetId` among its (current) children. Reads live data, so call AFTER any reparent.
@@ -393,19 +396,16 @@ function ContentBody({
   // hidden AND not currently revealed by `showHidden`. Display numbers count only VISIBLE
   // rows so the list never shows gaps.
   const childRows: ChildRow[] = useMemo(() => {
-    const now = Date.now()
-    const d = new Date(now)
-    d.setHours(5, 0, 0, 0)
-    let dayStart = d.getTime()
-    if (now < dayStart) dayStart -= 86_400_000 // before 5am → the logical day opened yesterday
-    let n = 0
-    return children.map((e) => {
-      const closedAt = e.closeAt ?? e.closedOn ?? e.cancelledOn ?? e.completeOn
-      const autoHidden = isClosed(e) && closedAt != null && closedAt < dayStart
-      const hidden = !!e.hidden || autoHidden
-      const collapsed = hidden && !showHidden
-      return { e, hidden, collapsed, num: collapsed ? null : ++n }
-    })
+  const now = Date.now()
+  let n = 0
+  return children.map((e) => {
+  // Effective hide state comes from the SHARED helper (same rule the right-click menu labels
+  // from), so manual + auto-hide + the explicit-unhide override all agree in one place.
+  const hiddenSource = entityHiddenState(e, now)
+  const hidden = hiddenSource != null
+  const collapsed = hidden && !showHidden
+  return { e, hidden, hiddenSource, collapsed, num: collapsed ? null : ++n }
+  })
     // eslint-disable-next-line react-hooks/exhaustive-deps -- rev re-reads after mutations
   }, [children, showHidden, rev])
 
@@ -466,7 +466,7 @@ function ContentRow({
   hoverId: string | null
   setHoverId: (id: string | null) => void
 }) {
-  const { e, hidden, collapsed, num } = row
+  const { e, hidden, hiddenSource, collapsed, num } = row
   const { nowSec, sizeOf, makeOf, expandedIds } = ctx
   const { dropIntent } = useContext(ContentDragContext)
 
@@ -499,7 +499,7 @@ function ContentRow({
       onOpen={ctx.openEntity}
       onActivate={() => ctx.openEntity(e)}
       onActivateContextMenu={(ev) => ctx.openMenu(e, ev, { size, make })}
-      hiddenPrefix={hidden}
+      hiddenPrefix={hidden ? (hiddenSource ?? "manual") : false}
     />
   )
 

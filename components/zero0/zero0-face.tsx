@@ -193,7 +193,8 @@ function FaceBlock({
   /** §0 OCCURRENCES block: add / cancel a planned occurrence (full size only). */
   onScheduleAction?: (e: Entity, action: OccurrenceAction) => void
   trailing?: React.ReactNode
-  hiddenPrefix?: boolean
+  /** false = no prefix; "manual" = "(hidden)"; "auto" = "(auto-hidden)" (system, closed-before-today). */
+  hiddenPrefix?: false | "manual" | "auto"
   /** When set (the `starter` make), the dl lists these ROLLUP rows instead of §0's. The
       identity line (glyph + title + kind) is unchanged — only the meta reading differs. */
   rowsOverride?: [string, string][]
@@ -202,7 +203,12 @@ function FaceBlock({
   // TEMP (v0.2.228): the exhaustive raw stored-field dump, shown FAINT as a §0 appendix so the full
   // ENTITY shape is visible at the deepest level. Full size only, and never for aggregate overrides.
   const rawFields = size === "full" && !rowsOverride ? getFaceRawFields(entity, now) : null
-  const titleText = hiddenPrefix ? `(hidden) ${model.title}` : model.title
+  const titleText =
+    hiddenPrefix === "auto"
+      ? `(auto-hidden) ${model.title}`
+      : hiddenPrefix
+        ? `(hidden) ${model.title}`
+        : model.title
   // RICH start/end: when these rows aren't an aggregate override, render the schedule cells
   // (faint sessions, pulsing "ongoing", per-cell hover, horizontal scroll) instead of the flat
   // string. The two rows share a synced horizontal scroll so their columns stay paired as you
@@ -472,8 +478,9 @@ export interface Zero0FaceProps {
   onToggleDone?: (e: Entity) => void
   /** `m`: clicking the title drills INTO the entity. */
   onOpen?: (e: Entity) => void
-  /** `m`: prefix the title with "(hidden)" (only shown when Show hidden is on). */
-  hiddenPrefix?: boolean
+  /** `m`: prefix the title (only shown when Show hidden is on). false = none; "manual" =
+      "(hidden)"; "auto" = "(auto-hidden)". */
+  hiddenPrefix?: false | "manual" | "auto"
   /** `full`: right-click the identity line → the entity's menu. */
   onContextMenu?: (e: Entity, ev: React.MouseEvent) => void
   /** `full`: §0 OCCURRENCES block add/cancel (only surfaced for 2+ planned occurrences). */
@@ -595,7 +602,11 @@ export function Zero0Face({
           }
           title={model.titleTooltip ?? "Open"}
         >
-          {hiddenPrefix ? `(hidden) ${model.title}` : model.title}
+                  {hiddenPrefix === "auto"
+                    ? `(auto-hidden) ${model.title}`
+                    : hiddenPrefix
+                      ? `(hidden) ${model.title}`
+                      : model.title}
         </button>
         {/* Inert spacer — absorbs the free width the title used to eat, keeping the meta echo /
             lifecycle token flush right while leaving this gap NON-interactive (no drill). */}
@@ -641,7 +652,11 @@ export function Zero0Face({
           }
           title={model.titleTooltip ?? "Open"}
         >
-          {hiddenPrefix ? `(hidden) ${model.title}` : model.title}
+                  {hiddenPrefix === "auto"
+                    ? `(auto-hidden) ${model.title}`
+                    : hiddenPrefix
+                      ? `(hidden) ${model.title}`
+                      : model.title}
         </button>
         <span aria-hidden className="flex-1" />
         {/* A `starter` trades the lifecycle word for the Content rollup. */}

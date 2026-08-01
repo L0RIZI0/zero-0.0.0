@@ -4336,11 +4336,14 @@ export function setEntityHidden(id: string, hidden: boolean): boolean {
   const stored = byId.get(id)
   if (!stored) return false
   const entity = mutable(stored)
-  if (hidden) entity.hidden = true
-  else delete entity.hidden
+  // Store the LITERAL boolean (tri-state with `undefined`): true = manually hidden, false =
+  // explicitly UNHIDDEN (pins the row visible, overriding the derived auto-hide so "Unhide"
+  // reveals an auto-hidden entity too — the fix for the "Unhide did nothing" bug). We no longer
+  // delete the key, because `false` must persist to beat the auto rule.
+  entity.hidden = hidden
   logSet(entity, "hidden", hidden)
   if (!userEntityIds.has(id)) {
-    seededOverrides.set(id, { ...seededOverrides.get(id), hidden: hidden || undefined } as Partial<Entity>)
+    seededOverrides.set(id, { ...seededOverrides.get(id), hidden } as Partial<Entity>)
   }
   persist()
   return true

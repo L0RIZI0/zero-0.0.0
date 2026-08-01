@@ -1011,13 +1011,41 @@ function getStateInner(entity: Entity, now: number, seen: Set<string>): EntitySt
 }
 
 /**
- * DELETE GUARD — is this entity deletable RIGHT NOW? Deletion (soft, reversible) is only
- * allowed while the entity's STATE is `open` or `scheduled` (its early, not-yet-lived life),
- * AND its kind is deletable at all (`KIND_META.deletable` — a Soul never is). Once an entity
- * has started/completed/closed/died, it's part of the record and can't be casually deleted.
+ * EFFECTIVE HIDE STATE of an entity for the ENTITY CONTENT listing — the single source of truth
+ * shared by the content renderer (which decides collapse + prefix) and the right-click menu
+ * (which labels Hide vs Unhide). Returns:
+ *   • "manual" — the user explicitly hid it (`entity.hidden === true`)
+ *   • "auto"   — DERIVED, never stored: the entity is closed and closed BEFORE today's logical
+ *                5am day-start (recomputed each render from the stamped close time)
+ *   • null     — visible: either never hidden, OR explicitly UNHIDDEN (`entity.hidden === false`),
+ *                which PINS it visible and overrides the derived auto rule.
+ *
+ * The tri-state `hidden` (true / false / undefined) is what makes "Unhide" work regardless of HOW
+ * a row became hidden: unhiding stores `false`, which beats the auto rule, so an auto-hidden row
+ * is actually revealed (the old two-state flag couldn't — it only cleared a manual flag the auto
+ * rule then re-applied, the "clicking Unhide did nothing" bug).
+ */
+export function entityHiddenState(entity: Entity, now: number = Date.now()): "manual" | "auto" | null {
+  if (entity.hidden === true) return "manual"
+  if (entity.hidden === false) return null // explicitly pinned visible — overrides auto-hide
+  const closedAt = entity.closeAt ?? entity.closedOn ?? entity.cancelledOn ?? entity.completeOn
+  if (isClosed(entity, now) && closedAt != null) {
+    const d = new Date(now)
+    d.setHours(5, 0, 0, 0)
+    let dayStart = d.getTime()
+    if (now < dayStart) dayStart -= 86_400_000 // before 5am → the logical day opened yesterday
+    if (closedAt < dayStart) return "auto"
+  }
+  return null
+}
+
+/**
+ * DELETE GUARD — is this entity deletable RIGHT NOW? Deletion is SOFT + reversible (it stamps
+ * `deletedAt`; Restore clears it), so the guard is deliberately permissive: it only protects
+ * BEINGS that are on the record. `KIND_META.deletable` gates the kind (a Soul is never deletable).
  *
  * `byUzer0` BYPASSES the state guard (the system actor can delete anything) — scaffolded now,
- * the real uzer0 story (incl. permanent removal) is deferred. Kind deletability still applies.
+ * the real uzer0 story is deferred. Kind deletability still applies.
  */
 export function canDeleteEntity(
   entity: Entity,
@@ -1026,16 +1054,18 @@ export function canDeleteEntity(
 ): boolean {
   if (!KIND_META[entity.kind].deletable) return false
   if (opts?.byUzer0) return true
-  const word = getState(entity, now).word
-  // LIFE-BEINGS (individual / organism / community): deletable while NOT yet lived — `open`,
-  // `scheduled`, or `cancelled` (a voided plan can be cleared away) — but NEVER once `alive`
-  // (a living person / a published organism·community), nor `dead`/`retired`/`closed` (a life on
-  // the record). This is the fix for the bug where an alive being read `open`/was wrongly
-  // deletable; for org·community it means an unpublished draft is deletable, a published one is not.
+  // LIFE-BEINGS (individual / organism / community) stay protected once they've lived: deletable
+  // only while NOT yet lived — `open`, `scheduled`, or `cancelled` (a voided plan can be cleared) —
+  // but NEVER once `alive` (a living person / a published organism·community), nor
+  // `dead`/`retired`/`closed` (a life on the record).
   if (isLifeBeing(entity.kind)) {
+    const word = getState(entity, now).word
     return word === "open" || word === "scheduled" || word === "cancelled"
   }
-  return word === "open" || word === "scheduled"
+  // EVERYTHING ELSE (task / moment / space / instant / resource …): deletable in ANY state.
+  // Because delete is a reversible soft-delete, a closed/done/cancelled record is freely trashable
+  // — this is the fix for "can't delete a hidden entity" (hidden ⇒ usually closed ⇒ was blocked).
+  return true
 }
 
 /**

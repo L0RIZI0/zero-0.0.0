@@ -682,11 +682,13 @@ export interface EntityBase {
   /** Free-text labels. */
   tags?: string[]
   /**
-   * MANUAL "Hide" flag — the entity is dropped from its parent's ENTITY CONTENT listing
-   * (right-click ▸ Hide). Purely a display filter: relationships, counts, siblings, and
-   * the timeline are untouched; "Show hidden" reveals it again with a "(hidden)" prefix.
-   * Distinct from the DERIVED auto-hide (children closed before today), which is computed
-   * at render from `closeAt`/close time and never stored. Absent = shown.
+   * TRI-STATE "Hide" flag driving the ENTITY CONTENT listing (see {@link entityHiddenState}):
+   *   • `true`      — manually hidden (right-click ▸ Hide); shown under "Show hidden" as "(hidden)".
+   *   • `false`     — explicitly UNHIDDEN: pins the row visible and OVERRIDES the derived auto-hide
+   *                   (children closed before today), so "Unhide" reveals even an auto-hidden row.
+   *   • `undefined` — default: the derived auto-hide rule (computed at render from the stamped
+   *                   close time, never stored) decides; a still-open entity is simply shown.
+   * Purely a display filter: relationships, counts, siblings, and the timeline are untouched.
    */
   hidden?: boolean
 
