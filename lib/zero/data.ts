@@ -16,6 +16,7 @@ import { readUserItems, writeUserItems } from "./persistence"
 import type { UserItems } from "./persistence"
 import { getLastKnownAlive } from "./activity-log"
 import type { ScheduleParse } from "./schedule-parse"
+import { fmtTime } from "./timeline-format"
 
 /**
  * The loose shape accepted by {@link makeEntity}: an EntityBase plus a (possibly
@@ -86,6 +87,33 @@ function mutable(e: Entity): LooseEntity {
   const log = ensureEntityLog(entity)
   entity.log = appendInstant(log, makeSet(field, value, at))
   }
+
+/** Concise span text for an occurrence log line: "6:00 PM–1:30 AM" (or just the start when a point). */
+function fmtOccSpan(start: number, end?: number): string {
+  return end != null ? `${fmtTime(start)}–${fmtTime(end)}` : fmtTime(start)
+}
+
+/** Concise day text for a RULE-instance log line (recurrenceId = the local-midnight day-key): "Aug 7". */
+function fmtOccDay(dayKey: number): string {
+  return new Date(dayKey).toLocaleDateString([], { month: "short", day: "numeric" })
+}
+
+/**
+ * Append an OCCURRENCE-level log entry (v0.2.254) recording a planned-occurrence mutation
+ * (add / edit / cancel / restore / delete). Stored as a `set` entry with field `"occurrence"` and a
+ * human `phrase` value like `"added · 6:00 PM–1:30 AM"`, so {@link describeLogEntry} renders it as
+ * "occurrence added · 6:00 PM–1:30 AM". Using a `set` entry (not a new lifecycle {@link LogType}) means
+ * every state/session fold ignores it (they only read typed lifecycle entries), and `fieldHistory
+ * ("occurrence")` yields a free occurrence-history view.
+ *
+ * DELIBERATELY SEPARATE from the resyncPrimary scalar mirror: the occurrence writers used to `logSet
+ * (entity, "startDate", …)` after resync, which spammed the log with automatic startDate/endDate churn
+ * (Loris' point 5). Those mirror-logging calls are removed in favor of this explicit, meaningful verb.
+ */
+function logOccurrence(entity: Entity, phrase: string, at = Date.now()): void {
+  const log = ensureEntityLog(entity)
+  entity.log = appendInstant(log, makeSet("occurrence", phrase, at))
+}
 
 export const currentUser: User = {
   id: "u_self",
@@ -2021,7 +2049,8 @@ export function cancelPrimaryOccurrence(id: string): boolean {
   resyncPrimary(sched)
   const entity = mutable(stored)
   entity.schedule = sched
-  logSet(entity, "startDate", sched.startDate ?? null)
+  // v0.2.254: explicit occurrence-cancel log for the primary span (replaces the startDate mirror-log).
+  logOccurrence(entity, `cancelled · ${fmtOccSpan(cancelled.start, cancelled.end)}`)
   if (!userEntityIds.has(id)) {
     seededOverrides.set(id, { ...seededOverrides.get(id), schedule: sched })
   }
@@ -2041,10 +2070,13 @@ export function setOccurrenceCancelled(id: string, index: number, cancelled = tr
   const occs = stored?.schedule?.plannedOccurrences
   if (!stored || !occs || index < 0 || index >= occs.length) return false
   const sched: Schedule = { ...(stored.schedule ?? {}) }
+  const target = occs[index]
   sched.plannedOccurrences = occs.map((o, i) => (i === index ? { ...o, cancelled } : o))
   resyncPrimary(sched)
   const entity = mutable(stored)
   entity.schedule = sched
+  // v0.2.254: explicit occurrence cancel/restore log for a definite slot.
+  logOccurrence(entity, `${cancelled ? "cancelled" : "restored"} · ${fmtOccSpan(target.start, target.end)}`)
   if (!userEntityIds.has(id)) {
     seededOverrides.set(id, { ...seededOverrides.get(id), schedule: sched })
   }
@@ -2063,7 +2095,6 @@ export function addOccurrence(id: string, start: number, end?: number): boolean 
   const stored = byId.get(id)
   if (!stored || !canPlanOccurrences(stored)) return false
   const sched: Schedule = { ...(stored.schedule ?? {}) }
-  const before = sched.startDate
   // v0.2.232: one path — append the new span to the flat set, then let resyncPrimary decide whether
   // it's the soonest (⇒ becomes the scalar primary) or just another entry in plannedOccurrences[].
   // This folds the old "first slot fills the scalar / rest append" branch into the single invariant.
@@ -2074,8 +2105,10 @@ export function addOccurrence(id: string, start: number, end?: number): boolean 
   resyncPrimary(sched)
   const entity = mutable(stored)
   entity.schedule = sched
-  // Keep the lifecycle log coherent when this add changed the current primary start.
-  if (sched.startDate !== before) logSet(entity, "startDate", sched.startDate ?? null)
+  // v0.2.254: log the ADD explicitly (every add, whether it became the primary or joined
+  // plannedOccurrences[]) — replaces the old startDate mirror-log, which only fired when the add
+  // changed the primary and read as noisy "startDate = …" churn.
+  logOccurrence(entity, `added · ${fmtOccSpan(start, end)}`)
   if (!userEntityIds.has(id)) {
     seededOverrides.set(id, { ...seededOverrides.get(id), schedule: sched })
   }
@@ -2242,8 +2275,9 @@ function projectRuleInto(
 export function setRuleOccurrenceCancelled(id: string, recurrenceId: number, cancelled = true, ruleId?: string): boolean {
   const stored = byId.get(id)
   if (!stored?.schedule) return false
+  const occPhrase = `${cancelled ? "cancelled" : "restored"} · ${fmtOccDay(recurrenceId)}`
   // ruleId present ⇒ target an ADDITIONAL series' exceptions (v0.2.246); absent ⇒ the primary `repeat`.
-  if (ruleId != null) return patchSeriesException(stored, ruleId, recurrenceId, { cancelled })
+  if (ruleId != null) return patchSeriesException(stored, ruleId, recurrenceId, { cancelled }, occPhrase)
   if (!stored.schedule.repeat) return false
   const sched: Schedule = { ...(stored.schedule ?? {}) }
   const exceptions = { ...(sched.exceptions ?? {}) }
@@ -2255,6 +2289,8 @@ export function setRuleOccurrenceCancelled(id: string, recurrenceId: number, can
   resyncPrimary(sched) // NEXT may have changed (v0.2.247)
   const entity = mutable(stored)
   entity.schedule = sched
+  // v0.2.254: explicit occurrence cancel/restore log for a primary-rule instance.
+  logOccurrence(entity, occPhrase)
   if (!userEntityIds.has(id)) {
     seededOverrides.set(id, { ...seededOverrides.get(id), schedule: sched })
   }
@@ -2281,7 +2317,8 @@ export function setRuleOccurrenceTime(
 ): boolean {
   const stored = byId.get(id)
   if (!stored?.schedule) return false
-  if (ruleId != null) return patchSeriesException(stored, ruleId, recurrenceId, { start, end })
+  const occPhrase = `edited · ${fmtOccSpan(start, end)}`
+  if (ruleId != null) return patchSeriesException(stored, ruleId, recurrenceId, { start, end }, occPhrase)
   if (!stored.schedule.repeat) return false
   const sched: Schedule = { ...(stored.schedule ?? {}) }
   const exceptions = { ...(sched.exceptions ?? {}) }
@@ -2294,6 +2331,8 @@ export function setRuleOccurrenceTime(
   resyncPrimary(sched) // NEXT may have changed (v0.2.248)
   const entity = mutable(stored)
   entity.schedule = sched
+  // v0.2.254: explicit occurrence-edit log for a primary-rule instance.
+  logOccurrence(entity, occPhrase)
   if (!userEntityIds.has(id)) {
     seededOverrides.set(id, { ...seededOverrides.get(id), schedule: sched })
   }
@@ -2312,21 +2351,25 @@ export function setDefiniteOccurrenceTime(id: string, index: number, start: numb
   const stored = byId.get(id)
   if (!stored || !canPlanOccurrences(stored)) return false
   const sched: Schedule = { ...(stored.schedule ?? {}) }
-  const before = sched.startDate
+  // Capture the pre-edit span so the log can read "edited · <old> → <new>".
+  let oldSpan: string
   if (index === -1) {
     if (!isPlannedStart(sched.startDate)) return false
+    oldSpan = fmtOccSpan(sched.startDate!, sched.endDate)
     sched.startDate = start
     if (end != null) sched.endDate = end
     else delete sched.endDate
   } else {
     const occs = sched.plannedOccurrences
     if (!occs || index < 0 || index >= occs.length) return false
+    oldSpan = fmtOccSpan(occs[index].start, occs[index].end)
     sched.plannedOccurrences = occs.map((o, i) => (i === index ? { ...o, start, end } : o))
   }
   resyncPrimary(sched)
   const entity = mutable(stored)
   entity.schedule = sched
-  if (sched.startDate !== before) logSet(entity, "startDate", sched.startDate ?? null)
+  // v0.2.254: explicit occurrence-edit log (replaces the startDate mirror-log churn).
+  logOccurrence(entity, `edited · ${oldSpan} → ${fmtOccSpan(start, end)}`)
   if (!userEntityIds.has(id)) {
     seededOverrides.set(id, { ...seededOverrides.get(id), schedule: sched })
   }
@@ -2346,6 +2389,7 @@ function patchSeriesException(
   ruleId: string,
   recurrenceId: number,
   patch: { cancelled?: boolean; removed?: boolean; start?: number; end?: number },
+  logPhrase?: string,
 ): boolean {
   const sched: Schedule = { ...(stored.schedule ?? {}) }
   const series = sched.series ?? []
@@ -2363,6 +2407,8 @@ function patchSeriesException(
   resyncPrimary(sched) // NEXT may have changed (v0.2.247)
   const entity = mutable(stored)
   entity.schedule = sched
+  // v0.2.254: series-scoped occurrence log (add/edit/cancel/restore/delete), when the caller supplies it.
+  if (logPhrase) logOccurrence(entity, logPhrase)
   if (!userEntityIds.has(stored.id)) {
     seededOverrides.set(stored.id, { ...seededOverrides.get(stored.id), schedule: sched })
   }
@@ -2381,20 +2427,24 @@ export function deleteOccurrence(id: string, index: number): boolean {
   const stored = byId.get(id)
   if (!stored || !canPlanOccurrences(stored)) return false
   const sched: Schedule = { ...(stored.schedule ?? {}) }
-  const before = sched.startDate
+  // Capture the span being removed so the log can read "deleted · <span>".
+  let goneSpan: string
   if (index === -1) {
     if (!isPlannedStart(sched.startDate)) return false
+    goneSpan = fmtOccSpan(sched.startDate!, sched.endDate)
     delete sched.startDate
     delete sched.endDate
   } else {
     const occs = sched.plannedOccurrences
     if (!occs || index < 0 || index >= occs.length) return false
+    goneSpan = fmtOccSpan(occs[index].start, occs[index].end)
     sched.plannedOccurrences = occs.filter((_, i) => i !== index)
   }
   resyncPrimary(sched)
   const entity = mutable(stored)
   entity.schedule = sched
-  if (sched.startDate !== before) logSet(entity, "startDate", sched.startDate ?? null)
+  // v0.2.254: explicit occurrence-delete log (replaces the startDate mirror-log churn).
+  logOccurrence(entity, `deleted · ${goneSpan}`)
   if (!userEntityIds.has(id)) {
     seededOverrides.set(id, { ...seededOverrides.get(id), schedule: sched })
   }
@@ -2411,8 +2461,9 @@ export function deleteOccurrence(id: string, index: number): boolean {
 export function deleteRuleOccurrence(id: string, recurrenceId: number, ruleId?: string): boolean {
   const stored = byId.get(id)
   if (!stored?.schedule) return false
+  const occPhrase = `deleted · ${fmtOccDay(recurrenceId)}`
   // ruleId present ⇒ target an ADDITIONAL series' exceptions (v0.2.246); absent ⇒ the primary `repeat`.
-  if (ruleId != null) return patchSeriesException(stored, ruleId, recurrenceId, { removed: true })
+  if (ruleId != null) return patchSeriesException(stored, ruleId, recurrenceId, { removed: true }, occPhrase)
   if (!stored.schedule.repeat) return false
   const sched: Schedule = { ...(stored.schedule ?? {}) }
   const exceptions = { ...(sched.exceptions ?? {}) }
@@ -2421,6 +2472,8 @@ export function deleteRuleOccurrence(id: string, recurrenceId: number, ruleId?: 
   resyncPrimary(sched) // NEXT may have changed (v0.2.247)
   const entity = mutable(stored)
   entity.schedule = sched
+  // v0.2.254: explicit occurrence-delete log for a primary-rule instance.
+  logOccurrence(entity, occPhrase)
   if (!userEntityIds.has(id)) {
     seededOverrides.set(id, { ...seededOverrides.get(id), schedule: sched })
   }
@@ -2440,7 +2493,6 @@ export function cancelAllDefiniteOccurrences(id: string, now: number = Date.now(
   const stored = byId.get(id)
   if (!stored || !canPlanOccurrences(stored)) return false
   const sched: Schedule = { ...(stored.schedule ?? {}) }
-  const before = sched.startDate
   const hasRule = !!sched.repeat || !!(sched.series && sched.series.length)
   const all: { start: number; end?: number; cancelled?: boolean }[] = []
   if (!hasRule && isPlannedStart(sched.startDate)) {
@@ -2449,13 +2501,16 @@ export function cancelAllDefiniteOccurrences(id: string, now: number = Date.now(
     delete sched.endDate
   }
   all.push(...(sched.plannedOccurrences ?? []))
+  // Count the still-future definites this actually cancels (matches the map guard below) for the log.
+  const cancelledCount = all.filter((o) => !o.cancelled && (o.end ?? o.start) >= now).length
   sched.plannedOccurrences = all.map((o) =>
     !o.cancelled && (o.end ?? o.start) >= now ? { ...o, cancelled: true } : o,
   )
   resyncPrimary(sched, now)
   const entity = mutable(stored)
   entity.schedule = sched
-  if (sched.startDate !== before) logSet(entity, "startDate", sched.startDate ?? null)
+  // v0.2.254: explicit occurrence cancel-all log (replaces the startDate mirror-log churn).
+  if (cancelledCount > 0) logOccurrence(entity, `cancelled all · ${cancelledCount}`)
   if (!userEntityIds.has(id)) {
     seededOverrides.set(id, { ...seededOverrides.get(id), schedule: sched })
   }

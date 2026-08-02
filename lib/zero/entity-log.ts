@@ -272,6 +272,9 @@ export function describeLogEntry(
 ): string {
   if (e.type !== "set") return e.type
   const field = e.field ?? "field"
+  // OCCURRENCE entries (v0.2.254) carry a pre-formatted human phrase as their value ("added · 6:00 PM–
+  // 1:30 AM"); render as "occurrence <phrase>" rather than the generic "field = value" form.
+  if (field === "occurrence" && typeof e.value === "string") return `occurrence ${e.value}`
   if (e.value == null) return `${field} cleared`
   const v = formatValue ? formatValue(field, e.value) : String(e.value)
   return `${field} = ${v}`
