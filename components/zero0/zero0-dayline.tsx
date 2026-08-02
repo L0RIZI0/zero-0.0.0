@@ -751,12 +751,11 @@ export function Zero0Dayline({
       // v0.6.22: the middle spine does NOT trail the unknown-end fade (`unknownEnd:false`) — it's
       // always "up to now" by construction, so a crisp right edge reads correctly and avoids the
       // fade's cost/lag.
-      // 1a fix: an OPEN spine segment ends AT the now marker, so mark it `openEnded` — the render
-      // then anchors it by its RIGHT edge (grows the min-width nub LEFTWARD from now) exactly like
-      // the presence rail's open sessions. Without this, a just-punched ~0-width sliver was left-
-      // anchored and its `max(3px,…)` floor spilled a few px to the RIGHT of now (a presence tick
-      // wrongly drawn in the future). `openEnded` only drives right-anchoring here; the fade stays
-      // off because `unknownEnd` is false. A CLOSED segment keeps left-anchor (its end is in the past).
+      // `openEnded: seg.open` records whether this spine segment is still live (its right edge IS the
+      // now marker). NB anchoring is decided at RENDER time (v0.2.255): EVERY middle-rail tick right-
+      // anchors regardless of open/closed (see `anchorRight`), because the spine is always historical
+      // (right edge ≤ now), so a min-width nub grows LEFTWARD into the past and never spills past now.
+      // `unknownEnd` stays false so the spine never trails the unknown-end fade.
       out.push({
         key: `spine:${seg.id}:${seg.start}`,
         id: seg.id,
@@ -1447,7 +1446,8 @@ export function Zero0Dayline({
                   const baseH = isHot ? 13 : 9
                   const tickH = combined
                     ? lit || isHot
-                      ? Math.max(lane?.height ?? 0, isRecorded ? 12 : 13)
+                      ? // MIDDLE (access spine) pops slightly TALLER than the others on hover (v0.2.255).
+                        Math.max(lane?.height ?? 0, isMiddle ? 15 : isRecorded ? 12 : 13)
                       : lane?.height ?? PLANNED_LANE_H
                     : lit
                       ? HIGHLIGHT_HEIGHT_PX
@@ -1473,7 +1473,12 @@ export function Zero0Dayline({
                           : p.roundRight
                             ? "rounded-r-[2px] rounded-l-none"
                             : "rounded-none"
-                      : "rounded-[2px]"
+                      : // MIDDLE (access spine): square at rest, rounded ONLY on hover (v0.2.255).
+                        p.track === "middle"
+                        ? isHot
+                          ? "rounded-[2px]"
+                          : "rounded-none"
+                        : "rounded-[2px]"
                   // COLORS. Fill = entity color (sleep → night sky); the root sentinel paints
                   // the THEME BACKGROUND (near-black in dark, near-white in light) instead of
                   // going transparent, so a root presence tick reads as a solid outlined chip.
@@ -1485,6 +1490,16 @@ export function Zero0Dayline({
                   // in from its LEFT edge. Rounds only its right (known) edge. Mutually exclusive with
                   // `fading` in practice (a bar can't be open on both ends). Never a point/mark.
                   const fadingStart = p.unknownStart && !p.point && !p.markGlyph && !fading
+                  // ANCHOR EDGE (1a, generalized in v0.2.255). The min-width floor `max(3px, widthPct%)`
+                  // grows a thin tick's nub in whichever direction it's ANCHORED. MIDDLE (access spine)
+                  // and PRESENCE ticks are ALWAYS historical (their right edge is ≤ now by construction),
+                  // so anchor them by their RIGHT edge → any min-width nub grows LEFTWARD into the past and
+                  // can NEVER spill to the right of the now marker (the reported bug). The old fix only
+                  // right-anchored OPEN spine segments, so a CLOSED sliver ending at/near now still floored
+                  // 3px rightward past the marker. TOP-rail (planned) ticks can be in the FUTURE, so they
+                  // keep left/fade anchoring; an explicitly open-ended tick (no fade) also right-anchors.
+                  const anchorRight =
+                    !p.point && !fading && (p.openEnded || p.track === "middle" || p.track === "presence")
                   // OPACITY (v0.2.249). A LIT tick and hover both snap to full. TOP-rail PLANNED ticks
                   // paint at a flat 0.8 (a hair softer than solid, so "intent" reads distinct from
                   // recorded presence without the old dynamic coverage math, which was retired). Every
@@ -1594,7 +1609,7 @@ export function Zero0Dayline({
                           // anchored (its start is fixed; the tail grows right past now), so it
                           // must NOT also translate-x-full.
                           p.point && "-translate-x-1/2",
-                          p.openEnded && !fading && "-translate-x-full",
+                          anchorRight && "-translate-x-full",
                         )}
                         style={{
                           top: railTop,
@@ -1604,7 +1619,7 @@ export function Zero0Dayline({
                           // LEFT by the fade length so the fade grows OUT past the (unknown) start.
                           left: fadingStart
                             ? `calc(${p.leftPct}% - ${UNKNOWN_END_FADE_PX}px)`
-                            : p.openEnded && !fading
+                            : anchorRight
                               ? `${p.leftPct + p.widthPct}%`
                               : `${p.leftPct}%`,
                           // A MARK renders as a small downward-triangle instant glyph (clip-path);
