@@ -82,9 +82,10 @@ const ROOT_SENTINEL_COLOR = "#ffffff"
 //     session (the current leaf). One continuous, non-overlapping line — the declarable/correctable
 //     ACCESS record (`--sessionStart/End` slides it). Ancestor focus sessions still exist for state
 //     + rollup but are NOT drawn (killing the old A>B>C>D overlap mud). See the `spine` memo.
-//   • the RECORDED rail (BOTTOM) — REMOTELY-PLAYED entities only (v0.7): deliberate glyph/menu
-//     Play stopwatches (non-auto `via:"play"` sessions that survive navigation). Auto-plays +
-//     focus sessions are the middle spine; instant marks now live only as the glyph pulse.
+//   • the RECORDED rail (BOTTOM) — PLAYED sessions (v0.2.257): BOTH auto (started by ENTERING an
+//     ongoing-on-enter kind) AND remote (a deliberate glyph/menu Play that survives navigation) —
+//     every `via:"play"` session. Focus sessions are the middle spine (NOT here); instant marks
+//     now live only as the glyph pulse.
 // The MIDDLE spine IS the access machine truth (leaf-collapsed). The standalone ACTIVITY dayline
 // (`tracks="access"`) renders the SAME access record on its own surface (uncollapsed). Both are the
 // one canonical enter/exit-driven "where I was" — there is no second, separately-named record.
@@ -134,11 +135,17 @@ function bandMetrics(plannedCount: number, recordedCount: number, middle = false
 // lowest lane whose last-placed bar ends at/before this bar's start (no overlap); opens a new
 // lane when none is free. `compare` sets placement order: planned packs by START (minimal lanes,
 // tiling spans share lane 0); recorded packs LONGEST-FIRST so the longest session hugs the
-// seam. All bars share the [leftPct, leftPct+widthPct] x-range (openEnded bars included, since
-// they extend left from the now-edge). Returns each key's lane index + the total lane count.
+// seam. All bars share the [leftPct, leftPct+widthPct] x-range.
+// v0.2.258 — an OPEN-ENDED bar (still ongoing; its right edge is pinned to the live `now`) OWNS
+// its lane INDEFINITELY (lane-end = +∞). Two concurrent ongoing spans both have right≈now, and a
+// freshly-started one has left≈now too, so the old finite `right = left+width` made the packer read
+// them as merely TOUCHING (`laneEnd <= newLeft + EPS`) and drop the second into the first's lane —
+// they stacked for ~1s until the per-second clock advanced `now` and they reflowed. Infinity lane-
+// ends make a second concurrent open bar always open a FRESH lane on the very first frame. A closed
+// bar that ended before an open bar began is unaffected (its own lane-end stays finite).
 type LanePack = { laneOf: Map<string, number>; laneCount: number }
 function packLanes(
-  bars: { key: string; leftPct: number; widthPct: number }[],
+  bars: { key: string; leftPct: number; widthPct: number; openEnded?: boolean }[],
   compare: (a: { leftPct: number; widthPct: number }, b: { leftPct: number; widthPct: number }) => number,
 ): LanePack {
   const laneOf = new Map<string, number>()
@@ -146,7 +153,7 @@ function packLanes(
   const EPS = 0.001
   for (const b of [...bars].sort(compare)) {
     const left = b.leftPct
-    const right = b.leftPct + Math.max(b.widthPct, 0)
+    const right = b.openEnded ? Number.POSITIVE_INFINITY : b.leftPct + Math.max(b.widthPct, 0)
     let placed = laneEnds.findIndex((end) => end <= left + EPS)
     if (placed === -1) {
       placed = laneEnds.length
@@ -863,6 +870,66 @@ export function Zero0Dayline({
         : bandMetrics(1, 1),
     [combined, plannedLanes.laneCount, recordedLanes.laneCount],
   )
+  // COLLAPSE-ON-STOP (v0.2.258). When a PLAYED session's OPEN (fading) tail closes, animate the
+  // faded tail RETRACTING toward the solid start edge instead of snapping. We detect the open→closed
+  // edge on the bottom rail and drive a two-frame rAF flip: frame 0 ("prime") re-paints the OPEN
+  // width (solid + fade tail) so the browser has a from-value; the next frame ("release") swaps to
+  // the CLOSED width while a `transition-[width]` is active, so the ~UNKNOWN_END_FADE_PX tail tweens
+  // away over ~350ms. This is GATED to the stop edge ONLY — panning, per-second growth of open bars,
+  // and the midnight auto-shift never enter `collapsing`, so they keep their instant jump-cut (there
+  // is deliberately no `left` in any transition, so pans stay crisp).
+  const prevSessOpenRef = useRef<Map<string, boolean>>(new Map())
+  const [collapsing, setCollapsing] = useState<Map<string, "prime" | "release">>(new Map())
+  const collapseTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
+  useEffect(() => {
+    const prev = prevSessOpenRef.current
+    const nextMap = new Map<string, boolean>()
+    const justClosed: string[] = []
+    for (const s of sessions) {
+      const isOpen = !!(s.unknownEnd && !s.point && !s.markGlyph)
+      nextMap.set(s.key, isOpen)
+      if (prev.get(s.key) === true && !isOpen) justClosed.push(s.key)
+    }
+    prevSessOpenRef.current = nextMap
+    if (justClosed.length === 0) return
+    setCollapsing((m) => {
+      const nm = new Map(m)
+      for (const k of justClosed) nm.set(k, "prime")
+      return nm
+    })
+    const raf = requestAnimationFrame(() =>
+      requestAnimationFrame(() =>
+        setCollapsing((m) => {
+          const nm = new Map(m)
+          for (const k of justClosed) if (nm.get(k) === "prime") nm.set(k, "release")
+          return nm
+        }),
+      ),
+    )
+    for (const k of justClosed) {
+      const existing = collapseTimers.current.get(k)
+      if (existing) clearTimeout(existing)
+      const t = setTimeout(() => {
+        setCollapsing((m) => {
+          if (!m.has(k)) return m
+          const nm = new Map(m)
+          nm.delete(k)
+          return nm
+        })
+        collapseTimers.current.delete(k)
+      }, 380) // a hair past the 350ms transition so it fully settles before the tail visuals drop
+      collapseTimers.current.set(k, t)
+    }
+    return () => cancelAnimationFrame(raf)
+  }, [sessions])
+  useEffect(() => {
+    const timers = collapseTimers.current
+    return () => {
+      for (const t of timers.values()) clearTimeout(t)
+      timers.clear()
+    }
+  }, [])
+
   const hovered = hoveredKey ? byKey.get(hoveredKey) ?? null : null
 
   // NOW marker position within the shown window; off-screen (outside 0–100) when panned.
@@ -1491,6 +1558,15 @@ export function Zero0Dayline({
                   // in from its LEFT edge. Rounds only its right (known) edge. Mutually exclusive with
                   // `fading` in practice (a bar can't be open on both ends). Never a point/mark.
                   const fadingStart = p.unknownStart && !p.point && !p.markGlyph && !fading
+                  // COLLAPSE-ON-STOP phase for this tick (v0.2.258): "prime" = hold the OPEN width
+                  // for one frame; "release" = tween to the CLOSED width. While collapsing we keep
+                  // the fade-tail visuals (left-anchor, rounded-l, mask) so the retract reads as the
+                  // faded side shrinking toward the solid start, not a hard cut.
+                  const collapse = collapsing.get(p.key)
+                  const collapsingTick = collapse != null
+                  // Show the fade tail (extra width + mask) while genuinely fading OR while priming
+                  // a collapse (the from-frame). On "release" the tail width drops so it animates in.
+                  const showTail = fading || fadingStart || collapse === "prime"
                   // ANCHOR EDGE (1a, generalized in v0.2.255). The min-width floor `max(3px, widthPct%)`
                   // grows a thin tick's nub in whichever direction it's ANCHORED. MIDDLE (access spine)
                   // and ACCESS ticks are ALWAYS historical (their right edge is ≤ now by construction),
@@ -1595,12 +1671,20 @@ export function Zero0Dayline({
                           // `-translate-y-1/2` (the anchor is `top: railTop` in the style),
                           // and animates height + anchor (top) changes smoothly (so an ongoing
                           // bar re-stacking as siblings start/stop slides rather than jumps).
-                          "pointer-events-auto absolute cursor-default -translate-y-1/2 transition-[height,opacity,top] duration-200",
+                          "pointer-events-auto absolute cursor-default -translate-y-1/2",
+                          // TRANSITION. Normally height/opacity/top only (width is inline + reticks
+                          // every second, so animating it would make open bars/pans slide). While
+                          // COLLAPSING a just-stopped tick we additionally tween `width` over ~350ms
+                          // so the faded tail retracts smoothly toward the solid start (v0.2.258).
+                          collapsingTick
+                            ? "transition-[width,height,opacity,top] duration-[350ms] ease-out"
+                            : "transition-[height,opacity,top] duration-200",
                           // A FADING (unknown-end) tick is ONE element (see below): the tail is a
                           // mask, not a sibling, so it rounds ONLY on the start (left) edge — the
                           // "continues" edge stays open. A FADING-START tick mirrors this, rounding only
-                          // its right (known) edge. Otherwise use the normal per-end rounding.
-                          fading
+                          // its right (known) edge. A COLLAPSING tick keeps the left-round while its tail
+                          // retracts. Otherwise use the normal per-end rounding.
+                          fading || collapsingTick
                             ? "rounded-l-[2px] rounded-r-none"
                             : fadingStart
                               ? "rounded-r-[2px] rounded-l-none"
@@ -1632,7 +1716,7 @@ export function Zero0Dayline({
                             ? 9
                             : p.point
                               ? 2
-                              : fading || fadingStart
+                              : showTail
                                 ? `calc(${p.widthPct}% + ${UNKNOWN_END_FADE_PX}px)`
                                 : `max(3px, ${p.widthPct}%)`,
                           height: p.markGlyph ? 9 : tickH,
@@ -1649,16 +1733,18 @@ export function Zero0Dayline({
                           // mismatch). The boundary sits at `100% - FADE`, which is exactly now.
                           // FADING masks the RIGHT tail (end unknown); FADING-START masks the LEFT lead
                           // (start unknown) — transparent at 0 ramping to solid after the fade length.
-                          maskImage: fading
-                            ? `linear-gradient(to right, #000 calc(100% - ${UNKNOWN_END_FADE_PX}px), transparent 100%)`
-                            : fadingStart
-                              ? `linear-gradient(to right, transparent 0, #000 ${UNKNOWN_END_FADE_PX}px)`
-                              : undefined,
-                          WebkitMaskImage: fading
-                            ? `linear-gradient(to right, #000 calc(100% - ${UNKNOWN_END_FADE_PX}px), transparent 100%)`
-                            : fadingStart
-                              ? `linear-gradient(to right, transparent 0, #000 ${UNKNOWN_END_FADE_PX}px)`
-                              : undefined,
+                          maskImage:
+                            fading || collapsingTick
+                              ? `linear-gradient(to right, #000 calc(100% - ${UNKNOWN_END_FADE_PX}px), transparent 100%)`
+                              : fadingStart
+                                ? `linear-gradient(to right, transparent 0, #000 ${UNKNOWN_END_FADE_PX}px)`
+                                : undefined,
+                          WebkitMaskImage:
+                            fading || collapsingTick
+                              ? `linear-gradient(to right, #000 calc(100% - ${UNKNOWN_END_FADE_PX}px), transparent 100%)`
+                              : fadingStart
+                                ? `linear-gradient(to right, transparent 0, #000 ${UNKNOWN_END_FADE_PX}px)`
+                                : undefined,
                           opacity: tickOpacity,
                           zIndex: lit || isHot ? 16 : 8,
                         }}
