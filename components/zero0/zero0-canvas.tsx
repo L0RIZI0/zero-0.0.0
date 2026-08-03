@@ -7,7 +7,7 @@ import { Zero0UpdateIndicator } from "./zero0-update-indicator"
 import { Zero0WindowControls } from "./zero0-window-controls"
 import { Zero0Agenda, Zero0Activity } from "./zero0-activity"
 import type { DaylineOccRef } from "./zero0-dayline"
-import { recordPresence } from "@/lib/zero/activity-log"
+import { recordAccess } from "@/lib/zero/activity-log"
 import { Zero0DomMenu, type Zero0DomMenuState } from "./zero0-dom-menu"
 import { Zero0ColorField } from "./zero0-color-picker"
 import { buildEntityMenuItems, applyEntityMenuAction, type MenuItem } from "@/lib/zero/menu-model"
@@ -561,13 +561,13 @@ export function Zero0Canvas() {
     setHoveredRowId(null)
   }, [contextId])
 
-  // PRESENCE: log WHERE the user is — the current drilled-in context. Fires on every
+  // ACCESS: log WHERE the user is — the current drilled-in context. Fires on every
   // context change (and initial mount) so the activity tracker records the trail through
-  // the graph, exactly as the old shell did on `activeId`. `recordPresence` no-ops on a
+  // the graph, exactly as the old shell did on `activeId`. `recordAccess` no-ops on a
   // repeat of the same id, so this is safe to run on each `contextId`.
   useEffect(() => {
     if (!mounted) return
-    recordPresence(contextId)
+    recordAccess(contextId)
   }, [mounted, contextId])
 
   // FOCUS SESSIONS — being inside a context records real presence time on the RECORDED (activity)

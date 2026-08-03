@@ -367,22 +367,22 @@ function ActivityBody({
     // separated from the next frame (ZERO HEADER). The presence dayline never carries its
     // own border, so this wrapper is the sole separator.
     <div className="border-b border-border">
-      {/* The dedicated PRESENCE dayline — tracked activity ("where I was"), ALWAYS shown
+      {/* The dedicated ACCESS dayline — tracked activity ("where I was"), ALWAYS shown
           while the ACTIVITY frame is open. Carries the "x tracked" total in its header
-          (next to the "presence · today" label). Right-click a tick → the entity menu.
+          (next to the "access · today" label). Right-click a tick → the entity menu.
           When minimized, the total overlays inside the band (see Zero0Dayline). */}
       <Zero0Dayline
         onOpen={onOpen}
         onContextMenuEntity={onContextMenuEntity}
         dataRev={dataRev}
-        tracks="presence"
+        tracks="access"
         trailing={`${dur(trackedMs)} tracked`}
         minimized={minimized}
         highlightId={highlightId}
       />
 
-      {/* Presence tracker DETAILS — per-place rollup + recent-segments feed. Gated by
-          `§ 3` (showDetails) AND hidden while minimized; the presence dayline above stays
+      {/* Access tracker DETAILS — per-place rollup + recent-segments feed. Gated by
+          `§ 3` (showDetails) AND hidden while minimized; the access dayline above stays
           regardless. */}
       {!minimized && showDetails && (
       <div className="px-4 pb-3 pt-1 text-[11px] leading-relaxed tabular-nums">

@@ -43,15 +43,15 @@ function daylineLabel(entity: Entity, at: number): string {
 const LABEL_MARKER_GAP = 8
 
 // ============================================================================
-// The ZERO0 DAYLINE — a PRESENCE-ONLY port of the /2 dayline into root `/0`.
+// The ZERO0 DAYLINE — an ACCESS-ONLY port of the /2 dayline into root `/0`.
 // ----------------------------------------------------------------------------
 // This vendors the /2 dayline's *fluid* machinery VERBATIM — the ripple pan
 // (coupled critically-damped spring chain), wheel/trackpad momentum glide, and
-// the live NOW marker — but strips it to what root actually has: the PRESENCE
+// the live NOW marker — but strips it to what root actually has: the ACCESS
 // band ("where I was"), fed by root's ISOLATED activity log (`zero:root-activity:v1`).
 //
 // Now carries BOTH tracks: PLANNED occurrences (recurrence-expanded, accent-colored,
-// with sleep-titled moments painting the procedural /0 night sky) AND the PRESENCE
+// with sleep-titled moments painting the procedural /0 night sky) AND the ACCESS
 // band. Deliberately DROPPED from the /2 version (zero0 stays dep-free): the GSAP
 // `useZeroNav().open` morph launcher and the GSAP `NodeGlyph`. Opening a bar calls
 // the `onOpen` prop
@@ -72,7 +72,7 @@ const NEUTRAL = "oklch(0.72 0.004 75)"
 // and no colored ancestor). At render it maps to a THEME-BACKGROUND fill (near-black in
 // dark, near-white in light) + grey hairline — a solid outlined chip. Kept distinct so
 // render detects it (rather than tinting it like a real accent).
-const DEFAULT_PRESENCE = "#ffffff"
+const ROOT_SENTINEL_COLOR = "#ffffff"
 
 // THREE-RAIL model (v0.6.21) — on the COMBINED TODAY lane (`tracks="both"`) the band is a MIDDLE
 // spine flanked by two rails, framed as FUTURE · PRESENT · MANUAL-HISTORY:
@@ -85,9 +85,9 @@ const DEFAULT_PRESENCE = "#ffffff"
 //   • the RECORDED rail (BOTTOM) — REMOTELY-PLAYED entities only (v0.7): deliberate glyph/menu
 //     Play stopwatches (non-auto `via:"play"` sessions that survive navigation). Auto-plays +
 //     focus sessions are the middle spine; instant marks now live only as the glyph pulse.
-// The pure PRESENCE truth rail (machine-observed, unmodifiable) is NOT on this lane — it lives on
-// the standalone ACTIVITY dayline (`tracks="presence"`), untouched, and is a SEPARATE record from
-// the correctable ACCESS spine by design.
+// The MIDDLE spine IS the access machine truth (leaf-collapsed). The standalone ACTIVITY dayline
+// (`tracks="access"`) renders the SAME access record on its own surface (uncollapsed). Both are the
+// one canonical enter/exit-driven "where I was" — there is no second, separately-named record.
 // Within the TOP + BOTTOM rails, OVERLAPPING spans PACK into sub-lanes (see `packLanes`); the middle
 // spine is single-lane by construction. Overflow policy:
 // the BAND GROWS TALLER rather than shrinking ticks — every sub-lane keeps its full fixed
@@ -101,8 +101,8 @@ const RECORDED_LANE_H = 10
 // lane sitting ON the seam (the band's axis). PLANNED stacks UP from just above it, PLAYED stacks
 // DOWN from just below it. Its height is the band's fixed center strip.
 const MIDDLE_LANE_H = 10
-// Height of a presence tick on the STANDALONE ACTIVITY dayline (`tracks="presence"`).
-const PRESENCE_HEIGHT_PX = 10
+// Height of an access tick on the STANDALONE ACTIVITY dayline (`tracks="access"`).
+const ACCESS_HEIGHT_PX = 10
 // DISPLAY-ONLY session coalescing: consecutive session sessions separated by a gap no larger
 // than this collapse into ONE rendered bar. Its purpose is to keep a burst of quick stop→restart
 // toggles (typically tests / mis-clicks, a few seconds apart) reading as a single continuous
@@ -180,7 +180,7 @@ function laneGeom(rail: "planned" | "recorded" | "middle", laneIndex: number, se
 // When an entity is FOCUSED from elsewhere in the canvas — its ENTITY CONTENT row is
 // hovered, or it's the currently-open context — every tick that belongs to it grows to
 // this height and snaps fully opaque, so the dayline echoes "this is the thing you're
-// looking at". Taller than any resting tick (20px planned / 10px presence) so a lit tick
+// looking at". Taller than any resting tick (20px planned / 10px access) so a lit tick
 // clearly pops above the lane. Animated via the tick's height/opacity transition.
 const HIGHLIGHT_HEIGHT_PX = 26
 
@@ -195,10 +195,10 @@ const UNKNOWN_END_FADE_PX = 20
 
 /**
  * Resolve the two colors a dayline tick paints, shared by BOTH tracks (planned +
- * presence):
+ * access):
  *   • `fill`   — the entity's OWN color: its `accent` (`:color:`), else the nearest
  *                ancestor SPACE accent, else neutral grey. The root uses the
- *                DEFAULT_PRESENCE sentinel (→ transparent fill at render). A sleep span
+ *                ROOT_SENTINEL_COLOR sentinel (→ transparent fill at render). A sleep span
  *                paints its night-sky OVER this fill (handled at the call site).
  *   • `stroke` — the HAIRLINE, shown only when the entity sits inside at least one
  *                Space ancestor: it takes the PARENT's resolved color (parent accent,
@@ -213,7 +213,7 @@ function paintFor(entityId: string): { fill: string; stroke: string | null } {
   const e = getEntity(entityId)
   const isRoot = entityId === ROOT_ID
   const own = e?.color ?? getInheritedAccent(e?.parentId ?? null)
-  const fill = own ?? (isRoot ? DEFAULT_PRESENCE : NEUTRAL)
+  const fill = own ?? (isRoot ? ROOT_SENTINEL_COLOR : NEUTRAL)
 
   // Walk ancestors (from the parent up) to (a) detect a Space container and (b) resolve
   // the parent's display color for the hairline.
@@ -307,7 +307,7 @@ interface DaylineBar {
    */
   instant?: boolean
   /**
-   * A presence segment that is still OPEN (`leftAt === null`) — its right edge IS
+   * An access segment that is still OPEN (`leftAt === null`) — its right edge IS
    * "now". Rendered anchored to its right edge (growing leftward) so its min-width
    * never spills a tick PAST the NOW marker.
    */
@@ -335,12 +335,12 @@ interface DaylineBar {
   /**
    * PLANNED (top-rail) bars: the occurrence's dispatch identity (v0.2.249), so a right-click opens the
    * per-occurrence menu (Edit time / Cancel / Delete) acting on THAT occurrence — the same origin-
-   * discriminated address the §0 block uses. Absent for session/spine/presence bars (they open the
+   * discriminated address the §0 block uses. Absent for session/spine/access bars (they open the
    * whole-entity menu).
    */
   occRef?: NonNullable<TimelineOccurrence["occRef"]>
   /**
-   * PRESENCE bars only. A "session of using Zero" is a RUN of contiguous presence
+   * ACCESS bars only. A "session of using Zero" is a RUN of contiguous access
    * segments (leaving one place enters the next at the same instant; a gap only opens
    * when the app was backgrounded). `roundLeft` marks the FIRST tick of such a run (its
    * left corners round); `roundRight` marks the LAST (its right corners round). Ticks in
@@ -352,7 +352,7 @@ interface DaylineBar {
 
 /**
  * Root `/0` dayline. Renders PLANNED scheduled occurrences (colored) and TRACKED
- * presence (white ticks) on one fluid, pannable lane. `onOpen(id)` drills the canvas
+ * access (white ticks) on one fluid, pannable lane. `onOpen(id)` drills the canvas
  * into an entity when its bar is tapped (guarded against pans by `draggedRef`).
  * `dataRev` is the canvas's mutation counter — bumping it re-derives the planned bars
  * after a `:color:` / `:start:` / create edit.
@@ -445,7 +445,7 @@ export function Zero0Dayline({
 
   const winStart = viewStart
 
-  // Hover key for ANY bar (planned or presence) — drives its tooltip + highlight.
+  // Hover key for ANY bar (planned or access) — drives its tooltip + highlight.
   const [hoveredKey, setHoveredKey] = useState<string | null>(null)
   // Screen anchor (viewport coords) of the hovered tick, captured on mouse-enter. Used
   // ONLY by the minimized band: its tooltip is portaled to <body> (position:fixed) to
@@ -461,7 +461,7 @@ export function Zero0Dayline({
   // entity's own `accent` (set via `:color:`), else an inherited space accent, else
   // neutral. `dataRev` re-derives after a create / `:color:` / `:start:` edit; `now`
   // is only a dep so a point exactly at "now" stays consistent with the marker.
-  // One activity-log revision counter, used by the presence/session memos — bumps whenever a segment is
+  // One activity-log revision counter, used by the access/session memos — bumps whenever a segment is
   // logged/edited so they re-derive. (The planned rail no longer reads it: coverage was retired in .249.)
   const activityRevision = useActivityRevision()
   const planned = useMemo<DaylineBar[]>(() => {
@@ -544,7 +544,7 @@ export function Zero0Dayline({
         // bare point tick.
         instant: occ.kind === "instant",
         // An ongoing bar's right edge IS "now" — flag it so it renders anchored (never
-        // spilling a min-width tick PAST the now marker), same as an open presence segment.
+        // spilling a min-width tick PAST the now marker), same as an open access segment.
         openEnded: ongoing,
         // Fade rightward off the right edge when the end is unknown (ongoing → past now;
         // future open-ended → past the start point). Fade LEFT when the start is unknown.
@@ -586,7 +586,7 @@ export function Zero0Dayline({
       for (const sess of [...list].sort((a, b) => a.startedAt - b.startedAt)) {
         // v0.7: the BOTTOM (recorded) rail is now EXCLUSIVELY for REMOTELY-PLAYED entities — a
         // deliberate glyph/menu Play (a NON-auto `via:"play"` session that survives navigation).
-        // Everything else is skipped here: an AUTO play (ongoing-on-enter) is presence-like and
+        // Everything else is skipped here: an AUTO play (ongoing-on-enter) is access-like and
         // belongs to the MIDDLE access spine via its twin focus session; an instant MARK now lives
         // only as the glyph one-shot pulse (no dayline tick); focus/legacy sessions are the access
         // spine. So we collect non-auto plays only, and the whole rail reads "what I remote-played".
@@ -649,13 +649,13 @@ export function Zero0Dayline({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [winStart, lo, hi, now, mounted, dataRev, activityRevision])
 
-  // SPINE bars — the MIDDLE rail (v0.6.21): the COLLAPSED-ACCESS leaf-spine. Focus sessions
+  // SPINE bars — the MIDDLE rail (v0.6.21): the COLLAPSED-ACCESS leaf-spine. ACCESS sessions
   // (`via` focus / legacy undefined) are punched on EVERY entity on the path, so at any instant
-  // the covering focus intervals are exactly root→leaf and the DEEPEST (latest-started) is the
-  // current leaf. We FLATTEN all focus intervals so only the deepest shows at each moment — a
-  // single continuous, non-overlapping line, the ACCESS (declarable, `--sessionStart/End`-editable)
-  // twin of the pure PRESENCE rail. Distinct from presence by design: presence = machine truth
-  // (§2), spine = the correctable ACCESS record. Only rendered on the combined lane.
+  // the covering intervals are exactly root→leaf and the DEEPEST (latest-started) is the current
+  // leaf. We FLATTEN all of them so only the deepest shows at each moment — a single continuous,
+  // non-overlapping line: the LEAF-MOST ACCESSED entity over time. This is the MACHINE TRUTH of
+  // where the user was (set purely on enter/exit, never user-editable) — the same access record
+  // as the standalone ACTIVITY rail, just collapsed to the leaf. Only rendered on the combined lane.
   const spine = useMemo<DaylineBar[]>(() => {
     if (!mounted || !combined) return []
     // 1) Collect focus intervals (end = now while open) across EVERY entity with sessions.
@@ -778,11 +778,11 @@ export function Zero0Dayline({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [winStart, lo, hi, now, mounted, combined, dataRev, activityRevision])
 
-  // PRESENCE bars — tracked activity ("where I was"). Titles fold `titleAt` so a past
+  // ACCESS bars — tracked activity ("where I was"). Titles fold `titleAt` so a past
   // segment reads with the name the place had THEN. `activityRevision` (shared above)
   // re-derives on any log change; `now` grows the open segment + keeps it in step with
   // the marker.
-  const presence = useMemo<DaylineBar[]>(() => {
+  const access = useMemo<DaylineBar[]>(() => {
     if (!mounted) return []
     const nowMs = now
     const out: DaylineBar[] = []
@@ -809,7 +809,7 @@ export function Zero0Dayline({
       // parent's color (a hairline, only when the place sits inside a Space).
       const { fill, stroke } = paintFor(s.entityId)
       out.push({
-        key: `pres:${s.entityId}:${s.enteredAt}`,
+        key: `access:${s.entityId}:${s.enteredAt}`,
         id: s.entityId,
         // Historical title — the name the place carried at the segment's start (web resources
         // use their concise displayed title instead of the raw URL).
@@ -820,7 +820,7 @@ export function Zero0Dayline({
         widthPct,
         centerPct: leftPct + widthPct / 2,
         range: rangeText(st, en),
-        track: "presence",
+        track: "access",
         point: false,
         openEnded: s.leftAt == null,
         roundLeft,
@@ -837,9 +837,9 @@ export function Zero0Dayline({
     for (const b of planned) m.set(b.key, b)
     for (const b of sessions) m.set(b.key, b)
     for (const b of spine) m.set(b.key, b)
-    for (const b of presence) m.set(b.key, b)
+    for (const b of access) m.set(b.key, b)
     return m
-  }, [planned, sessions, spine, presence])
+  }, [planned, sessions, spine, access])
 
   // LANE PACKING per rail (OPTION A). TOP (planned) packs by START so tiling declared spans
   // share lane 0 and only genuine overlaps open new lanes. BOTTOM (recorded) packs LONGEST-
@@ -856,7 +856,7 @@ export function Zero0Dayline({
   )
   // Combined-lane band geometry: the SEAM and total BAND HEIGHT grow with the busier rail's
   // sub-lane count (ticks keep full height; the band gets taller). Non-combined lanes keep the
-  // resting single-lane height so the standalone ACTIVITY/PRESENCE band is unchanged.
+  // resting single-lane height so the standalone ACTIVITY/ACCESS band is unchanged.
   const { seam, bandH, mid } = useMemo(
     () =>
       combined
@@ -889,8 +889,8 @@ export function Zero0Dayline({
   const wheelTsRef = useRef(0)
   const wheelCommitRef = useRef(0)
   const pendingFlushRef = useRef(0)
-  // Base pan applied imperatively to both the presence CONTENT (inside the fixed clip)
-  // and the NOW marker + presence tooltip (which live outside the clip for edge bleed).
+  // Base pan applied imperatively to both the access CONTENT (inside the fixed clip)
+  // and the NOW marker + access tooltip (which live outside the clip for edge bleed).
   const contentPanRef = useRef<HTMLDivElement>(null)
   const markerPanRef = useRef<HTMLDivElement>(null)
   const presTooltipPanRef = useRef<HTMLDivElement>(null)
@@ -939,7 +939,7 @@ export function Zero0Dayline({
     return Math.max(0, Math.min(RIPPLE_COLS - 1, Math.round(pct * (RIPPLE_COLS - 1))))
   }, [])
 
-  // Re-resolve which PRESENCE bar sits under the (possibly stationary) cursor and sync
+  // Re-resolve which ACCESS bar sits under the (possibly stationary) cursor and sync
   // `presHovered`. Called each pan frame: bars slide by transform, so the DOM's own hover
   // doesn't fire — we hit-test the real pixel under the cursor. No-ops (no re-render) when
   // the bar under the cursor is unchanged, so it's cheap to call every frame.
@@ -1236,7 +1236,7 @@ export function Zero0Dayline({
   // sit at true local midnight, so a day label lands on the calendar-date boundary.) The
   // `leftPct` drives TWO things: the in-band 1px line (a ripple node that slides/clips with
   // the timeline) AND the sticky-push label in the strip ABOVE the band (see paintDayLabels).
-  // The ACTIVITY presence lane is intentionally left plain for now.
+  // The ACTIVITY access lane is intentionally left plain for now.
   const dayMarkers = useMemo(() => {
     if (!mounted || isAccess) return [] as { key: string; leftPct: number; label: string }[]
     const out: { key: string; leftPct: number; label: string }[] = []
@@ -1246,7 +1246,7 @@ export function Zero0Dayline({
       out.push({ key: `day:${t}`, leftPct: ((t - winStart) / DAY_MS) * 100, label: shortDay(t) })
     }
     return out
-  }, [mounted, isPresence, lo, hi, winStart, shortDay])
+  }, [mounted, isAccess, lo, hi, winStart, shortDay])
 
   // Reposition the sticky day labels when they REMOUNT (toggling `minimized` swaps their
   // host container: above-band strip ⇄ in-band overlay) or when the marker SET changes.
@@ -1258,10 +1258,10 @@ export function Zero0Dayline({
 
   // Header CONTENT, shared between the two layouts. PLANNED = the sticky-push day-label
   // rail (one abs-positioned label per midnight boundary, placed imperatively by
-  // `paintDayLabels`); PRESENCE = the "x tracked" total. Registered via `registerDayLabel`
+  // `paintDayLabels`); ACCESS = the "x tracked" total. Registered via `registerDayLabel`
   // regardless of where it's mounted, so the imperative positioning is identical whether
   // the strip sits above the band (full) or overlaid inside it (minimized).
-  const headerContent = isPresence ? (
+  const headerContent = isAccess ? (
     <span>{trailing}</span>
   ) : (
     dayMarkers.map((dm) => (
@@ -1293,19 +1293,19 @@ export function Zero0Dayline({
         minimized ? cn("px-2 pt-1", hideBottomBorder ? "pb-0" : "pb-1") : "px-4 pt-3",
         // The PLANNED lane owns a full-bleed bottom separator in BOTH full and minimized
         // modes — mirroring ACTIVITY, whose ActivityBody wrapper is always `border-b`, so
-        // the two frames separate identically. The PRESENCE lane never carries it (it flows
+        // the two frames separate identically. The ACCESS lane never carries it (it flows
         // into its tracked list, and ActivityBody owns ACTIVITY's separator). Dropped when
         // the next frame is also minimized, so two adjacent minimized bands merge.
-        !isPresence && !hideBottomBorder && "border-b border-border",
+        !isAccess && !hideBottomBorder && "border-b border-border",
         // Extra bottom padding only in full mode; minimized uses the tight padding above.
-        !minimized && (isPresence ? "pb-1" : "pb-3"),
+        !minimized && (isAccess ? "pb-1" : "pb-3"),
       )}
     >
       {/* ABOVE-BAND HEADER STRIP (faded) — only when NOT minimized. The old "now" button is
           gone (double-click the band still recenters); the live full date+time lives in the
           glued-top clock. When minimized, this same content is overlaid INSIDE the band. */}
       {!minimized &&
-        (isPresence ? (
+        (isAccess ? (
           <div className="mb-2 text-[10px] uppercase tracking-wider text-muted-foreground/60">
             {headerContent}
           </div>
@@ -1337,7 +1337,7 @@ export function Zero0Dayline({
           {/* IN-BAND HEADER OVERLAY (minimized only) — the same faded header content that
               normally sits ABOVE the band is overlaid INSIDE it, vertically CENTERED
               (`inset-y-0 flex items-center`), so a minimized frame is just the band. The
-              presence "x tracked" total is a flex child (respects `pl-2`); the planned day
+              access "x tracked" total is a flex child (respects `pl-2`); the planned day
               labels are absolute and get their marker gap from LABEL_MARKER_GAP in the
               transform. Non-interactive + clipped so it never blocks panning and trims to
               the band; `z-10` keeps it above the ticks. */}
@@ -1370,11 +1370,11 @@ export function Zero0Dayline({
                   aria-hidden
                   className="h-2 w-2 shrink-0 rounded-full border"
                   style={{
-                          backgroundColor: hovered.color === DEFAULT_PRESENCE ? "var(--background)" : hovered.color,
+                          backgroundColor: hovered.color === ROOT_SENTINEL_COLOR ? "var(--background)" : hovered.color,
                     borderColor: hovered.stroke ?? "var(--border)",
                   }}
                 />
-                {hovered.track === "presence" && <span className="shrink-0 text-muted-foreground">in</span>}
+                {hovered.track === "access" && <span className="shrink-0 text-muted-foreground">in</span>}
                 <span className="truncate text-foreground">{hovered.title}</span>
                 <span className="shrink-0 text-muted-foreground tabular-nums">{hovered.range}</span>
               </div>,
@@ -1384,7 +1384,7 @@ export function Zero0Dayline({
           <div className="pointer-events-none absolute inset-0 overflow-hidden rounded-md">
             {/* CONTENT PAN — the in-progress wheel pan is applied here as an imperative
                 translateX; the bars slide within the fixed clip window. PLANNED bars
-                (colored) sit in the main body; PRESENCE (white ticks) lines the bottom. */}
+                (colored) sit in the main body; ACCESS (white ticks) lines the bottom. */}
             {/* RAIL SEAM — a faint 1px hairline at the seam between the PLANNED rail (above)
                 and the RECORDED rail (below), spanning the full band width. Combined TODAY lane
                 only; painted as a STATIC overlay (outside the panning container) so it stays
@@ -1415,14 +1415,14 @@ export function Zero0Dayline({
                 </div>
               ))}
               {/* TICK BAND — ONE generic loop for BOTH tracks. Each instance paints its
-                  own list (`planned` scheduled occurrences OR `presence` tracked segments);
+                  own list (`planned` scheduled occurrences OR `access` tracked segments);
                   the COMBINED TODAY lane paints both. A rounded chip (or a thin point for a
                   zero-length occurrence) whose FILL is the entity color (sleep paints a
                   night-sky, root → theme background) and whose HAIRLINE is the parent color.
                   All ticks are vertically CENTERED; on the combined lane the tracks are
-                  told apart by HEIGHT (planned taller, presence shorter). */}
+                  told apart by HEIGHT (planned taller, access shorter). */}
               {mounted &&
-                (combined ? [...planned, ...sessions, ...spine] : isPresence ? presence : planned).map((p) => {
+                (combined ? [...planned, ...sessions, ...spine] : isAccess ? access : planned).map((p) => {
                   const isHot = hoveredKey === p.key
                   // LIT — this tick's entity is the one being HOVERED in ENTITY CONTENT
                   // (hover-only; cleared on navigation, so never lit merely for being open).
@@ -1444,7 +1444,7 @@ export function Zero0Dayline({
                     : undefined
                   // HEIGHT. A LIT/hovered tick pops (capped so it doesn't spill the rail). On
                   // the combined lane every tick uses its packed lane height. A standalone lane
-                  // uses the presence/highlight/base heights.
+                  // uses the access/highlight/base heights.
                   const baseH = isHot ? 13 : 9
                   const tickH = combined
                     ? lit || isHot
@@ -1462,12 +1462,12 @@ export function Zero0Dayline({
                   // below). A non-combined lane keeps a single centered band ("50%").
                   const railTop: string | number = !combined ? "50%" : lane?.center ?? seam - tickH / 2
                   // ROUNDING. A point stays a dot. A PLANNED bar keeps all four corners soft.
-                  // A PRESENCE bar rounds ONLY the ends of its session run: left corners on the
+                  // An ACCESS bar rounds ONLY the ends of its session run: left corners on the
                   // first tick, right corners on the last; interior ticks are fully square so a
                   // run reads as one pill. An isolated tick (both flags) is fully rounded.
                   const roundCls = p.point
                     ? "rounded-full"
-                    : p.track === "presence"
+                    : p.track === "access"
                       ? p.roundLeft && p.roundRight
                         ? "rounded-[2px]"
                         : p.roundLeft
@@ -1483,8 +1483,8 @@ export function Zero0Dayline({
                         : "rounded-[2px]"
                   // COLORS. Fill = entity color (sleep → night sky); the root sentinel paints
                   // the THEME BACKGROUND (near-black in dark, near-white in light) instead of
-                  // going transparent, so a root presence tick reads as a solid outlined chip.
-                  const fill = p.color === DEFAULT_PRESENCE ? "var(--background)" : (p.sky ?? p.color)
+                  // going transparent, so a root access tick reads as a solid outlined chip.
+                  const fill = p.color === ROOT_SENTINEL_COLOR ? "var(--background)" : (p.sky ?? p.color)
                   // FADING = an unknown-end (ongoing / future-open) span → render as ONE element
                   // with a masked tail (below), never a point or an instant mark.
                   const fading = p.unknownEnd && !p.point && !p.markGlyph
@@ -1494,18 +1494,18 @@ export function Zero0Dayline({
                   const fadingStart = p.unknownStart && !p.point && !p.markGlyph && !fading
                   // ANCHOR EDGE (1a, generalized in v0.2.255). The min-width floor `max(3px, widthPct%)`
                   // grows a thin tick's nub in whichever direction it's ANCHORED. MIDDLE (access spine)
-                  // and PRESENCE ticks are ALWAYS historical (their right edge is ≤ now by construction),
+                  // and ACCESS ticks are ALWAYS historical (their right edge is ≤ now by construction),
                   // so anchor them by their RIGHT edge → any min-width nub grows LEFTWARD into the past and
                   // can NEVER spill to the right of the now marker (the reported bug). The old fix only
                   // right-anchored OPEN spine segments, so a CLOSED sliver ending at/near now still floored
                   // 3px rightward past the marker. TOP-rail (planned) ticks can be in the FUTURE, so they
                   // keep left/fade anchoring; an explicitly open-ended tick (no fade) also right-anchors.
                   const anchorRight =
-                    !p.point && !fading && (p.openEnded || p.track === "middle" || p.track === "presence")
+                    !p.point && !fading && (p.openEnded || p.track === "middle" || p.track === "access")
                   // OPACITY (v0.2.249). A LIT tick and hover both snap to full. TOP-rail PLANNED ticks
                   // paint at a flat 0.8 (a hair softer than solid, so "intent" reads distinct from
-                  // recorded presence without the old dynamic coverage math, which was retired). Every
-                  // other rail (presence / recorded / middle spine) stays fully solid.
+                  // recorded activity without the old dynamic coverage math, which was retired). Every
+                  // other rail (access / recorded / middle spine) stays fully solid.
                   const tickOpacity = lit || isHot ? 1 : p.track === "planned" ? 0.8 : 1
                   // PLANNED INSTANT — a small FILLED instant glyph (the down-triangle) with the
                   // entity title beside it, both in the entity's color. The glyph is nudged left
@@ -1568,7 +1568,7 @@ export function Zero0Dayline({
                       <button
                         type="button"
                         data-barkey={p.key}
-                        aria-label={p.track === "presence" ? `Was in ${p.title}, ${p.range}` : `${p.title}, ${p.range}`}
+                        aria-label={p.track === "access" ? `Was in ${p.title}, ${p.range}` : `${p.title}, ${p.range}`}
                         onMouseEnter={(ev) => {
                           setHoveredKey(p.key)
                           // Capture the tick's on-screen midpoint for the minimized band's
@@ -1616,7 +1616,7 @@ export function Zero0Dayline({
                         style={{
                           top: railTop,
                           // Fading + non-open-ended ticks anchor by their LEFT (start) edge; a
-                          // right-anchored open-ended tick (e.g. open presence, no fade) keeps
+                          // right-anchored open-ended tick (e.g. open access, no fade) keeps
                           // its right edge pinned to now. A FADING-START tick shifts its left anchor
                           // LEFT by the fade length so the fade grows OUT past the (unknown) start.
                           left: fadingStart
@@ -1704,7 +1704,7 @@ export function Zero0Dayline({
           )}
 
           {/* HOVER HELPER — floats just below the lane for the hovered bar (either
-              track): a color chip + title + clock range. Presence reads "in {title}"
+              track): a color chip + title + clock range. Access reads "in {title}"
               (the historical name); planned reads just the title. Rides the same
               two-layer pan-follow as everything else. FULL mode only — a minimized band
               shows the label in-band instead (it would be clipped floating below here). */}
@@ -1723,11 +1723,11 @@ export function Zero0Dayline({
                     aria-hidden
             className="h-2 w-2 shrink-0 rounded-full border"
             style={{
-              backgroundColor: hovered.color === DEFAULT_PRESENCE ? "var(--background)" : hovered.color,
+              backgroundColor: hovered.color === ROOT_SENTINEL_COLOR ? "var(--background)" : hovered.color,
               borderColor: hovered.stroke ?? "var(--border)",
             }}
                   />
-                  {hovered.track === "presence" && <span className="shrink-0 text-muted-foreground">in</span>}
+                  {hovered.track === "access" && <span className="shrink-0 text-muted-foreground">in</span>}
                   <span className="truncate text-foreground">{hovered.title}</span>
                   <span className="shrink-0 text-muted-foreground tabular-nums">{hovered.range}</span>
                 </div>
