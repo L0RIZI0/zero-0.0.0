@@ -584,13 +584,12 @@ export function Zero0Dayline({
       type Run = { start: number; end: number; open: boolean; via?: string; auto?: boolean; count: number }
       const runs: Run[] = []
       for (const sess of [...list].sort((a, b) => a.startedAt - b.startedAt)) {
-        // v0.7: the BOTTOM (recorded) rail is now EXCLUSIVELY for REMOTELY-PLAYED entities — a
-        // deliberate glyph/menu Play (a NON-auto `via:"play"` session that survives navigation).
-        // Everything else is skipped here: an AUTO play (ongoing-on-enter) is access-like and
-        // belongs to the MIDDLE access spine via its twin focus session; an instant MARK now lives
-        // only as the glyph one-shot pulse (no dayline tick); focus/legacy sessions are the access
-        // spine. So we collect non-auto plays only, and the whole rail reads "what I remote-played".
-        if (sess.via !== "play" || sess.auto) continue
+        // v0.2.257: the BOTTOM (PLAYED) rail shows EVERY played session — BOTH auto (started by
+        // ENTERING an ongoing-on-enter kind) AND remote (a deliberate glyph/menu Play that survives
+        // navigation). Both are start→stop played spans, so both render here identically. Skipped:
+        // focus/legacy sessions (that's the MIDDLE access spine) and instant MARKs (now only the
+        // glyph one-shot pulse, no dayline tick).
+        if (sess.via !== "play") continue
         const sOpen = sess.endedAt == null
         const sEnd = sess.endedAt ?? now
         const cur = runs[runs.length - 1]
@@ -606,8 +605,8 @@ export function Zero0Dayline({
         }
       }
       runs.forEach((run, i) => {
-        // Every run here is a non-auto (remote) PLAY — the collection loop above already dropped
-        // auto-plays, marks, and focus/access sessions (those live on the MIDDLE spine).
+        // Every run here is a PLAYED span (auto OR remote) — the collection loop above kept all
+        // `via:"play"` sessions and dropped only marks + focus/access sessions (the MIDDLE spine).
         const rawStart = run.start
         const open = run.open
         const rawEnd = open ? now : run.end
@@ -633,7 +632,7 @@ export function Zero0Dayline({
           range: open
             ? `${rangeText(rawStart, rawEnd)} · ${kindLabel} · ongoing${merged}`
             : `${rangeText(rawStart, rawEnd)} · ${kindLabel}${merged}`,
-    track: "recorded", // bottom rail — remote-play activity only (v0.7)
+    track: "recorded", // bottom rail — PLAYED sessions (auto + remote), v0.2.257
     point: en <= st,
           // Open run's right edge IS now → anchored + joins the ongoing stack.
           openEnded: open,

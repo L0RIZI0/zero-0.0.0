@@ -44,8 +44,6 @@ import {
   toggleStarterPin,
   openSession,
   closeSession,
-  pauseOngoing,
-  resumeOngoing,
   setOpenSessionStart,
   markInstant,
   setInstantMax,
@@ -626,27 +624,18 @@ export function Zero0Canvas() {
           focusOpenRef.current.add(id)
           opened = true
         }
-        // ── ONGOING rail (play): {task, resource, space} are ONGOING-ON-ENTER while not done/closed.
-        // The auto ongoing span is now DERIVED — opening `focus` above (⇒ `accessed`) already made it
-        // open via the fold, so a freshly-entered entity lands in the `hasOpenSession` branch and we
-        // just register it for punch-out. The interesting case is the LEAF-TRANSITIVE RESUME: an
-        // entity that was PAUSED while it was the leaf, and is now a NON-LEAF ancestor because we
-        // drilled deeper — "A is ongoing whenever it's in the path AND not paused-as-leaf", so going
-        // deeper un-pauses it. A leaf with no open play is paused-as-leaf and stays paused.
+        // ── PLAYED rail (play): {task, resource, space} are ONGOING-ON-ENTER while not done/closed.
+        // The auto played span is DERIVED — opening `focus` above (⇒ `accessed`) already made it open
+        // via the fold, so a freshly-entered entity is already play-open; we just register the AUTO
+        // span for punch-out on leave. v0.2.257: the old "leaf-transitive resume" (re-opening a
+        // paused-as-leaf ancestor when drilling deeper) is GONE — with pause/resume retired, an auto
+        // span simply stays open the whole time its entity is in the path and closes on `exited`.
         if (canAutoPlay(e)) {
           const openPlay = getOpenSession(e, "play")
-          if (openPlay) {
-            // Only AUTO plays are presence-managed (punched out on leave). A REMOTE play you drilled
-            // into is a deliberate stopwatch that SURVIVES navigation — never adopt it into the
-            // punch-out set, or leaving would silently Stop it.
-            if (openPlay.auto) playOpenRef.current.add(id)
-          } else if (id !== contextId) {
-            // navigation-driven resume of a paused ancestor ⇒ `resumed {auto:true}` (provenance).
-            if (resumeOngoing(id, Date.now(), { auto: true })) {
-              playOpenRef.current.add(id)
-              opened = true
-            }
-          }
+          // Only AUTO plays are presence-managed (punched out on leave). A REMOTE play you drilled
+          // into is a deliberate stopwatch that SURVIVES navigation — never adopt it into the
+          // punch-out set, or leaving would silently Stop it.
+          if (openPlay?.auto) playOpenRef.current.add(id)
         }
       }
       if (opened) bump()
@@ -665,35 +654,22 @@ export function Zero0Canvas() {
   // no-op — presence already tracks you (two simultaneous focus+play sessions = deferred, see todos).
   const togglePlaySession = useCallback(
     (e: Entity) => {
-      // The glyph means different things by WHERE it's clicked (Loris' four-verb model):
-      //   • IN-PLACE (e is the entity you're viewing = the leaf): interrupt/continue the AMBIENT
-      //     ongoing → `paused`/`resumed`. Presence keeps ticking either way.
-      //   • REMOTE (a row you're NOT inside): a deliberate stopwatch → `started`/`stopped`, which
-      //     SURVIVES navigation (never auto-punched-out; not in playOpenRef).
-      const inPlace = e.id === contextId
+      // v0.2.257 — PLAIN PLAY/STOP TOGGLE (start/stop-only model, pause/resume retired). The glyph
+      // no longer branches on in-place-vs-remote: an OPEN play span (auto or remote) is STOPPED
+      // (`closeSession("play")` → `stopped`, which the fold closes regardless of flavor, WITHOUT
+      // ending your access session — you keep viewing it); otherwise a fresh play span STARTS
+      // (`openSession("play")` → `started`, a remote span that survives navigation). Re-clicking
+      // Play after a Stop simply starts a NEW played span, exactly as re-entering would.
       const openPlay = getOpenSession(e, "play")
-      if (inPlace) {
-        if (openPlay) {
-          // ongoing right now: an AUTO span pauses; a REMOTE span you drilled into is Stopped.
-          if (openPlay.auto) pauseOngoing(e.id)
-          else {
-            closeSession(e.id, "play")
-            playOpenRef.current.delete(e.id)
-          }
-        } else {
-          resumeOngoing(e.id) // deliberate reclick → plain `resumed` (no auto provenance flag)
-        }
+      if (openPlay) {
+        closeSession(e.id, "play")
+        playOpenRef.current.delete(e.id)
       } else {
-        if (openPlay) {
-          closeSession(e.id, "play") // Stop the remote play
-          playOpenRef.current.delete(e.id)
-        } else {
-          openSession(e.id, "play") // Start a remote play (survives navigation)
-        }
+        openSession(e.id, "play")
       }
       bump()
     },
-    [bump, contextId],
+    [bump],
   )
 
   const context = mounted ? getEntity(contextId) : undefined
@@ -1394,24 +1370,20 @@ export function Zero0Canvas() {
       if (!KIND_META[e.kind].hasDoneFlag) return
       const openPlay = getOpenSession(e, "play")
       if (openPlay) {
-        // Spinning ⇒ hold/stop, same in-place-vs-remote split as togglePlaySession: an AUTO span you
-        // are viewing PAUSES (presence keeps ticking); a REMOTE span, or any span on a row you're not
-        // inside, hard-Stops.
-        if (openPlay.auto && e.id === contextId) pauseOngoing(e.id)
-        else {
-          closeSession(e.id, "play")
-          playOpenRef.current.delete(e.id)
-        }
+        // v0.2.257 — spinning ⇒ STOP the played span (plain toggle, no pause/resume). `closeSession`
+        // writes `stopped`, which the fold closes for any flavor even while you're still inside — so
+        // the chip drops and your access keeps ticking. (Was: auto-in-place PAUSED, else stopped.)
+        closeSession(e.id, "play")
+        playOpenRef.current.delete(e.id)
         return bump()
       }
       const nowDone = !isDone(e)
       setTaskDone(e.id, nowDone)
       if (!nowDone && canAutoPlay(e) && path.includes(e.id)) {
-        // Un-done in place while still viewing it → RESUME ongoing now. Must be `resumed` (not an
-        // auto openSession, which logs nothing and wouldn't reopen a span with no fresh `accessed`):
-        // undone cleared the fold's `blocked`, so `resumed` reopens the auto span immediately. This
-        // is the fix for the static-glyph bug (in-place un-done stayed at rest until nav away+back).
-        if (resumeOngoing(e.id, Date.now(), { auto: true })) playOpenRef.current.add(e.id)
+        // Un-done in place while still viewing it → START a fresh played span now (`openSession`
+        // → `started`). undone cleared the fold's `blocked`; a deliberate start restarts the session
+        // immediately so the glyph spins again without needing to navigate away and back.
+        if (openSession(e.id, "play")) playOpenRef.current.add(e.id)
       }
       bump()
     },
@@ -1526,33 +1498,17 @@ export function Zero0Canvas() {
   )
 
   // PINS (§4) END — the spinning-glyph click (STAY here): end whatever makes the chip ongoing.
-  // v0.2.204: this must use the SAME in-place-vs-remote split as togglePlaySession, or clicking
-  // the chip for the entity you're CURRENTLY viewing does nothing. Reason: the ongoing span of the
-  // leaf you're inside is an AUTO span DERIVED from your open focus/presence session via the log
-  // fold — `endOngoing`→closeSession("play") closes it but the fold immediately re-derives it as
-  // open (you're still present), so the chip never drops. The correct verb for an in-place auto
-  // span is `pauseOngoing` (writes a `paused` marker the fold respects). Remote chips (an entity
-  // you are NOT inside) still hard-end via endOngoing. This is exactly why stopping a resource
-  // from ENTITY CONTENT worked while the PINS chip for the current resource didn't.
+  // v0.2.257: no more in-place-vs-remote split. `endOngoing`→`closeSession("play")` now writes an
+  // explicit `stopped`, which the fold closes for ANY flavor (auto or remote), so it correctly drops
+  // the chip for the entity you're CURRENTLY viewing too — your access/focus session keeps running.
+  // (Previously an in-place auto span re-derived as open after endOngoing, so it needed `pauseOngoing`.)
   const endPin = useCallback(
     (id: string) => {
-      const e = getEntity(id)
-      if (e && e.id === contextId) {
-        // In-place: an AUTO ongoing span pauses (presence keeps ticking); a deliberate remote-style
-        // play span you happen to be viewing is hard-stopped. Mirrors togglePlaySession's in-place arm.
-        const openPlay = getOpenSession(e, "play")
-        if (openPlay?.auto) pauseOngoing(e.id)
-        else {
-          endOngoing(id)
-          playOpenRef.current.delete(id)
-        }
-      } else {
-        endOngoing(id) // remote chip: cap its running span / close its open session at now
-        playOpenRef.current.delete(id)
-      }
+      endOngoing(id)
+      playOpenRef.current.delete(id)
       bump()
     },
-    [bump, contextId],
+    [bump],
   )
 
   // PINS (§4) START — deliberately open an session on a pinned/idle entity. `via:"play"`

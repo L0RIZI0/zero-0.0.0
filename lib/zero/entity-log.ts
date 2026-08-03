@@ -373,13 +373,18 @@ export function auditLogScalarConsistency(entity: Entity): LogScalarMismatch[] {
  *      ongoing-on-enter kind AND not currently done/closed — see `blocked` tracking below).
  *   - `exited`   → close the open focus session (and the auto ongoing span, if any).
  *
- *  ONGOING (play rail) — a SINGLE non-overlapping span with a FLAVOR, so DURATION never
- *  double-counts. Openers no-op while already ongoing (union/absorption); a closer whose flavor
- *  doesn't match the current span is a no-op:
- *   - AUTO flavor  — opened by `accessed` (when eligible) or `resumed`; closed by `paused`, `exited`,
- *      or a TERMINAL lifecycle entry (done/completed/closed/cancelled/retired/died).
- *   - REMOTE flavor— opened by `started` (legacy `session-open`); closed ONLY by `stopped` (legacy
+ *  PLAYED (play rail) — a SINGLE non-overlapping span with a FLAVOR, so DURATION never
+ *  double-counts. Openers no-op while already played-open (union/absorption). START/STOP-ONLY model
+ *  (v0.2.257 — pause/resume retired):
+ *   - AUTO flavor  — opened by `accessed` (when eligible); closed by `exited`, a TERMINAL lifecycle
+ *      entry (done/completed/closed/cancelled/retired/died), OR an explicit `stopped` (glyph Stop
+ *      while still inside — access keeps ticking, only the played span ends).
+ *   - REMOTE flavor— opened by `started` (legacy `session-open`); closed by `stopped` (legacy
  *     `session-close`). REMOTE SURVIVES navigation — an `exited` does NOT close a remote span.
+ *   - `stopped` closes whichever span is currently open (auto OR remote).
+ *   - LEGACY-READ-ONLY: `paused`/`resumed` are no longer WRITTEN, but old logs may contain them, so
+ *     the fold still interprets them (`paused` closes the auto span, `resumed` reopens it) for
+ *     back-compat. New behaviour never emits them.
  *  `mark` → a zero-length session (`endAt === startAt`, via "mark").
  *
  *  DONE/CLOSED TRACKING (the "terminal ends ongoing" rule, Loris' choice): the fold tracks a
@@ -452,19 +457,22 @@ export function deriveSessionsFromLog(
         st.focusIdx = out.length - 1
         if (ongoingOnEnter && !st.blocked) openOngoing(e.at, "auto")
         break
-      case "resumed":
+      case "resumed": // LEGACY-READ-ONLY (no longer written; old logs only)
         if (!st.blocked) openOngoing(e.at, "auto")
         break
       case "started":
       case "session-open": // legacy alias
         openOngoing(e.at, "remote")
         break
-      case "paused":
+      case "paused": // LEGACY-READ-ONLY (no longer written; old logs only)
         closeAutoOngoing(e.at)
         break
       case "stopped":
       case "session-close": // legacy alias
-        if (st.ongoing?.flavor === "remote") {
+        // v0.2.257 (start/stop-only model): `stopped` closes the CURRENT play span regardless of
+        // flavor — auto (entered) OR remote. This is what lets the glyph Stop end a session you
+        // started by ENTERING (previously only `paused` could, and it left the span derivable-open).
+        if (st.ongoing != null) {
           closeAt(st.ongoing.idx, e.at)
           st.ongoing = null
         }

@@ -1716,11 +1716,15 @@ export function openSession(
 }
 
 /**
- * CLOSE the open session on an entity (LOG-FIRST): append the right verb, then re-derive. focus ⇒
- * `exited`; a MANUAL/remote play ⇒ `stopped`; an AUTO play ⇒ NO entry (its span is closed in the
- * fold by the matching `exited` / a terminal lifecycle entry — never logged in its own right, so the
- * §0 LOG only ever shows accessed/exited + started/stopped + mark). Discard-short is applied by the
- * fold. No-op if nothing is open on that rail. Returns true if a session was closed.
+ * CLOSE the open session on an entity (LOG-FIRST): append the right verb, then re-derive.
+ *   - focus ⇒ `exited`.
+ *   - play  ⇒ `stopped` (v0.2.257 start/stop-only: ALWAYS, auto OR remote). The fold's `stopped`
+ *     now closes whichever play span is open, so an explicit Stop can end a session you started by
+ *     ENTERING — without leaving (the focus/access session keeps running). Previously an auto play
+ *     wrote NOTHING here and the fold re-derived it as open (the "chip won't stop in place" bug).
+ * NB on EXIT the focus close writes `exited` first, which already closes the auto play in the fold,
+ * so the subsequent play close finds nothing open and emits no redundant `stopped`. Discard-short is
+ * applied by the fold. No-op if nothing is open on that rail. Returns true if a session was closed.
  */
 export function closeSession(id: string, via?: Session["via"], at = Date.now()): boolean {
   const stored = byId.get(id)
@@ -1728,45 +1732,16 @@ export function closeSession(id: string, via?: Session["via"], at = Date.now()):
   const open = getOpenSession(stored, via)
   if (!open) return false
   const entity = mutable(stored)
-  const type: LogType | null = open.via === "focus" ? "exited" : open.auto ? null : "stopped"
-  if (type) entity.log = appendInstant(ensureEntityLog(entity), makeInstant(type, at))
+  const type: LogType = open.via === "focus" ? "exited" : "stopped"
+  entity.log = appendInstant(ensureEntityLog(entity), makeInstant(type, at))
   recomputeSessionsFromLog(id, entity)
   return true
 }
 
-/**
- * PAUSE the AUTO ongoing span IN PLACE (the leaf-glyph "hold" — you're viewing the entity and
- * interrupt its ambient ongoing without leaving). Appends `paused` (the fold closes the open auto
- * span; PRESENCE keeps ticking). No-op unless there's an open AUTO play (a REMOTE play is stopped
- * via {@link closeSession}, not paused). Returns true if it paused.
- */
-export function pauseOngoing(id: string, at = Date.now()): boolean {
-  const stored = byId.get(id)
-  if (!stored) return false
-  const open = getOpenSession(stored, "play")
-  if (!open || !open.auto) return false
-  const entity = mutable(stored)
-  entity.log = appendInstant(ensureEntityLog(entity), makeInstant("paused", at))
-  recomputeSessionsFromLog(id, entity)
-  return true
-}
-
-/**
- * RESUME the ambient ongoing (reopen an AUTO span). Appends `resumed`; `opts.auto` tags a
- * NAVIGATION-driven resume (drilling deeper un-pauses a paused ancestor) vs a deliberate glyph
- * reclick — pure provenance the fold ignores (both reopen the span). No-op if a play is already
- * open, or if the entity is done/closed (the fold's `blocked` guard yields no span). Returns true if
- * a resume was logged.
- */
-export function resumeOngoing(id: string, at = Date.now(), opts?: { auto?: boolean }): boolean {
-  const stored = byId.get(id)
-  if (!stored) return false
-  if (getOpenSession(stored, "play")) return false // already ongoing
-  const entity = mutable(stored)
-  entity.log = appendInstant(ensureEntityLog(entity), makeInstant("resumed", at, opts?.auto ? { auto: true } : undefined))
-  recomputeSessionsFromLog(id, entity)
-  return hasOpenSession(byId.get(id)!, "play")
-}
+// v0.2.257 — pauseOngoing / resumeOngoing were RETIRED with the start/stop-only session model.
+// The glyph is now a plain Play/Stop toggle: STOP = closeSession("play") (writes `stopped`, which the
+// fold closes for any flavor even in-place), START = openSession("play"). Old logs' `paused`/`resumed`
+// entries are still READ by the fold (deriveSessionsFromLog) for back-compat, but never written again.
 
 /**
  * Backdate/adjust the START of an entity's OPEN session — the running session's punch-in
