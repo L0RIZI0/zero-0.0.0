@@ -42,7 +42,7 @@ import { Zero0Occurrences, type OccurrenceAction } from "./zero0-occurrences"
  * What varies by size is only the ARRANGEMENT — which fields, in what order, at what
  * scale — because "a size is a curated projection." The full ladder is drawn:
  *   • `xs`   — glyph + title only. PROJECTION-friendly (renders from a `FaceLike`, no
- *              live Entity needed), which is what lets ACTIVITY presence render as Faces.
+ *              live Entity needed), which is what lets ACTIVITY access render as Faces.
  *   • `s`    — one line: glyph + title + state word.
  *   • `m`    — the standard ENTITY CONTENT row (glyph · accent · title · echo · state).
  *   • `l`/`xl`/`full` — BLOCK cards (identity line + a meta dl), via the shared FaceBlock.
@@ -217,7 +217,7 @@ function FaceBlock({
     () => (rowsOverride ? null : getScheduleCells(entity, now)),
     [entity, now, rowsOverride],
   )
-  // RICH access: the total PRESENCE time followed by a per-session breakdown ("<durX> (<whenX>)"),
+  // RICH access: the total ACCESS time followed by a per-session breakdown ("<durX> (<whenX>)"),
   // each hoverable for its full start–end (the live session pulses). Null when there are no
   // sessions. DECOUPLED from the plain DURATION row (which is now the occurrence length).
   const access = useMemo(
@@ -301,7 +301,7 @@ function FaceBlock({
   // measures per row (v0.2.229): "Total duration" for RECORDED SESSIONS, "Total access time" for
   // ACCESS — so the row LABEL says what the list is (sessions) while the value says what its total
   // means. `pulse` gates the live-session breathing per row — the ongoing clock still pulses; ACCESS
-  // does NOT (presence is a passive tally, no need to draw the eye to it).
+  // does NOT (access is a passive tally, no need to draw the eye to it).
   const renderAccessRow = (cells: NonNullable<typeof access>, pulse = true, totalLabel = "Total") => (
     <dd className="min-w-0 text-muted-foreground">
       <div className="no-scrollbar overflow-x-auto whitespace-pre">
@@ -467,7 +467,7 @@ export interface Zero0FaceProps {
   /** The entity to present. Required for the `m`/`full` rungs (they read lifecycle +
       toggle done). Omitted for a PROJECTION rung (`xs`), which renders from `faceLike`. */
   entity?: Entity
-  /** A non-entity PROJECTION (STARTERS group / ACTIVITY presence) — used by `xs` when
+  /** A non-entity PROJECTION (STARTERS group / ACTIVITY access) — used by `xs` when
       there is no live entity. Resolved into the same FaceModel via `faceModelFromLike`. */
   faceLike?: FaceLike
   /** An already-built model (escape hatch); wins over `entity`/`faceLike` when provided. */
@@ -670,7 +670,7 @@ export function Zero0Face({
   }
 
   // ── XS ── the smallest rung: a neutral KIND glyph + a title button, nothing else. Used
-  // for PROJECTIONS (ACTIVITY presence rollups/segments today; STARTERS groups next) where
+  // for PROJECTIONS (ACTIVITY access rollups/segments today; STARTERS groups next) where
   // there's no lifecycle to show — just "which kind, called what, click to go there." The
   // glyph is muted + stateless (no fill/done/cancel), because a projection isn't the
   // entity's own lifecycle. The title's width/flex is caller-controlled (`titleClassName`),

@@ -63,7 +63,7 @@ function ongoingTimer(e: Entity, now: number): { text: string; countdown: boolea
   if (end != null && end > now) {
     return { text: `-${formatTimer(end - now)}`, countdown: true }
   }
-  // v0.6.32: the ONGOING timer tracks the PLAY (ongoing) session — not a `focus` presence session,
+  // v0.6.32: the ONGOING timer tracks the PLAY (ongoing) session — not a `focus` access session,
   // which can now be open concurrently (e.g. on a done task you're viewing) without meaning ongoing.
   const open = getOpenSession(e, "play")
   const since = open?.startedAt ?? plannedStart(e)
@@ -284,7 +284,7 @@ export function Zero0Pins({
   // The FLIP signature = the ORDERED ids in each list (with a `|` list boundary). It changes
   // ONLY on a structural layout change (a chip crossing lists, reorder, or membership change) —
   // NOT on the 1s timer tick or a focus change — so FLIP fires exactly when a chip should slide.
-  // ── PRESENCE (enter/exit fade) ──────────────────────────────────────────────────────────
+  // ── MOUNT LIFETIME (enter/exit fade) ──────────────────────────────────────────────────────
   // Keep a chip mounted for CHIP_FADE_MS after it leaves the computed set, so it can fade OUT
   // (a bare unmount would just pop). Entering chips fade IN via the `.zero0-chip-in` class on
   // mount. We snapshot each item by id so a leaving chip still renders (with its last-known

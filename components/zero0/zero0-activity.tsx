@@ -66,8 +66,8 @@ function titleForAt(id: string, epoch: number): string {
 /**
  * AGENDA frame (root `/0`) — the FORWARD-looking band: what is PLANNED today. Just a
  * frame title over the PLANNED dayline (scheduled occurrences, fluid pan/ripple + live
- * NOW marker). Split off from ACTIVITY (Jul 2026) so planning and presence are two
- * independent, separately-toggled frames. No `clear` — that belongs to the presence log.
+ * NOW marker). Split off from ACTIVITY (Jul 2026) so planning and access are two
+ * independent, separately-toggled frames. No `clear` — that belongs to the access log.
  */
 export function Zero0Agenda({
   onOpen,
@@ -181,8 +181,8 @@ function ChevronCollapse() {
 
 /**
  * ACTIVITY frame (root `/0`) — the BACKWARD-looking band: WHERE the user has been today,
- * fed by the isolated presence log (`zero:root-activity:v1`). Frame title (+ the `clear`
- * action) over the PRESENCE dayline, which is ALWAYS shown while the frame is open; the
+ * fed by the isolated access log (`zero:root-activity:v1`). Frame title (+ the `clear`
+ * action) over the ACCESS dayline, which is ALWAYS shown while the frame is open; the
  * `§ 3` chord hides only the textual DETAILS (rollup + feed) below it. The per-second
  * live counting lives in {@link ActivityBody} so the toggle chrome here is cheap.
  */
@@ -196,18 +196,18 @@ export function Zero0Activity({
   highlightId = null,
 }: {
   onOpen: (id: string) => void
-  /** Right-click a rollup/feed row OR a presence tick → the entity menu for that place. */
+  /** Right-click a rollup/feed row OR an access tick → the entity menu for that place. */
   onContextMenuEntity?: (id: string, ev: React.MouseEvent) => void
   /** Right-click the frame chrome (header / empty area) → the frame menu (minimize). */
   onFrameMenu?: (frame: "agenda" | "activity", ev: React.MouseEvent) => void
-  /** When minimized, render ONLY the presence dayline (with its "x tracked" total) — no
+  /** When minimized, render ONLY the access dayline (with its "x tracked" total) — no
    *  frame title, no details, no border, tight margins. Right-click → maximize. */
   minimized?: boolean
   dataRev: number
   /** The canvas's current place — re-seeded into the log right after a clear, so the
    *  tracker keeps recording (a bare `clearActivityLog` would leave it idle). */
   currentContextId: string
-  /** Entity focused elsewhere on the canvas — its presence ticks light up. */
+  /** Entity focused elsewhere on the canvas — its access ticks light up. */
   highlightId?: string | null
 }) {
   // Time formatting is client-only; gate to avoid an SSR/static-export hydration trap.
@@ -215,7 +215,7 @@ export function Zero0Activity({
   useEffect(() => setMounted(true), [])
   // Re-render on structural log changes (segments are mutated in place).
   useActivityRevision()
-  // `§ 3` chord: hide/show just the textual DETAILS — the presence dayline stays put.
+  // `§ 3` chord: hide/show just the textual DETAILS — the access dayline stays put.
   const detailsVisible = useZero0Readout()
 
   if (!mounted) {
@@ -233,7 +233,7 @@ export function Zero0Activity({
       onContextMenu={onFrameMenu ? (ev) => onFrameMenu("activity", ev) : undefined}
     >
       {/* FRAME TITLE — "activity · today" heading, carrying the frame-level `clear`
-          action. The tracked total lives on the PRESENCE dayline row below, not here.
+          action. The tracked total lives on the ACCESS dayline row below, not here.
           Its divider is INSET + lighter (see AGENDA) so within-frame divisions stay
           distinct from the full-bleed FRAME separators. Hidden while minimized. */}
       {!minimized && (
@@ -332,13 +332,13 @@ function ActivityBody({
   /** Right-click a rollup/feed row → the entity menu for that place. */
   onContextMenuEntity?: (id: string, ev: React.MouseEvent) => void
   dataRev: number
-  /** `§ 3` — whether the textual rollup/feed DETAILS show. The presence dayline is
-   *  always rendered regardless, so ACTIVITY still shows PRESENCE when details hide. */
+  /** `§ 3` — whether the textual rollup/feed DETAILS show. The access dayline is
+   *  always rendered regardless, so ACTIVITY still shows ACCESS when details hide. */
   showDetails: boolean
-  /** When minimized, render ONLY the presence dayline (keeping the live "x tracked"
+  /** When minimized, render ONLY the access dayline (keeping the live "x tracked"
    *  total) — no details, no toggle, no bottom border. */
   minimized?: boolean
-  /** Entity focused elsewhere on the canvas — its presence ticks light up. */
+  /** Entity focused elsewhere on the canvas — its access ticks light up. */
   highlightId?: string | null
 }) {
   const listRef = useRef<HTMLDListElement>(null)
@@ -364,7 +364,7 @@ function ActivityBody({
 
   return (
     // Always keep the bottom divider — even minimized — so ACTIVITY stays visually
-    // separated from the next frame (ZERO HEADER). The presence dayline never carries its
+      // separated from the next frame (ZERO HEADER). The access dayline never carries its
     // own border, so this wrapper is the sole separator.
     <div className="border-b border-border">
       {/* The dedicated ACCESS dayline — tracked activity ("where I was"), ALWAYS shown
@@ -387,7 +387,7 @@ function ActivityBody({
       {!minimized && showDetails && (
       <div className="px-4 pb-3 pt-1 text-[11px] leading-relaxed tabular-nums">
         {segments.length === 0 ? (
-          <p className="text-muted-foreground/60">— no presence recorded yet —</p>
+          <p className="text-muted-foreground/60">— no access recorded yet —</p>
         ) : (
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             {/* ROLLUP — per-place totals with live proportional bars. */}
@@ -402,7 +402,7 @@ function ActivityBody({
               return (
                 <div key={r.entityId} data-flip-id={r.entityId} className="flex items-center gap-2">
                   {/* The place as an XS Face — a neutral kind glyph + its (current) title.
-                      A rollup is PRESENCE, not the entity's lifecycle, so the Face is a
+                      A rollup is ACCESS, not the entity's lifecycle, so the Face is a
                       projection (faceLike); the bar + duration below stay Content-side. */}
                   <Zero0Face
                     size="xs"
@@ -480,7 +480,7 @@ function ActivityBody({
       </div>
       )}
 
-      {/* DETAILS toggle — shows/hides just the rollup+feed; the presence dayline above
+        {/* DETAILS toggle — shows/hides just the rollup+feed; the access dayline above
           always stays. Always rendered so it's reversible by click even when the details
           are hidden. (No § chord — §2 now toggles the whole ACTIVITY frame instead.)
           Hidden while minimized — the compact render is the bare dayline. */}
