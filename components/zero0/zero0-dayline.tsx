@@ -263,11 +263,12 @@ function dayWindow(now: number): [number, number] {
 }
 
 // A bar on the lane. Two TRACKS share one geometry/hover model:
-//  ��� "planned"  — a SCHEDULED occurrence (moment/instant/scheduled space) from the
+//  • "planned"  — a SCHEDULED occurrence (moment/instant/scheduled space) from the
 //    real entity graph, COLORED by the entity's `accent` (set via `:color:`), else an
 //    inherited space accent, else neutral. This is the "intent".
-//  • "presence" — a TRACKED activity segment ("where I actually was"), drawn as a
-//    PURE-WHITE hairline tick along the bottom edge. This is "what happened".
+//  • "access"   — a TRACKED access segment ("where I actually was" — the machine truth,
+//    never user-editable), drawn as a PURE-WHITE hairline tick along the bottom edge.
+//    This is "what happened".
 interface DaylineBar {
   key: string
   id: string
@@ -287,9 +288,9 @@ interface DaylineBar {
   // rail ROUTING in the combined lane is by lane-index / `sess:` key, not this field):
   //   planned  = top rail    — declared/scheduled OCCURRENCES (the plan)
   //   recorded = bottom rail  — remote-play stopwatches only (non-auto `via:"play"` sessions)
-  //   middle   = middle spine — current-leaf focus/ACCESS
-  //   presence = the standalone Activity dayline's machine-observed presence
-  track: "planned" | "recorded" | "presence" | "middle"
+  //   middle   = middle spine — current-leaf ACCESS on the combined TODAY lane
+  //   access   = the standalone Activity dayline's ACCESS band (same machine truth, own surface)
+  track: "planned" | "recorded" | "access" | "middle"
   /** A single-point occurrence (instant / zero-length) renders as a thin tick. */
   point: boolean
   /**
@@ -382,11 +383,12 @@ export function Zero0Dayline({
   ) => void
   dataRev: number
   /** Which lane this instance paints. `"planned"` = scheduled occurrences only;
-   *  `"presence"` = the tracked "where I was" band (Activity frame); `"both"` = the TODAY
-   *  lane, which overlays BOTH on one centered band, telling them apart by HEIGHT —
-   *  planned ticks a fixed 20px, presence a fixed 10px (see the height constants). */
-  tracks?: "planned" | "presence" | "both"
-  /** Optional node rendered in the header next to the label (e.g. the presence lane's
+   *  `"access"` = the tracked "where I was" band (Activity frame — the machine-truth
+   *  access record); `"both"` = the TODAY lane, which overlays BOTH on one centered band,
+   *  telling them apart by HEIGHT — planned ticks a fixed 20px, access a fixed 10px (see
+   *  the height constants). */
+  tracks?: "planned" | "access" | "both"
+  /** Optional node rendered in the header next to the label (e.g. the access lane's
    *  "3h 56m tracked" total). */
   trailing?: ReactNode
   /** Compact render for a MINIMIZED frame: the header (day labels / tracked total) moves
@@ -404,9 +406,9 @@ export function Zero0Dayline({
    *  pointing at" echo. `null` = nothing hovered. */
   highlightId?: string | null
 }) {
-  const isPresence = tracks === "presence"
-  // TODAY's combined lane: paint planned + presence together on one centered band,
-  // distinguished by height (taller planned, shorter presence — see the tick render).
+  const isAccess = tracks === "access"
+  // TODAY's combined lane: paint planned + access together on one centered band,
+  // distinguished by height (taller planned, shorter access — see the tick render).
   const combined = tracks === "both"
   // v0.6.24: the dayline runs on the PER-SECOND clock (was per-minute `useNow`). Two reasons:
   //   • LAG — with a per-minute clock the ongoing bars + spine only advanced/recomputed once a
@@ -1236,7 +1238,7 @@ export function Zero0Dayline({
   // the timeline) AND the sticky-push label in the strip ABOVE the band (see paintDayLabels).
   // The ACTIVITY presence lane is intentionally left plain for now.
   const dayMarkers = useMemo(() => {
-    if (!mounted || isPresence) return [] as { key: string; leftPct: number; label: string }[]
+    if (!mounted || isAccess) return [] as { key: string; leftPct: number; label: string }[]
     const out: { key: string; leftPct: number; label: string }[] = []
     const firstMidnight = new Date(lo)
     firstMidnight.setHours(0, 0, 0, 0)
@@ -1426,7 +1428,7 @@ export function Zero0Dayline({
                   // (hover-only; cleared on navigation, so never lit merely for being open).
                   // Grows + fully opaque.
                   const lit = highlightId != null && p.id === highlightId
-                  const isPresenceTick = !combined && isPresence
+                  const isAccessTick = !combined && isAccess
                   // THREE-RAIL assignment on the combined lane (v0.6.21): MIDDLE = the collapsed-
                   // ACCESS leaf-spine (`spine:` keys, track "middle"), centered on the seam; BOTTOM
                   // (recorded) = manual PLAY + MARK sessions (`sess:` keys from the sessions
@@ -1451,8 +1453,8 @@ export function Zero0Dayline({
                       : lane?.height ?? PLANNED_LANE_H
                     : lit
                       ? HIGHLIGHT_HEIGHT_PX
-                      : isPresenceTick
-                        ? PRESENCE_HEIGHT_PX
+                      : isAccessTick
+                        ? ACCESS_HEIGHT_PX
                         : baseH
                   // VERTICAL ANCHOR (`top`, the center the `-translate-y-1/2` pins the tick on).
                   // Combined lane is laid out in BAND PIXELS so the two rails TOUCH at the seam:

@@ -8,7 +8,7 @@ import {
   getDayRollup,
   getSegmentsForDay,
   clearActivityLog,
-  recordPresence,
+  recordAccess,
   type DaySegment,
   type SpaceRollup,
 } from "@/lib/zero/activity-log"
@@ -247,7 +247,7 @@ export function Zero0Activity({
               // only records on a context CHANGE, the tracker would sit idle (0s, no bars)
               // until the next drill. This keeps it live: cleared, then counting again.
               clearActivityLog()
-              recordPresence(currentContextId)
+              recordAccess(currentContextId)
             }}
             className="normal-case text-muted-foreground/60 transition-colors hover:text-foreground"
             aria-label="Clear today's activity log"

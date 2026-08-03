@@ -3,14 +3,16 @@
 import { useSyncExternalStore } from "react"
 
 // ============================================================================
-// Activity log — Zero's presence tracker (STEP 1)
+// Activity log — Zero's ACCESS tracker (STEP 1)
 // ----------------------------------------------------------------------------
-// Zero remembers WHERE the user (Individual) was in the hierarchy over time. The
-// signal is the FRONT/FOCUSED space (`activeId` in the nav-store): whenever it
-// changes, we close the current presence segment and open a new one. Home (root)
-// counts as a real presence, so the timeline is gap-free.
+// ACCESS is the MACHINE TRUTH of where the user (Individual) was in the hierarchy
+// over time — set purely on enter/exit, NEVER user-editable. The signal is the
+// FRONT/FOCUSED space (`activeId` in the nav-store): whenever it changes, we close
+// the current access segment and open a new one. Home (root) counts as a real
+// access, so the timeline is gap-free. (This is the ONE canonical "where I was"
+// record — the word "presence" is retired to avoid a second name for it.)
 //
-//   PresenceSegment = { entityId, enteredAt, leftAt }
+//   AccessSegment = { entityId, enteredAt, leftAt }
 //     leftAt === null  ⇒ this is the CURRENT segment (still here); its effective
 //                        end is `now` until superseded or flushed.
 //
@@ -25,16 +27,16 @@ import { useSyncExternalStore } from "react"
 // fresh one when it returns).
 // ============================================================================
 
-export interface PresenceSegment {
+export interface AccessSegment {
   /** The focused space's entity id at this moment (root = ROOT_ID, "0"). */
   entityId: string
-  /** When this presence began (epoch ms). */
+  /** When this access began (epoch ms). */
   enteredAt: number
-  /** When it ended (epoch ms), or null while it is the current presence. */
+  /** When it ended (epoch ms), or null while it is the current access. */
   leftAt: number | null
 }
 
-// Root `/0` owns its OWN presence log, isolated from `/2` (which uses the vendored
+// Root `/0` owns its OWN access log, isolated from `/2` (which uses the vendored
 // `lib/zero-002` copy under `zero:activity-log:v1`). Mirrors the `zero:root-items:v1`
 // data isolation so root's activity never mixes with the dogfooding shell's.
 const STORAGE_KEY = "zero:root-activity:v1"
@@ -42,7 +44,7 @@ const STORAGE_KEY = "zero:root-activity:v1"
 // segments are dropped first; a day rarely exceeds a few hundred switches.
 const MAX_SEGMENTS = 5000
 
-let segments: PresenceSegment[] = []
+let segments: AccessSegment[] = []
 let currentEntityId: string | null = null
 let hydrated = false
 let visibilityInstalled = false
@@ -61,7 +63,7 @@ function emit() {
 
 // --- persistence -----------------------------------------------------------
 
-function read(): PresenceSegment[] {
+function read(): AccessSegment[] {
   if (typeof window === "undefined") return []
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY)
@@ -70,12 +72,12 @@ function read(): PresenceSegment[] {
     if (!Array.isArray(parsed)) return []
     // Defensive shape check — skip anything malformed rather than throw.
     return parsed.filter(
-      (s): s is PresenceSegment =>
+      (s): s is AccessSegment =>
         !!s &&
-        typeof (s as PresenceSegment).entityId === "string" &&
-        typeof (s as PresenceSegment).enteredAt === "number" &&
-        ((s as PresenceSegment).leftAt === null ||
-          typeof (s as PresenceSegment).leftAt === "number"),
+        typeof (s as AccessSegment).entityId === "string" &&
+        typeof (s as AccessSegment).enteredAt === "number" &&
+        ((s as AccessSegment).leftAt === null ||
+          typeof (s as AccessSegment).leftAt === "number"),
     )
   } catch {
     return []
@@ -114,12 +116,12 @@ function trim(): void {
 }
 
 /**
- * Record that the focused space is now `entityId`. Closes the current open
- * segment (if the place changed) and opens a new one. A repeat of the same id is
- * a no-op unless the open segment was previously flushed (then it resumes). This
- * is called from the nav-store whenever `activeId` changes.
+ * Record that the focused space is now `entityId` (an ACCESS event). Closes the
+ * current open segment (if the place changed) and opens a new one. A repeat of the
+ * same id is a no-op unless the open segment was previously flushed (then it
+ * resumes). This is called from the nav-store whenever `activeId` changes.
  */
-export function recordPresence(entityId: string, now: number = Date.now()): void {
+export function recordAccess(entityId: string, now: number = Date.now()): void {
   if (typeof window === "undefined") return
   hydrate()
   const last = segments[segments.length - 1]
@@ -142,14 +144,14 @@ function installVisibility(): void {
 
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) {
-      // Freeze the current presence when the app/tab goes to the background so
+      // Freeze the current access segment when the app/tab goes to the background so
       // the duration doesn't inflate while it's closed.
       if (closeOpen(Date.now())) {
         write()
         emit()
       }
     } else if (currentEntityId) {
-      // Back in the foreground — resume presence in the same place.
+      // Back in the foreground — resume access in the same place.
       const last = segments[segments.length - 1]
       if (!(last && last.leftAt === null)) {
         segments.push({ entityId: currentEntityId, enteredAt: Date.now(), leftAt: null })
@@ -169,7 +171,7 @@ function installVisibility(): void {
 // --- queries ---------------------------------------------------------------
 
 /** All raw segments (oldest → newest). The last may be open (`leftAt === null`). */
-export function getSegments(): PresenceSegment[] {
+export function getSegments(): AccessSegment[] {
   hydrate()
   return segments
 }
@@ -182,7 +184,7 @@ export function getDayBounds(ref: number = Date.now()): { start: number; end: nu
   return { start, end }
 }
 
-export interface DaySegment extends PresenceSegment {
+export interface DaySegment extends AccessSegment {
   /** Effective end used for rendering/aggregation (`leftAt` or `now`), clipped. */
   endAt: number
   /** Clipped start within the day. */
@@ -215,7 +217,7 @@ export function getSegmentsForDay(
 
 /**
  * The most recent moment we have EVIDENCE the app was alive: the max `leftAt` across
- * the presence log (the visibility/pagehide flush stamps this on EVERY hide/reload —
+ * the access log (the visibility/pagehide flush stamps this on EVERY hide/reload —
  * see installVisibility), falling back to the max `enteredAt`. `null` when there's no
  * log yet. This is the NO-HEARTBEAT liveness signal: the entity-store hydrate cleanup
  * uses it to tell a genuine shutdown (close the dangling focus session at this moment)
@@ -284,7 +286,7 @@ const subscribe = (cb: () => void) => {
 }
 
 /** Subscribe to structural changes in the log (new/closed segments). */
-export function useActivityLog(): PresenceSegment[] {
+export function useActivityLog(): AccessSegment[] {
   return useSyncExternalStore(
     subscribe,
     () => segments,
@@ -296,7 +298,7 @@ export function useActivityLog(): PresenceSegment[] {
  * Subscribe to the log's revision counter. Returns a number that increments on
  * every structural change. Because `segments` is mutated in place, this is the
  * reliable trigger for consumers that read via `getSegments()` and want to
- * recompute whenever anything changes (e.g. the dayline's presence layer).
+ * recompute whenever anything changes (e.g. the dayline's access layer).
  */
 export function useActivityRevision(): number {
   return useSyncExternalStore(
