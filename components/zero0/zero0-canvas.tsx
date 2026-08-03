@@ -412,7 +412,7 @@ function Zero0ContextPane({
 
 // How long you must STAY inside a context before a focus session opens on it (and its
 // dwellable ancestors). Passing A→B→C to reach C fires nothing on A/B because each quick
-// navigation clears the prior timer. [Set to 0 WHILE BUILDING ZERO — Loris: presence should
+  // navigation clears the prior timer. [Set to 0 WHILE BUILDING ZERO — Loris: access should
 // count immediately, no waiting; the data layer still discards any session shorter than
 // MIN_SESSION_MS as a second guard, so a fast pass-through leaves no trace. Tune freely.]
 const DWELL_MS = 0
@@ -471,7 +471,7 @@ export function Zero0Canvas() {
   // links, the in-frame "§x" corner markers, and the keyboard chords all drive the SAME
   // source of truth (in lockstep across the tree). Top-to-bottom the stack is: AGENDA ·
   // ACTIVITY · ZERO HEADER · ENTITY HEADER · ENTITY CONTENT · CREATE-ENTITY · FOOTER.
-  //   §3 AGENDA (planned) + §2 ACTIVITY (presence) — the two time frames, hidden by
+  //   §3 AGENDA (planned) + §2 ACTIVITY (access) — the two time frames, hidden by
   //      default so the canvas stays blank until summoned.
   //   §1 ZERO HEADER + §0 ENTITY HEADER — the chrome headers, shown by default.
   const showAgenda = useZero0Flag("agenda")
@@ -568,7 +568,7 @@ export function Zero0Canvas() {
     recordAccess(contextId)
   }, [mounted, contextId])
 
-  // FOCUS SESSIONS — being inside a context records real presence time on the RECORDED (activity)
+  // FOCUS SESSIONS — being inside a context records real access time on the MIDDLE (access spine)
   // rail = "how long I worked on this", for EVERY kind (per Loris v0.6.18): task/space/resource,
   // beings incl. the root, AND moments/instants. The WHOLE ACTIVE PATH gets a focus session, so
   // being in a subtask/resource counts as being in each ancestor too.
@@ -613,8 +613,8 @@ export function Zero0Canvas() {
       for (const id of path) {
         const e = getEntity(id)
         if (!e) continue
-        // ── PRESENCE rail (focus): EVERY kind accrues presence — INCLUDING root (your overall Zero
-        // session) and done/closed entities (v0.6.31: presence is lifecycle-independent; getState
+        // ── ACCESS rail (focus): EVERY kind accrues access — INCLUDING root (your overall Zero
+        // session) and done/closed entities (v0.6.31: access is lifecycle-independent; getState
         // ranks complete/done/closed ABOVE session-ongoing so this never resurrects a finished
         // thing). We ensure exactly one open FOCUS; re-register an already-open one for punch-out
         // (reload continuity). Focus alone never spins the glyph (ongoing = play-only, v0.6.32).
@@ -632,7 +632,7 @@ export function Zero0Canvas() {
         // span simply stays open the whole time its entity is in the path and closes on `exited`.
         if (canAutoPlay(e)) {
           const openPlay = getOpenSession(e, "play")
-          // Only AUTO plays are presence-managed (punched out on leave). A REMOTE play you drilled
+          // Only AUTO plays are access-managed (punched out on leave). A REMOTE play you drilled
           // into is a deliberate stopwatch that SURVIVES navigation — never adopt it into the
           // punch-out set, or leaving would silently Stop it.
           if (openPlay?.auto) playOpenRef.current.add(id)
@@ -651,7 +651,7 @@ export function Zero0Canvas() {
   // top-rail tick + fake countdown. Fully DECOUPLED from `focusOpenRef` (a manual play is a
   // stopwatch: it survives navigation and runs until you Stop it; never auto-punched-out). Single
   // slot per entity: if a FOCUS session is already open (you're viewing it) a manual play is a
-  // no-op — presence already tracks you (two simultaneous focus+play sessions = deferred, see todos).
+  // no-op — access already tracks you (two simultaneous focus+play sessions = deferred, see todos).
   const togglePlaySession = useCallback(
     (e: Entity) => {
       // v0.2.257 — PLAIN PLAY/STOP TOGGLE (start/stop-only model, pause/resume retired). The glyph
@@ -673,7 +673,7 @@ export function Zero0Canvas() {
   )
 
   const context = mounted ? getEntity(contextId) : undefined
-  // [v0] TEMP ACCESS-ROW PROBE (v0.2.230/.231) — dumps the viewed entity's focus (ACCESS/presence) AND
+  // [v0] TEMP ACCESS-ROW PROBE (v0.2.230/.231) — dumps the viewed entity's focus (ACCESS) AND
   // play (RECORDED SESSIONS/spinning) session state + recent log verbs whenever the context or a
   // mutation (`rev`) changes, so we can see EXACTLY when the focus session that gates the ACCESS row
   // opens / closes / gets sub-threshold-discarded. Writes to BOTH the console AND (on desktop) the
@@ -1074,8 +1074,8 @@ export function Zero0Canvas() {
           // occurrence --start/--end above. Corrects the current entity's OPEN ACCESS session (its
           // focus session): "I opened Cooking just now but I've actually been cooking 30min" ⇒
           // `--sessionStart:30min ago`. This is the MIDDLE (collapsed-ACCESS leaf-spine) rail, so
-          // the edit slides the middle tick. It NEVER touches the top-rail schedule NOR the pure
-          // PRESENCE truth rail (§2). NOTE: play-vs-focus precedence when a PLAY session is also
+  // the edit slides the middle tick. It NEVER touches the top-rail schedule NOR the standalone
+  // ACCESS rail (§2). NOTE: play-vs-focus precedence when a PLAY session is also
           // open is deferred open-item #2 — today it hits whatever `getOpenSession` returns.
           const when = val.toLowerCase() === "now" ? batchNow : val === "" ? null : parseDateToken(val, batchNow)
           if (val !== "" && when == null) {
@@ -1357,7 +1357,7 @@ export function Zero0Canvas() {
   }, [draft, bump, contextId])
 
   // The TASK glyph click tree (v0.6.32). One button, STATE-DEPENDENT — Loris's model:
-  //   • SPINNING (an open `play` = ongoing) ⇒ STOP it. Presence/focus keeps ticking (ACCESS runs),
+  //   • SPINNING (an open `play` = ongoing) ⇒ STOP it. Access/focus keeps ticking (ACCESS runs),
   //     so DURATION freezes while you stay and look. Drops it from playOpenRef.
   //   • RESTING + not done ⇒ mark DONE. (A stopped-but-undone task; clicking commits it.)
   //   • DONE ⇒ un-done. If you're still INSIDE it and it's now auto-play-eligible, resume ongoing
@@ -1462,7 +1462,7 @@ export function Zero0Canvas() {
   // path to that depth and swap in the chosen sibling. For the LEAF (i = last) this just
   // swaps the last crumb, keeping the prefix identical; for an ANCESTOR it re-roots to the
   // sibling branch (the deeper crumbs belonged to the old branch and can't carry over). The
-  // `contextId`-effect then re-logs presence, so the activity tracker refocuses as usual.
+  // `contextId`-effect then re-logs access, so the activity tracker refocuses as usual.
   const goToSiblingAt = useCallback((i: number, id: string) => {
     setPath((p) => [...p.slice(0, i), id])
   }, [])
@@ -2039,7 +2039,7 @@ export function Zero0Canvas() {
       )}
 
       {/* ── ACTIVITY BAND (below AGENDA, above the header) ───────────��─������───────
-          The BACKWARD-looking frame ��� WHERE the user has been today (presence dayline
+          The BACKWARD-looking frame ��� WHERE the user has been today (access dayline
           + details). Hidden by default, toggled from the footer, same grid-rows
           collapse animation as AGENDA. Clicking a place drills the canvas into it. */}
       {mounted && (

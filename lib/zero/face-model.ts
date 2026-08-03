@@ -308,8 +308,8 @@ export function getScheduleDelta(e: Entity, via?: "focus" | "play" | "mark"): Sc
 
 // Accumulated SESSION time of an entity, in ms — Σ each session span with the single OPEN one
 // counting LIVE to `now`. `null` when there are no matching sessions. Optionally filtered by
-// `via` so the two clocks stay separate (v0.6.26): ACCESS = `focus` (presence / "being there",
-// middle rail), PLAYED = `play` (manual stopwatch, bottom rail). Unfiltered = every session.
+  // `via` so the two clocks stay separate (v0.6.26): ACCESS = `focus` (machine-truth "being there",
+  // middle rail), PLAYED = `play` (start/stop played spans, bottom rail). Unfiltered = every session.
 // The deliberate counterpart to getOccurrenceDurationMs: never merged with planned time.
 export function getSessionMs(e: Entity, now: number, via?: "focus" | "play" | "mark"): number | null {
   const sessions = getSessions(e).filter((s) => (via ? s.via === via : true))
@@ -319,7 +319,7 @@ export function getSessionMs(e: Entity, now: number, via?: "focus" | "play" | "m
   return total
 }
 
-/** ACCESS = accumulated PRESENCE (focus sessions). Back-compat name; now focus-only. */
+/** ACCESS = accumulated access time (focus sessions — the machine-truth "where I was"). */
 export function getAccessMs(e: Entity, now: number): number | null {
   return getSessionMs(e, now, "focus")
 }
@@ -611,7 +611,7 @@ export function getFaceModel(e: Entity, now: number): FaceModel {
 
 // ── FACES OF NON-ENTITIES (projections) ─────────────────────────────����───────���─
 // Not everything a Face shows is a live Entity. A STARTERS group aggregates many
-// instances under one title; an ACTIVITY rollup/segment is PRESENCE (time in a place),
+  // instances under one title; an ACTIVITY rollup/segment is ACCESS (time in a place),
 // and may even point at a since-deleted entity. These are PROJECTIONS — they have no
 // lifecycle of their own, so they present only their kind (glyph shape) + a title (+ an
 // optional aggregate echo the caller computes: "3 sessions", "1h 20m"). By resolving a
@@ -716,7 +716,7 @@ export function getScheduleCells(e: Entity, now: number): { start: ScheduleCell[
  * `total` (Σ matching sessions, live-counting the open one) plus one segment PER session — each
  * reads `<duration> (<when>)` (e.g. `1h 04m (7:00 PM)`) with a `full` hover of the whole
  * `start – end`. `null` when there are NO matching sessions. Newest first. Filtered by `via`
- * (v0.6.26) so the two clocks render separately: ACCESS = `focus` (presence), PLAYED = `play`.
+ * (v0.6.26) so the two clocks render separately: ACCESS = `focus` (machine truth), PLAYED = `play`.
  */
 export function getSessionCells(
   e: Entity,
@@ -742,7 +742,7 @@ export function getSessionCells(
   return { total, segments }
 }
 
-/** ACCESS = per-session PRESENCE breakdown (focus sessions, middle rail). */
+/** ACCESS = per-session access breakdown (focus sessions, middle rail). */
 export function getAccessCells(e: Entity, now: number) {
   return getSessionCells(e, now, "focus")
 }
@@ -752,7 +752,7 @@ export function getAccessCells(e: Entity, now: number) {
 // entity read `ongoing`. That is: each `play` session `[start, end||now]` PLUS, for moment/space,
 // the concrete in-progress occurrence span (a moment happening spins even without a play session).
 // UNION (merge overlapping intervals), not a naive sum, so a concurrent focus+play — or a play that
-// overlaps its occurrence — is counted ONCE. Distinct from ACCESS (presence/focus, which can tick
+  // overlaps its occurrence — is counted ONCE. Distinct from ACCESS (focus, which can tick
 // while NOT ongoing — a done task you're viewing) and from the OCCURRENCES count. OWN-ongoing only
 // (a container's spinning-by-child rollup is deferred — see the plan's "Deferred").
 
@@ -901,7 +901,7 @@ export function getPlannedOccurrences(e: Entity): PlannedOccurrence[] {
 
 /**
  * DISPLAY word for an occurrence status (v0.6.31) — deliberately NOT "done"/"fulfilled":
- *   • matched — a session (presence OR play) coincided with the planned window. Chosen over
+ *   • matched — a session (access OR play) coincided with the planned window. Chosen over
  *     "done" (which collides with a Task's DONE checkmark) and "fulfilled": the question this row
  *     answers is "did REALITY (a session) MATCH the PLAN (this scheduled span)?" — matched / missed
  *     is the natural pair for that.
@@ -1304,8 +1304,9 @@ export function getFaceMetaRows(e: Entity, now: number): [string, string][] {
   }
   // DURATION (v0.6.33) — the ACTUAL "how long the glyph was SPINNING" clock: the UNION of ongoing
   // intervals (play sessions + a moment/space's in-progress occurrence), live-counting an open play.
-  // Distinct from PLANNED DURATION (the plan-span above), from ACCESS (presence — can tick while NOT
-  // ongoing, e.g. a done task you're viewing), and from the OCCURRENCES count below. Shown for any
+  // Distinct from PLANNED DURATION (the plan-span above), from ACCESS (the machine-truth "where I
+  // was" — can tick while NOT ongoing, e.g. a done task you're viewing), and from the OCCURRENCES
+  // count below. Shown for any
   // planned kind that has ever been ongoing; the FULL §0 face renders the segments richly (see
   // getOngoingDurationCells), the live span pulsing. Beings never spin (AGE covers them).
   if (SPAN_UI_KINDS.has(e.kind)) {
@@ -1314,13 +1315,13 @@ export function getFaceMetaRows(e: Entity, now: number): [string, string][] {
     // session segments, union of past/live spinning intervals) rather than reusing "duration"; the
     // value line prefixes its total with "Total duration". Disambiguates from PLANNED DURATION above.
     // v0.2.231: ALWAYS shown for activity kinds (— when empty) — it and ACCESS are two distinct,
-    // independent rails (spinning-time vs presence), so §0 keeps a STABLE two-row layout and never
-    // looks like one absorbed the other when a rail happens to be empty.
+    // independent rails (spinning/played-time vs access), so §0 keeps a STABLE two-row layout and
+    // never looks like one absorbed the other when a rail happens to be empty.
     rows.push(["recorded sessions", dur ? [dur.total, ...dur.segments.map((c) => c.text)].join(" · ") : "—"])
   }
-  // ACCESS — accumulated PRESENCE time (middle rail = "how long I've been on / looking at this"),
+  // ACCESS — accumulated access time (middle rail = "how long I've been on / looking at this"),
   // its own row for ANY kind that's been engaged, DECOUPLED from the durations above and from
-  // ongoing (v0.6.32: presence ≠ ongoing — a done task you view still accrues ACCESS). Plain string
+  // ongoing (v0.6.32: access ≠ ongoing — a done task you view still accrues ACCESS). Plain string
   // reads "<total> · <dur1> (<when1>) · …"; the FULL §0 face renders the segments richly. v0.2.231:
   // ALWAYS shown for activity kinds (— when empty), mirroring RECORDED SESSIONS above; other kinds
   // keep it only when actually engaged (no empty-ACCESS noise on Souls/beings).
@@ -1337,8 +1338,10 @@ export function getFaceMetaRows(e: Entity, now: number): [string, string][] {
   // so OCCURRENCES is reserved for the kinds where a recurrence count is meaningful (moment, etc.).
   const OCCURRENCES_HIDDEN_KINDS = new Set(["instant", "space", "task", "resource"])
   if (!OCCURRENCES_HIDDEN_KINDS.has(e.kind)) {
-    // v0.6.34: count DELIBERATE plays only — an AUTO play (ongoing-on-enter) is presence, not a
-    // deliberate occurrence ("I entered it" ≠ "it happened N times").
+    // v0.6.34: count DELIBERATE (remote) plays only — an AUTO play (ongoing-on-enter) is access, not
+    // a deliberate occurrence ("I entered it" ≠ "it happened N times"). NB this is INTENTIONALLY
+    // narrower than the PLAYED dayline rail (which shows auto+remote): a count of "times it happened"
+    // is a different question from "when was I playing it".
     const playCount = getSessions(e).filter((s) => s.via === "play" && !s.auto && s.endedAt !== s.startedAt).length
     const plannedList = SPAN_UI_KINDS.has(e.kind) ? getPlannedOccurrenceRow(e, now) : null
     const parts: string[] = []

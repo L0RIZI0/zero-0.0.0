@@ -1691,7 +1691,7 @@ function recomputeSessionsFromLog(id: string, entity: LooseEntity): void {
 
 /**
  * OPEN a session (LOG-FIRST): append the right verb, then re-derive sessions[]. `via` "focus" is
- * PRESENCE (⇒ `accessed`); "play" is the DELIBERATE stopwatch. An AUTO play (opts.auto) writes NO
+ * ACCESS (⇒ `accessed`); "play" is a PLAYED span. An AUTO play (opts.auto) writes NO
  * log entry — the auto ongoing span is DERIVED from `accessed` by {@link deriveSessionsFromLog}, so
  * logging it would double-log on entry (the thing Loris killed). A MANUAL/remote play ⇒ `started`.
  * Idempotent per rail (no-op if that rail is already open). Returns true if a session is now open.
@@ -1774,8 +1774,8 @@ export function setOpenSessionStart(id: string, at: number, now = Date.now()): b
   for (const e of all) {
     if (e === open) continue // re-appended (last) with the new start
     // v0.6.32: only sessions of the SAME rail (`via`) are swallowed/merged. A concurrent session on
-    // another rail (e.g. the open `focus` presence session while we backdate `play`) is left intact —
-    // otherwise backdating ongoing would silently eat your presence session.
+  // another rail (e.g. the open `focus` access session while we backdate `play`) is left intact —
+  // otherwise backdating ongoing would silently eat your access session.
     if (e.via !== open.via) {
       kept.push(e)
       continue
@@ -1812,7 +1812,7 @@ export function endOngoing(id: string, at = Date.now()): boolean {
   const stored = byId.get(id)
   if (!stored) return false
   // Close the STATE-RELEVANT open session = the PLAY session (v0.6.32: ongoing is play-only, so
-  // this is simply "stop the ongoing stopwatch"). A `focus` (presence) session is deliberately
+  // this is simply "stop the ongoing stopwatch"). A `focus` (access) session is deliberately
   // left running — ending an entity's ongoing shouldn't kick you out of viewing it (ACCESS keeps
   // ticking). The old moment/instant focus special-case is gone: focus never flips state now.
   if (getOpenSession(stored, "play")) {
@@ -1896,7 +1896,7 @@ export function toggleSession(id: string, via: Session["via"] = "play"): boolean
 
 // ----------------------------------------------------------------------------
 // OCCURRENCES — the top-rail lifecycle of a Moment / Space (v0.6.18). Distinct from
-// SESSIONS (bottom rail = presence/work time). Play STARTS an occurrence, Stop ENDS it,
+  // SESSIONS (bottom PLAYED rail = played/work time). Play STARTS an occurrence, Stop ENDS it,
 // Reopen ARCHIVES the finished span into `occurrences[]` and returns the entity to open —
 // preserving the span's length as the default duration for the next Play. Non-recurring only.
 // ----------------------------------------------------------------------------
@@ -3097,7 +3097,7 @@ export function hydrateFromStorage(): boolean {
   // so this scans ALL kinds; the `via === "play"` guard leaves manual PLAY stopwatches running.
   //
   // LIVENESS (v0.6.20, NO heartbeat): `getLastKnownAlive()` is the newest moment we have evidence
-  // the app was alive — the presence log's last flush stamp (written on every hide/reload). Two
+  // the app was alive — the access log's last flush stamp (written on every hide/reload). Two
   // cases:
   //   • alive-RECENTLY (now ��� alive ≤ ALIVE_GRACE_MS) ⇒ this was a mere RELOAD/deploy while you
   //     were still present, NOT a shutdown. LEAVE the focus session OPEN so it stays continuous
@@ -3767,7 +3767,7 @@ export function setTaskDone(id: string, done: boolean): void {
     })
   }
   // Marking DONE ends the entity's ONGOING (its `play` session) at the close moment so it stops
-  // printing/spinning as ongoing — but KEEPS the `focus` presence session open (v0.6.32 fix): a
+  // printing/spinning as ongoing — but KEEPS the `focus` access session open (v0.6.32 fix): a
   // done task you're still looking at keeps accruing ACCESS. Skipped on un-check (done=false)
   // — a reopened entity resumes ongoing on the next enter/dwell.
   if (done) closeSession(id, "play", now)
@@ -4493,7 +4493,7 @@ export function setEntityCancelled(id: string, cancelled: boolean): void {
     // Seeded entity — track as an override patch (log rebuilt from these on reload).
     seededOverrides.set(id, { ...seededOverrides.get(id), cancelled, cancelledOn: now })
   }
-  // Cancelling ENDS the ongoing (`play`) session, keeping `focus`/presence (see setTaskDone;
+  // Cancelling ENDS the ongoing (`play`) session, keeping `focus`/access (see setTaskDone;
   // v0.6.32). Not on restore.
   if (cancelled) closeSession(id, "play", now)
   persist()
@@ -4532,7 +4532,7 @@ export function setEntityClosed(id: string, closed: boolean): void {
     // Seeded entity — track as an override patch.
     seededOverrides.set(id, { ...seededOverrides.get(id), closed, closedOn, reopened, reopenedOn })
   }
-  // A manual Close ENDS the ongoing (`play`) session, keeping `focus`/presence (see
+  // A manual Close ENDS the ongoing (`play`) session, keeping `focus`/access (see
   // setTaskDone; v0.6.32). Not on reopen.
   if (closed) closeSession(id, "play", now)
   persist()
