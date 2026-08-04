@@ -15,7 +15,7 @@ export type DaylineOccRef = NonNullable<TimelineOccurrence["occRef"]>
 import { rangeText, fmtTime, NOW_COLOR } from "@/lib/zero/timeline-format"
 import { isSleepTitle, sleepSkyBackground } from "@/lib/zero/sleep-sky"
 import { DAYLINE_ROW_H } from "@/lib/zero/layout"
-import { useNowSeconds } from "@/lib/zero/use-now"
+import { useNowSeconds, useAnimationFrameNow } from "@/lib/zero/use-now"
 import { formatLocale } from "@/lib/zero/format-locale"
 import { Zero0Glyph } from "./zero0-glyph"
 import { cn } from "@/lib/utils"
@@ -479,6 +479,14 @@ export function Zero0Dayline({
   //     using real `Date.now()` while the marker used the stale per-minute value).
   const now = useNowSeconds()
   const [mounted, setMounted] = useState(false)
+  // SMOOTH visual clock (v0.2.261) — a rAF-driven `now` used ONLY for the continuously-moving
+  // geometry (the NOW marker + open-tick right edges). The per-second `now` above still drives all
+  // DATA derivation (open/closed classification, projections, the day window), so the marker-sync
+  // invariant holds: both the marker and open edges below read THIS same smooth value, so an open
+  // tick can never render to the right of the marker (the reason the clock was unified originally).
+  const smoothNowRaw = useAnimationFrameNow(mounted)
+  // Fall back to the per-second `now` until the first rAF frame lands (and on the server).
+  const smoothNow = smoothNowRaw || now
   // `viewStart` is the left edge of the shown 24h window. Panning moves it directly;
   // the auto-shift advances it on a time boundary. Independent of `now`.
   const [viewStart, setViewStart] = useState(0)
@@ -938,17 +946,17 @@ export function Zero0Dayline({
   useLayoutEffect(() => {
     const root = laneRef.current
     if (!root) return
-    const seen = new Set<string>()
+    // Record the current px width of every OPEN tick. We DON'T prune closed keys here: this layout
+    // effect runs BEFORE the collapse `useEffect` in the same commit, so on the close render the key
+    // is already "not open" — pruning it would leave the collapse effect with no pre-close width (the
+    // bug that made scaleFrom = 1 and killed the retract). The collapse effect deletes keys after use.
     for (const s of sessions) {
       const isOpen = !!(s.unknownEnd && !s.point && !s.markGlyph)
       if (!isOpen) continue
       const el = root.querySelector<HTMLElement>(`[data-barkey="${CSS.escape(s.key)}"]`)
       if (!el) continue
       openWidthRef.current.set(s.key, el.getBoundingClientRect().width)
-      seen.add(s.key)
     }
-    // drop widths for keys no longer open so the map can't grow unbounded
-    for (const k of [...openWidthRef.current.keys()]) if (!seen.has(k)) openWidthRef.current.delete(k)
   })
   useEffect(() => {
     const prev = prevSessOpenRef.current
@@ -964,29 +972,32 @@ export function Zero0Dayline({
     const root = laneRef.current
     if (!root) return
     const laneW = root.getBoundingClientRect().width
-    const openMask = `linear-gradient(to right, #000 calc(100% - ${UNKNOWN_END_FADE_PX}px), transparent 100%)`
-    const solidMask = "linear-gradient(to right, #000 100%, transparent 100%)"
     const anims: Animation[] = []
     for (const key of justClosed) {
       const el = root.querySelector<HTMLElement>(`[data-barkey="${CSS.escape(key)}"]`)
       if (!el || laneW <= 0) continue
-      // FROM = the width the tick had JUST BEFORE closing (recorded by the layout effect while it was
-      // still open). Falling back to the current measurement would read the already-closed width.
+      // FROM width = the px width the tick had JUST BEFORE closing (recorded by the layout effect
+      // while still open — measuring now reads the already-closed width, React having committed it).
       const openW = openWidthRef.current.get(key) ?? el.getBoundingClientRect().width
-      // TO = the CLOSED body width from the MODEL (data-wpct × lane px) with the SAME `max(3px,…)`
+      openWidthRef.current.delete(key) // consumed
+      // TO width = the CLOSED body width from the MODEL (data-wpct × lane px) with the SAME `max(3px,…)`
       // floor the render uses.
       const wpct = parseFloat(el.getAttribute("data-wpct") || "0")
       const closedW = Math.max(3, (wpct / 100) * laneW)
       if (!(openW > closedW + 0.5)) continue // nothing to retract
-      // DRIVE via the Web Animations API, NOT inline style + transition. React re-renders on the
-      // stop (dataRev bump) and rewrites the node's declarative `style.width`, which would clobber
-      // an inline-style tween mid-flight (that raced to a hard snap). A WAAPI animation runs on its
-      // own timeline and is not overwritten by React's style commits, so the retract survives the
-      // re-render. `fill:"none"` lets React's committed closed width take over cleanly at the end.
+      // ANIMATE via scaleX on TRANSFORM — NOT width. Two earlier attempts failed because React owns
+      // the node's inline `style.width` and rewrote it on the stop re-render, snapping our tween. It
+      // does NOT set inline `transform` (the -translate-y-1/2 centering comes from a Tailwind class),
+      // so a WAAPI transform keyframe wins cleanly and survives re-renders. Closed recorded ticks are
+      // LEFT-anchored (start edge fixed; only the right fade tail retracts), so we scale about the
+      // LEFT edge from openW/closedW → 1. We carry translateY(-50%) in the keyframe to preserve the
+      // vertical centering the class normally provides; `fill:"none"` releases to the class at the end
+      // (final keyframe scaleX(1) == identity, so no snap-back).
+      const scaleFrom = openW / closedW
       const anim = el.animate(
         [
-          { width: `${openW}px`, maskImage: openMask, WebkitMaskImage: openMask },
-          { width: `${closedW}px`, maskImage: solidMask, WebkitMaskImage: solidMask },
+          { transform: `translateY(-50%) scaleX(${scaleFrom})`, transformOrigin: "left center" },
+          { transform: "translateY(-50%) scaleX(1)", transformOrigin: "left center" },
         ],
         { duration: COLLAPSE_MS, easing: COLLAPSE_EASE, fill: "none" },
       )
@@ -998,7 +1009,9 @@ export function Zero0Dayline({
   const hovered = hoveredKey ? byKey.get(hoveredKey) ?? null : null
 
   // NOW marker position within the shown window; off-screen (outside 0–100) when panned.
-  const nowPct = ((now - winStart) / VIEW_SPAN_MS) * 100
+  // Uses the SMOOTH rAF clock so the marker glides continuously instead of jumping each second
+  // (v0.2.261). Open-tick right edges below read the same `smoothNow`, preserving marker-sync.
+  const nowPct = ((smoothNow - winStart) / VIEW_SPAN_MS) * 100
   const nowInView = nowPct >= 0 && nowPct <= 100
 
   // ==========================================================================
@@ -1629,6 +1642,14 @@ export function Zero0Dayline({
                   // branch, so a re-render mid-animation can't fight the inline tween (the effect clears
                   // its inline styles when done, handing control back here).
                   const rightTail: number | null = fading ? UNKNOWN_END_FADE_PX : null
+                  // SMOOTH RIGHT EDGE (v0.2.261): an OPEN recorded tick's right edge IS the now marker,
+                  // so drive its solid width off the same smooth `nowPct` the marker uses (left edge
+                  // fixed at leftPct) — this is what makes an ongoing play tick GROW continuously with
+                  // the marker instead of stepping once a second. Other rails keep their memoized
+                  // (per-second) width; since smoothNow ≥ coarse now, they can still never spill past
+                  // the marker.
+                  const effWidthPct =
+                    p.track === "recorded" && p.unknownEnd ? Math.max(0, nowPct - p.leftPct) : p.widthPct
                   // ANCHOR EDGE (1a, generalized in v0.2.255). The min-width floor `max(3px, widthPct%)`
                   // grows a thin tick's nub in whichever direction it's ANCHORED. MIDDLE (access spine)
                   // and ACCESS ticks are ALWAYS historical (their right edge is ≤ now by construction),
@@ -1779,10 +1800,10 @@ export function Zero0Dayline({
                             : p.point
                               ? 2
                               : rightTail != null
-                                ? `calc(${p.widthPct}% + ${rightTail}px)`
+                                ? `calc(${effWidthPct}% + ${rightTail}px)`
                                 : fadingStart
-                                  ? `calc(${p.widthPct}% + ${UNKNOWN_END_FADE_PX}px)`
-                                  : `max(3px, ${p.widthPct}%)`,
+                                  ? `calc(${effWidthPct}% + ${UNKNOWN_END_FADE_PX}px)`
+                                  : `max(3px, ${effWidthPct}%)`,
                           height: p.markGlyph ? 9 : tickH,
                           // FILL = entity color; HAIRLINE = parent color, only inside a Space.
                           background: fill,

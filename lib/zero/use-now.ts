@@ -1,6 +1,6 @@
 "use client"
 
-import { useSyncExternalStore } from "react"
+import { useEffect, useRef, useState, useSyncExternalStore } from "react"
 
 // ============================================================================
 // Shared minute clock.
@@ -104,4 +104,35 @@ const getSecSnapshot = () => currentSec
  *  first client render — gate time-dependent UI on `mounted`. */
 export function useNowSeconds(): number {
   return useSyncExternalStore(subscribeSec, getSecSnapshot, getServerSnapshot)
+}
+
+// ---------------------------------------------------------------------------
+// requestAnimationFrame clock (per-COMPONENT, not shared).
+// ---------------------------------------------------------------------------
+// A high-frequency "now" for VISUAL geometry that must glide continuously rather than
+// jump on a 1s boundary — e.g. the dayline NOW marker and open-tick right edges, which
+// at a zoomed-in span move a couple px/sec and looked stuttery on the per-second clock.
+// Keep DATA derivation (which sessions are open, projections, day window) on the coarse
+// per-second/minute clocks; use THIS only for the moving edges. Returns 0 until `active`
+// so SSR/first paint stay stable; throttled to `minIntervalMs` (default ~30fps) so the
+// per-frame re-render cost stays bounded (the value moves far less than a pixel between
+// updates at any real zoom, so the motion still reads as continuous).
+export function useAnimationFrameNow(active: boolean, minIntervalMs = 33): number {
+  const [now, setNow] = useState(0)
+  const lastRef = useRef(0)
+  useEffect(() => {
+    if (!active) return
+    let raf = 0
+    const tick = () => {
+      const t = Date.now()
+      if (t - lastRef.current >= minIntervalMs) {
+        lastRef.current = t
+        setNow(t)
+      }
+      raf = requestAnimationFrame(tick)
+    }
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
+  }, [active, minIntervalMs])
+  return now
 }
