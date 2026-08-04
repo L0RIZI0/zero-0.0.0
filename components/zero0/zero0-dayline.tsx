@@ -112,12 +112,8 @@ const RECORDED_LANE_H = 10
 const MIDDLE_LANE_H = 10
 // Height of an access tick on the STANDALONE ACTIVITY dayline (`tracks="access"`).
 const ACCESS_HEIGHT_PX = 10
-// DISPLAY-ONLY session coalescing: consecutive session sessions separated by a gap no larger
-// than this collapse into ONE rendered bar. Its purpose is to keep a burst of quick stop→restart
-// toggles (typically tests / mis-clicks, a few seconds apart) reading as a single continuous
-// block instead of fragmenting the recorded rail into extra sub-lanes. The STORED sessions are
-// never touched (§0 still lists them all) — this only affects the dayline.
-const SESSION_MERGE_GAP_MS = 60_000
+// (v0.2.260 — the display-only SESSION_MERGE_GAP_MS coalesce was removed; each stored session now
+// renders as its own recorded tick. See the sessions memo for the rationale.)
 
 // Band metrics for the COMBINED lane. The SEAM sits at the VERTICAL CENTER of the band (equal
 // halves) and the WHOLE band grows as either rail gains sub-lanes: each half is sized to the
@@ -172,6 +168,51 @@ function packLanes(
     laneOf.set(b.key, placed)
   }
   return { laneOf, laneCount: laneEnds.length }
+}
+// ENTITY-GROUPED lane packing for the RECORDED (bottom) rail (v0.2.260, Loris ask). Unlike the
+// generic packLanes (which packs individual bars longest-first), this keeps ALL sessions of the SAME
+// entity on ONE lane whenever their intervals don't overlap — so a stop→restart of an entity lines
+// up HORIZONTALLY with its earlier session (the uzer reads "one entity = one row"). Lanes are ordered
+// MOST-POPULATED-FIRST: the entity with the most ticks is placed first and takes the lowest lane
+// index, which on the recorded rail is NEAREST THE SEAM (= "on top"); ties break by earliest start.
+// An open-ended session occupies [left, +∞) so nothing packs to its right on that lane. A second
+// entity shares a lane when its whole interval set is clear of everything already there, and only
+// spills to a new lane on a genuine same-time overlap.
+function packLanesByEntity(
+  bars: { key: string; id: string; leftPct: number; widthPct: number; openEnded?: boolean }[],
+): LanePack {
+  const laneOf = new Map<string, number>()
+  const EPS = 0.001
+  type Iv = { lo: number; hi: number }
+  type Grp = { bars: typeof bars; ivs: Iv[]; count: number; minLeft: number }
+  const groups = new Map<string, Grp>()
+  for (const b of bars) {
+    const lo = b.leftPct
+    const hi = b.openEnded ? Number.POSITIVE_INFINITY : b.leftPct + Math.max(b.widthPct, 0)
+    let g = groups.get(b.id)
+    if (!g) {
+      g = { bars: [], ivs: [], count: 0, minLeft: lo }
+      groups.set(b.id, g)
+    }
+    g.bars.push(b)
+    g.ivs.push({ lo, hi })
+    g.count += 1
+    g.minLeft = Math.min(g.minLeft, lo)
+  }
+  // most-populated first → lowest lane index (nearest seam = top); tie-break by earliest start.
+  const ordered = [...groups.values()].sort((a, b) => b.count - a.count || a.minLeft - b.minLeft)
+  const lanes: Iv[][] = [] // intervals already committed to each lane
+  const clear = (gi: Iv, li: Iv) => gi.hi <= li.lo + EPS || li.hi <= gi.lo + EPS
+  for (const g of ordered) {
+    let placed = lanes.findIndex((laneIvs) => g.ivs.every((gi) => laneIvs.every((li) => clear(gi, li))))
+    if (placed === -1) {
+      placed = lanes.length
+      lanes.push([])
+    }
+    lanes[placed].push(...g.ivs)
+    for (const b of g.bars) laneOf.set(b.key, placed)
+  }
+  return { laneOf, laneCount: lanes.length }
 }
 // Geometry (fixed height + band-pixel center) for a bar in a rail's sub-lane, given the current
 // `seam`. Ticks HUG THE SEAM: PLANNED lane 0 sits bottom-aligned just ABOVE the seam and higher
@@ -597,9 +638,13 @@ export function Zero0Dayline({
       const list = e.schedule?.sessions
       if (!list || list.length === 0) continue
       const { fill, stroke } = paintFor(e.id)
-      // COALESCE into runs (display only — see SESSION_MERGE_GAP_MS): walk sessions oldest→newest
-      // and merge any whose gap from the current run's end is ≤ the threshold into one span. An
-      // OPEN session extends the run to `now` and seals it (can't merge past a still-running one).
+      // v0.2.260 — COALESCE REMOVED (Loris): each stored session renders as its OWN tick, ALWAYS.
+      // The old ≤SESSION_MERGE_GAP_MS same-entity merge made a stop→restart within the gap read as
+      // ONE uninterrupted span (the first session's start extended to the open end). At a zoomed-in
+      // VIEW_SPAN_MS that 60s gap is a large fraction of the window, so legitimate restarts a few
+      // seconds apart got silently swallowed into one long tick — exactly the confusing "never
+      // interrupted" behaviour. Every played session is now a standalone run; `count` stays 1 so the
+      // "· N sessions" merged label never shows.
       type Run = { start: number; end: number; open: boolean; via?: string; auto?: boolean; count: number }
       const runs: Run[] = []
       for (const sess of [...list].sort((a, b) => a.startedAt - b.startedAt)) {
@@ -611,17 +656,7 @@ export function Zero0Dayline({
         if (sess.via !== "play") continue
         const sOpen = sess.endedAt == null
         const sEnd = sess.endedAt ?? now
-        const cur = runs[runs.length - 1]
-        // Only closed runs merge into a coalesced span (can't merge past a still-open one).
-        const mergeable = cur && !cur.open
-        if (mergeable && sess.startedAt - cur.end <= SESSION_MERGE_GAP_MS) {
-          cur.end = Math.max(cur.end, sEnd)
-          cur.open = cur.open || sOpen
-          cur.via = sess.via
-          cur.count += 1
-        } else {
-          runs.push({ start: sess.startedAt, end: sEnd, open: sOpen, via: sess.via, count: 1 })
-        }
+        runs.push({ start: sess.startedAt, end: sEnd, open: sOpen, via: sess.via, count: 1 })
       }
       runs.forEach((run, i) => {
         // Every run here is a PLAYED span (auto OR remote) — the collection loop above kept all
@@ -859,19 +894,16 @@ export function Zero0Dayline({
     return m
   }, [planned, sessions, spine, access])
 
-  // LANE PACKING per rail (OPTION A). TOP (planned) packs by START so tiling declared spans
-  // share lane 0 and only genuine overlaps open new lanes. BOTTOM (recorded) packs LONGEST-
-  // FIRST so the longest session hugs the seam and shorter/overlapping ones stack away from
-  // it — this subsumes the old "ongoing stack" (all running sessions share the now-edge, so
-  // they fully overlap and each lands in its own lane, longest nearest the seam).
+  // LANE PACKING per rail. TOP (planned) packs by START so tiling declared spans share lane 0 and
+  // only genuine overlaps open new lanes. BOTTOM (recorded) packs BY ENTITY (v0.2.260): all of an
+  // entity's sessions share one lane so a stop→restart lines up with its earlier session, lanes
+  // ordered most-populated-first (busiest entity nearest the seam). Concurrent ongoing sessions of
+  // DIFFERENT entities still land on their own lanes (their [left,∞) intervals overlap at `now`).
   const plannedLanes = useMemo(
     () => packLanes(planned, (a, b) => a.leftPct - b.leftPct || b.widthPct - a.widthPct),
     [planned],
   )
-  const recordedLanes = useMemo(
-    () => packLanes(sessions, (a, b) => b.widthPct - a.widthPct || a.leftPct - b.leftPct),
-    [sessions],
-  )
+  const recordedLanes = useMemo(() => packLanesByEntity(sessions), [sessions])
   // Combined-lane band geometry: the SEAM and total BAND HEIGHT grow with the busier rail's
   // sub-lane count (ticks keep full height; the band gets taller). Non-combined lanes keep the
   // resting single-lane height so the standalone ACTIVITY/ACCESS band is unchanged.
