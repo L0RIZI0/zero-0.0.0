@@ -68,10 +68,10 @@ const DAY_MS = 86_400_000
 // This is DECOUPLED from DAY_MS (which stays the calendar-day length for the 5am day bucket
 // + midnight markers). Set it to DAY_MS for the normal full-day view; set it SMALLER to ZOOM
 // IN (e.g. 30 min) so short test sessions render wide enough to inspect. When it equals
-// DAY_MS the geometry is identical to the classic 24h dayline. [INVESTIGATION ZOOM: 30 min —
+// DAY_MS the geometry is identical to the classic 24h dayline. [INVESTIGATION ZOOM: 10 min —
 // set back to DAY_MS to restore the full-day view. Dial smaller (e.g. 5 * 60_000) for
 // few-second ticks.]
-const VIEW_SPAN_MS = 30 * 60_000
+const VIEW_SPAN_MS = 10 * 60_000
 // The day "bucket" runs 5am→5am so a normal day (and its late-evening items)
 // land inside one window instead of being split at midnight.
 const DAY_START_HOUR = 5
