@@ -1602,15 +1602,27 @@ export function Zero0Dayline({
                   // in from its LEFT edge. Rounds only its right (known) edge. Mutually exclusive with
                   // `fading` in practice (a bar can't be open on both ends). Never a point/mark.
                   const fadingStart = p.unknownStart && !p.point && !p.markGlyph && !fading
-                  // COLLAPSE-ON-STOP phase for this tick (v0.2.258): "prime" = hold the OPEN width
-                  // for one frame; "release" = tween to the CLOSED width. While collapsing we keep
-                  // the fade-tail visuals (left-anchor, rounded-l, mask) so the retract reads as the
-                  // faded side shrinking toward the solid start, not a hard cut.
+                  // COLLAPSE-ON-STOP phase for this tick (v0.2.258, reworked .261): "prime" = hold the
+                  // OPEN geometry for one frame (fade tail = FADE px); "release" = tween the tail to 0.
+                  // The collapsing tick stays RIGHT-ANCHORED (like the open tick it came from, see
+                  // anchorRight below) so `prime` matches the open box with NO positional jump — only
+                  // the tail retracts toward `now`.
                   const collapse = collapsing.get(p.key)
                   const collapsingTick = collapse != null
-                  // Show the fade tail (extra width + mask) while genuinely fading OR while priming
-                  // a collapse (the from-frame). On "release" the tail width drops so it animates in.
-                  const showTail = fading || fadingStart || collapse === "prime"
+                  const animatingTick = collapsingTick
+                  // RIGHT-FADE TAIL length in px (or null = no right fade). A live FADING tick shows the
+                  // full tail; a COLLAPSING tick tweens FADE→0 (prime→release). Width AND mask both read
+                  // this so they animate together — and because the mask boundary is `calc(100% - tail)`
+                  // the solid `widthPct%` body is ALWAYS painted (fixes the old invisible-gap: the fixed
+                  // 20px mask made a sub-20px closed tick fully transparent). `fadingStart` is the mirror
+                  // (left tail) handled separately below.
+                  const rightTail: number | null = collapse
+                    ? collapse === "prime"
+                      ? UNKNOWN_END_FADE_PX
+                      : 0
+                    : fading
+                      ? UNKNOWN_END_FADE_PX
+                      : null
                   // ANCHOR EDGE (1a, generalized in v0.2.255). The min-width floor `max(3px, widthPct%)`
                   // grows a thin tick's nub in whichever direction it's ANCHORED. MIDDLE (access spine)
                   // and ACCESS ticks are ALWAYS historical (their right edge is ≤ now by construction),
@@ -1619,8 +1631,12 @@ export function Zero0Dayline({
                   // right-anchored OPEN spine segments, so a CLOSED sliver ending at/near now still floored
                   // 3px rightward past the marker. TOP-rail (planned) ticks can be in the FUTURE, so they
                   // keep left/fade anchoring; an explicitly open-ended tick (no fade) also right-anchors.
+                  // A COLLAPSING tick stays right-anchored too (v0.2.261): it inherits the open tick's
+                  // right edge (≈ now) so the from-frame lines up and only the tail retracts leftward.
                   const anchorRight =
-                    !p.point && !fading && (p.openEnded || p.track === "middle" || p.track === "access")
+                    !p.point &&
+                    !fading &&
+                    (p.openEnded || p.track === "middle" || p.track === "access" || collapsingTick)
                   // OPACITY (v0.2.249). A LIT tick and hover both snap to full. TOP-rail PLANNED ticks
                   // paint at a flat 0.8 (a hair softer than solid, so "intent" reads distinct from
                   // recorded activity without the old dynamic coverage math, which was retired). Every
@@ -1718,10 +1734,15 @@ export function Zero0Dayline({
                           "pointer-events-auto absolute cursor-default -translate-y-1/2",
                           // TRANSITION. Normally height/opacity/top only (width is inline + reticks
                           // every second, so animating it would make open bars/pans slide). While
-                          // COLLAPSING a just-stopped tick we additionally tween `width` over ~350ms
-                          // so the faded tail retracts smoothly toward the solid start (v0.2.258).
-                          collapsingTick
-                            ? "transition-[width,height,opacity,top] duration-[350ms] ease-out"
+                          // ANIMATING a just-stopped (collapse) or just-started (grow) tick we ALSO
+                          // tween `width` AND the mask so the ~20px fade tail retracts/extends smoothly
+                          // (v0.2.261). Width endpoints are BOTH `calc(w% + Npx)` (N: 20↔0) so they
+                          // interpolate — the old release target `max(3px,w%)` was a different CSS
+                          // function type and snapped. The mask boundary `calc(100% - Npx)` tracks the
+                          // same N so the solid w% is ALWAYS painted (never the old invisible gap).
+                          // Strong, slightly-longer expo-out per Loris.
+                          animatingTick
+                            ? "transition-[width,mask-image,-webkit-mask-image,height,opacity,top] duration-[520ms] ease-[cubic-bezier(0.16,1,0.3,1)]"
                             : "transition-[height,opacity,top] duration-200",
                           // A FADING (unknown-end) tick is ONE element (see below): the tail is a
                           // mask, not a sibling, so it rounds ONLY on the start (left) edge — the
@@ -1760,9 +1781,11 @@ export function Zero0Dayline({
                             ? 9
                             : p.point
                               ? 2
-                              : showTail
-                                ? `calc(${p.widthPct}% + ${UNKNOWN_END_FADE_PX}px)`
-                                : `max(3px, ${p.widthPct}%)`,
+                              : rightTail != null
+                                ? `calc(${p.widthPct}% + ${rightTail}px)`
+                                : fadingStart
+                                  ? `calc(${p.widthPct}% + ${UNKNOWN_END_FADE_PX}px)`
+                                  : `max(3px, ${p.widthPct}%)`,
                           height: p.markGlyph ? 9 : tickH,
                           // FILL = entity color; HAIRLINE = parent color, only inside a Space.
                           background: fill,
@@ -1778,14 +1801,14 @@ export function Zero0Dayline({
                           // FADING masks the RIGHT tail (end unknown); FADING-START masks the LEFT lead
                           // (start unknown) — transparent at 0 ramping to solid after the fade length.
                           maskImage:
-                            fading || collapsingTick
-                              ? `linear-gradient(to right, #000 calc(100% - ${UNKNOWN_END_FADE_PX}px), transparent 100%)`
+                            rightTail != null
+                              ? `linear-gradient(to right, #000 calc(100% - ${rightTail}px), transparent 100%)`
                               : fadingStart
                                 ? `linear-gradient(to right, transparent 0, #000 ${UNKNOWN_END_FADE_PX}px)`
                                 : undefined,
                           WebkitMaskImage:
-                            fading || collapsingTick
-                              ? `linear-gradient(to right, #000 calc(100% - ${UNKNOWN_END_FADE_PX}px), transparent 100%)`
+                            rightTail != null
+                              ? `linear-gradient(to right, #000 calc(100% - ${rightTail}px), transparent 100%)`
                               : fadingStart
                                 ? `linear-gradient(to right, transparent 0, #000 ${UNKNOWN_END_FADE_PX}px)`
                                 : undefined,
