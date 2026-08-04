@@ -914,17 +914,42 @@ export function Zero0Dayline({
         : bandMetrics(1, 1),
     [combined, plannedLanes.laneCount, recordedLanes.laneCount],
   )
-  // COLLAPSE-ON-STOP (v0.2.258). When a PLAYED session's OPEN (fading) tail closes, animate the
-  // faded tail RETRACTING toward the solid start edge instead of snapping. We detect the open→closed
-  // edge on the bottom rail and drive a two-frame rAF flip: frame 0 ("prime") re-paints the OPEN
-  // width (solid + fade tail) so the browser has a from-value; the next frame ("release") swaps to
-  // the CLOSED width while a `transition-[width]` is active, so the ~UNKNOWN_END_FADE_PX tail tweens
-  // away over ~350ms. This is GATED to the stop edge ONLY — panning, per-second growth of open bars,
-  // and the midnight auto-shift never enter `collapsing`, so they keep their instant jump-cut (there
-  // is deliberately no `left` in any transition, so pans stay crisp).
+  // COLLAPSE-ON-STOP (v0.2.258, rewritten IMPERATIVELY in .261). When a PLAYED session's OPEN
+  // (fading) tail closes, the faded tail RETRACTS toward the solid start edge instead of snapping.
+  //
+  // WHY IMPERATIVE (not React state): the two prior symptoms were (1) width SNAPPED because the two
+  // endpoints were different CSS forms (`calc(%+20px)` → `max(3px,%)`) AND the `%` base itself jumps
+  // (open width tracks [start, now]; closed tracks [start, endedAt]) — so even matched forms wouldn't
+  // give a single-variable tween; and (2) the whole dayline only re-derives on the 1-second `now`
+  // clock, so the shape update waited for the next tick. A FLIP fixes both: on the open→closed edge
+  // we grab the DOM node by `data-barkey`, freeze its CURRENT on-screen PIXEL width (+ full fade
+  // mask) as the from-frame, then next frame animate to the CLOSED pixel width (+ zero mask) under a
+  // transition. Both endpoints are explicit px on the SAME node, so the browser interpolates cleanly,
+  // immune to the shifting `%` base and independent of the per-second memo. GATED to the stop edge
+  // only; panning / per-second growth / midnight-shift never run it (no `left` ever animates).
   const prevSessOpenRef = useRef<Map<string, boolean>>(new Map())
-  const [collapsing, setCollapsing] = useState<Map<string, "prime" | "release">>(new Map())
-  const collapseTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
+  // Last-known ON-SCREEN px width of every currently-OPEN session tick, stamped every render by the
+  // layout effect below. The collapse effect needs the width the tick had JUST BEFORE it closed — by
+  // the time the post-close `useEffect` runs, React has already committed the CLOSED geometry, so
+  // measuring the node then reads the closed width (the bug that made the retract animate 10.6→10.6).
+  const openWidthRef = useRef<Map<string, number>>(new Map())
+  const COLLAPSE_MS = 520
+  const COLLAPSE_EASE = "cubic-bezier(0.16, 1, 0.3, 1)" // strong expo-out (Loris)
+  useLayoutEffect(() => {
+    const root = laneRef.current
+    if (!root) return
+    const seen = new Set<string>()
+    for (const s of sessions) {
+      const isOpen = !!(s.unknownEnd && !s.point && !s.markGlyph)
+      if (!isOpen) continue
+      const el = root.querySelector<HTMLElement>(`[data-barkey="${CSS.escape(s.key)}"]`)
+      if (!el) continue
+      openWidthRef.current.set(s.key, el.getBoundingClientRect().width)
+      seen.add(s.key)
+    }
+    // drop widths for keys no longer open so the map can't grow unbounded
+    for (const k of [...openWidthRef.current.keys()]) if (!seen.has(k)) openWidthRef.current.delete(k)
+  })
   useEffect(() => {
     const prev = prevSessOpenRef.current
     const nextMap = new Map<string, boolean>()
@@ -936,43 +961,39 @@ export function Zero0Dayline({
     }
     prevSessOpenRef.current = nextMap
     if (justClosed.length === 0) return
-    setCollapsing((m) => {
-      const nm = new Map(m)
-      for (const k of justClosed) nm.set(k, "prime")
-      return nm
-    })
-    const raf = requestAnimationFrame(() =>
-      requestAnimationFrame(() =>
-        setCollapsing((m) => {
-          const nm = new Map(m)
-          for (const k of justClosed) if (nm.get(k) === "prime") nm.set(k, "release")
-          return nm
-        }),
-      ),
-    )
-    for (const k of justClosed) {
-      const existing = collapseTimers.current.get(k)
-      if (existing) clearTimeout(existing)
-      const t = setTimeout(() => {
-        setCollapsing((m) => {
-          if (!m.has(k)) return m
-          const nm = new Map(m)
-          nm.delete(k)
-          return nm
-        })
-        collapseTimers.current.delete(k)
-      }, 380) // a hair past the 350ms transition so it fully settles before the tail visuals drop
-      collapseTimers.current.set(k, t)
+    const root = laneRef.current
+    if (!root) return
+    const laneW = root.getBoundingClientRect().width
+    const openMask = `linear-gradient(to right, #000 calc(100% - ${UNKNOWN_END_FADE_PX}px), transparent 100%)`
+    const solidMask = "linear-gradient(to right, #000 100%, transparent 100%)"
+    const anims: Animation[] = []
+    for (const key of justClosed) {
+      const el = root.querySelector<HTMLElement>(`[data-barkey="${CSS.escape(key)}"]`)
+      if (!el || laneW <= 0) continue
+      // FROM = the width the tick had JUST BEFORE closing (recorded by the layout effect while it was
+      // still open). Falling back to the current measurement would read the already-closed width.
+      const openW = openWidthRef.current.get(key) ?? el.getBoundingClientRect().width
+      // TO = the CLOSED body width from the MODEL (data-wpct × lane px) with the SAME `max(3px,…)`
+      // floor the render uses.
+      const wpct = parseFloat(el.getAttribute("data-wpct") || "0")
+      const closedW = Math.max(3, (wpct / 100) * laneW)
+      if (!(openW > closedW + 0.5)) continue // nothing to retract
+      // DRIVE via the Web Animations API, NOT inline style + transition. React re-renders on the
+      // stop (dataRev bump) and rewrites the node's declarative `style.width`, which would clobber
+      // an inline-style tween mid-flight (that raced to a hard snap). A WAAPI animation runs on its
+      // own timeline and is not overwritten by React's style commits, so the retract survives the
+      // re-render. `fill:"none"` lets React's committed closed width take over cleanly at the end.
+      const anim = el.animate(
+        [
+          { width: `${openW}px`, maskImage: openMask, WebkitMaskImage: openMask },
+          { width: `${closedW}px`, maskImage: solidMask, WebkitMaskImage: solidMask },
+        ],
+        { duration: COLLAPSE_MS, easing: COLLAPSE_EASE, fill: "none" },
+      )
+      anims.push(anim)
     }
-    return () => cancelAnimationFrame(raf)
+    return () => anims.forEach((a) => a.cancel())
   }, [sessions])
-  useEffect(() => {
-    const timers = collapseTimers.current
-    return () => {
-      for (const t of timers.values()) clearTimeout(t)
-      timers.clear()
-    }
-  }, [])
 
   const hovered = hoveredKey ? byKey.get(hoveredKey) ?? null : null
 
@@ -1602,27 +1623,12 @@ export function Zero0Dayline({
                   // in from its LEFT edge. Rounds only its right (known) edge. Mutually exclusive with
                   // `fading` in practice (a bar can't be open on both ends). Never a point/mark.
                   const fadingStart = p.unknownStart && !p.point && !p.markGlyph && !fading
-                  // COLLAPSE-ON-STOP phase for this tick (v0.2.258, reworked .261): "prime" = hold the
-                  // OPEN geometry for one frame (fade tail = FADE px); "release" = tween the tail to 0.
-                  // The collapsing tick stays RIGHT-ANCHORED (like the open tick it came from, see
-                  // anchorRight below) so `prime` matches the open box with NO positional jump — only
-                  // the tail retracts toward `now`.
-                  const collapse = collapsing.get(p.key)
-                  const collapsingTick = collapse != null
-                  const animatingTick = collapsingTick
-                  // RIGHT-FADE TAIL length in px (or null = no right fade). A live FADING tick shows the
-                  // full tail; a COLLAPSING tick tweens FADE→0 (prime→release). Width AND mask both read
-                  // this so they animate together — and because the mask boundary is `calc(100% - tail)`
-                  // the solid `widthPct%` body is ALWAYS painted (fixes the old invisible-gap: the fixed
-                  // 20px mask made a sub-20px closed tick fully transparent). `fadingStart` is the mirror
-                  // (left tail) handled separately below.
-                  const rightTail: number | null = collapse
-                    ? collapse === "prime"
-                      ? UNKNOWN_END_FADE_PX
-                      : 0
-                    : fading
-                      ? UNKNOWN_END_FADE_PX
-                      : null
+                  // COLLAPSE-ON-STOP is handled IMPERATIVELY (v0.2.261) — the effect above FLIP-animates
+                  // the just-closed node's px width + mask directly. The declarative render below only
+                  // describes the RESTING open (`fading`) and closed states; it never needs a collapse
+                  // branch, so a re-render mid-animation can't fight the inline tween (the effect clears
+                  // its inline styles when done, handing control back here).
+                  const rightTail: number | null = fading ? UNKNOWN_END_FADE_PX : null
                   // ANCHOR EDGE (1a, generalized in v0.2.255). The min-width floor `max(3px, widthPct%)`
                   // grows a thin tick's nub in whichever direction it's ANCHORED. MIDDLE (access spine)
                   // and ACCESS ticks are ALWAYS historical (their right edge is ≤ now by construction),
@@ -1631,12 +1637,8 @@ export function Zero0Dayline({
                   // right-anchored OPEN spine segments, so a CLOSED sliver ending at/near now still floored
                   // 3px rightward past the marker. TOP-rail (planned) ticks can be in the FUTURE, so they
                   // keep left/fade anchoring; an explicitly open-ended tick (no fade) also right-anchors.
-                  // A COLLAPSING tick stays right-anchored too (v0.2.261): it inherits the open tick's
-                  // right edge (≈ now) so the from-frame lines up and only the tail retracts leftward.
                   const anchorRight =
-                    !p.point &&
-                    !fading &&
-                    (p.openEnded || p.track === "middle" || p.track === "access" || collapsingTick)
+                    !p.point && !fading && (p.openEnded || p.track === "middle" || p.track === "access")
                   // OPACITY (v0.2.249). A LIT tick and hover both snap to full. TOP-rail PLANNED ticks
                   // paint at a flat 0.8 (a hair softer than solid, so "intent" reads distinct from
                   // recorded activity without the old dynamic coverage math, which was retired). Every
@@ -1703,6 +1705,7 @@ export function Zero0Dayline({
                       <button
                         type="button"
                         data-barkey={p.key}
+                        data-wpct={p.widthPct}
                         aria-label={p.track === "access" ? `Was in ${p.title}, ${p.range}` : `${p.title}, ${p.range}`}
                         onMouseEnter={(ev) => {
                           setHoveredKey(p.key)
@@ -1732,24 +1735,18 @@ export function Zero0Dayline({
                           // and animates height + anchor (top) changes smoothly (so an ongoing
                           // bar re-stacking as siblings start/stop slides rather than jumps).
                           "pointer-events-auto absolute cursor-default -translate-y-1/2",
-                          // TRANSITION. Normally height/opacity/top only (width is inline + reticks
-                          // every second, so animating it would make open bars/pans slide). While
-                          // ANIMATING a just-stopped (collapse) or just-started (grow) tick we ALSO
-                          // tween `width` AND the mask so the ~20px fade tail retracts/extends smoothly
-                          // (v0.2.261). Width endpoints are BOTH `calc(w% + Npx)` (N: 20↔0) so they
-                          // interpolate — the old release target `max(3px,w%)` was a different CSS
-                          // function type and snapped. The mask boundary `calc(100% - Npx)` tracks the
-                          // same N so the solid w% is ALWAYS painted (never the old invisible gap).
-                          // Strong, slightly-longer expo-out per Loris.
-                          animatingTick
-                            ? "transition-[width,mask-image,-webkit-mask-image,height,opacity,top] duration-[520ms] ease-[cubic-bezier(0.16,1,0.3,1)]"
-                            : "transition-[height,opacity,top] duration-200",
+                          // TRANSITION. height/opacity/top only — width is inline + reticks every second,
+                          // so a declarative width transition would make open bars/pans slide. The
+                          // COLLAPSE-ON-STOP width/mask tween is driven IMPERATIVELY (v0.2.261 effect
+                          // above) on the just-closed node, so it doesn't need a class here and can't be
+                          // triggered by the per-second re-tick.
+                          "transition-[height,opacity,top] duration-200",
                           // A FADING (unknown-end) tick is ONE element (see below): the tail is a
                           // mask, not a sibling, so it rounds ONLY on the start (left) edge — the
                           // "continues" edge stays open. A FADING-START tick mirrors this, rounding only
-                          // its right (known) edge. A COLLAPSING tick keeps the left-round while its tail
-                          // retracts. Otherwise use the normal per-end rounding.
-                          fading || collapsingTick
+                          // its right (known) edge. Otherwise use the normal per-end rounding. (A
+                          // collapsing tick keeps whatever rounding it had; the FLIP only tweens width.)
+                          fading
                             ? "rounded-l-[2px] rounded-r-none"
                             : fadingStart
                               ? "rounded-r-[2px] rounded-l-none"
