@@ -117,15 +117,27 @@ export function useNowSeconds(): number {
 // so SSR/first paint stay stable; throttled to `minIntervalMs` (default ~30fps) so the
 // per-frame re-render cost stays bounded (the value moves far less than a pixel between
 // updates at any real zoom, so the motion still reads as continuous).
-export function useAnimationFrameNow(active: boolean, minIntervalMs = 33): number {
+//
+// `shouldUpdate` (optional): a ref-backed predicate checked each frame — while it returns
+// false the rAF keeps spinning but SKIPS the `setNow` re-render. The dayline passes a check
+// that's false during an active pan/ripple, so the smooth clock never stacks a 30fps React
+// re-render on top of the imperative pan loop (which drives everything via transforms and
+// needs the main thread). When the pan settles, updates resume with no gap.
+export function useAnimationFrameNow(
+  active: boolean,
+  minIntervalMs = 33,
+  shouldUpdate?: () => boolean,
+): number {
   const [now, setNow] = useState(0)
   const lastRef = useRef(0)
+  const shouldRef = useRef(shouldUpdate)
+  shouldRef.current = shouldUpdate
   useEffect(() => {
     if (!active) return
     let raf = 0
     const tick = () => {
       const t = Date.now()
-      if (t - lastRef.current >= minIntervalMs) {
+      if (t - lastRef.current >= minIntervalMs && shouldRef.current?.() !== false) {
         lastRef.current = t
         setNow(t)
       }

@@ -175,9 +175,14 @@ function packLanes(
 // up HORIZONTALLY with its earlier session (the uzer reads "one entity = one row"). Lanes are ordered
 // MOST-POPULATED-FIRST: the entity with the most ticks is placed first and takes the lowest lane
 // index, which on the recorded rail is NEAREST THE SEAM (= "on top"); ties break by earliest start.
-// An open-ended session occupies [left, +∞) so nothing packs to its right on that lane. A second
-// entity shares a lane when its whole interval set is clear of everything already there, and only
-// spills to a new lane on a genuine same-time overlap.
+// An open-ended session occupies [left, right=now] (its CURRENT extent) — NOT [left, +∞). Using now
+// (v0.2.262) is what keeps the lane layout STABLE across a stop: an ongoing tick closes at endedAt ≈
+// now, so its interval barely changes, so nothing re-packs and `laneCount`/seam don't shift. The old
+// +∞ made an open tick "block" the whole right side, so on close other entities suddenly packed
+// tighter, laneCount dropped, the seam moved, and EVERY rail (incl. the middle spine) slid over the
+// 200ms `top` transition — the "lane top margin jump" that read like a scaleY. Two CONCURRENT opens
+// still both extend to now ⇒ they overlap ⇒ still separate lanes (correct). Nothing is ever to the
+// right of now, so "now" preserves the "nothing packs past an open tick" property too.
 function packLanesByEntity(
   bars: { key: string; id: string; leftPct: number; widthPct: number; openEnded?: boolean }[],
 ): LanePack {
@@ -188,7 +193,8 @@ function packLanesByEntity(
   const groups = new Map<string, Grp>()
   for (const b of bars) {
     const lo = b.leftPct
-    const hi = b.openEnded ? Number.POSITIVE_INFINITY : b.leftPct + Math.max(b.widthPct, 0)
+    // Finite extent for BOTH open and closed ticks (open right edge = leftPct+widthPct = nowPct).
+    const hi = b.leftPct + Math.max(b.widthPct, 0)
     let g = groups.get(b.id)
     if (!g) {
       g = { bars: [], ivs: [], count: 0, minLeft: lo }
@@ -950,6 +956,13 @@ export function Zero0Dayline({
     // effect runs BEFORE the collapse `useEffect` in the same commit, so on the close render the key
     // is already "not open" — pruning it would leave the collapse effect with no pre-close width (the
     // bug that made scaleFrom = 1 and killed the retract). The collapse effect deletes keys after use.
+    //
+    // ⚡ PERF (v0.2.262): dep = [sessions] — NOT bare (every render). `sessions` is a useMemo keyed on
+    // the per-second `now`/dataRev/activityRevision, so it's referentially STABLE across the 30fps
+    // smooth-clock re-renders; keying the effect to it makes this run ~1/sec instead of ~30/sec. The
+    // bare version fired `getBoundingClientRect` (a FORCED SYNCHRONOUS REFLOW) on every open tick every
+    // frame, which stacked with the rAF pan loop and was the dayline's pan-jank regression. ~1s-stale
+    // open width is fine: the from-frame differs by at most one second of growth (≈1px at any zoom).
     for (const s of sessions) {
       const isOpen = !!(s.unknownEnd && !s.point && !s.markGlyph)
       if (!isOpen) continue
@@ -957,7 +970,7 @@ export function Zero0Dayline({
       if (!el) continue
       openWidthRef.current.set(s.key, el.getBoundingClientRect().width)
     }
-  })
+  }, [sessions])
   useEffect(() => {
     const prev = prevSessOpenRef.current
     const nextMap = new Map<string, boolean>()
