@@ -953,6 +953,14 @@ export function Zero0Dayline({
   const openWidthRef = useRef<Map<string, number>>(new Map())
   const COLLAPSE_MS = 520
   const COLLAPSE_EASE = "cubic-bezier(0.16, 1, 0.3, 1)" // strong expo-out (Loris)
+  // ENTRANCE (v0.2.263): a session tick can only APPEAR on the per-second `sessions` re-derive (a new
+  // Play start etc. can't exist before the memo re-runs — the ≤1s data-cadence pop Loris asked to
+  // soften). We can't remove the cadence, but we fade+bounce the new node IN so the pop reads as a
+  // deliberate entrance. `didInitRef` skips the very first commit (else EVERY tick bounces on load).
+  const didInitRef = useRef(false)
+  const ENTRANCE_MS = 460
+  // overshoot ease (backOut-ish) for the little bounce
+  const ENTRANCE_EASE = "cubic-bezier(0.34, 1.56, 0.64, 1)"
   useLayoutEffect(() => {
     const root = laneRef.current
     if (!root) return
@@ -979,17 +987,40 @@ export function Zero0Dayline({
     const prev = prevSessOpenRef.current
     const nextMap = new Map<string, boolean>()
     const justClosed: string[] = []
+    const justAdded: string[] = []
     for (const s of sessions) {
       const isOpen = !!(s.unknownEnd && !s.point && !s.markGlyph)
       nextMap.set(s.key, isOpen)
       if (prev.get(s.key) === true && !isOpen) justClosed.push(s.key)
+      if (!prev.has(s.key)) justAdded.push(s.key)
     }
+    const firstRun = !didInitRef.current
+    didInitRef.current = true
     prevSessOpenRef.current = nextMap
-    if (justClosed.length === 0) return
     const root = laneRef.current
     if (!root) return
-    const laneW = root.getBoundingClientRect().width
     const anims: Animation[] = []
+    // ENTRANCE — fade + little bounce for genuinely NEW ticks. Skipped on the FIRST commit (would
+    // bounce the whole rail on load) and while a PAN is active (panning across the window edge pulls
+    // in off-screen sessions as "new" keys — those should just appear, not pop). Either way the prev
+    // map is already updated above, so a skipped tick is marked seen and won't bounce later.
+    if (!firstRun && !panActiveRef.current) {
+      for (const key of justAdded) {
+        const el = root.querySelector<HTMLElement>(`[data-barkey="${CSS.escape(key)}"]`)
+        if (!el) continue
+        const anim = el.animate(
+          [
+            { opacity: 0, transform: "translateY(-50%) scale(0.55)", transformOrigin: "left center" },
+            { opacity: 1, offset: 0.6 },
+            { opacity: 1, transform: "translateY(-50%) scale(1)", transformOrigin: "left center" },
+          ],
+          { duration: ENTRANCE_MS, easing: ENTRANCE_EASE, fill: "none" },
+        )
+        anims.push(anim)
+      }
+    }
+    if (justClosed.length === 0) return () => anims.forEach((a) => a.cancel())
+    const laneW = root.getBoundingClientRect().width
     for (const key of justClosed) {
       const el = root.querySelector<HTMLElement>(`[data-barkey="${CSS.escape(key)}"]`)
       if (!el || laneW <= 0) continue
