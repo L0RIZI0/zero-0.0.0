@@ -64,6 +64,14 @@ const LABEL_MARKER_GAP = 8
 // ============================================================================
 
 const DAY_MS = 86_400_000
+// VIEW_SPAN_MS — the WIDTH of the VISIBLE window (how much time the band shows at once).
+// This is DECOUPLED from DAY_MS (which stays the calendar-day length for the 5am day bucket
+// + midnight markers). Set it to DAY_MS for the normal full-day view; set it SMALLER to ZOOM
+// IN (e.g. 30 min) so short test sessions render wide enough to inspect. When it equals
+// DAY_MS the geometry is identical to the classic 24h dayline. [INVESTIGATION ZOOM: 30 min —
+// set back to DAY_MS to restore the full-day view. Dial smaller (e.g. 5 * 60_000) for
+// few-second ticks.]
+const VIEW_SPAN_MS = 30 * 60_000
 // The day "bucket" runs 5am→5am so a normal day (and its late-evening items)
 // land inside one window instead of being split at midnight.
 const DAY_START_HOUR = 5
@@ -258,15 +266,19 @@ const WHEEL_FRICTION_TAU = 0.19
 const WHEEL_STOP_V = 14
 const WHEEL_FLUSH_FRAC = 0.35
 const RIPPLE_REST = 0.4
-const RENDER_MARGIN_MS = DAY_MS * 1.5
+const RENDER_MARGIN_MS = VIEW_SPAN_MS * 1.5
 
-/** [start,end) of the 5am→5am window containing `now`. */
+/** [start,end) of the VIEW_SPAN_MS window containing `now`, aligned to the 5am day grid.
+ *  With VIEW_SPAN_MS === DAY_MS this is exactly the classic 5am→5am day window (idx always 0);
+ *  when zoomed in it returns the VIEW_SPAN-sized sub-window of the current day that holds `now`. */
 function dayWindow(now: number): [number, number] {
   const d = new Date(now)
   d.setHours(DAY_START_HOUR, 0, 0, 0)
-  let start = d.getTime()
-  if (now < start) start -= DAY_MS // before 5am → the window opened at yesterday's 5am
-  return [start, start + DAY_MS]
+  let dayStart = d.getTime()
+  if (now < dayStart) dayStart -= DAY_MS // before 5am → the day opened at yesterday's 5am
+  const idx = Math.floor((now - dayStart) / VIEW_SPAN_MS)
+  const start = dayStart + idx * VIEW_SPAN_MS
+  return [start, start + VIEW_SPAN_MS]
 }
 
 // A bar on the lane. Two TRACKS share one geometry/hover model:
@@ -445,7 +457,7 @@ export function Zero0Dayline({
     const prev = prevNowRef.current
     prevNowRef.current = now
     setViewStart((vs) => {
-      const viewEnd = vs + DAY_MS
+      const viewEnd = vs + VIEW_SPAN_MS
       return prev < viewEnd && now >= viewEnd ? dayWindow(now)[0] : vs
     })
   }, [now, mounted])
@@ -461,7 +473,7 @@ export function Zero0Dayline({
   const [hoverAnchor, setHoverAnchor] = useState<{ x: number; y: number } | null>(null)
 
   const lo = winStart - RENDER_MARGIN_MS
-  const hi = winStart + DAY_MS + RENDER_MARGIN_MS
+  const hi = winStart + VIEW_SPAN_MS + RENDER_MARGIN_MS
 
   // PLANNED bars — SCHEDULED occurrences from the real entity graph (whole tree from
   // s_root), expanded across the window by the recurrence engine. Colored by the
@@ -522,10 +534,10 @@ export function Zero0Dayline({
       // ANCHOR = the KNOWN edge the tick pins to: the start when we have one, else the end (end-only).
       const anchor = st ?? en
       if (en < lo || anchor > hi) continue
-      const leftPct = ((anchor - winStart) / DAY_MS) * 100
+      const leftPct = ((anchor - winStart) / VIEW_SPAN_MS) * 100
       // End-only ticks carry no width of their own — they're just the leftward fade tail ending at
       // the anchor; the render's `unknownStart` branch supplies the fade length.
-      const widthPct = st == null ? 0 : ((en - anchor) / DAY_MS) * 100
+      const widthPct = st == null ? 0 : ((en - anchor) / VIEW_SPAN_MS) * 100
       // A sleep-titled DURATION moment paints a procedural night sky instead of a
       // flat accent bar (seeded per-occurrence so it's stable yet unique per night).
       const isSleepSpan = st != null && en > st && occ.kind === "moment" && isSleepTitle(occ.title)
@@ -623,8 +635,8 @@ export function Zero0Dayline({
         // hair ahead of the now marker, so the tick sits AT the marker, not a few px to its right.
         const st = Math.max(Math.min(rawStart, rawEnd), lo)
         const en = Math.min(rawEnd, hi)
-        const leftPct = ((st - winStart) / DAY_MS) * 100
-        const widthPct = Math.max(0, ((en - st) / DAY_MS) * 100)
+        const leftPct = ((st - winStart) / VIEW_SPAN_MS) * 100
+        const widthPct = Math.max(0, ((en - st) / VIEW_SPAN_MS) * 100)
         const kindLabel = "play"
         const merged = run.count > 1 ? ` · ${run.count} sessions` : ""
         out.push({
@@ -752,8 +764,8 @@ export function Zero0Dayline({
       // Keep an OPEN live segment even at ~0 width (renders as the min-width tick) so a
       // just-switched leaf shows instantly; only drop CLOSED zero-width slivers.
       if (en < st || (en === st && !seg.open)) continue
-      const leftPct = ((st - winStart) / DAY_MS) * 100
-      const widthPct = Math.max(0, ((en - st) / DAY_MS) * 100)
+      const leftPct = ((st - winStart) / VIEW_SPAN_MS) * 100
+      const widthPct = Math.max(0, ((en - st) / VIEW_SPAN_MS) * 100)
       const entity = getEntity(seg.id)
       const { fill, stroke } = paintFor(seg.id)
       // v0.6.22: the middle spine does NOT trail the unknown-end fade (`unknownEnd:false`) — it's
@@ -808,8 +820,8 @@ export function Zero0Dayline({
       const next = segs[i + 1]
       const roundLeft = !prev || prev.leftAt == null || prev.leftAt !== s.enteredAt
       const roundRight = s.leftAt == null || !next || next.enteredAt !== s.leftAt
-      const leftPct = ((st - winStart) / DAY_MS) * 100
-      const widthPct = ((en - st) / DAY_MS) * 100
+      const leftPct = ((st - winStart) / VIEW_SPAN_MS) * 100
+      const widthPct = ((en - st) / VIEW_SPAN_MS) * 100
       const entity = getEntity(s.entityId)
       // Same paint model as the planned bar: fill = the place's own color, stroke = its
       // parent's color (a hairline, only when the place sits inside a Space).
@@ -933,7 +945,7 @@ export function Zero0Dayline({
   const hovered = hoveredKey ? byKey.get(hoveredKey) ?? null : null
 
   // NOW marker position within the shown window; off-screen (outside 0–100) when panned.
-  const nowPct = ((now - winStart) / DAY_MS) * 100
+  const nowPct = ((now - winStart) / VIEW_SPAN_MS) * 100
   const nowInView = nowPct >= 0 && nowPct <= 100
 
   // ==========================================================================
@@ -1183,7 +1195,7 @@ export function Zero0Dayline({
       const inc = e.clientX - d.lastX
       d.lastX = e.clientX
       injectPan(inc)
-      setViewStart(d.startView - (dx / w) * DAY_MS)
+      setViewStart(d.startView - (dx / w) * VIEW_SPAN_MS)
       resolveHoverAtCursor()
     },
     [pctToCol, injectPan, resolveHoverAtCursor],
@@ -1202,7 +1214,7 @@ export function Zero0Dayline({
     if (!commit) return
     const w = lane.clientWidth || 1
     pendingFlushRef.current = commit
-    setViewStart((vs) => vs + (commit / w) * DAY_MS)
+    setViewStart((vs) => vs + (commit / w) * VIEW_SPAN_MS)
   }, [])
 
   const maybeFlushAtRest = useCallback(() => {
@@ -1309,7 +1321,7 @@ export function Zero0Dayline({
     const firstMidnight = new Date(lo)
     firstMidnight.setHours(0, 0, 0, 0)
     for (let t = firstMidnight.getTime(); t <= hi; t += DAY_MS) {
-      out.push({ key: `day:${t}`, leftPct: ((t - winStart) / DAY_MS) * 100, label: shortDay(t) })
+      out.push({ key: `day:${t}`, leftPct: ((t - winStart) / VIEW_SPAN_MS) * 100, label: shortDay(t) })
     }
     return out
   }, [mounted, isAccess, lo, hi, winStart, shortDay])

@@ -47,17 +47,17 @@ export function Zero0WindowControls() {
       >
         {fullscreen ? (
           <>
-            <path d="M4 2.5 V4 H2.5" />
-            <path d="M7 2.5 V4 H8.5" />
-            <path d="M4 8.5 V7 H2.5" />
-            <path d="M7 8.5 V7 H8.5" />
-          </>
-        ) : (
-          <>
             <path d="M2.5 4 V2.5 H4" />
             <path d="M7 2.5 H8.5 V4" />
             <path d="M2.5 7 V8.5 H4" />
             <path d="M7 8.5 H8.5 V7" />
+          </>
+        ) : (
+          <>
+            <path d="M4 2.5 V4 H2.5" />
+            <path d="M7 2.5 V4 H8.5" />
+            <path d="M4 8.5 V7 H2.5" />
+            <path d="M7 8.5 V7 H8.5" />
           </>
         )}
       </CtrlButton>
