@@ -490,7 +490,11 @@ export function Zero0Dayline({
   // DATA derivation (open/closed classification, projections, the day window), so the marker-sync
   // invariant holds: both the marker and open edges below read THIS same smooth value, so an open
   // tick can never render to the right of the marker (the reason the clock was unified originally).
-  const smoothNowRaw = useAnimationFrameNow(mounted)
+  // True while a pan/ripple/wheel gesture is in motion (set by the pan loop below). The smooth clock
+  // SKIPS its re-render while this is true so it never stacks a 30fps React commit on top of the
+  // imperative, transform-only pan loop (which owns the main thread during a drag). v0.2.262.
+  const panActiveRef = useRef(false)
+  const smoothNowRaw = useAnimationFrameNow(mounted, 33, () => !panActiveRef.current)
   // Fall back to the per-second `now` until the first rAF frame lands (and on the server).
   const smoothNow = smoothNowRaw || now
   // `viewStart` is the left edge of the shown 24h window. Panning moves it directly;
@@ -1211,6 +1215,7 @@ export function Zero0Dayline({
         rafRef.current = requestAnimationFrame(tick)
       } else {
         rafRef.current = null
+        panActiveRef.current = false // ripple settled → let the smooth clock resume (v0.2.262)
         flushAtRestRef.current()
       }
     },
@@ -1218,6 +1223,7 @@ export function Zero0Dayline({
   )
 
   const startRipple = useCallback(() => {
+    panActiveRef.current = true // pause the smooth clock for the duration of the gesture (v0.2.262)
     if (rafRef.current != null) return
     lastTsRef.current = performance.now()
     rafRef.current = requestAnimationFrame(tick)
@@ -1655,14 +1661,17 @@ export function Zero0Dayline({
                   // branch, so a re-render mid-animation can't fight the inline tween (the effect clears
                   // its inline styles when done, handing control back here).
                   const rightTail: number | null = fading ? UNKNOWN_END_FADE_PX : null
-                  // SMOOTH RIGHT EDGE (v0.2.261): an OPEN recorded tick's right edge IS the now marker,
-                  // so drive its solid width off the same smooth `nowPct` the marker uses (left edge
-                  // fixed at leftPct) — this is what makes an ongoing play tick GROW continuously with
-                  // the marker instead of stepping once a second. Other rails keep their memoized
-                  // (per-second) width; since smoothNow ≥ coarse now, they can still never spill past
-                  // the marker.
-                  const effWidthPct =
-                    p.track === "recorded" && p.unknownEnd ? Math.max(0, nowPct - p.leftPct) : p.widthPct
+                  // SMOOTH RIGHT EDGE (v0.2.261, widened .262): ANY tick whose right edge IS the now
+                  // marker gets its solid width driven off the same smooth `nowPct` the marker uses
+                  // (left edge fixed at leftPct), so it GROWS continuously with the marker instead of
+                  // stepping once a second. That's the OPEN recorded tick (ongoing play, `unknownEnd`)
+                  // AND the live MIDDLE/ACCESS spine segment (`openEnded`, right edge == now by
+                  // construction). CLOSED ticks and future/planned ticks keep their memoized per-second
+                  // width. Since smoothNow ≥ the coarse `now`, none can spill past the marker.
+                  const liveRightEdge =
+                    (p.track === "recorded" && p.unknownEnd) ||
+                    ((p.track === "middle" || p.track === "access") && p.openEnded)
+                  const effWidthPct = liveRightEdge ? Math.max(0, nowPct - p.leftPct) : p.widthPct
                   // ANCHOR EDGE (1a, generalized in v0.2.255). The min-width floor `max(3px, widthPct%)`
                   // grows a thin tick's nub in whichever direction it's ANCHORED. MIDDLE (access spine)
                   // and ACCESS ticks are ALWAYS historical (their right edge is ≤ now by construction),
