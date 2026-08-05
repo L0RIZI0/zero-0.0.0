@@ -1685,7 +1685,16 @@ export function Zero0Dayline({
                   // COLORS. Fill = entity color (sleep → night sky); the root sentinel paints
                   // the THEME BACKGROUND (near-black in dark, near-white in light) instead of
                   // going transparent, so a root access tick reads as a solid outlined chip.
-                  const fill = p.color === ROOT_SENTINEL_COLOR ? "var(--background)" : (p.sky ?? p.color)
+                  const isRootTick = p.color === ROOT_SENTINEL_COLOR
+                  // ROOT FROSTED GLASS (v0.2.267): a root tick used to paint OPAQUE `var(--background)`,
+                  // which fully hid the day-boundary gridline behind it. Now it paints a TRANSLUCENT
+                  // background + a modest backdrop blur (applied only in the style block below), so the
+                  // gridline (and anything else behind) is faintly "guessed through" as frosted glass.
+                  // Non-root ticks keep their solid entity fill. Only the handful of root spine segments
+                  // ever carry the (relatively expensive) backdrop-filter, so pan cost stays negligible.
+                  const fill = isRootTick
+                    ? "color-mix(in oklch, var(--background) 55%, transparent)"
+                    : (p.sky ?? p.color)
                   // FADING = an unknown-end (ongoing / future-open) span → render as ONE element
                   // with a masked tail (below), never a point or an instant mark.
                   const fading = p.unknownEnd && !p.point && !p.markGlyph
@@ -1874,6 +1883,12 @@ export function Zero0Dayline({
                           height: p.markGlyph ? 9 : tickH,
                           // FILL = entity color; parent color is shown as an INSET GLOW only (no border).
                           background: fill,
+                          // ROOT FROSTED GLASS (v0.2.267): only a root tick blurs what's behind it (the
+                          // day-boundary gridline), so the line reads faintly THROUGH the tick. Kept off
+                          // every other tick so the backdrop-filter cost is limited to the 1–few root
+                          // spine segments and pan performance is unaffected.
+                          backdropFilter: isRootTick ? "blur(5px)" : undefined,
+                          WebkitBackdropFilter: isRootTick ? "blur(5px)" : undefined,
                           // v0.2.266: NO border. The parent color is now expressed PURELY as the inset
                           // glow below — Loris wanted the depth of the inner shadow without the flat
                           // hairline outline on top of it. (markGlyph triangles never had one anyway.)
