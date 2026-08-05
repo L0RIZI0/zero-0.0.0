@@ -1693,7 +1693,11 @@ export function Zero0Dayline({
                   // Non-root ticks keep their solid entity fill. Only the handful of root spine segments
                   // ever carry the (relatively expensive) backdrop-filter, so pan cost stays negligible.
                   const fill = isRootTick
-                    ? "color-mix(in oklch, var(--background) 55%, transparent)"
+                    ? // v0.2.268: was 55% — too opaque over the near-black ground, so the faint
+                      // `muted-foreground/25` gridline behind never read through the 5px blur. 38%
+                      // lets the blurred line show as a soft vertical smudge (frosted glass) while
+                      // the tick still reads as a distinct chip.
+                      "color-mix(in oklch, var(--background) 38%, transparent)"
                     : (p.sky ?? p.color)
                   // FADING = an unknown-end (ongoing / future-open) span → render as ONE element
                   // with a masked tail (below), never a point or an instant mark.
@@ -1719,6 +1723,16 @@ export function Zero0Dayline({
                     (p.track === "recorded" && p.unknownEnd) ||
                     ((p.track === "middle" || p.track === "access") && p.openEnded)
                   const effWidthPct = liveRightEdge ? Math.max(0, nowPct - p.leftPct) : p.widthPct
+                  // OPEN SPINE SEGMENT (v0.2.268): the live middle/access segment whose RIGHT edge is the
+                  // growing now edge and whose LEFT edge (start) is FIXED. It must be LEFT-anchored (see
+                  // anchorRight below): right-anchoring it (`left = leftPct+effWidthPct` + translate-x-full)
+                  // rounds the `left%` and the −100% translate to device px SEPARATELY, so as effWidthPct
+                  // grows each smooth-clock frame the computed LEFT edge jittered ±1px against its fixed
+                  // neighbour — the "previous tick's end and this tick's start bounce into each other"
+                  // Loris reported after the now-marker went smooth. Left-anchoring pins the shared
+                  // junction to a stable `round(leftPct%)`.
+                  const openSpineLive =
+                    (p.track === "middle" || p.track === "access") && p.openEnded && !p.point && !fading
                   // ANCHOR EDGE (1a, generalized in v0.2.255). The min-width floor `max(3px, widthPct%)`
                   // grows a thin tick's nub in whichever direction it's ANCHORED. MIDDLE (access spine)
                   // and ACCESS ticks are ALWAYS historical (their right edge is ≤ now by construction),
@@ -1728,7 +1742,10 @@ export function Zero0Dayline({
                   // 3px rightward past the marker. TOP-rail (planned) ticks can be in the FUTURE, so they
                   // keep left/fade anchoring; an explicitly open-ended tick (no fade) also right-anchors.
                   const anchorRight =
-                    !p.point && !fading && (p.openEnded || p.track === "middle" || p.track === "access")
+                    !p.point &&
+                    !fading &&
+                    !openSpineLive &&
+                    (p.openEnded || p.track === "middle" || p.track === "access")
                   // OPACITY (v0.2.249). A LIT tick and hover both snap to full. TOP-rail PLANNED ticks
                   // paint at a flat 0.8 (a hair softer than solid, so "intent" reads distinct from
                   // recorded activity without the old dynamic coverage math, which was retired). Every
@@ -1879,7 +1896,13 @@ export function Zero0Dayline({
                                 ? `calc(${effWidthPct}% + ${rightTail}px)`
                                 : fadingStart
                                   ? `calc(${effWidthPct}% + ${UNKNOWN_END_FADE_PX}px)`
-                                  : `max(3px, ${effWidthPct}%)`,
+                                  : openSpineLive
+                                    ? // v0.2.268: NO min-width floor. Left-anchored, its right edge is the
+                                      // now edge, so a `max(3px,…)` floor on a sub-second-thin open segment
+                                      // would spill 3px PAST the now marker. A <1px open segment is simply
+                                      // invisible for a fraction of a second — correct, and it never spills.
+                                      `${effWidthPct}%`
+                                    : `max(3px, ${effWidthPct}%)`,
                           height: p.markGlyph ? 9 : tickH,
                           // FILL = entity color; parent color is shown as an INSET GLOW only (no border).
                           background: fill,
@@ -1887,8 +1910,8 @@ export function Zero0Dayline({
                           // day-boundary gridline), so the line reads faintly THROUGH the tick. Kept off
                           // every other tick so the backdrop-filter cost is limited to the 1–few root
                           // spine segments and pan performance is unaffected.
-                          backdropFilter: isRootTick ? "blur(5px)" : undefined,
-                          WebkitBackdropFilter: isRootTick ? "blur(5px)" : undefined,
+                          backdropFilter: isRootTick ? "blur(3px)" : undefined,
+                          WebkitBackdropFilter: isRootTick ? "blur(3px)" : undefined,
                           // v0.2.266: NO border. The parent color is now expressed PURELY as the inset
                           // glow below — Loris wanted the depth of the inner shadow without the flat
                           // hairline outline on top of it. (markGlyph triangles never had one anyway.)
