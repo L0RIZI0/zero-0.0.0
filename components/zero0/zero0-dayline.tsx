@@ -1876,6 +1876,16 @@ export function Zero0Dayline({
                           background: fill,
                           // The triangle carries no hairline (a border on a clipped shape looks broken).
                           border: p.markGlyph ? "none" : p.stroke ? `1px solid ${p.stroke}` : "none",
+                          // PARENT INNER GLOW (v0.2.265): on top of the parent-colored hairline, an INSET
+                          // box-shadow in the SAME parent color bleeds inward from every edge, giving the
+                          // tick depth (an inner ring) instead of a flat outline. Blur scales with the
+                          // tick height so it reads at any rail size; solid color + blur naturally ramps
+                          // color→transparent toward the centre, so the fill still shows through. Only
+                          // where a hairline exists (inside a Space) and never on points / mark glyphs.
+                          boxShadow:
+                            p.markGlyph || p.point || !p.stroke
+                              ? undefined
+                              : `inset 0 0 ${Math.max(3, Math.round(tickH * 0.5))}px 0 ${p.stroke}`,
                           clipPath: p.markGlyph ? "polygon(0 0, 100% 0, 50% 100%)" : undefined,
                           // UNKNOWN-END FADE (v0.6.20) — the tail is now a MASK on this ONE element,
                           // not a separate sibling div. The last UNKNOWN_END_FADE_PX fade to
