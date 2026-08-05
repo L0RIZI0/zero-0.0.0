@@ -1872,16 +1872,17 @@ export function Zero0Dayline({
                                   ? `calc(${effWidthPct}% + ${UNKNOWN_END_FADE_PX}px)`
                                   : `max(3px, ${effWidthPct}%)`,
                           height: p.markGlyph ? 9 : tickH,
-                          // FILL = entity color; HAIRLINE = parent color, only inside a Space.
+                          // FILL = entity color; parent color is shown as an INSET GLOW only (no border).
                           background: fill,
-                          // The triangle carries no hairline (a border on a clipped shape looks broken).
-                          border: p.markGlyph ? "none" : p.stroke ? `1px solid ${p.stroke}` : "none",
-                          // PARENT INNER GLOW (v0.2.265): on top of the parent-colored hairline, an INSET
-                          // box-shadow in the SAME parent color bleeds inward from every edge, giving the
-                          // tick depth (an inner ring) instead of a flat outline. Blur scales with the
-                          // tick height so it reads at any rail size; solid color + blur naturally ramps
+                          // v0.2.266: NO border. The parent color is now expressed PURELY as the inset
+                          // glow below — Loris wanted the depth of the inner shadow without the flat
+                          // hairline outline on top of it. (markGlyph triangles never had one anyway.)
+                          border: "none",
+                          // PARENT INNER GLOW (v0.2.265): an INSET box-shadow in the parent color bleeds
+                          // inward from every edge, giving the tick depth (an inner ring). Blur scales with
+                          // the tick height so it reads at any rail size; solid color + blur naturally ramps
                           // color→transparent toward the centre, so the fill still shows through. Only
-                          // where a hairline exists (inside a Space) and never on points / mark glyphs.
+                          // where a parent color exists (inside a Space) and never on points / mark glyphs.
                           boxShadow:
                             p.markGlyph || p.point || !p.stroke
                               ? undefined

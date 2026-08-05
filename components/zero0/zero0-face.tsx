@@ -18,6 +18,7 @@ import {
   aggregateMetaRows,
   makeRendersDistinctly,
   isOccurrenceKind,
+  sexWord,
   type FaceModel,
   type FaceLike,
   type FaceSize,
@@ -406,7 +407,10 @@ function FaceBlock({
               ) : k === "state" && v.startsWith("ongoing") ? (
                 renderOngoingState(v)
               ) : (
-                <dd className="flex items-center gap-1.5 truncate text-foreground" title={v}>
+                <dd
+                  className="flex items-center gap-1.5 truncate text-foreground"
+                  title={k === "sex" && v !== "—" ? sexWord(v) : v}
+                >
                   {k === "color" && (
                     <span
                       aria-hidden

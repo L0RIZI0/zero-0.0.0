@@ -1601,7 +1601,7 @@ export function Zero0Canvas() {
         toggleStarterPin(e.id)
         return bump()
       }
-      // PLAYABLE play/stop routes through togglePlaySession (v0.7 — idea·resource·moment·space; a
+      // PLAYABLE play/stop routes through togglePlaySession (v0.7 �� idea·resource·moment·space; a
       // `via:"play"` session on the bottom rail, never the scalar occurrence) so the menu shares the
       // glyph's in-place-pause / remote-stop four-verb logic. (applyEntityMenuAction's plain
       // open/close is only a fallback for the native overlay, which lacks the in-place context.)
@@ -2172,7 +2172,14 @@ export function Zero0Canvas() {
           switch. If the current leaf is a web resource, its native surface renders on top of
           the (all-hidden) DOM panes. `relative flex-col` so the one visible pane fills via
           `flex-1` while hidden ones (display:none) drop out of layout. */}
-      <div className="relative flex min-h-0 flex-1 flex-col">
+      <div className="relative flex min-h-0 flex-1 flex-col overflow-y-auto">
+        {/* v0.2.266: `overflow-y-auto` makes the web content area SCROLL like a non-web pane. With
+            the web §0 shown, §0 sits at natural height on top and the web surface (h-full below)
+            starts below the fold — you scroll §0 up to pull the web rect into view, exactly like
+            ENTITY CONTENT on a non-web entity. Before this the web surface was `flex-1` and a tall
+            §0 (raw fields + log) squeezed it to zero, so the site "wasn't displayed at all". The
+            native surface is clamped to this scrollport (see NativeSurface.rectOf) so it never
+            paints over the footer while scrolled. */}
         {/* SEAM SHADOW note: the web-surface seam shadow now lives at the BOTTOM of the zero
             header (see above) — a 10px internal gradient in the header's airspace. Nothing can
             paint here at the content-area top because the native surface composites OVER it. */}
@@ -2239,11 +2246,13 @@ export function Zero0Canvas() {
               </div>
               <Zero0WebSeamShadow />
             </div>
-            {/* The native web surface fills the REMAINING space below §0 (or the whole content area
-                when §0 is hidden). `relative flex-1` (not absolute) so it's a real flex item whose
-                rect shrinks/grows as §0 toggles — the native desktop view tracks THIS rect. */}
+            {/* The native web surface. v0.2.266: `shrink-0 h-full` (was `flex-1`) so it's ALWAYS a
+                full content-viewport tall — when §0 is hidden it fills the area exactly; when §0 is
+                shown it sits a full viewport below the fold and the container scrolls to reveal it,
+                instead of being crushed to zero by a tall §0. The native desktop view tracks THIS
+                rect (clamped to the scrollport so it never spills over the footer). */}
             <div
-              className="relative min-h-0 flex-1 overflow-hidden"
+              className="relative h-full shrink-0 overflow-hidden"
               onContextMenu={(ev) => openMenu(context, ev)}
             >
               <Zero0ResourceCanvas

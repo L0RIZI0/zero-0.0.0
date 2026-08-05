@@ -170,9 +170,32 @@ function NativeSurface({
 
     // The native view tracks the DOM placeholder's rect. Edge-to-edge is achieved
     // simply by the placeholder filling the canvas content area horizontally.
+    //
+    // SCROLLPORT CLAMP (v0.2.266): when the content area is SCROLLABLE (the web §0 is shown, so
+    // §0 sits above the surface and you scroll to reveal it), the holder can slide partly or fully
+    // below the fold. The native surface is a separate OS layer that CANNOT be clipped by DOM
+    // `overflow`, so we intersect the holder's rect with its nearest scrollable ancestor and send
+    // only the VISIBLE portion — otherwise the surface would paint over the create field / footer
+    // that live OUTSIDE the scroll area. No scrollport (the normal full-bleed web view, §0 hidden)
+    // ⇒ the raw holder rect, unchanged.
+    const scrollport = (() => {
+      let n: HTMLElement | null = holder.parentElement
+      while (n) {
+        const oy = getComputedStyle(n).overflowY
+        if (oy === "auto" || oy === "scroll") return n
+        n = n.parentElement
+      }
+      return null
+    })()
     const rectOf = () => {
       const r = holder.getBoundingClientRect()
-      return { x: r.x, y: r.y, width: r.width, height: r.height }
+      if (!scrollport) return { x: r.x, y: r.y, width: r.width, height: r.height }
+      const s = scrollport.getBoundingClientRect()
+      const left = Math.max(r.left, s.left)
+      const top = Math.max(r.top, s.top)
+      const right = Math.min(r.right, s.right)
+      const bottom = Math.min(r.bottom, s.bottom)
+      return { x: left, y: top, width: Math.max(0, right - left), height: Math.max(0, bottom - top) }
     }
     const keyOf = (r: { x: number; y: number; width: number; height: number }) =>
       `${Math.round(r.x)},${Math.round(r.y)},${Math.round(r.width)},${Math.round(r.height)}`
@@ -235,11 +258,15 @@ function NativeSurface({
           }
         }
       } else {
-        const onScreen = activeRef.current
-        const sendKey = onScreen ? key : "off"
+        // VISIBLE = active tab AND the clamped rect still has real area. When the surface is
+        // scrolled fully below the §0 fold the clamp yields a 0-size rect (v0.2.266) — treat that
+        // exactly like an inactive tab and park the surface off-screen, so a scrolled-away web
+        // page doesn't leave a sliver painting over the seam or footer.
+        const visible = activeRef.current && rect.width > 2 && rect.height > 2
+        const sendKey = visible ? key : "off"
         if (sendKey !== lastSent) {
           lastSent = sendKey
-          bridge.resource.setBounds({ id, rect: onScreen ? rect : hiddenRectOf(rect) })
+          bridge.resource.setBounds({ id, rect: visible ? rect : hiddenRectOf(rect) })
         }
       }
       raf = requestAnimationFrame(loop)

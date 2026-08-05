@@ -387,6 +387,14 @@ export function sexSymbol(sex: string): string {
   return sex === "man" ? "♂" : sex === "woman" ? "♀" : sex
 }
 
+// Inverse of sexSymbol: the human WORD for a stored value OR its glyph. Used for the SEX
+// row tooltip so hovering shows "man"/"woman" instead of the ♂/♀ glyph (v0.2.266).
+export function sexWord(sexOrGlyph: string): string {
+  if (sexOrGlyph === "man" || sexOrGlyph === "♂") return "man"
+  if (sexOrGlyph === "woman" || sexOrGlyph === "♀") return "woman"
+  return sexOrGlyph
+}
+
 // Render an {@link EntityState} as one stable STATE-row string. `open` shows no date
 // (CREATED already carries "since when"); every other position carries its own instant,
 // which lives nowhere else. `complete` also shows WHEN it will auto-close at midnight.
