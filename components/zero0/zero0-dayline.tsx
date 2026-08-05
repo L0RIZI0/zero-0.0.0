@@ -1008,11 +1008,16 @@ export function Zero0Dayline({
       for (const key of justAdded) {
         const el = root.querySelector<HTMLElement>(`[data-barkey="${CSS.escape(key)}"]`)
         if (!el) continue
+        // ⚠️ v0.2.264: scale ONLY, NO translate in this `transform` keyframe — vertical centering is on
+        // the CSS `translate` property (see the collapse note); a `translateY(-50%)` here stacked a
+        // second -50% and made the new tick appear shifted UP into the access rail (Loris' report).
+        // A bare `scale` about `left center` grows the tick in place; the `translate` centering is
+        // untouched, so no vertical jump. New session ticks are always left-anchored (recorded).
         const anim = el.animate(
           [
-            { opacity: 0, transform: "translateY(-50%) scale(0.55)", transformOrigin: "left center" },
+            { opacity: 0, transform: "scale(0.55)", transformOrigin: "left center" },
             { opacity: 1, offset: 0.6 },
-            { opacity: 1, transform: "translateY(-50%) scale(1)", transformOrigin: "left center" },
+            { opacity: 1, transform: "scale(1)", transformOrigin: "left center" },
           ],
           { duration: ENTRANCE_MS, easing: ENTRANCE_EASE, fill: "none" },
         )
@@ -1033,19 +1038,21 @@ export function Zero0Dayline({
       const wpct = parseFloat(el.getAttribute("data-wpct") || "0")
       const closedW = Math.max(3, (wpct / 100) * laneW)
       if (!(openW > closedW + 0.5)) continue // nothing to retract
-      // ANIMATE via scaleX on TRANSFORM — NOT width. Two earlier attempts failed because React owns
-      // the node's inline `style.width` and rewrote it on the stop re-render, snapping our tween. It
-      // does NOT set inline `transform` (the -translate-y-1/2 centering comes from a Tailwind class),
-      // so a WAAPI transform keyframe wins cleanly and survives re-renders. Closed recorded ticks are
-      // LEFT-anchored (start edge fixed; only the right fade tail retracts), so we scale about the
-      // LEFT edge from openW/closedW → 1. We carry translateY(-50%) in the keyframe to preserve the
-      // vertical centering the class normally provides; `fill:"none"` releases to the class at the end
-      // (final keyframe scaleX(1) == identity, so no snap-back).
+      // ANIMATE via scaleX on the `transform` property — NOT `width` (React owns inline width and
+      // rewrites it on the stop re-render, snapping any width tween). ⚠️ v0.2.264: the keyframe must
+      // carry ONLY scaleX, NO translate. Vertical centering here lives on the CSS **`translate`**
+      // property (Tailwind v4 compiles `-translate-y-1/2` to `translate: 0 -50%`, NOT to `transform`).
+      // `transform` and `translate` are SEPARATE composited properties — an earlier `translateY(-50%)`
+      // inside this `transform` keyframe stacked a SECOND -50% on top of the class's translate, shoving
+      // the tick a full height UP for the animation's duration (the "tick jumps up on stop" bug Loris
+      // reported). With a bare scaleX the `translate`-based centering is untouched. Closed recorded
+      // ticks are LEFT-anchored (start fixed; only the right fade tail retracts) ⇒ scale about the LEFT
+      // edge from openW/closedW → 1. `fill:"none"` releases to the resting state (scaleX(1) == identity).
       const scaleFrom = openW / closedW
       const anim = el.animate(
         [
-          { transform: `translateY(-50%) scaleX(${scaleFrom})`, transformOrigin: "left center" },
-          { transform: "translateY(-50%) scaleX(1)", transformOrigin: "left center" },
+          { transform: `scaleX(${scaleFrom})`, transformOrigin: "left center" },
+          { transform: "scaleX(1)", transformOrigin: "left center" },
         ],
         { duration: COLLAPSE_MS, easing: COLLAPSE_EASE, fill: "none" },
       )
@@ -1841,7 +1848,14 @@ export function Zero0Dayline({
                           left: fadingStart
                             ? `calc(${p.leftPct}% - ${UNKNOWN_END_FADE_PX}px)`
                             : anchorRight
-                              ? `${p.leftPct + p.widthPct}%`
+                              ? // v0.2.264: use effWidthPct, NOT the coarse memoized widthPct. A right-
+                                // anchored tick pins its RIGHT edge at `left = leftPct + width`; the width
+                                // itself already uses the smooth effWidthPct, so if this position stayed on
+                                // the per-second widthPct the element GREW smoothly but its right edge (the
+                                // anchor) STEPPED once a second — the "access tick catches up to the now
+                                // marker every 1s" Loris reported. Both now read effWidthPct ⇒ the right
+                                // edge glides with the marker. (For closed ticks effWidthPct === widthPct.)
+                                `${p.leftPct + effWidthPct}%`
                               : `${p.leftPct}%`,
                           // A MARK renders as a small downward-triangle instant glyph (clip-path);
                           // a plain point is a 2px tick; a FADING tick spans start→now PLUS the
