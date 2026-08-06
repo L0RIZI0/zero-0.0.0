@@ -468,10 +468,22 @@ export function metaEcho(e: Entity, now: number): string {
   // A start/end/at span shared by moments AND scheduled tasks. An unplanned (no startAt)
   // playable entity shows no span here — its live time, if any, comes from an open session.
   const span = (): string => {
-    const cs = plannedStart(e)
-    if (cs != null && s?.endDate != null)
-      return `${fmtShort(cs, now)}–${fmtShort(s.endDate, now)} · ${formatDuration(Math.max(0, s.endDate - cs))}`
-    if (cs != null) return `since ${fmtShort(cs, now)} · ${formatDuration(Math.max(0, now - cs))}`
+    // CURRENT-OR-NEXT (v0.2.270): prefer the same view-time occurrence §0 shows as "Next"
+    // (`getOccurrenceRows`' `isNext`) — the soonest non-cancelled row that hasn't ended yet,
+    // from `projectOccurrences` (so it covers one-offs, series AND repeat rules). This makes a
+    // compact ENTITY-CONTENT row ROLL FORWARD as occurrences pass, instead of freezing on the
+    // stored scalar (which `resyncPrimary` only re-mirrors on WRITE, never as the clock ticks).
+    // Falls back to the scalar `startDate`/`endDate` when nothing is upcoming (all in the past),
+    // so a fully-past one-off still echoes its span exactly as before.
+    const recs = projectOccurrences(e, now)
+    const nextRec = recs.find((r) => !r.cancelled && (r.end ?? r.start) >= now)
+    const cs = nextRec ? nextRec.start : plannedStart(e)
+    const ce = nextRec ? (nextRec.end ?? null) : (s?.endDate ?? null)
+    if (cs != null && ce != null)
+      return `${fmtShort(cs, now)}–${fmtShort(ce, now)} · ${formatDuration(Math.max(0, ce - cs))}`
+    // Start-only: a FUTURE start reads as just its time (no "since"); an already-started one as
+    // an ongoing "since <start> · <elapsed>".
+    if (cs != null) return cs > now ? fmtShort(cs, now) : `since ${fmtShort(cs, now)} · ${formatDuration(now - cs)}`
     if (s?.at != null) return fmtShort(s.at, now)
     return ""
   }
