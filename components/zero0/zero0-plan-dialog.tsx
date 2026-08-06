@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { Entity } from "@/lib/zero/types"
 import { fmt, formatDuration } from "@/lib/zero/face-model"
 
@@ -57,7 +57,13 @@ const QUICK_DURATIONS: { label: string; ms: number }[] = [
   { label: "4h", ms: 4 * HOUR },
 ]
 
-export function Zero0PlanDialog({
+// MEMOIZED (v0.2.271): the parent canvas re-renders every second (its live `nowSec` clock). Without
+// memo, that re-rendered this dialog once a second — and a re-render while a native <input type="time">
+// / date picker dropdown is OPEN collapses the popup back to "00" on top, eating the user's first click
+// (the reported bug). Memo + a FROZEN `now` (the parent now passes an open-time snapshot, not the live
+// clock) + stable `onApply`/`onClose` callbacks means the dialog only re-renders on its OWN state
+// changes (typing/toggling), never on the background clock tick, so the picker stays put.
+export const Zero0PlanDialog = memo(function Zero0PlanDialog({
   entity,
   now,
   onApply,
@@ -297,4 +303,4 @@ export function Zero0PlanDialog({
       </div>
     </div>
   )
-}
+})

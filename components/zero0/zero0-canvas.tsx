@@ -64,6 +64,7 @@ import {
   reorderContextItems,
   moveEntityToContext,
   addManualSession,
+  sweepStaleScalars,
 } from "@/lib/zero/data"
   import { KIND_META, getState, isClosed, hasOpenSession, getOpenSession, getSessions, isMarkable, isPlayable, getInstantMaxNb, canAutoPlay } from "@/lib/zero/kinds"
   import { isDone, describeLogEntry } from "@/lib/zero/entity-log"
@@ -543,6 +544,15 @@ export function Zero0Canvas() {
     return `${time} · ${date}`
   }, [mounted, nowSec])
 
+  // SCALAR SWEEP (v0.2.271) — the clock trigger for the current-or-next scalar mirror. Each second,
+  // re-mirror any entity whose scalar boundary just passed (see sweepStaleScalars' cheap guard), so
+  // the raw fields / dayline / row meta roll forward with the wall clock instead of freezing at the
+  // last write. bump() only when something actually promoted (rare), so this is idle most ticks.
+  useEffect(() => {
+    if (!mounted) return
+    if (sweepStaleScalars(nowSec)) bump()
+  }, [mounted, nowSec, bump])
+
   const contextId = path[path.length - 1]
 
   // DAYLINE HIGHLIGHT — the entity whose dayline tick(s) should light up (grow to 26px + go
@@ -714,6 +724,15 @@ export function Zero0Canvas() {
   // PLAN DIALOG target (v0.2.269) — the entity whose right-click "Plan…" opened <Zero0PlanDialog>;
   // null = closed. Set by runEntityAction intercepting the "plan" view-action.
   const [planTarget, setPlanTarget] = useState<Entity | null>(null)
+  // FROZEN open-time `now` for the Plan dialog (v0.2.271) — captured when the dialog opens and NOT
+  // re-taken on the per-second clock, so the dialog's props stay referentially stable and its native
+  // time/date pickers don't reset mid-selection. A ref mirrors planTarget so the apply/close handlers
+  // can be fully stable (no planTarget dep) and keep <Zero0PlanDialog>'s React.memo effective.
+  const [planNow, setPlanNow] = useState(0)
+  const planTargetRef = useRef<Entity | null>(null)
+  useEffect(() => {
+    planTargetRef.current = planTarget
+  }, [planTarget])
   useEffect(() => {
     setShowHidden(false)
   }, [contextId])
@@ -1566,7 +1585,11 @@ export function Zero0Canvas() {
       if (id === "hide-hidden") return setShowHidden(false)
       // PLAN… (v0.2.269) — a VIEW action: open the scheduling dialog for this entity. Mutates
       // nothing here; the dialog resolves a PlanResult and applyPlan() runs the writers.
-      if (id === "plan") return setPlanTarget(e)
+      if (id === "plan") {
+        setPlanNow(Date.now())
+        setPlanTarget(e)
+        return
+      }
       // SIZE — a VIEW override (see `rowSizes`), not a data mutation, so it's handled here
       // rather than delegated to `applyEntityMenuAction`. Choosing "m" (the default) clears
       // the override to keep the map tidy.
@@ -1684,6 +1707,18 @@ export function Zero0Canvas() {
     },
     [bump],
   )
+
+  // STABLE dialog handlers (v0.2.271) — pass referentially-stable props to the memoized dialog so a
+  // per-second parent re-render never reaches it. Both read the CURRENT target via planTargetRef, so
+  // neither depends on `planTarget` (which changes on open/close).
+  const handlePlanApply = useCallback(
+    (result: PlanResult) => {
+      const t = planTargetRef.current
+      if (t) applyPlan(t, result)
+    },
+    [applyPlan],
+  )
+  const closePlan = useCallback(() => setPlanTarget(null), [])
 
   // Open the entity menu. `opts.size` (passed by the ENTITY CONTENT rows) adds the Size
   // submenu with the row's current rung ticked; surfaces without a per-entity size (the
@@ -2424,9 +2459,9 @@ export function Zero0Canvas() {
       {planTarget && (
         <Zero0PlanDialog
           entity={planTarget}
-          now={nowSec}
-          onApply={(result) => applyPlan(planTarget, result)}
-          onClose={() => setPlanTarget(null)}
+          now={planNow}
+          onApply={handlePlanApply}
+          onClose={closePlan}
         />
       )}
     </main>

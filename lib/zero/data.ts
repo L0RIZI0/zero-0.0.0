@@ -2032,6 +2032,58 @@ function resyncPrimary(sched: Schedule, now: number = Date.now()): void {
 }
 
 /**
+ * CLOCK-TRIGGERED SCALAR SWEEP (v0.2.271) — the missing CLOCK trigger for {@link resyncPrimary}.
+ *
+ * The scalar `startDate`/`endDate` is a MIRROR of the current-or-next occurrence, but it was only
+ * ever re-mirrored on a WRITE (every schedule writer calls `resyncPrimary`). So once the wall clock
+ * crossed an occurrence boundary with NO intervening write, the scalar went stale — e.g. it kept
+ * showing a 1:38–1:40 slot at 1:41 while §0 (which derives current-or-next at VIEW time) had already
+ * rolled to the 1:49 slot. This is the long-deferred "STEP 3 / derived scalar" gap; rather than swap
+ * ~53 direct scalar readers for a read-time getter (invasive, and many readers legitimately want the
+ * stored anchor), we simply RE-RUN the already-correct `resyncPrimary` on a clock tick. That keeps the
+ * stored-scalar model intact and makes EVERY reader (raw fields, dayline, metaEcho, …) current at once.
+ *
+ * Called once per second from the canvas. Cheap: a per-entity O(1) guard skips everything that can't
+ * have rolled forward — an entity is a candidate ONLY when its current scalar has actually PASSED
+ * (`(endDate ?? startDate) < now`) or it has no scalar but carries a rule / extra occurrence that could
+ * (re)populate one. For a candidate we run `resyncPrimary` on a clone and diff start/end; unchanged ⇒
+ * no mutation, no persist. `persist()` therefore fires only on a real promotion (rare), never per tick.
+ * Returns true when ANY entity changed, so the caller can bump its render.
+ */
+export function sweepStaleScalars(now: number = Date.now()): boolean {
+  let changed = false
+  for (const stored of byId.values()) {
+    const cur = stored.schedule
+    if (!cur) continue
+    const hasScalar = typeof cur.startDate === "number"
+    const hasRule = !!cur.repeat || !!(cur.series && cur.series.length)
+    const hasExtras = !!(cur.plannedOccurrences && cur.plannedOccurrences.length)
+    // GUARD. A concrete scalar that has NOT yet passed is still the current-or-next ⇒ nothing to do.
+    // Otherwise the entity can only roll forward if its scalar passed, or (no scalar) a rule/extra
+    // could populate one. Everything else is skipped in O(1) — the common case every tick.
+    if (hasScalar) {
+      const passed = (cur.endDate ?? (cur.startDate as number)) < now
+      if (!passed) continue
+    } else if (!hasRule && !hasExtras) {
+      continue
+    }
+    const sched: Schedule = { ...cur }
+    const beforeStart = sched.startDate
+    const beforeEnd = sched.endDate
+    resyncPrimary(sched, now)
+    if (sched.startDate === beforeStart && sched.endDate === beforeEnd) continue // pick unchanged
+    const entity = mutable(stored)
+    entity.schedule = sched
+    if (!userEntityIds.has(stored.id)) {
+      seededOverrides.set(stored.id, { ...seededOverrides.get(stored.id), schedule: sched })
+    }
+    changed = true
+  }
+  if (changed) persist()
+  return changed
+}
+
+/**
  * CANCEL THE PRIMARY occurrence (v0.2.232) — the current (scalar) occurrence has no
  * `plannedOccurrences[]` slot to flag, so cancelling it means: record it as a struck entry in
  * `plannedOccurrences[]`, then `resyncPrimary` promotes the next soonest live span into the scalar
