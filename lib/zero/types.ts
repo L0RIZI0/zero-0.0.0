@@ -170,6 +170,7 @@ export type LogType =
   | "stopped"
   | "session-open" // legacy alias for "started"
   | "session-close" // legacy alias for "stopped"
+  | "session" // SELF-DESCRIBING manual recorded session (carries its own sessionStart/sessionEnd)
   | "mark"
   | "set"
 
@@ -216,6 +217,16 @@ export interface Instant {
    * `via` is stored — {@link deriveSessionsFromLog} recovers each {@link Session}'s via from the type.
    */
   auto?: boolean
+  /**
+   * SELF-DESCRIBING manual-session bounds (v0.2.269), present ONLY on a `type:"session"` entry — a
+   * recorded session the user entered by hand via the Plan dialog (e.g. "this happened yesterday
+   * 2–4pm"). The span is carried IN the entry rather than reconstructed from walk position, so
+   * {@link deriveSessionsFromLog} emits it order-independently and it never competes for the single
+   * play/stop "open" slot. `sessionStart` is the punch-in epoch; `sessionEnd` absent ⇒ started-and-
+   * still-ongoing.
+   */
+  sessionStart?: Epoch
+  sessionEnd?: Epoch
 }
 
 /**

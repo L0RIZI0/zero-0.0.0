@@ -1738,6 +1738,32 @@ export function closeSession(id: string, via?: Session["via"], at = Date.now()):
   return true
 }
 
+/**
+ * ADD A MANUAL RECORDED SESSION (LOG-FIRST, v0.2.269) — the past/ongoing-session half of the Plan
+ * dialog. Appends ONE self-describing `session` log entry carrying its own `{sessionStart, sessionEnd}`
+ * (see {@link Instant}), then re-derives `sessions[]`. Because {@link deriveSessionsFromLog} reads the
+ * span from the entry's payload (not from walk position), this works for ANY past window and does NOT
+ * touch the single play/stop "open" slot — so it can coexist with a live ongoing session.
+ *
+ *   - `end` given      ⇒ a CLOSED recorded session [start, end].
+ *   - `end` omitted/null ⇒ a still-ONGOING recorded session that STARTED at `start` (no `endedAt`).
+ *
+ * `start` is clamped to `≤ now`; when `end` is given it's clamped to `≥ start` (a zero/negative span
+ * collapses to a mark-like point, harmless). The append is truth-based: it records that the user
+ * declared this session happened. Returns true on success.
+ */
+export function addManualSession(id: string, start: number, end?: number | null, now = Date.now()): boolean {
+  const stored = byId.get(id)
+  if (!stored) return false
+  const entity = mutable(stored)
+  const s = Math.min(start, now)
+  const entry: Instant = { at: now, type: "session", sessionStart: s }
+  if (end != null) entry.sessionEnd = Math.max(end, s)
+  entity.log = appendInstant(ensureEntityLog(entity), entry)
+  recomputeSessionsFromLog(id, entity)
+  return true
+}
+
 // v0.2.257 — pauseOngoing / resumeOngoing were RETIRED with the start/stop-only session model.
 // The glyph is now a plain Play/Stop toggle: STOP = closeSession("play") (writes `stopped`, which the
 // fold closes for any flavor even in-place), START = openSession("play"). Old logs' `paused`/`resumed`

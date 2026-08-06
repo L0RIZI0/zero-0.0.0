@@ -11,6 +11,7 @@ import { recordAccess } from "@/lib/zero/activity-log"
 import { Zero0DomMenu, type Zero0DomMenuState } from "./zero0-dom-menu"
 import { Zero0ColorField } from "./zero0-color-picker"
 import { buildEntityMenuItems, applyEntityMenuAction, type MenuItem } from "@/lib/zero/menu-model"
+import { Zero0PlanDialog, type PlanResult } from "./zero0-plan-dialog"
 import {
   ROOT_ID,
   currentUser,
@@ -62,6 +63,7 @@ import {
   removeSeries,
   reorderContextItems,
   moveEntityToContext,
+  addManualSession,
 } from "@/lib/zero/data"
   import { KIND_META, getState, isClosed, hasOpenSession, getOpenSession, getSessions, isMarkable, isPlayable, getInstantMaxNb, canAutoPlay } from "@/lib/zero/kinds"
   import { isDone, describeLogEntry } from "@/lib/zero/entity-log"
@@ -709,6 +711,9 @@ export function Zero0Canvas() {
   // of ENTITY CONTENT; when on, they're revealed with a "(hidden)" title prefix. Session-
   // only and RESET on navigation so drilling into a new context starts clean.
   const [showHidden, setShowHidden] = useState(false)
+  // PLAN DIALOG target (v0.2.269) — the entity whose right-click "Plan…" opened <Zero0PlanDialog>;
+  // null = closed. Set by runEntityAction intercepting the "plan" view-action.
+  const [planTarget, setPlanTarget] = useState<Entity | null>(null)
   useEffect(() => {
     setShowHidden(false)
   }, [contextId])
@@ -1559,6 +1564,9 @@ export function Zero0Canvas() {
     (e: Entity, id: string) => {
       if (id === "show-hidden") return setShowHidden(true)
       if (id === "hide-hidden") return setShowHidden(false)
+      // PLAN… (v0.2.269) — a VIEW action: open the scheduling dialog for this entity. Mutates
+      // nothing here; the dialog resolves a PlanResult and applyPlan() runs the writers.
+      if (id === "plan") return setPlanTarget(e)
       // SIZE — a VIEW override (see `rowSizes`), not a data mutation, so it's handled here
       // rather than delegated to `applyEntityMenuAction`. Choosing "m" (the default) clears
       // the override to keep the map tidy.
@@ -1601,7 +1609,7 @@ export function Zero0Canvas() {
         toggleStarterPin(e.id)
         return bump()
       }
-      // PLAYABLE play/stop routes through togglePlaySession (v0.7 �� idea·resource·moment·space; a
+      // PLAYABLE play/stop routes through togglePlaySession (v0.7 ��� idea·resource·moment·space; a
       // `via:"play"` session on the bottom rail, never the scalar occurrence) so the menu shares the
       // glyph's in-place-pause / remote-stop four-verb logic. (applyEntityMenuAction's plain
       // open/close is only a fallback for the native overlay, which lacks the in-place context.)
@@ -1656,6 +1664,22 @@ export function Zero0Canvas() {
         // "cancel all" on the one-off list (v0.2.240) — cancels every not-yet-ended definite occurrence.
         cancelAllDefiniteOccurrences(e.id)
       }
+      bump()
+    },
+    [bump],
+  )
+
+  // APPLY a Plan-dialog result (v0.2.269) against the existing writers, then close + re-render. The
+  // dialog already decided tense (future ⇒ occurrence, past ⇒ session) and shape; this just routes:
+  //   • occurrence → addOccurrence (a planned one-off, top-rail)
+  //   • session    → addManualSession (a recorded/ongoing session, bottom rail; end omitted = ongoing)
+  //   • due        → setEntityScheduleField("dueDate")
+  const applyPlan = useCallback(
+    (target: Entity, result: PlanResult) => {
+      if (result.kind === "occurrence") addOccurrence(target.id, result.start, result.end)
+      else if (result.kind === "session") addManualSession(target.id, result.start, result.end)
+      else if (result.kind === "due") setEntityScheduleField(target.id, "dueDate", result.due)
+      setPlanTarget(null)
       bump()
     },
     [bump],
@@ -2394,6 +2418,17 @@ export function Zero0Canvas() {
       {/* Both the entity menu and the frame toggle now flow through this ONE in-DOM popup
           (or the native overlay when a site is open — see showMenu). */}
       {menu && <Zero0DomMenu menu={menu} onClose={() => setMenu(null)} />}
+
+      {/* PLAN dialog (v0.2.269) — opened by the entity right-click "Plan…". Centered modal over a
+          dimmed canvas; `nowSec` (live ms clock) drives its future-vs-past tense split. */}
+      {planTarget && (
+        <Zero0PlanDialog
+          entity={planTarget}
+          now={nowSec}
+          onApply={(result) => applyPlan(planTarget, result)}
+          onClose={() => setPlanTarget(null)}
+        />
+      )}
     </main>
   )
 }

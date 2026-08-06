@@ -183,6 +183,15 @@ export function buildEntityMenuItems(
     }
   }
 
+  // PLAN… — open the rich scheduling dialog (v0.2.269) for this entity: a one-off date/time,
+  // end/duration or single point, a due deadline, or (with a past start) a recorded/ongoing session.
+  // Offered on every kind except the Soul (matching the §0 occurrences block's reach). This is a
+  // VIEW action (it opens UI and mutates nothing directly), so `applyEntityMenuAction` returns false
+  // for "plan" and the canvas intercepts it to open <Zero0PlanDialog>.
+  if (entity.kind !== "soul") {
+    items.push({ type: "item", id: "plan", label: "Plan…" })
+  }
+
   // SIZE — the rung this entity is shown at HERE (a VIEW override, not stored data). Only
   // offered when the caller passes `currentSize` (i.e. a surface that actually tracks per-
   // entity size, like the ENTITY CONTENT rows); `size:<value>` ids are handled by that

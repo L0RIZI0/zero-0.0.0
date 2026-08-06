@@ -270,6 +270,16 @@ export function describeLogEntry(
   e: Instant,
   formatValue?: (field: string, value: string | number | boolean) => string,
 ): string {
+  // SELF-DESCRIBING manual session (v0.2.269): render its own bounds, e.g. "session · 2:00 PM –
+  // 4:00 PM" or "session · 2:00 PM – ongoing". `startAt`/`endAt` are time fields in the caller's
+  // formatValue (fmtLogValue), so passing those keys pretty-prints the epochs.
+  if (e.type === "session") {
+    const start = e.sessionStart ?? e.at
+    const startStr = formatValue ? formatValue("startAt", start) : String(start)
+    if (e.sessionEnd == null) return `session · ${startStr} – ongoing`
+    const endStr = formatValue ? formatValue("endAt", e.sessionEnd) : String(e.sessionEnd)
+    return `session · ${startStr} – ${endStr}`
+  }
   if (e.type !== "set") return e.type
   const field = e.field ?? "field"
   // OCCURRENCE entries (v0.2.254) carry a pre-formatted human phrase as their value ("added · 6:00 PM–
@@ -504,6 +514,18 @@ export function deriveSessionsFromLog(
       case "mark":
         out.push({ startedAt: e.at, endedAt: e.at, via: "mark" })
         break
+      case "session": {
+        // SELF-DESCRIBING manual session (v0.2.269): emit the recorded span straight from the
+        // entry's OWN payload. Because the bounds don't come from walk position, array order is
+        // irrelevant and this never touches `st.ongoing` — so it coexists with play/stop spans
+        // without disturbing the one-ongoing-at-a-time invariant. `via:"play"` = a recorded/played
+        // span (the presence rail). Absent `sessionEnd` ⇒ still-ongoing (no `endedAt`).
+        const start = e.sessionStart ?? e.at
+        const s: Session = { startedAt: start, via: "play" }
+        if (e.sessionEnd != null) s.endedAt = e.sessionEnd
+        out.push(s)
+        break
+      }
     }
   }
   return out
