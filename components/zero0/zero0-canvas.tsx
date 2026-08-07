@@ -1959,6 +1959,24 @@ export function Zero0Canvas() {
     [showMenu, navigateTo, runScheduleAction],
   )
 
+  // COMMIT a dayline DRAG re-time (v0.2.286). The dayline hands back the occurrence identity + the
+  // new absolute start/end (already minute-rounded); this routes to the SAME per-occurrence TIME
+  // writers the "Edit time" menu uses (setRuleOccurrenceTime / setDefiniteOccurrenceTime via the
+  // `edit` action), so a drag and a manual §0 edit are one code path.
+  const retimeOccurrence = useCallback(
+    (entityId: string, occ: DaylineOccRef, start: number, end: number) => {
+      const e = getEntity(entityId)
+      if (!e) return
+      runScheduleAction(
+        e,
+        occ.origin === "rule"
+          ? { type: "edit", origin: "rule", recurrenceId: occ.recurrenceId!, start, end, ruleId: occ.ruleId }
+          : { type: "edit", origin: "definite", primary: occ.occIndex === -1, occIndex: occ.occIndex, start, end },
+      )
+    },
+    [runScheduleAction],
+  )
+
   // SIBLINGS dropdown �� opened from the caret to the LEFT of a crumb (any depth except root).
   // Lists ALL entities at that crumb's level (its parent's children, INCLUDING the current one,
   // marked), in their stable child order. Listing all — not just the "others" — means the menu's
@@ -2160,6 +2178,7 @@ export function Zero0Canvas() {
             onOpen={navigateTo}
             onContextMenuEntity={openMenuById}
             onOccurrenceMenu={openOccurrenceMenu}
+            onOccurrenceRetime={retimeOccurrence}
             onFrameMenu={openFrameMenu}
             onToggleMinimize={() => setMinimized((m) => ({ ...m, agenda: !m.agenda }))}
             minimized={minimized.agenda}

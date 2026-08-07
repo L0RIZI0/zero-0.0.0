@@ -1388,9 +1388,10 @@ export function Zero0Dayline({
   const beginEdgeDrag = useCallback(
     (kind: "start" | "end" | "move", p: DaylineBar) => (e: React.PointerEvent) => {
       if (e.button !== 0 || !onOccurrenceRetime || !p.occRef || p.startMs == null || p.endMs == null) return
-      // A drag on an editable tick WINS over panning + never opens the entity.
+      // A drag on an editable tick WINS over panning (stopPropagation keeps the lane's pointerdown
+      // from starting a pan). We do NOT preventDefault, so a no-move press still fires the button's
+      // click → opens the entity; a real drag is gated out of that click by `editDraggedRef`.
       e.stopPropagation()
-      e.preventDefault()
       const lane = laneRef.current
       if (!lane) return
       editDragRef.current = {
@@ -1937,6 +1938,18 @@ export function Zero0Dayline({
                     (p.track === "recorded" && p.unknownEnd) ||
                     ((p.track === "middle" || p.track === "access") && p.openEnded)
                   const effWidthPct = liveRightEdge ? Math.max(0, nowPct - p.leftPct) : p.widthPct
+                  // DRAG PREVIEW (v0.2.286): while THIS planned tick is being edge/move-dragged, its
+                  // geometry is driven LIVE from `editPreview` (start/end in ms → leftPct/widthPct via
+                  // the same winStart/VIEW_SPAN_MS scale as every other tick) so it slides/resizes under
+                  // the cursor before commit. A dragged planned tick is never anchorRight/fading/point,
+                  // so only the plain left + width branches below consult these.
+                  const dragging = editPreview?.key === p.key
+                  const dispLeftPct = dragging
+                    ? ((editPreview!.start - winStart) / VIEW_SPAN_MS) * 100
+                    : p.leftPct
+                  const dispWidthPct = dragging
+                    ? ((editPreview!.end - editPreview!.start) / VIEW_SPAN_MS) * 100
+                    : effWidthPct
                   // OPEN SPINE SEGMENT (v0.2.268): the live middle/access segment whose RIGHT edge is the
                   // growing now edge and whose LEFT edge (start) is FIXED. It must be LEFT-anchored (see
                   // anchorRight below): right-anchoring it (`left = leftPct+effWidthPct` + translate-x-full)
@@ -2035,8 +2048,15 @@ export function Zero0Dayline({
                         onMouseLeave={() => {
                           setHoveredKey((h) => (h === p.key ? null : h))
                         }}
+                        // MOVE DRAG (v0.2.286): grabbing an editable planned tick's BODY drags the whole
+                        // occurrence to a new time (duration preserved). Only wired when edgeEditable so
+                        // non-editable ticks keep their normal click/pan behaviour untouched.
+                        onPointerDown={edgeEditable ? beginEdgeDrag("move", p) : undefined}
+                        onPointerMove={edgeEditable ? moveEdgeDrag : undefined}
+                        onPointerUp={edgeEditable ? endEdgeDrag : undefined}
                         onClick={() => {
-                          if (draggedRef.current) return // a pan, not a tap
+                          // Suppress the open when the press was a pan OR a real re-time drag.
+                          if (draggedRef.current || editDraggedRef.current) return
                           onOpen(p.id)
                         }}
                         onContextMenu={(ev) => {
@@ -2092,7 +2112,7 @@ export function Zero0Dayline({
                                 // marker every 1s" Loris reported. Both now read effWidthPct ⇒ the right
                                 // edge glides with the marker. (For closed ticks effWidthPct === widthPct.)
                                 `${p.leftPct + effWidthPct}%`
-                              : `${p.leftPct}%`,
+                              : `${dispLeftPct}%`,
                           // A MARK renders as a small downward-triangle instant glyph (clip-path);
                           // a plain point is a 2px tick; a FADING tick spans start→now PLUS the
                           // fade tail (so the solid/fade boundary lands exactly on now, with no
@@ -2112,7 +2132,7 @@ export function Zero0Dayline({
                                       // would spill 3px PAST the now marker. A <1px open segment is simply
                                       // invisible for a fraction of a second — correct, and it never spills.
                                       `${effWidthPct}%`
-                                    : `max(3px, ${effWidthPct}%)`,
+                                    : `max(3px, ${dispWidthPct}%)`,
                           height: p.markGlyph ? 9 : tickH,
                           // FILL = entity color; parent color is shown as an INSET GLOW only (no border).
                           background: fill,
@@ -2160,19 +2180,21 @@ export function Zero0Dayline({
                           zIndex: lit || isHot ? 16 : 8,
                         }}
                       >
-                        {/* EDGE DRAG-HANDLES (v0.2.285) — a thin grab zone on each side of an editable
-                            tick. Hovering one shows the ew-resize cursor + fades in the hourly guides;
-                            a faint fill hints the zone. onPointerDown STOPS PROPAGATION so the lane's
-                            pan never engages — a drag on a handle wins over panning (the resize itself
-                            lands next phase). onClick is also stopped so grabbing an edge can't open the
-                            entity. */}
+                        {/* EDGE DRAG-HANDLES (v0.2.285, wired .286) — a thin grab zone on each side of an
+                            editable planned tick. Hovering shows the ew-resize cursor + fades in the hour
+                            guides. Dragging RESIZES that edge (start handle moves the start, end handle the
+                            end; the other edge stays put), committing the new span on release. The handler
+                            stops propagation so the drag WINS over panning, and onClick is stopped so a
+                            grab on the edge never opens the entity. */}
                         {edgeEditable && (
                           <>
                             <span
                               aria-hidden
                               onMouseEnter={showHourGuides}
                               onMouseLeave={hideHourGuides}
-                              onPointerDown={(ev) => ev.stopPropagation()}
+                              onPointerDown={beginEdgeDrag("start", p)}
+                              onPointerMove={moveEdgeDrag}
+                              onPointerUp={endEdgeDrag}
                               onClick={(ev) => ev.stopPropagation()}
                               className="pointer-events-auto absolute inset-y-0 left-0 w-[6px] cursor-ew-resize rounded-l-[2px] transition-colors hover:bg-foreground/25"
                             />
@@ -2180,7 +2202,9 @@ export function Zero0Dayline({
                               aria-hidden
                               onMouseEnter={showHourGuides}
                               onMouseLeave={hideHourGuides}
-                              onPointerDown={(ev) => ev.stopPropagation()}
+                              onPointerDown={beginEdgeDrag("end", p)}
+                              onPointerMove={moveEdgeDrag}
+                              onPointerUp={endEdgeDrag}
                               onClick={(ev) => ev.stopPropagation()}
                               className="pointer-events-auto absolute inset-y-0 right-0 w-[6px] cursor-ew-resize rounded-r-[2px] transition-colors hover:bg-foreground/25"
                             />

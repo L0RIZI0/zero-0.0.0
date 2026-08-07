@@ -73,6 +73,7 @@ export function Zero0Agenda({
   onOpen,
   onContextMenuEntity,
   onOccurrenceMenu,
+  onOccurrenceRetime,
   onFrameMenu,
   onToggleMinimize,
   minimized = false,
@@ -89,6 +90,13 @@ export function Zero0Agenda({
     entityId: string,
     occ: NonNullable<DaylineOccRef>,
     ev: React.MouseEvent,
+  ) => void
+  /** Drag a planned tick's edge / body → commit its new start/end (v0.2.286). Forwarded to the dayline. */
+  onOccurrenceRetime?: (
+    entityId: string,
+    occ: NonNullable<DaylineOccRef>,
+    start: number,
+    end: number,
   ) => void
   /** Right-click the frame chrome (header / empty area) → the frame menu (minimize). */
   onFrameMenu?: (frame: "agenda" | "activity", ev: React.MouseEvent) => void
@@ -157,6 +165,7 @@ export function Zero0Agenda({
           onOpen={onOpen}
           onContextMenuEntity={onContextMenuEntity}
           onOccurrenceMenu={onOccurrenceMenu}
+          onOccurrenceRetime={onOccurrenceRetime}
           dataRev={dataRev}
           tracks="both"
           minimized={minimized}
