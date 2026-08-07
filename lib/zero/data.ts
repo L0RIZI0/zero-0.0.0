@@ -4200,6 +4200,50 @@ export function getOwner(entity: Entity): string {
   return entity.ownerId ?? entity.createdBy ?? CURRENT_ACTOR_ID
 }
 
+/** One row of an Individual's ACTIVITY FEED — a log entry paired with the entity it happened on. */
+export interface ActorFeedEntry {
+  entry: Instant
+  objectId: string
+  /** The object entity's CURRENT title (what to render the action against). */
+  objectTitle: string
+  /** True when the entry is on the acting individual itself (keeps its bare self-phrasing). */
+  isSelf: boolean
+}
+
+/**
+ * The ACTIVITY FEED for one acting Individual (v0.2.283): every log entry ACROSS ALL entities that
+ * was performed BY `actorId`, NEWEST FIRST. An entry's actor = `entry.by` when stamped, else the
+ * OWNER of the entity the entry lives on ({@link getOwner} → `ownerId ?? createdBy ?? CURRENT_ACTOR_ID`).
+ *
+ * In today's single-user model this attributes the whole tree to the root Individual, so its §0 log
+ * reads as a real diary of what the uzer did — "created X", "accessed Y", "marked Z done" — rather than
+ * just the root entity's own lifecycle. It stays correct for a multi-actor future because an explicit
+ * `by` or a non-default ownership routes an entry to the right person. Entries ON THE ACTOR ITSELF are
+ * kept (so its own `created` / `bornAt = …` still show), flagged `isSelf` for bare phrasing.
+ *
+ * Skips soft-deleted entities and materialized recurrence occurrences (`seriesId != null`) — neither is
+ * a real act. This is a pure read over the in-memory `entities`; no new stored data. The whole tree is
+ * small, so a full scan per call is fine.
+ */
+export function getActorFeed(actorId: string): ActorFeedEntry[] {
+  const out: ActorFeedEntry[] = []
+  for (const e of entities) {
+    if (e.deletedAt != null || e.seriesId != null) continue
+    const log = e.log
+    if (!log || log.length === 0) continue
+    const owner = getOwner(e)
+    const isSelf = e.id === actorId
+    for (const entry of log) {
+      const actor = entry.by ?? owner
+      if (actor !== actorId) continue
+      out.push({ entry, objectId: e.id, objectTitle: e.title, isSelf })
+    }
+  }
+  // Newest first; break ties by per-entity id so same-ms events keep a stable order.
+  out.sort((a, b) => b.entry.at - a.entry.at || (b.entry.id ?? 0) - (a.entry.id ?? 0))
+  return out
+}
+
 // --- Tag links (taggedContextIds): forward + DERIVED reverse ---------------
 
 /** The contexts this entity is ALSO shown in — its own outbound tag links resolved

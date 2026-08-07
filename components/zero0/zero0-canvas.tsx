@@ -66,9 +66,10 @@ import {
   moveEntityToContext,
   addManualSession,
   sweepStaleScalars,
+  getActorFeed,
 } from "@/lib/zero/data"
   import { KIND_META, getState, isClosed, hasOpenSession, getOpenSession, getSessions, isMarkable, isPlayable, getInstantMaxNb, canAutoPlay } from "@/lib/zero/kinds"
-  import { isDone, describeLogEntry } from "@/lib/zero/entity-log"
+  import { isDone, describeLogEntry, describeActorLogEntry } from "@/lib/zero/entity-log"
 import {
   parseEntry,
   inferKind,
@@ -296,6 +297,14 @@ function Zero0EntityHeaderBlock({
   onClose: (e: Entity) => void
 }) {
   const [logExpanded, setLogExpanded] = useState(false)
+  // ACTIVITY FEED (v0.2.283): for an INDIVIDUAL, the §0 "log" section shows the aggregated feed of
+  // every action the person performed across the whole tree (created / accessed / done / … on other
+  // entities), newest first — plus its OWN lifecycle (its `created`, `bornAt = …`) as bare self rows.
+  // Every other kind keeps its raw per-entity lifecycle log unchanged. The feed is a pure read over
+  // the in-memory entities (see getActorFeed); the tree is tiny so recomputing per render is cheap.
+  const isIndividual = entity.kind === "individual"
+  const actorFeed = isIndividual ? getActorFeed(entity.id) : null
+  const logCount = isIndividual ? actorFeed!.length : entity.log?.length ?? 0
   return (
     <section className="relative border-b border-border px-4 py-3">
       <Zero0Face
@@ -313,7 +322,7 @@ function Zero0EntityHeaderBlock({
           ) : undefined
         }
       />
-      {entity.log && entity.log.length > 0 && (
+      {logCount > 0 && (
         <div className="mt-3 border-t border-border pt-2">
           <button
             type="button"
@@ -322,22 +331,34 @@ function Zero0EntityHeaderBlock({
             className="flex items-center gap-1.5 text-[10px] uppercase tracking-widest text-muted-foreground hover:text-foreground"
           >
             <span aria-hidden className="inline-block w-2 text-center">{logExpanded ? "▾" : "▸"}</span>
-            <span>log</span>
-            <span className="tracking-normal normal-case opacity-70">{`(${entity.log.length})`}</span>
+            <span>{isIndividual ? "activity" : "log"}</span>
+            <span className="tracking-normal normal-case opacity-70">{`(${logCount})`}</span>
           </button>
-          {logExpanded && (
-            <ol className="mt-1 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-[10px] tabular-nums">
-              {entity.log.map((entry, i) => (
-                <li key={entry.id ?? i} className="contents">
-                  <span className="shrink-0 text-muted-foreground">
-                    {entry.id != null && <span className="mr-1.5 opacity-40">{`#${entry.id}`}</span>}
-                    {fmt(entry.at)}
-                  </span>
-                  <span className="truncate text-foreground">{describeLogEntry(entry, fmtLogValue)}</span>
-                </li>
-              ))}
-            </ol>
-          )}
+          {logExpanded &&
+            (isIndividual ? (
+              <ol className="mt-1 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-[10px] tabular-nums">
+                {actorFeed!.map(({ entry, objectId, objectTitle, isSelf }, i) => (
+                  <li key={`${objectId}#${entry.id ?? i}`} className="contents">
+                    <span className="shrink-0 text-muted-foreground">{fmt(entry.at)}</span>
+                    <span className="truncate text-foreground">
+                      {describeActorLogEntry(entry, { objectTitle, isSelf, formatValue: fmtLogValue })}
+                    </span>
+                  </li>
+                ))}
+              </ol>
+            ) : (
+              <ol className="mt-1 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-[10px] tabular-nums">
+                {entity.log!.map((entry, i) => (
+                  <li key={entry.id ?? i} className="contents">
+                    <span className="shrink-0 text-muted-foreground">
+                      {entry.id != null && <span className="mr-1.5 opacity-40">{`#${entry.id}`}</span>}
+                      {fmt(entry.at)}
+                    </span>
+                    <span className="truncate text-foreground">{describeLogEntry(entry, fmtLogValue)}</span>
+                  </li>
+                ))}
+              </ol>
+            ))}
         </div>
       )}
       <Zero0FrameMarker flag="entityHeader" label="the entity header" />

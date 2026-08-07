@@ -291,6 +291,83 @@ export function describeLogEntry(
 }
 
 /**
+ * ACTOR-POV phrasing of ONE log entry for an INDIVIDUAL's activity feed (v0.2.283). The very same
+ * append-only entries that describe an entity's OWN lifecycle are re-read here from the acting
+ * individual's perspective: an entry on ANOTHER entity becomes "verb ⟨that entity⟩" (`created "Task"`,
+ * `accessed "Space"`, `marked "Health" done`), while an entry on the actor ITSELF (`isSelf`) keeps
+ * its bare self-phrasing via {@link describeLogEntry} — so the actor's own `created` / `bornAt = …`
+ * still read naturally alongside the actions it performed. Pure: no new data, just a view over the
+ * existing logs (see {@link getActorFeed} in data.ts for the cross-entity aggregation).
+ */
+export function describeActorLogEntry(
+  e: Instant,
+  opts: {
+    objectTitle?: string
+    isSelf: boolean
+    formatValue?: (field: string, value: string | number | boolean) => string
+  },
+): string {
+  const { objectTitle, isSelf, formatValue } = opts
+  // Events on the actor itself keep the bare, object-less phrasing (its own creation / bornAt / …).
+  if (isSelf) return describeLogEntry(e, formatValue)
+  const T = objectTitle ? `"${objectTitle}"` : "an entity"
+  switch (e.type) {
+    case "created":
+      return `created ${T}`
+    case "accessed":
+      return `accessed ${T}`
+    case "exited":
+      return `left ${T}`
+    case "done":
+      return `marked ${T} done`
+    case "undone":
+      return `marked ${T} undone`
+    case "completed":
+      return `completed ${T}`
+    case "uncompleted":
+      return `uncompleted ${T}`
+    case "closed":
+      return `closed ${T}`
+    case "reopened":
+      return `reopened ${T}`
+    case "cancelled":
+      return `cancelled ${T}`
+    case "restored":
+      return `restored ${T}`
+    case "retired":
+      return `retired ${T}`
+    case "died":
+      return `${T} died`
+    case "started":
+    case "session-open":
+    case "resumed":
+      return `started ${T}`
+    case "stopped":
+    case "session-close":
+    case "paused":
+      return `stopped ${T}`
+    case "mark":
+      return `marked ${T}`
+    case "session": {
+      const start = e.sessionStart ?? e.at
+      const startStr = formatValue ? formatValue("startAt", start) : String(start)
+      if (e.sessionEnd == null) return `session on ${T} · ${startStr} – ongoing`
+      const endStr = formatValue ? formatValue("endAt", e.sessionEnd) : String(e.sessionEnd)
+      return `session on ${T} · ${startStr} – ${endStr}`
+    }
+    case "set": {
+      const field = e.field ?? "field"
+      if (field === "occurrence" && typeof e.value === "string") return `${e.value} on ${T}`
+      if (e.value == null) return `cleared ${field} of ${T}`
+      const v = formatValue ? formatValue(field, e.value) : String(e.value)
+      return `set ${field} of ${T} = ${v}`
+    }
+    default:
+      return `${e.type} ${T}`
+  }
+}
+
+/**
  * Fold an entity's legacy SCALAR lifecycle fields into a starting {@link Instant}
  * log — the one-time seed used by the Phase 2 migration AND by the write paths when
  * they encounter a pre-log entity. Best-effort and LOSSY by nature: the scalars only
