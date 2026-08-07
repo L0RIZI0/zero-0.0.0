@@ -262,6 +262,10 @@ function FaceBlock({
   // default profile; null-safe for kinds/states that don't emit these rows (then nothing shows).
   const titleState = defaultProfile ? (rows.find(([k]) => k === "state")?.[1] ?? null) : null
   const titleStatus = defaultProfile ? (rows.find(([k]) => k === "status")?.[1] ?? null) : null
+  // Title-bar status shows only the WORD (e.g. "ongoing"); the trailing detail ("· since …") is dropped
+  // from the display and surfaced on HOVER instead (full string as the tooltip). Split on the " · "
+  // separator the status row uses; simple statuses without a detail are unchanged.
+  const titleStatusShort = titleStatus ? titleStatus.split(" · ")[0] : null
   // Two-column body only when there's a meta grid to sit beside the occurrence block. The default
   // profile empties the grid, so the block goes full-width (single column) instead.
   const twoCol = showOccBlock && !defaultProfile
@@ -398,34 +402,39 @@ function FaceBlock({
         {!defaultProfile && (
           <span className="text-[10px] uppercase tracking-wider text-muted-foreground">{model.kindLabel}</span>
         )}
-        {/* STATE + STATUS cluster (v0.2.279) — right-aligned horizontal list on the identity line,
-            replacing their old meta-grid rows. Reuses the ENTITY CONTENT row idiom (a pulsing dot +
-            word for an ongoing status) so the two surfaces stay harmonized. Faint uppercase mini-label
-            + foreground value per axis; omitted axes just don't render. */}
-        {defaultProfile && (titleState || titleStatus) && (
-          <div className="ml-auto flex shrink-0 items-center gap-4 text-[10px] tabular-nums">
-            {titleState && (
-              <span className="flex items-center gap-1.5" title={model.stateLabel}>
-                <span className="uppercase tracking-widest text-muted-foreground/50">state</span>
-                <span className="text-foreground">{titleState}</span>
-              </span>
-            )}
-            {titleStatus && (
-              <span className="flex items-center gap-1.5">
-                <span className="uppercase tracking-widest text-muted-foreground/50">status</span>
-                {titleStatus.startsWith("ongoing") ? (
-                  <span className="flex items-center gap-1.5 text-foreground">
-                    <span aria-hidden className="zero0-pulse h-1.5 w-1.5 shrink-0 rounded-full bg-foreground" />
-                    <span className="zero0-pulse truncate">{titleStatus}</span>
-                  </span>
-                ) : (
-                  <span className="text-foreground">{titleStatus}</span>
-                )}
-              </span>
-            )}
-          </div>
-        )}
-        {trailing}
+        {/* RIGHT GROUP — a single content-sized flex pushed right by `ml-auto`, holding the STATE+STATUS
+            cluster and the trailing close button as ONE adjacent unit. This absorbs the close button's
+            own `ml-auto` (no free space inside a content-sized flex ⇒ it's a no-op), so there's no gap
+            between the status and the ×. */}
+        <div className="ml-auto flex shrink-0 items-center gap-4">
+          {/* STATE + STATUS cluster (v0.2.279) — horizontal list on the identity line, replacing their
+              old meta-grid rows. Reuses the ENTITY CONTENT row idiom (a pulsing dot + word for an ongoing
+              status). Status shows the WORD only; the "· since …" detail is on hover (title attr). */}
+          {defaultProfile && (titleState || titleStatus) && (
+            <div className="flex shrink-0 items-center gap-4 text-[10px] tabular-nums">
+              {titleState && (
+                <span className="flex items-center gap-1.5" title={model.stateLabel}>
+                  <span className="uppercase tracking-widest text-muted-foreground/50">state</span>
+                  <span className="text-foreground">{titleState}</span>
+                </span>
+              )}
+              {titleStatus && (
+                <span className="flex items-center gap-1.5" title={titleStatus}>
+                  <span className="uppercase tracking-widest text-muted-foreground/50">status</span>
+                  {titleStatus.startsWith("ongoing") ? (
+                    <span className="flex items-center gap-1.5 text-foreground">
+                      <span aria-hidden className="zero0-pulse h-1.5 w-1.5 shrink-0 rounded-full bg-foreground" />
+                      <span className="zero0-pulse">{titleStatusShort}</span>
+                    </span>
+                  ) : (
+                    <span className="text-foreground">{titleStatusShort}</span>
+                  )}
+                </span>
+              )}
+            </div>
+          )}
+          {trailing}
+        </div>
       </div>
       {/* §0 body — TWO COLUMNS when the occurrence block is present (v0.2.241): the curated meta dl +
           raw fields take the LEFT half, the PLANNED OCCURRENCES block the RIGHT half, so the (often
