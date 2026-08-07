@@ -628,8 +628,25 @@ export function Zero0Face({
         )}
         {/* (The old inline done/undone toggle column was removed — the GLYPH already toggles
             Done for done-able kinds, so the text column was redundant chrome.) */}
-        {/* Read-only LIFECYCLE state token (Complete/Close/Cancel via menu). */}
-        <span className="w-20 shrink-0 text-right text-muted-foreground/60">{model.lifeLabel}</span>
+        {/* STATUS + STATE token (v0.2.272) — the ENTITY CONTENT row now surfaces BOTH orthogonal
+            axes, not the lifecycle word alone: the presence STATUS ("ongoing", shown with §0's
+            live idiom — a pulsing dot + pulsing word) followed by the lifecycle STATE word. An
+            idle entity shows just its state, exactly as before. Fixed width (widened w-20 → w-32)
+            keeps the meta-echo column above it aligned across rows; `stateLabel` (the canonical
+            fold, incl. done/requested) is the hover title. */}
+        <span
+          className="flex w-32 shrink-0 items-center justify-end gap-1 truncate text-right text-muted-foreground/60"
+          title={model.stateLabel}
+        >
+          {model.ongoing && (
+            <>
+              <span aria-hidden className="zero0-pulse h-1.5 w-1.5 shrink-0 rounded-full bg-foreground/80" />
+              <span className="zero0-pulse shrink-0 text-foreground/80">ongoing</span>
+              <span aria-hidden className="shrink-0 text-muted-foreground/40">·</span>
+            </>
+          )}
+          <span className="truncate">{model.lifeLabel}</span>
+        </span>
       </>
     )
   }
