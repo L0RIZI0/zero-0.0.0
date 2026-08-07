@@ -413,7 +413,10 @@ function FaceBlock({
           {defaultProfile && (titleState || titleStatus) && (
             <div className="flex shrink-0 items-center gap-4 text-[10px] tabular-nums">
               {titleState && (
-                <span className="flex items-center gap-1.5" title={model.stateLabel}>
+                // NO title/hover here: the displayed value ("open") is self-explanatory, and
+                // `model.stateLabel` is a COMPOSITE ("ongoing, open") that leaks the status into the
+                // state hover — confusing (Loris hit this). Status keeps its own meaningful tooltip.
+                <span className="flex items-center gap-1.5">
                   <span className="uppercase tracking-widest text-muted-foreground/50">state</span>
                   <span className="text-foreground">{titleState}</span>
                 </span>
