@@ -2665,6 +2665,44 @@ export function removeSeries(id: string, ruleId: string): boolean {
   return true
 }
 
+/**
+ * SET MULTI-TIMEBLOCK days (v0.2.276) — the Plan dialog's "Blocks" mode writer. Stores the given
+ * within-day spans as `schedule.timeblocks` (absolute times on their anchor day) and mirrors the
+ * scalar `startDate`/`endDate` to the FIRST/LAST timeblock, exactly like `applyParsedSchedule`'s
+ * D4 branch, so every single-span reader (duration, bounds, dayline) keeps working and the expander
+ * projects each block onto matching days. An optional `repeat` makes the whole block-day recurring
+ * (anchored at the first block's start). Passing fewer than 2 blocks is a no-op for the multi-block
+ * case — a single span is just a normal start/end, so callers should use the scalar path for that.
+ * Deliberately does NOT call `resyncPrimary`: the timeblock mirror IS the primary here (matching
+ * applyParsedSchedule, which sets timeblocks + scalar together without a NEXT re-pick).
+ */
+export function setEntityTimeblocks(
+  id: string,
+  timeblocks: { startAt: number; endAt: number }[],
+  repeat?: Recurrence | null,
+): boolean {
+  const stored = byId.get(id)
+  if (!stored) return false
+  if (!timeblocks || timeblocks.length < 2) return false
+  const sorted = [...timeblocks].sort((a, b) => a.startAt - b.startAt)
+  const sched: Schedule = { ...(stored.schedule ?? {}) }
+  sched.timeblocks = sorted
+  sched.startDate = sorted[0].startAt
+  sched.endDate = sorted[sorted.length - 1].endAt
+  if (repeat) {
+    sched.repeat = repeat
+    sched.repeatAnchor = { start: sorted[0].startAt, end: sorted[sorted.length - 1].endAt }
+  }
+  const entity = mutable(stored)
+  entity.schedule = sched
+  logSet(entity, "timeblocks", String(sorted.length))
+  if (!userEntityIds.has(id)) {
+    seededOverrides.set(id, { ...seededOverrides.get(id), schedule: sched })
+  }
+  persist()
+  return true
+}
+
 // ----------------------------------------------------------------------------
 // Per-context ORDER �� the user's drag-and-drop sibling order for a do-list.
 // Scoped per context (like pins): `contextId` → the ordered child ids. A context

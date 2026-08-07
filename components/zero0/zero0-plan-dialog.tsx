@@ -23,10 +23,11 @@ import { projectOccurrences } from "@/lib/zero/data"
 export type PlanResult =
   | { kind: "occurrence"; start: number; end?: number } // FUTURE span/point → addOccurrence
   | { kind: "repeat"; repeat: Recurrence; start: number; end?: number } // FUTURE recurring → setEntityRepeat / addSeries
+  | { kind: "timeblocks"; timeblocks: { startAt: number; endAt: number }[]; repeat?: Recurrence } // Blocks → setEntityTimeblocks
   | { kind: "session"; start: number; end?: number } // PAST → addManualSession (end omitted = ongoing)
   | { kind: "due"; due: number } // deadline → setEntityScheduleField("dueDate")
 
-type Mode = "span" | "point" | "due"
+type Mode = "span" | "point" | "blocks" | "due"
 
 const HOUR = 3_600_000
 const MIN = 60_000
@@ -106,6 +107,14 @@ export const Zero0PlanDialog = memo(function Zero0PlanDialog({
   const [byWeekday, setByWeekday] = useState<number[]>([]) // weekly only; empty = the anchor's own day
   const [untilDate, setUntilDate] = useState("") // optional series end (date only)
 
+  // TIMEBLOCKS (Phase 3, "Blocks" mode) — a multi-span DAY (e.g. 8:00–11:30 AND 13:30–18:00), all on
+  // the anchor day (= `startDate`). Times only; the anchor date drives absolute epochs. Seeded with two
+  // sensible morning/afternoon rows so the mode is immediately meaningful (a single block is just a span).
+  const [blocks, setBlocks] = useState<{ start: string; end: string }[]>([
+    { start: "09:00", end: "12:00" },
+    { start: "13:00", end: "17:00" },
+  ])
+
   const startEpoch = useMemo(() => toEpoch(startDate, startTime), [startDate, startTime])
   const endEpoch = useMemo(() => toEpoch(endDate, endTime), [endDate, endTime])
   const untilEpoch = useMemo(() => (untilDate ? toEpoch(untilDate, "23:59") : null), [untilDate])
@@ -138,6 +147,33 @@ export const Zero0PlanDialog = memo(function Zero0PlanDialog({
     setByWeekday((prev) => (prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d]))
   }, [])
 
+  const updateBlock = useCallback((i: number, key: "start" | "end", v: string) => {
+    setBlocks((prev) => prev.map((b, j) => (j === i ? { ...b, [key]: v } : b)))
+  }, [])
+  const addBlock = useCallback(() => {
+    // Append a 1h block starting an hour after the last block's end (or 9:00 if none parse).
+    setBlocks((prev) => {
+      const last = prev[prev.length - 1]
+      const [h, m] = (last?.end ?? "17:00").split(":").map(Number)
+      const startH = Number.isNaN(h) ? 9 : Math.min(22, h + 1)
+      const s = `${String(startH).padStart(2, "0")}:${String(Number.isNaN(m) ? 0 : m).padStart(2, "0")}`
+      const e = `${String(Math.min(23, startH + 1)).padStart(2, "0")}:${String(Number.isNaN(m) ? 0 : m).padStart(2, "0")}`
+      return [...prev, { start: s, end: e }]
+    })
+  }, [])
+  const removeBlock = useCallback((i: number) => {
+    setBlocks((prev) => (prev.length <= 1 ? prev : prev.filter((_, j) => j !== i)))
+  }, [])
+
+  // Build the Recurrence rule from the current recur state (shared by the "repeat" + "blocks" branches).
+  const buildRule = useCallback((): Recurrence => {
+    const rule: Recurrence = { freq }
+    if (interval > 1) rule.interval = interval
+    if (freq === "weekly" && byWeekday.length) rule.byWeekday = [...byWeekday].sort((a, b) => a - b)
+    if (untilEpoch != null) rule.until = untilEpoch
+    return rule
+  }, [freq, interval, byWeekday, untilEpoch])
+
   // Derive the final PlanResult + a human preview from the current state. `null` result ⇒ invalid
   // (missing/!parseable start) and Apply is disabled.
   const { result, preview, invalid } = useMemo((): {
@@ -145,6 +181,34 @@ export const Zero0PlanDialog = memo(function Zero0PlanDialog({
     preview: string
     invalid: string | null
   } => {
+    // BLOCKS (Phase 3) — a multi-span day on the anchor date. Validate: date parses, ≥2 blocks, each
+    // end>start, and no overlaps (sorted). Optionally recurring via the shared repeat builder.
+    if (mode === "blocks") {
+      if (!startDate) return { result: null, preview: "", invalid: "Pick an anchor date" }
+      const tbs: { startAt: number; endAt: number }[] = []
+      for (const b of blocks) {
+        const s = toEpoch(startDate, b.start)
+        const e = toEpoch(startDate, b.end)
+        if (s == null || e == null) return { result: null, preview: "", invalid: "A block time is invalid" }
+        if (e <= s) return { result: null, preview: "", invalid: "Each block must end after it starts" }
+        tbs.push({ startAt: s, endAt: e })
+      }
+      if (tbs.length < 2) return { result: null, preview: "", invalid: "Add at least two blocks" }
+      tbs.sort((a, b) => a.startAt - b.startAt)
+      for (let i = 1; i < tbs.length; i++) {
+        if (tbs[i].startAt < tbs[i - 1].endAt) return { result: null, preview: "", invalid: "Blocks overlap" }
+      }
+      const totalMs = tbs.reduce((acc, b) => acc + (b.endAt - b.startAt), 0)
+      const rule = recur ? buildRule() : undefined
+      if (rule && untilEpoch != null && untilEpoch <= tbs[0].startAt)
+        return { result: null, preview: "", invalid: "Until must be after the start" }
+      const rulePart = rule ? ` · ${describeRecurrenceRule(rule, tbs[0].startAt, tbs[tbs.length - 1].endAt)}` : ""
+      return {
+        result: { kind: "timeblocks", timeblocks: tbs, repeat: rule },
+        preview: `${tbs.length} blocks · ${formatDuration(totalMs)} total${rulePart}`,
+        invalid: null,
+      }
+    }
     if (mode === "due") {
       if (startEpoch == null) return { result: null, preview: "", invalid: "Pick a date and time" }
       return { result: { kind: "due", due: startEpoch }, preview: `Deadline · due ${fmt(startEpoch)}`, invalid: null }
@@ -164,10 +228,7 @@ export const Zero0PlanDialog = memo(function Zero0PlanDialog({
       if (recur) {
         if (untilEpoch != null && untilEpoch <= startEpoch)
           return { result: null, preview: "", invalid: "Until must be after the start" }
-        const rule: Recurrence = { freq }
-        if (interval > 1) rule.interval = interval
-        if (freq === "weekly" && byWeekday.length) rule.byWeekday = [...byWeekday].sort((a, b) => a - b)
-        if (untilEpoch != null) rule.until = untilEpoch
+        const rule = buildRule()
         const label = describeRecurrenceRule(rule, startEpoch, end)
         const untilStr = untilEpoch != null ? ` · until ${fmt(untilEpoch)}` : ""
         return { result: { kind: "repeat", repeat: rule, start: startEpoch, end }, preview: `Recurring · ${label}${untilStr}`, invalid: null }
@@ -187,7 +248,7 @@ export const Zero0PlanDialog = memo(function Zero0PlanDialog({
       preview: `Recorded session · ${fmt(startEpoch)} → ${fmt(sessEnd)} · ${formatDuration(sessEnd - startEpoch)}`,
       invalid: null,
     }
-  }, [mode, startEpoch, endEpoch, hasEnd, isPast, ongoing, now, recur, freq, interval, byWeekday, untilEpoch])
+  }, [mode, startEpoch, endEpoch, hasEnd, isPast, ongoing, now, recur, freq, interval, byWeekday, untilEpoch, startDate, blocks, buildRule])
 
   // EXISTING REPEATS (Phase 2) — the entity's current rules, so they can be removed in place. The
   // primary `repeat` (anchored by `repeatAnchor`) comes first, then each additional `series[]` entry.
@@ -235,6 +296,16 @@ export const Zero0PlanDialog = memo(function Zero0PlanDialog({
     [apply, onClose],
   )
 
+  // ENTRANCE ANIMATION (Phase 3 polish) — flip `mounted` on after first paint so the dialog fades +
+  // scales in via a CSS transition (no animation dependency). Also focus the panel for immediate Esc/Enter.
+  const [mounted, setMounted] = useState(false)
+  const panelRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const r = requestAnimationFrame(() => setMounted(true))
+    panelRef.current?.focus()
+    return () => cancelAnimationFrame(r)
+  }, [])
+
   const fieldCls =
     "bg-transparent border border-border rounded-sm px-2 py-1 text-xs tabular-nums text-foreground outline-none focus:border-muted-foreground [color-scheme:dark]"
   const segCls = (active: boolean) =>
@@ -251,10 +322,16 @@ export const Zero0PlanDialog = memo(function Zero0PlanDialog({
       onKeyDown={onKeyDown}
     >
       <div
+        ref={panelRef}
         role="dialog"
         aria-modal="true"
         aria-label={`Plan ${entity.title ?? "entity"}`}
-        className="w-[440px] max-w-[calc(100vw-2rem)] rounded-md border border-border bg-background p-4 shadow-2xl"
+        tabIndex={-1}
+        className={
+          "w-[680px] max-w-[calc(100vw-2rem)] rounded-md border border-border bg-background p-5 shadow-2xl outline-none " +
+          "transition-[opacity,transform] duration-150 ease-out " +
+          (mounted ? "opacity-100 scale-100" : "opacity-0 scale-[0.97]")
+        }
       >
         {/* HEADER */}
         <div className="mb-3 flex items-baseline justify-between">
@@ -271,32 +348,11 @@ export const Zero0PlanDialog = memo(function Zero0PlanDialog({
           describe in words — coming next
         </div>
 
-        {/* EXISTING REPEATS (Phase 2) — manage the entity's current rules; each removable in place. */}
-        {existingRules.length > 0 && (
-          <div className="mb-3">
-            <div className="mb-1 text-[10px] uppercase tracking-wider text-muted-foreground">
-              {existingRules.length === 1 ? "Existing repeat" : `Existing repeats (${existingRules.length})`}
-            </div>
-            <div className="flex flex-col gap-1">
-              {existingRules.map((r) => (
-                <div
-                  key={r.id ?? "__primary__"}
-                  className="flex items-center gap-2 rounded-sm border border-border/60 px-2 py-1 text-[11px]"
-                >
-                  <span className="flex-1 truncate text-foreground">{r.label}</span>
-                  <button
-                    onClick={() => onRemoveRule(r.id)}
-                    className="shrink-0 text-[10px] uppercase tracking-wider text-muted-foreground hover:text-destructive"
-                    aria-label={`Remove repeat: ${r.label}`}
-                  >
-                    remove
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
+        {/* TWO-COLUMN BODY (v0.2.276) — LEFT = what & when (type, start, end/duration or blocks);
+            RIGHT = how often & existing rules. The wider dialog makes clever use of horizontal space. */}
+        <div className="grid grid-cols-2 gap-5">
+          {/* ── LEFT COLUMN ─────────────────────────────────────────────────────── */}
+          <div className="min-w-0">
         {/* TYPE SEGMENTED CONTROL */}
         <div className="mb-3 inline-flex gap-1 rounded-sm border border-border p-0.5" role="tablist" aria-label="Plan type">
           <button role="tab" aria-selected={mode === "span"} className={segCls(mode === "span")} onClick={() => setMode("span")}>
@@ -305,21 +361,55 @@ export const Zero0PlanDialog = memo(function Zero0PlanDialog({
           <button role="tab" aria-selected={mode === "point"} className={segCls(mode === "point")} onClick={() => setMode("point")}>
             Point
           </button>
+          <button role="tab" aria-selected={mode === "blocks"} className={segCls(mode === "blocks")} onClick={() => setMode("blocks")}>
+            Blocks
+          </button>
           <button role="tab" aria-selected={mode === "due"} className={segCls(mode === "due")} onClick={() => setMode("due")}>
             Due
           </button>
         </div>
 
-        {/* START (or DUE, when mode==="due") */}
+        {/* START (anchor DATE only in blocks mode; DATE+TIME otherwise; labelled "Due" in due mode) */}
         <div className="mb-3">
           <div className="mb-1 text-[10px] uppercase tracking-wider text-muted-foreground">
-            {mode === "due" ? "Due" : "Start"}
+            {mode === "due" ? "Due" : mode === "blocks" ? "Day" : "Start"}
           </div>
           <div className="flex gap-2">
-            <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className={fieldCls + " flex-1"} aria-label="Start date" />
-            <input type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} className={fieldCls} aria-label="Start time" />
+            <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className={fieldCls + " flex-1"} aria-label={mode === "blocks" ? "Anchor day" : "Start date"} />
+            {mode !== "blocks" && (
+              <input type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} className={fieldCls} aria-label="Start time" />
+            )}
           </div>
         </div>
+
+        {/* TIMEBLOCKS (blocks mode) — a multi-span day: a list of within-day start–end rows. */}
+        {mode === "blocks" && (
+          <div className="mb-3">
+            <div className="mb-1 flex items-center justify-between">
+              <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Blocks</span>
+              <button className="text-[10px] uppercase tracking-wider text-muted-foreground hover:text-foreground" onClick={addBlock}>
+                + add block
+              </button>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              {blocks.map((b, i) => (
+                <div key={i} className="flex items-center gap-1.5">
+                  <input type="time" value={b.start} onChange={(e) => updateBlock(i, "start", e.target.value)} className={fieldCls} aria-label={`Block ${i + 1} start`} />
+                  <span className="text-[10px] text-muted-foreground">→</span>
+                  <input type="time" value={b.end} onChange={(e) => updateBlock(i, "end", e.target.value)} className={fieldCls} aria-label={`Block ${i + 1} end`} />
+                  <button
+                    onClick={() => removeBlock(i)}
+                    disabled={blocks.length <= 1}
+                    className="ml-auto text-[10px] uppercase tracking-wider text-muted-foreground hover:text-destructive disabled:opacity-30 disabled:hover:text-muted-foreground"
+                    aria-label={`Remove block ${i + 1}`}
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* END + DURATION (span only) */}
         {mode === "span" && (
@@ -357,10 +447,13 @@ export const Zero0PlanDialog = memo(function Zero0PlanDialog({
             )}
           </div>
         )}
+          </div>
+          {/* ── RIGHT COLUMN — how often & existing rules ───────────────────────── */}
+          <div className="min-w-0">
 
-        {/* REPEAT (Phase 2) — future-only, span/point (not due). Off = one-off; on reveals the
-            frequency / interval / weekday / until builder. Anchored at the chosen start/end. */}
-        {!isPast && mode !== "due" && (
+        {/* REPEAT (Phase 2/3) — future span/point OR any blocks day (not due). Off = one-off; on
+            reveals the frequency / interval / weekday / until builder. Anchored at the chosen start. */}
+        {(mode === "blocks" || (!isPast && mode !== "due")) && (
           <div className="mb-3">
             <div className="mb-1 flex items-center justify-between">
               <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Repeat</span>
@@ -443,13 +536,41 @@ export const Zero0PlanDialog = memo(function Zero0PlanDialog({
           </div>
         )}
 
-        {/* STILL-HAPPENING toggle (past start, non-due only) */}
-        {isPast && mode !== "due" && (
+        {/* EXISTING REPEATS (Phase 2) — manage the entity's current rules; each removable in place. */}
+        {existingRules.length > 0 && (
+          <div className="mb-3">
+            <div className="mb-1 text-[10px] uppercase tracking-wider text-muted-foreground">
+              {existingRules.length === 1 ? "Existing repeat" : `Existing repeats (${existingRules.length})`}
+            </div>
+            <div className="flex flex-col gap-1">
+              {existingRules.map((r) => (
+                <div
+                  key={r.id ?? "__primary__"}
+                  className="flex items-center gap-2 rounded-sm border border-border/60 px-2 py-1 text-[11px]"
+                >
+                  <span className="flex-1 truncate text-foreground">{r.label}</span>
+                  <button
+                    onClick={() => onRemoveRule(r.id)}
+                    className="shrink-0 text-[10px] uppercase tracking-wider text-muted-foreground hover:text-destructive"
+                    aria-label={`Remove repeat: ${r.label}`}
+                  >
+                    remove
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* STILL-HAPPENING toggle (past start, span/point only — blocks & due never record sessions) */}
+        {isPast && mode !== "due" && mode !== "blocks" && (
           <label className="mb-3 flex cursor-pointer items-center gap-2 text-[11px] text-muted-foreground">
             <input type="checkbox" checked={ongoing} onChange={(e) => setOngoing(e.target.checked)} className="[color-scheme:dark]" />
             still happening (record as an ongoing session)
           </label>
         )}
+          </div>
+        </div>
 
         {/* LIVE PREVIEW / TENSE line */}
         <div className="mb-4 min-h-[1.5rem] rounded-sm bg-muted/30 px-2 py-1.5 text-[11px] tabular-nums">

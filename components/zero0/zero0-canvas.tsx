@@ -61,6 +61,7 @@ import {
   setEntityRepeat,
   addSeries,
   removeSeries,
+  setEntityTimeblocks,
   reorderContextItems,
   moveEntityToContext,
   addManualSession,
@@ -1697,6 +1698,7 @@ export function Zero0Canvas() {
   //   • occurrence → addOccurrence (a planned one-off, top-rail)
   //   • repeat     → setEntityRepeat (first rule) OR addSeries (entity already has a rule) — matches
   //                  the runScheduleAction primary-vs-series split so a 2nd recurring plan co-exists.
+  //   • timeblocks → setEntityTimeblocks (a multi-span day; optional repeat makes the day recurring)
   //   • session    → addManualSession (a recorded/ongoing session, bottom rail; end omitted = ongoing)
   //   • due        → setEntityScheduleField("dueDate")
   const applyPlan = useCallback(
@@ -1708,6 +1710,8 @@ export function Zero0Canvas() {
         const anchor = { start: result.start, end: result.end }
         if (hasRule) addSeries(target.id, result.repeat, anchor)
         else setEntityRepeat(target.id, result.repeat, anchor)
+      } else if (result.kind === "timeblocks") {
+        setEntityTimeblocks(target.id, result.timeblocks, result.repeat)
       } else if (result.kind === "session") addManualSession(target.id, result.start, result.end)
       else if (result.kind === "due") setEntityScheduleField(target.id, "dueDate", result.due)
       setPlanTarget(null)
@@ -1912,7 +1916,7 @@ export function Zero0Canvas() {
     [showMenu, navigateTo, runScheduleAction],
   )
 
-  // SIBLINGS dropdown — opened from the caret to the LEFT of a crumb (any depth except root).
+  // SIBLINGS dropdown �� opened from the caret to the LEFT of a crumb (any depth except root).
   // Lists ALL entities at that crumb's level (its parent's children, INCLUDING the current one,
   // marked), in their stable child order. Listing all — not just the "others" — means the menu's
   // contents + order NEVER change as you switch: only which row is marked current moves. Picking
