@@ -1461,7 +1461,25 @@ export function Zero0Canvas() {
       openedRef.current.add(e.id)
       prewarmedRef.current.delete(e.id)
     }
-    setPath((p) => [...p, e.id])
+    // DRILL THROUGH THE FULL PATH (v0.2.282). The tree can surface DEEP descendants (a grandchild
+    // shown under an expanded parent), so we must not blindly append the clicked id to the current
+    // path — that skips the intermediate ancestors and the breadcrumb jumps straight root→leaf.
+    // Instead rebuild the whole drill trail from root by walking `parentId` up (same logic as
+    // `navigateTo`). For a DIRECT child this yields the identical `[...p, e.id]`; for a deeper
+    // descendant it inserts every ancestor so the breadcrumb reads root / … / parent / leaf.
+    if (e.id === ROOT_ID) {
+      setPath([ROOT_ID])
+      return
+    }
+    const chain: string[] = []
+    let cursor: string | undefined = e.id
+    const guard = new Set<string>() // cycle guard
+    while (cursor && cursor !== ROOT_ID && !guard.has(cursor)) {
+      guard.add(cursor)
+      chain.unshift(cursor)
+      cursor = getEntity(cursor)?.parentId ?? undefined
+    }
+    setPath([ROOT_ID, ...chain])
   }, [])
 
   const goToCrumb = useCallback((i: number) => {
