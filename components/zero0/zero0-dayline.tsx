@@ -65,6 +65,12 @@ const LABEL_MARKER_GAP = 8
 
 const DAY_MS = 86_400_000
 const HOUR_MS = 3_600_000
+const MIN_MS = 60_000
+// DRAG RE-TIME (v0.2.286). Loris chose FREE-DRAG to the MINUTE (no hour/quarter snap), so a
+// dragged edge lands on the nearest whole minute. `MIN_OCC_MS` is the floor a RESIZE can shrink a
+// span to (1 minute) so an occurrence can't be dragged inside-out to zero/negative length.
+const MIN_OCC_MS = MIN_MS
+const roundToMinute = (t: number) => Math.round(t / MIN_MS) * MIN_MS
 // VIEW_SPAN_MS — the WIDTH of the VISIBLE window (how much time the band shows at once).
 // This is DECOUPLED from DAY_MS (which stays the calendar-day length for the 5am day bucket
 // + midnight markers). Set it to DAY_MS for the normal full-day view; set it SMALLER to ZOOM
@@ -406,6 +412,14 @@ interface DaylineBar {
    */
   occRef?: NonNullable<TimelineOccurrence["occRef"]>
   /**
+   * ABSOLUTE epoch bounds of this occurrence (v0.2.286) — its start and effective end in ms,
+   * carried so an edge / move DRAG can map a pixel delta straight back to a concrete new time
+   * and commit it through the occurrence writers. Set on every PLANNED bar; `startMs` is absent
+   * for an end-only (`unknownStart`) tick, which is never edge-editable anyway.
+   */
+  startMs?: number
+  endMs?: number
+  /**
    * ACCESS bars only. A "session of using Zero" is a RUN of contiguous access
    * segments (leaving one place enters the next at the same instant; a gap only opens
    * when the app was backgrounded). `roundLeft` marks the FIRST tick of such a run (its
@@ -427,6 +441,7 @@ export function Zero0Dayline({
   onOpen,
   onContextMenuEntity,
   onOccurrenceMenu,
+  onOccurrenceRetime,
   dataRev,
   tracks = "planned",
   trailing,
@@ -446,6 +461,15 @@ export function Zero0Dayline({
     entityId: string,
     occ: NonNullable<TimelineOccurrence["occRef"]>,
     ev: React.MouseEvent,
+  ) => void
+  /** COMMIT a drag re-time of a planned occurrence (v0.2.286) — the new absolute start/end (ms,
+   *  already rounded to the minute) for the occurrence addressed by `occ`. Wired from the canvas
+   *  to `setDefiniteOccurrenceTime` / `setRuleOccurrenceTime`. Absent ⇒ edge/move handles are inert. */
+  onOccurrenceRetime?: (
+    entityId: string,
+    occ: NonNullable<TimelineOccurrence["occRef"]>,
+    start: number,
+    end: number,
   ) => void
   dataRev: number
   /** Which lane this instance paints. `"planned"` = scheduled occurrences only;
@@ -652,6 +676,10 @@ export function Zero0Dayline({
         sky: isSleepSpan ? sleepSkyBackground(occ.occKey) : undefined,
         // Per-occurrence dispatch identity for the top-rail right-click menu (v0.2.249).
         occRef: occ.occRef,
+        // Absolute span (v0.2.286) — feeds the drag re-time. `st` is null only for an end-only
+        // tick (never edge-editable); `en` is the effective end computed just above.
+        startMs: st ?? undefined,
+        endMs: en,
       })
     }
     return out
@@ -1335,6 +1363,99 @@ export function Zero0Dayline({
   const dragRef = useRef<{ startX: number; startView: number; lastX: number } | null>(null)
   const draggedRef = useRef(false)
 
+  // --- Occurrence RE-TIME drag (v0.2.286) -----------------------------------
+  // Drag a planned tick's LEFT/RIGHT edge handle to resize (change one edge), or the tick BODY to
+  // MOVE (reschedule, preserving duration). `editDragRef` holds the grabbed occurrence, its ORIGINAL
+  // span, and the lane width captured at grab; `curStart/curEnd` are mutated live so pointerUp can
+  // commit the final span without depending on the async `editPreview` state. `editPreview` mirrors
+  // that live span into the render so the tick slides under the cursor before commit. `editDraggedRef`
+  // guards the click-to-open that would otherwise fire when a MOVE drag ends on the body.
+  const editDragRef = useRef<{
+    kind: "start" | "end" | "move"
+    key: string
+    entityId: string
+    occRef: DaylineOccRef
+    origStart: number
+    origEnd: number
+    startX: number
+    laneW: number
+    curStart: number
+    curEnd: number
+  } | null>(null)
+  const [editPreview, setEditPreview] = useState<{ key: string; start: number; end: number } | null>(null)
+  const editDraggedRef = useRef(false)
+
+  const beginEdgeDrag = useCallback(
+    (kind: "start" | "end" | "move", p: DaylineBar) => (e: React.PointerEvent) => {
+      if (e.button !== 0 || !onOccurrenceRetime || !p.occRef || p.startMs == null || p.endMs == null) return
+      // A drag on an editable tick WINS over panning + never opens the entity.
+      e.stopPropagation()
+      e.preventDefault()
+      const lane = laneRef.current
+      if (!lane) return
+      editDragRef.current = {
+        kind,
+        key: p.key,
+        entityId: p.id,
+        occRef: p.occRef,
+        origStart: p.startMs,
+        origEnd: p.endMs,
+        startX: e.clientX,
+        laneW: lane.clientWidth || 1,
+        curStart: p.startMs,
+        curEnd: p.endMs,
+      }
+      editDraggedRef.current = false
+      ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+      showHourGuides()
+    },
+    [onOccurrenceRetime, showHourGuides],
+  )
+  const moveEdgeDrag = useCallback((e: React.PointerEvent) => {
+    const d = editDragRef.current
+    if (!d) return
+    e.stopPropagation()
+    const dx = e.clientX - d.startX
+    if (Math.abs(dx) > 2) editDraggedRef.current = true
+    // px → ms via the same scale panning uses: VIEW_SPAN_MS across the lane's pixel width.
+    const deltaMs = (dx / d.laneW) * VIEW_SPAN_MS
+    let start = d.origStart
+    let end = d.origEnd
+    if (d.kind === "move") {
+      start = roundToMinute(d.origStart + deltaMs)
+      end = start + (d.origEnd - d.origStart) // preserve duration
+    } else if (d.kind === "start") {
+      start = Math.min(roundToMinute(d.origStart + deltaMs), d.origEnd - MIN_OCC_MS)
+    } else {
+      end = Math.max(roundToMinute(d.origEnd + deltaMs), d.origStart + MIN_OCC_MS)
+    }
+    d.curStart = start
+    d.curEnd = end
+    setEditPreview({ key: d.key, start, end })
+  }, [])
+  const endEdgeDrag = useCallback(
+    (e: React.PointerEvent) => {
+      const d = editDragRef.current
+      editDragRef.current = null
+      if (!d) return
+      e.stopPropagation()
+      const el = e.currentTarget as HTMLElement
+      if (el.hasPointerCapture?.(e.pointerId)) el.releasePointerCapture(e.pointerId)
+      hideHourGuides()
+      // Commit only a REAL drag (past the tiny threshold) + only if the span actually changed.
+      if (editDraggedRef.current && (d.curStart !== d.origStart || d.curEnd !== d.origEnd)) {
+        onOccurrenceRetime?.(d.entityId, d.occRef, d.curStart, d.curEnd)
+      }
+      setEditPreview(null)
+      // Keep the suppress flag up through the click that fires immediately after this pointerUp
+      // (a MOVE drag ends on the body, whose onClick would otherwise open the entity), then clear it.
+      requestAnimationFrame(() => {
+        editDraggedRef.current = false
+      })
+    },
+    [onOccurrenceRetime, hideHourGuides],
+  )
+
   const onPointerDown = useCallback(
     (e: React.PointerEvent) => {
       if (e.button !== 0) return
@@ -1781,17 +1902,24 @@ export function Zero0Dayline({
                   // in from its LEFT edge. Rounds only its right (known) edge. Mutually exclusive with
                   // `fading` in practice (a bar can't be open on both ends). Never a point/mark.
                   const fadingStart = p.unknownStart && !p.point && !p.markGlyph && !fading
-                  // EDGE-EDITABLE (v0.2.285) — a tick that has TWO real, known edges the uzer can grab
-                  // to re-time by dragging: a PLANNED occurrence (top rail) or a PAST/closed RECORDED
-                  // session (bottom rail). Excludes points, mark glyphs, and open-ended ticks (fading /
-                  // fadingStart / ongoing) — those lack a fixed edge to drag. This PHASE only lights the
-                  // edge handles (cursor + hourly guides) and blocks pan; the actual drag-resize is next.
+                  // EDGE-EDITABLE (v0.2.285, narrowed .286) — a tick the uzer can DRAG to re-time. Now
+                  // scoped to PLANNED occurrences ONLY: they carry a `setDefiniteOccurrenceTime` /
+                  // `setRuleOccurrenceTime` writer that can commit the new span. RECORDED sessions are
+                  // derived from an append-only log with no time-writer yet, so their handles are OFF
+                  // until that log-edit pass lands (would show a handle that can't commit). Also requires
+                  // a FUTURE, addressable occurrence (`occRef.cancellable` ⇒ end ≥ now, can't re-time
+                  // history) with two known epochs. Excludes points / marks / open-ended (fading) ticks. */
                   const edgeEditable =
                     !p.point &&
                     !p.markGlyph &&
                     !fading &&
                     !fadingStart &&
-                    (p.track === "planned" || (p.track === "recorded" && !p.unknownEnd && !p.openEnded))
+                    p.track === "planned" &&
+                    !!p.occRef &&
+                    p.occRef.cancellable &&
+                    p.startMs != null &&
+                    p.endMs != null &&
+                    !!onOccurrenceRetime
                   // COLLAPSE-ON-STOP is handled IMPERATIVELY (v0.2.261) — the effect above FLIP-animates
                   // the just-closed node's px width + mask directly. The declarative render below only
                   // describes the RESTING open (`fading`) and closed states; it never needs a collapse

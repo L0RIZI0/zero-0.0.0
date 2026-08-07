@@ -485,10 +485,11 @@ export function Zero0Canvas() {
   // Which time frames are MINIMIZED (collapsed to just their dayline band). Session-only,
   // a separate axis from § visibility: a shown frame can be full or minimized.
   const [minimized, setMinimized] = useState<{ agenda: boolean; activity: boolean; zeroHeader: boolean }>({
-    // Agenda + the §1 ZERO HEADER open in their MINIMIZED form by default — a single
-    // dayline band / breadcrumb line — so the canvas stays calm until the user expands
-    // them. (Activity stays hidden entirely by its chord-flag default.)
-    agenda: true,
+    // The §1 ZERO HEADER opens in its MINIMIZED form by default (a single breadcrumb line).
+    // AGENDA now opens MAXIMIZED (v0.2.286) — the full TODAY dayline is the default view; its
+    // minimized band is being relocated to the top app header next. (Activity stays hidden
+    // entirely by its chord-flag default.)
+    agenda: false,
     activity: false,
     zeroHeader: true,
   })

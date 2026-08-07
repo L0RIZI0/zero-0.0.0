@@ -124,7 +124,9 @@ export function Zero0Agenda({
       >
         <div className="overflow-hidden">
           <div className="relative flex items-center justify-between px-4 py-2 text-[11px] uppercase tracking-wider text-muted-foreground after:absolute after:inset-x-4 after:bottom-0 after:h-px after:bg-border/50 after:content-['']">
-            <span>today</span>
+            {/* The "TODAY" word is HIDDEN (v0.2.286) — the maximized frame is now just the dayline.
+                An empty spacer keeps the collapse chevron flush-right via justify-between. */}
+            <span aria-hidden />
             {onToggleMinimize && (
               <button
                 type="button"
