@@ -119,35 +119,11 @@ export function Zero0Agenda({
       className="relative"
       onContextMenu={onFrameMenu ? (ev) => onFrameMenu("agenda", ev) : undefined}
     >
-      {/* Frame TITLE — this frame is named TODAY (dropped the "agenda ·" prefix Jul 2026;
-          the footer toggle link stays labelled "agenda"). Its divider is INSET (inset-x-4)
-          and lighter (border/50) so a within-frame division reads differently from the
-          full-bleed `border-border` separators that mark FRAME boundaries. ALWAYS MOUNTED —
-          it COLLAPSES (grid-rows 0fr↔1fr) when minimized so the title glides in/out smoothly
-          in both directions rather than popping. The chevron (right) minimizes on click. */}
-      <div
-        className="grid transition-[grid-template-rows] duration-300 ease-out motion-reduce:transition-none"
-        style={{ gridTemplateRows: minimized ? "0fr" : "1fr" }}
-        inert={minimized}
-      >
-        <div className="overflow-hidden">
-          <div className="relative flex items-center justify-between px-4 py-2 text-[11px] uppercase tracking-wider text-muted-foreground after:absolute after:inset-x-4 after:bottom-0 after:h-px after:bg-border/50 after:content-['']">
-            {/* The "TODAY" word is HIDDEN (v0.2.286) — the maximized frame is now just the dayline.
-                An empty spacer keeps the collapse chevron flush-right via justify-between. */}
-            <span aria-hidden />
-            {onToggleMinimize && (
-              <button
-                type="button"
-                onClick={onToggleMinimize}
-                aria-label="Minimize today"
-                className="-my-1 -mr-1 rounded p-1 text-muted-foreground/60 transition-colors hover:text-foreground"
-              >
-                <ChevronCollapse />
-              </button>
-            )}
-          </div>
-        </div>
-      </div>
+      {/* Frame TITLE bar REMOVED (v0.2.287) — the "TODAY" word was already hidden (.286) and the bar
+          then held only the minimize chevron, leaving an empty strip + inset divider above the dayline.
+          The maximized frame is now JUST the dayline. Minimize is still available by right-clicking the
+          frame (onFrameMenu → "Minimize the frame"); the dedicated control will be relocated to the top
+          app header next. */}
       {/* The dayline band. When minimized, a LEFT-click on empty area (anywhere that isn't a
           tick button) maximizes the frame — a big, forgiving hit target. Tick clicks still
           open their entity (guarded by the `[data-barkey]` closest check). */}
@@ -177,16 +153,6 @@ export function Zero0Agenda({
           to be nothing but the dayline). Re-show via the § chord or the footer link. */}
       {!minimized && <Zero0FrameMarker flag="agenda" label="the agenda" />}
     </section>
-  )
-}
-
-/** A small chevron-up used as the "minimize" affordance in the TODAY title. Inline SVG so
- *  zero0 stays free of an icon dependency (matches the dep-free glyph approach). */
-function ChevronCollapse() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <path d="M18 15l-6-6-6 6" />
-    </svg>
   )
 }
 

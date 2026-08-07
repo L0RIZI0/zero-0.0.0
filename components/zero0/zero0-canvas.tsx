@@ -1923,8 +1923,8 @@ export function Zero0Canvas() {
   // block's chip/row menu: Edit time · Cancel/Restore · Delete, all dispatched through the SAME
   // `runScheduleAction` using the occurrence's own dispatch identity (`occ`). EDIT navigates to the entity
   // (the inline time editor lives in the §0 block; the dayline hosts no text input this pass) — every other
-  // verb acts in place. Cancel/Edit are gated to a not-yet-past occurrence (`occ.cancellable`) exactly like
-  // §0 (can't re-time or cancel history), so a fully-past tick offers only Delete.
+  // verb acts in place. EDIT time is available for ANY occurrence incl. PAST (v0.2.287) — mirrors the §0
+  // block; only CANCEL stays future-gated (`occ.cancellable`), since you can't cancel history.
   const openOccurrenceMenu = useCallback(
     (entityId: string, occ: DaylineOccRef, ev: React.MouseEvent) => {
       ev.preventDefault()
@@ -1932,7 +1932,7 @@ export function Zero0Canvas() {
       const e = getEntity(entityId)
       if (!e) return
       const items: MenuItem[] = [
-        { type: "item", id: "edit", label: "Edit time", disabled: !occ.cancellable },
+        { type: "item", id: "edit", label: "Edit time" },
       ]
       if (occ.cancellable) items.push({ type: "item", id: "cancel", label: "Cancel" })
       items.push({ type: "item", id: "delete", label: "Delete", danger: true })

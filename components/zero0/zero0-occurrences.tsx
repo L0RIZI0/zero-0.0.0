@@ -196,9 +196,10 @@ export function Zero0Occurrences({
       // bubble up and open the entity menu instead of this one. (v0.2.244)
       ev.preventDefault()
       ev.stopPropagation()
-      // EDIT is enabled only for a not-yet-past occurrence (v0.2.248) — same gate as cancel; you can't
-      // re-time history. Editing sets the instance's time via the exceptions/definite override.
-      const items: MenuItem[] = [{ type: "item", id: "edit", label: "Edit time", disabled: !r.cancellable }]
+      // EDIT time is available for ANY occurrence, PAST included (v0.2.287, Loris ask) — correcting a
+      // past slot's recorded intent is legitimate, and the editor re-anchors onto the occurrence's own
+      // day, so history stays put. (CANCEL below is still future-gated — you can't cancel history.)
+      const items: MenuItem[] = [{ type: "item", id: "edit", label: "Edit time" }]
       if (r.cancelled || r.cancellable) items.push({ type: "item", id: r.cancelled ? "restore" : "cancel", label: r.cancelled ? "Restore" : "Cancel" })
       items.push({ type: "item", id: "delete", label: "Delete", danger: true })
       setMenu({

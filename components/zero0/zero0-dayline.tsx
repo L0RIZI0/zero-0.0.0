@@ -41,6 +41,11 @@ function daylineLabel(entity: Entity, at: number): string {
 /** Horizontal gap (px) between a day label and its 1px boundary marker in the minimized
  *  in-band overlay, so the two never touch. */
 const LABEL_MARKER_GAP = 8
+// Minimum horizontal breathing room kept between two day labels when the timeline is scrolled and
+// one boundary's label is pushed toward the next (v0.2.287) — stops "…07SAT AUG 08" from reading as
+// glued. In the MINIMIZED overlay the `2·LABEL_MARKER_GAP` inset already exceeds this; this floor is
+// what the full/maximized above-band strip (inset 0) relies on.
+const LABEL_COLLIDE_GAP = 12
 
 // ============================================================================
 // The ZERO0 DAYLINE — an ACCESS-ONLY port of the /2 dayline into root `/0`.
@@ -1255,7 +1260,8 @@ export function Zero0Dayline({
       // minimized mode both labels carry `+inset`, so subtract `2·inset`: the incoming
       // label keeps its `inset` gap to the RIGHT of the marker, and the pushed label keeps
       // an equal `inset` gap to the LEFT of it (otherwise they'd touch across the marker).
-      const upper = i < items.length - 1 ? items[i + 1].x - items[i].wdt - 2 * inset : Infinity
+      const gap = Math.max(2 * inset, LABEL_COLLIDE_GAP)
+      const upper = i < items.length - 1 ? items[i + 1].x - items[i].wdt - gap : Infinity
       const x = Math.min(Math.max(nat, 0), upper)
       items[i].el.style.transform = `translateX(${x + inset}px)`
       // Fade out once shoved off the left edge or parked beyond the right edge.
@@ -1408,9 +1414,13 @@ export function Zero0Dayline({
       }
       editDraggedRef.current = false
       ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+      // Pin this tick as hovered + seed the tooltip position so its live start/end card is present
+      // for the whole drag even if the pointer visually slips off the tick edge (v0.2.287).
+      setHoveredKey(p.key)
+      placeTooltip(e.clientX, e.clientY)
       showHourGuides()
     },
-    [onOccurrenceRetime, showHourGuides],
+    [onOccurrenceRetime, showHourGuides, placeTooltip],
   )
   const moveEdgeDrag = useCallback((e: React.PointerEvent) => {
     const d = editDragRef.current
@@ -1433,7 +1443,10 @@ export function Zero0Dayline({
     d.curStart = start
     d.curEnd = end
     setEditPreview({ key: d.key, start, end })
-  }, [])
+    // Keep the entity tooltip glued to the cursor during the drag (its start/end text updates live
+    // from `editPreview` in the render — v0.2.287).
+    placeTooltip(e.clientX, e.clientY)
+  }, [placeTooltip])
   const endEdgeDrag = useCallback(
     (e: React.PointerEvent) => {
       const d = editDragRef.current
@@ -1666,6 +1679,15 @@ export function Zero0Dayline({
     ))
   )
 
+  // LIVE TOOLTIP DURING DRAG (v0.2.287) — while an occurrence is being edge/move-dragged, the card
+  // shows THAT tick (even if the pointer slipped off it) and its range text is recomputed live from
+  // the `editPreview` span, so the entity's start/end update in real time as you drag.
+  const tipBar = (editPreview ? byKey.get(editPreview.key) ?? null : null) ?? hovered
+  const tipRange =
+    tipBar && editPreview && editPreview.key === tipBar.key
+      ? rangeText(editPreview.start, editPreview.end)
+      : tipBar?.range
+
   return (
     <div
       className={cn(
@@ -1737,7 +1759,7 @@ export function Zero0Dayline({
               pointer move — React only mounts/unmounts it on hover enter/leave, so moving the
               cursor over a tick never re-renders the heavy dayline. Initial paint uses the last
               `cursorRef` position; `left/top: 0` are placeholders overwritten synchronously. */}
-          {hovered &&
+          {tipBar &&
             typeof document !== "undefined" &&
             createPortal(
               <div
@@ -1749,13 +1771,13 @@ export function Zero0Dayline({
                   aria-hidden
                   className="h-2 w-2 shrink-0 rounded-full border"
                   style={{
-                    backgroundColor: hovered.color === ROOT_SENTINEL_COLOR ? "var(--background)" : hovered.color,
-                    borderColor: hovered.stroke ?? "var(--border)",
+                    backgroundColor: tipBar.color === ROOT_SENTINEL_COLOR ? "var(--background)" : tipBar.color,
+                    borderColor: tipBar.stroke ?? "var(--border)",
                   }}
                 />
-                {hovered.track === "access" && <span className="shrink-0 text-muted-foreground">in</span>}
-                <span className="truncate text-foreground">{hovered.title}</span>
-                <span className="shrink-0 text-muted-foreground tabular-nums">{hovered.range}</span>
+                {tipBar.track === "access" && <span className="shrink-0 text-muted-foreground">in</span>}
+                <span className="truncate text-foreground">{tipBar.title}</span>
+                <span className="shrink-0 text-muted-foreground tabular-nums">{tipRange}</span>
               </div>,
               document.body,
             )}
@@ -1903,13 +1925,15 @@ export function Zero0Dayline({
                   // in from its LEFT edge. Rounds only its right (known) edge. Mutually exclusive with
                   // `fading` in practice (a bar can't be open on both ends). Never a point/mark.
                   const fadingStart = p.unknownStart && !p.point && !p.markGlyph && !fading
-                  // EDGE-EDITABLE (v0.2.285, narrowed .286) — a tick the uzer can DRAG to re-time. Now
-                  // scoped to PLANNED occurrences ONLY: they carry a `setDefiniteOccurrenceTime` /
-                  // `setRuleOccurrenceTime` writer that can commit the new span. RECORDED sessions are
-                  // derived from an append-only log with no time-writer yet, so their handles are OFF
-                  // until that log-edit pass lands (would show a handle that can't commit). Also requires
-                  // a FUTURE, addressable occurrence (`occRef.cancellable` ⇒ end ≥ now, can't re-time
-                  // history) with two known epochs. Excludes points / marks / open-ended (fading) ticks. */
+                  // EDGE-EDITABLE (v0.2.285, narrowed .286, past-allowed .287) — a tick the uzer can DRAG
+                  // to re-time. Scoped to PLANNED occurrences ONLY: they carry a `setDefiniteOccurrenceTime`
+                  // / `setRuleOccurrenceTime` writer that can commit the new span. RECORDED sessions are
+                  // derived from an append-only log with no time-writer yet, so their handles are OFF until
+                  // that log-edit pass lands. v0.2.287: re-timing a PAST occurrence is now allowed (Loris
+                  // ask) — the `occRef.cancellable` (future-only) gate is dropped here; the writers are
+                  // time-agnostic. (CANCEL stays future-gated elsewhere — you can't cancel history, but you
+                  // CAN correct a past slot's time.) Needs two known epochs; excludes points / marks /
+                  // open-ended (fading) ticks, which have no fixed pair of edges to drag. */
                   const edgeEditable =
                     !p.point &&
                     !p.markGlyph &&
@@ -1917,7 +1941,6 @@ export function Zero0Dayline({
                     !fadingStart &&
                     p.track === "planned" &&
                     !!p.occRef &&
-                    p.occRef.cancellable &&
                     p.startMs != null &&
                     p.endMs != null &&
                     !!onOccurrenceRetime
