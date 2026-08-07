@@ -251,10 +251,20 @@ function FaceBlock({
   // no two rows can share a key): the flat PLANNED START / PLANNED END pair and the legacy
   // "occurrences" count+list summary. Otherwise the dl shows every row as before.
   const OCC_SUPERSEDED = useMemo(() => new Set(["planned start", "planned end", "occurrences"]), [])
+  // Under the DEFAULT PROFILE (v0.2.279) the curated meta grid is emptied — STATE + STATUS move to the
+  // title bar and everything else hides. Otherwise the existing rung/occurrence filtering applies.
   const displayRows = useMemo(
-    () => (showOccBlock ? rows.filter(([k]) => !OCC_SUPERSEDED.has(k)) : rows),
-    [rows, showOccBlock, OCC_SUPERSEDED],
+    () => (defaultProfile ? [] : showOccBlock ? rows.filter(([k]) => !OCC_SUPERSEDED.has(k)) : rows),
+    [rows, showOccBlock, OCC_SUPERSEDED, defaultProfile],
   )
+  // TITLE-BAR state + status (v0.2.279) — pulled from the SAME `rows` the grid used (so a future
+  // per-kind profile stays in sync), rendered right-aligned in the identity line. Only under the
+  // default profile; null-safe for kinds/states that don't emit these rows (then nothing shows).
+  const titleState = defaultProfile ? (rows.find(([k]) => k === "state")?.[1] ?? null) : null
+  const titleStatus = defaultProfile ? (rows.find(([k]) => k === "status")?.[1] ?? null) : null
+  // Two-column body only when there's a meta grid to sit beside the occurrence block. The default
+  // profile empties the grid, so the block goes full-width (single column) instead.
+  const twoCol = showOccBlock && !defaultProfile
   // RAW FIELDS collapse — folded by DEFAULT (v0.2.278), mirroring the §0 LIFE LOG toggle. The
   // exhaustive stored shape is a debug affordance, so it shouldn't push the curated meta down the
   // page on every open. Local session state: kept while this §0 stays mounted, reset on reload.
@@ -383,7 +393,38 @@ function FaceBlock({
             {titleText}
           </span>
         )}
-        <span className="text-[10px] uppercase tracking-wider text-muted-foreground">{model.kindLabel}</span>
+        {/* KIND label hidden under the default profile (v0.2.279) — the glyph already conveys kind for
+            now; it stays in RAW FIELDS and can be re-surfaced per-kind later. */}
+        {!defaultProfile && (
+          <span className="text-[10px] uppercase tracking-wider text-muted-foreground">{model.kindLabel}</span>
+        )}
+        {/* STATE + STATUS cluster (v0.2.279) — right-aligned horizontal list on the identity line,
+            replacing their old meta-grid rows. Reuses the ENTITY CONTENT row idiom (a pulsing dot +
+            word for an ongoing status) so the two surfaces stay harmonized. Faint uppercase mini-label
+            + foreground value per axis; omitted axes just don't render. */}
+        {defaultProfile && (titleState || titleStatus) && (
+          <div className="ml-auto flex shrink-0 items-center gap-4 text-[10px] tabular-nums">
+            {titleState && (
+              <span className="flex items-center gap-1.5" title={model.stateLabel}>
+                <span className="uppercase tracking-widest text-muted-foreground/50">state</span>
+                <span className="text-foreground">{titleState}</span>
+              </span>
+            )}
+            {titleStatus && (
+              <span className="flex items-center gap-1.5">
+                <span className="uppercase tracking-widest text-muted-foreground/50">status</span>
+                {titleStatus.startsWith("ongoing") ? (
+                  <span className="flex items-center gap-1.5 text-foreground">
+                    <span aria-hidden className="zero0-pulse h-1.5 w-1.5 shrink-0 rounded-full bg-foreground" />
+                    <span className="zero0-pulse truncate">{titleStatus}</span>
+                  </span>
+                ) : (
+                  <span className="text-foreground">{titleStatus}</span>
+                )}
+              </span>
+            )}
+          </div>
+        )}
         {trailing}
       </div>
       {/* §0 body — TWO COLUMNS when the occurrence block is present (v0.2.241): the curated meta dl +
@@ -392,15 +433,18 @@ function FaceBlock({
           occurrence block (e.g. a Soul) both wrappers collapse to `contents`, preserving the original
           full-width stack exactly. The occurrence block handles its own empty case (header + "+ add
           slot"). */}
-      <div className={showOccBlock ? "mt-2 grid gap-x-8 md:grid-cols-2 md:items-start" : "contents"}>
+      {/* TWO COLUMNS only when there's still a meta grid to place beside the occurrence block. Under the
+          default profile the grid is empty, so the occurrence block takes the FULL width below the title
+          bar and RAW FIELDS flows beneath it (single-column stack via `contents`). */}
+      <div className={twoCol ? "mt-2 grid gap-x-8 md:grid-cols-2 md:items-start" : "contents"}>
         {/* RIGHT column on md+ (`order-2`) — but FIRST in DOM so when the layout stacks on narrow
             widths the occurrence block stays on top (its original position), above the metadata. */}
         {showOccBlock && (
-          <div className="min-w-0 md:order-2">
+          <div className={twoCol ? "min-w-0 md:order-2" : "mt-2 min-w-0"}>
             <Zero0Occurrences entity={entity} now={now} onAction={onScheduleAction} />
           </div>
         )}
-        <div className={showOccBlock ? "min-w-0 md:order-1" : "contents"}>
+        <div className={twoCol ? "min-w-0 md:order-1" : "contents"}>
       {/* Raw meta key/values (filtered by rung). */}
       {displayRows.length > 0 && (
         <dl className="mt-2 grid grid-cols-[7.5rem_1fr] gap-x-4 gap-y-0.5 text-[10px] tabular-nums">
