@@ -250,6 +250,10 @@ function FaceBlock({
     () => (showOccBlock ? rows.filter(([k]) => !OCC_SUPERSEDED.has(k)) : rows),
     [rows, showOccBlock, OCC_SUPERSEDED],
   )
+  // RAW FIELDS collapse — folded by DEFAULT (v0.2.278), mirroring the §0 LIFE LOG toggle. The
+  // exhaustive stored shape is a debug affordance, so it shouldn't push the curated meta down the
+  // page on every open. Local session state: kept while this §0 stays mounted, reset on reload.
+  const [rawExpanded, setRawExpanded] = useState(false)
   const startScrollRef = useRef<HTMLDivElement>(null)
   const endScrollRef = useRef<HTMLDivElement>(null)
   const syncLock = useRef(false)
@@ -447,29 +451,41 @@ function FaceBlock({
           })}
         </dl>
       )}
-      {/* RAW FIELDS (temp) — the exhaustive stored shape, faint, under the curated §0 rows. */}
+      {/* RAW FIELDS (temp) — the exhaustive stored shape, faint, under the curated §0 rows. Now a
+          COLLAPSIBLE section (folded by default), mirroring the §0 LIFE LOG toggle exactly. */}
       {rawFields && rawFields.length > 0 && (
-        <div className="mt-3 border-t border-border/40 pt-2 opacity-45">
-          <div className="mb-1 text-[9px] uppercase tracking-widest text-muted-foreground">raw fields</div>
-          <dl className="grid grid-cols-[9rem_1fr] gap-x-4 gap-y-0.5 text-[10px] tabular-nums">
-            {rawFields.map(([k, v]) => (
-              <div key={k} className="contents">
-                <dt className="truncate uppercase tracking-widest text-muted-foreground" title={k}>
-                  {k}
-                </dt>
-                <dd className="flex items-center gap-1.5 truncate text-muted-foreground" title={v}>
-                  {k === "color" && v !== "—" && (
-                    <span
-                      aria-hidden
-                      className="h-2.5 w-2.5 shrink-0 rounded-sm border border-border"
-                      style={{ backgroundColor: v }}
-                    />
-                  )}
-                  <span className="truncate">{v}</span>
-                </dd>
-              </div>
-            ))}
-          </dl>
+        <div className="mt-3 border-t border-border/40 pt-2">
+          <button
+            type="button"
+            onClick={() => setRawExpanded((v) => !v)}
+            aria-expanded={rawExpanded}
+            className="flex items-center gap-1.5 text-[9px] uppercase tracking-widest text-muted-foreground hover:text-foreground"
+          >
+            <span aria-hidden className="inline-block w-2 text-center">{rawExpanded ? "▾" : "▸"}</span>
+            <span>raw fields</span>
+            <span className="tracking-normal normal-case opacity-70">{`(${rawFields.length})`}</span>
+          </button>
+          {rawExpanded && (
+            <dl className="mt-1 grid grid-cols-[9rem_1fr] gap-x-4 gap-y-0.5 text-[10px] tabular-nums opacity-45">
+              {rawFields.map(([k, v]) => (
+                <div key={k} className="contents">
+                  <dt className="truncate uppercase tracking-widest text-muted-foreground" title={k}>
+                    {k}
+                  </dt>
+                  <dd className="flex items-center gap-1.5 truncate text-muted-foreground" title={v}>
+                    {k === "color" && v !== "—" && (
+                      <span
+                        aria-hidden
+                        className="h-2.5 w-2.5 shrink-0 rounded-sm border border-border"
+                        style={{ backgroundColor: v }}
+                      />
+                    )}
+                    <span className="truncate">{v}</span>
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          )}
         </div>
       )}
         </div>
