@@ -1728,6 +1728,26 @@ export function Zero0Canvas() {
   )
   const closePlan = useCallback(() => setPlanTarget(null), [])
 
+  // REMOVE an existing repeat rule from inside the dialog (v0.2.275) — null = primary `repeat`
+  // (setEntityRepeat(id, null)), a string = a series id (removeSeries). The dialog STAYS OPEN so more
+  // can be removed; we re-set planTarget to a FRESH clone so the memoized dialog re-renders and its
+  // existing-rules list drops the removed row (both writers assign a new schedule reference). Stable
+  // (reads planTargetRef, no planTarget dep) to keep the dialog's React.memo effective.
+  const handleRemoveRule = useCallback(
+    (ruleId: string | null) => {
+      const t = planTargetRef.current
+      if (!t) return
+      if (ruleId === null) setEntityRepeat(t.id, null)
+      else removeSeries(t.id, ruleId)
+      // Re-fetch the (in-place-mutated) live entity and pass a fresh clone so the memoized dialog
+      // re-renders with the updated schedule; keep the dialog open when rules remain, close if none.
+      const fresh = getEntity(t.id)
+      setPlanTarget(fresh ? { ...fresh } : null)
+      bump()
+    },
+    [bump],
+  )
+
   // Open the entity menu. `opts.size` (passed by the ENTITY CONTENT rows) adds the Size
   // submenu with the row's current rung ticked; surfaces without a per-entity size (the
   // breadcrumb, siblings, §0 header, activity) omit it.
@@ -2470,6 +2490,7 @@ export function Zero0Canvas() {
           now={planNow}
           onApply={handlePlanApply}
           onClose={closePlan}
+          onRemoveRule={handleRemoveRule}
         />
       )}
     </main>

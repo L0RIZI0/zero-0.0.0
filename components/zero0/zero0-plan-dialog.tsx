@@ -3,6 +3,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { Entity, Recurrence } from "@/lib/zero/types"
 import { fmt, formatDuration, describeRecurrenceRule } from "@/lib/zero/face-model"
+import { projectOccurrences } from "@/lib/zero/data"
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // PLAN DIALOG (v0.2.269, Phase 1) — a centered modal that replaces the cramped "+ add slot"
@@ -73,11 +74,14 @@ export const Zero0PlanDialog = memo(function Zero0PlanDialog({
   now,
   onApply,
   onClose,
+  onRemoveRule,
 }: {
   entity: Entity
   now: number
   onApply: (result: PlanResult) => void
   onClose: () => void
+  /** Remove an existing repeat rule in place (null = the primary `repeat`; a string = a series id). */
+  onRemoveRule: (ruleId: string | null) => void
 }) {
   // Seed the start at the next round half-hour so opening the dialog lands on a sensible default.
   const seedStart = useMemo(() => {
@@ -185,6 +189,34 @@ export const Zero0PlanDialog = memo(function Zero0PlanDialog({
     }
   }, [mode, startEpoch, endEpoch, hasEnd, isPast, ongoing, now, recur, freq, interval, byWeekday, untilEpoch])
 
+  // EXISTING REPEATS (Phase 2) — the entity's current rules, so they can be removed in place. The
+  // primary `repeat` (anchored by `repeatAnchor`) comes first, then each additional `series[]` entry.
+  // `id: null` marks the primary (→ onRemoveRule(null) ⇒ setEntityRepeat(id, null)); a string is a
+  // series id (→ removeSeries). Derived from `entity.schedule`, which gets a fresh reference after a
+  // remove (the canvas re-sets planTarget), so this list re-computes and the removed row disappears.
+  const existingRules = useMemo(() => {
+    const s = entity.schedule
+    if (!s) return [] as { id: string | null; label: string }[]
+    const rows: { id: string | null; label: string }[] = []
+    if (s.repeat) {
+      rows.push({ id: null, label: describeRecurrenceRule(s.repeat, s.repeatAnchor?.start, s.repeatAnchor?.end) })
+    }
+    for (const sr of s.series ?? []) {
+      rows.push({ id: sr.id, label: describeRecurrenceRule(sr.repeat, sr.anchorStart, sr.anchorEnd) })
+    }
+    return rows
+  }, [entity.schedule])
+
+  // MULTI-OCCURRENCE PREVIEW (Phase 2) — when a recurring plan is valid, project the next few concrete
+  // instances so the user sees real dates, not just the rule label. Uses the SAME `projectOccurrences`
+  // engine the timeline/§0 use, on a synthetic schedule anchored at the chosen start/end (pure call — no
+  // store mutation). Floored at the start so the anchor day is the first instance.
+  const previewOccs = useMemo(() => {
+    if (!recur || result?.kind !== "repeat") return [] as { start: number; end?: number }[]
+    const synthetic = { id: "__preview__", schedule: { repeat: result.repeat, repeatAnchor: { start: result.start, end: result.end } } }
+    return projectOccurrences(synthetic, result.start, 4).map((o) => ({ start: o.start, end: o.end }))
+  }, [recur, result])
+
   const apply = useCallback(() => {
     if (result) onApply(result)
   }, [result, onApply])
@@ -238,6 +270,32 @@ export const Zero0PlanDialog = memo(function Zero0PlanDialog({
         <div className="mb-3 rounded-sm border border-dashed border-border/60 px-2 py-1.5 text-[10px] text-muted-foreground/40">
           describe in words — coming next
         </div>
+
+        {/* EXISTING REPEATS (Phase 2) — manage the entity's current rules; each removable in place. */}
+        {existingRules.length > 0 && (
+          <div className="mb-3">
+            <div className="mb-1 text-[10px] uppercase tracking-wider text-muted-foreground">
+              {existingRules.length === 1 ? "Existing repeat" : `Existing repeats (${existingRules.length})`}
+            </div>
+            <div className="flex flex-col gap-1">
+              {existingRules.map((r) => (
+                <div
+                  key={r.id ?? "__primary__"}
+                  className="flex items-center gap-2 rounded-sm border border-border/60 px-2 py-1 text-[11px]"
+                >
+                  <span className="flex-1 truncate text-foreground">{r.label}</span>
+                  <button
+                    onClick={() => onRemoveRule(r.id)}
+                    className="shrink-0 text-[10px] uppercase tracking-wider text-muted-foreground hover:text-destructive"
+                    aria-label={`Remove repeat: ${r.label}`}
+                  >
+                    remove
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* TYPE SEGMENTED CONTROL */}
         <div className="mb-3 inline-flex gap-1 rounded-sm border border-border p-0.5" role="tablist" aria-label="Plan type">
@@ -399,6 +457,19 @@ export const Zero0PlanDialog = memo(function Zero0PlanDialog({
             <span className="text-muted-foreground/60">{invalid}</span>
           ) : (
             <span className="text-foreground">{preview}</span>
+          )}
+          {/* NEXT OCCURRENCES — real projected dates for a recurring plan, so the rule label is concrete. */}
+          {!invalid && previewOccs.length > 0 && (
+            <ul className="mt-1.5 flex flex-col gap-0.5 border-t border-border/40 pt-1.5 text-[10px] text-muted-foreground">
+              {previewOccs.map((o, i) => (
+                <li key={i} className="flex items-center gap-1.5">
+                  <span aria-hidden className="text-muted-foreground/40">·</span>
+                  <span>{o.end != null ? `${fmt(o.start)} → ${fmt(o.end)}` : fmt(o.start)}</span>
+                </li>
+              ))}
+              {/* Only hint "more" when we hit the projection cap (4) — a bounded `until` returns fewer. */}
+              {previewOccs.length >= 4 && <li className="pl-3 text-muted-foreground/40">…and on</li>}
+            </ul>
           )}
         </div>
 
