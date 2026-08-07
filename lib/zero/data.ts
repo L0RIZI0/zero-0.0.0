@@ -4239,8 +4239,10 @@ export function getActorFeed(actorId: string): ActorFeedEntry[] {
       out.push({ entry, objectId: e.id, objectTitle: e.title, isSelf })
     }
   }
-  // Newest first; break ties by per-entity id so same-ms events keep a stable order.
-  out.sort((a, b) => b.entry.at - a.entry.at || (b.entry.id ?? 0) - (a.entry.id ?? 0))
+  // OLDEST FIRST (v0.2.284) — matches the per-entity LOG's chronological order so both read as a
+  // timeline from the beginning (latest action at the bottom). Break same-ms ties by per-entity id
+  // for a stable order.
+  out.sort((a, b) => a.entry.at - b.entry.at || (a.entry.id ?? 0) - (b.entry.id ?? 0))
   return out
 }
 
