@@ -64,14 +64,14 @@ const LABEL_MARKER_GAP = 8
 // ============================================================================
 
 const DAY_MS = 86_400_000
+const HOUR_MS = 3_600_000
 // VIEW_SPAN_MS — the WIDTH of the VISIBLE window (how much time the band shows at once).
 // This is DECOUPLED from DAY_MS (which stays the calendar-day length for the 5am day bucket
 // + midnight markers). Set it to DAY_MS for the normal full-day view; set it SMALLER to ZOOM
 // IN (e.g. 30 min) so short test sessions render wide enough to inspect. When it equals
-// DAY_MS the geometry is identical to the classic 24h dayline. [INVESTIGATION ZOOM: 10 min —
-// set back to DAY_MS to restore the full-day view. Dial smaller (e.g. 5 * 60_000) for
-// few-second ticks.]
-const VIEW_SPAN_MS = 10 * 60_000
+// DAY_MS the geometry is identical to the classic 24h dayline. (Restored to DAY_MS in v0.2.285
+// after an investigation zoom — the hourly edit-guides below assume the full-day window.)
+const VIEW_SPAN_MS = DAY_MS
 // The day "bucket" runs 5am→5am so a normal day (and its late-evening items)
 // land inside one window instead of being split at midnight.
 const DAY_START_HOUR = 5
@@ -525,6 +525,33 @@ export function Zero0Dayline({
 
   // Hover key for ANY bar (planned or access) — drives its tooltip + highlight.
   const [hoveredKey, setHoveredKey] = useState<string | null>(null)
+
+  // EDGE-EDIT GUIDES (v0.2.285) — while the cursor is over a resizable tick's edge handle, the
+  // dayline fades in faint HOURLY vertical markers as a time reference for the (upcoming) drag; they
+  // fade back out when no edge is hovered. `hourGuidesOn` drives the opacity transition. The OFF is
+  // DEBOUNCED (~80ms) so sliding between a tick's two handles — which briefly crosses the non-handle
+  // tick body — doesn't flicker the guides off and on.
+  const [hourGuidesOn, setHourGuidesOn] = useState(false)
+  const guideOffTimerRef = useRef<number | null>(null)
+  const showHourGuides = useCallback(() => {
+    if (guideOffTimerRef.current != null) {
+      clearTimeout(guideOffTimerRef.current)
+      guideOffTimerRef.current = null
+    }
+    setHourGuidesOn(true)
+  }, [])
+  const hideHourGuides = useCallback(() => {
+    if (guideOffTimerRef.current != null) clearTimeout(guideOffTimerRef.current)
+    guideOffTimerRef.current = window.setTimeout(() => {
+      setHourGuidesOn(false)
+      guideOffTimerRef.current = null
+    }, 80)
+  }, [])
+  useEffect(() => {
+    return () => {
+      if (guideOffTimerRef.current != null) clearTimeout(guideOffTimerRef.current)
+    }
+  }, [])
   const lo = winStart - RENDER_MARGIN_MS
   const hi = winStart + VIEW_SPAN_MS + RENDER_MARGIN_MS
 
@@ -1467,6 +1494,21 @@ export function Zero0Dayline({
     return out
   }, [mounted, isAccess, lo, hi, winStart, shortDay])
 
+  // HOURLY EDIT-GUIDE MARKERS (v0.2.285) — one faint 1px line per HOUR boundary across the buffered
+  // window, used only as a time reference while dragging a tick edge (they fade in on edge-hover, see
+  // `hourGuidesOn`). Same leftPct geometry as the day markers; rendered behind the ticks inside the
+  // pan container so they slide/clip with the timeline. Planned lane only (access lane stays plain).
+  const hourMarkers = useMemo(() => {
+    if (!mounted || isAccess) return [] as { key: string; leftPct: number }[]
+    const out: { key: string; leftPct: number }[] = []
+    const first = new Date(lo)
+    first.setMinutes(0, 0, 0)
+    for (let t = first.getTime(); t <= hi; t += HOUR_MS) {
+      out.push({ key: `hr:${t}`, leftPct: ((t - winStart) / VIEW_SPAN_MS) * 100 })
+    }
+    return out
+  }, [mounted, isAccess, lo, hi, winStart])
+
   // Reposition the sticky day labels when they REMOUNT (toggling `minimized` swaps their
   // host container: above-band strip ⇄ in-band overlay) or when the marker SET changes.
   // The base-pan layout effect above only fires on a `viewStart` change, so these two
@@ -1629,6 +1671,25 @@ export function Zero0Dayline({
                   />
                 </div>
               ))}
+              {/* HOURLY EDIT-GUIDES (v0.2.285) — always mounted (so the fade-IN can animate), the whole
+                  layer's opacity is toggled by `hourGuidesOn` (cursor over a tick's edge handle). It
+                  sits inside the pan container so the lines slide with the timeline; behind the ticks
+                  (zIndex 1) and below the brighter midnight lines (zIndex 2). Non-interactive. */}
+              {hourMarkers.length > 0 && (
+                <div
+                  aria-hidden
+                  className="pointer-events-none absolute inset-0 transition-opacity duration-300 ease-out will-change-[opacity]"
+                  style={{ opacity: hourGuidesOn ? 1 : 0, zIndex: 1 }}
+                >
+                  {hourMarkers.map((hm) => (
+                    <div
+                      key={hm.key}
+                      className="absolute inset-y-0 w-px bg-muted-foreground/15"
+                      style={{ left: `${hm.leftPct}%` }}
+                    />
+                  ))}
+                </div>
+              )}
               {/* TICK BAND — ONE generic loop for BOTH tracks. Each instance paints its
                   own list (`planned` scheduled occurrences OR `access` tracked segments);
                   the COMBINED TODAY lane paints both. A rounded chip (or a thin point for a
@@ -1720,6 +1781,17 @@ export function Zero0Dayline({
                   // in from its LEFT edge. Rounds only its right (known) edge. Mutually exclusive with
                   // `fading` in practice (a bar can't be open on both ends). Never a point/mark.
                   const fadingStart = p.unknownStart && !p.point && !p.markGlyph && !fading
+                  // EDGE-EDITABLE (v0.2.285) — a tick that has TWO real, known edges the uzer can grab
+                  // to re-time by dragging: a PLANNED occurrence (top rail) or a PAST/closed RECORDED
+                  // session (bottom rail). Excludes points, mark glyphs, and open-ended ticks (fading /
+                  // fadingStart / ongoing) — those lack a fixed edge to drag. This PHASE only lights the
+                  // edge handles (cursor + hourly guides) and blocks pan; the actual drag-resize is next.
+                  const edgeEditable =
+                    !p.point &&
+                    !p.markGlyph &&
+                    !fading &&
+                    !fadingStart &&
+                    (p.track === "planned" || (p.track === "recorded" && !p.unknownEnd && !p.openEnded))
                   // COLLAPSE-ON-STOP is handled IMPERATIVELY (v0.2.261) — the effect above FLIP-animates
                   // the just-closed node's px width + mask directly. The declarative render below only
                   // describes the RESTING open (`fading`) and closed states; it never needs a collapse
@@ -1959,7 +2031,34 @@ export function Zero0Dayline({
                           opacity: tickOpacity,
                           zIndex: lit || isHot ? 16 : 8,
                         }}
-                      />
+                      >
+                        {/* EDGE DRAG-HANDLES (v0.2.285) — a thin grab zone on each side of an editable
+                            tick. Hovering one shows the ew-resize cursor + fades in the hourly guides;
+                            a faint fill hints the zone. onPointerDown STOPS PROPAGATION so the lane's
+                            pan never engages — a drag on a handle wins over panning (the resize itself
+                            lands next phase). onClick is also stopped so grabbing an edge can't open the
+                            entity. */}
+                        {edgeEditable && (
+                          <>
+                            <span
+                              aria-hidden
+                              onMouseEnter={showHourGuides}
+                              onMouseLeave={hideHourGuides}
+                              onPointerDown={(ev) => ev.stopPropagation()}
+                              onClick={(ev) => ev.stopPropagation()}
+                              className="pointer-events-auto absolute inset-y-0 left-0 w-[6px] cursor-ew-resize rounded-l-[2px] transition-colors hover:bg-foreground/25"
+                            />
+                            <span
+                              aria-hidden
+                              onMouseEnter={showHourGuides}
+                              onMouseLeave={hideHourGuides}
+                              onPointerDown={(ev) => ev.stopPropagation()}
+                              onClick={(ev) => ev.stopPropagation()}
+                              className="pointer-events-auto absolute inset-y-0 right-0 w-[6px] cursor-ew-resize rounded-r-[2px] transition-colors hover:bg-foreground/25"
+                            />
+                          </>
+                        )}
+                      </button>
                     </div>
                   )
                 })}
