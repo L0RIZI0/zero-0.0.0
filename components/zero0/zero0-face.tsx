@@ -204,6 +204,11 @@ function FaceBlock({
   // TEMP (v0.2.228): the exhaustive raw stored-field dump, shown FAINT as a §0 appendix so the full
   // ENTITY shape is visible at the deepest level. Full size only, and never for aggregate overrides.
   const rawFields = size === "full" && !rowsOverride ? getFaceRawFields(entity, now) : null
+  // DEFAULT DISPLAY PROFILE (v0.2.279) — the real §0 full face (not an aggregate override). Under this
+  // profile every kind shows ONLY state + status (relocated to the title bar, right-aligned) and hides
+  // all other curated meta rows for now; per-kind profiles (via /entities) will later opt rows back in.
+  // Gated so compact rows and aggregate overrides keep their existing full meta reading.
+  const defaultProfile = size === "full" && !rowsOverride
   const titleText =
     hiddenPrefix === "auto"
       ? `(auto-hidden) ${model.title}`
