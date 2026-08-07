@@ -24,10 +24,11 @@ export type PlanResult =
   | { kind: "occurrence"; start: number; end?: number } // FUTURE span/point → addOccurrence
   | { kind: "repeat"; repeat: Recurrence; start: number; end?: number } // FUTURE recurring → setEntityRepeat / addSeries
   | { kind: "timeblocks"; timeblocks: { startAt: number; endAt: number }[]; repeat?: Recurrence } // Blocks → setEntityTimeblocks
+  | { kind: "duration"; minutes: number } // Length → setEntityDuration (unanchored, no start/end)
   | { kind: "session"; start: number; end?: number } // PAST → addManualSession (end omitted = ongoing)
   | { kind: "due"; due: number } // deadline → setEntityScheduleField("dueDate")
 
-type Mode = "span" | "point" | "blocks" | "due"
+type Mode = "span" | "point" | "blocks" | "length" | "due"
 
 const HOUR = 3_600_000
 const MIN = 60_000
@@ -115,6 +116,13 @@ export const Zero0PlanDialog = memo(function Zero0PlanDialog({
     { start: "13:00", end: "17:00" },
   ])
 
+  // LENGTH ("length" mode) — an UNANCHORED contiguous duration (schedule.duration, minutes) with NO
+  // start/end. Answers "how long is this?" without pinning it to a clock. Seeded from the entity's
+  // current duration so re-opening shows the existing value; split into hours + minutes inputs.
+  const seedDurMin = entity.schedule?.duration ?? 0
+  const [durH, setDurH] = useState(Math.floor(seedDurMin / 60))
+  const [durM, setDurM] = useState(seedDurMin % 60)
+
   const startEpoch = useMemo(() => toEpoch(startDate, startTime), [startDate, startTime])
   const endEpoch = useMemo(() => toEpoch(endDate, endTime), [endDate, endTime])
   const untilEpoch = useMemo(() => (untilDate ? toEpoch(untilDate, "23:59") : null), [untilDate])
@@ -181,6 +189,16 @@ export const Zero0PlanDialog = memo(function Zero0PlanDialog({
     preview: string
     invalid: string | null
   } => {
+    // LENGTH — an unanchored duration in minutes; valid iff > 0. No start/end, no recurrence.
+    if (mode === "length") {
+      const minutes = durH * 60 + durM
+      if (minutes <= 0) return { result: null, preview: "", invalid: "Set a length above zero" }
+      return {
+        result: { kind: "duration", minutes },
+        preview: `Length · ${formatDuration(minutes * 60_000)} (no fixed time)`,
+        invalid: null,
+      }
+    }
     // BLOCKS (Phase 3) — a multi-span day on the anchor date. Validate: date parses, ≥2 blocks, each
     // end>start, and no overlaps (sorted). Optionally recurring via the shared repeat builder.
     if (mode === "blocks") {
@@ -248,7 +266,7 @@ export const Zero0PlanDialog = memo(function Zero0PlanDialog({
       preview: `Recorded session · ${fmt(startEpoch)} → ${fmt(sessEnd)} · ${formatDuration(sessEnd - startEpoch)}`,
       invalid: null,
     }
-  }, [mode, startEpoch, endEpoch, hasEnd, isPast, ongoing, now, recur, freq, interval, byWeekday, untilEpoch, startDate, blocks, buildRule])
+  }, [mode, startEpoch, endEpoch, hasEnd, isPast, ongoing, now, recur, freq, interval, byWeekday, untilEpoch, startDate, blocks, buildRule, durH, durM])
 
   // EXISTING REPEATS (Phase 2) — the entity's current rules, so they can be removed in place. The
   // primary `repeat` (anchored by `repeatAnchor`) comes first, then each additional `series[]` entry.
@@ -364,23 +382,72 @@ export const Zero0PlanDialog = memo(function Zero0PlanDialog({
           <button role="tab" aria-selected={mode === "blocks"} className={segCls(mode === "blocks")} onClick={() => setMode("blocks")}>
             Blocks
           </button>
+          <button role="tab" aria-selected={mode === "length"} className={segCls(mode === "length")} onClick={() => setMode("length")}>
+            Length
+          </button>
           <button role="tab" aria-selected={mode === "due"} className={segCls(mode === "due")} onClick={() => setMode("due")}>
             Due
           </button>
         </div>
 
-        {/* START (anchor DATE only in blocks mode; DATE+TIME otherwise; labelled "Due" in due mode) */}
-        <div className="mb-3">
-          <div className="mb-1 text-[10px] uppercase tracking-wider text-muted-foreground">
-            {mode === "due" ? "Due" : mode === "blocks" ? "Day" : "Start"}
+        {/* START — hidden in LENGTH mode (an unanchored duration has no clock time). Anchor DATE only in
+            blocks mode; DATE+TIME otherwise; labelled "Due" in due mode. */}
+        {mode !== "length" && (
+          <div className="mb-3">
+            <div className="mb-1 text-[10px] uppercase tracking-wider text-muted-foreground">
+              {mode === "due" ? "Due" : mode === "blocks" ? "Day" : "Start"}
+            </div>
+            <div className="flex gap-2">
+              <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className={fieldCls + " flex-1"} aria-label={mode === "blocks" ? "Anchor day" : "Start date"} />
+              {mode !== "blocks" && (
+                <input type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} className={fieldCls} aria-label="Start time" />
+              )}
+            </div>
           </div>
-          <div className="flex gap-2">
-            <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className={fieldCls + " flex-1"} aria-label={mode === "blocks" ? "Anchor day" : "Start date"} />
-            {mode !== "blocks" && (
-              <input type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} className={fieldCls} aria-label="Start time" />
-            )}
+        )}
+
+        {/* LENGTH (length mode) — an unanchored duration: hours + minutes, plus quick chips. */}
+        {mode === "length" && (
+          <div className="mb-3">
+            <div className="mb-1 text-[10px] uppercase tracking-wider text-muted-foreground">Length</div>
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                min={0}
+                value={durH}
+                onChange={(e) => setDurH(Math.max(0, Math.floor(Number(e.target.value) || 0)))}
+                className={fieldCls + " w-16"}
+                aria-label="Length hours"
+              />
+              <span className="text-[10px] text-muted-foreground">h</span>
+              <input
+                type="number"
+                min={0}
+                max={59}
+                value={durM}
+                onChange={(e) => setDurM(Math.min(59, Math.max(0, Math.floor(Number(e.target.value) || 0))))}
+                className={fieldCls + " w-16"}
+                aria-label="Length minutes"
+              />
+              <span className="text-[10px] text-muted-foreground">m</span>
+            </div>
+            <div className="mt-2 flex flex-wrap items-center gap-1">
+              {QUICK_DURATIONS.map((q) => (
+                <button
+                  key={q.label}
+                  onClick={() => {
+                    const mins = Math.round(q.ms / 60_000)
+                    setDurH(Math.floor(mins / 60))
+                    setDurM(mins % 60)
+                  }}
+                  className="rounded-sm border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:text-foreground hover:border-muted-foreground"
+                >
+                  {q.label}
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
+        )}
 
         {/* TIMEBLOCKS (blocks mode) — a multi-span day: a list of within-day start–end rows. */}
         {mode === "blocks" && (
@@ -451,9 +518,9 @@ export const Zero0PlanDialog = memo(function Zero0PlanDialog({
           {/* ── RIGHT COLUMN — how often & existing rules ───────────────────────── */}
           <div className="min-w-0">
 
-        {/* REPEAT (Phase 2/3) — future span/point OR any blocks day (not due). Off = one-off; on
-            reveals the frequency / interval / weekday / until builder. Anchored at the chosen start. */}
-        {(mode === "blocks" || (!isPast && mode !== "due")) && (
+        {/* REPEAT (Phase 2/3) — future span/point OR any blocks day (not due, not length). Off =
+            one-off; on reveals the frequency / interval / weekday / until builder. */}
+        {(mode === "blocks" || (!isPast && mode !== "due" && mode !== "length")) && (
           <div className="mb-3">
             <div className="mb-1 flex items-center justify-between">
               <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Repeat</span>

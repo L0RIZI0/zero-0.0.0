@@ -1698,8 +1698,9 @@ export function Zero0Canvas() {
   //   • occurrence → addOccurrence (a planned one-off, top-rail)
   //   • repeat     → setEntityRepeat (first rule) OR addSeries (entity already has a rule) — matches
   //                  the runScheduleAction primary-vs-series split so a 2nd recurring plan co-exists.
-  //   • timeblocks → setEntityTimeblocks (a multi-span day; optional repeat makes the day recurring)
-  //   • session    → addManualSession (a recorded/ongoing session, bottom rail; end omitted = ongoing)
+      //   • timeblocks → setEntityTimeblocks (a multi-span day; optional repeat makes the day recurring)
+      //   • duration   → setEntityDuration (an unanchored length in minutes; no start/end)
+      //   • session    → addManualSession (a recorded/ongoing session, bottom rail; end omitted = ongoing)
   //   • due        → setEntityScheduleField("dueDate")
   const applyPlan = useCallback(
     (target: Entity, result: PlanResult) => {
@@ -1712,6 +1713,8 @@ export function Zero0Canvas() {
         else setEntityRepeat(target.id, result.repeat, anchor)
       } else if (result.kind === "timeblocks") {
         setEntityTimeblocks(target.id, result.timeblocks, result.repeat)
+      } else if (result.kind === "duration") {
+        setEntityDuration(target.id, result.minutes)
       } else if (result.kind === "session") addManualSession(target.id, result.start, result.end)
       else if (result.kind === "due") setEntityScheduleField(target.id, "dueDate", result.due)
       setPlanTarget(null)
