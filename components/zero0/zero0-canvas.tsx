@@ -1695,12 +1695,20 @@ export function Zero0Canvas() {
   // APPLY a Plan-dialog result (v0.2.269) against the existing writers, then close + re-render. The
   // dialog already decided tense (future ⇒ occurrence, past ⇒ session) and shape; this just routes:
   //   • occurrence → addOccurrence (a planned one-off, top-rail)
+  //   • repeat     → setEntityRepeat (first rule) OR addSeries (entity already has a rule) — matches
+  //                  the runScheduleAction primary-vs-series split so a 2nd recurring plan co-exists.
   //   • session    → addManualSession (a recorded/ongoing session, bottom rail; end omitted = ongoing)
   //   • due        → setEntityScheduleField("dueDate")
   const applyPlan = useCallback(
     (target: Entity, result: PlanResult) => {
       if (result.kind === "occurrence") addOccurrence(target.id, result.start, result.end)
-      else if (result.kind === "session") addManualSession(target.id, result.start, result.end)
+      else if (result.kind === "repeat") {
+        const s = target.schedule
+        const hasRule = !!s?.repeat || !!(s?.series && s.series.length)
+        const anchor = { start: result.start, end: result.end }
+        if (hasRule) addSeries(target.id, result.repeat, anchor)
+        else setEntityRepeat(target.id, result.repeat, anchor)
+      } else if (result.kind === "session") addManualSession(target.id, result.start, result.end)
       else if (result.kind === "due") setEntityScheduleField(target.id, "dueDate", result.due)
       setPlanTarget(null)
       bump()

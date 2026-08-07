@@ -301,8 +301,9 @@ function FaceBlock({
   // (<when1>) · …". The total carries a faint prefix LABEL (v0.2.150) that now names WHAT the total
   // measures per row (v0.2.229): "Total duration" for RECORDED SESSIONS, "Total access time" for
   // ACCESS — so the row LABEL says what the list is (sessions) while the value says what its total
-  // means. `pulse` gates the live-session breathing per row — the ongoing clock still pulses; ACCESS
-  // does NOT (access is a passive tally, no need to draw the eye to it).
+  // means. `pulse` gates per-segment live-session breathing. As of v0.2.274 BOTH rows pass false —
+  // RECORDED SESSIONS and ACCESS are passive tallies, and the single "live right now" signal is the
+  // STATUS row's pulsing dot. The param is kept so a row can opt back in if ever wanted.
   const renderAccessRow = (cells: NonNullable<typeof access>, pulse = true, totalLabel = "Total") => (
     <dd className="min-w-0 text-muted-foreground">
       <div className="no-scrollbar overflow-x-auto whitespace-pre">
@@ -402,8 +403,12 @@ function FaceBlock({
                 renderScheduleRow(k === "planned start" ? "start" : "end")
               ) : access && k === "access" ? (
                 renderAccessRow(access, false, "Total access time")
-              ) : duration && k === "recorded sessions" ? (
-                renderAccessRow(duration, true, "Total duration")
+                ) : duration && k === "recorded sessions" ? (
+                  // pulse=false (v0.2.274, Loris ask): the ongoing SESSION segment no longer breathes on
+                  // the RECORDED SESSIONS row — the single pulsing signal for "live right now" is the
+                  // STATUS dot below. Two pulsing things (segment + status) was redundant noise; the row
+                  // is a passive tally like ACCESS, so it renders quiet.
+                  renderAccessRow(duration, false, "Total duration")
               ) : k === "status" && v.startsWith("ongoing") ? (
                 // The pulsing "live" dot belongs to the STATUS row (v0.2.273 fix): the
                 // "ongoing · since …" string is pushed to the "status" key (face-model), NOT

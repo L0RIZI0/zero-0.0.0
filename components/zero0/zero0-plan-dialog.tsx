@@ -1,8 +1,8 @@
 "use client"
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react"
-import type { Entity } from "@/lib/zero/types"
-import { fmt, formatDuration } from "@/lib/zero/face-model"
+import type { Entity, Recurrence } from "@/lib/zero/types"
+import { fmt, formatDuration, describeRecurrenceRule } from "@/lib/zero/face-model"
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 // PLAN DIALOG (v0.2.269, Phase 1) — a centered modal that replaces the cramped "+ add slot"
@@ -21,6 +21,7 @@ import { fmt, formatDuration } from "@/lib/zero/face-model"
 /** What the dialog resolved to — executed by the canvas against the existing writers. */
 export type PlanResult =
   | { kind: "occurrence"; start: number; end?: number } // FUTURE span/point → addOccurrence
+  | { kind: "repeat"; repeat: Recurrence; start: number; end?: number } // FUTURE recurring → setEntityRepeat / addSeries
   | { kind: "session"; start: number; end?: number } // PAST → addManualSession (end omitted = ongoing)
   | { kind: "due"; due: number } // deadline → setEntityScheduleField("dueDate")
 
@@ -57,6 +58,10 @@ const QUICK_DURATIONS: { label: string; ms: number }[] = [
   { label: "4h", ms: 4 * HOUR },
 ]
 
+// Single-letter weekday chips, index 0(Sun)–6(Sat) to match Recurrence.byWeekday.
+const WEEKDAY_CHIPS = ["S", "M", "T", "W", "T", "F", "S"]
+const FREQ_OPTIONS: Recurrence["freq"][] = ["daily", "weekly", "monthly", "yearly"]
+
 // MEMOIZED (v0.2.271): the parent canvas re-renders every second (its live `nowSec` clock). Without
 // memo, that re-rendered this dialog once a second — and a re-render while a native <input type="time">
 // / date picker dropdown is OPEN collapses the popup back to "00" on top, eating the user's first click
@@ -89,8 +94,17 @@ export const Zero0PlanDialog = memo(function Zero0PlanDialog({
   const [hasEnd, setHasEnd] = useState(true) // span: is the end bound set?
   const [ongoing, setOngoing] = useState(false) // past only: still happening?
 
+  // RECURRENCE (Phase 2) — future-only, span/point (not due). `recur` off = a one-off; on builds a
+  // Recurrence rule from freq/interval/weekdays/until, anchored at the chosen start/end.
+  const [recur, setRecur] = useState(false)
+  const [freq, setFreq] = useState<Recurrence["freq"]>("weekly")
+  const [interval, setIntervalN] = useState(1)
+  const [byWeekday, setByWeekday] = useState<number[]>([]) // weekly only; empty = the anchor's own day
+  const [untilDate, setUntilDate] = useState("") // optional series end (date only)
+
   const startEpoch = useMemo(() => toEpoch(startDate, startTime), [startDate, startTime])
   const endEpoch = useMemo(() => toEpoch(endDate, endTime), [endDate, endTime])
+  const untilEpoch = useMemo(() => (untilDate ? toEpoch(untilDate, "23:59") : null), [untilDate])
   const isPast = startEpoch != null && startEpoch <= now
 
   // A past start defaults the "still happening" toggle ON (Loris' ask: ON by default when no end is
@@ -116,6 +130,10 @@ export const Zero0PlanDialog = memo(function Zero0PlanDialog({
     [startEpoch],
   )
 
+  const toggleWeekday = useCallback((d: number) => {
+    setByWeekday((prev) => (prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d]))
+  }, [])
+
   // Derive the final PlanResult + a human preview from the current state. `null` result ⇒ invalid
   // (missing/!parseable start) and Apply is disabled.
   const { result, preview, invalid } = useMemo((): {
@@ -138,6 +156,18 @@ export const Zero0PlanDialog = memo(function Zero0PlanDialog({
     }
 
     if (!isPast) {
+      // FUTURE + RECURRING ⇒ a repeat rule anchored at the chosen start/end (Phase 2).
+      if (recur) {
+        if (untilEpoch != null && untilEpoch <= startEpoch)
+          return { result: null, preview: "", invalid: "Until must be after the start" }
+        const rule: Recurrence = { freq }
+        if (interval > 1) rule.interval = interval
+        if (freq === "weekly" && byWeekday.length) rule.byWeekday = [...byWeekday].sort((a, b) => a - b)
+        if (untilEpoch != null) rule.until = untilEpoch
+        const label = describeRecurrenceRule(rule, startEpoch, end)
+        const untilStr = untilEpoch != null ? ` · until ${fmt(untilEpoch)}` : ""
+        return { result: { kind: "repeat", repeat: rule, start: startEpoch, end }, preview: `Recurring · ${label}${untilStr}`, invalid: null }
+      }
       // FUTURE ⇒ a planned occurrence.
       const span = end != null ? `${fmt(startEpoch)} → ${fmt(end)} · ${formatDuration(end - startEpoch)}` : fmt(startEpoch)
       return { result: { kind: "occurrence", start: startEpoch, end }, preview: `Planned occurrence · ${span}`, invalid: null }
@@ -153,7 +183,7 @@ export const Zero0PlanDialog = memo(function Zero0PlanDialog({
       preview: `Recorded session · ${fmt(startEpoch)} → ${fmt(sessEnd)} · ${formatDuration(sessEnd - startEpoch)}`,
       invalid: null,
     }
-  }, [mode, startEpoch, endEpoch, hasEnd, isPast, ongoing, now])
+  }, [mode, startEpoch, endEpoch, hasEnd, isPast, ongoing, now, recur, freq, interval, byWeekday, untilEpoch])
 
   const apply = useCallback(() => {
     if (result) onApply(result)
@@ -266,6 +296,91 @@ export const Zero0PlanDialog = memo(function Zero0PlanDialog({
                   )}
                 </div>
               </>
+            )}
+          </div>
+        )}
+
+        {/* REPEAT (Phase 2) — future-only, span/point (not due). Off = one-off; on reveals the
+            frequency / interval / weekday / until builder. Anchored at the chosen start/end. */}
+        {!isPast && mode !== "due" && (
+          <div className="mb-3">
+            <div className="mb-1 flex items-center justify-between">
+              <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Repeat</span>
+              <button
+                className="text-[10px] uppercase tracking-wider text-muted-foreground hover:text-foreground"
+                onClick={() => setRecur((v) => !v)}
+              >
+                {recur ? "one-off" : "make recurring"}
+              </button>
+            </div>
+            {recur && (
+              <div className="flex flex-col gap-2">
+                {/* Frequency + interval: "every [N] [daily|weekly|monthly|yearly]". */}
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] uppercase tracking-wider text-muted-foreground">every</span>
+                  <input
+                    type="number"
+                    min={1}
+                    value={interval}
+                    onChange={(e) => setIntervalN(Math.max(1, Math.floor(Number(e.target.value) || 1)))}
+                    className={fieldCls + " w-14"}
+                    aria-label="Interval"
+                  />
+                  <select
+                    value={freq}
+                    onChange={(e) => setFreq(e.target.value as Recurrence["freq"])}
+                    className={fieldCls + " flex-1"}
+                    aria-label="Frequency"
+                  >
+                    {FREQ_OPTIONS.map((f) => (
+                      <option key={f} value={f} className="bg-background text-foreground">
+                        {interval > 1 ? { daily: "days", weekly: "weeks", monthly: "months", yearly: "years" }[f] : f}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Weekday chips (weekly only). Empty = repeats on the anchor's own weekday. */}
+                {freq === "weekly" && (
+                  <div className="flex items-center gap-1">
+                    {WEEKDAY_CHIPS.map((lbl, d) => (
+                      <button
+                        key={d}
+                        onClick={() => toggleWeekday(d)}
+                        aria-pressed={byWeekday.includes(d)}
+                        className={
+                          "h-7 w-7 rounded-sm border text-[11px] transition-colors " +
+                          (byWeekday.includes(d)
+                            ? "border-foreground bg-foreground text-background"
+                            : "border-border text-muted-foreground hover:text-foreground hover:border-muted-foreground")
+                        }
+                      >
+                        {lbl}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {/* Optional series end. */}
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] uppercase tracking-wider text-muted-foreground">until</span>
+                  <input
+                    type="date"
+                    value={untilDate}
+                    onChange={(e) => setUntilDate(e.target.value)}
+                    className={fieldCls + " flex-1"}
+                    aria-label="Repeat until"
+                  />
+                  {untilDate && (
+                    <button
+                      onClick={() => setUntilDate("")}
+                      className="text-[10px] uppercase tracking-wider text-muted-foreground hover:text-foreground"
+                    >
+                      clear
+                    </button>
+                  )}
+                </div>
+              </div>
             )}
           </div>
         )}
