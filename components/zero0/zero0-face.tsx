@@ -404,7 +404,14 @@ function FaceBlock({
                 renderAccessRow(access, false, "Total access time")
               ) : duration && k === "recorded sessions" ? (
                 renderAccessRow(duration, true, "Total duration")
-              ) : k === "state" && v.startsWith("ongoing") ? (
+              ) : k === "status" && v.startsWith("ongoing") ? (
+                // The pulsing "live" dot belongs to the STATUS row (v0.2.273 fix): the
+                // "ongoing · since …" string is pushed to the "status" key (face-model), NOT
+                // "state" (which only ever holds lifecycle words like open/scheduled/closed —
+                // formatState never emits "ongoing"). The condition had been checking "state",
+                // so the dot silently stopped rendering once STATUS moved to its own row. NB the
+                // scheduled-wins-over-ongoing case (STATUS reads "scheduled" while running) is a
+                // separate precedence question tracked for the /entities pass — not this fix.
                 renderOngoingState(v)
               ) : (
                 <dd

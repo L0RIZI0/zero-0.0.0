@@ -525,12 +525,6 @@ export function Zero0Dayline({
 
   // Hover key for ANY bar (planned or access) — drives its tooltip + highlight.
   const [hoveredKey, setHoveredKey] = useState<string | null>(null)
-  // Screen anchor (viewport coords) of the hovered tick, captured on mouse-enter. Used
-  // ONLY by the minimized band: its tooltip is portaled to <body> (position:fixed) to
-  // escape the canvas collapse wrapper's `overflow-hidden`, so it needs absolute
-  // viewport coords rather than the in-lane percent the full-mode tooltip rides.
-  const [hoverAnchor, setHoverAnchor] = useState<{ x: number; y: number } | null>(null)
-
   const lo = winStart - RENDER_MARGIN_MS
   const hi = winStart + VIEW_SPAN_MS + RENDER_MARGIN_MS
 
@@ -1092,12 +1086,36 @@ export function Zero0Dayline({
   // and the NOW marker + access tooltip (which live outside the clip for edge bleed).
   const contentPanRef = useRef<HTMLDivElement>(null)
   const markerPanRef = useRef<HTMLDivElement>(null)
-  const presTooltipPanRef = useRef<HTMLDivElement>(null)
   const applyPan = useCallback((px: number) => {
     const t = px ? `translateX(${px}px)` : ""
     if (contentPanRef.current) contentPanRef.current.style.transform = t
     if (markerPanRef.current) markerPanRef.current.style.transform = t
-    if (presTooltipPanRef.current) presTooltipPanRef.current.style.transform = t
+  }, [])
+  // CURSOR-GLUED TOOLTIP (v0.2.273) — the tick tooltip now FOLLOWS the pointer (anchored just
+  // below-right of the cursor) instead of sitting at the tick's fixed midpoint. Perf-critical:
+  // the dayline is heavy and a hovered tick fires mousemove continuously, so positioning is done
+  // IMPERATIVELY — React state (`hovered`) flips only on enter/leave (rare), while every move
+  // writes `left`/`top` straight to the portaled node via `tooltipRef`, causing ZERO re-renders.
+  // `cursorRef` holds the latest pointer position so the node can be placed correctly on its very
+  // first paint (when `hovered` just turned truthy and no move has fired yet).
+  const tooltipRef = useRef<HTMLDivElement>(null)
+  const cursorRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 })
+  const placeTooltip = useCallback((clientX: number, clientY: number) => {
+    cursorRef.current = { x: clientX, y: clientY }
+    const el = tooltipRef.current
+    if (!el) return
+    // Below-right of the cursor, clamped to the viewport so it never runs off-screen. Flip to the
+    // left of the cursor when it would overflow the right edge; nudge up when near the bottom.
+    const OFF_X = 14
+    const OFF_Y = 18
+    const w = el.offsetWidth
+    const h = el.offsetHeight
+    let left = clientX + OFF_X
+    if (left + w > window.innerWidth - 8) left = Math.max(8, clientX - OFF_X - w)
+    let top = clientY + OFF_Y
+    if (top + h > window.innerHeight - 8) top = Math.max(8, clientY - OFF_Y - h)
+    el.style.left = `${left}px`
+    el.style.top = `${top}px`
   }, [])
   const flushAtRestRef = useRef<() => void>(() => {})
   const rippleNodesRef = useRef<Map<string, HTMLElement>>(new Map())
@@ -1547,31 +1565,27 @@ export function Zero0Dayline({
               {headerContent}
             </div>
           )}
-          {/* MINIMIZED HOVER TOOLTIP — the same floating design as the full-mode HOVER
-              HELPER below, but PORTALED to <body> in fixed/viewport coords. A minimized
-              band is exactly band-height and lives inside the canvas's `overflow-hidden`
-              collapse wrapper, so an in-flow tooltip above/below the lane is clipped. The
-              portal lets it BLEED past that wrapper (what the earlier in-band chip worked
-              around), so it reads identically to the non-minimized dayline tooltip. Anchored
-              just ABOVE the hovered tick via `hoverAnchor` (its on-screen midpoint), and
-              clamped to the viewport so it never runs off-screen. */}
-          {minimized &&
-            hovered &&
-            hoverAnchor &&
+          {/* HOVER TOOLTIP (v0.2.273) — ONE cursor-following card for BOTH minimized and full
+              mode (previously two separate renders: a portaled midpoint tooltip for minimized +
+              an in-flow pan-following helper for full). PORTALED to <body> in fixed/viewport
+              coords so it always bleeds past the canvas's `overflow-hidden` collapse wrapper.
+              Position is written IMPERATIVELY via `tooltipRef` (see `placeTooltip`) on every
+              pointer move — React only mounts/unmounts it on hover enter/leave, so moving the
+              cursor over a tick never re-renders the heavy dayline. Initial paint uses the last
+              `cursorRef` position; `left/top: 0` are placeholders overwritten synchronously. */}
+          {hovered &&
             typeof document !== "undefined" &&
             createPortal(
               <div
-                className="pointer-events-none fixed z-[60] flex max-w-[40vw] -translate-x-1/2 -translate-y-full items-center gap-1.5 whitespace-nowrap rounded border border-border/70 bg-card px-2 py-1 text-[10.5px] font-medium leading-none tracking-tight text-foreground/80 shadow-sm"
-                style={{
-                  left: Math.min(window.innerWidth - 8, Math.max(8, hoverAnchor.x)),
-                  top: Math.max(8, hoverAnchor.y - 6),
-                }}
+                ref={tooltipRef}
+                className="pointer-events-none fixed z-[60] flex max-w-[40vw] items-center gap-1.5 whitespace-nowrap rounded border border-border/70 bg-card px-2 py-1 text-[10.5px] font-medium leading-none tracking-tight text-foreground/80 shadow-sm"
+                style={{ left: cursorRef.current.x + 14, top: cursorRef.current.y + 18 }}
               >
                 <span
                   aria-hidden
                   className="h-2 w-2 shrink-0 rounded-full border"
                   style={{
-                          backgroundColor: hovered.color === ROOT_SENTINEL_COLOR ? "var(--background)" : hovered.color,
+                    backgroundColor: hovered.color === ROOT_SENTINEL_COLOR ? "var(--background)" : hovered.color,
                     borderColor: hovered.stroke ?? "var(--border)",
                   }}
                 />
@@ -1769,12 +1783,11 @@ export function Zero0Dayline({
                           aria-label={`${p.title}, ${p.range}`}
                           onMouseEnter={(ev) => {
                             setHoveredKey(p.key)
-                            const r = (ev.currentTarget as HTMLElement).getBoundingClientRect()
-                            setHoverAnchor({ x: r.left + r.width / 2, y: r.top })
+                            placeTooltip(ev.clientX, ev.clientY)
                           }}
+                          onMouseMove={(ev) => placeTooltip(ev.clientX, ev.clientY)}
                           onMouseLeave={() => {
                             setHoveredKey((h) => (h === p.key ? null : h))
-                            setHoverAnchor(null)
                           }}
                           onClick={() => {
                             if (draggedRef.current) return
@@ -1816,14 +1829,11 @@ export function Zero0Dayline({
                         aria-label={p.track === "access" ? `Was in ${p.title}, ${p.range}` : `${p.title}, ${p.range}`}
                         onMouseEnter={(ev) => {
                           setHoveredKey(p.key)
-                          // Capture the tick's on-screen midpoint for the minimized band's
-                          // portaled tooltip (anchored above the tick, in viewport coords).
-                          const r = (ev.currentTarget as HTMLElement).getBoundingClientRect()
-                          setHoverAnchor({ x: r.left + r.width / 2, y: r.top })
+                          placeTooltip(ev.clientX, ev.clientY)
                         }}
+                        onMouseMove={(ev) => placeTooltip(ev.clientX, ev.clientY)}
                         onMouseLeave={() => {
                           setHoveredKey((h) => (h === p.key ? null : h))
-                          setHoverAnchor(null)
                         }}
                         onClick={() => {
                           if (draggedRef.current) return // a pan, not a tap
@@ -1988,38 +1998,8 @@ export function Zero0Dayline({
               </div>
             </div>
           )}
-
-          {/* HOVER HELPER — floats just below the lane for the hovered bar (either
-              track): a color chip + title + clock range. Access reads "in {title}"
-              (the historical name); planned reads just the title. Rides the same
-              two-layer pan-follow as everything else. FULL mode only — a minimized band
-              shows the label in-band instead (it would be clipped floating below here). */}
-          {!minimized && hovered && (
-            <div ref={presTooltipPanRef} className="pointer-events-none absolute inset-0 z-40 will-change-transform">
-              <div
-                ref={registerRipple("__prestooltip__")}
-                data-left={hovered.leftPct}
-                className="pointer-events-none absolute inset-0 will-change-transform"
-              >
-                <div
-                  className="pointer-events-none absolute top-full flex max-w-[40vw] -translate-x-1/2 items-center gap-1.5 whitespace-nowrap rounded border border-border/70 bg-card px-2 py-1 text-[10.5px] font-medium leading-none tracking-tight text-foreground/80 shadow-sm"
-                  style={{ left: `${Math.min(96, Math.max(4, hovered.centerPct))}%`, marginTop: 4 }}
-                >
-                  <span
-                    aria-hidden
-            className="h-2 w-2 shrink-0 rounded-full border"
-            style={{
-              backgroundColor: hovered.color === ROOT_SENTINEL_COLOR ? "var(--background)" : hovered.color,
-              borderColor: hovered.stroke ?? "var(--border)",
-            }}
-                  />
-                  {hovered.track === "access" && <span className="shrink-0 text-muted-foreground">in</span>}
-                  <span className="truncate text-foreground">{hovered.title}</span>
-                  <span className="shrink-0 text-muted-foreground tabular-nums">{hovered.range}</span>
-                </div>
-              </div>
-            </div>
-          )}
+          {/* (The full-mode in-flow HOVER HELPER was removed in v0.2.273 — the single
+              cursor-following portal tooltip above now serves BOTH minimized and full mode.) */}
         </div>
       </div>
     </div>
