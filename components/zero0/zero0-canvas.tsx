@@ -93,7 +93,7 @@ import { Zero0Face } from "./zero0-face"
 import type { OccurrenceAction } from "./zero0-occurrences"
 import { Zero0Favicon } from "./zero0-favicon"
 import { Zero0Content, type Zero0ContentCtx } from "./zero0-content"
-  import { fmt, fmtLogValue, sexSymbol, formatDuration, type FaceSize, type FaceMake } from "@/lib/zero/face-model"
+  import { fmt, fmtLogStamp, fmtLogValue, sexSymbol, formatDuration, type FaceSize, type FaceMake } from "@/lib/zero/face-model"
   import type { Entity, IndividualEntity, OrganismEntity } from "@/lib/zero/types"
 
 // `canAutoPlay` + `ONGOING_ON_ENTER` now live in lib/zero/kinds.ts (canonical), shared by the
@@ -339,7 +339,7 @@ function Zero0EntityHeaderBlock({
               <ol className="mt-1 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-[10px] tabular-nums">
                 {actorFeed!.map(({ entry, objectId, objectTitle, isSelf }, i) => (
                   <li key={`${objectId}#${entry.id ?? i}`} className="contents">
-                    <span className="shrink-0 text-muted-foreground">{fmt(entry.at)}</span>
+                    <span className="shrink-0 text-muted-foreground">{fmtLogStamp(entry.at)}</span>
                     <span className="truncate text-foreground">
                       {describeActorLogEntry(entry, { objectTitle, isSelf, formatValue: fmtLogValue })}
                     </span>
@@ -352,7 +352,7 @@ function Zero0EntityHeaderBlock({
                   <li key={entry.id ?? i} className="contents">
                     <span className="shrink-0 text-muted-foreground">
                       {entry.id != null && <span className="mr-1.5 opacity-40">{`#${entry.id}`}</span>}
-                      {fmt(entry.at)}
+                      {fmtLogStamp(entry.at)}
                     </span>
                     <span className="truncate text-foreground">{describeLogEntry(entry, fmtLogValue)}</span>
                   </li>

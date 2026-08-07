@@ -189,6 +189,24 @@ export function fmt(epoch?: number): string {
   return new Date(epoch).toLocaleString(formatLocale())
   }
 
+// FIXED-WIDTH stamp for LOG / ACTIVITY rows (v0.2.284). `fmt` above uses the locale's default
+// (variable-width) parts — "8/8/2026, 12:25:02 AM" vs "6/22/2026, …" — so in the monospaced log the
+// date/time columns don't line up. Here every field is forced to a constant digit count
+// (month/day/hour = 2-digit), so each stamp is the same width and the rows align. Kept SEPARATE from
+// `fmt` so the §0 meta readouts (which prefer the natural locale form) are unaffected. Client-only,
+// same as `fmt` (called under the `mounted` gate).
+export function fmtLogStamp(epoch?: number): string {
+  if (!epoch) return "—"
+  return new Date(epoch).toLocaleString(formatLocale(), {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  })
+}
+
 // A COMPACT when-label for an entity, used to distinguish multiple back-references that
 // share a title (e.g. several "Work on Zero" sessions): its span → its point → else the
 // date it was created. Under the `mounted` gate like `fmt`.
@@ -1015,7 +1033,7 @@ function formatPlannedOccurrence(occ: PlannedOccurrence, status: OccurrenceStatu
   return `${formatOccurrenceLabel(occ, now)} (${occurrenceStatusWord(status)})`
 }
 
-// ─── OCCURRENCES BLOCK rows (v0.2.229) ─────────────────────────────────────────
+// ─── OCCURRENCES BLOCK rows (v0.2.229) ─────��───────────────────────────────────
 // Structured per-occurrence data for the ��0 OCCURRENCES block (see zero0-occurrences.tsx). Keeps ALL
 // time formatting (fmtShort) + status derivation HERE so the component stays pure presentation. The
 // `index` is the UNIFIED index — 0 = the PRIMARY (scalar) occurrence, 1..n = `occurrences[]` entries
