@@ -1764,6 +1764,61 @@ export function addManualSession(id: string, start: number, end?: number | null,
   return true
 }
 
+/**
+ * EDIT A RECORDED SESSION'S TIME (LOG-FIRST, append-only, v0.2.293) — the past/recorded counterpart of
+ * "+ Edit time" for planned occurrences. `anchorId` is the id of the log entry that OPENED the target
+ * session (its {@link Session.anchorId}). Rather than mutating that boundary entry, this appends ONE
+ * `session-edit` overlay carrying the corrected `{sessionStart, sessionEnd}` keyed by `targetId`; the
+ * fold ({@link deriveSessionsFromLog}) applies it as a post-pass. Only RECORDED (`via:"play"`) sessions
+ * are targetable — the access spine (`via:"focus"`) is display-only — and the fold's overlay scope is
+ * likewise limited to play, so an `accessed` anchor's edit resolves uniquely to its play session.
+ *
+ *   - `start`          ⇒ new punch-in.
+ *   - `end` number     ⇒ new close (CLOSED session). The UI always sends a numeric end (past sessions
+ *                        being edited are closed), so a still-ongoing session is not re-timed here.
+ *
+ * `start` is clamped to `≤ now`; `end` is clamped to `≥ start`. No-op (returns false) if `anchorId`
+ * doesn't resolve to an editable recorded session on the entity. Returns true on success.
+ */
+export function editSession(
+  id: string,
+  anchorId: number,
+  start: number,
+  end: number,
+  now = Date.now(),
+): boolean {
+  const stored = byId.get(id)
+  if (!stored) return false
+  // Guard: the anchor must currently resolve to a RECORDED session on this entity. Prevents an edit
+  // targeting an access span or a stale/absent anchor from silently appending a dead overlay.
+  const target = (stored.schedule?.sessions ?? []).find((s) => s.via === "play" && s.anchorId === anchorId)
+  if (!target) return false
+  const entity = mutable(stored)
+  const s = Math.min(start, now)
+  const e = Math.max(end, s)
+  const entry: Instant = { at: now, type: "session-edit", targetId: anchorId, sessionStart: s, sessionEnd: e }
+  entity.log = appendInstant(ensureEntityLog(entity), entry)
+  recomputeSessionsFromLog(id, entity)
+  return true
+}
+
+/**
+ * DELETE A RECORDED SESSION (LOG-FIRST, append-only, v0.2.293) — appends a `session-delete` TOMBSTONE
+ * keyed by the target's `anchorId`; the fold drops the matching `via:"play"` session on re-derive. The
+ * originating boundary entries stay in the log (append-only), so history retraces both the session and
+ * its removal. No-op (returns false) if the anchor doesn't resolve to a recorded session. Returns true.
+ */
+export function deleteSession(id: string, anchorId: number, now = Date.now()): boolean {
+  const stored = byId.get(id)
+  if (!stored) return false
+  const target = (stored.schedule?.sessions ?? []).find((s) => s.via === "play" && s.anchorId === anchorId)
+  if (!target) return false
+  const entity = mutable(stored)
+  entity.log = appendInstant(ensureEntityLog(entity), { at: now, type: "session-delete", targetId: anchorId })
+  recomputeSessionsFromLog(id, entity)
+  return true
+}
+
 // v0.2.257 — pauseOngoing / resumeOngoing were RETIRED with the start/stop-only session model.
 // The glyph is now a plain Play/Stop toggle: STOP = closeSession("play") (writes `stopped`, which the
 // fold closes for any flavor even in-place), START = openSession("play"). Old logs' `paused`/`resumed`
@@ -3222,6 +3277,35 @@ export function hydrateFromStorage(): boolean {
   //   • genuine GAP ⇒ the app really was shut. Close the span at the LAST-KNOWN-ALIVE moment (the
   //     truthful "when I was last here"), NOT lastLogAt (≈0 for an idle session), and DROP spans
   //     ≤ MIN_SESSION_MS. We never fabricate an end beyond what we can prove.
+  // v0.2.293 ANCHOR-ID BACKFILL (GATED) — sessions[] persisted before this release carry no
+  // `anchorId`, so their recorded spans wouldn't be editable (editSession/deleteSession need the
+  // anchor). Re-derive from the log and adopt the fold output ONLY when it faithfully reproduces the
+  // cached RECORDED (play) set: same count AND same [startedAt, endedAt] bounds, in order. That proves
+  // the cache is losslessly reconstructible from the log, so adopting it merely ATTACHES anchorId
+  // without changing any timing. A cache the log can't reproduce (e.g. a `setOpenSessionStart`
+  // backdate-merge, or hand-imported data) fails the gate and is left verbatim — degrading gracefully
+  // to non-editable rather than risking a silent re-time. Runs BEFORE the dangling-session cleanup so
+  // the (now-anchored) sessions flow through it unchanged. In-memory only; persists on next mutation.
+  for (const entity of entities) {
+    const cached = entity.schedule?.sessions
+    if (!cached || cached.length === 0 || !entity.log) continue
+    if (cached.some((s) => s.via === "play" && s.anchorId != null)) continue // already anchored
+    const derived = deriveSessionsFromLog(entity, {
+      minSessionMs: MIN_SESSION_MS,
+      ongoingOnEnter: ONGOING_ON_ENTER.has(entity.kind),
+    })
+    const cachedPlay = cached.filter((s) => s.via === "play")
+    const derivedPlay = derived.filter((s) => s.via === "play")
+    if (cachedPlay.length !== derivedPlay.length) continue // shape drift ⇒ don't touch
+    const matches = cachedPlay.every((c, i) => {
+      const d = derivedPlay[i]
+      return c.startedAt === d.startedAt && (c.endedAt ?? null) === (d.endedAt ?? null)
+    })
+    if (!matches) continue
+    // Faithful reproduction — adopt the derived list (carries anchorId + identical bounds).
+    entity.schedule = { ...entity.schedule, sessions: derived }
+  }
+
   const aliveAt = getLastKnownAlive()
   const nowAt = Date.now()
   const aliveRecently = aliveAt != null && nowAt - aliveAt <= ALIVE_GRACE_MS

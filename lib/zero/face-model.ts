@@ -18,7 +18,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
  import type { Entity, EntityKind } from "./types"
-import type { Recurrence } from "./types"
+import type { Recurrence, Session } from "./types"
   import { KIND_META, isClosed, fillsGlyph, getState, isOngoing, getOngoingSince, plannedStart, effectiveScheduleEnd, ongoingOpenSession, occurrenceAction, isBeing, isLifeBeing, individualBornAt, getPublishedAt, lifeAnchor, isMarkable, getMarks, getSessions, getInstantMaxNb, isInstantMaxNbHard, getInstantOccurrenceCount, type EntityState } from "./kinds"
 import { isDone, getCreatedAt, getDoneOn } from "./entity-log"
  import { getEntity, getCreator, getOwner, getForwardTags, getBackReferences, getChildren, projectOccurrences } from "./data"
@@ -340,6 +340,57 @@ export function getSessionMs(e: Entity, now: number, via?: "focus" | "play" | "m
 /** ACCESS = accumulated access time (focus sessions — the machine-truth "where I was"). */
 export function getAccessMs(e: Entity, now: number): number | null {
   return getSessionMs(e, now, "focus")
+}
+
+/** One display row for the §0 RECORDED SESSIONS / ACCESS lists (v0.2.293). Presentational projection of a
+    stored {@link Session}: a leading DAY token + a start–end TIME string (end "ongoing" while open) + a
+    human duration, plus the identity a right-click edit/delete needs. `editable` is true only for a CLOSED
+    recorded (`via:"play"`) session that carries an `anchorId` — the fold's correction handle; access
+    (`focus`) rows, the still-open session, and un-anchored legacy rows are display-only. */
+export interface SessionRow {
+  key: string
+  via: Session["via"]
+  startedAt: number
+  endedAt: number | null
+  /** Leading day token, mirroring the occurrence rows ("Today"/"Yesterday"/"Aug 8"). */
+  day: string
+  /** "5:30 PM – 6:12 PM" (closed) or "5:30 PM – ongoing" (open). */
+  timeText: string
+  /** Human span, e.g. "42m" / "1h 05m", counting live to `now` while open. */
+  durationText: string
+  /** Whether this session is still running (no `endedAt`). */
+  open: boolean
+  /** The fold's correction handle (present ⇒ this session came from a re-derivable log). */
+  anchorId?: number
+  /** Right-clickable for Edit time / Delete — closed + recorded + anchored only. */
+  editable: boolean
+}
+
+/** Build the ordered (oldest-first) session rows for one `via` rail. RECORDED = "play", ACCESS = "focus".
+    Marks (`endedAt === startedAt`, the instantaneous done glyph) are excluded — they aren't spans. */
+export function getSessionRows(e: Entity, now: number, via: "play" | "focus"): SessionRow[] {
+  const rows: SessionRow[] = []
+  const sessions = getSessions(e).filter((s) => s.via === via && s.endedAt !== s.startedAt)
+  sessions.forEach((s, i) => {
+    const open = s.endedAt == null
+    const endMs = s.endedAt ?? now
+    const timeText = `${fmtTime(s.startedAt).trim()} – ${open ? "ongoing" : fmtTime(s.endedAt!).trim()}`
+    rows.push({
+      key: s.anchorId != null ? `${via}:${s.anchorId}` : `${via}:idx${i}`,
+      via: s.via,
+      startedAt: s.startedAt,
+      endedAt: s.endedAt ?? null,
+      day: fmtDay(s.startedAt, now),
+      timeText,
+      durationText: formatDuration(Math.max(0, endMs - s.startedAt)),
+      open,
+      anchorId: s.anchorId,
+      // EDITABLE = closed + recorded + anchored. Open (live) sessions use the --start flow, not this menu;
+      // access rows are machine-truth, display-only; a legacy row without anchorId has no correction handle.
+      editable: via === "play" && !open && s.anchorId != null,
+    })
+  })
+  return rows
 }
 // (v0.6.33) getPlayedMs/getPlayedCells removed — the play-time SUM is no longer a §0 row; ongoing
 // time lives on DURATION (getOngoingDurationMs/Cells, a union) and OCCURRENCES is now a count+list.

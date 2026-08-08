@@ -28,6 +28,7 @@ import { subscribeGlyphPulse } from "@/lib/zero/data"
 import { hasOpenSession } from "@/lib/zero/kinds"
 import type { Entity } from "@/lib/zero/types"
 import { Zero0Occurrences, type OccurrenceAction } from "./zero0-occurrences"
+import { Zero0Sessions, type SessionAction } from "./zero0-sessions"
 
 /**
  * `<Zero0Face>` — the excerpt SIDE of an entity, rendered at a SIZE (the other side
@@ -199,6 +200,7 @@ function FaceBlock({
   onOpen,
   onContextMenu,
   onScheduleAction,
+  onSessionAction,
   trailing,
   hiddenPrefix,
   rowsOverride,
@@ -214,6 +216,8 @@ function FaceBlock({
   onContextMenu?: (e: Entity, ev: React.MouseEvent) => void
   /** §0 OCCURRENCES block: add / cancel a planned occurrence (full size only). */
   onScheduleAction?: (e: Entity, action: OccurrenceAction) => void
+  /** §0 RECORDED SESSIONS block: edit-time / delete a recorded session (full size only). */
+  onSessionAction?: (e: Entity, action: SessionAction) => void
   trailing?: React.ReactNode
   /** false = no prefix; "manual" = "(hidden)"; "auto" = "(auto-hidden)" (system, closed-before-today). */
   hiddenPrefix?: false | "manual" | "auto"
@@ -475,6 +479,10 @@ function FaceBlock({
         {showOccBlock && (
           <div className={twoCol ? "min-w-0 md:order-2" : "mt-2 min-w-0"}>
             <Zero0Occurrences entity={entity} now={now} onAction={onScheduleAction} />
+            {/* RECORDED SESSIONS + ACCESS (v0.2.293) — stacked directly BELOW planned occurrences in the
+                same column. Self-guards to null when both rails are empty, so it costs nothing on an
+                entity with no sessions. Recorded rows are right-click editable; access is display-only. */}
+            <Zero0Sessions entity={entity} now={now} onAction={onSessionAction} />
           </div>
         )}
         <div className={twoCol ? "min-w-0 md:order-1" : "contents"}>
@@ -599,6 +607,8 @@ export interface Zero0FaceProps {
   onContextMenu?: (e: Entity, ev: React.MouseEvent) => void
   /** `full`: §0 OCCURRENCES block add/cancel (only surfaced for 2+ planned occurrences). */
   onScheduleAction?: (e: Entity, action: OccurrenceAction) => void
+  /** `full`: §0 RECORDED SESSIONS block edit-time/delete a recorded session. */
+  onSessionAction?: (e: Entity, action: SessionAction) => void
   /** `full`: trailing slot on the identity line (the canvas's close button when drilled in). */
   trailing?: React.ReactNode
   /** `xs`: activate the title (the caller closes over its id — e.g. open the place). */
@@ -627,6 +637,7 @@ export function Zero0Face({
   hiddenPrefix,
   onContextMenu,
   onScheduleAction,
+  onSessionAction,
   trailing,
   onActivate,
   onActivateContextMenu,
@@ -675,6 +686,7 @@ export function Zero0Face({
         onOpen={onOpen}
         onContextMenu={onContextMenu}
         onScheduleAction={onScheduleAction}
+        onSessionAction={onSessionAction}
         trailing={trailing}
         hiddenPrefix={hiddenPrefix}
         rowsOverride={agg ? aggregateMetaRows(agg, nowMs, size) : undefined}
