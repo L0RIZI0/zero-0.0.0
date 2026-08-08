@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useState } from "react"
+import { AnimatePresence, motion } from "motion/react"
 import type { Entity, Recurrence } from "@/lib/zero/types"
 import { getOccurrenceRows, describeRecurrence, describeRecurrenceRule } from "@/lib/zero/face-model"
 import { parseSlotToken, parseRepeatToken } from "@/lib/zero/create-parse"
@@ -336,16 +337,33 @@ export function Zero0Occurrences({
     setAdding(false)
   }, [draft, now, onAction, entity])
 
-  // One DEFINITE (one-off) occurrence row — DAY · TIME · STATUS · [NEXT], with the actions (edit ·
-  // cancel/restore · delete) on a SECOND, hover-revealed line. The two-line shape (v0.2.289) is what lets
-  // the row live inside a NARROW temporal column: the old single-line `ml-auto` action group needed
-  // ~340px and would overflow a third-of-panel column, so day+time+status sit on line 1 and the actions
-  // drop to line 2 (faded until row-hover / focus-within, keeping the resting list quiet). `hideDay`
-  // suppresses the leading day in the TODAY column (every row there is "Today" — the column header already
-  // says so); PAST/UPCOMING keep the per-row day since they span multiple days. The SERIES sub-list does
-  // NOT use this — it renders horizontal chips (v0.2.242) whose actions live in a right-click menu.
+  // Open the shared bottom input in ADD mode (never overlapping edit mode). Shared by the per-column
+  // "+ add" buttons and the empty-state "+ add" (v0.2.290).
+  const openAdd = useCallback(() => {
+    setEditing(null)
+    setDraft("")
+    setError(false)
+    setAdding(true)
+  }, [])
+
+  // The relocated "+ add" trigger (v0.2.290, renamed from "+ add slot"). Rendered under the last row of
+  // EACH displayed column when occurrences exist, or once below the title when none do.
+  const addButton = (
+    <button type="button" onClick={openAdd} className={ACTION_CLS} title="Add a one-off occurrence (or type a rule like 'daily')">
+      + add
+    </button>
+  )
+
+  // One DEFINITE (one-off) occurrence row — a SINGLE tight line: `·` · DAY · TIME · STATUS · [NEXT]. The
+  // per-row actions (edit · cancel/restore · delete) no longer occupy a second line (v0.2.290, Loris ask) —
+  // they were reserving vertical space and forcing a big inter-row gap. Instead they live in an ABSOLUTELY-
+  // POSITIONED overlay pinned to the row's right edge, revealed on `group-hover`/`focus-within`, with an
+  // OPAQUE `bg-background` (the panel's own bg) + a little left padding so it cleanly masks the day/time/
+  // status beneath it when the column is too narrow to fit both. This lets rows stack at their natural
+  // line-height with only a hairline gap. `hideDay` drops the leading day in the TODAY column (every row is
+  // "Today"; the header says so); PAST/UPCOMING keep it. SERIES rows still render as chips, not this.
   const renderRow = (r: Row, hideDay = false) => (
-    <li key={`${r.origin}-${r.index}`} className="group text-[10px] tabular-nums">
+    <li key={`${r.origin}-${r.index}`} className="group relative text-[10px] tabular-nums leading-5">
       <div className="flex items-baseline gap-2">
         <span aria-hidden className="text-muted-foreground opacity-50">
           ·
@@ -353,7 +371,7 @@ export function Zero0Occurrences({
         {/* DAY fixed-width so every TIME lines up (when shown). "unset" segments fade like the status word. */}
         <span className={"flex items-baseline gap-2 " + (r.cancelled ? "line-through opacity-60" : "")}>
           {!hideDay && <span className="w-16 shrink-0 text-muted-foreground">{r.day}</span>}
-          <span className="text-foreground">
+          <span className="whitespace-nowrap text-foreground">
             {r.time.map((seg, i) => (
               <span key={i} className={seg.muted ? "text-muted-foreground" : undefined}>
                 {seg.text}
@@ -361,11 +379,11 @@ export function Zero0Occurrences({
             ))}
           </span>
         </span>
-        <span className="text-muted-foreground">{r.statusWord}</span>
+        <span className="whitespace-nowrap text-muted-foreground">{r.statusWord}</span>
         {r.isNext && <span className="text-[9px] uppercase tracking-wider text-foreground opacity-70">next</span>}
       </div>
       {onAction && (
-        <div className="mt-0.5 flex items-center gap-2 pl-4 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+        <div className="absolute inset-y-0 right-0 flex items-center gap-2 bg-background pl-6 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
           {/* EDIT — per-occurrence TIME edit (v0.2.248/.287: available for ANY occurrence, past included).
               Opens the shared input prefilled with this row's time. */}
           {(r.cancelled || r.cancellable) && (
@@ -391,8 +409,8 @@ export function Zero0Occurrences({
   return (
     <div className="col-span-2 mt-3">
       {/* BLOCK TITLE (v0.2.245): the "PLANNED OCCURRENCES" label is a click/right-click menu trigger
-          (Cancel all — moved off the one-off header); "+ add slot" sits inline just to its right, no
-          longer pinned far-right on the one-off row. */}
+          (Cancel all — moved off the one-off header). The "+ add" trigger USED to sit inline here; it
+          moved (v0.2.290) to under each displayed column's last row, or under the title when empty. */}
       <div className="mb-1 flex items-baseline gap-3 text-[10px]">
         <button
           type="button"
@@ -403,21 +421,9 @@ export function Zero0Occurrences({
         >
           planned occurrences
         </button>
-        {onAction && (
-          <button
-            type="button"
-            onClick={() => {
-              setEditing(null) // never let add + edit modes overlap on the shared input
-              setDraft("")
-              setError(false)
-              setAdding(true)
-            }}
-            className={ACTION_CLS}
-            title="Add a one-off occurrence (or type a rule like 'daily')"
-          >
-            + add slot
-          </button>
-        )}
+        {/* EMPTY STATE (v0.2.290): with no one-off occurrences, the single "+ add" lives right under the
+            title. When occurrences exist it disappears from here and reappears per-column (below). */}
+        {onAction && definiteRows.length === 0 && addButton}
       </div>
 
       {/* ── SERIES strips ── ONE per recurrence series (v0.2.246): the primary `repeat` first, then each
@@ -476,28 +482,41 @@ export function Zero0Occurrences({
         {hasAnySeries && definiteRows.length > 0 && (
           <div className="mb-1 text-[10px] text-muted-foreground">one-off</div>
         )}
-        {/* THREE TEMPORAL COLUMNS (v0.2.289) — PAST · TODAY · UPCOMING. Responsive: stacks to one column
-            on narrow widths (each bucket full-width under its header, ≈ the old flat list but grouped),
-            three side-by-side from `sm`. All three cells render even when empty so the layout is stable
-            and the mental model stays "past | today | upcoming"; an empty bucket shows a faint em-dash. */}
+        {/* THREE TEMPORAL COLUMNS (v0.2.289; visible-only + animated v0.2.290) — PAST · TODAY · UPCOMING.
+            Only columns that hold at least one occurrence are rendered; an empty bucket is omitted entirely
+            (no more em-dash placeholder). Each column is a flex child that grows to an equal share of the
+            row, so 1/2/3 present columns split the width evenly. Show/hide is animated with `motion`: a
+            column EXPANDS from zero width (flexGrow 0→1) + fades in on appear, and COLLAPSES + fades out on
+            removal — because flexGrow is animated inline, the sibling columns continuously reflow to fill
+            the freed space, giving a smooth settle with no jump. `AnimatePresence initial={false}` skips the
+            animation on first paint (panel-open shows columns instantly; only later bucket changes animate).
+            Each column carries its own "+ add" under the last row. */}
         {definiteRows.length > 0 && (
-          <div className="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-3">
-            {(
-              [
-                { key: "past", label: "Past", rows: pastRows, hideDay: false },
-                { key: "today", label: "Today", rows: todayRows, hideDay: true },
-                { key: "upcoming", label: "Upcoming", rows: upcomingRows, hideDay: false },
-              ] as const
-            ).map((col) => (
-              <div key={col.key} className="min-w-0">
-                <div className="mb-1 text-[9px] uppercase tracking-wider text-muted-foreground/60">{col.label}</div>
-                {col.rows.length > 0 ? (
-                  <ul className="flex flex-col gap-0.5">{col.rows.map((r) => renderRow(r, col.hideDay))}</ul>
-                ) : (
-                  <div className="pl-4 text-[10px] text-muted-foreground/30">—</div>
-                )}
-              </div>
-            ))}
+          <div className="flex gap-x-6">
+            <AnimatePresence initial={false}>
+              {(
+                [
+                  { key: "past", label: "Past", rows: pastRows, hideDay: false },
+                  { key: "today", label: "Today", rows: todayRows, hideDay: true },
+                  { key: "upcoming", label: "Upcoming", rows: upcomingRows, hideDay: false },
+                ] as const
+              )
+                .filter((col) => col.rows.length > 0)
+                .map((col) => (
+                  <motion.div
+                    key={col.key}
+                    initial={{ opacity: 0, flexGrow: 0 }}
+                    animate={{ opacity: 1, flexGrow: 1 }}
+                    exit={{ opacity: 0, flexGrow: 0 }}
+                    transition={{ duration: 0.28, ease: "easeOut" }}
+                    className="min-w-0 basis-0 overflow-hidden"
+                  >
+                    <div className="mb-1 text-[9px] uppercase tracking-wider text-muted-foreground/60">{col.label}</div>
+                    <ul className="flex flex-col">{col.rows.map((r) => renderRow(r, col.hideDay))}</ul>
+                    {onAction && <div className="mt-1 pl-4">{addButton}</div>}
+                  </motion.div>
+                ))}
+            </AnimatePresence>
           </div>
         )}
         {/* Shared bottom input — DUAL-MODE (v0.2.248): ADD (empty, sets a slot/rule) when `adding`, or
