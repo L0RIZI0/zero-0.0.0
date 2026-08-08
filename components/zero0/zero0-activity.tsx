@@ -73,6 +73,7 @@ export function Zero0Agenda({
   onOpen,
   onContextMenuEntity,
   onOccurrenceMenu,
+  onSessionMenu,
   onOccurrenceRetime,
   onFrameMenu,
   onToggleMinimize,
@@ -91,6 +92,9 @@ export function Zero0Agenda({
     occ: NonNullable<DaylineOccRef>,
     ev: React.MouseEvent,
   ) => void
+  /** Right-click a BOTTOM-rail (recorded) tick with a session anchor → the PER-SESSION menu (Edit time /
+   *  Delete), keyed by anchor id (v0.2.293). Bottom-rail mirror of onOccurrenceMenu; forwarded to the dayline. */
+  onSessionMenu?: (entityId: string, anchorId: number, ev: React.MouseEvent) => void
   /** Drag a planned tick's edge / body → commit its new start/end (v0.2.286). Forwarded to the dayline. */
   onOccurrenceRetime?: (
     entityId: string,
@@ -141,6 +145,7 @@ export function Zero0Agenda({
           onOpen={onOpen}
           onContextMenuEntity={onContextMenuEntity}
           onOccurrenceMenu={onOccurrenceMenu}
+          onSessionMenu={onSessionMenu}
           onOccurrenceRetime={onOccurrenceRetime}
           dataRev={dataRev}
           tracks="both"

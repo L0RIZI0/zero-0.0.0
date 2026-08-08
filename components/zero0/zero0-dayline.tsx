@@ -2104,9 +2104,12 @@ export function Zero0Dayline({
                         }}
                         onContextMenu={(ev) => {
                           // TOP-rail (planned) tick with an occurrence identity → per-occurrence menu;
+                          // BOTTOM-rail (recorded) tick with a session anchor → per-session menu (v0.2.293);
                           // else the whole-entity menu (v0.2.249).
                           if (p.track === "planned" && p.occRef && onOccurrenceMenu)
                             onOccurrenceMenu(p.id, p.occRef, ev)
+                          else if (p.track === "recorded" && p.sessionAnchorId != null && onSessionMenu)
+                            onSessionMenu(p.id, p.sessionAnchorId, ev)
                           else onContextMenuEntity?.(p.id, ev)
                         }}
                         className={cn(

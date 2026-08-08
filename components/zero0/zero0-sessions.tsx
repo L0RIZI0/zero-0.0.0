@@ -93,8 +93,10 @@ export function Zero0Sessions({
     const dayAnchor = editing.startedAt
     const start = applyClock(dayAnchor, parsed.start)
     let end = applyClock(dayAnchor, parsed.end)
-    // An overnight span (e.g. 2330-0100) re-anchors with end <= start ⇒ push end to the next day.
-    if (end <= start) end += 24 * 60 * 60 * 1000
+    // An overnight span (e.g. 2330-0100) re-anchors with end EARLIER than start ⇒ push end to the next
+    // day. Strictly `<` (not `<=`): an EQUAL clock (e.g. a sub-minute play/stop that prefilled 2217-2217)
+    // is a zero-length session, NOT a 24h one — pushing it +1 day produced a bogus "1d" span (v0.2.293).
+    if (end < start) end += 24 * 60 * 60 * 1000
     onAction?.(entity, { type: "editSession", anchorId: editing.anchorId, start, end })
     setEditing(null)
     setDraft("")
