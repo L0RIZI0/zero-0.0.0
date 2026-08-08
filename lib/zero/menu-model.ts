@@ -165,13 +165,16 @@ export function buildEntityMenuItems(
   // while live (an ended entity's times are historical). Simple: stamps `Date.now()` with no
   // cross-midnight adjustment (the create bar's `--start:now` etc. is the fuller path).
   if (!ended) {
-    if (isPlayable(entity) && !meta.hasDoneFlag) {
-      // PLAYABLE non-task (v0.7 — idea·resource·moment·space; TASK is excluded here because it
-      // plays through its DONE glyph, matching the canvas glyph routing). Play/Stop is a MANUAL
-      // PLAY: a `via:"play"` session on the BOTTOM (recorded) rail, NOT a top-rail occurrence (the
-      // scalar start/end is PLANNED-only) and NOT the auto focus/presence spine. Label reflects the
-      // running MANUAL PLAY specifically (`via==="play"`), so merely VIEWING (which opens a focus
-      // session) still reads "Play", and Stop only appears when a manual play is actually running.
+    if (isPlayable(entity)) {
+      // PLAYABLE kinds (idea·task·resource·moment·space). Play/Stop is a MANUAL PLAY: a `via:"play"`
+      // session on the BOTTOM (recorded) rail, NOT a top-rail occurrence (the scalar start/end is
+      // PLANNED-only) and NOT the auto focus/presence spine. Label reflects the running MANUAL PLAY
+      // specifically (`via==="play"`), so merely VIEWING (which opens a focus session) still reads
+      // "Play", and Stop only appears when a manual play is actually running.
+      // v0.2.288: the TASK is NO LONGER excluded here (was `&& !meta.hasDoneFlag`). A task's DONE
+      // glyph and an explicit stopwatch are ORTHOGONAL — Loris wants a right-click Play to time a
+      // task without marking it done. The two coexist: Play opens a recorded span, Mark as Done sets
+      // the done flag; neither implies the other.
       const playing = hasOpenSession(entity, "play")
       items.push({ type: "item", id: playing ? "stop" : "play", label: playing ? "Stop" : "Play" })
     }
