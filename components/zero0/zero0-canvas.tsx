@@ -2040,6 +2040,19 @@ export function Zero0Canvas() {
     [runScheduleAction],
   )
 
+  // COMMIT a dayline DRAG re-time of a RECORDED session (v0.2.294) — the bottom-rail mirror of
+  // retimeOccurrence. The dayline hands back the session anchor + new absolute start/end (minute-rounded);
+  // this routes to the SAME `editSession` writer the §0 inline editor + the per-session menu use, so a
+  // handle-drag and a manual edit are one code path.
+  const retimeSession = useCallback(
+    (entityId: string, anchorId: number, start: number, end: number) => {
+      const e = getEntity(entityId)
+      if (!e) return
+      runSessionAction(e, { type: "editSession", anchorId, start, end })
+    },
+    [runSessionAction],
+  )
+
   // SIBLINGS dropdown �� opened from the caret to the LEFT of a crumb (any depth except root).
   // Lists ALL entities at that crumb's level (its parent's children, INCLUDING the current one,
   // marked), in their stable child order. Listing all — not just the "others" — means the menu's
@@ -2310,6 +2323,7 @@ export function Zero0Canvas() {
             onOccurrenceMenu={openOccurrenceMenu}
             onSessionMenu={openSessionMenu}
             onOccurrenceRetime={retimeOccurrence}
+            onSessionRetime={retimeSession}
             onFrameMenu={openFrameMenu}
             onToggleMinimize={() => setMinimized((m) => ({ ...m, agenda: !m.agenda }))}
             minimized={minimized.agenda}

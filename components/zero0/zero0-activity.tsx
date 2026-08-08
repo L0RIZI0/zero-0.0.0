@@ -75,6 +75,7 @@ export function Zero0Agenda({
   onOccurrenceMenu,
   onSessionMenu,
   onOccurrenceRetime,
+  onSessionRetime,
   onFrameMenu,
   onToggleMinimize,
   minimized = false,
@@ -102,6 +103,9 @@ export function Zero0Agenda({
     start: number,
     end: number,
   ) => void
+  /** Drag a RECORDED tick's edge / body → commit its new start/end (v0.2.294), keyed by anchor id.
+   *  Bottom-rail mirror of onOccurrenceRetime; forwarded to the dayline. */
+  onSessionRetime?: (entityId: string, anchorId: number, start: number, end: number) => void
   /** Right-click the frame chrome (header / empty area) → the frame menu (minimize). */
   onFrameMenu?: (frame: "agenda" | "activity", ev: React.MouseEvent) => void
   /** Toggle minimize/maximize directly (LEFT-click): the chevron in the maximized title,
@@ -147,6 +151,7 @@ export function Zero0Agenda({
           onOccurrenceMenu={onOccurrenceMenu}
           onSessionMenu={onSessionMenu}
           onOccurrenceRetime={onOccurrenceRetime}
+          onSessionRetime={onSessionRetime}
           dataRev={dataRev}
           tracks="both"
           minimized={minimized}

@@ -456,6 +456,7 @@ export function Zero0Dayline({
   onOccurrenceMenu,
   onSessionMenu,
   onOccurrenceRetime,
+  onSessionRetime,
   dataRev,
   tracks = "planned",
   trailing,
@@ -490,6 +491,10 @@ export function Zero0Dayline({
     start: number,
     end: number,
   ) => void
+  /** COMMIT a drag re-time of a RECORDED session (v0.2.294) — the new absolute start/end (ms, rounded to
+   *  the minute) for the session addressed by `anchorId`. Wired from the canvas to `editSession`. Absent ⇒
+   *  recorded ticks' edge/move handles are inert (they fall back to click-open + right-click menu only). */
+  onSessionRetime?: (entityId: string, anchorId: number, start: number, end: number) => void
   dataRev: number
   /** Which lane this instance paints. `"planned"` = scheduled occurrences only;
    *  `"access"` = the tracked "where I was" band (Activity frame — the machine-truth
@@ -776,6 +781,11 @@ export function Zero0Dayline({
     // EDITABLE handle (v0.2.293): a CLOSED, anchored recorded session gets its anchorId so a right-click
     // opens Edit time / Delete. Open (live) runs and un-anchored legacy runs omit it ⇒ whole-entity menu.
     sessionAnchorId: !open && run.anchorId != null ? run.anchorId : undefined,
+    // ABSOLUTE epochs for edge-drag re-time (v0.2.294) — the RAW (unclamped) span, matching how planned
+    // ticks carry startMs/endMs. Only a CLOSED run has a fixed pair of edges to drag; an open (live) run
+    // omits endMs so it can't be edge-edited (its right edge is the growing now-marker).
+    startMs: rawStart,
+    endMs: open ? undefined : rawEnd,
     point: en <= st,
           // Open run's right edge IS now → anchored + joins the ongoing stack.
           openEnded: open,
@@ -1393,11 +1403,16 @@ export function Zero0Dayline({
   // commit the final span without depending on the async `editPreview` state. `editPreview` mirrors
   // that live span into the render so the tick slides under the cursor before commit. `editDraggedRef`
   // guards the click-to-open that would otherwise fire when a MOVE drag ends on the body.
+  // v0.2.294: the drag now serves BOTH rails. `occRef` (planned) and `sessionAnchorId` (recorded) are
+  // mutually exclusive — exactly one is set per drag, and `endEdgeDrag` routes the commit accordingly
+  // (onOccurrenceRetime vs onSessionRetime). All the geometry (origStart/origEnd/curStart/curEnd) is
+  // rail-agnostic, so the move/resize math is shared verbatim.
   const editDragRef = useRef<{
     kind: "start" | "end" | "move"
     key: string
     entityId: string
-    occRef: DaylineOccRef
+    occRef?: DaylineOccRef
+    sessionAnchorId?: number
     origStart: number
     origEnd: number
     startX: number
@@ -1410,7 +1425,11 @@ export function Zero0Dayline({
 
   const beginEdgeDrag = useCallback(
     (kind: "start" | "end" | "move", p: DaylineBar) => (e: React.PointerEvent) => {
-      if (e.button !== 0 || !onOccurrenceRetime || !p.occRef || p.startMs == null || p.endMs == null) return
+      // A drag is armed for a PLANNED tick with an occRef + retime writer, OR a RECORDED tick with a
+      // session anchor + session-retime writer (v0.2.294). Either way it needs two known epochs.
+      const isOcc = p.track === "planned" && !!p.occRef && !!onOccurrenceRetime
+      const isSession = p.track === "recorded" && p.sessionAnchorId != null && !!onSessionRetime
+      if (e.button !== 0 || (!isOcc && !isSession) || p.startMs == null || p.endMs == null) return
       // A drag on an editable tick WINS over panning (stopPropagation keeps the lane's pointerdown
       // from starting a pan). We do NOT preventDefault, so a no-move press still fires the button's
       // click → opens the entity; a real drag is gated out of that click by `editDraggedRef`.
@@ -1421,7 +1440,8 @@ export function Zero0Dayline({
         kind,
         key: p.key,
         entityId: p.id,
-        occRef: p.occRef,
+        occRef: isOcc ? p.occRef : undefined,
+        sessionAnchorId: isSession ? p.sessionAnchorId : undefined,
         origStart: p.startMs,
         origEnd: p.endMs,
         startX: e.clientX,
@@ -1437,7 +1457,7 @@ export function Zero0Dayline({
       placeTooltip(e.clientX, e.clientY)
       showHourGuides()
     },
-    [onOccurrenceRetime, showHourGuides, placeTooltip],
+    [onOccurrenceRetime, onSessionRetime, showHourGuides, placeTooltip],
   )
   const moveEdgeDrag = useCallback((e: React.PointerEvent) => {
     const d = editDragRef.current
@@ -1473,9 +1493,11 @@ export function Zero0Dayline({
       const el = e.currentTarget as HTMLElement
       if (el.hasPointerCapture?.(e.pointerId)) el.releasePointerCapture(e.pointerId)
       hideHourGuides()
-      // Commit only a REAL drag (past the tiny threshold) + only if the span actually changed.
+      // Commit only a REAL drag (past the tiny threshold) + only if the span actually changed. Route to
+      // the correct rail's writer (v0.2.294): planned → onOccurrenceRetime, recorded → onSessionRetime.
       if (editDraggedRef.current && (d.curStart !== d.origStart || d.curEnd !== d.origEnd)) {
-        onOccurrenceRetime?.(d.entityId, d.occRef, d.curStart, d.curEnd)
+        if (d.sessionAnchorId != null) onSessionRetime?.(d.entityId, d.sessionAnchorId, d.curStart, d.curEnd)
+        else if (d.occRef) onOccurrenceRetime?.(d.entityId, d.occRef, d.curStart, d.curEnd)
       }
       setEditPreview(null)
       // Keep the suppress flag up through the click that fires immediately after this pointerUp
@@ -1484,7 +1506,7 @@ export function Zero0Dayline({
         editDraggedRef.current = false
       })
     },
-    [onOccurrenceRetime, hideHourGuides],
+    [onOccurrenceRetime, onSessionRetime, hideHourGuides],
   )
 
   const onPointerDown = useCallback(
@@ -1942,25 +1964,25 @@ export function Zero0Dayline({
                   // in from its LEFT edge. Rounds only its right (known) edge. Mutually exclusive with
                   // `fading` in practice (a bar can't be open on both ends). Never a point/mark.
                   const fadingStart = p.unknownStart && !p.point && !p.markGlyph && !fading
-                  // EDGE-EDITABLE (v0.2.285, narrowed .286, past-allowed .287) — a tick the uzer can DRAG
-                  // to re-time. Scoped to PLANNED occurrences ONLY: they carry a `setDefiniteOccurrenceTime`
-                  // / `setRuleOccurrenceTime` writer that can commit the new span. RECORDED sessions are
-                  // derived from an append-only log with no time-writer yet, so their handles are OFF until
-                  // that log-edit pass lands. v0.2.287: re-timing a PAST occurrence is now allowed (Loris
-                  // ask) — the `occRef.cancellable` (future-only) gate is dropped here; the writers are
-                  // time-agnostic. (CANCEL stays future-gated elsewhere — you can't cancel history, but you
-                  // CAN correct a past slot's time.) Needs two known epochs; excludes points / marks /
-                  // open-ended (fading) ticks, which have no fixed pair of edges to drag. */
+                  // EDGE-EDITABLE (v0.2.285, narrowed .286, past-allowed .287, RECORDED added .294) — a tick
+                  // the uzer can DRAG to re-time. TWO rails now: PLANNED occurrences (setDefinite/Rule
+                  // OccurrenceTime writers) AND RECORDED sessions (editSession, now that the .293 log-edit
+                  // pass landed a time-writer). Both need two known epochs; both exclude points / marks /
+                  // open-ended (fading) ticks, which have no fixed pair of edges to drag. A recorded tick is
+                  // editable only when CLOSED + anchored (it then carries sessionAnchorId + a finite endMs).
+                  // Re-timing a PAST span is allowed on both rails (Loris ask). */
+                  const occEditable =
+                    p.track === "planned" && !!p.occRef && !!onOccurrenceRetime
+                  const sessionEditable =
+                    p.track === "recorded" && p.sessionAnchorId != null && !!onSessionRetime
                   const edgeEditable =
                     !p.point &&
                     !p.markGlyph &&
                     !fading &&
                     !fadingStart &&
-                    p.track === "planned" &&
-                    !!p.occRef &&
+                    (occEditable || sessionEditable) &&
                     p.startMs != null &&
-                    p.endMs != null &&
-                    !!onOccurrenceRetime
+                    p.endMs != null
                   // COLLAPSE-ON-STOP is handled IMPERATIVELY (v0.2.261) — the effect above FLIP-animates
                   // the just-closed node's px width + mask directly. The declarative render below only
                   // describes the RESTING open (`fading`) and closed states; it never needs a collapse
