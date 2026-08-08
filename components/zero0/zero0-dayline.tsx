@@ -425,6 +425,14 @@ interface DaylineBar {
   startMs?: number
   endMs?: number
   /**
+   * RECORDED (bottom-rail) bars only (v0.2.293): the anchor id of the log entry that opened this
+   * recorded session — its {@link Session.anchorId}. Carried so a right-click on the bar can open the
+   * recorded-session menu (Edit time / Delete) via {@link onSessionMenu}, the exact bottom-rail mirror
+   * of {@link occRef} for the top rail. Present only on a CLOSED, anchored `via:"play"` tick (the same
+   * editability gate the §0 list uses); absent ⇒ the bar falls back to the whole-entity menu.
+   */
+  sessionAnchorId?: number
+  /**
    * ACCESS bars only. A "session of using Zero" is a RUN of contiguous access
    * segments (leaving one place enters the next at the same instant; a gap only opens
    * when the app was backgrounded). `roundLeft` marks the FIRST tick of such a run (its
@@ -446,6 +454,7 @@ export function Zero0Dayline({
   onOpen,
   onContextMenuEntity,
   onOccurrenceMenu,
+  onSessionMenu,
   onOccurrenceRetime,
   dataRev,
   tracks = "planned",
@@ -467,6 +476,11 @@ export function Zero0Dayline({
     occ: NonNullable<TimelineOccurrence["occRef"]>,
     ev: React.MouseEvent,
   ) => void
+  /** Right-click a BOTTOM-rail (recorded) tick that carries a `sessionAnchorId` → open the per-session
+   *  menu (Edit time / Delete) for THAT recorded session, keyed by its anchor id (v0.2.293) — the exact
+   *  bottom-rail mirror of `onOccurrenceMenu`. Falls back to `onContextMenuEntity` when absent or when
+   *  the tick has no anchor (open/legacy session). */
+  onSessionMenu?: (entityId: string, anchorId: number, ev: React.MouseEvent) => void
   /** COMMIT a drag re-time of a planned occurrence (v0.2.286) — the new absolute start/end (ms,
    *  already rounded to the minute) for the occurrence addressed by `occ`. Wired from the canvas
    *  to `setDefiniteOccurrenceTime` / `setRuleOccurrenceTime`. Absent ⇒ edge/move handles are inert. */
@@ -717,7 +731,7 @@ export function Zero0Dayline({
       // seconds apart got silently swallowed into one long tick — exactly the confusing "never
       // interrupted" behaviour. Every played session is now a standalone run; `count` stays 1 so the
       // "· N sessions" merged label never shows.
-      type Run = { start: number; end: number; open: boolean; via?: string; auto?: boolean; count: number }
+      type Run = { start: number; end: number; open: boolean; via?: string; auto?: boolean; count: number; anchorId?: number }
       const runs: Run[] = []
       for (const sess of [...list].sort((a, b) => a.startedAt - b.startedAt)) {
         // v0.2.257: the BOTTOM (PLAYED) rail shows EVERY played session — BOTH auto (started by
@@ -728,7 +742,7 @@ export function Zero0Dayline({
         if (sess.via !== "play") continue
         const sOpen = sess.endedAt == null
         const sEnd = sess.endedAt ?? now
-        runs.push({ start: sess.startedAt, end: sEnd, open: sOpen, via: sess.via, count: 1 })
+        runs.push({ start: sess.startedAt, end: sEnd, open: sOpen, via: sess.via, count: 1, anchorId: sess.anchorId })
       }
       runs.forEach((run, i) => {
         // Every run here is a PLAYED span (auto OR remote) — the collection loop above kept all
@@ -759,6 +773,9 @@ export function Zero0Dayline({
             ? `${rangeText(rawStart, rawEnd)} · ${kindLabel} · ongoing${merged}`
             : `${rangeText(rawStart, rawEnd)} · ${kindLabel}${merged}`,
     track: "recorded", // bottom rail — PLAYED sessions (auto + remote), v0.2.257
+    // EDITABLE handle (v0.2.293): a CLOSED, anchored recorded session gets its anchorId so a right-click
+    // opens Edit time / Delete. Open (live) runs and un-anchored legacy runs omit it ⇒ whole-entity menu.
+    sessionAnchorId: !open && run.anchorId != null ? run.anchorId : undefined,
     point: en <= st,
           // Open run's right edge IS now → anchored + joins the ongoing stack.
           openEnded: open,
@@ -2031,9 +2048,12 @@ export function Zero0Dayline({
                           }}
                           onContextMenu={(ev) => {
                             // TOP-rail (planned) tick with an occurrence identity → per-occurrence menu;
+                            // BOTTOM-rail (recorded) tick with a session anchor → per-session menu (v0.2.293);
                             // else the whole-entity menu (v0.2.249).
                             if (p.track === "planned" && p.occRef && onOccurrenceMenu)
                               onOccurrenceMenu(p.id, p.occRef, ev)
+                            else if (p.track === "recorded" && p.sessionAnchorId != null && onSessionMenu)
+                              onSessionMenu(p.id, p.sessionAnchorId, ev)
                             else onContextMenuEntity?.(p.id, ev)
                           }}
                           className="pointer-events-auto absolute flex cursor-default items-center gap-1 -translate-y-1/2 whitespace-nowrap"

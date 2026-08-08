@@ -2,6 +2,7 @@
 
 import { useCallback, useState } from "react"
 import { AnimatePresence, motion } from "motion/react"
+import { Pencil, Ban, RotateCcw, Trash2 } from "lucide-react"
 import type { Entity, Recurrence } from "@/lib/zero/types"
 import { getOccurrenceRows, describeRecurrence, describeRecurrenceRule } from "@/lib/zero/face-model"
 import { parseSlotToken, parseRepeatToken } from "@/lib/zero/create-parse"
@@ -81,6 +82,12 @@ type SeriesGroup = { ruleId?: string; label: string; rows: Row[] }
 
 const ACTION_CLS =
   "text-[9px] uppercase tracking-wider text-muted-foreground opacity-60 hover:text-foreground hover:opacity-100"
+
+// Per-row ACTION ICONS (v0.2.293) — the edit/cancel/delete words were replaced by icons (pencil · ban/
+// undo · trash), shown on hover, placed inline immediately AFTER the row text (left-aligned) rather than
+// far-right. Far-right words drifted next to the neighbouring column and read as if they acted on IT; a
+// compact icon cluster hugging its own row removes that ambiguity. Shared by occurrence + session rows.
+export const ICON_BTN = "shrink-0 text-muted-foreground transition-colors hover:text-foreground"
 
 export function Zero0Occurrences({
   entity,
@@ -363,8 +370,8 @@ export function Zero0Occurrences({
   // line-height with only a hairline gap. `hideDay` drops the leading day in the TODAY column (every row is
   // "Today"; the header says so); PAST/UPCOMING keep it. SERIES rows still render as chips, not this.
   const renderRow = (r: Row, hideDay = false) => (
-    <li key={`${r.origin}-${r.index}`} className="group relative text-[10px] tabular-nums leading-5">
-      <div className="flex items-baseline gap-2">
+    <li key={`${r.origin}-${r.index}`} className="group text-[10px] tabular-nums leading-5">
+      <div className="flex items-center gap-2">
         <span aria-hidden className="text-muted-foreground opacity-50">
           ·
         </span>
@@ -381,28 +388,36 @@ export function Zero0Occurrences({
         </span>
         <span className="whitespace-nowrap text-muted-foreground">{r.statusWord}</span>
         {r.isNext && <span className="text-[9px] uppercase tracking-wider text-foreground opacity-70">next</span>}
+        {/* ACTION ICONS (v0.2.293) — inline right AFTER the text (not far-right), revealed on hover. The
+            reserved (transparent) width means hovering never shifts the layout. Icons: pencil=edit ·
+            ban/undo=cancel/restore · trash=delete. Kept left-hugging so they clearly belong to THIS row. */}
+        {onAction && (
+          <span className="ml-1 flex items-center gap-2 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+            {/* EDIT — per-occurrence TIME edit (v0.2.248/.287: available for ANY occurrence, past included). */}
+            {(r.cancelled || r.cancellable) && (
+              <button type="button" onClick={() => startEdit(r)} className={ICON_BTN} title="Edit this occurrence's time" aria-label="Edit time">
+                <Pencil className="h-3 w-3" />
+              </button>
+            )}
+            {/* CANCEL / RESTORE — restorable struck tombstone, gated to not-yet-ended occurrences. */}
+            {(r.cancelled || r.cancellable) && (
+              <button
+                type="button"
+                onClick={() => dispatchRowAction(r, "cancel")}
+                className={ICON_BTN}
+                title={r.cancelled ? "Restore this occurrence" : "Cancel this occurrence"}
+                aria-label={r.cancelled ? "Restore" : "Cancel"}
+              >
+                {r.cancelled ? <RotateCcw className="h-3 w-3" /> : <Ban className="h-3 w-3" />}
+              </button>
+            )}
+            {/* DELETE — hard removal (splice/clear the slot). Distinct from the restorable cancel. */}
+            <button type="button" onClick={() => dispatchRowAction(r, "delete")} className={ICON_BTN} title="Delete this occurrence" aria-label="Delete">
+              <Trash2 className="h-3 w-3" />
+            </button>
+          </span>
+        )}
       </div>
-      {onAction && (
-        <div className="absolute inset-y-0 right-0 flex items-center gap-2 bg-background pl-6 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
-          {/* EDIT — per-occurrence TIME edit (v0.2.248/.287: available for ANY occurrence, past included).
-              Opens the shared input prefilled with this row's time. */}
-          {(r.cancelled || r.cancellable) && (
-            <button type="button" onClick={() => startEdit(r)} className={ACTION_CLS} title="Edit this occurrence's time">
-              edit
-            </button>
-          )}
-          {/* CANCEL / RESTORE — restorable struck tombstone, gated to not-yet-ended occurrences. */}
-          {(r.cancelled || r.cancellable) && (
-            <button type="button" onClick={() => dispatchRowAction(r, "cancel")} className={ACTION_CLS} title={r.cancelled ? "Restore this occurrence" : "Cancel this occurrence"}>
-              {r.cancelled ? "restore" : "cancel"}
-            </button>
-          )}
-          {/* DELETE — hard removal (splice/clear the slot). Distinct from the restorable cancel. */}
-          <button type="button" onClick={() => dispatchRowAction(r, "delete")} className={ACTION_CLS} title="Delete this occurrence">
-            delete
-          </button>
-        </div>
-      )}
     </li>
   )
 

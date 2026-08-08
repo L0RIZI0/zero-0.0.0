@@ -65,6 +65,8 @@ import {
   reorderContextItems,
   moveEntityToContext,
   addManualSession,
+  editSession,
+  deleteSession,
   sweepStaleScalars,
   getActorFeed,
 } from "@/lib/zero/data"
@@ -91,6 +93,7 @@ import { Zero0Pins } from "./zero0-pins"
 import { Zero0Frame } from "./zero0-frame"
 import { Zero0Face } from "./zero0-face"
 import type { OccurrenceAction } from "./zero0-occurrences"
+import type { SessionAction } from "./zero0-sessions"
 import { Zero0Favicon } from "./zero0-favicon"
 import { Zero0Glyph } from "./zero0-glyph"
 import { Zero0Content, type Zero0ContentCtx } from "./zero0-content"
@@ -285,6 +288,7 @@ function Zero0EntityHeaderBlock({
   onMark,
   onContextMenu,
   onScheduleAction,
+  onSessionAction,
   onClose,
 }: {
   entity: Entity
@@ -295,6 +299,7 @@ function Zero0EntityHeaderBlock({
   onMark: (e: Entity) => void
   onContextMenu: (e: Entity, ev: React.MouseEvent) => void
   onScheduleAction: (e: Entity, action: OccurrenceAction) => void
+  onSessionAction: (e: Entity, action: SessionAction) => void
   onClose: (e: Entity) => void
 }) {
   const [logExpanded, setLogExpanded] = useState(false)
@@ -317,6 +322,7 @@ function Zero0EntityHeaderBlock({
         onMark={onMark}
         onContextMenu={onContextMenu}
         onScheduleAction={onScheduleAction}
+        onSessionAction={onSessionAction}
         trailing={
           !isRootLevel ? (
             <Zero0CloseButton className="ml-auto" onClick={() => onClose(entity)} />
@@ -387,6 +393,7 @@ function Zero0ContextPane({
   onMark,
   onContextMenu,
   onScheduleAction,
+  onSessionAction,
   onClose,
 }: {
   entity: Entity
@@ -401,6 +408,7 @@ function Zero0ContextPane({
   onMark: (e: Entity) => void
   onContextMenu: (e: Entity, ev: React.MouseEvent) => void
   onScheduleAction: (e: Entity, action: OccurrenceAction) => void
+  onSessionAction: (e: Entity, action: SessionAction) => void
   onClose: (e: Entity) => void
 }) {
   return (
@@ -424,6 +432,7 @@ function Zero0ContextPane({
               onMark={onMark}
               onContextMenu={onContextMenu}
               onScheduleAction={onScheduleAction}
+              onSessionAction={onSessionAction}
               onClose={onClose}
             />
           </div>
@@ -1745,6 +1754,21 @@ export function Zero0Canvas() {
     [bump],
   )
 
+  // RECORDED-SESSION edit/delete dispatch (v0.2.293) — the past-tense counterpart of runScheduleAction,
+  // for the §0 RECORDED SESSIONS list (and the dayline recorded ticks). Both actions are keyed by the
+  // session's `anchorId` (the fold's correction handle) and route to the append-only log writers:
+  //   • editSession   → appends a `session-edit` overlay carrying the corrected start/end.
+  //   • deleteSession → appends a `session-delete` tombstone.
+  // The writers guard that the anchor still resolves to a recorded session, so a stale dispatch no-ops.
+  const runSessionAction = useCallback(
+    (e: Entity, action: SessionAction) => {
+      if (action.type === "editSession") editSession(e.id, action.anchorId, action.start, action.end)
+      else if (action.type === "deleteSession") deleteSession(e.id, action.anchorId)
+      bump()
+    },
+    [bump],
+  )
+
   // APPLY a Plan-dialog result (v0.2.269) against the existing writers, then close + re-render. The
   // dialog already decided tense (future ⇒ occurrence, past ⇒ session) and shape; this just routes:
   //   • occurrence → addOccurrence (a planned one-off, top-rail)
@@ -1969,6 +1993,28 @@ export function Zero0Canvas() {
       })
     },
     [showMenu, navigateTo, runScheduleAction],
+  )
+
+  // RECORDED-SESSION dayline menu (v0.2.293) — the bottom-rail mirror of openOccurrenceMenu. Right-click a
+  // recorded tick that carries a session anchor → Edit time / Delete for THAT session. "Edit time" opens
+  // the entity so the correction happens in its §0 RECORDED SESSIONS inline editor (exactly like the
+  // occurrence menu routes edits to §0); "Delete" dispatches the tombstone writer directly.
+  const openSessionMenu = useCallback(
+    (entityId: string, anchorId: number, ev: React.MouseEvent) => {
+      ev.preventDefault()
+      ev.stopPropagation()
+      const e = getEntity(entityId)
+      if (!e) return
+      const items: MenuItem[] = [
+        { type: "item", id: "edit", label: "Edit time" },
+        { type: "item", id: "delete", label: "Delete", danger: true },
+      ]
+      showMenu(items, ev.clientX, ev.clientY, (id) => {
+        if (id === "edit") navigateTo(entityId)
+        else if (id === "delete") runSessionAction(e, { type: "deleteSession", anchorId })
+      })
+    },
+    [showMenu, navigateTo, runSessionAction],
   )
 
   // COMMIT a dayline DRAG re-time (v0.2.286). The dayline hands back the occurrence identity + the
@@ -2257,6 +2303,7 @@ export function Zero0Canvas() {
             onOpen={navigateTo}
             onContextMenuEntity={openMenuById}
             onOccurrenceMenu={openOccurrenceMenu}
+            onSessionMenu={openSessionMenu}
             onOccurrenceRetime={retimeOccurrence}
             onFrameMenu={openFrameMenu}
             onToggleMinimize={() => setMinimized((m) => ({ ...m, agenda: !m.agenda }))}
@@ -2433,6 +2480,7 @@ export function Zero0Canvas() {
                   onMark={mark}
                   onContextMenu={openMenu}
                   onScheduleAction={runScheduleAction}
+                  onSessionAction={runSessionAction}
                   onClose={closeContext}
                 />
               </Activity>
@@ -2467,6 +2515,7 @@ export function Zero0Canvas() {
                   onMark={mark}
                   onContextMenu={openMenu}
                   onScheduleAction={runScheduleAction}
+                  onSessionAction={runSessionAction}
                   onClose={closeContext}
                 />
               </div>

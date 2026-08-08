@@ -1,11 +1,13 @@
 "use client"
 
 import { useCallback, useState } from "react"
+import { Pencil, Trash2 } from "lucide-react"
 import type { Entity } from "@/lib/zero/types"
 import { getSessionRows, type SessionRow } from "@/lib/zero/face-model"
 import { parseSlotToken } from "@/lib/zero/create-parse"
 import type { MenuItem } from "@/lib/zero/menu-model"
 import { Zero0DomMenu, type Zero0DomMenuState } from "./zero0-dom-menu"
+import { ICON_BTN } from "./zero0-occurrences"
 
 // The §0 RECORDED SESSIONS + ACCESS block (v0.2.293) — shown BELOW planned occurrences. It surfaces the
 // two DERIVED session rails as plain lists (they used to be single meta-grid summary rows, hidden since
@@ -19,8 +21,6 @@ import { Zero0DomMenu, type Zero0DomMenuState } from "./zero0-dom-menu"
 //     presence, not a deliberate record, so it carries no edit/delete affordance.
 // Empty rails render nothing (no header). Marks are excluded upstream by getSessionRows (not spans).
 
-const ACTION_CLS =
-  "text-[9px] uppercase tracking-wider text-muted-foreground opacity-60 hover:text-foreground hover:opacity-100"
 const EDIT_PLACEHOLDER = "e.g. 1400 or 1400-1530"
 
 /** Local-clock `HHMM` for prefilling the time editor — same convention as the occurrence editor. */
@@ -129,43 +129,51 @@ export function Zero0Sessions({
 
   if (recorded.length === 0 && access.length === 0) return null
 
-  // One session row — a single tight line: `·` · DAY · TIME · DURATION. A recorded editable row is a
-  // right-click/click target (Edit time / Delete); access + non-editable rows render as plain text. An
-  // ONGOING recorded row shows its duration counting live and is NOT a menu target (edit is for closed).
+  // One session row — a single tight line: `·` · DAY · TIME · DURATION, then (recorded+editable only) the
+  // inline ACTION ICONS on hover: pencil=Edit time · trash=Delete, left-hugging right after the text so
+  // they clearly belong to THIS row (v0.2.293, matching the occurrence rows). Right-click anywhere on an
+  // editable row still opens the same menu (kept for parity with the dayline tick). Access + non-editable
+  // rows render as plain text with no affordance; an ONGOING recorded row is display-only (edit is for
+  // closed sessions). The row is NOT wrapped in a button (that would nest the icon buttons illegally) —
+  // onContextMenu lives on the row wrapper instead.
   const renderRow = (r: SessionRow) => {
     const interactive = !!onAction && r.editable
-    const body = (
-      <div className="flex items-baseline gap-2">
-        <span aria-hidden className="text-muted-foreground opacity-50">
-          ·
-        </span>
-        <span className="w-16 shrink-0 text-muted-foreground">{r.day}</span>
-        <span className="whitespace-nowrap text-foreground">{r.timeText}</span>
-        <span className="whitespace-nowrap text-muted-foreground">{r.durationText}</span>
-        {r.open && <span className="text-[9px] uppercase tracking-wider text-foreground opacity-70">ongoing</span>}
-      </div>
-    )
     return (
-      <li key={r.key} className="text-[10px] tabular-nums leading-5">
-        {interactive ? (
-          <button
-            type="button"
-            onClick={(ev) => openRowMenu(r, ev)}
-            onContextMenu={(ev) => openRowMenu(r, ev)}
-            title="Recorded session — Edit time / Delete"
-            className="w-full cursor-pointer text-left hover:opacity-100"
-          >
-            {body}
-          </button>
-        ) : (
-          body
-        )}
+      <li key={r.key} className="group text-[10px] tabular-nums leading-5">
+        <div
+          className="flex items-center gap-2"
+          onContextMenu={interactive ? (ev) => openRowMenu(r, ev) : undefined}
+        >
+          <span aria-hidden className="text-muted-foreground opacity-50">
+            ·
+          </span>
+          <span className="w-16 shrink-0 text-muted-foreground">{r.day}</span>
+          <span className="whitespace-nowrap text-foreground">{r.timeText}</span>
+          <span className="whitespace-nowrap text-muted-foreground">{r.durationText}</span>
+          {r.open && <span className="text-[9px] uppercase tracking-wider text-foreground opacity-70">ongoing</span>}
+          {interactive && (
+            <span className="ml-1 flex items-center gap-2 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+              <button type="button" onClick={() => startEdit(r)} className={ICON_BTN} title="Edit this session's time" aria-label="Edit time">
+                <Pencil className="h-3 w-3" />
+              </button>
+              <button
+                type="button"
+                onClick={() => onAction!(entity, { type: "deleteSession", anchorId: r.anchorId! })}
+                className={ICON_BTN}
+                title="Delete this session"
+                aria-label="Delete"
+              >
+                <Trash2 className="h-3 w-3" />
+              </button>
+            </span>
+          )}
+        </div>
       </li>
     )
   }
 
   return (
-    <div className="col-span-2 mt-3">
+    <div className="mt-3">
       {/* RECORDED SESSIONS — the editable bottom rail. Header only when the rail is non-empty. */}
       {recorded.length > 0 && (
         <div className="mb-2">
