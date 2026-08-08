@@ -280,6 +280,14 @@ export function describeLogEntry(
     const endStr = formatValue ? formatValue("endAt", e.sessionEnd) : String(e.sessionEnd)
     return `session · ${startStr} – ${endStr}`
   }
+  // CORRECTION OVERLAYS (v0.2.293): a `session-edit` re-times the session opened by entry #targetId;
+  // a `session-delete` tombstones it. Rendered so the raw LOG history retraces the correction.
+  if (e.type === "session-edit") {
+    const startStr = e.sessionStart != null ? (formatValue ? formatValue("startAt", e.sessionStart) : String(e.sessionStart)) : "?"
+    const endStr = e.sessionEnd != null ? (formatValue ? formatValue("endAt", e.sessionEnd) : String(e.sessionEnd)) : "ongoing"
+    return `session edited · ${startStr} – ${endStr}`
+  }
+  if (e.type === "session-delete") return "session deleted"
   if (e.type !== "set") return e.type
   const field = e.field ?? "field"
   // OCCURRENCE entries (v0.2.254) carry a pre-formatted human phrase as their value ("added · 6:00 PM–
@@ -523,10 +531,11 @@ export function deriveSessionsFromLog(
       s.endedAt = at
     }
   }
-  const openOngoing = (at: number, flavor: "auto" | "remote") => {
+  const openOngoing = (at: number, flavor: "auto" | "remote", anchorId?: number) => {
     if (st.ongoing != null) return // absorption: one ongoing at a time
     const s: Session = { startedAt: at, via: "play" }
     if (flavor === "auto") s.auto = true
+    if (anchorId != null) s.anchorId = anchorId
     out.push(s)
     st.ongoing = { idx: out.length - 1, flavor }
   }
@@ -540,16 +549,16 @@ export function deriveSessionsFromLog(
   for (const e of log) {
     switch (e.type) {
       case "accessed":
-        out.push({ startedAt: e.at, via: "focus" })
+        out.push({ startedAt: e.at, via: "focus", anchorId: e.id })
         st.focusIdx = out.length - 1
-        if (ongoingOnEnter && !st.blocked) openOngoing(e.at, "auto")
+        if (ongoingOnEnter && !st.blocked) openOngoing(e.at, "auto", e.id)
         break
       case "resumed": // LEGACY-READ-ONLY (no longer written; old logs only)
-        if (!st.blocked) openOngoing(e.at, "auto")
+        if (!st.blocked) openOngoing(e.at, "auto", e.id)
         break
       case "started":
       case "session-open": // legacy alias
-        openOngoing(e.at, "remote")
+        openOngoing(e.at, "remote", e.id)
         break
       case "paused": // LEGACY-READ-ONLY (no longer written; old logs only)
         closeAutoOngoing(e.at)
@@ -589,7 +598,7 @@ export function deriveSessionsFromLog(
         st.blocked = false
         break
       case "mark":
-        out.push({ startedAt: e.at, endedAt: e.at, via: "mark" })
+        out.push({ startedAt: e.at, endedAt: e.at, via: "mark", anchorId: e.id })
         break
       case "session": {
         // SELF-DESCRIBING manual session (v0.2.269): emit the recorded span straight from the
@@ -600,8 +609,44 @@ export function deriveSessionsFromLog(
         const start = e.sessionStart ?? e.at
         const s: Session = { startedAt: start, via: "play" }
         if (e.sessionEnd != null) s.endedAt = e.sessionEnd
+        if (e.id != null) s.anchorId = e.id
         out.push(s)
         break
+      }
+      // v0.2.293 CORRECTION OVERLAY entries — NOT boundaries: they don't open/close a span, so they
+      // are skipped here and applied as an order-independent post-pass below (matched by anchorId).
+      case "session-edit":
+      case "session-delete":
+        break
+    }
+  }
+
+  // v0.2.293 APPLY CORRECTIONS/TOMBSTONES — append-only overlays that re-time or drop a RECORDED
+  // (play) session by the id of the log entry that OPENED it (its `anchorId`), leaving the original
+  // boundary entries untouched. Done AFTER the walk so they are order-independent and immune to the
+  // walk's `closeAt` splices (we match by anchorId, never by index). SCOPED to `via:"play"` — the
+  // recorded rail — because an `accessed` anchor ALSO owns a `focus` session on the access spine that
+  // an edit must never touch; a tombstone/edit for that id resolves uniquely to the one play session.
+  // Later entries win (Map overwrite in log order); a tombstone beats an edit for the same anchor.
+  const edits = new Map<number, { start?: number; end?: number | null }>()
+  const tombstones = new Set<number>()
+  for (const e of log) {
+    if (e.targetId == null) continue
+    if (e.type === "session-edit") edits.set(e.targetId, { start: e.sessionStart, end: e.sessionEnd })
+    else if (e.type === "session-delete") tombstones.add(e.targetId)
+  }
+  if (edits.size > 0 || tombstones.size > 0) {
+    for (let i = out.length - 1; i >= 0; i--) {
+      const s = out[i]
+      if (s.via !== "play" || s.anchorId == null) continue
+      if (tombstones.has(s.anchorId)) {
+        out.splice(i, 1)
+        continue
+      }
+      const ed = edits.get(s.anchorId)
+      if (ed) {
+        if (ed.start != null) s.startedAt = ed.start
+        if (ed.end != null) s.endedAt = ed.end // a numeric end re-times the close; UI always sends one
       }
     }
   }

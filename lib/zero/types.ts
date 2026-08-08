@@ -171,6 +171,8 @@ export type LogType =
   | "session-open" // legacy alias for "started"
   | "session-close" // legacy alias for "stopped"
   | "session" // SELF-DESCRIBING manual recorded session (carries its own sessionStart/sessionEnd)
+  | "session-edit" // CORRECTION of a recorded session's bounds, keyed by `targetId` (the anchor entry's id)
+  | "session-delete" // TOMBSTONE dropping a recorded session, keyed by `targetId` (the anchor entry's id)
   | "mark"
   | "set"
 
@@ -227,6 +229,16 @@ export interface Instant {
    */
   sessionStart?: Epoch
   sessionEnd?: Epoch
+  /**
+   * CORRECTION/TOMBSTONE target (v0.2.293) — present ONLY on a `session-edit` or `session-delete`
+   * entry. It is the per-entity `id` of the log entry that OPENED the session being corrected/removed
+   * (its {@link Session.anchorId}): the `accessed`/`started`/`mark`/`session` entry. Corrections are
+   * append-only overlays the fold applies AFTER the ordered walk, keyed by this id — so a past session's
+   * bounds are edited (via `sessionStart`/`sessionEnd` on the same entry) or the session is dropped,
+   * WITHOUT mutating the original boundary entries. Keyed by id (not timestamp) because two events can
+   * share a ms — the same guarantee that makes ids the stable correction handle (see {@link nextLogId}).
+   */
+  targetId?: number
 }
 
 /**
@@ -291,6 +303,15 @@ export interface Session {
    * RECORDED (bottom) rail — deliberate activity only — and from the OCCURRENCES "N times" tally
    * (entering ≠ a deliberate occurrence). Absent ⇒ deliberate. Only meaningful on `play` sessions. */
   auto?: boolean
+  /**
+   * ANCHOR entry id (v0.2.293) — the per-entity {@link Instant.id} of the log entry that OPENED this
+   * session in the fold: the `accessed` (focus), `started`/`session-open` (remote play), `mark`, or
+   * `session` (manual) entry. This is the STABLE handle a `session-edit`/`session-delete` correction
+   * targets (via {@link Instant.targetId}), so a recorded session can be re-timed or removed without
+   * mutating the original boundary entries. Stamped by {@link deriveSessionsFromLog}; absent only on a
+   * legacy cached session that predates the fold change and hasn't been re-derived (⇒ not yet editable).
+   */
+  anchorId?: number
 }
 
 export interface Schedule {
