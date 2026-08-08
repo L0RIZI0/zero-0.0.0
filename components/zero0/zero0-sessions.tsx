@@ -176,67 +176,72 @@ export function Zero0Sessions({
     </button>
   )
 
-  // One session row — a single tight line: `·` · DAY · TIME · DURATION, then (recorded+editable only) the
-  // inline ACTION ICONS on hover: pencil=Edit time · trash=Delete, left-hugging right after the text so
-  // they clearly belong to THIS row (v0.2.293, matching the occurrence rows). Right-click anywhere on an
-  // editable row still opens the same menu (kept for parity with the dayline tick). Access + non-editable
-  // rows render as plain text with no affordance; an ONGOING recorded row is display-only (edit is for
-  // closed sessions). The row is NOT wrapped in a button (that would nest the icon buttons illegally) —
-  // onContextMenu lives on the row wrapper instead.
+  // One session entry — now a compact HORIZONTAL CHIP (v0.2.294): DAY · TIME · DURATION on a single
+  // non-wrapping line, `shrink-0` so it keeps its width inside the scrolling strip. For a recorded +
+  // editable chip the ACTION ICONS (pencil=Edit time · trash=Delete) live in an ABSOLUTE OVERLAY that
+  // covers the chip on hover (opaque bg masks the text) — so revealing them never widens the chip or
+  // shifts its neighbours. Right-click anywhere on an editable chip still opens the same menu (parity with
+  // the dayline tick). Access + non-editable chips render as plain text with no affordance; an ONGOING
+  // recorded chip is display-only (edit is for closed sessions).
   const renderRow = (r: SessionRow) => {
     const interactive = !!onAction && r.editable
     return (
-      <li key={r.key} className="group text-[10px] tabular-nums leading-5">
+      <li key={r.key} className="group relative shrink-0 text-[10px] tabular-nums leading-5">
         <div
-          className="flex items-center gap-2"
+          className="flex items-center gap-1.5 whitespace-nowrap"
           onContextMenu={interactive ? (ev) => openRowMenu(r, ev) : undefined}
         >
-          <span aria-hidden className="text-muted-foreground opacity-50">
-            ·
-          </span>
-          <span className="w-16 shrink-0 text-muted-foreground">{r.day}</span>
-          <span className="whitespace-nowrap text-foreground">{r.timeText}</span>
-          <span className="whitespace-nowrap text-muted-foreground">{r.durationText}</span>
+          <span className="text-muted-foreground">{r.day}</span>
+          <span className="text-foreground">{r.timeText}</span>
+          <span className="text-muted-foreground">{r.durationText}</span>
           {r.open && <span className="text-[9px] uppercase tracking-wider text-foreground opacity-70">ongoing</span>}
-          {interactive && (
-            <span className="ml-1 flex items-center gap-2 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
-              <button type="button" onClick={() => startEdit(r)} className={ICON_BTN} title="Edit this session's time" aria-label="Edit time">
-                <Pencil className="h-3 w-3" />
-              </button>
-              <button
-                type="button"
-                onClick={() => onAction!(entity, { type: "deleteSession", anchorId: r.anchorId! })}
-                className={ICON_BTN}
-                title="Delete this session"
-                aria-label="Delete"
-              >
-                <Trash2 className="h-3 w-3" />
-              </button>
-            </span>
-          )}
         </div>
+        {interactive && (
+          <div className="absolute inset-0 flex items-center justify-center gap-3 rounded-sm bg-background opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+            <button type="button" onClick={() => startEdit(r)} className={ICON_BTN} title="Edit this session's time" aria-label="Edit time">
+              <Pencil className="h-3 w-3" />
+            </button>
+            <button
+              type="button"
+              onClick={() => onAction!(entity, { type: "deleteSession", anchorId: r.anchorId! })}
+              className={ICON_BTN}
+              title="Delete this session"
+              aria-label="Delete"
+            >
+              <Trash2 className="h-3 w-3" />
+            </button>
+          </div>
+        )}
       </li>
     )
   }
 
   return (
     <div className="mt-3">
-      {/* RECORDED SESSIONS — the editable bottom rail. Rendered whenever there are rows OR we can add one
-          (so the "+ add" empty state is reachable). The "+ add" stacks like another row (pl-4 leading-5),
-          hidden while the input is open. */}
+      {/* RECORDED SESSIONS — the editable bottom rail, now a single HORIZONTAL STRIP (v0.2.294): entries
+          run left→right, `.reverse()` so the LEFT-MOST is the MOST RECENT and the right-most the oldest;
+          it scrolls horizontally with NO visible scrollbar (`.no-scrollbar`). The "+ add" moved onto the
+          header line (out of the entry strip so it stays put + doesn't disturb the newest-left ordering),
+          hidden while the input is open. Rendered whenever there are rows OR we can add one. */}
       {(recorded.length > 0 || onAction) && (
         <div className="mb-2">
-          <div className="mb-1 text-[10px] uppercase tracking-widest text-muted-foreground">recorded sessions</div>
-          <ul className="flex flex-col">{recorded.map(renderRow)}</ul>
-          {onAction && !adding && !editing && <div className="pl-4 leading-5">{addButton}</div>}
+          <div className="mb-1 flex items-center gap-3">
+            <span className="text-[10px] uppercase tracking-widest text-muted-foreground">recorded sessions</span>
+            {onAction && !adding && !editing && addButton}
+          </div>
+          <ul className="flex flex-row gap-4 overflow-x-auto no-scrollbar">
+            {recorded.slice().reverse().map(renderRow)}
+          </ul>
         </div>
       )}
 
-      {/* ACCESS — the machine-truth presence rail. DISPLAY-ONLY (no onAction passed through to rows). */}
+      {/* ACCESS — the machine-truth presence rail. DISPLAY-ONLY. Same horizontal newest-left strip. */}
       {access.length > 0 && (
         <div>
           <div className="mb-1 text-[10px] uppercase tracking-widest text-muted-foreground">access</div>
-          <ul className="flex flex-col">{access.map(renderRow)}</ul>
+          <ul className="flex flex-row gap-4 overflow-x-auto no-scrollbar">
+            {access.slice().reverse().map(renderRow)}
+          </ul>
         </div>
       )}
 
