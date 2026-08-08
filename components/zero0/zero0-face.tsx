@@ -25,6 +25,7 @@ import {
   type FaceMake,
 } from "@/lib/zero/face-model"
 import { subscribeGlyphPulse } from "@/lib/zero/data"
+import { hasOpenSession } from "@/lib/zero/kinds"
 import type { Entity } from "@/lib/zero/types"
 import { Zero0Occurrences, type OccurrenceAction } from "./zero0-occurrences"
 
@@ -106,6 +107,26 @@ function FaceGlyph({
       className={glyphClass}
     />
   )
+  // MANUAL-PLAY STOP (v0.2.288) — a TASK is PLAYED only via its right-click menu (never by clicking
+  // the glyph, which starts nothing). But once a manual play IS running, its glyph SPINS (STATUS
+  // ongoing) and clicking that spinning glyph STOPS the play — the symmetric, discoverable off-switch
+  // Loris expects. This must sit BEFORE the `hasDoneFlag` branch: for a task the two would both match,
+  // and while a play runs the glyph's job is Stop, not the done-toggle. Gated to `via:"play"` so mere
+  // viewing (a focus session) never turns the glyph into a Stop. Non-task playables keep flowing to
+  // the occAction branch below (their play/stop is already the glyph's lifecycle).
+  if (model.hasDoneFlag && onTogglePlay && hasOpenSession(entity, "play")) {
+    return (
+      <button
+        type="button"
+        onClick={() => onTogglePlay(entity)}
+        className={wrapperBase + " cursor-pointer transition-opacity hover:opacity-70"}
+        aria-label="Stop"
+        title="Stop"
+      >
+        {glyph}
+      </button>
+    )
+  }
   if (model.hasDoneFlag) {
     return (
       <button
