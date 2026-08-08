@@ -92,8 +92,9 @@ import { Zero0Frame } from "./zero0-frame"
 import { Zero0Face } from "./zero0-face"
 import type { OccurrenceAction } from "./zero0-occurrences"
 import { Zero0Favicon } from "./zero0-favicon"
+import { Zero0Glyph } from "./zero0-glyph"
 import { Zero0Content, type Zero0ContentCtx } from "./zero0-content"
-  import { fmt, fmtLogStamp, fmtLogValue, sexSymbol, formatDuration, type FaceSize, type FaceMake } from "@/lib/zero/face-model"
+  import { fmt, fmtLogStamp, fmtLogValue, sexSymbol, formatDuration, getFaceModel, type FaceSize, type FaceMake } from "@/lib/zero/face-model"
   import type { Entity, IndividualEntity, OrganismEntity } from "@/lib/zero/types"
 
 // `canAutoPlay` + `ONGOING_ON_ENTER` now live in lib/zero/kinds.ts (canonical), shared by the
@@ -936,6 +937,17 @@ export function Zero0Canvas() {
   // closed / swapped) crumbs shrink/fade OUT, instead of the trail snapping. Returns the crumbs
   // to render, each tagged with a transition `state`.
   const displayCrumbs = useCrumbTransitions(crumbs)
+
+  // SIBLING TABS (v0.2.291) — the children of the current LEAF's PARENT, i.e. every entity at the
+  // leaf's own level (the leaf included). Rendered as a horizontal tab strip under the breadcrumb so
+  // the user can hop laterally between peers without opening the per-crumb dropdown. Empty at the root
+  // (no parent) and suppressed when there's only one peer (nothing to switch to) — the same >1 gate the
+  // breadcrumb's sibling caret uses.
+  const leafSiblings = useMemo(
+    () => (path.length >= 2 ? getChildren(path[path.length - 2]) : []),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- rev re-reads the child set after edits
+    [path, mounted, rev],
+  )
 
   // WEB-TITLE RESOLUTION — for every VISIBLE web resource (the open context's children + the
   // breadcrumb trail) that has no fetched `webTitle` yet, fetch the real page <title> via
@@ -2124,6 +2136,59 @@ export function Zero0Canvas() {
     </nav>
   )
 
+  // SIBLING TAB STRIP (v0.2.291) — a horizontal row of the leaf's peers (glyph/favicon + title,
+  // title cropped to 15 chars), rendered under the breadcrumb whenever §1 is shown. Clicking a tab
+  // switches laterally at the leaf depth (goToSiblingAt); the current leaf's tab is the active,
+  // non-interactive one. Suppressed unless there are ≥2 peers (matches the crumb caret's gate).
+  const leafDepth = path.length - 1
+  const siblingTabs =
+    leafSiblings.length > 1 ? (
+      <nav className="mt-1.5 flex flex-wrap items-center gap-1" aria-label="Sibling entities">
+        {leafSiblings.map((s) => {
+          const isCurrent = s.id === path[leafDepth]
+          const rawLabel = s.webUrl
+            ? webLabel({ webUrl: s.webUrl, webResourceId: s.webResourceId, webTitle: s.displayTitle, title: s.title }).display
+            : s.title
+          // Hard 15-char cap per the request (the breadcrumb uses width-based cropTitle; here it's an
+          // explicit character budget so tabs stay uniformly short regardless of font metrics).
+          const label = rawLabel.length > 15 ? rawLabel.slice(0, 14) + "…" : rawLabel
+          const gm = s.webUrl ? null : getFaceModel(s, Date.now())
+          return (
+            <button
+              key={s.id}
+              type="button"
+              onClick={() => goToSiblingAt(leafDepth, s.id)}
+              onContextMenu={(ev) => openMenu(s, ev)}
+              disabled={isCurrent}
+              aria-current={isCurrent ? "page" : undefined}
+              title={rawLabel}
+              className={`flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] leading-none transition-colors ${
+                isCurrent
+                  ? "border-border text-foreground"
+                  : "border-transparent text-muted-foreground hover:border-border hover:text-foreground"
+              }`}
+            >
+              {s.webUrl ? (
+                <Zero0Favicon url={s.webUrl} resourceId={s.webResourceId} />
+              ) : (
+                gm && (
+                  <Zero0Glyph
+                    kind={s.kind}
+                    filled={gm.filled}
+                    done={gm.done}
+                    cancelled={gm.cancelled}
+                    requested={gm.requested}
+                    className="h-3 w-3 shrink-0"
+                  />
+                )
+              )}
+              <span className="max-w-[8rem] truncate">{label}</span>
+            </button>
+          )
+        })}
+      </nav>
+    ) : null
+
   return (
     <main
       className="relative flex h-screen flex-col bg-background text-foreground"
@@ -2226,24 +2291,11 @@ export function Zero0Canvas() {
           openFrameMenu("zeroHeader", ev)
         }}
       >
-        <div className="flex items-center gap-2">
-          <span className="text-foreground">zero</span>
-          <span aria-hidden>·</span>
-          <span>root canvas</span>
-          {/* PRE-WARM MODE indicator (desktop only) — a discrete red note reminding Loris that
-              context-enter pre-warm is ACTIVE, so he watches memory usage during dogfooding
-              (each pre-warmed resource is a live browser process). Remove when pre-warm is proven. */}
-          {isDesktop && (
-            <span
-              className="text-destructive"
-              title={`Pre-warm active: web-resource children are loaded in the background on context-enter (up to ${PREWARM_MAX_PER_CONTEXT}). Watch memory usage.`}
-            >
-              prewarm
-            </span>
-          )}
-          {/* Build version — the release git tag this Surface was built from. Sits at
-              the end of the identity line (right-aligned) so it's always in view, even
-              in web-resource view where only the top of this header shows. */}
+        {/* IDENTITY LINE (v0.2.291): the "zero · root canvas" text + the desktop "prewarm" note were
+            removed at Loris' request — the breadcrumb already names the context, so the mark line was
+            redundant chrome. Only the build VERSION is kept, right-aligned, so it stays in view even in
+            web-resource view where only the top of this header shows. */}
+        <div className="flex items-center">
           <span className="ml-auto text-muted-foreground/70" title="Build version">
             {displayVersion}
           </span>
@@ -2252,13 +2304,17 @@ export function Zero0Canvas() {
             under the mark: the access path + the lateral-switch affordance without the
             fuller session block or its label column. Toggled via the header frame menu. */}
         {mounted && minimized.zeroHeader && (
-          <div className="mt-1.5 flex items-center">
-            {breadcrumb}
-            {/* CLOSE for a WEB RESOURCE — on the breadcrumb line, far-right (under the
-                version value). §0's × is hidden while the web surface is up, so this is
-                the explicit-close gesture for a resource. Destroys the warm tab + climbs out. */}
-            {context?.webUrl && <Zero0CloseButton className="ml-auto" onClick={() => closeContext(context)} />}
-          </div>
+          <>
+            <div className="mt-1.5 flex items-center">
+              {breadcrumb}
+              {/* CLOSE for a WEB RESOURCE — on the breadcrumb line, far-right (under the
+                  version value). §0's × is hidden while the web surface is up, so this is
+                  the explicit-close gesture for a resource. Destroys the warm tab + climbs out. */}
+              {context?.webUrl && <Zero0CloseButton className="ml-auto" onClick={() => closeContext(context)} />}
+            </div>
+            {/* SIBLING TABS — the lateral-switch strip, under the breadcrumb even in the tight view. */}
+            {siblingTabs}
+          </>
         )}
         {/* FULL — the session readout as a labelled meta block. CONTEXT is the breadcrumb
             itself (the crumb trail IS the context, and its trailing chevron opens the
@@ -2298,6 +2354,8 @@ export function Zero0Canvas() {
             )}
           </dl>
         )}
+        {/* SIBLING TABS — same lateral-switch strip in the full view, under the CONTEXT/breadcrumb row. */}
+        {mounted && !minimized.zeroHeader && siblingTabs}
         {/* SEAM SHADOW note: over a web view the seam shadow is a SINGLE element in the §0 wrapper
             (web-view block below), pinned to that wrapper's animating bottom edge so it rides the
             seam continuously — at §0's bottom when open, gliding up to right under this header as §0

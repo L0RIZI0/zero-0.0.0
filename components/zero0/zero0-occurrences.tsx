@@ -508,12 +508,17 @@ export function Zero0Occurrences({
                     initial={{ opacity: 0, flexGrow: 0 }}
                     animate={{ opacity: 1, flexGrow: 1 }}
                     exit={{ opacity: 0, flexGrow: 0 }}
-                    transition={{ duration: 0.28, ease: "easeOut" }}
+                    // v0.2.291: doubled the appear/disappear duration (0.28→0.56s) with a pronounced
+                    // ease-out cubic (the codebase's FLIP curve) so a column settling in reads as a smooth,
+                    // deliberate slide rather than a quick snap.
+                    transition={{ duration: 0.56, ease: [0.22, 1, 0.36, 1] }}
                     className="min-w-0 basis-0 overflow-hidden"
                   >
                     <div className="mb-1 text-[9px] uppercase tracking-wider text-muted-foreground/60">{col.label}</div>
                     <ul className="flex flex-col">{col.rows.map((r) => renderRow(r, col.hideDay))}</ul>
-                    {onAction && <div className="mt-1 pl-4">{addButton}</div>}
+                    {/* "+ add" stacks like another row (leading-5, no extra top margin) so the gap above it
+                        matches the inter-occurrence rhythm instead of the old larger `mt-1` step (v0.2.291). */}
+                    {onAction && <div className="pl-4 leading-5">{addButton}</div>}
                   </motion.div>
                 ))}
             </AnimatePresence>
