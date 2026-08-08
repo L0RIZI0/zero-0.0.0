@@ -7,7 +7,7 @@ import { getSessionRows, type SessionRow } from "@/lib/zero/face-model"
 import { parseSlotToken } from "@/lib/zero/create-parse"
 import type { MenuItem } from "@/lib/zero/menu-model"
 import { Zero0DomMenu, type Zero0DomMenuState } from "./zero0-dom-menu"
-import { ICON_BTN } from "./zero0-occurrences"
+import { ICON_BTN, ACTION_CLS } from "./zero0-occurrences"
 
 // The §0 RECORDED SESSIONS + ACCESS block (v0.2.293) — shown BELOW planned occurrences. It surfaces the
 // two DERIVED session rails as plain lists (they used to be single meta-grid summary rows, hidden since
@@ -40,10 +40,14 @@ function applyClock(dayAnchor: number, parsedTime: number): number {
 }
 
 /** A user action on a RECORDED session, dispatched up to the canvas (which owns the writers + re-render).
-    Both are keyed by `anchorId` — the fold's correction handle (see Session.anchorId / editSession). */
+    edit/delete are keyed by `anchorId` — the fold's correction handle (see Session.anchorId / editSession).
+    `addSession` MANUALLY logs a session the user did OUTSIDE Zero (v0.2.294) — absolute start/end epochs
+    from the add input; the canvas routes it to `addManualSession` (a `session` log Instant → the fold
+    materializes a new anchored `via:"play"` session, so it's immediately editable/deletable like any other). */
 export type SessionAction =
   | { type: "editSession"; anchorId: number; start: number; end: number }
   | { type: "deleteSession"; anchorId: number }
+  | { type: "addSession"; start: number; end: number }
 
 export function Zero0Sessions({
   entity,
@@ -64,6 +68,9 @@ export function Zero0Sessions({
   // EDIT MODE — when set, the inline input re-times this recorded session's clock (day fixed). Only ever a
   // recorded (editable) row is placed here. Cleared on commit / Esc / blur.
   const [editing, setEditing] = useState<SessionRow | null>(null)
+  // ADD MODE (v0.2.294) — the inline input logs a NEW manual session (something done outside Zero). Shares
+  // the same input as edit; the two modes are mutually exclusive (opening one clears the other).
+  const [adding, setAdding] = useState(false)
   const [menu, setMenu] = useState<Zero0DomMenuState | null>(null)
 
   // Enter EDIT mode for one recorded session: open the inline input prefilled with the session's current
@@ -73,12 +80,40 @@ export function Zero0Sessions({
       if (!onAction || !r.editable) return
       const prefill = r.endedAt != null ? `${clockHHMM(r.startedAt)}-${clockHHMM(r.endedAt)}` : clockHHMM(r.startedAt)
       setEditing(r)
+      setAdding(false)
       setDraft(prefill)
       setError(false)
       setMenu(null)
     },
     [onAction],
   )
+
+  // Open the inline input in ADD mode (v0.2.294) — mutually exclusive with edit. Logs a manual session.
+  const openAdd = useCallback(() => {
+    if (!onAction) return
+    setEditing(null)
+    setAdding(true)
+    setDraft("")
+    setError(false)
+    setMenu(null)
+  }, [onAction])
+
+  // Commit a manual ADD: parse the draft as a SPAN (both bounds required — a recorded session needs a start
+  // AND an end). parseSlotToken returns ABSOLUTE epochs anchored to the logical day (a bare clock lands in
+  // the 5am→5am window containing now, so a past clock reads as earlier today — exactly what "I did this"
+  // wants), so — unlike edit — we pass them straight through with NO re-anchoring. The writer clamps
+  // start ≤ now and end ≥ start and the fold discards sub-1.5s spans.
+  const submitAdd = useCallback(() => {
+    const parsed = parseSlotToken(draft.trim(), now)
+    if (!parsed || parsed.end == null) {
+      setError(true)
+      return
+    }
+    onAction?.(entity, { type: "addSession", start: parsed.start, end: parsed.end })
+    setAdding(false)
+    setDraft("")
+    setError(false)
+  }, [draft, now, onAction, entity])
 
   // Commit a TIME edit: parse the draft as a clock token, re-anchor both bounds onto the session's own day,
   // and dispatch `{type:"editSession"}` keyed by anchorId. A single-time token (no dash) is rejected here —
@@ -129,7 +164,17 @@ export function Zero0Sessions({
     [onAction, entity, startEdit],
   )
 
-  if (recorded.length === 0 && access.length === 0) return null
+  // Render nothing only when there's truly nothing to show AND no way to act. With `onAction` present we
+  // still render so the RECORDED SESSIONS "+ add" is reachable even on an entity with no sessions yet.
+  if (recorded.length === 0 && access.length === 0 && !onAction) return null
+
+  // The "+ add" trigger (v0.2.294) — manually log a session done outside Zero. Styled like the occurrence
+  // block's "+ add" (shared ACTION_CLS). Hidden while the input is already open (adding/editing).
+  const addButton = (
+    <button type="button" onClick={openAdd} className={ACTION_CLS} title="Manually log a session you did outside Zero (e.g. 1400-1530)">
+      + add
+    </button>
+  )
 
   // One session row — a single tight line: `·` · DAY · TIME · DURATION, then (recorded+editable only) the
   // inline ACTION ICONS on hover: pencil=Edit time · trash=Delete, left-hugging right after the text so
@@ -176,11 +221,14 @@ export function Zero0Sessions({
 
   return (
     <div className="mt-3">
-      {/* RECORDED SESSIONS — the editable bottom rail. Header only when the rail is non-empty. */}
-      {recorded.length > 0 && (
+      {/* RECORDED SESSIONS — the editable bottom rail. Rendered whenever there are rows OR we can add one
+          (so the "+ add" empty state is reachable). The "+ add" stacks like another row (pl-4 leading-5),
+          hidden while the input is open. */}
+      {(recorded.length > 0 || onAction) && (
         <div className="mb-2">
           <div className="mb-1 text-[10px] uppercase tracking-widest text-muted-foreground">recorded sessions</div>
           <ul className="flex flex-col">{recorded.map(renderRow)}</ul>
+          {onAction && !adding && !editing && <div className="pl-4 leading-5">{addButton}</div>}
         </div>
       )}
 
@@ -192,11 +240,14 @@ export function Zero0Sessions({
         </div>
       )}
 
-      {/* Inline TIME editor (v0.2.293) — mirrors the occurrence editor: prefilled clock, day fixed. Only a
-          recorded editable row ever sets `editing`. */}
-      {onAction && editing && (
+      {/* Inline TIME input (v0.2.293 edit; v0.2.294 add) — mirrors the occurrence editor. Shared by EDIT
+          (prefilled clock, day fixed, re-anchored) and ADD (empty, absolute epochs). The two modes are
+          mutually exclusive. */}
+      {onAction && (editing || adding) && (
         <div className="mt-1">
-          <div className="mb-0.5 text-[9px] uppercase tracking-wider text-muted-foreground">{`editing session · ${editing.day}`}</div>
+          <div className="mb-0.5 text-[9px] uppercase tracking-wider text-muted-foreground">
+            {editing ? `editing session · ${editing.day}` : "add session"}
+          </div>
           <input
             autoFocus
             value={draft}
@@ -209,21 +260,24 @@ export function Zero0Sessions({
               if (e.nativeEvent.isComposing || e.keyCode === 229) return
               if (e.key === "Enter") {
                 e.preventDefault()
-                submitEdit()
+                if (editing) submitEdit()
+                else submitAdd()
               } else if (e.key === "Escape") {
                 setEditing(null)
+                setAdding(false)
                 setDraft("")
                 setError(false)
               }
             }}
             onBlur={() => {
-              // A blur cancels the edit (no accidental commit), same as the occurrence editor.
+              // A blur cancels the pending edit/add (no accidental commit), same as the occurrence editor.
               setEditing(null)
+              setAdding(false)
               setDraft("")
               setError(false)
             }}
-            placeholder={EDIT_PLACEHOLDER}
-            aria-label="Edit session time"
+            placeholder={adding ? "e.g. 1400-1530" : EDIT_PLACEHOLDER}
+            aria-label={editing ? "Edit session time" : "Add session time"}
             aria-invalid={error}
             className={
               "w-full bg-transparent text-[10px] tabular-nums placeholder:text-muted-foreground/60 focus:outline-none " +

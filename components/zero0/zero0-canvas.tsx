@@ -1759,11 +1759,15 @@ export function Zero0Canvas() {
   // session's `anchorId` (the fold's correction handle) and route to the append-only log writers:
   //   • editSession   → appends a `session-edit` overlay carrying the corrected start/end.
   //   • deleteSession → appends a `session-delete` tombstone.
+  //   • addSession    → appends a `session` Instant (v0.2.294) so the fold materializes a new anchored
+  //                     `via:"play"` session — for logging work done OUTSIDE Zero. The writer clamps
+  //                     start ≤ now / end ≥ start; both bounds are passed (a manual session is closed).
   // The writers guard that the anchor still resolves to a recorded session, so a stale dispatch no-ops.
   const runSessionAction = useCallback(
     (e: Entity, action: SessionAction) => {
       if (action.type === "editSession") editSession(e.id, action.anchorId, action.start, action.end)
       else if (action.type === "deleteSession") deleteSession(e.id, action.anchorId)
+      else if (action.type === "addSession") addManualSession(e.id, action.start, action.end)
       bump()
     },
     [bump],
@@ -1959,8 +1963,9 @@ export function Zero0Canvas() {
   // block's chip/row menu: Edit time · Cancel/Restore · Delete, all dispatched through the SAME
   // `runScheduleAction` using the occurrence's own dispatch identity (`occ`). EDIT navigates to the entity
   // (the inline time editor lives in the §0 block; the dayline hosts no text input this pass) — every other
-  // verb acts in place. EDIT time is available for ANY occurrence incl. PAST (v0.2.287) — mirrors the §0
-  // block; only CANCEL stays future-gated (`occ.cancellable`), since you can't cancel history.
+  // verb acts in place. EDIT time + CANCEL are BOTH available for ANY occurrence incl. PAST (v0.2.287 edit,
+  // v0.2.294 cancel) — mirrors the §0 block. Cancel is a reversible tombstone so it needn't be future-gated;
+  // a visible dayline tick is never already-cancelled (cancelled occurrences don't render), so "Cancel".
   const openOccurrenceMenu = useCallback(
     (entityId: string, occ: DaylineOccRef, ev: React.MouseEvent) => {
       ev.preventDefault()
@@ -1969,8 +1974,8 @@ export function Zero0Canvas() {
       if (!e) return
       const items: MenuItem[] = [
         { type: "item", id: "edit", label: "Edit time" },
+        { type: "item", id: "cancel", label: "Cancel" },
       ]
-      if (occ.cancellable) items.push({ type: "item", id: "cancel", label: "Cancel" })
       items.push({ type: "item", id: "delete", label: "Delete", danger: true })
       showMenu(items, ev.clientX, ev.clientY, (id) => {
         if (id === "edit") {
@@ -2254,7 +2259,7 @@ export function Zero0Canvas() {
       className="relative flex h-screen flex-col bg-background text-foreground"
       style={{ fontFamily: "var(--font-zero0-mono), ui-monospace, monospace" }}
     >
-      {/* ── GLUED TOP: live clock ───────��──��───────�����─���───���─────────────────────
+      {/* ── GLUED TOP: live clock ───────��──��───────�����─���───���───────────────────���─
           Permanent top chrome (mirrors the footer's glued-bottom role): the live full
           date + time WITH seconds, top-left. Always present �� for any open entity, and
           regardless of which frames are toggled below. `min-h` reserves its row so the
@@ -2335,7 +2340,7 @@ export function Zero0Canvas() {
         </Zero0Frame>
       )}
 
-      {/* ── ZERO HEADER (§1) ─────────�����────────────���───��───────────────────────
+      {/* ── ZERO HEADER (§1) ─────────������────────────���───��───────────────────────
           Zero-UX chrome: the mark, the access path (breadcrumb), and a session
           readout. Not part of the node's own data. Toggled by §1 / the corner marker,
           and — like every frame in the stack — collapses with the dep-free grid-rows

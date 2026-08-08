@@ -23,7 +23,8 @@ import { Zero0DomMenu, type Zero0DomMenuState } from "./zero0-dom-menu"
 //      Its title carries CANCEL ALL + "+ add slot".
 // Each row (instance or occurrence) carries per-item actions: EDIT (per-occurrence TIME edit, v0.2.248 —
 // re-times just that instance via the shared bottom input, day fixed) · CANCEL/RESTORE · DELETE.
-// CANCEL is a restorable struck tombstone, gated to not-yet-ended occurrences (r.cancellable); DELETE is
+// CANCEL is a restorable struck tombstone, offered for ANY occurrence incl. past (v0.2.294 — reversible,
+// so no future-gate); DELETE is
 // a hard removal (definite: splice/clear; rule: a `removed` EXDATE that drops the instance from the
 // projection). An INSTANT kind still renders each occurrence as a single POINT time (isInstant path in
 // formatOccurrenceParts). DORMANT-by-design: only the STATUS word shows, never the planned-vs-actual delta.
@@ -80,7 +81,7 @@ type Row = ReturnType<typeof getOccurrenceRows>[number]
     with its human label and the projected rule rows belonging to it. */
 type SeriesGroup = { ruleId?: string; label: string; rows: Row[] }
 
-const ACTION_CLS =
+export const ACTION_CLS =
   "text-[9px] uppercase tracking-wider text-muted-foreground opacity-60 hover:text-foreground hover:opacity-100"
 
 // Per-row ACTION ICONS (v0.2.293) — the edit/cancel/delete words were replaced by icons (pencil · ban/
@@ -103,7 +104,9 @@ export function Zero0Occurrences({
   const rows = getOccurrenceRows(entity, now)
   const ruleRows = rows.filter((r) => r.origin === "rule")
   const definiteRows = rows.filter((r) => r.origin === "definite")
-  const anyCancellableDefinite = definiteRows.some((r) => !r.cancelled && r.cancellable)
+  // "Cancel all" is enabled whenever ANY one-off row isn't already cancelled — past included (v0.2.294):
+  // now that individual cancel is offered for past occurrences too, the bulk action matches.
+  const anyCancellableDefinite = definiteRows.some((r) => !r.cancelled)
 
   // THREE TEMPORAL COLUMNS (v0.2.289, Loris ask): the one-off definite rows are grouped by their anchor
   // day relative to `now` — PAST (up to yesterday) · TODAY · UPCOMING (tomorrow onward). Bucketed by the
@@ -224,11 +227,14 @@ export function Zero0Occurrences({
       // bubble up and open the entity menu instead of this one. (v0.2.244)
       ev.preventDefault()
       ev.stopPropagation()
-      // EDIT time is available for ANY occurrence, PAST included (v0.2.287, Loris ask) — correcting a
-      // past slot's recorded intent is legitimate, and the editor re-anchors onto the occurrence's own
-      // day, so history stays put. (CANCEL below is still future-gated — you can't cancel history.)
-      const items: MenuItem[] = [{ type: "item", id: "edit", label: "Edit time" }]
-      if (r.cancelled || r.cancellable) items.push({ type: "item", id: r.cancelled ? "restore" : "cancel", label: r.cancelled ? "Restore" : "Cancel" })
+      // EDIT time + CANCEL/RESTORE are BOTH available for ANY occurrence, PAST included (v0.2.287 edit,
+      // v0.2.294 cancel — both Loris asks): editing re-anchors onto the occurrence's own day so history
+      // stays put, and cancelling is a fully reversible tombstone (restore always offered), so there's no
+      // reason to lock either to the future.
+      const items: MenuItem[] = [
+        { type: "item", id: "edit", label: "Edit time" },
+        { type: "item", id: r.cancelled ? "restore" : "cancel", label: r.cancelled ? "Restore" : "Cancel" },
+      ]
       items.push({ type: "item", id: "delete", label: "Delete", danger: true })
       setMenu({
         items,
@@ -393,24 +399,23 @@ export function Zero0Occurrences({
             ban/undo=cancel/restore · trash=delete. Kept left-hugging so they clearly belong to THIS row. */}
         {onAction && (
           <span className="ml-1 flex items-center gap-2 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
-            {/* EDIT — per-occurrence TIME edit (v0.2.248/.287: available for ANY occurrence, past included). */}
-            {(r.cancelled || r.cancellable) && (
-              <button type="button" onClick={() => startEdit(r)} className={ICON_BTN} title="Edit this occurrence's time" aria-label="Edit time">
-                <Pencil className="h-3 w-3" />
-              </button>
-            )}
-            {/* CANCEL / RESTORE — restorable struck tombstone, gated to not-yet-ended occurrences. */}
-            {(r.cancelled || r.cancellable) && (
-              <button
-                type="button"
-                onClick={() => dispatchRowAction(r, "cancel")}
-                className={ICON_BTN}
-                title={r.cancelled ? "Restore this occurrence" : "Cancel this occurrence"}
-                aria-label={r.cancelled ? "Restore" : "Cancel"}
-              >
-                {r.cancelled ? <RotateCcw className="h-3 w-3" /> : <Ban className="h-3 w-3" />}
-              </button>
-            )}
+            {/* EDIT — per-occurrence TIME edit. ALWAYS offered, PAST included (v0.2.294, Loris ask): the
+                dayline already lets you re-time a past occurrence, so the §0 icon must match it. */}
+            <button type="button" onClick={() => startEdit(r)} className={ICON_BTN} title="Edit this occurrence's time" aria-label="Edit time">
+              <Pencil className="h-3 w-3" />
+            </button>
+            {/* CANCEL / RESTORE — a restorable struck tombstone. ALWAYS offered now, PAST included (v0.2.294,
+                Loris ask): cancelling is fully reversible (restore is always available), so there's no reason
+                to lock it to the future — you can mark that a past planned occurrence didn't really happen. */}
+            <button
+              type="button"
+              onClick={() => dispatchRowAction(r, "cancel")}
+              className={ICON_BTN}
+              title={r.cancelled ? "Restore this occurrence" : "Cancel this occurrence"}
+              aria-label={r.cancelled ? "Restore" : "Cancel"}
+            >
+              {r.cancelled ? <RotateCcw className="h-3 w-3" /> : <Ban className="h-3 w-3" />}
+            </button>
             {/* DELETE — hard removal (splice/clear the slot). Distinct from the restorable cancel. */}
             <button type="button" onClick={() => dispatchRowAction(r, "delete")} className={ICON_BTN} title="Delete this occurrence" aria-label="Delete">
               <Trash2 className="h-3 w-3" />
