@@ -2178,9 +2178,23 @@ export function Zero0Canvas() {
                     done={gm.done}
                     cancelled={gm.cancelled}
                     requested={gm.requested}
-                    className="h-3 w-3 shrink-0"
+                    // v0.2.292: the tab glyph is now DYNAMIC like the §0 face — it SPINS while the
+                    // sibling is ongoing and thickens while scheduled — and is sized h-3.5 to match the
+                    // favicon, so the "icon next to title" reads uniformly across web + native tabs.
+                    ongoing={gm.ongoing}
+                    scheduled={gm.scheduled}
+                    className="h-3.5 w-3.5 shrink-0"
                   />
                 )
+              )}
+              {/* MANUAL color marker — a small dot when the sibling has an explicitly-set accent
+                  (own color only; inherited colors deliberately not shown — matches the §0 face row). */}
+              {s.color && (
+                <span
+                  aria-hidden
+                  className="h-2 w-2 shrink-0 rounded-full"
+                  style={{ backgroundColor: s.color }}
+                />
               )}
               <span className="max-w-[8rem] truncate">{label}</span>
             </button>
@@ -2291,26 +2305,22 @@ export function Zero0Canvas() {
           openFrameMenu("zeroHeader", ev)
         }}
       >
-        {/* IDENTITY LINE (v0.2.291): the "zero · root canvas" text + the desktop "prewarm" note were
-            removed at Loris' request — the breadcrumb already names the context, so the mark line was
-            redundant chrome. Only the build VERSION is kept, right-aligned, so it stays in view even in
-            web-resource view where only the top of this header shows. */}
-        <div className="flex items-center">
-          <span className="ml-auto text-muted-foreground/70" title="Build version">
-            {displayVersion}
-          </span>
-        </div>
-        {/* MINIMIZED — just the breadcrumb (with its trailing SIBLINGS chevron), tight
-            under the mark: the access path + the lateral-switch affordance without the
-            fuller session block or its label column. Toggled via the header frame menu. */}
+        {/* IDENTITY LINE removed (v0.2.291); the build VERSION moved onto the breadcrumb row itself
+            (v0.2.292) so it no longer costs a standalone band above — reclaiming that vertical space. */}
+        {/* MINIMIZED — the breadcrumb (with its trailing SIBLINGS chevron) sharing its row with the
+            right-aligned build VERSION, then the sibling-tab strip beneath. Toggled via the frame menu. */}
         {mounted && minimized.zeroHeader && (
           <>
-            <div className="mt-1.5 flex items-center">
+            <div className="flex items-center gap-2">
               {breadcrumb}
-              {/* CLOSE for a WEB RESOURCE — on the breadcrumb line, far-right (under the
-                  version value). §0's × is hidden while the web surface is up, so this is
-                  the explicit-close gesture for a resource. Destroys the warm tab + climbs out. */}
-              {context?.webUrl && <Zero0CloseButton className="ml-auto" onClick={() => closeContext(context)} />}
+              {/* BUILD VERSION — right-aligned on the breadcrumb row; still the top row shown in
+                  web-resource view, so it stays in view there. */}
+              <span className="ml-auto shrink-0 text-muted-foreground/70" title="Build version">
+                {displayVersion}
+              </span>
+              {/* CLOSE for a WEB RESOURCE — after the version. §0's × is hidden while the web surface
+                  is up, so this is the explicit-close gesture for a resource. */}
+              {context?.webUrl && <Zero0CloseButton className="shrink-0" onClick={() => closeContext(context)} />}
             </div>
             {/* SIBLING TABS — the lateral-switch strip, under the breadcrumb even in the tight view. */}
             {siblingTabs}
@@ -2326,14 +2336,19 @@ export function Zero0Canvas() {
             session/debug detail that would overcrowd the clean breadcrumb-over-site view); the
             header sits ABOVE the web-view holder, so its rows push the tracked surface down. */}
         {mounted && !minimized.zeroHeader && (
-          <dl className="mt-2 grid grid-cols-[7.5rem_1fr] gap-x-4 gap-y-0.5">
+          <dl className="grid grid-cols-[7.5rem_1fr] gap-x-4 gap-y-0.5">
             <dt className="uppercase tracking-widest">context</dt>
-            <dd className="flex min-w-0 items-center">
+            <dd className="flex min-w-0 items-center gap-2">
               {breadcrumb}
-              {/* CLOSE for a WEB RESOURCE — far-right on the breadcrumb row, so it lands
-                  directly under the version value in the identity line above. §0's × is
-                  replaced by the web surface, so this is the resource's close gesture. */}
-              {context?.webUrl && <Zero0CloseButton className="ml-auto" onClick={() => closeContext(context)} />}
+              {/* BUILD VERSION — right-aligned on the CONTEXT row (v0.2.292), sharing the breadcrumb's
+                  line rather than sitting on a standalone band above. Still the top row shown in
+                  web-resource view. */}
+              <span className="ml-auto shrink-0 text-muted-foreground/70" title="Build version">
+                {displayVersion}
+              </span>
+              {/* CLOSE for a WEB RESOURCE — after the version, still far-right on the breadcrumb row.
+                  §0's × is replaced by the web surface, so this is the resource's close gesture. */}
+              {context?.webUrl && <Zero0CloseButton className="shrink-0" onClick={() => closeContext(context)} />}
             </dd>
             {!context?.webUrl && (
               <>
