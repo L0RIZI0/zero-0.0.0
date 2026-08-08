@@ -97,6 +97,26 @@ export function Zero0Occurrences({
   const definiteRows = rows.filter((r) => r.origin === "definite")
   const anyCancellableDefinite = definiteRows.some((r) => !r.cancelled && r.cancellable)
 
+  // THREE TEMPORAL COLUMNS (v0.2.289, Loris ask): the one-off definite rows are grouped by their anchor
+  // day relative to `now` — PAST (up to yesterday) · TODAY · UPCOMING (tomorrow onward). Bucketed by the
+  // SAME calendar-midnight day-diff that fmtDay uses for the row's "Yesterday/Today/Tomorrow" label, so a
+  // row's column always agrees with its printed day. A span is placed by its START day (an overnight slot
+  // that starts yesterday sits in PAST, matching its "Yesterday" label + end-crosses-midnight display); an
+  // unset slot (no start/end) falls into TODAY as the neutral bucket. Rows stay start-ordered within each
+  // column (definiteRows already is). This grouping is DEFINITE-only; series strips are untouched.
+  const startOfDayMs = (t: number) => {
+    const d = new Date(t)
+    return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
+  }
+  const nowDay0 = startOfDayMs(now)
+  const dayDiffOf = (r: Row) => {
+    const a = r.startAt ?? r.endAt
+    return a == null ? 0 : Math.round((startOfDayMs(a) - nowDay0) / 86_400_000)
+  }
+  const pastRows = definiteRows.filter((r) => dayDiffOf(r) < 0)
+  const todayRows = definiteRows.filter((r) => dayDiffOf(r) === 0)
+  const upcomingRows = definiteRows.filter((r) => dayDiffOf(r) > 0)
+
   // SERIES GROUPS (v0.2.246) — one strip per recurrence series: the PRIMARY `repeat` first (its rows carry
   // no ruleId), then each ADDITIONAL `series[]` entry (rows carry its id). Each series can co-exist and is
   // cancelled/cleared independently. `hasAnySeries` gates the "one-off" disambiguator label below.
@@ -316,32 +336,38 @@ export function Zero0Occurrences({
     setAdding(false)
   }, [draft, now, onAction, entity])
 
-  // One DEFINITE (one-off) occurrence row — DAY · TIME · STATUS · [NEXT] + inline actions (edit ·
-  // cancel/restore · delete). The SERIES sub-list no longer uses this; it renders horizontal chips
-  // (v0.2.242) whose actions live in a right-click menu instead of inline text buttons.
-  const renderRow = (r: Row) => (
-    <li key={`${r.origin}-${r.index}`} className="flex items-center gap-2 text-[10px] tabular-nums">
-      <span aria-hidden className="text-muted-foreground opacity-50">
-        ·
-      </span>
-      {/* DAY fixed-width so every TIME lines up; TIME min-width-fixed so the STATUS word starts at a
-          constant x whether point or range. "unset" segments fade like the status word. */}
-      <span className={"flex items-baseline gap-2 " + (r.cancelled ? "line-through opacity-60" : "")}>
-        <span className="w-20 shrink-0 text-muted-foreground">{r.day}</span>
-        <span className="min-w-[7.5rem] text-foreground">
-          {r.time.map((seg, i) => (
-            <span key={i} className={seg.muted ? "text-muted-foreground" : undefined}>
-              {seg.text}
-            </span>
-          ))}
+  // One DEFINITE (one-off) occurrence row — DAY · TIME · STATUS · [NEXT], with the actions (edit ·
+  // cancel/restore · delete) on a SECOND, hover-revealed line. The two-line shape (v0.2.289) is what lets
+  // the row live inside a NARROW temporal column: the old single-line `ml-auto` action group needed
+  // ~340px and would overflow a third-of-panel column, so day+time+status sit on line 1 and the actions
+  // drop to line 2 (faded until row-hover / focus-within, keeping the resting list quiet). `hideDay`
+  // suppresses the leading day in the TODAY column (every row there is "Today" — the column header already
+  // says so); PAST/UPCOMING keep the per-row day since they span multiple days. The SERIES sub-list does
+  // NOT use this — it renders horizontal chips (v0.2.242) whose actions live in a right-click menu.
+  const renderRow = (r: Row, hideDay = false) => (
+    <li key={`${r.origin}-${r.index}`} className="group text-[10px] tabular-nums">
+      <div className="flex items-baseline gap-2">
+        <span aria-hidden className="text-muted-foreground opacity-50">
+          ·
         </span>
-      </span>
-      <span className="text-muted-foreground">{r.statusWord}</span>
-      {r.isNext && <span className="text-[9px] uppercase tracking-wider text-foreground opacity-70">next</span>}
+        {/* DAY fixed-width so every TIME lines up (when shown). "unset" segments fade like the status word. */}
+        <span className={"flex items-baseline gap-2 " + (r.cancelled ? "line-through opacity-60" : "")}>
+          {!hideDay && <span className="w-16 shrink-0 text-muted-foreground">{r.day}</span>}
+          <span className="text-foreground">
+            {r.time.map((seg, i) => (
+              <span key={i} className={seg.muted ? "text-muted-foreground" : undefined}>
+                {seg.text}
+              </span>
+            ))}
+          </span>
+        </span>
+        <span className="text-muted-foreground">{r.statusWord}</span>
+        {r.isNext && <span className="text-[9px] uppercase tracking-wider text-foreground opacity-70">next</span>}
+      </div>
       {onAction && (
-        <span className="ml-auto flex items-center gap-2">
-          {/* EDIT — per-occurrence TIME edit (v0.2.248), gated to not-yet-ended occurrences (can't re-time
-              history), matching the cancel gate. Opens the shared input prefilled with this row's time. */}
+        <div className="mt-0.5 flex items-center gap-2 pl-4 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+          {/* EDIT — per-occurrence TIME edit (v0.2.248/.287: available for ANY occurrence, past included).
+              Opens the shared input prefilled with this row's time. */}
           {(r.cancelled || r.cancellable) && (
             <button type="button" onClick={() => startEdit(r)} className={ACTION_CLS} title="Edit this occurrence's time">
               edit
@@ -357,7 +383,7 @@ export function Zero0Occurrences({
           <button type="button" onClick={() => dispatchRowAction(r, "delete")} className={ACTION_CLS} title="Delete this occurrence">
             delete
           </button>
-        </span>
+        </div>
       )}
     </li>
   )
@@ -450,7 +476,30 @@ export function Zero0Occurrences({
         {hasAnySeries && definiteRows.length > 0 && (
           <div className="mb-1 text-[10px] text-muted-foreground">one-off</div>
         )}
-        {definiteRows.length > 0 && <ul className="flex flex-col gap-0.5">{definiteRows.map((r) => renderRow(r))}</ul>}
+        {/* THREE TEMPORAL COLUMNS (v0.2.289) — PAST · TODAY · UPCOMING. Responsive: stacks to one column
+            on narrow widths (each bucket full-width under its header, ≈ the old flat list but grouped),
+            three side-by-side from `sm`. All three cells render even when empty so the layout is stable
+            and the mental model stays "past | today | upcoming"; an empty bucket shows a faint em-dash. */}
+        {definiteRows.length > 0 && (
+          <div className="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-3">
+            {(
+              [
+                { key: "past", label: "Past", rows: pastRows, hideDay: false },
+                { key: "today", label: "Today", rows: todayRows, hideDay: true },
+                { key: "upcoming", label: "Upcoming", rows: upcomingRows, hideDay: false },
+              ] as const
+            ).map((col) => (
+              <div key={col.key} className="min-w-0">
+                <div className="mb-1 text-[9px] uppercase tracking-wider text-muted-foreground/60">{col.label}</div>
+                {col.rows.length > 0 ? (
+                  <ul className="flex flex-col gap-0.5">{col.rows.map((r) => renderRow(r, col.hideDay))}</ul>
+                ) : (
+                  <div className="pl-4 text-[10px] text-muted-foreground/30">—</div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
         {/* Shared bottom input — DUAL-MODE (v0.2.248): ADD (empty, sets a slot/rule) when `adding`, or
             EDIT (prefilled, re-times one occurrence, day fixed) when `editing` is set. */}
         {onAction && (adding || editing) && (
