@@ -170,14 +170,16 @@ function KindShape({
       // BOTTOM-LEFT and BOTTOM-RIGHT vertices splits the hexagon into three rhombic faces, so an
       // ONGOING (spinning) space reads as an isometric cube tumbling. The spokes inherit the outline
       // stroke, so they vanish when the glyph fills solid on complete (leaving a clean filled
-      // hexagon); the dot is a small solid node at the junction. Both the spokes and the dot are
-      // FADED to 50% (v0.2.299) — they use `currentColor` so this is a faded white on dark / faded
-      // black on light, a quieter interior than the full-strength outline.
+      // hexagon); the dot is a small solid node at the junction. The spokes + dot are FADED via
+      // `currentColor` so this is a faded white on dark / faded black on light — a quieter interior
+      // than the full-strength outline. The DOT is a filled area, so at equal opacity it reads
+      // STRONGER than the thin strokes (Loris liked it standing out) — but it's nudged a touch
+      // lower (0.42 vs the spokes' 0.5) so it stays clearly more faded than the hexagon (v0.2.299).
       return (
         <g transform={DAMP}>
           <polygon points={HEXAGON} />
           <path d="M12,12 L12,1.6 M12,12 L2.99,17.2 M12,12 L21.01,17.2" fill="none" opacity={0.5} />
-          <circle cx="12" cy="12" r="1.8" fill="currentColor" stroke="none" opacity={0.5} />
+          <circle cx="12" cy="12" r="1.8" fill="currentColor" stroke="none" opacity={0.42} />
         </g>
       )
     case "resource":
