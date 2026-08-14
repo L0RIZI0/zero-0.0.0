@@ -101,8 +101,14 @@ const RADII: Partial<Record<EntityKind, number[]>> = {
   community: radiiFromVerts(parseVerts(PENTAGON)),
   organism: Array.from({ length: MORPH_N }, () => 9.8), // circle ⇒ constant radius (matches KindShape r)
 }
-// Radial signature of the flat-top hexagon — the morph TARGET for the SPACE ongoing flourish.
-const SPACE_FLAT_HEXAGON_RADII = radiiFromVerts(parseVerts(FLAT_HEXAGON))
+// Radial signature of the flat-top hexagon — the morph TARGET for the SPACE ongoing flourish. Scaled up
+// (v0.2.297) so the flat-top orientation reads slightly BIGGER than the point-top rest state: the glyph
+// "breathes" outward as it morphs pointy → flat and back. The base circumradius is ~10.4, so the widest
+// (left/right) vertices sit at 12 ± 10.4·scale; 1.1 lands them at ~23.4 / ~0.6 — visibly larger while
+// staying inside the 0–24 viewBox (which clips) with room for the stroke. Bump toward ~1.1 max; higher
+// clips the flat edges.
+const SPACE_FLAT_HEXAGON_SCALE = 1.1
+const SPACE_FLAT_HEXAGON_RADII = radiiFromVerts(parseVerts(FLAT_HEXAGON)).map((r) => r * SPACE_FLAT_HEXAGON_SCALE)
 
 function buildPoints(radii: number[]): string {
   let s = ""
@@ -454,9 +460,9 @@ export function Zero0Glyph({
       } else if (periodic) {
         // Continuous SPACE flourish (v0.2.297): morph point-top ⇄ flat-top hexagon forever instead of
         // rotating. `f` runs a smooth raised-cosine 0→1→0 each cycle, so one cycle is
-        // pointy → flat → pointy with no snap at the turning points; at f≈0.5 the radial lerp passes
-        // through a near-regular dodecagon (both hexagons share a circumradius, so only the ORIENTATION
-        // changes — the glyph never grows or shrinks).
+        // pointy → flat → pointy with no snap at the turning points. The flat-top target is scaled
+        // slightly LARGER than the pointy rest state (SPACE_FLAT_HEXAGON_SCALE), so the glyph also
+        // "breathes" outward at the flat extreme and back — orientation + a gentle size pulse together.
         const phase = (now % SPACE_MORPH_CYCLE_MS) / SPACE_MORPH_CYCLE_MS
         const f = 0.5 - 0.5 * Math.cos(phase * 2 * Math.PI)
         el.setAttribute("points", buildPoints(lerpRadii(toR as number[], SPACE_FLAT_HEXAGON_RADII, f)))
