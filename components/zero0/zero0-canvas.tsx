@@ -70,7 +70,7 @@ import {
   sweepStaleScalars,
   getActorFeed,
 } from "@/lib/zero/data"
-  import { KIND_META, getState, isClosed, hasOpenSession, getOpenSession, getSessions, isMarkable, isPlayable, getInstantMaxNb, canAutoPlay } from "@/lib/zero/kinds"
+  import { KIND_META, getState, isClosed, hasOpenSession, getOpenSession, getSessions, isMarkable, isPlayable, getInstantMaxNb, canAutoPlay, entityHiddenState } from "@/lib/zero/kinds"
   import { isDone, describeLogEntry, describeActorLogEntry } from "@/lib/zero/entity-log"
 import {
   parseEntry,
@@ -948,14 +948,24 @@ export function Zero0Canvas() {
   const displayCrumbs = useCrumbTransitions(crumbs)
 
   // SIBLING TABS (v0.2.291) — the children of the current LEAF's PARENT, i.e. every entity at the
-  // leaf's own level (the leaf included). Rendered as a horizontal tab strip under the breadcrumb so
-  // the user can hop laterally between peers without opening the per-crumb dropdown. Empty at the root
-  // (no parent) and suppressed when there's only one peer (nothing to switch to) — the same >1 gate the
-  // breadcrumb's sibling caret uses.
+  // leaf's own level (the leaf included). Rendered as a horizontal tab strip ABOVE the breadcrumb
+  // (v0.2.300) so the user can hop laterally between peers without opening the per-crumb dropdown.
+  // Empty at the root (no parent) and suppressed when there's only one peer (nothing to switch to) —
+  // the same >1 gate the breadcrumb's sibling caret uses.
+  // v0.2.300: the strip now mirrors EXACTLY the rows the parent's do-list shows — HIDDEN siblings
+  // (manual `hidden` flag OR auto-hidden-because-closed-before-today, via `entityHiddenState`) are
+  // dropped unless the view's `showHidden` toggle is on, matching zero0-content's own filter. The
+  // CURRENT leaf is always kept even if hidden, so the strip always has an active tab to anchor on.
   const leafSiblings = useMemo(
-    () => (path.length >= 2 ? getChildren(path[path.length - 2]) : []),
+    () => {
+      if (path.length < 2) return []
+      const all = getChildren(path[path.length - 2])
+      if (showHidden) return all
+      const leafId = path[path.length - 1]
+      return all.filter((s) => s.id === leafId || entityHiddenState(s, nowSec) == null)
+    },
     // eslint-disable-next-line react-hooks/exhaustive-deps -- rev re-reads the child set after edits
-    [path, mounted, rev],
+    [path, mounted, rev, showHidden, nowSec],
   )
 
   // WEB-TITLE RESOLUTION — for every VISIBLE web resource (the open context's children + the
@@ -2201,13 +2211,14 @@ export function Zero0Canvas() {
   )
 
   // SIBLING TAB STRIP (v0.2.291) — a horizontal row of the leaf's peers (glyph/favicon + title,
-  // title cropped to 15 chars), rendered under the breadcrumb whenever §1 is shown. Clicking a tab
-  // switches laterally at the leaf depth (goToSiblingAt); the current leaf's tab is the active,
-  // non-interactive one. Suppressed unless there are ≥2 peers (matches the crumb caret's gate).
+  // title cropped to 15 chars), rendered ABOVE the breadcrumb whenever §1 is shown (v0.2.300).
+  // Clicking a tab switches laterally at the leaf depth (goToSiblingAt); the current leaf's tab is
+  // the active, non-interactive one. Suppressed unless there are ≥2 peers (matches the crumb caret's
+  // gate). `mb-1.5` puts the gap BELOW the strip (toward the breadcrumb) now that it sits on top.
   const leafDepth = path.length - 1
   const siblingTabs =
     leafSiblings.length > 1 ? (
-      <nav className="mt-1.5 flex flex-wrap items-center gap-1" aria-label="Sibling entities">
+      <nav className="mb-1.5 flex flex-wrap items-center gap-1" aria-label="Sibling entities">
         {leafSiblings.map((s) => {
           const isCurrent = s.id === path[leafDepth]
           const rawLabel = s.webUrl
@@ -2377,6 +2388,8 @@ export function Zero0Canvas() {
             right-aligned build VERSION, then the sibling-tab strip beneath. Toggled via the frame menu. */}
         {mounted && minimized.zeroHeader && (
           <>
+            {/* SIBLING TABS — the lateral-switch strip, ABOVE the breadcrumb even in the tight view. */}
+            {siblingTabs}
             <div className="flex items-center gap-2">
               {breadcrumb}
               {/* BUILD VERSION — right-aligned on the breadcrumb row; still the top row shown in
@@ -2388,8 +2401,6 @@ export function Zero0Canvas() {
                   is up, so this is the explicit-close gesture for a resource. */}
               {context?.webUrl && <Zero0CloseButton className="shrink-0" onClick={() => closeContext(context)} />}
             </div>
-            {/* SIBLING TABS — the lateral-switch strip, under the breadcrumb even in the tight view. */}
-            {siblingTabs}
           </>
         )}
         {/* FULL — the session readout as a labelled meta block. CONTEXT is the breadcrumb
@@ -2401,6 +2412,8 @@ export function Zero0Canvas() {
             line instead of wrapping. Over a web surface only CONTEXT shows (STORE/ENTITIES are
             session/debug detail that would overcrowd the clean breadcrumb-over-site view); the
             header sits ABOVE the web-view holder, so its rows push the tracked surface down. */}
+        {/* SIBLING TABS — same lateral-switch strip in the full view, ABOVE the CONTEXT/breadcrumb row. */}
+        {mounted && !minimized.zeroHeader && siblingTabs}
         {mounted && !minimized.zeroHeader && (
           <dl className="grid grid-cols-[7.5rem_1fr] gap-x-4 gap-y-0.5">
             <dt className="uppercase tracking-widest">context</dt>
@@ -2435,8 +2448,6 @@ export function Zero0Canvas() {
             )}
           </dl>
         )}
-        {/* SIBLING TABS — same lateral-switch strip in the full view, under the CONTEXT/breadcrumb row. */}
-        {mounted && !minimized.zeroHeader && siblingTabs}
         {/* SEAM SHADOW note: over a web view the seam shadow is a SINGLE element in the §0 wrapper
             (web-view block below), pinned to that wrapper's animating bottom edge so it rides the
             seam continuously — at §0's bottom when open, gliding up to right under this header as §0
