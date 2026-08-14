@@ -31,6 +31,11 @@ const easeOutCubic = (p: number) => 1 - Math.pow(1 - p, 3)
 // same width because its corners are cut, so it's scaled up ~15% to appear at least as big
 // as the Task square in the ENTITY CONTENT row grid.
 const HEXAGON = "12,1.6 21.01,6.8 21.01,17.2 12,22.4 2.99,17.2 2.99,6.8"
+// FLAT-TOP hexagon — the SAME hexagon rotated 30° (a flat EDGE on top instead of a point). Same
+// circumradius (~10.4) as the pointy-top HEXAGON, so morphing between the two changes only the
+// ORIENTATION, never the size. Drives the SPACE "ongoing" flourish (see the morph driver): a live
+// space continuously morphs point-top ⇄ flat-top instead of spinning.
+const FLAT_HEXAGON = "17.2,2.99 22.4,12 17.2,21.01 6.8,21.01 1.6,12 6.8,2.99"
 // Scaled to the SAME ~15% optical oversize as the HEXAGON (circumradius ~10.38): a pentagon reads
 // optically small (pointed top, wide flat base sits low), so Community is grown to match the
 // hexagon-Space's mass rather than a bounding-equal peer.
@@ -96,7 +101,8 @@ const RADII: Partial<Record<EntityKind, number[]>> = {
   community: radiiFromVerts(parseVerts(PENTAGON)),
   organism: Array.from({ length: MORPH_N }, () => 9.8), // circle ⇒ constant radius (matches KindShape r)
 }
-const SQUARE_RADII = RADII.task as number[]
+// Radial signature of the flat-top hexagon — the morph TARGET for the SPACE ongoing flourish.
+const SPACE_FLAT_HEXAGON_RADII = radiiFromVerts(parseVerts(FLAT_HEXAGON))
 
 function buildPoints(radii: number[]): string {
   let s = ""
@@ -112,20 +118,11 @@ function buildPoints(radii: number[]): string {
 const lerpRadii = (a: number[], b: number[], f: number): number[] => a.map((v, i) => v + (b[i] - v) * f)
 const easeInOut = (p: number) => (p < 0.5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2)
 
-// One full morph turn for the SPACE periodic hexagon→square→hexagon flourish, and how long a turn.
 const MORPH_MS = 380 // one-shot kind-change morph duration
-const SPACE_MORPH_PERIOD_MS = 1345 // gap between space flourishes (v0.6.6: one flourish every 1.345s)
-// Fraction of the period in the there-and-back dip. The dip is a symmetric `sin(x·π)` pulse, so
-// hex→square and square→hex take EXACTLY equal time (each half the dip). Tuned so the dip duration
-// holds ~steady (~915ms) despite the shorter period.
-const SPACE_MORPH_PULSE = 0.68
-// The peak of the SPACE flourish morphs toward a SUBTLY smaller square than the real task-square
-// (v0.6.6): scale the square's radii about the box centre so the flourish "pinches in" just a touch
-// rather than hitting the full-size square. Only used for the periodic space dip — the crisp task
-// glyph and kind-change morphs still use the true SQUARE_RADII. (0.95 = barely smaller than full;
-// 0.9 was ~2px too small, 0.68 read as far too small.)
-const SPACE_MORPH_SQUARE_SCALE = 0.95
-const SPACE_MORPH_SQUARE_RADII = SQUARE_RADII.map((r) => r * SPACE_MORPH_SQUARE_SCALE)
+// One full point-top → flat-top → point-top cycle of the SPACE "ongoing" flourish (v0.2.297). Kept
+// close to the old spin cadence (SPIN_MS 2345) so a live space feels the same "calm, ambient" tempo,
+// just morphing instead of rotating.
+const SPACE_MORPH_CYCLE_MS = 2345
 
 /** Draw the kind's outline shape. Fill/stroke are set by the caller via props.
  *  `"link"` is a FORTHCOMING (id-5) placeholder kind — not yet in the real `EntityKind` union —
@@ -238,12 +235,13 @@ export function Zero0Glyph({
    */
   scheduled?: boolean
   /**
-   * ONGOING ⇒ the glyph SLOWLY ROTATES clockwise — the "live span in progress" signal
-   * for a started-but-unended Moment/Space or any entity with an open session (see
-   * `getState` → "ongoing"). Driven by the Web Animations API (see the effect below): a
-   * calm 2.34s/turn whose angular velocity EASES IN at start (playbackRate ramp 0→1) and
-   * decelerates OUT to the nearest upright at stop, so it never snaps on/off. Skipped
-   * entirely under `prefers-reduced-motion`. The only motion in the zero0 glyph set.
+   * ONGOING ⇒ the "live span in progress" signal for a started-but-unended entity or any
+   * entity with an open session (see `getState` → "ongoing"). For MOST kinds the glyph SLOWLY
+   * ROTATES clockwise — driven by the Web Animations API (see the effect below): a calm
+   * 2.34s/turn whose angular velocity EASES IN at start (playbackRate ramp 0→1) and decelerates
+   * OUT to the nearest upright at stop, so it never snaps on/off. SPACE is the exception
+   * (v0.2.297): instead of rotating it continuously MORPHS point-top ⇄ flat-top hexagon (see the
+   * morph driver's periodic branch). Skipped entirely under `prefers-reduced-motion`.
    */
   ongoing?: boolean
   /**
@@ -309,6 +307,9 @@ export function Zero0Glyph({
     if (!el || typeof el.animate !== "function") return
     if (typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return
     if (!ongoing) return
+    // SPACE does NOT rotate while ongoing (v0.2.297) — it continuously morphs point-top ⇄ flat-top
+    // hexagon instead (handled by the morph driver's periodic branch). Every other kind still spins.
+    if (kind === "space") return
 
     // A just-prior STOP may still be decelerating — cancel it so the fresh spin wins.
     landingRef.current?.cancel()
@@ -451,12 +452,14 @@ export function Zero0Glyph({
         el.setAttribute("points", buildPoints(lerpRadii(fromR as number[], toR as number[], easeInOut(t / MORPH_MS))))
         morphRafRef.current = requestAnimationFrame(tick)
       } else if (periodic) {
-        // Continuous: rest at hexagon, then a brief there-and-back dip toward the square near the
-        // end of each period (no dwell on the square — a quick 0→1→0 sine pulse).
-        const phase = (now % SPACE_MORPH_PERIOD_MS) / SPACE_MORPH_PERIOD_MS
-        const inPulse = phase > 1 - SPACE_MORPH_PULSE
-        const f = inPulse ? Math.sin(((phase - (1 - SPACE_MORPH_PULSE)) / SPACE_MORPH_PULSE) * Math.PI) : 0
-        el.setAttribute("points", buildPoints(f === 0 ? (toR as number[]) : lerpRadii(toR as number[], SPACE_MORPH_SQUARE_RADII, f)))
+        // Continuous SPACE flourish (v0.2.297): morph point-top ⇄ flat-top hexagon forever instead of
+        // rotating. `f` runs a smooth raised-cosine 0→1→0 each cycle, so one cycle is
+        // pointy → flat → pointy with no snap at the turning points; at f≈0.5 the radial lerp passes
+        // through a near-regular dodecagon (both hexagons share a circumradius, so only the ORIENTATION
+        // changes — the glyph never grows or shrinks).
+        const phase = (now % SPACE_MORPH_CYCLE_MS) / SPACE_MORPH_CYCLE_MS
+        const f = 0.5 - 0.5 * Math.cos(phase * 2 * Math.PI)
+        el.setAttribute("points", buildPoints(lerpRadii(toR as number[], SPACE_FLAT_HEXAGON_RADII, f)))
         morphRafRef.current = requestAnimationFrame(tick)
       } else {
         // Entry morph done and nothing periodic ⇒ settle back to the crisp KindShape.
