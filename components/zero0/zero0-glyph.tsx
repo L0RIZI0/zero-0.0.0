@@ -31,11 +31,6 @@ const easeOutCubic = (p: number) => 1 - Math.pow(1 - p, 3)
 // same width because its corners are cut, so it's scaled up ~15% to appear at least as big
 // as the Task square in the ENTITY CONTENT row grid.
 const HEXAGON = "12,1.6 21.01,6.8 21.01,17.2 12,22.4 2.99,17.2 2.99,6.8"
-// FLAT-TOP hexagon — the SAME hexagon rotated 30° (a flat EDGE on top instead of a point). Same
-// circumradius (~10.4) as the pointy-top HEXAGON, so morphing between the two changes only the
-// ORIENTATION, never the size. Drives the SPACE "ongoing" flourish (see the morph driver): a live
-// space continuously morphs point-top ⇄ flat-top instead of spinning.
-const FLAT_HEXAGON = "17.2,2.99 22.4,12 17.2,21.01 6.8,21.01 1.6,12 6.8,2.99"
 // Scaled to the SAME ~15% optical oversize as the HEXAGON (circumradius ~10.38): a pentagon reads
 // optically small (pointed top, wide flat base sits low), so Community is grown to match the
 // hexagon-Space's mass rather than a bounding-equal peer.
@@ -101,15 +96,6 @@ const RADII: Partial<Record<EntityKind, number[]>> = {
   community: radiiFromVerts(parseVerts(PENTAGON)),
   organism: Array.from({ length: MORPH_N }, () => 9.8), // circle ⇒ constant radius (matches KindShape r)
 }
-// Radial signature of the flat-top hexagon — the morph TARGET for the SPACE ongoing flourish. Scaled up
-// (v0.2.297) so the flat-top orientation reads slightly BIGGER than the point-top rest state: the glyph
-// "breathes" outward as it morphs pointy → flat and back. The base circumradius is ~10.4, so the widest
-// (left/right) vertices sit at 12 ± 10.4·scale; 1.1 lands them at ~23.4 / ~0.6 — visibly larger while
-// staying inside the 0–24 viewBox (which clips) with room for the stroke. Bump toward ~1.1 max; higher
-// clips the flat edges.
-const SPACE_FLAT_HEXAGON_SCALE = 1.1
-const SPACE_FLAT_HEXAGON_RADII = radiiFromVerts(parseVerts(FLAT_HEXAGON)).map((r) => r * SPACE_FLAT_HEXAGON_SCALE)
-
 function buildPoints(radii: number[]): string {
   let s = ""
   for (let i = 0; i < radii.length; i++) {
@@ -125,10 +111,6 @@ const lerpRadii = (a: number[], b: number[], f: number): number[] => a.map((v, i
 const easeInOut = (p: number) => (p < 0.5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2)
 
 const MORPH_MS = 380 // one-shot kind-change morph duration
-// One full point-top → flat-top → point-top cycle of the SPACE "ongoing" flourish (v0.2.297). Kept
-// close to the old spin cadence (SPIN_MS 2345) so a live space feels the same "calm, ambient" tempo,
-// just morphing instead of rotating.
-const SPACE_MORPH_CYCLE_MS = 2345
 
 /** Draw the kind's outline shape. Fill/stroke are set by the caller via props.
  *  `"link"` is a FORTHCOMING (id-5) placeholder kind — not yet in the real `EntityKind` union —
@@ -184,7 +166,18 @@ function KindShape({
       // The HEXAGON carries a ~15% optical oversize (see its definition) so it reads as big as the
       // Task square; DAMP shrinks it to ~10% while thick (see above) so the heavier stroke doesn't
       // balloon it.
-      return <polygon points={HEXAGON} transform={DAMP} />
+      // ISOMETRIC-CUBE interior (v0.2.298): a center dot joined by three spokes to the TOP,
+      // BOTTOM-LEFT and BOTTOM-RIGHT vertices splits the hexagon into three rhombic faces, so an
+      // ONGOING (spinning) space reads as an isometric cube tumbling. The spokes inherit the outline
+      // stroke, so they vanish when the glyph fills solid on complete (leaving a clean filled
+      // hexagon); the dot is a small solid node at the junction.
+      return (
+        <g transform={DAMP}>
+          <polygon points={HEXAGON} />
+          <path d="M12,12 L12,1.6 M12,12 L2.99,17.2 M12,12 L21.01,17.2" fill="none" />
+          <circle cx="12" cy="12" r="1.8" fill="currentColor" stroke="none" />
+        </g>
+      )
     case "resource":
       return <polygon points={DIAMOND} transform={DAMP} />
     case "moment":
@@ -241,13 +234,13 @@ export function Zero0Glyph({
    */
   scheduled?: boolean
   /**
-   * ONGOING ⇒ the "live span in progress" signal for a started-but-unended entity or any
-   * entity with an open session (see `getState` → "ongoing"). For MOST kinds the glyph SLOWLY
-   * ROTATES clockwise — driven by the Web Animations API (see the effect below): a calm
-   * 2.34s/turn whose angular velocity EASES IN at start (playbackRate ramp 0→1) and decelerates
-   * OUT to the nearest upright at stop, so it never snaps on/off. SPACE is the exception
-   * (v0.2.297): instead of rotating it continuously MORPHS point-top ⇄ flat-top hexagon (see the
-   * morph driver's periodic branch). Skipped entirely under `prefers-reduced-motion`.
+   * ONGOING ⇒ the glyph SLOWLY ROTATES clockwise — the "live span in progress" signal
+   * for a started-but-unended entity or any entity with an open session (see `getState`
+   * → "ongoing"). Driven by the Web Animations API (see the effect below): a calm
+   * 2.34s/turn whose angular velocity EASES IN at start (playbackRate ramp 0→1) and
+   * decelerates OUT to the nearest upright at stop, so it never snaps on/off. A SPACE's
+   * three interior cube-spokes rotate with it, so a live space reads as a tumbling
+   * isometric cube (v0.2.298). Skipped entirely under `prefers-reduced-motion`.
    */
   ongoing?: boolean
   /**
@@ -301,8 +294,7 @@ export function Zero0Glyph({
 
   // MORPH: while `morphing`, the crisp KindShape is swapped for a sampled `<polygon ref={polyRef}>`
   // whose `points` are written directly by rAF (no per-frame React state → no re-render storm).
-  // Driven by two triggers: (a) a one-shot morph when `kind` changes between two morphable kinds,
-  // and (b) a periodic hexagon→square→hexagon flourish while a SPACE is ongoing (spinning).
+  // Driven by a one-shot morph when `kind` changes between two morphable kinds.
   const [morphing, setMorphing] = useState(false)
   const polyRef = useRef<SVGPolygonElement | null>(null)
   const morphRafRef = useRef<number | null>(null)
@@ -313,9 +305,6 @@ export function Zero0Glyph({
     if (!el || typeof el.animate !== "function") return
     if (typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return
     if (!ongoing) return
-    // SPACE does NOT rotate while ongoing (v0.2.297) — it continuously morphs point-top ⇄ flat-top
-    // hexagon instead (handled by the morph driver's periodic branch). Every other kind still spins.
-    if (kind === "space") return
 
     // A just-prior STOP may still be decelerating — cancel it so the fresh spin wins.
     landingRef.current?.cancel()
@@ -427,7 +416,7 @@ export function Zero0Glyph({
     return () => a?.cancel()
   }, [flashFill])
 
-  // ── MORPH driver (kind-change one-shot + space-ongoing periodic flourish) ──────────────────
+  // ── MORPH driver (kind-change one-shot) ────────────────────────────────────────────────────
   useEffect(() => {
     const prev = prevKindRef.current
     prevKindRef.current = kind
@@ -437,9 +426,8 @@ export function Zero0Glyph({
     const toR = RADII[kind as EntityKind] // "link" isn't morphable ⇒ undefined ⇒ no morph, static shape
     const fromR = RADII[prev as EntityKind]
     const entry = !reduce && !!toR && !!fromR && prev !== kind // morph between two morphable kinds
-    const periodic = !reduce && !!toR && kind === "space" && !!ongoing // spinning-space flourish
 
-    if (!entry && !periodic) {
+    if (!entry) {
       setMorphing(false)
       return
     }
@@ -453,22 +441,12 @@ export function Zero0Glyph({
         return
       }
       const t = now - t0
-      if (entry && t < MORPH_MS) {
+      if (t < MORPH_MS) {
         // One-shot: ease from the PREVIOUS shape into the new one.
         el.setAttribute("points", buildPoints(lerpRadii(fromR as number[], toR as number[], easeInOut(t / MORPH_MS))))
         morphRafRef.current = requestAnimationFrame(tick)
-      } else if (periodic) {
-        // Continuous SPACE flourish (v0.2.297): morph point-top ⇄ flat-top hexagon forever instead of
-        // rotating. `f` runs a smooth raised-cosine 0→1→0 each cycle, so one cycle is
-        // pointy → flat → pointy with no snap at the turning points. The flat-top target is scaled
-        // slightly LARGER than the pointy rest state (SPACE_FLAT_HEXAGON_SCALE), so the glyph also
-        // "breathes" outward at the flat extreme and back — orientation + a gentle size pulse together.
-        const phase = (now % SPACE_MORPH_CYCLE_MS) / SPACE_MORPH_CYCLE_MS
-        const f = 0.5 - 0.5 * Math.cos(phase * 2 * Math.PI)
-        el.setAttribute("points", buildPoints(lerpRadii(toR as number[], SPACE_FLAT_HEXAGON_RADII, f)))
-        morphRafRef.current = requestAnimationFrame(tick)
       } else {
-        // Entry morph done and nothing periodic ⇒ settle back to the crisp KindShape.
+        // Entry morph done ⇒ settle back to the crisp KindShape.
         setMorphing(false)
       }
     }
@@ -478,7 +456,7 @@ export function Zero0Glyph({
       if (morphRafRef.current != null) cancelAnimationFrame(morphRafRef.current)
       morphRafRef.current = null
     }
-  }, [kind, ongoing])
+  }, [kind])
 
   // Scheduled stroke is 2.9 for every kind EXCEPT the space HEXAGON, which reads slightly light at
   // its ~15% oversize, so it gets a touch heavier (3.1) to match the other thick glyphs' weight.
