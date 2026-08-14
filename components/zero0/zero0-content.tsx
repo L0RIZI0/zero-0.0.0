@@ -293,7 +293,20 @@ function ContentDragRoot(props: Zero0ContentProps) {
     if (!getEntity(draggedId)) return
 
     if (intent.mode === "inside") {
-      // NEST — the dragged entity becomes a child of the target (appended last).
+      // NEST — the dragged entity becomes a child of the target (appended last). EXCEPT a web
+      // resource is a browsing LEAF whose focused view shows only the web page (no child do-list),
+      // so nesting inside it would make the dragged entity unreachable (the v0.2.288 "vanished"
+      // data-loss bug). When the target is a web resource, DON'T nest — drop the dragged entity as a
+      // SIBLING right AFTER it, within the resource's own parent, so the gesture is still meaningful
+      // and nothing is lost. moveEntityToContext also refuses the nest as a belt-and-suspenders guard.
+      const target = getEntity(intent.overId)
+      if (target?.webUrl) {
+        const sibParent = target.parentId
+        if (!sibParent) return
+        if (getEntity(draggedId)!.parentId !== sibParent && !ctx.reparent(draggedId, sibParent)) return
+        ctx.reorder(sibParent, placeRelative(sibParent, draggedId, intent.overId, "after"))
+        return
+      }
       ctx.reparent(draggedId, intent.overId)
       return
     }

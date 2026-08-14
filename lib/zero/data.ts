@@ -2803,6 +2803,14 @@ export function moveEntityToContext(entityId: string, newContextId: string): boo
   if (!entity) return false
   if (entityId === newContextId) return false
   if (entity.parentId === newContextId) return false
+  // REACHABILITY GUARD (v0.2.296): refuse to nest INTO a web resource. A web resource is a browsing
+  // LEAF — when focused, the canvas renders the web page and deliberately shows NO child do-list ("the
+  // web page IS the content"), so a child moved inside one would have no row anywhere and become
+  // unreachable. This is the v0.2.288 data-loss bug (a Space dragged onto a web-resource row silently
+  // vanished). Sub-resources created by in-page navigation don't come through here, so nothing legit
+  // breaks. The drag layer (onDragEnd) additionally redirects such a drop to a sibling placement.
+  const target = byId.get(newContextId)
+  if (target?.webUrl) return false
   // CYCLE GUARD: refuse if newContextId is entityId or sits under it. Walk parentId upward
   // from the target; if we reach entityId, the target is a descendant. (Own general walk —
   // collectDescendants only follows spaces, so it can't be reused for arbitrary kinds.)
@@ -3060,7 +3068,7 @@ function migrateStoredRootId(stored: UserItems): void {
 // shapes we normalize on hydrate:
 //   A) pre-v0.4.8 — key `sessions`, entries discriminated by `kind` (the original name; we're
 //      BACK to `sessions` now, so the key is already right — only `kind`→`via` needs fixing).
-//   B) v0.4.8..this rename — key `engagements`, entries already using `via` (move key back).
+//   B) v0.4.8..this rename �� key `engagements`, entries already using `via` (move key back).
 const INTERIM_SESSIONS_KEY = "engagements" // the "engagements" era (B) — move it back to `sessions`
 const LEGACY_SESSION_VIA_KEY = "kind" // the pre-v0.4.8 per-entry discriminator (A) → `via`
 /**
