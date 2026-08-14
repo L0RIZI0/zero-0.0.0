@@ -548,11 +548,24 @@ export function deriveSessionsFromLog(
 
   for (const e of log) {
     switch (e.type) {
-      case "accessed":
-        out.push({ startedAt: e.at, via: "focus", anchorId: e.id })
-        st.focusIdx = out.length - 1
-        if (ongoingOnEnter && !st.blocked) openOngoing(e.at, "auto", e.id)
-        break
+        case "accessed":
+          // Close any STILL-OPEN prior focus span before opening the new one (v0.2.301). A focus
+          // (access) span is normally closed by a matching `exited`; but if that exit never got
+          // written — the app closed or crashed before the exit flush — the old span would stay
+          // derivably-open forever. A fresh `accessed` implies the previous presence period ended
+          // (at latest by this new access), so bound it here. Without this, an OLDER access reads
+          // ONGOING even though NEWER accesses have since started AND ended (Loris' bug: a
+          // "Yesterday 23:55 - ongoing" span sitting behind a closed "Today 0:01 - 0:07"). In
+          // normal operation `openSession` is idempotent, so back-to-back `accessed` without an
+          // `exited` only happens in this missing-exit case — a safe, no-op-in-the-happy-path guard.
+          if (st.focusIdx != null) {
+            closeAt(st.focusIdx, e.at)
+            st.focusIdx = null
+          }
+          out.push({ startedAt: e.at, via: "focus", anchorId: e.id })
+          st.focusIdx = out.length - 1
+          if (ongoingOnEnter && !st.blocked) openOngoing(e.at, "auto", e.id)
+          break
       case "resumed": // LEGACY-READ-ONLY (no longer written; old logs only)
         if (!st.blocked) openOngoing(e.at, "auto", e.id)
         break
