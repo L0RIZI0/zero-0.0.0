@@ -44,10 +44,37 @@ const STORAGE_KEY = "zero:root-activity:v1"
 // segments are dropped first; a day rarely exceeds a few hundred switches.
 const MAX_SEGMENTS = 5000
 
+// ── LIVENESS HEARTBEAT (v0.2.302) ──────────────────────────────────────────
+// A dedicated single-timestamp key that records the last moment we had POSITIVE
+// evidence the user was present and active. Separate from the segment log so it
+// can't perturb the where-I-was timeline. Written by an INPUT-GATED heartbeat
+// (see installHeartbeat): every HEARTBEAT_MS, IF the tab is visible AND there was
+// real user input since the previous tick, we stamp `now`. Idle-but-visible does
+// NOT stamp (no input ⇒ the user stepped away from the keyboard), and OS sleep
+// pauses the timer entirely — so a stale heartbeat cleanly means "away".
+const ALIVE_KEY = "zero:root-alive:v1"
+// How often the heartbeat ticks. Short enough that last-known-alive is accurate
+// to ~20s (the resolution at which a capped ongoing span ends), long enough to be
+// negligible. NOT a spin-the-CPU timer — it only reads a flag and maybe writes one key.
+const HEARTBEAT_MS = 20_000
+// How long without a fresh heartbeat counts as "away" — mirrors data.ts ALIVE_GRACE_MS
+// (60s reload grace) so a quick close/reopen or reload stays LIVE and only a genuine
+// absence arms the away behaviour. Re-declared here (not imported) to keep this module
+// free of an entity-store dependency.
+const AWAY_THRESHOLD_MS = 60_000
+
 let segments: AccessSegment[] = []
 let currentEntityId: string | null = null
 let hydrated = false
 let visibilityInstalled = false
+let heartbeatInstalled = false
+// Last time we saw real user input (pointer/key/wheel/touch). The heartbeat only
+// stamps when this advanced since its previous tick, so presence requires ACTIVITY.
+let lastInputAt = 0
+// FROZEN at first hydrate, BEFORE the heartbeat starts stamping fresh values:
+// were we away (no heartbeat within AWAY_THRESHOLD_MS) at the moment the app loaded?
+// The canvas reads this to decide whether to suppress the auto-resume of ongoing.
+let awayOnLoad = false
 
 // Monotonic revision, bumped on every structural change. `segments` is mutated
 // IN PLACE (push / set leftAt), so its array reference stays stable — a
@@ -93,11 +120,74 @@ function write(): void {
   }
 }
 
+// --- liveness heartbeat ----------------------------------------------------
+
+function readAlive(): number | null {
+  if (typeof window === "undefined") return null
+  try {
+    const raw = window.localStorage.getItem(ALIVE_KEY)
+    if (!raw) return null
+    const n = Number(raw)
+    return Number.isFinite(n) ? n : null
+  } catch {
+    return null
+  }
+}
+
+function stampAlive(now: number): void {
+  if (typeof window === "undefined") return
+  try {
+    window.localStorage.setItem(ALIVE_KEY, String(now))
+  } catch {
+    // storage unavailable — the in-memory app keeps running; worst case we read
+    // a slightly stale alive time on the next load.
+  }
+}
+
+function installHeartbeat(): void {
+  if (heartbeatInstalled || typeof window === "undefined") return
+  heartbeatInstalled = true
+
+  const markInput = () => {
+    lastInputAt = Date.now()
+  }
+  // Passive listeners: any of these is EVIDENCE the human is here and active. We
+  // never act on the event itself, only remember WHEN it last happened.
+  for (const ev of ["pointerdown", "pointermove", "keydown", "wheel", "touchstart"] as const) {
+    window.addEventListener(ev, markInput, { passive: true })
+  }
+
+  let lastTick = Date.now()
+  window.setInterval(() => {
+    const now = Date.now()
+    // Stamp alive ONLY when the tab is visible AND there was real input since the
+    // previous tick. Visible-but-idle (no input) deliberately does NOT stamp, so
+    // walking away from a foregrounded window still reads as "away" after the
+    // threshold. OS sleep pauses this interval, so no stamp happens while asleep.
+    if (document.visibilityState === "visible" && lastInputAt > lastTick) {
+      stampAlive(now)
+    }
+    lastTick = now
+  }, HEARTBEAT_MS)
+}
+
 function hydrate(): void {
   if (hydrated || typeof window === "undefined") return
   hydrated = true
   segments = read()
+  // FREEZE the away-on-load verdict BEFORE the heartbeat can stamp a fresh value.
+  // `null` last-alive (fresh install / cleared) ⇒ NOT away (don't suppress on a
+  // first run). Any prior evidence older than the threshold ⇒ we were away.
+  const last = lastKnownAliveRaw()
+  awayOnLoad = last != null && Date.now() - last > AWAY_THRESHOLD_MS
   installVisibility()
+  installHeartbeat()
+  // NB: we deliberately do NOT stamp alive here. The entity-store hydrate cleanup
+  // (data.ts) reads getLastKnownAlive() to decide whether a dangling ongoing span
+  // is continuous-across-reload or a shutdown; stamping now would spuriously make
+  // every load look "alive just now" and never cap. Continuity for a genuine quick
+  // reload comes from the PREVIOUS session's last heartbeat / pagehide flush, which
+  // sits within AWAY_THRESHOLD_MS. The first fresh stamp happens on the next tick.
 }
 
 // --- core recording --------------------------------------------------------
@@ -225,6 +315,15 @@ export function getSegmentsForDay(
  * not yet hydrated, so it's safe to call from the entity store's own hydrate path.
  */
 export function getLastKnownAlive(): number | null {
+  return lastKnownAliveRaw()
+}
+
+// The shared implementation — reads storage directly when not yet hydrated, so it's
+// safe to call from the entity store's own hydrate path (which runs before this
+// module's hydrate). Folds in BOTH signals: the access-segment flushes (visibility/
+// pagehide/switch) AND the input-gated heartbeat's dedicated alive key (v0.2.302),
+// taking whichever is most recent.
+function lastKnownAliveRaw(): number | null {
   if (typeof window === "undefined") return null
   const source = hydrated ? segments : read()
   let max: number | null = null
@@ -232,7 +331,22 @@ export function getLastKnownAlive(): number | null {
     const t = s.leftAt ?? s.enteredAt
     if (max == null || t > max) max = t
   }
+  const alive = readAlive()
+  if (alive != null && (max == null || alive > max)) max = alive
   return max
+}
+
+/**
+ * Were we AWAY when the app loaded — i.e. no evidence of presence within
+ * AWAY_THRESHOLD_MS of load? Frozen at first hydrate (before the heartbeat stamps a
+ * fresh value), so it's a stable verdict for the whole session. The canvas uses it to
+ * suppress the auto-resume of `ongoing` after a real absence until the user clicks
+ * back into the entity content. `false` on a fresh install (no prior data) and after
+ * a quick reload within the grace window.
+ */
+export function wasAwayOnLoad(): boolean {
+  hydrate()
+  return awayOnLoad
 }
 
 export interface SpaceRollup {

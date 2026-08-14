@@ -7,7 +7,7 @@ import { Zero0UpdateIndicator } from "./zero0-update-indicator"
 import { Zero0WindowControls } from "./zero0-window-controls"
 import { Zero0Agenda, Zero0Activity } from "./zero0-activity"
 import type { DaylineOccRef } from "./zero0-dayline"
-import { recordAccess } from "@/lib/zero/activity-log"
+import { recordAccess, wasAwayOnLoad, getLastKnownAlive } from "@/lib/zero/activity-log"
 import { Zero0DomMenu, type Zero0DomMenuState } from "./zero0-dom-menu"
 import { Zero0ColorField } from "./zero0-color-picker"
 import { buildEntityMenuItems, applyEntityMenuAction, type MenuItem } from "@/lib/zero/menu-model"
@@ -69,6 +69,7 @@ import {
   deleteSession,
   sweepStaleScalars,
   getActorFeed,
+  ALIVE_GRACE_MS,
 } from "@/lib/zero/data"
   import { KIND_META, getState, isClosed, hasOpenSession, getOpenSession, getSessions, isMarkable, isPlayable, getInstantMaxNb, canAutoPlay, entityHiddenState } from "@/lib/zero/kinds"
   import { isDone, describeLogEntry, describeActorLogEntry } from "@/lib/zero/entity-log"
