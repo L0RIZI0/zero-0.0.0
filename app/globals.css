@@ -186,6 +186,26 @@
   }
 }
 
+@layer base {
+  /* APP-WIDE: hide every scrollbar (v0.2.296, Loris ask). A visible scrollbar claims gutter width the
+     instant content overflows, which shoves the whole layout sideways when it appears/disappears — the
+     "everything jumps" Loris disliked. A HIDDEN scrollbar reserves ZERO layout width, so nothing shifts,
+     while wheel / trackpad / drag scrolling all keep working. Applied to every element (incl. html/body)
+     so it covers the entity panel, the do-list, the chat rail, etc. `.no-scrollbar` (below) stays as an
+     explicit opt-in for the horizontal strips, but is now effectively the default. */
+  * {
+    scrollbar-width: none; /* Firefox */
+    -ms-overflow-style: none; /* legacy Edge/IE */
+  }
+  *::-webkit-scrollbar {
+    /* Chromium/Electron + WebKit — width:0 is belt-and-suspenders alongside display:none so no gutter
+       is ever reserved even if a UA re-enables the track. */
+    width: 0;
+    height: 0;
+    display: none;
+  }
+}
+
 @layer utilities {
   /* Hide scrollbars on horizontal strips while preserving scroll. */
   .no-scrollbar {
