@@ -3317,27 +3317,39 @@ export function hydrateFromStorage(): boolean {
   const aliveAt = getLastKnownAlive()
   const nowAt = Date.now()
   const aliveRecently = aliveAt != null && nowAt - aliveAt <= ALIVE_GRACE_MS
-  for (const entity of entities) {
-    const sessions = entity.schedule?.sessions
-    if (!sessions || sessions.length === 0) continue
-    if (aliveRecently) continue // continuous across the reload — keep every session running
-    // v0.6.32: reconcile EVERY dangling focus session, not just the last entry — a `focus` and a
-    // `play` can now be open concurrently, so the open focus may sit BEFORE an open play. Leave all
-    // `play` stopwatches running; close each open focus at last-known-alive (dropping sub-floor spans).
-    let changed = false
-    const next: Session[] = []
-    for (const e of sessions) {
-      if (e.endedAt != null || e.via === "play") {
-        next.push(e) // already closed, or a play stopwatch → leave running
-        continue
-      }
-      changed = true
-      const closeAt = Math.max(aliveAt ?? lastLogAt(entity) ?? e.startedAt, e.startedAt)
-      if (closeAt - e.startedAt <= MIN_SESSION_MS) continue // too short → drop
-      next.push({ ...e, endedAt: closeAt })
+  // AWAY RECONCILIATION (v0.2.302 — LOG-WRITE, upgraded from the old in-memory cap). On a genuine
+  // gap (the user was away — e.g. a week's vacation — and the app never wrote its exit), append ONE
+  // truthful `exited` instant at LAST-KNOWN-ALIVE to every entity holding a dangling ACCESS-DRIVEN
+  // span (an open `focus` OR an open AUTO play, i.e. ongoing-on-enter). The fold's `exited` case then
+  // closes BOTH the focus AND the auto ongoing at that moment, while a MANUAL/remote play (a
+  // deliberate stopwatch, `via:"play"` without `auto`) SURVIVES untouched.
+  //   • Why log-write, not the old cache patch: `getSessions` reads the cached `sessions[]`, but ANY
+  //     later re-fold (e.g. the resume click → openSession → recomputeSessionsFromLog) re-derives from
+  //     the raw log and would REOPEN a cache-only cap (the auto span has no `exited` in the log). By
+  //     writing the `exited` we make the closure DURABLE and TRUTHFUL, so (a) the glyph reads stopped,
+  //     (b) the dayline tick ENDS at last-known-alive (Loris' explicit ask), and (c) a resume opens a
+  //     FRESH span from the click time instead of resurrecting a week-long stale one.
+  //   • This also makes ACCESS spans accurate: the v0.2.301 mid-log guard closes a stale focus at the
+  //     NEXT access (overstating it by the gap); this closes it at last-known-alive (the real end).
+  // alive-RECENTLY (now − alive ≤ ALIVE_GRACE_MS) ⇒ a mere reload while present ⇒ leave everything
+  // open (continuous). No alive evidence at all ⇒ fall back to lastLogAt, and the fold drops any span
+  // that collapses below MIN_SESSION_MS — we never fabricate an end beyond what we can prove.
+  if (!aliveRecently) {
+    for (const entity of entities) {
+      const sessions = entity.schedule?.sessions
+      if (!sessions || sessions.length === 0) continue
+      const openAccessStarts = sessions
+        .filter((e) => e.endedAt == null && (e.via === "focus" || (e.via === "play" && e.auto)))
+        .map((e) => e.startedAt)
+      if (openAccessStarts.length === 0) continue // nothing access-driven dangling (manual play stays)
+      // Bound the close at ≥ the LATEST open start so no span goes negative; the fold discards any
+      // sub-MIN_SESSION_MS remainder. `exited` closes focus + auto ongoing; manual play is left alone.
+      const latestOpenStart = Math.max(...openAccessStarts)
+      const closeAt = Math.max(aliveAt ?? lastLogAt(entity) ?? latestOpenStart, latestOpenStart)
+      entity.log = appendInstant(ensureEntityLog(entity), makeInstant("exited", closeAt))
+      recomputeSessionsFromLog(entity.id, entity)
+      // In-memory only (like the id/tagged migrations); persists on the next mutation.
     }
-    if (changed) entity.schedule = { ...entity.schedule, sessions: next }
-    // In-memory only (like the id/tagged migrations); persists on the next mutation.
   }
 
   // Close any DANGLING session on an entity that is ALREADY CLOSED (cancelled / completed

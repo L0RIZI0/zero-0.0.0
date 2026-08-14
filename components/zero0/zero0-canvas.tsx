@@ -7,7 +7,7 @@ import { Zero0UpdateIndicator } from "./zero0-update-indicator"
 import { Zero0WindowControls } from "./zero0-window-controls"
 import { Zero0Agenda, Zero0Activity } from "./zero0-activity"
 import type { DaylineOccRef } from "./zero0-dayline"
-import { recordAccess, wasAwayOnLoad, getLastKnownAlive } from "@/lib/zero/activity-log"
+import { recordAccess, wasAwayOnLoad } from "@/lib/zero/activity-log"
 import { Zero0DomMenu, type Zero0DomMenuState } from "./zero0-dom-menu"
 import { Zero0ColorField } from "./zero0-color-picker"
 import { buildEntityMenuItems, applyEntityMenuAction, type MenuItem } from "@/lib/zero/menu-model"
@@ -69,7 +69,6 @@ import {
   deleteSession,
   sweepStaleScalars,
   getActorFeed,
-  ALIVE_GRACE_MS,
 } from "@/lib/zero/data"
   import { KIND_META, getState, isClosed, hasOpenSession, getOpenSession, getSessions, isMarkable, isPlayable, getInstantMaxNb, canAutoPlay, entityHiddenState } from "@/lib/zero/kinds"
   import { isDone, describeLogEntry, describeActorLogEntry } from "@/lib/zero/entity-log"
@@ -635,11 +634,66 @@ export function Zero0Canvas() {
   // (Space Play'd from afar) is NOT in this ref → it survives navigation.
   const playOpenRef = useRef<Set<string>>(new Set())
   const dwellRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // AWAY-ARMED (v0.2.302): true when the app LOADED after a real absence (no proof of life within
+  // ALIVE_GRACE_MS — see activity-log `wasAwayOnLoad`). While armed we SKIP the auto punch-in below,
+  // so the hydrate-cleanup's capped-at-last-alive state survives and the leaf reads stopped/idle.
+  // Cleared by `resumeFromAway` on the first click inside ENTITY CONTENT. Lazily initialized once on
+  // the first mounted run (SSR-safe: `wasAwayOnLoad` no-ops without `window`).
+  const awayArmedRef = useRef<boolean | null>(null)
+
+  // PUNCH IN the whole current path — open/re-register a FOCUS (access) span on every path entity and
+  // adopt any AUTO play span for punch-out. Extracted so BOTH the normal dwell tick AND the away-resume
+  // click use the exact same logic. Returns true if it opened anything new (caller decides to bump).
+  const punchInPath = useCallback(() => {
+    let opened = false
+    for (const id of path) {
+      const e = getEntity(id)
+      if (!e) continue
+      // ── ACCESS rail (focus): EVERY kind accrues access — INCLUDING root (your overall Zero
+      // session) and done/closed entities (v0.6.31: access is lifecycle-independent; getState
+      // ranks complete/done/closed ABOVE session-ongoing so this never resurrects a finished
+      // thing). We ensure exactly one open FOCUS; re-register an already-open one for punch-out
+      // (reload continuity). Focus alone never spins the glyph (ongoing = play-only, v0.6.32).
+      if (hasOpenSession(e, "focus")) {
+        focusOpenRef.current.add(id) // re-register for punch-out
+      } else if (openSession(id, "focus")) {
+        focusOpenRef.current.add(id)
+        opened = true
+      }
+      // ── PLAYED rail (play): {task, resource, space} are ONGOING-ON-ENTER while not done/closed.
+      // The auto played span is DERIVED — opening `focus` above (⇒ `accessed`) already made it open
+      // via the fold, so a freshly-entered entity is already play-open; we just register the AUTO
+      // span for punch-out on leave. v0.2.257: the old "leaf-transitive resume" (re-opening a
+      // paused-as-leaf ancestor when drilling deeper) is GONE — with pause/resume retired, an auto
+      // span simply stays open the whole time its entity is in the path and closes on `exited`.
+      if (canAutoPlay(e)) {
+        const openPlay = getOpenSession(e, "play")
+        // Only AUTO plays are access-managed (punched out on leave). A REMOTE play you drilled
+        // into is a deliberate stopwatch that SURVIVES navigation — never adopt it into the
+        // punch-out set, or leaving would silently Stop it.
+        if (openPlay?.auto) playOpenRef.current.add(id)
+      }
+    }
+    return opened
+  }, [path])
+
+  // RESUME after an away-gap: the user clicked back into ENTITY CONTENT. Disarm and punch the whole
+  // path in NOW, so leaf + ancestors go ongoing together (matches the subtree model). No-op if not
+  // armed, so a normal click inside content costs nothing.
+  const resumeFromAway = useCallback(() => {
+    if (!awayArmedRef.current) return
+    awayArmedRef.current = false
+    if (punchInPath()) bump()
+  }, [punchInPath, bump])
+
   useEffect(() => {
     if (!mounted) return
+    // Freeze the away verdict once, on the first mounted run (before the heartbeat stamps fresh life).
+    if (awayArmedRef.current === null) awayArmedRef.current = wasAwayOnLoad()
     const pathSet = new Set(path)
     let changed = false
-    // Punch OUT the entities we auto-opened but have now left — BOTH rails independently.
+    // Punch OUT the entities we auto-opened but have now left — BOTH rails independently. This runs
+    // even while away-armed (nothing to punch out then, but harmless + keeps refs consistent).
     for (const id of Array.from(focusOpenRef.current)) {
       if (!pathSet.has(id)) {
         if (closeSession(id, "focus")) changed = true
@@ -655,41 +709,16 @@ export function Zero0Canvas() {
     if (changed) bump()
     if (dwellRef.current) clearTimeout(dwellRef.current)
     dwellRef.current = setTimeout(() => {
-      let opened = false
-      for (const id of path) {
-        const e = getEntity(id)
-        if (!e) continue
-        // ── ACCESS rail (focus): EVERY kind accrues access — INCLUDING root (your overall Zero
-        // session) and done/closed entities (v0.6.31: access is lifecycle-independent; getState
-        // ranks complete/done/closed ABOVE session-ongoing so this never resurrects a finished
-        // thing). We ensure exactly one open FOCUS; re-register an already-open one for punch-out
-        // (reload continuity). Focus alone never spins the glyph (ongoing = play-only, v0.6.32).
-        if (hasOpenSession(e, "focus")) {
-          focusOpenRef.current.add(id) // re-register for punch-out
-        } else if (openSession(id, "focus")) {
-          focusOpenRef.current.add(id)
-          opened = true
-        }
-        // ── PLAYED rail (play): {task, resource, space} are ONGOING-ON-ENTER while not done/closed.
-        // The auto played span is DERIVED — opening `focus` above (⇒ `accessed`) already made it open
-        // via the fold, so a freshly-entered entity is already play-open; we just register the AUTO
-        // span for punch-out on leave. v0.2.257: the old "leaf-transitive resume" (re-opening a
-        // paused-as-leaf ancestor when drilling deeper) is GONE — with pause/resume retired, an auto
-        // span simply stays open the whole time its entity is in the path and closes on `exited`.
-        if (canAutoPlay(e)) {
-          const openPlay = getOpenSession(e, "play")
-          // Only AUTO plays are access-managed (punched out on leave). A REMOTE play you drilled
-          // into is a deliberate stopwatch that SURVIVES navigation — never adopt it into the
-          // punch-out set, or leaving would silently Stop it.
-          if (openPlay?.auto) playOpenRef.current.add(id)
-        }
-      }
-      if (opened) bump()
+      // AWAY GATE (v0.2.302): loaded after a real absence ⇒ do NOT auto-resume ongoing. Leave the
+      // path stopped (capped at last-alive by the hydrate cleanup) until the user clicks inside
+      // ENTITY CONTENT (resumeFromAway). Every other load path punches in as before.
+      if (awayArmedRef.current) return
+      if (punchInPath()) bump()
     }, DWELL_MS)
     return () => {
       if (dwellRef.current) clearTimeout(dwellRef.current)
     }
-  }, [mounted, path, bump])
+  }, [mounted, path, bump, punchInPath])
 
   // MOMENT/SPACE Play/Stop (v0.6.26 — Play ALWAYS opens a SESSION, moments included). A deliberate
   // glyph/menu Play is a MANUAL PLAY: a `via:"play"` session on the BOTTOM (recorded) rail. It NEVER
@@ -1792,7 +1821,7 @@ export function Zero0Canvas() {
       //   • timeblocks → setEntityTimeblocks (a multi-span day; optional repeat makes the day recurring)
       //   • duration   → setEntityDuration (an unanchored length in minutes; no start/end)
       //   • session    → addManualSession (a recorded/ongoing session, bottom rail; end omitted = ongoing)
-  //   • due        → setEntityScheduleField("dueDate")
+  //   �� due        → setEntityScheduleField("dueDate")
   const applyPlan = useCallback(
     (target: Entity, result: PlanResult) => {
       if (result.kind === "occurrence") addOccurrence(target.id, result.start, result.end)
@@ -2476,7 +2505,14 @@ export function Zero0Canvas() {
           switch. If the current leaf is a web resource, its native surface renders on top of
           the (all-hidden) DOM panes. `relative flex-col` so the one visible pane fills via
           `flex-1` while hidden ones (display:none) drop out of layout. */}
-      <div className="relative flex min-h-0 flex-1 flex-col overflow-y-auto">
+      <div
+        className="relative flex min-h-0 flex-1 flex-col overflow-y-auto"
+        // AWAY-RESUME (v0.2.302): a pointer-down anywhere in ENTITY CONTENT re-arms ongoing after a
+        // long absence. Capture phase so it fires before the click's own handler (row open, etc.);
+        // a no-op unless `awayArmed`, so normal clicks are unaffected. This is the ONE gesture that
+        // brings the leaf + ancestor path back to ongoing — mere window focus does not.
+        onPointerDownCapture={resumeFromAway}
+      >
         {/* v0.2.266: `overflow-y-auto` makes the web content area SCROLL like a non-web pane. With
             the web §0 shown, §0 sits at natural height on top and the web surface (h-full below)
             starts below the fold — you scroll §0 up to pull the web rect into view, exactly like
