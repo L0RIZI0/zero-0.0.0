@@ -109,6 +109,14 @@ contextBridge.exposeInMainWorld("zero", {
   /** Open a URL in the user's real external browser (graceful fallback). */
   openExternal: (url) => ipcRenderer.send("zero:open-external", url),
 
+  /** Device-level presence signals. */
+  system: {
+    /** Seconds since the last OS-WIDE user input (across all apps), via powerMonitor. The renderer's
+     *  liveness heartbeat uses this so ongoing sessions survive while the device is in use even when
+     *  Zero is unfocused, and end only after the whole device is idle. Resolves null if unreadable. */
+    getIdleSeconds: () => ipcRenderer.invoke("zero:system-idle"),
+  },
+
   /** Append a diagnostic line to the desktop debug log file (see zero:debug-log in main). A packaged
    *  build has no visible console, so this is how the renderer records state we can read back. The
    *  file lives at `debugLogPath` (%LOCALAPPDATA%\Zero\zero-debug.log). Best-effort; no-op on web. */

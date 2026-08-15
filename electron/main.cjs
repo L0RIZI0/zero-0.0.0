@@ -489,6 +489,21 @@ ipcMain.on("zero:app-version", (event) => {
   event.returnValue = app.getVersion()
 })
 
+// ── DEVICE-LEVEL IDLE (v0.2.303) ─────────────────────────────────────────────
+// Seconds since the last OS-wide user input (mouse/keyboard/touch), ACROSS ALL APPS —
+// Windows GetLastInputInfo / the platform equivalent, via Electron's powerMonitor. The
+// renderer's liveness heartbeat polls this so auto-ongoing sessions stay alive while the
+// DEVICE is in use even when Zero isn't the focused window (the user is working in another
+// app on the same machine), and end only after the whole device goes idle or sleeps. Async
+// handle (invoke) so it never blocks the renderer; returns null if it can't be read.
+ipcMain.handle("zero:system-idle", () => {
+  try {
+    return powerMonitor.getSystemIdleTime()
+  } catch {
+    return null
+  }
+})
+
 // ── RENDERER → FILE debug log ────────────────────────────────────────────────
 // A packaged desktop build has no visible console, so the renderer can't just
 // console.log for us to read. This appends renderer diagnostics to a plain-text

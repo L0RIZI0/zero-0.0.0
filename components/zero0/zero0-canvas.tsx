@@ -7,7 +7,7 @@ import { Zero0UpdateIndicator } from "./zero0-update-indicator"
 import { Zero0WindowControls } from "./zero0-window-controls"
 import { Zero0Agenda, Zero0Activity } from "./zero0-activity"
 import type { DaylineOccRef } from "./zero0-dayline"
-import { recordAccess, wasAwayOnLoad } from "@/lib/zero/activity-log"
+import { recordAccess, wasAwayOnLoad, getLastKnownAlive, markAliveNow } from "@/lib/zero/activity-log"
 import { Zero0DomMenu, type Zero0DomMenuState } from "./zero0-dom-menu"
 import { Zero0ColorField } from "./zero0-color-picker"
 import { buildEntityMenuItems, applyEntityMenuAction, type MenuItem } from "@/lib/zero/menu-model"
@@ -69,6 +69,7 @@ import {
   deleteSession,
   sweepStaleScalars,
   getActorFeed,
+  ALIVE_GRACE_MS,
 } from "@/lib/zero/data"
   import { KIND_META, getState, isClosed, hasOpenSession, getOpenSession, getSessions, isMarkable, isPlayable, getInstantMaxNb, canAutoPlay, entityHiddenState } from "@/lib/zero/kinds"
   import { isDone, describeLogEntry, describeActorLogEntry } from "@/lib/zero/entity-log"
@@ -683,6 +684,9 @@ export function Zero0Canvas() {
   const resumeFromAway = useCallback(() => {
     if (!awayArmedRef.current) return
     awayArmedRef.current = false
+    // Reset last-known-alive on the SAME gesture, so the runtime watchdog (below) doesn't see the
+    // still-stale heartbeat and immediately re-cap the session we're resuming (v0.2.303).
+    markAliveNow()
     if (punchInPath()) bump()
   }, [punchInPath, bump])
 
@@ -719,6 +723,40 @@ export function Zero0Canvas() {
       if (dwellRef.current) clearTimeout(dwellRef.current)
     }
   }, [mounted, path, bump, punchInPath])
+
+  // RUNTIME AWAY WATCHDOG (v0.2.303) — the missing piece for the WINDOW-STAYED-OPEN case. The load-time
+  // gate above only fires on (re)hydrate; if Zero is left open while the DEVICE goes idle / sleeps, no
+  // reload happens, so nothing capped the ongoing and it kept spinning. This interval polls the liveness
+  // signal (device-level: last OS-wide input via the heartbeat's powerMonitor feed) and, once there's
+  // been no proof of life for ALIVE_GRACE_MS, caps the current path's access-driven spans at
+  // last-known-alive and arms the away state — exactly what the load-time path does, but live.
+  //   • closeSession(id,"focus",aliveAt) writes an `exited` at the real last-alive moment; the fold
+  //     closes focus + the auto ongoing there (so the dayline tick ENDS at last-alive), while a MANUAL
+  //     play stopwatch survives. Durable + truthful, same as the hydrate reconciliation.
+  //   • Arms `awayArmedRef` so the leaf reads stopped and won't auto-repunch; a click inside ENTITY
+  //     CONTENT (resumeFromAway) disarms + resumes the whole path.
+  //   • Device-level: because the heartbeat follows OS-wide input, working in ANOTHER app on the same
+  //     machine keeps `aliveAt` fresh and does NOT trip this — only a genuinely idle/asleep device does.
+  useEffect(() => {
+    if (!mounted) return
+    const WATCHDOG_MS = 20_000
+    const iv = setInterval(() => {
+      if (awayArmedRef.current) return // already capped for this absence
+      const aliveAt = getLastKnownAlive()
+      if (aliveAt == null) return // no evidence yet — don't cap blindly
+      if (Date.now() - aliveAt <= ALIVE_GRACE_MS) return // device used recently — still live
+      // Device has been idle past the grace window → cap the ongoing at the real last-alive moment.
+      awayArmedRef.current = true
+      let changed = false
+      for (const id of path) {
+        if (closeSession(id, "focus", aliveAt)) changed = true // `exited` closes focus + auto ongoing
+        focusOpenRef.current.delete(id)
+        playOpenRef.current.delete(id)
+      }
+      if (changed) bump()
+    }, WATCHDOG_MS)
+    return () => clearInterval(iv)
+  }, [mounted, path, bump])
 
   // MOMENT/SPACE Play/Stop (v0.6.26 — Play ALWAYS opens a SESSION, moments included). A deliberate
   // glyph/menu Play is a MANUAL PLAY: a `via:"play"` session on the BOTTOM (recorded) rail. It NEVER

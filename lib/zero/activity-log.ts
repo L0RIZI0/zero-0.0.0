@@ -44,23 +44,28 @@ const STORAGE_KEY = "zero:root-activity:v1"
 // segments are dropped first; a day rarely exceeds a few hundred switches.
 const MAX_SEGMENTS = 5000
 
-// ── LIVENESS HEARTBEAT (v0.2.302) ──────────────────────────────────────────
-// A dedicated single-timestamp key that records the last moment we had POSITIVE
-// evidence the user was present and active. Separate from the segment log so it
-// can't perturb the where-I-was timeline. Written by an INPUT-GATED heartbeat
-// (see installHeartbeat): every HEARTBEAT_MS, IF the tab is visible AND there was
-// real user input since the previous tick, we stamp `now`. Idle-but-visible does
-// NOT stamp (no input ⇒ the user stepped away from the keyboard), and OS sleep
-// pauses the timer entirely — so a stale heartbeat cleanly means "away".
+// ── LIVENESS HEARTBEAT (v0.2.302, DEVICE-LEVEL v0.2.303) ────────────────────
+// A dedicated single-timestamp key recording the last moment we had POSITIVE evidence
+// the user was present at the DEVICE. Separate from the segment log so it can't perturb
+// the where-I-was timeline. Two feeds, both take the MAX (getLastKnownAlive folds them):
+//   1. DEVICE IDLE POLL (desktop): every HEARTBEAT_MS the heartbeat asks Electron for the
+//      OS-wide idle time (`window.zero.system.getIdleSeconds` → powerMonitor). If the
+//      device was used within AWAY_THRESHOLD_MS we stamp the REAL last-input moment
+//      (now − idle). This is the key fix (v0.2.303): presence follows the DEVICE, not
+//      Zero's focus — working in another app on the same machine keeps sessions alive.
+//   2. ZERO INPUT (all builds): a throttled stamp on real input INTO Zero, so the web
+//      build (no powerMonitor) still has a heartbeat, and desktop stays fresh between polls.
+// OS sleep freezes both the poll and input, so after wake the idle time reads large and we
+// don't stamp — a stale heartbeat cleanly means "device was away / asleep".
 const ALIVE_KEY = "zero:root-alive:v1"
-// How often the heartbeat ticks. Short enough that last-known-alive is accurate
-// to ~20s (the resolution at which a capped ongoing span ends), long enough to be
-// negligible. NOT a spin-the-CPU timer — it only reads a flag and maybe writes one key.
+// How often the device-idle poll ticks. Short enough that last-known-alive stays accurate to
+// ~HEARTBEAT_MS, long enough to be negligible (one cheap IPC + maybe one localStorage write).
 const HEARTBEAT_MS = 20_000
-// How long without a fresh heartbeat counts as "away" — mirrors data.ts ALIVE_GRACE_MS
-// (60s reload grace) so a quick close/reopen or reload stays LIVE and only a genuine
-// absence arms the away behaviour. Re-declared here (not imported) to keep this module
-// free of an entity-store dependency.
+// Min gap between input-driven stamps, so pointermove doesn't hammer localStorage.
+const INPUT_STAMP_THROTTLE_MS = 5_000
+// How long without ANY proof of life counts as "away" — mirrors data.ts ALIVE_GRACE_MS (60s)
+// so a quick close/reopen or reload stays LIVE and only a genuine absence arms the away
+// behaviour. Re-declared here (not imported) to keep this module free of an entity-store dep.
 const AWAY_THRESHOLD_MS = 60_000
 
 let segments: AccessSegment[] = []
@@ -68,9 +73,8 @@ let currentEntityId: string | null = null
 let hydrated = false
 let visibilityInstalled = false
 let heartbeatInstalled = false
-// Last time we saw real user input (pointer/key/wheel/touch). The heartbeat only
-// stamps when this advanced since its previous tick, so presence requires ACTIVITY.
-let lastInputAt = 0
+// Last time the input feed actually WROTE the alive key (throttle bookkeeping).
+let lastInputStampAt = 0
 // FROZEN at first hydrate, BEFORE the heartbeat starts stamping fresh values:
 // were we away (no heartbeat within AWAY_THRESHOLD_MS) at the moment the app loaded?
 // The canvas reads this to decide whether to suppress the auto-resume of ongoing.
@@ -144,30 +148,46 @@ function stampAlive(now: number): void {
   }
 }
 
+// Advance the alive key, monotonically (never move it backwards).
+function stampAliveMax(at: number): void {
+  const prev = readAlive()
+  if (prev == null || at > prev) stampAlive(at)
+}
+
 function installHeartbeat(): void {
   if (heartbeatInstalled || typeof window === "undefined") return
   heartbeatInstalled = true
 
+  // FEED 2 — input INTO Zero: throttled stamp on any real user event. Keeps the
+  // heartbeat fresh while Zero is focused (and is the ONLY feed on web, where there's
+  // no powerMonitor). Throttled so pointermove can't hammer localStorage.
   const markInput = () => {
-    lastInputAt = Date.now()
+    const now = Date.now()
+    if (now - lastInputStampAt >= INPUT_STAMP_THROTTLE_MS) {
+      lastInputStampAt = now
+      stampAliveMax(now)
+    }
   }
-  // Passive listeners: any of these is EVIDENCE the human is here and active. We
-  // never act on the event itself, only remember WHEN it last happened.
   for (const ev of ["pointerdown", "pointermove", "keydown", "wheel", "touchstart"] as const) {
     window.addEventListener(ev, markInput, { passive: true })
   }
 
-  let lastTick = Date.now()
+  // FEED 1 — DEVICE idle poll (desktop only): stamp the real last-input moment whenever
+  // the whole device was used within the away threshold, regardless of Zero's focus.
+  const getIdleSeconds = window.zero?.system?.getIdleSeconds
+  if (!getIdleSeconds) return // web build: input feed above is the only heartbeat
   window.setInterval(() => {
     const now = Date.now()
-    // Stamp alive ONLY when the tab is visible AND there was real input since the
-    // previous tick. Visible-but-idle (no input) deliberately does NOT stamp, so
-    // walking away from a foregrounded window still reads as "away" after the
-    // threshold. OS sleep pauses this interval, so no stamp happens while asleep.
-    if (document.visibilityState === "visible" && lastInputAt > lastTick) {
-      stampAlive(now)
-    }
-    lastTick = now
+    getIdleSeconds()
+      .then((idleSec) => {
+        if (typeof idleSec !== "number") return
+        const idleMs = idleSec * 1000
+        // Device used within the threshold ⇒ stamp the ACTUAL last-input instant
+        // (now − idle), so last-known-alive is precise even between polls. Beyond the
+        // threshold we don't advance — the device is away and the cap will land here.
+        if (idleMs < AWAY_THRESHOLD_MS) stampAliveMax(now - idleMs)
+      })
+      .catch(() => {})
   }, HEARTBEAT_MS)
 }
 
@@ -347,6 +367,16 @@ function lastKnownAliveRaw(): number | null {
 export function wasAwayOnLoad(): boolean {
   hydrate()
   return awayOnLoad
+}
+
+/**
+ * Stamp alive = NOW immediately (v0.2.303). Called by the canvas the instant the user clicks
+ * back into ENTITY CONTENT to resume after an away-gap, so last-known-alive resets on the SAME
+ * gesture that disarms the away state — otherwise the still-stale heartbeat would make the
+ * runtime watchdog immediately re-cap the freshly-resumed session before the next idle poll runs.
+ */
+export function markAliveNow(): void {
+  stampAliveMax(Date.now())
 }
 
 export interface SpaceRollup {

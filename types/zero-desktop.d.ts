@@ -54,6 +54,11 @@ export interface ZeroDesktopBridge {
     onSelected: (cb: (actionId: string) => void) => () => void
   }
   openExternal: (url: string) => void
+  /** Device-level presence signals (see preload). */
+  system: {
+    /** Seconds since the last OS-wide user input across all apps (powerMonitor). Null if unreadable. */
+    getIdleSeconds: () => Promise<number | null>
+  }
   /** Append a diagnostic line to the desktop debug log file (%LOCALAPPDATA%\Zero\zero-debug.log) so it
    *  can be read back from a packaged build with no console. Best-effort; absent on web. */
   debugLog: (line: string) => void
