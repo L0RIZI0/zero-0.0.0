@@ -76,13 +76,20 @@ const MIN_MS = 60_000
 // span to (1 minute) so an occurrence can't be dragged inside-out to zero/negative length.
 const MIN_OCC_MS = MIN_MS
 const roundToMinute = (t: number) => Math.round(t / MIN_MS) * MIN_MS
-// VIEW_SPAN_MS — the WIDTH of the VISIBLE window (how much time the band shows at once).
+// VIEW_SPAN_MS — the DEFAULT width of the VISIBLE window (how much time the band shows at once).
 // This is DECOUPLED from DAY_MS (which stays the calendar-day length for the 5am day bucket
-// + midnight markers). Set it to DAY_MS for the normal full-day view; set it SMALLER to ZOOM
-// IN (e.g. 30 min) so short test sessions render wide enough to inspect. When it equals
-// DAY_MS the geometry is identical to the classic 24h dayline. (Restored to DAY_MS in v0.2.285
-// after an investigation zoom — the hourly edit-guides below assume the full-day window.)
+// + midnight markers). It is now the INITIAL value of the `viewSpan` STATE (v0.2.303): the user
+// pinch-zooms the band live between MIN_VIEW_SPAN_MS and MAX_VIEW_SPAN_MS, and the whole geometry
+// (bar positions/widths, day/hour markers, now marker, pan px↔ms scale) reads the live span. When
+// span === DAY_MS the geometry is identical to the classic 24h dayline (the resting default).
 const VIEW_SPAN_MS = DAY_MS
+// PINCH-ZOOM bounds (v0.2.303) — how far the trackpad pinch can zoom the band. IN to 30 minutes
+// (short sessions read wide), OUT to 7 days (a week at a glance). The default DAY_MS sits between.
+const MIN_VIEW_SPAN_MS = 30 * MIN_MS
+const MAX_VIEW_SPAN_MS = 7 * DAY_MS
+// How aggressively a pinch changes the span. The pinch arrives as ctrl+wheel `deltaY`; span scales
+// by exp(deltaY·k) so zoom is exponential (feels linear to the hand) and symmetric in/out.
+const ZOOM_SENSITIVITY = 0.01
 // The day "bucket" runs 5am→5am so a normal day (and its late-evening items)
 // land inside one window instead of being split at midnight.
 const DAY_START_HOUR = 5
@@ -324,19 +331,18 @@ const WHEEL_FRICTION_TAU = 0.19
 const WHEEL_STOP_V = 14
 const WHEEL_FLUSH_FRAC = 0.35
 const RIPPLE_REST = 0.4
-const RENDER_MARGIN_MS = VIEW_SPAN_MS * 1.5
-
-/** [start,end) of the VIEW_SPAN_MS window containing `now`, aligned to the 5am day grid.
- *  With VIEW_SPAN_MS === DAY_MS this is exactly the classic 5am→5am day window (idx always 0);
- *  when zoomed in it returns the VIEW_SPAN-sized sub-window of the current day that holds `now`. */
-function dayWindow(now: number): [number, number] {
+/** [start,end) of the `span`-wide window containing `now`, aligned to the 5am day grid.
+ *  With span === DAY_MS this is exactly the classic 5am→5am day window (idx always 0); when zoomed
+ *  in it returns the span-sized sub-window of the current day that holds `now`; when zoomed OUT past
+ *  a day the window simply starts at the current day's 5am and runs `span` forward. */
+function dayWindow(now: number, span: number): [number, number] {
   const d = new Date(now)
   d.setHours(DAY_START_HOUR, 0, 0, 0)
   let dayStart = d.getTime()
   if (now < dayStart) dayStart -= DAY_MS // before 5am → the day opened at yesterday's 5am
-  const idx = Math.floor((now - dayStart) / VIEW_SPAN_MS)
-  const start = dayStart + idx * VIEW_SPAN_MS
-  return [start, start + VIEW_SPAN_MS]
+  const idx = Math.max(0, Math.floor((now - dayStart) / span))
+  const start = dayStart + idx * span
+  return [start, start + span]
 }
 
 // A bar on the lane. Two TRACKS share one geometry/hover model:
@@ -545,27 +551,40 @@ export function Zero0Dayline({
   const smoothNowRaw = useAnimationFrameNow(mounted, 33, () => !panActiveRef.current)
   // Fall back to the per-second `now` until the first rAF frame lands (and on the server).
   const smoothNow = smoothNowRaw || now
-  // `viewStart` is the left edge of the shown 24h window. Panning moves it directly;
+  // `viewStart` is the left edge of the shown window. Panning moves it directly;
   // the auto-shift advances it on a time boundary. Independent of `now`.
   const [viewStart, setViewStart] = useState(0)
+  // `viewSpan` is the WIDTH of the shown window in ms — the live PINCH-ZOOM level (v0.2.303).
+  // Defaults to VIEW_SPAN_MS (one day); the pinch handler drives it between the MIN/MAX bounds.
+  const [viewSpan, setViewSpan] = useState(VIEW_SPAN_MS)
+  // Refs mirror both so EVENT callbacks (pan/drag/zoom, which fire off-render) read the live values
+  // without stale closures or added dep-array churn; render + memos read the state directly.
+  const viewStartRef = useRef(0)
+  const viewSpanRef = useRef(VIEW_SPAN_MS)
+  useEffect(() => {
+    viewStartRef.current = viewStart
+  }, [viewStart])
+  useEffect(() => {
+    viewSpanRef.current = viewSpan
+  }, [viewSpan])
   const prevNowRef = useRef(0)
   useEffect(() => {
     const n = Date.now()
     setMounted(true)
-    setViewStart(dayWindow(n)[0])
+    setViewStart(dayWindow(n, viewSpanRef.current)[0])
     prevNowRef.current = n
   }, [])
 
   // AUTO-SHIFT — fires ONLY on a `now` transition (never on `viewStart`, so panning
   // can't trigger it). When time carries `now` past the window's right edge, jump to
-  // the natural 24h window containing `now`, landing the marker at the left edge.
+  // the natural window containing `now`, landing the marker at the left edge.
   useEffect(() => {
     if (!mounted) return
     const prev = prevNowRef.current
     prevNowRef.current = now
     setViewStart((vs) => {
-      const viewEnd = vs + VIEW_SPAN_MS
-      return prev < viewEnd && now >= viewEnd ? dayWindow(now)[0] : vs
+      const viewEnd = vs + viewSpanRef.current
+      return prev < viewEnd && now >= viewEnd ? dayWindow(now, viewSpanRef.current)[0] : vs
     })
   }, [now, mounted])
 
@@ -600,8 +619,10 @@ export function Zero0Dayline({
       if (guideOffTimerRef.current != null) clearTimeout(guideOffTimerRef.current)
     }
   }, [])
-  const lo = winStart - RENDER_MARGIN_MS
-  const hi = winStart + VIEW_SPAN_MS + RENDER_MARGIN_MS
+  // Off-screen render headroom scales with the zoom level so a pan always has bars queued either side.
+  const renderMargin = viewSpan * 1.5
+  const lo = winStart - renderMargin
+  const hi = winStart + viewSpan + renderMargin
 
   // PLANNED bars — SCHEDULED occurrences from the real entity graph (whole tree from
   // s_root), expanded across the window by the recurrence engine. Colored by the
@@ -662,10 +683,10 @@ export function Zero0Dayline({
       // ANCHOR = the KNOWN edge the tick pins to: the start when we have one, else the end (end-only).
       const anchor = st ?? en
       if (en < lo || anchor > hi) continue
-      const leftPct = ((anchor - winStart) / VIEW_SPAN_MS) * 100
+      const leftPct = ((anchor - winStart) / viewSpan) * 100
       // End-only ticks carry no width of their own — they're just the leftward fade tail ending at
       // the anchor; the render's `unknownStart` branch supplies the fade length.
-      const widthPct = st == null ? 0 : ((en - anchor) / VIEW_SPAN_MS) * 100
+      const widthPct = st == null ? 0 : ((en - anchor) / viewSpan) * 100
       // A sleep-titled DURATION moment paints a procedural night sky instead of a
       // flat accent bar (seeded per-occurrence so it's stable yet unique per night).
       const isSleepSpan = st != null && en > st && occ.kind === "moment" && isSleepTitle(occ.title)
@@ -761,8 +782,8 @@ export function Zero0Dayline({
         // hair ahead of the now marker, so the tick sits AT the marker, not a few px to its right.
         const st = Math.max(Math.min(rawStart, rawEnd), lo)
         const en = Math.min(rawEnd, hi)
-        const leftPct = ((st - winStart) / VIEW_SPAN_MS) * 100
-        const widthPct = Math.max(0, ((en - st) / VIEW_SPAN_MS) * 100)
+        const leftPct = ((st - winStart) / viewSpan) * 100
+        const widthPct = Math.max(0, ((en - st) / viewSpan) * 100)
         const kindLabel = "play"
         const merged = run.count > 1 ? ` · ${run.count} sessions` : ""
         out.push({
@@ -898,8 +919,8 @@ export function Zero0Dayline({
       // Keep an OPEN live segment even at ~0 width (renders as the min-width tick) so a
       // just-switched leaf shows instantly; only drop CLOSED zero-width slivers.
       if (en < st || (en === st && !seg.open)) continue
-      const leftPct = ((st - winStart) / VIEW_SPAN_MS) * 100
-      const widthPct = Math.max(0, ((en - st) / VIEW_SPAN_MS) * 100)
+      const leftPct = ((st - winStart) / viewSpan) * 100
+      const widthPct = Math.max(0, ((en - st) / viewSpan) * 100)
       const entity = getEntity(seg.id)
       const { fill, stroke } = paintFor(seg.id)
       // v0.6.22: the middle spine does NOT trail the unknown-end fade (`unknownEnd:false`) — it's
@@ -954,8 +975,8 @@ export function Zero0Dayline({
       const next = segs[i + 1]
       const roundLeft = !prev || prev.leftAt == null || prev.leftAt !== s.enteredAt
       const roundRight = s.leftAt == null || !next || next.enteredAt !== s.leftAt
-      const leftPct = ((st - winStart) / VIEW_SPAN_MS) * 100
-      const widthPct = ((en - st) / VIEW_SPAN_MS) * 100
+      const leftPct = ((st - winStart) / viewSpan) * 100
+      const widthPct = ((en - st) / viewSpan) * 100
       const entity = getEntity(s.entityId)
       // Same paint model as the planned bar: fill = the place's own color, stroke = its
       // parent's color (a hairline, only when the place sits inside a Space).
@@ -1147,7 +1168,7 @@ export function Zero0Dayline({
   // NOW marker position within the shown window; off-screen (outside 0–100) when panned.
   // Uses the SMOOTH rAF clock so the marker glides continuously instead of jumping each second
   // (v0.2.261). Open-tick right edges below read the same `smoothNow`, preserving marker-sync.
-  const nowPct = ((smoothNow - winStart) / VIEW_SPAN_MS) * 100
+  const nowPct = ((smoothNow - winStart) / viewSpan) * 100
   const nowInView = nowPct >= 0 && nowPct <= 100
 
   // ==========================================================================
@@ -1169,6 +1190,13 @@ export function Zero0Dayline({
   const wheelTsRef = useRef(0)
   const wheelCommitRef = useRef(0)
   const pendingFlushRef = useRef(0)
+  // PINCH-ZOOM (v0.2.303) — a trackpad pinch arrives as ctrl+wheel; these coalesce the high-frequency
+  // deltas into ONE state commit per animation frame (like the pan flush), so re-derivation of the
+  // window's bars runs at most once per frame instead of per event. `zoomFactorRef` accumulates the
+  // multiplicative span change; `zoomAnchorXRef` is the cursor X to keep time-under-cursor fixed.
+  const zoomFactorRef = useRef(1)
+  const zoomAnchorXRef = useRef(0)
+  const zoomRafRef = useRef<number | null>(null)
   // Base pan applied imperatively to both the access CONTENT (inside the fixed clip)
   // and the NOW marker + access tooltip (which live outside the clip for edge bleed).
   const contentPanRef = useRef<HTMLDivElement>(null)
@@ -1465,8 +1493,8 @@ export function Zero0Dayline({
     e.stopPropagation()
     const dx = e.clientX - d.startX
     if (Math.abs(dx) > 2) editDraggedRef.current = true
-    // px → ms via the same scale panning uses: VIEW_SPAN_MS across the lane's pixel width.
-    const deltaMs = (dx / d.laneW) * VIEW_SPAN_MS
+    // px → ms via the same scale panning uses: the live view span across the lane's pixel width.
+    const deltaMs = (dx / d.laneW) * viewSpanRef.current
     let start = d.origStart
     let end = d.origEnd
     if (d.kind === "move") {
@@ -1537,7 +1565,7 @@ export function Zero0Dayline({
       const inc = e.clientX - d.lastX
       d.lastX = e.clientX
       injectPan(inc)
-      setViewStart(d.startView - (dx / w) * VIEW_SPAN_MS)
+      setViewStart(d.startView - (dx / w) * viewSpanRef.current)
       resolveHoverAtCursor()
     },
     [pctToCol, injectPan, resolveHoverAtCursor],
@@ -1546,7 +1574,32 @@ export function Zero0Dayline({
     dragRef.current = null
     if (laneRef.current?.hasPointerCapture(e.pointerId)) laneRef.current.releasePointerCapture(e.pointerId)
   }, [])
-  const recenter = useCallback(() => setViewStart(dayWindow(Date.now())[0]), [])
+  const recenter = useCallback(() => setViewStart(dayWindow(Date.now(), viewSpanRef.current)[0]), [])
+
+  // Apply an accumulated pinch factor, keeping the time under the cursor anchored (v0.2.303). Reads
+  // live span/start from refs (off-render), clamps to the MIN/MAX bounds, and commits both the new
+  // span and the re-anchored start together. Called once per frame by the coalescing rAF below.
+  const applyZoom = useCallback(() => {
+    const lane = laneRef.current
+    const factor = zoomFactorRef.current
+    zoomFactorRef.current = 1
+    if (!lane || factor === 1) return
+    const rect = lane.getBoundingClientRect()
+    const w = rect.width || 1
+    const prevSpan = viewSpanRef.current
+    let nextSpan = Math.min(MAX_VIEW_SPAN_MS, Math.max(MIN_VIEW_SPAN_MS, prevSpan * factor))
+    // Gentle detent at the canonical 24h view so a pinch back out re-settles exactly on the day.
+    if (Math.abs(nextSpan - VIEW_SPAN_MS) / VIEW_SPAN_MS < 0.04) nextSpan = VIEW_SPAN_MS
+    if (nextSpan === prevSpan) return
+    // Fraction of the lane the cursor sits at → the time there must stay put across the zoom.
+    const frac = Math.min(1, Math.max(0, (zoomAnchorXRef.current - rect.left) / w))
+    const tCursor = viewStartRef.current + frac * prevSpan
+    const nextStart = tCursor - frac * nextSpan
+    viewSpanRef.current = nextSpan
+    viewStartRef.current = nextStart
+    setViewSpan(nextSpan)
+    setViewStart(nextStart)
+  }, [])
 
   const flushWheelPan = useCallback(() => {
     const lane = laneRef.current
@@ -1556,7 +1609,7 @@ export function Zero0Dayline({
     if (!commit) return
     const w = lane.clientWidth || 1
     pendingFlushRef.current = commit
-    setViewStart((vs) => vs + (commit / w) * VIEW_SPAN_MS)
+    setViewStart((vs) => vs + (commit / w) * viewSpanRef.current)
   }, [])
 
   const maybeFlushAtRest = useCallback(() => {
@@ -1593,6 +1646,26 @@ export function Zero0Dayline({
     }
 
     const onWheel = (e: WheelEvent) => {
+      // PINCH-ZOOM (v0.2.303) — a trackpad pinch is delivered as a wheel event with `ctrlKey` set
+      // (the browser/OS synthesizes it; a real Ctrl+scroll is the same gesture intent = zoom). Spread
+      // fingers ⇒ deltaY < 0 ⇒ factor < 1 ⇒ SMALLER span ⇒ zoom IN; pinch together ⇒ zoom OUT. We
+      // stop any pan momentum, accumulate the factor, and commit once per frame (cursor-anchored).
+      if (e.ctrlKey) {
+        e.preventDefault()
+        wheelVelRef.current = 0
+        zoomFactorRef.current *= Math.exp(e.deltaY * ZOOM_SENSITIVITY)
+        zoomAnchorXRef.current = e.clientX
+        lastPointerRef.current = { x: e.clientX, y: e.clientY }
+        pointerInsideRef.current = true
+        if (zoomRafRef.current == null) {
+          zoomRafRef.current = requestAnimationFrame(() => {
+            zoomRafRef.current = null
+            applyZoom()
+            resolveHoverAtCursor()
+          })
+        }
+        return
+      }
       let delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY
       if (delta === 0) return
       e.preventDefault()
@@ -1614,13 +1687,16 @@ export function Zero0Dayline({
     return () => {
       lane.removeEventListener("wheel", onWheel)
       if (wheelRafRef.current != null) cancelAnimationFrame(wheelRafRef.current)
+      if (zoomRafRef.current != null) cancelAnimationFrame(zoomRafRef.current)
+      zoomRafRef.current = null
+      zoomFactorRef.current = 1
       wheelRafRef.current = null
       wheelVelRef.current = 0
       wheelCommitRef.current = 0
       pendingFlushRef.current = 0
       wheelTsRef.current = 0
     }
-  }, [pctToCol, injectPan, flushWheelPan, maybeFlushAtRest, applyPan, resolveHoverAtCursor])
+  }, [pctToCol, injectPan, flushWheelPan, maybeFlushAtRest, applyPan, resolveHoverAtCursor, applyZoom])
 
   useLayoutEffect(() => {
     if (pendingFlushRef.current !== 0) {
@@ -1663,7 +1739,7 @@ export function Zero0Dayline({
     const firstMidnight = new Date(lo)
     firstMidnight.setHours(0, 0, 0, 0)
     for (let t = firstMidnight.getTime(); t <= hi; t += DAY_MS) {
-      out.push({ key: `day:${t}`, leftPct: ((t - winStart) / VIEW_SPAN_MS) * 100, label: shortDay(t) })
+      out.push({ key: `day:${t}`, leftPct: ((t - winStart) / viewSpan) * 100, label: shortDay(t) })
     }
     return out
   }, [mounted, isAccess, lo, hi, winStart, shortDay])
@@ -1678,7 +1754,7 @@ export function Zero0Dayline({
     const first = new Date(lo)
     first.setMinutes(0, 0, 0)
     for (let t = first.getTime(); t <= hi; t += HOUR_MS) {
-      out.push({ key: `hr:${t}`, leftPct: ((t - winStart) / VIEW_SPAN_MS) * 100 })
+      out.push({ key: `hr:${t}`, leftPct: ((t - winStart) / viewSpan) * 100 })
     }
     return out
   }, [mounted, isAccess, lo, hi, winStart])
@@ -2007,10 +2083,10 @@ export function Zero0Dayline({
                   // so only the plain left + width branches below consult these.
                   const dragging = editPreview?.key === p.key
                   const dispLeftPct = dragging
-                    ? ((editPreview!.start - winStart) / VIEW_SPAN_MS) * 100
+                    ? ((editPreview!.start - winStart) / viewSpan) * 100
                     : p.leftPct
                   const dispWidthPct = dragging
-                    ? ((editPreview!.end - editPreview!.start) / VIEW_SPAN_MS) * 100
+                    ? ((editPreview!.end - editPreview!.start) / viewSpan) * 100
                     : effWidthPct
                   // OPEN SPINE SEGMENT (v0.2.268): the live middle/access segment whose RIGHT edge is the
                   // growing now edge and whose LEFT edge (start) is FIXED. It must be LEFT-anchored (see
