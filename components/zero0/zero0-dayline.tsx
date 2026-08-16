@@ -1648,13 +1648,29 @@ export function Zero0Dayline({
     const t = `translateX(${b}px) scaleX(${a})`
     if (contentPanRef.current) contentPanRef.current.style.transform = t
     if (markerPanRef.current) markerPanRef.current.style.transform = t
+    // Day labels must use the SAME sticky-push clamp as paintDayLabels (v0.2.312 fix): the raw affine
+    // x sends the left-most past boundary's label negative, so a plain `x<-2 ⇒ hide` made "AUG 16"
+    // vanish during the glide and snap back to x=0 only at commit. Replicate the clamp here — each
+    // boundary's on-screen x is a·(leftPct/100·W)+b (the affine equivalent of paintDayLabels' formula),
+    // then sorted left→right and clamped to [0, nextBoundaryX − ownWidth] so the pinned label stays at
+    // the left edge throughout the glide instead of disappearing.
+    const inset = minimized ? LABEL_MARKER_GAP : 0
+    const labelItems: { el: HTMLElement; x: number; wdt: number }[] = []
     for (const el of dayLabelNodesRef.current.values()) {
       const leftPct = +(el.dataset.left ?? "") || 0
-      const x = a * ((leftPct / 100) * W) + b
-      el.style.transform = `translateX(${x}px)`
-      el.style.opacity = x < -2 || x > W + 2 ? "0" : "1"
+      labelItems.push({ el, x: a * ((leftPct / 100) * W) + b, wdt: el.offsetWidth })
     }
-  }, [])
+    labelItems.sort((p, q) => p.x - q.x)
+    for (let i = 0; i < labelItems.length; i++) {
+      const nat = labelItems[i].x
+      const gap = Math.max(2 * inset, LABEL_COLLIDE_GAP)
+      const upper = i < labelItems.length - 1 ? labelItems[i + 1].x - labelItems[i].wdt - gap : Infinity
+      const x = Math.min(Math.max(nat, 0), upper)
+      labelItems[i].el.style.transform = `translateX(${x + inset}px)`
+      const off = x + labelItems[i].wdt <= 0 || nat >= W
+      labelItems[i].el.style.opacity = off ? "0" : "1"
+    }
+  }, [minimized])
 
   // One eased frame (v0.2.305; TRANSFORM-GLIDE v0.2.308). Ease the span in LOG space toward the target,
   // re-anchor the cursor time, and — the key change — DON'T setState mid-glide. Instead remap the frozen
