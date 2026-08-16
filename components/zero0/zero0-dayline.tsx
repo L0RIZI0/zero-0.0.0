@@ -1248,8 +1248,16 @@ export function Zero0Dayline({
   const markerPanRef = useRef<HTMLDivElement>(null)
   const applyPan = useCallback((px: number) => {
     const t = px ? `translateX(${px}px)` : ""
-    if (contentPanRef.current) contentPanRef.current.style.transform = t
-    if (markerPanRef.current) markerPanRef.current.style.transform = t
+    // Reset --zoom-inv to 1 at rest (v0.2.312): a pan has no scaleX, so the thin 1px elements must not
+    // counter-scale. Only the zoom glide sets it to 1/a; every settle/pan path clears it back here.
+    if (contentPanRef.current) {
+      contentPanRef.current.style.transform = t
+      contentPanRef.current.style.setProperty("--zoom-inv", "1")
+    }
+    if (markerPanRef.current) {
+      markerPanRef.current.style.transform = t
+      markerPanRef.current.style.setProperty("--zoom-inv", "1")
+    }
   }, [])
   // CURSOR-GLUED TOOLTIP (v0.2.273) — the tick tooltip now FOLLOWS the pointer (anchored just
   // below-right of the cursor) instead of sitting at the tick's fixed midpoint. Perf-critical:
@@ -1631,6 +1639,22 @@ export function Zero0Dayline({
   // with the zoom transform is seamless. Also seed the live refs to this displayed base so the anchor
   // math in nudgeZoom is consistent from the first delta.
   const beginZoomGlide = useCallback(() => {
+    // STOP the ripple spring wave before the zoom owns the transform (v0.2.312). This is the real
+    // cause of the "smooth-then-snap-elsewhere" when zooming mid-pan: the ripple rAF (rafRef/tick) is
+    // SEPARATE from the momentum-pan rAF, and it keeps running through the glide — every frame it
+    // re-writes each ripple node's translateX (the decaying wobble) AND calls paintDayLabels(),
+    // fighting applyZoomTransform, and on settle it calls flushAtRest. Cancel the loop, zero the
+    // springs, clear the per-node wobble transforms, and release the smooth-clock pause so the glide
+    // is the sole owner of the pan geometry.
+    if (rafRef.current != null) {
+      cancelAnimationFrame(rafRef.current)
+      rafRef.current = null
+    }
+    offsetRef.current.fill(0)
+    velRef.current.fill(0)
+    panActiveRef.current = false
+    for (const el of rippleNodesRef.current.values()) if (el.style.transform) el.style.transform = ""
+
     const lane = laneRef.current
     const W = zoomRectRef.current?.width || lane?.clientWidth || 1
     const cSpan = committedSpanRef.current
@@ -1655,16 +1679,26 @@ export function Zero0Dayline({
   }, [])
 
   // Remap the FROZEN layout to a desired (curStart, curSpan) via the exact affine x' = a·x + b, applied
-  // as one cheap GPU transform to both pan containers. Bars scale correctly; the 1px marker lines scale
-  // transiently (snap back at rest). Day labels live OUTSIDE the pans, so translate them CRISPLY (no
-  // scale) by the same affine so text stays sharp.
+  // as one cheap GPU transform to both pan containers. Bars scale correctly; the 1px lines (day/hour
+  // guides, now-marker + triangle) counter-scale via --zoom-inv so they stay a CRISP 1px (v0.2.312).
+  // Day labels live OUTSIDE the pans, so translate them CRISPLY (no scale) by the same affine.
   const applyZoomTransform = useCallback((curStart: number, curSpan: number) => {
     const W = zoomBaseWidthRef.current || 1
     const a = zoomBaseSpanRef.current / curSpan
     const b = (W * (zoomBaseStartRef.current - curStart)) / curSpan
     const t = `translateX(${b}px) scaleX(${a})`
-    if (contentPanRef.current) contentPanRef.current.style.transform = t
-    if (markerPanRef.current) markerPanRef.current.style.transform = t
+    // --zoom-inv = 1/a (v0.2.312): the thin 1px elements (day-boundary lines, hour guides, now-marker
+    // line + its triangle) counter-scale by this so the pan's scaleX(a) cancels to a NET 1px — they no
+    // longer fatten during the glide and snap back at commit. Everything else (bars) scales normally.
+    const inv = 1 / a
+    if (contentPanRef.current) {
+      contentPanRef.current.style.transform = t
+      contentPanRef.current.style.setProperty("--zoom-inv", String(inv))
+    }
+    if (markerPanRef.current) {
+      markerPanRef.current.style.transform = t
+      markerPanRef.current.style.setProperty("--zoom-inv", String(inv))
+    }
     // Day labels must use the SAME sticky-push clamp as paintDayLabels (v0.2.312 fix): the raw affine
     // x sends the left-most past boundary's label negative, so a plain `x<-2 ⇒ hide` made "AUG 16"
     // vanish during the glide and snap back to x=0 only at commit. Replicate the clamp here — each
@@ -2100,7 +2134,14 @@ export function Zero0Dayline({
                 >
                   <div
                     className="absolute inset-y-0 w-px bg-muted-foreground/25"
-                    style={{ left: `${dm.leftPct}%`, zIndex: 2 }}
+                    style={{
+                      left: `${dm.leftPct}%`,
+                      zIndex: 2,
+                      // Counter-scale so the pan's scaleX(a) nets to a crisp 1px during the zoom glide
+                      // (v0.2.312). Origin left keeps the line's left edge pinned to leftPct.
+                      transform: "scaleX(var(--zoom-inv, 1))",
+                      transformOrigin: "left center",
+                    }}
                   />
                 </div>
               ))}
@@ -2118,7 +2159,12 @@ export function Zero0Dayline({
                     <div
                       key={hm.key}
                       className="absolute inset-y-0 w-px bg-muted-foreground/15"
-                      style={{ left: `${hm.leftPct}%` }}
+                      style={{
+                        left: `${hm.leftPct}%`,
+                        // Crisp 1px during the zoom glide (v0.2.312) — see day-boundary line.
+                        transform: "scaleX(var(--zoom-inv, 1))",
+                        transformOrigin: "left center",
+                      }}
                     />
                   ))}
                 </div>
@@ -2570,8 +2616,17 @@ export function Zero0Dayline({
                 className="pointer-events-none absolute inset-0 will-change-transform"
               >
                 <div
-                  className="pointer-events-none absolute -bottom-px -top-px w-px -translate-x-1/2"
-                  style={{ left: `${nowPct}%`, backgroundColor: NOW_COLOR }}
+                  className="pointer-events-none absolute -bottom-px -top-px w-px"
+                  style={{
+                    left: `${nowPct}%`,
+                    backgroundColor: NOW_COLOR,
+                    // Centering (translateX(-50%)) + counter-scale (v0.2.312), origin CENTER so the net
+                    // is a crisp 1px line centered on nowPct through the whole zoom glide. The triangle
+                    // cap is a child, so it inherits this 1/a and stays correctly sized/centered too —
+                    // no separate handling needed.
+                    transform: "translateX(-50%) scaleX(var(--zoom-inv, 1))",
+                    transformOrigin: "center",
+                  }}
                 >
                   {/* Little downward-pointing triangle capping the TOP of the marker line
                       (its apex points down into the line). The marker is now purely a 1px
