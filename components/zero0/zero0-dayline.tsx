@@ -574,9 +574,15 @@ export function Zero0Dayline({
   const viewStartRef = useRef(0)
   const viewSpanRef = useRef(VIEW_SPAN_MS)
   useEffect(() => {
+    // While a zoom glide is running, the glide OWNS these refs (stepZoom advances them toward the
+    // eased target and nudgeZoom reads them for the cursor anchor). A pan flush that commits mid-glide
+    // (setViewStart) must NOT overwrite them with the flushed pan value, or the anchor drifts and the
+    // zoom snaps at commit (v0.2.312). The next gesture re-reads committed state via committedStartRef.
+    if (zoomGlidingRef.current) return
     viewStartRef.current = viewStart
   }, [viewStart])
   useEffect(() => {
+    if (zoomGlidingRef.current) return
     viewSpanRef.current = viewSpan
   }, [viewSpan])
   const prevNowRef = useRef(0)
@@ -1793,6 +1799,17 @@ export function Zero0Dayline({
       if (e.ctrlKey) {
         e.preventDefault()
         wheelVelRef.current = 0
+        // Fully STOP the momentum-pan loop before the zoom takes over (v0.2.312). Zeroing the velocity
+        // isn't enough: the glide rAF stays scheduled and fires one more frame that (a) stomps the zoom
+        // transform via applyPan and (b) triggers maybeFlushAtRest → setViewStart, whose [viewStart]
+        // effects then clobber viewStartRef (the glide's anchor ref) and re-paint the pan — corrupting
+        // the glide bookkeeping so it SNAPS horizontally at commit. Cancelling here lets beginZoomGlide
+        // fold the leftover wheelCommit into the frozen base cleanly and own the transform exclusively.
+        if (wheelRafRef.current != null) {
+          cancelAnimationFrame(wheelRafRef.current)
+          wheelRafRef.current = null
+          wheelTsRef.current = 0
+        }
         lastPointerRef.current = { x: e.clientX, y: e.clientY }
         pointerInsideRef.current = true
         nudgeZoom(e.deltaY, e.clientX)
@@ -1834,6 +1851,10 @@ export function Zero0Dayline({
       wheelCommitRef.current -= pendingFlushRef.current
       pendingFlushRef.current = 0
     }
+    // Keep the pendingFlush bookkeeping above, but while a zoom glide owns the transform, do NOT
+    // reset the pan / repaint labels — that would stomp the zoom's translateX·scaleX for a frame and
+    // fight the glide (v0.2.312). The glide re-applies its transform every frame and cleans up at rest.
+    if (zoomGlidingRef.current) return
     applyPan(-wheelCommitRef.current)
     // Re-place the sticky day labels after any base-pan settle (drag, wheel flush,
     // initial mount) — the ripple loop is not running at rest, so paint them here.
