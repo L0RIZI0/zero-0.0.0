@@ -278,6 +278,12 @@ const HIGHLIGHT_HEIGHT_PX = 26
 // artifact the .310 tick-floor removal fixed). ~5min reads as a short "continues" blend at the
 // day view while staying proportional at any zoom. Kept a clean linear ramp (0%→100%).
 const FADE_MS = 5 * MIN_MS
+// UNKNOWN-START (left-end) fade — kept a FIXED pixel length regardless of zoom (Loris ask), unlike
+// the right-end fade above. It reads as a constant qualitative "starts before here" lead-in rather
+// than a measured duration, so a fixed px is intentional here. (Trade-off: a fixed-px extension is
+// momentarily stretched by the zoom transform-glide's scaleX and snaps back at commit — acceptable
+// for a small lead-in that only appears on unknown-start ticks.)
+const START_FADE_PX = 20
 
 /**
  * Resolve the two colors a dayline tick paints, shared by BOTH tracks (planned +
@@ -2201,14 +2207,15 @@ export function Zero0Dayline({
                     (p.track === "recorded" && p.unknownEnd) ||
                     ((p.track === "middle" || p.track === "access") && p.openEnded)
                   const effWidthPct = liveRightEdge ? Math.max(0, nowPct - p.leftPct) : p.widthPct
-                  // MASK stops are ELEMENT-relative (mask is painted in the element's own box), but the
-                  // fade + solid widths above are LANE-relative %. Convert: the element spans
-                  // (solid + fade) of the lane, so the fade is `fade / (solid + fade)` of the element.
-                  // v0.2.312: replaces the old element-agnostic `100% − 20px` / `20px` px stops, which
-                  // (a) didn't scale with zoom and (b) elongate-then-snapped under the zoom glide scaleX.
+                  // RIGHT-FADE MASK stop is ELEMENT-relative (mask is painted in the element's own box),
+                  // but the fade + solid widths above are LANE-relative %. Convert: the element spans
+                  // (solid + fade) of the lane, so the solid part is `solid / (solid + fade)` of it.
+                  // v0.2.312: replaces the old element-agnostic `100% − 20px` stop, which didn't scale
+                  // with zoom and elongate-then-snapped under the zoom glide scaleX.
                   const rightFadeMaskSolidPct =
                     rightTailPct != null ? (effWidthPct / (effWidthPct + rightTailPct || 1)) * 100 : 0
-                  const startFadeMaskPct = fadingStart ? (fadePct / (effWidthPct + fadePct || 1)) * 100 : 0
+                  // LEFT-fade mask stays a FIXED px stop (START_FADE_PX) — the left fade is a fixed pixel
+                  // lead-in (Loris ask), so the element-relative px mask matches its px width directly.
                   // DRAG PREVIEW (v0.2.286): while THIS planned tick is being edge/move-dragged, its
                   // geometry is driven LIVE from `editPreview` (start/end in ms → leftPct/widthPct via
                   // the same winStart/VIEW_SPAN_MS scale as every other tick) so it slides/resizes under
@@ -2379,7 +2386,7 @@ export function Zero0Dayline({
                           // its right edge pinned to now. A FADING-START tick shifts its left anchor
                           // LEFT by the fade length so the fade grows OUT past the (unknown) start.
                           left: fadingStart
-                            ? `${p.leftPct - fadePct}%`
+                            ? `calc(${p.leftPct}% - ${START_FADE_PX}px)`
                             : anchorRight
                               ? // v0.2.264: use effWidthPct, NOT the coarse memoized widthPct. A right-
                                 // anchored tick pins its RIGHT edge at `left = leftPct + width`; the width
@@ -2402,7 +2409,7 @@ export function Zero0Dayline({
                               : rightTailPct != null
                                 ? `${effWidthPct + rightTailPct}%`
                                 : fadingStart
-                                  ? `${effWidthPct + fadePct}%`
+                                  ? `calc(${effWidthPct}% + ${START_FADE_PX}px)`
                                   : openSpineLive
                                     ? // v0.2.268: NO min-width floor. Left-anchored, its right edge is the
                                       // now edge, so a `max(3px,…)` floor on a sub-second-thin open segment
@@ -2455,13 +2462,13 @@ export function Zero0Dayline({
                             rightTailPct != null
                               ? `linear-gradient(to right, #000 ${rightFadeMaskSolidPct}%, transparent 100%)`
                               : fadingStart
-                                ? `linear-gradient(to right, transparent 0, #000 ${startFadeMaskPct}%)`
+                                ? `linear-gradient(to right, transparent 0, #000 ${START_FADE_PX}px)`
                                 : undefined,
                           WebkitMaskImage:
                             rightTailPct != null
                               ? `linear-gradient(to right, #000 ${rightFadeMaskSolidPct}%, transparent 100%)`
                               : fadingStart
-                                ? `linear-gradient(to right, transparent 0, #000 ${startFadeMaskPct}%)`
+                                ? `linear-gradient(to right, transparent 0, #000 ${START_FADE_PX}px)`
                                 : undefined,
                           opacity: tickOpacity,
                           zIndex: lit || isHot ? 16 : 8,
