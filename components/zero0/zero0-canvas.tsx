@@ -45,6 +45,7 @@ import {
   toggleStarterPin,
   openSession,
   closeSession,
+  reopenAutoPlay,
   setOpenSessionStart,
   markInstant,
   setInstantMax,
@@ -687,8 +688,25 @@ export function Zero0Canvas() {
     // Reset last-known-alive on the SAME gesture, so the runtime watchdog (below) doesn't see the
     // still-stale heartbeat and immediately re-cap the session we're resuming (v0.2.303).
     markAliveNow()
-    if (punchInPath()) bump()
-  }, [punchInPath, bump])
+    let changed = punchInPath()
+    // RE-OPEN the auto play the WATCHDOG capped (v0.2.311). This is the piece that was missing: the
+    // window-stayed-open cap writes a `stopped` on PLAY but keeps FOCUS open, so punchInPath (which
+    // only writes a new `accessed` when focus is CLOSED, then relies on the fold to derive the auto
+    // play) re-opens NOTHING here — the play stayed stopped and the resource sat idle. reopenAutoPlay
+    // appends a `resumed`, which re-opens the auto ongoing without splitting the continuous access
+    // span. Runs on the WHOLE path (the watchdog capped every path id); no-op where a play is already
+    // open or the entity can't auto-play, so the load-time away path (focus was closed ⇒ punchInPath
+    // already re-derived the play) is unaffected.
+    for (const id of path) {
+      const e = getEntity(id)
+      if (!e || !canAutoPlay(e) || hasOpenSession(e, "play")) continue
+      if (reopenAutoPlay(id)) {
+        playOpenRef.current.add(id)
+        changed = true
+      }
+    }
+    if (changed) bump()
+  }, [punchInPath, bump, path])
 
   useEffect(() => {
     if (!mounted) return

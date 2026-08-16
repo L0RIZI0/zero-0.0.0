@@ -1739,6 +1739,27 @@ export function closeSession(id: string, via?: Session["via"], at = Date.now()):
 }
 
 /**
+ * RE-OPEN an AUTO ongoing after a device-idle cap (v0.2.311). The runtime away-watchdog caps the
+ * auto play with a `stopped` at last-known-alive but LEAVES the focus/access span OPEN (access is
+ * continuous while Zero is open — v0.2.306). That's the problem for resume: an auto play is DERIVED
+ * from an `accessed`, and since focus never closed there is no new `accessed` to re-derive it, while
+ * the post-cap `stopped` keeps it closed. `openSession(…,{auto})` can't help — it writes nothing and
+ * relies on that missing `accessed`. So we append a `resumed`, which the fold interprets as "re-open
+ * the auto ongoing" WITHOUT splitting the continuous focus span (unlike a fresh `accessed`). No-op if
+ * a play is already open (e.g. a manual stopwatch) or the entity is blocked (done/closed ⇒ the fold's
+ * `resumed` won't open). Returns true iff a play span is open afterwards.
+ */
+export function reopenAutoPlay(id: string, at = Date.now()): boolean {
+  const stored = byId.get(id)
+  if (!stored) return false
+  if (hasOpenSession(stored, "play")) return true // already running — no-op
+  const entity = mutable(stored)
+  entity.log = appendInstant(ensureEntityLog(entity), makeInstant("resumed", at))
+  recomputeSessionsFromLog(id, entity)
+  return hasOpenSession(byId.get(id)!, "play")
+}
+
+/**
  * ADD A MANUAL RECORDED SESSION (LOG-FIRST, v0.2.269) — the past/ongoing-session half of the Plan
  * dialog. Appends ONE self-describing `session` log entry carrying its own `{sessionStart, sessionEnd}`
  * (see {@link Instant}), then re-derives `sessions[]`. Because {@link deriveSessionsFromLog} reads the
