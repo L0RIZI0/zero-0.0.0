@@ -1135,10 +1135,12 @@ export function Zero0Dayline({
       // while still open — measuring now reads the already-closed width, React having committed it).
       const openW = openWidthRef.current.get(key) ?? el.getBoundingClientRect().width
       openWidthRef.current.delete(key) // consumed
-      // TO width = the CLOSED body width from the MODEL (data-wpct × lane px) with the SAME `max(3px,…)`
-      // floor the render uses.
+      // TO width = the CLOSED body width from the MODEL (data-wpct × lane px). v0.2.310: the render no
+      // longer floors closed ticks at 3px (pure %), so this target must match — NO Math.max(3,…) floor,
+      // else a sub-3px session would collapse to 3px while the render paints its true sub-pixel width
+      // (a small end-of-collapse jump). Guard against 0 so scaleFrom stays finite for a ~0-width tick.
       const wpct = parseFloat(el.getAttribute("data-wpct") || "0")
-      const closedW = Math.max(3, (wpct / 100) * laneW)
+      const closedW = Math.max(0.1, (wpct / 100) * laneW)
       if (!(openW > closedW + 0.5)) continue // nothing to retract
       // ANIMATE via scaleX on the `transform` property — NOT `width` (React owns inline width and
       // rewrites it on the stop re-render, snapping any width tween). ⚠️ v0.2.264: the keyframe must
@@ -1758,7 +1760,7 @@ export function Zero0Dayline({
     const onWheel = (e: WheelEvent) => {
       // PINCH-ZOOM (v0.2.303, EASED v0.2.305) — a trackpad pinch is delivered as a wheel event with
       // `ctrlKey` set (the browser/OS synthesizes it; a real Ctrl+scroll is the same gesture intent =
-      // zoom). Spread fingers ⇒ deltaY < 0 ⇒ SMALLER span ⇒ zoom IN; pinch together ⇒ zoom OUT. Each
+      // zoom). Spread fingers ��� deltaY < 0 ⇒ SMALLER span ⇒ zoom IN; pinch together ⇒ zoom OUT. Each
       // delta feeds a TARGET the band eases toward (see nudgeZoom), so it glides instead of snapping.
       if (e.ctrlKey) {
         e.preventDefault()
@@ -2388,7 +2390,16 @@ export function Zero0Dayline({
                                       // would spill 3px PAST the now marker. A <1px open segment is simply
                                       // invisible for a fraction of a second — correct, and it never spills.
                                       `${effWidthPct}%`
-                                    : `max(3px, ${dispWidthPct}%)`,
+                                    : // v0.2.310: PURE PROPORTIONAL — no min-width floor. The old
+                                      // `max(3px,…)` floored every closed tick at 3px so brief sessions
+                                      // stayed visible, but a floored tick has a FIXED px width that the
+                                      // zoom glide's scaleX(a) visually ELONGATES (3px·a) and then
+                                      // re-floors back to 3px at commit = the elongate-then-snap Loris
+                                      // saw. A true `%` width scales exactly as the geometry says and
+                                      // commits to the same value ⇒ zero snap. Trade-off (accepted):
+                                      // sub-pixel-short sessions are invisible/un-hoverable until zoomed
+                                      // in — honesty over a guaranteed nub.
+                                      `${dispWidthPct}%`,
                           height: p.markGlyph ? 9 : tickH,
                           // FILL = entity color; parent color is shown as an INSET GLOW only (no border).
                           background: fill,
