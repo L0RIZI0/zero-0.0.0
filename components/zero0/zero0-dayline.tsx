@@ -2020,7 +2020,11 @@ export function Zero0Dayline({
                 aria-hidden
               />
             )}
-            <div ref={contentPanRef} className="pointer-events-none absolute inset-0 will-change-transform">
+            {/* origin-left (v0.2.308): the zoom glide applies scaleX with the affine x'=a·x+b, which
+                assumes scaling about the LEFT edge (x=0). CSS defaults transform-origin to center, which
+                added a constant (1−a)·(W/2) offset for the whole glide that vanished at commit = a big
+                end-of-zoom SNAP. Pinning the origin left makes the transform match the committed layout. */}
+            <div ref={contentPanRef} className="pointer-events-none absolute inset-0 origin-left will-change-transform">
               {/* DAY-BOUNDARY LINES (planned lane) — painted BEHIND the ticks. Each is a
                   ripple node (data-left + registerRipple) so the 1px faded midnight line
                   pans/slides/clips WITH the timeline. The date LABEL is no longer here — it
@@ -2472,7 +2476,7 @@ export function Zero0Dayline({
           {/* NOW marker — a thin bright vertical tick, painted above the bars. Hidden
               when panned out of view. Rides the same catch-up wave as the content. */}
           {mounted && nowInView && (
-            <div ref={markerPanRef} className="pointer-events-none absolute inset-0 z-30 will-change-transform">
+            <div ref={markerPanRef} className="pointer-events-none absolute inset-0 z-30 origin-left will-change-transform">
               <div
                 aria-hidden
                 ref={registerRipple("__now__")}
