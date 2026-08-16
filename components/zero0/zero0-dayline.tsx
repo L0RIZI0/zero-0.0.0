@@ -1190,13 +1190,17 @@ export function Zero0Dayline({
   const wheelTsRef = useRef(0)
   const wheelCommitRef = useRef(0)
   const pendingFlushRef = useRef(0)
-  // PINCH-ZOOM (v0.2.303) — a trackpad pinch arrives as ctrl+wheel; these coalesce the high-frequency
-  // deltas into ONE state commit per animation frame (like the pan flush), so re-derivation of the
-  // window's bars runs at most once per frame instead of per event. `zoomFactorRef` accumulates the
-  // multiplicative span change; `zoomAnchorXRef` is the cursor X to keep time-under-cursor fixed.
-  const zoomFactorRef = useRef(1)
-  const zoomAnchorXRef = useRef(0)
+  // PINCH-ZOOM (v0.2.303, EASED v0.2.305) — a trackpad pinch arrives as ctrl+wheel. Rather than
+  // snapping the span per event, each pinch delta nudges a TARGET span and a rAF loop GLIDES the live
+  // span toward it with time-based ease-out — echoing the pan ripple's settle-to-rest feel. The loop
+  // re-derives the cursor-anchored start every frame so the time under the cursor stays pinned while
+  // the band eases. `zoomTargetSpanRef` = where we're gliding to; `zoomAnchorFracRef`/`zoomAnchorTimeRef`
+  // pin the anchor; `zoomRafRef`/`zoomLastTsRef` drive the eased loop.
+  const zoomTargetSpanRef = useRef(VIEW_SPAN_MS)
+  const zoomAnchorFracRef = useRef(0.5)
+  const zoomAnchorTimeRef = useRef(0)
   const zoomRafRef = useRef<number | null>(null)
+  const zoomLastTsRef = useRef(0)
   // Base pan applied imperatively to both the access CONTENT (inside the fixed clip)
   // and the NOW marker + access tooltip (which live outside the clip for edge bleed).
   const contentPanRef = useRef<HTMLDivElement>(null)
@@ -1576,30 +1580,60 @@ export function Zero0Dayline({
   }, [])
   const recenter = useCallback(() => setViewStart(dayWindow(Date.now(), viewSpanRef.current)[0]), [])
 
-  // Apply an accumulated pinch factor, keeping the time under the cursor anchored (v0.2.303). Reads
-  // live span/start from refs (off-render), clamps to the MIN/MAX bounds, and commits both the new
-  // span and the re-anchored start together. Called once per frame by the coalescing rAF below.
-  const applyZoom = useCallback(() => {
-    const lane = laneRef.current
-    const factor = zoomFactorRef.current
-    zoomFactorRef.current = 1
-    if (!lane || factor === 1) return
-    const rect = lane.getBoundingClientRect()
-    const w = rect.width || 1
-    const prevSpan = viewSpanRef.current
-    let nextSpan = Math.min(MAX_VIEW_SPAN_MS, Math.max(MIN_VIEW_SPAN_MS, prevSpan * factor))
-    // Gentle detent at the canonical 24h view so a pinch back out re-settles exactly on the day.
-    if (Math.abs(nextSpan - VIEW_SPAN_MS) / VIEW_SPAN_MS < 0.04) nextSpan = VIEW_SPAN_MS
-    if (nextSpan === prevSpan) return
-    // Fraction of the lane the cursor sits at → the time there must stay put across the zoom.
-    const frac = Math.min(1, Math.max(0, (zoomAnchorXRef.current - rect.left) / w))
-    const tCursor = viewStartRef.current + frac * prevSpan
-    const nextStart = tCursor - frac * nextSpan
+  // One eased frame of the zoom glide (v0.2.305). Moves the LIVE span a fraction of the way toward
+  // `zoomTargetSpanRef` in LOG space (so the ease feels uniform to the eye — perceived zoom is
+  // multiplicative), with a time-based alpha = 1−exp(−dt/τ) that decelerates into rest like the pan
+  // ripple. Re-derives the cursor-anchored start each frame so the anchored time stays pinned while
+  // the band settles. Snaps + stops when within a hair of the target.
+  const stepZoom = useCallback((ts: number) => {
+    let dt = (ts - zoomLastTsRef.current) / 1000
+    zoomLastTsRef.current = ts
+    if (!(dt > 0)) dt = 1 / 60
+    dt = Math.min(dt, 0.05)
+    const ZOOM_TAU = 0.11 // seconds — smaller = snappier, larger = more glide
+    const alpha = 1 - Math.exp(-dt / ZOOM_TAU)
+    const curLog = Math.log(viewSpanRef.current)
+    const tgtLog = Math.log(zoomTargetSpanRef.current)
+    const diff = tgtLog - curLog
+    const nextSpan = Math.abs(diff) < 0.002 ? zoomTargetSpanRef.current : Math.exp(curLog + diff * alpha)
+    const nextStart = zoomAnchorTimeRef.current - zoomAnchorFracRef.current * nextSpan
     viewSpanRef.current = nextSpan
     viewStartRef.current = nextStart
     setViewSpan(nextSpan)
     setViewStart(nextStart)
-  }, [])
+    resolveHoverAtCursor()
+    if (nextSpan === zoomTargetSpanRef.current) {
+      zoomRafRef.current = null // reached rest
+    } else {
+      zoomRafRef.current = requestAnimationFrame(stepZoom)
+    }
+  }, [resolveHoverAtCursor])
+
+  // Feed one pinch delta into the glide (v0.2.305): nudge the TARGET span (clamped, with a detent at
+  // the canonical day view), re-anchor to the time currently under the cursor, and ensure the eased
+  // loop is running. The anchor is recomputed from the CURRENT displayed span so continued pinching
+  // never jumps the band.
+  const nudgeZoom = useCallback((deltaY: number, clientX: number) => {
+    const lane = laneRef.current
+    if (!lane) return
+    const rect = lane.getBoundingClientRect()
+    const w = rect.width || 1
+    const frac = Math.min(1, Math.max(0, (clientX - rect.left) / w))
+    // Anchor = the time under the cursor RIGHT NOW (from the live displayed state), so the glide keeps
+    // it pinned even as more deltas arrive mid-flight.
+    zoomAnchorFracRef.current = frac
+    zoomAnchorTimeRef.current = viewStartRef.current + frac * viewSpanRef.current
+    // Grow/shrink the target from its own last value (not the mid-glide live span), so rapid deltas
+    // accumulate toward a far target rather than fighting the easing.
+    const base = zoomRafRef.current != null ? zoomTargetSpanRef.current : viewSpanRef.current
+    let target = Math.min(MAX_VIEW_SPAN_MS, Math.max(MIN_VIEW_SPAN_MS, base * Math.exp(deltaY * ZOOM_SENSITIVITY)))
+    if (Math.abs(target - VIEW_SPAN_MS) / VIEW_SPAN_MS < 0.04) target = VIEW_SPAN_MS // detent on the day
+    zoomTargetSpanRef.current = target
+    if (zoomRafRef.current == null) {
+      zoomLastTsRef.current = performance.now()
+      zoomRafRef.current = requestAnimationFrame(stepZoom)
+    }
+  }, [stepZoom])
 
   const flushWheelPan = useCallback(() => {
     const lane = laneRef.current
@@ -1646,24 +1680,16 @@ export function Zero0Dayline({
     }
 
     const onWheel = (e: WheelEvent) => {
-      // PINCH-ZOOM (v0.2.303) — a trackpad pinch is delivered as a wheel event with `ctrlKey` set
-      // (the browser/OS synthesizes it; a real Ctrl+scroll is the same gesture intent = zoom). Spread
-      // fingers ⇒ deltaY < 0 ⇒ factor < 1 ⇒ SMALLER span ⇒ zoom IN; pinch together ⇒ zoom OUT. We
-      // stop any pan momentum, accumulate the factor, and commit once per frame (cursor-anchored).
+      // PINCH-ZOOM (v0.2.303, EASED v0.2.305) — a trackpad pinch is delivered as a wheel event with
+      // `ctrlKey` set (the browser/OS synthesizes it; a real Ctrl+scroll is the same gesture intent =
+      // zoom). Spread fingers ⇒ deltaY < 0 ⇒ SMALLER span ⇒ zoom IN; pinch together ⇒ zoom OUT. Each
+      // delta feeds a TARGET the band eases toward (see nudgeZoom), so it glides instead of snapping.
       if (e.ctrlKey) {
         e.preventDefault()
         wheelVelRef.current = 0
-        zoomFactorRef.current *= Math.exp(e.deltaY * ZOOM_SENSITIVITY)
-        zoomAnchorXRef.current = e.clientX
         lastPointerRef.current = { x: e.clientX, y: e.clientY }
         pointerInsideRef.current = true
-        if (zoomRafRef.current == null) {
-          zoomRafRef.current = requestAnimationFrame(() => {
-            zoomRafRef.current = null
-            applyZoom()
-            resolveHoverAtCursor()
-          })
-        }
+        nudgeZoom(e.deltaY, e.clientX)
         return
       }
       let delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY
@@ -1689,14 +1715,13 @@ export function Zero0Dayline({
       if (wheelRafRef.current != null) cancelAnimationFrame(wheelRafRef.current)
       if (zoomRafRef.current != null) cancelAnimationFrame(zoomRafRef.current)
       zoomRafRef.current = null
-      zoomFactorRef.current = 1
       wheelRafRef.current = null
       wheelVelRef.current = 0
       wheelCommitRef.current = 0
       pendingFlushRef.current = 0
       wheelTsRef.current = 0
     }
-  }, [pctToCol, injectPan, flushWheelPan, maybeFlushAtRest, applyPan, resolveHoverAtCursor, applyZoom])
+  }, [pctToCol, injectPan, flushWheelPan, maybeFlushAtRest, applyPan, resolveHoverAtCursor, nudgeZoom])
 
   useLayoutEffect(() => {
     if (pendingFlushRef.current !== 0) {
