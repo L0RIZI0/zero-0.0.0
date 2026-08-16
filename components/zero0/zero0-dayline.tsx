@@ -268,10 +268,16 @@ const HIGHLIGHT_HEIGHT_PX = 26
 // no declared/implied end, not yet closed) doesn't just stop: it FADES OUT rightward from
 // its right edge to signal "still going, end unknown." For an ONGOING tick that right edge
 // IS the now marker, so the fade trails PAST now into the future; for a FUTURE open-ended
-// start it trails rightward from the start point. Fixed pixel length (zoom-independent, a
-// qualitative "continues" cue, not a measured duration). Kept SHORT + a clean linear ramp
-// (0%→100%) so it reads as a quick blend, not a second solid block.
-const UNKNOWN_END_FADE_PX = 20
+// start it trails rightward from the start point. The mirror `fadingStart` fades in from the
+// LEFT for an unknown-start tick.
+//
+// v0.2.312: the fade is now a fixed TIME span, not a fixed pixel length. It's expressed as a
+// percentage of the lane (FADE_MS / viewSpan) so it GROWS/SHRINKS with the pinch-zoom exactly
+// like every other tick, and — because it's a `%` and never a `px` — the zoom transform-glide's
+// scaleX scales it precisely and it commits to the same value (no elongate-then-snap, the same
+// artifact the .310 tick-floor removal fixed). ~15min reads as a short "continues" blend at the
+// day view while staying proportional at any zoom. Kept a clean linear ramp (0%→100%).
+const FADE_MS = 15 * MIN_MS
 
 /**
  * Resolve the two colors a dayline tick paints, shared by BOTH tracks (planned +
@@ -399,14 +405,14 @@ interface DaylineBar {
    * PLANNED bars: the tick's end is genuinely UNKNOWN — a concrete start with no
    * declared/implied end that hasn't closed (covers BOTH an ongoing tick, whose right
    * edge is the now marker, and a still-future open-ended start). Renders a rightward
-   * fade off the tick's right edge (see {@link UNKNOWN_END_FADE_PX}). A closed tick, a
+   * fade off the tick's right edge (see {@link FADE_MS}). A closed tick, a
    * point with a known instant, and any bar with an effective end never set this.
    */
   unknownEnd?: boolean
   /**
    * PLANNED/SESSION bars: the tick's START is genuinely UNKNOWN — a real (declared/implied) END but no
    * concrete start, and not a point/due anchor. Renders a LEFTWARD fade off the tick's left edge, the
-   * mirror of {@link unknownEnd}'s right fade (see {@link UNKNOWN_END_FADE_PX}). (v0.2.249)
+   * mirror of {@link unknownEnd}'s right fade (see {@link FADE_MS}). (v0.2.249)
    */
   unknownStart?: boolean
   /**
@@ -2178,7 +2184,12 @@ export function Zero0Dayline({
                   // describes the RESTING open (`fading`) and closed states; it never needs a collapse
                   // branch, so a re-render mid-animation can't fight the inline tween (the effect clears
                   // its inline styles when done, handing control back here).
-                  const rightTail: number | null = fading ? UNKNOWN_END_FADE_PX : null
+                  // v0.2.312: the unknown-end/-start fade is a fixed TIME span (FADE_MS) expressed as a
+                  // % of the lane, so it scales with the pinch-zoom and never elongate-then-snaps under the
+                  // zoom glide's scaleX (see the FADE_MS note). `fadePct` = the fade's lane-width fraction
+                  // at the current zoom; `rightTailPct` is it for the rightward (unknown-end) fade only.
+                  const fadePct = (FADE_MS / viewSpan) * 100
+                  const rightTailPct: number | null = fading ? fadePct : null
                   // SMOOTH RIGHT EDGE (v0.2.261, widened .262): ANY tick whose right edge IS the now
                   // marker gets its solid width driven off the same smooth `nowPct` the marker uses
                   // (left edge fixed at leftPct), so it GROWS continuously with the marker instead of
@@ -2190,6 +2201,14 @@ export function Zero0Dayline({
                     (p.track === "recorded" && p.unknownEnd) ||
                     ((p.track === "middle" || p.track === "access") && p.openEnded)
                   const effWidthPct = liveRightEdge ? Math.max(0, nowPct - p.leftPct) : p.widthPct
+                  // MASK stops are ELEMENT-relative (mask is painted in the element's own box), but the
+                  // fade + solid widths above are LANE-relative %. Convert: the element spans
+                  // (solid + fade) of the lane, so the fade is `fade / (solid + fade)` of the element.
+                  // v0.2.312: replaces the old element-agnostic `100% − 20px` / `20px` px stops, which
+                  // (a) didn't scale with zoom and (b) elongate-then-snapped under the zoom glide scaleX.
+                  const rightFadeMaskSolidPct =
+                    rightTailPct != null ? (effWidthPct / (effWidthPct + rightTailPct || 1)) * 100 : 0
+                  const startFadeMaskPct = fadingStart ? (fadePct / (effWidthPct + fadePct || 1)) * 100 : 0
                   // DRAG PREVIEW (v0.2.286): while THIS planned tick is being edge/move-dragged, its
                   // geometry is driven LIVE from `editPreview` (start/end in ms → leftPct/widthPct via
                   // the same winStart/VIEW_SPAN_MS scale as every other tick) so it slides/resizes under
@@ -2360,7 +2379,7 @@ export function Zero0Dayline({
                           // its right edge pinned to now. A FADING-START tick shifts its left anchor
                           // LEFT by the fade length so the fade grows OUT past the (unknown) start.
                           left: fadingStart
-                            ? `calc(${p.leftPct}% - ${UNKNOWN_END_FADE_PX}px)`
+                            ? `${p.leftPct - fadePct}%`
                             : anchorRight
                               ? // v0.2.264: use effWidthPct, NOT the coarse memoized widthPct. A right-
                                 // anchored tick pins its RIGHT edge at `left = leftPct + width`; the width
@@ -2380,10 +2399,10 @@ export function Zero0Dayline({
                             ? 9
                             : p.point
                               ? 2
-                              : rightTail != null
-                                ? `calc(${effWidthPct}% + ${rightTail}px)`
+                              : rightTailPct != null
+                                ? `${effWidthPct + rightTailPct}%`
                                 : fadingStart
-                                  ? `calc(${effWidthPct}% + ${UNKNOWN_END_FADE_PX}px)`
+                                  ? `${effWidthPct + fadePct}%`
                                   : openSpineLive
                                     ? // v0.2.268: NO min-width floor. Left-anchored, its right edge is the
                                       // now edge, so a `max(3px,…)` floor on a sub-second-thin open segment
@@ -2424,24 +2443,25 @@ export function Zero0Dayline({
                               : `inset 0 0 ${Math.max(3, Math.round(tickH * 0.5))}px 0 ${p.stroke}`,
                           clipPath: p.markGlyph ? "polygon(0 0, 100% 0, 50% 100%)" : undefined,
                           // UNKNOWN-END FADE (v0.6.20) — the tail is now a MASK on this ONE element,
-                          // not a separate sibling div. The last UNKNOWN_END_FADE_PX fade to
+                          // not a separate sibling div. The last FADE_MS (as a % of the lane) fades to
                           // transparent, taking the fill AND the hairline border with them (so
                           // there's no crisp border box or rounded seam around the tail). One
                           // element = one hover target + one transition (fixes the old two-piece
-                          // mismatch). The boundary sits at `100% - FADE`, which is exactly now.
+                          // mismatch). The solid/fade boundary sits at the element-relative % computed
+                          // above, which for an ongoing tick is exactly now.
                           // FADING masks the RIGHT tail (end unknown); FADING-START masks the LEFT lead
                           // (start unknown) — transparent at 0 ramping to solid after the fade length.
                           maskImage:
-                            rightTail != null
-                              ? `linear-gradient(to right, #000 calc(100% - ${rightTail}px), transparent 100%)`
+                            rightTailPct != null
+                              ? `linear-gradient(to right, #000 ${rightFadeMaskSolidPct}%, transparent 100%)`
                               : fadingStart
-                                ? `linear-gradient(to right, transparent 0, #000 ${UNKNOWN_END_FADE_PX}px)`
+                                ? `linear-gradient(to right, transparent 0, #000 ${startFadeMaskPct}%)`
                                 : undefined,
                           WebkitMaskImage:
-                            rightTail != null
-                              ? `linear-gradient(to right, #000 calc(100% - ${rightTail}px), transparent 100%)`
+                            rightTailPct != null
+                              ? `linear-gradient(to right, #000 ${rightFadeMaskSolidPct}%, transparent 100%)`
                               : fadingStart
-                                ? `linear-gradient(to right, transparent 0, #000 ${UNKNOWN_END_FADE_PX}px)`
+                                ? `linear-gradient(to right, transparent 0, #000 ${startFadeMaskPct}%)`
                                 : undefined,
                           opacity: tickOpacity,
                           zIndex: lit || isHot ? 16 : 8,
