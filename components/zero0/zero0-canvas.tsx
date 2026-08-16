@@ -724,19 +724,21 @@ export function Zero0Canvas() {
     }
   }, [mounted, path, bump, punchInPath])
 
-  // RUNTIME AWAY WATCHDOG (v0.2.303) — the missing piece for the WINDOW-STAYED-OPEN case. The load-time
-  // gate above only fires on (re)hydrate; if Zero is left open while the DEVICE goes idle / sleeps, no
-  // reload happens, so nothing capped the ongoing and it kept spinning. This interval polls the liveness
-  // signal (device-level: last OS-wide input via the heartbeat's powerMonitor feed) and, once there's
-  // been no proof of life for ALIVE_GRACE_MS, caps the current path's access-driven spans at
-  // last-known-alive and arms the away state — exactly what the load-time path does, but live.
-  //   • closeSession(id,"focus",aliveAt) writes an `exited` at the real last-alive moment; the fold
-  //     closes focus + the auto ongoing there (so the dayline tick ENDS at last-alive), while a MANUAL
-  //     play stopwatch survives. Durable + truthful, same as the hydrate reconciliation.
-  //   • Arms `awayArmedRef` so the leaf reads stopped and won't auto-repunch; a click inside ENTITY
-  //     CONTENT (resumeFromAway) disarms + resumes the whole path.
-  //   • Device-level: because the heartbeat follows OS-wide input, working in ANOTHER app on the same
-  //     machine keeps `aliveAt` fresh and does NOT trip this — only a genuinely idle/asleep device does.
+  // RUNTIME AWAY WATCHDOG (v0.2.303; PLAY-ONLY cap v0.2.306) — the missing piece for the WINDOW-STAYED-OPEN
+  // case. The load-time gate only fires on (re)hydrate; if Zero is left open while the DEVICE goes idle,
+  // no reload happens, so nothing capped the auto-ongoing and the glyph kept spinning. This interval polls
+  // the device-level liveness signal (last OS-wide input via the heartbeat's powerMonitor feed) and, once
+  // there's been no proof of life for ALIVE_GRACE_MS, caps the auto-ongoing at last-known-alive.
+  //   • closeSession(id,"play",aliveAt) writes a `stopped` — the fold closes the open PLAY span (auto or
+  //     remote), which is the ONLY thing that drives the spinning "ongoing" glyph + the BOTTOM rail tick,
+  //     and ENDS it at the real last-alive moment. It leaves the FOCUS/ACCESS span (the MIDDLE-rail tick)
+  //     OPEN — access = "this context is open in Zero", which by design persists while Zero is open and
+  //     the device is powered, NOT gated on input idleness (v0.2.306, Loris' call). Access ends only via
+  //     the load-time reconciliation (Zero was closed / device slept ⇒ next hydrate writes `exited`).
+  //   • Arms `awayArmedRef` so the leaf won't auto-repunch the play on dwell; a click inside ENTITY
+  //     CONTENT (resumeFromAway) disarms + resumes play on the whole path (access was never dropped).
+  //   • Device-level: the heartbeat follows OS-wide input, so working in ANOTHER app on the same machine
+  //     keeps `aliveAt` fresh and does NOT trip this — only a genuinely idle device does.
   useEffect(() => {
     if (!mounted) return
     const WATCHDOG_MS = 20_000
@@ -745,12 +747,12 @@ export function Zero0Canvas() {
       const aliveAt = getLastKnownAlive()
       if (aliveAt == null) return // no evidence yet — don't cap blindly
       if (Date.now() - aliveAt <= ALIVE_GRACE_MS) return // device used recently — still live
-      // Device has been idle past the grace window → cap the ongoing at the real last-alive moment.
+      // Device idle past the grace window → cap the auto-ongoing PLAY at the real last-alive moment;
+      // the access/focus span stays open (middle rail keeps running while Zero is open).
       awayArmedRef.current = true
       let changed = false
       for (const id of path) {
-        if (closeSession(id, "focus", aliveAt)) changed = true // `exited` closes focus + auto ongoing
-        focusOpenRef.current.delete(id)
+        if (closeSession(id, "play", aliveAt)) changed = true // `stopped` caps play; focus/access survives
         playOpenRef.current.delete(id)
       }
       if (changed) bump()

@@ -46,18 +46,21 @@ export function Zero0WindowControls() {
         onClick={() => win.toggleFullScreen()}
       >
         {fullscreen ? (
-          <>
-            <path d="M2.5 4 V2.5 H4" />
-            <path d="M7 2.5 H8.5 V4" />
-            <path d="M2.5 7 V8.5 H4" />
-            <path d="M7 8.5 H8.5 V7" />
-          </>
-        ) : (
+          // IN fullscreen → SHRINK glyph: brackets pointing INWARD (toward center) = "exit full screen".
           <>
             <path d="M4 2.5 V4 H2.5" />
             <path d="M7 2.5 V4 H8.5" />
             <path d="M4 8.5 V7 H2.5" />
             <path d="M7 8.5 V7 H8.5" />
+          </>
+        ) : (
+          // WINDOWED → EXPAND glyph: brackets hugging the OUTER corners = "enter full screen". (v0.2.306:
+          // these two branches were swapped, so a windowed window showed the shrink icon by default.)
+          <>
+            <path d="M2.5 4 V2.5 H4" />
+            <path d="M7 2.5 H8.5 V4" />
+            <path d="M2.5 7 V8.5 H4" />
+            <path d="M7 8.5 H8.5 V7" />
           </>
         )}
       </CtrlButton>
