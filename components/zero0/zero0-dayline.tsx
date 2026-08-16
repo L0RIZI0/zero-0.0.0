@@ -275,9 +275,9 @@ const HIGHLIGHT_HEIGHT_PX = 26
 // percentage of the lane (FADE_MS / viewSpan) so it GROWS/SHRINKS with the pinch-zoom exactly
 // like every other tick, and — because it's a `%` and never a `px` — the zoom transform-glide's
 // scaleX scales it precisely and it commits to the same value (no elongate-then-snap, the same
-// artifact the .310 tick-floor removal fixed). ~15min reads as a short "continues" blend at the
+// artifact the .310 tick-floor removal fixed). ~5min reads as a short "continues" blend at the
 // day view while staying proportional at any zoom. Kept a clean linear ramp (0%→100%).
-const FADE_MS = 15 * MIN_MS
+const FADE_MS = 5 * MIN_MS
 
 /**
  * Resolve the two colors a dayline tick paints, shared by BOTH tracks (planned +
