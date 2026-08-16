@@ -2195,6 +2195,21 @@ export function Zero0Canvas() {
     })
   }, [contextId, showMenu, showHidden, runEntityAction])
 
+  // The user interacted INSIDE the open web view (v0.2.307). The native webview composites OVER Zero's
+  // DOM, so clicks/keystrokes there never reach `resumeFromAway`'s DOM pointerdown — a web resource stayed
+  // "idle" after an away-gap even while being typed into. This host signal is the webview's equivalent of
+  // a content click: mark the device alive (so the watchdog won't re-cap) and resume the path's ongoing.
+  // Guarded to the current path so a background/parked view can't resume anything.
+  useEffect(() => {
+    if (!window.zero?.resource?.onActivity) return
+    const pathSet = new Set(path)
+    return window.zero.resource.onActivity(({ id }) => {
+      if (!pathSet.has(id)) return
+      markAliveNow()
+      resumeFromAway()
+    })
+  }, [path, resumeFromAway])
+
   // ── Shared ZERO HEADER elements (reused by the full + minimized layouts) ──────
   // The ACCESS PATH breadcrumb — the trail to the open node; each crumb climbs back
   // to that depth, right-click targets that entity. In the full layout it's the value

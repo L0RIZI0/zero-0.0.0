@@ -1201,6 +1201,11 @@ export function Zero0Dayline({
   const zoomAnchorTimeRef = useRef(0)
   const zoomRafRef = useRef<number | null>(null)
   const zoomLastTsRef = useRef(0)
+  // Cached lane rect for the DURATION of a pinch gesture (v0.2.307). A real trackpad pinch fires many
+  // wheel events per frame; calling getBoundingClientRect() on each one forces a synchronous layout
+  // reflow interleaved with the rAF's style writes = layout thrashing. We snapshot the rect on the
+  // first delta of a gesture and reuse it until the glide comes to rest (the lane can't move mid-pinch).
+  const zoomRectRef = useRef<{ left: number; width: number } | null>(null)
   // Base pan applied imperatively to both the access CONTENT (inside the fixed clip)
   // and the NOW marker + access tooltip (which live outside the clip for edge bleed).
   const contentPanRef = useRef<HTMLDivElement>(null)
@@ -1601,9 +1606,13 @@ export function Zero0Dayline({
     viewStartRef.current = nextStart
     setViewSpan(nextSpan)
     setViewStart(nextStart)
-    resolveHoverAtCursor()
     if (nextSpan === zoomTargetSpanRef.current) {
-      zoomRafRef.current = null // reached rest
+      // AT REST (v0.2.307): only now do the expensive hover hit-test (elementFromPoint forces a sync
+      // reflow + tooltip repaint). Skipping it every mid-glide frame is the biggest cheap win — the
+      // bars slide under a fixed cursor so the hovered key would thrash on each frame otherwise.
+      zoomRafRef.current = null
+      zoomRectRef.current = null // gesture over — re-measure the lane next time
+      resolveHoverAtCursor()
     } else {
       zoomRafRef.current = requestAnimationFrame(stepZoom)
     }
@@ -1616,8 +1625,14 @@ export function Zero0Dayline({
   const nudgeZoom = useCallback((deltaY: number, clientX: number) => {
     const lane = laneRef.current
     if (!lane) return
-    const rect = lane.getBoundingClientRect()
-    const w = rect.width || 1
+    // Measure the lane ONCE per gesture (see zoomRectRef); reuse the snapshot for every subsequent delta.
+    let rect = zoomRectRef.current
+    if (!rect) {
+      const r = lane.getBoundingClientRect()
+      rect = { left: r.left, width: r.width || 1 }
+      zoomRectRef.current = rect
+    }
+    const w = rect.width
     const frac = Math.min(1, Math.max(0, (clientX - rect.left) / w))
     // Anchor = the time under the cursor RIGHT NOW (from the live displayed state), so the glide keeps
     // it pinned even as more deltas arrive mid-flight.

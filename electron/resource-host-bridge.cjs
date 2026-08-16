@@ -252,6 +252,11 @@ class ResourceHostBridge extends EventEmitter {
         })
         break
       }
+      case "activity":
+        // User interacted INSIDE the webview (pointer/keys/wheel) — the DOM behind it never saw it.
+        // Relay so the renderer can mark alive + resume this resource's ongoing session (v0.2.307).
+        this.emit("activity", { id })
+        break
       case "error":
         console.log(`[v0] resource-host: error id=${id || "-"} ${msg.message}`)
         if (id) this.emit("status", { id, ok: false, detail: msg.message })

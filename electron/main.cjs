@@ -781,7 +781,7 @@ function prepareResourceSession(partition) {
       if (key.toLowerCase().startsWith("sec-ch-ua")) delete h[key]
     }
     for (const [k, v] of Object.entries(RESOURCE_CLIENT_HINTS)) h[k] = v
-    // (DROP list is implicitly satisfied — we removed all sec-ch-ua* and only re-added
+    // (DROP list is implicitly satisfied ��� we removed all sec-ch-ua* and only re-added
     // the three low-entropy hints — but keep the constant as the explicit contract.)
     void RESOURCE_CLIENT_HINTS_DROP
     callback({ requestHeaders: h })
@@ -1033,6 +1033,8 @@ function wireBridgeEvents(bridge) {
   bridge.on("status", (p) => send("zero:resource:status", p))
   bridge.on("navigated", (p) => send("zero:resource:navigated", p))
   bridge.on("contextmenu", (p) => send("zero:resource:contextmenu", { id: p.id, x: p.x, y: p.y }))
+  // Interaction inside the webview (the DOM behind it never sees it) → renderer resumes ongoing (v0.2.307).
+  bridge.on("activity", (p) => send("zero:resource:activity", { id: p.id }))
   bridge.on("output", (p) => {
     // NOTE (M2 refinement): the host emits this at DownloadStarting, so the file at
     // p.path may still be in flight. Good enough to register the Output; revisit to
@@ -1179,8 +1181,17 @@ ipcMain.handle("zero:resource:mount", async (_e, args) => {
     const cur = view.webContents.getZoomFactor()
     applyZoom(zoomDirection === "in" ? cur + ZOOM_STEP : cur - ZOOM_STEP)
   })
+  let lastActivityAt = 0
   view.webContents.on("before-input-event", (_ek, input) => {
-    if (input.type !== "keyDown" || !(input.control || input.meta)) return
+    if (input.type !== "keyDown") return
+    // ACTIVITY (v0.2.307): typing inside the fallback WebContentsView never reaches the Zero DOM
+    // behind it. Throttle to ~1/s and relay so the renderer can resume this resource's ongoing.
+    const now = Date.now()
+    if (now - lastActivityAt >= 1000) {
+      lastActivityAt = now
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("zero:resource:activity", { id })
+    }
+    if (!(input.control || input.meta)) return
     const cur = view.webContents.getZoomFactor()
     if (input.key === "0") applyZoom(1)
     else if (input.key === "=" || input.key === "+") applyZoom(cur + ZOOM_STEP)

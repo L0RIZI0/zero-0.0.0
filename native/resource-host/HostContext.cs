@@ -876,6 +876,27 @@ internal sealed class ResourceView : IDisposable
             }
             catch { /* older runtime without context-menu customization: leave the default menu as-is */ }
         };
+
+        // ACTIVITY SIGNAL (v0.2.307) — the Zero DOM sits BEHIND this webview, so clicks/keystrokes that
+        // land inside the page never reach Zero's away-resume (which is wired to a DOM pointerdown). That
+        // left a web resource stuck "idle" after an away-gap even while the user typed into it. Inject a
+        // tiny capture-phase listener that posts a THROTTLED "zero:activity" webmessage on interaction, and
+        // relay it up as an `activity` event so the renderer can mark alive + resume the session's ongoing.
+        core.WebMessageReceived += (_, e) =>
+        {
+            try { if (e.TryGetWebMessageAsString() == "zero:activity") _emit(new { evt = "activity", id = _id }); }
+            catch { /* non-string message (site's own postMessage): ignore */ }
+        };
+        try
+        {
+            _ = core.AddScriptToExecuteOnDocumentCreatedAsync(
+                "(function(){var t=0;function p(){var n=Date.now();if(n-t<1000)return;t=n;" +
+                "try{window.chrome.webview.postMessage('zero:activity');}catch(e){}}" +
+                "window.addEventListener('pointerdown',p,true);" +
+                "window.addEventListener('keydown',p,true);" +
+                "window.addEventListener('wheel',p,{capture:true,passive:true});})();");
+        }
+        catch { /* script injection unsupported on this runtime: activity signal simply won't fire */ }
     }
 
     // Toggle Chromium auto-dark for this view live (no reload/env rebuild). enabled:true darkens the site;

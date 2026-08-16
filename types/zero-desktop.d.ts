@@ -48,6 +48,9 @@ export interface ZeroDesktopBridge {
     onStatus: (cb: (payload: { id: string; ok: boolean; detail?: string }) => void) => () => void
     onNavigated: (cb: (payload: { id: string; url: string }) => void) => () => void
     onContextMenu: (cb: (payload: { id: string; x: number; y: number }) => void) => () => void
+    /** Interaction inside the native web view (pointer/keys/wheel); the Zero DOM behind it never sees
+     *  it. Lets the renderer resume that resource's ongoing session after an away-gap (v0.2.307). */
+    onActivity: (cb: (payload: { id: string }) => void) => () => void
   }
   menu: {
     open: (payload: { x: number; y: number; items: import("@/lib/zero/menu-model").MenuItem[] }) => void

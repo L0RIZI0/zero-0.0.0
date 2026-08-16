@@ -89,6 +89,14 @@ contextBridge.exposeInMainWorld("zero", {
       ipcRenderer.on("zero:resource:contextmenu", handler)
       return () => ipcRenderer.removeListener("zero:resource:contextmenu", handler)
     },
+    /** The user interacted INSIDE the native web view (pointer/keys/wheel) — the Zero DOM behind it
+     *  never sees it. Payload { id }. Lets the renderer mark alive + resume that resource's ongoing
+     *  session after an away-gap, since the DOM-based resume can't fire over the webview (v0.2.307). */
+    onActivity: (cb) => {
+      const handler = (_e, payload) => cb(payload)
+      ipcRenderer.on("zero:resource:activity", handler)
+      return () => ipcRenderer.removeListener("zero:resource:activity", handler)
+    },
   },
 
   /** Context menu over an open website → a NATIVE OS menu (`Menu.popup()` in main). You
