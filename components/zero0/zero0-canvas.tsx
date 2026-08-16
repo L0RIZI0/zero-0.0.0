@@ -741,9 +741,30 @@ export function Zero0Canvas() {
   //     keeps `aliveAt` fresh and does NOT trip this — only a genuinely idle device does.
   useEffect(() => {
     if (!mounted) return
-    const WATCHDOG_MS = 20_000
+    // 5s (was 20s): responsive enough that cap/resume feel immediate, still trivially cheap.
+    const WATCHDOG_MS = 5_000
     const iv = setInterval(() => {
-      if (awayArmedRef.current) return // already capped for this absence
+      // ── RESUME branch (v0.2.308) — the symmetric counterpart to the cap that was previously MISSING.
+      // While away-armed, poll whether the DEVICE is active again. This is the robust resume path: it
+      // does NOT depend on the DOM pointerdown (which a native webview composites over) nor on the
+      // .307 webview-activity signal (which needs the native host rebuilt). Any OS-wide input — incl.
+      // typing INSIDE a web resource — drops the idle time, and per the .303 device-level semantic
+      // ("device used ⇒ ongoing alive, even in another app") that should bring the ongoing back.
+      if (awayArmedRef.current) {
+        const getIdle = window.zero?.system?.getIdleSeconds
+        if (getIdle) {
+          getIdle()
+            .then((idleSec) => {
+              if (typeof idleSec === "number" && idleSec * 1000 <= ALIVE_GRACE_MS) resumeFromAway()
+            })
+            .catch(() => {})
+        } else {
+          // Web build (no powerMonitor): fall back to the input-feed heartbeat.
+          const a = getLastKnownAlive()
+          if (a != null && Date.now() - a <= ALIVE_GRACE_MS) resumeFromAway()
+        }
+        return
+      }
       const aliveAt = getLastKnownAlive()
       if (aliveAt == null) return // no evidence yet — don't cap blindly
       if (Date.now() - aliveAt <= ALIVE_GRACE_MS) return // device used recently — still live
@@ -758,7 +779,7 @@ export function Zero0Canvas() {
       if (changed) bump()
     }, WATCHDOG_MS)
     return () => clearInterval(iv)
-  }, [mounted, path, bump])
+  }, [mounted, path, bump, resumeFromAway])
 
   // MOMENT/SPACE Play/Stop (v0.6.26 — Play ALWAYS opens a SESSION, moments included). A deliberate
   // glyph/menu Play is a MANUAL PLAY: a `via:"play"` session on the BOTTOM (recorded) rail. It NEVER
