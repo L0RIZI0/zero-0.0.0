@@ -1641,6 +1641,17 @@ export function Zero0Dayline({
     viewSpanRef.current = cSpan
     viewStartRef.current = zoomBaseStartRef.current
     zoomGlidingRef.current = true
+    // CONSUME the un-flushed pan (v0.2.312). We just folded `panPx` into the frozen base, so the
+    // display is already correct — but the leftover wheelCommit/pendingFlush must NOT survive, or a
+    // LATER pan flush will commit that same offset a SECOND time into viewStart. The classic trigger:
+    // starting a zoom while the ripple is still settling; when the ripple loop reaches rest it calls
+    // flushAtRest → flushWheelPan, which (with a non-zero residual) shifts viewStart to "where the pan
+    // would have ended" AFTER the glide commits = the horizontal END-snap. Zeroing here makes that
+    // flush a no-op. A pending setViewStart that was already queued still lands and reconciles
+    // committedStart to the folded base (the fold's intent); pendingFlush=0 keeps the layout effect
+    // from double-subtracting.
+    wheelCommitRef.current = 0
+    pendingFlushRef.current = 0
   }, [])
 
   // Remap the FROZEN layout to a desired (curStart, curSpan) via the exact affine x' = a·x + b, applied
