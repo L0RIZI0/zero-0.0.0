@@ -1206,6 +1206,22 @@ export function Zero0Dayline({
   // reflow interleaved with the rAF's style writes = layout thrashing. We snapshot the rect on the
   // first delta of a gesture and reuse it until the glide comes to rest (the lane can't move mid-pinch).
   const zoomRectRef = useRef<{ left: number; width: number } | null>(null)
+  // TRANSFORM-GLIDE (v0.2.308) — the eased zoom used to setViewSpan/setViewStart every frame, which on a
+  // heavy entity re-ran all 6 geometry memos + reconciled every bar ~30x per gesture = the lag. Because
+  // winStart===viewStart and time→x is LINEAR, a span/start change is an exact affine remap of the
+  // frozen layout: x' = a·x + b. So during the gesture we FREEZE React state (memos don't recompute) and
+  // each frame apply a cheap GPU `translateX(b) scaleX(a)` to both pan containers; we commit real state
+  // ONCE at rest, where the existing applyPan/paintDayLabels layout-effect resets the transforms.
+  //   zoomBaseStart/Span/Width = the frozen committed layout the transform maps FROM (pan folded in).
+  const zoomGlidingRef = useRef(false)
+  const zoomBaseStartRef = useRef(0)
+  const zoomBaseSpanRef = useRef(VIEW_SPAN_MS)
+  const zoomBaseWidthRef = useRef(1)
+  // Mirror of the LAST COMMITTED React view state (updated in an effect below), so a glide can freeze the
+  // exact layout the DOM currently shows as its transform base — viewStartRef/viewSpanRef diverge to the
+  // live glide target during the gesture, so they can't serve as the base.
+  const committedStartRef = useRef(0)
+  const committedSpanRef = useRef(VIEW_SPAN_MS)
   // Base pan applied imperatively to both the access CONTENT (inside the fixed clip)
   // and the NOW marker + access tooltip (which live outside the clip for edge bleed).
   const contentPanRef = useRef<HTMLDivElement>(null)
@@ -1590,6 +1606,46 @@ export function Zero0Dayline({
   // multiplicative), with a time-based alpha = 1−exp(−dt/τ) that decelerates into rest like the pan
   // ripple. Re-derives the cursor-anchored start each frame so the anchored time stays pinned while
   // the band settles. Snaps + stops when within a hair of the target.
+  // Freeze the current committed layout as the transform base (v0.2.308). Any un-flushed wheel-pan
+  // (px) shifts the displayed start, so fold it into the base start — then replacing the pan transform
+  // with the zoom transform is seamless. Also seed the live refs to this displayed base so the anchor
+  // math in nudgeZoom is consistent from the first delta.
+  const beginZoomGlide = useCallback(() => {
+    const lane = laneRef.current
+    const W = zoomRectRef.current?.width || lane?.clientWidth || 1
+    const cSpan = committedSpanRef.current
+    const panPx = wheelCommitRef.current
+    zoomBaseWidthRef.current = W
+    zoomBaseSpanRef.current = cSpan
+    zoomBaseStartRef.current = committedStartRef.current + (panPx * cSpan) / W
+    viewSpanRef.current = cSpan
+    viewStartRef.current = zoomBaseStartRef.current
+    zoomGlidingRef.current = true
+  }, [])
+
+  // Remap the FROZEN layout to a desired (curStart, curSpan) via the exact affine x' = a·x + b, applied
+  // as one cheap GPU transform to both pan containers. Bars scale correctly; the 1px marker lines scale
+  // transiently (snap back at rest). Day labels live OUTSIDE the pans, so translate them CRISPLY (no
+  // scale) by the same affine so text stays sharp.
+  const applyZoomTransform = useCallback((curStart: number, curSpan: number) => {
+    const W = zoomBaseWidthRef.current || 1
+    const a = zoomBaseSpanRef.current / curSpan
+    const b = (W * (zoomBaseStartRef.current - curStart)) / curSpan
+    const t = `translateX(${b}px) scaleX(${a})`
+    if (contentPanRef.current) contentPanRef.current.style.transform = t
+    if (markerPanRef.current) markerPanRef.current.style.transform = t
+    for (const el of dayLabelNodesRef.current.values()) {
+      const leftPct = +(el.dataset.left ?? "") || 0
+      const x = a * ((leftPct / 100) * W) + b
+      el.style.transform = `translateX(${x}px)`
+      el.style.opacity = x < -2 || x > W + 2 ? "0" : "1"
+    }
+  }, [])
+
+  // One eased frame (v0.2.305; TRANSFORM-GLIDE v0.2.308). Ease the span in LOG space toward the target,
+  // re-anchor the cursor time, and — the key change — DON'T setState mid-glide. Instead remap the frozen
+  // layout with a transform (no memo recompute, no bar reconcile). Commit real state ONCE at rest, where
+  // the [viewStart] layout effect resets the transforms (applyPan) + repaints day labels.
   const stepZoom = useCallback((ts: number) => {
     let dt = (ts - zoomLastTsRef.current) / 1000
     zoomLastTsRef.current = ts
@@ -1604,24 +1660,27 @@ export function Zero0Dayline({
     const nextStart = zoomAnchorTimeRef.current - zoomAnchorFracRef.current * nextSpan
     viewSpanRef.current = nextSpan
     viewStartRef.current = nextStart
-    setViewSpan(nextSpan)
-    setViewStart(nextStart)
     if (nextSpan === zoomTargetSpanRef.current) {
-      // AT REST (v0.2.307): only now do the expensive hover hit-test (elementFromPoint forces a sync
-      // reflow + tooltip repaint). Skipping it every mid-glide frame is the biggest cheap win — the
-      // bars slide under a fixed cursor so the hovered key would thrash on each frame otherwise.
+      // AT REST — commit the real geometry once (single re-layout). The pan was folded into the glide
+      // base, so zero wheelCommit; the layout effect then resets both pan transforms + repaints labels.
+      // Do the expensive hover hit-test (elementFromPoint = sync reflow + tooltip repaint) only now.
+      zoomGlidingRef.current = false
       zoomRafRef.current = null
       zoomRectRef.current = null // gesture over — re-measure the lane next time
+      wheelCommitRef.current = 0
+      setViewSpan(nextSpan)
+      setViewStart(nextStart)
       resolveHoverAtCursor()
     } else {
+      applyZoomTransform(nextStart, nextSpan)
       zoomRafRef.current = requestAnimationFrame(stepZoom)
     }
-  }, [resolveHoverAtCursor])
+  }, [applyZoomTransform, resolveHoverAtCursor])
 
   // Feed one pinch delta into the glide (v0.2.305): nudge the TARGET span (clamped, with a detent at
   // the canonical day view), re-anchor to the time currently under the cursor, and ensure the eased
-  // loop is running. The anchor is recomputed from the CURRENT displayed span so continued pinching
-  // never jumps the band.
+  // loop is running. On the FIRST delta of a gesture, freeze the transform base first so the anchor
+  // reads the actual displayed start/span.
   const nudgeZoom = useCallback((deltaY: number, clientX: number) => {
     const lane = laneRef.current
     if (!lane) return
@@ -1632,6 +1691,8 @@ export function Zero0Dayline({
       rect = { left: r.left, width: r.width || 1 }
       zoomRectRef.current = rect
     }
+    const starting = zoomRafRef.current == null
+    if (starting) beginZoomGlide() // freeze base BEFORE the anchor math reads viewStartRef/viewSpanRef
     const w = rect.width
     const frac = Math.min(1, Math.max(0, (clientX - rect.left) / w))
     // Anchor = the time under the cursor RIGHT NOW (from the live displayed state), so the glide keeps
@@ -1640,15 +1701,15 @@ export function Zero0Dayline({
     zoomAnchorTimeRef.current = viewStartRef.current + frac * viewSpanRef.current
     // Grow/shrink the target from its own last value (not the mid-glide live span), so rapid deltas
     // accumulate toward a far target rather than fighting the easing.
-    const base = zoomRafRef.current != null ? zoomTargetSpanRef.current : viewSpanRef.current
+    const base = starting ? viewSpanRef.current : zoomTargetSpanRef.current
     let target = Math.min(MAX_VIEW_SPAN_MS, Math.max(MIN_VIEW_SPAN_MS, base * Math.exp(deltaY * ZOOM_SENSITIVITY)))
     if (Math.abs(target - VIEW_SPAN_MS) / VIEW_SPAN_MS < 0.04) target = VIEW_SPAN_MS // detent on the day
     zoomTargetSpanRef.current = target
-    if (zoomRafRef.current == null) {
+    if (starting) {
       zoomLastTsRef.current = performance.now()
       zoomRafRef.current = requestAnimationFrame(stepZoom)
     }
-  }, [stepZoom])
+  }, [beginZoomGlide, stepZoom])
 
   const flushWheelPan = useCallback(() => {
     const lane = laneRef.current
@@ -1748,6 +1809,13 @@ export function Zero0Dayline({
     // initial mount) — the ripple loop is not running at rest, so paint them here.
     paintDayLabels()
   }, [viewStart, applyPan, paintDayLabels])
+
+  // Keep the committed-state mirror current so a zoom glide can freeze the exact layout the DOM shows
+  // (viewStartRef/viewSpanRef diverge to the live glide target during the gesture). See zoom refs above.
+  useEffect(() => {
+    committedStartRef.current = viewStart
+    committedSpanRef.current = viewSpan
+  }, [viewStart, viewSpan])
 
   useEffect(() => {
     return () => {
