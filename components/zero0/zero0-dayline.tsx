@@ -2560,10 +2560,13 @@ export function Zero0Dayline({
                           // the tick height so it reads at any rail size; solid color + blur naturally ramps
                           // color→transparent toward the centre, so the fill still shows through. Only
                           // where a parent color exists (inside a Space) and never on points / mark glyphs.
+                          // BOLDER (v0.2.319): add a SPREAD term so the accent color occupies a solid ring
+                          // before it ramps to transparent, reading much stronger than the pure-blur glow —
+                          // still no flat hairline. Spread + blur both scale with tick height.
                           boxShadow:
                             p.markGlyph || p.point || !p.stroke
                               ? undefined
-                              : `inset 0 0 ${Math.max(3, Math.round(tickH * 0.5))}px 0 ${p.stroke}`,
+                              : `inset 0 0 ${Math.max(4, Math.round(tickH * 0.6))}px ${Math.max(1, Math.round(tickH * 0.14))}px ${p.stroke}`,
                           clipPath: p.markGlyph ? "polygon(0 0, 100% 0, 50% 100%)" : undefined,
                           // UNKNOWN-END FADE (v0.6.20) — the tail is now a MASK on this ONE element,
                           // not a separate sibling div. The last FADE_MS (as a % of the lane) fades to

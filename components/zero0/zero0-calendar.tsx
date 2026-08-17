@@ -52,9 +52,12 @@ const LABEL_MIN_W = 40
  *  qualitative "continues / began before" blend at any hour scale. Bottom fade = unknown END, top fade =
  *  unknown START. */
 const CAL_FADE_PX = 14
-/** Accent border thickness on calendar blocks (v0.2.319) — 1px read too subtle, so blocks get a bold
- *  5px accent stroke (the dayline mirror uses 3px). */
-const CAL_BLOCK_BORDER_PX = 5
+/** Accent INNER-GLOW on calendar blocks (v0.2.319) — the calendar mirror of the dayline tick glow: an
+ *  inset box-shadow in the entity accent, NOT a flat border (Loris preferred the soft depth look, from
+ *  the dayline's v0.2.265/.266 decision). A solid SPREAD ring then a BLUR ramp to transparent so the
+ *  accent reads boldly at any block size without a hairline. Fixed px (blocks are large + varied). */
+const CAL_GLOW_BLUR_PX = 10
+const CAL_GLOW_SPREAD_PX = 2
 /** An unknown-START block has no real start, so it carries no height of its own; give it this fixed
  *  upward lead-in from its end anchor purely to host the top fade (mirror of the dayline's START_FADE_PX
  *  lead-in tail). */
@@ -757,18 +760,21 @@ export function Zero0Calendar({
                         style={{ left: r.bx, top: r.by, width: r.bw, height: r.bh, touchAction: movable ? "none" : undefined }}
                         title={`${r.bar.title} · ${liveRange}`}
                       >
-                        {/* FILL LAYER (v0.2.316) — carries the accent fill, hairline border AND the
-                            unclear-edge fade mask, so the label above stays fully crisp while the block
+                        {/* FILL LAYER (v0.2.316) — carries the accent fill, the accent glow/hairline AND
+                            the unclear-edge fade mask, so the label above stays fully crisp while the block
                             body fades to transparent at an unknown start/end (mirror of the dayline). */}
                         <span
                           aria-hidden
                           className="absolute inset-0 rounded-[3px]"
                           style={{
                             background,
-                            // Thick accent border (v0.2.319) — the entity's accent at 1px read too subtle,
-                            // so calendar blocks use a bold 5px stroke (dayline ticks use 3px). Drawn on the
-                            // masked fill layer so an unclear-edge fade still applies to the border too.
-                            border: `${CAL_BLOCK_BORDER_PX}px solid ${border}`,
+                            // GLOW not border (v0.2.319, Loris) — the accent reads as an inset glow bleeding
+                            // inward, matching the dayline; the neutral root sentinel (no accent) keeps a
+                            // faint hairline for shape. Masked so an unclear-edge fade carries the glow too.
+                            boxShadow: isRoot
+                              ? undefined
+                              : `inset 0 0 ${CAL_GLOW_BLUR_PX}px ${CAL_GLOW_SPREAD_PX}px ${border}`,
+                            border: isRoot ? `1px solid ${border}` : undefined,
                             maskImage: fadeMask,
                             WebkitMaskImage: fadeMask,
                           }}
