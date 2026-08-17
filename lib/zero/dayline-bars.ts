@@ -23,6 +23,11 @@ import { webLabel } from "./web-resources"
 import { isSleepTitle, sleepSkyBackground } from "./sleep-sky"
 
 const DAY_MS = 86_400_000
+/** Calendar declutter floor (v0.2.314): a block shorter than this is HIDDEN in the calendar — EXCEPT
+ *  Instants (zero-duration planned markers) and ANY ongoing block, which always stay visible. Blocks
+ *  this brief are sub-pixel on a 20px/hour grid, so hiding them keeps the calendar readable. The
+ *  dayline is unaffected (it already renders tiny sessions at honest width since .310). */
+const CAL_MIN_VISIBLE_MS = 5 * 60_000
 /** Neutral fill for an entity with no own/inherited accent. Mirrors the dayline's `NEUTRAL`. */
 export const NEUTRAL = "oklch(0.72 0.004 75)"
 /** Sentinel marking the COLORLESS root; render maps it to a theme-background fill. Mirrors dayline. */
