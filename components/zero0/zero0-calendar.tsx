@@ -6,7 +6,7 @@ import type { DaylineOccRef } from "@/components/zero0/zero0-dayline"
 import { Zero0Glyph } from "@/components/zero0/zero0-glyph"
 import { getEntity } from "@/lib/zero/data"
 import { getFaceModel } from "@/lib/zero/face-model"
-import { NOW_COLOR } from "@/lib/zero/timeline-format"
+import { NOW_COLOR, rangeText } from "@/lib/zero/timeline-format"
 import { useNowSeconds } from "@/lib/zero/use-now"
 import { cn } from "@/lib/utils"
 
@@ -586,6 +586,12 @@ export function Zero0Calendar({
                       (r.bar.track === "planned" && !!r.bar.occRef && !!onOccurrenceRetime) ||
                       (r.bar.track === "recorded" && r.bar.sessionAnchorId != null && !!onSessionRetime)
                     const showHandles = resizable && r.bh >= RESIZE_MIN_H
+                    // While THIS block is being resized, recompute its range text live from the preview
+                    // span so the in-block label + tooltip track the drag in real time (v0.2.315). The
+                    // preview holds the whole-occurrence span (not day-clipped), so a multi-day block
+                    // still reads its true new start/end as `start – end`.
+                    const previewing = editPreview?.key === r.bar.key
+                    const liveRange = previewing ? rangeText(editPreview!.start, editPreview!.end) : r.bar.range
                     return (
                       <button
                         key={r.bar.key + ":" + i}
@@ -604,7 +610,7 @@ export function Zero0Calendar({
                           dim && "opacity-40",
                         )}
                         style={{ left: r.bx, top: r.by, width: r.bw, height: r.bh, background, borderColor: border }}
-                        title={`${r.bar.title} · ${r.bar.range}`}
+                        title={`${r.bar.title} · ${liveRange}`}
                       >
                         {r.internal && (
                           <span
@@ -632,9 +638,9 @@ export function Zero0Calendar({
                                 {r.bar.title}
                               </span>
                             </span>
-                            {showTime && (
+                            {(showTime || previewing) && (
                               <span className="shrink-0 truncate text-[9px] tabular-nums opacity-70">
-                                {r.bar.range}
+                                {liveRange}
                               </span>
                             )}
                           </span>
@@ -685,7 +691,9 @@ export function Zero0Calendar({
                           dim && "opacity-40",
                         )}
                         style={{ left: c.lx, top: c.ly, width: c.lw, height: c.lh }}
-                        title={`${c.bar.title} · ${c.bar.range}`}
+                        title={`${c.bar.title} · ${
+                          editPreview?.key === c.bar.key ? rangeText(editPreview.start, editPreview.end) : c.bar.range
+                        }`}
                       >
                         {/* The entity glyph in its accent (mirror of the in-block glyph); falls back to a
                             simple accent dot if no model is available. */}
