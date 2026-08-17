@@ -566,6 +566,21 @@ export function effectiveEndAt(entity: Entity): number | null {
 }
 
 /**
+ * True when the entity has a PLANNED occurrence whose START lies in the FUTURE (after `now`).
+ * Used to flip a Space's glyph 180° as an "upcoming" signal (v0.2.321). Cheap O(1) schedule read:
+ *  • RECURRING — a future occurrence exists while the rule hasn't ended (`until` absent, or after now).
+ *  • ONE-OFF — the planned start (`startDate ?? at ?? dueDate`) is after now.
+ * Callers should exclude cancelled entities (a cancelled plan isn't "upcoming").
+ */
+export function hasFuturePlannedOccurrence(entity: Entity, now: number): boolean {
+  const s = entity.schedule
+  if (!s) return false
+  if (s.repeat) return s.repeat.until == null || s.repeat.until > now
+  const start = (typeof s.startDate === "number" ? s.startDate : undefined) ?? s.at ?? s.dueDate
+  return start != null && start > now
+}
+
+/**
  * The kinds whose glyph is a PLAY/STOP control by default (v0.7 — the "whenever nonsense" is gone).
  * Any LIVE (not-ended) entity of these kinds is playable: idle ⇒ Play, ongoing ⇒ Stop. The beings
  * (individual/organism/community) are alive, not played; the timeless Soul is never played; an

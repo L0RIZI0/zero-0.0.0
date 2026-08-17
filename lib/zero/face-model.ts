@@ -22,7 +22,7 @@ import type { Recurrence, Session } from "./types"
   import { KIND_META, isClosed, fillsGlyph, getState, isOngoing, getOngoingSince, plannedStart, effectiveScheduleEnd, ongoingOpenSession, occurrenceAction, isBeing, isLifeBeing, individualBornAt, getPublishedAt, lifeAnchor, isMarkable, getMarks, getSessions, getInstantMaxNb, isInstantMaxNbHard, getInstantOccurrenceCount, type EntityState } from "./kinds"
 import { isDone, getCreatedAt, getDoneOn } from "./entity-log"
  import { getEntity, getCreator, getOwner, getForwardTags, getBackReferences, getChildren, projectOccurrences } from "./data"
-import { isPlannedStart } from "./kinds"
+import { isPlannedStart, hasFuturePlannedOccurrence } from "./kinds"
 import { getResourceDef } from "./resources"
 import { formatLocale } from "./format-locale"
 import { webLabel } from "./web-resources"
@@ -637,6 +637,9 @@ export interface FaceModel {
   metaEcho: string
   /** This entity's own explicitly-set accent (inherited colors are not surfaced). */
   accent?: string
+  /** SPACE with a FUTURE planned occurrence ⇒ flip the glyph 180° as an "upcoming" signal (v0.2.321).
+   *  Only ever set for a non-cancelled space; every other kind leaves it false. */
+  glyphFlip180?: boolean
   /** WEB RESOURCE: the fronted URL, when this entity fronts a web surface. Its presence tells
       a renderer to show the site FAVICON before the title and that `title` is the DISPLAYED
       title (webpage title / hostname), not the raw URL (which stays the entity's stored title). */
@@ -695,6 +698,9 @@ export function getFaceModel(e: Entity, now: number): FaceModel {
     stateLabel: `${done ? "done, " : ""}${ongoingNow ? "ongoing, " : ""}${lifeLabel}${requested ? ", requested" : ""}`,
     metaEcho: metaEcho(e, now),
     accent: e.color,
+    // SPACE with a future planned occurrence ⇒ flip its glyph 180° (v0.2.321). Space-only, and never
+    // for a cancelled plan (a called-off future isn't "upcoming").
+    glyphFlip180: e.kind === "space" && state.word !== "cancelled" && hasFuturePlannedOccurrence(e, now),
   }
 }
 

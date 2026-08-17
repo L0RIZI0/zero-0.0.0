@@ -220,6 +220,7 @@ export function Zero0Glyph({
   spinOnce,
   flashFill,
   pulse,
+  flip180,
   className,
 }: {
   kind: EntityKind | "link"
@@ -267,6 +268,14 @@ export function Zero0Glyph({
    * lingering NOTIFICATION chip. Purely decorative; independent of the ongoing rotation.
    */
   pulse?: boolean
+  /**
+   * FLIP180 — a STATIC 180° rotation of the glyph SILHOUETTE (v0.2.321), applied to the shape group
+   * only (not the done-check / cancel-bar overlays, which keep their upright orientation). Used to
+   * mark a Space that has a FUTURE planned occurrence — an "upcoming, pointing ahead" signal. Because
+   * it lives on an INNER `<g>`, it composes additively with the `ongoing` spin (which animates the
+   * outer `<svg>` transform), so a flipped space still tumbles correctly when live.
+   */
+  flip180?: boolean
   /**
    * DONE mark — overlay a check on the shape. Drawn whether the shape is outline or
    * filled: on a filled shape the check strokes in the BACKGROUND colour so it stays
@@ -481,18 +490,23 @@ export function Zero0Glyph({
       aria-hidden="true"
       focusable="false"
     >
-      {morphing && RADII[kind as EntityKind] ? (
-        // Sampled silhouette, driven by the morph rAF. Initial points = the current kind so the
-        // very first paint matches before the effect's first frame runs.
-        <polygon ref={polyRef} points={buildPoints(RADII[kind as EntityKind] as number[])} />
-      ) : (
-        <KindShape kind={kind} requested={requested && kind === "task"} scheduled={scheduled} />
-      )}
-      {/* FILL-FLASH overlay — a filled copy of the shape, hidden (opacity 0) until a mark spin
-          ramps it to full at the spin midpoint then back to 0. Explicit fill/stroke so it
-          flashes even when the base glyph is an outline. */}
-      <g ref={flashRef} fill="currentColor" stroke="none" style={{ opacity: 0 }} aria-hidden="true">
-        <KindShape kind={kind} requested={requested && kind === "task"} scheduled={scheduled} />
+      {/* Silhouette group — carries the optional static 180° flip (v0.2.321) so it composes with
+          the outer-svg ongoing spin. The done-check + cancel-bar overlays live OUTSIDE it and stay
+          upright. */}
+      <g transform={flip180 ? "rotate(180 12 12)" : undefined}>
+        {morphing && RADII[kind as EntityKind] ? (
+          // Sampled silhouette, driven by the morph rAF. Initial points = the current kind so the
+          // very first paint matches before the effect's first frame runs.
+          <polygon ref={polyRef} points={buildPoints(RADII[kind as EntityKind] as number[])} />
+        ) : (
+          <KindShape kind={kind} requested={requested && kind === "task"} scheduled={scheduled} />
+        )}
+        {/* FILL-FLASH overlay — a filled copy of the shape, hidden (opacity 0) until a mark spin
+            ramps it to full at the spin midpoint then back to 0. Explicit fill/stroke so it
+            flashes even when the base glyph is an outline. */}
+        <g ref={flashRef} fill="currentColor" stroke="none" style={{ opacity: 0 }} aria-hidden="true">
+          <KindShape kind={kind} requested={requested && kind === "task"} scheduled={scheduled} />
+        </g>
       </g>
       {done && (
         <path

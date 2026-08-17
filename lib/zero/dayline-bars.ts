@@ -121,6 +121,9 @@ export function getCalendarBars(lo: number, hi: number, now: number = Date.now()
     const en = endNum ?? closeAt ?? (ongoing ? now : st!)
     const anchor = st ?? en
     if (en < lo || anchor > hi) continue
+    // A zero-length point in time. AT-markers and DUE deadlines both collapse here (an `at` or
+    // `dueDate` with no span), which is exactly the set we also treat as INSTANTS below.
+    const point = st != null && en <= st
     const isSleepSpan = st != null && en > st && occ.kind === "moment" && isSleepTitle(occ.title)
     const { fill, stroke } = paintFor(occ.id)
     planned.push({
@@ -132,8 +135,12 @@ export function getCalendarBars(lo: number, hi: number, now: number = Date.now()
       startMs: st ?? undefined,
       endMs: en,
       track: "planned",
-      point: st != null && en <= st,
-      instant: occ.kind === "instant",
+      point,
+      // INSTANT behavior on the calendar (full-width, frontmost, centered chip) for genuine instants
+      // AND for any point-in-time driven by an `at` or `dueDate` field (v0.2.321) — a deadline/marker
+      // reads as a moment, not a lane-packed span. Guarded by `point` so a real span that merely also
+      // carries a dueDate is NOT collapsed.
+      instant: occ.kind === "instant" || (point && (s.at != null || s.dueDate != null)),
       ongoing,
       openEnded: ongoing,
       unknownEnd,

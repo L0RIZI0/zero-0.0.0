@@ -787,6 +787,7 @@ export function Zero0Calendar({
                                   requested={g.requested}
                                   scheduled={g.scheduled}
                                   ongoing={g.ongoing}
+                                  flip180={g.glyphFlip180}
                                   className="mt-[1px] h-3 w-3 shrink-0"
                                 />
                               )}
@@ -876,6 +877,7 @@ export function Zero0Calendar({
                                 requested={g.requested}
                                 scheduled={g.scheduled}
                                 ongoing={g.ongoing}
+                                flip180={g.glyphFlip180}
                                 className="h-3 w-3"
                               />
                             </span>

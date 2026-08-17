@@ -104,6 +104,7 @@ function FaceGlyph({
       requested={model.requested}
       ongoing={model.ongoing}
       scheduled={model.scheduled}
+      flip180={model.glyphFlip180}
       spinOnce={markSpin}
       className={glyphClass}
     />
