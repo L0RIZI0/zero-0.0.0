@@ -39,6 +39,10 @@ const LABEL_MIN_H = 22
 const LABEL_MIN_W = 40
 /** A block this tall can show BOTH its title and its time range inside; shorter shows only the title. */
 const LABEL_TIME_H = 40
+/** Blocks shorter than this get NO persistent label at all (neither inside nor as an external chip) —
+ *  their info shows only on hover via the native tooltip (v0.2.314, Loris ask). EXCEPTIONS: Instants
+ *  (zero-duration markers) and ONGOING blocks always keep a label regardless of duration. */
+const LABEL_MIN_DURATION_MS = 5 * 60_000
 
 /** Local midnight (epoch ms) for the day containing `epoch`. */
 function startOfDay(epoch: number): number {
@@ -95,6 +99,9 @@ interface PlacedBlock {
   bw: number
   bh: number
   internal: boolean
+  /** Whether this block gets a PERSISTENT label at all. Sub-5min blocks (except Instants/ongoing) are
+   *  label-free — hover the block for its tooltip instead (v0.2.314). */
+  labeled: boolean
 }
 /** An external label chip (day-local) for a block too small to hold its label inside, plus the SVG path
  *  of the hairline connector from the block edge to the chip. */
@@ -126,8 +133,12 @@ function layoutDay(
       const subW = colW / b.laneCount
       const bw = Math.max(1, subW - 1)
       const bx = halfX + b.lane * subW + 0.5
-      const internal = bh >= LABEL_MIN_H && bw >= LABEL_MIN_W
-      return { bar: b.bar, bx, by, bw, bh, internal }
+      // Duration from the bar's absolute span (NOT the clipped/floored height) so a block split across
+      // days is still judged by its true length. Instants + ongoing blocks always keep a label.
+      const durMs = b.bar.startMs != null ? b.bar.endMs - b.bar.startMs : 0
+      const labeled = !!b.bar.instant || !!b.bar.ongoing || durMs >= LABEL_MIN_DURATION_MS
+      const internal = labeled && bh >= LABEL_MIN_H && bw >= LABEL_MIN_W
+      return { bar: b.bar, bx, by, bw, bh, internal, labeled }
     })
   const plannedR = build(plannedBlocks, 0)
   const recordedR = build(recordedBlocks, colW)
@@ -172,8 +183,8 @@ function layoutDay(
     const path = `M ${ax.toFixed(1)} ${ay.toFixed(1)} C ${(ax + dx).toFixed(1)} ${ay.toFixed(1)}, ${(cx - dx).toFixed(1)} ${cy.toFixed(1)}, ${cx.toFixed(1)} ${cy.toFixed(1)}`
     chips.push({ bar: r.bar, lx, ly, lw, lh, path })
   }
-  for (const r of plannedR) if (!r.internal) place(r, "planned")
-  for (const r of recordedR) if (!r.internal) place(r, "recorded")
+  for (const r of plannedR) if (r.labeled && !r.internal) place(r, "planned")
+  for (const r of recordedR) if (r.labeled && !r.internal) place(r, "recorded")
 
   return { blocks: [...plannedR, ...recordedR], chips }
 }
@@ -479,9 +490,16 @@ export function Zero0Calendar({
                             className="flex h-full flex-col gap-0.5 px-1 py-0.5 leading-tight"
                             style={{ color: ink }}
                           >
-                            <span className="truncate text-[10px] font-medium">{r.bar.title}</span>
+                            {/* Title WRAPS (up to 2 lines) rather than truncating, so it reads fully when
+                                the block is tall enough (v0.2.314). `min-h-0` lets the flex child shrink so
+                                overflow still clips gracefully in a very short block. */}
+                            <span className="line-clamp-2 min-h-0 break-words text-[10px] font-medium">
+                              {r.bar.title}
+                            </span>
                             {showTime && (
-                              <span className="truncate text-[9px] tabular-nums opacity-70">{r.bar.range}</span>
+                              <span className="shrink-0 truncate text-[9px] tabular-nums opacity-70">
+                                {r.bar.range}
+                              </span>
                             )}
                           </span>
                         )}
