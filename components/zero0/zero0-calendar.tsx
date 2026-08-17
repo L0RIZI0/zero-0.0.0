@@ -33,6 +33,12 @@ const DAY_HEADER_H = 26
 const MIN_BLOCK_H = 3
 /** Extra days rendered on EACH side of the visible span, for horizontal scroll headroom. */
 const DAY_BUFFER = 7
+/** A block must be at least this tall AND wide to hold its label INSIDE; otherwise the label goes to an
+ *  external chip in the sibling column with a hairline connector (v0.2.313). */
+const LABEL_MIN_H = 22
+const LABEL_MIN_W = 40
+/** A block this tall can show BOTH its title and its time range inside; shorter shows only the title. */
+const LABEL_TIME_H = 40
 
 /** Local midnight (epoch ms) for the day containing `epoch`. */
 function startOfDay(epoch: number): number {
@@ -78,13 +84,127 @@ function packColumn(bars: { bar: CalBar; clipStart: number; clipEnd: number }[])
   return placed
 }
 
-/** Resolve a bar's fill/border for a block. Mirrors the dayline: the colorless root maps to a
- *  theme-background chip with a grey hairline; everything else uses its accent fill. */
-function blockColors(bar: CalBar): { background: string; border: string; isRoot: boolean } {
-  if (bar.color === ROOT_SENTINEL_COLOR) {
-    return { background: "var(--background)", border: NEUTRAL, isRoot: true }
+/** External-label chip height. */
+const CHIP_H = 16
+
+/** A block positioned in DAY-LOCAL coords (x=0 at the day's left edge), with whether its label fits inside. */
+interface PlacedBlock {
+  bar: CalBar
+  bx: number
+  by: number
+  bw: number
+  bh: number
+  internal: boolean
+}
+/** An external label chip (day-local) for a block too small to hold its label inside, plus the SVG path
+ *  of the hairline connector from the block edge to the chip. */
+interface LabelChip {
+  bar: CalBar
+  lx: number
+  ly: number
+  lw: number
+  lh: number
+  path: string
+}
+
+/** Lay out ONE day: turn packed planned/recorded blocks into day-local block rects, decide which can
+ *  hold their label inside, and for the rest place an external chip in the SIBLING column (planned→
+ *  recorded, recorded→planned) at a free vertical slot near the block, with a curved hairline connector
+ *  (v0.2.313 — the "label on the other column" behavior). Coords are day-local so the caller only offsets
+ *  by the day's x. */
+function layoutDay(
+  plannedBlocks: Block[],
+  recordedBlocks: Block[],
+  dayStart: number,
+  colW: number,
+  contentH: number,
+): { blocks: PlacedBlock[]; chips: LabelChip[] } {
+  const build = (blocks: Block[], halfX: number): PlacedBlock[] =>
+    blocks.map((b) => {
+      const by = ((b.clipStart - dayStart) / DAY_MS) * contentH
+      const bh = Math.max(MIN_BLOCK_H, ((b.clipEnd - b.clipStart) / DAY_MS) * contentH)
+      const subW = colW / b.laneCount
+      const bw = Math.max(1, subW - 1)
+      const bx = halfX + b.lane * subW + 0.5
+      const internal = bh >= LABEL_MIN_H && bw >= LABEL_MIN_W
+      return { bar: b.bar, bx, by, bw, bh, internal }
+    })
+  const plannedR = build(plannedBlocks, 0)
+  const recordedR = build(recordedBlocks, colW)
+
+  // Occupancy (y-intervals) per half, seeded with that half's blocks; chips accrete so they don't stack.
+  const occ = { planned: [] as [number, number][], recorded: [] as [number, number][] }
+  for (const r of plannedR) occ.planned.push([r.by, r.by + r.bh])
+  for (const r of recordedR) occ.recorded.push([r.by, r.by + r.bh])
+  const overlaps = (list: [number, number][], top: number, bot: number) =>
+    list.some(([t, b]) => top < b && bot > t)
+
+  const chips: LabelChip[] = []
+  const place = (r: PlacedBlock, from: "planned" | "recorded") => {
+    const to = from === "planned" ? "recorded" : "planned"
+    const toX = to === "planned" ? 0 : colW
+    const lw = Math.max(24, colW - 3)
+    const lh = CHIP_H
+    const desired = Math.min(Math.max(r.by + r.bh / 2 - lh / 2, 0), Math.max(0, contentH - lh))
+    let ly = desired
+    for (let step = 0; step <= contentH; step += 3) {
+      const cands = step === 0 ? [desired] : [desired + step, desired - step]
+      let hit = false
+      for (const cand of cands) {
+        if (cand < 0 || cand + lh > contentH) continue
+        if (!overlaps(occ[to], cand, cand + lh)) {
+          ly = cand
+          hit = true
+          break
+        }
+      }
+      if (hit) break
+    }
+    occ[to].push([ly, ly + lh])
+    const lx = toX + 1.5
+    // Connector: from the block's INNER edge (planned→right edge, recorded→left edge) to the chip's
+    // near edge, as a horizontal-tangent cubic so it curves smoothly when the chip is offset vertically.
+    const ay = r.by + r.bh / 2
+    const ax = from === "planned" ? r.bx + r.bw : r.bx
+    const cy = ly + lh / 2
+    const cx = to === "planned" ? lx + lw : lx
+    const dx = (cx - ax) / 2
+    const path = `M ${ax.toFixed(1)} ${ay.toFixed(1)} C ${(ax + dx).toFixed(1)} ${ay.toFixed(1)}, ${(cx - dx).toFixed(1)} ${cy.toFixed(1)}, ${cx.toFixed(1)} ${cy.toFixed(1)}`
+    chips.push({ bar: r.bar, lx, ly, lw, lh, path })
   }
-  return { background: bar.color, border: bar.stroke ?? bar.color, isRoot: false }
+  for (const r of plannedR) if (!r.internal) place(r, "planned")
+  for (const r of recordedR) if (!r.internal) place(r, "recorded")
+
+  return { blocks: [...plannedR, ...recordedR], chips }
+}
+
+/** A readable text ink for a solid accent fill. oklch strings expose lightness directly as the first
+ *  number (0..1); a hex fallback uses relative luminance. Light fills ⇒ dark ink, dark fills ⇒ light. */
+function readableInk(color: string): string {
+  const dark = "oklch(0.22 0 0)"
+  const light = "oklch(0.98 0 0)"
+  const ok = color.match(/oklch\(\s*([\d.]+)/i)
+  if (ok) return Number.parseFloat(ok[1]) > 0.62 ? dark : light
+  const hex = color.match(/^#?([0-9a-f]{6})$/i)
+  if (hex) {
+    const n = Number.parseInt(hex[1], 16)
+    const r = (n >> 16) & 255,
+      g = (n >> 8) & 255,
+      b = n & 255
+    const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255
+    return lum > 0.6 ? dark : light
+  }
+  return dark
+}
+
+/** Resolve a bar's fill/border/ink for a block. Mirrors the dayline: the colorless root maps to a
+ *  theme-background chip with a grey hairline; everything else uses its accent fill. */
+function blockColors(bar: CalBar): { background: string; border: string; ink: string; isRoot: boolean } {
+  if (bar.color === ROOT_SENTINEL_COLOR) {
+    return { background: "var(--background)", border: NEUTRAL, ink: "var(--foreground)", isRoot: true }
+  }
+  const background = bar.sky ?? bar.color
+  return { background, border: bar.stroke ?? bar.color, ink: readableInk(background), isRoot: false }
 }
 
 export function Zero0Calendar({
@@ -290,68 +410,112 @@ export function Zero0Calendar({
               />
             ))}
 
-            {/* Day columns: dividers + the two-column split + packed blocks */}
+            {/* Day columns: dividers + the two-column split + packed blocks + external labels */}
             {days.map((d, di) => {
               const x = di * dayColW
               const colW = dayColW / 2
               const plannedBlocks = packForDay(planned, d.start, d.end)
               const recordedBlocks = packForDay(recorded, d.start, d.end)
-              const renderBlocks = (blocks: Block[], colX: number) =>
-                blocks.map((b, i) => {
-                  const top = ((b.clipStart - d.start) / DAY_MS) * contentH
-                  const rawH = ((b.clipEnd - b.clipStart) / DAY_MS) * contentH
-                  const h = Math.max(MIN_BLOCK_H, rawH)
-                  const subW = colW / b.laneCount
-                  const left = colX + b.lane * subW
-                  const { background, border, isRoot } = blockColors(b.bar)
-                  const dim = highlightId != null && highlightId !== b.bar.id
-                  return (
-                    <button
-                      key={b.bar.key + ":" + i}
-                      type="button"
-                      data-calblock
-                      data-calkey={b.bar.key}
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        onOpen(b.bar.id)
-                      }}
-                      onContextMenu={(e) => {
-                        if (b.bar.occRef && onOccurrenceMenu) onOccurrenceMenu(b.bar.id, b.bar.occRef, e)
-                        else if (b.bar.sessionAnchorId != null && onSessionMenu)
-                          onSessionMenu(b.bar.id, b.bar.sessionAnchorId, e)
-                        else onContextMenuEntity?.(b.bar.id, e)
-                      }}
-                      className={cn(
-                        "absolute overflow-hidden rounded-[3px] text-left transition-opacity",
-                        isRoot ? "border" : "border border-black/10",
-                        dim && "opacity-40",
-                      )}
-                      style={{
-                        left: left + 0.5,
-                        top,
-                        width: Math.max(1, subW - 1),
-                        height: h,
-                        background: b.bar.sky ?? background,
-                        borderColor: border,
-                      }}
-                      title={`${b.bar.title} · ${b.bar.range}`}
-                    />
-                  )
-                })
+              const { blocks, chips } = layoutDay(plannedBlocks, recordedBlocks, d.start, colW, contentH)
+              const ctxMenu = (bar: CalBar, e: React.MouseEvent) => {
+                if (bar.occRef && onOccurrenceMenu) onOccurrenceMenu(bar.id, bar.occRef, e)
+                else if (bar.sessionAnchorId != null && onSessionMenu) onSessionMenu(bar.id, bar.sessionAnchorId, e)
+                else onContextMenuEntity?.(bar.id, e)
+              }
               return (
-                <div key={d.start}>
-                  {/* day divider (left edge) */}
-                  <div
-                    className="pointer-events-none absolute inset-y-0 border-l border-border"
-                    style={{ left: x }}
-                  />
-                  {/* mid divider between the two columns */}
-                  <div
-                    className="pointer-events-none absolute inset-y-0 border-l border-border/30"
-                    style={{ left: x + colW }}
-                  />
-                  {renderBlocks(plannedBlocks, x)}
-                  {renderBlocks(recordedBlocks, x + colW)}
+                // Day wrapper — positioned at the day's x so blocks/chips/connectors use DAY-LOCAL coords.
+                <div key={d.start} className="absolute top-0" style={{ left: x, width: dayColW, height: contentH }}>
+                  {/* day divider (left edge) + mid divider between the two columns */}
+                  <div className="pointer-events-none absolute inset-y-0 left-0 border-l border-border" />
+                  <div className="pointer-events-none absolute inset-y-0 border-l border-border/30" style={{ left: colW }} />
+
+                  {/* Connector hairlines (behind blocks + chips) */}
+                  {chips.length > 0 && (
+                    <svg
+                      className="pointer-events-none absolute inset-0 overflow-visible"
+                      width={dayColW}
+                      height={contentH}
+                      aria-hidden
+                    >
+                      {chips.map((c, i) => (
+                        <path
+                          key={i}
+                          d={c.path}
+                          fill="none"
+                          stroke="var(--muted-foreground)"
+                          strokeOpacity={0.45}
+                          strokeWidth={1}
+                        />
+                      ))}
+                    </svg>
+                  )}
+
+                  {/* Blocks */}
+                  {blocks.map((r, i) => {
+                    const { background, border, ink, isRoot } = blockColors(r.bar)
+                    const dim = highlightId != null && highlightId !== r.bar.id
+                    const showTime = r.bh >= LABEL_TIME_H
+                    return (
+                      <button
+                        key={r.bar.key + ":" + i}
+                        type="button"
+                        data-calblock
+                        data-calkey={r.bar.key}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          onOpen(r.bar.id)
+                        }}
+                        onContextMenu={(e) => ctxMenu(r.bar, e)}
+                        className={cn(
+                          "absolute overflow-hidden rounded-[3px] text-left transition-opacity",
+                          isRoot ? "border" : "border border-black/10",
+                          dim && "opacity-40",
+                        )}
+                        style={{ left: r.bx, top: r.by, width: r.bw, height: r.bh, background, borderColor: border }}
+                        title={`${r.bar.title} · ${r.bar.range}`}
+                      >
+                        {r.internal && (
+                          <span
+                            className="flex h-full flex-col gap-0.5 px-1 py-0.5 leading-tight"
+                            style={{ color: ink }}
+                          >
+                            <span className="truncate text-[10px] font-medium">{r.bar.title}</span>
+                            {showTime && (
+                              <span className="truncate text-[9px] tabular-nums opacity-70">{r.bar.range}</span>
+                            )}
+                          </span>
+                        )}
+                      </button>
+                    )
+                  })}
+
+                  {/* External label chips (for blocks too small to hold their label inside) */}
+                  {chips.map((c, i) => {
+                    const dim = highlightId != null && highlightId !== c.bar.id
+                    const dot = c.bar.color === ROOT_SENTINEL_COLOR ? NEUTRAL : (c.bar.sky ?? c.bar.color)
+                    return (
+                      <button
+                        key={c.bar.key + ":lbl:" + i}
+                        type="button"
+                        data-calblock
+                        data-calkey={c.bar.key}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          onOpen(c.bar.id)
+                        }}
+                        onContextMenu={(e) => ctxMenu(c.bar, e)}
+                        className={cn(
+                          "absolute flex items-center gap-1 overflow-hidden rounded-[3px] border border-border bg-background px-1 text-left transition-opacity",
+                          dim && "opacity-40",
+                        )}
+                        style={{ left: c.lx, top: c.ly, width: c.lw, height: c.lh }}
+                        title={`${c.bar.title} · ${c.bar.range}`}
+                      >
+                        <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: dot }} />
+                        <span className="truncate text-[10px] text-foreground">{c.bar.title}</span>
+                      </button>
+                    )
+                  })}
                 </div>
               )
             })}
