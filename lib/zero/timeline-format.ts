@@ -1,4 +1,5 @@
 import type { Recurrence } from "./types"
+import { formatLocale } from "./format-locale"
 
 // ============================================================================
 // Shared presentation helpers for the timeline + dayline, so both surfaces
@@ -11,7 +12,11 @@ export const NOW_COLOR = "oklch(0.705 0.188 45)"
 
 const WD = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
 
-export const fmtTime = (t: number) => new Date(t).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
+// Pass the DEVICE locale (via formatLocale) so the hour cycle follows the OS — e.g. a Swiss/24h
+// machine renders "18:02", not en-US "6:02 PM". On SSR formatLocale() is undefined → engine default
+// (every caller is behind a mounted gate, so this only matters client-side).
+export const fmtTime = (t: number) =>
+  new Date(t).toLocaleTimeString(formatLocale(), { hour: "numeric", minute: "2-digit" })
 
 /** Human rule for a recurrence ("Every day", "Every Mon, Wed", "Every 2 weeks", …). */
 export function ruleText(r: Recurrence): string {

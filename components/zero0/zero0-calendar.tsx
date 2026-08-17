@@ -52,6 +52,9 @@ const LABEL_MIN_W = 40
  *  qualitative "continues / began before" blend at any hour scale. Bottom fade = unknown END, top fade =
  *  unknown START. */
 const CAL_FADE_PX = 14
+/** Accent border thickness on calendar blocks (v0.2.319) — 1px read too subtle, so blocks get a bold
+ *  5px accent stroke (the dayline mirror uses 3px). */
+const CAL_BLOCK_BORDER_PX = 5
 /** An unknown-START block has no real start, so it carries no height of its own; give it this fixed
  *  upward lead-in from its end anchor purely to host the top fade (mirror of the dayline's START_FADE_PX
  *  lead-in tail). */
@@ -118,7 +121,9 @@ function packColumn(bars: { bar: CalBar; clipStart: number; clipEnd: number }[])
 }
 
 /** External-label chip height. */
-const CHIP_H = 16
+// Instant chips now carry a time line that WRAPS below the title when it doesn't fit beside it, so the
+// box reserves two lines (v0.2.319). One-line content is vertically centered in the box.
+const CHIP_H = 30
 
 /** A block positioned in DAY-LOCAL coords (x=0 at the day's left edge), with whether its label fits inside. */
 interface PlacedBlock {
@@ -224,8 +229,12 @@ function layoutDay(
     const path = `M ${ax.toFixed(1)} ${ay.toFixed(1)} C ${(ax + dx).toFixed(1)} ${ay.toFixed(1)}, ${(cx - dx).toFixed(1)} ${cy.toFixed(1)}, ${cx.toFixed(1)} ${cy.toFixed(1)}`
     chips.push({ bar: r.bar, lx, ly, lw, lh, path })
   }
-  for (const r of plannedR) if (r.labeled && !r.internal) place(r, "planned")
-  for (const r of recordedR) if (r.labeled && !r.internal) place(r, "recorded")
+  // Persistent external chips are now reserved for INSTANTS only (v0.2.319) — a moment has no height
+  // to host an inside label, so a chip is its only readable surface. Every other non-internal block
+  // shows nothing persistent and reveals its label on HOVER (the block's native tooltip), which
+  // declutters the dense stacked columns. (`internal` labels are unaffected.)
+  for (const r of plannedR) if (r.labeled && !r.internal && r.bar.instant) place(r, "planned")
+  for (const r of recordedR) if (r.labeled && !r.internal && r.bar.instant) place(r, "recorded")
 
   return { blocks: [...plannedR, ...recordedR], chips }
 }
@@ -753,8 +762,16 @@ export function Zero0Calendar({
                             body fades to transparent at an unknown start/end (mirror of the dayline). */}
                         <span
                           aria-hidden
-                          className={cn("absolute inset-0 rounded-[3px]", isRoot ? "border" : "border border-black/10")}
-                          style={{ background, borderColor: border, maskImage: fadeMask, WebkitMaskImage: fadeMask }}
+                          className="absolute inset-0 rounded-[3px]"
+                          style={{
+                            background,
+                            // Thick accent border (v0.2.319) — the entity's accent at 1px read too subtle,
+                            // so calendar blocks use a bold 5px stroke (dayline ticks use 3px). Drawn on the
+                            // masked fill layer so an unclear-edge fade still applies to the border too.
+                            border: `${CAL_BLOCK_BORDER_PX}px solid ${border}`,
+                            maskImage: fadeMask,
+                            WebkitMaskImage: fadeMask,
+                          }}
                         />
                         {r.internal && (
                           <span
@@ -783,7 +800,7 @@ export function Zero0Calendar({
                               </span>
                             </span>
                             {(showTime || previewing) && (
-                              <span className="shrink-0 truncate text-[9px] tabular-nums opacity-70">
+                              <span className="min-h-0 break-words text-[9px] tabular-nums opacity-70">
                                 {liveRange}
                                 {showDuration && ` · ${fmtDuration(durMs)}`}
                               </span>
@@ -820,6 +837,8 @@ export function Zero0Calendar({
                     const dim = highlightId != null && highlightId !== c.bar.id
                     const accent = c.bar.color === ROOT_SENTINEL_COLOR ? NEUTRAL : (c.bar.sky ?? c.bar.color)
                     const g = glyphFor(c.bar.id)
+                    const chipRange =
+                      editPreview?.key === c.bar.key ? rangeText(editPreview.start, editPreview.end) : c.bar.range
                     return (
                       <button
                         key={c.bar.key + ":lbl:" + i}
@@ -832,33 +851,43 @@ export function Zero0Calendar({
                         }}
                         onContextMenu={(e) => ctxMenu(c.bar, e)}
                         className={cn(
-                          "absolute flex items-center gap-1 overflow-hidden rounded-[3px] border border-border bg-background px-1 text-left transition-opacity",
+                          "absolute flex items-center overflow-hidden rounded-[3px] border bg-background px-1 text-left transition-opacity",
                           dim && "opacity-40",
                         )}
-                        style={{ left: c.lx, top: c.ly, width: c.lw, height: c.lh }}
-                        title={`${c.bar.title} · ${
-                          editPreview?.key === c.bar.key ? rangeText(editPreview.start, editPreview.end) : c.bar.range
-                        }`}
+                        style={{
+                          left: c.lx,
+                          top: c.ly,
+                          width: c.lw,
+                          height: c.lh,
+                          // Faint ENTITY-ACCENT border (v0.2.319) instead of the neutral --border, tying the
+                          // chip to its block's color; kept faint via a color-mix with transparent.
+                          borderColor: `color-mix(in oklab, ${accent} 55%, transparent)`,
+                        }}
+                        title={`${c.bar.title} · ${chipRange}`}
                       >
-                        {/* The entity glyph in its accent (mirror of the in-block glyph); falls back to a
-                            simple accent dot if no model is available. */}
-                        {g ? (
-                          <span className="shrink-0" style={{ color: accent }}>
-                            <Zero0Glyph
-                              kind={g.kind}
-                              filled={g.filled}
-                              done={g.showCheck}
-                              cancelled={g.cancelled}
-                              requested={g.requested}
-                              scheduled={g.scheduled}
-                              ongoing={g.ongoing}
-                              className="h-3 w-3"
-                            />
-                          </span>
-                        ) : (
-                          <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: accent }} />
-                        )}
-                        <span className="truncate text-[10px] text-foreground">{c.bar.title}</span>
+                        {/* Glyph + title + TIME, in a flex-wrap row: the time sits beside the title when
+                            it fits, else wraps to a second line (v0.2.319). The glyph renders in the
+                            entity accent (mirror of the in-block glyph), else a fallback accent dot. */}
+                        <span className="flex min-w-0 flex-wrap items-center gap-x-1 leading-tight">
+                          {g ? (
+                            <span className="shrink-0" style={{ color: accent }}>
+                              <Zero0Glyph
+                                kind={g.kind}
+                                filled={g.filled}
+                                done={g.showCheck}
+                                cancelled={g.cancelled}
+                                requested={g.requested}
+                                scheduled={g.scheduled}
+                                ongoing={g.ongoing}
+                                className="h-3 w-3"
+                              />
+                            </span>
+                          ) : (
+                            <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: accent }} />
+                          )}
+                          <span className="min-w-0 truncate text-[10px] text-foreground">{c.bar.title}</span>
+                          <span className="shrink-0 text-[9px] tabular-nums text-muted-foreground">{chipRange}</span>
+                        </span>
                       </button>
                     )
                   })}
