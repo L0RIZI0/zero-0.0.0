@@ -15,6 +15,7 @@ import {
 import { Zero0Face } from "@/components/zero0/zero0-face"
 import { Zero0Dayline, type DaylineOccRef } from "@/components/zero0/zero0-dayline"
 import { Zero0Calendar } from "@/components/zero0/zero0-calendar"
+import { MorphOverlay, captureCells, type MorphCell } from "@/components/zero0/zero0-morph-overlay"
 import { Zero0FrameMarker } from "@/components/zero0/zero0-frame-marker"
 import { useZero0Readout, toggleZero0Readout } from "@/lib/zero/zero0-chord"
 import { formatLocale } from "@/lib/zero/format-locale"
@@ -124,8 +125,10 @@ export function Zero0Agenda({
 }) {
   // EXPAND-TO-CALENDAR (v0.2.313). A click on empty MAXIMIZED dayline area expands the frame IN PLACE
   // into a multi-day calendar centered on the dayline window's center time; an empty click on the
-  // calendar collapses it back. (The smooth tick-flying morph lands in a follow-up pass — this is the
-  // functional toggle it hangs off.)
+  // calendar collapses it back. The transition MORPHS: dayline ticks fly to their calendar block
+  // positions (and back), spanning time vertically instead of horizontally, while the frame height
+  // grows/shrinks on the same clock (see MorphOverlay + captureCells, which key off the shared
+  // data-barkey/data-calkey identity).
   const [expanded, setExpanded] = useState(false)
   const [centerTime, setCenterTime] = useState(() => Date.now())
   // Calendar height — big enough for a comfortable grid, capped to leave room for the frames below.
@@ -137,10 +140,71 @@ export function Zero0Agenda({
     window.addEventListener("resize", compute)
     return () => window.removeEventListener("resize", compute)
   }, [expanded])
-  // A minimized frame can never be expanded; collapse if it somehow is.
+
+  // Morph machinery. `morph` holds the in-flight transition (null when idle). We keep BOTH views mounted
+  // during a morph (dayline hidden while expanding, calendar hidden while collapsing) so we can measure
+  // the destination rects, then the MorphOverlay flies clones between the captured from/to geometries.
+  const MORPH_MS = 400
+  const daylineHostRef = useRef<HTMLDivElement>(null)
+  const calHostRef = useRef<HTMLDivElement>(null)
+  const morphHostRef = useRef<HTMLDivElement>(null)
+  const [morph, setMorph] = useState<null | {
+    phase: "expand" | "collapse"
+    from: Map<string, MorphCell>
+    to: Map<string, MorphCell>
+    fromH: number
+    toH: number
+  }>(null)
+  // Pending capture from the click handler that opened/closed — resolved into a full morph once the
+  // destination view has mounted + laid out (in the layout effect below).
+  const pendingRef = useRef<null | { phase: "expand" | "collapse"; from: Map<string, MorphCell>; fromH: number }>(null)
+
+  const startExpand = (center: number) => {
+    if (morph || minimized) return
+    const from = captureCells(daylineHostRef.current, "data-barkey")
+    const fromH = daylineHostRef.current?.getBoundingClientRect().height ?? 120
+    pendingRef.current = { phase: "expand", from, fromH }
+    setCenterTime(center)
+    setExpanded(true) // mounts the calendar; layout effect finishes the morph
+  }
+  const startCollapse = () => {
+    if (morph) return
+    const from = captureCells(calHostRef.current, "data-calkey")
+    const fromH = calHostRef.current?.getBoundingClientRect().height ?? calH
+    pendingRef.current = { phase: "collapse", from, fromH }
+    setExpanded(false) // mounts the dayline; layout effect finishes the morph
+  }
+
+  // Resolve a pending capture into a running morph once the destination view is mounted.
+  useLayoutEffect(() => {
+    const pend = pendingRef.current
+    if (!pend) return
+    pendingRef.current = null
+    if (pend.phase === "expand") {
+      const to = captureCells(calHostRef.current, "data-calkey")
+      const toH = calHostRef.current?.getBoundingClientRect().height ?? calH
+      setMorph({ phase: "expand", from: pend.from, to, fromH: pend.fromH, toH })
+    } else {
+      const to = captureCells(daylineHostRef.current, "data-barkey")
+      const toH = daylineHostRef.current?.getBoundingClientRect().height ?? 120
+      setMorph({ phase: "collapse", from: pend.from, to, fromH: pend.fromH, toH })
+    }
+  }, [expanded, calH])
+
+  // A minimized frame can never be expanded; collapse it (no morph — minimize is its own transition).
   useEffect(() => {
-    if (minimized && expanded) setExpanded(false)
+    if (minimized && expanded) {
+      setExpanded(false)
+      setMorph(null)
+      pendingRef.current = null
+    }
   }, [minimized, expanded])
+
+  const morphing = morph !== null
+  // Which real views are in the tree. During a morph both are mounted; the one being animated FROM/TO is
+  // hidden (the overlay stands in). Steady state shows exactly one.
+  const showCalendar = (expanded || morphing) && !minimized
+  const showDayline = !expanded || morphing || minimized
 
   return (
     <section
@@ -148,57 +212,77 @@ export function Zero0Agenda({
       className="relative"
       onContextMenu={onFrameMenu ? (ev) => onFrameMenu("agenda", ev) : undefined}
     >
-      {!minimized && expanded && (
-        <Zero0Calendar
-          centerTime={centerTime}
-          height={calH}
-          onOpen={onOpen}
-          onEmptyClick={() => setExpanded(false)}
-          onContextMenuEntity={onContextMenuEntity}
-          onOccurrenceMenu={onOccurrenceMenu}
-          onSessionMenu={onSessionMenu}
-          dataRev={dataRev}
-          highlightId={highlightId}
+      {/* Morph host — during a transition its height is animated by the MorphOverlay (fromH→toH) and it
+          clips overflow; at rest it is auto-height and shows exactly one view. Both children are kept
+          mounted (but hidden) mid-morph so the overlay can measure destination rects and stand in. */}
+      <div
+        ref={morphHostRef}
+        className="relative"
+        style={morphing ? { height: morph!.fromH, overflow: "hidden" } : undefined}
+      >
+        {/* Frame TITLE bar REMOVED (v0.2.287) — the maximized frame is now JUST the dayline/calendar. */}
+        {showCalendar && (
+          <div
+            ref={calHostRef}
+            style={morphing ? { opacity: 0, pointerEvents: "none" } : undefined}
+            aria-hidden={morphing || undefined}
+          >
+            <Zero0Calendar
+              centerTime={centerTime}
+              height={calH}
+              onOpen={onOpen}
+              onEmptyClick={startCollapse}
+              onContextMenuEntity={onContextMenuEntity}
+              onOccurrenceMenu={onOccurrenceMenu}
+              onSessionMenu={onSessionMenu}
+              dataRev={dataRev}
+              highlightId={highlightId}
+            />
+          </div>
+        )}
+        {/* The dayline band. When minimized, a LEFT-click on empty area (not a tick) maximizes the frame.
+            When MAXIMIZED, an empty-area click expands into the calendar (onEmptyClick → startExpand). */}
+        {showDayline && (
+          <div
+            ref={daylineHostRef}
+            className={minimized ? "cursor-pointer" : undefined}
+            style={morphing ? { opacity: 0, pointerEvents: "none" } : undefined}
+            aria-hidden={morphing || undefined}
+            onClick={
+              minimized && onToggleMinimize
+                ? (ev) => {
+                    if (!(ev.target as HTMLElement).closest("[data-barkey]")) onToggleMinimize()
+                  }
+                : undefined
+            }
+          >
+            <Zero0Dayline
+              onOpen={onOpen}
+              onContextMenuEntity={onContextMenuEntity}
+              onOccurrenceMenu={onOccurrenceMenu}
+              onSessionMenu={onSessionMenu}
+              onOccurrenceRetime={onOccurrenceRetime}
+              onSessionRetime={onSessionRetime}
+              dataRev={dataRev}
+              tracks="both"
+              minimized={minimized}
+              hideBottomBorder={hideBottomBorder}
+              highlightId={highlightId}
+              onEmptyClick={startExpand}
+            />
+          </div>
+        )}
+      </div>
+      {morph && (
+        <MorphOverlay
+          from={morph.from}
+          to={morph.to}
+          duration={MORPH_MS}
+          heightHost={morphHostRef}
+          fromH={morph.fromH}
+          toH={morph.toH}
+          onDone={() => setMorph(null)}
         />
-      )}
-      {/* Frame TITLE bar REMOVED (v0.2.287) — the "TODAY" word was already hidden (.286) and the bar
-          then held only the minimize chevron, leaving an empty strip + inset divider above the dayline.
-          The maximized frame is now JUST the dayline. Minimize is still available by right-clicking the
-          frame (onFrameMenu → "Minimize the frame"); the dedicated control will be relocated to the top
-          app header next. */}
-      {/* The dayline band. When minimized, a LEFT-click on empty area (anywhere that isn't a
-          tick button) maximizes the frame — a big, forgiving hit target. Tick clicks still
-          open their entity (guarded by the `[data-barkey]` closest check). A click on empty area of a
-          MAXIMIZED band expands it into the calendar (onEmptyClick). Hidden while the calendar shows. */}
-      {!(!minimized && expanded) && (
-        <div
-          className={minimized ? "cursor-pointer" : undefined}
-          onClick={
-            minimized && onToggleMinimize
-              ? (ev) => {
-                  if (!(ev.target as HTMLElement).closest("[data-barkey]")) onToggleMinimize()
-                }
-              : undefined
-          }
-        >
-          <Zero0Dayline
-            onOpen={onOpen}
-            onContextMenuEntity={onContextMenuEntity}
-            onOccurrenceMenu={onOccurrenceMenu}
-            onSessionMenu={onSessionMenu}
-            onOccurrenceRetime={onOccurrenceRetime}
-            onSessionRetime={onSessionRetime}
-            dataRev={dataRev}
-            tracks="both"
-            minimized={minimized}
-            hideBottomBorder={hideBottomBorder}
-            highlightId={highlightId}
-            onEmptyClick={(c) => {
-              setCenterTime(c)
-              setExpanded(true)
-            }}
-          />
-        </div>
       )}
       {/* The §x corner affordance is chrome — hide it on a minimized band (which is meant
           to be nothing but the dayline). Re-show via the § chord or the footer link. */}
