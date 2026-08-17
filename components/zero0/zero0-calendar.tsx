@@ -348,17 +348,23 @@ export function Zero0Calendar({
     [rangeLo, rangeHi, now, dataRev],
   )
 
-  /** For a track's bars, clip to the day and pack. */
-  const packForDay = useCallback((bars: CalBar[], dayStart: number, dayEnd: number): Block[] => {
-    const clipped: { bar: CalBar; clipStart: number; clipEnd: number }[] = []
-    for (const bar of bars) {
-      const s = bar.startMs ?? bar.endMs
-      const e = bar.endMs
-      if (e <= dayStart || s >= dayEnd) continue
-      clipped.push({ bar, clipStart: Math.max(s, dayStart), clipEnd: Math.min(e, dayEnd) })
-    }
-    return packColumn(clipped)
-  }, [])
+  /** For a track's bars, clip to the day and pack. When a `preview` is active (a live resize OR move),
+   *  the previewed bar uses its preview span for BOTH day-overlap and clipping — so a block dragged to
+   *  another day/time appears on its NEW day under the cursor before commit (v0.2.318). */
+  const packForDay = useCallback(
+    (bars: CalBar[], dayStart: number, dayEnd: number, preview?: { key: string; start: number; end: number } | null): Block[] => {
+      const clipped: { bar: CalBar; clipStart: number; clipEnd: number }[] = []
+      for (const bar of bars) {
+        const usePv = preview && preview.key === bar.key
+        const s = usePv ? preview!.start : (bar.startMs ?? bar.endMs)
+        const e = usePv ? preview!.end : bar.endMs
+        if (e <= dayStart || s >= dayEnd) continue
+        clipped.push({ bar, clipStart: Math.max(s, dayStart), clipEnd: Math.min(e, dayEnd) })
+      }
+      return packColumn(clipped)
+    },
+    [],
+  )
 
   /** The presentation glyph descriptor for a block's entity (kind + state), shared with the content
    *  rows via `getFaceModel` — so a block shows the SAME glyph the entity shows everywhere else. */
@@ -439,6 +445,89 @@ export function Zero0Calendar({
       const el = e.currentTarget as HTMLElement
       if (el.hasPointerCapture?.(e.pointerId)) el.releasePointerCapture(e.pointerId)
       if (editDraggedRef.current && (d.curStart !== d.origStart || d.curEnd !== d.origEnd)) {
+        if (d.sessionAnchorId != null) onSessionRetime?.(d.entityId, d.sessionAnchorId, d.curStart, d.curEnd)
+        else if (d.occRef) onOccurrenceRetime?.(d.entityId, d.occRef, d.curStart, d.curEnd)
+      }
+      setEditPreview(null)
+      requestAnimationFrame(() => {
+        editDraggedRef.current = false
+      })
+    },
+    [onOccurrenceRetime, onSessionRetime],
+  )
+
+  // ── BLOCK MOVE / DRAG-TO-REPLAN (v0.2.318) — grab a block's BODY and drag it to a new time/day to
+  // replan it, mirroring the dayline's tick retime but as a 2D TRANSLATION: vertical drag shifts the
+  // time-of-day (px→ms via `contentH`), horizontal drag shifts whole DAYS (px→days via the day column
+  // width). The DURATION is preserved (both edges move together) and the TRACK is fixed (planned stays
+  // planned, recorded stays recorded). Reuses `editPreview` + `editDraggedRef`; commit routes to the
+  // same writers as resize. Distinct from the dayline, whose body-drag pans the timeline instead.
+  const calMoveRef = useRef<{
+    key: string
+    entityId: string
+    occRef?: NonNullable<DaylineOccRef>
+    sessionAnchorId?: number
+    origStart: number
+    origEnd: number
+    dur: number
+    startX: number
+    startY: number
+    dayColW: number
+    contentH: number
+    curStart: number
+    curEnd: number
+  } | null>(null)
+
+  const beginMove = useCallback(
+    (bar: CalBar) => (e: React.PointerEvent) => {
+      const isOcc = bar.track === "planned" && !!bar.occRef && !!onOccurrenceRetime
+      const isSession = bar.track === "recorded" && bar.sessionAnchorId != null && !!onSessionRetime
+      if (e.button !== 0 || (!isOcc && !isSession) || bar.startMs == null || bar.endMs == null) return
+      // NOTE: do NOT stopPropagation — a plain click (no drag) must still bubble to open the entity.
+      calMoveRef.current = {
+        key: bar.key,
+        entityId: bar.id,
+        occRef: isOcc ? bar.occRef : undefined,
+        sessionAnchorId: isSession ? bar.sessionAnchorId : undefined,
+        origStart: bar.startMs,
+        origEnd: bar.endMs,
+        dur: bar.endMs - bar.startMs,
+        startX: e.clientX,
+        startY: e.clientY,
+        dayColW,
+        contentH,
+        curStart: bar.startMs,
+        curEnd: bar.endMs,
+      }
+      editDraggedRef.current = false
+      ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+    },
+    [onOccurrenceRetime, onSessionRetime, dayColW, contentH],
+  )
+  const moveMove = useCallback((e: React.PointerEvent) => {
+    const d = calMoveRef.current
+    if (!d) return
+    const dx = e.clientX - d.startX
+    const dy = e.clientY - d.startY
+    if (Math.abs(dx) > 3 || Math.abs(dy) > 3) editDraggedRef.current = true
+    if (!editDraggedRef.current) return
+    e.stopPropagation()
+    const dayShift = Math.round(dx / d.dayColW) * DAY_MS
+    const timeShift = (dy / d.contentH) * DAY_MS
+    const start = roundToMinute(d.origStart + dayShift + timeShift)
+    d.curStart = start
+    d.curEnd = start + d.dur
+    setEditPreview({ key: d.key, start: d.curStart, end: d.curEnd })
+  }, [])
+  const endMove = useCallback(
+    (e: React.PointerEvent) => {
+      const d = calMoveRef.current
+      calMoveRef.current = null
+      if (!d) return
+      const el = e.currentTarget as HTMLElement
+      if (el.hasPointerCapture?.(e.pointerId)) el.releasePointerCapture(e.pointerId)
+      if (editDraggedRef.current && (d.curStart !== d.origStart || d.curEnd !== d.origEnd)) {
+        e.stopPropagation()
         if (d.sessionAnchorId != null) onSessionRetime?.(d.entityId, d.sessionAnchorId, d.curStart, d.curEnd)
         else if (d.occRef) onOccurrenceRetime?.(d.entityId, d.occRef, d.curStart, d.curEnd)
       }
@@ -563,8 +652,8 @@ export function Zero0Calendar({
             {days.map((d, di) => {
               const x = di * dayColW
               const colW = dayColW / 2
-              const plannedBlocks = packForDay(planned, d.start, d.end)
-              const recordedBlocks = packForDay(recorded, d.start, d.end)
+              const plannedBlocks = packForDay(planned, d.start, d.end, editPreview)
+              const recordedBlocks = packForDay(recorded, d.start, d.end, editPreview)
               const { blocks, chips } = layoutDay(plannedBlocks, recordedBlocks, d.start, colW, contentH, editPreview)
               const ctxMenu = (bar: CalBar, e: React.MouseEvent) => {
                 if (bar.occRef && onOccurrenceMenu) onOccurrenceMenu(bar.id, bar.occRef, e)
@@ -610,6 +699,9 @@ export function Zero0Calendar({
                       (r.bar.track === "planned" && !!r.bar.occRef && !!onOccurrenceRetime) ||
                       (r.bar.track === "recorded" && r.bar.sessionAnchorId != null && !!onSessionRetime)
                     const showHandles = resizable && r.bh >= RESIZE_MIN_H
+                    // Movable ⇒ same retime-writer condition as resize, AND a concrete span to translate
+                    // (an unknown-start block has no real start to preserve a duration from).
+                    const movable = resizable && r.bar.startMs != null && r.bar.endMs != null
                     // While THIS block is being resized, recompute its range text live from the preview
                     // span so the in-block label + tooltip track the drag in real time (v0.2.315). The
                     // preview holds the whole-occurrence span (not day-clipped), so a multi-day block
@@ -641,15 +733,19 @@ export function Zero0Calendar({
                         data-calkey={r.bar.key}
                         onClick={(e) => {
                           e.stopPropagation()
-                          if (editDraggedRef.current) return // swallow the click that ends a resize drag
+                          if (editDraggedRef.current) return // swallow the click that ends a resize/move drag
                           onOpen(r.bar.id)
                         }}
+                        onPointerDown={movable ? beginMove(r.bar) : undefined}
+                        onPointerMove={movable ? moveMove : undefined}
+                        onPointerUp={movable ? endMove : undefined}
                         onContextMenu={(e) => ctxMenu(r.bar, e)}
                         className={cn(
                           "absolute overflow-hidden rounded-[3px] text-left transition-opacity",
+                          movable && "cursor-grab active:cursor-grabbing",
                           dim && "opacity-40",
                         )}
-                        style={{ left: r.bx, top: r.by, width: r.bw, height: r.bh }}
+                        style={{ left: r.bx, top: r.by, width: r.bw, height: r.bh, touchAction: movable ? "none" : undefined }}
                         title={`${r.bar.title} · ${liveRange}`}
                       >
                         {/* FILL LAYER (v0.2.316) — carries the accent fill, hairline border AND the
