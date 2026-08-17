@@ -140,15 +140,14 @@ interface PlacedBlock {
    *  label-free — hover the block for its tooltip instead (v0.2.314). */
   labeled: boolean
 }
-/** An external label chip (day-local) for a block too small to hold its label inside, plus the SVG path
- *  of the hairline connector from the block edge to the chip. */
+/** A persistent centered label chip (day-local) for an INSTANT — the moment's only readable surface,
+ *  centered over its full-width tick (v0.2.320; the pre-.320 sibling-column chip + connector is gone). */
 interface LabelChip {
   bar: CalBar
   lx: number
   ly: number
   lw: number
   lh: number
-  path: string
 }
 
 /** Lay out ONE day: turn packed planned/recorded blocks into day-local block rects, decide which can
@@ -159,15 +158,22 @@ interface LabelChip {
 function layoutDay(
   plannedBlocks: Block[],
   recordedBlocks: Block[],
+  instantBlocks: Block[],
   dayStart: number,
-  colW: number,
+  dayColW: number,
+  /** Left area width for PLANNED (left-aligned) and right area width for RECORDED (right-aligned). They
+   *  sum to dayColW; the per-day split (v0.2.320) is decided by the caller from the lane counts. */
+  plannedW: number,
+  recordedW: number,
   contentH: number,
   /** Live resize preview (v0.2.315): while dragging a block's edge, the matching block uses these
    *  absolute start/end (clamped to this day) so it grows/shrinks under the cursor before commit. */
   preview?: { key: string; start: number; end: number } | null,
 ): { blocks: PlacedBlock[]; chips: LabelChip[] } {
   const dayEnd = dayStart + DAY_MS
-  const build = (blocks: Block[], halfX: number): PlacedBlock[] =>
+  // Place a track's blocks inside an [originX, originX+areaW] band, splitting the band evenly across its
+  // own lanes. PLANNED gets [0, plannedW]; RECORDED gets [dayColW-recordedW, dayColW] (right-aligned).
+  const build = (blocks: Block[], originX: number, areaW: number): PlacedBlock[] =>
     blocks.map((b) => {
       // Apply the live resize preview to the dragged block (clamped to this day's window).
       const cs = preview && preview.key === b.bar.key ? Math.max(dayStart, Math.min(preview.start, dayEnd)) : b.clipStart
@@ -179,67 +185,39 @@ function layoutDay(
       const anchorY = ((ce - dayStart) / DAY_MS) * contentH
       const by = unknownStart ? Math.max(0, anchorY - CAL_UNKNOWN_START_H) : ((cs - dayStart) / DAY_MS) * contentH
       const bh = unknownStart ? CAL_UNKNOWN_START_H : Math.max(MIN_BLOCK_H, ((ce - cs) / DAY_MS) * contentH)
-      const subW = colW / b.laneCount
+      const subW = areaW / b.laneCount
       const bw = Math.max(1, subW - 1)
-      const bx = halfX + b.lane * subW + 0.5
+      const bx = originX + b.lane * subW + 0.5
       // Duration from the bar's absolute span (NOT the clipped/floored height) so a block split across
-      // days is still judged by its true length. Instants + ongoing blocks always keep a label.
+      // days is still judged by its true length. Ongoing blocks always keep a label.
       const durMs = b.bar.startMs != null ? b.bar.endMs - b.bar.startMs : 0
-      const labeled = !!b.bar.instant || !!b.bar.ongoing || durMs >= LABEL_MIN_DURATION_MS
+      const labeled = !!b.bar.ongoing || durMs >= LABEL_MIN_DURATION_MS
       const internal = labeled && bh >= LABEL_MIN_H && bw >= LABEL_MIN_W
       return { bar: b.bar, bx, by, bw, bh, internal, labeled }
     })
-  const plannedR = build(plannedBlocks, 0)
-  const recordedR = build(recordedBlocks, colW)
+  const plannedR = build(plannedBlocks, 0, plannedW)
+  const recordedR = build(recordedBlocks, dayColW - recordedW, recordedW)
 
-  // Occupancy (y-intervals) per half, seeded with that half's blocks; chips accrete so they don't stack.
-  const occ = { planned: [] as [number, number][], recorded: [] as [number, number][] }
-  for (const r of plannedR) occ.planned.push([r.by, r.by + r.bh])
-  for (const r of recordedR) occ.recorded.push([r.by, r.by + r.bh])
-  const overlaps = (list: [number, number][], top: number, bot: number) =>
-    list.some(([t, b]) => top < b && bot > t)
-
+  // INSTANTS (v0.2.320) — zero-duration moments take the WHOLE day width and paint FRONTMOST (returned
+  // last), so spans behind them are never shrunk to make room. Each carries a persistent centered chip
+  // (its only readable surface, since a moment has no height for an inside label).
   const chips: LabelChip[] = []
-  const place = (r: PlacedBlock, from: "planned" | "recorded") => {
-    const to = from === "planned" ? "recorded" : "planned"
-    const toX = to === "planned" ? 0 : colW
-    const lw = Math.max(24, colW - 3)
-    const lh = CHIP_H
-    const desired = Math.min(Math.max(r.by + r.bh / 2 - lh / 2, 0), Math.max(0, contentH - lh))
-    let ly = desired
-    for (let step = 0; step <= contentH; step += 3) {
-      const cands = step === 0 ? [desired] : [desired + step, desired - step]
-      let hit = false
-      for (const cand of cands) {
-        if (cand < 0 || cand + lh > contentH) continue
-        if (!overlaps(occ[to], cand, cand + lh)) {
-          ly = cand
-          hit = true
-          break
-        }
-      }
-      if (hit) break
-    }
-    occ[to].push([ly, ly + lh])
-    const lx = toX + 1.5
-    // Connector: from the block's INNER edge (planned→right edge, recorded→left edge) to the chip's
-    // near edge, as a horizontal-tangent cubic so it curves smoothly when the chip is offset vertically.
-    const ay = r.by + r.bh / 2
-    const ax = from === "planned" ? r.bx + r.bw : r.bx
-    const cy = ly + lh / 2
-    const cx = to === "planned" ? lx + lw : lx
-    const dx = (cx - ax) / 2
-    const path = `M ${ax.toFixed(1)} ${ay.toFixed(1)} C ${(ax + dx).toFixed(1)} ${ay.toFixed(1)}, ${(cx - dx).toFixed(1)} ${cy.toFixed(1)}, ${cx.toFixed(1)} ${cy.toFixed(1)}`
-    chips.push({ bar: r.bar, lx, ly, lw, lh, path })
-  }
-  // Persistent external chips are now reserved for INSTANTS only (v0.2.319) — a moment has no height
-  // to host an inside label, so a chip is its only readable surface. Every other non-internal block
-  // shows nothing persistent and reveals its label on HOVER (the block's native tooltip), which
-  // declutters the dense stacked columns. (`internal` labels are unaffected.)
-  for (const r of plannedR) if (r.labeled && !r.internal && r.bar.instant) place(r, "planned")
-  for (const r of recordedR) if (r.labeled && !r.internal && r.bar.instant) place(r, "recorded")
+  const instantR: PlacedBlock[] = instantBlocks.map((b) => {
+    const t =
+      preview && preview.key === b.bar.key
+        ? Math.max(dayStart, Math.min(preview.end, dayEnd))
+        : b.clipEnd
+    const ty = ((t - dayStart) / DAY_MS) * contentH
+    const by = Math.max(0, ty - MIN_BLOCK_H / 2)
+    // Centered chip, up to 75% of the day width, wrapping within that cap; vertically centered on the tick.
+    const lw = Math.min(Math.max(24, dayColW - 4), Math.round(dayColW * 0.75))
+    const lx = Math.max(2, (dayColW - lw) / 2)
+    const ly = Math.min(Math.max(ty - CHIP_H / 2, 0), Math.max(0, contentH - CHIP_H))
+    chips.push({ bar: b.bar, lx, ly, lw, lh: CHIP_H })
+    return { bar: b.bar, bx: 0, by, bw: dayColW, bh: MIN_BLOCK_H, internal: false, labeled: true }
+  })
 
-  return { blocks: [...plannedR, ...recordedR], chips }
+  return { blocks: [...plannedR, ...recordedR, ...instantR], chips }
 }
 
 /** A readable text ink for a solid accent fill. oklch strings expose lightness directly as the first
@@ -358,6 +336,15 @@ export function Zero0Calendar({
     () => getCalendarBars(rangeLo, rangeHi, now),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [rangeLo, rangeHi, now, dataRev],
+  )
+  // INSTANTS are pulled OUT of the lane-packed spans (v0.2.320): they render full-day-width + frontmost,
+  // so they must NOT inflate the planned/recorded lane counts that drive the per-day width split. All
+  // instants (from either track) share one full-width overlay list.
+  const plannedSpans = useMemo(() => planned.filter((b) => !b.instant), [planned])
+  const recordedSpans = useMemo(() => recorded.filter((b) => !b.instant), [recorded])
+  const instantBars = useMemo(
+    () => [...planned.filter((b) => b.instant), ...recorded.filter((b) => b.instant)],
+    [planned, recorded],
   )
 
   /** For a track's bars, clip to the day and pack. When a `preview` is active (a live resize OR move),
@@ -660,44 +647,46 @@ export function Zero0Calendar({
               />
             ))}
 
-            {/* Day columns: dividers + the two-column split + packed blocks + external labels */}
+            {/* Day columns: dynamic planned/recorded split + packed blocks + full-width instants */}
             {days.map((d, di) => {
               const x = di * dayColW
-              const colW = dayColW / 2
-              const plannedBlocks = packForDay(planned, d.start, d.end, editPreview)
-              const recordedBlocks = packForDay(recorded, d.start, d.end, editPreview)
-              const { blocks, chips } = layoutDay(plannedBlocks, recordedBlocks, d.start, colW, contentH, editPreview)
+              const plannedBlocks = packForDay(plannedSpans, d.start, d.end, editPreview)
+              const recordedBlocks = packForDay(recordedSpans, d.start, d.end, editPreview)
+              const instantBlocks = packForDay(instantBars, d.start, d.end, editPreview)
+              // PER-DAY WIDTH SPLIT (v0.2.320): planned left-aligned, recorded right-aligned, each taking
+              // the available room with FLOORS driven by the day's peak RECORDED lane count `Lr` (planned
+              // lanes only sub-divide the planned area, they don't change the split). Nothing on a track ⇒
+              // the other track takes the full width.
+              //   Lr 0 → planned 100%      Lr 1 → planned 75% / recorded 25%
+              //   Lr 2 → 50% / 50%         Lr ≥3 → planned floored 30% / recorded 70%
+              const Lp = plannedBlocks[0]?.laneCount ?? 0
+              const Lr = recordedBlocks[0]?.laneCount ?? 0
+              const recFrac = Lr === 0 ? 0 : Lp === 0 ? 1 : Lr === 1 ? 0.25 : Lr === 2 ? 0.5 : 0.7
+              const recordedW = dayColW * recFrac
+              const plannedW = dayColW - recordedW
+              const { blocks, chips } = layoutDay(
+                plannedBlocks,
+                recordedBlocks,
+                instantBlocks,
+                d.start,
+                dayColW,
+                plannedW,
+                recordedW,
+                contentH,
+                editPreview,
+              )
               const ctxMenu = (bar: CalBar, e: React.MouseEvent) => {
                 if (bar.occRef && onOccurrenceMenu) onOccurrenceMenu(bar.id, bar.occRef, e)
                 else if (bar.sessionAnchorId != null && onSessionMenu) onSessionMenu(bar.id, bar.sessionAnchorId, e)
                 else onContextMenuEntity?.(bar.id, e)
               }
               return (
-                // Day wrapper — positioned at the day's x so blocks/chips/connectors use DAY-LOCAL coords.
+                // Day wrapper — positioned at the day's x so blocks/chips use DAY-LOCAL coords.
                 <div key={d.start} className="absolute top-0" style={{ left: x, width: dayColW, height: contentH }}>
-                  {/* day divider (left edge) + mid divider between the two columns */}
+                  {/* day divider (left edge) + planned/recorded boundary (only when both tracks present) */}
                   <div className="pointer-events-none absolute inset-y-0 left-0 border-l border-border" />
-                  <div className="pointer-events-none absolute inset-y-0 border-l border-border/30" style={{ left: colW }} />
-
-                  {/* Connector hairlines (behind blocks + chips) */}
-                  {chips.length > 0 && (
-                    <svg
-                      className="pointer-events-none absolute inset-0 overflow-visible"
-                      width={dayColW}
-                      height={contentH}
-                      aria-hidden
-                    >
-                      {chips.map((c, i) => (
-                        <path
-                          key={i}
-                          d={c.path}
-                          fill="none"
-                          stroke="var(--muted-foreground)"
-                          strokeOpacity={0.45}
-                          strokeWidth={1}
-                        />
-                      ))}
-                    </svg>
+                  {Lp > 0 && Lr > 0 && (
+                    <div className="pointer-events-none absolute inset-y-0 border-l border-border/30" style={{ left: plannedW }} />
                   )}
 
                   {/* Blocks */}
@@ -838,7 +827,8 @@ export function Zero0Calendar({
                     )
                   })}
 
-                  {/* External label chips (for blocks too small to hold their label inside) */}
+                  {/* Instant chips — centered over their full-width tick, frontmost (rendered last so they
+                      paint above every block), content centered + wrapping within the 75%-day-width cap. */}
                   {chips.map((c, i) => {
                     const dim = highlightId != null && highlightId !== c.bar.id
                     const accent = c.bar.color === ROOT_SENTINEL_COLOR ? NEUTRAL : (c.bar.sky ?? c.bar.color)
@@ -857,14 +847,15 @@ export function Zero0Calendar({
                         }}
                         onContextMenu={(e) => ctxMenu(c.bar, e)}
                         className={cn(
-                          "absolute flex items-center overflow-hidden rounded-[3px] border bg-background px-1 text-left transition-opacity",
+                          "absolute z-20 flex items-center justify-center overflow-hidden rounded-[3px] border bg-background px-1 text-center transition-opacity",
                           dim && "opacity-40",
                         )}
                         style={{
                           left: c.lx,
                           top: c.ly,
                           width: c.lw,
-                          height: c.lh,
+                          // minHeight (not fixed) so a long title can wrap past two lines without clipping.
+                          minHeight: c.lh,
                           // Faint ENTITY-ACCENT border (v0.2.319) instead of the neutral --border, tying the
                           // chip to its block's color; kept faint via a color-mix with transparent.
                           borderColor: `color-mix(in oklab, ${accent} 55%, transparent)`,
@@ -874,7 +865,7 @@ export function Zero0Calendar({
                         {/* Glyph + title + TIME, in a flex-wrap row: the time sits beside the title when
                             it fits, else wraps to a second line (v0.2.319). The glyph renders in the
                             entity accent (mirror of the in-block glyph), else a fallback accent dot. */}
-                        <span className="flex min-w-0 flex-wrap items-center gap-x-1 leading-tight">
+                        <span className="flex min-w-0 flex-wrap items-center justify-center gap-x-1 leading-tight">
                           {g ? (
                             <span className="shrink-0" style={{ color: accent }}>
                               <Zero0Glyph
