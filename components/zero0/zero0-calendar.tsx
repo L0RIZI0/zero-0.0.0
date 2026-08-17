@@ -47,6 +47,25 @@ const DAY_BUFFER = 7
  *  external chip in the sibling column with a hairline connector (v0.2.313). */
 const LABEL_MIN_H = 22
 const LABEL_MIN_W = 40
+/** Vertical fade length (px) for an UNCLEAR start/end, the calendar mirror of the dayline's edge fades
+ *  (v0.2.316). A FIXED pixel length (not a time %) because the calendar has NO zoom — so a constant
+ *  qualitative "continues / began before" blend at any hour scale. Bottom fade = unknown END, top fade =
+ *  unknown START. */
+const CAL_FADE_PX = 14
+/** An unknown-START block has no real start, so it carries no height of its own; give it this fixed
+ *  upward lead-in from its end anchor purely to host the top fade (mirror of the dayline's START_FADE_PX
+ *  lead-in tail). */
+const CAL_UNKNOWN_START_H = 18
+/** Compact human duration for the in-block time line, e.g. `45m`, `2h`, `4h 30m`. Only shown when the
+ *  block is roomy enough (see the render's width gate). */
+function fmtDuration(ms: number): string {
+  const mins = Math.max(0, Math.round(ms / 60_000))
+  const h = Math.floor(mins / 60)
+  const m = mins % 60
+  if (h === 0) return `${m}m`
+  if (m === 0) return `${h}h`
+  return `${h}h ${m}m`
+}
 /** A block this tall can show BOTH its title and its time range inside; shorter shows only the title. */
 const LABEL_TIME_H = 40
 /** Blocks shorter than this get NO persistent label at all (neither inside nor as an external chip) —
@@ -145,8 +164,13 @@ function layoutDay(
       // Apply the live resize preview to the dragged block (clamped to this day's window).
       const cs = preview && preview.key === b.bar.key ? Math.max(dayStart, Math.min(preview.start, dayEnd)) : b.clipStart
       const ce = preview && preview.key === b.bar.key ? Math.max(dayStart, Math.min(preview.end, dayEnd)) : b.clipEnd
-      const by = ((cs - dayStart) / DAY_MS) * contentH
-      const bh = Math.max(MIN_BLOCK_H, ((ce - cs) / DAY_MS) * contentH)
+      // An UNKNOWN-START bar has no real start (start === end === its end anchor) so it has no natural
+      // height — give it a fixed upward lead-in from the anchor purely to host the top fade (v0.2.316),
+      // the vertical mirror of the dayline's leftward START_FADE_PX tail.
+      const unknownStart = !!b.bar.unknownStart && b.bar.startMs == null
+      const anchorY = ((ce - dayStart) / DAY_MS) * contentH
+      const by = unknownStart ? Math.max(0, anchorY - CAL_UNKNOWN_START_H) : ((cs - dayStart) / DAY_MS) * contentH
+      const bh = unknownStart ? CAL_UNKNOWN_START_H : Math.max(MIN_BLOCK_H, ((ce - cs) / DAY_MS) * contentH)
       const subW = colW / b.laneCount
       const bw = Math.max(1, subW - 1)
       const bx = halfX + b.lane * subW + 0.5
@@ -592,6 +616,23 @@ export function Zero0Calendar({
                     // still reads its true new start/end as `start – end`.
                     const previewing = editPreview?.key === r.bar.key
                     const liveRange = previewing ? rangeText(editPreview!.start, editPreview!.end) : r.bar.range
+                    // Unclear-edge FADES (v0.2.316): fade the block body to transparent off the BOTTOM for
+                    // an unknown/open end (ongoing), off the TOP for an unknown start — the vertical mirror
+                    // of the dayline's edge fades. Points and instants (single moments) never fade.
+                    const fadeEnd = (!!r.bar.unknownEnd || !!r.bar.openEnded) && !r.bar.point && !r.bar.instant
+                    const fadeStart = !!r.bar.unknownStart && !r.bar.point && !r.bar.instant
+                    const endSolidPct = Math.max(0, ((r.bh - CAL_FADE_PX) / r.bh) * 100)
+                    const fadeMask = fadeEnd
+                      ? `linear-gradient(to bottom, #000 ${endSolidPct}%, transparent 100%)`
+                      : fadeStart
+                        ? `linear-gradient(to bottom, transparent 0, #000 ${CAL_FADE_PX}px)`
+                        : undefined
+                    // Live duration shown after the range when the block is roomy AND the span is concrete
+                    // (skip open/unclear edges — there's no fixed length to show).
+                    const durStart = previewing ? editPreview!.start : (r.bar.startMs ?? r.bar.endMs)
+                    const durEnd = previewing ? editPreview!.end : r.bar.endMs
+                    const durMs = durEnd - durStart
+                    const showDuration = (showTime || previewing) && r.bw >= 84 && !fadeEnd && !fadeStart && durMs >= 60_000
                     return (
                       <button
                         key={r.bar.key + ":" + i}
@@ -606,15 +647,22 @@ export function Zero0Calendar({
                         onContextMenu={(e) => ctxMenu(r.bar, e)}
                         className={cn(
                           "absolute overflow-hidden rounded-[3px] text-left transition-opacity",
-                          isRoot ? "border" : "border border-black/10",
                           dim && "opacity-40",
                         )}
-                        style={{ left: r.bx, top: r.by, width: r.bw, height: r.bh, background, borderColor: border }}
+                        style={{ left: r.bx, top: r.by, width: r.bw, height: r.bh }}
                         title={`${r.bar.title} · ${liveRange}`}
                       >
+                        {/* FILL LAYER (v0.2.316) — carries the accent fill, hairline border AND the
+                            unclear-edge fade mask, so the label above stays fully crisp while the block
+                            body fades to transparent at an unknown start/end (mirror of the dayline). */}
+                        <span
+                          aria-hidden
+                          className={cn("absolute inset-0 rounded-[3px]", isRoot ? "border" : "border border-black/10")}
+                          style={{ background, borderColor: border, maskImage: fadeMask, WebkitMaskImage: fadeMask }}
+                        />
                         {r.internal && (
                           <span
-                            className="flex h-full flex-col gap-0.5 px-1 py-0.5 leading-tight"
+                            className="relative flex h-full flex-col gap-0.5 px-1 py-0.5 leading-tight"
                             style={{ color: ink }}
                           >
                             {/* Glyph (the entity's own kind/state mark, e.g. a scheduled Space's thick
@@ -641,6 +689,7 @@ export function Zero0Calendar({
                             {(showTime || previewing) && (
                               <span className="shrink-0 truncate text-[9px] tabular-nums opacity-70">
                                 {liveRange}
+                                {showDuration && ` · ${fmtDuration(durMs)}`}
                               </span>
                             )}
                           </span>
