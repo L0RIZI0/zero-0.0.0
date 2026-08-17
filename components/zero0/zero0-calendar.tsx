@@ -3,6 +3,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { getCalendarBars, type CalBar, NEUTRAL, ROOT_SENTINEL_COLOR } from "@/lib/zero/dayline-bars"
 import type { DaylineOccRef } from "@/components/zero0/zero0-dayline"
+import { Zero0Glyph } from "@/components/zero0/zero0-glyph"
+import { getEntity } from "@/lib/zero/data"
+import { getFaceModel } from "@/lib/zero/face-model"
 import { NOW_COLOR } from "@/lib/zero/timeline-format"
 import { useNowSeconds } from "@/lib/zero/use-now"
 import { cn } from "@/lib/utils"
@@ -21,6 +24,13 @@ import { cn } from "@/lib/utils"
 
 const DAY_MS = 86_400_000
 const HOUR_MS = 3_600_000
+const MIN_MS = 60_000
+/** Snap dragged edges to the minute; enforce a 1-minute floor so a resize can't invert the span. */
+const roundToMinute = (t: number) => Math.round(t / MIN_MS) * MIN_MS
+const MIN_OCC_MS = MIN_MS
+/** A block must be at least this tall to expose its top/bottom resize handles (otherwise the two 6px
+ *  grab zones would overlap and there'd be no body left to click-open). */
+const RESIZE_MIN_H = 18
 /** Minimum hour row height. 24×20 = 480px content — below the available body height ⇒ vertical scroll. */
 const MIN_HOUR_H = 20
 /** Comfortable minimum width for a whole day (holds two sub-columns). Fewer, wider days > many cramped. */
@@ -125,11 +135,18 @@ function layoutDay(
   dayStart: number,
   colW: number,
   contentH: number,
+  /** Live resize preview (v0.2.315): while dragging a block's edge, the matching block uses these
+   *  absolute start/end (clamped to this day) so it grows/shrinks under the cursor before commit. */
+  preview?: { key: string; start: number; end: number } | null,
 ): { blocks: PlacedBlock[]; chips: LabelChip[] } {
+  const dayEnd = dayStart + DAY_MS
   const build = (blocks: Block[], halfX: number): PlacedBlock[] =>
     blocks.map((b) => {
-      const by = ((b.clipStart - dayStart) / DAY_MS) * contentH
-      const bh = Math.max(MIN_BLOCK_H, ((b.clipEnd - b.clipStart) / DAY_MS) * contentH)
+      // Apply the live resize preview to the dragged block (clamped to this day's window).
+      const cs = preview && preview.key === b.bar.key ? Math.max(dayStart, Math.min(preview.start, dayEnd)) : b.clipStart
+      const ce = preview && preview.key === b.bar.key ? Math.max(dayStart, Math.min(preview.end, dayEnd)) : b.clipEnd
+      const by = ((cs - dayStart) / DAY_MS) * contentH
+      const bh = Math.max(MIN_BLOCK_H, ((ce - cs) / DAY_MS) * contentH)
       const subW = colW / b.laneCount
       const bw = Math.max(1, subW - 1)
       const bx = halfX + b.lane * subW + 0.5
@@ -226,6 +243,8 @@ export function Zero0Calendar({
   onContextMenuEntity,
   onOccurrenceMenu,
   onSessionMenu,
+  onOccurrenceRetime,
+  onSessionRetime,
   dataRev,
   highlightId = null,
 }: {
@@ -239,6 +258,11 @@ export function Zero0Calendar({
   onContextMenuEntity?: (id: string, ev: React.MouseEvent) => void
   onOccurrenceMenu?: (entityId: string, occ: NonNullable<DaylineOccRef>, ev: React.MouseEvent) => void
   onSessionMenu?: (entityId: string, anchorId: number, ev: React.MouseEvent) => void
+  /** Drag a PLANNED block's top/bottom edge → commit its new start/end (mirror of the dayline's
+   *  edge-drag retime, but VERTICAL). Absent ⇒ planned blocks are not resizable. */
+  onOccurrenceRetime?: (entityId: string, occ: NonNullable<DaylineOccRef>, start: number, end: number) => void
+  /** Bottom-rail mirror: drag a RECORDED block's top/bottom edge → commit its new session span. */
+  onSessionRetime?: (entityId: string, anchorId: number, start: number, end: number) => void
   dataRev: number
   highlightId?: string | null
 }) {
@@ -311,6 +335,96 @@ export function Zero0Calendar({
     }
     return packColumn(clipped)
   }, [])
+
+  /** The presentation glyph descriptor for a block's entity (kind + state), shared with the content
+   *  rows via `getFaceModel` — so a block shows the SAME glyph the entity shows everywhere else. */
+  const glyphFor = useCallback((id: string) => {
+    const e = getEntity(id)
+    return e ? getFaceModel(e, now) : null
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [now, dataRev])
+
+  // ── BLOCK EDGE-RESIZE (v0.2.315) — the calendar mirror of the dayline's edge-drag retime, but
+  // VERTICAL: drag a block's TOP handle to move its start, its BOTTOM handle to move its end (the
+  // other edge stays put). px→ms uses `contentH` (one whole day spans contentH px), captured at grab
+  // like the dayline captures its lane width. `calEditRef` holds the live span; `editPreview` mirrors
+  // it into the render so the block resizes under the cursor before commit; `editDraggedRef` gates the
+  // click-to-open that would otherwise fire on release. Routes planned → onOccurrenceRetime, recorded
+  // → onSessionRetime, exactly like the dayline.
+  const calEditRef = useRef<{
+    edge: "start" | "end"
+    key: string
+    entityId: string
+    occRef?: NonNullable<DaylineOccRef>
+    sessionAnchorId?: number
+    origStart: number
+    origEnd: number
+    startY: number
+    contentH: number
+    curStart: number
+    curEnd: number
+  } | null>(null)
+  const [editPreview, setEditPreview] = useState<{ key: string; start: number; end: number } | null>(null)
+  const editDraggedRef = useRef(false)
+
+  const beginResize = useCallback(
+    (edge: "start" | "end", bar: CalBar) => (e: React.PointerEvent) => {
+      const isOcc = bar.track === "planned" && !!bar.occRef && !!onOccurrenceRetime
+      const isSession = bar.track === "recorded" && bar.sessionAnchorId != null && !!onSessionRetime
+      if (e.button !== 0 || (!isOcc && !isSession) || bar.startMs == null || bar.endMs == null) return
+      e.stopPropagation()
+      calEditRef.current = {
+        edge,
+        key: bar.key,
+        entityId: bar.id,
+        occRef: isOcc ? bar.occRef : undefined,
+        sessionAnchorId: isSession ? bar.sessionAnchorId : undefined,
+        origStart: bar.startMs,
+        origEnd: bar.endMs,
+        startY: e.clientY,
+        contentH,
+        curStart: bar.startMs,
+        curEnd: bar.endMs,
+      }
+      editDraggedRef.current = false
+      ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+    },
+    [onOccurrenceRetime, onSessionRetime, contentH],
+  )
+  const moveResize = useCallback((e: React.PointerEvent) => {
+    const d = calEditRef.current
+    if (!d) return
+    e.stopPropagation()
+    const dy = e.clientY - d.startY
+    if (Math.abs(dy) > 2) editDraggedRef.current = true
+    const deltaMs = (dy / d.contentH) * DAY_MS
+    let start = d.origStart
+    let end = d.origEnd
+    if (d.edge === "start") start = Math.min(roundToMinute(d.origStart + deltaMs), d.origEnd - MIN_OCC_MS)
+    else end = Math.max(roundToMinute(d.origEnd + deltaMs), d.origStart + MIN_OCC_MS)
+    d.curStart = start
+    d.curEnd = end
+    setEditPreview({ key: d.key, start, end })
+  }, [])
+  const endResize = useCallback(
+    (e: React.PointerEvent) => {
+      const d = calEditRef.current
+      calEditRef.current = null
+      if (!d) return
+      e.stopPropagation()
+      const el = e.currentTarget as HTMLElement
+      if (el.hasPointerCapture?.(e.pointerId)) el.releasePointerCapture(e.pointerId)
+      if (editDraggedRef.current && (d.curStart !== d.origStart || d.curEnd !== d.origEnd)) {
+        if (d.sessionAnchorId != null) onSessionRetime?.(d.entityId, d.sessionAnchorId, d.curStart, d.curEnd)
+        else if (d.occRef) onOccurrenceRetime?.(d.entityId, d.occRef, d.curStart, d.curEnd)
+      }
+      setEditPreview(null)
+      requestAnimationFrame(() => {
+        editDraggedRef.current = false
+      })
+    },
+    [onOccurrenceRetime, onSessionRetime],
+  )
 
   // Center the initial scroll: horizontally on centerDay, vertically on now (when scrolling).
   const didInit = useRef(false)
@@ -427,7 +541,7 @@ export function Zero0Calendar({
               const colW = dayColW / 2
               const plannedBlocks = packForDay(planned, d.start, d.end)
               const recordedBlocks = packForDay(recorded, d.start, d.end)
-              const { blocks, chips } = layoutDay(plannedBlocks, recordedBlocks, d.start, colW, contentH)
+              const { blocks, chips } = layoutDay(plannedBlocks, recordedBlocks, d.start, colW, contentH, editPreview)
               const ctxMenu = (bar: CalBar, e: React.MouseEvent) => {
                 if (bar.occRef && onOccurrenceMenu) onOccurrenceMenu(bar.id, bar.occRef, e)
                 else if (bar.sessionAnchorId != null && onSessionMenu) onSessionMenu(bar.id, bar.sessionAnchorId, e)
@@ -466,6 +580,12 @@ export function Zero0Calendar({
                     const { background, border, ink, isRoot } = blockColors(r.bar)
                     const dim = highlightId != null && highlightId !== r.bar.id
                     const showTime = r.bh >= LABEL_TIME_H
+                    const g = glyphFor(r.bar.id)
+                    // Resizable ⇒ the block has a retime writer for its rail (planned occ / recorded session).
+                    const resizable =
+                      (r.bar.track === "planned" && !!r.bar.occRef && !!onOccurrenceRetime) ||
+                      (r.bar.track === "recorded" && r.bar.sessionAnchorId != null && !!onSessionRetime)
+                    const showHandles = resizable && r.bh >= RESIZE_MIN_H
                     return (
                       <button
                         key={r.bar.key + ":" + i}
@@ -474,6 +594,7 @@ export function Zero0Calendar({
                         data-calkey={r.bar.key}
                         onClick={(e) => {
                           e.stopPropagation()
+                          if (editDraggedRef.current) return // swallow the click that ends a resize drag
                           onOpen(r.bar.id)
                         }}
                         onContextMenu={(e) => ctxMenu(r.bar, e)}
@@ -490,11 +611,26 @@ export function Zero0Calendar({
                             className="flex h-full flex-col gap-0.5 px-1 py-0.5 leading-tight"
                             style={{ color: ink }}
                           >
-                            {/* Title WRAPS (up to 2 lines) rather than truncating, so it reads fully when
-                                the block is tall enough (v0.2.314). `min-h-0` lets the flex child shrink so
-                                overflow still clips gracefully in a very short block. */}
-                            <span className="line-clamp-2 min-h-0 break-words text-[10px] font-medium">
-                              {r.bar.title}
+                            {/* Glyph (the entity's own kind/state mark, e.g. a scheduled Space's thick
+                                hexagon outline) sits left of the WRAPPING title (v0.2.315). It inherits
+                                `ink` via currentColor so it reads on the accent fill. `mt-[1px]` aligns it
+                                to the first title line; `line-clamp-2` lets the title wrap beside it. */}
+                            <span className="flex items-start gap-1">
+                              {g && (
+                                <Zero0Glyph
+                                  kind={g.kind}
+                                  filled={g.filled}
+                                  done={g.showCheck}
+                                  cancelled={g.cancelled}
+                                  requested={g.requested}
+                                  scheduled={g.scheduled}
+                                  ongoing={g.ongoing}
+                                  className="mt-[1px] h-3 w-3 shrink-0"
+                                />
+                              )}
+                              <span className="line-clamp-2 min-h-0 break-words text-[10px] font-medium">
+                                {r.bar.title}
+                              </span>
                             </span>
                             {showTime && (
                               <span className="shrink-0 truncate text-[9px] tabular-nums opacity-70">
@@ -503,6 +639,27 @@ export function Zero0Calendar({
                             )}
                           </span>
                         )}
+                        {/* TOP / BOTTOM RESIZE HANDLES (v0.2.315) — vertical mirror of the dayline's edge
+                            drag. Top moves the start, bottom moves the end; each stops propagation so it
+                            never triggers the block's open-click or the empty-area collapse. */}
+                        {showHandles && (
+                          <>
+                            <span
+                              className="absolute inset-x-0 top-0 z-10 h-1.5 cursor-ns-resize"
+                              onPointerDown={beginResize("start", r.bar)}
+                              onPointerMove={moveResize}
+                              onPointerUp={endResize}
+                              onClick={(e) => e.stopPropagation()}
+                            />
+                            <span
+                              className="absolute inset-x-0 bottom-0 z-10 h-1.5 cursor-ns-resize"
+                              onPointerDown={beginResize("end", r.bar)}
+                              onPointerMove={moveResize}
+                              onPointerUp={endResize}
+                              onClick={(e) => e.stopPropagation()}
+                            />
+                          </>
+                        )}
                       </button>
                     )
                   })}
@@ -510,7 +667,8 @@ export function Zero0Calendar({
                   {/* External label chips (for blocks too small to hold their label inside) */}
                   {chips.map((c, i) => {
                     const dim = highlightId != null && highlightId !== c.bar.id
-                    const dot = c.bar.color === ROOT_SENTINEL_COLOR ? NEUTRAL : (c.bar.sky ?? c.bar.color)
+                    const accent = c.bar.color === ROOT_SENTINEL_COLOR ? NEUTRAL : (c.bar.sky ?? c.bar.color)
+                    const g = glyphFor(c.bar.id)
                     return (
                       <button
                         key={c.bar.key + ":lbl:" + i}
@@ -529,7 +687,24 @@ export function Zero0Calendar({
                         style={{ left: c.lx, top: c.ly, width: c.lw, height: c.lh }}
                         title={`${c.bar.title} · ${c.bar.range}`}
                       >
-                        <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: dot }} />
+                        {/* The entity glyph in its accent (mirror of the in-block glyph); falls back to a
+                            simple accent dot if no model is available. */}
+                        {g ? (
+                          <span className="shrink-0" style={{ color: accent }}>
+                            <Zero0Glyph
+                              kind={g.kind}
+                              filled={g.filled}
+                              done={g.showCheck}
+                              cancelled={g.cancelled}
+                              requested={g.requested}
+                              scheduled={g.scheduled}
+                              ongoing={g.ongoing}
+                              className="h-3 w-3"
+                            />
+                          </span>
+                        ) : (
+                          <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: accent }} />
+                        )}
                         <span className="truncate text-[10px] text-foreground">{c.bar.title}</span>
                       </button>
                     )

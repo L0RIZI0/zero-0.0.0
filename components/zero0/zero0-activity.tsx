@@ -235,6 +235,8 @@ export function Zero0Agenda({
               onContextMenuEntity={onContextMenuEntity}
               onOccurrenceMenu={onOccurrenceMenu}
               onSessionMenu={onSessionMenu}
+              onOccurrenceRetime={onOccurrenceRetime}
+              onSessionRetime={onSessionRetime}
               dataRev={dataRev}
               highlightId={highlightId}
             />
