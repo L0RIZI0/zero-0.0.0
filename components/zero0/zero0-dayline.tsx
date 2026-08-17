@@ -481,6 +481,7 @@ export function Zero0Dayline({
   minimized = false,
   hideBottomBorder = false,
   highlightId = null,
+  onEmptyClick,
 }: {
   onOpen: (id: string) => void
   /** Right-click a tick → open the entity menu for that occurrence's entity. Optional so
@@ -537,6 +538,11 @@ export function Zero0Dayline({
    *  whose `id` matches grows + goes fully opaque — a cross-component "this is the row you're
    *  pointing at" echo. `null` = nothing hovered. */
   highlightId?: string | null
+  /** A genuine LEFT-CLICK on EMPTY dayline area (not a tick, not the end of a pan/drag), when the
+   *  frame is MAXIMIZED — the gesture that EXPANDS the dayline into the multi-day calendar
+   *  (v0.2.313). Receives the current window CENTER TIME so the calendar can center its day columns
+   *  on whatever the dayline was showing. Absent ⇒ empty clicks do nothing (legacy behavior). */
+  onEmptyClick?: (centerTime: number) => void
 }) {
   const isAccess = tracks === "access"
   // TODAY's combined lane: paint planned + access together on one centered band,
@@ -1623,10 +1629,26 @@ export function Zero0Dayline({
     },
     [pctToCol, injectPan, resolveHoverAtCursor],
   )
-  const onPointerUp = useCallback((e: React.PointerEvent) => {
-    dragRef.current = null
-    if (laneRef.current?.hasPointerCapture(e.pointerId)) laneRef.current.releasePointerCapture(e.pointerId)
-  }, [])
+  const onPointerUp = useCallback(
+    (e: React.PointerEvent) => {
+      dragRef.current = null
+      if (laneRef.current?.hasPointerCapture(e.pointerId)) laneRef.current.releasePointerCapture(e.pointerId)
+      // EXPAND-TO-CALENDAR gesture (v0.2.313): a genuine LEFT-click on EMPTY band area (no drag past
+      // the 3px threshold, not on a tick) while MAXIMIZED. `draggedRef` is set by onPointerMove once a
+      // pan begins, so this fires only for a still click. The center time = the middle of the current
+      // window, so the calendar opens centered on whatever slice the dayline was showing.
+      if (
+        e.button === 0 &&
+        !minimized &&
+        !draggedRef.current &&
+        onEmptyClick &&
+        !(e.target as HTMLElement).closest("[data-barkey]")
+      ) {
+        onEmptyClick(viewStartRef.current + viewSpanRef.current / 2)
+      }
+    },
+    [minimized, onEmptyClick],
+  )
   const recenter = useCallback(() => setViewStart(dayWindow(Date.now(), viewSpanRef.current)[0]), [])
 
   // One eased frame of the zoom glide (v0.2.305). Moves the LIVE span a fraction of the way toward

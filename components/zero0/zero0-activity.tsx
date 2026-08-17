@@ -14,6 +14,7 @@ import {
 } from "@/lib/zero/activity-log"
 import { Zero0Face } from "@/components/zero0/zero0-face"
 import { Zero0Dayline, type DaylineOccRef } from "@/components/zero0/zero0-dayline"
+import { Zero0Calendar } from "@/components/zero0/zero0-calendar"
 import { Zero0FrameMarker } from "@/components/zero0/zero0-frame-marker"
 import { useZero0Readout, toggleZero0Readout } from "@/lib/zero/zero0-chord"
 import { formatLocale } from "@/lib/zero/format-locale"
@@ -121,12 +122,45 @@ export function Zero0Agenda({
   /** Entity focused elsewhere on the canvas — its ticks light up. Passed to the dayline. */
   highlightId?: string | null
 }) {
+  // EXPAND-TO-CALENDAR (v0.2.313). A click on empty MAXIMIZED dayline area expands the frame IN PLACE
+  // into a multi-day calendar centered on the dayline window's center time; an empty click on the
+  // calendar collapses it back. (The smooth tick-flying morph lands in a follow-up pass — this is the
+  // functional toggle it hangs off.)
+  const [expanded, setExpanded] = useState(false)
+  const [centerTime, setCenterTime] = useState(() => Date.now())
+  // Calendar height — big enough for a comfortable grid, capped to leave room for the frames below.
+  const [calH, setCalH] = useState(560)
+  useEffect(() => {
+    if (!expanded) return
+    const compute = () => setCalH(Math.max(420, Math.min(760, window.innerHeight - 220)))
+    compute()
+    window.addEventListener("resize", compute)
+    return () => window.removeEventListener("resize", compute)
+  }, [expanded])
+  // A minimized frame can never be expanded; collapse if it somehow is.
+  useEffect(() => {
+    if (minimized && expanded) setExpanded(false)
+  }, [minimized, expanded])
+
   return (
     <section
       aria-label="Today"
       className="relative"
       onContextMenu={onFrameMenu ? (ev) => onFrameMenu("agenda", ev) : undefined}
     >
+      {!minimized && expanded && (
+        <Zero0Calendar
+          centerTime={centerTime}
+          height={calH}
+          onOpen={onOpen}
+          onEmptyClick={() => setExpanded(false)}
+          onContextMenuEntity={onContextMenuEntity}
+          onOccurrenceMenu={onOccurrenceMenu}
+          onSessionMenu={onSessionMenu}
+          dataRev={dataRev}
+          highlightId={highlightId}
+        />
+      )}
       {/* Frame TITLE bar REMOVED (v0.2.287) — the "TODAY" word was already hidden (.286) and the bar
           then held only the minimize chevron, leaving an empty strip + inset divider above the dayline.
           The maximized frame is now JUST the dayline. Minimize is still available by right-clicking the
@@ -134,31 +168,38 @@ export function Zero0Agenda({
           app header next. */}
       {/* The dayline band. When minimized, a LEFT-click on empty area (anywhere that isn't a
           tick button) maximizes the frame — a big, forgiving hit target. Tick clicks still
-          open their entity (guarded by the `[data-barkey]` closest check). */}
-      <div
-        className={minimized ? "cursor-pointer" : undefined}
-        onClick={
-          minimized && onToggleMinimize
-            ? (ev) => {
-                if (!(ev.target as HTMLElement).closest("[data-barkey]")) onToggleMinimize()
-              }
-            : undefined
-        }
-      >
-        <Zero0Dayline
-          onOpen={onOpen}
-          onContextMenuEntity={onContextMenuEntity}
-          onOccurrenceMenu={onOccurrenceMenu}
-          onSessionMenu={onSessionMenu}
-          onOccurrenceRetime={onOccurrenceRetime}
-          onSessionRetime={onSessionRetime}
-          dataRev={dataRev}
-          tracks="both"
-          minimized={minimized}
-          hideBottomBorder={hideBottomBorder}
-          highlightId={highlightId}
-        />
-      </div>
+          open their entity (guarded by the `[data-barkey]` closest check). A click on empty area of a
+          MAXIMIZED band expands it into the calendar (onEmptyClick). Hidden while the calendar shows. */}
+      {!(!minimized && expanded) && (
+        <div
+          className={minimized ? "cursor-pointer" : undefined}
+          onClick={
+            minimized && onToggleMinimize
+              ? (ev) => {
+                  if (!(ev.target as HTMLElement).closest("[data-barkey]")) onToggleMinimize()
+                }
+              : undefined
+          }
+        >
+          <Zero0Dayline
+            onOpen={onOpen}
+            onContextMenuEntity={onContextMenuEntity}
+            onOccurrenceMenu={onOccurrenceMenu}
+            onSessionMenu={onSessionMenu}
+            onOccurrenceRetime={onOccurrenceRetime}
+            onSessionRetime={onSessionRetime}
+            dataRev={dataRev}
+            tracks="both"
+            minimized={minimized}
+            hideBottomBorder={hideBottomBorder}
+            highlightId={highlightId}
+            onEmptyClick={(c) => {
+              setCenterTime(c)
+              setExpanded(true)
+            }}
+          />
+        </div>
+      )}
       {/* The §x corner affordance is chrome — hide it on a minimized band (which is meant
           to be nothing but the dayline). Re-show via the § chord or the footer link. */}
       {!minimized && <Zero0FrameMarker flag="agenda" label="the agenda" />}
