@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { getCalendarBars, type CalBar, NEUTRAL, ROOT_SENTINEL_COLOR } from "@/lib/zero/dayline-bars"
 import type { DaylineOccRef } from "@/components/zero0/zero0-dayline"
 import { Zero0Glyph } from "@/components/zero0/zero0-glyph"
-import { getEntity } from "@/lib/zero/data"
+import { getEntity, isInSubtree } from "@/lib/zero/data"
 import { getFaceModel } from "@/lib/zero/face-model"
 import { NOW_COLOR, rangeText } from "@/lib/zero/timeline-format"
 import { useNowSeconds } from "@/lib/zero/use-now"
@@ -123,6 +123,71 @@ function packColumn(bars: { bar: CalBar; clipStart: number; clipEnd: number }[])
   return placed
 }
 
+/** Left inset (px) applied per nesting level so a child recorded block sits INSIDE its parent, leaving
+ *  a readable strip of the parent visible on the left (v0.2.322). */
+const NEST_BLEED_PX = 10
+/** A nested recorded block never shrinks below this width, even deep in a chain. */
+const NEST_MIN_W = 12
+
+/** One node in the recorded nesting forest: a session block plus the sessions nested inside it. `lane`/
+ *  `laneCount` are packed WITHIN this node's sibling group (concurrency among siblings), independent of
+ *  pixel width; `depth` is the nesting level (0 = root). */
+interface RecNode {
+  block: Block
+  lane: number
+  laneCount: number
+  depth: number
+  children: RecNode[]
+}
+
+/**
+ * Turn flat recorded blocks into a NESTING FOREST (v0.2.322): a session nests inside another when the
+ * other's entity is its ANCESTOR (subtree) and its span TIME-CONTAINS the child — so "working on v0
+ * inside Zero" shows v0 nested within Zero rather than as a separate parallel column. Among all
+ * containing ancestors, the SMALLEST-span one wins (closest ancestor). Sibling groups (roots, and each
+ * node's children) are lane-packed by concurrency. Returns the roots plus the ROOT lane count, which
+ * drives the .320 width split (nested children don't add columns — they inset).
+ */
+function forestRecorded(blocks: Block[]): { roots: RecNode[]; rootLaneCount: number } {
+  const span = (b: Block) => b.clipEnd - b.clipStart
+  const parentOf = (b: Block): Block | null => {
+    let best: Block | null = null
+    for (const p of blocks) {
+      if (p === b) continue
+      if (p.bar.id === b.bar.id) continue // same entity ⇒ not a nesting relationship
+      const contains = p.clipStart <= b.clipStart && p.clipEnd >= b.clipEnd
+      if (!contains) continue
+      if (!isInSubtree(p.bar.id, b.bar.id)) continue // p's entity must be an ancestor of b's
+      if (best == null || span(p) < span(best)) best = p
+    }
+    return best
+  }
+  const childrenByParent = new Map<Block, Block[]>()
+  const roots: Block[] = []
+  for (const b of blocks) {
+    const p = parentOf(b)
+    if (p) childrenByParent.set(p, [...(childrenByParent.get(p) ?? []), b])
+    else roots.push(b)
+  }
+  // Recursively lane-pack a sibling group and attach children.
+  const build = (group: Block[], depth: number): RecNode[] => {
+    const packed = packColumn(group.map((b) => ({ bar: b.bar, clipStart: b.clipStart, clipEnd: b.clipEnd })))
+    // packColumn re-sorts, so pair results back to the source block by key+span identity.
+    return packed.map((pk) => {
+      const src = group.find((g) => g.bar.key === pk.bar.key && g.clipStart === pk.clipStart) ?? group[0]
+      return {
+        block: src,
+        lane: pk.lane,
+        laneCount: pk.laneCount,
+        depth,
+        children: build(childrenByParent.get(src) ?? [], depth + 1),
+      }
+    })
+  }
+  const rootNodes = build(roots, 0)
+  return { roots: rootNodes, rootLaneCount: rootNodes[0]?.laneCount ?? 0 }
+}
+
 /** External-label chip height. */
 // Instant chips now carry a time line that WRAPS below the title when it doesn't fit beside it, so the
 // box reserves two lines (v0.2.319). One-line content is vertically centered in the box.
@@ -139,6 +204,12 @@ interface PlacedBlock {
   /** Whether this block gets a PERSISTENT label at all. Sub-5min blocks (except Instants/ongoing) are
    *  label-free — hover the block for its tooltip instead (v0.2.314). */
   labeled: boolean
+  /** Nesting depth in the recorded forest (0 = root / planned / instant); each level insets from the
+   *  left by NEST_BLEED_PX (v0.2.322). */
+  depth: number
+  /** True when this recorded block has sessions nested inside it — the render then draws its title
+   *  ROTATED into the visible left bleed strip (children cover the horizontal room). */
+  hasChildren: boolean
 }
 /** A persistent centered label chip (day-local) for an INSTANT — the moment's only readable surface,
  *  centered over its full-width tick (v0.2.320; the pre-.320 sibling-column chip + connector is gone). */
@@ -157,7 +228,7 @@ interface LabelChip {
  *  by the day's x. */
 function layoutDay(
   plannedBlocks: Block[],
-  recordedBlocks: Block[],
+  recordedRoots: RecNode[],
   instantBlocks: Block[],
   dayStart: number,
   dayColW: number,
@@ -171,32 +242,55 @@ function layoutDay(
   preview?: { key: string; start: number; end: number } | null,
 ): { blocks: PlacedBlock[]; chips: LabelChip[] } {
   const dayEnd = dayStart + DAY_MS
-  // Place a track's blocks inside an [originX, originX+areaW] band, splitting the band evenly across its
-  // own lanes. PLANNED gets [0, plannedW]; RECORDED gets [dayColW-recordedW, dayColW] (right-aligned).
+  // Turn ONE block into a positioned rect (vertical from its clipped span; horizontal handed in). Shared
+  // by the planned uniform-lane build and the recorded nested placement.
+  const mkPlaced = (b: Block, bx: number, bw: number, depth: number, hasChildren: boolean): PlacedBlock => {
+    // Apply the live resize preview to the dragged block (clamped to this day's window).
+    const cs = preview && preview.key === b.bar.key ? Math.max(dayStart, Math.min(preview.start, dayEnd)) : b.clipStart
+    const ce = preview && preview.key === b.bar.key ? Math.max(dayStart, Math.min(preview.end, dayEnd)) : b.clipEnd
+    // An UNKNOWN-START bar has no real start (start === end === its end anchor) so it has no natural
+    // height — give it a fixed upward lead-in from the anchor purely to host the top fade (v0.2.316),
+    // the vertical mirror of the dayline's leftward START_FADE_PX tail.
+    const unknownStart = !!b.bar.unknownStart && b.bar.startMs == null
+    const anchorY = ((ce - dayStart) / DAY_MS) * contentH
+    const by = unknownStart ? Math.max(0, anchorY - CAL_UNKNOWN_START_H) : ((cs - dayStart) / DAY_MS) * contentH
+    const bh = unknownStart ? CAL_UNKNOWN_START_H : Math.max(MIN_BLOCK_H, ((ce - cs) / DAY_MS) * contentH)
+    // Duration from the bar's absolute span (NOT the clipped/floored height) so a block split across
+    // days is still judged by its true length. Ongoing blocks always keep a label.
+    const durMs = b.bar.startMs != null ? b.bar.endMs - b.bar.startMs : 0
+    const labeled = !!b.bar.ongoing || durMs >= LABEL_MIN_DURATION_MS
+    const internal = labeled && bh >= LABEL_MIN_H && bw >= LABEL_MIN_W
+    return { bar: b.bar, bx, by, bw, bh, internal, labeled, depth, hasChildren }
+  }
+  // Planned: uniform lanes across [0, plannedW] (left-aligned).
   const build = (blocks: Block[], originX: number, areaW: number): PlacedBlock[] =>
     blocks.map((b) => {
-      // Apply the live resize preview to the dragged block (clamped to this day's window).
-      const cs = preview && preview.key === b.bar.key ? Math.max(dayStart, Math.min(preview.start, dayEnd)) : b.clipStart
-      const ce = preview && preview.key === b.bar.key ? Math.max(dayStart, Math.min(preview.end, dayEnd)) : b.clipEnd
-      // An UNKNOWN-START bar has no real start (start === end === its end anchor) so it has no natural
-      // height — give it a fixed upward lead-in from the anchor purely to host the top fade (v0.2.316),
-      // the vertical mirror of the dayline's leftward START_FADE_PX tail.
-      const unknownStart = !!b.bar.unknownStart && b.bar.startMs == null
-      const anchorY = ((ce - dayStart) / DAY_MS) * contentH
-      const by = unknownStart ? Math.max(0, anchorY - CAL_UNKNOWN_START_H) : ((cs - dayStart) / DAY_MS) * contentH
-      const bh = unknownStart ? CAL_UNKNOWN_START_H : Math.max(MIN_BLOCK_H, ((ce - cs) / DAY_MS) * contentH)
       const subW = areaW / b.laneCount
       const bw = Math.max(1, subW - 1)
       const bx = originX + b.lane * subW + 0.5
-      // Duration from the bar's absolute span (NOT the clipped/floored height) so a block split across
-      // days is still judged by its true length. Ongoing blocks always keep a label.
-      const durMs = b.bar.startMs != null ? b.bar.endMs - b.bar.startMs : 0
-      const labeled = !!b.bar.ongoing || durMs >= LABEL_MIN_DURATION_MS
-      const internal = labeled && bh >= LABEL_MIN_H && bw >= LABEL_MIN_W
-      return { bar: b.bar, bx, by, bw, bh, internal, labeled }
+      return mkPlaced(b, bx, bw, 0, false)
     })
   const plannedR = build(plannedBlocks, 0, plannedW)
-  const recordedR = build(recordedBlocks, dayColW - recordedW, recordedW)
+
+  // Recorded: NESTED placement (v0.2.322). Each sibling group splits its band into concurrency lanes;
+  // a node's children are placed in the SAME band inset by NEST_BLEED_PX from the left (so the parent
+  // stays visible as a left strip) and painted AFTER the parent (frontmost). Parents-first ⇒ children
+  // render on top. Right-aligned band: [dayColW - recordedW, dayColW].
+  const recordedR: PlacedBlock[] = []
+  const placeNested = (nodes: RecNode[], x0: number, w: number) => {
+    for (const n of nodes) {
+      const laneW = w / n.laneCount
+      const bx = x0 + n.lane * laneW + 0.5
+      const bw = Math.max(NEST_MIN_W, laneW - 1)
+      recordedR.push(mkPlaced(n.block, bx, bw, n.depth, n.children.length > 0))
+      if (n.children.length) {
+        const childX = bx + NEST_BLEED_PX
+        const childW = Math.max(NEST_MIN_W, bw - NEST_BLEED_PX)
+        placeNested(n.children, childX, childW)
+      }
+    }
+  }
+  placeNested(recordedRoots, dayColW - recordedW, recordedW)
 
   // INSTANTS (v0.2.320) — zero-duration moments take the WHOLE day width and paint FRONTMOST (returned
   // last), so spans behind them are never shrunk to make room. Each carries a persistent centered chip
@@ -214,7 +308,7 @@ function layoutDay(
     const lx = Math.max(2, (dayColW - lw) / 2)
     const ly = Math.min(Math.max(ty - CHIP_H / 2, 0), Math.max(0, contentH - CHIP_H))
     chips.push({ bar: b.bar, lx, ly, lw, lh: CHIP_H })
-    return { bar: b.bar, bx: 0, by, bw: dayColW, bh: MIN_BLOCK_H, internal: false, labeled: true }
+    return { bar: b.bar, bx: 0, by, bw: dayColW, bh: MIN_BLOCK_H, internal: false, labeled: true, depth: 0, hasChildren: false }
   })
 
   return { blocks: [...plannedR, ...recordedR, ...instantR], chips }
@@ -284,6 +378,11 @@ export function Zero0Calendar({
   const bodyRef = useRef<HTMLDivElement | null>(null)
   const dayHeaderInnerRef = useRef<HTMLDivElement | null>(null)
   const hourGutterInnerRef = useRef<HTMLDivElement | null>(null)
+  // A right-click menu dismisses on `mousedown`, which unmounts it BEFORE the container's `onClick`
+  // (mouseup) empty-click toggle runs — so the toggle can't see it and would flip the view. Capture at
+  // pointerdown-capture (fires before the menu's window mousedown listener) whether a menu was open, then
+  // consume it in onClick to swallow the dismiss click. (v0.2.322)
+  const menuWasOpenRef = useRef(false)
   const [frameW, setFrameW] = useState(0)
 
   // Measure the frame width to choose how many day columns fit comfortably.
@@ -583,7 +682,15 @@ export function Zero0Calendar({
     <div
       className="relative flex select-none flex-col overflow-hidden bg-background"
       style={{ height }}
+      onPointerDownCapture={() => {
+        menuWasOpenRef.current = typeof document !== "undefined" && !!document.querySelector("[data-zero-menu]")
+      }}
       onClick={(e) => {
+        // Swallow the click that merely dismissed an open right-click menu (see menuWasOpenRef).
+        if (menuWasOpenRef.current) {
+          menuWasOpenRef.current = false
+          return
+        }
         if (!(e.target as HTMLElement).closest("[data-calblock]")) onEmptyClick?.()
       }}
     >
@@ -659,14 +766,17 @@ export function Zero0Calendar({
               // the other track takes the full width.
               //   Lr 0 → planned 100%      Lr 1 → planned 75% / recorded 25%
               //   Lr 2 → 50% / 50%         Lr ≥3 → planned floored 30% / recorded 70%
+              // Nest child recorded sessions inside their ancestors (v0.2.322). The split floor uses the
+              // ROOT lane count — nested children inset instead of adding columns, so "v0 inside Zero"
+              // counts as ONE recorded column, not two.
+              const { roots: recordedRoots, rootLaneCount: Lr } = forestRecorded(recordedBlocks)
               const Lp = plannedBlocks[0]?.laneCount ?? 0
-              const Lr = recordedBlocks[0]?.laneCount ?? 0
               const recFrac = Lr === 0 ? 0 : Lp === 0 ? 1 : Lr === 1 ? 0.25 : Lr === 2 ? 0.5 : 0.7
               const recordedW = dayColW * recFrac
               const plannedW = dayColW - recordedW
               const { blocks, chips } = layoutDay(
                 plannedBlocks,
-                recordedBlocks,
+                recordedRoots,
                 instantBlocks,
                 d.start,
                 dayColW,
@@ -768,7 +878,20 @@ export function Zero0Calendar({
                             WebkitMaskImage: fadeMask,
                           }}
                         />
-                        {r.internal && (
+                        {/* PARENT with nested children (v0.2.322): the children cover the block's
+                            horizontal room, so its title renders ROTATED 90° CCW in the visible left
+                            bleed strip. Reads bottom-to-top; clips if longer than the block is tall. */}
+                        {r.internal && r.hasChildren && (
+                          <span
+                            className="absolute inset-y-0 left-0 z-[1] flex items-center justify-center"
+                            style={{ width: NEST_BLEED_PX + 2, color: ink }}
+                          >
+                            <span className="-rotate-90 whitespace-nowrap text-[10px] font-medium">
+                              {r.bar.title}
+                            </span>
+                          </span>
+                        )}
+                        {r.internal && !r.hasChildren && (
                           <span
                             className="relative flex h-full flex-col gap-0.5 px-1 py-0.5 leading-tight"
                             style={{ color: ink }}
@@ -797,8 +920,13 @@ export function Zero0Calendar({
                             </span>
                             {(showTime || previewing) && (
                               <span className="min-h-0 break-words text-[9px] tabular-nums opacity-70">
-                                {liveRange}
-                                {showDuration && ` · ${fmtDuration(durMs)}`}
+                                {/* RECORDED sessions show DURATION only (v0.2.322) — start/end stays on the
+                                    hover tooltip. Planned keeps its range (+ duration suffix when roomy). */}
+                                {r.bar.track === "recorded"
+                                  ? durMs >= 60_000
+                                    ? fmtDuration(durMs)
+                                    : liveRange
+                                  : `${liveRange}${showDuration ? ` · ${fmtDuration(durMs)}` : ""}`}
                               </span>
                             )}
                           </span>

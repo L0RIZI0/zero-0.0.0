@@ -57,6 +57,7 @@ export function Zero0DomMenu({ menu, onClose }: { menu: Zero0DomMenuState; onClo
   return (
     <div
       ref={ref}
+      data-zero-menu
       className="fixed z-50 border border-border bg-background shadow-none"
       style={{ left: pos.x, top: pos.y, fontFamily: "var(--font-zero0-mono), ui-monospace, monospace" }}
     >

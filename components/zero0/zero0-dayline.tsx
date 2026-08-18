@@ -1482,6 +1482,10 @@ export function Zero0Dayline({
   // --- Panning (linear drag, no zoom) ---------------------------------------
   const dragRef = useRef<{ startX: number; startView: number; lastX: number } | null>(null)
   const draggedRef = useRef(false)
+  // A right-click menu dismisses on `mousedown` (after `pointerdown`), so by the time the empty-click
+  // expand-to-calendar fires in onPointerUp the menu is gone. Record at pointerdown whether one was open
+  // and swallow that dismiss click in onPointerUp so it doesn't flip to calendar view. (v0.2.322)
+  const menuWasOpenRef = useRef(false)
 
   // --- Occurrence RE-TIME drag (v0.2.286) -----------------------------------
   // Drag a planned tick's LEFT/RIGHT edge handle to resize (change one edge), or the tick BODY to
@@ -1599,6 +1603,7 @@ export function Zero0Dayline({
   const onPointerDown = useCallback(
     (e: React.PointerEvent) => {
       if (e.button !== 0) return
+      menuWasOpenRef.current = typeof document !== "undefined" && !!document.querySelector("[data-zero-menu]")
       draggedRef.current = false
       dragRef.current = { startX: e.clientX, startView: viewStart, lastX: e.clientX }
       cursorColRef.current = pctToCol(e.clientX)
@@ -1641,11 +1646,13 @@ export function Zero0Dayline({
         e.button === 0 &&
         !minimized &&
         !draggedRef.current &&
+        !menuWasOpenRef.current &&
         onEmptyClick &&
         !(e.target as HTMLElement).closest("[data-barkey]")
       ) {
         onEmptyClick(viewStartRef.current + viewSpanRef.current / 2)
       }
+      menuWasOpenRef.current = false
     },
     [minimized, onEmptyClick],
   )
