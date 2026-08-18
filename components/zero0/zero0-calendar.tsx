@@ -215,6 +215,11 @@ interface PlacedBlock {
   /** True when this block has blocks nested inside it — the render then draws its title ROTATED into the
    *  visible left bleed strip (children cover the horizontal room). */
   hasChildren: boolean
+  /** Downward lead-out (px) added to `bh` below the block's real end to host the unknown/open-END fade
+   *  (v0.2.325). 0 when the end is concrete. Without it, an ongoing block that just started is only
+   *  MIN_BLOCK_H tall and the 30min fade would collapse into a sliver — so we EXTEND the block past its
+   *  last-known point (below the now line for ongoing) and fade over that tail. */
+  endFadePx: number
 }
 /** A persistent centered label chip (day-local) for an INSTANT — the moment's only readable surface,
  *  centered over its full-width tick (v0.2.320; the pre-.320 sibling-column chip + connector is gone). */
@@ -259,13 +264,19 @@ function layoutDay(
     const unknownStart = !!b.bar.unknownStart && b.bar.startMs == null
     const anchorY = ((ce - dayStart) / DAY_MS) * contentH
     const by = unknownStart ? Math.max(0, anchorY - CAL_UNKNOWN_START_H) : ((cs - dayStart) / DAY_MS) * contentH
-    const bh = unknownStart ? CAL_UNKNOWN_START_H : Math.max(MIN_BLOCK_H, ((ce - cs) / DAY_MS) * contentH)
+    const baseH = unknownStart ? CAL_UNKNOWN_START_H : Math.max(MIN_BLOCK_H, ((ce - cs) / DAY_MS) * contentH)
+    // Unknown/open END (e.g. ongoing) gets a downward LEAD-OUT of 30min (floored at CAL_FADE_PX) added
+    // below its real end so the end fade has real vertical room even when the body is tiny (v0.2.325) —
+    // the vertical mirror of the unknownStart lead-in. Excludes points/instants (single moments).
+    const fadeEndBar = (!!b.bar.unknownEnd || !!b.bar.openEnded) && !b.bar.point && !b.bar.instant
+    const endFadePx = fadeEndBar ? Math.max(CAL_FADE_PX, (CAL_END_FADE_MS / DAY_MS) * contentH) : 0
+    const bh = baseH + endFadePx
     // Duration from the bar's absolute span (NOT the clipped/floored height) so a block split across
     // days is still judged by its true length. Ongoing blocks always keep a label.
     const durMs = b.bar.startMs != null ? b.bar.endMs - b.bar.startMs : 0
     const labeled = !!b.bar.ongoing || durMs >= LABEL_MIN_DURATION_MS
-    const internal = labeled && bh >= LABEL_MIN_H && bw >= LABEL_MIN_W
-    return { bar: b.bar, bx, by, bw, bh, internal, labeled, depth, hasChildren }
+    const internal = labeled && baseH >= LABEL_MIN_H && bw >= LABEL_MIN_W
+    return { bar: b.bar, bx, by, bw, bh, internal, labeled, depth, hasChildren, endFadePx }
   }
   // NESTED placement (v0.2.322 recorded, v0.2.323 planned): each sibling group splits its band into
   // concurrency lanes; a node's children are placed in the SAME band inset by NEST_BLEED_PX from the left
@@ -306,7 +317,7 @@ function layoutDay(
     const lx = Math.max(2, (dayColW - lw) / 2)
     const ly = Math.min(Math.max(ty - CHIP_H / 2, 0), Math.max(0, contentH - CHIP_H))
     chips.push({ bar: b.bar, lx, ly, lw, lh: CHIP_H })
-    return { bar: b.bar, bx: 0, by, bw: dayColW, bh: MIN_BLOCK_H, internal: false, labeled: true, depth: 0, hasChildren: false }
+    return { bar: b.bar, bx: 0, by, bw: dayColW, bh: MIN_BLOCK_H, internal: false, labeled: true, depth: 0, hasChildren: false, endFadePx: 0 }
   })
 
   return { blocks: [...plannedR, ...recordedR, ...instantR], chips }
@@ -472,7 +483,7 @@ export function Zero0Calendar({
 
   // ── BLOCK EDGE-RESIZE (v0.2.315) — the calendar mirror of the dayline's edge-drag retime, but
   // VERTICAL: drag a block's TOP handle to move its start, its BOTTOM handle to move its end (the
-  // other edge stays put). px→ms uses `contentH` (one whole day spans contentH px), captured at grab
+  // other edge stays put). px��ms uses `contentH` (one whole day spans contentH px), captured at grab
   // like the dayline captures its lane width. `calEditRef` holds the live span; `editPreview` mirrors
   // it into the render so the block resizes under the cursor before commit; `editDraggedRef` gates the
   // click-to-open that would otherwise fire on release. Routes planned → onOccurrenceRetime, recorded
@@ -823,9 +834,10 @@ export function Zero0Calendar({
                     // of the dayline's edge fades. Points and instants (single moments) never fade.
                     const fadeEnd = (!!r.bar.unknownEnd || !!r.bar.openEnded) && !r.bar.point && !r.bar.instant
                     const fadeStart = !!r.bar.unknownStart && !r.bar.point && !r.bar.instant
-                    // End fade = 30min of the timeline (floored at CAL_FADE_PX), capped at the block height.
-                    const endFadePx = Math.min(r.bh, Math.max(CAL_FADE_PX, (CAL_END_FADE_MS / DAY_MS) * contentH))
-                    const endSolidPct = Math.max(0, ((r.bh - endFadePx) / r.bh) * 100)
+                    // End fade spans the block's LEAD-OUT tail (30min of timeline, floored at CAL_FADE_PX;
+                    // computed in layout as r.endFadePx and already added to r.bh) so the fade is a real,
+                    // noticeable chunk even when the solid body is tiny (v0.2.325).
+                    const endSolidPct = r.bh > 0 ? Math.max(0, ((r.bh - r.endFadePx) / r.bh) * 100) : 0
                     const fadeMask = fadeEnd
                       ? `linear-gradient(to bottom, #000 ${endSolidPct}%, transparent 100%)`
                       : fadeStart
