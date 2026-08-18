@@ -1196,10 +1196,10 @@ export function Zero0Calendar({
           height={bodyH}
           aria-hidden
         >
-          <line ref={slTL} stroke={NOW_COLOR} strokeWidth={1} strokeOpacity={0.4} strokeLinecap="round" />
-          <line ref={slBL} stroke={NOW_COLOR} strokeWidth={1} strokeOpacity={0.4} strokeLinecap="round" />
-          <line ref={slTR} stroke={NOW_COLOR} strokeWidth={1} strokeOpacity={0.4} strokeLinecap="round" />
-          <line ref={slBR} stroke={NOW_COLOR} strokeWidth={1} strokeOpacity={0.4} strokeLinecap="round" />
+          <line ref={slTL} stroke={NOW_COLOR} strokeWidth={1} strokeOpacity={0.22} strokeLinecap="round" />
+          <line ref={slBL} stroke={NOW_COLOR} strokeWidth={1} strokeOpacity={0.22} strokeLinecap="round" />
+          <line ref={slTR} stroke={NOW_COLOR} strokeWidth={1} strokeOpacity={0.22} strokeLinecap="round" />
+          <line ref={slBR} stroke={NOW_COLOR} strokeWidth={1} strokeOpacity={0.22} strokeLinecap="round" />
         </svg>
       </div>
     </div>
