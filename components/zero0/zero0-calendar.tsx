@@ -436,6 +436,9 @@ export function Zero0Calendar({
   // consume it in onClick to swallow the dismiss click. (v0.2.322)
   const menuWasOpenRef = useRef(false)
   const [frameW, setFrameW] = useState(0)
+  // Entity id currently hovered on the calendar. Hovering any block of an entity lifts ALL that entity's
+  // AUTO-play (76%-dimmed) blocks back to full opacity (v0.2.334) — a quick way to inspect a faint presence.
+  const [hoverId, setHoverId] = useState<string | null>(null)
 
   // NOW-marker "sightlines" (v0.2.331): four diagonals from the visible frame's corners converging on the
   // now-marker's left/right vertices, so the thin now line is easy to locate at a glance. The overlay is
@@ -915,10 +918,17 @@ export function Zero0Calendar({
                     const dim = highlightId != null && highlightId !== r.bar.id
                     // AUTO-play (ongoing-on-enter) recorded blocks render at 76% opacity to read as
                     // presence, not deliberate activity (v0.2.332). Skipped while `dim` is active so the
-                    // highlight fade (opacity-40) still wins.
-                    const autoOpacity = r.bar.auto && !dim ? 0.76 : undefined
+                    // highlight fade (opacity-40) still wins, and lifted to full while THIS entity is hovered
+                    // (v0.2.334) — hovering any of its blocks reveals all its faint ones.
+                    const autoOpacity = r.bar.auto && !dim && hoverId !== r.bar.id ? 0.76 : undefined
                     const showTime = r.bh >= LABEL_TIME_H
                     const g = glyphFor(r.bar.id)
+                    // The GLYPH spins only on the ACTUALLY-ongoing block, not on every block of an ongoing
+                    // entity (v0.2.334): `g.ongoing` is a per-ENTITY face-model flag, so gate it by this
+                    // bar's own live state — `ongoing` (planned occurrence in progress) or `openEnded`
+                    // (open recorded session). Past/future blocks of the same entity stay static.
+                    const barIsLive = !!r.bar.ongoing || !!r.bar.openEnded
+                    const glyphOngoing = g?.ongoing && barIsLive
                     // Resizable ⇒ the block has a retime writer for its rail (planned occ / recorded session).
                     const resizable =
                       (r.bar.track === "planned" && !!r.bar.occRef && !!onOccurrenceRetime) ||
@@ -967,6 +977,8 @@ export function Zero0Calendar({
                         onPointerDown={movable ? beginMove(r.bar) : undefined}
                         onPointerMove={movable ? moveMove : undefined}
                         onPointerUp={movable ? endMove : undefined}
+                        onPointerEnter={() => setHoverId(r.bar.id)}
+                        onPointerLeave={() => setHoverId((cur) => (cur === r.bar.id ? null : cur))}
                         onContextMenu={(e) => ctxMenu(r.bar, e)}
                         className={cn(
                           "absolute overflow-hidden rounded-[3px] text-left transition-opacity",
@@ -1016,7 +1028,7 @@ export function Zero0Calendar({
                                 cancelled={g.cancelled}
                                 requested={g.requested}
                                 scheduled={g.scheduled}
-                                ongoing={g.ongoing}
+                                ongoing={glyphOngoing}
                                 flip180={g.glyphFlip180}
                                 className="h-3 w-3 shrink-0"
                               />
@@ -1044,7 +1056,7 @@ export function Zero0Calendar({
                                   cancelled={g.cancelled}
                                   requested={g.requested}
                                   scheduled={g.scheduled}
-                                  ongoing={g.ongoing}
+                                  ongoing={glyphOngoing}
                                   flip180={g.glyphFlip180}
                                   className="mt-[1px] h-3 w-3 shrink-0"
                                 />
@@ -1097,6 +1109,8 @@ export function Zero0Calendar({
                     const dim = highlightId != null && highlightId !== c.bar.id
                     const accent = c.bar.color === ROOT_SENTINEL_COLOR ? NEUTRAL : (c.bar.sky ?? c.bar.color)
                     const g = glyphFor(c.bar.id)
+                    // Spin only when THIS chip's bar is itself live (v0.2.334) — same per-bar gate as blocks.
+                    const chipGlyphOngoing = g?.ongoing && (!!c.bar.ongoing || !!c.bar.openEnded)
                     const chipRange =
                       editPreview?.key === c.bar.key ? rangeText(editPreview.start, editPreview.end) : c.bar.range
                     return (
@@ -1139,7 +1153,7 @@ export function Zero0Calendar({
                                 cancelled={g.cancelled}
                                 requested={g.requested}
                                 scheduled={g.scheduled}
-                                ongoing={g.ongoing}
+                                ongoing={chipGlyphOngoing}
                                 flip180={g.glyphFlip180}
                                 className="h-3 w-3"
                               />
