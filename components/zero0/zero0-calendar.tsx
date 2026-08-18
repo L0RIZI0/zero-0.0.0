@@ -236,9 +236,14 @@ interface PlacedBlock {
   /** Nesting depth in the track's forest (0 = root / instant); each level insets from the left by
    *  NEST_BLEED_PX (v0.2.322 recorded, v0.2.323 planned). */
   depth: number
-  /** True when this block has blocks nested inside it — the render then draws its title ROTATED into the
-   *  visible left bleed strip (children cover the horizontal room). */
+  /** True when this block has blocks nested inside it. Its title renders horizontally at the top when the
+   *  top region is free (headroomPx big enough), else ROTATED into the visible left bleed strip because a
+   *  child covers the horizontal room (v0.2.329). */
   hasChildren: boolean
+  /** Vertical gap (px) from this block's top to the top of its NEAREST child — i.e. the clear headroom at
+   *  the top where a horizontal title can sit before any child covers the width (v0.2.329). Defaults to the
+   *  full height for childless blocks. When < LABEL_MIN_H the title falls back to the rotated left-strip. */
+  headroomPx: number
   /** Downward lead-out (px) added to `bh` below the block's real end to host the unknown/open-END fade
    *  (v0.2.325). 0 when the end is concrete. Without it, an ongoing block that just started is only
    *  MIN_BLOCK_H tall and the 30min fade would collapse into a sliver — so we EXTEND the block past its
@@ -300,7 +305,9 @@ function layoutDay(
     const durMs = b.bar.startMs != null ? b.bar.endMs - b.bar.startMs : 0
     const labeled = !!b.bar.ongoing || durMs >= LABEL_MIN_DURATION_MS
     const internal = labeled && baseH >= LABEL_MIN_H && bw >= LABEL_MIN_W
-    return { bar: b.bar, bx, by, bw, bh, internal, labeled, depth, hasChildren, endFadePx }
+    // Default headroom = full body: childless blocks (and parents until we measure their children below)
+    // have their whole top free for a horizontal title. placeNested overrides this for parents.
+    return { bar: b.bar, bx, by, bw, bh, internal, labeled, depth, hasChildren, headroomPx: baseH, endFadePx }
   }
   // NESTED placement (v0.2.322 recorded, v0.2.323 planned): each sibling group splits its band into
   // concurrency lanes; a node's children are placed in the SAME band inset by NEST_BLEED_PX from the left
@@ -312,11 +319,19 @@ function layoutDay(
       const laneW = w / n.laneCount
       const bx = x0 + n.lane * laneW + 0.5
       const bw = Math.max(NEST_MIN_W, laneW - 1)
-      out.push(mkPlaced(n.block, bx, bw, n.depth, n.children.length > 0))
+      const placed = mkPlaced(n.block, bx, bw, n.depth, n.children.length > 0)
+      out.push(placed)
       if (n.children.length) {
         const childX = bx + NEST_BLEED_PX
         const childW = Math.max(NEST_MIN_W, bw - NEST_BLEED_PX)
+        const before = out.length
         placeNested(n.children, childX, childW, out)
+        // Headroom = gap from this parent's top to the TOP of its nearest descendant (all descendants are
+        // time-contained, so the topmost one bounds the clear top region). If that gap is roomy the title
+        // renders horizontally at the top; if a child hugs the top it falls back to the rotated left strip.
+        const descendants = out.slice(before)
+        const nearestTop = descendants.reduce((min, d) => Math.min(min, d.by), Number.POSITIVE_INFINITY)
+        placed.headroomPx = Math.max(0, nearestTop - placed.by)
       }
     }
   }
@@ -341,7 +356,7 @@ function layoutDay(
     const lx = Math.max(2, (dayColW - lw) / 2)
     const ly = Math.min(Math.max(ty - CHIP_H / 2, 0), Math.max(0, contentH - CHIP_H))
     chips.push({ bar: b.bar, lx, ly, lw, lh: CHIP_H })
-    return { bar: b.bar, bx: 0, by, bw: dayColW, bh: MIN_BLOCK_H, internal: false, labeled: true, depth: 0, hasChildren: false, endFadePx: 0 }
+    return { bar: b.bar, bx: 0, by, bw: dayColW, bh: MIN_BLOCK_H, internal: false, labeled: true, depth: 0, hasChildren: false, headroomPx: MIN_BLOCK_H, endFadePx: 0 }
   })
 
   return { blocks: [...plannedR, ...recordedR, ...instantR], chips }
@@ -915,20 +930,34 @@ export function Zero0Calendar({
                             WebkitMaskImage: fadeMask,
                           }}
                         />
-                        {/* PARENT with nested children (v0.2.322): the children cover the block's
-                            horizontal room, so its title renders ROTATED 90° CCW in the visible left
-                            bleed strip. Reads bottom-to-top; clips if longer than the block is tall. */}
-                        {r.internal && r.hasChildren && (
+                        {/* PARENT whose child hugs the TOP (no horizontal headroom, v0.2.329): a child
+                            covers the block's width right from the top, so the title renders VERTICALLY in
+                            the visible left bleed strip. Anchored to the TOP with the glyph in the top-left
+                            corner above the title; the title reads top-to-bottom and clips if too long. */}
+                        {r.internal && r.hasChildren && r.headroomPx < LABEL_MIN_H && (
                           <span
-                            className="absolute inset-y-0 left-0 z-[1] flex items-center justify-center"
+                            className="absolute inset-y-0 left-0 z-[1] flex flex-col items-center gap-1 pt-1"
                             style={{ width: NEST_BLEED_PX + 2, color: ink }}
                           >
-                            <span className="-rotate-90 whitespace-nowrap text-[10px] font-medium">
+                            {g && (
+                              <Zero0Glyph
+                                kind={g.kind}
+                                filled={g.filled}
+                                done={g.showCheck}
+                                cancelled={g.cancelled}
+                                requested={g.requested}
+                                scheduled={g.scheduled}
+                                ongoing={g.ongoing}
+                                flip180={g.glyphFlip180}
+                                className="h-3 w-3 shrink-0"
+                              />
+                            )}
+                            <span className="whitespace-nowrap text-[10px] font-medium leading-none [writing-mode:vertical-rl]">
                               {r.bar.title}
                             </span>
                           </span>
                         )}
-                        {r.internal && !r.hasChildren && (
+                        {r.internal && !(r.hasChildren && r.headroomPx < LABEL_MIN_H) && (
                           <span
                             className="relative flex h-full flex-col gap-0.5 px-1 py-0.5 leading-tight"
                             style={{ color: ink }}
