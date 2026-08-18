@@ -913,6 +913,10 @@ export function Zero0Calendar({
                   {blocks.map((r, i) => {
                     const { background, border, ink, isRoot } = blockColors(r.bar)
                     const dim = highlightId != null && highlightId !== r.bar.id
+                    // AUTO-play (ongoing-on-enter) recorded blocks render at 76% opacity to read as
+                    // presence, not deliberate activity (v0.2.332). Skipped while `dim` is active so the
+                    // highlight fade (opacity-40) still wins.
+                    const autoOpacity = r.bar.auto && !dim ? 0.76 : undefined
                     const showTime = r.bh >= LABEL_TIME_H
                     const g = glyphFor(r.bar.id)
                     // Resizable ⇒ the block has a retime writer for its rail (planned occ / recorded session).
@@ -972,7 +976,7 @@ export function Zero0Calendar({
                           // white in light mode, black in dark mode. Roots/top-level blocks keep no border.
                           r.depth > 0 && "border border-white dark:border-black",
                         )}
-                        style={{ left: r.bx, top: r.by, width: r.bw, height: r.bh, touchAction: movable ? "none" : undefined }}
+                        style={{ left: r.bx, top: r.by, width: r.bw, height: r.bh, opacity: autoOpacity, touchAction: movable ? "none" : undefined }}
                         title={`${r.bar.title} · ${liveRange}`}
                       >
                         {/* FILL LAYER (v0.2.316) — carries the accent fill, the accent glow/hairline AND

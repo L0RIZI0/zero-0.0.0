@@ -54,6 +54,9 @@ export interface CalBar {
   range: string
   occRef?: CalOccRef
   sessionAnchorId?: number
+  /** RECORDED only: true when this session was an AUTO play (ongoing-on-enter), vs a deliberate Play.
+   *  The dayline EXCLUDES autos from its recorded rail, but the calendar SHOWS them dimmed (v0.2.332). */
+  auto?: boolean
 }
 
 /** The entity label shown on a bar — web resources use their cropped display title (mirror of the
@@ -168,6 +171,7 @@ export function getCalendarBars(lo: number, hi: number, now: number = Date.now()
         end: sess.endedAt ?? now,
         open: sess.endedAt == null,
         anchorId: sess.anchorId,
+        auto: !!sess.auto,
       }))
     runs.forEach((run, i) => {
       const rawStart = run.start
@@ -189,6 +193,7 @@ export function getCalendarBars(lo: number, hi: number, now: number = Date.now()
         unknownEnd: open,
         range: open ? `${rangeText(rawStart, rawEnd)} · play · ongoing` : `${rangeText(rawStart, rawEnd)} · play`,
         sessionAnchorId: !open && run.anchorId != null ? run.anchorId : undefined,
+        auto: run.auto,
       })
     })
   }
