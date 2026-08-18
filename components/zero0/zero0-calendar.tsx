@@ -1242,12 +1242,24 @@ export function Zero0Calendar({
                     className="pointer-events-none absolute z-10"
                     style={{ left: x, top: y, width: dayColW, height: 1, backgroundColor: NOW_COLOR }}
                   >
+                    {/* LEFT vertex: right-pointing triangle flush to the column's LEFT edge (v0.2.336 —
+                        `left-0` keeps it INSIDE today's column instead of spilling onto yesterday). */}
                     <div
-                      className="absolute -left-0.5 -top-1 h-0 w-0"
+                      className="absolute -top-1 left-0 h-0 w-0"
                       style={{
                         borderTop: "4px solid transparent",
                         borderBottom: "4px solid transparent",
                         borderLeft: `5px solid ${NOW_COLOR}`,
+                      }}
+                    />
+                    {/* RIGHT vertex: mirrored LEFT-pointing triangle flush to the column's RIGHT edge
+                        (v0.2.336), so the marker is bracketed by a triangle on both sides, both inside. */}
+                    <div
+                      className="absolute -top-1 right-0 h-0 w-0"
+                      style={{
+                        borderTop: "4px solid transparent",
+                        borderBottom: "4px solid transparent",
+                        borderRight: `5px solid ${NOW_COLOR}`,
                       }}
                     />
                   </div>
