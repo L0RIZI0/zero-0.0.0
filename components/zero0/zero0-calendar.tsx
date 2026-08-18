@@ -495,7 +495,7 @@ export function Zero0Calendar({
   )
 
   /** For a track's bars, clip to the day and pack. When a `preview` is active (a live resize OR move),
-   *  the previewed bar uses its preview span for BOTH day-overlap and clipping — so a block dragged to
+   *  the previewed bar uses its preview span for BOTH day-overlap and clipping ��� so a block dragged to
    *  another day/time appears on its NEW day under the cursor before commit (v0.2.318). */
   const packForDay = useCallback(
     (bars: CalBar[], dayStart: number, dayEnd: number, preview?: { key: string; start: number; end: number } | null): Block[] => {
@@ -907,6 +907,9 @@ export function Zero0Calendar({
                           "absolute overflow-hidden rounded-[3px] text-left transition-opacity",
                           movable && "cursor-grab active:cursor-grabbing",
                           dim && "opacity-40",
+                          // NESTED CHILD (v0.2.330, Loris): a 1px border to lift it off the parent fill —
+                          // white in light mode, black in dark mode. Roots/top-level blocks keep no border.
+                          r.depth > 0 && "border border-white dark:border-black",
                         )}
                         style={{ left: r.bx, top: r.by, width: r.bw, height: r.bh, touchAction: movable ? "none" : undefined }}
                         title={`${r.bar.title} · ${liveRange}`}
@@ -933,7 +936,8 @@ export function Zero0Calendar({
                         {/* PARENT whose child hugs the TOP (no horizontal headroom, v0.2.329): a child
                             covers the block's width right from the top, so the title renders VERTICALLY in
                             the visible left bleed strip. Anchored to the TOP with the glyph in the top-left
-                            corner above the title; the title reads top-to-bottom and clips if too long. */}
+                            corner; the title reads BOTTOM-TO-TOP (v0.2.330, `vertical-rl` + `rotate-180`), so
+                            the top-anchored glyph sits on the READING RIGHT of the title. Clips if too long. */}
                         {r.internal && r.hasChildren && r.headroomPx < LABEL_MIN_H && (
                           <span
                             className="absolute inset-y-0 left-0 z-[1] flex flex-col items-center gap-1 pt-1"
@@ -952,7 +956,7 @@ export function Zero0Calendar({
                                 className="h-3 w-3 shrink-0"
                               />
                             )}
-                            <span className="whitespace-nowrap text-[10px] font-medium leading-none [writing-mode:vertical-rl]">
+                            <span className="whitespace-nowrap text-[10px] font-medium leading-none rotate-180 [writing-mode:vertical-rl]">
                               {r.bar.title}
                             </span>
                           </span>
