@@ -132,8 +132,9 @@ function packColumn(bars: { bar: CalBar; clipStart: number; clipEnd: number }[])
 }
 
 /** Left inset (px) applied per nesting level so a child block sits INSIDE its parent, leaving a readable
- *  strip of the parent visible on the left (v0.2.322 recorded; v0.2.323 planned too). */
-const NEST_BLEED_PX = 10
+ *  strip of the parent visible on the left (v0.2.322 recorded; v0.2.323 planned too). 15px peek (v0.2.337,
+ *  was 10). */
+const NEST_BLEED_PX = 15
 /** A nested block never shrinks below this width, even deep in a chain. */
 const NEST_MIN_W = 12
 
@@ -506,10 +507,12 @@ export function Zero0Calendar({
   // scroll (like the sticky header/gutter) rather than re-rendering the whole calendar. Geometry snapshot is
   // kept in a ref so the stable scroll handler can read current values.
   const sightlineSvgRef = useRef<SVGSVGElement | null>(null)
-  const slTL = useRef<SVGLineElement | null>(null)
-  const slBL = useRef<SVGLineElement | null>(null)
-  const slTR = useRef<SVGLineElement | null>(null)
-  const slBR = useRef<SVGLineElement | null>(null)
+  // Each sightline is a TAPERED quad (v0.2.337): 1px wide at the frame corner, 5px at the now marker, so
+  // it visually "points" at the marker. Rendered as <polygon> (a plain <line> can't vary width).
+  const slTL = useRef<SVGPolygonElement | null>(null)
+  const slBL = useRef<SVGPolygonElement | null>(null)
+  const slTR = useRef<SVGPolygonElement | null>(null)
+  const slBR = useRef<SVGPolygonElement | null>(null)
   const nowGeomRef = useRef({ hasNow: false, dayIdx: -1, dayColW: 0, contentY: 0, frameW: 0, bodyH: 0 })
 
   // Measure the frame width to choose how many day columns fit comfortably.
@@ -799,13 +802,28 @@ export function Zero0Calendar({
     const lx = g.dayIdx * g.dayColW - body.scrollLeft // marker left vertex (viewport x)
     const rx = lx + g.dayColW // marker right vertex
     const vy = g.contentY - body.scrollTop // marker y (viewport)
-    const set = (ref: React.RefObject<SVGLineElement | null>, x1: number, y1: number, x2: number, y2: number) => {
+    // Build a tapered quad from corner (cx,cy) to marker (mx,my): CORNER_HW px half-width at the corner,
+    // MARKER_HW px at the marker, offset perpendicular to the line direction. Degenerate (zero-length) lines
+    // collapse to an empty polygon.
+    const CORNER_HW = 0.5 // 1px total at the corner
+    const MARKER_HW = 2.5 // 5px total at the marker
+    const set = (ref: React.RefObject<SVGPolygonElement | null>, cx: number, cy: number, mx: number, my: number) => {
       const el = ref.current
       if (!el) return
-      el.setAttribute("x1", String(x1))
-      el.setAttribute("y1", String(y1))
-      el.setAttribute("x2", String(x2))
-      el.setAttribute("y2", String(y2))
+      const dx = mx - cx
+      const dy = my - cy
+      const len = Math.hypot(dx, dy)
+      if (len < 0.01) {
+        el.setAttribute("points", "")
+        return
+      }
+      const px = -dy / len // unit perpendicular
+      const py = dx / len
+      const p = (x: number, y: number, hw: number) => `${x + px * hw},${y + py * hw}`
+      el.setAttribute(
+        "points",
+        `${p(cx, cy, CORNER_HW)} ${p(mx, my, MARKER_HW)} ${p(mx, my, -MARKER_HW)} ${p(cx, cy, -CORNER_HW)}`,
+      )
     }
     set(slTL, 0, 0, lx, vy) // top-left corner → left vertex
     set(slBL, 0, g.bodyH, lx, vy) // bottom-left corner → left vertex
@@ -1280,10 +1298,10 @@ export function Zero0Calendar({
           height={bodyH}
           aria-hidden
         >
-          <line ref={slTL} stroke={NOW_COLOR} strokeWidth={1} strokeOpacity={0.22} strokeLinecap="round" />
-          <line ref={slBL} stroke={NOW_COLOR} strokeWidth={1} strokeOpacity={0.22} strokeLinecap="round" />
-          <line ref={slTR} stroke={NOW_COLOR} strokeWidth={1} strokeOpacity={0.22} strokeLinecap="round" />
-          <line ref={slBR} stroke={NOW_COLOR} strokeWidth={1} strokeOpacity={0.22} strokeLinecap="round" />
+          <polygon ref={slTL} fill={NOW_COLOR} fillOpacity={0.22} />
+          <polygon ref={slBL} fill={NOW_COLOR} fillOpacity={0.22} />
+          <polygon ref={slTR} fill={NOW_COLOR} fillOpacity={0.22} />
+          <polygon ref={slBR} fill={NOW_COLOR} fillOpacity={0.22} />
         </svg>
       </div>
     </div>
