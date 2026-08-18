@@ -839,10 +839,33 @@ export function collectDescendants(contextId: string): Set<string> {
   return set
 }
 
-/** True when `contextId` is `nodeId` or a descendant of it. */
+/** True when `contextId` is `nodeId` or a descendant of it. NOTE: this walks the SPACE tree only
+ *  (`collectDescendants` traverses `kind === "space"` nodes), so it answers "is this context under that
+ *  band" for semantic rollup — it returns FALSE for non-space children (Moments/Tasks/Instants). Use
+ *  `isAncestorOf` when you need a kind-agnostic parent-chain relationship. */
 export function isInSubtree(nodeId: string, contextId: string): boolean {
   if (nodeId === ROOT_ID) return true
   return collectDescendants(nodeId).has(contextId)
+}
+
+/**
+ * Kind-AGNOSTIC ancestry: true when `ancestorId` appears on `nodeId`'s parentId chain (i.e. `nodeId` is
+ * a descendant of `ancestorId`), following `parentId` through ANY entity kind — Moments, Tasks and
+ * Instants included, unlike the space-only `isInSubtree`. `ancestorId === nodeId` is false (a node is
+ * not its own ancestor). ROOT is an ancestor of everything. Used by the calendar's block nesting so a
+ * child entity's occurrence nests inside its parent's occurrence regardless of kind.
+ */
+export function isAncestorOf(ancestorId: string, nodeId: string): boolean {
+  if (ancestorId === nodeId) return false
+  if (ancestorId === ROOT_ID) return true
+  let cur = getEntity(nodeId)?.parentId ?? null
+  const seen = new Set<string>() // cycle guard (defensive; the tree shouldn't have cycles)
+  while (cur && !seen.has(cur)) {
+    if (cur === ancestorId) return true
+    seen.add(cur)
+    cur = getEntity(cur)?.parentId ?? null
+  }
+  return false
 }
 
 /**

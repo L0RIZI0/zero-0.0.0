@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { getCalendarBars, type CalBar, NEUTRAL, ROOT_SENTINEL_COLOR } from "@/lib/zero/dayline-bars"
 import type { DaylineOccRef } from "@/components/zero0/zero0-dayline"
 import { Zero0Glyph } from "@/components/zero0/zero0-glyph"
-import { getEntity, isInSubtree } from "@/lib/zero/data"
+import { getEntity, isAncestorOf } from "@/lib/zero/data"
 import { getFaceModel } from "@/lib/zero/face-model"
 import { NOW_COLOR, rangeText } from "@/lib/zero/timeline-format"
 import { useNowSeconds } from "@/lib/zero/use-now"
@@ -145,36 +145,54 @@ interface NestNode {
 }
 
 /**
- * Turn flat blocks into a NESTING FOREST (v0.2.322 recorded, v0.2.323 planned): a block nests inside
- * another when the other's entity is its ANCESTOR (subtree) and its span TIME-CONTAINS the child — so
- * "working on v0 inside Zero" shows v0 nested within Zero, and a Meeting planned inside "Day Job" shows
- * inside the Day Job block, rather than as separate parallel columns. Among all containing ancestors, the
- * SMALLEST-span one wins (closest ancestor). Sibling groups (roots, and each node's children) are
- * lane-packed by concurrency. Returns the roots plus the ROOT lane count, which drives the .320 width
- * split (nested children don't add columns — they inset). Track-agnostic: only uses span + ancestry.
+ * Turn flat blocks into a NESTING FOREST (v0.2.322 recorded, v0.2.323 planned, v0.2.328 CROSS-TRACK +
+ * kind-agnostic): a block nests inside another when the other's entity is its ANCESTOR and its span
+ * TIME-CONTAINS the child — so "working on v0 inside Zero" shows v0 nested within Zero, and a Task/Meeting
+ * inside a "Day Job" block shows inside it rather than as a separate parallel block. Two important fixes:
+ *
+ *  1. ANCESTRY IS KIND-AGNOSTIC (`isAncestorOf`, not the space-only `isInSubtree`). The old check walked
+ *     the SPACE tree only, so a non-space child (Moment/Task/Instant) was NEVER seen as a descendant and
+ *     never nested — the bug where a child Task didn't nest inside its parent Moment.
+ *  2. NESTING IGNORES TRACK. We build ONE forest across BOTH planned and recorded blocks, so a child on
+ *     either track nests under its closest containing ancestor on either track (e.g. a recorded session
+ *     inside a planned "Day Job"). A block's ROOT status (no containing ancestor) decides its band:
+ *     planned roots render left, recorded roots right; the whole nested subtree renders in the ROOT's
+ *     band regardless of each child's own track ("mixes the bands when needed").
+ *
+ * Among all containing ancestors the SMALLEST-span one wins (closest ancestor). Sibling groups (the roots
+ * of a track, and each node's children) are lane-packed by concurrency. Returns planned/recorded roots
+ * plus each track's ROOT lane count (Lp/Lr), which drive the .320 width split (nested children inset, they
+ * don't add columns).
  */
-function forestNest(blocks: Block[]): { roots: NestNode[]; rootLaneCount: number } {
+function forestNestCombined(
+  plannedBlocks: Block[],
+  recordedBlocks: Block[],
+): { plannedRoots: NestNode[]; recordedRoots: NestNode[]; Lp: number; Lr: number } {
+  const all = [...plannedBlocks, ...recordedBlocks]
+  const isPlanned = new Set<Block>(plannedBlocks)
   const span = (b: Block) => b.clipEnd - b.clipStart
   const parentOf = (b: Block): Block | null => {
     let best: Block | null = null
-    for (const p of blocks) {
+    for (const p of all) {
       if (p === b) continue
-      if (p.bar.id === b.bar.id) continue // same entity �� not a nesting relationship
+      if (p.bar.id === b.bar.id) continue // same entity ⇒ not a nesting relationship
       const contains = p.clipStart <= b.clipStart && p.clipEnd >= b.clipEnd
       if (!contains) continue
-      if (!isInSubtree(p.bar.id, b.bar.id)) continue // p's entity must be an ancestor of b's
+      if (!isAncestorOf(p.bar.id, b.bar.id)) continue // p's entity must be an ancestor of b's (any kind)
       if (best == null || span(p) < span(best)) best = p
     }
     return best
   }
   const childrenByParent = new Map<Block, Block[]>()
-  const roots: Block[] = []
-  for (const b of blocks) {
+  const rootsPlanned: Block[] = []
+  const rootsRecorded: Block[] = []
+  for (const b of all) {
     const p = parentOf(b)
     if (p) childrenByParent.set(p, [...(childrenByParent.get(p) ?? []), b])
-    else roots.push(b)
+    else (isPlanned.has(b) ? rootsPlanned : rootsRecorded).push(b)
   }
-  // Recursively lane-pack a sibling group and attach children.
+  // Recursively lane-pack a sibling group and attach children. Children may span BOTH tracks — they still
+  // pack + render nested inside the parent (in the parent's band), which is the point of cross-track nesting.
   const build = (group: Block[], depth: number): NestNode[] => {
     const packed = packColumn(group.map((b) => ({ bar: b.bar, clipStart: b.clipStart, clipEnd: b.clipEnd })))
     // packColumn re-sorts, so pair results back to the source block by key+span identity.
@@ -189,8 +207,14 @@ function forestNest(blocks: Block[]): { roots: NestNode[]; rootLaneCount: number
       }
     })
   }
-  const rootNodes = build(roots, 0)
-  return { roots: rootNodes, rootLaneCount: rootNodes[0]?.laneCount ?? 0 }
+  const plannedRoots = build(rootsPlanned, 0)
+  const recordedRoots = build(rootsRecorded, 0)
+  return {
+    plannedRoots,
+    recordedRoots,
+    Lp: plannedRoots[0]?.laneCount ?? 0,
+    Lr: recordedRoots[0]?.laneCount ?? 0,
+  }
 }
 
 /** External-label chip height. */
@@ -775,12 +799,12 @@ export function Zero0Calendar({
               // the other track takes the full width.
               //   Lr 0 → planned 100%      Lr 1 → planned 75% / recorded 25%
               //   Lr 2 → 50% / 50%         Lr ≥3 → planned floored 30% / recorded 70%
-              // Nest child blocks inside their ancestors on BOTH tracks (v0.2.322 recorded, v0.2.323
-              // planned — e.g. Meetings inside a "Day Job" block). The split floor uses each track's ROOT
-              // lane count — nested children inset instead of adding columns, so "v0 inside Zero" (or a
-              // Meeting inside Day Job) counts as ONE column, not two.
-              const { roots: plannedRoots, rootLaneCount: Lp } = forestNest(plannedBlocks)
-              const { roots: recordedRoots, rootLaneCount: Lr } = forestNest(recordedBlocks)
+              // Nest child blocks inside their ancestors, CROSS-TRACK + kind-agnostic (v0.2.322 recorded,
+              // .323 planned, .328 cross-track fix — e.g. a Task nested inside a parent Moment/"Day Job",
+              // even when one is planned and the other recorded). ONE forest across both tracks; a block's
+              // root status decides its band, the whole subtree renders in the root's band. The split floor
+              // uses each track's ROOT lane count — nested children inset instead of adding columns.
+              const { plannedRoots, recordedRoots, Lp, Lr } = forestNestCombined(plannedBlocks, recordedBlocks)
               const recFrac = Lr === 0 ? 0 : Lp === 0 ? 1 : Lr === 1 ? 0.25 : Lr === 2 ? 0.5 : 0.7
               const recordedW = dayColW * recFrac
               const plannedW = dayColW - recordedW
