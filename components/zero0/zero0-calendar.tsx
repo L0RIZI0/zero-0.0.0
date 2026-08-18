@@ -804,9 +804,11 @@ export function Zero0Calendar({
     const vy = g.contentY - body.scrollTop // marker y (viewport)
     // Build a tapered quad from corner (cx,cy) to marker (mx,my): CORNER_HW px half-width at the corner,
     // MARKER_HW px at the marker, offset perpendicular to the line direction. Degenerate (zero-length) lines
-    // collapse to an empty polygon.
+    // collapse to an empty polygon. The marker end is EXTENDED `MARKER_EXT` px PAST the vertex along the
+    // line so it tucks BEHIND the now-marker triangles instead of stopping abruptly at them (v0.2.338).
     const CORNER_HW = 0.5 // 1px total at the corner
     const MARKER_HW = 2.5 // 5px total at the marker
+    const MARKER_EXT = 6 // px past the vertex, hidden under the triangle
     const set = (ref: React.RefObject<SVGPolygonElement | null>, cx: number, cy: number, mx: number, my: number) => {
       const el = ref.current
       if (!el) return
@@ -817,12 +819,16 @@ export function Zero0Calendar({
         el.setAttribute("points", "")
         return
       }
-      const px = -dy / len // unit perpendicular
-      const py = dx / len
+      const ux = dx / len // unit direction
+      const uy = dy / len
+      const px = -uy // unit perpendicular
+      const py = ux
+      const ex = mx + ux * MARKER_EXT // extended marker end
+      const ey = my + uy * MARKER_EXT
       const p = (x: number, y: number, hw: number) => `${x + px * hw},${y + py * hw}`
       el.setAttribute(
         "points",
-        `${p(cx, cy, CORNER_HW)} ${p(mx, my, MARKER_HW)} ${p(mx, my, -MARKER_HW)} ${p(cx, cy, -CORNER_HW)}`,
+        `${p(cx, cy, CORNER_HW)} ${p(ex, ey, MARKER_HW)} ${p(ex, ey, -MARKER_HW)} ${p(cx, cy, -CORNER_HW)}`,
       )
     }
     set(slTL, 0, 0, lx, vy) // top-left corner → left vertex
@@ -1298,10 +1304,15 @@ export function Zero0Calendar({
           height={bodyH}
           aria-hidden
         >
-          <polygon ref={slTL} fill={NOW_COLOR} fillOpacity={0.22} />
-          <polygon ref={slBL} fill={NOW_COLOR} fillOpacity={0.22} />
-          <polygon ref={slTR} fill={NOW_COLOR} fillOpacity={0.22} />
-          <polygon ref={slBR} fill={NOW_COLOR} fillOpacity={0.22} />
+          {/* Group opacity (v0.2.338): the `<g>` is flattened to one layer BEFORE compositing, so the four
+              OPAQUE quads don't compound where they overlap near the marker — uniform tint everywhere.
+              Lowered 0.22→0.14 now that the quads are thicker. */}
+          <g fill={NOW_COLOR} opacity={0.14}>
+            <polygon ref={slTL} />
+            <polygon ref={slBL} />
+            <polygon ref={slTR} />
+            <polygon ref={slBR} />
+          </g>
         </svg>
       </div>
     </div>
