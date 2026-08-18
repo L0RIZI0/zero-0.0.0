@@ -264,26 +264,38 @@ interface LabelChip {
   lh: number
 }
 
+/** The planned/recorded width split ladder (v0.2.320): given a group's peak PLANNED and RECORDED root
+ *  lane counts, return the fraction of the width the RECORDED band takes (planned takes the rest). Nothing
+ *  recorded ⇒ planned 100%; nothing planned ⇒ recorded 100%; else 25/50/70% by recorded lane depth.
+ *  v0.2.335 applies this PER CLUSTER (see layoutDay) instead of once per whole day. */
+function recFracFor(Lp: number, Lr: number): number {
+  return Lr === 0 ? 0 : Lp === 0 ? 1 : Lr === 1 ? 0.25 : Lr === 2 ? 0.5 : 0.7
+}
+
 /** Lay out ONE day: turn packed planned/recorded blocks into day-local block rects, decide which can
  *  hold their label inside, and for the rest place an external chip in the SIBLING column (planned→
  *  recorded, recorded→planned) at a free vertical slot near the block, with a curved hairline connector
  *  (v0.2.313 — the "label on the other column" behavior). Coords are day-local so the caller only offsets
- *  by the day's x. */
+ *  by the day's x.
+ *
+ *  PER-CLUSTER WIDTH SPLIT (v0.2.335, was per-day .320): rather than one planned/recorded split for the
+ *  whole day, the roots are grouped into TIME-CONNECTED CLUSTERS (maximal sets connected by time-overlap)
+ *  and each cluster gets its OWN split from its OWN peak lane counts. Clusters are provably time-disjoint
+ *  (two clusters that overlapped in time would be connected into one), so per-cluster widths never collide
+ *  and lanes stay aligned. Effect: a planned block whose cluster has no recorded activity spans FULL width,
+ *  even if other hours of the day have recorded sessions. Returns per-cluster boundary segments for the
+ *  planned/recorded divider (drawn only over the vertical extent of clusters that have both tracks). */
 function layoutDay(
   plannedRoots: NestNode[],
   recordedRoots: NestNode[],
   instantBlocks: Block[],
   dayStart: number,
   dayColW: number,
-  /** Left area width for PLANNED (left-aligned) and right area width for RECORDED (right-aligned). They
-   *  sum to dayColW; the per-day split (v0.2.320) is decided by the caller from the lane counts. */
-  plannedW: number,
-  recordedW: number,
   contentH: number,
   /** Live resize preview (v0.2.315): while dragging a block's edge, the matching block uses these
    *  absolute start/end (clamped to this day) so it grows/shrinks under the cursor before commit. */
   preview?: { key: string; start: number; end: number } | null,
-): { blocks: PlacedBlock[]; chips: LabelChip[] } {
+): { blocks: PlacedBlock[]; chips: LabelChip[]; dividers: { x: number; y0: number; y1: number }[] } {
   const dayEnd = dayStart + DAY_MS
   // Turn ONE block into a positioned rect (vertical from its clipped span; horizontal handed in). Shared
   // by the planned uniform-lane build and the recorded nested placement.
@@ -339,10 +351,58 @@ function layoutDay(
       }
     }
   }
-  const plannedR: PlacedBlock[] = []
-  placeNested(plannedRoots, 0, plannedW, plannedR)
-  const recordedR: PlacedBlock[] = []
-  placeNested(recordedRoots, dayColW - recordedW, recordedW, recordedR)
+  // Re-pack a set of ROOT nodes into cluster-LOCAL concurrency lanes (packColumn over just this subset),
+  // returning clones with cluster-local lane/laneCount. Root nodes arrive packed against the whole day; a
+  // cluster is time-disjoint from the rest, so re-packing its members yields lanes 0..(clusterPeak-1) and
+  // the correct cluster-local laneCount that drives its width split + lane widths.
+  const repackRoots = (nodes: NestNode[]): NestNode[] => {
+    if (nodes.length === 0) return nodes
+    const packed = packColumn(nodes.map((n) => ({ bar: n.block.bar, clipStart: n.block.clipStart, clipEnd: n.block.clipEnd })))
+    return nodes.map((n) => {
+      const pk = packed.find((p) => p.bar.key === n.block.bar.key && p.clipStart === n.block.clipStart)
+      return pk ? { ...n, lane: pk.lane, laneCount: pk.laneCount } : n
+    })
+  }
+
+  // CLUSTER the roots of BOTH tracks by time-overlap (v0.2.335). Sorted by start, a root opens a new
+  // cluster when it starts at/after the running union's end, else it joins + extends it. Each cluster is
+  // time-disjoint from the others, so it can take its OWN width split with no cross-cluster collision.
+  const rootsAll = [
+    ...plannedRoots.map((node) => ({ node, planned: true })),
+    ...recordedRoots.map((node) => ({ node, planned: false })),
+  ].sort((a, b) => a.node.block.clipStart - b.node.block.clipStart)
+  const clusters: { node: NestNode; planned: boolean }[][] = []
+  let curEnd = Number.NEGATIVE_INFINITY
+  for (const r of rootsAll) {
+    if (clusters.length === 0 || r.node.block.clipStart >= curEnd) {
+      clusters.push([r])
+      curEnd = r.node.block.clipEnd
+    } else {
+      clusters[clusters.length - 1].push(r)
+      curEnd = Math.max(curEnd, r.node.block.clipEnd)
+    }
+  }
+
+  const placed: PlacedBlock[] = []
+  const dividers: { x: number; y0: number; y1: number }[] = []
+  for (const cluster of clusters) {
+    const plannedNodes = repackRoots(cluster.filter((r) => r.planned).map((r) => r.node))
+    const recordedNodes = repackRoots(cluster.filter((r) => !r.planned).map((r) => r.node))
+    const Lp = plannedNodes[0]?.laneCount ?? 0
+    const Lr = recordedNodes[0]?.laneCount ?? 0
+    const recordedW = dayColW * recFracFor(Lp, Lr)
+    const plannedW = dayColW - recordedW
+    const start = placed.length
+    placeNested(plannedNodes, 0, plannedW, placed)
+    placeNested(recordedNodes, dayColW - recordedW, recordedW, placed)
+    // Divider segment: only when this cluster has BOTH tracks, spanning just this cluster's vertical extent.
+    if (Lp > 0 && Lr > 0) {
+      const seg = placed.slice(start)
+      const y0 = seg.reduce((m, b) => Math.min(m, b.by), Number.POSITIVE_INFINITY)
+      const y1 = seg.reduce((m, b) => Math.max(m, b.by + b.bh), 0)
+      if (Number.isFinite(y0)) dividers.push({ x: plannedW, y0, y1 })
+    }
+  }
 
   // INSTANTS (v0.2.320) — zero-duration moments take the WHOLE day width and paint FRONTMOST (returned
   // last), so spans behind them are never shrunk to make room. Each carries a persistent centered chip
@@ -363,7 +423,7 @@ function layoutDay(
     return { bar: b.bar, bx: 0, by, bw: dayColW, bh: MIN_BLOCK_H, internal: false, labeled: true, depth: 0, hasChildren: false, headroomPx: MIN_BLOCK_H, endFadePx: 0 }
   })
 
-  return { blocks: [...plannedR, ...recordedR, ...instantR], chips }
+  return { blocks: [...placed, ...instantR], chips, dividers }
 }
 
 /** A readable text ink for a solid accent fill. oklch strings expose lightness directly as the first
@@ -872,29 +932,22 @@ export function Zero0Calendar({
               const plannedBlocks = packForDay(plannedSpans, d.start, d.end, editPreview)
               const recordedBlocks = packForDay(recordedSpans, d.start, d.end, editPreview)
               const instantBlocks = packForDay(instantBars, d.start, d.end, editPreview)
-              // PER-DAY WIDTH SPLIT (v0.2.320): planned left-aligned, recorded right-aligned, each taking
-              // the available room with FLOORS driven by the day's peak RECORDED lane count `Lr` (planned
-              // lanes only sub-divide the planned area, they don't change the split). Nothing on a track ⇒
-              // the other track takes the full width.
-              //   Lr 0 → planned 100%      Lr 1 → planned 75% / recorded 25%
-              //   Lr 2 → 50% / 50%         Lr ≥3 → planned floored 30% / recorded 70%
               // Nest child blocks inside their ancestors, CROSS-TRACK + kind-agnostic (v0.2.322 recorded,
               // .323 planned, .328 cross-track fix — e.g. a Task nested inside a parent Moment/"Day Job",
               // even when one is planned and the other recorded). ONE forest across both tracks; a block's
-              // root status decides its band, the whole subtree renders in the root's band. The split floor
-              // uses each track's ROOT lane count — nested children inset instead of adding columns.
-              const { plannedRoots, recordedRoots, Lp, Lr } = forestNestCombined(plannedBlocks, recordedBlocks)
-              const recFrac = Lr === 0 ? 0 : Lp === 0 ? 1 : Lr === 1 ? 0.25 : Lr === 2 ? 0.5 : 0.7
-              const recordedW = dayColW * recFrac
-              const plannedW = dayColW - recordedW
-              const { blocks, chips } = layoutDay(
+              // root status decides its band, the whole subtree renders in the root's band. Nested children
+              // inset instead of adding columns.
+              const { plannedRoots, recordedRoots } = forestNestCombined(plannedBlocks, recordedBlocks)
+              // PER-CLUSTER WIDTH SPLIT (v0.2.335, was per-day .320): layoutDay groups the roots into
+              // time-connected clusters and splits each independently (planned left, recorded right), so a
+              // planned block with no recorded overlap in its cluster stays FULL width even when other hours
+              // have recorded sessions. It returns per-cluster divider segments for the boundary line.
+              const { blocks, chips, dividers } = layoutDay(
                 plannedRoots,
                 recordedRoots,
                 instantBlocks,
                 d.start,
                 dayColW,
-                plannedW,
-                recordedW,
                 contentH,
                 editPreview,
               )
@@ -906,21 +959,26 @@ export function Zero0Calendar({
               return (
                 // Day wrapper — positioned at the day's x so blocks/chips use DAY-LOCAL coords.
                 <div key={d.start} className="absolute top-0" style={{ left: x, width: dayColW, height: contentH }}>
-                  {/* day divider (left edge) + planned/recorded boundary (only when both tracks present) */}
+                  {/* day divider (left edge) + per-cluster planned/recorded boundary segments (v0.2.335,
+                      each spans only its cluster's vertical extent, drawn only when both tracks present) */}
                   <div className="pointer-events-none absolute inset-y-0 left-0 border-l border-border" />
-                  {Lp > 0 && Lr > 0 && (
-                    <div className="pointer-events-none absolute inset-y-0 border-l border-border/30" style={{ left: plannedW }} />
-                  )}
+                  {dividers.map((seg, si) => (
+                    <div
+                      key={si}
+                      className="pointer-events-none absolute border-l border-border/30"
+                      style={{ left: seg.x, top: seg.y0, height: seg.y1 - seg.y0 }}
+                    />
+                  ))}
 
                   {/* Blocks */}
                   {blocks.map((r, i) => {
                     const { background, border, ink, isRoot } = blockColors(r.bar)
                     const dim = highlightId != null && highlightId !== r.bar.id
-                    // AUTO-play (ongoing-on-enter) recorded blocks render at 76% opacity to read as
-                    // presence, not deliberate activity (v0.2.332). Skipped while `dim` is active so the
-                    // highlight fade (opacity-40) still wins, and lifted to full while THIS entity is hovered
-                    // (v0.2.334) — hovering any of its blocks reveals all its faint ones.
-                    const autoOpacity = r.bar.auto && !dim && hoverId !== r.bar.id ? 0.76 : undefined
+                    // AUTO-play (ongoing-on-enter) recorded blocks render at 60% opacity to read as
+                    // presence, not deliberate activity (v0.2.332, 76%→60% in v0.2.335). Skipped while `dim`
+                    // is active so the highlight fade (opacity-40) still wins, and lifted to full while THIS
+                    // entity is hovered (v0.2.334) — hovering any of its blocks reveals all its faint ones.
+                    const autoOpacity = r.bar.auto && !dim && hoverId !== r.bar.id ? 0.6 : undefined
                     const showTime = r.bh >= LABEL_TIME_H
                     const g = glyphFor(r.bar.id)
                     // The GLYPH spins only on the ACTUALLY-ongoing block, not on every block of an ongoing
