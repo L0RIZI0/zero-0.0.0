@@ -4,6 +4,7 @@ import { Activity, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import { VersionSwitcher } from "@/components/version-switcher"
 import { Zero0ThemeToggle } from "./zero0-theme-toggle"
 import { Zero0UpdateIndicator } from "./zero0-update-indicator"
+import { Zero0BatteryIndicator } from "./zero0-battery-indicator"
 import { Zero0WindowControls } from "./zero0-window-controls"
 import { Zero0Agenda, Zero0Activity } from "./zero0-activity"
 import type { DaylineOccRef } from "./zero0-dayline"
@@ -1882,7 +1883,7 @@ export function Zero0Canvas() {
   // session's `anchorId` (the fold's correction handle) and route to the append-only log writers:
   //   • editSession   → appends a `session-edit` overlay carrying the corrected start/end.
   //   • deleteSession → appends a `session-delete` tombstone.
-  //   • addSession    → appends a `session` Instant (v0.2.294) so the fold materializes a new anchored
+  //   • addSession    ��� appends a `session` Instant (v0.2.294) so the fold materializes a new anchored
   //                     `via:"play"` session — for logging work done OUTSIDE Zero. The writer clamps
   //                     start ≤ now / end ≥ start; both bounds are passed (a manual session is closed).
   // The writers guard that the anchor still resolves to a recorded session, so a stale dispatch no-ops.
@@ -2824,10 +2825,12 @@ export function Zero0Canvas() {
         >
           sugars
         </a>
-        {/* Surface-only "restart to update" affordance. Renders null on the web and
-            whenever no background update is staged, so it adds no chrome by default. */}
-        <span className="ml-auto">
+        {/* Bottom-right cluster: the Surface-only "restart to update" affordance, then the battery
+            indicator to its RIGHT (v0.2.327). Both render null when not applicable (no staged update /
+            no battery / API unavailable), so the footer adds no chrome by default. */}
+        <span className="ml-auto flex items-center gap-3">
           <Zero0UpdateIndicator />
+          <Zero0BatteryIndicator />
         </span>
       </footer>
 
