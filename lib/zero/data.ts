@@ -1660,10 +1660,11 @@ export const MIN_SESSION_MS = 1500
 /**
  * Reload grace (ms) for the hydrate liveness check: if the app was known-alive within this window
  * of the new load, a dangling focus session is treated as CONTINUOUS across a reload/deploy and
- * left running (rather than closed as a shutdown). A reload re-hydrates in seconds, so 60s is a
- * comfortable margin. [OPEN ITEM #4 — Loris to tune while dogfooding.]
+ * left running (rather than closed as a shutdown). A reload re-hydrates in seconds, so this is a
+ * comfortable margin. Loris tuned 60s → 4min (v0.2.324) so brief step-aways don't flip to away.
+ * [OPEN ITEM #4 — Loris to tune while dogfooding.]
  */
-export const ALIVE_GRACE_MS = 60_000
+export const ALIVE_GRACE_MS = 4 * 60_000
 
 /** Persist a session mutation, mirroring setEntityScheduleField's seeded-override path. */
 function persistSessionMutation(id: string, entity: LooseEntity, sched: Schedule): void {

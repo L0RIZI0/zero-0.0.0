@@ -63,10 +63,11 @@ const ALIVE_KEY = "zero:root-alive:v1"
 const HEARTBEAT_MS = 20_000
 // Min gap between input-driven stamps, so pointermove doesn't hammer localStorage.
 const INPUT_STAMP_THROTTLE_MS = 5_000
-// How long without ANY proof of life counts as "away" — mirrors data.ts ALIVE_GRACE_MS (60s)
+// How long without ANY proof of life counts as "away" — mirrors data.ts ALIVE_GRACE_MS (4min)
 // so a quick close/reopen or reload stays LIVE and only a genuine absence arms the away
 // behaviour. Re-declared here (not imported) to keep this module free of an entity-store dep.
-const AWAY_THRESHOLD_MS = 60_000
+// Loris tuned 60s → 4min (v0.2.324).
+const AWAY_THRESHOLD_MS = 4 * 60_000
 
 let segments: AccessSegment[] = []
 let currentEntityId: string | null = null
