@@ -808,7 +808,7 @@ export function Zero0Calendar({
     // line so it tucks BEHIND the now-marker triangles instead of stopping abruptly at them (v0.2.338).
     const CORNER_HW = 0.5 // 1px total at the corner
     const MARKER_HW = 2.5 // 5px total at the marker
-    const MARKER_EXT = 6 // px past the vertex, hidden under the triangle
+    const MARKER_EXT = 3 // px past the vertex, hidden under the triangle (v0.2.339, was 6 — overshot)
     const set = (ref: React.RefObject<SVGPolygonElement | null>, cx: number, cy: number, mx: number, my: number) => {
       const el = ref.current
       if (!el) return
