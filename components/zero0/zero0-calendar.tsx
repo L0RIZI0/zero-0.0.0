@@ -41,8 +41,12 @@ const HOUR_GUTTER_W = 46
 const DAY_HEADER_H = 26
 /** Honest minimum block height (like the dayline's no-floor policy, but blocks need a hairline to exist). */
 const MIN_BLOCK_H = 3
-/** Extra days rendered on EACH side of the visible span, for horizontal scroll headroom. */
-const DAY_BUFFER = 7
+/** Extra days rendered on EACH side of the visible span, for horizontal scroll headroom. This is a FIXED
+ *  bounded window (the view never recenters as you scroll — `centerTime` is set once at mount), so this is
+ *  the whole scrollable range each direction. 30 ⇒ roughly a month of scroll each side of today (v0.2.331,
+ *  was 7 which capped scroll to ~±11 days). The bars are computed once over the range, so a wider window is
+ *  a one-time compute + more day-column DOM, not per-scroll cost. */
+const DAY_BUFFER = 30
 /** A block must be at least this tall AND wide to hold its label INSIDE; otherwise the label goes to an
  *  external chip in the sibling column with a hairline connector (v0.2.313). */
 const LABEL_MIN_H = 22
@@ -433,6 +437,18 @@ export function Zero0Calendar({
   const menuWasOpenRef = useRef(false)
   const [frameW, setFrameW] = useState(0)
 
+  // NOW-marker "sightlines" (v0.2.331): four diagonals from the visible frame's corners converging on the
+  // now-marker's left/right vertices, so the thin now line is easy to locate at a glance. The overlay is
+  // pinned to the viewport (not the scroll content), so we repaint the line endpoints imperatively on every
+  // scroll (like the sticky header/gutter) rather than re-rendering the whole calendar. Geometry snapshot is
+  // kept in a ref so the stable scroll handler can read current values.
+  const sightlineSvgRef = useRef<SVGSVGElement | null>(null)
+  const slTL = useRef<SVGLineElement | null>(null)
+  const slBL = useRef<SVGLineElement | null>(null)
+  const slTR = useRef<SVGLineElement | null>(null)
+  const slBR = useRef<SVGLineElement | null>(null)
+  const nowGeomRef = useRef({ hasNow: false, dayIdx: -1, dayColW: 0, contentY: 0, frameW: 0, bodyH: 0 })
+
   // Measure the frame width to choose how many day columns fit comfortably.
   useEffect(() => {
     const el = bodyRef.current
@@ -495,7 +511,7 @@ export function Zero0Calendar({
   )
 
   /** For a track's bars, clip to the day and pack. When a `preview` is active (a live resize OR move),
-   *  the previewed bar uses its preview span for BOTH day-overlap and clipping ��� so a block dragged to
+   *  the previewed bar uses its preview span for BOTH day-overlap and clipping ����� so a block dragged to
    *  another day/time appears on its NEW day under the cursor before commit (v0.2.318). */
   const packForDay = useCallback(
     (bars: CalBar[], dayStart: number, dayEnd: number, preview?: { key: string; start: number; end: number } | null): Block[] => {
@@ -700,7 +716,39 @@ export function Zero0Calendar({
       const nowY = ((now - startOfDay(now)) / DAY_MS) * contentH
       body.scrollTop = Math.max(0, nowY - bodyH / 2)
     }
+    // No explicit sightline repaint here: setting scrollLeft/Top above is synchronous, so the geometry-sync
+    // effect that runs immediately after (and the scroll event it triggers) repaints with the right offset.
   }, [frameW, days, centerDay, dayColW, needsVScroll, now, contentH, bodyH])
+
+  // Repaint the NOW-marker sightlines from the current scroll offset + geometry snapshot. The four
+  // diagonals fan from the frame corners to the marker's on-screen vertices: both LEFT corners → the
+  // marker's left vertex, both RIGHT corners → its right vertex. Hidden when today isn't in range.
+  const paintNowSightlines = useCallback(() => {
+    const body = bodyRef.current
+    const svg = sightlineSvgRef.current
+    const g = nowGeomRef.current
+    if (!body || !svg) return
+    if (!g.hasNow || g.frameW <= 0) {
+      svg.style.display = "none"
+      return
+    }
+    svg.style.display = "block"
+    const lx = g.dayIdx * g.dayColW - body.scrollLeft // marker left vertex (viewport x)
+    const rx = lx + g.dayColW // marker right vertex
+    const vy = g.contentY - body.scrollTop // marker y (viewport)
+    const set = (ref: React.RefObject<SVGLineElement | null>, x1: number, y1: number, x2: number, y2: number) => {
+      const el = ref.current
+      if (!el) return
+      el.setAttribute("x1", String(x1))
+      el.setAttribute("y1", String(y1))
+      el.setAttribute("x2", String(x2))
+      el.setAttribute("y2", String(y2))
+    }
+    set(slTL, 0, 0, lx, vy) // top-left corner → left vertex
+    set(slBL, 0, g.bodyH, lx, vy) // bottom-left corner → left vertex
+    set(slTR, g.frameW, 0, rx, vy) // top-right corner → right vertex
+    set(slBR, g.frameW, g.bodyH, rx, vy) // bottom-right corner → right vertex
+  }, [])
 
   // Sync sticky header/gutter to the body scroll via transforms (robust cross-axis sticky).
   const onBodyScroll = useCallback(() => {
@@ -708,7 +756,8 @@ export function Zero0Calendar({
     if (!body) return
     if (dayHeaderInnerRef.current) dayHeaderInnerRef.current.style.transform = `translateX(${-body.scrollLeft}px)`
     if (hourGutterInnerRef.current) hourGutterInnerRef.current.style.transform = `translateY(${-body.scrollTop}px)`
-  }, [])
+    paintNowSightlines()
+  }, [paintNowSightlines])
 
   // When vertical content fits, redirect vertical wheel to horizontal day scroll (plan behavior).
   const onWheel = useCallback(
@@ -725,6 +774,18 @@ export function Zero0Calendar({
   const todayStart = startOfDay(now)
   const totalW = totalDays * dayColW
   const hours = Array.from({ length: 24 }, (_, h) => h)
+
+  // NOW-marker geometry (shared by the now line and the sightlines overlay).
+  const nowDayIdx = now >= rangeLo && now < rangeHi ? days.findIndex((d) => now >= d.start && now < d.end) : -1
+  const nowContentY = ((now - todayStart) / DAY_MS) * contentH
+  const hasNow = nowDayIdx >= 0
+
+  // Keep the sightline geometry snapshot in sync and repaint (endpoints depend on live scroll offset, read
+  // inside paintNowSightlines). Runs whenever the marker position, day metrics, or frame size change.
+  useEffect(() => {
+    nowGeomRef.current = { hasNow, dayIdx: nowDayIdx, dayColW, contentY: nowContentY, frameW, bodyH }
+    paintNowSightlines()
+  }, [hasNow, nowDayIdx, dayColW, nowContentY, frameW, bodyH, paintNowSightlines])
 
   return (
     <div
@@ -769,7 +830,7 @@ export function Zero0Calendar({
       </div>
 
       {/* BODY: hour gutter (sticky left) + scrollable grid */}
-      <div className="flex min-h-0 flex-1">
+      <div className="relative flex min-h-0 flex-1">
         {/* HOUR GUTTER (synced to vertical scroll) */}
         <div className="relative shrink-0 overflow-hidden border-r border-border" style={{ width: HOUR_GUTTER_W }}>
           <div ref={hourGutterInnerRef} className="absolute inset-x-0 top-0" style={{ height: contentH }}>
@@ -1118,6 +1179,24 @@ export function Zero0Calendar({
               })()}
           </div>
         </div>
+
+        {/* NOW-marker SIGHTLINES (v0.2.331): overlay pinned to the visible scroll-body frame (right of the
+            hour gutter). Four faint orange diagonals fan from the frame corners to the now marker's on-screen
+            vertices so the thin now line is locatable at a glance — including when it's scrolled off-screen
+            (the lines then angle toward the edge). Endpoints are set imperatively in paintNowSightlines. */}
+        <svg
+          ref={sightlineSvgRef}
+          className="pointer-events-none absolute z-20"
+          style={{ left: HOUR_GUTTER_W, top: 0, width: frameW, height: bodyH }}
+          width={frameW}
+          height={bodyH}
+          aria-hidden
+        >
+          <line ref={slTL} stroke={NOW_COLOR} strokeWidth={1} strokeOpacity={0.4} strokeLinecap="round" />
+          <line ref={slBL} stroke={NOW_COLOR} strokeWidth={1} strokeOpacity={0.4} strokeLinecap="round" />
+          <line ref={slTR} stroke={NOW_COLOR} strokeWidth={1} strokeOpacity={0.4} strokeLinecap="round" />
+          <line ref={slBR} stroke={NOW_COLOR} strokeWidth={1} strokeOpacity={0.4} strokeLinecap="round" />
+        </svg>
       </div>
     </div>
   )
