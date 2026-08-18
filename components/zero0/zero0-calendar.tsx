@@ -123,32 +123,33 @@ function packColumn(bars: { bar: CalBar; clipStart: number; clipEnd: number }[])
   return placed
 }
 
-/** Left inset (px) applied per nesting level so a child recorded block sits INSIDE its parent, leaving
- *  a readable strip of the parent visible on the left (v0.2.322). */
+/** Left inset (px) applied per nesting level so a child block sits INSIDE its parent, leaving a readable
+ *  strip of the parent visible on the left (v0.2.322 recorded; v0.2.323 planned too). */
 const NEST_BLEED_PX = 10
-/** A nested recorded block never shrinks below this width, even deep in a chain. */
+/** A nested block never shrinks below this width, even deep in a chain. */
 const NEST_MIN_W = 12
 
-/** One node in the recorded nesting forest: a session block plus the sessions nested inside it. `lane`/
- *  `laneCount` are packed WITHIN this node's sibling group (concurrency among siblings), independent of
- *  pixel width; `depth` is the nesting level (0 = root). */
-interface RecNode {
+/** One node in a nesting forest: a block plus the blocks nested inside it. `lane`/`laneCount` are packed
+ *  WITHIN this node's sibling group (concurrency among siblings), independent of pixel width; `depth` is
+ *  the nesting level (0 = root). */
+interface NestNode {
   block: Block
   lane: number
   laneCount: number
   depth: number
-  children: RecNode[]
+  children: NestNode[]
 }
 
 /**
- * Turn flat recorded blocks into a NESTING FOREST (v0.2.322): a session nests inside another when the
- * other's entity is its ANCESTOR (subtree) and its span TIME-CONTAINS the child — so "working on v0
- * inside Zero" shows v0 nested within Zero rather than as a separate parallel column. Among all
- * containing ancestors, the SMALLEST-span one wins (closest ancestor). Sibling groups (roots, and each
- * node's children) are lane-packed by concurrency. Returns the roots plus the ROOT lane count, which
- * drives the .320 width split (nested children don't add columns — they inset).
+ * Turn flat blocks into a NESTING FOREST (v0.2.322 recorded, v0.2.323 planned): a block nests inside
+ * another when the other's entity is its ANCESTOR (subtree) and its span TIME-CONTAINS the child — so
+ * "working on v0 inside Zero" shows v0 nested within Zero, and a Meeting planned inside "Day Job" shows
+ * inside the Day Job block, rather than as separate parallel columns. Among all containing ancestors, the
+ * SMALLEST-span one wins (closest ancestor). Sibling groups (roots, and each node's children) are
+ * lane-packed by concurrency. Returns the roots plus the ROOT lane count, which drives the .320 width
+ * split (nested children don't add columns — they inset). Track-agnostic: only uses span + ancestry.
  */
-function forestRecorded(blocks: Block[]): { roots: RecNode[]; rootLaneCount: number } {
+function forestNest(blocks: Block[]): { roots: NestNode[]; rootLaneCount: number } {
   const span = (b: Block) => b.clipEnd - b.clipStart
   const parentOf = (b: Block): Block | null => {
     let best: Block | null = null
@@ -170,7 +171,7 @@ function forestRecorded(blocks: Block[]): { roots: RecNode[]; rootLaneCount: num
     else roots.push(b)
   }
   // Recursively lane-pack a sibling group and attach children.
-  const build = (group: Block[], depth: number): RecNode[] => {
+  const build = (group: Block[], depth: number): NestNode[] => {
     const packed = packColumn(group.map((b) => ({ bar: b.bar, clipStart: b.clipStart, clipEnd: b.clipEnd })))
     // packColumn re-sorts, so pair results back to the source block by key+span identity.
     return packed.map((pk) => {
@@ -204,11 +205,11 @@ interface PlacedBlock {
   /** Whether this block gets a PERSISTENT label at all. Sub-5min blocks (except Instants/ongoing) are
    *  label-free — hover the block for its tooltip instead (v0.2.314). */
   labeled: boolean
-  /** Nesting depth in the recorded forest (0 = root / planned / instant); each level insets from the
-   *  left by NEST_BLEED_PX (v0.2.322). */
+  /** Nesting depth in the track's forest (0 = root / instant); each level insets from the left by
+   *  NEST_BLEED_PX (v0.2.322 recorded, v0.2.323 planned). */
   depth: number
-  /** True when this recorded block has sessions nested inside it — the render then draws its title
-   *  ROTATED into the visible left bleed strip (children cover the horizontal room). */
+  /** True when this block has blocks nested inside it — the render then draws its title ROTATED into the
+   *  visible left bleed strip (children cover the horizontal room). */
   hasChildren: boolean
 }
 /** A persistent centered label chip (day-local) for an INSTANT — the moment's only readable surface,
@@ -227,8 +228,8 @@ interface LabelChip {
  *  (v0.2.313 — the "label on the other column" behavior). Coords are day-local so the caller only offsets
  *  by the day's x. */
 function layoutDay(
-  plannedBlocks: Block[],
-  recordedRoots: RecNode[],
+  plannedRoots: NestNode[],
+  recordedRoots: NestNode[],
   instantBlocks: Block[],
   dayStart: number,
   dayColW: number,
@@ -262,35 +263,28 @@ function layoutDay(
     const internal = labeled && bh >= LABEL_MIN_H && bw >= LABEL_MIN_W
     return { bar: b.bar, bx, by, bw, bh, internal, labeled, depth, hasChildren }
   }
-  // Planned: uniform lanes across [0, plannedW] (left-aligned).
-  const build = (blocks: Block[], originX: number, areaW: number): PlacedBlock[] =>
-    blocks.map((b) => {
-      const subW = areaW / b.laneCount
-      const bw = Math.max(1, subW - 1)
-      const bx = originX + b.lane * subW + 0.5
-      return mkPlaced(b, bx, bw, 0, false)
-    })
-  const plannedR = build(plannedBlocks, 0, plannedW)
-
-  // Recorded: NESTED placement (v0.2.322). Each sibling group splits its band into concurrency lanes;
-  // a node's children are placed in the SAME band inset by NEST_BLEED_PX from the left (so the parent
-  // stays visible as a left strip) and painted AFTER the parent (frontmost). Parents-first ⇒ children
-  // render on top. Right-aligned band: [dayColW - recordedW, dayColW].
-  const recordedR: PlacedBlock[] = []
-  const placeNested = (nodes: RecNode[], x0: number, w: number) => {
+  // NESTED placement (v0.2.322 recorded, v0.2.323 planned): each sibling group splits its band into
+  // concurrency lanes; a node's children are placed in the SAME band inset by NEST_BLEED_PX from the left
+  // (so the parent stays visible as a left strip) and pushed AFTER the parent so children paint frontmost.
+  // Used for BOTH tracks — planned in the left band [0, plannedW], recorded in the right band
+  // [dayColW - recordedW, dayColW].
+  const placeNested = (nodes: NestNode[], x0: number, w: number, out: PlacedBlock[]) => {
     for (const n of nodes) {
       const laneW = w / n.laneCount
       const bx = x0 + n.lane * laneW + 0.5
       const bw = Math.max(NEST_MIN_W, laneW - 1)
-      recordedR.push(mkPlaced(n.block, bx, bw, n.depth, n.children.length > 0))
+      out.push(mkPlaced(n.block, bx, bw, n.depth, n.children.length > 0))
       if (n.children.length) {
         const childX = bx + NEST_BLEED_PX
         const childW = Math.max(NEST_MIN_W, bw - NEST_BLEED_PX)
-        placeNested(n.children, childX, childW)
+        placeNested(n.children, childX, childW, out)
       }
     }
   }
-  placeNested(recordedRoots, dayColW - recordedW, recordedW)
+  const plannedR: PlacedBlock[] = []
+  placeNested(plannedRoots, 0, plannedW, plannedR)
+  const recordedR: PlacedBlock[] = []
+  placeNested(recordedRoots, dayColW - recordedW, recordedW, recordedR)
 
   // INSTANTS (v0.2.320) — zero-duration moments take the WHOLE day width and paint FRONTMOST (returned
   // last), so spans behind them are never shrunk to make room. Each carries a persistent centered chip
@@ -766,16 +760,17 @@ export function Zero0Calendar({
               // the other track takes the full width.
               //   Lr 0 → planned 100%      Lr 1 → planned 75% / recorded 25%
               //   Lr 2 → 50% / 50%         Lr ≥3 → planned floored 30% / recorded 70%
-              // Nest child recorded sessions inside their ancestors (v0.2.322). The split floor uses the
-              // ROOT lane count — nested children inset instead of adding columns, so "v0 inside Zero"
-              // counts as ONE recorded column, not two.
-              const { roots: recordedRoots, rootLaneCount: Lr } = forestRecorded(recordedBlocks)
-              const Lp = plannedBlocks[0]?.laneCount ?? 0
+              // Nest child blocks inside their ancestors on BOTH tracks (v0.2.322 recorded, v0.2.323
+              // planned — e.g. Meetings inside a "Day Job" block). The split floor uses each track's ROOT
+              // lane count — nested children inset instead of adding columns, so "v0 inside Zero" (or a
+              // Meeting inside Day Job) counts as ONE column, not two.
+              const { roots: plannedRoots, rootLaneCount: Lp } = forestNest(plannedBlocks)
+              const { roots: recordedRoots, rootLaneCount: Lr } = forestNest(recordedBlocks)
               const recFrac = Lr === 0 ? 0 : Lp === 0 ? 1 : Lr === 1 ? 0.25 : Lr === 2 ? 0.5 : 0.7
               const recordedW = dayColW * recFrac
               const plannedW = dayColW - recordedW
               const { blocks, chips } = layoutDay(
-                plannedBlocks,
+                plannedRoots,
                 recordedRoots,
                 instantBlocks,
                 d.start,
