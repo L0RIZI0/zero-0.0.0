@@ -3367,7 +3367,13 @@ export function hydrateFromStorage(): boolean {
       // Bound the close at ≥ the LATEST open start so no span goes negative; the fold discards any
       // sub-MIN_SESSION_MS remainder. `exited` closes focus + auto ongoing; manual play is left alone.
       const latestOpenStart = Math.max(...openAccessStarts)
-      const closeAt = Math.max(aliveAt ?? lastLogAt(entity) ?? latestOpenStart, latestOpenStart)
+      // When we have a last-alive stamp, end at alive PLUS the grace window (v0.2.325): away is only
+      // declared after ALIVE_GRACE_MS of silence, so those minutes count into the session's end
+      // datetime rather than being shaved off the rendered tick/block (mirrors the runtime watchdog's
+      // cap). Bounded by now so a long real gap can't fabricate a future end. No alive evidence ⇒ fall
+      // back to lastLogAt (never fabricate beyond what we can prove).
+      const graceEnd = aliveAt != null ? Math.min(aliveAt + ALIVE_GRACE_MS, nowAt) : (lastLogAt(entity) ?? latestOpenStart)
+      const closeAt = Math.max(graceEnd, latestOpenStart)
       entity.log = appendInstant(ensureEntityLog(entity), makeInstant("exited", closeAt))
       recomputeSessionsFromLog(entity.id, entity)
       // In-memory only (like the id/tagged migrations); persists on the next mutation.

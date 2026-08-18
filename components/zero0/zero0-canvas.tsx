@@ -786,12 +786,16 @@ export function Zero0Canvas() {
       const aliveAt = getLastKnownAlive()
       if (aliveAt == null) return // no evidence yet — don't cap blindly
       if (Date.now() - aliveAt <= ALIVE_GRACE_MS) return // device used recently — still live
-      // Device idle past the grace window → cap the auto-ongoing PLAY at the real last-alive moment;
-      // the access/focus span stays open (middle rail keeps running while Zero is open).
+      // Device idle past the grace window → cap the auto-ongoing PLAY. End it at last-alive PLUS the
+      // grace window (v0.2.325): we only declare "away" after ALIVE_GRACE_MS of silence, so those
+      // minutes are still counted into the session's end datetime rather than being shaved off the
+      // rendered tick/block. Bounded by now so it never lands in the future. The access/focus span
+      // stays open (middle rail keeps running while Zero is open).
+      const capAt = Math.min(aliveAt + ALIVE_GRACE_MS, Date.now())
       awayArmedRef.current = true
       let changed = false
       for (const id of path) {
-        if (closeSession(id, "play", aliveAt)) changed = true // `stopped` caps play; focus/access survives
+        if (closeSession(id, "play", capAt)) changed = true // `stopped` caps play; focus/access survives
         playOpenRef.current.delete(id)
       }
       if (changed) bump()

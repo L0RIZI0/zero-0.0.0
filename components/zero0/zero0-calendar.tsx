@@ -50,8 +50,12 @@ const LABEL_MIN_W = 40
 /** Vertical fade length (px) for an UNCLEAR start/end, the calendar mirror of the dayline's edge fades
  *  (v0.2.316). A FIXED pixel length (not a time %) because the calendar has NO zoom — so a constant
  *  qualitative "continues / began before" blend at any hour scale. Bottom fade = unknown END, top fade =
- *  unknown START. */
+ *  unknown START. Used as-is for the START fade + as the FLOOR for the END fade. */
 const CAL_FADE_PX = 14
+/** The unknown-/open-END fade spans a fixed 30min of the timeline (v0.2.325, Loris ask) so the "continues"
+ *  blend is a meaningful, more noticeable chunk rather than a thin sliver. Converted to px at render from
+ *  the day scale (contentH per DAY_MS) and floored at CAL_FADE_PX so it's never less visible than before. */
+const CAL_END_FADE_MS = 30 * 60_000
 /** Accent INNER-GLOW on calendar blocks (v0.2.319) — the calendar mirror of the dayline tick glow: an
  *  inset box-shadow in the entity accent, NOT a flat border (Loris preferred the soft depth look, from
  *  the dayline's v0.2.265/.266 decision). A solid SPREAD ring then a BLUR ramp to transparent so the
@@ -155,7 +159,7 @@ function forestNest(blocks: Block[]): { roots: NestNode[]; rootLaneCount: number
     let best: Block | null = null
     for (const p of blocks) {
       if (p === b) continue
-      if (p.bar.id === b.bar.id) continue // same entity ⇒ not a nesting relationship
+      if (p.bar.id === b.bar.id) continue // same entity �� not a nesting relationship
       const contains = p.clipStart <= b.clipStart && p.clipEnd >= b.clipEnd
       if (!contains) continue
       if (!isInSubtree(p.bar.id, b.bar.id)) continue // p's entity must be an ancestor of b's
@@ -819,7 +823,9 @@ export function Zero0Calendar({
                     // of the dayline's edge fades. Points and instants (single moments) never fade.
                     const fadeEnd = (!!r.bar.unknownEnd || !!r.bar.openEnded) && !r.bar.point && !r.bar.instant
                     const fadeStart = !!r.bar.unknownStart && !r.bar.point && !r.bar.instant
-                    const endSolidPct = Math.max(0, ((r.bh - CAL_FADE_PX) / r.bh) * 100)
+                    // End fade = 30min of the timeline (floored at CAL_FADE_PX), capped at the block height.
+                    const endFadePx = Math.min(r.bh, Math.max(CAL_FADE_PX, (CAL_END_FADE_MS / DAY_MS) * contentH))
+                    const endSolidPct = Math.max(0, ((r.bh - endFadePx) / r.bh) * 100)
                     const fadeMask = fadeEnd
                       ? `linear-gradient(to bottom, #000 ${endSolidPct}%, transparent 100%)`
                       : fadeStart
